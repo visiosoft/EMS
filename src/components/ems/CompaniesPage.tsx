@@ -107,18 +107,52 @@ export function CompaniesPage({ addToast, companies, contacts, dmas, onUpdateCom
                   <div><span className="text-text-muted text-xs">Standing</span><div className="text-text-primary">{selectedCompany.standing}</div></div>
                   <div><span className="text-text-muted text-xs">DMA(s)</span><div className="text-text-primary">{selectedCompany.dmaIds.map(d => dmas.find(dm => dm.id === d)?.name).filter(Boolean).join(', ') || '—'}</div></div>
                 </div>
+                {selectedCompany.physicalStreet && (
+                  <div>
+                    <span className="text-text-muted text-xs block mb-1">Physical Address</span>
+                    <div className="text-text-primary text-sm">
+                      {selectedCompany.physicalStreet}<br />
+                      {selectedCompany.physicalCity}{selectedCompany.physicalCity && selectedCompany.physicalState ? ', ' : ''}{selectedCompany.physicalState} {selectedCompany.physicalPostalCode}<br />
+                      {selectedCompany.physicalCountry}
+                    </div>
+                  </div>
+                )}
+                {selectedCompany.mailingStreet && (
+                  <div>
+                    <span className="text-text-muted text-xs block mb-1">Mailing Address</span>
+                    <div className="text-text-primary text-sm">
+                      {selectedCompany.mailingStreet}<br />
+                      {selectedCompany.mailingCity}{selectedCompany.mailingCity && selectedCompany.mailingState ? ', ' : ''}{selectedCompany.mailingState} {selectedCompany.mailingPostalCode}<br />
+                      {selectedCompany.mailingCountry}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
             {drawerTab === 'Contacts' && (
               <div className="space-y-3">
                 <button onClick={() => setShowAddContact(!showAddContact)} className="text-ems-accent text-sm hover:underline">+ Add Contact</button>
-                {showAddContact && <ContactForm onSave={(ct) => {
-                  const newContact: Contact = { id: `ct-${Date.now()}`, companyId: selectedCompany.id, status: 'Active', firstName: ct.firstName || '', lastName: ct.lastName || '', title: ct.title || '', email: ct.email || '', phone: ct.phone || '', roles: ct.roles || [] };
+                {showAddContact && <ContactForm companies={companies} onSave={(ct) => {
+                  const newContact: Contact = {
+                    id: `ct-${Date.now()}`,
+                    companyId: selectedCompany.id,
+                    status: 'Active',
+                    firstName: ct.firstName || '',
+                    lastName: ct.lastName || '',
+                    title: ct.title || '',
+                    email: ct.email || ct.workEmail || '',
+                    phone: ct.phone || ct.workPhone || '',
+                    roles: ct.roles || [],
+                    department: ct.department,
+                    cellPhone: ct.cellPhone,
+                    workEmail: ct.workEmail,
+                    workPhone: ct.workPhone,
+                  };
                   onUpdateContacts([newContact, ...contacts]);
                   setShowAddContact(false);
                   addToast('Contact added', 'success');
-                }} onCancel={() => setShowAddContact(false)} />}
+                }} onCancel={() => setShowAddContact(false)} currentCompanyId={selectedCompany.id} />}
                 <table className="w-full text-sm">
                   <thead><tr className="text-text-muted text-xs border-b border-border"><th className="text-left py-2">Name</th><th className="text-left py-2">Title</th><th className="text-left py-2">Roles</th><th className="text-left py-2">Email</th><th className="text-left py-2">Phone</th><th /></tr></thead>
                   <tbody>
@@ -127,8 +161,8 @@ export function CompaniesPage({ addToast, companies, contacts, dmas, onUpdateCom
                         <td className="py-2 text-text-primary">{ct.firstName} {ct.lastName}</td>
                         <td className="py-2 text-text-secondary">{ct.title}</td>
                         <td className="py-2">{ct.roles.map(r => <span key={r} className="text-xs bg-elevated px-1 py-0.5 rounded text-text-secondary mr-1">{r}</span>)}</td>
-                        <td className="py-2 text-ems-blue text-xs">{ct.email}</td>
-                        <td className="py-2 text-text-secondary text-xs">{ct.phone}</td>
+                        <td className="py-2 text-ems-blue text-xs">{ct.workEmail || ct.email}</td>
+                        <td className="py-2 text-text-secondary text-xs">{ct.workPhone || ct.phone}</td>
                         <td className="py-2 text-right">
                           <ActionMenu items={[
                             { label: 'Edit', onClick: () => setEditContact(ct) },
@@ -149,51 +183,138 @@ export function CompaniesPage({ addToast, companies, contacts, dmas, onUpdateCom
       )}
 
       {showAddModal && (
-        <Modal title="Add Company" onClose={() => setShowAddModal(false)} width={800}>
+        <Modal title="Add Company" onClose={() => setShowAddModal(false)} width={900}>
           <CompanyForm dmas={dmas} onSave={(data) => { onUpdateCompanies([data, ...companies]); setShowAddModal(false); addToast('Company created successfully', 'success'); }} onCancel={() => setShowAddModal(false)} />
         </Modal>
       )}
 
       {editCompany && (
-        <Modal title="Edit Company" onClose={() => setEditCompany(null)} width={800}>
+        <Modal title="Edit Company" onClose={() => setEditCompany(null)} width={900}>
           <CompanyForm dmas={dmas} initial={editCompany} onSave={(data) => { onUpdateCompanies(companies.map(c => c.id === editCompany.id ? data : c)); setEditCompany(null); addToast('Company updated', 'success'); }} onCancel={() => setEditCompany(null)} />
         </Modal>
       )}
 
       {editContact && (
         <Modal title="Edit Contact" onClose={() => setEditContact(null)} width={700}>
-          <ContactForm initial={editContact} onSave={(ct) => { onUpdateContacts(contacts.map(c => c.id === editContact.id ? { ...c, ...ct } : c)); setEditContact(null); addToast('Contact updated', 'success'); }} onCancel={() => setEditContact(null)} />
+          <ContactForm companies={companies} initial={editContact} onSave={(ct) => { onUpdateContacts(contacts.map(c => c.id === editContact.id ? { ...c, ...ct } : c)); setEditContact(null); addToast('Contact updated', 'success'); }} onCancel={() => setEditContact(null)} currentCompanyId={editContact.companyId} />
         </Modal>
       )}
     </div>
   );
 }
 
-function ContactForm({ onSave, onCancel, initial }: { onSave: (ct: Partial<Contact>) => void; onCancel: () => void; initial?: Contact }) {
+// ─── Contact Form ─────────────────────────────────────────────────────────────
+
+const CONTACT_ROLES = ['Booking', 'BoxOffice', 'ProductionManager', 'Marketing', 'Settlement', 'TourManager', 'TourAccountant', 'Publicist', 'Other'];
+const DEPARTMENTS = ['Booking', 'Production', 'Marketing', 'Finance', 'Operations', 'Legal', 'Management', 'Other'];
+
+function ContactForm({
+  onSave,
+  onCancel,
+  initial,
+  companies,
+  currentCompanyId,
+}: {
+  onSave: (ct: Partial<Contact>) => void;
+  onCancel: () => void;
+  initial?: Contact;
+  companies: Company[];
+  currentCompanyId?: string;
+}) {
   const [firstName, setFirstName] = useState(initial?.firstName || '');
   const [lastName, setLastName] = useState(initial?.lastName || '');
+  const [companyId, setCompanyId] = useState(initial?.companyId || currentCompanyId || '');
+  const [department, setDepartment] = useState(initial?.department || '');
+  const [role, setRole] = useState(initial?.roles?.[0] || '');
   const [title, setTitle] = useState(initial?.title || '');
-  const [email, setEmail] = useState(initial?.email || '');
-  const [phone, setPhone] = useState(initial?.phone || '');
+  const [workEmail, setWorkEmail] = useState(initial?.workEmail || initial?.email || '');
+  const [workPhone, setWorkPhone] = useState(initial?.workPhone || initial?.phone || '');
+  const [cellPhone, setCellPhone] = useState(initial?.cellPhone || '');
 
   return (
-    <div className="bg-elevated border border-border rounded-lg p-3 space-y-2">
-      <div className="grid grid-cols-2 gap-2">
-        <FormField label="First Name" required><input className="w-full bg-surface border border-border rounded px-2 py-1 text-sm text-text-primary" value={firstName} onChange={e => setFirstName(e.target.value)} /></FormField>
-        <FormField label="Last Name" required><input className="w-full bg-surface border border-border rounded px-2 py-1 text-sm text-text-primary" value={lastName} onChange={e => setLastName(e.target.value)} /></FormField>
-        <FormField label="Title"><input className="w-full bg-surface border border-border rounded px-2 py-1 text-sm text-text-primary" value={title} onChange={e => setTitle(e.target.value)} /></FormField>
-        <FormField label="Email"><input className="w-full bg-surface border border-border rounded px-2 py-1 text-sm text-text-primary" value={email} onChange={e => setEmail(e.target.value)} /></FormField>
-        <FormField label="Phone"><input className="w-full bg-surface border border-border rounded px-2 py-1 text-sm text-text-primary" value={phone} onChange={e => setPhone(e.target.value)} /></FormField>
+    <div className="bg-elevated border border-border rounded-lg p-4 space-y-3">
+      <div className="grid grid-cols-2 gap-4">
+        {/* Left column */}
+        <div className="space-y-3">
+          <FormField label="First Name" required>
+            <input className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={firstName} onChange={e => setFirstName(e.target.value)} />
+          </FormField>
+          <FormField label="Last Name" required>
+            <input className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={lastName} onChange={e => setLastName(e.target.value)} />
+          </FormField>
+          <FormField label="Company">
+            <select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={companyId} onChange={e => setCompanyId(e.target.value)}>
+              <option value="">Select company...</option>
+              {companies.map(c => <option key={c.id} value={c.id}>{c.tradeName}</option>)}
+            </select>
+          </FormField>
+          <FormField label="Department">
+            <select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={department} onChange={e => setDepartment(e.target.value)}>
+              <option value="">Select department...</option>
+              {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </FormField>
+          <FormField label="Title">
+            <input className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Senior Agent" />
+          </FormField>
+        </div>
+
+        {/* Right column */}
+        <div className="space-y-3">
+          <FormField label="Role">
+            <select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={role} onChange={e => setRole(e.target.value)}>
+              <option value="">Select role...</option>
+              {CONTACT_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </FormField>
+          <FormField label="Work Email">
+            <input type="email" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={workEmail} onChange={e => setWorkEmail(e.target.value)} placeholder="name@company.com" />
+          </FormField>
+          <FormField label="Work Phone">
+            <input type="tel" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={workPhone} onChange={e => setWorkPhone(e.target.value)} placeholder="(555) 000-0000" />
+          </FormField>
+          <FormField label="Cell Phone">
+            <input type="tel" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={cellPhone} onChange={e => setCellPhone(e.target.value)} placeholder="(555) 000-0000" />
+          </FormField>
+        </div>
       </div>
-      <div className="flex gap-2 justify-end">
-        <button onClick={onCancel} className="text-text-secondary text-sm px-3 py-1 hover:text-text-primary">Cancel</button>
-        <button onClick={() => onSave({ firstName, lastName, title, email, phone, roles: initial?.roles || [] })} className="bg-ems-accent text-background text-sm px-3 py-1 rounded">Save Contact</button>
+
+      <div className="flex gap-2 justify-end pt-2 border-t border-border">
+        <button onClick={onCancel} className="text-text-secondary text-sm px-3 py-1.5 hover:text-text-primary">Cancel</button>
+        <button
+          onClick={() => onSave({
+            firstName, lastName, title,
+            email: workEmail,
+            phone: workPhone,
+            roles: role ? [role] : [],
+            department,
+            cellPhone,
+            workEmail,
+            workPhone,
+            companyId,
+          })}
+          className="bg-ems-accent text-background text-sm px-4 py-1.5 rounded-md font-medium"
+        >
+          Save Contact
+        </button>
       </div>
     </div>
   );
 }
 
-function CompanyForm({ onSave, onCancel, initial, dmas }: { onSave: (c: Company) => void; onCancel: () => void; initial?: Company; dmas: { id: string; name: string; status: string }[] }) {
+// ─── Company Form ─────────────────────────────────────────────────────────────
+
+function CompanyForm({
+  onSave,
+  onCancel,
+  initial,
+  dmas,
+}: {
+  onSave: (c: Company) => void;
+  onCancel: () => void;
+  initial?: Company;
+  dmas: { id: string; name: string; status: string }[];
+}) {
   const [legalName, setLegalName] = useState(initial?.legalName || '');
   const [tradeName, setTradeName] = useState(initial?.tradeName || '');
   const [city, setCity] = useState(initial?.city || '');
@@ -204,6 +325,23 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: { onSave: (c: Company)
   const [selectedDmas, setSelectedDmas] = useState<string[]>(initial?.dmaIds || []);
   const [errors, setErrors] = useState<string[]>([]);
 
+  // Physical Address
+  const [physicalStreet, setPhysicalStreet] = useState(initial?.physicalStreet || '');
+  const [physicalCity, setPhysicalCity] = useState(initial?.physicalCity || '');
+  const [physicalState, setPhysicalState] = useState(initial?.physicalState || '');
+  const [physicalPostalCode, setPhysicalPostalCode] = useState(initial?.physicalPostalCode || '');
+  const [physicalCountry, setPhysicalCountry] = useState(initial?.physicalCountry || '');
+
+  // Mailing Address
+  const [mailingEnabled, setMailingEnabled] = useState(
+    !!(initial?.mailingStreet || initial?.mailingCity || initial?.mailingState)
+  );
+  const [mailingStreet, setMailingStreet] = useState(initial?.mailingStreet || '');
+  const [mailingCity, setMailingCity] = useState(initial?.mailingCity || '');
+  const [mailingState, setMailingState] = useState(initial?.mailingState || '');
+  const [mailingPostalCode, setMailingPostalCode] = useState(initial?.mailingPostalCode || '');
+  const [mailingCountry, setMailingCountry] = useState(initial?.mailingCountry || '');
+
   const handleSave = () => {
     if (!legalName.trim() || !tradeName.trim()) {
       setErrors(['Legal Name and Trade Name are required']);
@@ -213,41 +351,149 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: { onSave: (c: Company)
       id: initial?.id || `co-${Date.now()}`,
       legalName,
       tradeName,
-      city,
-      state,
+      city: physicalCity || city,
+      state: physicalState || state,
       types: [type],
       dmaIds: selectedDmas,
       standing,
       status,
       venueProfile: initial?.venueProfile,
+      // Physical Address
+      physicalStreet: physicalStreet || undefined,
+      physicalCity: physicalCity || undefined,
+      physicalState: physicalState || undefined,
+      physicalPostalCode: physicalPostalCode || undefined,
+      physicalCountry: physicalCountry || undefined,
+      // Mailing Address
+      mailingStreet: mailingEnabled ? (mailingStreet || undefined) : undefined,
+      mailingCity: mailingEnabled ? (mailingCity || undefined) : undefined,
+      mailingState: mailingEnabled ? (mailingState || undefined) : undefined,
+      mailingPostalCode: mailingEnabled ? (mailingPostalCode || undefined) : undefined,
+      mailingCountry: mailingEnabled ? (mailingCountry || undefined) : undefined,
     });
   };
 
+  const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {errors.length > 0 && <div className="text-ems-coral text-sm">{errors.join(', ')}</div>}
-      <FormField label="Legal Name" required><input className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={legalName} onChange={e => setLegalName(e.target.value)} /></FormField>
-      <FormField label="Trade Name" required><input className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={tradeName} onChange={e => setTradeName(e.target.value)} /></FormField>
-      <div className="grid grid-cols-2 gap-3">
-        <FormField label="City"><input className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={city} onChange={e => setCity(e.target.value)} /></FormField>
-        <FormField label="State"><input className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={state} onChange={e => setState(e.target.value)} /></FormField>
+
+      {/* Basic Info */}
+      <div className="grid grid-cols-2 gap-4">
+        <FormField label="Company Type" required>
+          <select className={inputCls} value={type} onChange={e => setType(e.target.value)}>
+            {['Venue', 'TalentAgency', 'Ticketing', 'Labor', 'AdAgency', 'Sponsor'].map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </FormField>
+        <div /> {/* spacer */}
+        <FormField label="Legal Name" required>
+          <input className={inputCls} value={legalName} onChange={e => setLegalName(e.target.value)} />
+        </FormField>
+        <FormField label="Trade Name" required>
+          <input className={inputCls} value={tradeName} onChange={e => setTradeName(e.target.value)} />
+        </FormField>
       </div>
+
+      {/* Addresses */}
+      <div className="grid grid-cols-2 gap-6">
+        {/* Physical Address */}
+        <div className="space-y-3">
+          <h3 className="text-sm font-medium text-text-primary border-b border-border pb-1.5">Physical Address</h3>
+          <FormField label="Street Address">
+            <input className={inputCls} value={physicalStreet} onChange={e => setPhysicalStreet(e.target.value)} placeholder="123 Main St" />
+          </FormField>
+          <div className="grid grid-cols-2 gap-2">
+            <FormField label="City">
+              <input className={inputCls} value={physicalCity} onChange={e => { setPhysicalCity(e.target.value); setCity(e.target.value); }} />
+            </FormField>
+            <FormField label="State">
+              <input className={inputCls} value={physicalState} onChange={e => { setPhysicalState(e.target.value); setState(e.target.value); }} />
+            </FormField>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <FormField label="Postal Code">
+              <input className={inputCls} value={physicalPostalCode} onChange={e => setPhysicalPostalCode(e.target.value)} />
+            </FormField>
+            <FormField label="Country">
+              <input className={inputCls} value={physicalCountry} onChange={e => setPhysicalCountry(e.target.value)} placeholder="USA" />
+            </FormField>
+          </div>
+        </div>
+
+        {/* Mailing Address */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between border-b border-border pb-1.5">
+            <h3 className="text-sm font-medium text-text-primary">Mailing Address</h3>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setMailingEnabled(!mailingEnabled)}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${mailingEnabled ? 'bg-ems-accent' : 'bg-elevated border border-border'}`}
+              >
+                <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow ${mailingEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+              </button>
+              <span className="text-xs text-text-secondary">{mailingEnabled ? 'Edit' : 'Same as physical'}</span>
+            </div>
+          </div>
+          {mailingEnabled ? (
+            <>
+              <FormField label="Street Address">
+                <input className={inputCls} value={mailingStreet} onChange={e => setMailingStreet(e.target.value)} placeholder="P.O. Box or street" />
+              </FormField>
+              <div className="grid grid-cols-2 gap-2">
+                <FormField label="City">
+                  <input className={inputCls} value={mailingCity} onChange={e => setMailingCity(e.target.value)} />
+                </FormField>
+                <FormField label="State">
+                  <input className={inputCls} value={mailingState} onChange={e => setMailingState(e.target.value)} />
+                </FormField>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <FormField label="Postal Code">
+                  <input className={inputCls} value={mailingPostalCode} onChange={e => setMailingPostalCode(e.target.value)} />
+                </FormField>
+                <FormField label="Country">
+                  <input className={inputCls} value={mailingCountry} onChange={e => setMailingCountry(e.target.value)} placeholder="USA" />
+                </FormField>
+              </div>
+            </>
+          ) : (
+            <div className="flex items-center justify-center h-28 bg-surface rounded-lg border border-border border-dashed">
+              <span className="text-xs text-text-muted">Mailing address same as physical</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Standing, Status, DMA */}
       <div className="grid grid-cols-3 gap-3">
-        <FormField label="Type"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={type} onChange={e => setType(e.target.value)}>{['Venue', 'TalentAgency', 'Ticketing', 'Labor', 'AdAgency', 'Sponsor'].map(t => <option key={t} value={t}>{t}</option>)}</select></FormField>
-        <FormField label="Standing"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={standing} onChange={e => setStanding(e.target.value)}>{['MasterAgreement', 'PreferredVendor', 'DealByDeal'].map(s => <option key={s} value={s}>{s}</option>)}</select></FormField>
-        <FormField label="Status"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={status} onChange={e => setStatus(e.target.value)}>{['Active', 'Prospective', 'Inactive'].map(s => <option key={s} value={s}>{s}</option>)}</select></FormField>
+        <FormField label="Standing">
+          <select className={inputCls} value={standing} onChange={e => setStanding(e.target.value)}>
+            {['MasterAgreement', 'PreferredVendor', 'DealByDeal'].map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </FormField>
+        <FormField label="Status">
+          <select className={inputCls} value={status} onChange={e => setStatus(e.target.value)}>
+            {['Active', 'Prospective', 'Inactive'].map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </FormField>
       </div>
+
       <div>
-        <label className="text-xs text-text-muted block mb-1">DMA(s)</label>
+        <label className="text-xs text-text-muted block mb-1.5">DMA(s)</label>
         <div className="flex flex-wrap gap-2">
           {dmas.map(d => (
-            <button key={d.id} type="button" onClick={() => setSelectedDmas(prev => prev.includes(d.id) ? prev.filter(x => x !== d.id) : [...prev, d.id])} className={`px-2 py-1 text-xs rounded border ${selectedDmas.includes(d.id) ? 'bg-ems-accent-dim text-ems-accent border-ems-accent/30' : 'bg-elevated text-text-secondary border-border'}`}>
+            <button key={d.id} type="button"
+              onClick={() => setSelectedDmas(prev => prev.includes(d.id) ? prev.filter(x => x !== d.id) : [...prev, d.id])}
+              className={`px-2 py-1 text-xs rounded border ${selectedDmas.includes(d.id) ? 'bg-ems-accent-dim text-ems-accent border-ems-accent/30' : 'bg-elevated text-text-secondary border-border'}`}>
               {d.name}
             </button>
           ))}
         </div>
       </div>
-      <div className="flex gap-2 justify-end pt-2">
+
+      <div className="flex gap-2 justify-end pt-2 border-t border-border">
         <button onClick={onCancel} className="text-text-secondary px-4 py-1.5 hover:text-text-primary">Cancel</button>
         <button onClick={handleSave} className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium">Save</button>
       </div>

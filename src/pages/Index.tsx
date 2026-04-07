@@ -1,21 +1,21 @@
 import React, { useState, useCallback } from 'react';
 import { Sidebar, Header } from '@/components/ems/Layout';
 import { ToastContainer } from '@/components/ems/Primitives';
-import { DashboardPage } from '@/components/ems/DashboardPage';
+// import { DashboardPage } from '@/components/ems/DashboardPage'; // HIDDEN
 import { CompaniesPage } from '@/components/ems/CompaniesPage';
 import { AttractionToursPage } from '@/components/ems/AttractionToursPage';
 import { CalendarPage } from '@/components/ems/CalendarPage';
 import { ProjectsPage, ProjectDetailPage } from '@/components/ems/ProjectsPage';
 import { EngagementsPage } from '@/components/ems/EngagementsPage';
 import { EngagementDetailPage } from '@/components/ems/EngagementDetailPage';
-import { AnalyticsPage } from '@/components/ems/AnalyticsPage';
+// import { AnalyticsPage } from '@/components/ems/AnalyticsPage'; // HIDDEN
 import { SettingsPage } from '@/components/ems/SettingsPage';
 import { PROJECTS_INIT, ENGAGEMENTS_INIT, TOURS, ATTRACTIONS, COMPANIES, CONTACTS, USERS, DMAS } from '@/data/constants';
 import type { ToastItem } from '@/components/ems/Primitives';
 import type { Project, Engagement, Offer, Company, Contact, Attraction, Tour } from '@/data/constants';
 
 const Index = () => {
-  const [currentView, setCurrentView] = useState('dashboard');
+  const [currentView, setCurrentView] = useState('companies'); // Default changed from 'dashboard'
   const [viewData, setViewData] = useState<any>({});
   const [projects, setProjects] = useState<Project[]>(PROJECTS_INIT);
   const [engagements, setEngagements] = useState<Engagement[]>(ENGAGEMENTS_INIT);
@@ -92,7 +92,7 @@ const Index = () => {
 
   const getBreadcrumb = () => {
     const map: Record<string, string[]> = {
-      dashboard: ['Dashboard'],
+      // dashboard: ['Dashboard'], // HIDDEN
       companies: ['Companies'],
       'attraction-tours': ['Attraction-Tours'],
       calendar: ['Calendar'],
@@ -100,10 +100,10 @@ const Index = () => {
       'project-detail': ['Projects', projects.find(p => p.id === viewData.projectId)?.name || 'Detail'],
       engagements: ['Engagements'],
       'engagement-detail': ['Engagements', engagements.find(e => e.id === viewData.engagementId)?.id?.toUpperCase() || 'Detail'],
-      analytics: ['Analytics'],
+      // analytics: ['Analytics'], // HIDDEN
       settings: ['Settings'],
     };
-    return map[currentView] || ['Dashboard'];
+    return map[currentView] || ['Companies'];
   };
 
   const sidebarView = ['project-detail', 'engagement-detail'].includes(currentView) ? currentView.split('-')[0] + 's' : currentView;
@@ -114,7 +114,9 @@ const Index = () => {
       <div className="ml-60">
         <Header breadcrumb={getBreadcrumb()} />
         <main className="p-6">
+          {/* Dashboard — HIDDEN
           {currentView === 'dashboard' && <DashboardPage engagements={engagements} onNavigate={navigate} />}
+          */}
           {currentView === 'companies' && (
             <CompaniesPage
               onNavigate={navigate}
@@ -209,7 +211,9 @@ const Index = () => {
               />
             ) : <div className="text-text-muted">Engagement not found</div>;
           })()}
+          {/* Analytics — HIDDEN
           {currentView === 'analytics' && <AnalyticsPage />}
+          */}
           {currentView === 'settings' && <SettingsPage addToast={addToast} users={users} dmas={dmas} onUpdateUsers={setUsers} onUpdateDmas={setDmas} />}
         </main>
       </div>

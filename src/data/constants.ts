@@ -61,6 +61,18 @@ export interface Company {
   standing: string;
   status: string;
   venueProfile?: VenueProfile;
+  // Physical Address
+  physicalStreet?: string;
+  physicalCity?: string;
+  physicalState?: string;
+  physicalPostalCode?: string;
+  physicalCountry?: string;
+  // Mailing Address
+  mailingStreet?: string;
+  mailingCity?: string;
+  mailingState?: string;
+  mailingPostalCode?: string;
+  mailingCountry?: string;
 }
 
 export const COMPANIES: Company[] = [
@@ -131,6 +143,11 @@ export interface Contact {
   email: string;
   phone: string;
   status: string;
+  // New fields
+  department?: string;
+  cellPhone?: string;
+  workEmail?: string;
+  workPhone?: string;
 }
 
 export const CONTACTS: Contact[] = [

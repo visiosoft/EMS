@@ -38,8 +38,6 @@ function IaeLogo() {
           height: '100%',
           objectFit: 'contain',
           borderRadius: 4,
-          // Dark mode: screen blend makes the black background disappear, white logo glows
-          // Light mode: invert the image (white→black logo) + multiply to drop white bg
           filter: isDark ? 'none' : 'invert(1)',
           mixBlendMode: isDark ? 'screen' : 'multiply',
           transition: 'filter 0.25s ease',
@@ -84,7 +82,8 @@ interface SidebarProps {
 }
 
 const NAV_SECTIONS = [
-  { label: 'OVERVIEW', items: [{ key: 'dashboard', label: 'Dashboard', icon: '◆' }] },
+  // OVERVIEW section hidden — Dashboard disabled
+  // { label: 'OVERVIEW', items: [{ key: 'dashboard', label: 'Dashboard', icon: '◆' }] },
   { label: 'PRIMARY DATA', items: [
     { key: 'companies', label: 'Companies', icon: '⬡' },
     { key: 'attraction-tours', label: 'Attraction-Tours', icon: '⬡' },
@@ -94,7 +93,8 @@ const NAV_SECTIONS = [
     { key: 'projects', label: 'Projects', icon: '⬡' },
     { key: 'engagements', label: 'Engagements', icon: '⬡' },
   ] },
-  { label: 'REPORTS', items: [{ key: 'analytics', label: 'Analytics', icon: '⬡' }] },
+  // REPORTS section hidden — Analytics disabled
+  // { label: 'REPORTS', items: [{ key: 'analytics', label: 'Analytics', icon: '⬡' }] },
   { label: 'SYSTEM', items: [{ key: 'settings', label: 'Settings', icon: '⬡' }] },
 ];
 
