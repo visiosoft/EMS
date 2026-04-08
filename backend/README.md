@@ -13,7 +13,7 @@ cp .env.example .env
 Edit `.env` and fill your real DB password:
 
 ```env
-PORT=3000
+PORT=3001
 DB_HOST=192.168.100.181
 DB_PORT=1433
 DB_USERNAME=SA
@@ -32,9 +32,9 @@ npm run start:dev
 
 ## 3) Test API and DB connection
 
-- API health: `http://localhost:3000/api`
-- DB health (JSON): `http://localhost:3000/api/db-health`
-- DB check (HTML in browser): `http://localhost:3000/api/db-check`
+- API health: `http://localhost:3001/api` (or your `PORT` from `.env`)
+- DB health (JSON): `http://localhost:3001/api/db-health`
+- DB check (HTML in browser): `http://localhost:3001/api/db-check`
 
 Expected DB health response:
 
@@ -89,3 +89,17 @@ nc -zv 192.168.100.181 1433
 ```
 
 If this is blocked, ask infra team to open TCP port `1433` from app VM to DB VM.
+
+## 6) `EADDRINUSE` (port already in use)
+
+Usually another Nest (or other) process is still bound to that port—often from a previous run or a second terminal.
+
+- Prefer **one** backend: stop duplicates with **Ctrl+C**, or use `npm run dev:full` from the repo root once.
+- Default API port is **3001** if `PORT` is unset. If your `backend/.env` still has `PORT=3000`, either remove it or change it to `3001` (or any free port).
+- Free a stuck port on Linux (example for 3000):
+
+```bash
+fuser -k 3000/tcp
+```
+
+Or find the PID: `ss -tlnp | grep ':3000'` then `kill <pid>`.
