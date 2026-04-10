@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StatusBadge, Avatar, SearchInput, FilterChips, TabBar, Drawer, Modal, FormField, ActionMenu } from './Primitives';
 import { Select2, toOptions, toObjOptions } from './Select2';
 import type { Company, Contact } from '@/data/constants';
+import { getDmaFromPostalCode } from '@/data/constants';
 
 interface Props {
   onNavigate: (view: string, data?: any) => void;
@@ -55,7 +56,7 @@ export function CompaniesPage({ addToast, companies, contacts, dmas, onUpdateCom
               <th className="text-left py-2.5 px-3">Type(s)</th>
               <th className="text-left py-2.5 px-3">City, State</th>
               <th className="text-left py-2.5 px-3">DMA(s)</th>
-              <th className="text-left py-2.5 px-3">Standing</th>
+              <th className="text-left py-2.5 px-3">Service Area DMA(s)</th>
               <th className="text-left py-2.5 px-3">Status</th>
               <th className="w-10"></th>
             </tr>
@@ -67,7 +68,7 @@ export function CompaniesPage({ addToast, companies, contacts, dmas, onUpdateCom
                 <td className="py-2.5 px-3"><div className="flex gap-1">{c.types.map(t => <span key={t} className="text-xs bg-elevated px-1.5 py-0.5 rounded text-text-secondary">{t}</span>)}</div></td>
                 <td className="py-2.5 px-3 text-text-secondary">{c.city}, {c.state}</td>
                 <td className="py-2.5 px-3 text-xs text-text-secondary">{c.dmaIds.map(d => dmas.find(dm => dm.id === d)?.name).filter(Boolean).join(', ') || '—'}</td>
-                <td className="py-2.5 px-3 text-xs text-text-secondary">{c.standing}</td>
+                <td className="py-2.5 px-3 text-xs text-text-secondary">{c.serviceAreaDmaIds.map(d => dmas.find(dm => dm.id === d)?.name).filter(Boolean).join(', ') || '—'}</td>
                 <td className="py-2.5 px-3"><StatusBadge status={c.status} /></td>
                 <td className="py-2.5 px-3">
                   <ActionMenu items={[
@@ -83,7 +84,7 @@ export function CompaniesPage({ addToast, companies, contacts, dmas, onUpdateCom
       </div>
 
       {selectedCompany && (
-        <Drawer onClose={() => setSelectedCompanyId(null)} width={600}>
+        <Drawer onClose={() => setSelectedCompanyId(null)} width={1000}>
           <div className="p-4 border-b border-border flex items-center gap-3">
             <Avatar name={selectedCompany.tradeName} size="lg" />
             <div className="flex-1">
@@ -105,8 +106,9 @@ export function CompaniesPage({ addToast, companies, contacts, dmas, onUpdateCom
                   <div><span className="text-text-muted text-xs">Legal Name</span><div className="text-text-primary">{selectedCompany.legalName}</div></div>
                   <div><span className="text-text-muted text-xs">Trade Name</span><div className="text-text-primary">{selectedCompany.tradeName}</div></div>
                   <div><span className="text-text-muted text-xs">City/State</span><div className="text-text-primary">{selectedCompany.city}, {selectedCompany.state}</div></div>
-                  <div><span className="text-text-muted text-xs">Standing</span><div className="text-text-primary">{selectedCompany.standing}</div></div>
+                  <div><span className="text-text-muted text-xs">Status</span><div className="text-text-primary">{selectedCompany.status}</div></div>
                   <div><span className="text-text-muted text-xs">DMA(s)</span><div className="text-text-primary">{selectedCompany.dmaIds.map(d => dmas.find(dm => dm.id === d)?.name).filter(Boolean).join(', ') || '—'}</div></div>
+                  <div><span className="text-text-muted text-xs">Service Area DMA(s)</span><div className="text-text-primary">{selectedCompany.serviceAreaDmaIds.map(d => dmas.find(dm => dm.id === d)?.name).filter(Boolean).join(', ') || '—'}</div></div>
                 </div>
                 {selectedCompany.physicalStreet && (
                   <div>
@@ -315,9 +317,9 @@ function CompanyForm({
   const [city, setCity] = useState(initial?.city || '');
   const [state, setState] = useState(initial?.state || '');
   const [type, setType] = useState(initial?.types[0] || 'Venue');
-  const [standing, setStanding] = useState(initial?.standing || 'PreferredVendor');
   const [status, setStatus] = useState(initial?.status || 'Active');
   const [selectedDmas, setSelectedDmas] = useState<string[]>(initial?.dmaIds || []);
+  const [selectedServiceAreaDmas, setSelectedServiceAreaDmas] = useState<string[]>(initial?.serviceAreaDmaIds || []);
   const [errors, setErrors] = useState<string[]>([]);
 
   const [physicalStreet, setPhysicalStreet] = useState(initial?.physicalStreet || '');
@@ -325,6 +327,16 @@ function CompanyForm({
   const [physicalState, setPhysicalState] = useState(initial?.physicalState || '');
   const [physicalPostalCode, setPhysicalPostalCode] = useState(initial?.physicalPostalCode || '');
   const [physicalCountry, setPhysicalCountry] = useState(initial?.physicalCountry || '');
+
+  // Auto-fill DMA based on postal code
+  useEffect(() => {
+    if (physicalPostalCode && physicalPostalCode.length >= 5) {
+      const autoDma = getDmaFromPostalCode(physicalPostalCode);
+      if (autoDma && !selectedDmas.includes(autoDma)) {
+        setSelectedDmas(prev => [...prev, autoDma]);
+      }
+    }
+  }, [physicalPostalCode]);
 
   const [mailingEnabled, setMailingEnabled] = useState(!!(initial?.mailingStreet || initial?.mailingCity || initial?.mailingState));
   const [mailingStreet, setMailingStreet] = useState(initial?.mailingStreet || '');
@@ -339,7 +351,8 @@ function CompanyForm({
       id: initial?.id || `co-${Date.now()}`,
       legalName, tradeName,
       city: physicalCity || city, state: physicalState || state,
-      types: [type], dmaIds: selectedDmas, standing, status,
+      types: [type], dmaIds: selectedDmas, serviceAreaDmaIds: selectedServiceAreaDmas, 
+      standing: 'Preferred Vendor', status,
       venueProfile: initial?.venueProfile,
       physicalStreet: physicalStreet || undefined, physicalCity: physicalCity || undefined,
       physicalState: physicalState || undefined, physicalPostalCode: physicalPostalCode || undefined,
@@ -355,7 +368,6 @@ function CompanyForm({
   const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
 
   const companyTypeOptions = toOptions(['Venue', 'TalentAgency', 'Ticketing', 'Labor', 'AdAgency', 'Sponsor']);
-  const standingOptions = toOptions(['MasterAgreement', 'PreferredVendor', 'DealByDeal']);
   const statusOptions = toOptions(['Active', 'Prospective', 'Inactive']);
 
   return (
@@ -422,22 +434,32 @@ function CompanyForm({
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
-        <FormField label="Standing">
-          <Select2 options={standingOptions} value={standing} onChange={setStanding} />
-        </FormField>
+      <div className="grid grid-cols-2 gap-3">
         <FormField label="Status">
           <Select2 options={statusOptions} value={status} onChange={setStatus} />
         </FormField>
       </div>
 
       <div>
-        <label className="text-xs text-text-muted block mb-1.5">DMA(s)</label>
+        <label className="text-xs text-text-muted block mb-1.5">DMA(s) (Auto-filled from postal code)</label>
         <div className="flex flex-wrap gap-2">
           {dmas.map(d => (
             <button key={d.id} type="button"
               onClick={() => setSelectedDmas(prev => prev.includes(d.id) ? prev.filter(x => x !== d.id) : [...prev, d.id])}
               className={`px-2 py-1 text-xs rounded border ${selectedDmas.includes(d.id) ? 'bg-ems-accent-dim text-ems-accent border-ems-accent/30' : 'bg-elevated text-text-secondary border-border'}`}>
+              {d.name}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <label className="text-xs text-text-muted block mb-1.5">Service Area DMA(s) (Manual selection)</label>
+        <div className="flex flex-wrap gap-2">
+          {dmas.map(d => (
+            <button key={d.id} type="button"
+              onClick={() => setSelectedServiceAreaDmas(prev => prev.includes(d.id) ? prev.filter(x => x !== d.id) : [...prev, d.id])}
+              className={`px-2 py-1 text-xs rounded border ${selectedServiceAreaDmas.includes(d.id) ? 'bg-ems-accent-dim text-ems-accent border-ems-accent/30' : 'bg-elevated text-text-secondary border-border'}`}>
               {d.name}
             </button>
           ))}

@@ -58,6 +58,7 @@ export interface Company {
   city: string;
   state: string;
   dmaIds: string[];
+  serviceAreaDmaIds: string[];
   standing: string;
   status: string;
   venueProfile?: VenueProfile;
@@ -77,60 +78,60 @@ export interface Company {
 
 export const COMPANIES: Company[] = [
   { id: 'co-01', legalName: 'United Center Entertainment LLC', tradeName: 'United Center',
-    types: ['Venue'], city: 'Chicago', state: 'IL', dmaIds: ['dma-03'],
-    standing: 'MasterAgreement', status: 'Active',
+    types: ['Venue'], city: 'Chicago', state: 'IL', dmaIds: ['dma-03'], serviceAreaDmaIds: ['dma-03'],
+    standing: 'Master Agreement', status: 'Active',
     venueProfile: { configurations: [{ name: 'Full House', totalCap: 20000, seatedCap: 18500, gaCap: 1500, stageType: 'End Stage', isDefault: true },
                                      { name: 'Half House', totalCap: 10000, seatedCap: 9200, gaCap: 800, stageType: 'End Stage', isDefault: false }],
       ageRestriction: 'All Ages', curfew: '11:00 PM', loadInDocks: 6, parking: 4000,
       inHouseAudio: true, inHouseLighting: true, exclusiveTicketingId: 'co-09', houseAgencyId: 'co-12' } },
   { id: 'co-02', legalName: 'Madison Square Garden Sports Corp.', tradeName: 'Madison Square Garden',
-    types: ['Venue'], city: 'New York', state: 'NY', dmaIds: ['dma-01'],
-    standing: 'PreferredVendor', status: 'Active',
+    types: ['Venue'], city: 'New York', state: 'NY', dmaIds: ['dma-01'], serviceAreaDmaIds: ['dma-01'],
+    standing: 'Preferred Vendor', status: 'Active',
     venueProfile: { configurations: [{ name: 'Full House', totalCap: 20789, seatedCap: 19500, gaCap: 1289, stageType: 'End Stage', isDefault: true }],
       ageRestriction: 'All Ages', curfew: '11:30 PM', loadInDocks: 8, parking: 0,
       inHouseAudio: true, inHouseLighting: true } },
   { id: 'co-03', legalName: 'AEG Presents Arena Management LLC', tradeName: 'Crypto.com Arena',
-    types: ['Venue'], city: 'Los Angeles', state: 'CA', dmaIds: ['dma-02'],
-    standing: 'PreferredVendor', status: 'Active',
+    types: ['Venue'], city: 'Los Angeles', state: 'CA', dmaIds: ['dma-02'], serviceAreaDmaIds: ['dma-02'],
+    standing: 'Preferred Vendor', status: 'Active',
     venueProfile: { configurations: [{ name: 'Full House', totalCap: 19068, seatedCap: 17500, gaCap: 1568, stageType: 'End Stage', isDefault: true }],
       ageRestriction: 'All Ages', curfew: '11:00 PM', loadInDocks: 6, parking: 2800,
       inHouseAudio: true, inHouseLighting: true } },
   { id: 'co-04', legalName: 'Bridgestone Arena Operations LLC', tradeName: 'Bridgestone Arena',
-    types: ['Venue'], city: 'Nashville', state: 'TN', dmaIds: ['dma-13'],
-    standing: 'MasterAgreement', status: 'Active',
+    types: ['Venue'], city: 'Nashville', state: 'TN', dmaIds: ['dma-13'], serviceAreaDmaIds: ['dma-13'],
+    standing: 'Master Agreement', status: 'Active',
     venueProfile: { configurations: [{ name: 'Full House', totalCap: 19500, seatedCap: 18000, gaCap: 1500, stageType: 'End Stage', isDefault: true }],
       ageRestriction: 'All Ages', curfew: '11:00 PM', loadInDocks: 5, parking: 3500,
       inHouseAudio: true, inHouseLighting: false } },
   { id: 'co-05', legalName: 'Amalie Arena Group Inc.', tradeName: 'Amalie Arena',
-    types: ['Venue'], city: 'Tampa', state: 'FL', dmaIds: ['dma-14'],
-    standing: 'DealByDeal', status: 'Active',
+    types: ['Venue'], city: 'Tampa', state: 'FL', dmaIds: ['dma-14'], serviceAreaDmaIds: ['dma-14'],
+    standing: 'Deal by Deal', status: 'Active',
     venueProfile: { configurations: [{ name: 'Full House', totalCap: 19092, seatedCap: 17800, gaCap: 1292, stageType: 'End Stage', isDefault: true }],
       ageRestriction: 'All Ages', curfew: '11:00 PM', loadInDocks: 4, parking: 2200,
       inHouseAudio: true, inHouseLighting: true } },
   { id: 'co-06', legalName: 'The Fillmore Detroit LLC', tradeName: 'The Fillmore Detroit',
-    types: ['Venue'], city: 'Detroit', state: 'MI', dmaIds: ['dma-15'],
-    standing: 'PreferredVendor', status: 'Active',
+    types: ['Venue'], city: 'Detroit', state: 'MI', dmaIds: ['dma-15'], serviceAreaDmaIds: ['dma-15'],
+    standing: 'Preferred Vendor', status: 'Active',
     venueProfile: { configurations: [{ name: 'General Admission', totalCap: 2600, seatedCap: 400, gaCap: 2200, stageType: 'Proscenium', isDefault: true }],
       ageRestriction: '18+', curfew: '2:00 AM', loadInDocks: 2, parking: 800,
       inHouseAudio: true, inHouseLighting: true } },
   { id: 'co-07', legalName: 'Creative Ventures Agency Inc.', tradeName: 'Creative Ventures Agency',
-    types: ['TalentAgency'], city: 'Beverly Hills', state: 'CA', dmaIds: [],
-    standing: 'MasterAgreement', status: 'Active' },
+    types: ['TalentAgency'], city: 'Beverly Hills', state: 'CA', dmaIds: [], serviceAreaDmaIds: [],
+    standing: 'Master Agreement', status: 'Active' },
   { id: 'co-08', legalName: 'United Talent Partners LLC', tradeName: 'United Talent Partners',
-    types: ['TalentAgency'], city: 'New York', state: 'NY', dmaIds: [],
-    standing: 'PreferredVendor', status: 'Active' },
+    types: ['TalentAgency'], city: 'New York', state: 'NY', dmaIds: [], serviceAreaDmaIds: [],
+    standing: 'Preferred Vendor', status: 'Active' },
   { id: 'co-09', legalName: 'TicketFlow Inc.', tradeName: 'TicketFlow',
-    types: ['Ticketing'], city: 'Nashville', state: 'TN', dmaIds: [],
-    standing: 'MasterAgreement', status: 'Active' },
+    types: ['Ticketing'], city: 'Nashville', state: 'TN', dmaIds: [], serviceAreaDmaIds: [],
+    standing: 'Master Agreement', status: 'Active' },
   { id: 'co-10', legalName: 'IATSE Local 2 Chicago', tradeName: 'IATSE Local 2',
-    types: ['Labor'], city: 'Chicago', state: 'IL', dmaIds: ['dma-03'],
-    standing: 'MasterAgreement', status: 'Active' },
+    types: ['Labor'], city: 'Chicago', state: 'IL', dmaIds: ['dma-03'], serviceAreaDmaIds: ['dma-03'],
+    standing: 'Master Agreement', status: 'Active' },
   { id: 'co-11', legalName: 'Pacific Stagecraft LLC', tradeName: 'Pacific Stagecraft',
-    types: ['Labor'], city: 'Los Angeles', state: 'CA', dmaIds: ['dma-02'],
-    standing: 'PreferredVendor', status: 'Active' },
+    types: ['Labor'], city: 'Los Angeles', state: 'CA', dmaIds: ['dma-02'], serviceAreaDmaIds: ['dma-02'],
+    standing: 'Preferred Vendor', status: 'Active' },
   { id: 'co-12', legalName: 'Momentum Live Media Inc.', tradeName: 'Momentum Live Media',
-    types: ['AdAgency'], city: 'Chicago', state: 'IL', dmaIds: ['dma-03'],
-    standing: 'PreferredVendor', status: 'Active' },
+    types: ['AdAgency'], city: 'Chicago', state: 'IL', dmaIds: ['dma-03'], serviceAreaDmaIds: ['dma-03'],
+    standing: 'Preferred Vendor', status: 'Active' },
 ];
 
 export interface Contact {
@@ -557,6 +558,79 @@ export const ENGAGEMENTS_INIT: Engagement[] = [
     }
   },
 ];
+
+// Postal code to DMA mapping utility
+export function getDmaFromPostalCode(postalCode: string): string | null {
+  if (!postalCode || postalCode.length < 3) return null;
+  
+  const code = postalCode.substring(0, 3).toLowerCase();
+  
+  // Simplified ZIP code to DMA mapping (first 3 digits)
+  const zipToDmaMap: Record<string, string> = {
+    // New York (100-119, 070)
+    '070': 'dma-01', '100': 'dma-01', '101': 'dma-01', '102': 'dma-01', '103': 'dma-01', '104': 'dma-01',
+    '105': 'dma-01', '106': 'dma-01', '107': 'dma-01', '108': 'dma-01', '109': 'dma-01',
+    '110': 'dma-01', '111': 'dma-01', '112': 'dma-01', '113': 'dma-01', '114': 'dma-01',
+    '115': 'dma-01', '116': 'dma-01', '117': 'dma-01', '118': 'dma-01', '119': 'dma-01',
+    
+    // Los Angeles (900-909)
+    '900': 'dma-02', '901': 'dma-02', '902': 'dma-02', '903': 'dma-02', '904': 'dma-02',
+    '905': 'dma-02', '906': 'dma-02', '907': 'dma-02', '908': 'dma-02', '909': 'dma-02',
+    
+    // Chicago (600-609)
+    '600': 'dma-03', '601': 'dma-03', '602': 'dma-03', '603': 'dma-03', '604': 'dma-03',
+    '605': 'dma-03', '606': 'dma-03', '607': 'dma-03', '608': 'dma-03', '609': 'dma-03',
+    
+    // Dallas (750-759)
+    '750': 'dma-04', '751': 'dma-04', '752': 'dma-04', '753': 'dma-04', '754': 'dma-04',
+    '755': 'dma-04', '756': 'dma-04', '757': 'dma-04', '758': 'dma-04', '759': 'dma-04',
+    
+    // Houston (770-779)
+    '770': 'dma-05', '771': 'dma-05', '772': 'dma-05', '773': 'dma-05', '774': 'dma-05',
+    '775': 'dma-05', '776': 'dma-05', '777': 'dma-05', '778': 'dma-05', '779': 'dma-05',
+    
+    // Philadelphia (190-199)
+    '190': 'dma-06', '191': 'dma-06', '192': 'dma-06', '193': 'dma-06', '194': 'dma-06',
+    '195': 'dma-06', '196': 'dma-06', '197': 'dma-06', '198': 'dma-06', '199': 'dma-06',
+    
+    // Miami (330-339)
+    '330': 'dma-07', '331': 'dma-07', '332': 'dma-07', '333': 'dma-07', '334': 'dma-07',
+    '335': 'dma-07', '336': 'dma-07', '337': 'dma-07', '338': 'dma-07', '339': 'dma-07',
+    
+    // Atlanta (300-309)
+    '300': 'dma-08', '301': 'dma-08', '302': 'dma-08', '303': 'dma-08', '304': 'dma-08',
+    '305': 'dma-08', '306': 'dma-08', '307': 'dma-08', '308': 'dma-08', '309': 'dma-08',
+    
+    // Seattle (980-989)
+    '980': 'dma-09', '981': 'dma-09', '982': 'dma-09', '983': 'dma-09', '984': 'dma-09',
+    '985': 'dma-09', '986': 'dma-09', '987': 'dma-09', '988': 'dma-09', '989': 'dma-09',
+    
+    // Denver (800-809)
+    '800': 'dma-10', '801': 'dma-10', '802': 'dma-10', '803': 'dma-10', '804': 'dma-10',
+    '805': 'dma-10', '806': 'dma-10', '807': 'dma-10', '808': 'dma-10', '809': 'dma-10',
+    
+    // Boston (020-029)
+    '020': 'dma-11', '021': 'dma-11', '022': 'dma-11', '023': 'dma-11', '024': 'dma-11',
+    '025': 'dma-11', '026': 'dma-11', '027': 'dma-11', '028': 'dma-11', '029': 'dma-11',
+    
+    // San Francisco (940-949)
+    '940': 'dma-12', '941': 'dma-12', '942': 'dma-12', '943': 'dma-12', '944': 'dma-12',
+    '945': 'dma-12', '946': 'dma-12', '947': 'dma-12', '948': 'dma-12', '949': 'dma-12',
+    
+    // Nashville (370-379)
+    '370': 'dma-13', '371': 'dma-13', '372': 'dma-13', '373': 'dma-13', '374': 'dma-13',
+    '375': 'dma-13', '376': 'dma-13', '377': 'dma-13', '378': 'dma-13', '379': 'dma-13',
+    
+    // Tampa-St. Pete (330-339) - same as Miami for simplicity
+    // Seattle (980-989) already mapped
+    
+    // Detroit (480-489)
+    '480': 'dma-15', '481': 'dma-15', '482': 'dma-15', '483': 'dma-15', '484': 'dma-15',
+    '485': 'dma-15', '486': 'dma-15', '487': 'dma-15', '488': 'dma-15', '489': 'dma-15',
+  };
+  
+  return zipToDmaMap[code] || null;
+}
 
 // Helper functions
 export function formatCurrency(n: number | null | undefined): string {
