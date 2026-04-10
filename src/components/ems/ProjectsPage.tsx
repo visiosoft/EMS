@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { TOURS, ATTRACTIONS, COMPANIES, CONTACTS, DMAS, USERS, formatCurrency, formatDate, getStatusColor } from '@/data/constants';
 import { StatusBadge, Avatar, SearchInput, FilterChips, TabBar, Modal, FormField, ActionMenu } from './Primitives';
-import type { Project, Offer, Engagement } from '@/data/constants';
+import type { Project, Offer, Engagement, Tour, Attraction } from '@/data/constants';
 import { Select2, toOptions, toObjOptions } from './Select2';
 
 interface Props {
@@ -19,6 +19,12 @@ interface Props {
   onUpdateProjects: (projects: Project[]) => void;
   onDeleteProject?: (projectId: string) => void;
 }
+
+// ─── Valid Project Statuses (NOT engagement statuses) ─────────────────────────
+const PROJECT_STATUSES = ['Active', 'OffersSent', 'PartiallyBooked', 'FullyBooked', 'Dead'];
+
+// ─── Tour Status Options ───────────────────────────────────────────────────────
+const TOUR_STATUSES = ['Draft', 'Announced', 'ActiveRouting', 'Closed'];
 
 export function ProjectsPage({ projects, engagements, onNavigate, addToast, onCreateEngagement, onUpdateProjects, onDeleteProject }: Props) {
   const [search, setSearch] = useState('');
@@ -40,7 +46,7 @@ export function ProjectsPage({ projects, engagements, onNavigate, addToast, onCr
       </div>
       <div className="flex items-center gap-4">
         <div className="w-64"><SearchInput value={search} onChange={setSearch} /></div>
-        <FilterChips options={['All', 'Active', 'OffersSent', 'PartiallyBooked', 'FullyBooked', 'Dead']} active={statusFilter} onChange={setStatusFilter} />
+        <FilterChips options={['All', ...PROJECT_STATUSES]} active={statusFilter} onChange={setStatusFilter} />
       </div>
       <div className="bg-card border border-border rounded-lg overflow-hidden">
         <table className="w-full text-sm">
@@ -50,7 +56,6 @@ export function ProjectsPage({ projects, engagements, onNavigate, addToast, onCr
             <th className="text-left py-2.5 px-3">Booker</th>
             <th className="text-left py-2.5 px-3">DMA(s)</th>
             <th className="text-left py-2.5 px-3">Offers</th>
-            <th className="text-left py-2.5 px-3">Target On-Sale</th>
             <th className="text-left py-2.5 px-3">Status</th>
             <th />
           </tr></thead>
@@ -68,8 +73,11 @@ export function ProjectsPage({ projects, engagements, onNavigate, addToast, onCr
                   <td className="py-2.5 px-3 text-text-secondary">{attr?.name} — {tour?.name}</td>
                   <td className="py-2.5 px-3 text-text-secondary">{booker?.name}</td>
                   <td className="py-2.5 px-3 text-xs text-text-secondary">{p.dmaIds.map(d => DMAS.find(dm => dm.id === d)?.name).join(', ')}</td>
-                  <td className="py-2.5 px-3 text-xs">{submitted > 0 && <span className="text-ems-blue">{submitted} Submitted</span>}{accepted > 0 && <span className="text-ems-green ml-1">{accepted} Accepted</span>}{p.offers.length === 0 && <span className="text-text-muted">—</span>}</td>
-                  <td className="py-2.5 px-3 font-mono text-xs">{formatDate(p.targetOnSale)}</td>
+                  <td className="py-2.5 px-3 text-xs">
+                    {submitted > 0 && <span className="text-ems-blue">{submitted} Submitted</span>}
+                    {accepted > 0 && <span className="text-ems-green ml-1">{accepted} Accepted</span>}
+                    {p.offers.length === 0 && <span className="text-text-muted">—</span>}
+                  </td>
                   <td className="py-2.5 px-3"><StatusBadge status={p.status} /></td>
                   <td className="py-2.5 px-3 text-right" onClick={e => e.stopPropagation()}>
                     <ActionMenu items={[
@@ -91,14 +99,19 @@ export function ProjectsPage({ projects, engagements, onNavigate, addToast, onCr
           </tbody>
         </table>
       </div>
+
       {showCreateWizard && (
-        <CreateProjectWizard onClose={() => setShowCreateWizard(false)} onSave={(proj) => {
-          onUpdateProjects([proj, ...projects]);
-          setShowCreateWizard(false);
-          addToast('Project created successfully', 'success');
-          onNavigate('project-detail', { projectId: proj.id });
-        }} />
+        <CreateProjectWizard
+          onClose={() => setShowCreateWizard(false)}
+          onSave={(proj) => {
+            onUpdateProjects([proj, ...projects]);
+            setShowCreateWizard(false);
+            addToast('Project created successfully', 'success');
+            onNavigate('project-detail', { projectId: proj.id });
+          }}
+        />
       )}
+
       {editProject && (
         <Modal title="Edit Project" onClose={() => setEditProject(null)} width={600}>
           <EditProjectForm project={editProject} onSave={(next) => {
@@ -112,7 +125,8 @@ export function ProjectsPage({ projects, engagements, onNavigate, addToast, onCr
   );
 }
 
-// Project Detail Page
+// ─── Project Detail Page ──────────────────────────────────────────────────────
+
 export function ProjectDetailPage({ project, projects, engagements, onNavigate, addToast, onCreateEngagement, onUpdateProjects }: {
   project: Project;
   projects: Project[];
@@ -170,7 +184,6 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
     }
   };
 
-  // Offer status summary for donut chart
   const statusCounts: Record<string, number> = {};
   project.offers.forEach(o => { statusCounts[o.status] = (statusCounts[o.status] || 0) + 1; });
 
@@ -201,7 +214,7 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
                   <div className="flex items-center justify-between mb-2">
                     <div>
                       <span className="text-text-primary font-medium">{venue?.tradeName}</span>
-                      <div className="text-xs text-text-secondary">{venue?.city}, {venue?.state} · {offer.configName} · Cap: {venue?.venueProfile?.configurations.find(c => c.name === offer.configName)?.totalCap?.toLocaleString()}</div>
+                      <div className="text-xs text-text-secondary">{venue?.city}, {venue?.state} · {offer.configName} · Cap: {venue?.venueProfile?.configurations.find((c: any) => c.name === offer.configName)?.totalCap?.toLocaleString()}</div>
                     </div>
                     <StatusBadge status={offer.status} />
                   </div>
@@ -224,7 +237,7 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
                       <button onClick={() => setShowRecordResponse(offer.id)} className="bg-elevated text-text-primary text-xs px-3 py-1 rounded border border-border hover:bg-hover">Record Response ▾</button>
                     )}
                     {offer.engagementId && (
-                      <button onClick={() => onNavigate('engagement-detail', { engagementId: offer.engagementId })} className="text-ems-accent text-xs hover:underline">View Engagement {offer.engagementId} →</button>
+                      <button onClick={() => onNavigate('engagement-detail', { engagementId: offer.engagementId })} className="text-ems-accent text-xs hover:underline">View Engagement →</button>
                     )}
                   </div>
                 </div>
@@ -254,11 +267,9 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
           )}
 
           <div className="bg-card border border-border rounded-lg p-4 space-y-2">
-            <div><span className="text-text-muted text-xs">Target On-Sale: </span><span className="text-text-primary text-sm font-mono">{formatDate(project.targetOnSale)}</span></div>
             <div><span className="text-text-muted text-xs">Notes</span><p className="text-text-secondary text-sm mt-1">{project.notes}</p></div>
           </div>
 
-          {/* Offer Status Donut */}
           {project.offers.length > 0 && (
             <div className="bg-card border border-border rounded-lg p-4">
               <h3 className="text-xs font-medium text-text-muted mb-2">Offer Status</h3>
@@ -292,7 +303,6 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
         </div>
       </div>
 
-      {/* Record Response Modal */}
       {showRecordResponse && (
         <RecordResponseModal
           offerId={showRecordResponse}
@@ -302,7 +312,6 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
         />
       )}
 
-      {/* Add Venue Modal */}
       {showAddVenue && (
         <Modal title="Add Venue to Project" onClose={() => setShowAddVenue(false)} width={500}>
           <AddVenueForm project={project} onSave={(offer) => {
@@ -332,18 +341,23 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
   );
 }
 
+// ─── Edit Project Form ────────────────────────────────────────────────────────
+
 function EditProjectForm({ project, onSave, onCancel }: { project: Project; onSave: (p: Project) => void; onCancel: () => void }) {
   const [name, setName] = useState(project.name);
   const [status, setStatus] = useState(project.status);
-  const [targetOnSale, setTargetOnSale] = useState(project.targetOnSale || '');
   const [notes, setNotes] = useState(project.notes);
   return (
     <div className="space-y-3">
       <FormField label="Name"><input className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={name} onChange={e => setName(e.target.value)} /></FormField>
-      <FormField label="Status"><Select2 options={toOptions(['Active', 'OffersSent', 'PartiallyBooked', 'FullyBooked', 'Dead'])} value={status} onChange={setStatus} /></FormField>
-      <FormField label="Target On-Sale"><input type="date" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={targetOnSale} onChange={e => setTargetOnSale(e.target.value)} /></FormField>
+      <FormField label="Status">
+        <Select2 options={toOptions(PROJECT_STATUSES)} value={status} onChange={setStatus} />
+      </FormField>
       <FormField label="Notes"><textarea className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary h-20 resize-none" value={notes} onChange={e => setNotes(e.target.value)} /></FormField>
-      <div className="flex justify-end gap-2"><button onClick={onCancel} className="text-text-secondary px-4 py-1.5">Cancel</button><button onClick={() => onSave({ ...project, name, status, targetOnSale: targetOnSale || null, notes })} className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium">Save</button></div>
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="text-text-secondary px-4 py-1.5">Cancel</button>
+        <button onClick={() => onSave({ ...project, name, status, notes })} className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium">Save</button>
+      </div>
     </div>
   );
 }
@@ -371,10 +385,7 @@ function RecordResponseModal({ offerId, offer, onSave, onClose }: { offerId: str
   const venue = COMPANIES.find(c => c.id === offer.venueId);
 
   const handleSave = () => {
-    if (response === 'Accepted' && !showConfirm) {
-      setShowConfirm(true);
-      return;
-    }
+    if (response === 'Accepted' && !showConfirm) { setShowConfirm(true); return; }
     onSave(offerId, response, notes);
   };
 
@@ -431,7 +442,7 @@ function AddVenueForm({ project, onSave, onCancel }: { project: Project; onSave:
         <button onClick={() => {
           if (!venueId || !date) return;
           const venue = venues.find(v => v.id === venueId);
-          const config = venue?.venueProfile?.configurations.find(c => c.isDefault);
+          const config = venue?.venueProfile?.configurations.find((c: any) => c.isDefault);
           onSave({
             id: `ofr-${Date.now()}`, venueId, configName: config?.name || 'Default', proposedDates: [date], showTime: time,
             dealType: tour?.dealType || 'Guarantee', guarantee: tour?.guarantee || 0, splitPct: tour?.splitPct || null, breakeven: tour?.breakeven || null,
@@ -443,114 +454,448 @@ function AddVenueForm({ project, onSave, onCancel }: { project: Project; onSave:
   );
 }
 
-function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave: (p: Project) => void }) {
-  const [step, setStep] = useState(1);
-  const [tourId, setTourId] = useState('');
-  const [agentId, setAgentId] = useState('');
-  const [selectedDmas, setSelectedDmas] = useState<string[]>([]);
-  const [name, setName] = useState('');
-  const [targetOnSale, setTargetOnSale] = useState('');
-  const [notes, setNotes] = useState('');
+// ─── Create Project Wizard ─────────────────────────────────────────────────────
+// Strict order: 1. Attraction → 2. Tour (existing or new) → 3. Agent → 4. DMAs → 5. Review
 
-  const activeTours = TOURS.filter(t => t.status === 'ActiveRouting');
-  const selectedTour = TOURS.find(t => t.id === tourId);
-  const selectedAttr = selectedTour ? ATTRACTIONS.find(a => a.id === selectedTour.attractionId) : null;
-  const agencyContacts = selectedAttr ? CONTACTS.filter(c => c.companyId === selectedAttr.agencyId) : [];
+type WizardStep = 1 | 2 | 3 | 4 | 5;
+
+interface NewTourForm {
+  name: string;
+  status: string;
+  startDate: string;
+  endDate: string;
+  dealType: string;
+  guarantee: string;
+}
+
+function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave: (p: Project) => void }) {
+  const [step, setStep] = useState<WizardStep>(1);
+
+  // Step 1: Attraction
+  const [attractionId, setAttractionId] = useState('');
+
+  // Step 2: Tour
+  const [tourMode, setTourMode] = useState<'existing' | 'new'>('existing');
+  const [tourId, setTourId] = useState('');
+  const [newTour, setNewTour] = useState<NewTourForm>({
+    name: '', status: 'ActiveRouting', startDate: '', endDate: '',
+    dealType: 'Guarantee', guarantee: '',
+  });
+
+  // Step 3: Agent (from tour's attraction agency)
+  const [agentId, setAgentId] = useState('');
+
+  // Step 4: DMAs
+  const [selectedDmas, setSelectedDmas] = useState<string[]>([]);
+
+  // Step 5: Project details
+  const [projectName, setProjectName] = useState('');
+  const [projectNotes, setProjectNotes] = useState('');
+
+  const selectedAttraction = ATTRACTIONS.find(a => a.id === attractionId);
+  const attractionTours = TOURS.filter(t => t.attractionId === attractionId);
+
+  // Derive agency contacts from attraction
+  const agencyContacts = useMemo(() => {
+    if (!selectedAttraction) return [];
+    return CONTACTS.filter(c => c.companyId === selectedAttraction.agencyId);
+  }, [selectedAttraction]);
+
+  // When attraction changes, auto-set project name
+  const handleSelectAttraction = (id: string) => {
+    setAttractionId(id);
+    setTourId('');
+    setAgentId('');
+    const attr = ATTRACTIONS.find(a => a.id === id);
+    if (attr) setProjectName(`${attr.name} ${new Date().getFullYear()}`);
+  };
+
+  const canProceed = () => {
+    if (step === 1) return !!attractionId;
+    if (step === 2) {
+      if (tourMode === 'existing') return !!tourId;
+      return !!(newTour.name && newTour.startDate && newTour.endDate);
+    }
+    if (step === 3) return !!agentId;
+    if (step === 4) return selectedDmas.length > 0;
+    return !!projectName.trim();
+  };
+
+  const handleNext = () => {
+    if (!canProceed()) return;
+    if (step < 5) setStep((step + 1) as WizardStep);
+  };
+
+  const handleBack = () => {
+    if (step > 1) setStep((step - 1) as WizardStep);
+    else onClose();
+  };
+
+  const handleCreate = () => {
+    if (!canProceed()) return;
+    // For "new tour" mode, tourId will be a temporary placeholder
+    const finalTourId = tourMode === 'existing' ? tourId : `tour-new-${Date.now()}`;
+    onSave({
+      id: `prj-${Date.now()}`,
+      name: projectName,
+      tourId: finalTourId,
+      bookerId: 'usr-01',
+      agentContactId: agentId,
+      dmaIds: selectedDmas,
+      status: 'Active',
+      targetOnSale: null, // On-sale belongs to Engagement, not Project
+      notes: projectNotes,
+      createdAt: new Date().toISOString().split('T')[0],
+      offers: [],
+    });
+  };
+
+  const stepLabels = ['Attraction', 'Tour', 'Agent', 'DMAs', 'Review'];
 
   return (
-    <Modal title="Create Project" onClose={onClose} width={700}>
-      <div className="space-y-4">
+    <Modal title="Create Project" onClose={onClose} width={760}>
+      <div className="space-y-5">
         {/* Step indicator */}
-        <div className="flex items-center justify-center gap-2 mb-4">
-          {[1, 2, 3, 4, 5].map(s => (
-            <div key={s} className="flex items-center gap-1">
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium ${step === s ? 'bg-ems-accent text-background' : step > s ? 'bg-ems-green-dim text-ems-green' : 'bg-elevated text-text-muted'}`}>{s}</div>
-              {s < 5 && <div className={`w-8 h-0.5 ${step > s ? 'bg-ems-green' : 'bg-border'}`} />}
-            </div>
-          ))}
+        <div className="flex items-center justify-between mb-2">
+          {stepLabels.map((label, idx) => {
+            const s = (idx + 1) as WizardStep;
+            const isActive = step === s;
+            const isDone = step > s;
+            return (
+              <React.Fragment key={s}>
+                <div className="flex flex-col items-center gap-1">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold transition-colors ${
+                    isDone ? 'bg-ems-green text-background' :
+                    isActive ? 'bg-ems-accent text-background' :
+                    'bg-elevated text-text-muted border border-border'
+                  }`}>
+                    {isDone ? '✓' : s}
+                  </div>
+                  <span className={`text-[10px] font-medium ${isActive ? 'text-ems-accent' : isDone ? 'text-ems-green' : 'text-text-muted'}`}>
+                    {label}
+                  </span>
+                </div>
+                {idx < stepLabels.length - 1 && (
+                  <div className={`flex-1 h-0.5 mx-2 mb-4 transition-colors ${isDone ? 'bg-ems-green' : 'bg-border'}`} />
+                )}
+              </React.Fragment>
+            );
+          })}
         </div>
 
+        {/* ── STEP 1: Select Attraction ── */}
         {step === 1 && (
-          <div className="space-y-2">
-            <h3 className="text-sm font-medium text-text-primary">Select Attraction-Tour</h3>
-            {activeTours.map(t => {
-              const attr = ATTRACTIONS.find(a => a.id === t.attractionId);
-              return (
-                <button key={t.id} onClick={() => { setTourId(t.id); if (attr) setName(`${attr.name} ${new Date().getFullYear()}`); }}
-                  className={`w-full text-left p-3 rounded-lg border transition-colors ${tourId === t.id ? 'border-ems-accent bg-ems-accent-dim' : 'border-border bg-elevated hover:bg-hover'}`}>
-                  <div className="text-text-primary font-medium">{attr?.name} — {t.name}</div>
-                  <div className="text-xs text-text-secondary">{attr?.marketTier} · <StatusBadge status={t.status} /></div>
-                </button>
-              );
-            })}
+          <div className="space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold text-text-primary mb-0.5">Select Attraction</h3>
+              <p className="text-xs text-text-muted">Choose the artist or act for this project</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2 max-h-72 overflow-y-auto pr-1">
+              {ATTRACTIONS.map(a => {
+                const agency = COMPANIES.find(c => c.id === a.agencyId);
+                const tourCount = TOURS.filter(t => t.attractionId === a.id).length;
+                return (
+                  <button
+                    key={a.id}
+                    onClick={() => handleSelectAttraction(a.id)}
+                    className={`text-left p-3 rounded-lg border transition-colors ${
+                      attractionId === a.id
+                        ? 'border-ems-accent bg-ems-accent-dim'
+                        : 'border-border bg-elevated hover:bg-hover'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-text-primary font-medium text-sm">{a.name}</span>
+                      <StatusBadge status={a.iaeStatus} />
+                    </div>
+                    <div className="text-xs text-text-secondary mt-1">
+                      {a.genres.join(', ')} · {a.marketTier}
+                    </div>
+                    <div className="text-xs text-text-muted mt-0.5">
+                      {agency?.tradeName} · {tourCount} tour{tourCount !== 1 ? 's' : ''}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
 
-        {step === 2 && (
-          <div className="space-y-2">
-            <h3 className="text-sm font-medium text-text-primary">Select Talent Agent</h3>
-            {agencyContacts.map(ct => (
-              <button key={ct.id} onClick={() => setAgentId(ct.id)}
-                className={`w-full text-left p-3 rounded-lg border transition-colors ${agentId === ct.id ? 'border-ems-accent bg-ems-accent-dim' : 'border-border bg-elevated hover:bg-hover'}`}>
-                <div className="text-text-primary font-medium">{ct.firstName} {ct.lastName}</div>
-                <div className="text-xs text-text-secondary">{ct.title} · {COMPANIES.find(c => c.id === ct.companyId)?.tradeName}</div>
+        {/* ── STEP 2: Select or Create Tour ── */}
+        {step === 2 && selectedAttraction && (
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold text-text-primary mb-0.5">Select Tour</h3>
+              <p className="text-xs text-text-muted">Choose an existing tour for {selectedAttraction.name} or create a new one</p>
+            </div>
+
+            {/* Mode toggle */}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setTourMode('existing')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                  tourMode === 'existing'
+                    ? 'bg-ems-accent-dim text-ems-accent border-ems-accent/30'
+                    : 'bg-elevated text-text-secondary border-border hover:bg-hover'
+                }`}
+              >
+                Use Existing Tour
               </button>
-            ))}
+              <button
+                onClick={() => setTourMode('new')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                  tourMode === 'new'
+                    ? 'bg-ems-accent-dim text-ems-accent border-ems-accent/30'
+                    : 'bg-elevated text-text-secondary border-border hover:bg-hover'
+                }`}
+              >
+                + Create New Tour
+              </button>
+            </div>
+
+            {tourMode === 'existing' && (
+              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                {attractionTours.length === 0 ? (
+                  <div className="text-text-muted text-sm bg-elevated rounded-lg p-4 text-center">
+                    No existing tours. Switch to "Create New Tour".
+                  </div>
+                ) : attractionTours.map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => setTourId(t.id)}
+                    className={`w-full text-left p-3 rounded-lg border transition-colors ${
+                      tourId === t.id
+                        ? 'border-ems-accent bg-ems-accent-dim'
+                        : 'border-border bg-elevated hover:bg-hover'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-text-primary font-medium">{t.name}</span>
+                      <StatusBadge status={t.status} />
+                    </div>
+                    <div className="text-xs text-text-secondary mt-1">
+                      {t.dealType} · {t.guarantee ? `$${t.guarantee.toLocaleString()} guarantee` : 'No guarantee set'}
+                    </div>
+                    <div className="text-xs text-text-muted">
+                      {t.startDate} → {t.endDate}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {tourMode === 'new' && (
+              <div className="space-y-3 bg-elevated border border-border rounded-lg p-4">
+                <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wide">New Tour Details</h4>
+                <FormField label="Tour Name" required>
+                  <input
+                    className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent"
+                    value={newTour.name}
+                    onChange={e => setNewTour(p => ({ ...p, name: e.target.value }))}
+                    placeholder={`${selectedAttraction.name} Tour 2025`}
+                  />
+                </FormField>
+                <div className="grid grid-cols-2 gap-3">
+                  <FormField label="Tour Status">
+                    <Select2
+                      options={toOptions(TOUR_STATUSES)}
+                      value={newTour.status}
+                      onChange={v => setNewTour(p => ({ ...p, status: v }))}
+                    />
+                  </FormField>
+                  <FormField label="Deal Type">
+                    <Select2
+                      options={toOptions(['Guarantee', 'GuaranteeVsSplit', 'FlatFee'])}
+                      value={newTour.dealType}
+                      onChange={v => setNewTour(p => ({ ...p, dealType: v }))}
+                    />
+                  </FormField>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <FormField label="Start Date" required>
+                    <input
+                      type="date"
+                      className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent"
+                      value={newTour.startDate}
+                      onChange={e => setNewTour(p => ({ ...p, startDate: e.target.value }))}
+                    />
+                  </FormField>
+                  <FormField label="End Date" required>
+                    <input
+                      type="date"
+                      className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent"
+                      value={newTour.endDate}
+                      onChange={e => setNewTour(p => ({ ...p, endDate: e.target.value }))}
+                    />
+                  </FormField>
+                </div>
+                <FormField label="Guarantee ($)">
+                  <input
+                    type="number"
+                    className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent"
+                    value={newTour.guarantee}
+                    onChange={e => setNewTour(p => ({ ...p, guarantee: e.target.value }))}
+                    placeholder="0"
+                  />
+                </FormField>
+              </div>
+            )}
           </div>
         )}
 
+        {/* ── STEP 3: Select Agent ── */}
         {step === 3 && (
-          <div className="space-y-2">
-            <h3 className="text-sm font-medium text-text-primary">Target DMAs</h3>
+          <div className="space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold text-text-primary mb-0.5">Select Talent Agent</h3>
+              <p className="text-xs text-text-muted">
+                Agent from {COMPANIES.find(c => c.id === selectedAttraction?.agencyId)?.tradeName || 'the agency'} linked to this tour
+              </p>
+            </div>
+            {agencyContacts.length === 0 ? (
+              <div className="text-text-muted text-sm bg-elevated rounded-lg p-4 text-center">
+                No contacts found for this agency. Add contacts in Companies first.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {agencyContacts.map(ct => {
+                  const company = COMPANIES.find(c => c.id === ct.companyId);
+                  return (
+                    <button
+                      key={ct.id}
+                      onClick={() => setAgentId(ct.id)}
+                      className={`w-full text-left p-3 rounded-lg border transition-colors flex items-center gap-3 ${
+                        agentId === ct.id
+                          ? 'border-ems-accent bg-ems-accent-dim'
+                          : 'border-border bg-elevated hover:bg-hover'
+                      }`}
+                    >
+                      <div className="w-8 h-8 rounded-full bg-ems-purple-dim text-ems-purple flex items-center justify-center text-xs font-semibold">
+                        {ct.firstName[0]}{ct.lastName[0]}
+                      </div>
+                      <div className="flex-1">
+                        <div className="text-text-primary font-medium text-sm">{ct.firstName} {ct.lastName}</div>
+                        <div className="text-xs text-text-secondary">{ct.title} · {company?.tradeName}</div>
+                        <div className="text-xs text-ems-blue">{ct.email}</div>
+                      </div>
+                      {agentId === ct.id && (
+                        <span className="text-ems-accent text-lg">✓</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── STEP 4: Select DMAs ── */}
+        {step === 4 && (
+          <div className="space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold text-text-primary mb-0.5">Target DMAs</h3>
+              <p className="text-xs text-text-muted">Select the markets for this project. At least one is required.</p>
+            </div>
             <div className="flex flex-wrap gap-2">
-              {DMAS.map(d => (
-                <button key={d.id} onClick={() => setSelectedDmas(prev => prev.includes(d.id) ? prev.filter(x => x !== d.id) : [...prev, d.id])}
-                  className={`px-3 py-1.5 rounded-md text-sm transition-colors ${selectedDmas.includes(d.id) ? 'bg-ems-accent-dim text-ems-accent border border-ems-accent/30' : 'bg-elevated text-text-secondary border border-border hover:bg-hover'}`}>
+              {DMAS.filter(d => d.status === 'Active').map(d => (
+                <button
+                  key={d.id}
+                  onClick={() => setSelectedDmas(prev =>
+                    prev.includes(d.id) ? prev.filter(x => x !== d.id) : [...prev, d.id]
+                  )}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors ${
+                    selectedDmas.includes(d.id)
+                      ? 'bg-ems-accent-dim text-ems-accent border-ems-accent/30'
+                      : 'bg-elevated text-text-secondary border-border hover:bg-hover'
+                  }`}
+                >
+                  {selectedDmas.includes(d.id) && <span className="mr-1">✓</span>}
                   {d.name}
                 </button>
               ))}
             </div>
+            {selectedDmas.length > 0 && (
+              <div className="text-xs text-text-muted">
+                {selectedDmas.length} DMA{selectedDmas.length !== 1 ? 's' : ''} selected
+              </div>
+            )}
           </div>
         )}
 
-        {step === 4 && (
-          <div className="space-y-3">
-            <h3 className="text-sm font-medium text-text-primary">Project Details</h3>
+        {/* ── STEP 5: Review & Project Details ── */}
+        {step === 5 && (
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold text-text-primary mb-0.5">Review & Create</h3>
+              <p className="text-xs text-text-muted">Confirm details and give your project a name</p>
+            </div>
+
+            {/* Summary */}
+            <div className="bg-elevated border border-border rounded-lg p-4 space-y-2 text-sm">
+              <div className="grid grid-cols-2 gap-2">
+                <div><span className="text-text-muted text-xs block">Attraction</span><span className="text-text-primary font-medium">{selectedAttraction?.name}</span></div>
+                <div>
+                  <span className="text-text-muted text-xs block">Tour</span>
+                  <span className="text-text-primary font-medium">
+                    {tourMode === 'existing'
+                      ? TOURS.find(t => t.id === tourId)?.name
+                      : newTour.name + ' (new)'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-text-muted text-xs block">Agent</span>
+                  <span className="text-text-primary">{(() => { const ct = CONTACTS.find(c => c.id === agentId); return ct ? `${ct.firstName} ${ct.lastName}` : '—'; })()}</span>
+                </div>
+                <div>
+                  <span className="text-text-muted text-xs block">DMAs</span>
+                  <span className="text-text-primary">{selectedDmas.map(id => DMAS.find(d => d.id === id)?.name).join(', ')}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Project name + notes */}
             <FormField label="Project Name" required>
-              <input className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={name} onChange={e => setName(e.target.value)} />
-            </FormField>
-            <FormField label="Target On-Sale Date">
-              <input type="date" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={targetOnSale} onChange={e => setTargetOnSale(e.target.value)} />
+              <input
+                className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent"
+                value={projectName}
+                onChange={e => setProjectName(e.target.value)}
+                placeholder="e.g. Stella Vance Midwest Fall 2025"
+              />
             </FormField>
             <FormField label="Notes">
-              <textarea className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary h-20 resize-none" value={notes} onChange={e => setNotes(e.target.value)} />
+              <textarea
+                className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary h-20 resize-none focus:outline-none focus:border-ems-accent"
+                value={projectNotes}
+                onChange={e => setProjectNotes(e.target.value)}
+                placeholder="Internal notes about this project..."
+              />
             </FormField>
-          </div>
-        )}
 
-        {step === 5 && (
-          <div className="space-y-3">
-            <h3 className="text-sm font-medium text-text-primary">Review & Create</h3>
-            <div className="bg-elevated rounded-lg p-4 space-y-2 text-sm">
-              <div><span className="text-text-muted">Tour: </span><span className="text-text-primary">{selectedAttr?.name} — {selectedTour?.name}</span></div>
-              <div><span className="text-text-muted">Agent: </span><span className="text-text-primary">{CONTACTS.find(c => c.id === agentId)?.firstName} {CONTACTS.find(c => c.id === agentId)?.lastName}</span></div>
-              <div><span className="text-text-muted">DMAs: </span><span className="text-text-primary">{selectedDmas.map(d => DMAS.find(dm => dm.id === d)?.name).join(', ')}</span></div>
-              <div><span className="text-text-muted">Project: </span><span className="text-text-primary">{name}</span></div>
-              <div><span className="text-text-muted">On-Sale: </span><span className="text-text-primary">{formatDate(targetOnSale) || '—'}</span></div>
+            {/* Note: no On-Sale Date — that's at Engagement level */}
+            <div className="text-xs text-text-muted bg-elevated rounded-lg px-3 py-2 border border-border/50 flex items-center gap-2">
+              <span>ℹ</span>
+              <span>On-sale date is set per Engagement, not at the Project level.</span>
             </div>
           </div>
         )}
 
-        <div className="flex justify-between pt-2">
-          <button onClick={() => step > 1 ? setStep(step - 1) : onClose()} className="text-text-secondary px-4 py-1.5">{step > 1 ? '← Back' : 'Cancel'}</button>
-          <button onClick={() => {
-            if (step < 5) { setStep(step + 1); return; }
-            onSave({
-              id: `prj-${Date.now()}`, name, tourId, bookerId: 'usr-01', agentContactId: agentId,
-              dmaIds: selectedDmas, status: 'Active', targetOnSale: targetOnSale || null, notes,
-              createdAt: new Date().toISOString().split('T')[0], offers: [],
-            });
-          }} className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium">
+        {/* Navigation */}
+        <div className="flex items-center justify-between pt-2 border-t border-border">
+          <button
+            onClick={handleBack}
+            className="text-text-secondary px-4 py-1.5 text-sm hover:text-text-primary"
+          >
+            {step === 1 ? 'Cancel' : '← Back'}
+          </button>
+          <button
+            onClick={step === 5 ? handleCreate : handleNext}
+            disabled={!canProceed()}
+            className={`px-5 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              canProceed()
+                ? 'bg-ems-accent hover:bg-ems-accent/80 text-background'
+                : 'bg-elevated text-text-muted cursor-not-allowed'
+            }`}
+          >
             {step === 5 ? 'Create Project' : 'Next →'}
           </button>
         </div>

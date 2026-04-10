@@ -230,7 +230,7 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
         </div>
       </div>
 
-      <TabBar tabs={['Overview', 'Departments', 'Contacts', 'Dates', 'Audit Log']} active={tab} onChange={setTab} />
+      <TabBar tabs={['Overview', /* 'Departments', */ 'Contacts', 'Dates', 'Audit Log']} active={tab} onChange={setTab} />
 
       {/* ── OVERVIEW ── */}
       {tab === 'Overview' && (
