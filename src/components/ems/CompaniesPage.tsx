@@ -3,6 +3,7 @@ import { StatusBadge, Avatar, SearchInput, FilterChips, TabBar, Drawer, Modal, F
 import { Select2, toOptions, toObjOptions } from './Select2';
 import type { Company, Contact } from '@/data/constants';
 import { getDmaFromPostalCode } from '@/data/constants';
+import { useAddressAutofill } from '@/hooks/useAddressAutofill';
 
 interface Props {
   onNavigate: (view: string, data?: any) => void;
@@ -303,6 +304,46 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
   const [mailingPostalCode, setMailingPostalCode] = useState(initial?.mailingPostalCode || '');
   const [mailingCountry, setMailingCountry] = useState(initial?.mailingCountry || 'USA');
 
+  const patchPhysicalAddress = (patch: Partial<{ street: string; city: string; state: string; postalCode: string; country: string }>) => {
+    if (patch.street !== undefined) setPhysicalStreet(patch.street);
+    if (patch.city !== undefined) setPhysicalCity(patch.city);
+    if (patch.state !== undefined) setPhysicalState(patch.state);
+    if (patch.postalCode !== undefined) setPhysicalPostalCode(patch.postalCode);
+    if (patch.country !== undefined) setPhysicalCountry(patch.country);
+  };
+
+  const patchMailingAddress = (patch: Partial<{ street: string; city: string; state: string; postalCode: string; country: string }>) => {
+    if (patch.street !== undefined) setMailingStreet(patch.street);
+    if (patch.city !== undefined) setMailingCity(patch.city);
+    if (patch.state !== undefined) setMailingState(patch.state);
+    if (patch.postalCode !== undefined) setMailingPostalCode(patch.postalCode);
+    if (patch.country !== undefined) setMailingCountry(patch.country);
+  };
+
+  const physicalAutofill = useAddressAutofill({
+    value: {
+      street: physicalStreet,
+      city: physicalCity,
+      state: physicalState,
+      postalCode: physicalPostalCode,
+      country: physicalCountry,
+    },
+    onPatch: patchPhysicalAddress,
+    enabled: true,
+  });
+
+  const mailingAutofill = useAddressAutofill({
+    value: {
+      street: mailingStreet,
+      city: mailingCity,
+      state: mailingState,
+      postalCode: mailingPostalCode,
+      country: mailingCountry,
+    },
+    onPatch: patchMailingAddress,
+    enabled: mailingEnabled,
+  });
+
   const handleSave = () => {
     if (!tradeName.trim()) { setErrors(['Company Name is required']); return; }
     onSave({
@@ -330,7 +371,7 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
     });
   };
 
-  const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted';
+  const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted disabled:bg-elevated disabled:text-text-muted disabled:cursor-not-allowed disabled:opacity-70';
   const companyTypeOptions = toOptions(['Venue', 'TalentAgency', 'Ticketing', 'Labor', 'AdAgency', 'Sponsor']);
   const statusOptions = toOptions(['Active', 'Prospective', 'Inactive']);
 
@@ -363,22 +404,59 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
         <div className="space-y-3">
           <h3 className="text-sm font-semibold text-text-primary border-b border-border pb-2">Physical Address</h3>
           <FormField label="Street Address">
-            <input className={inputCls} value={physicalStreet} onChange={e => setPhysicalStreet(e.target.value)} placeholder="123 Main St" />
+            <div className="relative">
+              <input
+                className={inputCls}
+                value={physicalStreet}
+                onChange={e => setPhysicalStreet(e.target.value)}
+                onFocus={physicalAutofill.onStreetFocus}
+                onBlur={physicalAutofill.onStreetBlur}
+                placeholder="Start typing street address..."
+              />
+              {physicalAutofill.showSuggestions && (
+                <div className="absolute z-20 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-48 overflow-auto">
+                  {physicalAutofill.suggestions.map((suggestion) => (
+                    <button
+                      key={suggestion.placeId}
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        physicalAutofill.selectSuggestion(suggestion);
+                      }}
+                    >
+                      {suggestion.description}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </FormField>
+          <p className="text-[11px] text-text-muted -mt-2">
+            {physicalAutofill.configured
+              ? 'City, state, postal code, and country are auto-filled from Google Places.'
+              : 'Set VITE_GOOGLE_PLACES_API_KEY to enable Google Places autofill.'}
+          </p>
           <div className="grid grid-cols-2 gap-3">
             <FormField label="City">
-              <input className={inputCls} value={physicalCity} onChange={e => setPhysicalCity(e.target.value)} />
+              <input className={inputCls} value={physicalCity} onChange={e => setPhysicalCity(e.target.value)} disabled />
             </FormField>
             <FormField label="State">
-              <input className={inputCls} value={physicalState} onChange={e => setPhysicalState(e.target.value)} />
+              <input className={inputCls} value={physicalState} onChange={e => setPhysicalState(e.target.value)} disabled />
             </FormField>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <FormField label="Postal Code">
-              <input className={inputCls} value={physicalPostalCode} onChange={e => setPhysicalPostalCode(e.target.value)} />
+              <input
+                className={inputCls}
+                value={physicalPostalCode}
+                onChange={e => setPhysicalPostalCode(e.target.value)}
+                onBlur={physicalAutofill.resolveByPostalCode}
+                placeholder="Enter postal code"
+              />
             </FormField>
             <FormField label="Country">
-              <input className={inputCls} value={physicalCountry} onChange={e => setPhysicalCountry(e.target.value)} placeholder="USA" />
+              <input className={inputCls} value={physicalCountry} onChange={e => setPhysicalCountry(e.target.value)} placeholder="USA" disabled />
             </FormField>
           </div>
         </div>
@@ -401,15 +479,54 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
           {mailingEnabled ? (
             <>
               <FormField label="Street Address">
-                <input className={inputCls} value={mailingStreet} onChange={e => setMailingStreet(e.target.value)} placeholder="P.O. Box or street" />
+                <div className="relative">
+                  <input
+                    className={inputCls}
+                    value={mailingStreet}
+                    onChange={e => setMailingStreet(e.target.value)}
+                    onFocus={mailingAutofill.onStreetFocus}
+                    onBlur={mailingAutofill.onStreetBlur}
+                    placeholder="Start typing street address..."
+                  />
+                  {mailingAutofill.showSuggestions && (
+                    <div className="absolute z-20 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-48 overflow-auto">
+                      {mailingAutofill.suggestions.map((suggestion) => (
+                        <button
+                          key={suggestion.placeId}
+                          type="button"
+                          className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            mailingAutofill.selectSuggestion(suggestion);
+                          }}
+                        >
+                          {suggestion.description}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </FormField>
+              <p className="text-[11px] text-text-muted -mt-2">
+                {mailingAutofill.configured
+                  ? 'Street and postal code selections auto-fill city/state/country.'
+                  : 'Set VITE_GOOGLE_PLACES_API_KEY to enable Google Places autofill.'}
+              </p>
               <div className="grid grid-cols-2 gap-3">
-                <FormField label="City"><input className={inputCls} value={mailingCity} onChange={e => setMailingCity(e.target.value)} /></FormField>
-                <FormField label="State"><input className={inputCls} value={mailingState} onChange={e => setMailingState(e.target.value)} /></FormField>
+                <FormField label="City"><input className={inputCls} value={mailingCity} onChange={e => setMailingCity(e.target.value)} disabled /></FormField>
+                <FormField label="State"><input className={inputCls} value={mailingState} onChange={e => setMailingState(e.target.value)} disabled /></FormField>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <FormField label="Postal Code"><input className={inputCls} value={mailingPostalCode} onChange={e => setMailingPostalCode(e.target.value)} /></FormField>
-                <FormField label="Country"><input className={inputCls} value={mailingCountry} onChange={e => setMailingCountry(e.target.value)} placeholder="USA" /></FormField>
+                <FormField label="Postal Code">
+                  <input
+                    className={inputCls}
+                    value={mailingPostalCode}
+                    onChange={e => setMailingPostalCode(e.target.value)}
+                    onBlur={mailingAutofill.resolveByPostalCode}
+                    placeholder="Enter postal code"
+                  />
+                </FormField>
+                <FormField label="Country"><input className={inputCls} value={mailingCountry} onChange={e => setMailingCountry(e.target.value)} placeholder="USA" disabled /></FormField>
               </div>
             </>
           ) : (
@@ -424,15 +541,25 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
           <label className="text-xs font-medium text-text-secondary block mb-2">DMA(s) <span className="text-text-muted font-normal">(Auto-filled from postal code)</span></label>
-          <div className="flex flex-wrap gap-1.5">
-            {dmas.map(d => (
-              <button key={d.id} type="button"
-                onClick={() => toggleDma(d.id, selectedDmas, setSelectedDmas)}
-                className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${selectedDmas.includes(d.id) ? 'bg-ems-accent-dim text-ems-accent border-ems-accent/30' : 'bg-elevated text-text-secondary border-border hover:bg-hover'}`}>
-                {d.name}
-              </button>
-            ))}
-          </div>
+          {selectedDmas.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {selectedDmas
+                .map(id => dmas.find(d => d.id === id))
+                .filter(Boolean)
+                .map(dma => (
+                  <span
+                    key={dma!.id}
+                    className="px-2.5 py-1 text-xs rounded-md border bg-ems-accent-dim text-ems-accent border-ems-accent/30"
+                  >
+                    {dma!.name}
+                  </span>
+                ))}
+            </div>
+          ) : (
+            <div className="text-xs text-text-muted bg-surface border border-dashed border-border rounded-md px-3 py-2">
+              Enter or select a postal code to auto-select DMA.
+            </div>
+          )}
         </div>
         <div>
           <label className="text-xs font-medium text-text-secondary block mb-2">Service Area DMA(s) <span className="text-text-muted font-normal">(Manual selection)</span></label>
