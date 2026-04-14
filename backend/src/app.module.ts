@@ -3,6 +3,9 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { AttractionToursModule } from './attraction-tours/attraction-tours.module';
+import { CompanyModule } from './company/company.module';
+import { EngagementsModule } from './engagements/engagements.module';
 
 const parseBoolean = (
   value: string | undefined,
@@ -28,6 +31,7 @@ const parseBoolean = (
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_NAME', 'master'),
         synchronize: false,
+        autoLoadEntities: true,
         options: {
           encrypt: parseBoolean(configService.get<string>('DB_ENCRYPT'), true),
           trustServerCertificate: parseBoolean(
@@ -37,6 +41,9 @@ const parseBoolean = (
         },
       }),
     }),
+    CompanyModule,
+    AttractionToursModule,
+    EngagementsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
