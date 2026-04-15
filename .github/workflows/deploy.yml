@@ -3,8 +3,7 @@ name: Deploy to Server
 on:
   push:
     branches: [ main, master ]
-  workflow_dispatch:
-  
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -38,6 +37,14 @@ jobs:
           cd backend && bun run build && cd ..
           
           echo "🔄 Restarting Backend..."
-          pm2 restart iae-event-flow-backend
+          # Load PM2 into PATH for non-interactive SSH sessions
+          export PATH="$PATH:$(npm config get prefix)/bin"
+          
+          # Try restart, if it fails (first deploy), start fresh
+          pm2 restart iae-event-flow-backend --update-env || \
+          pm2 start backend/dist/main.js --name iae-event-flow-backend --interpreter $(which bun) --update-env
+          
+          # Save PM2 process list for reboots
+          pm2 save
           
           echo "✅ Deployment Finished!"
