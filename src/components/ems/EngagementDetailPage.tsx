@@ -403,7 +403,7 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
           <div>
             <h3 className="text-sm font-semibold text-text-primary mb-2">Tour contacts</h3>
             <p className="text-xs text-text-muted mb-2">
-              Contacts for the talent agent company assigned to this tour.
+              Contacts for the Tour Management Company assigned to this tour.
             </p>
             {row.tourId == null ? (
               <p className="text-sm text-text-muted">No tour is linked to this engagement.</p>
@@ -414,7 +414,7 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
               </div>
             ) : tourMgmtCompanyId === null ? (
               <p className="text-sm text-text-muted">
-                No talent agent company is assigned to this tour.
+                No Tour Management Company is assigned to this tour.
               </p>
             ) : tourContactsQuery.isLoading ? (
               <div className="flex items-center gap-2 text-text-muted text-sm">

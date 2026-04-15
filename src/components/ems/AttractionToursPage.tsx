@@ -29,13 +29,15 @@ import {
   fetchAttractions,
   fetchClasses,
   fetchTours,
+  fetchVenueTypesLookup,
   updateAttraction,
   updateTour,
   type ApiAttractionListRow,
   type ApiClass,
   type ApiTourListRow,
+  type ApiVenueType,
 } from '@/api/attractionToursApi';
-import { fetchCompanies } from '@/api/companyApi';
+import { fetchCompanies, fetchCompanyContacts, type ApiCompanyContact } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { TOUR_STATUS_OPTIONS } from './tourFormLegacy';
 
@@ -79,7 +81,7 @@ function AttractionToursTableSkeleton({ variant }: { variant: 'attractions' | 't
                   <th className="text-left py-2.5 px-3">Tour Name</th>
                   <th className="text-left py-2.5 px-3">Attraction</th>
                   <th className="text-left py-2.5 px-3">Class</th>
-                  <th className="text-left py-2.5 px-3">Talent Agent</th>
+                  <th className="text-left py-2.5 px-3">Tour Management Company</th>
                   <th className="text-left py-2.5 px-3">Licensing</th>
                   <th className="w-10" />
                 </>
@@ -133,10 +135,118 @@ function TourCardInDrawer({ t }: { t: ApiTourListRow }) {
         </span>
       </div>
       <div className="text-[11px] text-text-secondary">
-        <span className="text-text-muted">Talent agent </span>
+        <span className="text-text-muted">Tour Management Company </span>
         {t.tourManagementCompanyName ?? '—'}
       </div>
     </div>
+  );
+}
+
+function TourDrawer({
+  tour,
+  onClose,
+  activeTab,
+  onTabChange,
+}: {
+  tour: ApiTourListRow;
+  onClose: () => void;
+  activeTab: string;
+  onTabChange: (tab: string) => void;
+}) {
+  const contactsQuery = useQuery({
+    queryKey: ['tour-management-company-contacts', tour.tourManagementCompanyId],
+    queryFn: () => fetchCompanyContacts(tour.tourManagementCompanyId!),
+    enabled: !!tour.tourManagementCompanyId,
+  });
+
+  const contacts = contactsQuery.data ?? [];
+
+  return (
+    <Drawer onClose={onClose} width={1000}>
+      <div className="p-4 border-b border-border">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-text-primary">{tour.tourName}</h2>
+            <div className="text-sm text-text-secondary">{tour.attractionName}</div>
+            <p className="text-xs text-text-muted mt-2">{tour.className}</p>
+          </div>
+          <button type="button" onClick={onClose} className="text-text-muted hover:text-text-secondary text-lg">✕</button>
+        </div>
+      </div>
+      <TabBar tabs={['Details', 'Contacts']} active={activeTab} onChange={onTabChange} />
+      <div className="p-4 text-sm">
+        {activeTab === 'Details' && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <span className="text-text-muted text-xs">Tour Management Company</span>
+                <div className="text-text-primary">{tour.tourManagementCompanyName ?? '—'}</div>
+              </div>
+              <div>
+                <span className="text-text-muted text-xs">Preferred Venue Type</span>
+                <div className="text-text-primary">{tour.venueTypePreferenceName ?? '—'}</div>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <span className="text-text-muted text-xs">Audience Gender</span>
+                <div className="text-text-primary">{tour.audienceGender ?? '—'}</div>
+              </div>
+              <div>
+                <span className="text-text-muted text-xs">Audience Age Range</span>
+                <div className="text-text-primary">{tour.audienceAgeRange ?? '—'}</div>
+              </div>
+              <div>
+                <span className="text-text-muted text-xs">Licensing</span>
+                <div className="text-text-primary">{licenseSummary(tour)}</div>
+              </div>
+            </div>
+            <div>
+              <span className="text-text-muted text-xs">Tour Insurance Language</span>
+              <div className="text-text-primary whitespace-pre-wrap">{tour.tourInsuranceLanguage ?? '—'}</div>
+            </div>
+          </div>
+        )}
+        {activeTab === 'Contacts' && (
+          <div>
+            {!tour.tourManagementCompanyId ? (
+              <p className="text-text-secondary text-sm">No Tour Management Company assigned to this tour.</p>
+            ) : contactsQuery.isLoading ? (
+              <div className="flex items-center gap-2 text-text-muted text-sm">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading contacts...
+              </div>
+            ) : contactsQuery.isError ? (
+              <p className="text-text-secondary text-sm">Could not load contacts.</p>
+            ) : contacts.length === 0 ? (
+              <p className="text-text-secondary text-sm">No contacts listed for this Tour Management Company.</p>
+            ) : (
+              <div className="space-y-3">
+                {contacts.map((c) => (
+                  <div key={c.contactAssignmentId} className="bg-elevated border border-border rounded-lg p-3">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="font-medium text-text-primary">
+                          {c.firstName} {c.lastName}
+                        </div>
+                        <div className="text-xs text-text-secondary">
+                          {c.roleName} • {c.departmentName}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-2 text-xs text-text-secondary space-y-1">
+                      <div>{c.email}</div>
+                      {c.workPhone && <div>{c.workPhone}</div>}
+                      {c.cellPhone && <div>{c.cellPhone}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </Drawer>
   );
 }
 
@@ -169,8 +279,8 @@ export function AttractionToursPage({ addToast }: Props) {
   const lookupsQuery = useQuery({
     queryKey: ['attraction-tours-lookups'],
     queryFn: async () => {
-      const [classes, companies] = await Promise.all([fetchClasses(), fetchCompanies()]);
-      return { classes, companies };
+      const [classes, companies, venueTypes] = await Promise.all([fetchClasses(), fetchCompanies(), fetchVenueTypesLookup()]);
+      return { classes, companies, venueTypes };
     },
   });
 
@@ -295,6 +405,7 @@ export function AttractionToursPage({ addToast }: Props) {
   const lookups = lookupsQuery.data;
   const classes = lookups?.classes ?? [];
   const companies = lookups?.companies ?? [];
+  const venueTypes = lookups?.venueTypes ?? [];
 
   const managementCompanyOptions = useMemo(() => {
     const mgmt = companies.filter((c) => c.companyTypeName === 'Attraction Management');
@@ -589,7 +700,7 @@ export function AttractionToursPage({ addToast }: Props) {
                       <th className="text-left py-2.5 px-3">Tour Name</th>
                       <th className="text-left py-2.5 px-3">Attraction</th>
                       <th className="text-left py-2.5 px-3">Class</th>
-                      <th className="text-left py-2.5 px-3">Talent Agent</th>
+                      <th className="text-left py-2.5 px-3">Tour Management Company</th>
                       <th className="text-left py-2.5 px-3">Licensing</th>
                       <th className="w-10" />
                     </tr>
@@ -719,42 +830,12 @@ export function AttractionToursPage({ addToast }: Props) {
       )}
 
       {selectedTour && (
-        <Drawer onClose={() => setSelectedTourId(null)} width={1000}>
-          <div className="p-4 border-b border-border">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-text-primary">{selectedTour.tourName}</h2>
-                <div className="text-sm text-text-secondary">{selectedTour.attractionName}</div>
-                <p className="text-xs text-text-muted mt-2">{selectedTour.className}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelectedTourId(null)}
-                className="text-text-muted hover:text-text-secondary text-lg"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-          <TabBar tabs={['Details', 'Contacts']} active={tourDrawerTab} onChange={setTourDrawerTab} />
-          <div className="p-4 text-sm">
-            {tourDrawerTab === 'Details' && (
-              <div className="space-y-2">
-                <div>
-                  <span className="text-text-muted text-xs">Talent agent</span>
-                  <div className="text-text-primary">{selectedTour.tourManagementCompanyName ?? '—'}</div>
-                </div>
-                <div>
-                  <span className="text-text-muted text-xs">Licensing (ASCAP / BMI / SESAC / GMR)</span>
-                  <div className="text-text-primary">{licenseSummary(selectedTour)}</div>
-                </div>
-              </div>
-            )}
-            {tourDrawerTab === 'Contacts' && (
-              <p className="text-text-secondary text-sm">No contacts listed for this tour.</p>
-            )}
-          </div>
-        </Drawer>
+        <TourDrawer
+          tour={selectedTour}
+          onClose={() => setSelectedTourId(null)}
+          activeTab={tourDrawerTab}
+          onTabChange={setTourDrawerTab}
+        />
       )}
 
       {showAddAttraction && classes.length > 0 && (
@@ -786,6 +867,7 @@ export function AttractionToursPage({ addToast }: Props) {
             attractions={attractions}
             classes={classes}
             managementCompanyOptions={managementCompanyOptions}
+            venueTypes={venueTypes}
             submitting={createTourMut.isPending}
             onCancel={() => setShowAddTour(false)}
             onSave={(body) => void createTourMut.mutateAsync(body)}
@@ -798,6 +880,7 @@ export function AttractionToursPage({ addToast }: Props) {
             attractions={attractions}
             classes={classes}
             managementCompanyOptions={managementCompanyOptions}
+            venueTypes={venueTypes}
             initial={editTour}
             submitting={updateTourMut.isPending}
             onCancel={() => setEditTour(null)}
@@ -864,6 +947,7 @@ function TourFormDb({
   attractions,
   classes,
   managementCompanyOptions,
+  venueTypes,
   initial,
   submitting,
   onSave,
@@ -872,6 +956,7 @@ function TourFormDb({
   attractions: ApiAttractionListRow[];
   classes: ApiClass[];
   managementCompanyOptions: { value: string; label: string }[];
+  venueTypes: ApiVenueType[];
   initial?: ApiTourListRow;
   submitting: boolean;
   onSave: (body: import('@/api/attractionToursApi').CreateTourPayload | import('@/api/attractionToursApi').UpdateTourPayload) => void;
@@ -887,12 +972,16 @@ function TourFormDb({
   );
   /** Not persisted — skipped on save. */
   const [uiStatus, setUiStatus] = useState('');
-  const [routingStart, setRoutingStart] = useState('');
-  const [routingEnd, setRoutingEnd] = useState('');
   const [ascap, setAscap] = useState(initial?.ascap ?? false);
   const [bmi, setBmi] = useState(initial?.bmi ?? false);
   const [sesac, setSesac] = useState(initial?.sesac ?? false);
   const [gmr, setGmr] = useState(initial?.gmr ?? false);
+  const [audienceGender, setAudienceGender] = useState(initial?.audienceGender ?? '');
+  const [audienceAgeRange, setAudienceAgeRange] = useState(initial?.audienceAgeRange ?? '');
+  const [tourInsuranceLanguage, setTourInsuranceLanguage] = useState(initial?.tourInsuranceLanguage ?? '');
+  const [venueTypePreferenceId, setVenueTypePreferenceId] = useState(
+    initial?.venueTypePreferenceId != null ? String(initial.venueTypePreferenceId) : '',
+  );
 
   const inputCls =
     'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
@@ -904,6 +993,7 @@ function TourFormDb({
   const classOptions = classes.map((c) => ({ value: String(c.classId), label: c.className }));
   const mgmtOptions = [{ value: '', label: '—' }, ...managementCompanyOptions];
   const statusOptions = [{ value: '', label: '—' }, ...TOUR_STATUS_OPTIONS];
+  const venueTypeOptions = [{ value: '', label: '—' }, ...venueTypes.map((v) => ({ value: String(v.venueTypeId), label: v.venueTypeName }))];
 
   const valid = name.trim().length > 0 && attractionId && classId;
 
@@ -916,6 +1006,10 @@ function TourFormDb({
     sesac,
     gmr,
     tourManagementCompanyId: talentAgentCompanyId ? Number(talentAgentCompanyId) : null,
+    audienceGender: audienceGender.trim() || null,
+    audienceAgeRange: audienceAgeRange.trim() || null,
+    tourInsuranceLanguage: tourInsuranceLanguage.trim() || null,
+    venueTypePreferenceId: venueTypePreferenceId ? Number(venueTypePreferenceId) : null,
   });
 
   return (
@@ -937,7 +1031,7 @@ function TourFormDb({
           <Select2 options={classOptions} value={classId} onChange={setClassId} />
         </FormField>
       </div>
-      <FormField label="Talent Agent">
+      <FormField label="Tour Management Company">
         <Select2
           options={mgmtOptions}
           value={talentAgentCompanyId}
@@ -949,14 +1043,44 @@ function TourFormDb({
       <FormField label="Status (optional)">
         <Select2 options={statusOptions} value={uiStatus} onChange={setUiStatus} placeholder="—" allowClear />
       </FormField>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <FormField label="Routing start (optional)">
-          <input type="date" className={inputCls} value={routingStart} onChange={(e) => setRoutingStart(e.target.value)} />
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <FormField label="Audience Gender">
+          <input
+            className={inputCls}
+            value={audienceGender}
+            onChange={(e) => setAudienceGender(e.target.value)}
+            maxLength={100}
+            placeholder="e.g. All, Female, Male"
+          />
         </FormField>
-        <FormField label="Routing end (optional)">
-          <input type="date" className={inputCls} value={routingEnd} onChange={(e) => setRoutingEnd(e.target.value)} />
+        <FormField label="Audience Age Range">
+          <input
+            className={inputCls}
+            value={audienceAgeRange}
+            onChange={(e) => setAudienceAgeRange(e.target.value)}
+            maxLength={100}
+            placeholder="e.g. 18-35, All Ages"
+          />
+        </FormField>
+        <FormField label="Preferred Venue Type">
+          <Select2
+            options={venueTypeOptions}
+            value={venueTypePreferenceId}
+            onChange={setVenueTypePreferenceId}
+            placeholder="Select venue type…"
+            allowClear
+          />
         </FormField>
       </div>
+      <FormField label="Tour Insurance Language">
+        <textarea
+          className={inputCls}
+          value={tourInsuranceLanguage}
+          onChange={(e) => setTourInsuranceLanguage(e.target.value)}
+          rows={3}
+          placeholder="Enter insurance requirements and language…"
+        />
+      </FormField>
       <div>
         <span className="text-xs font-medium text-text-secondary">Performing rights</span>
         <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">

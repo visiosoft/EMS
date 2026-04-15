@@ -60,6 +60,11 @@ export interface CreateTourPayload {
   sesac?: boolean;
   gmr?: boolean;
   tourManagementCompanyId?: number | null;
+  audienceGender?: string | null;
+  audienceAgeRange?: string | null;
+  tourInsuranceLanguage?: string | null;
+  venueTypePreferenceId?: number | null;
+  techRiderLinkId?: number | null;
 }
 
 export type UpdateTourPayload = Partial<CreateTourPayload>;

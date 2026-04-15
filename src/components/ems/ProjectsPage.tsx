@@ -730,9 +730,9 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
         {step === 3 && (
           <div className="space-y-3">
             <div>
-              <h3 className="text-sm font-semibold text-text-primary mb-0.5">Select Talent Agent</h3>
+              <h3 className="text-sm font-semibold text-text-primary mb-0.5">Select Tour Management Company</h3>
               <p className="text-xs text-text-muted">
-                Select a talent agent for this project
+                Select a Tour Management Company for this project
               </p>
             </div>
             {agencyContacts.length === 0 ? (

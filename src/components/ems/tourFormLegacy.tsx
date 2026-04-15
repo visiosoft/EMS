@@ -138,12 +138,12 @@ export function TourForm({
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <FormField label="Talent Agent">
+        <FormField label="Tour Management Company">
           <Select2
             options={talentOptions}
             value={talentAgentContactId}
             onChange={setTalentAgentContactId}
-            placeholder="Select agent..."
+            placeholder="Select company..."
           />
         </FormField>
         <FormField label="Tour Type or Genres">
