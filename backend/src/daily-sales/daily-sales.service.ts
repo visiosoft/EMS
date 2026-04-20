@@ -1,4 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Address } from '../entities/address.entity';
@@ -108,5 +112,48 @@ export class DailySalesService {
       stateProvince: r['stateProvince'] != null ? String(r['stateProvince']) : null,
       dmaMarketName: r['dmaMarketName'] != null ? String(r['dmaMarketName']) : null,
     }));
+  }
+
+  /**
+   * PATCH /api/daily-sales/:performanceId/:salesDate
+   * Updates PerformanceSalesQuantity and/or PerformanceSalesRevenue
+   * in dbo.TicketingSales (composite PK: PerformanceID + SalesDate).
+   */
+  async updateSales(
+    performanceId: number,
+    salesDate: string,
+    body: { ticketsSold?: number | null; revenue?: number | null },
+  ): Promise<void> {
+    const row = await this.salesRepo.findOne({
+      where: { performanceId, salesDate },
+    });
+    if (!row) {
+      throw new NotFoundException({
+        message: `No TicketingSales record found for performanceId=${performanceId} salesDate=${salesDate}`,
+      });
+    }
+    if (body.ticketsSold !== undefined) {
+      if (
+        body.ticketsSold !== null &&
+        (!Number.isInteger(body.ticketsSold) || body.ticketsSold < 0)
+      ) {
+        throw new BadRequestException({
+          message: 'ticketsSold must be a non-negative integer or null.',
+        });
+      }
+      row.performanceSalesQuantity = body.ticketsSold;
+    }
+    if (body.revenue !== undefined) {
+      if (body.revenue !== null && body.revenue < 0) {
+        throw new BadRequestException({
+          message: 'revenue must be a non-negative number or null.',
+        });
+      }
+      row.performanceSalesRevenue =
+        body.revenue != null
+          ? parseFloat(body.revenue.toFixed(2))
+          : null;
+    }
+    await this.salesRepo.save(row);
   }
 }

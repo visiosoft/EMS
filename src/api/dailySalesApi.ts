@@ -26,3 +26,19 @@ export function fetchDailySales(engagementId?: number) {
   const qs = engagementId != null ? `?engagementId=${engagementId}` : '';
   return apiFetch<ApiDailySalesRow[]>(`/daily-sales${qs}`);
 }
+
+export interface UpdateDailySalesPayload {
+  ticketsSold?: number | null;
+  revenue?: number | null;
+}
+
+export function updateDailySales(
+  performanceId: number,
+  salesDate: string,
+  body: UpdateDailySalesPayload,
+) {
+  return apiFetch<void>(
+    `/daily-sales/${performanceId}/${encodeURIComponent(salesDate)}`,
+    { method: 'PATCH', body: JSON.stringify(body) },
+  );
+}
