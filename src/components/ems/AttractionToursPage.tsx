@@ -46,7 +46,7 @@ const PAGE_SIZE = 15;
 /** Matches Companies page loading + table shell styling. */
 function AttractionToursTableSkeleton({ variant }: { variant: 'attractions' | 'tours' }) {
   const isAttr = variant === 'attractions';
-  const colCount = isAttr ? 4 : 6;
+  const colCount = isAttr ? 4 : 5;
   return (
     <div
       className="bg-card border border-border rounded-lg overflow-hidden min-h-[28rem]"
@@ -82,7 +82,6 @@ function AttractionToursTableSkeleton({ variant }: { variant: 'attractions' | 't
                   <th className="text-left py-2.5 px-3">Attraction</th>
                   <th className="text-left py-2.5 px-3">Class</th>
                   <th className="text-left py-2.5 px-3">Tour Management Company</th>
-                  <th className="text-left py-2.5 px-3">Licensing</th>
                   <th className="w-10" />
                 </>
               )}
@@ -695,14 +694,13 @@ export function AttractionToursPage({ addToast }: Props) {
                       <th className="text-left py-2.5 px-3">Attraction</th>
                       <th className="text-left py-2.5 px-3">Class</th>
                       <th className="text-left py-2.5 px-3">Tour Management Company</th>
-                      <th className="text-left py-2.5 px-3">Licensing</th>
                       <th className="w-10" />
                     </tr>
                   </thead>
                   <tbody>
                     {filteredTours.length === 0 && !toursQuery.isError && (
                       <tr>
-                        <td colSpan={6} className="py-12 px-3 text-center text-sm text-text-muted">
+                        <td colSpan={5} className="py-12 px-3 text-center text-sm text-text-muted">
                           {tours.length === 0 ? 'No tours found.' : 'No tours match your search.'}
                         </td>
                       </tr>
@@ -726,7 +724,6 @@ export function AttractionToursPage({ addToast }: Props) {
                         <td className="py-2.5 px-3 text-text-secondary text-sm">
                           {t.tourManagementCompanyName ?? '—'}
                         </td>
-                        <td className="py-2.5 px-3 text-sm text-text-secondary">{licenseSummary(t)}</td>
                         <td className="py-2.5 px-3">
                           <ActionMenu
                             items={[
@@ -847,12 +844,10 @@ export function AttractionToursPage({ addToast }: Props) {
         </Modal>
       )}
       {showAddTour && classes.length > 0 && attractions.length > 0 && (
-        <Modal title="Add Tour" onClose={() => setShowAddTour(false)} width={960} allowContentOverflow>
-          <TourFormDb
+        <Modal title="Add Tour" onClose={() => setShowAddTour(false)} width={600} allowContentOverflow>
+          <AddTourForm
             attractions={attractions}
             classes={classes}
-            managementCompanyOptions={managementCompanyOptions}
-            venueTypes={venueTypes}
             submitting={createTourMut.isPending}
             onCancel={() => setShowAddTour(false)}
             onSave={(body) => void createTourMut.mutateAsync(body as import('@/api/attractionToursApi').CreateTourPayload)}
@@ -911,6 +906,98 @@ function AttractionForm({
           className="inline-flex items-center gap-2 bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {submitting ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving…</> : 'Save'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Simplified 3-field creation form — full details can be added later via Edit. */
+function AddTourForm({
+  attractions,
+  classes,
+  submitting,
+  onSave,
+  onCancel,
+}: {
+  attractions: ApiAttractionListRow[];
+  classes: ApiClass[];
+  submitting: boolean;
+  onSave: (body: import('@/api/attractionToursApi').CreateTourPayload) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [attractionId, setAttractionId] = useState(
+    String(attractions[0]?.attractionId ?? ''),
+  );
+  const [classId, setClassId] = useState(String(classes[0]?.classId ?? ''));
+
+  const inputCls =
+    'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
+
+  const attractionOptions = attractions.map((a) => ({
+    value: String(a.attractionId),
+    label: a.attractionName,
+  }));
+  const classOptions = classes.map((c) => ({
+    value: String(c.classId),
+    label: c.className,
+  }));
+
+  const valid = name.trim().length > 0 && attractionId && classId;
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-text-muted">
+        Enter the essentials now — all other details can be filled in later from the Tour entry.
+      </p>
+      <FormField label="Attraction" required>
+        <Select2 options={attractionOptions} value={attractionId} onChange={setAttractionId} />
+      </FormField>
+      <FormField label="Class (genre)" required>
+        <Select2 options={classOptions} value={classId} onChange={setClassId} />
+      </FormField>
+      <FormField label="Tour Name" required>
+        <input
+          className={inputCls}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          maxLength={200}
+          placeholder="e.g. World Tour 2025"
+          autoFocus
+        />
+      </FormField>
+      <div className="flex gap-2 justify-end pt-2 border-t border-border">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-text-secondary px-4 py-1.5 text-sm"
+          disabled={submitting}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={!valid || submitting}
+          onClick={() =>
+            onSave({
+              tourName: name.trim(),
+              attractionId: Number(attractionId),
+              classId: Number(classId),
+              ascap: false,
+              bmi: false,
+              sesac: false,
+              gmr: false,
+              tourManagementCompanyId: null,
+              audienceGender: null,
+              audienceAgeRange: null,
+              tourInsuranceLanguage: null,
+              venueTypePreferenceId: null,
+            })
+          }
+          className="px-4 py-1.5 rounded-md text-sm font-medium bg-ems-accent text-background hover:bg-ems-accent/80 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {submitting ? 'Saving…' : 'Create Tour'}
         </button>
       </div>
     </div>

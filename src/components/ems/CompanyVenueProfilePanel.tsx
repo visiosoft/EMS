@@ -235,11 +235,15 @@ export function CompanyVenueProfilePanel({
           </FormField>
           <div className="md:col-span-2">
             <FormField label="IAE relationship">
-              <input
-                className={inputCls}
+              <Select2
+                options={[
+                  { value: 'CoPro', label: 'CoPro' },
+                  { value: 'Rental', label: 'Rental' },
+                ]}
                 value={venueRelationshipIae}
-                onChange={(e) => setVenueRelationshipIae(e.target.value)}
-                maxLength={100}
+                onChange={setVenueRelationshipIae}
+                placeholder="Select relationship…"
+                allowClear
               />
             </FormField>
           </div>
