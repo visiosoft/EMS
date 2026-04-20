@@ -211,7 +211,7 @@ function EngagementsTab({ companyId }: { companyId: string }) {
       {rows.map((r) => (
         <li key={r.engagementId} className="border border-border rounded-md p-3">
           <div className="font-medium text-text-primary">
-            #{r.engagementId} — {r.engagementStatus}
+            #{r.engagementId}{r.engagementStatus && r.engagementStatus.toLowerCase() !== 'unknown' ? ` — ${r.engagementStatus}` : ''}
           </div>
           <div className="text-text-secondary">
             {r.attractionName ?? '—'}
@@ -862,7 +862,7 @@ function CompanyFormDb({
                 />
               </button>
               <span className="text-xs text-text-secondary">
-                {mailingEnabled ? 'Edit' : 'Same as physical'}
+                Edit
               </span>
             </div>
           </div>
@@ -1033,7 +1033,6 @@ function CompaniesTableSkeleton({ rows = COMPANIES_PAGE_SIZE }: { rows?: number 
               <th className="text-left py-2.5 px-3">Type</th>
               <th className="text-left py-2.5 px-3">City, State</th>
               <th className="text-left py-2.5 px-3">DMA</th>
-              <th className="text-left py-2.5 px-3">Status</th>
               <th className="w-10" />
             </tr>
           </thead>
@@ -1051,9 +1050,6 @@ function CompaniesTableSkeleton({ rows = COMPANIES_PAGE_SIZE }: { rows?: number 
                 </td>
                 <td className="py-3 px-3">
                   <Skeleton className="h-3 w-36 bg-muted/60" />
-                </td>
-                <td className="py-3 px-3">
-                  <Skeleton className="h-5 w-14 rounded bg-muted/80" />
                 </td>
                 <td className="py-3 px-3">
                   <Skeleton className="h-6 w-6 rounded bg-muted/60 ml-auto" />
@@ -1323,7 +1319,6 @@ export function CompaniesPage({ addToast }: Props) {
                   <th className="text-left py-2.5 px-3">Type</th>
                   <th className="text-left py-2.5 px-3">City, State</th>
                   <th className="text-left py-2.5 px-3">DMA</th>
-                  <th className="text-left py-2.5 px-3">Status</th>
                   <th className="w-10" />
                 </tr>
               </thead>
@@ -1331,7 +1326,7 @@ export function CompaniesPage({ addToast }: Props) {
                 {filtered.length === 0 && !companiesQuery.isError && (
                   <tr>
                     <td
-                      colSpan={6}
+                      colSpan={5}
                       className="py-12 px-3 text-center text-sm text-text-muted"
                     >
                       {companies.length === 0
@@ -1362,9 +1357,6 @@ export function CompaniesPage({ addToast }: Props) {
                     </td>
                     <td className="py-2.5 px-3 text-xs text-text-secondary">
                       {c.dmaMarketName ?? '—'}
-                    </td>
-                    <td className="py-2.5 px-3">
-                      <StatusBadge status={c.status} />
                     </td>
                     <td className="py-2.5 px-3">
                       <ActionMenu
