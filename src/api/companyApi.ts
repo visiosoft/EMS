@@ -274,6 +274,7 @@ export function fetchDmaByPostal(postalCode: string) {
 }
 
 export interface ApiDmaMarket {
+  dmaid: number;
   marketName: string;
 }
 

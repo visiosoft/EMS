@@ -36,7 +36,8 @@ import {
 } from '@/api/companyApi';
 import { mapApiCompanyToCompany } from './companyMapping';
 import { CompanyVenueProfilePanel } from './CompanyVenueProfilePanel';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Pencil, Trash2, Check, X } from 'lucide-react';
+import { useRef } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import {
@@ -135,42 +136,283 @@ function renderMailingAddressValue(c: Company) {
   return renderPhysicalAddressValue(c);
 }
 
-function OverviewFields({ selectedCompany }: { selectedCompany: Company }) {
-  const c = selectedCompany;
-  const dmaDisplay = c.dmaMarketName ?? '—';
+// ─── Inline edit primitives ───────────────────────────────────────────────────
+
+function InlineEditField({
+  label, value, onChange, placeholder = '—', multiline = false,
+}: {
+  label: string; value: string; onChange: (v: string) => void;
+  placeholder?: string; multiline?: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const ref = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
+
+  const start = () => { setDraft(value); setEditing(true); setTimeout(() => ref.current?.focus(), 0); };
+  const commit = () => { if (draft !== value) onChange(draft); setEditing(false); };
+  const cancel = () => setEditing(false);
+
+  if (editing) {
+    return (
+      <div>
+        <label className="text-xs text-text-muted block mb-0.5">{label}</label>
+        <div className="flex items-start gap-1.5">
+          {multiline ? (
+            <textarea
+              ref={ref as React.Ref<HTMLTextAreaElement>}
+              rows={3}
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Escape') cancel(); }}
+              className="flex-1 bg-surface border border-ems-accent rounded px-2 py-1 text-sm text-text-primary focus:outline-none resize-none"
+            />
+          ) : (
+            <input
+              ref={ref as React.Ref<HTMLInputElement>}
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') cancel(); }}
+              className="flex-1 bg-surface border border-ems-accent rounded px-2 py-1 text-sm text-text-primary focus:outline-none"
+            />
+          )}
+          <div className="flex gap-0.5 mt-0.5 shrink-0">
+            <button onClick={commit} title="Save field" className="p-1 text-ems-accent hover:bg-elevated rounded transition-colors"><Check className="h-3.5 w-3.5" /></button>
+            <button onClick={cancel} title="Cancel" className="p-1 text-text-muted hover:bg-elevated rounded transition-colors"><X className="h-3.5 w-3.5" /></button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="text-sm space-y-6">
-      <div className="border-b border-border/80 pb-5">
-        <span className={overviewLabelCls}>Company name</span>
-        <div className={`${overviewValueCls} text-base font-semibold`}>
-          {c.name}
+    <div>
+      <label className="text-xs text-text-muted block mb-0.5">{label}</label>
+      <div
+        onClick={start}
+        className="group flex items-start gap-2 cursor-pointer py-0.5 px-1.5 -mx-1.5 rounded-md hover:bg-elevated transition-colors"
+        title="Click to edit"
+      >
+        <span className={`text-sm flex-1 ${value ? 'text-text-primary' : 'text-text-muted italic'}`}>
+          {value || placeholder}
+        </span>
+        <Pencil className="h-3 w-3 text-text-muted opacity-0 group-hover:opacity-50 transition-opacity shrink-0 mt-0.5" />
+      </div>
+    </div>
+  );
+}
+
+function InlineSelectField({
+  label, value, onChange, options,
+}: {
+  label: string; value: string; onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  const [editing, setEditing] = useState(false);
+  const display = (options.find(o => o.value === value)?.label ?? value) || '—';
+
+  if (editing) {
+    return (
+      <div>
+        <label className="text-xs text-text-muted block mb-0.5">{label}</label>
+        <div className="flex items-center gap-1.5">
+          <div className="flex-1">
+            <Select2 options={options} value={value} onChange={v => { onChange(v); setEditing(false); }} />
+          </div>
+          <button onClick={() => setEditing(false)} className="p-1 text-text-muted hover:bg-elevated rounded"><X className="h-3.5 w-3.5" /></button>
         </div>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
-        <div className="min-w-0">
-          <span className={overviewLabelCls}>Company type</span>
-          <div className={overviewValueCls}>{c.type || '—'}</div>
+    );
+  }
+
+  return (
+    <div>
+      <label className="text-xs text-text-muted block mb-0.5">{label}</label>
+      <div
+        onClick={() => setEditing(true)}
+        className="group flex items-center gap-2 cursor-pointer py-0.5 px-1.5 -mx-1.5 rounded-md hover:bg-elevated transition-colors"
+        title="Click to edit"
+      >
+        <span className="text-sm text-text-primary flex-1">{display}</span>
+        <Pencil className="h-3 w-3 text-text-muted opacity-0 group-hover:opacity-50 transition-opacity shrink-0" />
+      </div>
+    </div>
+  );
+}
+
+// ─── Inline-editable Overview tab ────────────────────────────────────────────
+
+function InlineEditableOverview({
+  company, companyTypes, addToast, onSaved,
+}: {
+  company: Company;
+  companyTypes: { companyTypeId: number; companyTypeName: string }[];
+  addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  onSaved: () => void;
+}) {
+  const [name, setName]             = useState(company.name);
+  const [typeId, setTypeId]         = useState(company.companyTypeId != null ? String(company.companyTypeId) : '');
+  const [physStreet, setPhysStreet] = useState(company.physicalStreet ?? '');
+  const [physCity, setPhysCity]     = useState(company.physicalCity ?? company.city ?? '');
+  const [physState, setPhysState]   = useState(company.physicalState ?? company.state ?? '');
+  const [physPostal, setPhysPostal] = useState(company.physicalPostalCode ?? '');
+  const [physCountry, setPhysCountry] = useState(company.physicalCountry ?? 'USA');
+  const [mailStreet, setMailStreet] = useState(company.mailingStreet ?? '');
+  const [mailCity, setMailCity]     = useState(company.mailingCity ?? '');
+  const [mailState, setMailState]   = useState(company.mailingState ?? '');
+  const [mailPostal, setMailPostal] = useState(company.mailingPostalCode ?? '');
+  const [mailCountry, setMailCountry] = useState(company.mailingCountry ?? 'USA');
+  const [dirty, setDirty]           = useState(false);
+  const [saving, setSaving]         = useState(false);
+
+  // Sync when a different company is selected
+  useEffect(() => {
+    setName(company.name);
+    setTypeId(company.companyTypeId != null ? String(company.companyTypeId) : '');
+    setPhysStreet(company.physicalStreet ?? '');
+    setPhysCity(company.physicalCity ?? company.city ?? '');
+    setPhysState(company.physicalState ?? company.state ?? '');
+    setPhysPostal(company.physicalPostalCode ?? '');
+    setPhysCountry(company.physicalCountry ?? 'USA');
+    setMailStreet(company.mailingStreet ?? '');
+    setMailCity(company.mailingCity ?? '');
+    setMailState(company.mailingState ?? '');
+    setMailPostal(company.mailingPostalCode ?? '');
+    setMailCountry(company.mailingCountry ?? 'USA');
+    setDirty(false);
+  }, [company.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const mark = <T,>(setter: (v: T) => void) => (v: T) => { setter(v); setDirty(true); };
+
+  const typeOptions = companyTypes.map(t => ({ value: String(t.companyTypeId), label: t.companyTypeName }));
+
+  const discard = () => {
+    setName(company.name); setTypeId(company.companyTypeId != null ? String(company.companyTypeId) : '');
+    setPhysStreet(company.physicalStreet ?? ''); setPhysCity(company.physicalCity ?? company.city ?? '');
+    setPhysState(company.physicalState ?? company.state ?? ''); setPhysPostal(company.physicalPostalCode ?? '');
+    setPhysCountry(company.physicalCountry ?? 'USA'); setMailStreet(company.mailingStreet ?? '');
+    setMailCity(company.mailingCity ?? ''); setMailState(company.mailingState ?? '');
+    setMailPostal(company.mailingPostalCode ?? ''); setMailCountry(company.mailingCountry ?? 'USA');
+    setDirty(false);
+  };
+
+  const handleSave = async () => {
+    if (!name.trim()) { addToast('Company name is required.', 'warning'); return; }
+    setSaving(true);
+    try {
+      const hasMailingData = !!(mailStreet.trim() || mailCity.trim());
+      await updateCompany(Number(company.id), {
+        companyName: name.trim(),
+        ...(typeId ? { companyTypeId: Number(typeId) } : {}),
+        physical: {
+          addressLine1: physStreet.trim().slice(0, 200),
+          addressLine2: null,
+          city: physCity.trim().slice(0, 100),
+          stateProvince: physState.trim().slice(0, 100),
+          postalCode: physPostal.trim().slice(0, 20),
+          country: physCountry.trim().slice(0, 100),
+        },
+        mailingSameAsPhysical: !hasMailingData,
+        mailing: hasMailingData ? {
+          addressLine1: mailStreet.trim().slice(0, 200),
+          addressLine2: null,
+          city: mailCity.trim().slice(0, 100),
+          stateProvince: mailState.trim().slice(0, 100),
+          postalCode: mailPostal.trim().slice(0, 20),
+          country: mailCountry.trim().slice(0, 100),
+        } : undefined,
+      });
+      setDirty(false);
+      addToast('Company updated successfully.', 'success');
+      onSaved();
+    } catch (e) {
+      addToast(friendlyApiError(e, 'Could not update company.'), 'error');
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="relative">
+      {/* Edit hint */}
+      <p className="flex items-center gap-1.5 text-[11px] text-text-muted mb-4 select-none">
+        <Pencil className="h-3 w-3 shrink-0" />
+        Click any field to edit it inline
+      </p>
+
+      <div className="space-y-6 pb-2">
+        {/* Name */}
+        <div className="border-b border-border/80 pb-5">
+          <InlineEditField label="Company Name" value={name} onChange={mark(setName)} />
         </div>
-        <div className="min-w-0">
-          <span className={overviewLabelCls}>Status</span>
-          <div className={overviewValueCls}>{c.status}</div>
-          <p className="text-[11px] text-text-muted mt-1.5 leading-snug">
-            Optional — not saved in the database.
-          </p>
+
+        {/* Type + DMA */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
+          <InlineSelectField label="Company Type" value={typeId} onChange={mark(setTypeId)} options={typeOptions} />
+          <div>
+            <span className="text-xs text-text-muted">DMA</span>
+            <div className="text-sm text-text-primary mt-0.5">{company.dmaMarketName ?? '—'}</div>
+            <p className="text-[11px] text-text-muted mt-1">Auto-resolved from postal code.</p>
+          </div>
         </div>
-        <div className="min-w-0 sm:col-span-1">
-          <span className={overviewLabelCls}>Physical address</span>
-          {renderPhysicalAddressValue(c)}
+
+        {/* Physical Address */}
+        <div className="space-y-3">
+          <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wide border-b border-border/60 pb-1.5">
+            Physical Address
+          </h4>
+          <InlineEditField label="Street" value={physStreet} onChange={mark(setPhysStreet)} placeholder="Not set" />
+          <div className="grid grid-cols-2 gap-4">
+            <InlineEditField label="City" value={physCity} onChange={mark(setPhysCity)} placeholder="Not set" />
+            <InlineEditField label="State / Province" value={physState} onChange={mark(setPhysState)} placeholder="Not set" />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <InlineEditField label="Postal Code" value={physPostal} onChange={mark(setPhysPostal)} placeholder="Not set" />
+            <InlineEditField label="Country" value={physCountry} onChange={mark(setPhysCountry)} />
+          </div>
         </div>
-        <div className="min-w-0 sm:col-span-1">
-          <span className={overviewLabelCls}>Mailing address</span>
-          {renderMailingAddressValue(c)}
-        </div>
-        <div className="min-w-0 sm:col-span-2 pt-1 border-t border-border/60">
-          <span className={overviewLabelCls}>DMA</span>
-          <div className={overviewValueCls}>{dmaDisplay}</div>
+
+        {/* Mailing Address */}
+        <div className="space-y-3">
+          <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wide border-b border-border/60 pb-1.5">
+            Mailing Address
+            <span className="ml-2 font-normal text-text-muted normal-case tracking-normal">
+              (leave blank to use physical)
+            </span>
+          </h4>
+          <InlineEditField label="Street" value={mailStreet} onChange={mark(setMailStreet)} placeholder="Same as physical" />
+          <div className="grid grid-cols-2 gap-4">
+            <InlineEditField label="City" value={mailCity} onChange={mark(setMailCity)} placeholder="Same as physical" />
+            <InlineEditField label="State / Province" value={mailState} onChange={mark(setMailState)} placeholder="Same as physical" />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <InlineEditField label="Postal Code" value={mailPostal} onChange={mark(setMailPostal)} placeholder="Same as physical" />
+            <InlineEditField label="Country" value={mailCountry} onChange={mark(setMailCountry)} placeholder="Same as physical" />
+          </div>
         </div>
       </div>
+
+      {/* Sticky save bar — only visible when dirty */}
+      {dirty && (
+        <div className="sticky bottom-0 -mx-4 px-4 py-3 mt-4 bg-card/95 backdrop-blur-sm border-t border-border flex items-center justify-between gap-3 z-10">
+          <span className="text-xs text-text-secondary flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-ems-accent inline-block animate-pulse" />
+            Unsaved changes
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button" onClick={discard} disabled={saving}
+              className="text-text-secondary text-xs px-3 py-1.5 hover:text-text-primary rounded-md hover:bg-elevated transition-colors disabled:opacity-50"
+            >
+              Discard
+            </button>
+            <button
+              type="button" onClick={() => void handleSave()} disabled={saving}
+              className="inline-flex items-center gap-1.5 bg-ems-accent hover:bg-ems-accent/80 text-background text-xs px-4 py-1.5 rounded-md font-medium disabled:opacity-60 transition-colors"
+            >
+              {saving && <Loader2 className="h-3 w-3 animate-spin" />}
+              Save changes
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1070,7 +1312,6 @@ export function CompaniesPage({ addToast }: Props) {
   const [page, setPage] = useState(1);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [editCompany, setEditCompany] = useState<Company | null>(null);
   const [drawerTab, setDrawerTab] = useState('Overview');
   const [showAddContact, setShowAddContact] = useState(false);
   const [editContact, setEditContact] = useState<Contact | null>(null);
@@ -1319,14 +1560,13 @@ export function CompaniesPage({ addToast }: Props) {
                   <th className="text-left py-2.5 px-3">Type</th>
                   <th className="text-left py-2.5 px-3">City, State</th>
                   <th className="text-left py-2.5 px-3">DMA</th>
-                  <th className="w-10" />
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 && !companiesQuery.isError && (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={4}
                       className="py-12 px-3 text-center text-sm text-text-muted"
                     >
                       {companies.length === 0
@@ -1357,25 +1597,6 @@ export function CompaniesPage({ addToast }: Props) {
                     </td>
                     <td className="py-2.5 px-3 text-xs text-text-secondary">
                       {c.dmaMarketName ?? '—'}
-                    </td>
-                    <td className="py-2.5 px-3">
-                      <ActionMenu
-                        items={[
-                          {
-                            label: 'View Details',
-                            onClick: () => {
-                              setSelectedCompanyId(c.id);
-                              setDrawerTab('Overview');
-                            },
-                          },
-                          { label: 'Edit', onClick: () => setEditCompany(c) },
-                          {
-                            label: 'Delete',
-                            onClick: () => setCompanyPendingDelete(c),
-                            danger: true,
-                          },
-                        ]}
-                      />
                     </td>
                   </tr>
                 ))}
@@ -1442,10 +1663,19 @@ export function CompaniesPage({ addToast }: Props) {
                 <StatusBadge status={selectedCompany.status} />
               </div>
             </div>
+            {/* Delete button in header */}
+            <button
+              type="button"
+              onClick={() => setCompanyPendingDelete(selectedCompany)}
+              title="Delete this company"
+              className="p-1.5 text-text-muted hover:text-ems-coral hover:bg-ems-coral-dim rounded-md transition-colors"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
             <button
               type="button"
               onClick={() => setSelectedCompanyId(null)}
-              className="text-text-muted hover:text-text-secondary text-lg"
+              className="text-text-muted hover:text-text-secondary text-lg p-1"
             >
               ✕
             </button>
@@ -1454,8 +1684,13 @@ export function CompaniesPage({ addToast }: Props) {
           <TabBar tabs={drawerTabs} active={drawerTab} onChange={setDrawerTab} />
 
           <div className="p-4">
-            {drawerTab === 'Overview' && (
-              <OverviewFields selectedCompany={selectedCompany} />
+            {drawerTab === 'Overview' && lookupsQuery.data && (
+              <InlineEditableOverview
+                company={selectedCompany}
+                companyTypes={lookupsQuery.data.companyTypes}
+                addToast={addToast}
+                onSaved={refetchCompanyList}
+              />
             )}
 
             {drawerTab === 'Contacts' && (
@@ -1637,31 +1872,6 @@ export function CompaniesPage({ addToast }: Props) {
                 addToast('Company saved. You can find it in the list.', 'success');
               } catch (e) {
                 addToast(friendlyApiError(e, 'Could not save the company.'), 'error');
-              }
-            }}
-          />
-        </Modal>
-      )}
-
-      {editCompany && lookupsQuery.data && (
-        <Modal
-          title="Edit Company"
-          onClose={() => setEditCompany(null)}
-          width={960}
-        >
-          <CompanyFormDb
-            key={editCompany.id}
-            companyTypes={lookupsQuery.data.companyTypes}
-            initial={editCompany}
-            onCancel={() => setEditCompany(null)}
-            onSubmit={async (payload) => {
-              try {
-                await updateCompany(Number(editCompany.id), payload);
-                await refetchCompanyList();
-                setEditCompany(null);
-                addToast('Changes saved.', 'success');
-              } catch (e) {
-                addToast(friendlyApiError(e, 'Could not save changes.'), 'error');
               }
             }}
           />
