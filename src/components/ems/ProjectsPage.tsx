@@ -11,7 +11,7 @@
  *   - Modals for create / edit
  */
 
-import React, { useCallback, useEffect, useMemo, useState, Component, type ReactNode } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -35,7 +35,6 @@ import {
   TabBar,
 } from './Primitives';
 import { Select2 } from './Select2';
-import { SimpleCreateProjectForm } from './SimpleCreateProjectForm';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import {
   createPerformanceOption,
@@ -63,26 +62,6 @@ import type {
 } from '@/api/projectApi';
 import { fetchAttractions, fetchTours } from '@/api/attractionToursApi';
 import { fetchCompanies, searchDmaMarkets } from '@/api/companyApi';
-
-// ─── Error Boundary ──────────────────────────────────────────────────────────
-
-interface EBState { hasError: boolean; error: Error | null }
-class ErrorBoundary extends Component<{ children: ReactNode }, EBState> {
-  state: EBState = { hasError: false, error: null };
-  static getDerivedStateFromError(error: Error) { return { hasError: true, error }; }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="bg-ems-coral-dim border border-ems-coral/30 rounded-lg p-4 m-4">
-          <p className="text-ems-coral text-sm font-medium">Component Error</p>
-          <p className="text-xs text-text-secondary mt-1">{this.state.error?.message}</p>
-          <button type="button" onClick={() => this.setState({ hasError: false, error: null })} className="mt-2 text-xs text-ems-accent hover:underline">Try again</button>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -603,9 +582,10 @@ function CreateProjectForm({
 }: {
   onSaved: (id: number) => void; onCancel: () => void; addToast: Props['addToast'];
 }) {
-  // Data queries - only fetch companies when user reaches step 2
+  // Data queries
   const attractionsQuery = useQuery({ queryKey: ['attractions'], queryFn: fetchAttractions, staleTime: 60_000 });
   const toursQuery = useQuery({ queryKey: ['tours'], queryFn: fetchTours, staleTime: 60_000 });
+  const companiesQuery = useQuery({ queryKey: ['companies'], queryFn: fetchCompanies, staleTime: 60_000 });
 
   // Wizard state
   const [step, setStep] = useState(1);
@@ -616,17 +596,11 @@ function CreateProjectForm({
   // Step 2: Tour Management Company (optional)
   const [tourManagementCompanyId, setTourManagementCompanyId] = useState<number | null>(null);
   const [companySearch, setCompanySearch] = useState('');
-  const companiesQuery = useQuery({
-    queryKey: ['companies'],
-    queryFn: fetchCompanies,
-    staleTime: 60_000,
-    enabled: step >= 2,
-  });
 
   // Step 3: Markets/DMAs
-  const [selectedMarkets, setSelectedMarkets] = useState<string[]>([]);
+  const [selectedDmaIds, setSelectedDmaIds] = useState<number[]>([]);
   const [marketSearch, setMarketSearch] = useState('');
-  const [marketSearchResults, setMarketSearchResults] = useState<string[]>([]);
+  const [marketSearchResults, setMarketSearchResults] = useState<{ dmaid: number; marketName: string }[]>([]);
   const [searchingMarkets, setSearchingMarkets] = useState(false);
 
   // Step 4: Project Details
@@ -653,7 +627,6 @@ function CreateProjectForm({
 
   // Management company options (filter by company type or show all)
   const managementCompanyOptions = useMemo(() => {
-    if (!companies.length) return [];
     const mgmt = companies.filter(c => c.companyTypeName === 'Attraction Management');
     const pool = mgmt.length ? mgmt : companies;
     return pool
@@ -662,9 +635,8 @@ function CreateProjectForm({
       .slice(0, 10);
   }, [companies, companySearch]);
 
-  // Search markets effect - only when on step 3
+  // Search markets effect
   useEffect(() => {
-    if (step < 3) return;
     const search = async () => {
       if (!marketSearch.trim()) {
         setMarketSearchResults([]);
@@ -673,8 +645,9 @@ function CreateProjectForm({
       setSearchingMarkets(true);
       try {
         const results = await searchDmaMarkets(marketSearch, 20);
-        setMarketSearchResults((results ?? []).map(r => r.marketName).filter(name => !selectedMarkets.includes(name)));
+        setMarketSearchResults((results ?? []).filter(r => !selectedDmaIds.includes(r.dmaid)));
       } catch {
+        // silently fail
         setMarketSearchResults([]);
       } finally {
         setSearchingMarkets(false);
@@ -682,10 +655,10 @@ function CreateProjectForm({
     };
     const timer = setTimeout(search, 300);
     return () => clearTimeout(timer);
-  }, [step, marketSearch, selectedMarkets]);
+  }, [marketSearch, selectedDmaIds]);
 
   const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted';
-  const lookupsLoading = attractionsQuery.isPending || toursQuery.isPending;
+  const lookupsLoading = attractionsQuery.isPending || toursQuery.isPending || companiesQuery.isPending;
 
   const selectedTour = selectedTourId ? tours.find(t => t.tourId === selectedTourId) : null;
   const selectedAttraction = selectedTour ? attractions.find(a => a.attractionId === selectedTour.attractionId) : null;
@@ -706,7 +679,7 @@ function CreateProjectForm({
         projectStage,
         createdBy: createdBy.trim() || null,
         // Include selected DMAs in notes for now (frontend-only field)
-        notes: selectedMarkets.length > 0 ? `Selected Markets: ${selectedMarkets.join(', ')}` : null,
+        notes: selectedDmaIds.length > 0 ? `Selected Markets: ${selectedDmaIds.join(', ')}` : null,
       });
       onSaved(res.engagementProjectId);
     } catch (e) {
@@ -714,15 +687,15 @@ function CreateProjectForm({
     } finally { setSaving(false); }
   };
 
-  const addMarket = (name: string) => {
-    if (!selectedMarkets.includes(name)) {
-      setSelectedMarkets(prev => [...prev, name]);
+  const addMarket = (dmaid: number) => {
+    if (!selectedDmaIds.includes(dmaid)) {
+      setSelectedDmaIds(prev => [...prev, dmaid]);
     }
     setMarketSearch('');
   };
 
-  const removeMarket = (name: string) => {
-    setSelectedMarkets(prev => prev.filter(n => n !== name));
+  const removeMarket = (dmaid: number) => {
+    setSelectedDmaIds(prev => prev.filter(id => id !== dmaid));
   };
 
   if (lookupsLoading) {
@@ -850,32 +823,35 @@ function CreateProjectForm({
             )}
             {marketSearch && marketSearchResults.length > 0 && (
               <div className="absolute z-10 w-full mt-1 bg-card border border-border rounded-md shadow-lg max-h-[200px] overflow-y-auto">
-                {marketSearchResults.map(name => (
+                {marketSearchResults.map(market => (
                   <button
-                    key={name}
+                    key={market.dmaid}
                     type="button"
-                    onClick={() => addMarket(name)}
+                    onClick={() => addMarket(market.dmaid)}
                     className="w-full text-left px-3 py-2 text-sm hover:bg-hover text-text-secondary border-b border-border/50 last:border-0"
                   >
-                    {name}
+                    {market.marketName}
                   </button>
                 ))}
               </div>
             )}
           </div>
-          {selectedMarkets.length > 0 && (
+          {selectedDmaIds.length > 0 && (
             <div className="space-y-2">
               <p className="text-xs font-medium text-text-secondary">Selected Markets:</p>
               <div className="flex flex-wrap gap-2">
-                {selectedMarkets.map(name => (
-                  <span
-                    key={name}
-                    className="inline-flex items-center gap-1 px-2 py-1 bg-ems-accent/10 text-text-primary text-xs rounded-md border border-ems-accent/30"
-                  >
-                    {name}
-                    <button type="button" onClick={() => removeMarket(name)} className="text-text-muted hover:text-ems-coral">×</button>
-                  </span>
-                ))}
+                {selectedDmaIds.map(dmaid => {
+                  const market = marketSearchResults.find(m => m.dmaid === dmaid);
+                  return (
+                    <span
+                      key={dmaid}
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-ems-accent/10 text-text-primary text-xs rounded-md border border-ems-accent/30"
+                    >
+                      Market #{dmaid}
+                      <button type="button" onClick={() => removeMarket(dmaid)} className="text-text-muted hover:text-ems-coral">×</button>
+                    </span>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -909,7 +885,7 @@ function CreateProjectForm({
               </FormField>
               <FormField label="Markets Selected">
                 <div className="text-sm text-text-primary bg-surface px-3 py-1.5 rounded border border-border">
-                  {selectedMarkets.length > 0 ? `${selectedMarkets.length} market(s)` : '— None —'}
+                  {selectedDmaIds.length > 0 ? `${selectedDmaIds.length} market(s)` : '— None —'}
                 </div>
               </FormField>
             </div>
@@ -1291,19 +1267,17 @@ export function ProjectsPage({ addToast }: Props) {
       {/* Create modal */}
       {showCreateModal && (
         <Modal title="Create Project" onClose={() => setShowCreateModal(false)} width={700}>
-          <ErrorBoundary>
-            <CreateProjectForm
-              key="create-project"
-              onSaved={async (id) => {
-                await refetch();
-                setShowCreateModal(false);
-                addToast('Project created successfully.', 'success');
-                setSelectedProjectId(id);
-              }}
-              onCancel={() => setShowCreateModal(false)}
-              addToast={addToast}
-            />
-          </ErrorBoundary>
+          <CreateProjectForm
+            key="create-project"
+            onSaved={async (id) => {
+              await refetch();
+              setShowCreateModal(false);
+              addToast('Project created successfully.', 'success');
+              setSelectedProjectId(id);
+            }}
+            onCancel={() => setShowCreateModal(false)}
+            addToast={addToast}
+          />
         </Modal>
       )}
 

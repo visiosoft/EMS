@@ -31,6 +31,8 @@ import {
   addEngagementVenue,
   removeEngagementVenue,
   updateEngagement,
+  updateEngagementPerformance,
+  deleteEngagementPerformance,
   type ApiEngagementListRow,
   type ApiEngagementVenueRow,
 } from '@/api/engagementApi';
@@ -290,6 +292,126 @@ function VenuesTab({
 }
 
 // ---------------------------------------------------------------------------
+// Editable Performance Row (Item 4 — edit dates/times inline)
+// ---------------------------------------------------------------------------
+
+function EditablePerformanceRow({
+  perf,
+  isPrimary,
+  engagementId,
+  onRefresh,
+  addToast,
+}: {
+  perf: { performanceId: number; performanceDate: string; performanceTime: string; performanceStatus: string };
+  isPrimary: boolean;
+  engagementId: number;
+  onRefresh: () => void;
+  addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [date, setDate] = useState(perf.performanceDate);
+  const [time, setTime] = useState(perf.performanceTime.slice(0, 5)); // HH:MM
+  const [status, setStatus] = useState(perf.performanceStatus);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const inputCls = 'w-full bg-surface border border-border rounded px-2 py-1 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
+
+  const handleSave = async () => {
+    if (!date) { addToast('Date is required.', 'warning'); return; }
+    if (!time) { addToast('Time is required.', 'warning'); return; }
+    setSaving(true);
+    try {
+      await updateEngagementPerformance(engagementId, perf.performanceId, {
+        performanceDate: date,
+        performanceTime: time,
+        performanceStatus: status,
+      });
+      addToast('Performance updated.', 'success');
+      setEditing(false);
+      onRefresh();
+    } catch (e) {
+      addToast(friendlyApiError(e), 'error');
+    } finally { setSaving(false); }
+  };
+
+  const handleDelete = async () => {
+    if (!confirm('Delete this performance? This cannot be undone.')) return;
+    setDeleting(true);
+    try {
+      await deleteEngagementPerformance(engagementId, perf.performanceId);
+      addToast('Performance removed.', 'warning');
+      onRefresh();
+    } catch (e) {
+      addToast(friendlyApiError(e), 'error');
+    } finally { setDeleting(false); }
+  };
+
+  if (editing) {
+    return (
+      <li className="border border-ems-accent/40 rounded-lg px-4 py-3 bg-ems-accent/5 space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label className="text-xs text-text-muted block mb-1">Date *</label>
+            <input type="date" className={inputCls} value={date} onChange={e => setDate(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs text-text-muted block mb-1">Show Time *</label>
+            <input type="time" className={inputCls} value={time} onChange={e => setTime(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs text-text-muted block mb-1">Status</label>
+            <input className={inputCls} value={status} onChange={e => setStatus(e.target.value)} maxLength={50} />
+          </div>
+        </div>
+        <div className="flex items-center gap-2 justify-end">
+          <button type="button" onClick={() => setEditing(false)} disabled={saving}
+            className="text-text-secondary text-xs px-3 py-1.5 hover:text-text-primary disabled:opacity-50">
+            Cancel
+          </button>
+          <button type="button" onClick={() => void handleSave()} disabled={saving}
+            className="inline-flex items-center gap-1.5 bg-ems-accent text-background text-xs px-4 py-1.5 rounded font-medium disabled:opacity-60">
+            {saving && <Loader2 className="h-3 w-3 animate-spin" />}
+            Save
+          </button>
+        </div>
+      </li>
+    );
+  }
+
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-2 border border-border rounded-lg px-4 py-3 bg-surface/40 group">
+      <div>
+        <div className="text-sm font-medium text-text-primary">
+          {formatPerformanceDateDisplay(perf.performanceDate)}
+        </div>
+        <div className="text-xs text-text-secondary mt-0.5">
+          Show {formatPerformanceTimeDisplay(perf.performanceTime)} · {perf.performanceStatus}
+        </div>
+        <div className="text-[10px] text-text-muted mt-0.5 font-mono">
+          PerformanceID: {perf.performanceId}
+        </div>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        {isPrimary && (
+          <span className="text-xs font-medium bg-ems-accent/15 text-ems-accent px-2 py-0.5 rounded">
+            Primary
+          </span>
+        )}
+        <button type="button" onClick={() => setEditing(true)}
+          className="text-xs text-text-muted hover:text-ems-accent px-2 py-1 rounded hover:bg-elevated opacity-0 group-hover:opacity-100 transition-opacity">
+          Edit
+        </button>
+        <button type="button" onClick={() => void handleDelete()} disabled={deleting}
+          className="text-xs text-text-muted hover:text-ems-coral px-2 py-1 rounded hover:bg-elevated opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50">
+          {deleting ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Delete'}
+        </button>
+      </div>
+    </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main detail page
 // ---------------------------------------------------------------------------
 
@@ -457,11 +579,22 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
       {/* Header card */}
       <div className="bg-card border border-border rounded-lg p-4">
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-lg font-semibold text-text-primary break-words">
-              {row.displayTitle}
-            </h1>
-            <p className="text-xs text-text-muted mt-1">Engagement #{row.engagementId}</p>
+          <div className="min-w-0 space-y-1">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+              <span>
+                <span className="text-text-muted text-xs font-medium">Attraction: </span>
+                <span className="text-text-primary font-semibold">{row.attractionName ?? '—'}</span>
+              </span>
+              <span>
+                <span className="text-text-muted text-xs font-medium">Tour: </span>
+                <span className="text-text-primary font-semibold">{row.tourName ?? '—'}</span>
+              </span>
+              <span>
+                <span className="text-text-muted text-xs font-medium">Venue: </span>
+                <span className="text-text-primary font-semibold">{row.venueCompanyName ?? row.venueName ?? '—'}</span>
+              </span>
+            </div>
+            <p className="text-xs text-text-muted">Engagement #{row.engagementId}</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <div className="w-44">
@@ -745,28 +878,14 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
           ) : (
             <ul className="space-y-2">
               {(performancesQuery.data ?? []).map((p, idx) => (
-                <li
+                <EditablePerformanceRow
                   key={p.performanceId}
-                  className="flex flex-wrap items-center justify-between gap-2 border border-border rounded-lg px-4 py-3 bg-surface/40"
-                >
-                  <div>
-                    <div className="text-sm font-medium text-text-primary">
-                      {formatPerformanceDateDisplay(p.performanceDate)}
-                    </div>
-                    <div className="text-xs text-text-secondary mt-0.5">
-                      Show {formatPerformanceTimeDisplay(p.performanceTime)} ·{' '}
-                      {p.performanceStatus}
-                    </div>
-                    <div className="text-[10px] text-text-muted mt-0.5 font-mono">
-                      PerformanceID: {p.performanceId}
-                    </div>
-                  </div>
-                  {idx === 0 && (
-                    <span className="text-xs font-medium bg-ems-accent/15 text-ems-accent px-2 py-0.5 rounded">
-                      Primary
-                    </span>
-                  )}
-                </li>
+                  perf={p}
+                  isPrimary={idx === 0}
+                  engagementId={engagementId}
+                  onRefresh={() => qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performances'] })}
+                  addToast={addToast}
+                />
               ))}
             </ul>
           )}

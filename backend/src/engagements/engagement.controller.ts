@@ -93,4 +93,23 @@ export class EngagementController {
   ) {
     return this.engagementService.createPerformance(id, dto);
   }
+
+  @Patch(':id/performances/:performanceId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  updatePerformance(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('performanceId', ParseIntPipe) performanceId: number,
+    @Body() dto: { performanceDate?: string; performanceTime?: string; performanceStatus?: string },
+  ) {
+    return this.engagementService.updatePerformance(id, performanceId, dto);
+  }
+
+  @Delete(':id/performances/:performanceId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  deletePerformance(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('performanceId', ParseIntPipe) performanceId: number,
+  ) {
+    return this.engagementService.deletePerformance(id, performanceId);
+  }
 }

@@ -66,27 +66,27 @@ export class LookupsService {
   }
 
   /** Distinct market names from dbo.DMA — deduplicated, sorted alphabetically. */
-  async findDmaMarkets(): Promise<{ marketName: string }[]> {
+  async findDmaMarkets(): Promise<{ dmaid: number; marketName: string }[]> {
     const rows = await this.dmaRepo
       .createQueryBuilder('d')
-      .select('DISTINCT d.marketName', 'marketName')
+      .select(['DISTINCT d.dmaid', 'd.marketName'])
       .orderBy('d.marketName', 'ASC')
-      .getRawMany<{ marketName: string }>();
+      .getRawMany<{ dmaid: number; marketName: string }>();
     return rows;
   }
 
   /** Search DMA markets by query string (case-insensitive partial match). */
-  async searchDmaMarkets(query: string, limit = 50): Promise<{ marketName: string }[]> {
+  async searchDmaMarkets(query: string, limit = 50): Promise<{ dmaid: number; marketName: string }[]> {
     const qb = this.dmaRepo
       .createQueryBuilder('d')
-      .select('DISTINCT d.marketName', 'marketName')
-      .orderBy('d.marketName', 'ASC');
+      .select(['DISTINCT d.dmaid', 'd.marketName'])
+      .orderBy('d.marketName', 'ASC')
+      .limit(limit);
 
     if (query) {
       qb.where('d.marketName LIKE :query', { query: `%${query}%` });
     }
 
-    qb.limit(limit);
-    return qb.getRawMany<{ marketName: string }>();
+    return qb.getRawMany<{ dmaid: number; marketName: string }>();
   }
 }

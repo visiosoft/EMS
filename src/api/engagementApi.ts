@@ -96,3 +96,18 @@ export const fetchEngagementPerformances = (id: number) =>
   apiFetch<ApiPerformanceRow[]>(`/engagements/${id}/performances`);
 export const createEngagementPerformance = (id: number, body: CreatePerformancePayload) =>
   apiFetch<{ performanceId: number }>(`/engagements/${id}/performances`, { method: 'POST', body: JSON.stringify(body) });
+
+export const updateEngagementPerformance = (
+  engagementId: number,
+  performanceId: number,
+  body: { performanceDate?: string; performanceTime?: string; performanceStatus?: string },
+) =>
+  apiFetch<void>(`/engagements/${engagementId}/performances/${performanceId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+
+export const deleteEngagementPerformance = (engagementId: number, performanceId: number) =>
+  apiFetch<void>(`/engagements/${engagementId}/performances/${performanceId}`, {
+    method: 'DELETE',
+  });

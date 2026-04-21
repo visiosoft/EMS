@@ -91,6 +91,10 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState(initFilter || 'All');
+  const [attractionFilter, setAttractionFilter] = useState('');
+  const [dmaFilter, setDmaFilter] = useState('');
+  const [venueFilter, setVenueFilter] = useState('');
+  const [timingFilter, setTimingFilter] = useState<'all' | 'upcoming' | 'past'>('all');
   const [page, setPage] = useState(1);
   const [showCreate, setShowCreate] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<ApiEngagementListRow | null>(null);
@@ -127,9 +131,41 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
   });
 
   const rows = engagementsQuery.data ?? [];
+
+  // Unique filter options derived from data
+  const attractionOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const r of rows) if (r.attractionName) seen.set(r.attractionName, r.attractionName);
+    return [{ value: '', label: 'All Attractions' }, ...[...seen.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([v, l]) => ({ value: v, label: l }))];
+  }, [rows]);
+
+  const dmaOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const r of rows) if (r.dmaMarketName) seen.set(r.dmaMarketName, r.dmaMarketName);
+    return [{ value: '', label: 'All Markets' }, ...[...seen.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([v, l]) => ({ value: v, label: l }))];
+  }, [rows]);
+
+  const venueOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const r of rows) {
+      const name = r.venueCompanyName ?? r.venueName;
+      if (name) seen.set(name, name);
+    }
+    return [{ value: '', label: 'All Venues' }, ...[...seen.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([v, l]) => ({ value: v, label: l }))];
+  }, [rows]);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
   const filtered = useMemo(() => {
     return rows.filter((r) => {
       if (statusFilter !== 'All' && r.engagementStatus !== statusFilter) return false;
+      if (attractionFilter && r.attractionName !== attractionFilter) return false;
+      if (dmaFilter && r.dmaMarketName !== dmaFilter) return false;
+      if (venueFilter) {
+        const vname = r.venueCompanyName ?? r.venueName ?? '';
+        if (vname !== venueFilter) return false;
+      }
       if (!search.trim()) return true;
       const q = search.toLowerCase();
       const hay = [
@@ -146,7 +182,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [rows, search, statusFilter]);
+  }, [rows, search, statusFilter, attractionFilter, dmaFilter, venueFilter]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageClamped = Math.min(page, pageCount);
@@ -156,7 +192,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
 
   useEffect(() => {
     setPage(1);
-  }, [search, statusFilter]);
+  }, [search, statusFilter, attractionFilter, dmaFilter, venueFilter, timingFilter]);
 
   useEffect(() => {
     if (page > pageCount) setPage(pageCount);
@@ -207,13 +243,61 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
       </div>
 
       <div className="flex flex-col gap-3">
-        <div className="w-full sm:w-64">
-          <SearchInput
-            value={search}
-            onChange={setSearch}
-            placeholder="Search engagements..."
-            disabled={loading}
-          />
+        <div className="flex flex-wrap gap-3">
+          <div className="w-full sm:w-64">
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              placeholder="Search engagements..."
+              disabled={loading}
+            />
+          </div>
+          <div className="w-full sm:w-52">
+            <Select2
+              options={attractionOptions}
+              value={attractionFilter}
+              onChange={setAttractionFilter}
+              disabled={loading}
+              placeholder="All Attractions"
+            />
+          </div>
+          <div className="w-full sm:w-52">
+            <Select2
+              options={dmaOptions}
+              value={dmaFilter}
+              onChange={setDmaFilter}
+              disabled={loading}
+              placeholder="All Markets"
+            />
+          </div>
+          <div className="w-full sm:w-52">
+            <Select2
+              options={venueOptions}
+              value={venueFilter}
+              onChange={setVenueFilter}
+              disabled={loading}
+              placeholder="All Venues"
+            />
+          </div>
+          {/* Upcoming / Past toggle */}
+          <div className="flex items-center rounded-md border border-border overflow-hidden text-xs font-medium h-[34px]">
+            {(['all', 'upcoming', 'past'] as const).map((opt) => (
+              <button
+                key={opt}
+                type="button"
+                disabled={loading}
+                onClick={() => setTimingFilter(opt)}
+                className={[
+                  'px-3 h-full transition-colors capitalize disabled:opacity-50',
+                  timingFilter === opt
+                    ? 'bg-ems-accent text-background'
+                    : 'bg-card text-text-secondary hover:bg-hover',
+                ].join(' ')}
+              >
+                {opt === 'all' ? 'All' : opt.charAt(0).toUpperCase() + opt.slice(1)}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex flex-wrap gap-1.5">
           <FilterChips

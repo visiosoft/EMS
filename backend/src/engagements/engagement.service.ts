@@ -317,4 +317,25 @@ export class EngagementService {
     const saved = await this.performanceRepo.save(row);
     return { performanceId: saved.performanceId };
   }
+
+  async updatePerformance(
+    engagementId: number,
+    performanceId: number,
+    dto: { performanceDate?: string; performanceTime?: string; performanceStatus?: string },
+  ): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+    const perf = await this.performanceRepo.findOne({ where: { performanceId, engagementId } });
+    if (!perf) throw new NotFoundException({ message: 'Performance not found.' });
+    if (dto.performanceDate !== undefined) perf.performanceDate = dto.performanceDate;
+    if (dto.performanceTime !== undefined) perf.performanceTime = this.normalizeTime(dto.performanceTime);
+    if (dto.performanceStatus !== undefined) perf.performanceStatus = dto.performanceStatus.trim();
+    await this.performanceRepo.save(perf);
+  }
+
+  async deletePerformance(engagementId: number, performanceId: number): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+    const perf = await this.performanceRepo.findOne({ where: { performanceId, engagementId } });
+    if (!perf) throw new NotFoundException({ message: 'Performance not found.' });
+    await this.performanceRepo.delete({ performanceId, engagementId });
+  }
 }
