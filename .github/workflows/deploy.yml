@@ -1,24 +1,24 @@
-name: Deploy to Server
+name: Deploy to Lightsail
 
 on:
   push:
     branches: [ main, master ]
 
 jobs:
-  deploy:
+  deploy-lightsail:
     runs-on: ubuntu-latest
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       
-    - name: Deploy to Server
+    - name: Deploy to Lightsail
       uses: appleboy/ssh-action@master
       with:
-        host: ${{ secrets.SERVER_HOST }}
-        username: ${{ secrets.SERVER_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        port: 2525
+        host: ${{ secrets.LIGHTSAIL_HOST }}
+        username: ${{ secrets.LIGHTSAIL_USER }}
+        key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
+        port: 22
         script: |
           cd /var/www/iae-event-flow
           
@@ -37,14 +37,15 @@ jobs:
           cd backend && bun run build && cd ..
           
           echo "🔄 Restarting Backend..."
-          # Load PM2 into PATH for non-interactive SSH sessions
           export PATH="$PATH:$(npm config get prefix)/bin"
-          
-          # Try restart, if it fails (first deploy), start fresh
-          pm2 restart iae-event-flow-backend --update-env || \
-          pm2 start backend/dist/main.js --name iae-event-flow-backend --interpreter $(which bun) --update-env
-          
-          # Save PM2 process list for reboots
+          pm2 restart iae-event-flow-backend-lightsail --update-env || \
+          pm2 start backend/dist/main.js --name iae-event-flow-backend-lightsail --interpreter $(which bun) --update-env
           pm2 save
           
-          echo "✅ Deployment Finished!"
+          echo "📊 PM2 Status:"
+          pm2 status
+          
+          echo "📜 Backend Logs (last 50 lines):"
+          pm2 logs iae-event-flow-backend-lightsail --lines 100 --nostream
+          
+          echo "✅ Lightsail deployment finished!"
