@@ -37,12 +37,42 @@ import {
   type ApiTourListRow,
   type ApiVenueType,
 } from '@/api/attractionToursApi';
-import { fetchCompanies, fetchCompanyContacts, type ApiCompanyContact } from '@/api/companyApi';
+import {
+  fetchCompanies,
+  fetchCompanyContacts,
+  type ApiCompanyContact,
+  type ApiCompanyListRow,
+} from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { TOUR_STATUS_OPTIONS } from './tourFormLegacy';
 import { AddTourForm } from './AddTourForm';
 
 const PAGE_SIZE = 15;
+
+/**
+ * Talent-agency picklist plus the tour's current management company when that
+ * company is not in the list (e.g. different company type), so the UI shows a name not a raw ID.
+ */
+function buildTourManagementSelectOptions(
+  talentAgencyOptions: { value: string; label: string }[],
+  allCompanies: { companyId: number; companyName: string }[],
+  currentCompanyId: number | null | undefined,
+  currentCompanyName: string | null | undefined,
+): { value: string; label: string }[] {
+  const opts = [...talentAgencyOptions];
+  const idStr =
+    currentCompanyId != null && Number.isFinite(Number(currentCompanyId))
+      ? String(currentCompanyId)
+      : '';
+  if (idStr && !opts.some((o) => o.value === idStr)) {
+    const fromTour = currentCompanyName?.trim();
+    const fromList = allCompanies.find((c) => String(c.companyId) === idStr)?.companyName;
+    const label = fromTour || fromList || `Company #${idStr}`;
+    opts.push({ value: idStr, label });
+  }
+  opts.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+  return [{ value: '', label: '—' }, ...opts];
+}
 
 /** Matches Companies page loading + table shell styling. */
 function AttractionToursTableSkeleton({ variant }: { variant: 'attractions' | 'tours' }) {
@@ -403,6 +433,7 @@ function TourDrawer({
   attractions,
   classes,
   venueTypes,
+  companies,
   managementCompanyOptions,
   addToast,
   onClose,
@@ -415,6 +446,7 @@ function TourDrawer({
   attractions: ApiAttractionListRow[];
   classes: ApiClass[];
   venueTypes: ApiVenueType[];
+  companies: ApiCompanyListRow[];
   managementCompanyOptions: { value: string; label: string }[];
   addToast: (msg: string, type: 'success'|'error'|'warning'|'info') => void;
   onClose: () => void;
@@ -482,10 +514,21 @@ function TourDrawer({
     value: String(c.classId),
     label: c.className,
   }));
-  const mgmtOptions = [
-    { value: '', label: '—' },
-    ...managementCompanyOptions,
-  ];
+  const mgmtOptions = useMemo(
+    () =>
+      buildTourManagementSelectOptions(
+        managementCompanyOptions,
+        companies,
+        tour.tourManagementCompanyId,
+        tour.tourManagementCompanyName,
+      ),
+    [
+      managementCompanyOptions,
+      companies,
+      tour.tourManagementCompanyId,
+      tour.tourManagementCompanyName,
+    ],
+  );
   const venueTypeOpts = [
     { value: '', label: '—' },
     ...venueTypes.map((v) => ({
@@ -574,12 +617,14 @@ function TourDrawer({
           </p>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          {tour.appCreated && (
-            <button type="button" onClick={() => onDelete(tour)} title="Delete tour"
-              className="p-1.5 text-text-muted hover:text-ems-coral hover:bg-ems-coral-dim rounded-md transition-colors">
-              <Trash2 className="h-4 w-4" />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => onDelete(tour)}
+            title="Delete tour"
+            className="p-1.5 text-text-muted hover:text-ems-coral hover:bg-ems-coral-dim rounded-md transition-colors"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
           <button type="button" onClick={onClose} className="p-1.5 text-text-muted hover:text-text-secondary rounded-md transition-colors text-lg leading-none">✕</button>
         </div>
       </div>
@@ -961,9 +1006,12 @@ export function AttractionToursPage({ addToast }: Props) {
           <AlertDialogHeader>
             <AlertDialogTitle className="text-text-primary font-semibold text-lg">Remove this tour?</AlertDialogTitle>
             <AlertDialogDescription className="text-text-secondary text-sm leading-relaxed">
-              This will permanently delete{' '}
-              <span className="font-medium text-text-primary">{pendingDeleteTour?.tourName ?? 'this tour'}</span>. Only
-              tours you added here can be removed, and only when no engagements reference them.
+              You’re about to remove{' '}
+              <span className="font-medium text-text-primary">
+                {pendingDeleteTour?.tourName ?? 'this tour'}
+              </span>{' '}
+              from your list. If something blocks the removal, you’ll see a short explanation right after you
+              confirm.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {deleteTourMut.isPending && (
@@ -1233,6 +1281,7 @@ export function AttractionToursPage({ addToast }: Props) {
           attractions={attractions}
           classes={classes}
           venueTypes={venueTypes}
+          companies={companies}
           managementCompanyOptions={managementCompanyOptions}
           addToast={addToast}
           onClose={() => setSelectedTourId(null)}
@@ -1278,6 +1327,7 @@ export function AttractionToursPage({ addToast }: Props) {
           <TourFormDb
             attractions={attractions}
             classes={classes}
+            companies={companies}
             managementCompanyOptions={managementCompanyOptions}
             venueTypes={venueTypes}
             initial={editTour}
@@ -1334,6 +1384,7 @@ function AttractionForm({
 function TourFormDb({
   attractions,
   classes,
+  companies,
   managementCompanyOptions,
   venueTypes,
   initial,
@@ -1343,6 +1394,7 @@ function TourFormDb({
 }: {
   attractions: ApiAttractionListRow[];
   classes: ApiClass[];
+  companies: ApiCompanyListRow[];
   managementCompanyOptions: { value: string; label: string }[];
   venueTypes: ApiVenueType[];
   initial?: ApiTourListRow;
@@ -1379,7 +1431,21 @@ function TourFormDb({
     label: a.attractionName,
   }));
   const classOptions = classes.map((c) => ({ value: String(c.classId), label: c.className }));
-  const mgmtOptions = [{ value: '', label: '—' }, ...managementCompanyOptions];
+  const mgmtOptions = useMemo(
+    () =>
+      buildTourManagementSelectOptions(
+        managementCompanyOptions,
+        companies,
+        initial?.tourManagementCompanyId,
+        initial?.tourManagementCompanyName,
+      ),
+    [
+      managementCompanyOptions,
+      companies,
+      initial?.tourManagementCompanyId,
+      initial?.tourManagementCompanyName,
+    ],
+  );
   const statusOptions = [{ value: '', label: '—' }, ...TOUR_STATUS_OPTIONS];
   const venueTypeOptions = [{ value: '', label: '—' }, ...venueTypes.map((v) => ({ value: String(v.venueTypeId), label: v.venueTypeName }))];
 
