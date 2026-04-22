@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -214,21 +213,20 @@ export class TourService {
   }
 
   async remove(id: number): Promise<void> {
-    if (!this.emsCreated.canDeleteTour(id)) {
-      throw new ForbiddenException({
-        message: 'Only tours created in this app can be removed.',
-        detail: 'Pre-existing tours cannot be deleted from the API.',
-      });
+    const existing = await this.tourRepo.findOne({ where: { tourId: id } });
+    if (!existing) {
+      throw new NotFoundException({ message: 'Tour not found.' });
     }
     const engCount = await this.engagementRepo.count({
       where: { tourId: id },
     });
     if (engCount > 0) {
       throw new ConflictException({
-        message: 'This tour still has engagements and cannot be removed.',
-        detail: `Engagement count=${engCount}`,
+        message:
+          'This tour can’t be removed because it’s still linked to one or more engagements. Remove or close those engagements first, then try again.',
       });
     }
     await this.tourRepo.delete({ tourId: id });
+    this.emsCreated.removeTour(id);
   }
 }

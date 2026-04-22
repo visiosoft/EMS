@@ -18,6 +18,7 @@ import { Contact } from '../entities/contact.entity';
 import { Attraction } from '../entities/attraction.entity';
 import { Dma } from '../entities/dma.entity';
 import { Engagement } from '../entities/engagement.entity';
+import { EngagementProjectVenue } from '../entities/engagement-project-venue.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
@@ -89,6 +90,12 @@ export class CompanyService {
     private readonly venueRepo: Repository<Venue>,
     @InjectRepository(EngagementVenue)
     private readonly engagementVenueRepo: Repository<EngagementVenue>,
+    @InjectRepository(EngagementProjectVenue)
+    private readonly engagementProjectVenueRepo: Repository<EngagementProjectVenue>,
+    @InjectRepository(Tour)
+    private readonly tourRepo: Repository<Tour>,
+    @InjectRepository(CompanyType)
+    private readonly companyTypeRepo: Repository<CompanyType>,
   ) {}
 
   normalizePostal(postalCode: string, country: string): string {
@@ -402,6 +409,80 @@ export class CompanyService {
     await this.venueRepo.save(venue);
   }
 
+  private normalizeCompanyTypeName(name: string | null | undefined): string {
+    return (name ?? '').trim().toLowerCase();
+  }
+
+  /**
+   * Block company-type changes that would contradict how the row is already used
+   * (tours, venue profile, engagement/project venues).
+   */
+  private async assertCompanyTypeChangeAllowed(
+    companyId: number,
+    oldCompanyTypeId: number,
+    newCompanyTypeId: number,
+  ): Promise<void> {
+    if (oldCompanyTypeId === newCompanyTypeId) return;
+
+    const newType = await this.companyTypeRepo.findOne({
+      where: { companyTypeId: newCompanyTypeId },
+    });
+    if (!newType) {
+      throw new BadRequestException({
+        message: 'That company type is not valid. Pick a type from the list.',
+      });
+    }
+    const newKind = this.normalizeCompanyTypeName(newType.companyTypeName);
+
+    const tourMgmtCount = await this.tourRepo.count({
+      where: { tourManagementCompanyId: companyId },
+    });
+    const venueRowCount = await this.venueRepo.count({ where: { companyId } });
+    const engagementVenueCount = await this.engagementVenueRepo.count({
+      where: { venueCompanyId: companyId },
+    });
+    const projectVenueCount = await this.engagementProjectVenueRepo.count({
+      where: { venueCompanyId: companyId },
+    });
+
+    const needsVenueType =
+      venueRowCount > 0 || engagementVenueCount > 0 || projectVenueCount > 0;
+    const needsTalentAgencyType = tourMgmtCount > 0;
+
+    if (needsVenueType && needsTalentAgencyType) {
+      throw new ConflictException({
+        message:
+          'This company can’t be retyped while it is both used as a venue (or has a venue profile) and set as the tour management company on one or more tours. Reassign one of those links first so the company only needs one role.',
+      });
+    }
+
+    if (needsVenueType && newKind !== 'venue') {
+      const reasons: string[] = [];
+      if (venueRowCount > 0) {
+        reasons.push('it has a venue profile');
+      }
+      if (engagementVenueCount > 0) {
+        reasons.push(
+          `it is linked to ${engagementVenueCount} engagement venue${engagementVenueCount === 1 ? '' : 's'}`,
+        );
+      }
+      if (projectVenueCount > 0) {
+        reasons.push(
+          `it is used on ${projectVenueCount} project venue link${projectVenueCount === 1 ? '' : 's'}`,
+        );
+      }
+      throw new ConflictException({
+        message: `This company can’t be retyped because ${reasons.join(' and ')}. It must stay a Venue, or remove those links first.`,
+      });
+    }
+
+    if (needsTalentAgencyType && newKind !== 'talent agency') {
+      throw new ConflictException({
+        message: `This company can’t be retyped because it is the tour management company on ${tourMgmtCount} tour${tourMgmtCount === 1 ? '' : 's'}. It must stay a Talent Agency, or pick a different management company on those tours first.`,
+      });
+    }
+  }
+
   async update(companyId: number, dto: UpdateCompanyDto): Promise<Company> {
     const existing = await this.companyRepo.findOne({
       where: { companyId },
@@ -442,6 +523,11 @@ export class CompanyService {
       existing.companyName = dto.companyName.trim();
     }
     if (dto.companyTypeId !== undefined) {
+      await this.assertCompanyTypeChangeAllowed(
+        companyId,
+        existing.companyTypeId,
+        dto.companyTypeId,
+      );
       existing.companyTypeId = dto.companyTypeId;
     }
 

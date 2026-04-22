@@ -9,6 +9,7 @@ import { ContactInfo } from '../entities/contact-info.entity';
 import { Contact } from '../entities/contact.entity';
 import { Department } from '../entities/department.entity';
 import { Dma } from '../entities/dma.entity';
+import { EngagementProjectVenue } from '../entities/engagement-project-venue.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { Engagement } from '../entities/engagement.entity';
 import { Role } from '../entities/role.entity';
@@ -38,6 +39,7 @@ const entities = [
   Department,
   Venue,
   EngagementVenue,
+  EngagementProjectVenue,
   Engagement,
   Tour,
   Attraction,

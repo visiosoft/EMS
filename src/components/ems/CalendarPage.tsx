@@ -14,22 +14,28 @@ interface Props {
 
 // ─── Status colour map ────────────────────────────────────────────────────────
 
+/** Engagement visibility only — matches dbo/API canonical values. */
 const STATUS_CONFIG: Record<string, { bg: string; text: string; dot: string }> = {
-  Unknown:    { bg: 'bg-elevated       border-border',          text: 'text-text-secondary', dot: 'bg-text-muted' },
-  Private:    { bg: 'bg-ems-purple-dim border-ems-purple/30',  text: 'text-ems-purple',     dot: 'bg-ems-purple' },
-  Public:     { bg: 'bg-ems-green-dim  border-ems-green/30',   text: 'text-ems-green',      dot: 'bg-ems-green' },
-  Confirmed:  { bg: 'bg-ems-green-dim  border-ems-green/30',   text: 'text-ems-green',      dot: 'bg-ems-green' },
-  OnSale:     { bg: 'bg-ems-blue-dim   border-ems-blue/30',    text: 'text-ems-blue',       dot: 'bg-ems-blue' },
-  Draft:      { bg: 'bg-elevated       border-border',          text: 'text-text-secondary', dot: 'bg-text-muted' },
-  Settled:    { bg: 'bg-ems-accent-dim border-ems-accent/30',  text: 'text-ems-accent',     dot: 'bg-ems-accent' },
-  Cancelled:  { bg: 'bg-ems-coral-dim  border-ems-coral/30',   text: 'text-ems-coral',      dot: 'bg-ems-coral' },
+  Unknown: { bg: 'bg-elevated       border-border',          text: 'text-text-secondary', dot: 'bg-text-muted' },
+  Private: { bg: 'bg-ems-purple-dim border-ems-purple/30',  text: 'text-ems-purple',     dot: 'bg-ems-purple' },
+  Public:  { bg: 'bg-ems-green-dim  border-ems-green/30',   text: 'text-ems-green',      dot: 'bg-ems-green' },
 };
 
+const ENGAGEMENT_VISIBILITY_STATUSES = ['Unknown', 'Private', 'Public'] as const;
+
 function cfgFor(status: string) {
-  return STATUS_CONFIG[status] ?? STATUS_CONFIG['Unknown'];
+  return STATUS_CONFIG[status] ?? STATUS_CONFIG.Unknown;
 }
 
-const ALL_STATUSES = Object.keys(STATUS_CONFIG);
+/** Map a calendar row to canonical engagement visibility for filters and styling. */
+function engagementVisibilityKey(p: ApiPerformanceCalendarRow): string {
+  const raw = (p.engagementStatus || p.performanceStatus || 'Unknown').trim();
+  const lower = raw.toLowerCase();
+  if (lower === 'private') return 'Private';
+  if (lower === 'public') return 'Public';
+  if (lower === 'unknown') return 'Unknown';
+  return 'Unknown';
+}
 
 const MONTH_NAMES = [
   'January','February','March','April','May','June',
@@ -58,7 +64,7 @@ export function CalendarPage({ onNavigate }: Props) {
   const [year,  setYear]  = useState(now.getFullYear());
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [activeStatuses, setActiveStatuses] = useState<Set<string>>(
-    new Set(ALL_STATUSES),
+    () => new Set(ENGAGEMENT_VISIBILITY_STATUSES),
   );
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
 
@@ -97,8 +103,8 @@ export function CalendarPage({ onNavigate }: Props) {
 
   // Filter by active status filters (use engagementStatus or performanceStatus)
   const visiblePerfs = useMemo(() => {
-    return performances.filter(p => {
-      const st = p.engagementStatus || p.performanceStatus;
+    return performances.filter((p) => {
+      const st = engagementVisibilityKey(p);
       return activeStatuses.has(st) || activeStatuses.size === 0;
     });
   }, [performances, activeStatuses]);
@@ -162,7 +168,7 @@ export function CalendarPage({ onNavigate }: Props) {
 
       {/* Status filter pills */}
       <div className="flex flex-wrap gap-2">
-        {ALL_STATUSES.map(s => {
+        {ENGAGEMENT_VISIBILITY_STATUSES.map((s) => {
           const cfg = cfgFor(s);
           const on = activeStatuses.has(s);
           return (
@@ -232,8 +238,8 @@ export function CalendarPage({ onNavigate }: Props) {
                     {day}
                   </div>
                   <div className="space-y-0.5">
-                    {dayPerfs.slice(0, 3).map(p => {
-                      const cfg = cfgFor(p.engagementStatus || p.performanceStatus);
+                    {dayPerfs.slice(0, 3).map((p) => {
+                      const cfg = cfgFor(engagementVisibilityKey(p));
                       return (
                         <div
                           key={p.performanceId}
@@ -300,7 +306,7 @@ export function CalendarPage({ onNavigate }: Props) {
                       {[p.city, p.stateProvince].filter(Boolean).join(', ') || '—'}
                     </td>
                     <td className="py-2.5 px-3">
-                      <StatusBadge status={p.engagementStatus || p.performanceStatus} />
+                      <StatusBadge status={engagementVisibilityKey(p)} />
                     </td>
                   </tr>
                 ))}
@@ -316,8 +322,8 @@ export function CalendarPage({ onNavigate }: Props) {
             {MONTH_NAMES[month]} {selectedDay}, {year} — {selectedDayPerfs.length} performance{selectedDayPerfs.length > 1 ? 's' : ''}
           </h3>
           <div className="space-y-2">
-            {selectedDayPerfs.map(p => {
-              const cfg = cfgFor(p.engagementStatus || p.performanceStatus);
+            {selectedDayPerfs.map((p) => {
+              const cfg = cfgFor(engagementVisibilityKey(p));
               return (
                 <div
                   key={p.performanceId}
@@ -331,7 +337,7 @@ export function CalendarPage({ onNavigate }: Props) {
                         <div className="text-xs text-text-secondary mt-0.5">{p.tourName}</div>
                       )}
                     </div>
-                    <StatusBadge status={p.engagementStatus || p.performanceStatus} />
+                    <StatusBadge status={engagementVisibilityKey(p)} />
                   </div>
                   <div className="mt-1.5 flex flex-wrap gap-3 text-xs text-text-secondary">
                     <span>🕐 {formatTime12(p.performanceTime)}</span>
