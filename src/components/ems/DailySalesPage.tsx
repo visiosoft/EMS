@@ -1,12 +1,20 @@
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Save, ChevronLeft } from 'lucide-react';
+import { Loader2, Save, ChevronLeft, History, Receipt } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { SearchInput } from './Primitives';
 import { Select2 } from './Select2';
 import {
   fetchDailySalesByPerformance,
   fetchDailySales,
+  fetchPerformanceReportingTransactions,
   updateDailySales,
   type ApiPerformanceSalesRow,
   type ApiDailySalesRow,
@@ -22,7 +30,7 @@ interface Props {
   attractions?: unknown; companies?: unknown; onUpdateDailySales?: unknown;
 }
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 25;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -55,6 +63,51 @@ function validateField(val: string, field: 'tickets' | 'revenue'): string | null
   return null;
 }
 
+/** Local calendar YYYY-MM-DD (for default “as of” date). */
+function todayLocalYmd(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function ymdAddDays(ymd: string, delta: number): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  if (!y || !m || !d) return ymd;
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + delta);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
+
+/** Sits on the top-right of the daily sales datatable card. */
+function ReportingAsOfBar({
+  asOfDate,
+  onAsOfDateChange,
+  disabled,
+}: {
+  asOfDate: string;
+  onAsOfDateChange: (next: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3 border-b border-border bg-surface/50 px-3 py-2.5 sm:px-4">
+      <label htmlFor="daily-sales-asof" className="text-xs font-medium text-text-secondary whitespace-nowrap">
+        Reporting as of
+      </label>
+      <input
+        id="daily-sales-asof"
+        type="date"
+        className="h-9 w-[10.5rem] shrink-0 rounded-md border border-border bg-background px-2.5 text-sm text-text-primary shadow-sm focus:outline-none focus:ring-2 focus:ring-ems-accent/30 focus:border-ems-accent disabled:opacity-50"
+        value={asOfDate}
+        onChange={(e) => onAsOfDateChange(e.target.value || todayLocalYmd())}
+        disabled={disabled}
+        aria-label="Select reporting date"
+      />
+    </div>
+  );
+}
+
 // ─── Summary card ─────────────────────────────────────────────────────────────
 
 function SummaryCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
@@ -69,11 +122,18 @@ function SummaryCard({ label, value, sub }: { label: string; value: string; sub?
 
 // ─── Table Skeleton ───────────────────────────────────────────────────────────
 
-function TableSkeleton() {
+function TableSkeleton({
+  asOfDate,
+  onAsOfDateChange,
+}: {
+  asOfDate: string;
+  onAsOfDateChange: (next: string) => void;
+}) {
   return (
     <div className="bg-card border border-border rounded-lg overflow-hidden">
-      <div className="flex items-center gap-3 px-6 py-6 border-b border-border bg-surface/40">
-        <Loader2 className="h-7 w-7 text-ems-accent animate-spin" />
+      <ReportingAsOfBar asOfDate={asOfDate} onAsOfDateChange={onAsOfDateChange} />
+      <div className="flex items-center gap-3 border-b border-border bg-surface/30 px-4 py-4 sm:px-6">
+        <Loader2 className="h-6 w-6 text-ems-accent animate-spin" />
         <span className="text-sm font-medium text-text-primary">Loading…</span>
       </div>
       <table className="w-full text-sm">
@@ -91,16 +151,154 @@ function TableSkeleton() {
   );
 }
 
+// ─── Reporting window transactions (row click modal) ───────────────────────
+
+function ReportingTransactionsModal({
+  open,
+  onOpenChange,
+  performanceId,
+  yesterdayDate,
+  todayDate,
+  attractionName,
+  tourName,
+  onViewEngagementHistory,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  performanceId: number;
+  yesterdayDate: string;
+  todayDate: string;
+  attractionName: string | null;
+  tourName: string | null;
+  onViewEngagementHistory: () => void;
+}) {
+  const salesDates = useMemo(
+    () => [yesterdayDate, todayDate].filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)),
+    [yesterdayDate, todayDate],
+  );
+
+  const txQuery = useQuery({
+    queryKey: ['reporting-tx', performanceId, ...salesDates],
+    queryFn: () => fetchPerformanceReportingTransactions(performanceId, salesDates),
+    enabled: open && performanceId > 0 && salesDates.length > 0,
+    staleTime: 20_000,
+  });
+
+  const rows = useMemo(() => {
+    return salesDates.map((d) => {
+      const t = (txQuery.data ?? []).find((x) => x.salesDate === d);
+      return {
+        salesDate: d,
+        label: fmtDateHeader(d),
+        ticketsSold: t?.ticketsSold ?? null,
+        revenue: t?.revenue ?? null,
+        hasDbRow: t != null,
+      };
+    });
+  }, [salesDates, txQuery.data]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="w-[min(100vw-1.5rem,36rem)] sm:max-w-2xl max-h-[min(90vh,40rem)] flex flex-col p-0 gap-0 border-border bg-card shadow-lg overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <DialogHeader className="px-5 pt-5 pb-3 border-b border-border bg-ems-accent/5 shrink-0 text-left">
+          <div className="flex items-start gap-2">
+            <div className="mt-0.5 rounded-md bg-ems-accent/15 p-1.5 text-ems-accent">
+              <Receipt className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="text-text-primary text-base pr-6">
+                Sales for reporting window
+              </DialogTitle>
+              <DialogDescription className="text-text-muted text-xs mt-1 line-clamp-2">
+                {attractionName ?? 'Performance'}
+                {tourName ? ` · ${tourName}` : ''}
+              </DialogDescription>
+            </div>
+          </div>
+        </DialogHeader>
+
+        <div className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-5 pb-2">
+          {txQuery.isPending ? (
+            <div className="flex items-center gap-2 text-text-muted text-sm py-8 justify-center">
+              <Loader2 className="h-4 w-4 animate-spin text-ems-accent" /> Loading…
+            </div>
+          ) : txQuery.isError ? (
+            <div className="text-sm text-ems-coral border border-ems-coral/30 rounded-md px-3 py-2 bg-ems-coral-dim m-2">
+              {friendlyApiError(txQuery.error)}
+            </div>
+          ) : (
+            <div className="border border-border rounded-lg overflow-hidden bg-surface/30">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-elevated text-left text-xs text-text-muted border-b border-border">
+                    <th className="py-2.5 px-3 font-medium">Reporting date</th>
+                    <th className="py-2.5 px-3 text-right font-medium">Tickets</th>
+                    <th className="py-2.5 px-3 text-right font-medium">Revenue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.salesDate} className="border-b border-border/50 last:border-0 hover:bg-hover/20">
+                      <td className="py-2.5 px-3 text-text-primary">
+                        {r.label}
+                        {!r.hasDbRow && (
+                          <span className="ml-1.5 text-[10px] text-text-muted uppercase tracking-wide">no entry</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3 text-right tabular-nums text-text-secondary">
+                        {r.ticketsSold != null ? r.ticketsSold.toLocaleString() : '—'}
+                      </td>
+                      <td className="py-2.5 px-3 text-right tabular-nums text-ems-green font-medium">
+                        {fmtCurrency(r.revenue)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t border-border bg-elevated/50 flex flex-col sm:flex-row gap-2 sm:justify-between sm:items-center shrink-0">
+          <button
+            type="button"
+            onClick={() => {
+              onOpenChange(false);
+              onViewEngagementHistory();
+            }}
+            className="inline-flex items-center justify-center gap-1.5 text-xs font-medium px-3 py-2 rounded-md border border-border bg-card text-text-primary hover:bg-hover transition-colors w-full sm:w-auto"
+          >
+            <History className="h-3.5 w-3.5" />
+            Full engagement sales history
+          </button>
+          <button
+            type="button"
+            onClick={() => onOpenChange(false)}
+            className="text-xs font-medium px-3 py-2 rounded-md text-text-secondary hover:text-text-primary w-full sm:w-auto"
+          >
+            Close
+          </button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Editable Performance Row ─────────────────────────────────────────────────
 
 function PerformanceRow({
   row,
   onEngagementClick,
+  onOpenRowDetails,
   onSaved,
   addToast,
 }: {
   row: ApiPerformanceSalesRow;
   onEngagementClick: (engagementId: number) => void;
+  onOpenRowDetails: () => void;
   onSaved: () => void;
   addToast: Props['addToast'];
 }) {
@@ -109,6 +307,21 @@ function PerformanceRow({
   const [yestTickets, setYestTickets] = useState(row.yesterdayTicketsSold != null ? String(row.yesterdayTicketsSold) : '');
   const [yestRevenue, setYestRevenue] = useState(row.yesterdayRevenue != null ? String(row.yesterdayRevenue) : '');
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setTodayTickets(row.todayTicketsSold != null ? String(row.todayTicketsSold) : '');
+    setTodayRevenue(row.todayRevenue != null ? String(row.todayRevenue) : '');
+    setYestTickets(row.yesterdayTicketsSold != null ? String(row.yesterdayTicketsSold) : '');
+    setYestRevenue(row.yesterdayRevenue != null ? String(row.yesterdayRevenue) : '');
+  }, [
+    row.performanceId,
+    row.todayDate,
+    row.yesterdayDate,
+    row.todayTicketsSold,
+    row.todayRevenue,
+    row.yesterdayTicketsSold,
+    row.yesterdayRevenue,
+  ]);
 
   const isDirty =
     todayTickets !== (row.todayTicketsSold != null ? String(row.todayTicketsSold) : '') ||
@@ -146,9 +359,18 @@ function PerformanceRow({
     'placeholder:text-text-muted text-text-primary transition-colors';
 
   return (
-    <tr className="border-b border-border/50 hover:bg-hover/30 group">
+    <tr
+      className="border-b border-border/50 hover:bg-hover/30 group cursor-pointer"
+      onClick={onOpenRowDetails}
+    >
       {/* Attraction — click → engagement history */}
-      <td className="py-2 px-3 cursor-pointer" onClick={() => onEngagementClick(row.engagementId)}>
+      <td
+        className="py-2 px-3 cursor-pointer"
+        onClick={(e) => {
+          e.stopPropagation();
+          onEngagementClick(row.engagementId);
+        }}
+      >
         <div className="text-text-primary font-medium text-sm leading-tight hover:text-ems-accent transition-colors">
           {row.attractionName ?? <span className="text-text-muted italic text-xs">Unknown</span>}
         </div>
@@ -251,8 +473,16 @@ function EngagementSalesHistory({
       {/* Title */}
       <div className="bg-card border border-border rounded-lg p-4">
         <h2 className="text-lg font-semibold text-text-primary">
-          {attractionName ?? `Engagement #${engagementId}`}
-          {tourName && <span className="text-text-muted font-normal"> — {tourName}</span>}
+          {attractionName ? (
+            <>
+              {attractionName}
+              {tourName && <span className="text-text-muted font-normal"> — {tourName}</span>}
+            </>
+          ) : tourName ? (
+            tourName
+          ) : (
+            'Sales history'
+          )}
         </h2>
         <p className="text-xs text-text-muted mt-1">All recorded daily sales entries for this engagement</p>
       </div>
@@ -335,11 +565,12 @@ function EngagementSalesHistory({
 
 // ─── DailySalesPage ───────────────────────────────────────────────────────────
 
-export function DailySalesPage({ onNavigate, addToast }: Props) {
+export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
+  const [searchDebounced, setSearchDebounced] = useState('');
   const [attractionFilter, setAttractionFilter] = useState('');
-  const [perfDateFilter, setPerfDateFilter] = useState('');
+  const [asOfDate, setAsOfDate] = useState(todayLocalYmd);
   const [page, setPage] = useState(1);
   // Item 7 — engagement click-through state
   const [selectedEngagement, setSelectedEngagement] = useState<{
@@ -348,75 +579,82 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
     tourName: string | null;
   } | null>(null);
 
+  const [txModal, setTxModal] = useState<{
+    performanceId: number;
+    engagementId: number;
+    attractionName: string | null;
+    tourName: string | null;
+    yesterdayDate: string;
+    todayDate: string;
+  } | null>(null);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setSearchDebounced(search.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [search]);
+
   const salesQuery = useQuery({
-    queryKey: ['daily-sales-by-perf', perfDateFilter],
-    queryFn: () => fetchDailySalesByPerformance(perfDateFilter || undefined),
+    queryKey: [
+      'daily-sales-by-perf',
+      asOfDate,
+      page,
+      PAGE_SIZE,
+      searchDebounced,
+      attractionFilter,
+    ],
+    queryFn: () =>
+      fetchDailySalesByPerformance(asOfDate, {
+        page,
+        pageSize: PAGE_SIZE,
+        search: searchDebounced || undefined,
+        attraction: attractionFilter || undefined,
+      }),
     staleTime: 2 * 60 * 1000,
+    placeholderData: (prev) => prev,
   });
 
   const refetch = useCallback(async () => {
     await qc.invalidateQueries({ queryKey: ['daily-sales-by-perf'] });
   }, [qc]);
 
-  const rows = salesQuery.data ?? [];
-  const todayLabel = rows[0]?.todayDate ? fmtDateHeader(rows[0].todayDate) : 'Today';
-  const yesterdayLabel = rows[0]?.yesterdayDate ? fmtDateHeader(rows[0].yesterdayDate) : 'Yesterday';
-
-  // Item 1 — performance date options derived from data, with user-friendly labels
-  const perfDateOptions = useMemo(() => {
-    const seen = new Set<string>();
-    for (const r of rows) if (r.performanceDate) seen.add(r.performanceDate);
-    const sorted = [...seen].sort();
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
-    const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
-
-    return [
-      { value: '', label: 'All performance dates' },
-      ...sorted.map(d => {
-        const dt = new Date(d + 'T12:00:00');
-        const base = fmtDateHeader(d);
-        let tag = '';
-        if (dt.toDateString() === today.toDateString()) tag = ' (Today)';
-        else if (dt.toDateString() === tomorrow.toDateString()) tag = ' (Tomorrow)';
-        else if (dt.toDateString() === yesterday.toDateString()) tag = ' (Yesterday)';
-        return { value: d, label: base + tag };
-      }),
-    ];
-  }, [rows]);
+  const pageData = salesQuery.data;
+  const rows = pageData?.items ?? [];
+  const serverTotal = pageData?.total ?? 0;
+  const todayDateStr = pageData?.todayDate ?? asOfDate;
+  const yesterdayDateStr = pageData?.yesterdayDate ?? ymdAddDays(asOfDate, -1);
+  const todayLabel = fmtDateHeader(todayDateStr);
+  const yesterdayLabel = fmtDateHeader(yesterdayDateStr);
+  const asOfIsLocalToday = asOfDate === todayLocalYmd();
+  const labelCurShort = asOfIsLocalToday ? 'today' : 'selected day';
+  const labelPriorShort = asOfIsLocalToday ? 'yesterday' : 'prior day';
 
   const attractionOptions = useMemo(() => {
-    const seen = new Map<string, string>();
-    for (const r of rows) if (r.attractionName) seen.set(r.attractionName, r.attractionName);
+    const names = pageData?.attractionNames ?? [];
     return [
       { value: '', label: 'All attractions' },
-      ...[...seen.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([v, l]) => ({ value: v, label: l })),
+      ...names.map((n) => ({ value: n, label: n })),
     ];
-  }, [rows]);
+  }, [pageData?.attractionNames]);
 
-  const filtered = useMemo(() => {
-    return rows.filter(r => {
-      if (attractionFilter && r.attractionName !== attractionFilter) return false;
-      if (!search.trim()) return true;
-      return [r.attractionName ?? '', r.tourName ?? '', r.venueCompanyName ?? '',
-        r.venueName ?? '', r.city ?? '', r.performanceDate, String(r.engagementId)]
-        .join(' ').toLowerCase().includes(search.toLowerCase());
-    });
-  }, [rows, search, attractionFilter]);
+  const totalTicketsToday = pageData?.summary.todayTickets ?? 0;
+  const totalRevenueToday = pageData?.summary.todayRevenue ?? 0;
+  const totalTicketsYest = pageData?.summary.yesterdayTickets ?? 0;
+  const totalRevenueYest = pageData?.summary.yesterdayRevenue ?? 0;
 
-  const totalTicketsToday = useMemo(() => filtered.reduce((s, r) => s + (r.todayTicketsSold ?? 0), 0), [filtered]);
-  const totalRevenueToday = useMemo(() => filtered.reduce((s, r) => s + (r.todayRevenue ?? 0), 0), [filtered]);
-  const totalTicketsYest  = useMemo(() => filtered.reduce((s, r) => s + (r.yesterdayTicketsSold ?? 0), 0), [filtered]);
-  const totalRevenueYest  = useMemo(() => filtered.reduce((s, r) => s + (r.yesterdayRevenue ?? 0), 0), [filtered]);
-
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(serverTotal / PAGE_SIZE));
   const pageClamped = Math.min(page, pageCount);
-  const pageRows = filtered.slice((pageClamped - 1) * PAGE_SIZE, pageClamped * PAGE_SIZE);
 
-  React.useEffect(() => { setPage(1); }, [search, attractionFilter, perfDateFilter]);
+  useEffect(() => {
+    setPage(1);
+  }, [searchDebounced, attractionFilter, asOfDate]);
 
-  const isLoading = salesQuery.isPending;
-  const isRefreshing = salesQuery.isFetching && !salesQuery.isPending;
+  useEffect(() => {
+    if (serverTotal > 0 && page > pageCount) setPage(pageCount);
+  }, [serverTotal, page, pageCount]);
+
+  const showFullSkeleton = salesQuery.isPending && !salesQuery.data;
+  const showTableOverlay = salesQuery.isFetching && !!salesQuery.data;
+  const isRefreshing = salesQuery.isFetching && !showFullSkeleton;
   const $fmt = (n: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
 
@@ -443,9 +681,9 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
       {/* Header */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h1 className="text-xl font-semibold text-text-primary">Daily Sales</h1>
-        {!isLoading && (
+        {!showFullSkeleton && (
           <span className="text-xs bg-elevated px-2 py-0.5 rounded text-text-secondary tabular-nums">
-            {filtered.length.toLocaleString()} rows
+            {serverTotal.toLocaleString()} rows
           </span>
         )}
       </div>
@@ -458,52 +696,51 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
       )}
 
       {/* Summary */}
-      {!isLoading && filtered.length > 0 && (
+      {!showFullSkeleton && serverTotal > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <SummaryCard label={`${todayLabel} — Tickets`} value={totalTicketsToday.toLocaleString()} sub="today" />
-          <SummaryCard label={`${todayLabel} — Revenue`} value={$fmt(totalRevenueToday)} sub="today" />
-          <SummaryCard label={`${yesterdayLabel} — Tickets`} value={totalTicketsYest.toLocaleString()} sub="yesterday" />
-          <SummaryCard label={`${yesterdayLabel} — Revenue`} value={$fmt(totalRevenueYest)} sub="yesterday" />
+          <SummaryCard label={`${todayLabel} — Tickets`} value={totalTicketsToday.toLocaleString()} sub={labelCurShort} />
+          <SummaryCard label={`${todayLabel} — Revenue`} value={$fmt(totalRevenueToday)} sub={labelCurShort} />
+          <SummaryCard label={`${yesterdayLabel} — Tickets`} value={totalTicketsYest.toLocaleString()} sub={labelPriorShort} />
+          <SummaryCard label={`${yesterdayLabel} — Revenue`} value={$fmt(totalRevenueYest)} sub={labelPriorShort} />
         </div>
       )}
 
-      {/* Item 1 — Filters: performance date (user-friendly labels) + search + attraction */}
-      <div className="flex flex-wrap gap-3">
-        <div className="w-full sm:w-56">
-          <SearchInput value={search} onChange={setSearch} placeholder="Search…" disabled={isLoading} />
+      {/* Search + Attraction */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="w-full min-w-0 sm:flex-1 sm:max-w-md">
+          <label className="mb-1.5 block text-xs font-medium text-text-secondary">Search</label>
+          <SearchInput value={search} onChange={setSearch} placeholder="Search…" disabled={showFullSkeleton} />
         </div>
-        <div className="w-full sm:w-64">
-          <Select2
-            options={perfDateOptions}
-            value={perfDateFilter}
-            onChange={setPerfDateFilter}
-            disabled={isLoading}
-            placeholder="All performance dates"
-          />
-        </div>
-        <div className="w-full sm:w-56">
+        <div className="w-full min-w-0 sm:w-56 sm:min-w-[14rem]">
+          <label className="mb-1.5 block text-xs font-medium text-text-secondary">Attraction</label>
           <Select2
             options={attractionOptions}
             value={attractionFilter}
             onChange={setAttractionFilter}
-            disabled={isLoading}
+            disabled={showFullSkeleton}
             placeholder="All attractions"
           />
         </div>
       </div>
 
-      {/* Helper text */}
-      {!isLoading && rows.length > 0 && (
-        <p className="text-xs text-text-muted">
-          Click an <span className="font-medium text-text-secondary">attraction name</span> to view the full sales history for that engagement.
-        </p>
-      )}
-
-      {/* Table */}
-      {isLoading ? <TableSkeleton /> : (
+      {/* Table (Reporting as of: top right of this card) */}
+      {showFullSkeleton ? (
+        <TableSkeleton asOfDate={asOfDate} onAsOfDateChange={setAsOfDate} />
+      ) : (
         <>
-          <div className="bg-card border border-border rounded-lg overflow-x-auto">
-            <table className="w-full text-sm" style={{ minWidth: '900px' }}>
+          <div className="relative overflow-hidden rounded-lg border border-border bg-card">
+            {showTableOverlay && (
+              <div
+                className="absolute inset-0 z-10 flex items-center justify-center bg-background/50 backdrop-blur-[1px]"
+                aria-live="polite"
+                aria-busy
+              >
+                <Loader2 className="h-8 w-8 text-ems-accent animate-spin" />
+              </div>
+            )}
+            <ReportingAsOfBar asOfDate={asOfDate} onAsOfDateChange={setAsOfDate} />
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm" style={{ minWidth: '900px' }}>
               <thead>
                 <tr className="text-xs border-b border-border bg-surface">
                   <th className="text-left py-2 px-3 text-text-muted" rowSpan={2}>Attraction</th>
@@ -531,35 +768,46 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {filtered.length === 0 && !salesQuery.isError && (
+                {serverTotal === 0 && !salesQuery.isError && (
                   <tr>
                     <td colSpan={8} className="py-12 text-center text-sm text-text-muted">
-                      {rows.length === 0 ? 'No performances in the database.' : 'No performances match your filters.'}
+                      No performances for this reporting date, or none match your search and filters.
                     </td>
                   </tr>
                 )}
-                {pageRows.map(r => (
+                {rows.map((r) => (
                   <PerformanceRow
-                    key={r.performanceId}
+                    key={`${r.performanceId}-${r.todayDate}`}
                     row={r}
                     onEngagementClick={(id) => setSelectedEngagement({
                       engagementId: id,
                       attractionName: r.attractionName,
                       tourName: r.tourName,
                     })}
+                    onOpenRowDetails={() =>
+                      setTxModal({
+                        performanceId: r.performanceId,
+                        engagementId: r.engagementId,
+                        attractionName: r.attractionName,
+                        tourName: r.tourName,
+                        yesterdayDate: r.yesterdayDate,
+                        todayDate: r.todayDate,
+                      })
+                    }
                     onSaved={refetch}
                     addToast={addToast}
                   />
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
 
-          {filtered.length > 0 && (
+          {serverTotal > 0 && (
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-text-secondary px-1">
               <p className="tabular-nums">
-                Showing <span className="text-text-primary font-medium">{(pageClamped - 1) * PAGE_SIZE + 1}–{Math.min(pageClamped * PAGE_SIZE, filtered.length)}</span>
-                {' '}of <span className="text-text-primary font-medium">{filtered.length.toLocaleString()}</span> performances
+                Showing <span className="text-text-primary font-medium">{(pageClamped - 1) * PAGE_SIZE + 1}–{Math.min(pageClamped * PAGE_SIZE, serverTotal)}</span>
+                {' '}of <span className="text-text-primary font-medium">{serverTotal.toLocaleString()}</span> performances
               </p>
               <div className="flex items-center gap-2">
                 <button disabled={pageClamped <= 1} onClick={() => setPage(p => p - 1)}
@@ -571,6 +819,26 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
             </div>
           )}
         </>
+      )}
+
+      {txModal && (
+        <ReportingTransactionsModal
+          open
+          onOpenChange={(o) => { if (!o) setTxModal(null); }}
+          performanceId={txModal.performanceId}
+          yesterdayDate={txModal.yesterdayDate}
+          todayDate={txModal.todayDate}
+          attractionName={txModal.attractionName}
+          tourName={txModal.tourName}
+          onViewEngagementHistory={() => {
+            setSelectedEngagement({
+              engagementId: txModal.engagementId,
+              attractionName: txModal.attractionName,
+              tourName: txModal.tourName,
+            });
+            setTxModal(null);
+          }}
+        />
       )}
     </div>
   );
