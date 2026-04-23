@@ -3,12 +3,23 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { AttractionToursModule } from './attraction-tours/attraction-tours.module';
+import { CompanyModule } from './company/company.module';
+import { EngagementsModule } from './engagements/engagements.module';
+import { PerformancesModule } from './performances/performances.module';
+import { ProjectsModule } from './projects/projects.module';
+import { DailySalesModule } from './daily-sales/daily-sales.module';
+
+const parseBoolean = (value: string | undefined, fallback: boolean): boolean => {
+  if (!value) return fallback;
+  return ['true', '1', 'yes', 'on'].includes(value.trim().toLowerCase());
+};
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      envFilePath: ['.env', 'backend/.env'],
     }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
@@ -20,14 +31,22 @@ import { AppService } from './app.service';
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_NAME', 'master'),
         synchronize: false,
+        autoLoadEntities: true,
         options: {
-          encrypt: configService.get<string>('DB_ENCRYPT', 'false') === 'true',
-          trustServerCertificate:
-            configService.get<string>('DB_TRUST_SERVER_CERT', 'true') ===
-            'true',
+          encrypt: parseBoolean(configService.get<string>('DB_ENCRYPT'), true),
+          trustServerCertificate: parseBoolean(
+            configService.get<string>('DB_TRUST_SERVER_CERT'),
+            true,
+          ),
         },
       }),
     }),
+    CompanyModule,
+    AttractionToursModule,
+    EngagementsModule,
+    ProjectsModule,
+    PerformancesModule,
+    DailySalesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

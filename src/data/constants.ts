@@ -50,24 +50,43 @@ export interface VenueProfile {
   houseAgencyId?: string;
 }
 
+export interface TicketingManagerRow {
+  id: string;
+  contactId?: string;
+  displayName: string;
+  phone: string;
+  email: string;
+}
+
+export interface CompanyTicketing {
+  seatingChartFiles: { id: string; name: string }[];
+  ticketingSystem: string;
+  venueWebsite: string;
+  seatingType: string;
+  managers: TicketingManagerRow[];
+}
+
 export interface Company {
   id: string;
-  legalName: string;
-  tradeName: string;
-  types: string[];
+  name: string;
+  type: string;
   city: string;
   state: string;
   dmaIds: string[];
-  standing: string;
-  status: string;
+  serviceAreaDmaIds: string[];
+  /** dbo.Company.CompanyTypeID when loaded from API */
+  companyTypeId?: number;
+  /** dbo.Company.DMAID when loaded from API */
+  dmaId?: number;
+  /** dbo.DMA.MarketName for the company's DMAID (display). */
+  dmaMarketName?: string;
   venueProfile?: VenueProfile;
-  // Physical Address
+  ticketing?: CompanyTicketing;
   physicalStreet?: string;
   physicalCity?: string;
   physicalState?: string;
   physicalPostalCode?: string;
   physicalCountry?: string;
-  // Mailing Address
   mailingStreet?: string;
   mailingCity?: string;
   mailingState?: string;
@@ -76,61 +95,58 @@ export interface Company {
 }
 
 export const COMPANIES: Company[] = [
-  { id: 'co-01', legalName: 'United Center Entertainment LLC', tradeName: 'United Center',
-    types: ['Venue'], city: 'Chicago', state: 'IL', dmaIds: ['dma-03'],
-    standing: 'MasterAgreement', status: 'Active',
+  { id: 'co-01', name: 'United Center',
+    type: 'Venue', city: 'Chicago', state: 'IL', dmaIds: ['dma-03'], serviceAreaDmaIds: ['dma-03'],
     venueProfile: { configurations: [{ name: 'Full House', totalCap: 20000, seatedCap: 18500, gaCap: 1500, stageType: 'End Stage', isDefault: true },
                                      { name: 'Half House', totalCap: 10000, seatedCap: 9200, gaCap: 800, stageType: 'End Stage', isDefault: false }],
       ageRestriction: 'All Ages', curfew: '11:00 PM', loadInDocks: 6, parking: 4000,
       inHouseAudio: true, inHouseLighting: true, exclusiveTicketingId: 'co-09', houseAgencyId: 'co-12' } },
-  { id: 'co-02', legalName: 'Madison Square Garden Sports Corp.', tradeName: 'Madison Square Garden',
-    types: ['Venue'], city: 'New York', state: 'NY', dmaIds: ['dma-01'],
-    standing: 'PreferredVendor', status: 'Active',
+  { id: 'co-02', name: 'Madison Square Garden',
+    type: 'Venue', city: 'New York', state: 'NY', dmaIds: ['dma-01'], serviceAreaDmaIds: ['dma-01'],
     venueProfile: { configurations: [{ name: 'Full House', totalCap: 20789, seatedCap: 19500, gaCap: 1289, stageType: 'End Stage', isDefault: true }],
       ageRestriction: 'All Ages', curfew: '11:30 PM', loadInDocks: 8, parking: 0,
       inHouseAudio: true, inHouseLighting: true } },
-  { id: 'co-03', legalName: 'AEG Presents Arena Management LLC', tradeName: 'Crypto.com Arena',
-    types: ['Venue'], city: 'Los Angeles', state: 'CA', dmaIds: ['dma-02'],
-    standing: 'PreferredVendor', status: 'Active',
+  { id: 'co-03', name: 'Crypto.com Arena',
+    type: 'Venue', city: 'Los Angeles', state: 'CA', dmaIds: ['dma-02'], serviceAreaDmaIds: ['dma-02'],
     venueProfile: { configurations: [{ name: 'Full House', totalCap: 19068, seatedCap: 17500, gaCap: 1568, stageType: 'End Stage', isDefault: true }],
       ageRestriction: 'All Ages', curfew: '11:00 PM', loadInDocks: 6, parking: 2800,
       inHouseAudio: true, inHouseLighting: true } },
-  { id: 'co-04', legalName: 'Bridgestone Arena Operations LLC', tradeName: 'Bridgestone Arena',
-    types: ['Venue'], city: 'Nashville', state: 'TN', dmaIds: ['dma-13'],
-    standing: 'MasterAgreement', status: 'Active',
+  { id: 'co-04', name: 'Bridgestone Arena',
+    type: 'Venue', city: 'Nashville', state: 'TN', dmaIds: ['dma-13'], serviceAreaDmaIds: ['dma-13'],
     venueProfile: { configurations: [{ name: 'Full House', totalCap: 19500, seatedCap: 18000, gaCap: 1500, stageType: 'End Stage', isDefault: true }],
       ageRestriction: 'All Ages', curfew: '11:00 PM', loadInDocks: 5, parking: 3500,
       inHouseAudio: true, inHouseLighting: false } },
-  { id: 'co-05', legalName: 'Amalie Arena Group Inc.', tradeName: 'Amalie Arena',
-    types: ['Venue'], city: 'Tampa', state: 'FL', dmaIds: ['dma-14'],
-    standing: 'DealByDeal', status: 'Active',
+  { id: 'co-05', name: 'Amalie Arena',
+    type: 'Venue', city: 'Tampa', state: 'FL', dmaIds: ['dma-14'], serviceAreaDmaIds: ['dma-14'],
     venueProfile: { configurations: [{ name: 'Full House', totalCap: 19092, seatedCap: 17800, gaCap: 1292, stageType: 'End Stage', isDefault: true }],
       ageRestriction: 'All Ages', curfew: '11:00 PM', loadInDocks: 4, parking: 2200,
       inHouseAudio: true, inHouseLighting: true } },
-  { id: 'co-06', legalName: 'The Fillmore Detroit LLC', tradeName: 'The Fillmore Detroit',
-    types: ['Venue'], city: 'Detroit', state: 'MI', dmaIds: ['dma-15'],
-    standing: 'PreferredVendor', status: 'Active',
+  { id: 'co-06', name: 'The Fillmore Detroit',
+    type: 'Venue', city: 'Detroit', state: 'MI', dmaIds: ['dma-15'], serviceAreaDmaIds: ['dma-15'],
     venueProfile: { configurations: [{ name: 'General Admission', totalCap: 2600, seatedCap: 400, gaCap: 2200, stageType: 'Proscenium', isDefault: true }],
       ageRestriction: '18+', curfew: '2:00 AM', loadInDocks: 2, parking: 800,
       inHouseAudio: true, inHouseLighting: true } },
-  { id: 'co-07', legalName: 'Creative Ventures Agency Inc.', tradeName: 'Creative Ventures Agency',
-    types: ['TalentAgency'], city: 'Beverly Hills', state: 'CA', dmaIds: [],
-    standing: 'MasterAgreement', status: 'Active' },
-  { id: 'co-08', legalName: 'United Talent Partners LLC', tradeName: 'United Talent Partners',
-    types: ['TalentAgency'], city: 'New York', state: 'NY', dmaIds: [],
-    standing: 'PreferredVendor', status: 'Active' },
-  { id: 'co-09', legalName: 'TicketFlow Inc.', tradeName: 'TicketFlow',
-    types: ['Ticketing'], city: 'Nashville', state: 'TN', dmaIds: [],
-    standing: 'MasterAgreement', status: 'Active' },
-  { id: 'co-10', legalName: 'IATSE Local 2 Chicago', tradeName: 'IATSE Local 2',
-    types: ['Labor'], city: 'Chicago', state: 'IL', dmaIds: ['dma-03'],
-    standing: 'MasterAgreement', status: 'Active' },
-  { id: 'co-11', legalName: 'Pacific Stagecraft LLC', tradeName: 'Pacific Stagecraft',
-    types: ['Labor'], city: 'Los Angeles', state: 'CA', dmaIds: ['dma-02'],
-    standing: 'PreferredVendor', status: 'Active' },
-  { id: 'co-12', legalName: 'Momentum Live Media Inc.', tradeName: 'Momentum Live Media',
-    types: ['AdAgency'], city: 'Chicago', state: 'IL', dmaIds: ['dma-03'],
-    standing: 'PreferredVendor', status: 'Active' },
+  { id: 'co-07', name: 'Creative Ventures Agency',
+    type: 'TalentAgency', city: 'Beverly Hills', state: 'CA', dmaIds: [], serviceAreaDmaIds: [] },
+  { id: 'co-08', name: 'United Talent Partners',
+    type: 'TalentAgency', city: 'New York', state: 'NY', dmaIds: [], serviceAreaDmaIds: [] },
+  { id: 'co-09', name: 'TicketFlow',
+    type: 'Ticketing', city: 'Nashville', state: 'TN', dmaIds: [], serviceAreaDmaIds: [],
+    ticketing: {
+      seatingChartFiles: [],
+      ticketingSystem: 'Ticketmaster',
+      venueWebsite: 'https://www.ticketflow.example',
+      seatingType: 'Mixed',
+      managers: [
+        { id: 'tm-09-1', contactId: 'ct-15', displayName: 'Alicia Moran', phone: '(615) 555-0166', email: 'a.moran@ticketflow.com' },
+      ],
+    } },
+  { id: 'co-10', name: 'IATSE Local 2',
+    type: 'Labor', city: 'Chicago', state: 'IL', dmaIds: ['dma-03'], serviceAreaDmaIds: ['dma-03'] },
+  { id: 'co-11', name: 'Pacific Stagecraft',
+    type: 'Labor', city: 'Los Angeles', state: 'CA', dmaIds: ['dma-02'], serviceAreaDmaIds: ['dma-02'] },
+  { id: 'co-12', name: 'Momentum Live Media',
+    type: 'AdAgency', city: 'Chicago', state: 'IL', dmaIds: ['dma-03'], serviceAreaDmaIds: ['dma-03'] },
 ];
 
 export interface Contact {
@@ -138,55 +154,79 @@ export interface Contact {
   companyId: string;
   firstName: string;
   lastName: string;
-  title: string;
   roles: string[];
   email: string;
   phone: string;
   status: string;
-  // New fields
   department?: string;
   cellPhone?: string;
   workEmail?: string;
   workPhone?: string;
+  /** dbo.ContactAssignment.ContactAssignmentID */
+  contactAssignmentId?: number;
+  /** dbo.Contact.ContactID */
+  contactId?: number;
+  roleId?: number;
+  departmentId?: number;
+  departmentName?: string;
 }
 
 export const CONTACTS: Contact[] = [
-  { id: 'ct-01', companyId: 'co-01', firstName: 'Ray', lastName: 'Kowalski', title: 'Box Office Manager', roles: ['BoxOffice', 'Settlement'], email: 'r.kowalski@uc.com', phone: '(312) 555-0188', status: 'Active' },
-  { id: 'ct-02', companyId: 'co-01', firstName: 'Brenda', lastName: 'Cole', title: 'House Production Manager', roles: ['ProductionManager'], email: 'b.cole@uc.com', phone: '(312) 555-0122', status: 'Active' },
-  { id: 'ct-03', companyId: 'co-01', firstName: 'Tyler', lastName: 'Marsh', title: 'Marketing Director', roles: ['Marketing'], email: 't.marsh@uc.com', phone: '(312) 555-0109', status: 'Active' },
-  { id: 'ct-04', companyId: 'co-07', firstName: 'Marcus', lastName: 'Gold', title: 'Senior Agent', roles: ['Booking'], email: 'm.gold@creativeventures.com', phone: '(310) 555-0142', status: 'Active' },
-  { id: 'ct-05', companyId: 'co-07', firstName: 'Lisa', lastName: 'Chen', title: 'Agent', roles: ['Booking'], email: 'l.chen@creativeventures.com', phone: '(310) 555-0165', status: 'Active' },
-  { id: 'ct-06', companyId: 'co-08', firstName: 'Derek', lastName: 'Sullivan', title: 'VP Agent', roles: ['Booking'], email: 'd.sullivan@utp.com', phone: '(212) 555-0177', status: 'Active' },
-  { id: 'ct-07', companyId: 'co-08', firstName: 'Nina', lastName: 'Vasquez', title: 'Agent', roles: ['Booking'], email: 'n.vasquez@utp.com', phone: '(212) 555-0133', status: 'Active' },
-  { id: 'ct-08', companyId: 'co-07', firstName: 'Jake', lastName: 'Morrison', title: 'Tour Manager', roles: ['Other'], email: 'jake.m@cv.com', phone: '(213) 555-0191', status: 'Active' },
-  { id: 'ct-09', companyId: 'co-07', firstName: 'Dana', lastName: 'Rosario', title: 'Production Manager', roles: ['ProductionManager'], email: 'd.rosario@tour.com', phone: '(213) 555-0104', status: 'Active' },
-  { id: 'ct-10', companyId: 'co-07', firstName: 'Wei', lastName: 'Chen', title: 'Tour Accountant', roles: ['Settlement'], email: 'w.chen@tour.com', phone: '(213) 555-0133', status: 'Active' },
-  { id: 'ct-11', companyId: 'co-07', firstName: 'Lena', lastName: 'Park', title: 'Publicist', roles: ['Marketing'], email: 'l.park@parkpr.com', phone: '(310) 555-0177', status: 'Active' },
-  { id: 'ct-12', companyId: 'co-04', firstName: 'Carl', lastName: 'Hughes', title: 'Box Office Director', roles: ['BoxOffice'], email: 'c.hughes@bridgestone.com', phone: '(615) 555-0144', status: 'Active' },
-  { id: 'ct-13', companyId: 'co-04', firstName: 'Sarah', lastName: 'Nolan', title: 'Production Manager', roles: ['ProductionManager'], email: 's.nolan@bridgestone.com', phone: '(615) 555-0128', status: 'Active' },
-  { id: 'ct-14', companyId: 'co-02', firstName: 'James', lastName: 'Ferraro', title: 'VP Booking', roles: ['Booking', 'BoxOffice'], email: 'j.ferraro@msg.com', phone: '(212) 555-0199', status: 'Active' },
-  { id: 'ct-15', companyId: 'co-09', firstName: 'Alicia', lastName: 'Moran', title: 'Account Manager', roles: ['BoxOffice'], email: 'a.moran@ticketflow.com', phone: '(615) 555-0166', status: 'Active' },
-  { id: 'ct-16', companyId: 'co-06', firstName: 'Damon', lastName: 'Pierce', title: 'General Manager', roles: ['Booking', 'BoxOffice'], email: 'd.pierce@fillmoredetroit.com', phone: '(313) 555-0155', status: 'Active' },
+  { id: 'ct-01', companyId: 'co-01', firstName: 'Ray', lastName: 'Kowalski', roles: ['BoxOffice', 'Settlement'], email: 'r.kowalski@uc.com', phone: '(312) 555-0188', status: 'Active' },
+  { id: 'ct-02', companyId: 'co-01', firstName: 'Brenda', lastName: 'Cole', roles: ['ProductionManager'], email: 'b.cole@uc.com', phone: '(312) 555-0122', status: 'Active' },
+  { id: 'ct-03', companyId: 'co-01', firstName: 'Tyler', lastName: 'Marsh', roles: ['Marketing'], email: 't.marsh@uc.com', phone: '(312) 555-0109', status: 'Active' },
+  { id: 'ct-04', companyId: 'co-07', firstName: 'Marcus', lastName: 'Gold', roles: ['Booking'], email: 'm.gold@creativeventures.com', phone: '(310) 555-0142', status: 'Active' },
+  { id: 'ct-05', companyId: 'co-07', firstName: 'Lisa', lastName: 'Chen', roles: ['Booking'], email: 'l.chen@creativeventures.com', phone: '(310) 555-0165', status: 'Active' },
+  { id: 'ct-06', companyId: 'co-08', firstName: 'Derek', lastName: 'Sullivan', roles: ['Booking'], email: 'd.sullivan@utp.com', phone: '(212) 555-0177', status: 'Active' },
+  { id: 'ct-07', companyId: 'co-08', firstName: 'Nina', lastName: 'Vasquez', roles: ['Booking'], email: 'n.vasquez@utp.com', phone: '(212) 555-0133', status: 'Active' },
+  { id: 'ct-08', companyId: 'co-07', firstName: 'Jake', lastName: 'Morrison', roles: ['Other'], email: 'jake.m@cv.com', phone: '(213) 555-0191', status: 'Active' },
+  { id: 'ct-09', companyId: 'co-07', firstName: 'Dana', lastName: 'Rosario', roles: ['ProductionManager'], email: 'd.rosario@tour.com', phone: '(213) 555-0104', status: 'Active' },
+  { id: 'ct-10', companyId: 'co-07', firstName: 'Wei', lastName: 'Chen', roles: ['Settlement'], email: 'w.chen@tour.com', phone: '(213) 555-0133', status: 'Active' },
+  { id: 'ct-11', companyId: 'co-07', firstName: 'Lena', lastName: 'Park', roles: ['Marketing'], email: 'l.park@parkpr.com', phone: '(310) 555-0177', status: 'Active' },
+  { id: 'ct-12', companyId: 'co-04', firstName: 'Carl', lastName: 'Hughes', roles: ['BoxOffice'], email: 'c.hughes@bridgestone.com', phone: '(615) 555-0144', status: 'Active' },
+  { id: 'ct-13', companyId: 'co-04', firstName: 'Sarah', lastName: 'Nolan', roles: ['ProductionManager'], email: 's.nolan@bridgestone.com', phone: '(615) 555-0128', status: 'Active' },
+  { id: 'ct-14', companyId: 'co-02', firstName: 'James', lastName: 'Ferraro', roles: ['Booking', 'BoxOffice'], email: 'j.ferraro@msg.com', phone: '(212) 555-0199', status: 'Active' },
+  { id: 'ct-15', companyId: 'co-09', firstName: 'Alicia', lastName: 'Moran', roles: ['BoxOffice'], email: 'a.moran@ticketflow.com', phone: '(615) 555-0166', status: 'Active' },
+  { id: 'ct-16', companyId: 'co-06', firstName: 'Damon', lastName: 'Pierce', roles: ['Booking', 'BoxOffice'], email: 'd.pierce@fillmoredetroit.com', phone: '(313) 555-0155', status: 'Active' },
+];
+
+/** Values for attraction genre multi-select and tour-type picklists */
+export const GENRE_OPTIONS = [
+  'Pop', 'R&B', 'Rock', 'Alternative', 'Comedy', 'Electronic', 'Indie', 'Country', 'Americana',
+  'Hip-Hop', 'Jazz', 'Latin', 'Folk', 'Metal', 'Soul', 'Blues', 'Classical',
+];
+
+export const DEAL_TYPE_OPTIONS = [
+  { value: 'Guarantee', label: 'Guarantee' },
+  { value: 'GuaranteeVsSplit', label: 'Guarantee vs Split' },
+  { value: 'FlatFee', label: 'Flat Fee' },
+];
+
+export const TOUR_TYPE_OR_GENRE_OPTIONS = [
+  { value: 'World Tour', label: 'World Tour' },
+  { value: 'Regional Tour', label: 'Regional Tour' },
+  { value: 'Residency', label: 'Residency' },
+  { value: 'Theater Run', label: 'Theater Run' },
+  { value: 'Arena Tour', label: 'Arena Tour' },
+  { value: 'Club Tour', label: 'Club Tour' },
+  { value: 'Festival Circuit', label: 'Festival Circuit' },
+  { value: 'Acoustic Tour', label: 'Acoustic Tour' },
+  ...GENRE_OPTIONS.map(g => ({ value: g, label: g })),
 ];
 
 export interface Attraction {
   id: string;
   name: string;
   genres: string[];
-  marketTier: string;
-  agencyId: string;
-  primaryAgentContactId: string;
-  iaeStatus: string;
-  ownerId: string;
 }
 
 export const ATTRACTIONS: Attraction[] = [
-  { id: 'atr-01', name: 'Stella Vance', genres: ['Pop', 'R&B'], marketTier: 'Arena', agencyId: 'co-07', primaryAgentContactId: 'ct-04', iaeStatus: 'Active', ownerId: 'usr-02' },
-  { id: 'atr-02', name: 'Iron Meridian', genres: ['Rock', 'Alternative'], marketTier: 'Arena', agencyId: 'co-08', primaryAgentContactId: 'ct-06', iaeStatus: 'Active', ownerId: 'usr-03' },
-  { id: 'atr-03', name: 'Cleo & The Current', genres: ['Pop', 'Indie'], marketTier: 'Theater', agencyId: 'co-07', primaryAgentContactId: 'ct-05', iaeStatus: 'Active', ownerId: 'usr-02' },
-  { id: 'atr-04', name: 'Marcus Fontaine', genres: ['Comedy'], marketTier: 'Theater', agencyId: 'co-08', primaryAgentContactId: 'ct-07', iaeStatus: 'Active', ownerId: 'usr-02' },
-  { id: 'atr-05', name: 'Aurora Rising', genres: ['Electronic', 'Pop'], marketTier: 'Arena', agencyId: 'co-07', primaryAgentContactId: 'ct-04', iaeStatus: 'Prospective', ownerId: 'usr-03' },
-  { id: 'atr-06', name: 'The Blackwood Collective', genres: ['Country', 'Americana'], marketTier: 'Arena', agencyId: 'co-08', primaryAgentContactId: 'ct-06', iaeStatus: 'Active', ownerId: 'usr-03' },
+  { id: 'atr-01', name: 'Stella Vance', genres: ['Pop', 'R&B'] },
+  { id: 'atr-02', name: 'Iron Meridian', genres: ['Rock', 'Alternative'] },
+  { id: 'atr-03', name: 'Cleo & The Current', genres: ['Pop', 'Indie'] },
+  { id: 'atr-04', name: 'Marcus Fontaine', genres: ['Comedy'] },
+  { id: 'atr-05', name: 'Aurora Rising', genres: ['Electronic', 'Pop'] },
+  { id: 'atr-06', name: 'The Blackwood Collective', genres: ['Country', 'Americana'] },
 ];
 
 export interface TourContact {
@@ -202,8 +242,8 @@ export interface Tour {
   startDate: string;
   endDate: string;
   dmaIds: string[];
-  dealType: string;
-  guarantee: number | null;
+  talentAgentContactId: string;
+  tourTypeOrGenre: string;
   splitPct: number | null;
   breakeven: number | null;
   radiusMiles: number;
@@ -222,7 +262,7 @@ export interface Tour {
 export const TOURS: Tour[] = [
   { id: 'tour-01', attractionId: 'atr-01', name: 'Afterglow World Tour', status: 'ActiveRouting',
     startDate: '2025-01-15', endDate: '2025-12-15', dmaIds: ['dma-01','dma-02','dma-03','dma-04','dma-07','dma-09','dma-10','dma-11'],
-    dealType: 'GuaranteeVsSplit', guarantee: 175000, splitPct: 85, breakeven: 320000,
+    talentAgentContactId: 'ct-04', tourTypeOrGenre: 'World Tour', splitPct: 85, breakeven: 320000,
     radiusMiles: 90, radiusDays: 30, stageWidth: 60, stageDepth: 40, riggingLoad: 40000, trucks: 8, crew: 42,
     technicalRider: 'Stage 60W×40D. Touring PA required, no house system. Touring lighting rig required. 400A 3-phase power. 6 loading docks minimum.',
     hospitalityRider: '4 dressing rooms. 1 private artist suite. Hot catering for 50. 20 hotel rooms 3-star min.',
@@ -230,41 +270,41 @@ export const TOURS: Tour[] = [
     contacts: [{ contactId: 'ct-08', role: 'TourManager' }, { contactId: 'ct-09', role: 'ProductionManager' }, { contactId: 'ct-10', role: 'TourAccountant' }, { contactId: 'ct-11', role: 'Publicist' }] },
   { id: 'tour-02', attractionId: 'atr-01', name: 'Afterglow: The Residency', status: 'ActiveRouting',
     startDate: '2025-03-01', endDate: '2025-06-30', dmaIds: ['dma-12'],
-    dealType: 'FlatFee', guarantee: 220000, splitPct: null, breakeven: null,
+    talentAgentContactId: 'ct-04', tourTypeOrGenre: 'Residency', splitPct: null, breakeven: null,
     radiusMiles: 0, radiusDays: 0, stageWidth: 60, stageDepth: 40, riggingLoad: 40000, trucks: 8, crew: 42,
     technicalRider: 'Same as Afterglow World Tour.', hospitalityRider: 'Same as Afterglow World Tour.', dressingRooms: 4 },
   { id: 'tour-03', attractionId: 'atr-02', name: 'Fault Lines Tour', status: 'ActiveRouting',
     startDate: '2025-02-01', endDate: '2025-11-30', dmaIds: ['dma-01','dma-02','dma-03','dma-06','dma-11'],
-    dealType: 'Guarantee', guarantee: 95000, splitPct: null, breakeven: null,
+    talentAgentContactId: 'ct-06', tourTypeOrGenre: 'Arena Tour', splitPct: null, breakeven: null,
     radiusMiles: 75, radiusDays: 21, stageWidth: 48, stageDepth: 32, riggingLoad: 30000, trucks: 6, crew: 35,
     technicalRider: 'Stage 48W×32D. Touring PA required. House lighting acceptable. 200A single-phase.',
     hospitalityRider: '3 dressing rooms. Hot meal for 40.', dressingRooms: 3,
     contacts: [{ contactId: 'ct-06', role: 'TourManager' }] },
   { id: 'tour-04', attractionId: 'atr-02', name: 'Acoustic Sessions', status: 'Announced',
     startDate: '2025-09-01', endDate: '2025-12-15', dmaIds: ['dma-01','dma-03','dma-11'],
-    dealType: 'FlatFee', guarantee: 45000, splitPct: null, breakeven: null,
+    talentAgentContactId: 'ct-06', tourTypeOrGenre: 'Acoustic Tour', splitPct: null, breakeven: null,
     radiusMiles: 50, radiusDays: 14, stageWidth: 24, stageDepth: 20, riggingLoad: 5000, trucks: 2, crew: 12,
     technicalRider: 'Minimal production. House PA acceptable.', hospitalityRider: '2 dressing rooms.', dressingRooms: 2 },
   { id: 'tour-05', attractionId: 'atr-03', name: 'Electric Spring Tour', status: 'ActiveRouting',
     startDate: '2025-04-01', endDate: '2025-08-31', dmaIds: ['dma-03','dma-15','dma-07','dma-08'],
-    dealType: 'GuaranteeVsSplit', guarantee: 35000, splitPct: 80, breakeven: 85000,
+    talentAgentContactId: 'ct-05', tourTypeOrGenre: 'Theater Run', splitPct: 80, breakeven: 85000,
     radiusMiles: 60, radiusDays: 14, stageWidth: 32, stageDepth: 24, riggingLoad: 12000, trucks: 3, crew: 18,
     technicalRider: 'Theater-scale production. House PA acceptable.', hospitalityRider: '2 dressing rooms. Catering for 22.', dressingRooms: 2 },
   { id: 'tour-06', attractionId: 'atr-04', name: 'Oversharing Tour', status: 'ActiveRouting',
     startDate: '2025-01-01', endDate: '2025-12-31', dmaIds: ['dma-01','dma-02','dma-03','dma-04','dma-05','dma-06','dma-07','dma-08','dma-09','dma-10','dma-11','dma-12','dma-13','dma-14','dma-15'],
-    dealType: 'FlatFee', guarantee: 28000, splitPct: null, breakeven: null,
+    talentAgentContactId: 'ct-07', tourTypeOrGenre: 'Comedy', splitPct: null, breakeven: null,
     radiusMiles: 30, radiusDays: 7, stageWidth: 20, stageDepth: 16, riggingLoad: 3000, trucks: 1, crew: 8,
     technicalRider: 'Minimal. Stool, mic, basic lighting. House PA required.', hospitalityRider: '1 dressing room. Rider: 6-pack IPA, cheese plate.', dressingRooms: 1 },
   { id: 'tour-07', attractionId: 'atr-06', name: 'Heartland Highway', status: 'ActiveRouting',
     startDate: '2025-03-15', endDate: '2025-10-31', dmaIds: ['dma-04','dma-05','dma-08','dma-13','dma-14'],
-    dealType: 'GuaranteeVsSplit', guarantee: 130000, splitPct: 85, breakeven: 260000,
+    talentAgentContactId: 'ct-06', tourTypeOrGenre: 'Country', splitPct: 85, breakeven: 260000,
     radiusMiles: 100, radiusDays: 28, stageWidth: 52, stageDepth: 36, riggingLoad: 35000, trucks: 7, crew: 38,
     technicalRider: 'Country-scale production. Full touring rig. Steel guitar, fiddle monitors required.',
     hospitalityRider: '4 dressing rooms. Southern catering for 45.', dressingRooms: 4,
     contacts: [{ contactId: 'ct-07', role: 'TourManager' }] },
   { id: 'tour-08', attractionId: 'atr-05', name: 'Neon Drift', status: 'Announced',
     startDate: '2025-06-01', endDate: '2025-12-31', dmaIds: ['dma-02','dma-09','dma-12'],
-    dealType: 'GuaranteeVsSplit', guarantee: null, splitPct: null, breakeven: null,
+    talentAgentContactId: 'ct-04', tourTypeOrGenre: 'Electronic', splitPct: null, breakeven: null,
     radiusMiles: 90, radiusDays: 21, stageWidth: null, stageDepth: null, riggingLoad: null, trucks: null, crew: null,
     technicalRider: 'TBD — advance pending.', hospitalityRider: 'TBD.', dressingRooms: null },
 ];
@@ -417,6 +457,15 @@ export interface Engagement {
   };
 }
 
+export interface DailySaleEntry {
+  id: string;
+  engagementId: string;
+  saleDate: string;
+  ticketsSold: number;
+  totalRevenue: number;
+  notes?: string;
+}
+
 export const ENGAGEMENTS_INIT: Engagement[] = [
   { id: 'eng-01', name: 'Stella Vance — Afterglow World Tour @ United Center',
     tourId: 'tour-01', venueId: 'co-01', configName: 'Full House', bookerId: 'usr-02',
@@ -558,7 +607,15 @@ export const ENGAGEMENTS_INIT: Engagement[] = [
   },
 ];
 
-// Helper functions
+export const DAILY_SALES_INIT: DailySaleEntry[] = [
+  { id: 'ds-01', engagementId: 'eng-01', saleDate: '2025-10-05', ticketsSold: 1091, totalRevenue: 72363, notes: 'Weekend push' },
+  { id: 'ds-02', engagementId: 'eng-03', saleDate: '2025-09-20', ticketsSold: 4200, totalRevenue: 312000 },
+  { id: 'ds-03', engagementId: 'eng-06', saleDate: '2025-07-01', ticketsSold: 856, totalRevenue: 44880 },
+];
+
+export { lookupDmasForPostal, getDmaFromPostalCode } from './dmaPostalLookup';
+export type { PostalDmaLookupResult, PostalDmaSource } from './dmaPostalLookup';
+
 export function formatCurrency(n: number | null | undefined): string {
   if (n == null) return '—';
   return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 0 });
@@ -567,7 +624,7 @@ export function formatCurrency(n: number | null | undefined): string {
 export function formatDate(str: string | null | undefined): string {
   if (!str) return '—';
   const d = new Date(str + 'T00:00:00');
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 export function getInitials(name: string): string {
@@ -576,6 +633,9 @@ export function getInitials(name: string): string {
 
 export function getStatusColor(status: string): { bg: string; text: string } {
   const map: Record<string, { bg: string; text: string }> = {
+    Unknown: { bg: 'bg-elevated', text: 'text-text-muted' },
+    Private: { bg: 'bg-ems-purple-dim', text: 'text-ems-purple' },
+    Public: { bg: 'bg-ems-green-dim', text: 'text-ems-green' },
     Draft: { bg: 'bg-elevated', text: 'text-text-secondary' },
     Confirmed: { bg: 'bg-ems-green-dim', text: 'text-ems-green' },
     OnSale: { bg: 'bg-ems-blue-dim', text: 'text-ems-blue' },
