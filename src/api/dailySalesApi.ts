@@ -54,9 +54,54 @@ export interface ApiPerformanceSalesRow {
   yesterdayRevenue: number | null;
 }
 
-export function fetchDailySalesByPerformance(performanceDate?: string) {
-  const qs = performanceDate ? `?performanceDate=${encodeURIComponent(performanceDate)}` : '';
-  return apiFetch<ApiPerformanceSalesRow[]>(`/daily-sales/by-performance${qs}`);
+export interface ApiPerformanceSalesPage {
+  items: ApiPerformanceSalesRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  todayDate: string;
+  yesterdayDate: string;
+  summary: {
+    todayTickets: number;
+    todayRevenue: number;
+    yesterdayTickets: number;
+    yesterdayRevenue: number;
+  };
+  attractionNames: string[];
+}
+
+export function fetchDailySalesByPerformance(
+  asOfDate?: string,
+  options?: { page?: number; pageSize?: number; search?: string; attraction?: string },
+) {
+  const p = new URLSearchParams();
+  if (asOfDate) p.set('asOfDate', asOfDate);
+  if (options?.page != null) p.set('page', String(options.page));
+  if (options?.pageSize != null) p.set('pageSize', String(options.pageSize));
+  if (options?.search) p.set('search', options.search);
+  if (options?.attraction) p.set('attraction', options.attraction);
+  const qs = p.toString() ? `?${p.toString()}` : '';
+  return apiFetch<ApiPerformanceSalesPage>(`/daily-sales/by-performance${qs}`);
+}
+
+export interface ApiReportingTransactionRow {
+  salesDate: string;
+  ticketsSold: number | null;
+  revenue: number | null;
+}
+
+/** Sales rows for a performance on specific reporting dates (SalesDate in DB). */
+export function fetchPerformanceReportingTransactions(
+  performanceId: number,
+  salesDates: string[],
+) {
+  if (salesDates.length === 0) {
+    return Promise.resolve([] as ApiReportingTransactionRow[]);
+  }
+  const dates = salesDates.map((d) => encodeURIComponent(d)).join(',');
+  return apiFetch<ApiReportingTransactionRow[]>(
+    `/daily-sales/performance/${performanceId}/transactions?dates=${dates}`,
+  );
 }
 
 // ─── Update (upsert) ──────────────────────────────────────────────────────────

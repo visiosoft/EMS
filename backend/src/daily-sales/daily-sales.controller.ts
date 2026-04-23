@@ -29,13 +29,47 @@ export class DailySalesController {
 
   /**
    * GET /api/daily-sales/by-performance
-   * Returns one row per Performance with today's and yesterday's
-   * sales data joined. Used by the new Daily Sales UI.
-   * Optional: ?performanceDate=YYYY-MM-DD to filter by performance date.
+   * Paged rows per show with PerformanceDate <= asOf.
+   * Reporting columns: asOf (current) and asOf minus one calendar day.
+   * ?asOfDate=YYYY-MM-DD (optional; defaults to server date in SQL)
+   * &page=1&pageSize=25&search=&attraction=
    */
   @Get('by-performance')
-  findByPerformance(@Query('performanceDate') performanceDate?: string) {
-    return this.dailySalesService.findByPerformance(performanceDate);
+  findByPerformance(
+    @Query('asOfDate') asOfDate?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('search') search?: string,
+    @Query('attraction') attraction?: string,
+  ) {
+    return this.dailySalesService.findByPerformancePage(
+      asOfDate,
+      page != null && page !== '' ? Number(page) : 1,
+      pageSize != null && pageSize !== '' ? Number(pageSize) : 25,
+      search,
+      attraction,
+    );
+  }
+
+  /**
+   * GET /api/daily-sales/performance/:performanceId/transactions?dates=YYYY-MM-DD,YYYY-MM-DD
+   * All TicketingSales rows for the performance on those sales dates.
+   */
+  @Get('performance/:performanceId/transactions')
+  findReportingTransactions(
+    @Param('performanceId') performanceId: string,
+    @Query('dates') dates?: string,
+  ) {
+    const list = dates
+      ? dates
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+    return this.dailySalesService.findReportingTransactions(
+      Number(performanceId),
+      list,
+    );
   }
 
   /**

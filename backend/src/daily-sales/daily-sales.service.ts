@@ -3,7 +3,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, SelectQueryBuilder } from 'typeorm';
 import { Address } from '../entities/address.entity';
 import { Attraction } from '../entities/attraction.entity';
 import { Company } from '../entities/company.entity';
@@ -14,6 +14,34 @@ import { TicketingSales } from '../entities/ticketing-sales.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
 import { normalizeEngagementStatus } from '../engagements/engagement-status.util';
+
+function ymdAddDays(ymd: string, delta: number): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  if (!y || !m || !d) return ymd;
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + delta);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
+
+function numOrZero(v: unknown): number {
+  if (v == null || v === '') return 0;
+  if (typeof v === 'object' && v !== null && 'toString' in v) {
+    const s = (v as { toString: () => string }).toString();
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n : 0;
+  }
+  return typeof v === 'number' && Number.isFinite(v) ? v : parseFloat(String(v)) || 0;
+}
+
+function pickRow<T>(row: Record<string, unknown> | null | undefined, name: string): T | undefined {
+  if (row == null) return undefined;
+  if (name in row) return row[name] as T;
+  const l = name.toLowerCase();
+  for (const k of Object.keys(row)) {
+    if (k.toLowerCase() === l) return row[k] as T;
+  }
+  return undefined;
+}
 
 export interface DailySalesRow {
   performanceId: number;
@@ -59,6 +87,24 @@ export interface PerformanceSalesRow {
   yesterdayDate: string;
   yesterdayTicketsSold: number | null;
   yesterdayRevenue: number | null;
+}
+
+/** Paged by-performance list + global totals (same filter as the table). */
+export interface PerformanceSalesPageResult {
+  items: PerformanceSalesRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  todayDate: string;
+  yesterdayDate: string;
+  summary: {
+    todayTickets: number;
+    todayRevenue: number;
+    yesterdayTickets: number;
+    yesterdayRevenue: number;
+  };
+  /** Distinct non-null attraction names in this report (for the filter; not search-filtered). */
+  attractionNames: string[];
 }
 
 @Injectable()
@@ -138,68 +184,65 @@ export class DailySalesService {
     }));
   }
 
-  // ─── GET /daily-sales/by-performance ─────────────────────────────────────
+  // ─── GET /daily-sales/by-performance (paged) ────────────────────────────
   /**
-   * Returns one row per Performance.
-   * Each row includes sales totals for TODAY and YESTERDAY (left-joined).
-   * Uses SQL Server CONVERT + GETDATE() / DATEADD so dates are always server-timezone.
-   * Optional filter: performanceDate (YYYY-MM-DD)
+   * One page of performances with PerformanceDate <= asOf, plus totals over the full
+   * filter (not just the current page) and options for the attraction filter.
    */
-  async findByPerformance(performanceDate?: string): Promise<PerformanceSalesRow[]> {
-    // We use a raw query because we need two conditional left-joins on TicketingSales
-    const qb = this.performanceRepo
-      .createQueryBuilder('p')
-      .innerJoin(Engagement, 'e', 'e.engagementId = p.engagementId')
-      .leftJoin(Tour, 't', 't.tourId = e.tourId')
-      .leftJoin(Attraction, 'a', 'a.attractionId = t.attractionId')
-      .leftJoin(EngagementVenue, 'ev', 'ev.engagementId = e.engagementId AND ev.isPrimary = :prim', { prim: true })
-      .leftJoin(Venue, 'v', 'v.companyId = ev.venueCompanyId')
-      .leftJoin(Company, 'vc', 'vc.companyId = ev.venueCompanyId')
-      .leftJoin(Address, 'addr', 'addr.addressId = vc.physicalAddressId')
-      // Today's sales — left join on matching performanceId AND today's date
-      .leftJoin(
-        TicketingSales,
-        'ts_today',
-        "ts_today.performanceId = p.performanceId AND CONVERT(varchar(10), ts_today.salesDate, 120) = CONVERT(varchar(10), GETDATE(), 120)",
-      )
-      // Yesterday's sales
-      .leftJoin(
-        TicketingSales,
-        'ts_yesterday',
-        "ts_yesterday.performanceId = p.performanceId AND CONVERT(varchar(10), ts_yesterday.salesDate, 120) = CONVERT(varchar(10), DATEADD(day, -1, GETDATE()), 120)",
-      )
-      .select([
-        'p.performanceId                                         AS performanceId',
-        'p.engagementId                                         AS engagementId',
-        'CONVERT(varchar(10), p.performanceDate, 120)           AS performanceDate',
-        'CONVERT(varchar(8),  p.performanceTime, 108)           AS performanceTime',
-        'p.performanceStatus                                     AS performanceStatus',
-        'e.engagementStatus                                      AS engagementStatus',
-        'a.attractionName                                        AS attractionName',
-        't.tourName                                              AS tourName',
-        'vc.companyName                                          AS venueCompanyName',
-        'v.venueName                                             AS venueName',
-        'addr.city                                               AS city',
-        'addr.stateProvince                                      AS stateProvince',
-        // Today
-        "CONVERT(varchar(10), GETDATE(), 120)                   AS todayDate",
-        'ts_today.performanceSalesQuantity                       AS todayTicketsSold',
-        'ts_today.performanceSalesRevenue                        AS todayRevenue',
-        // Yesterday
-        "CONVERT(varchar(10), DATEADD(day, -1, GETDATE()), 120) AS yesterdayDate",
-        'ts_yesterday.performanceSalesQuantity                   AS yesterdayTicketsSold',
-        'ts_yesterday.performanceSalesRevenue                    AS yesterdayRevenue',
-      ])
-      .orderBy('p.performanceDate', 'ASC')
-      .addOrderBy('p.performanceTime', 'ASC');
+  async findByPerformancePage(
+    asOfDateParam: string | undefined,
+    pageIn: number,
+    pageSizeIn: number,
+    searchRaw: string | undefined,
+    attractionName: string | undefined,
+  ): Promise<PerformanceSalesPageResult> {
+    const asOf = await this.resolveAsOfDateString(asOfDateParam);
+    const page = Math.max(1, Number.isFinite(pageIn) ? Math.floor(pageIn) : 1);
+    const pageSize = Math.min(100, Math.max(1, Number.isFinite(pageSizeIn) ? Math.floor(pageSizeIn) : 25));
+    const search = (searchRaw ?? '').trim() || undefined;
 
-    if (performanceDate) {
-      qb.andWhere("CONVERT(varchar(10), p.performanceDate, 120) = :pd", { pd: performanceDate });
-    }
+    const yesterdayDate = ymdAddDays(asOf, -1);
+    const attractionNames = await this.getDistinctAttractionNames(asOf);
 
-    const raw = await qb.getRawMany<Record<string, unknown>>();
+    const baseQb = this.createByPerformanceBaseQb(
+      asOf,
+      { search, attractionName: attractionName?.trim() || undefined },
+    );
+    const total = await baseQb.getCount();
 
-    return raw.map((r) => ({
+    const [agg, rawItems] = await Promise.all([
+      this.sumSalesForByPerformanceQuery(baseQb, asOf),
+      baseQb
+        .clone()
+        .select([
+          'p.performanceId                                         AS performanceId',
+          'p.engagementId                                         AS engagementId',
+          'CONVERT(varchar(10), p.performanceDate, 120)           AS performanceDate',
+          'CONVERT(varchar(8),  p.performanceTime, 108)          AS performanceTime',
+          'p.performanceStatus                                    AS performanceStatus',
+          'e.engagementStatus                                     AS engagementStatus',
+          'a.attractionName                                       AS attractionName',
+          't.tourName                                             AS tourName',
+          'vc.companyName                                         AS venueCompanyName',
+          'v.venueName                                            AS venueName',
+          'addr.city                                              AS city',
+          'addr.stateProvince                                   AS stateProvince',
+          "CONVERT(varchar(10), CAST(:asOf AS date), 120)         AS todayDate",
+          'ts_today.performanceSalesQuantity                      AS todayTicketsSold',
+          'ts_today.performanceSalesRevenue                        AS todayRevenue',
+          "CONVERT(varchar(10), DATEADD(day, -1, CAST(:asOf AS date)), 120) AS yesterdayDate",
+          'ts_yesterday.performanceSalesQuantity                  AS yesterdayTicketsSold',
+          'ts_yesterday.performanceSalesRevenue                    AS yesterdayRevenue',
+        ])
+        .setParameter('asOf', asOf)
+        .orderBy('p.performanceDate', 'ASC')
+        .addOrderBy('p.performanceTime', 'ASC')
+        .skip((page - 1) * pageSize)
+        .take(pageSize)
+        .getRawMany<Record<string, unknown>>(),
+    ]);
+
+    const items: PerformanceSalesRow[] = rawItems.map((r) => ({
       performanceId: Number(r['performanceId']),
       engagementId: Number(r['engagementId']),
       performanceDate: String(r['performanceDate'] ?? ''),
@@ -217,10 +260,178 @@ export class DailySalesService {
       todayDate: String(r['todayDate'] ?? ''),
       todayTicketsSold: r['todayTicketsSold'] != null ? Number(r['todayTicketsSold']) : null,
       todayRevenue: r['todayRevenue'] != null ? Number(r['todayRevenue']) : null,
-      yesterdayDate: String(r['yesterdayDate'] ?? ''),
+      yesterdayDate: String(r['yesterdayDate'] ?? yesterdayDate),
       yesterdayTicketsSold: r['yesterdayTicketsSold'] != null ? Number(r['yesterdayTicketsSold']) : null,
       yesterdayRevenue: r['yesterdayRevenue'] != null ? Number(r['yesterdayRevenue']) : null,
     }));
+
+    return {
+      items,
+      total,
+      page,
+      pageSize,
+      todayDate: asOf,
+      yesterdayDate,
+      summary: {
+        todayTickets: numOrZero(pickRow(agg, 'sumTixT')),
+        todayRevenue: numOrZero(pickRow(agg, 'sumRevT')),
+        yesterdayTickets: numOrZero(pickRow(agg, 'sumTixY')),
+        yesterdayRevenue: numOrZero(pickRow(agg, 'sumRevY')),
+      },
+      attractionNames,
+    };
+  }
+
+  private createByPerformanceBaseQb(
+    asOf: string,
+    options: { search?: string; attractionName?: string },
+  ): SelectQueryBuilder<Performance> {
+    const qb = this.performanceRepo
+      .createQueryBuilder('p')
+      .innerJoin(Engagement, 'e', 'e.engagementId = p.engagementId')
+      .leftJoin(Tour, 't', 't.tourId = e.tourId')
+      .leftJoin(Attraction, 'a', 'a.attractionId = t.attractionId')
+      .leftJoin(EngagementVenue, 'ev', 'ev.engagementId = e.engagementId AND ev.isPrimary = :prim', { prim: true })
+      .leftJoin(Venue, 'v', 'v.companyId = ev.venueCompanyId')
+      .leftJoin(Company, 'vc', 'vc.companyId = ev.venueCompanyId')
+      .leftJoin(Address, 'addr', 'addr.addressId = vc.physicalAddressId')
+      .leftJoin(
+        TicketingSales,
+        'ts_today',
+        'ts_today.performanceId = p.performanceId AND ' +
+          "CONVERT(date, ts_today.salesDate) = CAST(:asOf AS date)",
+      )
+      .leftJoin(
+        TicketingSales,
+        'ts_yesterday',
+        'ts_yesterday.performanceId = p.performanceId AND ' +
+          "CONVERT(date, ts_yesterday.salesDate) = DATEADD(day, -1, CAST(:asOf AS date))",
+      )
+      .where('CONVERT(date, p.performanceDate) <= CAST(:asOf AS date)')
+      .setParameter('asOf', asOf);
+
+    if (options.attractionName) {
+      qb.andWhere('a.attractionName = :attName', { attName: options.attractionName });
+    }
+
+    if (options.search) {
+      // Single :searchT bind — repeating the same named param breaks some mssql/TypeORM drivers.
+      const s = options.search.toLowerCase();
+      qb.andWhere(
+        `CHARINDEX(:searchT, LOWER(CONCAT(
+          N' ',
+          a.attractionName,
+          N' ',
+          t.tourName,
+          N' ',
+          vc.companyName,
+          N' ',
+          v.venueName,
+          N' ',
+          addr.city,
+          N' ',
+          addr.stateProvince,
+          N' ',
+          CONVERT(varchar(10), p.performanceDate, 120),
+          N' ',
+          CAST(p.engagementId AS varchar(20)),
+          N' ',
+          CAST(p.performanceId AS varchar(20))
+        ))) > 0`,
+        { searchT: s },
+      );
+    }
+
+    return qb;
+  }
+
+  private async sumSalesForByPerformanceQuery(
+    base: SelectQueryBuilder<Performance>,
+    asOf: string,
+  ): Promise<Record<string, unknown>> {
+    const one = await base
+      .clone()
+      .setParameter('asOf', asOf)
+      .select('COALESCE(SUM(CAST(ts_today.performanceSalesQuantity AS BIGINT)), 0)', 'sumTixT')
+      .addSelect('COALESCE(SUM(ts_today.performanceSalesRevenue), 0)', 'sumRevT')
+      .addSelect('COALESCE(SUM(CAST(ts_yesterday.performanceSalesQuantity AS BIGINT)), 0)', 'sumTixY')
+      .addSelect('COALESCE(SUM(ts_yesterday.performanceSalesRevenue), 0)', 'sumRevY')
+      .getRawOne<Record<string, unknown>>();
+    return (one as Record<string, unknown>) ?? {};
+  }
+
+  private async getDistinctAttractionNames(asOf: string): Promise<string[]> {
+    const raw = await this.performanceRepo
+      .createQueryBuilder('p')
+      .innerJoin(Engagement, 'e', 'e.engagementId = p.engagementId')
+      .leftJoin(Tour, 't', 't.tourId = e.tourId')
+      .leftJoin(Attraction, 'a', 'a.attractionId = t.attractionId')
+      .where('CONVERT(date, p.performanceDate) <= CAST(:asOf AS date)')
+      .andWhere('a.attractionName IS NOT NULL')
+      .setParameter('asOf', asOf)
+      .select('a.attractionName', 'n')
+      .distinct(true)
+      .orderBy('a.attractionName', 'ASC')
+      .getRawMany<{ n: string }>();
+
+    return raw
+      .map((x) => String(pickRow<unknown>(x as Record<string, unknown>, 'n') ?? ''))
+      .filter((s) => s.length > 0);
+  }
+
+  /**
+   * All TicketingSales rows for a performance whose SalesDate is one of the given
+   * calendar days (inclusive). Ordered by salesDate ascending.
+   * (Schema: at most one row per performance per day — composite PK.)
+   */
+  async findReportingTransactions(
+    performanceId: number,
+    salesDates: string[],
+  ): Promise<{
+    salesDate: string;
+    ticketsSold: number | null;
+    revenue: number | null;
+  }[]> {
+    if (salesDates.length === 0) {
+      return [];
+    }
+    const valid = salesDates
+      .map((s) => s.trim())
+      .filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s));
+    if (valid.length === 0) {
+      return [];
+    }
+    const raw = await this.salesRepo
+      .createQueryBuilder('ts')
+      .select([
+        'CONVERT(varchar(10), ts.salesDate, 120)           AS salesDate',
+        'ts.performanceSalesQuantity                       AS ticketsSold',
+        'ts.performanceSalesRevenue                        AS revenue',
+      ])
+      .where('ts.performanceId = :pid', { pid: performanceId })
+      .andWhere('CONVERT(varchar(10), ts.salesDate, 120) IN (:...d)', { d: valid })
+      .orderBy('ts.salesDate', 'ASC')
+      .getRawMany<Record<string, unknown>>();
+
+    return raw.map((r) => ({
+      salesDate: String(r['salesDate'] ?? ''),
+      ticketsSold: r['ticketsSold'] != null ? Number(r['ticketsSold']) : null,
+      revenue: r['revenue'] != null ? Number(r['revenue']) : null,
+    }));
+  }
+
+  /** YYYY-MM-DD or fetch from server via GETDATE() for consistency with SQL. */
+  private async resolveAsOfDateString(input?: string): Promise<string> {
+    if (input && /^\d{4}-\d{2}-\d{2}$/.test(input)) {
+      return input;
+    }
+    if (input) {
+      throw new BadRequestException({ message: 'asOfDate must be YYYY-MM-DD when provided.' });
+    }
+    const r = (await this.performanceRepo.query(
+      'SELECT CONVERT(varchar(10), CAST(GETDATE() AS date), 120) AS d',
+    )) as { d: string }[];
+    return r[0]?.d ?? new Date().toISOString().slice(0, 10);
   }
 
   // ─── PATCH — upsert sales for a specific performance + date ──────────────
