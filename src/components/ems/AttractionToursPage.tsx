@@ -1148,12 +1148,13 @@ export function AttractionToursPage({ addToast }: Props) {
   const createTourMut = useMutation({
     mutationFn: createTour,
     onSuccess: async () => {
-      /* A search for the new name often omits the row (paging / many matches), so
-       * the old fetch+setQueryData path left the new tour out of the cache. */
+      /* A search+patch for the new name often omitted the row, so the list never
+       * got the new tour. Refetch the full list (await) so the attraction’s tour
+       * sub-list — `tours.filter.attractionId` — updates before the modal closes. */
       clearAttractionToursServerSearchCaches(qc);
       await Promise.all([
-        qc.invalidateQueries({ queryKey: toursListQueryKey }),
-        qc.invalidateQueries({ queryKey: attractionsListQueryKey }),
+        qc.refetchQueries({ queryKey: toursListQueryKey }),
+        qc.refetchQueries({ queryKey: attractionsListQueryKey }),
       ]);
       setShowAddTour(false);
       addToast('Tour created.', 'success');
