@@ -11,7 +11,11 @@ import { Attraction } from '../entities/attraction.entity';
 import { Company } from '../entities/company.entity';
 import { Dma } from '../entities/dma.entity';
 import { Engagement } from '../entities/engagement.entity';
+import { EngagementFinances } from '../entities/engagement-finance.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
+import { NonResidentWithholding } from '../entities/non-resident-withholding.entity';
+import { ArtistFinance } from '../entities/artist-finance.entity';
+import { SettlementFinance } from '../entities/settlement-finance.entity';
 import { Performance } from '../entities/performance.entity';
 import { TicketingSales } from '../entities/ticketing-sales.entity';
 import { Tour } from '../entities/tour.entity';
@@ -20,9 +24,11 @@ import { EmsAppCreatedStore } from '../attraction-tours/ems-app-created.store';
 import { CreateEngagementDto } from './dto/create-engagement.dto';
 import { CreatePerformanceDto } from './dto/create-performance.dto';
 import { UpdateEngagementDto } from './dto/update-engagement.dto';
+import { UpdateEngagementFinanceDto } from './dto/update-engagement-finance.dto';
 import { AddEngagementVenueDto } from './dto/add-engagement-venue.dto';
 import { buildEngagementDisplayTitle } from './engagement-display.util';
 import { normalizeEngagementStatus } from './engagement-status.util';
+import { getIaeWaiverStatusAllowlist } from './iae-waiver-status.constants';
 
 export interface EngagementListRow {
   engagementId: number;
@@ -56,6 +62,39 @@ export interface EngagementVenueRow {
   isPrimary: boolean;
 }
 
+export interface EngagementFinanceRow {
+  financeId: number | null;
+  engagementId: number;
+  estimatedBreakeven: number | null;
+  grossPotential: number | null;
+  promoterProfit: number | null;
+  venueTerms: string | null;
+  confirmationPacketApproved: boolean | null;
+  iaeWaiverApplicationConfirmationNumber: string | null;
+  iaeWaiverApplicationSubmissionDate: string | null;
+  iaeApplicationWaiverStatus: string | null;
+  dateFundsReceived: string | null;
+  fundsDue: number | null;
+  fundsWithheld: number | null;
+  fundsOwed: number | null;
+  receivableBankAccount: string | null;
+  requiredNonResidentWithholdingId: number | null;
+  artistFinanceId: number | null;
+  settlementFinanceId: number | null;
+}
+
+export interface FinanceMasterOption {
+  id: number;
+  label: string;
+}
+
+export interface EngagementFinanceLookups {
+  nonResidentWithholdings: FinanceMasterOption[];
+  artistFinances: FinanceMasterOption[];
+  settlementFinances: FinanceMasterOption[];
+  iaeApplicationWaiverStatuses: { value: string; label: string }[];
+}
+
 /** Query params for {@link EngagementService.listPaginated}. */
 export interface EngagementListFilters {
   q?: string;
@@ -78,6 +117,8 @@ export class EngagementService {
   constructor(
     @InjectRepository(Engagement)
     private readonly engagementRepo: Repository<Engagement>,
+    @InjectRepository(EngagementFinances)
+    private readonly engagementFinancesRepo: Repository<EngagementFinances>,
     @InjectRepository(EngagementVenue)
     private readonly engagementVenueRepo: Repository<EngagementVenue>,
     @InjectRepository(Tour)
@@ -90,6 +131,12 @@ export class EngagementService {
     private readonly performanceRepo: Repository<Performance>,
     @InjectRepository(TicketingSales)
     private readonly ticketingSalesRepo: Repository<TicketingSales>,
+    @InjectRepository(NonResidentWithholding)
+    private readonly nonResidentWithholdingRepo: Repository<NonResidentWithholding>,
+    @InjectRepository(ArtistFinance)
+    private readonly artistFinanceRepo: Repository<ArtistFinance>,
+    @InjectRepository(SettlementFinance)
+    private readonly settlementFinanceRepo: Repository<SettlementFinance>,
     private readonly emsCreated: EmsAppCreatedStore,
     private readonly dataSource: DataSource,
   ) {}
@@ -129,6 +176,103 @@ export class EngagementService {
     if (!e)
       throw new NotFoundException({ message: `Engagement #${id} not found.` });
     return e;
+  }
+
+  private mapFinanceNumber(
+    v: string | number | null | undefined,
+  ): number | null {
+    if (v == null || v === '') return null;
+    const x = typeof v === 'string' ? parseFloat(v) : v;
+    return Number.isFinite(x) ? x : null;
+  }
+
+  private mapFinanceYmd(
+    v: string | Date | null | undefined,
+  ): string | null {
+    if (v == null || v === '') return null;
+    if (v instanceof Date) {
+      if (Number.isNaN(v.getTime())) return null;
+      const y = v.getUTCFullYear();
+      const m = String(v.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(v.getUTCDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    const s = String(v).trim();
+    const t = s.match(/^(\d{4}-\d{2}-\d{2})/);
+    return t ? t[1]! : null;
+  }
+
+  private assertYmdOrNull(
+    value: string | null | undefined,
+  ): string | null {
+    if (value == null || value === '') return null;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      throw new BadRequestException({
+        message: 'Invalid date. Use YYYY-MM-DD.',
+      });
+    }
+    return value;
+  }
+
+  private mapBit(v: boolean | number | Buffer | null | undefined): boolean | null {
+    if (v == null) return null;
+    if (typeof v === 'boolean') return v;
+    if (typeof v === 'number') return v !== 0;
+    if (Buffer.isBuffer(v)) return v[0] === 1;
+    return null;
+  }
+
+  private toFinanceResponse(
+    engagementId: number,
+    row: EngagementFinances | null,
+  ): EngagementFinanceRow {
+    if (!row) {
+      return {
+        financeId: null,
+        engagementId,
+        estimatedBreakeven: null,
+        grossPotential: null,
+        promoterProfit: null,
+        venueTerms: null,
+        confirmationPacketApproved: null,
+        iaeWaiverApplicationConfirmationNumber: null,
+        iaeWaiverApplicationSubmissionDate: null,
+        iaeApplicationWaiverStatus: null,
+        dateFundsReceived: null,
+        fundsDue: null,
+        fundsWithheld: null,
+        fundsOwed: null,
+        receivableBankAccount: null,
+        requiredNonResidentWithholdingId: null,
+        artistFinanceId: null,
+        settlementFinanceId: null,
+      };
+    }
+    return {
+      financeId: row.financeId,
+      engagementId: row.engagementId,
+      estimatedBreakeven: this.mapFinanceNumber(row.estimatedBreakeven),
+      grossPotential: this.mapFinanceNumber(row.grossPotential),
+      promoterProfit: this.mapFinanceNumber(row.promoterProfit),
+      venueTerms: row.venueTerms,
+      confirmationPacketApproved: this.mapBit(row.confirmationPacketApproved),
+      iaeWaiverApplicationConfirmationNumber:
+        row.iaeWaiverApplicationConfirmationNumber,
+      iaeWaiverApplicationSubmissionDate: this.mapFinanceYmd(
+        row.iaeWaiverApplicationSubmissionDate as string | Date | null,
+      ),
+      iaeApplicationWaiverStatus: row.iaeApplicationWaiverStatus,
+      dateFundsReceived: this.mapFinanceYmd(
+        row.dateFundsReceived as string | Date | null,
+      ),
+      fundsDue: this.mapFinanceNumber(row.fundsDue),
+      fundsWithheld: this.mapFinanceNumber(row.fundsWithheld),
+      fundsOwed: this.mapFinanceNumber(row.fundsOwed),
+      receivableBankAccount: row.receivableBankAccount,
+      requiredNonResidentWithholdingId: row.requiredNonResidentWithholdingId,
+      artistFinanceId: row.artistFinanceId,
+      settlementFinanceId: row.settlementFinanceId,
+    };
   }
 
   /**
@@ -433,6 +577,207 @@ export class EngagementService {
     return this.mapRaw(raw as Record<string, unknown>);
   }
 
+  async getFinance(engagementId: number): Promise<EngagementFinanceRow> {
+    await this.assertEngagementExists(engagementId);
+    const row = await this.engagementFinancesRepo.findOne({
+      where: { engagementId },
+    });
+    return this.toFinanceResponse(engagementId, row);
+  }
+
+  /**
+   * Master data for engagement finance form: FK dropdowns and IAE waiver status list.
+   */
+  async getFinanceLookups(): Promise<EngagementFinanceLookups> {
+    const allow = getIaeWaiverStatusAllowlist();
+    const iaeApplicationWaiverStatuses = allow.map((v) => ({ value: v, label: v }));
+
+    const nrRows = await this.nonResidentWithholdingRepo.find({
+      order: { withholdingId: 'ASC' },
+    });
+    const nonResidentWithholdings: FinanceMasterOption[] = nrRows.map(
+      (r) => ({
+        id: r.withholdingId,
+        label: `Withholding #${r.withholdingId} (rate ${r.withholdingTaxRate})`,
+      }),
+    );
+
+    let artistFinances: FinanceMasterOption[] = [];
+    try {
+      const ar = await this.artistFinanceRepo.find({
+        order: { artistFinanceId: 'ASC' },
+        take: 5000,
+      });
+      artistFinances = ar.map((r) => ({
+        id: r.artistFinanceId,
+        label: `Artist finance #${r.artistFinanceId}`,
+      }));
+    } catch {
+      try {
+        const raw = (await this.dataSource.query(
+          `SELECT ArtistFinanceID AS id FROM dbo.ArtistFinance ORDER BY ArtistFinanceID`,
+        )) as { id: number }[];
+        artistFinances = (raw ?? []).map((r) => ({
+          id: Number(r.id),
+          label: `Artist finance #${Number(r.id)}`,
+        }));
+      } catch {
+        artistFinances = [];
+      }
+    }
+
+    let settlementFinances: FinanceMasterOption[] = [];
+    try {
+      const sf = await this.settlementFinanceRepo.find({
+        order: { settlementFinanceId: 'ASC' },
+        take: 5000,
+      });
+      settlementFinances = sf.map((r) => ({
+        id: r.settlementFinanceId,
+        label: `Settlement finance #${r.settlementFinanceId}`,
+      }));
+    } catch {
+      try {
+        const raw = (await this.dataSource.query(
+          `SELECT SettlementFinanceID AS id FROM dbo.SettlementFinance ORDER BY SettlementFinanceID`,
+        )) as { id: number }[];
+        settlementFinances = (raw ?? []).map((r) => ({
+          id: Number(r.id),
+          label: `Settlement finance #${Number(r.id)}`,
+        }));
+      } catch {
+        settlementFinances = [];
+      }
+    }
+
+    return {
+      nonResidentWithholdings,
+      artistFinances,
+      settlementFinances,
+      iaeApplicationWaiverStatuses,
+    };
+  }
+
+  private async assertFinanceFks(
+    dto: UpdateEngagementFinanceDto,
+  ): Promise<void> {
+    if (dto.requiredNonResidentWithholdingId !== undefined) {
+      const id = dto.requiredNonResidentWithholdingId;
+      if (id != null) {
+        const row = await this.nonResidentWithholdingRepo.findOne({
+          where: { withholdingId: id },
+        });
+        if (!row) {
+          throw new BadRequestException({
+            message: `Non-resident withholding #${id} was not found.`,
+          });
+        }
+      }
+    }
+    if (dto.artistFinanceId !== undefined) {
+      const id = dto.artistFinanceId;
+      if (id != null) {
+        const found = await this.artistFinanceRepo.findOne({
+          where: { artistFinanceId: id },
+        });
+        if (!found) {
+          throw new BadRequestException({
+            message: `Artist finance #${id} was not found.`,
+          });
+        }
+      }
+    }
+    if (dto.settlementFinanceId !== undefined) {
+      const id = dto.settlementFinanceId;
+      if (id != null) {
+        const found = await this.settlementFinanceRepo.findOne({
+          where: { settlementFinanceId: id },
+        });
+        if (!found) {
+          throw new BadRequestException({
+            message: `Settlement finance #${id} was not found.`,
+          });
+        }
+      }
+    }
+  }
+
+  async upsertFinance(
+    engagementId: number,
+    dto: UpdateEngagementFinanceDto,
+  ): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+    await this.assertFinanceFks(dto);
+    const existing = await this.engagementFinancesRepo.findOne({
+      where: { engagementId },
+    });
+    const row =
+      existing ?? this.engagementFinancesRepo.create({ engagementId });
+
+    if (dto.estimatedBreakeven !== undefined) {
+      row.estimatedBreakeven =
+        dto.estimatedBreakeven == null ? null : (dto.estimatedBreakeven as number);
+    }
+    if (dto.grossPotential !== undefined) {
+      row.grossPotential =
+        dto.grossPotential == null ? null : (dto.grossPotential as number);
+    }
+    if (dto.promoterProfit !== undefined) {
+      row.promoterProfit =
+        dto.promoterProfit == null ? null : (dto.promoterProfit as number);
+    }
+    if (dto.venueTerms !== undefined) {
+      const t = dto.venueTerms;
+      row.venueTerms = t == null || t === '' ? null : t;
+    }
+    if (dto.confirmationPacketApproved !== undefined) {
+      row.confirmationPacketApproved = dto.confirmationPacketApproved;
+    }
+    if (dto.iaeWaiverApplicationConfirmationNumber !== undefined) {
+      const t = dto.iaeWaiverApplicationConfirmationNumber;
+      row.iaeWaiverApplicationConfirmationNumber =
+        t == null || t.trim() === '' ? null : t.trim().slice(0, 10);
+    }
+    if (dto.iaeWaiverApplicationSubmissionDate !== undefined) {
+      row.iaeWaiverApplicationSubmissionDate = this.assertYmdOrNull(
+        dto.iaeWaiverApplicationSubmissionDate,
+      );
+    }
+    if (dto.iaeApplicationWaiverStatus !== undefined) {
+      const t = dto.iaeApplicationWaiverStatus;
+      row.iaeApplicationWaiverStatus = t == null || t.trim() === '' ? null : t.trim();
+    }
+    if (dto.dateFundsReceived !== undefined) {
+      row.dateFundsReceived = this.assertYmdOrNull(dto.dateFundsReceived);
+    }
+    if (dto.fundsDue !== undefined) {
+      row.fundsDue = dto.fundsDue == null ? null : (dto.fundsDue as number);
+    }
+    if (dto.fundsWithheld !== undefined) {
+      row.fundsWithheld =
+        dto.fundsWithheld == null ? null : (dto.fundsWithheld as number);
+    }
+    if (dto.fundsOwed !== undefined) {
+      row.fundsOwed = dto.fundsOwed == null ? null : (dto.fundsOwed as number);
+    }
+    if (dto.receivableBankAccount !== undefined) {
+      const t = dto.receivableBankAccount;
+      row.receivableBankAccount = t == null || t.trim() === '' ? null : t.trim();
+    }
+    if (dto.requiredNonResidentWithholdingId !== undefined) {
+      row.requiredNonResidentWithholdingId =
+        dto.requiredNonResidentWithholdingId;
+    }
+    if (dto.artistFinanceId !== undefined) {
+      row.artistFinanceId = dto.artistFinanceId;
+    }
+    if (dto.settlementFinanceId !== undefined) {
+      row.settlementFinanceId = dto.settlementFinanceId;
+    }
+
+    await this.engagementFinancesRepo.save(row);
+  }
+
   async create(dto: CreateEngagementDto): Promise<{ engagementId: number }> {
     // Validate tour
     const tour = await this.tourRepo.findOne({ where: { tourId: dto.tourId } });
@@ -621,6 +966,7 @@ export class EngagementService {
           .execute();
       }
       await manager.delete(Performance, { engagementId: id });
+      await manager.delete(EngagementFinances, { engagementId: id });
       await manager.delete(EngagementVenue, { engagementId: id });
       await manager.delete(Engagement, { engagementId: id });
     });

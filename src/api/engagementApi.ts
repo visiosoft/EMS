@@ -60,12 +60,63 @@ export interface CreateEngagementPayload {
   guarantee?: number | null;
 }
 
-/** Only persisted fields — see Finance tab UI for optional fields pending DB work */
+/** Only persisted fields on dbo.Engagement */
 export interface UpdateEngagementPayload {
   engagementStatus?: string;
   tourId?: number;
   primaryVenueCompanyId?: number;
 }
+
+/** dbo.EngagementFinances — one row per engagement (GET returns nulls for missing row / empty fields) */
+export interface ApiEngagementFinanceRow {
+  financeId: number | null;
+  engagementId: number;
+  estimatedBreakeven: number | null;
+  grossPotential: number | null;
+  promoterProfit: number | null;
+  venueTerms: string | null;
+  confirmationPacketApproved: boolean | null;
+  iaeWaiverApplicationConfirmationNumber: string | null;
+  iaeWaiverApplicationSubmissionDate: string | null;
+  iaeApplicationWaiverStatus: string | null;
+  dateFundsReceived: string | null;
+  fundsDue: number | null;
+  fundsWithheld: number | null;
+  fundsOwed: number | null;
+  receivableBankAccount: string | null;
+  requiredNonResidentWithholdingId: number | null;
+  artistFinanceId: number | null;
+  settlementFinanceId: number | null;
+}
+
+export type UpdateEngagementFinancePayload = {
+  estimatedBreakeven?: number | null;
+  grossPotential?: number | null;
+  promoterProfit?: number | null;
+  venueTerms?: string | null;
+  confirmationPacketApproved?: boolean | null;
+  iaeWaiverApplicationConfirmationNumber?: string | null;
+  iaeWaiverApplicationSubmissionDate?: string | null;
+  iaeApplicationWaiverStatus?: string | null;
+  dateFundsReceived?: string | null;
+  fundsDue?: number | null;
+  fundsWithheld?: number | null;
+  fundsOwed?: number | null;
+  receivableBankAccount?: string | null;
+  requiredNonResidentWithholdingId?: number | null;
+  artistFinanceId?: number | null;
+  settlementFinanceId?: number | null;
+};
+
+export interface ApiEngagementFinanceLookups {
+  nonResidentWithholdings: { id: number; label: string }[];
+  artistFinances: { id: number; label: string }[];
+  settlementFinances: { id: number; label: string }[];
+  iaeApplicationWaiverStatuses: { value: string; label: string }[];
+}
+
+export const fetchEngagementFinanceLookups = () =>
+  apiFetch<ApiEngagementFinanceLookups>('/engagements/finance-lookups');
 
 export interface ApiPerformanceRow {
   performanceId: number;
@@ -172,3 +223,9 @@ export const deleteEngagementPerformance = (engagementId: number, performanceId:
   apiFetch<void>(`/engagements/${engagementId}/performances/${performanceId}`, {
     method: 'DELETE',
   });
+
+export const fetchEngagementFinance = (id: number) =>
+  apiFetch<ApiEngagementFinanceRow>(`/engagements/${id}/finance`);
+
+export const updateEngagementFinance = (id: number, body: UpdateEngagementFinancePayload) =>
+  apiFetch<void>(`/engagements/${id}/finance`, { method: 'PATCH', body: JSON.stringify(body) });

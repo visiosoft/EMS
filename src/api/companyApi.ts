@@ -133,20 +133,14 @@ export interface ApiPaginatedResponse<T> {
 }
 
 /**
- * React Query key for raw `GET /companies` (ApiCompanyListRow[]).
- * Do not use `['companies']` alone for fetchCompanies — CompaniesPage stores UI-mapped rows under that key.
- * Include offset + limit in the key so React Query re-fetches on page change.
+ * React Query key for the companies list cache (full list, client-side filter/pagination on Companies page).
  */
-export type CompanyListQueryOpts = { q?: string; companyType?: string };
+export const companiesApiQueryKey = ['companies', 'api'] as const;
 
-export function companiesApiQueryKey(
-  offset: number,
-  limit: number,
-  q = '',
-  companyType = 'All',
-) {
-  return ['companies', 'api', offset, limit, q, companyType] as const;
-}
+/** Prefix for targeted search queries when the in-memory list has no matches. */
+export const companiesServerSearchQueryKeyPrefix = ['companies', 'api', 'serverSearch'] as const;
+
+export type CompanyListQueryOpts = { q?: string; companyType?: string };
 
 export function fetchCompanies(offset = 0, limit = 25, opts?: CompanyListQueryOpts) {
   const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });

@@ -16,6 +16,7 @@ import { AddEngagementVenueDto } from './dto/add-engagement-venue.dto';
 import { CreateEngagementDto } from './dto/create-engagement.dto';
 import { CreatePerformanceDto } from './dto/create-performance.dto';
 import { UpdateEngagementDto } from './dto/update-engagement.dto';
+import { UpdateEngagementFinanceDto } from './dto/update-engagement-finance.dto';
 import { EngagementService } from './engagement.service';
 
 @Controller('engagements')
@@ -33,6 +34,26 @@ export class EngagementController {
   @Get('filter-options')
   filterOptions() {
     return this.engagementService.filterOptions();
+  }
+
+  /** Master lists for engagement finance form (FK dropdowns + IAE waiver status). Before `:id` routes. */
+  @Get('finance-lookups')
+  financeLookups() {
+    return this.engagementService.getFinanceLookups();
+  }
+
+  @Get(':id/finance')
+  getFinance(@Param('id', ParseIntPipe) id: number) {
+    return this.engagementService.getFinance(id);
+  }
+
+  @Patch(':id/finance')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  updateFinance(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateEngagementFinanceDto,
+  ) {
+    return this.engagementService.upsertFinance(id, dto);
   }
 
   @Get('paged')

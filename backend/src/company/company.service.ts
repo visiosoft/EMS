@@ -30,6 +30,23 @@ import { UpdateCompanyContactDto } from './dto/create-company-contact.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { UpdateVenueTicketingDto } from './dto/update-venue-ticketing.dto';
 import { UpdateVenueProfileDto } from './dto/update-venue-profile.dto';
+import { isValidPhoneNumber } from 'libphonenumber-js';
+
+function assertOptionalE164Phone(
+  value: string | null | undefined,
+  field: 'work phone' | 'cell phone',
+): void {
+  if (value == null) return;
+  const t = value.trim();
+  if (t.length === 0) return;
+  if (!isValidPhoneNumber(t)) {
+    throw new BadRequestException({
+      statusCode: HttpStatus.BAD_REQUEST,
+      error: 'Bad Request',
+      message: `Invalid ${field}. Use a full international number (E.164, e.g. +1 415 555 1234) or leave the field empty.`,
+    });
+  }
+}
 
 export interface CompanyListRow {
   companyId: number;
@@ -182,6 +199,38 @@ export class CompanyService {
     return em.save(Address, address);
   }
 
+  /**
+   * Blocks creating/updating a company when another already has the same
+   * name (case-insensitive) and company type.
+   */
+  private async assertNoDuplicateCompany(
+    em: EntityManager,
+    args: {
+      companyName: string;
+      companyTypeId: number;
+      excludeCompanyId?: number;
+    },
+  ): Promise<void> {
+    const name = args.companyName.trim();
+    const qb = em
+      .getRepository(Company)
+      .createQueryBuilder('c')
+      .where('c.companyTypeId = :ct', { ct: args.companyTypeId })
+      .andWhere('LOWER(LTRIM(RTRIM(c.companyName))) = LOWER(LTRIM(RTRIM(:name)))', {
+        name,
+      });
+    if (args.excludeCompanyId != null) {
+      qb.andWhere('c.companyId != :id', { id: args.excludeCompanyId });
+    }
+    const found = await qb.getOne();
+    if (found) {
+      throw new ConflictException({
+        message:
+          'A company with this name and type already exists. Open that record or use a different name or type.',
+      });
+    }
+  }
+
   async findAll(): Promise<CompanyDetail[]> {
     const rows = await this.companyRepo
       .createQueryBuilder('c')
@@ -294,6 +343,11 @@ export class CompanyService {
         'Mailing address is required when mailingSameAsPhysical is false.',
       );
     }
+
+    await this.assertNoDuplicateCompany(this.dataSource.manager, {
+      companyName: dto.companyName,
+      companyTypeId: dto.companyTypeId,
+    });
 
     return this.dataSource.transaction(async (em) => {
       const savedPhysical = await this.getOrCreateAddress(em, dto.physical);
@@ -596,6 +650,12 @@ export class CompanyService {
     existing.physicalAddressId = physicalAddressId;
     existing.mailingAddressId = mailingAddressId;
 
+    await this.assertNoDuplicateCompany(this.dataSource.manager, {
+      companyName: existing.companyName,
+      companyTypeId: existing.companyTypeId,
+      excludeCompanyId: companyId,
+    });
+
     return this.companyRepo.save(existing);
   }
 
@@ -610,6 +670,41 @@ export class CompanyService {
       });
     }
 
+    const engagementVenueCount = await this.engagementVenueRepo.count({
+      where: { venueCompanyId: companyId },
+    });
+    if (engagementVenueCount > 0) {
+      throw new ConflictException({
+        statusCode: HttpStatus.CONFLICT,
+        error: 'Conflict',
+        message: `This company can’t be removed because it is linked to ${engagementVenueCount} engagement venue(s). Remove it from those engagements (or the venue list on each engagement) first, then try again.`,
+        detail: `engagement_venue_venueCompanyId=${companyId} count=${engagementVenueCount}`,
+      });
+    }
+    const projectVenueCount = await this.engagementProjectVenueRepo.count({
+      where: { venueCompanyId: companyId },
+    });
+    if (projectVenueCount > 0) {
+      throw new ConflictException({
+        statusCode: HttpStatus.CONFLICT,
+        error: 'Conflict',
+        message: `This company can’t be removed because it is used on ${projectVenueCount} project venue link(s). Remove or change those project venues first, then try again.`,
+        detail: `engagement_project_venue_venueCompanyId=${companyId} count=${projectVenueCount}`,
+      });
+    }
+    const tourAsManagementCount = await this.tourRepo.count({
+      where: { tourManagementCompanyId: companyId },
+    });
+    if (tourAsManagementCount > 0) {
+      throw new ConflictException({
+        statusCode: HttpStatus.CONFLICT,
+        error: 'Conflict',
+        message:
+          'This company can’t be removed because it is set as the tour management (talent) company on one or more tours. Reassign or clear that on each tour first, then try again.',
+        detail: `tour_tourManagementCompanyId=${companyId} count=${tourAsManagementCount}`,
+      });
+    }
+
     // Remove company-contact assignments first, and clean up orphaned contacts.
     const assignments = await this.assignmentRepo.find({
       where: { companyId },
@@ -620,7 +715,12 @@ export class CompanyService {
     }
 
     try {
-      await this.companyRepo.delete({ companyId });
+      await this.dataSource.transaction(async (manager) => {
+        // Venue-type companies get a dbo.Venue row (1:1 on CompanyID). Remove it
+        // before Company or SQL Server will block the delete with an FK error.
+        await manager.delete(Venue, { companyId });
+        await manager.delete(Company, { companyId });
+      });
     } catch (e: unknown) {
       const detail = e instanceof Error ? e.message : String(e);
       this.logger.warn(
@@ -687,6 +787,8 @@ export class CompanyService {
     dto: CreateCompanyContactDto,
   ): Promise<CompanyContactRow> {
     await this.ensureCompany(companyId);
+    assertOptionalE164Phone(dto.workPhone ?? null, 'work phone');
+    assertOptionalE164Phone(dto.cellPhone ?? null, 'cell phone');
 
     return this.dataSource.transaction(async (em) => {
       const email = dto.email.trim();
@@ -768,6 +870,13 @@ export class CompanyService {
       throw new NotFoundException(
         `Contact assignment ${contactAssignmentId} not found`,
       );
+    }
+
+    if (dto.workPhone !== undefined) {
+      assertOptionalE164Phone(dto.workPhone, 'work phone');
+    }
+    if (dto.cellPhone !== undefined) {
+      assertOptionalE164Phone(dto.cellPhone, 'cell phone');
     }
 
     const info = asg.contact.contactInfo;

@@ -72,9 +72,17 @@ export function Select2({
   }, [open]);
 
   useEffect(() => {
-    if (highlightedIndex >= 0 && listRef.current) {
-      const item = listRef.current.children[highlightedIndex] as HTMLElement;
-      if (item) item.scrollIntoView({ block: 'nearest' });
+    const list = listRef.current;
+    if (highlightedIndex < 0 || !list) return;
+    const item = list.children[highlightedIndex] as HTMLElement | undefined;
+    if (!item) return;
+    /** Keep highlight inside the list scrollport only (not scrollIntoView) — avoids scrolling the modal while searching. */
+    const listRect = list.getBoundingClientRect();
+    const itemRect = item.getBoundingClientRect();
+    if (itemRect.top < listRect.top) {
+      list.scrollTop += itemRect.top - listRect.top;
+    } else if (itemRect.bottom > listRect.bottom) {
+      list.scrollTop += itemRect.bottom - listRect.bottom;
     }
   }, [highlightedIndex]);
 

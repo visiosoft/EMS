@@ -20,7 +20,7 @@ import {
   Tag,
 } from 'lucide-react';
 import { Modal, FormField, TabBar } from './Primitives';
-import { Select2 } from './Select2';
+import { Select2, type Select2Option } from './Select2';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -35,15 +35,20 @@ import {
   createEngagementPerformance,
   deleteEngagement,
   fetchEngagement,
+  fetchEngagementFinance,
+  fetchEngagementFinanceLookups,
   fetchEngagementPerformances,
   fetchEngagementVenues,
   addEngagementVenue,
   removeEngagementVenue,
   updateEngagement,
+  updateEngagementFinance,
   updateEngagementPerformance,
   deleteEngagementPerformance,
   type ApiEngagementListRow,
   type ApiEngagementVenueRow,
+  type UpdateEngagementFinancePayload,
+  type ApiEngagementFinanceLookups,
 } from '@/api/engagementApi';
 import { fetchAttractions, fetchTours } from '@/api/attractionToursApi';
 import {
@@ -562,137 +567,447 @@ function EditablePerformanceRow({
 }
 
 // ---------------------------------------------------------------------------
-// Finance tab — UI-only (optional fields). Not sent to the API until DB supports it.
+// Finance tab — dbo.EngagementFinances (1:1 per engagement)
 // ---------------------------------------------------------------------------
-function EngagementFinancePanel() {
-  const [loadIn, setLoadIn] = useState('');
-  const [rehearsal, setRehearsal] = useState('');
-  const [dealType, setDealType] = useState('');
-  const [guarantee, setGuarantee] = useState('');
-  const [splitPct, setSplitPct] = useState('');
-  const [breakeven, setBreakeven] = useState('');
-  const [grossPotential, setGrossPotential] = useState('');
-  const [projectedGross, setProjectedGross] = useState('');
-  const [projectedMargin, setProjectedMargin] = useState('');
-  const [withholdingNotes, setWithholdingNotes] = useState('');
+function numFieldToString(v: number | null | undefined): string {
+  if (v == null || Number.isNaN(v)) return '';
+  return String(v);
+}
 
+function intFieldToString(v: number | null | undefined): string {
+  if (v == null || Number.isNaN(v)) return '';
+  return String(v);
+}
+
+function parseOptionalDecimal(
+  s: string,
+  label: string,
+): { ok: true; value: number | null } | { ok: false; message: string } {
+  const t = s.trim();
+  if (t === '') return { ok: true, value: null };
+  const n = Number(t);
+  if (!Number.isFinite(n)) {
+    return { ok: false, message: `${label} must be a valid number.` };
+  }
+  return { ok: true, value: n };
+}
+
+function boolToConfPacket(b: boolean | null | undefined): string {
+  if (b == null) return '';
+  return b ? '1' : '0';
+}
+
+function fkIdStringToNumber(s: string): number | null {
+  const t = s.trim();
+  if (t === '') return null;
+  const n = parseInt(t, 10);
+  return Number.isFinite(n) && n >= 1 ? n : null;
+}
+
+/** Same tri-state pattern as other EMS forms; value '' = not set in API */
+const CONFIRMATION_PACKET_SELECT_OPTIONS: Select2Option[] = [
+  { value: '', label: 'Not set' },
+  { value: '1', label: 'Yes' },
+  { value: '0', label: 'No' },
+];
+
+function EngagementFinancePanel({
+  engagementId,
+  addToast,
+}: {
+  engagementId: number;
+  addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+}) {
+  const qc = useQueryClient();
+  const [estimatedBreakeven, setEstimatedBreakeven] = useState('');
+  const [grossPotential, setGrossPotential] = useState('');
+  const [promoterProfit, setPromoterProfit] = useState('');
+  const [venueTerms, setVenueTerms] = useState('');
+  const [confPacket, setConfPacket] = useState('');
+  const [iaeConfNum, setIaeConfNum] = useState('');
+  const [iaeSubmitDate, setIaeSubmitDate] = useState('');
+  const [iaeStatus, setIaeStatus] = useState('');
+  const [dateFundsReceived, setDateFundsReceived] = useState('');
+  const [fundsDue, setFundsDue] = useState('');
+  const [fundsWithheld, setFundsWithheld] = useState('');
+  const [fundsOwed, setFundsOwed] = useState('');
+  const [receivableBank, setReceivableBank] = useState('');
+  const [withholdingFk, setWithholdingFk] = useState('');
+  const [artistFinanceFk, setArtistFinanceFk] = useState('');
+  const [settlementFinanceFk, setSettlementFinanceFk] = useState('');
+
+  const financeQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'finance'],
+    queryFn: () => fetchEngagementFinance(engagementId),
+    retry: 1,
+  });
+
+  const lookupsQuery = useQuery({
+    queryKey: ['engagements', 'finance-lookups'],
+    queryFn: () => fetchEngagementFinanceLookups(),
+    staleTime: 300_000,
+    retry: 1,
+  });
+
+  const ldata = lookupsQuery.data as ApiEngagementFinanceLookups | undefined;
+
+  const ieaStatusSelectOptions = useMemo((): Select2Option[] => {
+    const rows = ldata?.iaeApplicationWaiverStatuses ?? [];
+    const base = rows.map((r) => ({ value: r.value, label: r.label }));
+    if (iaeStatus && !base.some((o) => o.value === iaeStatus)) {
+      return [{ value: iaeStatus, label: `${iaeStatus} (saved)` }, ...base];
+    }
+    return base;
+  }, [ldata?.iaeApplicationWaiverStatuses, iaeStatus]);
+
+  const withholdingSelectOptions = useMemo((): Select2Option[] => {
+    const rows = ldata?.nonResidentWithholdings ?? [];
+    const base = rows.map((r) => ({ value: String(r.id), label: r.label }));
+    if (withholdingFk && !base.some((o) => o.value === withholdingFk)) {
+      return [{ value: withholdingFk, label: `ID ${withholdingFk} (saved)` }, ...base];
+    }
+    return base;
+  }, [ldata?.nonResidentWithholdings, withholdingFk]);
+
+  const artistFinanceSelectOptions = useMemo((): Select2Option[] => {
+    const rows = ldata?.artistFinances ?? [];
+    const base = rows.map((r) => ({ value: String(r.id), label: r.label }));
+    if (artistFinanceFk && !base.some((o) => o.value === artistFinanceFk)) {
+      return [{ value: artistFinanceFk, label: `ID ${artistFinanceFk} (saved)` }, ...base];
+    }
+    return base;
+  }, [ldata?.artistFinances, artistFinanceFk]);
+
+  const settlementFinanceSelectOptions = useMemo((): Select2Option[] => {
+    const rows = ldata?.settlementFinances ?? [];
+    const base = rows.map((r) => ({ value: String(r.id), label: r.label }));
+    if (settlementFinanceFk && !base.some((o) => o.value === settlementFinanceFk)) {
+      return [
+        { value: settlementFinanceFk, label: `ID ${settlementFinanceFk} (saved)` },
+        ...base,
+      ];
+    }
+    return base;
+  }, [ldata?.settlementFinances, settlementFinanceFk]);
+
+  const saveMut = useMutation({
+    mutationFn: (body: UpdateEngagementFinancePayload) => updateEngagementFinance(engagementId, body),
+    onSuccess: () => {
+      addToast('Finance details saved.', 'success');
+      void qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] });
+    },
+    onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
+  });
+
+  useEffect(() => {
+    const d = financeQuery.data;
+    if (!d) return;
+    setEstimatedBreakeven(numFieldToString(d.estimatedBreakeven));
+    setGrossPotential(numFieldToString(d.grossPotential));
+    setPromoterProfit(numFieldToString(d.promoterProfit));
+    setVenueTerms(d.venueTerms ?? '');
+    setConfPacket(boolToConfPacket(d.confirmationPacketApproved));
+    setIaeConfNum(d.iaeWaiverApplicationConfirmationNumber ?? '');
+    setIaeSubmitDate(d.iaeWaiverApplicationSubmissionDate ?? '');
+    setIaeStatus(d.iaeApplicationWaiverStatus ?? '');
+    setDateFundsReceived(d.dateFundsReceived ?? '');
+    setFundsDue(numFieldToString(d.fundsDue));
+    setFundsWithheld(numFieldToString(d.fundsWithheld));
+    setFundsOwed(numFieldToString(d.fundsOwed));
+    setReceivableBank(d.receivableBankAccount ?? '');
+    setWithholdingFk(intFieldToString(d.requiredNonResidentWithholdingId));
+    setArtistFinanceFk(intFieldToString(d.artistFinanceId));
+    setSettlementFinanceFk(intFieldToString(d.settlementFinanceId));
+  }, [financeQuery.data]);
+
+  const handleSave = () => {
+    const a = (label: string, s: string) => parseOptionalDecimal(s, label);
+    const e1 = a('Estimated breakeven', estimatedBreakeven);
+    const e2 = a('Gross potential', grossPotential);
+    const e3 = a('Promoter profit', promoterProfit);
+    const e4 = a('Funds due', fundsDue);
+    const e5 = a('Funds withheld', fundsWithheld);
+    const e6 = a('Funds owed', fundsOwed);
+    for (const x of [e1, e2, e3, e4, e5, e6]) {
+      if (!x.ok) {
+        addToast(x.message, 'error');
+        return;
+      }
+    }
+    const w = fkIdStringToNumber(withholdingFk);
+    const af = fkIdStringToNumber(artistFinanceFk);
+    const sf = fkIdStringToNumber(settlementFinanceFk);
+    if (withholdingFk.trim() !== '' && w == null) {
+      addToast('Select a valid non-resident withholding, or clear the field.', 'error');
+      return;
+    }
+    if (artistFinanceFk.trim() !== '' && af == null) {
+      addToast('Select a valid artist finance row, or clear the field.', 'error');
+      return;
+    }
+    if (settlementFinanceFk.trim() !== '' && sf == null) {
+      addToast('Select a valid settlement finance row, or clear the field.', 'error');
+      return;
+    }
+
+    saveMut.mutate({
+      estimatedBreakeven: e1.value,
+      grossPotential: e2.value,
+      promoterProfit: e3.value,
+      venueTerms: venueTerms === '' ? null : venueTerms,
+      confirmationPacketApproved: confPacket === '' ? null : confPacket === '1',
+      iaeWaiverApplicationConfirmationNumber: iaeConfNum.trim().slice(0, 10) || null,
+      iaeWaiverApplicationSubmissionDate: iaeSubmitDate.trim() || null,
+      iaeApplicationWaiverStatus: iaeStatus.trim() || null,
+      dateFundsReceived: dateFundsReceived.trim() || null,
+      fundsDue: e4.value,
+      fundsWithheld: e5.value,
+      fundsOwed: e6.value,
+      receivableBankAccount: receivableBank.trim() || null,
+      requiredNonResidentWithholdingId: w,
+      artistFinanceId: af,
+      settlementFinanceId: sf,
+    });
+  };
+
+  if (financeQuery.isLoading && !financeQuery.data) {
+    return (
+      <div className="bg-card border border-border rounded-lg p-8 flex items-center gap-2 text-text-muted text-sm">
+        <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+        Loading finance…
+      </div>
+    );
+  }
+
+  if (financeQuery.error) {
+    return (
+      <div className="bg-card border border-border rounded-lg p-5">
+        <div className="flex items-center gap-2 text-ems-coral text-sm">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {friendlyApiError(financeQuery.error)}
+          <button
+            type="button"
+            onClick={() => void financeQuery.refetch()}
+            className="text-xs underline ml-1"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const rec = financeQuery.data;
+  const fkDisabled = saveMut.isPending || lookupsQuery.isLoading;
   return (
     <div className="bg-card border border-border rounded-lg p-5 space-y-8">
-      <div className="rounded-lg border border-ems-amber/30 bg-ems-amber/5 px-4 py-3 text-sm text-text-secondary">
-        <p className="font-medium text-text-primary">Preview only</p>
-      </div>
+      {rec?.financeId != null && (
+        <p className="text-xs text-text-muted font-mono">
+          dbo.EngagementFinances · FinanceID {rec.financeId}
+        </p>
+      )}
+
+      {lookupsQuery.isError && (
+        <p className="text-xs text-ems-coral">
+          {friendlyApiError(lookupsQuery.error)} — dropdowns may be incomplete.{' '}
+          <button type="button" className="underline" onClick={() => void lookupsQuery.refetch()}>
+            Retry
+          </button>
+        </p>
+      )}
 
       <div>
-        <h3 className="text-sm font-semibold text-text-primary mb-1">Production schedule</h3>
-        <p className="text-xs text-text-muted mb-4">
-          Planned: load-in and rehearsal dates on the engagement.
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Load-in date" optional>
-            <input
-              type="date"
-              className={inputCls}
-              value={loadIn}
-              onChange={(e) => setLoadIn(e.target.value)}
-            />
-          </FormField>
-          <FormField label="Rehearsal date" optional>
-            <input
-              type="date"
-              className={inputCls}
-              value={rehearsal}
-              onChange={(e) => setRehearsal(e.target.value)}
-            />
-          </FormField>
-        </div>
-      </div>
-
-      <div className="border-t border-border pt-6">
-        <h3 className="text-sm font-semibold text-text-primary mb-1">Artist finance</h3>
-        <p className="text-xs text-text-muted mb-4">Planned: dbo.ArtistFinance (per engagement).</p>
+        <h3 className="text-sm font-semibold text-text-primary mb-1">Estimates &amp; venue</h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <FormField label="Deal type" optional>
-            <input
-              className={inputCls}
-              value={dealType}
-              onChange={(e) => setDealType(e.target.value)}
-              placeholder="e.g. Guarantee vs split"
-              maxLength={100}
-            />
-          </FormField>
-          <FormField label="Guarantee" optional>
+          <FormField label="Estimated breakeven">
             <input
               className={inputCls}
               inputMode="decimal"
-              value={guarantee}
-              onChange={(e) => setGuarantee(e.target.value)}
-              placeholder="0"
+              value={estimatedBreakeven}
+              onChange={(e) => setEstimatedBreakeven(e.target.value)}
+              disabled={saveMut.isPending}
             />
           </FormField>
-          <FormField label="Split %" optional>
-            <input
-              className={inputCls}
-              inputMode="decimal"
-              value={splitPct}
-              onChange={(e) => setSplitPct(e.target.value)}
-              placeholder="0–100"
-            />
-          </FormField>
-        </div>
-      </div>
-
-      <div className="border-t border-border pt-6">
-        <h3 className="text-sm font-semibold text-text-primary mb-1">Engagement finances</h3>
-        <p className="text-xs text-text-muted mb-4">Planned: dbo.EngagementFinances.</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Breakeven" optional>
-            <input
-              className={inputCls}
-              inputMode="decimal"
-              value={breakeven}
-              onChange={(e) => setBreakeven(e.target.value)}
-            />
-          </FormField>
-          <FormField label="Gross potential" optional>
+          <FormField label="Gross potential">
             <input
               className={inputCls}
               inputMode="decimal"
               value={grossPotential}
               onChange={(e) => setGrossPotential(e.target.value)}
+              disabled={saveMut.isPending}
             />
           </FormField>
-          <FormField label="Projected gross" optional>
+          <FormField label="Promoter profit">
             <input
               className={inputCls}
               inputMode="decimal"
-              value={projectedGross}
-              onChange={(e) => setProjectedGross(e.target.value)}
+              value={promoterProfit}
+              onChange={(e) => setPromoterProfit(e.target.value)}
+              disabled={saveMut.isPending}
             />
           </FormField>
-          <FormField label="Projected margin" optional>
-            <input
-              className={inputCls}
-              inputMode="decimal"
-              value={projectedMargin}
-              onChange={(e) => setProjectedMargin(e.target.value)}
+        </div>
+        <div className="mt-4">
+          <FormField label="Venue terms">
+            <textarea
+              className={`${inputCls} min-h-[88px] resize-y`}
+              value={venueTerms}
+              onChange={(e) => setVenueTerms(e.target.value)}
+              disabled={saveMut.isPending}
             />
           </FormField>
         </div>
       </div>
 
       <div className="border-t border-border pt-6">
-        <h3 className="text-sm font-semibold text-text-primary mb-1">Tax &amp; withholding</h3>
-        <p className="text-xs text-text-muted mb-4">
-          Planned: link to dbo.NonResidentWithholding or equivalent on the engagement.
-        </p>
-        <FormField label="Notes (reference only)" optional>
-          <input
-            className={inputCls}
-            value={withholdingNotes}
-            onChange={(e) => setWithholdingNotes(e.target.value)}
-            placeholder="e.g. rate / form reference — not saved"
-          />
-        </FormField>
+        <h3 className="text-sm font-semibold text-text-primary mb-1">IAE waiver</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Confirmation packet approved">
+            <Select2
+              options={CONFIRMATION_PACKET_SELECT_OPTIONS}
+              value={confPacket}
+              onChange={setConfPacket}
+              placeholder="Not set"
+              disabled={saveMut.isPending}
+            />
+          </FormField>
+          <FormField label="Waiver application confirmation #">
+            <input
+              className={inputCls}
+              value={iaeConfNum}
+              onChange={(e) => setIaeConfNum(e.target.value)}
+              disabled={saveMut.isPending}
+              maxLength={10}
+            />
+          </FormField>
+          <FormField label="Waiver application submission date">
+            <input
+              type="date"
+              className={inputCls}
+              value={iaeSubmitDate}
+              onChange={(e) => setIaeSubmitDate(e.target.value)}
+              disabled={saveMut.isPending}
+            />
+          </FormField>
+          <FormField label="Application / waiver status">
+            <Select2
+              options={ieaStatusSelectOptions}
+              value={iaeStatus}
+              onChange={setIaeStatus}
+              placeholder="Select…"
+              allowClear
+              disabled={fkDisabled}
+            />
+          </FormField>
+        </div>
+      </div>
+
+      <div className="border-t border-border pt-6">
+        <h3 className="text-sm font-semibold text-text-primary mb-1">Funds</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Date funds received">
+            <input
+              type="date"
+              className={inputCls}
+              value={dateFundsReceived}
+              onChange={(e) => setDateFundsReceived(e.target.value)}
+              disabled={saveMut.isPending}
+            />
+          </FormField>
+          <FormField label="Funds due">
+            <input
+              className={inputCls}
+              inputMode="decimal"
+              value={fundsDue}
+              onChange={(e) => setFundsDue(e.target.value)}
+              disabled={saveMut.isPending}
+            />
+          </FormField>
+          <FormField label="Funds withheld">
+            <input
+              className={inputCls}
+              inputMode="decimal"
+              value={fundsWithheld}
+              onChange={(e) => setFundsWithheld(e.target.value)}
+              disabled={saveMut.isPending}
+            />
+          </FormField>
+          <FormField label="Funds owed">
+            <input
+              className={inputCls}
+              inputMode="decimal"
+              value={fundsOwed}
+              onChange={(e) => setFundsOwed(e.target.value)}
+              disabled={saveMut.isPending}
+            />
+          </FormField>
+          <div className="sm:col-span-2">
+            <FormField label="Receivable bank account">
+              <input
+                className={inputCls}
+                value={receivableBank}
+                onChange={(e) => setReceivableBank(e.target.value)}
+                disabled={saveMut.isPending}
+                maxLength={255}
+              />
+            </FormField>
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t border-border pt-6">
+        <h3 className="text-sm font-semibold text-text-primary mb-1">Linked records</h3>
+        <p className="text-xs text-text-muted mb-3">Master table links; choose &quot;None&quot; to clear.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <FormField label="Non-resident withholding">
+            <Select2
+              options={withholdingSelectOptions}
+              value={withholdingFk}
+              onChange={setWithholdingFk}
+              placeholder="None"
+              allowClear
+              disabled={fkDisabled}
+            />
+          </FormField>
+          <FormField label="Artist finance">
+            <Select2
+              options={artistFinanceSelectOptions}
+              value={artistFinanceFk}
+              onChange={setArtistFinanceFk}
+              placeholder="None"
+              allowClear
+              disabled={fkDisabled}
+            />
+          </FormField>
+          <FormField label="Settlement finance">
+            <Select2
+              options={settlementFinanceSelectOptions}
+              value={settlementFinanceFk}
+              onChange={setSettlementFinanceFk}
+              placeholder="None"
+              allowClear
+              disabled={fkDisabled}
+            />
+          </FormField>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+        <Button
+          type="button"
+          className="bg-ems-accent text-white hover:opacity-90"
+          onClick={handleSave}
+          disabled={saveMut.isPending || financeQuery.isFetching}
+        >
+          {saveMut.isPending ? (
+            <span className="inline-flex items-center gap-1.5">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Saving…
+            </span>
+          ) : (
+            'Save changes'
+          )}
+        </Button>
       </div>
     </div>
   );
@@ -1169,7 +1484,13 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
       )}
 
       {/* ── Finance & logistics ─────────────────────────────────────────── */}
-      {tab === 'Finance' && <EngagementFinancePanel />}
+      {tab === 'Finance' && (
+        <EngagementFinancePanel
+          key={engagementId}
+          engagementId={engagementId}
+          addToast={addToast}
+        />
+      )}
 
       {/* ── Audit Log ────────────────────────────────────────────────────── */}
       {tab === 'Audit Log' && (
