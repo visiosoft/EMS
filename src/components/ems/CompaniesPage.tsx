@@ -138,6 +138,12 @@ function renderMailingAddressValue(c: Company) {
 
 // ─── Inline edit primitives ───────────────────────────────────────────────────
 
+/** Google place line: undefined/null/whitespace → "" (no carry-over of old company data). */
+function placeAddressField(v: string | undefined | null): string {
+  if (v == null) return '';
+  return v.trim();
+}
+
 function InlineEditField({
   label, value, onChange, placeholder = '—', multiline = false,
 }: {
@@ -147,6 +153,10 @@ function InlineEditField({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const ref = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
 
   const start = () => { setDraft(value); setEditing(true); setTimeout(() => ref.current?.focus(), 0); };
   const commit = () => { if (draft !== value) onChange(draft); setEditing(false); };
@@ -285,20 +295,21 @@ function InlineEditableOverview({
 
   const mark = <T,>(setter: (v: T) => void) => (v: T) => { setter(v); setDirty(true); };
 
-  // Google Places integration for company name field
+  // Google Places: replace the whole address from the new place only. Per-field
+  // empties (no street, no postal, etc.) render as empty fields, not prior company data.
   const onPlaceResolved = useCallback((details: PlaceDetailsResult) => {
     const placeName = details.placeName?.trim();
     if (placeName) setName(placeName);
-    if (details.physical.street) { setPhysStreet(details.physical.street); }
-    if (details.physical.city) { setPhysCity(details.physical.city); }
-    if (details.physical.state) { setPhysState(details.physical.state); }
-    if (details.physical.postalCode) { setPhysPostal(details.physical.postalCode); }
-    if (details.physical.country) { setPhysCountry(details.physical.country); }
-    if (details.mailing.street) { setMailStreet(details.mailing.street); }
-    if (details.mailing.city) { setMailCity(details.mailing.city); }
-    if (details.mailing.state) { setMailState(details.mailing.state); }
-    if (details.mailing.postalCode) { setMailPostal(details.mailing.postalCode); }
-    if (details.mailing.country) { setMailCountry(details.mailing.country); }
+    setPhysStreet(placeAddressField(details.physical.street));
+    setPhysCity(placeAddressField(details.physical.city));
+    setPhysState(placeAddressField(details.physical.state));
+    setPhysPostal(placeAddressField(details.physical.postalCode));
+    setPhysCountry(placeAddressField(details.physical.country));
+    setMailStreet(placeAddressField(details.mailing.street));
+    setMailCity(placeAddressField(details.mailing.city));
+    setMailState(placeAddressField(details.mailing.state));
+    setMailPostal(placeAddressField(details.mailing.postalCode));
+    setMailCountry(placeAddressField(details.mailing.country));
     setDirty(true);
     setNameEditing(false);
   }, []);
