@@ -1,8 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { Loader2, Pencil, Trash2, Check, X } from 'lucide-react';
 import {
-  SearchInput,
   TabBar,
   Drawer,
   Modal,
@@ -26,6 +25,10 @@ import {
   createTour,
   deleteAttraction,
   deleteTour,
+  attractionsListQueryKey,
+  toursListQueryKey,
+  attractionsServerSearchKeyPrefix,
+  toursServerSearchKeyPrefix,
   fetchAttractions,
   fetchClasses,
   fetchTours,
@@ -38,13 +41,14 @@ import {
   type ApiVenueType,
 } from '@/api/attractionToursApi';
 import {
-  companiesPickerQueryKey,
-  fetchCompaniesPickerRows,
+  fetchCompanies,
+  COMPANIES_PICKER_LIMIT,
   fetchCompanyContacts,
   type ApiCompanyContact,
   type ApiCompanyListRow,
 } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
+import { clearFormFieldError } from '@/lib/clearFormFieldError';
 import { getPageParams, getTotalPages, getPageRange, PAGE_SIZE } from '@/lib/serverPagination';
 import { type ApiPaginatedResponse } from '@/api/attractionToursApi';
 import { TOUR_STATUS_OPTIONS } from './tourFormLegacy';
@@ -176,11 +180,25 @@ function TourCardReadOnly({ t }: { t: ApiTourListRow }) {
 
 // ─── Shared inline-edit primitive ────────────────────────────────────────────
 
+function FieldLabelWithReq({
+  label, required,
+}: { label: string; required?: boolean }) {
+  return (
+    <label className="text-xs text-text-muted block mb-0.5">
+      {label}
+      {required && <span className="text-ems-coral ml-0.5">*</span>}
+    </label>
+  );
+}
+
 function InlineField({
-  label, value, onChange, placeholder = '—', multiline = false,
+  label, value, onChange, placeholder = '—', multiline = false, required, maxLength, error,
 }: {
   label: string; value: string; onChange: (v: string) => void;
   placeholder?: string; multiline?: boolean;
+  required?: boolean;
+  maxLength?: number;
+  error?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -192,35 +210,51 @@ function InlineField({
   if (editing) {
     return (
       <div>
-        <label className="text-xs text-text-muted block mb-0.5">{label}</label>
+        <FieldLabelWithReq label={label} required={required} />
         <div className="flex items-start gap-1.5">
           {multiline ? (
-            <textarea ref={ref as React.Ref<HTMLTextAreaElement>} rows={3} value={draft}
+            <textarea
+              ref={ref as React.Ref<HTMLTextAreaElement>}
+              rows={3}
+              value={draft}
+              maxLength={maxLength}
               onChange={e => setDraft(e.target.value)}
               onKeyDown={e => e.key === 'Escape' && setEditing(false)}
-              className="flex-1 bg-surface border border-ems-accent rounded px-2 py-1 text-sm text-text-primary focus:outline-none resize-none" />
+              className="flex-1 bg-surface border border-ems-accent rounded px-2 py-1 text-sm text-text-primary focus:outline-none resize-none"
+            />
           ) : (
-            <input ref={ref as React.Ref<HTMLInputElement>} value={draft}
+            <input
+              ref={ref as React.Ref<HTMLInputElement>}
+              value={draft}
+              maxLength={maxLength}
               onChange={e => setDraft(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }}
-              className="flex-1 bg-surface border border-ems-accent rounded px-2 py-1 text-sm text-text-primary focus:outline-none" />
+              className="flex-1 bg-surface border border-ems-accent rounded px-2 py-1 text-sm text-text-primary focus:outline-none"
+            />
           )}
           <div className="flex gap-0.5 mt-0.5 shrink-0">
             <button onClick={commit} className="p-1 text-ems-accent hover:bg-elevated rounded"><Check className="h-3.5 w-3.5" /></button>
             <button onClick={() => setEditing(false)} className="p-1 text-text-muted hover:bg-elevated rounded"><X className="h-3.5 w-3.5" /></button>
           </div>
         </div>
+        {error && <p className="text-xs text-ems-coral mt-1">{error}</p>}
       </div>
     );
   }
   return (
     <div>
-      <label className="text-xs text-text-muted block mb-0.5">{label}</label>
-      <div onClick={start} title="Click to edit"
-        className="group flex items-start gap-2 cursor-pointer py-0.5 px-1.5 -mx-1.5 rounded-md hover:bg-elevated transition-colors">
-        <span className={`text-sm flex-1 ${value ? 'text-text-primary' : 'text-text-muted italic'}`}>{value || placeholder}</span>
+      <FieldLabelWithReq label={label} required={required} />
+      <div
+        onClick={start}
+        title="Click to edit"
+        className="group flex items-start gap-2 cursor-pointer py-0.5 px-1.5 -mx-1.5 rounded-md hover:bg-elevated transition-colors"
+      >
+        <span className={`text-sm flex-1 ${value ? 'text-text-primary' : 'text-text-muted italic'}`}>
+          {value || placeholder}
+        </span>
         <Pencil className="h-3 w-3 text-text-muted opacity-0 group-hover:opacity-50 transition-opacity shrink-0 mt-0.5" />
       </div>
+      {error && <p className="text-xs text-ems-coral mt-0.5">{error}</p>}
     </div>
   );
 }
@@ -231,12 +265,16 @@ function InlineSelectField({
   onChange,
   options,
   allowClear = false,
+  required,
+  error,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   options: { value: string; label: string }[];
   allowClear?: boolean;
+  required?: boolean;
+  error?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const display =
@@ -246,7 +284,7 @@ function InlineSelectField({
   if (editing) {
     return (
       <div>
-        <label className="text-xs text-text-muted block mb-0.5">{label}</label>
+        <FieldLabelWithReq label={label} required={required} />
         <div className="flex items-center gap-1.5">
           <div className="flex-1 min-w-0">
             <Select2
@@ -269,13 +307,14 @@ function InlineSelectField({
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
+        {error && <p className="text-xs text-ems-coral mt-1">{error}</p>}
       </div>
     );
   }
 
   return (
     <div>
-      <label className="text-xs text-text-muted block mb-0.5">{label}</label>
+      <FieldLabelWithReq label={label} required={required} />
       <div
         onClick={() => setEditing(true)}
         className="group flex items-center gap-2 cursor-pointer py-0.5 px-1.5 -mx-1.5 rounded-md hover:bg-elevated transition-colors"
@@ -284,6 +323,7 @@ function InlineSelectField({
         <span className="text-sm text-text-primary flex-1">{display}</span>
         <Pencil className="h-3 w-3 text-text-muted opacity-0 group-hover:opacity-50 transition-opacity shrink-0" />
       </div>
+      {error && <p className="text-xs text-ems-coral mt-0.5">{error}</p>}
     </div>
   );
 }
@@ -303,22 +343,30 @@ function AttractionSidePanel({
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
   onClose: () => void;
   onDelete: (a: ApiAttractionListRow) => void;
-  onSaved: () => void;
+  onSaved: (p: { attractionName: string }) => void;
 }) {
   const [name, setName] = useState(attraction.attractionName);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [nameError, setNameError] = useState<string | undefined>();
 
   useEffect(() => {
     setName(attraction.attractionName);
     setDirty(false);
+    setNameError(undefined);
   }, [attraction.attractionId, attraction.attractionName]);
 
   const handleSave = async () => {
-    if (!name.trim()) {
-      addToast('Name is required.', 'warning');
+    const t = name.trim();
+    if (!t) {
+      setNameError('Attraction name is required.');
       return;
     }
+    if (t.length > 200) {
+      setNameError('Attraction name must be 200 characters or fewer.');
+      return;
+    }
+    setNameError(undefined);
     setSaving(true);
     try {
       await updateAttraction(attraction.attractionId, {
@@ -326,7 +374,7 @@ function AttractionSidePanel({
       });
       setDirty(false);
       addToast('Attraction updated.', 'success');
-      onSaved();
+      onSaved({ attractionName: name.trim() });
     } catch (e) {
       addToast(friendlyApiError(e, 'Could not update.'), 'error');
     } finally {
@@ -377,7 +425,11 @@ function AttractionSidePanel({
           onChange={(v) => {
             setName(v);
             setDirty(true);
+            setNameError(undefined);
           }}
+          required
+          maxLength={200}
+          error={nameError}
         />
 
         <div>
@@ -405,6 +457,7 @@ function AttractionSidePanel({
                 onClick={() => {
                   setName(attraction.attractionName);
                   setDirty(false);
+                  setNameError(undefined);
                 }}
                 disabled={saving}
                 className="text-text-secondary text-xs px-3 py-1.5 hover:text-text-primary rounded-md hover:bg-elevated transition-colors disabled:opacity-50"
@@ -451,7 +504,7 @@ function TourDrawer({
   addToast: (msg: string, type: 'success'|'error'|'warning'|'info') => void;
   onClose: () => void;
   onDelete: (t: ApiTourListRow) => void;
-  onSaved: () => void;
+  onSaved: (p: { tourId: number; tourName: string }) => void;
   activeTab: string;
   onTabChange: (tab: string) => void;
 }) {
@@ -480,6 +533,14 @@ function TourDrawer({
   const [gmr, setGmr] = useState(tour.gmr);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [tourFieldErrors, setTourFieldErrors] = useState<{
+    tourName?: string;
+    attractionId?: string;
+    classId?: string;
+    audienceGender?: string;
+    audienceAgeRange?: string;
+    insurance?: string;
+  }>({});
 
   useEffect(() => {
     setTourName(tour.tourName);
@@ -499,9 +560,11 @@ function TourDrawer({
     setSesac(tour.sesac);
     setGmr(tour.gmr);
     setDirty(false);
+    setTourFieldErrors({});
   }, [tour.tourId]);
 
   const mark = <T,>(setter: (v: T) => void) => (v: T) => {
+    setTourFieldErrors({});
     setter(v);
     setDirty(true);
   };
@@ -555,14 +618,23 @@ function TourDrawer({
     classes.find((c) => c.classId === Number(classId))?.className ?? tour.className;
 
   const handleSave = async () => {
-    if (!tourName.trim()) {
-      addToast('Tour name is required.', 'warning');
+    const next: typeof tourFieldErrors = {};
+    const tn = tourName.trim();
+    if (!tn) next.tourName = 'Tour name is required.';
+    else if (tn.length > 200) next.tourName = 'Tour name must be 200 characters or fewer.';
+    if (!attractionId) next.attractionId = 'Attraction is required.';
+    if (!classId) next.classId = 'Genre / Class is required.';
+    const ag = audienceGender.trim();
+    if (ag.length > 100) next.audienceGender = 'Audience gender must be 100 characters or fewer.';
+    const ar = audienceAgeRange.trim();
+    if (ar.length > 100) next.audienceAgeRange = 'Audience age range must be 100 characters or fewer.';
+    const ins = insuranceLanguage.trim();
+    if (ins.length > 2000) next.insurance = 'Tour insurance language must be 2000 characters or fewer.';
+    if (Object.keys(next).length) {
+      setTourFieldErrors(next);
       return;
     }
-    if (!attractionId || !classId) {
-      addToast('Attraction and Genre / Class are required.', 'warning');
-      return;
-    }
+    setTourFieldErrors({});
     setSaving(true);
     try {
       await updateTour(tour.tourId, {
@@ -585,7 +657,7 @@ function TourDrawer({
       });
       setDirty(false);
       addToast('Tour updated.', 'success');
-      onSaved();
+      onSaved({ tourId: tour.tourId, tourName: tourName.trim() });
     } catch (e) {
       addToast(friendlyApiError(e, 'Could not update tour.'), 'error');
     } finally {
@@ -611,6 +683,7 @@ function TourDrawer({
     setSesac(tour.sesac);
     setGmr(tour.gmr);
     setDirty(false);
+    setTourFieldErrors({});
   };
 
   const contacts = contactsQuery.data ?? [];
@@ -648,19 +721,30 @@ function TourDrawer({
             <p className="flex items-center gap-1.5 text-[11px] text-text-muted select-none">
               <Pencil className="h-3 w-3" /> Click any field to edit it
             </p>
-            <InlineField label="Tour Name" value={tourName} onChange={mark(setTourName)} />
+            <InlineField
+              label="Tour Name"
+              value={tourName}
+              onChange={mark(setTourName)}
+              required
+              maxLength={200}
+              error={tourFieldErrors.tourName}
+            />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-4">
               <InlineSelectField
                 label="Attraction"
                 value={attractionId}
                 onChange={mark(setAttractionId)}
                 options={attractionOptions}
+                required
+                error={tourFieldErrors.attractionId}
               />
               <InlineSelectField
                 label="Genre / Class"
                 value={classId}
                 onChange={mark(setClassId)}
                 options={classOptions}
+                required
+                error={tourFieldErrors.classId}
               />
               <InlineSelectField
                 label="Tour Management Company"
@@ -678,8 +762,22 @@ function TourDrawer({
               />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <InlineField label="Audience Gender" value={audienceGender} onChange={mark(setAudienceGender)} placeholder="Not set" />
-              <InlineField label="Audience Age Range" value={audienceAgeRange} onChange={mark(setAudienceAgeRange)} placeholder="Not set" />
+              <InlineField
+                label="Audience Gender"
+                value={audienceGender}
+                onChange={mark(setAudienceGender)}
+                placeholder="Not set"
+                maxLength={100}
+                error={tourFieldErrors.audienceGender}
+              />
+              <InlineField
+                label="Audience Age Range"
+                value={audienceAgeRange}
+                onChange={mark(setAudienceAgeRange)}
+                placeholder="Not set"
+                maxLength={100}
+                error={tourFieldErrors.audienceAgeRange}
+              />
             </div>
             <div className="space-y-2">
               <div>
@@ -711,6 +809,7 @@ function TourDrawer({
                       type="checkbox"
                       checked={checked}
                       onChange={(e) => {
+                        setTourFieldErrors({});
                         setChecked(e.target.checked);
                         setDirty(true);
                       }}
@@ -721,7 +820,15 @@ function TourDrawer({
                 ))}
               </div>
             </div>
-            <InlineField label="Tour Insurance Language" value={insuranceLanguage} onChange={mark(setInsuranceLanguage)} placeholder="Not set" multiline />
+            <InlineField
+              label="Tour Insurance Language"
+              value={insuranceLanguage}
+              onChange={mark(setInsuranceLanguage)}
+              placeholder="Not set"
+              multiline
+              maxLength={2000}
+              error={tourFieldErrors.insurance}
+            />
 
             {/* Save bar */}
             {dirty && (
@@ -770,11 +877,24 @@ function TourDrawer({
   );
 }
 
+const ATTRACTIONS_TOURS_LIST_LIMIT = 8000;
+
+function clearAttractionToursServerSearchCaches(qc: QueryClient) {
+  void qc.removeQueries({ queryKey: attractionsServerSearchKeyPrefix });
+  void qc.removeQueries({ queryKey: toursServerSearchKeyPrefix });
+}
+
 export function AttractionToursPage({ addToast }: Props) {
   const qc = useQueryClient();
   const [pageTab, setPageTab] = useState('Attractions');
-  const [search, setSearch] = useState('');
-  const [searchDebounced, setSearchDebounced] = useState('');
+  const [attractionInput, setAttractionInput] = useState('');
+  const [attractionSearch, setAttractionSearch] = useState('');
+  const [showAttractionSuggestions, setShowAttractionSuggestions] = useState(false);
+  const [tourInput, setTourInput] = useState('');
+  const [tourSearch, setTourSearch] = useState('');
+  const [showTourSuggestions, setShowTourSuggestions] = useState(false);
+  const attractionSearchRef = useRef<HTMLDivElement>(null);
+  const tourSearchRef = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState(1);
 
   const [selectedAttractionId, setSelectedAttractionId] = useState<number | null>(null);
@@ -789,80 +909,182 @@ export function AttractionToursPage({ addToast }: Props) {
   const [pendingDeleteAttraction, setPendingDeleteAttraction] = useState<ApiAttractionListRow | null>(null);
   const [pendingDeleteTour, setPendingDeleteTour] = useState<ApiTourListRow | null>(null);
 
-  const { offset: attrOffset, limit: attrLimit } = getPageParams(pageTab === 'Attractions' ? page : 1);
-  const { offset: tourOffset, limit: tourLimit } = getPageParams(pageTab === 'Tours' ? page : 1);
-
   useEffect(() => {
-    const t = window.setTimeout(() => setSearchDebounced(search.trim()), 300);
-    return () => window.clearTimeout(t);
-  }, [search]);
+    const handleClickOutside = (e: MouseEvent) => {
+      if (attractionSearchRef.current && !attractionSearchRef.current.contains(e.target as Node)) {
+        setShowAttractionSuggestions(false);
+      }
+      if (tourSearchRef.current && !tourSearchRef.current.contains(e.target as Node)) {
+        setShowTourSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  /** Hiding a tab’s search UI does not unmount its state; clear the inactive list search when switching tabs. */
+  useEffect(() => {
+    if (pageTab === 'Tours') {
+      setAttractionInput('');
+      setAttractionSearch('');
+      setShowAttractionSuggestions(false);
+    } else {
+      setTourInput('');
+      setTourSearch('');
+      setShowTourSuggestions(false);
+    }
+  }, [pageTab]);
 
   const attractionsQuery = useQuery({
-    queryKey: ['attractions', attrOffset, attrLimit, searchDebounced],
-    queryFn: () => fetchAttractions(attrOffset, attrLimit, searchDebounced || undefined),
-    placeholderData: (prev) => prev,
-    enabled: pageTab === 'Attractions',
+    queryKey: attractionsListQueryKey,
+    queryFn: async () => fetchAttractions(0, ATTRACTIONS_TOURS_LIST_LIMIT, undefined),
+    staleTime: 30 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
+
   const toursQuery = useQuery({
-    queryKey: ['tours', tourOffset, tourLimit, searchDebounced],
-    queryFn: () => fetchTours(tourOffset, tourLimit, searchDebounced || undefined),
-    placeholderData: (prev) => prev,
-    enabled: pageTab === 'Tours',
+    queryKey: toursListQueryKey,
+    queryFn: async () => fetchTours(0, ATTRACTIONS_TOURS_LIST_LIMIT, undefined),
+    staleTime: 30 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
-  /** On the Tours tab, paginated `attractions` is not loaded — fetch a wide pick list for drawer + tour modals. */
-  const needToursTabAttractionPicklist =
-    pageTab === 'Tours' && (selectedTourId != null || showAddTour || editTour != null);
-  const tourDrawerAttractionsQuery = useQuery({
-    queryKey: ['attractions', 'tour-drawer-picker', 0, 8000],
-    queryFn: async () => (await fetchAttractions(0, 8000, undefined)).data,
-    staleTime: 60_000,
-    enabled: needToursTabAttractionPicklist,
-  });
-  /** Classes + venue types only — avoids loading thousands of companies on every visit. */
-  const lightLookupsQuery = useQuery({
-    queryKey: ['attraction-tours-lookups', 'light'],
+
+  const lookupsQuery = useQuery({
+    queryKey: ['attraction-tours-lookups'],
     queryFn: async () => {
-      const [classes, venueTypes] = await Promise.all([fetchClasses(), fetchVenueTypesLookup()]);
-      return { classes, venueTypes };
+      const [classes, companies, venueTypes] = await Promise.all([
+        fetchClasses(),
+        fetchCompanies(0, COMPANIES_PICKER_LIMIT, {}),
+        fetchVenueTypesLookup(),
+      ]);
+      return { classes, companies: companies.data, venueTypes };
     },
+    staleTime: 30 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 
-  const attractionsPage = attractionsQuery.data as ApiPaginatedResponse<import('@/api/attractionToursApi').ApiAttractionListRow> | undefined;
-  const toursPage = toursQuery.data as ApiPaginatedResponse<import('@/api/attractionToursApi').ApiTourListRow> | undefined;
+  const attractionsPage = attractionsQuery.data as
+    | ApiPaginatedResponse<import('@/api/attractionToursApi').ApiAttractionListRow>
+    | undefined;
+  const toursPage = toursQuery.data as
+    | ApiPaginatedResponse<import('@/api/attractionToursApi').ApiTourListRow>
+    | undefined;
   const attractions = attractionsPage?.data ?? [];
-  const attractionsForPicker =
-    pageTab === 'Tours' && needToursTabAttractionPicklist
-      ? (tourDrawerAttractionsQuery.data ?? [])
-      : attractions;
   const tours = toursPage?.data ?? [];
-  const attractionsTotal = attractionsPage?.total ?? 0;
-  const toursTotal = toursPage?.total ?? 0;
+  const attractionsForPicker = attractions;
 
-  /** Large company picklist only when tour drawer or edit-tour modal needs talent-agency options. */
-  const needTourCompanyPicklist =
-    editTour != null ||
-    (pageTab === 'Tours' &&
-      selectedTourId != null &&
-      tours.some((t) => t.tourId === selectedTourId));
+  const attractionSuggestions = useMemo(() => {
+    const q = attractionInput.trim().toLowerCase();
+    if (!q) return [];
+    return attractions
+      .map((a) => a.attractionName)
+      .filter((name) => name.toLowerCase().includes(q))
+      .slice(0, 8);
+  }, [attractionInput, attractions]);
 
-  const companiesQuery = useQuery({
-    queryKey: companiesPickerQueryKey(),
-    queryFn: fetchCompaniesPickerRows,
-    staleTime: 60_000,
-    enabled: needTourCompanyPicklist,
+  const tourSuggestions = useMemo(() => {
+    const q = tourInput.trim().toLowerCase();
+    if (!q) return [];
+    const matches = tours.filter(
+      (t) =>
+        t.tourName.toLowerCase().includes(q) ||
+        t.attractionName.toLowerCase().includes(q) ||
+        t.className.toLowerCase().includes(q) ||
+        (t.tourManagementCompanyName && t.tourManagementCompanyName.toLowerCase().includes(q)),
+    );
+    return [...new Set(matches.map((t) => t.tourName))].slice(0, 8);
+  }, [tourInput, tours]);
+
+  const filteredAttractions = useMemo(() => {
+    const q = attractionSearch.trim().toLowerCase();
+    return attractions.filter(
+      (a) => !q || a.attractionName.toLowerCase().includes(q),
+    );
+  }, [attractions, attractionSearch]);
+
+  const filteredTours = useMemo(() => {
+    const q = tourSearch.trim().toLowerCase();
+    return tours.filter(
+      (t) =>
+        !q ||
+        t.tourName.toLowerCase().includes(q) ||
+        t.attractionName.toLowerCase().includes(q) ||
+        t.className.toLowerCase().includes(q) ||
+        (t.tourManagementCompanyName && t.tourManagementCompanyName.toLowerCase().includes(q)),
+    );
+  }, [tours, tourSearch]);
+
+  const needServerAttractionSearch = Boolean(
+    attractionSearch.trim() && filteredAttractions.length === 0,
+  );
+  const serverAttractionsSearchQuery = useQuery({
+    queryKey: [...attractionsServerSearchKeyPrefix, attractionSearch] as const,
+    queryFn: () =>
+      fetchAttractions(0, ATTRACTIONS_TOURS_LIST_LIMIT, attractionSearch),
+    enabled: needServerAttractionSearch,
+    staleTime: 30 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
+  const displayAttractions = useMemo((): ApiAttractionListRow[] => {
+    if (needServerAttractionSearch) {
+      return serverAttractionsSearchQuery.data?.data ?? [];
+    }
+    return filteredAttractions;
+  }, [needServerAttractionSearch, serverAttractionsSearchQuery.data, filteredAttractions]);
 
-  const refetchAll = async () => {
-    await Promise.all([
-      qc.invalidateQueries({ queryKey: ['attractions'] }),
-      qc.invalidateQueries({ queryKey: ['tours'] }),
-    ]);
-  };
+  const needServerTourSearch = Boolean(
+    tourSearch.trim() && filteredTours.length === 0,
+  );
+  const serverToursSearchQuery = useQuery({
+    queryKey: [...toursServerSearchKeyPrefix, tourSearch] as const,
+    queryFn: () => fetchTours(0, ATTRACTIONS_TOURS_LIST_LIMIT, tourSearch),
+    enabled: needServerTourSearch,
+    staleTime: 30 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+  const displayTours = useMemo((): ApiTourListRow[] => {
+    if (needServerTourSearch) {
+      return serverToursSearchQuery.data?.data ?? [];
+    }
+    return filteredTours;
+  }, [needServerTourSearch, serverToursSearchQuery.data, filteredTours]);
 
   const createAttrMut = useMutation({
     mutationFn: createAttraction,
-    onSuccess: async () => {
-      await refetchAll();
+    onSuccess: async (res, body) => {
+      const { attractionId } = res;
+      const hint = await fetchAttractions(0, 100, body.attractionName);
+      const row: ApiAttractionListRow = hint.data.find(
+        (a) => a.attractionId === attractionId,
+      ) ?? {
+        attractionId,
+        attractionName: body.attractionName,
+        activeTourCount: 0,
+        appCreated: true,
+      };
+      qc.setQueryData(
+        attractionsListQueryKey,
+        (old: ApiPaginatedResponse<ApiAttractionListRow> | undefined) => {
+          if (!old) {
+            return { data: [row], total: 1 };
+          }
+          if (old.data.some((a) => a.attractionId === row.attractionId)) {
+            return old;
+          }
+          const data = [...old.data, row].sort((a, b) =>
+            a.attractionName.localeCompare(b.attractionName, undefined, {
+              sensitivity: 'base',
+            }),
+          );
+          return { data, total: old.data.length < ATTRACTIONS_TOURS_LIST_LIMIT ? old.total + 1 : old.total };
+        },
+      );
+      clearAttractionToursServerSearchCaches(qc);
       setShowAddAttraction(false);
       addToast('Attraction created.', 'success');
     },
@@ -872,8 +1094,22 @@ export function AttractionToursPage({ addToast }: Props) {
   const updateAttrMut = useMutation({
     mutationFn: ({ id, body }: { id: number; body: Parameters<typeof updateAttraction>[1] }) =>
       updateAttraction(id, body),
-    onSuccess: async () => {
-      await refetchAll();
+    onSuccess: async (_, { id, body }) => {
+      qc.setQueryData(
+        attractionsListQueryKey,
+        (old: ApiPaginatedResponse<ApiAttractionListRow> | undefined) => {
+          if (!old) return old;
+          return {
+            ...old,
+            data: old.data.map((a) =>
+              a.attractionId === id
+                ? { ...a, ...body, attractionName: body.attractionName?.trim() ?? a.attractionName }
+                : a,
+            ),
+          };
+        },
+      );
+      clearAttractionToursServerSearchCaches(qc);
       setEditAttraction(null);
       addToast('Attraction updated.', 'success');
     },
@@ -883,7 +1119,25 @@ export function AttractionToursPage({ addToast }: Props) {
   const deleteAttrMut = useMutation({
     mutationFn: deleteAttraction,
     onSuccess: async (_, attractionId) => {
-      await refetchAll();
+      qc.setQueryData(
+        attractionsListQueryKey,
+        (old: ApiPaginatedResponse<ApiAttractionListRow> | undefined) =>
+          !old
+            ? old
+            : {
+                ...old,
+                data: old.data.filter((a) => a.attractionId !== attractionId),
+                total: Math.max(0, old.total - 1),
+              },
+      );
+      qc.setQueryData(
+        toursListQueryKey,
+        (old: ApiPaginatedResponse<ApiTourListRow> | undefined) =>
+          !old
+            ? old
+            : { ...old, data: old.data.filter((t) => t.attractionId !== attractionId) },
+      );
+      clearAttractionToursServerSearchCaches(qc);
       setPendingDeleteAttraction(null);
       setSelectedAttractionId((cur) => (cur === attractionId ? null : cur));
       addToast('Attraction removed.', 'warning');
@@ -894,7 +1148,13 @@ export function AttractionToursPage({ addToast }: Props) {
   const createTourMut = useMutation({
     mutationFn: createTour,
     onSuccess: async () => {
-      await refetchAll();
+      /* A search for the new name often omits the row (paging / many matches), so
+       * the old fetch+setQueryData path left the new tour out of the cache. */
+      clearAttractionToursServerSearchCaches(qc);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: toursListQueryKey }),
+        qc.invalidateQueries({ queryKey: attractionsListQueryKey }),
+      ]);
       setShowAddTour(false);
       addToast('Tour created.', 'success');
     },
@@ -904,7 +1164,10 @@ export function AttractionToursPage({ addToast }: Props) {
   const updateTourMut = useMutation({
     mutationFn: ({ id, body }: { id: number; body: Parameters<typeof updateTour>[1] }) => updateTour(id, body),
     onSuccess: async () => {
-      await refetchAll();
+      /* Optimistic list patches used fetch+search with a small page; the updated tour
+       * was often missing, leaving wrong/missing rows so attraction-side tour lists read empty. */
+      clearAttractionToursServerSearchCaches(qc);
+      await qc.invalidateQueries({ queryKey: toursListQueryKey });
       setEditTour(null);
       addToast('Tour updated.', 'success');
     },
@@ -914,7 +1177,43 @@ export function AttractionToursPage({ addToast }: Props) {
   const deleteTourMut = useMutation({
     mutationFn: deleteTour,
     onSuccess: async (_, tourId) => {
-      await refetchAll();
+      let attractionId: number | null = null;
+      qc.setQueryData(
+        toursListQueryKey,
+        (old: ApiPaginatedResponse<ApiTourListRow> | undefined) => {
+          if (!old) {
+            return old;
+          }
+          const t = old.data.find((x) => x.tourId === tourId);
+          if (t) {
+            attractionId = t.attractionId;
+          }
+          return {
+            ...old,
+            data: old.data.filter((x) => x.tourId !== tourId),
+            total: Math.max(0, old.total - 1),
+          };
+        },
+      );
+      if (attractionId != null) {
+        qc.setQueryData(
+          attractionsListQueryKey,
+          (old: ApiPaginatedResponse<ApiAttractionListRow> | undefined) => {
+            if (!old) {
+              return old;
+            }
+            return {
+              ...old,
+              data: old.data.map((a) =>
+                a.attractionId === attractionId
+                  ? { ...a, activeTourCount: Math.max(0, a.activeTourCount - 1) }
+                  : a,
+              ),
+            };
+          },
+        );
+      }
+      clearAttractionToursServerSearchCaches(qc);
       setPendingDeleteTour(null);
       setSelectedTourId((cur) => (cur === tourId ? null : cur));
       addToast('Tour removed.', 'warning');
@@ -922,35 +1221,62 @@ export function AttractionToursPage({ addToast }: Props) {
     onError: (e) => addToast(friendlyApiError(e, 'Could not delete tour.'), 'error'),
   });
 
-  /** Initial load + server pagination refetch (matches Companies: skeleton until each request finishes). */
-  const loading =
-    lightLookupsQuery.isPending ||
-    (pageTab === 'Attractions' &&
-      (attractionsQuery.isPending || attractionsQuery.isFetching)) ||
-    (pageTab === 'Tours' && (toursQuery.isPending || toursQuery.isFetching));
-  /** Top progress bar when a non-blocking refetch runs (pagination uses full `loading` skeleton). */
-  const refreshing = attractionsQuery.isFetching || toursQuery.isFetching;
-
-  const serverTotal = pageTab === 'Attractions' ? attractionsTotal : toursTotal;
+  const listForTable = useMemo(
+    () => (pageTab === 'Attractions' ? displayAttractions : displayTours),
+    [pageTab, displayAttractions, displayTours],
+  );
+  const serverTotal = listForTable.length;
+  const { offset, limit } = getPageParams(page);
+  const paginated = useMemo(
+    () => listForTable.slice(offset, offset + limit),
+    [listForTable, offset, limit],
+  );
   const pageCount = getTotalPages(serverTotal);
   const { rangeStart, rangeEnd } = getPageRange(page, serverTotal);
-  const paginated = pageTab === 'Attractions' ? attractions : tours;
 
-  useEffect(() => { setPage(1); }, [searchDebounced, pageTab]);
+  /** Initial load: lookups + both full lists, or a targeted server search on the active tab. */
+  const loading =
+    lookupsQuery.isPending ||
+    attractionsQuery.isPending ||
+    toursQuery.isPending ||
+    (pageTab === 'Attractions' &&
+      needServerAttractionSearch &&
+      (serverAttractionsSearchQuery.isPending || serverAttractionsSearchQuery.isFetching)) ||
+    (pageTab === 'Tours' &&
+      needServerTourSearch &&
+      (serverToursSearchQuery.isPending || serverToursSearchQuery.isFetching));
+  /** Top progress bar when a background refetch runs after mutations, etc. */
+  const refreshing =
+    (attractionsQuery.isFetching && !attractionsQuery.isPending) ||
+    (toursQuery.isFetching && !toursQuery.isPending) ||
+    (lookupsQuery.isFetching && !lookupsQuery.isPending);
+
+  useEffect(() => {
+    setPage(1);
+  }, [attractionSearch, tourSearch, pageTab]);
 
   const selectedAttraction = selectedAttractionId
-    ? attractions.find((a) => a.attractionId === selectedAttractionId) ?? null
+    ? attractions.find((a) => a.attractionId === selectedAttractionId) ??
+      displayAttractions.find((a) => a.attractionId === selectedAttractionId) ??
+      null
     : null;
-  const selectedTour = selectedTourId ? tours.find((t) => t.tourId === selectedTourId) ?? null : null;
+  const selectedTour = selectedTourId
+    ? tours.find((t) => t.tourId === selectedTourId) ??
+      displayTours.find((t) => t.tourId === selectedTourId) ??
+      null
+    : null;
 
   const attractionTours = selectedAttraction
-    ? tours.filter((t) => t.attractionId === selectedAttraction.attractionId)
+    ? tours.filter(
+        (t) =>
+          Number(t.attractionId) === Number(selectedAttraction.attractionId),
+      )
     : [];
 
-  const light = lightLookupsQuery.data;
-  const classes = light?.classes ?? [];
-  const venueTypes = light?.venueTypes ?? [];
-  const companies = companiesQuery.data ?? [];
+  const lkp = lookupsQuery.data;
+  const classes = lkp?.classes ?? [];
+  const venueTypes = lkp?.venueTypes ?? [];
+  const companies = lkp?.companies ?? [];
 
   const managementCompanyOptions = useMemo(() => {
     const talentAgencies = companies.filter(
@@ -1089,16 +1415,12 @@ export function AttractionToursPage({ addToast }: Props) {
         </AlertDialogContent>
       </AlertDialog>
 
-      {(attractionsQuery.isError ||
-        toursQuery.isError ||
-        lightLookupsQuery.isError ||
-        (needTourCompanyPicklist && companiesQuery.isError)) && (
+      {(attractionsQuery.isError || toursQuery.isError || lookupsQuery.isError) && (
         <div className="text-sm text-ems-coral border border-ems-coral/30 rounded-md px-3 py-2 bg-ems-coral-dim">
           Could not load Attraction-Tours data.{' '}
           {(attractionsQuery.error as Error)?.message ||
             (toursQuery.error as Error)?.message ||
-            (lightLookupsQuery.error as Error)?.message ||
-            (companiesQuery.error as Error)?.message}
+            (lookupsQuery.error as Error)?.message}
           . Is the API running at <code className="text-xs">/api</code>?
         </div>
       )}
@@ -1137,14 +1459,129 @@ export function AttractionToursPage({ addToast }: Props) {
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        <div className="w-full sm:w-64">
-          <SearchInput
-            value={search}
-            onChange={setSearch}
-            placeholder={pageTab === 'Attractions' ? 'Search attractions...' : 'Search tours...'}
-            disabled={loading}
-          />
-        </div>
+        {pageTab === 'Attractions' ? (
+          <div className="relative w-full sm:w-64" ref={attractionSearchRef}>
+            <div className="flex items-center border border-border rounded-md bg-surface overflow-hidden focus-within:border-ems-accent transition-colors">
+              <input
+                type="text"
+                className="flex-1 bg-transparent px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none disabled:opacity-50"
+                placeholder="Search attractions..."
+                value={attractionInput}
+                disabled={loading}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setAttractionInput(v);
+                  setShowAttractionSuggestions(true);
+                  if (!v.trim()) setAttractionSearch('');
+                }}
+                onFocus={() => {
+                  if (attractionInput.trim()) setShowAttractionSuggestions(true);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    setAttractionSearch(attractionInput.trim());
+                    setShowAttractionSuggestions(false);
+                  }
+                  if (e.key === 'Escape') setShowAttractionSuggestions(false);
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setAttractionSearch(attractionInput.trim());
+                  setShowAttractionSuggestions(false);
+                }}
+                className="px-2.5 py-1.5 text-text-muted hover:text-ems-accent transition-colors"
+                title="Search"
+              >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <circle cx="11" cy="11" r="8" strokeWidth="2" />
+                  <path d="m21 21-4.35-4.35" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+            {showAttractionSuggestions && attractionSuggestions.length > 0 && (
+              <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden">
+                {attractionSuggestions.map((s, i) => (
+                  <button
+                    key={`${i}-${s}`}
+                    type="button"
+                    className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setAttractionInput(s);
+                      setAttractionSearch(s);
+                      setShowAttractionSuggestions(false);
+                    }}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="relative w-full sm:w-64" ref={tourSearchRef}>
+            <div className="flex items-center border border-border rounded-md bg-surface overflow-hidden focus-within:border-ems-accent transition-colors">
+              <input
+                type="text"
+                className="flex-1 bg-transparent px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none disabled:opacity-50"
+                placeholder="Search tours..."
+                value={tourInput}
+                disabled={loading}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setTourInput(v);
+                  setShowTourSuggestions(true);
+                  if (!v.trim()) setTourSearch('');
+                }}
+                onFocus={() => {
+                  if (tourInput.trim()) setShowTourSuggestions(true);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    setTourSearch(tourInput.trim());
+                    setShowTourSuggestions(false);
+                  }
+                  if (e.key === 'Escape') setShowTourSuggestions(false);
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setTourSearch(tourInput.trim());
+                  setShowTourSuggestions(false);
+                }}
+                className="px-2.5 py-1.5 text-text-muted hover:text-ems-accent transition-colors"
+                title="Search"
+              >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <circle cx="11" cy="11" r="8" strokeWidth="2" />
+                  <path d="m21 21-4.35-4.35" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+            {showTourSuggestions && tourSuggestions.length > 0 && (
+              <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden">
+                {tourSuggestions.map((s, idx) => (
+                  <button
+                    key={`${s}-${idx}`}
+                    type="button"
+                    className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setTourInput(s);
+                      setTourSearch(s);
+                      setShowTourSuggestions(false);
+                    }}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {loading ? (
@@ -1162,10 +1599,10 @@ export function AttractionToursPage({ addToast }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {attractions.length === 0 && !attractionsQuery.isError && (
+                    {filteredAttractions.length === 0 && !attractionsQuery.isError && (
                       <tr>
                         <td colSpan={3} className="py-12 px-3 text-center text-sm text-text-muted">
-                          {!searchDebounced
+                          {!attractionSearch.trim()
                             ? 'No attractions found.'
                             : 'No attractions match your search.'}
                         </td>
@@ -1184,14 +1621,14 @@ export function AttractionToursPage({ addToast }: Props) {
                   </tbody>
                 </table>
               </div>
-              {attractionsTotal > 0 && (
+              {pageTab === 'Attractions' && serverTotal > 0 && (
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-text-secondary px-1">
                   <p className="tabular-nums">
                     Showing{' '}
                     <span className="text-text-primary font-medium">
                       {rangeStart}–{rangeEnd}
                     </span>{' '}
-                    of <span className="text-text-primary font-medium">{attractionsTotal.toLocaleString()}</span>
+                    of <span className="text-text-primary font-medium">{serverTotal.toLocaleString()}</span>
                     <span className="text-text-muted"> ({PAGE_SIZE} per page)</span>
                   </p>
                   <div className="flex items-center gap-2 shrink-0">
@@ -1234,10 +1671,10 @@ export function AttractionToursPage({ addToast }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {tours.length === 0 && !toursQuery.isError && (
+                    {filteredTours.length === 0 && !toursQuery.isError && (
                       <tr>
                         <td colSpan={5} className="py-12 px-3 text-center text-sm text-text-muted">
-                          {!searchDebounced ? 'No tours found.' : 'No tours match your search.'}
+                          {!tourSearch.trim() ? 'No tours found.' : 'No tours match your search.'}
                         </td>
                       </tr>
                     )}
@@ -1261,14 +1698,14 @@ export function AttractionToursPage({ addToast }: Props) {
                   </tbody>
                 </table>
               </div>
-              {toursTotal > 0 && (
+              {pageTab === 'Tours' && serverTotal > 0 && (
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-text-secondary px-1">
                   <p className="tabular-nums">
                     Showing{' '}
                     <span className="text-text-primary font-medium">
                       {rangeStart}–{rangeEnd}
                     </span>{' '}
-                    of <span className="text-text-primary font-medium">{toursTotal.toLocaleString()}</span>
+                    of <span className="text-text-primary font-medium">{serverTotal.toLocaleString()}</span>
                     <span className="text-text-muted"> ({PAGE_SIZE} per page)</span>
                   </p>
                   <div className="flex items-center gap-2 shrink-0">
@@ -1306,7 +1743,26 @@ export function AttractionToursPage({ addToast }: Props) {
           addToast={addToast}
           onClose={() => setSelectedAttractionId(null)}
           onDelete={(a) => setPendingDeleteAttraction(a)}
-          onSaved={() => void refetchAll()}
+          onSaved={({ attractionName }) => {
+            if (selectedAttractionId == null) {
+              return;
+            }
+            qc.setQueryData(
+              attractionsListQueryKey,
+              (old: ApiPaginatedResponse<ApiAttractionListRow> | undefined) =>
+                !old
+                  ? old
+                  : {
+                      ...old,
+                      data: old.data.map((a) =>
+                        a.attractionId === selectedAttractionId
+                          ? { ...a, attractionName }
+                          : a,
+                      ),
+                    },
+            );
+            clearAttractionToursServerSearchCaches(qc);
+          }}
         />
       )}
 
@@ -1321,7 +1777,10 @@ export function AttractionToursPage({ addToast }: Props) {
           addToast={addToast}
           onClose={() => setSelectedTourId(null)}
           onDelete={(t) => setPendingDeleteTour(t)}
-          onSaved={() => void refetchAll()}
+          onSaved={async () => {
+            clearAttractionToursServerSearchCaches(qc);
+            await qc.invalidateQueries({ queryKey: toursListQueryKey });
+          }}
           activeTab={tourDrawerTab}
           onTabChange={setTourDrawerTab}
         />
@@ -1346,7 +1805,7 @@ export function AttractionToursPage({ addToast }: Props) {
           />
         </Modal>
       )}
-      {showAddTour && classes.length > 0 && (pageTab === 'Attractions' ? attractions.length > 0 : tourDrawerAttractionsQuery.isSuccess) && attractionsForPicker.length > 0 && (
+      {showAddTour && classes.length > 0 && attractionsForPicker.length > 0 && (
         <Modal title="Add Tour" onClose={() => setShowAddTour(false)} width={600} allowContentOverflow>
           <AddTourForm
             attractions={attractionsForPicker}
@@ -1357,7 +1816,7 @@ export function AttractionToursPage({ addToast }: Props) {
           />
         </Modal>
       )}
-      {editTour && (pageTab === 'Attractions' || tourDrawerAttractionsQuery.isSuccess) && (
+      {editTour && (
         <Modal title="Edit Tour" onClose={() => setEditTour(null)} width={960} allowContentOverflow>
           <TourFormDb
             attractions={attractionsForPicker}
@@ -1388,13 +1847,21 @@ function AttractionForm({
   onCancel: () => void;
 }) {
   const [name, setName] = useState(initial?.attractionName ?? '');
+  const [nameError, setNameError] = useState<string | undefined>();
   const inputCls =
     'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
-  const valid = name.trim().length > 0;
   return (
     <div className="space-y-4">
-      <FormField label="Attraction Name" required>
-        <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={200} />
+      <FormField label="Attraction Name" required error={nameError}>
+        <input
+          className={inputCls}
+          value={name}
+          onChange={(e) => {
+            setName(e.target.value);
+            setNameError(undefined);
+          }}
+          maxLength={200}
+        />
       </FormField>
       <p className="text-xs text-text-muted">
         Genre (Class) is set at the Tour level, not the Attraction level.
@@ -1405,8 +1872,20 @@ function AttractionForm({
         </button>
         <button
           type="button"
-          disabled={!valid || submitting}
-          onClick={() => onSave({ attractionName: name.trim() })}
+          disabled={submitting}
+          onClick={() => {
+            const t = name.trim();
+            if (!t) {
+              setNameError('Attraction name is required.');
+              return;
+            }
+            if (t.length > 200) {
+              setNameError('Attraction name must be 200 characters or fewer.');
+              return;
+            }
+            setNameError(undefined);
+            onSave({ attractionName: t });
+          }}
           className="inline-flex items-center gap-2 bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {submitting ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving…</> : 'Save'}
@@ -1457,6 +1936,11 @@ function TourFormDb({
   const [venueTypePreferenceId, setVenueTypePreferenceId] = useState(
     initial?.venueTypePreferenceId != null ? String(initial.venueTypePreferenceId) : '',
   );
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<string, string>>>({});
+
+  const clearError = useCallback((key: string) => {
+    setFieldErrors((e) => clearFormFieldError(e, key));
+  }, []);
 
   const inputCls =
     'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
@@ -1484,8 +1968,6 @@ function TourFormDb({
   const statusOptions = [{ value: '', label: '—' }, ...TOUR_STATUS_OPTIONS];
   const venueTypeOptions = [{ value: '', label: '—' }, ...venueTypes.map((v) => ({ value: String(v.venueTypeId), label: v.venueTypeName }))];
 
-  const valid = name.trim().length > 0 && attractionId && classId;
-
   const buildPayload = (): import('@/api/attractionToursApi').CreateTourPayload => ({
     tourName: name.trim(),
     attractionId: Number(attractionId),
@@ -1501,23 +1983,70 @@ function TourFormDb({
     venueTypePreferenceId: venueTypePreferenceId ? Number(venueTypePreferenceId) : null,
   });
 
+  const validateAndSave = () => {
+    const next: Partial<Record<string, string>> = {};
+    const tn = name.trim();
+    if (!tn) next.tourName = 'Tour name is required.';
+    else if (tn.length > 200) next.tourName = 'Tour name must be 200 characters or fewer.';
+    const aId = Number(attractionId);
+    if (!attractionId || !Number.isFinite(aId) || aId < 1) {
+      next.attraction = 'Attraction is required.';
+    }
+    const cId = Number(classId);
+    if (!classId || !Number.isFinite(cId) || cId < 1) {
+      next.class = 'Class (genre) is required.';
+    }
+    if (audienceGender.trim().length > 100) {
+      next.audienceGender = 'Audience gender must be 100 characters or fewer.';
+    }
+    if (audienceAgeRange.trim().length > 100) {
+      next.audienceAge = 'Audience age range must be 100 characters or fewer.';
+    }
+    if (tourInsuranceLanguage.trim().length > 2000) {
+      next.insurance = 'Tour insurance language must be 2000 characters or fewer.';
+    }
+    if (Object.keys(next).length) {
+      setFieldErrors(next);
+      return;
+    }
+    setFieldErrors({});
+    onSave(buildPayload());
+  };
+
   return (
     <div className="space-y-4">
-      <FormField label="Tour Name" required>
+      <FormField label="Tour Name" required error={fieldErrors.tourName}>
         <input
           className={inputCls}
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => {
+            setName(e.target.value);
+            clearError('tourName');
+          }}
           maxLength={200}
           placeholder="e.g. World Tour 2025"
         />
       </FormField>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <FormField label="Attraction" required>
-          <Select2 options={attractionOptions} value={attractionId} onChange={setAttractionId} />
+        <FormField label="Attraction" required error={fieldErrors.attraction}>
+          <Select2
+            options={attractionOptions}
+            value={attractionId}
+            onChange={(v) => {
+              setAttractionId(v);
+              clearError('attraction');
+            }}
+          />
         </FormField>
-        <FormField label="Class (genre)" required>
-          <Select2 options={classOptions} value={classId} onChange={setClassId} />
+        <FormField label="Class (genre)" required error={fieldErrors.class}>
+          <Select2
+            options={classOptions}
+            value={classId}
+            onChange={(v) => {
+              setClassId(v);
+              clearError('class');
+            }}
+          />
         </FormField>
       </div>
       <FormField label="Tour Management Company">
@@ -1533,20 +2062,26 @@ function TourFormDb({
         <Select2 options={statusOptions} value={uiStatus} onChange={setUiStatus} placeholder="—" allowClear />
       </FormField>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <FormField label="Audience Gender">
+        <FormField label="Audience Gender" error={fieldErrors.audienceGender}>
           <input
             className={inputCls}
             value={audienceGender}
-            onChange={(e) => setAudienceGender(e.target.value)}
+            onChange={(e) => {
+              setAudienceGender(e.target.value);
+              clearError('audienceGender');
+            }}
             maxLength={100}
             placeholder="e.g. All, Female, Male"
           />
         </FormField>
-        <FormField label="Audience Age Range">
+        <FormField label="Audience Age Range" error={fieldErrors.audienceAge}>
           <input
             className={inputCls}
             value={audienceAgeRange}
-            onChange={(e) => setAudienceAgeRange(e.target.value)}
+            onChange={(e) => {
+              setAudienceAgeRange(e.target.value);
+              clearError('audienceAge');
+            }}
             maxLength={100}
             placeholder="e.g. 18-35, All Ages"
           />
@@ -1561,12 +2096,16 @@ function TourFormDb({
           />
         </FormField>
       </div>
-      <FormField label="Tour Insurance Language">
+      <FormField label="Tour Insurance Language" error={fieldErrors.insurance}>
         <textarea
           className={inputCls}
           value={tourInsuranceLanguage}
-          onChange={(e) => setTourInsuranceLanguage(e.target.value)}
+          onChange={(e) => {
+            setTourInsuranceLanguage(e.target.value);
+            clearError('insurance');
+          }}
           rows={3}
+          maxLength={2000}
           placeholder="Enter insurance requirements and language…"
         />
       </FormField>
@@ -1597,8 +2136,8 @@ function TourFormDb({
         </button>
         <button
           type="button"
-          disabled={!valid || submitting}
-          onClick={() => onSave(buildPayload())}
+          disabled={submitting}
+          onClick={validateAndSave}
           className="px-4 py-1.5 rounded-md text-sm font-medium bg-ems-accent text-background hover:bg-ems-accent/80 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {submitting ? 'Saving…' : 'Save Tour'}

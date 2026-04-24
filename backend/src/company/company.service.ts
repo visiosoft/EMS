@@ -30,6 +30,23 @@ import { UpdateCompanyContactDto } from './dto/create-company-contact.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { UpdateVenueTicketingDto } from './dto/update-venue-ticketing.dto';
 import { UpdateVenueProfileDto } from './dto/update-venue-profile.dto';
+import { isValidPhoneNumber } from 'libphonenumber-js';
+
+function assertOptionalE164Phone(
+  value: string | null | undefined,
+  field: 'work phone' | 'cell phone',
+): void {
+  if (value == null) return;
+  const t = value.trim();
+  if (t.length === 0) return;
+  if (!isValidPhoneNumber(t)) {
+    throw new BadRequestException({
+      statusCode: HttpStatus.BAD_REQUEST,
+      error: 'Bad Request',
+      message: `Invalid ${field}. Use a full international number (E.164, e.g. +1 415 555 1234) or leave the field empty.`,
+    });
+  }
+}
 
 export interface CompanyListRow {
   companyId: number;
@@ -653,6 +670,41 @@ export class CompanyService {
       });
     }
 
+    const engagementVenueCount = await this.engagementVenueRepo.count({
+      where: { venueCompanyId: companyId },
+    });
+    if (engagementVenueCount > 0) {
+      throw new ConflictException({
+        statusCode: HttpStatus.CONFLICT,
+        error: 'Conflict',
+        message: `This company can’t be removed because it is linked to ${engagementVenueCount} engagement venue(s). Remove it from those engagements (or the venue list on each engagement) first, then try again.`,
+        detail: `engagement_venue_venueCompanyId=${companyId} count=${engagementVenueCount}`,
+      });
+    }
+    const projectVenueCount = await this.engagementProjectVenueRepo.count({
+      where: { venueCompanyId: companyId },
+    });
+    if (projectVenueCount > 0) {
+      throw new ConflictException({
+        statusCode: HttpStatus.CONFLICT,
+        error: 'Conflict',
+        message: `This company can’t be removed because it is used on ${projectVenueCount} project venue link(s). Remove or change those project venues first, then try again.`,
+        detail: `engagement_project_venue_venueCompanyId=${companyId} count=${projectVenueCount}`,
+      });
+    }
+    const tourAsManagementCount = await this.tourRepo.count({
+      where: { tourManagementCompanyId: companyId },
+    });
+    if (tourAsManagementCount > 0) {
+      throw new ConflictException({
+        statusCode: HttpStatus.CONFLICT,
+        error: 'Conflict',
+        message:
+          'This company can’t be removed because it is set as the tour management (talent) company on one or more tours. Reassign or clear that on each tour first, then try again.',
+        detail: `tour_tourManagementCompanyId=${companyId} count=${tourAsManagementCount}`,
+      });
+    }
+
     // Remove company-contact assignments first, and clean up orphaned contacts.
     const assignments = await this.assignmentRepo.find({
       where: { companyId },
@@ -663,7 +715,12 @@ export class CompanyService {
     }
 
     try {
-      await this.companyRepo.delete({ companyId });
+      await this.dataSource.transaction(async (manager) => {
+        // Venue-type companies get a dbo.Venue row (1:1 on CompanyID). Remove it
+        // before Company or SQL Server will block the delete with an FK error.
+        await manager.delete(Venue, { companyId });
+        await manager.delete(Company, { companyId });
+      });
     } catch (e: unknown) {
       const detail = e instanceof Error ? e.message : String(e);
       this.logger.warn(
@@ -730,6 +787,8 @@ export class CompanyService {
     dto: CreateCompanyContactDto,
   ): Promise<CompanyContactRow> {
     await this.ensureCompany(companyId);
+    assertOptionalE164Phone(dto.workPhone ?? null, 'work phone');
+    assertOptionalE164Phone(dto.cellPhone ?? null, 'cell phone');
 
     return this.dataSource.transaction(async (em) => {
       const email = dto.email.trim();
@@ -811,6 +870,13 @@ export class CompanyService {
       throw new NotFoundException(
         `Contact assignment ${contactAssignmentId} not found`,
       );
+    }
+
+    if (dto.workPhone !== undefined) {
+      assertOptionalE164Phone(dto.workPhone, 'work phone');
+    }
+    if (dto.cellPhone !== undefined) {
+      assertOptionalE164Phone(dto.cellPhone, 'cell phone');
     }
 
     const info = asg.contact.contactInfo;

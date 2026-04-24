@@ -3,9 +3,14 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   ValidateNested,
 } from 'class-validator';
+import {
+  COUNTRY_NAME_REGEX,
+  COUNTRY_NAME_VALIDATION_MESSAGE,
+} from '../constants/country-name.regex';
 
 export class AddressFieldsDto {
   @IsString()
@@ -36,6 +41,7 @@ export class AddressFieldsDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
+  @Matches(COUNTRY_NAME_REGEX, { message: COUNTRY_NAME_VALIDATION_MESSAGE })
   country: string;
 }
 

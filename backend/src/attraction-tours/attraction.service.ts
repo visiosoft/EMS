@@ -1,4 +1,9 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Attraction } from '../entities/attraction.entity';
@@ -23,6 +28,29 @@ export class AttractionService {
     private readonly tourRepo: Repository<Tour>,
     private readonly emsCreated: EmsAppCreatedStore,
   ) {}
+
+  /** Case-insensitive uniqueness (matches list/search behavior). */
+  private async assertUniqueAttractionName(
+    name: string,
+    excludeAttractionId?: number,
+  ): Promise<void> {
+    const t = name.trim();
+    if (!t) return;
+    const qb = this.attractionRepo
+      .createQueryBuilder('a')
+      .where('LOWER(a.attractionName) = LOWER(:name)', { name: t });
+    if (excludeAttractionId != null) {
+      qb.andWhere('a.attractionId != :excludeId', {
+        excludeId: excludeAttractionId,
+      });
+    }
+    const found = await qb.getOne();
+    if (found) {
+      throw new ConflictException(
+        'An attraction with this name already exists. Choose a different name.',
+      );
+    }
+  }
 
   async list(): Promise<AttractionListRow[]> {
     const attractions = await this.attractionRepo.find({ order: { attractionName: 'ASC' } });
@@ -83,9 +111,14 @@ export class AttractionService {
 
 
   async create(dto: CreateAttractionDto): Promise<{ attractionId: number }> {
+    const attractionName = dto.attractionName.trim();
+    if (!attractionName) {
+      throw new BadRequestException('Attraction name is required.');
+    }
+    await this.assertUniqueAttractionName(attractionName);
     // Attraction only has AttractionName + AttractionManagementLinkID (nullable)
     const row = this.attractionRepo.create({
-      attractionName: dto.attractionName.trim(),
+      attractionName,
       attractionManagementLinkId: null,
     });
     const saved = await this.attractionRepo.save(row);
@@ -96,7 +129,14 @@ export class AttractionService {
   async update(id: number, dto: UpdateAttractionDto): Promise<void> {
     const existing = await this.attractionRepo.findOne({ where: { attractionId: id } });
     if (!existing) throw new NotFoundException({ message: 'Attraction not found.' });
-    if (dto.attractionName !== undefined) existing.attractionName = dto.attractionName.trim();
+    if (dto.attractionName !== undefined) {
+      const attractionName = dto.attractionName.trim();
+      if (!attractionName) {
+        throw new BadRequestException('Attraction name is required.');
+      }
+      await this.assertUniqueAttractionName(attractionName, id);
+      existing.attractionName = attractionName;
+    }
     await this.attractionRepo.save(existing);
   }
 
