@@ -1,7 +1,16 @@
-import { IsBoolean, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export class CreateTourDto {
   @IsString()
+  @IsNotEmpty()
   @MaxLength(200)
   tourName: string;
 

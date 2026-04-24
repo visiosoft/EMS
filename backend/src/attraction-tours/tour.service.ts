@@ -11,6 +11,7 @@ import { Attraction } from '../entities/attraction.entity';
 import { Class } from '../entities/class.entity';
 import { Company } from '../entities/company.entity';
 import { Engagement } from '../entities/engagement.entity';
+import { EngagementProject } from '../entities/engagement-project.entity';
 import { Tour } from '../entities/tour.entity';
 import { VenueType } from '../entities/venue-type.entity';
 import { CreateTourDto } from './dto/create-tour.dto';
@@ -56,8 +57,33 @@ export class TourService {
     private readonly venueTypeRepo: Repository<VenueType>,
     @InjectRepository(Engagement)
     private readonly engagementRepo: Repository<Engagement>,
+    @InjectRepository(EngagementProject)
+    private readonly engagementProjectRepo: Repository<EngagementProject>,
     private readonly emsCreated: EmsAppCreatedStore,
   ) {}
+
+  /** Uniqueness per attraction (case-insensitive), consistent with list/search. */
+  private async assertUniqueTourNameForAttraction(
+    tourName: string,
+    attractionId: number,
+    excludeTourId?: number,
+  ): Promise<void> {
+    const t = tourName.trim();
+    if (!t) return;
+    const qb = this.tourRepo
+      .createQueryBuilder('t')
+      .where('t.attractionId = :attractionId', { attractionId })
+      .andWhere('LOWER(t.tourName) = LOWER(:tourName)', { tourName: t });
+    if (excludeTourId != null) {
+      qb.andWhere('t.tourId != :excludeTourId', { excludeTourId });
+    }
+    const found = await qb.getOne();
+    if (found) {
+      throw new ConflictException(
+        'A tour with this name already exists for this attraction. Choose a different name.',
+      );
+    }
+  }
 
   async list(): Promise<TourListRow[]> {
     const rows = await this.tourRepo
@@ -167,8 +193,17 @@ export class TourService {
       }
     }
 
+    const tourName = dto.tourName.trim();
+    if (!tourName) {
+      throw new BadRequestException('Tour name is required.');
+    }
+    await this.assertUniqueTourNameForAttraction(
+      tourName,
+      dto.attractionId,
+    );
+
     const row = this.tourRepo.create({
-      tourName: dto.tourName.trim(),
+      tourName,
       attractionId: dto.attractionId,
       classId: dto.classId,
       audienceGender: null,
@@ -247,6 +282,16 @@ export class TourService {
       }
       existing.venueTypePreferenceId = dto.venueTypePreferenceId;
     }
+    const finalName = existing.tourName.trim();
+    if (!finalName) {
+      throw new BadRequestException('Tour name is required.');
+    }
+    existing.tourName = finalName;
+    await this.assertUniqueTourNameForAttraction(
+      finalName,
+      existing.attractionId,
+      id,
+    );
     try {
       await this.tourRepo.save(existing);
     } catch (e: unknown) {
@@ -275,6 +320,15 @@ export class TourService {
       throw new ConflictException({
         message:
           'This tour can’t be removed because it’s still linked to one or more engagements. Remove or close those engagements first, then try again.',
+      });
+    }
+    const projectCount = await this.engagementProjectRepo.count({
+      where: { tourId: id },
+    });
+    if (projectCount > 0) {
+      throw new ConflictException({
+        message:
+          'This tour can’t be removed because it is linked to one or more projects. Remove or reassign the project so it no longer uses this tour, then try again.',
       });
     }
     await this.tourRepo.delete({ tourId: id });

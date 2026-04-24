@@ -4,6 +4,7 @@ import { Attraction } from '../entities/attraction.entity';
 import { Class } from '../entities/class.entity';
 import { Company } from '../entities/company.entity';
 import { Engagement } from '../entities/engagement.entity';
+import { EngagementProject } from '../entities/engagement-project.entity';
 import { Tour } from '../entities/tour.entity';
 import { VenueType } from '../entities/venue-type.entity';
 import { AttractionController } from './attraction.controller';
@@ -21,6 +22,7 @@ import { TourService } from './tour.service';
       Company,
       VenueType,
       Engagement,
+      EngagementProject,
     ]),
   ],
   controllers: [AttractionController, TourController],

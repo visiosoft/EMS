@@ -96,6 +96,14 @@ export function deleteAttraction(id: number) {
   return apiFetch<void>(`/attractions/${id}`, { method: 'DELETE' });
 }
 
+/** List cache (full slice) for AttractionTours page. */
+export const attractionsListQueryKey = ['attractions'] as const;
+export const toursListQueryKey = ['tours'] as const;
+
+/** When committed search has no in-cache matches, hit the API with a dedicated key. */
+export const attractionsServerSearchKeyPrefix = ['attractions', 'serverSearch'] as const;
+export const toursServerSearchKeyPrefix = ['tours', 'serverSearch'] as const;
+
 export function fetchTours(offset = 0, limit = 25, q?: string) {
   const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
   const trimmed = q?.trim();

@@ -1,4 +1,4 @@
-import { IsString, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
 /**
  * dbo.Attraction only stores: AttractionName, AttractionManagementLinkID
@@ -6,6 +6,7 @@ import { IsString, MaxLength } from 'class-validator';
  */
 export class CreateAttractionDto {
   @IsString()
+  @IsNotEmpty()
   @MaxLength(200)
   attractionName: string;
 }
