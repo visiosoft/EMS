@@ -1449,7 +1449,7 @@ export function AttractionToursPage({ addToast }: Props) {
 
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3 flex-wrap">
-          <h1 className="text-xl font-semibold text-text-primary">Attraction-Tours</h1>
+          <h1 className="text-xl font-semibold text-text-primary">Attraction Tours</h1>
           {loading ? (
             <Skeleton className="h-5 w-12 rounded bg-muted/80" aria-hidden />
           ) : (
