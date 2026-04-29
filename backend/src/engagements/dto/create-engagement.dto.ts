@@ -1,4 +1,13 @@
-import { IsArray, IsIn, IsInt, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator';
+import {
+  IsArray,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import { ENGAGEMENT_STATUS_VALUES } from '../engagement-status.util';
 
 export { ENGAGEMENT_STATUS_VALUES };

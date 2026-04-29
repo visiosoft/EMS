@@ -1,4 +1,10 @@
-import { Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import {
+  Column,
+  Entity,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+} from 'typeorm';
 import { Tour } from './tour.entity';
 
 /**
@@ -16,7 +22,12 @@ export class Engagement {
   @Column({ name: 'EngagementStatus', type: 'nvarchar', length: 50 })
   engagementStatus: string;
 
-  @Column({ name: 'EngagementScaling', type: 'nvarchar', length: 50, nullable: true })
+  @Column({
+    name: 'EngagementScaling',
+    type: 'nvarchar',
+    length: 50,
+    nullable: true,
+  })
   engagementScaling: string | null;
 
   /** FK → Tour.TourID — NOT NULL in DB */

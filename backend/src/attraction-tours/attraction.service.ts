@@ -53,7 +53,9 @@ export class AttractionService {
   }
 
   async list(): Promise<AttractionListRow[]> {
-    const attractions = await this.attractionRepo.find({ order: { attractionName: 'ASC' } });
+    const attractions = await this.attractionRepo.find({
+      order: { attractionName: 'ASC' },
+    });
     const countsRaw = await this.tourRepo
       .createQueryBuilder('t')
       .select('t.attractionId', 'aid')
@@ -109,7 +111,6 @@ export class AttractionService {
     };
   }
 
-
   async create(dto: CreateAttractionDto): Promise<AttractionListRow> {
     const attractionName = dto.attractionName.trim();
     if (!attractionName) {
@@ -126,9 +127,15 @@ export class AttractionService {
     return this.buildListRow(saved.attractionId);
   }
 
-  async update(id: number, dto: UpdateAttractionDto): Promise<AttractionListRow> {
-    const existing = await this.attractionRepo.findOne({ where: { attractionId: id } });
-    if (!existing) throw new NotFoundException({ message: 'Attraction not found.' });
+  async update(
+    id: number,
+    dto: UpdateAttractionDto,
+  ): Promise<AttractionListRow> {
+    const existing = await this.attractionRepo.findOne({
+      where: { attractionId: id },
+    });
+    if (!existing)
+      throw new NotFoundException({ message: 'Attraction not found.' });
     if (dto.attractionName !== undefined) {
       const attractionName = dto.attractionName.trim();
       if (!attractionName) {
@@ -147,7 +154,9 @@ export class AttractionService {
     if (!a) {
       throw new NotFoundException({ message: 'Attraction not found.' });
     }
-    const activeTourCount = await this.tourRepo.count({ where: { attractionId } });
+    const activeTourCount = await this.tourRepo.count({
+      where: { attractionId },
+    });
     return {
       attractionId: a.attractionId,
       attractionName: a.attractionName,
@@ -157,11 +166,15 @@ export class AttractionService {
   }
 
   async remove(id: number): Promise<void> {
-    const existing = await this.attractionRepo.findOne({ where: { attractionId: id } });
+    const existing = await this.attractionRepo.findOne({
+      where: { attractionId: id },
+    });
     if (!existing) {
       throw new NotFoundException({ message: 'Attraction not found.' });
     }
-    const tourCount = await this.tourRepo.count({ where: { attractionId: id } });
+    const tourCount = await this.tourRepo.count({
+      where: { attractionId: id },
+    });
     if (tourCount > 0) {
       throw new ConflictException({
         message:

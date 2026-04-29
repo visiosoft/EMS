@@ -1,4 +1,10 @@
-import { Column, Entity, JoinColumn, OneToOne, PrimaryGeneratedColumn } from 'typeorm';
+import {
+  Column,
+  Entity,
+  JoinColumn,
+  OneToOne,
+  PrimaryGeneratedColumn,
+} from 'typeorm';
 import { Engagement } from './engagement.entity';
 
 /**
@@ -44,7 +50,12 @@ export class EngagementFinances {
   })
   promoterProfit: string | number | null;
 
-  @Column({ name: 'VenueTerms', type: 'nvarchar', length: 'max' as any, nullable: true })
+  @Column({
+    name: 'VenueTerms',
+    type: 'nvarchar',
+    length: 'max' as any,
+    nullable: true,
+  })
   venueTerms: string | null;
 
   @Column({ name: 'ConfirmationPacketApproved', type: 'bit', nullable: true })
@@ -58,7 +69,11 @@ export class EngagementFinances {
   })
   iaeWaiverApplicationConfirmationNumber: string | null;
 
-  @Column({ name: 'IAEWaiverApplicationSubmissionDate', type: 'date', nullable: true })
+  @Column({
+    name: 'IAEWaiverApplicationSubmissionDate',
+    type: 'date',
+    nullable: true,
+  })
   iaeWaiverApplicationSubmissionDate: string | null;
 
   @Column({
@@ -99,10 +114,19 @@ export class EngagementFinances {
   })
   fundsOwed: string | number | null;
 
-  @Column({ name: 'ReceivableBankAccount', type: 'nvarchar', length: 255, nullable: true })
+  @Column({
+    name: 'ReceivableBankAccount',
+    type: 'nvarchar',
+    length: 255,
+    nullable: true,
+  })
   receivableBankAccount: string | null;
 
-  @Column({ name: 'RequiredNonResidentWithholdingID', type: 'int', nullable: true })
+  @Column({
+    name: 'RequiredNonResidentWithholdingID',
+    type: 'int',
+    nullable: true,
+  })
   requiredNonResidentWithholdingId: number | null;
 
   @Column({ name: 'ArtistFinanceID', type: 'int', nullable: true })

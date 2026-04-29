@@ -19,6 +19,7 @@ import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { UpdateVenueTicketingDto } from './dto/update-venue-ticketing.dto';
 import { UpdateVenueProfileDto } from './dto/update-venue-profile.dto';
+import { UpdateVenueDetailsDto } from './dto/update-venue-details.dto';
 
 /** Static path routes must be registered before `:id` to avoid shadowing. */
 @Controller('companies')
@@ -87,6 +88,19 @@ export class CompanyController {
     @Body() dto: UpdateVenueProfileDto,
   ) {
     return this.companyService.updateVenueProfile(id, dto);
+  }
+
+  @Get(':id/venue-details')
+  getVenueDetails(@Param('id', ParseIntPipe) id: number) {
+    return this.companyService.getVenueDetails(id);
+  }
+
+  @Patch(':id/venue-details')
+  updateVenueDetails(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateVenueDetailsDto,
+  ) {
+    return this.companyService.updateVenueDetails(id, dto);
   }
 
   @Get(':id')

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { Select2, toOptions } from './Select2';
 import type { Company } from '@/data/constants';
@@ -9,16 +9,7 @@ import {
   updateVenueTicketing,
 } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
-
-const TICKETING_SYSTEM_OPTIONS = [
-  'Ticketmaster',
-  'AXS',
-  'SeatGeek',
-  'Etix',
-  'Dice',
-  'See Tickets',
-  'Other',
-];
+import { TICKETING_SYSTEM_OPTIONS } from '@/lib/ticketingSystemOptions';
 
 interface Props {
   company: Company;
@@ -32,6 +23,7 @@ export function CompanyTicketingPanel({
   addToast,
 }: Props) {
   const companyId = Number(company.id);
+  const qc = useQueryClient();
   const vq = useQuery({
     queryKey: ['companies', company.id, 'venue-ticketing'],
     queryFn: () => fetchVenueTicketing(companyId),
@@ -45,7 +37,11 @@ export function CompanyTicketingPanel({
 
   useEffect(() => {
     const v = vq.data;
-    if (v?.seatingTypeId != null) {
+    if (!v) {
+      setSeatingTypeId('');
+      return;
+    }
+    if (v.seatingTypeId != null) {
       setSeatingTypeId(String(v.seatingTypeId));
     } else {
       setSeatingTypeId('');
@@ -76,14 +72,19 @@ export function CompanyTicketingPanel({
       });
       if (!res.updated) {
         addToast(
-          'Add a venue profile on the Venue Profile tab before seating type can be saved.',
+          'Add a venue profile on the Venue Profile tab before ticketing can be saved.',
           'warning',
         );
         return;
       }
-      addToast('Seating type saved.', 'success');
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['companies', company.id, 'venue-ticketing'] }),
+        qc.invalidateQueries({ queryKey: ['companies', company.id, 'venue-profile'] }),
+        qc.invalidateQueries({ queryKey: ['companies', company.id, 'venue-details'] }),
+      ]);
+      addToast('Ticketing details saved.', 'success');
     } catch (e) {
-      addToast(friendlyApiError(e, 'Could not save seating type.'), 'error');
+      addToast(friendlyApiError(e, 'Could not save ticketing details.'), 'error');
     } finally {
       setSavingSeating(false);
     }
@@ -101,9 +102,11 @@ export function CompanyTicketingPanel({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <span className={labelCls}>Ticketing system</span>
-            <p className={subCls}>Optional — not saved yet.</p>
+            <p className="text-[11px] text-amber-700 dark:text-amber-400 block mb-2">
+              Not Stored in Database
+            </p>
             <Select2
-              options={toOptions(TICKETING_SYSTEM_OPTIONS)}
+              options={toOptions([...TICKETING_SYSTEM_OPTIONS])}
               value={ticketingSystem}
               onChange={setTicketingSystem}
               placeholder="Select system…"
@@ -143,7 +146,9 @@ export function CompanyTicketingPanel({
           </div>
           <div className="md:col-span-2">
             <span className={labelCls}>Venue website</span>
-            <p className={subCls}>Optional — not saved yet.</p>
+            <p className="text-[11px] text-amber-700 dark:text-amber-400 block mb-2">
+              Not Stored in Database
+            </p>
             <input
               className={inputCls}
               type="url"
@@ -166,7 +171,7 @@ export function CompanyTicketingPanel({
                 Saving…
               </>
             ) : (
-              'Save seating type'
+              'Save ticketing'
             )}
           </button>
         </div>

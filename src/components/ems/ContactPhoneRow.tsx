@@ -18,6 +18,8 @@ const selectWrap = 'w-[min(20rem,100%)] sm:w-56 shrink-0';
 
 type Props = {
   label: string;
+  /** When true, only the phone controls are shown (use with an external column header). */
+  hideLabel?: boolean;
   required?: boolean;
   optional?: boolean;
   error?: string;
@@ -33,6 +35,7 @@ type Props = {
  */
 export function ContactPhoneRow({
   label,
+  hideLabel,
   required,
   optional,
   error,
@@ -51,6 +54,61 @@ export function ContactPhoneRow({
     ],
     [],
   );
+  const countrySelect = (
+    <Select2
+      className="w-full"
+      options={countryOptions}
+      value={country}
+      onChange={(v) => {
+        onCountry((v || '') as PhoneCountrySelection);
+        onDisplay('');
+      }}
+      searchPlaceholder="Search by country or +code…"
+      placeholder="Country / code"
+    />
+  );
+  const controls = (
+    <div className="flex flex-col sm:flex-row gap-2 sm:items-start">
+      <div className={selectWrap}>{countrySelect}</div>
+      <input
+        id={id}
+        type="tel"
+        className={inputCls}
+        inputMode="tel"
+        autoComplete="tel-national"
+        value={display}
+        placeholder="Phone number"
+        disabled={!country}
+        title={!country ? 'Select a country first' : undefined}
+        onChange={(e) => {
+          onDisplay(
+            formatPhoneDisplayForCountryInput(e.target.value, country),
+          );
+        }}
+        onPaste={(e) => {
+          const t = e.clipboardData.getData('text').trim();
+          if (t.startsWith('+')) {
+            e.preventDefault();
+            const p = parsePhoneFieldValue(t, DEFAULT_PHONE_COUNTRY);
+            onCountry(p.country);
+            onDisplay(p.display);
+          }
+        }}
+        aria-invalid={error ? 'true' : undefined}
+        aria-label={hideLabel ? label : undefined}
+      />
+    </div>
+  );
+
+  if (hideLabel) {
+    return (
+      <div className="space-y-1 w-full min-w-0">
+        {controls}
+        {error && <p className="text-xs text-ems-coral">{error}</p>}
+      </div>
+    );
+  }
+
   return (
     <FormField
       label={label}
@@ -58,46 +116,7 @@ export function ContactPhoneRow({
       optional={optional}
       error={error}
     >
-      <div className="flex flex-col sm:flex-row gap-2 sm:items-start">
-        <div className={selectWrap}>
-          <Select2
-            options={countryOptions}
-            value={country}
-            onChange={(v) => {
-              onCountry((v || '') as PhoneCountrySelection);
-              onDisplay('');
-            }}
-            searchPlaceholder="Search by country or +code…"
-            placeholder="Country / code"
-          />
-        </div>
-        <input
-          id={id}
-          type="tel"
-          className={inputCls}
-          inputMode="tel"
-          autoComplete="tel-national"
-          value={display}
-          placeholder="Phone number"
-          disabled={!country}
-          title={!country ? 'Select a country first' : undefined}
-          onChange={(e) => {
-            onDisplay(
-              formatPhoneDisplayForCountryInput(e.target.value, country),
-            );
-          }}
-          onPaste={(e) => {
-            const t = e.clipboardData.getData('text').trim();
-            if (t.startsWith('+')) {
-              e.preventDefault();
-              const p = parsePhoneFieldValue(t, DEFAULT_PHONE_COUNTRY);
-              onCountry(p.country);
-              onDisplay(p.display);
-            }
-          }}
-          aria-invalid={error ? 'true' : undefined}
-        />
-      </div>
+      {controls}
     </FormField>
   );
 }

@@ -26,7 +26,10 @@ export class PerformancesController {
     const visList = visibility
       ? Array.isArray(visibility)
         ? visibility
-        : visibility.split(',').map((s) => s.trim()).filter(Boolean)
+        : visibility
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
       : ['Unknown', 'Private', 'Public'];
     const safeLimit = Math.min(25, Math.max(1, limit));
     const safeOffset = Math.max(0, offset);
@@ -46,14 +49,10 @@ export class PerformancesController {
    *   month – filter by 1-based month (e.g. 3 = March)
    */
   @Get()
-  findAll(
-    @Query('year') year?: string,
-    @Query('month') month?: string,
-  ) {
+  findAll(@Query('year') year?: string, @Query('month') month?: string) {
     return this.performancesService.findAll(
       year ? Number(year) : undefined,
       month ? Number(month) : undefined,
     );
   }
 }
-

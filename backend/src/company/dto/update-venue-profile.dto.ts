@@ -1,12 +1,47 @@
 import {
   IsBoolean,
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsString,
   MaxLength,
   Min,
+  ValidateNested,
   ValidateIf,
 } from 'class-validator';
+import { Type } from 'class-transformer';
+
+class LoadDockAddressDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  addressLine1: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  addressLine2?: string | null;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  city: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  stateProvince: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(20)
+  postalCode: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  country: string;
+}
 
 /** Partial update for dbo.Venue (additional profile fields beyond defaults at registration). */
 export class UpdateVenueProfileDto {
@@ -58,4 +93,22 @@ export class UpdateVenueProfileDto {
   @IsInt()
   @Min(1)
   seatingTypeId?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsString()
+  @MaxLength(100)
+  ticketingSystem?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsString()
+  @MaxLength(2048)
+  venueWebsite?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== undefined)
+  @ValidateNested()
+  @Type(() => LoadDockAddressDto)
+  loadDockAddress?: LoadDockAddressDto | null;
 }
