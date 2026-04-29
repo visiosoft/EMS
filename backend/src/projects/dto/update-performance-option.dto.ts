@@ -1,4 +1,10 @@
-import { IsIn, IsISO8601, IsOptional, IsString, Matches } from 'class-validator';
+import {
+  IsIn,
+  IsISO8601,
+  IsOptional,
+  IsString,
+  Matches,
+} from 'class-validator';
 import { OPTION_STATUS_VALUES } from './create-project.dto';
 
 export class UpdatePerformanceOptionDto {

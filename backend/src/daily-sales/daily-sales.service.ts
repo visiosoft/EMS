@@ -1,7 +1,4 @@
-import {
-  Injectable,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder } from 'typeorm';
 import { Address } from '../entities/address.entity';
@@ -30,10 +27,15 @@ function numOrZero(v: unknown): number {
     const n = parseFloat(s);
     return Number.isFinite(n) ? n : 0;
   }
-  return typeof v === 'number' && Number.isFinite(v) ? v : parseFloat(String(v)) || 0;
+  return typeof v === 'number' && Number.isFinite(v)
+    ? v
+    : parseFloat(String(v)) || 0;
 }
 
-function pickRow<T>(row: Record<string, unknown> | null | undefined, name: string): T | undefined {
+function pickRow<T>(
+  row: Record<string, unknown> | null | undefined,
+  name: string,
+): T | undefined {
   if (row == null) return undefined;
   if (name in row) return row[name] as T;
   const l = name.toLowerCase();
@@ -69,8 +71,8 @@ export interface DailySalesRow {
 export interface PerformanceSalesRow {
   performanceId: number;
   engagementId: number;
-  performanceDate: string;     // YYYY-MM-DD
-  performanceTime: string;     // HH:MM:SS
+  performanceDate: string; // YYYY-MM-DD
+  performanceTime: string; // HH:MM:SS
   performanceStatus: string;
   engagementStatus: string;
   attractionName: string | null;
@@ -125,7 +127,12 @@ export class DailySalesService {
       .innerJoin(Engagement, 'e', 'e.engagementId = p.engagementId')
       .leftJoin(Tour, 't', 't.tourId = e.tourId')
       .leftJoin(Attraction, 'a', 'a.attractionId = t.attractionId')
-      .leftJoin(EngagementVenue, 'ev', 'ev.engagementId = e.engagementId AND ev.isPrimary = :prim', { prim: true })
+      .leftJoin(
+        EngagementVenue,
+        'ev',
+        'ev.engagementId = e.engagementId AND ev.isPrimary = :prim',
+        { prim: true },
+      )
       .leftJoin(Venue, 'v', 'v.companyId = ev.venueCompanyId')
       .leftJoin(Company, 'vc', 'vc.companyId = ev.venueCompanyId')
       .leftJoin(Address, 'addr', 'addr.addressId = vc.physicalAddressId')
@@ -173,14 +180,20 @@ export class DailySalesService {
       revenue: r['revenue'] != null ? Number(r['revenue']) : null,
       tourId: r['tourId'] != null ? Number(r['tourId']) : null,
       tourName: r['tourName'] != null ? String(r['tourName']) : null,
-      attractionId: r['attractionId'] != null ? Number(r['attractionId']) : null,
-      attractionName: r['attractionName'] != null ? String(r['attractionName']) : null,
-      venueCompanyId: r['venueCompanyId'] != null ? Number(r['venueCompanyId']) : null,
-      venueCompanyName: r['venueCompanyName'] != null ? String(r['venueCompanyName']) : null,
+      attractionId:
+        r['attractionId'] != null ? Number(r['attractionId']) : null,
+      attractionName:
+        r['attractionName'] != null ? String(r['attractionName']) : null,
+      venueCompanyId:
+        r['venueCompanyId'] != null ? Number(r['venueCompanyId']) : null,
+      venueCompanyName:
+        r['venueCompanyName'] != null ? String(r['venueCompanyName']) : null,
       venueName: r['venueName'] != null ? String(r['venueName']) : null,
       city: r['city'] != null ? String(r['city']) : null,
-      stateProvince: r['stateProvince'] != null ? String(r['stateProvince']) : null,
-      dmaMarketName: r['dmaMarketName'] != null ? String(r['dmaMarketName']) : null,
+      stateProvince:
+        r['stateProvince'] != null ? String(r['stateProvince']) : null,
+      dmaMarketName:
+        r['dmaMarketName'] != null ? String(r['dmaMarketName']) : null,
     }));
   }
 
@@ -198,15 +211,18 @@ export class DailySalesService {
   ): Promise<PerformanceSalesPageResult> {
     const asOf = await this.resolveAsOfDateString(asOfDateParam);
     const page = Math.max(1, Number.isFinite(pageIn) ? Math.floor(pageIn) : 1);
-    const pageSize = Math.min(100, Math.max(1, Number.isFinite(pageSizeIn) ? Math.floor(pageSizeIn) : 25));
+    const pageSize = Math.min(
+      100,
+      Math.max(1, Number.isFinite(pageSizeIn) ? Math.floor(pageSizeIn) : 25),
+    );
     const search = (searchRaw ?? '').trim() || undefined;
 
     const yesterdayDate = ymdAddDays(asOf, -1);
 
-    const baseQb = this.createByPerformanceBaseQb(
-      asOf,
-      { search, attractionName: attractionName?.trim() || undefined },
-    );
+    const baseQb = this.createByPerformanceBaseQb(asOf, {
+      search,
+      attractionName: attractionName?.trim() || undefined,
+    });
 
     // Run in parallel: previously (attraction list → count) were sequential, doubling wait time
     // on large dbo.Performance sets. Count + rollups + page each scan the same join pattern.
@@ -229,10 +245,10 @@ export class DailySalesService {
           'v.venueName                                            AS venueName',
           'addr.city                                              AS city',
           'addr.stateProvince                                   AS stateProvince',
-          "CONVERT(varchar(10), CAST(:asOf AS date), 120)         AS todayDate",
+          'CONVERT(varchar(10), CAST(:asOf AS date), 120)         AS todayDate',
           'ts_today.performanceSalesQuantity                      AS todayTicketsSold',
           'ts_today.performanceSalesRevenue                        AS todayRevenue',
-          "CONVERT(varchar(10), DATEADD(day, -1, CAST(:asOf AS date)), 120) AS yesterdayDate",
+          'CONVERT(varchar(10), DATEADD(day, -1, CAST(:asOf AS date)), 120) AS yesterdayDate',
           'ts_yesterday.performanceSalesQuantity                  AS yesterdayTicketsSold',
           'ts_yesterday.performanceSalesRevenue                    AS yesterdayRevenue',
         ])
@@ -253,18 +269,27 @@ export class DailySalesService {
       engagementStatus: normalizeEngagementStatus(
         String(r['engagementStatus'] ?? ''),
       ),
-      attractionName: r['attractionName'] != null ? String(r['attractionName']) : null,
+      attractionName:
+        r['attractionName'] != null ? String(r['attractionName']) : null,
       tourName: r['tourName'] != null ? String(r['tourName']) : null,
-      venueCompanyName: r['venueCompanyName'] != null ? String(r['venueCompanyName']) : null,
+      venueCompanyName:
+        r['venueCompanyName'] != null ? String(r['venueCompanyName']) : null,
       venueName: r['venueName'] != null ? String(r['venueName']) : null,
       city: r['city'] != null ? String(r['city']) : null,
-      stateProvince: r['stateProvince'] != null ? String(r['stateProvince']) : null,
+      stateProvince:
+        r['stateProvince'] != null ? String(r['stateProvince']) : null,
       todayDate: String(r['todayDate'] ?? ''),
-      todayTicketsSold: r['todayTicketsSold'] != null ? Number(r['todayTicketsSold']) : null,
-      todayRevenue: r['todayRevenue'] != null ? Number(r['todayRevenue']) : null,
+      todayTicketsSold:
+        r['todayTicketsSold'] != null ? Number(r['todayTicketsSold']) : null,
+      todayRevenue:
+        r['todayRevenue'] != null ? Number(r['todayRevenue']) : null,
       yesterdayDate: String(r['yesterdayDate'] ?? yesterdayDate),
-      yesterdayTicketsSold: r['yesterdayTicketsSold'] != null ? Number(r['yesterdayTicketsSold']) : null,
-      yesterdayRevenue: r['yesterdayRevenue'] != null ? Number(r['yesterdayRevenue']) : null,
+      yesterdayTicketsSold:
+        r['yesterdayTicketsSold'] != null
+          ? Number(r['yesterdayTicketsSold'])
+          : null,
+      yesterdayRevenue:
+        r['yesterdayRevenue'] != null ? Number(r['yesterdayRevenue']) : null,
     }));
 
     return {
@@ -293,7 +318,12 @@ export class DailySalesService {
       .innerJoin(Engagement, 'e', 'e.engagementId = p.engagementId')
       .leftJoin(Tour, 't', 't.tourId = e.tourId')
       .leftJoin(Attraction, 'a', 'a.attractionId = t.attractionId')
-      .leftJoin(EngagementVenue, 'ev', 'ev.engagementId = e.engagementId AND ev.isPrimary = :prim', { prim: true })
+      .leftJoin(
+        EngagementVenue,
+        'ev',
+        'ev.engagementId = e.engagementId AND ev.isPrimary = :prim',
+        { prim: true },
+      )
       .leftJoin(Venue, 'v', 'v.companyId = ev.venueCompanyId')
       .leftJoin(Company, 'vc', 'vc.companyId = ev.venueCompanyId')
       .leftJoin(Address, 'addr', 'addr.addressId = vc.physicalAddressId')
@@ -301,19 +331,21 @@ export class DailySalesService {
         TicketingSales,
         'ts_today',
         'ts_today.performanceId = p.performanceId AND ' +
-          "CONVERT(date, ts_today.salesDate) = CAST(:asOf AS date)",
+          'CONVERT(date, ts_today.salesDate) = CAST(:asOf AS date)',
       )
       .leftJoin(
         TicketingSales,
         'ts_yesterday',
         'ts_yesterday.performanceId = p.performanceId AND ' +
-          "CONVERT(date, ts_yesterday.salesDate) = DATEADD(day, -1, CAST(:asOf AS date))",
+          'CONVERT(date, ts_yesterday.salesDate) = DATEADD(day, -1, CAST(:asOf AS date))',
       )
       .where('CONVERT(date, p.performanceDate) <= CAST(:asOf AS date)')
       .setParameter('asOf', asOf);
 
     if (options.attractionName) {
-      qb.andWhere('a.attractionName = :attName', { attName: options.attractionName });
+      qb.andWhere('a.attractionName = :attName', {
+        attName: options.attractionName,
+      });
     }
 
     if (options.search) {
@@ -350,10 +382,22 @@ export class DailySalesService {
     const one = await base
       .clone()
       .setParameter('asOf', asOf)
-      .select('COALESCE(SUM(CAST(ts_today.performanceSalesQuantity AS BIGINT)), 0)', 'sumTixT')
-      .addSelect('COALESCE(SUM(ts_today.performanceSalesRevenue), 0)', 'sumRevT')
-      .addSelect('COALESCE(SUM(CAST(ts_yesterday.performanceSalesQuantity AS BIGINT)), 0)', 'sumTixY')
-      .addSelect('COALESCE(SUM(ts_yesterday.performanceSalesRevenue), 0)', 'sumRevY')
+      .select(
+        'COALESCE(SUM(CAST(ts_today.performanceSalesQuantity AS BIGINT)), 0)',
+        'sumTixT',
+      )
+      .addSelect(
+        'COALESCE(SUM(ts_today.performanceSalesRevenue), 0)',
+        'sumRevT',
+      )
+      .addSelect(
+        'COALESCE(SUM(CAST(ts_yesterday.performanceSalesQuantity AS BIGINT)), 0)',
+        'sumTixY',
+      )
+      .addSelect(
+        'COALESCE(SUM(ts_yesterday.performanceSalesRevenue), 0)',
+        'sumRevY',
+      )
       .getRawOne<Record<string, unknown>>();
     return (one as Record<string, unknown>) ?? {};
   }
@@ -373,7 +417,9 @@ export class DailySalesService {
       .getRawMany<{ n: string }>();
 
     return raw
-      .map((x) => String(pickRow<unknown>(x as Record<string, unknown>, 'n') ?? ''))
+      .map((x) =>
+        String(pickRow<unknown>(x as Record<string, unknown>, 'n') ?? ''),
+      )
       .filter((s) => s.length > 0);
   }
 
@@ -383,11 +429,13 @@ export class DailySalesService {
       return input;
     }
     if (input) {
-      throw new BadRequestException({ message: 'asOfDate must be YYYY-MM-DD when provided.' });
+      throw new BadRequestException({
+        message: 'asOfDate must be YYYY-MM-DD when provided.',
+      });
     }
-    const r = (await this.performanceRepo.query(
+    const r = await this.performanceRepo.query(
       'SELECT CONVERT(varchar(10), CAST(GETDATE() AS date), 120) AS d',
-    )) as { d: string }[];
+    );
     return r[0]?.d ?? new Date().toISOString().slice(0, 10);
   }
 
@@ -404,16 +452,22 @@ export class DailySalesService {
   ): Promise<void> {
     if (body.ticketsSold !== undefined && body.ticketsSold !== null) {
       if (!Number.isInteger(body.ticketsSold) || body.ticketsSold < 0) {
-        throw new BadRequestException({ message: 'ticketsSold must be a non-negative integer.' });
+        throw new BadRequestException({
+          message: 'ticketsSold must be a non-negative integer.',
+        });
       }
     }
     if (body.revenue !== undefined && body.revenue !== null) {
       if (body.revenue < 0) {
-        throw new BadRequestException({ message: 'revenue must be a non-negative number.' });
+        throw new BadRequestException({
+          message: 'revenue must be a non-negative number.',
+        });
       }
     }
 
-    let row = await this.salesRepo.findOne({ where: { performanceId, salesDate } });
+    let row = await this.salesRepo.findOne({
+      where: { performanceId, salesDate },
+    });
 
     if (!row) {
       // Upsert — create new row for this performance + date
@@ -436,4 +490,3 @@ export class DailySalesService {
     await this.salesRepo.save(row);
   }
 }
-

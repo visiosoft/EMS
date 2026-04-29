@@ -1,0 +1,81 @@
+import { apiFetch } from './config';
+import type { ApiPaginatedResponse } from './companyApi';
+
+export interface ApiAllVenueRow {
+  companyId: number;
+  complexName: string;
+  venueName: string;
+  seatingCapacity: number;
+  venueTypeId: number | null;
+  venueTypeName: string | null;
+  dmaId: number | null;
+  dmaMarketName: string | null;
+}
+
+export interface ApiEntertainmentComplexRow {
+  complexName: string;
+  venueCount: number;
+  totalSeatingCapacity: number;
+  dmaId: number | null;
+  dmaMarketName: string | null;
+  city: string | null;
+  stateProvince: string | null;
+}
+
+export const allVenuesQueryKey = ['venue-directory', 'venues'] as const;
+export const entertainmentComplexesQueryKey = [
+  'venue-directory',
+  'entertainment-complexes',
+] as const;
+
+export function fetchAllVenues(
+  offset: number,
+  limit: number,
+  opts: {
+    q?: string;
+    complexName?: string;
+    complexCompanyId?: number;
+    venueTypeId?: number;
+    dmaId?: number;
+  } = {},
+) {
+  const params = new URLSearchParams({
+    offset: String(offset),
+    limit: String(limit),
+  });
+  const q = opts.q?.trim();
+  if (q) params.set('q', q);
+  const cn = opts.complexName?.trim();
+  if (cn) params.set('complexName', cn);
+  if (opts.complexCompanyId != null && opts.complexCompanyId > 0) {
+    params.set('complexCompanyId', String(opts.complexCompanyId));
+  }
+  if (opts.venueTypeId != null && opts.venueTypeId > 0) {
+    params.set('venueTypeId', String(opts.venueTypeId));
+  }
+  if (opts.dmaId != null && opts.dmaId > 0) {
+    params.set('dmaId', String(opts.dmaId));
+  }
+  return apiFetch<ApiPaginatedResponse<ApiAllVenueRow>>(
+    `/venue-directory/venues?${params.toString()}`,
+  );
+}
+
+export function fetchEntertainmentComplexes(
+  offset: number,
+  limit: number,
+  opts: { q?: string; dmaId?: number } = {},
+) {
+  const params = new URLSearchParams({
+    offset: String(offset),
+    limit: String(limit),
+  });
+  const q = opts.q?.trim();
+  if (q) params.set('q', q);
+  if (opts.dmaId != null && opts.dmaId > 0) {
+    params.set('dmaId', String(opts.dmaId));
+  }
+  return apiFetch<ApiPaginatedResponse<ApiEntertainmentComplexRow>>(
+    `/venue-directory/entertainment-complexes?${params.toString()}`,
+  );
+}

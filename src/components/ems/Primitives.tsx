@@ -172,9 +172,10 @@ export function Drawer({ title, children, onClose, width = 600 }: { title?: stri
 }
 
 export function TabBar({ tabs, active, onChange }: { tabs: string[]; active: string; onChange: (t: string) => void }) {
+  const list = Array.isArray(tabs) ? tabs : [];
   return (
     <div className="flex border-b border-border overflow-x-auto">
-      {tabs.map(t => (
+      {list.map(t => (
         <button
           key={t}
           onClick={() => onChange(t)}
@@ -337,7 +338,7 @@ export function ActionMenu({ items }: { items: { label: string; onClick: () => v
     const rect = el.getBoundingClientRect();
     const menuWidth = 168;
     const rowHeight = 36;
-    const menuHeight = items.length * rowHeight + 12;
+    const menuHeight = (items ?? []).length * rowHeight + 12;
     let left = rect.right - menuWidth;
     left = Math.max(8, Math.min(left, window.innerWidth - menuWidth - 8));
     let top = rect.bottom + 6;
@@ -346,7 +347,7 @@ export function ActionMenu({ items }: { items: { label: string; onClick: () => v
     }
     if (top < 8) top = 8;
     setCoords({ top, left });
-  }, [items.length]);
+  }, [items?.length]);
 
   useLayoutEffect(() => {
     if (!open) {
@@ -387,7 +388,7 @@ export function ActionMenu({ items }: { items: { label: string; onClick: () => v
         style={{ top: coords.top, left: coords.left }}
         role="menu"
       >
-        {items.map((item, i) => (
+        {(items ?? []).map((item, i) => (
           <button
             key={i}
             type="button"

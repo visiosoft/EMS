@@ -9,8 +9,12 @@ import { EngagementsModule } from './engagements/engagements.module';
 import { PerformancesModule } from './performances/performances.module';
 import { ProjectsModule } from './projects/projects.module';
 import { DailySalesModule } from './daily-sales/daily-sales.module';
+import { VenueDirectoryModule } from './venue-directory/venue-directory.module';
 
-const parseBoolean = (value: string | undefined, fallback: boolean): boolean => {
+const parseBoolean = (
+  value: string | undefined,
+  fallback: boolean,
+): boolean => {
   if (!value) return fallback;
   return ['true', '1', 'yes', 'on'].includes(value.trim().toLowerCase());
 };
@@ -42,8 +46,14 @@ const parseNumber = (value: string | undefined, fallback: number): number => {
          * If SQL is temporarily unavailable (startup ordering, transient network),
          * retry rather than failing the whole Nest boot.
          */
-        retryAttempts: parseNumber(configService.get<string>('DB_RETRY_ATTEMPTS'), 10),
-        retryDelay: parseNumber(configService.get<string>('DB_RETRY_DELAY_MS'), 3000),
+        retryAttempts: parseNumber(
+          configService.get<string>('DB_RETRY_ATTEMPTS'),
+          10,
+        ),
+        retryDelay: parseNumber(
+          configService.get<string>('DB_RETRY_DELAY_MS'),
+          3000,
+        ),
         options: {
           encrypt: parseBoolean(configService.get<string>('DB_ENCRYPT'), true),
           trustServerCertificate: parseBoolean(
@@ -81,6 +91,7 @@ const parseNumber = (value: string | undefined, fallback: number): number => {
     ProjectsModule,
     PerformancesModule,
     DailySalesModule,
+    VenueDirectoryModule,
   ],
   controllers: [AppController],
   providers: [AppService],

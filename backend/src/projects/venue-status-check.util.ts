@@ -1,7 +1,9 @@
 /**
  * Parse string literals from a SQL Server CHECK definition (e.g. IN (N'a',N'b') or = N'x').
  */
-export function parseStringLiteralsFromCheckDefinition(definition: string): string[] {
+export function parseStringLiteralsFromCheckDefinition(
+  definition: string,
+): string[] {
   const out = new Set<string>();
   const re = /N?'((?:''|[^'])*)'/g;
   let m: RegExpExecArray | null;

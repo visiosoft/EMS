@@ -1,4 +1,11 @@
-import { IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import { ENGAGEMENT_STATUS_VALUES } from './create-engagement.dto';
 
 export class UpdateEngagementDto {

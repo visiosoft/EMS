@@ -91,7 +91,9 @@ export class PerformancesService {
     visibility: string[],
   ): void {
     const allowed = new Set(['Unknown', 'Private', 'Public']);
-    const wanted = [...new Set(visibility.map((s) => s.trim()))].filter((s) => allowed.has(s));
+    const wanted = [...new Set(visibility.map((s) => s.trim()))].filter((s) =>
+      allowed.has(s),
+    );
     if (wanted.length === 0 || wanted.length >= 3) return;
 
     const orParts: string[] = [];
@@ -118,20 +120,30 @@ export class PerformancesService {
       performanceStatus: String(r['performanceStatus'] ?? ''),
       performanceDate: String(r['performanceDate'] ?? ''),
       performanceTime: String(r['performanceTime'] ?? ''),
-      engagementStatus: normalizeEngagementStatus(String(r['engagementStatus'] ?? '')),
+      engagementStatus: normalizeEngagementStatus(
+        String(r['engagementStatus'] ?? ''),
+      ),
       tourId: r['tourId'] != null ? Number(r['tourId']) : null,
       tourName: r['tourName'] != null ? String(r['tourName']) : null,
-      attractionId: r['attractionId'] != null ? Number(r['attractionId']) : null,
-      attractionName: r['attractionName'] != null ? String(r['attractionName']) : null,
-      venueCompanyId: r['venueCompanyId'] != null ? Number(r['venueCompanyId']) : null,
-      venueCompanyName: r['venueCompanyName'] != null ? String(r['venueCompanyName']) : null,
+      attractionId:
+        r['attractionId'] != null ? Number(r['attractionId']) : null,
+      attractionName:
+        r['attractionName'] != null ? String(r['attractionName']) : null,
+      venueCompanyId:
+        r['venueCompanyId'] != null ? Number(r['venueCompanyId']) : null,
+      venueCompanyName:
+        r['venueCompanyName'] != null ? String(r['venueCompanyName']) : null,
       venueName: r['venueName'] != null ? String(r['venueName']) : null,
       city: r['city'] != null ? String(r['city']) : null,
-      stateProvince: r['stateProvince'] != null ? String(r['stateProvince']) : null,
+      stateProvince:
+        r['stateProvince'] != null ? String(r['stateProvince']) : null,
     };
   }
 
-  async findAll(year?: number, month?: number): Promise<PerformanceCalendarRow[]> {
+  async findAll(
+    year?: number,
+    month?: number,
+  ): Promise<PerformanceCalendarRow[]> {
     const qb = this.buildCalendarQuery(year, month);
     const raw = await qb.getRawMany<Record<string, unknown>>();
     return raw.map((r) => this.mapCalendarRaw(r));
@@ -147,7 +159,10 @@ export class PerformancesService {
     const qb = this.buildCalendarQuery(year, month);
     this.applyVisibilityFilter(qb, visibility);
     const total = await qb.getCount();
-    const raw = await qb.offset(offset).limit(limit).getRawMany<Record<string, unknown>>();
+    const raw = await qb
+      .offset(offset)
+      .limit(limit)
+      .getRawMany<Record<string, unknown>>();
     return {
       data: raw.map((r) => this.mapCalendarRaw(r)),
       total,

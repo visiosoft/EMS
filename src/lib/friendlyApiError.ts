@@ -80,6 +80,18 @@ export function friendlyApiError(
   if (/internal server error/i.test(raw)) {
     return 'Something unexpected happened. Please try again in a moment.';
   }
+  if (
+    /Select a Non-Resident Withholding rule before editing|Choose a withholding record for this venue before saving/i.test(
+      raw,
+    )
+  ) {
+    return 'Choose a withholding record for this venue before saving these details.';
+  }
+  if (
+    /NonResidentWithholding #\d+ not found|That withholding record was not found/i.test(raw)
+  ) {
+    return 'That withholding record was not found. Check the number or ask your administrator.';
+  }
   if (!msg && detail) {
     return 'We couldn’t complete this action. For technical details, open the browser Network tab and inspect the response for this request.';
   }

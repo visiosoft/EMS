@@ -1,4 +1,10 @@
-import { Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import {
+  Column,
+  Entity,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+} from 'typeorm';
 import { Engagement } from './engagement.entity';
 
 /** dbo.Performance — one row per show / performance under an engagement (see EMS_DATABASE_ARCHITECTURE §4.27). */

@@ -68,9 +68,7 @@ export class EngagementController {
     @Query('timing') timing?: string,
   ) {
     const t =
-      timing === 'upcoming' || timing === 'past'
-        ? timing
-        : ('all' as const);
+      timing === 'upcoming' || timing === 'past' ? timing : ('all' as const);
     return this.engagementService.listPaginated(offset, limit, {
       q,
       status,
@@ -153,7 +151,12 @@ export class EngagementController {
   updatePerformance(
     @Param('id', ParseIntPipe) id: number,
     @Param('performanceId', ParseIntPipe) performanceId: number,
-    @Body() dto: { performanceDate?: string; performanceTime?: string; performanceStatus?: string },
+    @Body()
+    dto: {
+      performanceDate?: string;
+      performanceTime?: string;
+      performanceStatus?: string;
+    },
   ) {
     return this.engagementService.updatePerformance(id, performanceId, dto);
   }

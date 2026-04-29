@@ -20,7 +20,10 @@ import { AddProjectVenueDto } from './dto/add-project-venue.dto';
 import { UpdateProjectVenueDto } from './dto/update-project-venue.dto';
 import { AddPerformanceOptionDto } from './dto/add-performance-option.dto';
 import { UpdatePerformanceOptionDto } from './dto/update-performance-option.dto';
-import { isAllowedProjectStage, PROJECT_STAGE_VALUES } from './project-stage.constants';
+import {
+  isAllowedProjectStage,
+  PROJECT_STAGE_VALUES,
+} from './project-stage.constants';
 import { parseStringLiteralsFromCheckDefinition } from './venue-status-check.util';
 
 @Injectable()
@@ -58,16 +61,21 @@ export class ProjectService {
   private normalizeTime(t: string | null | undefined): string | null {
     if (!t) return null;
     const parts = t.trim().split(':');
-    if (parts.length === 2) return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:00`;
-    if (parts.length === 3) return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:${parts[2].padStart(2, '0').slice(0, 2)}`;
-    throw new BadRequestException({ message: 'Invalid time format. Use HH:MM or HH:MM:SS.' });
+    if (parts.length === 2)
+      return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:00`;
+    if (parts.length === 3)
+      return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:${parts[2].padStart(2, '0').slice(0, 2)}`;
+    throw new BadRequestException({
+      message: 'Invalid time format. Use HH:MM or HH:MM:SS.',
+    });
   }
 
   private formatTime(t: string | null): string | null {
     if (!t) return null;
     // DB may return HH:MM:SS or HH:MM, normalize to HH:MM for response
     const parts = t.split(':');
-    if (parts.length >= 2) return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}`;
+    if (parts.length >= 2)
+      return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}`;
     return t;
   }
 
@@ -85,7 +93,10 @@ export class ProjectService {
   private parseVenueStatusEnvAllowlist(): string[] {
     const raw = process.env.VENUE_STATUS_ALLOWLIST?.trim();
     if (!raw) return [];
-    return raw.split(',').map((s) => s.trim()).filter(Boolean);
+    return raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
   }
 
   private async loadVenueStatusFromCheck(): Promise<string[] | null> {
@@ -107,7 +118,9 @@ export class ProjectService {
       }
     }
     if (collected.size === 0) return null;
-    return [...collected].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    return [...collected].sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: 'base' }),
+    );
   }
 
   private async loadVenueStatusFromExistingRows(): Promise<string[] | null> {
@@ -126,7 +139,9 @@ export class ProjectService {
       if (v != null) collected.add(String(v).trim());
     }
     if (collected.size === 0) return null;
-    return [...collected].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    return [...collected].sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: 'base' }),
+    );
   }
 
   private async resolveVenueStatusAllowlist(): Promise<{
@@ -179,7 +194,8 @@ export class ProjectService {
     const now = Date.now();
     if (
       this.venueStatusListCache &&
-      now - this.venueStatusListCache.at < ProjectService.VENUE_STATUS_LIST_TTL_MS
+      now - this.venueStatusListCache.at <
+        ProjectService.VENUE_STATUS_LIST_TTL_MS
     ) {
       const r = this.venueStatusListCache.result;
       return { venueStatuses: r.values, source: r.source };
@@ -212,46 +228,73 @@ export class ProjectService {
   private async assertTourExists(tourId: number): Promise<Tour> {
     const tour = await this.tourRepo.findOne({ where: { tourId } });
     if (!tour) {
-      throw new BadRequestException({ message: `Tour with ID ${tourId} not found.` });
+      throw new BadRequestException({
+        message: `Tour with ID ${tourId} not found.`,
+      });
     }
     return tour;
   }
 
   private async assertVenueCompany(venueCompanyId: number): Promise<void> {
-    const company = await this.companyRepo.findOne({ where: { companyId: venueCompanyId } });
+    const company = await this.companyRepo.findOne({
+      where: { companyId: venueCompanyId },
+    });
     if (!company) {
-      throw new BadRequestException({ message: `Company with ID ${venueCompanyId} not found.` });
+      throw new BadRequestException({
+        message: `Company with ID ${venueCompanyId} not found.`,
+      });
     }
-    const venue = await this.venueRepo.findOne({ where: { companyId: venueCompanyId } });
+    const venue = await this.venueRepo.findOne({
+      where: { companyId: venueCompanyId },
+    });
     if (!venue) {
-      throw new BadRequestException({ message: 'Company exists but is not a venue.' });
+      throw new BadRequestException({
+        message: 'Company exists but is not a venue.',
+      });
     }
   }
 
   private async assertProjectExists(id: number): Promise<EngagementProject> {
-    const project = await this.projectRepo.findOne({ where: { engagementProjectId: id } });
+    const project = await this.projectRepo.findOne({
+      where: { engagementProjectId: id },
+    });
     if (!project) {
-      throw new NotFoundException({ message: `Project with ID ${id} not found.` });
+      throw new NotFoundException({
+        message: `Project with ID ${id} not found.`,
+      });
     }
     return project;
   }
 
-  private async assertVenueInProject(projectId: number, venueId: number): Promise<EngagementProjectVenue> {
+  private async assertVenueInProject(
+    projectId: number,
+    venueId: number,
+  ): Promise<EngagementProjectVenue> {
     const venue = await this.projectVenueRepo.findOne({
-      where: { engagementProjectId: projectId, engagementProjectVenueId: venueId },
+      where: {
+        engagementProjectId: projectId,
+        engagementProjectVenueId: venueId,
+      },
     });
     if (!venue) {
-      throw new NotFoundException({ message: `Venue proposal with ID ${venueId} not found in project ${projectId}.` });
+      throw new NotFoundException({
+        message: `Venue proposal with ID ${venueId} not found in project ${projectId}.`,
+      });
     }
     return venue;
   }
 
-  private async assertOptionInProject(projectId: number, optionId: number): Promise<EngagementProjectPerformanceOption> {
+  private async assertOptionInProject(
+    projectId: number,
+    optionId: number,
+  ): Promise<EngagementProjectPerformanceOption> {
     const option = await this.optionRepo.findOne({
       where: { engagementProjectId: projectId, performanceOptionId: optionId },
     });
     if (!option) {
-      throw new NotFoundException({ message: `Performance option with ID ${optionId} not found in project ${projectId}.` });
+      throw new NotFoundException({
+        message: `Performance option with ID ${optionId} not found in project ${projectId}.`,
+      });
     }
     return option;
   }
@@ -263,12 +306,20 @@ export class ProjectService {
     e: QueryFailedError,
     venueStatus?: string,
   ): never {
-    const d = String((e as QueryFailedError).driverError ?? (e as QueryFailedError).message);
-    this.logger.error(`Project venue ${op} failed (projectId=${projectId}): ${d}`);
+    const d = String(e.driverError ?? e.message);
+    this.logger.error(
+      `Project venue ${op} failed (projectId=${projectId}): ${d}`,
+    );
 
-    const driver = e.driverError as { number?: number; message?: string } | undefined;
+    const driver = e.driverError as
+      | { number?: number; message?: string }
+      | undefined;
     const n = driver?.number;
-    if (n === 2627 || n === 2601 || /duplicate key|UNIQUE KEY constraint/i.test(d)) {
+    if (
+      n === 2627 ||
+      n === 2601 ||
+      /duplicate key|UNIQUE KEY constraint/i.test(d)
+    ) {
       throw new ConflictException({
         message: 'This venue is already added to this project.',
         detail: d,
@@ -281,14 +332,18 @@ export class ProjectService {
         detail: d,
       });
     }
-    if (venueStatus && (/CHECK constraint|VenueStatus/i.test(d) || /VenueStatus/i.test(d))) {
+    if (
+      venueStatus &&
+      (/CHECK constraint|VenueStatus/i.test(d) || /VenueStatus/i.test(d))
+    ) {
       throw new BadRequestException({
         message: `This venue status isn’t accepted by the database: ${venueStatus}.`,
         detail: d,
       });
     }
     throw new BadRequestException({
-      message: 'Could not add the venue. The database rejected the change — check the server log for details.',
+      message:
+        'Could not add the venue. The database rejected the change — check the server log for details.',
       detail: d,
     });
   }
@@ -313,8 +368,12 @@ export class ProjectService {
 
     const venuesWithDetails = await Promise.all(
       dbVenues.map(async (v) => {
-        const company = await this.companyRepo.findOne({ where: { companyId: v.venueCompanyId } });
-        const venue = await this.venueRepo.findOne({ where: { companyId: v.venueCompanyId } });
+        const company = await this.companyRepo.findOne({
+          where: { companyId: v.venueCompanyId },
+        });
+        const venue = await this.venueRepo.findOne({
+          where: { companyId: v.venueCompanyId },
+        });
         return {
           engagementProjectVenueId: v.engagementProjectVenueId,
           engagementProjectId: v.engagementProjectId,
@@ -348,7 +407,8 @@ export class ProjectService {
       tourName: tour?.tourName ?? null,
       attractionName: attraction?.attractionName ?? null,
       tourManagementCompanyId: tour?.tourManagementCompanyId ?? null,
-      tourManagementCompanyName: tour?.tourManagementCompany?.companyName ?? null,
+      tourManagementCompanyName:
+        tour?.tourManagementCompany?.companyName ?? null,
       projectStage: project.projectStage,
       createdDate: project.createdDate,
       createdBy: project.createdBy,
@@ -365,7 +425,9 @@ export class ProjectService {
 
   // ─── Project CRUD ─────────────────────────────────────────────────────────
 
-  async create(dto: CreateProjectDto): Promise<{ engagementProjectId: number }> {
+  async create(
+    dto: CreateProjectDto,
+  ): Promise<{ engagementProjectId: number }> {
     await this.assertTourExists(dto.tourId);
     this.assertValidProjectStage(dto.projectStage);
 
@@ -429,7 +491,8 @@ export class ProjectService {
       this.assertValidProjectStage(dto.projectStage);
       project.projectStage = dto.projectStage;
     }
-    if (dto.createdBy !== undefined) project.createdBy = dto.createdBy?.trim() ?? null;
+    if (dto.createdBy !== undefined)
+      project.createdBy = dto.createdBy?.trim() ?? null;
     if (dto.tourId !== undefined) {
       await this.assertTourExists(dto.tourId);
       project.tourId = dto.tourId;
@@ -457,7 +520,9 @@ export class ProjectService {
         await manager.delete(EngagementProjectPerformanceOption, {
           engagementProjectId: id,
         });
-        await manager.delete(EngagementProjectVenue, { engagementProjectId: id });
+        await manager.delete(EngagementProjectVenue, {
+          engagementProjectId: id,
+        });
         await manager.delete(EngagementProject, { engagementProjectId: id });
       });
     } catch (e: unknown) {
@@ -514,13 +579,27 @@ export class ProjectService {
       const like = `%${q}%`;
       qb.andWhere(
         new Brackets((w) => {
-          w.where('CAST(ep.engagementProjectId AS VARCHAR(20)) LIKE :like', { like })
-            .orWhere("LOWER(ISNULL(t.tourName, '')) LIKE LOWER(:like)", { like })
-            .orWhere("LOWER(ISNULL(a.attractionName, '')) LIKE LOWER(:like)", { like })
-            .orWhere("LOWER(ISNULL(ep.projectStage, '')) LIKE LOWER(:like)", { like })
-            .orWhere("LOWER(ISNULL(ep.createdBy, '')) LIKE LOWER(:like)", { like })
-            .orWhere("LOWER(ISNULL(tm.companyName, '')) LIKE LOWER(:like)", { like })
-            .orWhere('CONVERT(VARCHAR(30), ep.createdDate, 126) LIKE :like', { like });
+          w.where('CAST(ep.engagementProjectId AS VARCHAR(20)) LIKE :like', {
+            like,
+          })
+            .orWhere("LOWER(ISNULL(t.tourName, '')) LIKE LOWER(:like)", {
+              like,
+            })
+            .orWhere("LOWER(ISNULL(a.attractionName, '')) LIKE LOWER(:like)", {
+              like,
+            })
+            .orWhere("LOWER(ISNULL(ep.projectStage, '')) LIKE LOWER(:like)", {
+              like,
+            })
+            .orWhere("LOWER(ISNULL(ep.createdBy, '')) LIKE LOWER(:like)", {
+              like,
+            })
+            .orWhere("LOWER(ISNULL(tm.companyName, '')) LIKE LOWER(:like)", {
+              like,
+            })
+            .orWhere('CONVERT(VARCHAR(30), ep.createdDate, 126) LIKE :like', {
+              like,
+            });
         }),
       );
     }
@@ -536,7 +615,8 @@ export class ProjectService {
         tourName: p.tour?.tourName ?? null,
         attractionName: p.tour?.attraction?.attractionName ?? null,
         tourManagementCompanyId: p.tour?.tourManagementCompanyId ?? null,
-        tourManagementCompanyName: p.tour?.tourManagementCompany?.companyName ?? null,
+        tourManagementCompanyName:
+          p.tour?.tourManagementCompany?.companyName ?? null,
         projectStage: p.projectStage,
         createdDate: p.createdDate,
         createdBy: p.createdBy,
@@ -567,7 +647,10 @@ export class ProjectService {
     await this.assertValidVenueStatus(dto.venueStatus);
 
     const existing = await this.projectVenueRepo.findOne({
-      where: { engagementProjectId: projectId, venueCompanyId: dto.venueCompanyId },
+      where: {
+        engagementProjectId: projectId,
+        venueCompanyId: dto.venueCompanyId,
+      },
     });
     if (existing) {
       throw new ConflictException({
@@ -597,11 +680,20 @@ export class ProjectService {
         return { engagementProjectVenueId: saved.engagementProjectVenueId };
       });
     } catch (e: unknown) {
-      if (e instanceof ConflictException || e instanceof BadRequestException || e instanceof NotFoundException) {
+      if (
+        e instanceof ConflictException ||
+        e instanceof BadRequestException ||
+        e instanceof NotFoundException
+      ) {
         throw e;
       }
       if (e instanceof QueryFailedError) {
-        return this.mapProjectVenueQueryFailed('add', projectId, e, dto.venueStatus);
+        return this.mapProjectVenueQueryFailed(
+          'add',
+          projectId,
+          e,
+          dto.venueStatus,
+        );
       }
       throw e;
     }
@@ -652,12 +744,16 @@ export class ProjectService {
   ): Promise<void> {
     const opt = await this.assertOptionInProject(projectId, optionId);
     if (dto.proposedDate !== undefined) opt.proposedDate = dto.proposedDate;
-    if (dto.proposedTime !== undefined) opt.proposedTime = this.normalizeTime(dto.proposedTime);
+    if (dto.proposedTime !== undefined)
+      opt.proposedTime = this.normalizeTime(dto.proposedTime);
     if (dto.optionStatus !== undefined) opt.optionStatus = dto.optionStatus;
     await this.optionRepo.save(opt);
   }
 
-  async removePerformanceOption(projectId: number, optionId: number): Promise<void> {
+  async removePerformanceOption(
+    projectId: number,
+    optionId: number,
+  ): Promise<void> {
     await this.assertOptionInProject(projectId, optionId);
     await this.optionRepo.delete({
       engagementProjectId: projectId,
