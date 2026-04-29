@@ -34,7 +34,9 @@ export class AddressFieldsDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
-  @Matches(COUNTRY_NAME_REGEX, { message: STATE_PROVINCE_FIELD_VALIDATION_MESSAGE })
+  @Matches(COUNTRY_NAME_REGEX, {
+    message: STATE_PROVINCE_FIELD_VALIDATION_MESSAGE,
+  })
   stateProvince: string;
 
   @IsString()

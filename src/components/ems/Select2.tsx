@@ -55,13 +55,14 @@ export function Select2({
   const [menuStyle, setMenuStyle] = useState<React.CSSProperties | null>(null);
   const modalBodyScrollElementRef = useContext(EmsModalBodyScrollElementRef);
 
-  const selected = options.find(o => o.value === value);
+  const optionsSafe = options ?? [];
+  const selected = optionsSafe.find((o) => o.value === value);
 
   const parentFiltersOptions = onFilterChange != null;
   const displayFilter = parentFiltersOptions ? (filterQuery ?? '') : search;
   const filtered = parentFiltersOptions
-    ? options
-    : options.filter((o) =>
+    ? optionsSafe
+    : optionsSafe.filter((o) =>
         (o.label ?? '').toLowerCase().includes((search ?? '').toLowerCase()),
       );
 
@@ -245,11 +246,15 @@ export function Select2({
             {placeholder}
           </li>
         )}
-        {filtered.length === 0 ? (
-          <li className="select2-results__option px-3 py-2 text-sm text-text-muted text-center">
-            No results found
-          </li>
-        ) : (
+        {filtered.length === 0
+          ? optionsSafe.length > 0
+            ? (
+                <li className="select2-results__option px-3 py-2 text-sm text-text-muted text-center">
+                  No results found
+                </li>
+              )
+            : null
+          : (
           filtered.map((opt, idx) => (
             <li
               key={opt.value}
@@ -348,6 +353,8 @@ export function Select2Multi({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
+  const optionsSafe = options ?? [];
+  const valuesSafe = values ?? [];
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -360,18 +367,20 @@ export function Select2Multi({
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const filtered = options.filter((o) =>
+  const filtered = optionsSafe.filter((o) =>
     (o.label ?? '').toLowerCase().includes((search ?? '').toLowerCase()),
   );
 
   const toggle = (v: string) => {
-    if (values.includes(v)) onChange(values.filter(x => x !== v));
-    else onChange([...values, v]);
+    if (valuesSafe.includes(v)) onChange(valuesSafe.filter((x) => x !== v));
+    else onChange([...valuesSafe, v]);
   };
 
-  const summary = values.length === 0
+  const summary = valuesSafe.length === 0
     ? placeholder
-    : values.map(v => options.find(o => o.value === v)?.label || v).join(', ');
+    : valuesSafe
+        .map((v) => optionsSafe.find((o) => o.value === v)?.label || v)
+        .join(', ');
 
   const [dropUp, setDropUp] = useState(false);
   useEffect(() => {
@@ -399,7 +408,7 @@ export function Select2Multi({
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span className={`min-w-0 flex-1 truncate ${values.length === 0 ? 'text-text-muted' : 'text-text-primary'}`}>
+        <span className={`min-w-0 flex-1 truncate ${valuesSafe.length === 0 ? 'text-text-muted' : 'text-text-primary'}`}>
           {summary}
         </span>
         <span
@@ -451,7 +460,7 @@ export function Select2Multi({
               </li>
             ) : (
               filtered.map(opt => {
-                const selected = values.includes(opt.value);
+                const selected = valuesSafe.includes(opt.value);
                 return (
                   <li
                     key={opt.value}

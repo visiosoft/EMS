@@ -43,6 +43,9 @@ import {
   type ApiDepartment,
   type ApiRole,
   type ApiSeatingType,
+  type ApiBrand,
+  type ApiTax,
+  type ApiServiceProvided,
   type CreateCompanyPayload,
   type UpdateCompanyPayload,
 } from '@/api/companyApi';
@@ -982,7 +985,10 @@ function mapContactRow(
     companyId,
     firstName: row.firstName,
     lastName: row.lastName,
-    roles: [row.roleName],
+    roles: (() => {
+      const t = String(row.roleName ?? '').trim();
+      return t.length > 0 ? [t] : [];
+    })(),
     email: row.email,
     phone: row.workPhone || '',
     status: 'Active',
@@ -1075,12 +1081,12 @@ function ContactFormDb({
 
   const roleOpts = useMemo(
     () =>
-      roles.map((r) => ({ value: String(r.roleId), label: r.roleName })),
+      (roles ?? []).map((r) => ({ value: String(r.roleId), label: r.roleName })),
     [roles],
   );
   const deptOpts = useMemo(
     () =>
-      departments.map((d) => ({
+      (departments ?? []).map((d) => ({
         value: String(d.departmentId),
         label: d.departmentName,
       })),
@@ -2282,6 +2288,11 @@ export function CompaniesPage({ addToast }: Props) {
   });
   const seatingTypes: ApiSeatingType[] = lookupsQuery.data?.seatingTypes ?? [];
   const venueTypes = lookupsQuery.data?.venueTypes ?? [];
+  const brands: ApiBrand[] = lookupsQuery.data?.brands ?? [];
+  const taxes: ApiTax[] = lookupsQuery.data?.taxes ?? [];
+  const servicesProvided: ApiServiceProvided[] =
+    lookupsQuery.data?.servicesProvided ?? [];
+  const nonResidentWithholdings = lookupsQuery.data?.nonResidentWithholdings ?? [];
   const roles: ApiRole[] = lookupsQuery.data?.roles ?? [];
   const departments: ApiDepartment[] = lookupsQuery.data?.departments ?? [];
 
@@ -2320,12 +2331,13 @@ export function CompaniesPage({ addToast }: Props) {
     queryFn: async () => {
       const id = Number(selectedCompanyId);
       const rows = await fetchCompanyContacts(id);
-      return rows.map((r) => mapContactRow(r, String(id)));
+      const list = Array.isArray(rows) ? rows : [];
+      return list.map((r) => mapContactRow(r, String(id)));
     },
     enabled: !!selectedCompanyId && drawerTab === 'Contacts',
   });
 
-  const companyContacts = contactsQuery.data ?? [];
+  const companyContacts: Contact[] = Array.isArray(contactsQuery.data) ? contactsQuery.data : [];
 
   useEffect(() => {
     setPage(1);
@@ -2843,14 +2855,24 @@ export function CompaniesPage({ addToast }: Props) {
                           {ct.firstName} {ct.lastName}
                         </td>
                         <td className="py-2">
-                          {ct.roles.map((r) => (
-                            <span
-                              key={r}
-                              className="text-xs bg-elevated px-1 py-0.5 rounded text-text-secondary mr-1"
-                            >
-                              {r}
-                            </span>
-                          ))}
+                          {(() => {
+                            const fromRoles = (ct.roles ?? []).map((s) => String(s).trim()).filter(Boolean);
+                            const labels =
+                              fromRoles.length > 0
+                                ? fromRoles
+                                : (ct.departmentName?.trim() ? [ct.departmentName.trim()] : []);
+                            if (labels.length === 0) {
+                              return <span className="text-text-muted">—</span>;
+                            }
+                            return labels.map((r, i) => (
+                              <span
+                                key={`${r}-${i}`}
+                                className="text-xs bg-elevated px-1 py-0.5 rounded text-text-secondary mr-1"
+                              >
+                                {r}
+                              </span>
+                            ));
+                          })()}
                         </td>
                         <td className="py-2 text-ems-blue text-xs">
                           {ct.workEmail || ct.email}
@@ -2906,6 +2928,10 @@ export function CompaniesPage({ addToast }: Props) {
                 company={selectedCompany}
                 venueTypes={venueTypes}
                 seatingTypes={seatingTypes}
+                brands={brands}
+                taxes={taxes}
+                servicesProvided={servicesProvided}
+                nonResidentWithholdings={nonResidentWithholdings}
                 addToast={addToast}
               />
             )}

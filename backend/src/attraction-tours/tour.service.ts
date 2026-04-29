@@ -166,7 +166,6 @@ export class TourService {
     };
   }
 
-
   async create(dto: CreateTourDto): Promise<TourListRow> {
     const attraction = await this.attractionRepo.findOne({
       where: { attractionId: dto.attractionId },
@@ -263,7 +262,8 @@ export class TourService {
       existing.audienceAgeRange = dto.audienceAgeRange?.trim() || null;
     }
     if (dto.tourInsuranceLanguage !== undefined) {
-      existing.tourInsuranceLanguage = dto.tourInsuranceLanguage?.trim() || null;
+      existing.tourInsuranceLanguage =
+        dto.tourInsuranceLanguage?.trim() || null;
     }
     if (dto.venueTypePreferenceId !== undefined) {
       if (dto.venueTypePreferenceId != null) {

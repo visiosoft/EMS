@@ -19,6 +19,14 @@ import { Tour } from '../entities/tour.entity';
 import { Class } from '../entities/class.entity';
 import { VenueType } from '../entities/venue-type.entity';
 import { Venue } from '../entities/venue.entity';
+import { Brand } from '../entities/brand.entity';
+import { VenueBrand } from '../entities/venue-brand.entity';
+import { Tax } from '../entities/tax.entity';
+import { VenueTax } from '../entities/venue-tax.entity';
+import { ServiceProvided } from '../entities/service-provided.entity';
+import { CompanyService as CompanyServiceEntity } from '../entities/company-service.entity';
+import { VenueServiceProvider } from '../entities/venue-service-provider.entity';
+import { Link } from '../entities/link.entity';
 import { LookupsController } from '../lookups/lookups.controller';
 import { LookupsService } from '../lookups/lookups.service';
 import {
@@ -32,12 +40,20 @@ const entities = [
   CompanyType,
   Company,
   Dma,
+  Link,
   ContactInfo,
   Contact,
   ContactAssignment,
   Role,
   Department,
   Venue,
+  Brand,
+  VenueBrand,
+  Tax,
+  VenueTax,
+  ServiceProvided,
+  CompanyServiceEntity,
+  VenueServiceProvider,
   EngagementVenue,
   EngagementProjectVenue,
   Engagement,

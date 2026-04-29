@@ -8,6 +8,12 @@ import { Dma } from '../entities/dma.entity';
 import { Role } from '../entities/role.entity';
 import { SeatingType } from '../entities/seating-type.entity';
 import { VenueType } from '../entities/venue-type.entity';
+import { Brand } from '../entities/brand.entity';
+import { ServiceProvided } from '../entities/service-provided.entity';
+import { Tax } from '../entities/tax.entity';
+import { CompanyService as CompanyServiceEntity } from '../entities/company-service.entity';
+import { Company } from '../entities/company.entity';
+import { NonResidentWithholding } from '../entities/non-resident-withholding.entity';
 
 @Injectable()
 export class LookupsService {
@@ -26,6 +32,18 @@ export class LookupsService {
     private readonly classRepo: Repository<Class>,
     @InjectRepository(VenueType)
     private readonly venueTypeRepo: Repository<VenueType>,
+    @InjectRepository(Brand)
+    private readonly brandRepo: Repository<Brand>,
+    @InjectRepository(Tax)
+    private readonly taxRepo: Repository<Tax>,
+    @InjectRepository(ServiceProvided)
+    private readonly serviceProvidedRepo: Repository<ServiceProvided>,
+    @InjectRepository(CompanyServiceEntity)
+    private readonly companyServiceRepo: Repository<CompanyServiceEntity>,
+    @InjectRepository(Company)
+    private readonly companyRepo: Repository<Company>,
+    @InjectRepository(NonResidentWithholding)
+    private readonly nonResidentWithholdingRepo: Repository<NonResidentWithholding>,
   ) {}
 
   findCompanyTypes() {
@@ -52,6 +70,53 @@ export class LookupsService {
 
   findVenueTypes() {
     return this.venueTypeRepo.find({ order: { venueTypeName: 'ASC' } });
+  }
+
+  findBrands() {
+    return this.brandRepo.find({ order: { brandName: 'ASC' } });
+  }
+
+  findTaxes() {
+    return this.taxRepo.find({ order: { taxJurisdictionType: 'ASC' as const, taxName: 'ASC' as const } });
+  }
+
+  findServicesProvided() {
+    return this.serviceProvidedRepo.find({ order: { serviceName: 'ASC' } });
+  }
+
+  async findStagehandProviders(): Promise<{ companyId: number; companyName: string }[]> {
+    const stagehands = await this.serviceProvidedRepo
+      .createQueryBuilder('sp')
+      .where('LOWER(sp.serviceName) = LOWER(:n)', { n: 'Stagehands' })
+      .getOne();
+    if (!stagehands) return [];
+
+    const rows = await this.companyServiceRepo
+      .createQueryBuilder('cs')
+      .innerJoin(Company, 'c', 'c.companyId = cs.companyId')
+      .where('cs.serviceProvidedId = :sid', { sid: stagehands.serviceProvidedId })
+      .select(['c.companyId AS companyId', 'c.companyName AS companyName'])
+      .orderBy('c.companyName', 'ASC')
+      .getRawMany<Record<string, unknown>>();
+
+    return rows.map((r) => ({
+      companyId: Number(r.companyId ?? r.CompanyID),
+      companyName: String(r.companyName ?? r.CompanyName ?? ''),
+    }));
+  }
+
+  async findNonResidentWithholdings(): Promise<
+    { withholdingId: number; withholdingTaxRate: string; dmaid: number | null; taxAgencyId: number | null }[]
+  > {
+    const rows = await this.nonResidentWithholdingRepo.find({
+      order: { withholdingId: 'ASC' as const },
+    });
+    return rows.map((r) => ({
+      withholdingId: r.withholdingId,
+      withholdingTaxRate: r.withholdingTaxRate,
+      dmaid: r.dmaid ?? null,
+      taxAgencyId: r.taxAgencyId ?? null,
+    }));
   }
 
   /** First DMA row matching postal code (dbo.DMA is postal-level). */
@@ -105,7 +170,7 @@ export class LookupsService {
     if (query.trim()) {
       const sq = `%${query.trim()}%`;
       qb.where(
-        '(LOWER(d.marketName) LIKE LOWER(:sq) OR LOWER(ISNULL(d.postalCode, \'\')) LIKE LOWER(:sq))',
+        "(LOWER(d.marketName) LIKE LOWER(:sq) OR LOWER(ISNULL(d.postalCode, '')) LIKE LOWER(:sq))",
         { sq },
       );
     }
@@ -138,7 +203,7 @@ export class LookupsService {
     if (query.trim()) {
       const sq = `%${query.trim()}%`;
       qb.where(
-        '(LOWER(d.marketName) LIKE LOWER(:sq) OR LOWER(ISNULL(d.postalCode, \'\')) LIKE LOWER(:sq))',
+        "(LOWER(d.marketName) LIKE LOWER(:sq) OR LOWER(ISNULL(d.postalCode, '')) LIKE LOWER(:sq))",
         { sq },
       );
     }

@@ -1,3 +1,4 @@
+import { ConfigService } from '@nestjs/config';
 import {
   BadRequestException,
   ConflictException,
@@ -30,6 +31,15 @@ import { Department } from '../entities/department.entity';
 import { Role } from '../entities/role.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
+import { VenueBrand } from '../entities/venue-brand.entity';
+import { Brand } from '../entities/brand.entity';
+import { VenueTax } from '../entities/venue-tax.entity';
+import { Tax } from '../entities/tax.entity';
+import { ServiceProvided } from '../entities/service-provided.entity';
+import { CompanyService as CompanyServiceEntity } from '../entities/company-service.entity';
+import { VenueServiceProvider } from '../entities/venue-service-provider.entity';
+import { NonResidentWithholding } from '../entities/non-resident-withholding.entity';
+import { Link } from '../entities/link.entity';
 import { buildEngagementDisplayTitle } from '../engagements/engagement-display.util';
 import { normalizeEngagementStatus } from '../engagements/engagement-status.util';
 import { CreateCompanyContactDto } from './dto/create-company-contact.dto';
@@ -38,6 +48,11 @@ import { UpdateCompanyContactDto } from './dto/create-company-contact.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { UpdateVenueTicketingDto } from './dto/update-venue-ticketing.dto';
 import { UpdateVenueProfileDto } from './dto/update-venue-profile.dto';
+import { UpdateVenueDetailsDto } from './dto/update-venue-details.dto';
+import {
+  resolveVenueTicketingWebsiteColumns,
+  type ResolvedVenueTicketingWebsiteColumns,
+} from './venue-ticketing-columns.resolver';
 import { isValidPhoneNumber } from 'libphonenumber-js';
 
 function assertOptionalE164Phone(
@@ -54,6 +69,51 @@ function assertOptionalE164Phone(
       message: `Invalid ${field}. Use a full international number (E.164, e.g. +1 415 555 1234) or leave the field empty.`,
     });
   }
+}
+
+function isBlank(v: unknown): boolean {
+  return v == null || String(v).trim().length === 0;
+}
+
+/**
+ * TypeORM getRawOne/getRawMany on SQL Server often return column keys with different
+ * casing than our `AS` aliases, so `row.roleName` may be undefined while `row.rolename` holds
+ * the value. Same idea as `listEngagements` (g/lower helpers).
+ */
+function pickRawRowValue(
+  row: Record<string, unknown>,
+  key: string,
+): unknown {
+  if (row[key] !== undefined && row[key] !== null) {
+    return row[key];
+  }
+  const pl = key.toLowerCase();
+  for (const k of Object.keys(row)) {
+    if (k.toLowerCase() === pl) {
+      return row[k];
+    }
+  }
+  for (const k of Object.keys(row)) {
+    const kl = k.toLowerCase();
+    if (kl === `r_${pl}` || kl === `ci_${pl}` || kl === `ca_${pl}` || kl === `d_${pl}`) {
+      return row[k];
+    }
+  }
+  return undefined;
+}
+
+function splitFullName(fullName: string): { firstName: string; lastName: string } {
+  const t = fullName.trim().replace(/\s+/g, ' ');
+  if (!t) return { firstName: '', lastName: '' };
+  const idx = t.indexOf(' ');
+  if (idx < 0) return { firstName: t, lastName: '' };
+  return { firstName: t.slice(0, idx).trim(), lastName: t.slice(idx + 1).trim() };
+}
+
+/** Nvarchar literal for safe dynamic SQL on SQL Server. */
+function sqlNVarCharLiteral(value: string | null): string {
+  if (value == null) return 'NULL';
+  return `N'${String(value).replace(/'/g, "''")}'`;
 }
 
 export interface CompanyListRow {
@@ -100,7 +160,11 @@ export interface CompanyEngagementRow {
 export class CompanyService {
   private readonly logger = new Logger(CompanyService.name);
 
+  /** First successful resolution; restarted if process restarts. */
+  private venueTicketingColCache: ResolvedVenueTicketingWebsiteColumns | null = null;
+
   constructor(
+    private readonly configService: ConfigService,
     @InjectDataSource() private readonly dataSource: DataSource,
     @InjectRepository(Company)
     private readonly companyRepo: Repository<Company>,
@@ -116,6 +180,24 @@ export class CompanyService {
     private readonly contactRepo: Repository<Contact>,
     @InjectRepository(Venue)
     private readonly venueRepo: Repository<Venue>,
+    @InjectRepository(VenueBrand)
+    private readonly venueBrandRepo: Repository<VenueBrand>,
+    @InjectRepository(Brand)
+    private readonly brandRepo: Repository<Brand>,
+    @InjectRepository(VenueTax)
+    private readonly venueTaxRepo: Repository<VenueTax>,
+    @InjectRepository(Tax)
+    private readonly taxRepo: Repository<Tax>,
+    @InjectRepository(ServiceProvided)
+    private readonly serviceProvidedRepo: Repository<ServiceProvided>,
+    @InjectRepository(CompanyServiceEntity)
+    private readonly companyServiceRepo: Repository<CompanyServiceEntity>,
+    @InjectRepository(VenueServiceProvider)
+    private readonly venueServiceProviderRepo: Repository<VenueServiceProvider>,
+    @InjectRepository(NonResidentWithholding)
+    private readonly nonResidentWithholdingRepo: Repository<NonResidentWithholding>,
+    @InjectRepository(Link)
+    private readonly linkRepo: Repository<Link>,
     @InjectRepository(EngagementVenue)
     private readonly engagementVenueRepo: Repository<EngagementVenue>,
     @InjectRepository(EngagementProjectVenue)
@@ -129,6 +211,867 @@ export class CompanyService {
     @InjectRepository(Department)
     private readonly departmentRepo: Repository<Department>,
   ) {}
+
+  private async getStagehandsServiceId(em?: EntityManager): Promise<number | null> {
+    const repo = em ? em.getRepository(ServiceProvided) : this.serviceProvidedRepo;
+    const row = await repo
+      .createQueryBuilder('sp')
+      .where('LOWER(sp.serviceName) = LOWER(:n)', { n: 'Stagehands' })
+      .getOne();
+    return row?.serviceProvidedId ?? null;
+  }
+
+  private async getRoleIdByName(name: string, em: EntityManager): Promise<number> {
+    const t = name.trim();
+    const row = await em
+      .getRepository(Role)
+      .createQueryBuilder('r')
+      .where('LOWER(r.roleName) = LOWER(:n)', { n: t })
+      .getOne();
+    if (!row) {
+      throw new BadRequestException({
+        message: `Role '${t}' is missing in dbo.Role. Add it before saving venue contacts.`,
+      });
+    }
+    return row.roleId;
+  }
+
+  private async getDepartmentIdByName(
+    name: string,
+    em: EntityManager,
+  ): Promise<number> {
+    const t = name.trim();
+    const row = await em
+      .getRepository(Department)
+      .createQueryBuilder('d')
+      .where('LOWER(d.departmentName) = LOWER(:n)', { n: t })
+      .getOne();
+    if (!row) {
+      throw new BadRequestException({
+        message: `Department '${t}' is missing in dbo.Department. Add it before saving venue contacts.`,
+      });
+    }
+    return row.departmentId;
+  }
+
+  private async upsertVenueContactByRoleDept(
+    em: EntityManager,
+    companyId: number,
+    roleName: string,
+    departmentName: string,
+    draft:
+      | { fullName?: string; email?: string; phone?: string; cellPhone?: string }
+      | undefined,
+  ): Promise<void> {
+    if (!draft) return;
+    if (
+      isBlank(draft.fullName) &&
+      isBlank(draft.email) &&
+      isBlank(draft.phone) &&
+      isBlank(draft.cellPhone)
+    ) {
+      return;
+    }
+    const fullName = String(draft.fullName ?? '').trim();
+    const email = String(draft.email ?? '').trim();
+    const phone = draft.phone != null ? String(draft.phone).trim() : '';
+    const cellPhone = draft.cellPhone != null ? String(draft.cellPhone).trim() : '';
+
+    if (!email) {
+      throw new BadRequestException({
+        message: `Email is required for ${departmentName} ${roleName}.`,
+      });
+    }
+    if (phone) {
+      assertOptionalE164Phone(phone, 'work phone');
+    }
+    if (cellPhone) {
+      assertOptionalE164Phone(cellPhone, 'cell phone');
+    }
+
+    const roleId = await this.getRoleIdByName(roleName, em);
+    const departmentId = await this.getDepartmentIdByName(departmentName, em);
+
+    const existingAsg = await em.findOne(ContactAssignment, {
+      where: { companyId, roleId, departmentId },
+      relations: { contact: { contactInfo: true } },
+    });
+
+    const existingInfo = await em
+      .getRepository(ContactInfo)
+      .createQueryBuilder('ci')
+      .where('LOWER(ci.email) = LOWER(:email)', { email })
+      .getOne();
+
+    const { firstName, lastName } = splitFullName(fullName);
+    const info =
+      existingInfo ??
+      (await em.save(
+        ContactInfo,
+        em.create(ContactInfo, {
+          firstName: firstName || '—',
+          lastName: lastName || '—',
+          email,
+          workPhone: phone || null,
+          cellPhone: cellPhone || null,
+        }),
+      ));
+
+    const existingContact = await em.findOne(Contact, {
+      where: { contactInfoId: info.contactInfoId },
+    });
+    const contact =
+      existingContact ??
+      (await em.save(
+        Contact,
+        em.create(Contact, { contactInfoId: info.contactInfoId }),
+      ));
+
+    if (existingAsg) {
+      existingAsg.contactId = contact.contactId;
+      await em.save(ContactAssignment, existingAsg);
+    } else {
+      const assignment = em.create(ContactAssignment, {
+        contactId: contact.contactId,
+        companyId,
+        roleId,
+        departmentId,
+      });
+      await em.save(ContactAssignment, assignment);
+    }
+
+    // Best-effort: apply updated name/phones to the stored ContactInfo.
+    if (fullName || phone || cellPhone) {
+      const ci = await em.findOneBy(ContactInfo, {
+        contactInfoId: info.contactInfoId,
+      });
+      if (ci) {
+        if (firstName) ci.firstName = firstName;
+        if (lastName) ci.lastName = lastName;
+        if (phone) ci.workPhone = phone;
+        if (cellPhone) ci.cellPhone = cellPhone;
+        else if (draft.cellPhone !== undefined && !cellPhone) ci.cellPhone = null;
+        await em.save(ContactInfo, ci);
+      }
+    }
+  }
+
+  private mapRawVenueContactRow(
+    raw: Record<string, unknown>,
+  ): {
+    contactInfoId: number;
+    fullName: string;
+    email: string;
+    phone: string | null;
+    cellPhone: string | null;
+  } {
+    const firstName = String(raw.firstName ?? '').trim();
+    const lastName = String(raw.lastName ?? '').trim();
+    const email = String(raw.email ?? '').trim();
+    const phone = raw.workPhone != null ? String(raw.workPhone).trim() : null;
+    const cellPhone = raw.cellPhone != null ? String(raw.cellPhone).trim() : null;
+    return {
+      contactInfoId: Number(raw.contactInfoId),
+      fullName: [firstName, lastName].filter(Boolean).join(' ').trim(),
+      email,
+      phone,
+      cellPhone,
+    };
+  }
+
+  private async getVenueContactByRoleDept(
+    companyId: number,
+    roleName: string,
+    departmentName: string,
+    em?: EntityManager,
+  ): Promise<{
+    contactInfoId: number;
+    fullName: string;
+    email: string;
+    phone: string | null;
+    cellPhone: string | null;
+  } | null> {
+    const list = await this.getVenueContactsByRoleDept(
+      companyId,
+      roleName,
+      departmentName,
+      em,
+    );
+    return list[0] ?? null;
+  }
+
+  /** All contact rows for a venue role+department (multiple UI blocks). */
+  private async getVenueContactsByRoleDept(
+    companyId: number,
+    roleName: string,
+    departmentName: string,
+    em?: EntityManager,
+  ): Promise<
+    Array<{
+      contactInfoId: number;
+      fullName: string;
+      email: string;
+      phone: string | null;
+      cellPhone: string | null;
+    }>
+  > {
+    const repo = em ? em.getRepository(ContactAssignment) : this.assignmentRepo;
+    const raws = await repo
+      .createQueryBuilder('ca')
+      .innerJoin('ca.contact', 'ct')
+      .innerJoin('ct.contactInfo', 'ci')
+      .innerJoin('ca.role', 'r')
+      .innerJoin('ca.department', 'd')
+      .where('ca.companyId = :cid', { cid: companyId })
+      .andWhere('LOWER(r.roleName) = LOWER(:rn)', { rn: roleName.trim() })
+      .andWhere('LOWER(d.departmentName) = LOWER(:dn)', {
+        dn: departmentName.trim(),
+      })
+      .orderBy('ca.contactAssignmentId', 'ASC')
+      .select([
+        'ci.contactInfoId AS contactInfoId',
+        'ci.firstName AS firstName',
+        'ci.lastName AS lastName',
+        'ci.email AS email',
+        'ci.workPhone AS workPhone',
+        'ci.cellPhone AS cellPhone',
+      ])
+      .getRawMany<Record<string, unknown>>();
+    return raws.map((x) => this.mapRawVenueContactRow(x));
+  }
+
+  /**
+   * Create ContactInfo (by email) + Contact + a new ContactAssignment in one slot.
+   */
+  private async insertVenueContactAssignment(
+    em: EntityManager,
+    companyId: number,
+    roleId: number,
+    departmentId: number,
+    roleName: string,
+    departmentName: string,
+    draft: { fullName?: string; email?: string; phone?: string; cellPhone?: string },
+  ): Promise<void> {
+    const fullName = String(draft.fullName ?? '').trim();
+    const email = String(draft.email ?? '').trim();
+    const phone = draft.phone != null ? String(draft.phone).trim() : '';
+    const cellPhone = draft.cellPhone != null ? String(draft.cellPhone).trim() : '';
+
+    if (!email) {
+      throw new BadRequestException({
+        message: `Email is required for ${departmentName} ${roleName}.`,
+      });
+    }
+    if (phone) {
+      assertOptionalE164Phone(phone, 'work phone');
+    }
+    if (cellPhone) {
+      assertOptionalE164Phone(cellPhone, 'cell phone');
+    }
+
+    const existingInfo = await em
+      .getRepository(ContactInfo)
+      .createQueryBuilder('ci')
+      .where('LOWER(ci.email) = LOWER(:email)', { email })
+      .getOne();
+
+    const { firstName, lastName } = splitFullName(fullName);
+    const info =
+      existingInfo ??
+      (await em.save(
+        ContactInfo,
+        em.create(ContactInfo, {
+          firstName: firstName || '—',
+          lastName: lastName || '—',
+          email,
+          workPhone: phone || null,
+          cellPhone: cellPhone || null,
+        }),
+      ));
+
+    const existingContact = await em.findOne(Contact, {
+      where: { contactInfoId: info.contactInfoId },
+    });
+    const contact =
+      existingContact ??
+      (await em.save(
+        Contact,
+        em.create(Contact, { contactInfoId: info.contactInfoId }),
+      ));
+
+    const assignment = em.create(ContactAssignment, {
+      contactId: contact.contactId,
+      companyId,
+      roleId,
+      departmentId,
+    });
+    await em.save(ContactAssignment, assignment);
+
+    if (fullName || phone || cellPhone) {
+      const ci = await em.findOneBy(ContactInfo, {
+        contactInfoId: info.contactInfoId,
+      });
+      if (ci) {
+        if (firstName) ci.firstName = firstName;
+        if (lastName) ci.lastName = lastName;
+        if (phone) ci.workPhone = phone;
+        if (cellPhone) ci.cellPhone = cellPhone;
+        else if (draft.cellPhone !== undefined && !cellPhone) ci.cellPhone = null;
+        await em.save(ContactInfo, ci);
+      }
+    }
+  }
+
+  private async replaceVenueContactsByRoleDept(
+    em: EntityManager,
+    companyId: number,
+    roleName: string,
+    departmentName: string,
+    drafts:
+      | Array<{
+          fullName?: string;
+          email?: string;
+          phone?: string;
+          cellPhone?: string;
+        }>
+      | undefined,
+  ): Promise<void> {
+    if (drafts === undefined) {
+      return;
+    }
+    const roleId = await this.getRoleIdByName(roleName, em);
+    const departmentId = await this.getDepartmentIdByName(departmentName, em);
+    const nonEmpty = drafts.filter(
+      (d) =>
+        !(
+          isBlank(d.fullName) &&
+          isBlank(d.email) &&
+          isBlank(d.phone) &&
+          isBlank(d.cellPhone)
+        ),
+    );
+
+    await em.delete(ContactAssignment, { companyId, roleId, departmentId });
+
+    for (const d of nonEmpty) {
+      await this.insertVenueContactAssignment(
+        em,
+        companyId,
+        roleId,
+        departmentId,
+        roleName,
+        departmentName,
+        d,
+      );
+    }
+  }
+
+  private async upsertLink(
+    em: EntityManager,
+    draft:
+      | {
+          linkId?: number | null;
+          linkType?: string;
+          linkUrl?: string;
+          linkName?: string;
+          linkPath?: string;
+        }
+      | null
+      | undefined,
+  ): Promise<number | null> {
+    if (!draft) return null;
+    const url = String(draft.linkUrl ?? '').trim();
+    const path = String(draft.linkPath ?? '').trim();
+    const name = String(draft.linkName ?? '').trim();
+    const hasAny = url.length > 0 || path.length > 0 || name.length > 0;
+    if (!hasAny) return null;
+
+    const linkType = String(draft.linkType ?? '').trim() || (path ? 'File' : 'URL');
+    const linkUrl = url || path || '';
+    const linkPath = path || (url ? url : '');
+    const linkName = name || linkUrl.slice(0, 255) || 'Link';
+
+    const id = draft.linkId ?? null;
+    if (id && Number.isInteger(id) && id > 0) {
+      const existing = await em.findOne(Link, { where: { linkId: id } });
+      if (existing) {
+        existing.linkType = linkType.slice(0, 50);
+        existing.linkUrl = linkUrl.slice(0, 2048);
+        existing.linkPath = linkPath.slice(0, 1024);
+        existing.linkName = linkName.slice(0, 255);
+        await em.save(Link, existing);
+        return existing.linkId;
+      }
+    }
+
+    const created = em.create(Link, {
+      linkType: linkType.slice(0, 50),
+      linkUrl: linkUrl.slice(0, 2048),
+      linkPath: linkPath.slice(0, 1024),
+      linkName: linkName.slice(0, 255),
+    });
+    const saved = await em.save(Link, created);
+    return saved.linkId;
+  }
+
+  async getVenueDetails(companyId: number) {
+    await this.assertVenueCompanyForProfile(companyId);
+    const venue = await this.venueRepo.findOne({
+      where: { companyId },
+      relations: { venueType: true, seatingType: true, loadDockAddress: true },
+    });
+    if (!venue) return { missing: true as const };
+
+    const venueProfile = await this.getVenueProfile(companyId);
+
+    const brands = await this.venueBrandRepo.find({
+      where: { venueCompanyId: companyId },
+      relations: { brand: true },
+    });
+
+    const taxes = await this.venueTaxRepo.find({
+      where: { venueCompanyId: companyId },
+      relations: { tax: true },
+    });
+
+    const stagehandsServiceId = await this.getStagehandsServiceId();
+    const stagehandsProvider =
+      stagehandsServiceId != null
+        ? await this.venueServiceProviderRepo.findOne({
+            where: { venueCompanyId: companyId, serviceId: stagehandsServiceId },
+          })
+        : null;
+
+    const taxJurisdictions = taxes.map((t) => (t.tax?.taxJurisdictionType ?? '').toLowerCase());
+    const hasStateTaxOnTickets = taxJurisdictions.includes('state') ? 1 : 0;
+    const hasCityTaxOnTickets = taxJurisdictions.includes('city') ? 1 : 0;
+
+    const withholding = venue.nonResidentWithholdingId
+      ? await this.nonResidentWithholdingRepo.findOne({
+          where: { withholdingId: venue.nonResidentWithholdingId },
+        })
+      : null;
+    const withholdingLink = withholding?.withholdingLinkId
+      ? await this.linkRepo.findOne({ where: { linkId: withholding.withholdingLinkId } })
+      : null;
+    const artistWaiver = withholding?.artistWaiverInstructionsId
+      ? await this.linkRepo.findOne({ where: { linkId: withholding.artistWaiverInstructionsId } })
+      : null;
+    const iaeWaiver = withholding?.iaeWaiverInstructionsId
+      ? await this.linkRepo.findOne({ where: { linkId: withholding.iaeWaiverInstructionsId } })
+      : null;
+
+    const financeDirectors = await this.getVenueContactsByRoleDept(
+      companyId,
+      'Finance Director',
+      'Finance',
+    );
+    const settlementManagers = await this.getVenueContactsByRoleDept(
+      companyId,
+      'Settlement Manager',
+      'Finance',
+    );
+    const marketingDirectors = await this.getVenueContactsByRoleDept(
+      companyId,
+      'Marketing Director',
+      'Marketing',
+    );
+    const technicalDirectors = await this.getVenueContactsByRoleDept(
+      companyId,
+      'Technical Director',
+      'Technical',
+    );
+    const ticketingManagers = await this.getVenueContactsByRoleDept(
+      companyId,
+      'Ticketing Manager',
+      'Ticketing',
+    );
+    const bookingDirectors = await this.getVenueContactsByRoleDept(
+      companyId,
+      'Booking Director',
+      'Booking',
+    );
+    const rentalManagers = await this.getVenueContactsByRoleDept(
+      companyId,
+      'Rental Manager',
+      'Booking',
+    );
+    const calendarManagers = await this.getVenueContactsByRoleDept(
+      companyId,
+      'Calendar Manager',
+      'Booking',
+    );
+    const contractManagers = await this.getVenueContactsByRoleDept(
+      companyId,
+      'Contract Manager',
+      'Booking',
+    );
+    const stagehandProviderContacts = await this.getVenueContactsByRoleDept(
+      companyId,
+      'Stagehand Provider',
+      'Technical',
+    );
+
+    return {
+      missing: false as const,
+      venueProfile: venueProfile.missing ? null : venueProfile,
+      brandIds: brands.map((b) => b.brandId),
+      taxIds: taxes.map((t) => t.taxId),
+      stagehandProviderCompanyId: stagehandsProvider?.providerCompanyId ?? null,
+      nonResidentWithholdingId: venue.nonResidentWithholdingId ?? null,
+      hasStateTaxOnTickets,
+      hasCityTaxOnTickets,
+      financeDirectors,
+      settlementManagers,
+      marketingDirectors,
+      technicalDirectors,
+      ticketingManagers,
+      bookingDirectors,
+      rentalManagers,
+      calendarManagers,
+      contractManagers,
+      stagehandProviderContacts,
+      nonResidentWithholding: withholding
+        ? {
+            withholdingId: withholding.withholdingId,
+            withholdingTaxRate: withholding.withholdingTaxRate,
+            dmaid: withholding.dmaid,
+            taxAgencyId: withholding.taxAgencyId,
+            withholdingLink: withholdingLink
+              ? {
+                  linkId: withholdingLink.linkId,
+                  linkType: withholdingLink.linkType,
+                  linkUrl: withholdingLink.linkUrl,
+                  linkName: withholdingLink.linkName,
+                  linkPath: withholdingLink.linkPath,
+                }
+              : null,
+            artistWaiverInstructions: artistWaiver
+              ? {
+                  linkId: artistWaiver.linkId,
+                  linkType: artistWaiver.linkType,
+                  linkUrl: artistWaiver.linkUrl,
+                  linkName: artistWaiver.linkName,
+                  linkPath: artistWaiver.linkPath,
+                }
+              : null,
+            iaeWaiverInstructions: iaeWaiver
+              ? {
+                  linkId: iaeWaiver.linkId,
+                  linkType: iaeWaiver.linkType,
+                  linkUrl: iaeWaiver.linkUrl,
+                  linkName: iaeWaiver.linkName,
+                  linkPath: iaeWaiver.linkPath,
+                }
+              : null,
+          }
+        : null,
+    };
+  }
+
+  async updateVenueDetails(companyId: number, dto: UpdateVenueDetailsDto) {
+    await this.assertVenueCompanyForProfile(companyId);
+    return this.dataSource.transaction(async (em) => {
+      // 1) Venue profile (dbo.Venue + load dock address)
+      if (dto.venueProfile) {
+        await this.updateVenueProfile(companyId, dto.venueProfile);
+      }
+
+      // 2) Venue-side FK for withholding (only when the client sends this field; avoids an extra
+      //    load+save of dbo.Venue for every other partial PATCH, e.g. only venueProfile).
+      if (dto.nonResidentWithholdingId !== undefined) {
+        const venue = await em.findOne(Venue, { where: { companyId } });
+        if (!venue) {
+          throw new NotFoundException({
+            message:
+              'No venue profile exists for this company yet. Use Create venue profile first.',
+          });
+        }
+        venue.nonResidentWithholdingId = dto.nonResidentWithholdingId ?? null;
+        await em.save(Venue, venue);
+      }
+
+      // 3) Brands: replace set for this venue
+      if (dto.brandIds !== undefined) {
+        await em.delete(VenueBrand, { venueCompanyId: companyId });
+        const next = Array.from(new Set(dto.brandIds)).filter((x) => Number.isInteger(x) && x > 0);
+        if (next.length) {
+          await em.insert(
+            VenueBrand,
+            next.map((brandId) => ({ venueCompanyId: companyId, brandId })),
+          );
+        }
+      }
+
+      // 4) Taxes: replace set for this venue
+      if (dto.taxIds !== undefined) {
+        await em.delete(VenueTax, { venueCompanyId: companyId });
+        const next = Array.from(new Set(dto.taxIds)).filter((x) => Number.isInteger(x) && x > 0);
+        if (next.length) {
+          await em.insert(
+            VenueTax,
+            next.map((taxId) => ({ venueCompanyId: companyId, taxId })),
+          );
+        }
+      }
+
+      // 5) Stagehands provider: upsert (single row for Stagehands service)
+      if (dto.stagehandProviderCompanyId !== undefined) {
+        const stagehandsServiceId = await this.getStagehandsServiceId(em);
+        if (stagehandsServiceId != null) {
+          await em.delete(VenueServiceProvider, {
+            venueCompanyId: companyId,
+            serviceId: stagehandsServiceId,
+          });
+          const providerId = dto.stagehandProviderCompanyId;
+          if (providerId != null) {
+            // Ensure provider offers stagehands (CompanyService composite enforced in DB)
+            const providerOffers = await em.findOne(CompanyServiceEntity, {
+              where: { companyId: providerId, serviceProvidedId: stagehandsServiceId },
+            });
+            if (!providerOffers) {
+              throw new BadRequestException({
+                message:
+                  'Selected stagehand provider is not registered as offering Stagehands (dbo.CompanyService).',
+              });
+            }
+            await em.insert(VenueServiceProvider, {
+              venueCompanyId: companyId,
+              serviceId: stagehandsServiceId,
+              providerCompanyId: providerId,
+            });
+          }
+        }
+      }
+
+      if (dto.nonResidentWithholding !== undefined) {
+        const venueForNrw = await em.findOne(Venue, { where: { companyId } });
+        if (!venueForNrw) {
+          throw new NotFoundException({
+            message:
+              'No venue profile exists for this company yet. Use Create venue profile first.',
+          });
+        }
+        const wid =
+          dto.nonResidentWithholdingId ?? venueForNrw.nonResidentWithholdingId ?? null;
+        if (!wid) {
+          throw new BadRequestException({
+            message:
+              'Choose a withholding record for this venue before saving these details.',
+          });
+        }
+        const row = await em.findOne(NonResidentWithholding, {
+          where: { withholdingId: wid },
+        });
+        if (!row) {
+          throw new BadRequestException({
+            message:
+              'That withholding record was not found. Check the number or ask your administrator.',
+          });
+        }
+
+        if (dto.nonResidentWithholding.withholdingTaxRate !== undefined) {
+          row.withholdingTaxRate = String(dto.nonResidentWithholding.withholdingTaxRate ?? '').trim() || row.withholdingTaxRate;
+        }
+        if (dto.nonResidentWithholding.dmaid !== undefined) {
+          row.dmaid = dto.nonResidentWithholding.dmaid ?? null;
+        }
+        if (dto.nonResidentWithholding.taxAgencyId !== undefined) {
+          row.taxAgencyId = dto.nonResidentWithholding.taxAgencyId ?? null;
+        }
+        if (dto.nonResidentWithholding.withholdingLink !== undefined) {
+          row.withholdingLinkId = await this.upsertLink(em, dto.nonResidentWithholding.withholdingLink);
+        }
+        if (dto.nonResidentWithholding.artistWaiverInstructions !== undefined) {
+          row.artistWaiverInstructionsId = await this.upsertLink(
+            em,
+            dto.nonResidentWithholding.artistWaiverInstructions,
+          );
+        }
+        if (dto.nonResidentWithholding.iaeWaiverInstructions !== undefined) {
+          row.iaeWaiverInstructionsId = await this.upsertLink(
+            em,
+            dto.nonResidentWithholding.iaeWaiverInstructions,
+          );
+        }
+        await em.save(NonResidentWithholding, row);
+      }
+
+      // 6) Venue contacts (role/department based)
+      if (dto.financeDirectors !== undefined) {
+        await this.replaceVenueContactsByRoleDept(
+          em,
+          companyId,
+          'Finance Director',
+          'Finance',
+          dto.financeDirectors,
+        );
+      } else {
+        await this.upsertVenueContactByRoleDept(
+          em,
+          companyId,
+          'Finance Director',
+          'Finance',
+          dto.financeDirector,
+        );
+      }
+      if (dto.settlementManagers !== undefined) {
+        await this.replaceVenueContactsByRoleDept(
+          em,
+          companyId,
+          'Settlement Manager',
+          'Finance',
+          dto.settlementManagers,
+        );
+      } else {
+        await this.upsertVenueContactByRoleDept(
+          em,
+          companyId,
+          'Settlement Manager',
+          'Finance',
+          dto.settlementManager,
+        );
+      }
+      if (dto.marketingDirectors !== undefined) {
+        await this.replaceVenueContactsByRoleDept(
+          em,
+          companyId,
+          'Marketing Director',
+          'Marketing',
+          dto.marketingDirectors,
+        );
+      } else {
+        await this.upsertVenueContactByRoleDept(
+          em,
+          companyId,
+          'Marketing Director',
+          'Marketing',
+          dto.marketingDirector,
+        );
+      }
+      if (dto.technicalDirectors !== undefined) {
+        await this.replaceVenueContactsByRoleDept(
+          em,
+          companyId,
+          'Technical Director',
+          'Technical',
+          dto.technicalDirectors,
+        );
+      } else {
+        await this.upsertVenueContactByRoleDept(
+          em,
+          companyId,
+          'Technical Director',
+          'Technical',
+          dto.technicalDirector,
+        );
+      }
+      if (dto.ticketingManagers !== undefined) {
+        await this.replaceVenueContactsByRoleDept(
+          em,
+          companyId,
+          'Ticketing Manager',
+          'Ticketing',
+          dto.ticketingManagers,
+        );
+      } else {
+        await this.upsertVenueContactByRoleDept(
+          em,
+          companyId,
+          'Ticketing Manager',
+          'Ticketing',
+          dto.ticketingManager,
+        );
+      }
+      if (dto.bookingDirectors !== undefined) {
+        await this.replaceVenueContactsByRoleDept(
+          em,
+          companyId,
+          'Booking Director',
+          'Booking',
+          dto.bookingDirectors,
+        );
+      } else {
+        await this.upsertVenueContactByRoleDept(
+          em,
+          companyId,
+          'Booking Director',
+          'Booking',
+          dto.bookingDirector,
+        );
+      }
+      if (dto.rentalManagers !== undefined) {
+        await this.replaceVenueContactsByRoleDept(
+          em,
+          companyId,
+          'Rental Manager',
+          'Booking',
+          dto.rentalManagers,
+        );
+      } else {
+        await this.upsertVenueContactByRoleDept(
+          em,
+          companyId,
+          'Rental Manager',
+          'Booking',
+          dto.rentalManager,
+        );
+      }
+      if (dto.calendarManagers !== undefined) {
+        await this.replaceVenueContactsByRoleDept(
+          em,
+          companyId,
+          'Calendar Manager',
+          'Booking',
+          dto.calendarManagers,
+        );
+      } else {
+        await this.upsertVenueContactByRoleDept(
+          em,
+          companyId,
+          'Calendar Manager',
+          'Booking',
+          dto.calendarManager,
+        );
+      }
+      if (dto.contractManagers !== undefined) {
+        await this.replaceVenueContactsByRoleDept(
+          em,
+          companyId,
+          'Contract Manager',
+          'Booking',
+          dto.contractManagers,
+        );
+      } else {
+        await this.upsertVenueContactByRoleDept(
+          em,
+          companyId,
+          'Contract Manager',
+          'Booking',
+          dto.contractManager,
+        );
+      }
+      if (dto.stagehandProviderContacts !== undefined) {
+        await this.replaceVenueContactsByRoleDept(
+          em,
+          companyId,
+          'Stagehand Provider',
+          'Technical',
+          dto.stagehandProviderContacts,
+        );
+      } else {
+        await this.upsertVenueContactByRoleDept(
+          em,
+          companyId,
+          'Stagehand Provider',
+          'Technical',
+          dto.stagehandProviderContact,
+        );
+      }
+
+      return { updated: true as const };
+    });
+  }
 
   private async ensureRole(roleId: number, em?: EntityManager): Promise<void> {
     const repo = em ? em.getRepository(Role) : this.roleRepo;
@@ -318,7 +1261,6 @@ export class CompanyService {
     };
   }
 
-
   async findOne(companyId: number): Promise<CompanyDetail> {
     const c = await this.companyRepo.findOne({
       where: { companyId },
@@ -392,7 +1334,10 @@ export class CompanyService {
   }
 
   /** Default dbo.Venue row when registering a company whose type is Venue (1:1 with Company). */
-  private newVenuePayload(companyId: number, companyName: string): Partial<Venue> {
+  private newVenuePayload(
+    companyId: number,
+    companyName: string,
+  ): Partial<Venue> {
     return {
       companyId,
       venueName: companyName.trim().slice(0, 200),
@@ -409,6 +1354,129 @@ export class CompanyService {
     };
   }
 
+  private async getResolvedVenueTicketingColumns(): Promise<ResolvedVenueTicketingWebsiteColumns> {
+    if (this.venueTicketingColCache) {
+      return this.venueTicketingColCache;
+    }
+    try {
+      const r = await resolveVenueTicketingWebsiteColumns(
+        this.dataSource,
+        this.configService,
+      );
+      this.venueTicketingColCache = r;
+      this.logger.log(
+        `Resolved dbo.Venue ticketing/website string columns: ticketing→${r.ticketing ?? 'none'}, website→${r.website ?? 'none'}`,
+      );
+      return r;
+    } catch (e) {
+      const empty: ResolvedVenueTicketingWebsiteColumns = {
+        ticketing: null,
+        website: null,
+      };
+      this.venueTicketingColCache = empty;
+      this.logger.warn(
+        `Could not resolve venue ticketing/website column names: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      );
+      return empty;
+    }
+  }
+
+  /**
+   * Read ticketing / website from dbo.Venue using names resolved at runtime
+   * (env VENUE_COL_* or auto-detect from existing string columns; see venue-ticketing-columns.resolver.ts).
+   */
+  private async loadVenueTicketingWebsiteColumns(
+    companyId: number,
+  ): Promise<{ ticketingSystem: string | null; venueWebsite: string | null }> {
+    const cid = Number(companyId);
+    if (!Number.isInteger(cid) || cid <= 0) {
+      return { ticketingSystem: null, venueWebsite: null };
+    }
+    const cols = await this.getResolvedVenueTicketingColumns();
+    if (!cols.ticketing && !cols.website) {
+      return { ticketingSystem: null, venueWebsite: null };
+    }
+    const tPart = cols.ticketing
+      ? `[${String(cols.ticketing).replace(/\]/g, ']]')}]`
+      : 'CAST(NULL AS NVARCHAR(200))';
+    const wPart = cols.website
+      ? `[${String(cols.website).replace(/\]/g, ']]')}]`
+      : 'CAST(NULL AS NVARCHAR(4000))';
+    try {
+      const sql = `SELECT ${tPart} AS [ts], ${wPart} AS [vw] FROM [dbo].[Venue] WITH (NOLOCK) WHERE [CompanyID] = ${cid}`;
+      const rows = (await this.dataSource.query(sql)) as Record<string, unknown>[];
+      const r = rows[0];
+      if (!r) {
+        return { ticketingSystem: null, venueWebsite: null };
+      }
+      const pv = (k: string) => r[k] ?? r[k.toLowerCase()] ?? r[k.toUpperCase()];
+      const t = pv('ts') != null ? String(pv('ts')).trim() : '';
+      const w = pv('vw') != null ? String(pv('vw')).trim() : '';
+      return {
+        ticketingSystem: t || null,
+        venueWebsite: w ? w.slice(0, 2048) : null,
+      };
+    } catch (e) {
+      this.logger.warn(
+        `Could not read venue ticketing/website (companyId=${cid}): ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      );
+      return { ticketingSystem: null, venueWebsite: null };
+    }
+  }
+
+  private async updateVenueTicketingWebsiteColumns(
+    companyId: number,
+    patch: { ticketingSystem?: string | null; venueWebsite?: string | null },
+  ): Promise<void> {
+    if (patch.ticketingSystem === undefined && patch.venueWebsite === undefined) {
+      return;
+    }
+    const cid = Number(companyId);
+    if (!Number.isInteger(cid) || cid <= 0) {
+      return;
+    }
+    const col = await this.getResolvedVenueTicketingColumns();
+    const setParts: string[] = [];
+    if (patch.ticketingSystem !== undefined && col.ticketing) {
+      const t =
+        patch.ticketingSystem == null
+          ? null
+          : String(patch.ticketingSystem).trim().slice(0, 200) || null;
+      setParts.push(
+        `[${String(col.ticketing).replace(/\]/g, ']]')}] = ${sqlNVarCharLiteral(t)}`,
+      );
+    }
+    if (patch.venueWebsite !== undefined && col.website) {
+      const w =
+        patch.venueWebsite == null
+          ? null
+          : String(patch.venueWebsite).trim().slice(0, 2048) || null;
+      setParts.push(
+        `[${String(col.website).replace(/\]/g, ']]')}] = ${sqlNVarCharLiteral(w)}`,
+      );
+    }
+    if (setParts.length === 0) {
+      this.logger.warn(
+        'Venue ticketing/website not updated: no string columns resolved for the fields you sent. Set VENUE_COL_TICKETING_SYSTEM and/or VENUE_COL_VENUE_WEBSITE to the exact column names in dbo.Venue.',
+      );
+      return;
+    }
+    const sql = `UPDATE [dbo].[Venue] SET ${setParts.join(', ')} WHERE [CompanyID] = ${cid}`;
+    try {
+      await this.dataSource.query(sql);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.error(`Venue ticketing/website update failed: ${msg}`);
+      throw new BadRequestException({
+        message: `Could not update venue ticketing/website. Set VENUE_COL_TICKETING_SYSTEM / VENUE_COL_VENUE_WEBSITE to your dbo.Venue column names if needed. ${msg.slice(0, 300)}`,
+      });
+    }
+  }
+
   private async ensureVenueRowForNewVenueCompany(
     em: EntityManager,
     company: Company,
@@ -423,11 +1491,16 @@ export class CompanyService {
       where: { companyId: company.companyId },
     });
     if (existing) return;
-    const venue = em.create(Venue, this.newVenuePayload(company.companyId, company.companyName));
+    const venue = em.create(
+      Venue,
+      this.newVenuePayload(company.companyId, company.companyName),
+    );
     await em.save(Venue, venue);
   }
 
-  private async assertVenueCompanyForProfile(companyId: number): Promise<Company> {
+  private async assertVenueCompanyForProfile(
+    companyId: number,
+  ): Promise<Company> {
     const c = await this.companyRepo.findOne({
       where: { companyId },
       relations: { companyType: true },
@@ -447,11 +1520,12 @@ export class CompanyService {
     await this.assertVenueCompanyForProfile(companyId);
     const venue = await this.venueRepo.findOne({
       where: { companyId },
-      relations: { venueType: true, seatingType: true },
+      relations: { venueType: true, seatingType: true, loadDockAddress: true },
     });
     if (!venue) {
       return { missing: true as const };
     }
+    const tw = await this.loadVenueTicketingWebsiteColumns(companyId);
     return {
       missing: false as const,
       companyId: venue.companyId,
@@ -466,6 +1540,19 @@ export class CompanyService {
       venueTypeName: venue.venueType?.venueTypeName ?? null,
       seatingTypeId: venue.seatingTypeId,
       seatingTypeName: venue.seatingType?.seatingName ?? null,
+      ticketingSystem: tw.ticketingSystem,
+      venueWebsite: tw.venueWebsite,
+      loadDockAddress: venue.loadDockAddress
+        ? {
+            addressId: venue.loadDockAddress.addressId,
+            addressLine1: venue.loadDockAddress.addressLine1,
+            addressLine2: venue.loadDockAddress.addressLine2,
+            city: venue.loadDockAddress.city,
+            stateProvince: venue.loadDockAddress.stateProvince,
+            postalCode: venue.loadDockAddress.postalCode,
+            country: venue.loadDockAddress.country,
+          }
+        : null,
     };
   }
 
@@ -505,9 +1592,7 @@ export class CompanyService {
     if (dto.salesTaxRate !== undefined) {
       const raw = dto.salesTaxRate;
       venue.salesTaxRate =
-        raw === null || raw === undefined
-          ? null
-          : String(raw).trim() || null;
+        raw === null || raw === undefined ? null : String(raw).trim() || null;
     }
     if (dto.taxInCart !== undefined) {
       venue.taxInCart = dto.taxInCart;
@@ -520,7 +1605,9 @@ export class CompanyService {
         dto.insurancePolicyCopyRequirements?.trim() || null;
     }
     if (dto.venueRelationshipIae !== undefined) {
-      venue.venueRelationshipIae = dto.venueRelationshipIae.trim().slice(0, 100);
+      venue.venueRelationshipIae = dto.venueRelationshipIae
+        .trim()
+        .slice(0, 100);
     }
     if (dto.venueTypeId !== undefined) {
       venue.venueTypeId = dto.venueTypeId;
@@ -528,7 +1615,24 @@ export class CompanyService {
     if (dto.seatingTypeId !== undefined) {
       venue.seatingTypeId = dto.seatingTypeId;
     }
+    if (dto.loadDockAddress !== undefined) {
+      if (dto.loadDockAddress === null) {
+        venue.loadDockAddressId = null;
+      } else {
+        const loadDockAddress = await this.getOrCreateAddress(
+          this.dataSource.manager,
+          dto.loadDockAddress,
+        );
+        venue.loadDockAddressId = loadDockAddress.addressId;
+      }
+    }
     await this.venueRepo.save(venue);
+    if (dto.ticketingSystem !== undefined || dto.venueWebsite !== undefined) {
+      await this.updateVenueTicketingWebsiteColumns(companyId, {
+        ticketingSystem: dto.ticketingSystem,
+        venueWebsite: dto.venueWebsite,
+      });
+    }
   }
 
   private normalizeCompanyTypeName(name: string | null | undefined): string {
@@ -605,7 +1709,10 @@ export class CompanyService {
     }
   }
 
-  async update(companyId: number, dto: UpdateCompanyDto): Promise<CompanyDetail> {
+  async update(
+    companyId: number,
+    dto: UpdateCompanyDto,
+  ): Promise<CompanyDetail> {
     const existing = await this.companyRepo.findOne({
       where: { companyId },
       relations: { physicalAddress: true, mailingAddress: true },
@@ -655,7 +1762,11 @@ export class CompanyService {
 
     /** Do not clear DMA: ignore null/0 from client; keep existing when re-resolution fails. */
     let nextDmaId: number | null = existing.dmaid ?? null;
-    if (typeof dto.dmaId === 'number' && Number.isInteger(dto.dmaId) && dto.dmaId > 0) {
+    if (
+      typeof dto.dmaId === 'number' &&
+      Number.isInteger(dto.dmaId) &&
+      dto.dmaId > 0
+    ) {
       nextDmaId = dto.dmaId;
     } else if (dto.physical) {
       const resolved = await this.resolveDmaId(
@@ -674,14 +1785,18 @@ export class CompanyService {
     // MailingAddressID with the stale in-memory join rows. Point relations at the rows that
     // match the IDs we just computed (otherwise DB and GET /companies stay on old e.g. street 880).
     if (physicalAddressId !== oldPhysicalId) {
-      const pa = await this.addressRepo.findOneBy({ addressId: physicalAddressId });
+      const pa = await this.addressRepo.findOneBy({
+        addressId: physicalAddressId,
+      });
       if (pa) existing.physicalAddress = pa;
     }
     if (mailingAddressId !== oldMailingId) {
       if (mailingAddressId === physicalAddressId) {
         existing.mailingAddress = existing.physicalAddress;
       } else {
-        const ma = await this.addressRepo.findOneBy({ addressId: mailingAddressId });
+        const ma = await this.addressRepo.findOneBy({
+          addressId: mailingAddressId,
+        });
         if (ma) existing.mailingAddress = ma;
       }
     }
@@ -819,20 +1934,31 @@ export class CompanyService {
       .addOrderBy('ci.firstName', 'ASC')
       .getRawMany();
 
-    return raw.map((row) => ({
-      contactAssignmentId: Number(row.contactAssignmentId),
-      contactId: Number(row.contactId),
-      contactInfoId: Number(row.contactInfoId),
-      firstName: String(row.firstName),
-      lastName: String(row.lastName),
-      email: String(row.email),
-      cellPhone: row.cellPhone != null ? String(row.cellPhone) : null,
-      workPhone: row.workPhone != null ? String(row.workPhone) : null,
-      roleId: Number(row.roleId),
-      roleName: String(row.roleName),
-      departmentId: Number(row.departmentId),
-      departmentName: String(row.departmentName),
-    }));
+    return raw.map((row) => {
+      const r = row as Record<string, unknown>;
+      return {
+        contactAssignmentId: Number(pickRawRowValue(r, 'contactAssignmentId')),
+        contactId: Number(pickRawRowValue(r, 'contactId')),
+        contactInfoId: Number(pickRawRowValue(r, 'contactInfoId')),
+        firstName: String(pickRawRowValue(r, 'firstName') ?? ''),
+        lastName: String(pickRawRowValue(r, 'lastName') ?? ''),
+        email: String(pickRawRowValue(r, 'email') ?? ''),
+        cellPhone: (() => {
+          const v = pickRawRowValue(r, 'cellPhone');
+          if (v == null) return null;
+          return String(v);
+        })(),
+        workPhone: (() => {
+          const v = pickRawRowValue(r, 'workPhone');
+          if (v == null) return null;
+          return String(v);
+        })(),
+        roleId: Number(pickRawRowValue(r, 'roleId')),
+        roleName: String(pickRawRowValue(r, 'roleName') ?? ''),
+        departmentId: Number(pickRawRowValue(r, 'departmentId')),
+        departmentName: String(pickRawRowValue(r, 'departmentName') ?? ''),
+      };
+    });
   }
 
   async addContact(
@@ -899,7 +2025,9 @@ export class CompanyService {
         savedAsg = await em.save(ContactAssignment, assignment);
       } catch (e: unknown) {
         if (e instanceof QueryFailedError) {
-          const detail = String((e as QueryFailedError).driverError ?? e.message);
+          const detail = String(
+            (e as QueryFailedError).driverError ?? e.message,
+          );
           throw new BadRequestException({
             statusCode: HttpStatus.BAD_REQUEST,
             error: 'Bad Request',
@@ -1016,7 +2144,9 @@ export class CompanyService {
                 ? dto.firstName.trim()
                 : currentInfo.firstName,
             lastName:
-              dto.lastName !== undefined ? dto.lastName.trim() : currentInfo.lastName,
+              dto.lastName !== undefined
+                ? dto.lastName.trim()
+                : currentInfo.lastName,
             email: nextEmail,
             cellPhone:
               dto.cellPhone !== undefined
@@ -1032,7 +2162,9 @@ export class CompanyService {
             savedInfo = await infoRepo.save(createdInfo);
           } catch (e: unknown) {
             if (e instanceof QueryFailedError) {
-              const detail = String((e as QueryFailedError).driverError ?? e.message);
+              const detail = String(
+                (e as QueryFailedError).driverError ?? e.message,
+              );
               throw new BadRequestException({
                 statusCode: HttpStatus.BAD_REQUEST,
                 error: 'Bad Request',
@@ -1051,8 +2183,10 @@ export class CompanyService {
           asg.contact = savedContact;
         }
       } else {
-        if (dto.firstName !== undefined) targetInfo.firstName = dto.firstName.trim();
-        if (dto.lastName !== undefined) targetInfo.lastName = dto.lastName.trim();
+        if (dto.firstName !== undefined)
+          targetInfo.firstName = dto.firstName.trim();
+        if (dto.lastName !== undefined)
+          targetInfo.lastName = dto.lastName.trim();
         if (dto.email !== undefined) targetInfo.email = dto.email.trim();
         if (dto.cellPhone !== undefined) {
           targetInfo.cellPhone = dto.cellPhone?.trim() || null;
@@ -1065,7 +2199,9 @@ export class CompanyService {
           await infoRepo.save(targetInfo);
         } catch (e: unknown) {
           if (e instanceof QueryFailedError) {
-            const detail = String((e as QueryFailedError).driverError ?? e.message);
+            const detail = String(
+              (e as QueryFailedError).driverError ?? e.message,
+            );
             throw new BadRequestException({
               statusCode: HttpStatus.BAD_REQUEST,
               error: 'Bad Request',
@@ -1084,7 +2220,9 @@ export class CompanyService {
         await asgRepo.save(asg);
       } catch (e: unknown) {
         if (e instanceof QueryFailedError) {
-          const detail = String((e as QueryFailedError).driverError ?? e.message);
+          const detail = String(
+            (e as QueryFailedError).driverError ?? e.message,
+          );
           throw new BadRequestException({
             statusCode: HttpStatus.BAD_REQUEST,
             error: 'Bad Request',
@@ -1097,7 +2235,9 @@ export class CompanyService {
       }
 
       if (asg.contactId !== oldContactId) {
-        const remaining = await asgRepo.count({ where: { contactId: oldContactId } });
+        const remaining = await asgRepo.count({
+          where: { contactId: oldContactId },
+        });
         if (remaining === 0) {
           await contactRepo.delete({ contactId: oldContactId });
           const stillUsed = await contactRepo.count({
@@ -1172,19 +2312,28 @@ export class CompanyService {
       ])
       .getRawOne();
     if (!raw) return null;
+    const r = raw as Record<string, unknown>;
     return {
-      contactAssignmentId: Number(raw.contactAssignmentId),
-      contactId: Number(raw.contactId),
-      contactInfoId: Number(raw.contactInfoId),
-      firstName: String(raw.firstName),
-      lastName: String(raw.lastName),
-      email: String(raw.email),
-      cellPhone: raw.cellPhone != null ? String(raw.cellPhone) : null,
-      workPhone: raw.workPhone != null ? String(raw.workPhone) : null,
-      roleId: Number(raw.roleId),
-      roleName: String(raw.roleName),
-      departmentId: Number(raw.departmentId),
-      departmentName: String(raw.departmentName),
+      contactAssignmentId: Number(pickRawRowValue(r, 'contactAssignmentId')),
+      contactId: Number(pickRawRowValue(r, 'contactId')),
+      contactInfoId: Number(pickRawRowValue(r, 'contactInfoId')),
+      firstName: String(pickRawRowValue(r, 'firstName') ?? ''),
+      lastName: String(pickRawRowValue(r, 'lastName') ?? ''),
+      email: String(pickRawRowValue(r, 'email') ?? ''),
+      cellPhone: (() => {
+        const v = pickRawRowValue(r, 'cellPhone');
+        if (v == null) return null;
+        return String(v);
+      })(),
+      workPhone: (() => {
+        const v = pickRawRowValue(r, 'workPhone');
+        if (v == null) return null;
+        return String(v);
+      })(),
+      roleId: Number(pickRawRowValue(r, 'roleId')),
+      roleName: String(pickRawRowValue(r, 'roleName') ?? ''),
+      departmentId: Number(pickRawRowValue(r, 'departmentId')),
+      departmentName: String(pickRawRowValue(r, 'departmentName') ?? ''),
     };
   }
 
@@ -1222,7 +2371,9 @@ export class CompanyService {
       const venueLabel = venueCompanyName ?? venueName ?? 'TBD';
       return {
         engagementId: Number(g('engagementId')),
-        engagementStatus: normalizeEngagementStatus(String(g('engagementStatus'))),
+        engagementStatus: normalizeEngagementStatus(
+          String(g('engagementStatus')),
+        ),
         tourName,
         attractionName,
         displayTitle: buildEngagementDisplayTitle(
@@ -1246,21 +2397,32 @@ export class CompanyService {
       venue.seatingTypeId = dto.seatingTypeId;
       await this.venueRepo.save(venue);
     }
+    if (dto.ticketingSystem !== undefined || dto.venueWebsite !== undefined) {
+      await this.updateVenueTicketingWebsiteColumns(companyId, {
+        ticketingSystem: dto.ticketingSystem,
+        venueWebsite: dto.venueWebsite,
+      });
+    }
     return { updated: true };
   }
 
   async getVenueTicketing(companyId: number): Promise<{
     seatingTypeId: number | null;
     seatingTypeName: string | null;
+    ticketingSystem: string | null;
+    venueWebsite: string | null;
   } | null> {
     const venue = await this.venueRepo.findOne({
       where: { companyId },
       relations: { seatingType: true },
     });
     if (!venue) return null;
+    const tw = await this.loadVenueTicketingWebsiteColumns(companyId);
     return {
       seatingTypeId: venue.seatingTypeId,
       seatingTypeName: venue.seatingType?.seatingName ?? null,
+      ticketingSystem: tw.ticketingSystem,
+      venueWebsite: tw.venueWebsite,
     };
   }
 

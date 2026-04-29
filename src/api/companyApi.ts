@@ -48,6 +48,35 @@ export interface ApiVenueType {
   venueTypeName: string;
 }
 
+export interface ApiBrand {
+  brandId: number;
+  brandName: string;
+}
+
+export interface ApiTax {
+  taxId: number;
+  taxName: string;
+  taxRate: string;
+  taxJurisdictionType: string;
+}
+
+export interface ApiServiceProvided {
+  serviceProvidedId: number;
+  serviceName: string;
+}
+
+export interface ApiStagehandProviderCompany {
+  companyId: number;
+  companyName: string;
+}
+
+export interface ApiNonResidentWithholdingOption {
+  withholdingId: number;
+  withholdingTaxRate: string;
+  dmaid: number | null;
+  taxAgencyId: number | null;
+}
+
 export type ApiVenueProfileResponse =
   | { missing: true }
   | {
@@ -64,6 +93,9 @@ export type ApiVenueProfileResponse =
       venueTypeName: string | null;
       seatingTypeId: number | null;
       seatingTypeName: string | null;
+      ticketingSystem: string | null;
+      venueWebsite: string | null;
+      loadDockAddress: ApiAddress | null;
     };
 
 export interface ApiCompanyContact {
@@ -93,7 +125,68 @@ export interface ApiEngagementRow {
 export interface ApiVenueTicketing {
   seatingTypeId: number | null;
   seatingTypeName: string | null;
+  ticketingSystem: string | null;
+  venueWebsite: string | null;
 }
+
+/** One contact row for a venue role (UI may show several per role). */
+export type ApiVenueRoleContact = {
+  contactInfoId: number;
+  fullName: string;
+  email: string;
+  phone: string | null;
+  cellPhone: string | null;
+};
+
+export type ApiVenueDetailsResponse =
+  | { missing: true }
+  | {
+      missing: false;
+      venueProfile: ApiVenueProfileResponse | null;
+      brandIds: number[];
+      taxIds: number[];
+      stagehandProviderCompanyId: number | null;
+      nonResidentWithholdingId: number | null;
+      hasStateTaxOnTickets: 0 | 1;
+      hasCityTaxOnTickets: 0 | 1;
+      financeDirectors: ApiVenueRoleContact[];
+      settlementManagers: ApiVenueRoleContact[];
+      marketingDirectors: ApiVenueRoleContact[];
+      technicalDirectors: ApiVenueRoleContact[];
+      ticketingManagers: ApiVenueRoleContact[];
+      bookingDirectors: ApiVenueRoleContact[];
+      rentalManagers: ApiVenueRoleContact[];
+      calendarManagers: ApiVenueRoleContact[];
+      contractManagers: ApiVenueRoleContact[];
+      stagehandProviderContacts: ApiVenueRoleContact[];
+      nonResidentWithholding: null | {
+        withholdingId: number;
+        withholdingTaxRate: string;
+        dmaid: number | null;
+        taxAgencyId: number | null;
+        withholdingLink: null | {
+          linkId: number;
+          linkType: string;
+          linkUrl: string;
+          linkName: string;
+          linkPath: string;
+        };
+        artistWaiverInstructions: null | {
+          linkId: number;
+          linkType: string;
+          linkUrl: string;
+          linkName: string;
+          linkPath: string;
+        };
+        iaeWaiverInstructions: null | {
+          linkId: number;
+          linkType: string;
+          linkUrl: string;
+          linkName: string;
+          linkPath: string;
+        };
+      };
+    };
 
 export interface CreateCompanyPayload {
   companyName: string;
@@ -186,7 +279,9 @@ export function deleteCompany(id: number) {
 }
 
 export function fetchCompanyContacts(companyId: number) {
-  return apiFetch<ApiCompanyContact[]>(`/companies/${companyId}/contacts`);
+  return apiFetch<ApiCompanyContact[]>(`/companies/${companyId}/contacts`).then(
+    (data) => (Array.isArray(data) ? data : []),
+  );
 }
 
 export function createCompanyContact(
@@ -266,6 +361,16 @@ export function updateVenueProfile(
     venueRelationshipIae: string;
     venueTypeId: number | null;
     seatingTypeId: number | null;
+    ticketingSystem: string | null;
+    venueWebsite: string | null;
+    loadDockAddress: {
+      addressLine1: string;
+      addressLine2?: string | null;
+      city: string;
+      stateProvince: string;
+      postalCode: string;
+      country: string;
+    } | null;
   }>,
 ) {
   return apiFetch<void>(`/companies/${companyId}/venue-profile`, {
@@ -276,7 +381,11 @@ export function updateVenueProfile(
 
 export function updateVenueTicketing(
   companyId: number,
-  body: { seatingTypeId?: number | null },
+  body: {
+    seatingTypeId?: number | null;
+    ticketingSystem?: string | null;
+    venueWebsite?: string | null;
+  },
 ) {
   return apiFetch<{ updated: boolean }>(`/companies/${companyId}/venue-ticketing`, {
     method: 'PATCH',
@@ -291,13 +400,154 @@ export function fetchLookups() {
     apiFetch<ApiDepartment[]>('/lookups/departments'),
     apiFetch<ApiSeatingType[]>('/lookups/seating-types'),
     apiFetch<ApiVenueType[]>('/lookups/venue-types'),
-  ]).then(([companyTypes, roles, departments, seatingTypes, venueTypes]) => ({
-    companyTypes,
-    roles,
-    departments,
-    seatingTypes,
-    venueTypes,
-  }));
+    apiFetch<ApiBrand[]>('/lookups/brands'),
+    apiFetch<ApiTax[]>('/lookups/taxes'),
+    apiFetch<ApiServiceProvided[]>('/lookups/services-provided'),
+    apiFetch<ApiStagehandProviderCompany[]>('/lookups/stagehand-providers'),
+    apiFetch<ApiNonResidentWithholdingOption[]>('/lookups/non-resident-withholdings'),
+  ]).then(
+    ([
+      companyTypes,
+      roles,
+      departments,
+      seatingTypes,
+      venueTypes,
+      brands,
+      taxes,
+      servicesProvided,
+      stagehandProviders,
+      nonResidentWithholdings,
+    ]) => ({
+      companyTypes,
+      roles,
+      departments,
+      seatingTypes,
+      venueTypes,
+      brands,
+      taxes,
+      servicesProvided,
+      stagehandProviders,
+      nonResidentWithholdings,
+    }),
+  );
+}
+
+export function fetchVenueDetails(companyId: number) {
+  return apiFetch<ApiVenueDetailsResponse>(`/companies/${companyId}/venue-details`);
+}
+
+export function updateVenueDetails(
+  companyId: number,
+  body: Partial<{
+    venueProfile: Parameters<typeof updateVenueProfile>[1];
+    brandIds: number[];
+    taxIds: number[];
+    stagehandProviderCompanyId: number | null;
+    nonResidentWithholdingId: number | null;
+    hasStateTaxOnTickets: 0 | 1;
+    hasCityTaxOnTickets: 0 | 1;
+    financeDirectors: {
+      fullName?: string;
+      email?: string;
+      phone?: string;
+      cellPhone?: string;
+    }[];
+    settlementManagers: {
+      fullName?: string;
+      email?: string;
+      phone?: string;
+      cellPhone?: string;
+    }[];
+    marketingDirectors: {
+      fullName?: string;
+      email?: string;
+      phone?: string;
+      cellPhone?: string;
+    }[];
+    technicalDirectors: {
+      fullName?: string;
+      email?: string;
+      phone?: string;
+      cellPhone?: string;
+    }[];
+    ticketingManagers: {
+      fullName?: string;
+      email?: string;
+      phone?: string;
+      cellPhone?: string;
+    }[];
+    bookingDirectors: {
+      fullName?: string;
+      email?: string;
+      phone?: string;
+      cellPhone?: string;
+    }[];
+    rentalManagers: {
+      fullName?: string;
+      email?: string;
+      phone?: string;
+      cellPhone?: string;
+    }[];
+    calendarManagers: {
+      fullName?: string;
+      email?: string;
+      phone?: string;
+      cellPhone?: string;
+    }[];
+    contractManagers: {
+      fullName?: string;
+      email?: string;
+      phone?: string;
+      cellPhone?: string;
+    }[];
+    stagehandProviderContacts: {
+      fullName?: string;
+      email?: string;
+      phone?: string;
+      cellPhone?: string;
+    }[];
+    financeDirector: { fullName?: string; email?: string; phone?: string; cellPhone?: string };
+    settlementManager: { fullName?: string; email?: string; phone?: string; cellPhone?: string };
+    marketingDirector: { fullName?: string; email?: string; phone?: string; cellPhone?: string };
+    technicalDirector: { fullName?: string; email?: string; phone?: string; cellPhone?: string };
+    ticketingManager: { fullName?: string; email?: string; phone?: string; cellPhone?: string };
+    bookingDirector: { fullName?: string; email?: string; phone?: string; cellPhone?: string };
+    rentalManager: { fullName?: string; email?: string; phone?: string; cellPhone?: string };
+    calendarManager: { fullName?: string; email?: string; phone?: string; cellPhone?: string };
+    contractManager: { fullName?: string; email?: string; phone?: string; cellPhone?: string };
+    stagehandProviderContact: { fullName?: string; email?: string; phone?: string; cellPhone?: string };
+    nonResidentWithholding: Partial<{
+      withholdingTaxRate: string;
+      dmaid: number | null;
+      taxAgencyId: number | null;
+      withholdingLink: {
+        linkId?: number | null;
+        linkType?: string;
+        linkUrl?: string;
+        linkName?: string;
+        linkPath?: string;
+      } | null;
+      artistWaiverInstructions: {
+        linkId?: number | null;
+        linkType?: string;
+        linkUrl?: string;
+        linkName?: string;
+        linkPath?: string;
+      } | null;
+      iaeWaiverInstructions: {
+        linkId?: number | null;
+        linkType?: string;
+        linkUrl?: string;
+        linkName?: string;
+        linkPath?: string;
+      } | null;
+    }>;
+  }>,
+) {
+  return apiFetch<{ updated: boolean }>(`/companies/${companyId}/venue-details`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
 }
 
 export function fetchDmaByPostal(postalCode: string) {

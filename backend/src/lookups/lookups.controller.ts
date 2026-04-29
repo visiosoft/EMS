@@ -1,4 +1,11 @@
-import { Controller, DefaultValuePipe, Get, Param, ParseIntPipe, Query } from '@nestjs/common';
+import {
+  Controller,
+  DefaultValuePipe,
+  Get,
+  Param,
+  ParseIntPipe,
+  Query,
+} from '@nestjs/common';
 import { LookupsService } from './lookups.service';
 
 @Controller('lookups')
@@ -33,6 +40,31 @@ export class LookupsController {
   @Get('venue-types')
   venueTypes() {
     return this.lookupsService.findVenueTypes();
+  }
+
+  @Get('brands')
+  brands() {
+    return this.lookupsService.findBrands();
+  }
+
+  @Get('taxes')
+  taxes() {
+    return this.lookupsService.findTaxes();
+  }
+
+  @Get('services-provided')
+  servicesProvided() {
+    return this.lookupsService.findServicesProvided();
+  }
+
+  @Get('stagehand-providers')
+  stagehandProviders() {
+    return this.lookupsService.findStagehandProviders();
+  }
+
+  @Get('non-resident-withholdings')
+  nonResidentWithholdings() {
+    return this.lookupsService.findNonResidentWithholdings();
   }
 
   @Get('dma-by-postal/:postalCode')

@@ -149,7 +149,9 @@ export class EngagementService {
       return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:00`;
     if (parts.length === 3)
       return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:${parts[2].padStart(2, '0').slice(0, 2)}`;
-    throw new BadRequestException({ message: 'Invalid performance time format. Expected HH:mm or HH:mm:ss.' });
+    throw new BadRequestException({
+      message: 'Invalid performance time format. Expected HH:mm or HH:mm:ss.',
+    });
   }
 
   private async assertVenueCompany(venueCompanyId: number): Promise<void> {
@@ -172,7 +174,9 @@ export class EngagementService {
   }
 
   private async assertEngagementExists(id: number): Promise<Engagement> {
-    const e = await this.engagementRepo.findOne({ where: { engagementId: id } });
+    const e = await this.engagementRepo.findOne({
+      where: { engagementId: id },
+    });
     if (!e)
       throw new NotFoundException({ message: `Engagement #${id} not found.` });
     return e;
@@ -186,9 +190,7 @@ export class EngagementService {
     return Number.isFinite(x) ? x : null;
   }
 
-  private mapFinanceYmd(
-    v: string | Date | null | undefined,
-  ): string | null {
+  private mapFinanceYmd(v: string | Date | null | undefined): string | null {
     if (v == null || v === '') return null;
     if (v instanceof Date) {
       if (Number.isNaN(v.getTime())) return null;
@@ -199,12 +201,10 @@ export class EngagementService {
     }
     const s = String(v).trim();
     const t = s.match(/^(\d{4}-\d{2}-\d{2})/);
-    return t ? t[1]! : null;
+    return t ? t[1] : null;
   }
 
-  private assertYmdOrNull(
-    value: string | null | undefined,
-  ): string | null {
+  private assertYmdOrNull(value: string | null | undefined): string | null {
     if (value == null || value === '') return null;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
       throw new BadRequestException({
@@ -214,7 +214,9 @@ export class EngagementService {
     return value;
   }
 
-  private mapBit(v: boolean | number | Buffer | null | undefined): boolean | null {
+  private mapBit(
+    v: boolean | number | Buffer | null | undefined,
+  ): boolean | null {
     if (v == null) return null;
     if (typeof v === 'boolean') return v;
     if (typeof v === 'number') return v !== 0;
@@ -309,8 +311,14 @@ export class EngagementService {
         'addr.stateProvince     AS stateProvince',
         'dma.marketName         AS dmaMarketName',
       ])
-      .addSelect(this.openingPerformanceDateSubquery(), 'openingPerformanceDate')
-      .addSelect(this.openingPerformanceTimeSubquery(), 'openingPerformanceTime');
+      .addSelect(
+        this.openingPerformanceDateSubquery(),
+        'openingPerformanceDate',
+      )
+      .addSelect(
+        this.openingPerformanceTimeSubquery(),
+        'openingPerformanceTime',
+      );
 
     if (whereId !== undefined) {
       qb.where('e.engagementId = :id', { id: whereId });
@@ -355,7 +363,10 @@ export class EngagementService {
     const s = String(raw).trim();
     const t = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
     if (t) {
-      const h = String(Math.min(23, Math.max(0, parseInt(t[1], 10)))).padStart(2, '0');
+      const h = String(Math.min(23, Math.max(0, parseInt(t[1], 10)))).padStart(
+        2,
+        '0',
+      );
       const min = t[2].padStart(2, '0');
       const sec = (t[3] ?? '00').padStart(2, '0');
       return `${h}:${min}:${sec}`;
@@ -460,7 +471,9 @@ export class EngagementService {
           `(e.engagementStatus IS NULL OR LTRIM(RTRIM(e.engagementStatus)) NOT IN ('Private', 'Public'))`,
         );
       } else if (st === 'Private' || st === 'Public') {
-        qb.andWhere('LTRIM(RTRIM(e.engagementStatus)) = :stExact', { stExact: st });
+        qb.andWhere('LTRIM(RTRIM(e.engagementStatus)) = :stExact', {
+          stExact: st,
+        });
       }
     }
 
@@ -590,17 +603,18 @@ export class EngagementService {
    */
   async getFinanceLookups(): Promise<EngagementFinanceLookups> {
     const allow = getIaeWaiverStatusAllowlist();
-    const iaeApplicationWaiverStatuses = allow.map((v) => ({ value: v, label: v }));
+    const iaeApplicationWaiverStatuses = allow.map((v) => ({
+      value: v,
+      label: v,
+    }));
 
     const nrRows = await this.nonResidentWithholdingRepo.find({
       order: { withholdingId: 'ASC' },
     });
-    const nonResidentWithholdings: FinanceMasterOption[] = nrRows.map(
-      (r) => ({
-        id: r.withholdingId,
-        label: `Withholding #${r.withholdingId} (rate ${r.withholdingTaxRate})`,
-      }),
-    );
+    const nonResidentWithholdings: FinanceMasterOption[] = nrRows.map((r) => ({
+      id: r.withholdingId,
+      label: `Withholding #${r.withholdingId} (rate ${r.withholdingTaxRate})`,
+    }));
 
     let artistFinances: FinanceMasterOption[] = [];
     try {
@@ -614,9 +628,9 @@ export class EngagementService {
       }));
     } catch {
       try {
-        const raw = (await this.dataSource.query(
+        const raw = await this.dataSource.query(
           `SELECT ArtistFinanceID AS id FROM dbo.ArtistFinance ORDER BY ArtistFinanceID`,
-        )) as { id: number }[];
+        );
         artistFinances = (raw ?? []).map((r) => ({
           id: Number(r.id),
           label: `Artist finance #${Number(r.id)}`,
@@ -638,9 +652,9 @@ export class EngagementService {
       }));
     } catch {
       try {
-        const raw = (await this.dataSource.query(
+        const raw = await this.dataSource.query(
           `SELECT SettlementFinanceID AS id FROM dbo.SettlementFinance ORDER BY SettlementFinanceID`,
-        )) as { id: number }[];
+        );
         settlementFinances = (raw ?? []).map((r) => ({
           id: Number(r.id),
           label: `Settlement finance #${Number(r.id)}`,
@@ -716,15 +730,15 @@ export class EngagementService {
 
     if (dto.estimatedBreakeven !== undefined) {
       row.estimatedBreakeven =
-        dto.estimatedBreakeven == null ? null : (dto.estimatedBreakeven as number);
+        dto.estimatedBreakeven == null ? null : dto.estimatedBreakeven;
     }
     if (dto.grossPotential !== undefined) {
       row.grossPotential =
-        dto.grossPotential == null ? null : (dto.grossPotential as number);
+        dto.grossPotential == null ? null : dto.grossPotential;
     }
     if (dto.promoterProfit !== undefined) {
       row.promoterProfit =
-        dto.promoterProfit == null ? null : (dto.promoterProfit as number);
+        dto.promoterProfit == null ? null : dto.promoterProfit;
     }
     if (dto.venueTerms !== undefined) {
       const t = dto.venueTerms;
@@ -745,24 +759,25 @@ export class EngagementService {
     }
     if (dto.iaeApplicationWaiverStatus !== undefined) {
       const t = dto.iaeApplicationWaiverStatus;
-      row.iaeApplicationWaiverStatus = t == null || t.trim() === '' ? null : t.trim();
+      row.iaeApplicationWaiverStatus =
+        t == null || t.trim() === '' ? null : t.trim();
     }
     if (dto.dateFundsReceived !== undefined) {
       row.dateFundsReceived = this.assertYmdOrNull(dto.dateFundsReceived);
     }
     if (dto.fundsDue !== undefined) {
-      row.fundsDue = dto.fundsDue == null ? null : (dto.fundsDue as number);
+      row.fundsDue = dto.fundsDue == null ? null : dto.fundsDue;
     }
     if (dto.fundsWithheld !== undefined) {
-      row.fundsWithheld =
-        dto.fundsWithheld == null ? null : (dto.fundsWithheld as number);
+      row.fundsWithheld = dto.fundsWithheld == null ? null : dto.fundsWithheld;
     }
     if (dto.fundsOwed !== undefined) {
-      row.fundsOwed = dto.fundsOwed == null ? null : (dto.fundsOwed as number);
+      row.fundsOwed = dto.fundsOwed == null ? null : dto.fundsOwed;
     }
     if (dto.receivableBankAccount !== undefined) {
       const t = dto.receivableBankAccount;
-      row.receivableBankAccount = t == null || t.trim() === '' ? null : t.trim();
+      row.receivableBankAccount =
+        t == null || t.trim() === '' ? null : t.trim();
     }
     if (dto.requiredNonResidentWithholdingId !== undefined) {
       row.requiredNonResidentWithholdingId =
@@ -884,7 +899,10 @@ export class EngagementService {
 
         // Promote or insert new primary
         const targetRow = await manager.findOne(EngagementVenue, {
-          where: { engagementId: id, venueCompanyId: dto.primaryVenueCompanyId },
+          where: {
+            engagementId: id,
+            venueCompanyId: dto.primaryVenueCompanyId,
+          },
         });
         if (targetRow) {
           targetRow.isPrimary = true;
@@ -908,7 +926,9 @@ export class EngagementService {
    * - the earliest (opening) show date is **before today** (server date), or
    * - **TicketingSales** rows exist for any of its performances (revenue / ticket data).
    */
-  private async assertEngagementDeletableForDelete(engagementId: number): Promise<void> {
+  private async assertEngagementDeletableForDelete(
+    engagementId: number,
+  ): Promise<void> {
     await this.assertEngagementExists(engagementId);
 
     const minRow = await this.performanceRepo
@@ -1057,7 +1077,10 @@ export class EngagementService {
     return { added: true };
   }
 
-  async removeVenue(engagementId: number, venueCompanyId: number): Promise<void> {
+  async removeVenue(
+    engagementId: number,
+    venueCompanyId: number,
+  ): Promise<void> {
     await this.assertEngagementExists(engagementId);
 
     const row = await this.engagementVenueRepo.findOne({
@@ -1074,7 +1097,8 @@ export class EngagementService {
     });
     if (allVenues.length === 1) {
       throw new ConflictException({
-        message: 'Cannot remove the only venue. An engagement must have at least one venue.',
+        message:
+          'Cannot remove the only venue. An engagement must have at least one venue.',
       });
     }
 
@@ -1082,7 +1106,8 @@ export class EngagementService {
       const secondaries = allVenues.filter((v) => !v.isPrimary);
       if (secondaries.length === 0) {
         throw new ConflictException({
-          message: 'Cannot remove the primary venue when no secondary venues exist. Reassign primary first.',
+          message:
+            'Cannot remove the primary venue when no secondary venues exist. Reassign primary first.',
         });
       }
     }
