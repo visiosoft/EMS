@@ -41,6 +41,7 @@ import {
   getTotalPages,
   PAGE_SIZE,
   type PageSizeOption,
+  isAllPageSize,
 } from '@/lib/serverPagination';
 import { PageSizeSelect } from './PageSizeSelect';
 import {
@@ -1797,7 +1798,7 @@ export function ProjectsPage({ addToast }: Props) {
       </div>
 
       {/* Table */}
-      {isLoading ? <ProjectsTableSkeleton rowCount={pageSize} /> : (
+      {isLoading ? <ProjectsTableSkeleton rowCount={isAllPageSize(pageSize) ? PAGE_SIZE : pageSize} /> : (
         <>
           <div className="bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip">
             <table className="w-full text-sm min-w-[700px]">

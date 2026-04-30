@@ -1,5 +1,10 @@
 import React from 'react';
-import { PAGE_SIZE_OPTIONS, toPageSize, type PageSizeOption } from '@/lib/serverPagination';
+import {
+  PAGE_SIZE_OPTIONS_WITH_ALL,
+  PAGE_SIZE_ALL,
+  toPageSize,
+  type PageSizeOption,
+} from '@/lib/serverPagination';
 
 type Props = {
   value: PageSizeOption;
@@ -17,7 +22,7 @@ const baseSelectCls =
   'cursor-pointer tabular-nums';
 
 /**
- * Shown in datatable footers so users can pick 25 / 50 / 100 / 500 rows per page.
+ * Shown in datatable footers so users can pick 25 / 50 / 100 / 500 / All rows per page.
  */
 export function PageSizeSelect({
   value,
@@ -34,11 +39,14 @@ export function PageSizeSelect({
       value={value}
       disabled={disabled}
       aria-label={ariaLabel}
-      onChange={(e) => onChange(toPageSize(Number(e.target.value)))}
+      onChange={(e) => {
+        const raw = e.target.value;
+        onChange(raw === PAGE_SIZE_ALL ? PAGE_SIZE_ALL : toPageSize(Number(raw)));
+      }}
     >
-      {PAGE_SIZE_OPTIONS.map((n) => (
-        <option key={n} value={n}>
-          {n}
+      {PAGE_SIZE_OPTIONS_WITH_ALL.map((v) => (
+        <option key={String(v)} value={v}>
+          {v === PAGE_SIZE_ALL ? 'All' : v}
         </option>
       ))}
     </select>

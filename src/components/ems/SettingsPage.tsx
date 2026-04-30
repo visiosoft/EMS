@@ -10,6 +10,7 @@ import {
   getPageRange,
   PAGE_SIZE,
   type PageSizeOption,
+  isAllPageSize,
 } from '@/lib/serverPagination';
 import { PageSizeSelect } from './PageSizeSelect';
 import { fetchDmaMarketsPaged } from '@/api/companyApi';
@@ -232,7 +233,7 @@ export function SettingsPage({ addToast, users, onUpdateUsers }: Props) {
           )}
 
           {dmaTableLoading ? (
-            <DmaMarketsTableSkeleton rowCount={dmaPageSize} />
+            <DmaMarketsTableSkeleton rowCount={isAllPageSize(dmaPageSize) ? PAGE_SIZE : dmaPageSize} />
           ) : (
             <>
               <div className="bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip">

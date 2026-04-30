@@ -84,6 +84,7 @@ import {
   getPageRange,
   PAGE_SIZE,
   type PageSizeOption,
+  isAllPageSize,
 } from '@/lib/serverPagination';
 import { PageSizeSelect } from './PageSizeSelect';
 import { clampToMaxLen, COMPANY_FORM } from '@/lib/companyFormLimits';
@@ -2640,7 +2641,7 @@ export function CompaniesPage({ addToast }: Props) {
       </div>
 
       {isLoadingCompanies ? (
-        <CompaniesTableSkeleton rows={pageSize} />
+        <CompaniesTableSkeleton rows={isAllPageSize(pageSize) ? PAGE_SIZE : pageSize} />
       ) : (
         <>
           <div className="bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip">
