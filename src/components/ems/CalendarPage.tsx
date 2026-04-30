@@ -14,6 +14,7 @@ import {
   getPageRange,
   PAGE_SIZE,
   type PageSizeOption,
+  isAllPageSize,
 } from '@/lib/serverPagination';
 import { PageSizeSelect } from './PageSizeSelect';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -373,7 +374,9 @@ export function CalendarPage({ onNavigate }: Props) {
       )}
 
       {/* List view */}
-      {viewMode === 'list' && listLoading && <CalendarListTableSkeleton rowCount={listPageSize} />}
+      {viewMode === 'list' && listLoading && (
+        <CalendarListTableSkeleton rowCount={isAllPageSize(listPageSize) ? PAGE_SIZE : listPageSize} />
+      )}
 
       {viewMode === 'list' && !listLoading && (
         <>

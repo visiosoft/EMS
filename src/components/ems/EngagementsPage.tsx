@@ -30,6 +30,7 @@ import {
   getPageRange,
   PAGE_SIZE,
   type PageSizeOption,
+  isAllPageSize,
 } from '@/lib/serverPagination';
 import { PageSizeSelect } from './PageSizeSelect';
 import { ENGAGEMENT_STATUS_ENUM } from './engagementFormConstants';
@@ -476,7 +477,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
 
       {/* Table */}
       {loading ? (
-        <EngagementsTableSkeleton rowCount={pageSize} />
+        <EngagementsTableSkeleton rowCount={isAllPageSize(pageSize) ? PAGE_SIZE : pageSize} />
       ) : (
         <>
           <p className="text-[11px] text-text-muted mb-1.5 px-0.5">

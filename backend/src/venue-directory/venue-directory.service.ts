@@ -93,7 +93,7 @@ export class VenueDirectoryService {
     },
   ): Promise<{ data: AllVenueDirectoryRow[]; total: number }> {
     const safeOffset = Math.max(0, Math.floor(offset) || 0);
-    const safeLimit = Math.min(500, Math.max(1, Math.floor(limit) || 25));
+    const safeLimit = Math.min(10_000, Math.max(1, Math.floor(limit) || 25));
 
     const dataQb = this.baseAllVenuesQuery(filters)
       .select('v.companyId', 'companyId')
@@ -191,7 +191,7 @@ export class VenueDirectoryService {
     filters: { q?: string; dmaId?: number },
   ): Promise<{ data: EntertainmentComplexRow[]; total: number }> {
     const safeOffset = Math.max(0, Math.floor(offset) || 0);
-    const safeLimit = Math.min(500, Math.max(1, Math.floor(limit) || 25));
+    const safeLimit = Math.min(10_000, Math.max(1, Math.floor(limit) || 25));
     const qS = (filters.q ?? '').trim();
     const dmaF = filters.dmaId;
     const likeG =

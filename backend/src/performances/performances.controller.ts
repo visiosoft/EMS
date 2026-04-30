@@ -31,7 +31,7 @@ export class PerformancesController {
             .map((s) => s.trim())
             .filter(Boolean)
       : ['Unknown', 'Private', 'Public'];
-    const safeLimit = Math.min(500, Math.max(1, limit));
+    const safeLimit = Math.min(10_000, Math.max(1, limit));
     const safeOffset = Math.max(0, offset);
     return this.performancesService.findAllPaginated(
       year,

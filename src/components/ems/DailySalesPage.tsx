@@ -12,7 +12,7 @@ import {
   type ApiDailySalesRow,
 } from '@/api/dailySalesApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
-import { PAGE_SIZE, type PageSizeOption } from '@/lib/serverPagination';
+import { PAGE_SIZE, type PageSizeOption, isAllPageSize } from '@/lib/serverPagination';
 import { PageSizeSelect } from './PageSizeSelect';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -492,7 +492,9 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
   const totalTicketsYest = pageData?.summary.yesterdayTickets ?? 0;
   const totalRevenueYest = pageData?.summary.yesterdayRevenue ?? 0;
 
-  const pageCount = Math.max(1, Math.ceil(serverTotal / pageSize));
+  const pageCount = isAllPageSize(pageSize)
+    ? 1
+    : Math.max(1, Math.ceil(serverTotal / pageSize));
   const pageClamped = Math.min(page, pageCount);
 
   useEffect(() => {
@@ -707,7 +709,9 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
                 <span>
                   Showing{' '}
                   <span className="text-text-primary font-medium">
-                    {(pageClamped - 1) * pageSize + 1}–{Math.min(pageClamped * pageSize, serverTotal)}
+                    {isAllPageSize(pageSize)
+                      ? `1–${serverTotal}`
+                      : `${(pageClamped - 1) * pageSize + 1}–${Math.min(pageClamped * pageSize, serverTotal)}`}
                   </span>{' '}
                   of <span className="text-text-primary font-medium">{serverTotal.toLocaleString()}</span> performances
                 </span>

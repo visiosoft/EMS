@@ -61,6 +61,7 @@ import {
   getPageRange,
   PAGE_SIZE,
   type PageSizeOption,
+  isAllPageSize,
 } from '@/lib/serverPagination';
 import { PageSizeSelect } from './PageSizeSelect';
 import { formatE164ForDisplay } from '@/lib/contactPhoneField';
@@ -1753,7 +1754,7 @@ export function AttractionToursPage({ addToast }: Props) {
       {loading ? (
         <AttractionToursTableSkeleton
           variant={pageTab === 'Attractions' ? 'attractions' : 'tours'}
-          rowCount={pageSize}
+          rowCount={isAllPageSize(pageSize) ? PAGE_SIZE : pageSize}
         />
       ) : (
         <>
