@@ -38,6 +38,8 @@ export interface TourListRow {
   techRiderLinkId: number | null;
   venueTypePreferenceId: number | null;
   venueTypePreferenceName: string | null;
+  tourStartDate: string | null;
+  tourEndDate: string | null;
   /** dbo.Link.LinkURL from Tour.BannerLinkID */
   tourBannerImageUrl: string | null;
   appCreated: boolean;
@@ -81,6 +83,31 @@ export class TourService {
         message:
           'Tour management company must be a company of type Talent Agency.',
       });
+    }
+  }
+
+  private dateOnlyString(v: Date | string | null | undefined): string | null {
+    if (v == null) return null;
+    const s = v instanceof Date ? v.toISOString() : String(v);
+    const trimmed = s.trim();
+    if (!trimmed) return null;
+    return trimmed.slice(0, 10);
+  }
+
+  private normalizeTourDateInput(v: string | null | undefined): string | null {
+    const t = String(v ?? '').trim();
+    return t.length > 0 ? t : null;
+  }
+
+  private assertTourDateRange(
+    startDate: string | null,
+    endDate: string | null,
+  ): void {
+    if (!startDate || !endDate) return;
+    if (startDate > endDate) {
+      throw new BadRequestException(
+        'Tour start date cannot be after tour end date.',
+      );
     }
   }
 
@@ -160,6 +187,8 @@ export class TourService {
       techRiderLinkId: t.techRiderLinkId,
       venueTypePreferenceId: t.venueTypePreferenceId,
       venueTypePreferenceName: t.venueTypePreference?.venueTypeName ?? null,
+      tourStartDate: this.dateOnlyString(t.tourStartDate),
+      tourEndDate: this.dateOnlyString(t.tourEndDate),
       tourBannerImageUrl,
       appCreated: this.emsCreated.canDeleteTour(t.tourId),
     };
@@ -280,6 +309,9 @@ export class TourService {
       await this.assertTalentAgencyCompany(dto.talentAgencyCompanyId);
       talentAgencyCompanyId = dto.talentAgencyCompanyId;
     }
+    const tourStartDate = this.normalizeTourDateInput(dto.tourStartDate);
+    const tourEndDate = this.normalizeTourDateInput(dto.tourEndDate);
+    this.assertTourDateRange(tourStartDate, tourEndDate);
 
     const row = this.tourRepo.create({
       tourName,
@@ -296,6 +328,8 @@ export class TourService {
       venueTypePreferenceId: null,
       bannerLinkId: null,
       talentAgencyCompanyId,
+      tourStartDate,
+      tourEndDate,
     });
     const saved = await this.tourRepo.save(row);
     this.emsCreated.recordTour(saved.tourId);
@@ -364,6 +398,16 @@ export class TourService {
       }
       existing.talentAgencyCompanyId = dto.talentAgencyCompanyId;
     }
+    if (dto.tourStartDate !== undefined) {
+      existing.tourStartDate = this.normalizeTourDateInput(dto.tourStartDate);
+    }
+    if (dto.tourEndDate !== undefined) {
+      existing.tourEndDate = this.normalizeTourDateInput(dto.tourEndDate);
+    }
+    this.assertTourDateRange(
+      this.dateOnlyString(existing.tourStartDate),
+      this.dateOnlyString(existing.tourEndDate),
+    );
     const finalName = existing.tourName.trim();
     if (!finalName) {
       throw new BadRequestException('Tour name is required.');

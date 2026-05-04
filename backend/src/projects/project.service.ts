@@ -48,6 +48,7 @@ export class ProjectService {
       source: 'environment' | 'check_constraint' | 'existing_rows' | 'empty';
     };
   } | null = null;
+  private agentContactColumnNameCache: string | null | undefined = undefined;
 
   constructor(
     @InjectRepository(EngagementProject)
@@ -222,6 +223,138 @@ export class ProjectService {
     if (!isAllowedProjectStage(stage)) {
       throw new BadRequestException({
         message: `Invalid project stage "${stage}". Allowed values: ${PROJECT_STAGE_VALUES.join(', ')}.`,
+      });
+    }
+  }
+
+  private normalizeDateOnly(
+    value: string | Date | null | undefined,
+  ): string | null {
+    if (value == null) return null;
+    if (value instanceof Date) {
+      if (Number.isNaN(value.getTime())) return null;
+      const y = value.getUTCFullYear();
+      const m = String(value.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(value.getUTCDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    const t = String(value).trim();
+    return t.length > 0 ? t.slice(0, 10) : null;
+  }
+
+  private assertValidTourDateRange(
+    tourStartDate: string | null,
+    tourEndDate: string | null,
+  ): void {
+    if (!tourStartDate || !tourEndDate) {
+      throw new BadRequestException({
+        message: 'Tour start date and end date are required.',
+      });
+    }
+    if (tourStartDate > tourEndDate) {
+      throw new BadRequestException({
+        message: 'Tour start date cannot be after end date.',
+      });
+    }
+  }
+
+  private parseAgentContactId(
+    value: string | number | null | undefined,
+  ): number | null {
+    if (value == null) return null;
+    const t = String(value).trim();
+    if (!t) return null;
+    const n = Number(t);
+    if (!Number.isInteger(n) || n < 1) {
+      throw new BadRequestException({
+        message: 'Invalid talent agent. Select a valid talent agent contact.',
+      });
+    }
+    return n;
+  }
+
+  private async resolveAgentContactColumnName(): Promise<string | null> {
+    if (this.agentContactColumnNameCache !== undefined) {
+      return this.agentContactColumnNameCache;
+    }
+    try {
+      const rows: Array<{ colName?: string }> = await this.dataSource.query(
+        `
+        SELECT TOP 1 c.name AS colName
+        FROM sys.columns c
+        WHERE c.object_id = OBJECT_ID('dbo.EngagementProject', 'U')
+          AND LOWER(c.name) IN (
+            'agentcontactid',
+            'talentagentcontactid',
+            'agentcontactassignmentid',
+            'contactassignmentid'
+          )
+        ORDER BY CASE LOWER(c.name)
+          WHEN 'agentcontactid' THEN 1
+          WHEN 'talentagentcontactid' THEN 2
+          WHEN 'agentcontactassignmentid' THEN 3
+          WHEN 'contactassignmentid' THEN 4
+          ELSE 9
+        END
+      `,
+      );
+      const name = String(rows?.[0]?.colName ?? '').trim();
+      this.agentContactColumnNameCache = name.length > 0 ? name : null;
+      return this.agentContactColumnNameCache;
+    } catch {
+      this.agentContactColumnNameCache = null;
+      return null;
+    }
+  }
+
+  private async hasAgentContactColumn(): Promise<boolean> {
+    return (await this.resolveAgentContactColumnName()) != null;
+  }
+
+  private async getProjectAgentContactId(
+    engagementProjectId: number,
+  ): Promise<number | null> {
+    const col = await this.resolveAgentContactColumnName();
+    if (!col) return null;
+    const pid = Math.floor(Number(engagementProjectId));
+    if (!Number.isFinite(pid) || pid < 1) return null;
+    const rows: Array<{ agentContactId?: number | string | null }> =
+      await this.dataSource.query(
+        `SELECT TOP 1 [${col}] AS agentContactId FROM dbo.EngagementProject WHERE EngagementProjectID = ${pid}`,
+      );
+    const raw = rows?.[0]?.agentContactId;
+    if (raw == null) return null;
+    const n = Number(raw);
+    return Number.isInteger(n) && n > 0 ? n : null;
+  }
+
+  private async setProjectAgentContactId(
+    manager: EntityManager,
+    engagementProjectId: number,
+    agentContactId: number | null,
+  ): Promise<void> {
+    const col = await this.resolveAgentContactColumnName();
+    if (!col) {
+      if (agentContactId != null) {
+        throw new BadRequestException({
+          message:
+            'Talent agent could not be stored because no agent-contact column exists on EngagementProject.',
+        });
+      }
+      return;
+    }
+    const pid = Math.floor(Number(engagementProjectId));
+    if (!Number.isFinite(pid) || pid < 1) return;
+    const valueSql = agentContactId == null ? 'NULL' : String(agentContactId);
+    await manager.query(
+      `UPDATE dbo.EngagementProject SET [${col}] = ${valueSql} WHERE EngagementProjectID = ${pid}`,
+    );
+    const verify = await this.getProjectAgentContactId(pid);
+    const expected = agentContactId == null ? null : Number(agentContactId);
+    if ((verify ?? null) !== (expected ?? null)) {
+      throw new BadRequestException({
+        message:
+          'Talent agent was not persisted correctly. Please verify EngagementProject agent-contact column mapping.',
       });
     }
   }
@@ -575,6 +708,9 @@ export class ProjectService {
       where: { engagementProjectId: project.engagementProjectId },
       order: { dmaid: 'ASC' },
     });
+    const agentContactId = await this.getProjectAgentContactId(
+      project.engagementProjectId,
+    );
 
     const firstVenueId = dbVenues[0]?.engagementProjectVenueId;
     const optionsForVenue = (venueRowId: number) => {
@@ -631,6 +767,12 @@ export class ProjectService {
       tourId: project.tourId,
       attractionId: tour?.attractionId ?? null,
       tourName: tour?.tourName ?? null,
+      tourStartDate: this.normalizeDateOnly(
+        (tour?.tourStartDate as string | Date | null | undefined) ?? null,
+      ),
+      tourEndDate: this.normalizeDateOnly(
+        (tour?.tourEndDate as string | Date | null | undefined) ?? null,
+      ),
       attractionName: attraction?.attractionName ?? null,
       talentAgencyCompanyId: effectiveMgmtId,
       talentAgencyCompanyName: effectiveMgmtName,
@@ -639,7 +781,7 @@ export class ProjectService {
       createdBy: project.createdBy,
       name: null,
       bookerId: null,
-      agentContactId: null,
+      agentContactId,
       dmaIds: projectDmas.map((d) => d.dmaid),
       targetOnSale: null,
       notes: null,
@@ -664,6 +806,10 @@ export class ProjectService {
       });
     }
     this.assertValidProjectStage(dto.projectStage);
+    const normalizedTourStartDate = this.normalizeDateOnly(dto.tourStartDate);
+    const normalizedTourEndDate = this.normalizeDateOnly(dto.tourEndDate);
+    this.assertValidTourDateRange(normalizedTourStartDate, normalizedTourEndDate);
+    const normalizedAgentContactId = this.parseAgentContactId(dto.agentContactId);
 
     if (!dto.venues?.length) {
       throw new BadRequestException({
@@ -718,7 +864,16 @@ export class ProjectService {
         await manager.update(
           Tour,
           { tourId: dto.tourId },
-          { talentAgencyCompanyId: dto.talentAgencyCompanyId },
+          {
+            talentAgencyCompanyId: dto.talentAgencyCompanyId,
+            tourStartDate: normalizedTourStartDate,
+            tourEndDate: normalizedTourEndDate,
+          },
+        );
+        await this.setProjectAgentContactId(
+          manager,
+          savedProject.engagementProjectId,
+          normalizedAgentContactId,
         );
 
         return { engagementProjectId: savedProject.engagementProjectId };
@@ -759,6 +914,18 @@ export class ProjectService {
     if (dto.talentAgencyCompanyId !== undefined) {
       await this.assertCompanyIsTalentAgency(dto.talentAgencyCompanyId);
     }
+    const normalizedTourStartDate =
+      dto.tourStartDate !== undefined
+        ? this.normalizeDateOnly(dto.tourStartDate)
+        : undefined;
+    const normalizedTourEndDate =
+      dto.tourEndDate !== undefined
+        ? this.normalizeDateOnly(dto.tourEndDate)
+        : undefined;
+    const normalizedAgentContactId =
+      dto.agentContactId !== undefined
+        ? this.parseAgentContactId(dto.agentContactId)
+        : undefined;
     try {
       await this.dataSource.transaction(async (manager) => {
         if (dto.dmaIds !== undefined) {
@@ -785,6 +952,47 @@ export class ProjectService {
             Tour,
             { tourId: effectiveTourId },
             { talentAgencyCompanyId: dto.talentAgencyCompanyId },
+          );
+        }
+        if (
+          normalizedTourStartDate !== undefined ||
+          normalizedTourEndDate !== undefined
+        ) {
+          const effectiveTourId = dto.tourId ?? project.tourId;
+          const tourRow = await manager.findOne(Tour, {
+            where: { tourId: effectiveTourId },
+          });
+          if (!tourRow) {
+            throw new BadRequestException({
+              message: 'Selected tour was not found.',
+            });
+          }
+          const mergedStart =
+            normalizedTourStartDate !== undefined
+              ? normalizedTourStartDate
+              : this.normalizeDateOnly(
+                  (tourRow.tourStartDate as string | Date | null | undefined) ??
+                    null,
+                );
+          const mergedEnd =
+            normalizedTourEndDate !== undefined
+              ? normalizedTourEndDate
+              : this.normalizeDateOnly(
+                  (tourRow.tourEndDate as string | Date | null | undefined) ??
+                    null,
+                );
+          this.assertValidTourDateRange(mergedStart, mergedEnd);
+          await manager.update(
+            Tour,
+            { tourId: effectiveTourId },
+            { tourStartDate: mergedStart, tourEndDate: mergedEnd },
+          );
+        }
+        if (normalizedAgentContactId !== undefined) {
+          await this.setProjectAgentContactId(
+            manager,
+            id,
+            normalizedAgentContactId,
           );
         }
         await manager.save(EngagementProject, project);
@@ -845,6 +1053,8 @@ export class ProjectService {
       engagementProjectId: number;
       tourId: number;
       tourName: string | null;
+      tourStartDate: string | null;
+      tourEndDate: string | null;
       attractionName: string | null;
       talentAgencyCompanyId: number | null;
       talentAgencyCompanyName: string | null;
@@ -941,6 +1151,12 @@ export class ProjectService {
         tourId: p.tourId,
         attractionId: p.tour?.attractionId ?? null,
         tourName: p.tour?.tourName ?? null,
+        tourStartDate: this.normalizeDateOnly(
+          (p.tour?.tourStartDate as string | Date | null | undefined) ?? null,
+        ),
+        tourEndDate: this.normalizeDateOnly(
+          (p.tour?.tourEndDate as string | Date | null | undefined) ?? null,
+        ),
         attractionName: p.tour?.attraction?.attractionName ?? null,
         talentAgencyCompanyId: p.tour?.talentAgencyCompanyId ?? null,
         talentAgencyCompanyName: p.tour?.talentAgencyCompany?.companyName ?? null,

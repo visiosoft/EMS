@@ -168,6 +168,10 @@ export interface ApiProjectListRow {
   /** From Tour → Attraction (for filters / UI) */
   attractionId?: number | null;
   tourName: string | null;
+  /** dbo.Tour.TourStartDate (ISO date YYYY-MM-DD). */
+  tourStartDate?: string | null;
+  /** dbo.Tour.TourEndDate (ISO date YYYY-MM-DD). */
+  tourEndDate?: string | null;
   attractionName: string | null;
   /** From Tour.TalentAgencyCompanyID → Company */
   talentAgencyCompanyId?: number | null;
@@ -205,6 +209,10 @@ export interface CreateProjectPayload {
   projectStage: ProjectStage;
   /** nullable */
   createdBy?: string | null;
+  /** Persisted to dbo.Tour.TourStartDate */
+  tourStartDate: string;
+  /** Persisted to dbo.Tour.TourEndDate */
+  tourEndDate: string;
 
   /** Persisted to dbo.EngagementProjectDMA (deduped on save; at least one required). */
   dmaIds: number[];
@@ -224,6 +232,10 @@ export interface UpdateProjectPayload {
   projectStage?: ProjectStage;
   createdBy?: string | null;
   tourId?: number;
+  /** Persisted to dbo.Tour.TourStartDate */
+  tourStartDate?: string;
+  /** Persisted to dbo.Tour.TourEndDate */
+  tourEndDate?: string;
   /** When provided, must match a Talent Agency company (tour row is the source of truth). */
   talentAgencyCompanyId?: number;
 
