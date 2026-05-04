@@ -38,6 +38,8 @@ export interface ApiTourListRow {
   techRiderLinkId: number | null;
   venueTypePreferenceId: number | null;
   venueTypePreferenceName: string | null;
+  tourStartDate: string | null;
+  tourEndDate: string | null;
   tourBannerImageUrl: string | null;
   appCreated: boolean;
 }
@@ -65,6 +67,8 @@ export interface CreateTourPayload {
   tourInsuranceLanguage?: string | null;
   venueTypePreferenceId?: number | null;
   techRiderLinkId?: number | null;
+  tourStartDate?: string | null;
+  tourEndDate?: string | null;
 }
 
 export type UpdateTourPayload = Partial<CreateTourPayload>;
@@ -155,6 +159,12 @@ function buildCreateTourFormData(body: CreateTourPayload): FormData {
   if (body.techRiderLinkId != null && body.techRiderLinkId >= 1) {
     fd.append('techRiderLinkId', String(body.techRiderLinkId));
   }
+  if (body.tourStartDate != null && String(body.tourStartDate).trim() !== '') {
+    fd.append('tourStartDate', String(body.tourStartDate).trim());
+  }
+  if (body.tourEndDate != null && String(body.tourEndDate).trim() !== '') {
+    fd.append('tourEndDate', String(body.tourEndDate).trim());
+  }
   return fd;
 }
 
@@ -174,6 +184,8 @@ function buildUpdateTourFormData(body: UpdateTourPayload): FormData {
     'tourInsuranceLanguage',
     'venueTypePreferenceId',
     'techRiderLinkId',
+    'tourStartDate',
+    'tourEndDate',
   ];
   for (const k of keys) {
     const v = body[k];

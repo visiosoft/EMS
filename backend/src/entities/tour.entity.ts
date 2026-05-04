@@ -89,4 +89,10 @@ export class Tour {
   @ManyToOne(() => VenueType, { nullable: true })
   @JoinColumn({ name: 'VenueTypePreferenceID' })
   venueTypePreference: VenueType | null;
+
+  @Column({ name: 'TourStartDate', type: 'date', nullable: true })
+  tourStartDate: Date | string | null;
+
+  @Column({ name: 'TourEndDate', type: 'date', nullable: true })
+  tourEndDate: Date | string | null;
 }

@@ -91,6 +91,12 @@ export class CreateProjectDto {
   @MaxLength(200)
   createdBy?: string | null;
 
+  @IsISO8601()
+  tourStartDate: string;
+
+  @IsISO8601()
+  tourEndDate: string;
+
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

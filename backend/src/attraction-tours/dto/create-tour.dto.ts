@@ -2,6 +2,7 @@ import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsInt,
+  IsISO8601,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -77,4 +78,12 @@ export class CreateTourDto {
   @IsInt()
   @Min(1)
   talentAgencyCompanyId?: number;
+
+  @IsOptional()
+  @IsISO8601()
+  tourStartDate?: string;
+
+  @IsOptional()
+  @IsISO8601()
+  tourEndDate?: string;
 }

@@ -100,6 +100,8 @@ function projectDetailToListRow(p: ApiProjectDetail): ApiProjectListRow {
     tourId: p.tourId,
     attractionId: p.attractionId ?? null,
     tourName: p.tourName,
+    tourStartDate: p.tourStartDate ?? null,
+    tourEndDate: p.tourEndDate ?? null,
     attractionName: p.attractionName,
     talentAgencyCompanyId: p.talentAgencyCompanyId ?? null,
     talentAgencyCompanyName: p.talentAgencyCompanyName ?? null,
@@ -269,15 +271,23 @@ function ProjectInlineOverview({
   onGoToVenues: () => void;
   addToast: Props['addToast'];
 }) {
+  const parseAgentContactId = (raw: unknown): number | null => {
+    const n = Number(raw);
+    return Number.isInteger(n) && n > 0 ? n : null;
+  };
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [tourId, setTourId] = useState(project.tourId);
   const [projectStage, setProjectStage] = useState(project.projectStage);
   const [createdBy, setCreatedBy] = useState(project.createdBy ?? '');
+  const [tourStartDate, setTourStartDate] = useState(project.tourStartDate ?? '');
+  const [tourEndDate, setTourEndDate] = useState(project.tourEndDate ?? '');
   const [talentAgencyCompanyId, setTalentAgencyCompanyId] = useState<number | null>(
     project.talentAgencyCompanyId ?? null,
   );
-  const [selectedTalentAgentContactId, setSelectedTalentAgentContactId] = useState<number | null>(null);
+  const [selectedTalentAgentContactId, setSelectedTalentAgentContactId] = useState<number | null>(
+    parseAgentContactId(project.agentContactId),
+  );
   const [scopeTransitioning, setScopeTransitioning] = useState(false);
   const [selectedDmaIds, setSelectedDmaIds] = useState<number[]>(project.dmaIds ?? []);
   const [showDmaModal, setShowDmaModal] = useState(false);
@@ -293,8 +303,10 @@ function ProjectInlineOverview({
     setTourId(project.tourId);
     setProjectStage(project.projectStage);
     setCreatedBy(project.createdBy ?? '');
+    setTourStartDate(project.tourStartDate ?? '');
+    setTourEndDate(project.tourEndDate ?? '');
     setTalentAgencyCompanyId(project.talentAgencyCompanyId ?? null);
-    setSelectedTalentAgentContactId(null);
+    setSelectedTalentAgentContactId(parseAgentContactId(project.agentContactId));
     setSelectedDmaIds(project.dmaIds ?? []);
     setDmaDraftIds(project.dmaIds ?? []);
     setDmaModalSearch('');
@@ -303,8 +315,11 @@ function ProjectInlineOverview({
   }, [
     project.engagementProjectId,
     project.tourId,
+    project.tourStartDate,
+    project.tourEndDate,
     project.projectStage,
     project.createdBy,
+    project.agentContactId,
     project.talentAgencyCompanyId,
     project.dmaIds,
   ]);
@@ -350,16 +365,32 @@ function ProjectInlineOverview({
   const talentAgentOptions = useMemo(
     () =>
       (talentAgentContactsQuery.data ?? []).map((row: ApiCompanyContact) => ({
-        value: String(row.contactAssignmentId),
+        value: String(row.contactId),
         label: `${row.firstName} ${row.lastName}`.trim(),
       })),
     [talentAgentContactsQuery.data],
   );
+  const effectiveSelectedTalentAgentContactId = useMemo(() => {
+    if (selectedTalentAgentContactId == null || selectedTalentAgentContactId < 1) {
+      return null;
+    }
+    const rows = talentAgentContactsQuery.data ?? [];
+    if (rows.some((r) => r.contactId === selectedTalentAgentContactId)) {
+      return selectedTalentAgentContactId;
+    }
+    const byAssignment = rows.find(
+      (r) => r.contactAssignmentId === selectedTalentAgentContactId,
+    );
+    if (byAssignment) return byAssignment.contactId;
+    return selectedTalentAgentContactId;
+  }, [selectedTalentAgentContactId, talentAgentContactsQuery.data]);
 
   const onTourChange = (v: string) => {
     const nextTourId = v ? Number(v) : 0;
     setTourId(nextTourId);
     const nextTour = tours.find((t) => t.tourId === nextTourId);
+    setTourStartDate(nextTour?.tourStartDate ?? '');
+    setTourEndDate(nextTour?.tourEndDate ?? '');
     setTalentAgencyCompanyId(
       nextTour?.talentAgencyCompanyId != null && nextTour.talentAgencyCompanyId >= 1
         ? nextTour.talentAgencyCompanyId
@@ -372,6 +403,10 @@ function ProjectInlineOverview({
   const selectedTour = tourBelongsToAttraction
     ? tours.find((t) => t.tourId === tourId)
     : undefined;
+  const tourDatesLockedReason = 'Dates already exist on this tour, so they are locked.';
+  const tourDatesLockedInEdit = Boolean(
+    selectedTour?.tourStartDate?.trim() && selectedTour?.tourEndDate?.trim(),
+  );
   const effectiveTalentAgencyId = talentAgencyCompanyId;
   const tourTalentAgencyLocked = Boolean(
     selectedTour?.talentAgencyCompanyId != null &&
@@ -382,18 +417,16 @@ function ProjectInlineOverview({
     || talentAgencyOptions.find((o) => o.value === String(effectiveTalentAgencyId))?.label
     || '—';
 
-  useEffect(() => {
-    setSelectedTalentAgentContactId(null);
-  }, [effectiveTalentAgencyId]);
-
   const stageOptions = useMemo(() => editProjectStageSelectOptions(project.projectStage), [project.projectStage]);
 
   const discard = () => {
     setTourId(project.tourId);
     setProjectStage(project.projectStage);
     setCreatedBy(project.createdBy ?? '');
+    setTourStartDate(project.tourStartDate ?? '');
+    setTourEndDate(project.tourEndDate ?? '');
     setTalentAgencyCompanyId(project.talentAgencyCompanyId ?? null);
-    setSelectedTalentAgentContactId(null);
+    setSelectedTalentAgentContactId(parseAgentContactId(project.agentContactId));
     setSelectedDmaIds(project.dmaIds ?? []);
     setDmaDraftIds(project.dmaIds ?? []);
     setDmaModalSearch('');
@@ -437,7 +470,18 @@ function ProjectInlineOverview({
       addToast('Select a Talent Agency before saving.', 'warning');
       return;
     }
-    if (selectedTalentAgentContactId == null || selectedTalentAgentContactId < 1) {
+    if (!tourStartDate.trim() || !tourEndDate.trim()) {
+      addToast('Tour start and end dates are required.', 'warning');
+      return;
+    }
+    if (tourStartDate > tourEndDate) {
+      addToast('Tour start date cannot be after end date.', 'warning');
+      return;
+    }
+    if (
+      effectiveSelectedTalentAgentContactId == null ||
+      effectiveSelectedTalentAgentContactId < 1
+    ) {
       addToast('Talent Agent is required.', 'warning');
       return;
     }
@@ -452,11 +496,14 @@ function ProjectInlineOverview({
       await updateProject(project.engagementProjectId, {
         tourId,
         talentAgencyCompanyId: effectiveTalentAgencyId,
+        tourStartDate: tourStartDate.trim(),
+        tourEndDate: tourEndDate.trim(),
         projectStage: projectStage as ProjectStage,
         createdBy: createdBy.trim() || null,
         agentContactId:
-          selectedTalentAgentContactId != null && selectedTalentAgentContactId >= 1
-            ? String(selectedTalentAgentContactId)
+          effectiveSelectedTalentAgentContactId != null &&
+          effectiveSelectedTalentAgentContactId >= 1
+            ? String(effectiveSelectedTalentAgentContactId)
             : null,
         dmaIds: selectedDmaIds,
       });
@@ -522,7 +569,7 @@ function ProjectInlineOverview({
           </FormField>
           <FormField label="Talent Agent" required>
             <Select2
-              value={selectedTalentAgentContactId != null ? String(selectedTalentAgentContactId) : ''}
+              value={effectiveSelectedTalentAgentContactId != null ? String(effectiveSelectedTalentAgentContactId) : ''}
               onChange={(v) => {
                 setSelectedTalentAgentContactId(v ? Number(v) : null);
                 setDirty(true);
@@ -540,6 +587,38 @@ function ProjectInlineOverview({
               disabled={effectiveTalentAgencyId == null || talentAgentContactsQuery.isPending}
             />
           </FormField>
+          <FormField label="Tour Start Date" required>
+            <input
+              type="date"
+              className="w-full min-w-0 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent"
+              value={tourStartDate}
+              disabled={tourDatesLockedInEdit}
+              title={tourDatesLockedInEdit ? tourDatesLockedReason : undefined}
+              onChange={(e) => {
+                setTourStartDate(e.target.value);
+                setDirty(true);
+              }}
+            />
+          </FormField>
+          <FormField label="Tour End Date" required>
+            <input
+              type="date"
+              className="w-full min-w-0 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent"
+              value={tourEndDate}
+              min={tourStartDate || undefined}
+              disabled={tourDatesLockedInEdit}
+              title={tourDatesLockedInEdit ? tourDatesLockedReason : undefined}
+              onChange={(e) => {
+                setTourEndDate(e.target.value);
+                setDirty(true);
+              }}
+            />
+          </FormField>
+          {tourDatesLockedInEdit && (
+            <p className="sm:col-span-2 text-[11px] text-text-muted">
+              {tourDatesLockedReason}
+            </p>
+          )}
           <div className="sm:col-span-2 min-w-0">
             <span className="text-xs text-text-muted">Markets (DMA)</span>
             <div className="mt-1.5 rounded-lg border border-border bg-surface px-3 py-3">
@@ -1707,7 +1786,7 @@ function CreateProjectForm({
   const talentAgentOptions = useMemo(
     () =>
       (talentAgentContactsQuery.data ?? []).map((row: ApiCompanyContact) => ({
-        value: String(row.contactAssignmentId),
+        value: String(row.contactId),
         label: `${row.firstName} ${row.lastName}`.trim(),
       })),
     [talentAgentContactsQuery.data],
@@ -1831,6 +1910,8 @@ function CreateProjectForm({
   useEffect(() => {
     if (selectedTourId == null) {
       setProjectTourMgmtCompanyId(null);
+      setDateRangeStart('');
+      setDateRangeEnd('');
       setSelectedPreferredVenueTypeIds([]);
       return;
     }
@@ -1840,6 +1921,8 @@ function CreateProjectForm({
       return;
     }
     setProjectTourMgmtCompanyId(t.talentAgencyCompanyId ?? null);
+    setDateRangeStart(t.tourStartDate ?? '');
+    setDateRangeEnd(t.tourEndDate ?? '');
     if (t.venueTypePreferenceId != null && t.venueTypePreferenceId >= 1) {
       setSelectedPreferredVenueTypeIds([t.venueTypePreferenceId]);
     } else {
@@ -1879,6 +1962,10 @@ function CreateProjectForm({
     venueTypesQuery.isPending;
 
   const selectedTour = selectedTourId ? tours.find((t) => t.tourId === selectedTourId) : null;
+  const tourDatesLockedReason = 'Dates already exist on this tour, so they are locked.';
+  const tourDatesLockedInCreate = Boolean(
+    selectedTour?.tourStartDate?.trim() && selectedTour?.tourEndDate?.trim(),
+  );
   const selectedAttraction =
     selectedAttractionId != null
       ? attractions.find((a) => a.attractionId === selectedAttractionId)
@@ -2045,6 +2132,8 @@ function CreateProjectForm({
         talentAgencyCompanyId: projectTourMgmtCompanyId,
         projectStage: stage,
         createdBy: createdBy.trim() ? createdBy.trim() : undefined,
+        tourStartDate: dateRangeStart.trim(),
+        tourEndDate: dateRangeEnd.trim(),
         agentContactId:
           selectedTalentAgentContactId != null
             ? String(selectedTalentAgentContactId)
@@ -2204,12 +2293,19 @@ function CreateProjectForm({
           <p className="text-xs text-text-muted">
             Select the project date range before moving to preferred venue types.
           </p>
+          {tourDatesLockedInCreate && (
+            <p className="text-[11px] text-text-muted">
+              {tourDatesLockedReason}
+            </p>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FormField label="Start Date" required>
               <input
                 type="date"
                 className={inputCls}
                 value={dateRangeStart}
+                disabled={tourDatesLockedInCreate}
+                title={tourDatesLockedInCreate ? tourDatesLockedReason : undefined}
                 onChange={(e) => setDateRangeStart(e.target.value)}
               />
             </FormField>
@@ -2219,6 +2315,8 @@ function CreateProjectForm({
                 className={inputCls}
                 value={dateRangeEnd}
                 min={dateRangeStart || undefined}
+                disabled={tourDatesLockedInCreate}
+                title={tourDatesLockedInCreate ? tourDatesLockedReason : undefined}
                 onChange={(e) => setDateRangeEnd(e.target.value)}
               />
             </FormField>

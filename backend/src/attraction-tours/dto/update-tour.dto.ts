@@ -2,6 +2,7 @@ import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsInt,
+  IsISO8601,
   IsOptional,
   IsString,
   MaxLength,
@@ -118,4 +119,12 @@ export class UpdateTourDto {
   @Transform(({ value }) => value === true || value === 'true')
   @IsBoolean()
   removeBanner?: boolean;
+
+  @IsOptional()
+  @IsISO8601()
+  tourStartDate?: string | null;
+
+  @IsOptional()
+  @IsISO8601()
+  tourEndDate?: string | null;
 }

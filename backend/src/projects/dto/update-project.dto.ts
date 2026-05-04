@@ -2,6 +2,7 @@ import {
   IsArray,
   IsIn,
   IsInt,
+  IsISO8601,
   IsOptional,
   IsString,
   MaxLength,
@@ -20,6 +21,14 @@ export class UpdateProjectDto {
   @IsString()
   @MaxLength(200)
   createdBy?: string | null;
+
+  @IsOptional()
+  @IsISO8601()
+  tourStartDate?: string;
+
+  @IsOptional()
+  @IsISO8601()
+  tourEndDate?: string;
 
   @IsOptional()
   @Type(() => Number)
