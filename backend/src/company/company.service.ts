@@ -234,6 +234,24 @@ export class CompanyService {
     return `[${String(name).replace(/\]/g, ']]')}]`;
   }
 
+  private async canQueryCompanyTypeLinkTable(
+    manager: EntityManager,
+    tableName: string,
+  ): Promise<boolean> {
+    try {
+      await manager.query(
+        `SELECT TOP 1 1 AS [ok] FROM [dbo].${this.safeDbIdentifier(tableName)}`,
+      );
+      return true;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      this.logger.warn(
+        `Skipping unusable company-type link table dbo.${tableName}: ${message}`,
+      );
+      return false;
+    }
+  }
+
   private normalizeCompanyTypeIds(
     primary?: number | null,
     many?: number[] | null,
@@ -248,48 +266,70 @@ export class CompanyService {
   private async resolveCompanyTypeLinkTableName(
     em?: EntityManager,
   ): Promise<string | null> {
-    if (this.companyTypeLinkTableCache !== undefined) {
-      return this.companyTypeLinkTableCache;
-    }
     const manager = em ?? this.dataSource.manager;
-    const rows = (await manager.query(
-      `
-        SELECT t.TABLE_NAME AS [tableName]
-        FROM INFORMATION_SCHEMA.TABLES t
-        INNER JOIN INFORMATION_SCHEMA.COLUMNS cCompany
-          ON cCompany.TABLE_SCHEMA = t.TABLE_SCHEMA
-         AND cCompany.TABLE_NAME = t.TABLE_NAME
-         AND cCompany.COLUMN_NAME = 'CompanyID'
-        INNER JOIN INFORMATION_SCHEMA.COLUMNS cType
-          ON cType.TABLE_SCHEMA = t.TABLE_SCHEMA
-         AND cType.TABLE_NAME = t.TABLE_NAME
-         AND cType.COLUMN_NAME = 'CompanyTypeID'
-        WHERE t.TABLE_SCHEMA = 'dbo'
-          AND t.TABLE_TYPE = 'BASE TABLE'
-          AND t.TABLE_NAME <> 'Company'
-        ORDER BY
-          CASE t.TABLE_NAME
-            WHEN 'CompanyCompanyType' THEN 1
-            WHEN 'CompanyTypeCompany' THEN 2
-            WHEN 'CompanyTypeAssignment' THEN 3
-            WHEN 'CompanyTypeMap' THEN 4
-            ELSE 100
-          END,
-          t.TABLE_NAME ASC
-      `,
-    )) as Array<Record<string, unknown>>;
-    const tableName = rows
-      .map((row) => String(row.tableName ?? row.TABLENAME ?? '').trim())
-      .find((name) => name.length > 0);
-    this.companyTypeLinkTableCache = tableName || null;
-    if (tableName) {
-      this.logger.log(`Using company-type link table: dbo.${tableName}`);
-    } else {
-      this.logger.warn(
-        'No dbo company-type link table found (CompanyID + CompanyTypeID). Falling back to dbo.Company.CompanyTypeID.',
-      );
+    if (this.companyTypeLinkTableCache !== undefined) {
+      const cached = this.companyTypeLinkTableCache;
+      if (
+        cached &&
+        (await this.canQueryCompanyTypeLinkTable(manager, cached))
+      ) {
+        return cached;
+      }
+      if (cached) {
+        this.companyTypeLinkTableCache = undefined;
+      } else {
+        return null;
+      }
     }
-    return this.companyTypeLinkTableCache;
+    try {
+      const rows = (await manager.query(
+        `
+          SELECT t.TABLE_NAME AS [tableName]
+          FROM INFORMATION_SCHEMA.TABLES t
+          INNER JOIN INFORMATION_SCHEMA.COLUMNS cCompany
+            ON cCompany.TABLE_SCHEMA = t.TABLE_SCHEMA
+           AND cCompany.TABLE_NAME = t.TABLE_NAME
+           AND cCompany.COLUMN_NAME = 'CompanyID'
+          INNER JOIN INFORMATION_SCHEMA.COLUMNS cType
+            ON cType.TABLE_SCHEMA = t.TABLE_SCHEMA
+           AND cType.TABLE_NAME = t.TABLE_NAME
+           AND cType.COLUMN_NAME = 'CompanyTypeID'
+          WHERE t.TABLE_SCHEMA = 'dbo'
+            AND t.TABLE_TYPE = 'BASE TABLE'
+            AND t.TABLE_NAME <> 'Company'
+          ORDER BY
+            CASE t.TABLE_NAME
+              WHEN 'CompanyCompanyType' THEN 1
+              WHEN 'CompanyTypeCompany' THEN 2
+              WHEN 'CompanyTypeAssignment' THEN 3
+              WHEN 'CompanyTypeMap' THEN 4
+              ELSE 100
+            END,
+            t.TABLE_NAME ASC
+        `,
+      )) as Array<Record<string, unknown>>;
+      const candidates = rows
+        .map((row) => String(row.tableName ?? row.TABLENAME ?? '').trim())
+        .filter((name) => name.length > 0);
+      for (const candidate of candidates) {
+        if (await this.canQueryCompanyTypeLinkTable(manager, candidate)) {
+          this.companyTypeLinkTableCache = candidate;
+          this.logger.log(`Using company-type link table: dbo.${candidate}`);
+          return candidate;
+        }
+      }
+      this.companyTypeLinkTableCache = null;
+      this.logger.warn(
+        'No usable dbo company-type link table found (CompanyID + CompanyTypeID). Falling back to dbo.Company.CompanyTypeID.',
+      );
+      return null;
+    } catch (e) {
+      this.companyTypeLinkTableCache = null;
+      this.logger.warn(
+        `Could not resolve company-type link table: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      return null;
+    }
   }
 
   private async collectCompanyTypesByCompanyId(
@@ -305,32 +345,39 @@ export class CompanyService {
     const linkTable = await this.resolveCompanyTypeLinkTableName(em);
     if (linkTable) {
       const inList = ids.join(',');
-      const rows = (await manager.query(
-        `
-          SELECT
-            m.CompanyID AS [companyId],
-            ct.CompanyTypeID AS [companyTypeId],
-            ct.CompanyTypeName AS [companyTypeName]
-          FROM [dbo].${this.safeDbIdentifier(linkTable)} m
-          INNER JOIN [dbo].[CompanyType] ct
-            ON ct.CompanyTypeID = m.CompanyTypeID
-          WHERE m.CompanyID IN (${inList})
-        `,
-      )) as Array<Record<string, unknown>>;
-      for (const row of rows) {
-        const companyId = Number(row.companyId ?? row.COMPANYID);
-        const companyTypeId = Number(row.companyTypeId ?? row.COMPANYTYPEID);
-        const companyTypeName = String(
-          row.companyTypeName ?? row.COMPANYTYPENAME ?? '',
-        ).trim();
-        if (!Number.isInteger(companyId) || companyId <= 0) continue;
-        if (!Number.isInteger(companyTypeId) || companyTypeId <= 0) continue;
-        if (!companyTypeName) continue;
-        const list = out.get(companyId) ?? [];
-        if (!list.some((t) => t.companyTypeId === companyTypeId)) {
-          list.push({ companyTypeId, companyTypeName });
+      try {
+        const rows = (await manager.query(
+          `
+            SELECT
+              m.CompanyID AS [companyId],
+              ct.CompanyTypeID AS [companyTypeId],
+              ct.CompanyTypeName AS [companyTypeName]
+            FROM [dbo].${this.safeDbIdentifier(linkTable)} m
+            INNER JOIN [dbo].[CompanyType] ct
+              ON ct.CompanyTypeID = m.CompanyTypeID
+            WHERE m.CompanyID IN (${inList})
+          `,
+        )) as Array<Record<string, unknown>>;
+        for (const row of rows) {
+          const companyId = Number(row.companyId ?? row.COMPANYID);
+          const companyTypeId = Number(row.companyTypeId ?? row.COMPANYTYPEID);
+          const companyTypeName = String(
+            row.companyTypeName ?? row.COMPANYTYPENAME ?? '',
+          ).trim();
+          if (!Number.isInteger(companyId) || companyId <= 0) continue;
+          if (!Number.isInteger(companyTypeId) || companyTypeId <= 0) continue;
+          if (!companyTypeName) continue;
+          const list = out.get(companyId) ?? [];
+          if (!list.some((t) => t.companyTypeId === companyTypeId)) {
+            list.push({ companyTypeId, companyTypeName });
+          }
+          out.set(companyId, list);
         }
-        out.set(companyId, list);
+      } catch (e) {
+        this.companyTypeLinkTableCache = undefined;
+        this.logger.warn(
+          `Could not read company-type link rows from dbo.${linkTable}; using legacy CompanyTypeID only. ${e instanceof Error ? e.message : String(e)}`,
+        );
       }
     }
 

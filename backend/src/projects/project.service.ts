@@ -77,6 +77,17 @@ export class ProjectService {
     return `[${String(name).replace(/\]/g, ']]')}]`;
   }
 
+  private async canQueryCompanyTypeLinkTable(tableName: string): Promise<boolean> {
+    try {
+      await this.dataSource.query(
+        `SELECT TOP 1 1 AS [ok] FROM [dbo].${this.safeDbIdentifier(tableName)}`,
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private normalizeTime(t: string | null | undefined): string | null {
     if (!t) return null;
     const parts = t.trim().split(':');
@@ -314,7 +325,18 @@ export class ProjectService {
 
   private async resolveCompanyTypeLinkTableName(): Promise<string | null> {
     if (this.companyTypeLinkTableCache !== undefined) {
-      return this.companyTypeLinkTableCache;
+      const cached = this.companyTypeLinkTableCache;
+      if (
+        cached &&
+        (await this.canQueryCompanyTypeLinkTable(cached))
+      ) {
+        return cached;
+      }
+      if (cached) {
+        this.companyTypeLinkTableCache = undefined;
+      } else {
+        return null;
+      }
     }
     try {
       const rows = (await this.dataSource.query(
@@ -343,11 +365,17 @@ export class ProjectService {
           t.TABLE_NAME ASC
       `,
       )) as Array<Record<string, unknown>>;
-      const tableName = rows
+      const candidates = rows
         .map((row) => String(row.tableName ?? row.TABLENAME ?? '').trim())
-        .find((name) => name.length > 0);
-      this.companyTypeLinkTableCache = tableName || null;
-      return this.companyTypeLinkTableCache;
+        .filter((name) => name.length > 0);
+      for (const candidate of candidates) {
+        if (await this.canQueryCompanyTypeLinkTable(candidate)) {
+          this.companyTypeLinkTableCache = candidate;
+          return candidate;
+        }
+      }
+      this.companyTypeLinkTableCache = null;
+      return null;
     } catch {
       this.companyTypeLinkTableCache = null;
       return null;
@@ -375,17 +403,22 @@ export class ProjectService {
       return false;
     }
     const safeTable = this.safeDbIdentifier(linkTable);
-    const rows = (await this.dataSource.query(
-      `
-      SELECT TOP 1 1 AS [ok]
-      FROM [dbo].${safeTable} ctm
-      INNER JOIN [dbo].[CompanyType] ct
-        ON ct.CompanyTypeID = ctm.CompanyTypeID
-      WHERE ctm.CompanyID = ${Math.floor(companyId)}
-        AND LOWER(LTRIM(RTRIM(ct.CompanyTypeName))) = LOWER(${`N'${expectedTypeName.replace(/'/g, "''")}'`})
-    `,
-    )) as Array<Record<string, unknown>>;
-    return rows.length > 0;
+    try {
+      const rows = (await this.dataSource.query(
+        `
+        SELECT TOP 1 1 AS [ok]
+        FROM [dbo].${safeTable} ctm
+        INNER JOIN [dbo].[CompanyType] ct
+          ON ct.CompanyTypeID = ctm.CompanyTypeID
+        WHERE ctm.CompanyID = ${Math.floor(companyId)}
+          AND LOWER(LTRIM(RTRIM(ct.CompanyTypeName))) = LOWER(${`N'${expectedTypeName.replace(/'/g, "''")}'`})
+      `,
+      )) as Array<Record<string, unknown>>;
+      return rows.length > 0;
+    } catch {
+      this.companyTypeLinkTableCache = undefined;
+      return false;
+    }
   }
 
   private async hasAgentContactColumn(): Promise<boolean> {
