@@ -1563,7 +1563,11 @@ export function AttractionToursPage({ addToast }: Props) {
 
   const managementCompanyOptions = useMemo(() => {
     const talentAgencies = companies.filter(
-      (c) => (c.companyTypeName ?? '').trim().toLowerCase() === 'talent agency',
+      (c) =>
+        (c.companyTypeNames ?? []).some(
+          (name) => name.trim().toLowerCase() === 'talent agency',
+        ) ||
+        (c.companyTypeName ?? '').trim().toLowerCase() === 'talent agency',
     );
     return talentAgencies
       .map((c) => ({ value: String(c.companyId), label: c.companyName }))

@@ -65,9 +65,16 @@ const Index = () => {
         <Header breadcrumb={getBreadcrumb()} onMenuToggle={() => setMobileSidebarOpen(prev => !prev)} />
         <main className="p-4 lg:p-6">
 
-          {currentView === 'companies' && <CompaniesPage addToast={addToast} />}
+          {currentView === 'companies' && (
+            <CompaniesPage
+              addToast={addToast}
+              initialSelectedCompanyId={
+                (viewData.selectedCompanyId as string | number | undefined) ?? null
+              }
+            />
+          )}
 
-          {currentView === 'all-venues' && <AllVenuesPage />}
+          {currentView === 'all-venues' && <AllVenuesPage onNavigate={navigate} />}
 
           {currentView === 'attraction-tours' && <AttractionToursPage addToast={addToast} />}
 

@@ -357,8 +357,9 @@ function ProjectInlineOverview({
       .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
   }, [talentAgencyPickerQuery.data]);
   const talentAgentContactsQuery = useQuery({
-    queryKey: ['company', talentAgencyCompanyId ?? 0, 'contacts'],
-    queryFn: () => fetchCompanyContacts(talentAgencyCompanyId as number),
+    queryKey: ['company', talentAgencyCompanyId ?? 0, 'contacts', 'talent-agent-role'],
+    queryFn: () =>
+      fetchCompanyContacts(talentAgencyCompanyId as number, { roleName: 'Talent Agent' }),
     enabled: talentAgencyCompanyId != null && talentAgencyCompanyId >= 1,
     staleTime: 60_000,
   });
@@ -1722,6 +1723,7 @@ function CreateProjectForm({
   const [dateRangeStart, setDateRangeStart] = useState('');
   const [dateRangeEnd, setDateRangeEnd] = useState('');
   const [selectedPreferredVenueTypeIds, setSelectedPreferredVenueTypeIds] = useState<number[]>([]);
+  const [preferredVenueTypeSearch, setPreferredVenueTypeSearch] = useState('');
 
   const [selectedDmaIds, setSelectedDmaIds] = useState<number[]>([]);
   /** Stable key when market selection changes — clears venue / performance draft state. */
@@ -1766,8 +1768,9 @@ function CreateProjectForm({
   const [showAddTourModal, setShowAddTourModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const talentAgentContactsQuery = useQuery({
-    queryKey: ['company', projectTourMgmtCompanyId ?? 0, 'contacts'],
-    queryFn: () => fetchCompanyContacts(projectTourMgmtCompanyId as number),
+    queryKey: ['company', projectTourMgmtCompanyId ?? 0, 'contacts', 'talent-agent-role'],
+    queryFn: () =>
+      fetchCompanyContacts(projectTourMgmtCompanyId as number, { roleName: 'Talent Agent' }),
     enabled: projectTourMgmtCompanyId != null && projectTourMgmtCompanyId >= 1 && step >= 5,
     staleTime: 60_000,
   });
@@ -1782,6 +1785,28 @@ function CreateProjectForm({
       .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
   }, [talentAgencyPickerQuery.data]);
   const venueTypes: ApiVenueType[] = venueTypesQuery.data ?? [];
+  const preferredVenueTypeOptions = useMemo(
+    () =>
+      venueTypes
+        .slice()
+        .sort((a, b) =>
+          (a.venueTypeName ?? '').localeCompare(b.venueTypeName ?? '', undefined, {
+            sensitivity: 'base',
+          }),
+        )
+        .map((row) => ({
+          value: String(row.venueTypeId),
+          label: row.venueTypeName ?? `Type #${row.venueTypeId}`,
+        })),
+    [venueTypes],
+  );
+  const filteredPreferredVenueTypeOptions = useMemo(() => {
+    const q = preferredVenueTypeSearch.trim().toLowerCase();
+    if (!q) return preferredVenueTypeOptions;
+    return preferredVenueTypeOptions.filter((opt) =>
+      opt.label.toLowerCase().includes(q),
+    );
+  }, [preferredVenueTypeOptions, preferredVenueTypeSearch]);
   const dmaFlatRows: ApiDmaMarket[] = dmaMarketsQuery.data?.data ?? [];
   const talentAgentOptions = useMemo(
     () =>
@@ -1999,7 +2024,6 @@ function CreateProjectForm({
     dateRangeStart.trim().length > 0 &&
     dateRangeEnd.trim().length > 0 &&
     dateRangeStart <= dateRangeEnd;
-  const canProceedPreferredVenueType = selectedPreferredVenueTypeIds.length > 0;
   const canProceedTourMgmt =
     projectTourMgmtCompanyId != null && projectTourMgmtCompanyId >= 1;
   const canProceedTalentAgent =
@@ -2011,7 +2035,6 @@ function CreateProjectForm({
   const canCreateProject =
     selectedTourId != null &&
     canProceedDateRange &&
-    canProceedPreferredVenueType &&
     canProceedTourMgmt &&
     canProceedTalentAgent &&
     canProceedMarkets &&
@@ -2023,10 +2046,6 @@ function CreateProjectForm({
   const handleNext = () => {
     if (step === 3 && !canProceedDateRange) {
       addToast('Choose a valid start and end date range.', 'warning');
-      return;
-    }
-    if (step === 4 && !canProceedPreferredVenueType) {
-      addToast('Select at least one preferred venue type.', 'warning');
       return;
     }
     if (step === 5 && !canProceedTourMgmt) {
@@ -2328,36 +2347,104 @@ function CreateProjectForm({
         <div className="space-y-4">
           <h3 className="text-sm font-medium text-text-primary">Preferred Venue Type</h3>
           <p className="text-xs text-text-muted">
-            Choose all preferred venue types linked to this Tour.
+            Choose one or more preferred venue types from the full venue-type list.
           </p>
-          <div className="max-h-[min(22rem,45vh)] overflow-y-auto rounded-md border border-border bg-surface divide-y divide-border/60">
-            {venueTypes.length === 0 && (
-              <p className="text-sm text-text-muted px-3 py-6 text-center">No venue types returned from lookups.</p>
-            )}
-            {venueTypes.map((row) => {
-              const checked = selectedPreferredVenueTypeIds.includes(row.venueTypeId);
-              return (
-                <label
-                  key={row.venueTypeId}
-                  className="flex items-start gap-2.5 px-3 py-2.5 text-sm cursor-pointer hover:bg-hover/80 text-text-primary"
-                >
-                  <input
-                    type="checkbox"
-                    className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-border text-ems-accent focus:ring-ems-accent"
-                    checked={checked}
-                    onChange={() => {
-                      setSelectedPreferredVenueTypeIds((prev) =>
-                        prev.includes(row.venueTypeId)
-                          ? prev.filter((id) => id !== row.venueTypeId)
-                          : [...prev, row.venueTypeId],
-                      );
+          {venueTypesQuery.isError ? (
+            <div className="rounded-lg border border-ems-coral/40 bg-ems-coral/10 px-3 py-2 text-sm text-text-primary space-y-2">
+              <p>Could not load venue types: {friendlyApiError(venueTypesQuery.error)}</p>
+              <button
+                type="button"
+                className="text-sm font-medium text-ems-accent hover:underline"
+                onClick={() => void venueTypesQuery.refetch()}
+              >
+                Retry
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <FormField label="Search Preferred Venue Types">
+                <input
+                  type="text"
+                  className={inputCls}
+                  value={preferredVenueTypeSearch}
+                  onChange={(e) => setPreferredVenueTypeSearch(e.target.value)}
+                  placeholder="Search venue types..."
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </FormField>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs text-text-muted">
+                  {selectedPreferredVenueTypeIds.length.toLocaleString()} selected
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="text-xs text-ems-accent hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={filteredPreferredVenueTypeOptions.length === 0}
+                    onClick={() => {
+                      setSelectedPreferredVenueTypeIds((prev) => {
+                        const ids = filteredPreferredVenueTypeOptions
+                          .map((o) => Number(o.value))
+                          .filter((n) => Number.isInteger(n) && n > 0);
+                        return [...new Set([...prev, ...ids])];
+                      });
                     }}
-                  />
-                  <span className="min-w-0 break-words">{row.venueTypeName}</span>
-                </label>
-              );
-            })}
-          </div>
+                  >
+                    Select visible
+                  </button>
+                  <button
+                    type="button"
+                    className="text-xs text-text-muted hover:text-text-primary hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={selectedPreferredVenueTypeIds.length === 0}
+                    onClick={() => setSelectedPreferredVenueTypeIds([])}
+                  >
+                    Clear all
+                  </button>
+                </div>
+              </div>
+              <div className="max-h-[min(22rem,45vh)] overflow-y-auto rounded-md border border-border bg-surface divide-y divide-border/60">
+                {venueTypesQuery.isPending && (
+                  <p className="text-sm text-text-muted px-3 py-6 text-center">Loading venue types...</p>
+                )}
+                {!venueTypesQuery.isPending &&
+                  filteredPreferredVenueTypeOptions.length === 0 && (
+                    <p className="text-sm text-text-muted px-3 py-6 text-center">
+                      No venue types match your search.
+                    </p>
+                  )}
+                {!venueTypesQuery.isPending &&
+                  filteredPreferredVenueTypeOptions.map((opt) => {
+                    const id = Number(opt.value);
+                    const checked = selectedPreferredVenueTypeIds.includes(id);
+                    return (
+                      <label
+                        key={opt.value}
+                        className="flex items-start gap-2.5 px-3 py-2.5 text-sm cursor-pointer hover:bg-hover/80 text-text-primary"
+                      >
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-border text-ems-accent focus:ring-ems-accent"
+                          checked={checked}
+                          onChange={() => {
+                            setSelectedPreferredVenueTypeIds((prev) =>
+                              prev.includes(id)
+                                ? prev.filter((x) => x !== id)
+                                : [...prev, id],
+                            );
+                          }}
+                        />
+                        <span className="min-w-0 break-words">{opt.label}</span>
+                      </label>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+          <p className="text-[11px] text-text-muted">
+            {preferredVenueTypeOptions.length.toLocaleString()} venue type
+            {preferredVenueTypeOptions.length === 1 ? '' : 's'} available.
+          </p>
         </div>
       )}
 
@@ -2483,7 +2570,7 @@ function CreateProjectForm({
         <div className="space-y-4">
           <h3 className="text-sm font-medium text-text-primary">Venue Choice</h3>
           <p className="text-xs text-text-muted">
-            {`Every market you picked is shown as its own section. Venues under a section match the tour's preferred venue type (if set) and your search. Sections can be empty when nothing matches—adjust the tour type or clear the search to see more.`}
+            {`Every market you picked is shown as its own section. Venues under a section match your selected preferred venue types (if any) and your search. Sections can be empty when nothing matches—adjust filters or clear the search to see more.`}
           </p>
           <FormField label="Venue proposal status" required>
             <Select2
@@ -2592,8 +2679,8 @@ function CreateProjectForm({
                     {venueRowsAll.length === 1 ? '' : 's'}
                   </span>{' '}
                   {selectedPreferredVenueTypeIds.length > 0
-                    ? "match the tour's preferred venue type and your search."
-                    : 'match your search (no preferred venue type on this tour).'}{' '}
+                    ? 'match your selected preferred venue type filters and your search.'
+                    : 'match your search (no preferred venue type filters applied).'}{' '}
                   {selectedDmaIds.length} market{selectedDmaIds.length === 1 ? '' : 's'} selected — browse by section above.
                 </p>
               )}
@@ -2750,7 +2837,6 @@ function CreateProjectForm({
                 (step === 1 && !canProceedStep1) ||
                 (step === 2 && !canProceedStep2) ||
                 (step === 3 && !canProceedDateRange) ||
-                (step === 4 && !canProceedPreferredVenueType) ||
                 (step === 5 && (!canProceedTourMgmt || !canProceedTalentAgent)) ||
                 (step === 6 && !canProceedMarkets) ||
                 (step === 7 && (!canProceedVenues || !canProceedVenueStatusStep || venuesWizardQuery.isPending)) ||

@@ -10,7 +10,7 @@ import {
   ActionMenu,
   StatusBadge,
 } from './Primitives';
-import { Select2, toOptions } from './Select2';
+import { Select2, Select2Multi, toOptions } from './Select2';
 import type { Company, Contact } from '@/data/constants';
 import { useAddressAutofill } from '@/hooks/useAddressAutofill';
 import { clearFormFieldError, clearFormFieldErrors } from '@/lib/clearFormFieldError';
@@ -98,6 +98,7 @@ import {
 
 interface Props {
   onNavigate?: (view: string, data?: unknown) => void;
+  initialSelectedCompanyId?: string | number | null;
   addToast: (
     msg: string,
     type: 'success' | 'error' | 'warning' | 'info',
@@ -330,7 +331,11 @@ function InlineEditableOverview({
   onSaved: (row: ApiCompanyListRow) => void | Promise<void>;
 }) {
   const [name, setName]             = useState(company.name);
-  const [typeId, setTypeId]         = useState(company.companyTypeId != null ? String(company.companyTypeId) : '');
+  const [typeIds, setTypeIds]       = useState<string[]>(
+    (company.companyTypeIds ?? [])
+      .map((id) => String(id))
+      .filter((id) => id.trim().length > 0),
+  );
   const [physStreet, setPhysStreet] = useState(company.physicalStreet ?? '');
   const [physCity, setPhysCity]     = useState(company.physicalCity ?? company.city ?? '');
   const [physState, setPhysState]   = useState(company.physicalState ?? company.state ?? '');
@@ -347,6 +352,8 @@ function InlineEditableOverview({
   const [saving, setSaving]         = useState(false);
   const [nameEditing, setNameEditing] = useState(false);
   const [inlineSaveErrors, setInlineSaveErrors] = useState<string[]>([]);
+  const [confirmVenueTypeRemovalOpen, setConfirmVenueTypeRemovalOpen] =
+    useState(false);
   const [resolvedDma, setResolvedDma] = useState<string | null>(company.dmaMarketName ?? null);
   const [dmaLookupBusy, setDmaLookupBusy] = useState(false);
 
@@ -468,9 +475,41 @@ function InlineEditableOverview({
   }, [physPostal, physCountry]);
 
   const typeOptions = companyTypes.map(t => ({ value: String(t.companyTypeId), label: t.companyTypeName }));
+  const venueTypeIds = useMemo(
+    () =>
+      new Set(
+        companyTypes
+          .filter((t) => t.companyTypeName.trim().toLowerCase() === 'venue')
+          .map((t) => t.companyTypeId),
+      ),
+    [companyTypes],
+  );
+  const hadVenueTypeBefore = useMemo(() => {
+    const beforeIds = (company.companyTypeIds ?? [])
+      .map((id) => Number(id))
+      .filter((id) => Number.isInteger(id) && id > 0);
+    if (beforeIds.some((id) => venueTypeIds.has(id))) return true;
+    return (company.companyTypeNames ?? []).some(
+      (name) => name.trim().toLowerCase() === 'venue',
+    );
+  }, [company.companyTypeIds, company.companyTypeNames, venueTypeIds]);
+  const hasVenueTypeAfter = useMemo(
+    () =>
+      typeIds
+        .map((id) => Number(id))
+        .filter((id) => Number.isInteger(id) && id > 0)
+        .some((id) => venueTypeIds.has(id)),
+    [typeIds, venueTypeIds],
+  );
+  const removingVenueType = hadVenueTypeBefore && !hasVenueTypeAfter;
 
   const discard = () => {
-    setName(company.name); setTypeId(company.companyTypeId != null ? String(company.companyTypeId) : '');
+    setName(company.name);
+    setTypeIds(
+      (company.companyTypeIds ?? [])
+        .map((id) => String(id))
+        .filter((id) => id.trim().length > 0),
+    );
     setPhysStreet(company.physicalStreet ?? ''); setPhysCity(company.physicalCity ?? company.city ?? '');
     setPhysState(company.physicalState ?? company.state ?? ''); setPhysPostal(company.physicalPostalCode ?? '');
     setPhysCountry(company.physicalCountry ?? 'US'); setMailStreet(company.mailingStreet ?? '');
@@ -487,7 +526,7 @@ function InlineEditableOverview({
     const n = name.trim();
     if (!n) e.push('Company name is required.');
     else if (n.length > M.companyName) e.push(`Company name must be ${M.companyName} characters or fewer.`);
-    if (!typeId) e.push('Company type is required.');
+    if (typeIds.length === 0) e.push('At least one company type is required.');
     if (!physStreet.trim()) e.push('Physical street is required.');
     else if (physStreet.trim().length > M.addressLine1) e.push(`Physical street must be ${M.addressLine1} characters or fewer.`);
     if (!physCity.trim()) e.push('Physical city is required.');
@@ -548,17 +587,12 @@ function InlineEditableOverview({
     }
     return e;
   }, [
-    name, typeId, physStreet, physCity, physState, physPostal, physCountry,
+    name, typeIds, physStreet, physCity, physState, physPostal, physCountry,
     separateMailing, mailStreet, mailCity, mailState, mailPostal, mailCountry,
     company.dmaId, company.physicalPostalCode, resolvedDma, dmaLookupBusy,
   ]);
 
-  const handleSave = async () => {
-    const errs = collectEditCompanyErrors();
-    if (errs.length) {
-      setInlineSaveErrors(errs);
-      return;
-    }
+  const saveCompanyChanges = async () => {
     setInlineSaveErrors([]);
     setSaving(true);
     try {
@@ -597,7 +631,11 @@ function InlineEditableOverview({
       );
       const updated = await updateCompany(Number(company.id), {
         companyName: name.trim().slice(0, M.companyName),
-        companyTypeId: Number(typeId),
+        companyTypeIds: typeIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0),
+        companyTypeId:
+          Number(typeIds[0]) > 0 && Number.isInteger(Number(typeIds[0]))
+            ? Number(typeIds[0])
+            : undefined,
         dmaId: dmaIdToSend,
         physical: {
           addressLine1: physStreet.trim().slice(0, M.addressLine1),
@@ -626,8 +664,70 @@ function InlineEditableOverview({
     } finally { setSaving(false); }
   };
 
+  const handleSave = async () => {
+    const errs = collectEditCompanyErrors();
+    if (errs.length) {
+      setInlineSaveErrors(errs);
+      return;
+    }
+    if (removingVenueType) {
+      setConfirmVenueTypeRemovalOpen(true);
+      return;
+    }
+    await saveCompanyChanges();
+  };
+
   return (
     <div className="relative">
+      <AlertDialog
+        open={confirmVenueTypeRemovalOpen}
+        onOpenChange={(open) => {
+          if (!saving) setConfirmVenueTypeRemovalOpen(open);
+        }}
+      >
+        <AlertDialogContent className="z-[360] border-border bg-card text-text-primary shadow-xl sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-text-primary font-semibold text-lg">
+              Remove Venue type?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-text-secondary text-sm leading-relaxed">
+              Removing Venue type will delete this company&apos;s venue profile data. If this company is linked to projects or engagements, the switch will be blocked and nothing will be deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:gap-2">
+            <AlertDialogCancel
+              disabled={saving}
+              className="border-border bg-elevated text-text-primary hover:bg-hover mt-0"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={saving}
+              className="bg-ems-coral text-white hover:bg-ems-coral/90 sm:ml-0"
+              onClick={() => {
+                setConfirmVenueTypeRemovalOpen(false);
+                addToast(
+                  'If allowed, venue profile data will be deleted after this change.',
+                  'warning',
+                );
+                void saveCompanyChanges();
+              }}
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                  Saving…
+                </>
+              ) : (
+                'Yes, continue'
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Edit hint */}
       <p className="flex items-center gap-1.5 text-[11px] text-text-muted mb-4 select-none">
         <Pencil className="h-3 w-3 shrink-0" />
@@ -752,13 +852,23 @@ function InlineEditableOverview({
 
         {/* Type + DMA */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
-          <InlineSelectField
-            label="Company Type"
-            value={typeId}
-            onChange={mark(setTypeId)}
-            options={typeOptions}
-            required
-          />
+          <div>
+            <label className="text-xs text-text-muted block mb-0.5">
+              Company Type
+              <span className="text-ems-coral ml-0.5">*</span>
+            </label>
+            <Select2Multi
+              options={typeOptions}
+              values={typeIds}
+              onChange={mark(setTypeIds)}
+              placeholder="Select one or more company types…"
+            />
+            {removingVenueType && (
+              <p className="text-[11px] text-amber-600 mt-1.5">
+                Warning: removing Venue type deletes this company&apos;s venue profile (and is blocked when linked to projects/engagements).
+              </p>
+            )}
+          </div>
           <div>
             <span className="text-xs text-text-muted">
               DMA
@@ -1350,12 +1460,12 @@ function CompanyFormDb({
   onCancel: () => void;
 }) {
   const [companyName, setCompanyName] = useState(initial?.name || '');
-  const [companyTypeId, setCompanyTypeId] = useState(
-    initial?.companyTypeId != null
-      ? String(initial.companyTypeId)
-      : companyTypes[0]
-        ? String(companyTypes[0].companyTypeId)
-        : '',
+  const [companyTypeIds, setCompanyTypeIds] = useState<string[]>(
+    initial?.companyTypeIds != null && initial.companyTypeIds.length > 0
+      ? initial.companyTypeIds.map((id) => String(id))
+      : initial?.companyTypeId != null
+        ? [String(initial.companyTypeId)]
+        : [],
   );
   const [resolvedDma, setResolvedDma] = useState<string | null>(
     initial?.dmaMarketName ?? null,
@@ -1404,12 +1514,12 @@ function CompanyFormDb({
   useEffect(() => {
     if (!initial) return;
     setCompanyName(initial.name);
-    setCompanyTypeId(
-      initial.companyTypeId != null
-        ? String(initial.companyTypeId)
-        : companyTypes[0]
-          ? String(companyTypes[0].companyTypeId)
-          : '',
+    setCompanyTypeIds(
+      initial.companyTypeIds != null && initial.companyTypeIds.length > 0
+        ? initial.companyTypeIds.map((id) => String(id))
+        : initial.companyTypeId != null
+          ? [String(initial.companyTypeId)]
+          : [],
     );
     setPhysicalStreet(initial.physicalStreet || '');
     setPhysicalCity(initial.physicalCity || '');
@@ -1617,7 +1727,7 @@ function CompanyFormDb({
     else if (n.length > M.companyName) {
       next.companyName = `Company name must be ${M.companyName} characters or fewer.`;
     }
-    if (!companyTypeId) next.companyType = 'Company type is required.';
+    if (companyTypeIds.length === 0) next.companyType = 'Select at least one company type.';
 
     if (!physicalStreet.trim()) next.physicalStreet = 'Physical street is required.';
     else if (physicalStreet.trim().length > M.addressLine1) {
@@ -1725,7 +1835,13 @@ function CompanyFormDb({
 
     const base: CreateCompanyPayload = {
       companyName: companyName.trim().slice(0, M.companyName),
-      companyTypeId: Number(companyTypeId),
+      companyTypeIds: companyTypeIds
+        .map((id) => Number(id))
+        .filter((id) => Number.isInteger(id) && id > 0),
+      companyTypeId:
+        Number(companyTypeIds[0]) > 0 && Number.isInteger(Number(companyTypeIds[0]))
+          ? Number(companyTypeIds[0])
+          : undefined,
       physical,
       mailingSameAsPhysical,
       mailing,
@@ -1744,13 +1860,14 @@ function CompanyFormDb({
     <div className="space-y-5">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <FormField label="Company Type" required error={fieldErrors.companyType}>
-          <Select2
+          <Select2Multi
             options={typeOpts}
-            value={companyTypeId}
-            onChange={(v) => {
-              setCompanyTypeId(v);
+            values={companyTypeIds}
+            onChange={(values) => {
+              setCompanyTypeIds(values);
               clearError('companyType');
             }}
+            placeholder="Select one or more company types…"
           />
         </FormField>
       </div>
@@ -2167,7 +2284,7 @@ function CompaniesTableSkeleton({ rows = PAGE_SIZE }: { rows?: number }) {
   );
 }
 
-export function CompaniesPage({ addToast }: Props) {
+export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
   const qc = useQueryClient();
   const [searchInput, setSearchInput] = useState('');
   const [activeSearch, setActiveSearch] = useState('');
@@ -2207,6 +2324,14 @@ export function CompaniesPage({ addToast }: Props) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (initialSelectedCompanyId == null) return;
+    const nextId = String(initialSelectedCompanyId).trim();
+    if (!nextId) return;
+    setSelectedCompanyId(nextId);
+    setDrawerTab('Overview');
+  }, [initialSelectedCompanyId]);
 
   const companyTypeParam = typeFilter !== 'All' ? typeFilter : undefined;
   const listOpts = useMemo(
@@ -2329,10 +2454,13 @@ export function CompaniesPage({ addToast }: Props) {
         : null)
     : null;
 
-  const isVenueCompany =
-    selectedCompany?.type?.trim().toLowerCase() === 'venue';
-  const isEntertainmentComplexCompany =
-    selectedCompany?.type?.trim().toLowerCase() === 'entertainment complex';
+  const selectedCompanyTypesLower = (selectedCompany?.companyTypeNames ?? [])
+    .map((t) => t.trim().toLowerCase())
+    .filter(Boolean);
+  const isVenueCompany = selectedCompanyTypesLower.includes('venue');
+  const isEntertainmentComplexCompany = selectedCompanyTypesLower.includes(
+    'entertainment complex',
+  );
 
   const drawerTabs = useMemo(() => {
     const base: string[] = ['Overview', 'Contacts', 'Engagements', 'Documents'];
@@ -2766,9 +2894,19 @@ export function CompaniesPage({ addToast }: Props) {
                       {c.name}
                     </td>
                     <td className="py-2.5 px-3">
-                      <span className="text-xs bg-elevated px-1.5 py-0.5 rounded text-text-secondary">
-                        {c.type}
-                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        {(c.companyTypeNames?.length
+                          ? c.companyTypeNames
+                          : [c.type]
+                        ).map((typeLabel) => (
+                          <span
+                            key={`${c.id}-${typeLabel}`}
+                            className="text-xs bg-elevated px-1.5 py-0.5 rounded text-text-secondary"
+                          >
+                            {typeLabel}
+                          </span>
+                        ))}
+                      </div>
                     </td>
                     <td className="py-2.5 px-3 text-text-secondary">
                       {c.city}, {c.state}
@@ -2853,9 +2991,17 @@ export function CompaniesPage({ addToast }: Props) {
                 {selectedCompany.name}
               </h2>
               <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                <span className="text-xs bg-elevated px-1.5 py-0.5 rounded text-text-secondary">
-                  {selectedCompany.type}
-                </span>
+                {(selectedCompany.companyTypeNames?.length
+                  ? selectedCompany.companyTypeNames
+                  : [selectedCompany.type]
+                ).map((typeLabel) => (
+                  <span
+                    key={`${selectedCompany.id}-${typeLabel}`}
+                    className="text-xs bg-elevated px-1.5 py-0.5 rounded text-text-secondary"
+                  >
+                    {typeLabel}
+                  </span>
+                ))}
               </div>
             </div>
             {/* Delete button in header */}

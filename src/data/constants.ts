@@ -70,12 +70,17 @@ export interface Company {
   id: string;
   name: string;
   type: string;
+  types?: string[];
   city: string;
   state: string;
   dmaIds: string[];
   serviceAreaDmaIds: string[];
   /** dbo.Company.CompanyTypeID when loaded from API */
   companyTypeId?: number;
+  /** All dbo.CompanyType ids linked to this company. */
+  companyTypeIds?: number[];
+  /** All dbo.CompanyType names linked to this company. */
+  companyTypeNames?: string[];
   /** dbo.Company.DMAID when loaded from API */
   dmaId?: number;
   /** dbo.DMA.MarketName for the company's DMAID (display). */

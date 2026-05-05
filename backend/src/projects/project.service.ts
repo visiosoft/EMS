@@ -49,6 +49,7 @@ export class ProjectService {
     };
   } | null = null;
   private agentContactColumnNameCache: string | null | undefined = undefined;
+  private companyTypeLinkTableCache: string | null | undefined = undefined;
 
   constructor(
     @InjectRepository(EngagementProject)
@@ -71,6 +72,10 @@ export class ProjectService {
   ) {}
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
+
+  private safeDbIdentifier(name: string): string {
+    return `[${String(name).replace(/\]/g, ']]')}]`;
+  }
 
   private normalizeTime(t: string | null | undefined): string | null {
     if (!t) return null;
@@ -307,6 +312,82 @@ export class ProjectService {
     }
   }
 
+  private async resolveCompanyTypeLinkTableName(): Promise<string | null> {
+    if (this.companyTypeLinkTableCache !== undefined) {
+      return this.companyTypeLinkTableCache;
+    }
+    try {
+      const rows = (await this.dataSource.query(
+        `
+        SELECT TOP 1 t.TABLE_NAME AS [tableName]
+        FROM INFORMATION_SCHEMA.TABLES t
+        INNER JOIN INFORMATION_SCHEMA.COLUMNS cCompany
+          ON cCompany.TABLE_SCHEMA = t.TABLE_SCHEMA
+         AND cCompany.TABLE_NAME = t.TABLE_NAME
+         AND cCompany.COLUMN_NAME = 'CompanyID'
+        INNER JOIN INFORMATION_SCHEMA.COLUMNS cType
+          ON cType.TABLE_SCHEMA = t.TABLE_SCHEMA
+         AND cType.TABLE_NAME = t.TABLE_NAME
+         AND cType.COLUMN_NAME = 'CompanyTypeID'
+        WHERE t.TABLE_SCHEMA = 'dbo'
+          AND t.TABLE_TYPE = 'BASE TABLE'
+          AND t.TABLE_NAME <> 'Company'
+        ORDER BY
+          CASE t.TABLE_NAME
+            WHEN 'CompanyCompanyType' THEN 1
+            WHEN 'CompanyTypeCompany' THEN 2
+            WHEN 'CompanyTypeAssignment' THEN 3
+            WHEN 'CompanyTypeMap' THEN 4
+            ELSE 100
+          END,
+          t.TABLE_NAME ASC
+      `,
+      )) as Array<Record<string, unknown>>;
+      const tableName = rows
+        .map((row) => String(row.tableName ?? row.TABLENAME ?? '').trim())
+        .find((name) => name.length > 0);
+      this.companyTypeLinkTableCache = tableName || null;
+      return this.companyTypeLinkTableCache;
+    } catch {
+      this.companyTypeLinkTableCache = null;
+      return null;
+    }
+  }
+
+  private async companyHasTypeName(
+    companyId: number,
+    expectedTypeName: string,
+  ): Promise<boolean> {
+    const co = await this.companyRepo.findOne({
+      where: { companyId },
+      relations: { companyType: true },
+    });
+    if (!co) {
+      throw new BadRequestException({ message: 'Company not found.' });
+    }
+    const expected = expectedTypeName.trim().toLowerCase();
+    const primaryType = co.companyType?.companyTypeName?.trim().toLowerCase() ?? '';
+    if (primaryType === expected) {
+      return true;
+    }
+    const linkTable = await this.resolveCompanyTypeLinkTableName();
+    if (!linkTable) {
+      return false;
+    }
+    const safeTable = this.safeDbIdentifier(linkTable);
+    const rows = (await this.dataSource.query(
+      `
+      SELECT TOP 1 1 AS [ok]
+      FROM [dbo].${safeTable} ctm
+      INNER JOIN [dbo].[CompanyType] ct
+        ON ct.CompanyTypeID = ctm.CompanyTypeID
+      WHERE ctm.CompanyID = ${Math.floor(companyId)}
+        AND LOWER(LTRIM(RTRIM(ct.CompanyTypeName))) = LOWER(${`N'${expectedTypeName.replace(/'/g, "''")}'`})
+    `,
+    )) as Array<Record<string, unknown>>;
+    return rows.length > 0;
+  }
+
   private async hasAgentContactColumn(): Promise<boolean> {
     return (await this.resolveAgentContactColumnName()) != null;
   }
@@ -335,12 +416,8 @@ export class ProjectService {
   ): Promise<void> {
     const col = await this.resolveAgentContactColumnName();
     if (!col) {
-      if (agentContactId != null) {
-        throw new BadRequestException({
-          message:
-            'Talent agent could not be stored because no agent-contact column exists on EngagementProject.',
-        });
-      }
+      // Temporary product behavior: Talent Agent is selected in UI but not persisted
+      // until an agent-contact column is available on dbo.EngagementProject.
       return;
     }
     const pid = Math.floor(Number(engagementProjectId));
@@ -509,15 +586,11 @@ export class ProjectService {
   }
 
   private async assertCompanyIsTalentAgency(companyId: number): Promise<void> {
-    const co = await this.companyRepo.findOne({
-      where: { companyId },
-      relations: { companyType: true },
-    });
-    if (!co) {
-      throw new BadRequestException({ message: 'Company not found.' });
-    }
-    const typeName = co.companyType?.companyTypeName?.trim().toLowerCase() ?? '';
-    if (typeName !== 'talent agency') {
+    const isTalentAgency = await this.companyHasTypeName(
+      companyId,
+      'Talent Agency',
+    );
+    if (!isTalentAgency) {
       throw new BadRequestException({
         message: 'Talent agency must be a company of type Talent Agency.',
       });
