@@ -1,5 +1,7 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMinSize,
+  IsArray,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -16,9 +18,16 @@ export class CreateCompanyDto {
   @MaxLength(200)
   companyName: string;
 
+  @IsOptional()
   @IsInt()
   @Min(1)
-  companyTypeId: number;
+  companyTypeId?: number;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  companyTypeIds: number[];
 
   /** When omitted, server resolves DMA from physical postal code (required in DB). */
   @IsOptional()

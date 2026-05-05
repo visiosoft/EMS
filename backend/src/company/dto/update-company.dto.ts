@@ -1,5 +1,7 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMinSize,
+  IsArray,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -21,6 +23,13 @@ export class UpdateCompanyDto {
   @IsInt()
   @Min(1)
   companyTypeId?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  companyTypeIds?: number[];
 
   @IsOptional()
   @IsInt()

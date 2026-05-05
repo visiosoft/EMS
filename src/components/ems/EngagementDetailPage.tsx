@@ -178,7 +178,11 @@ function VenuesTab({
   const availableVenueOptions = useMemo(() => {
     const existingIds = new Set(venues.map((v) => v.venueCompanyId));
     return (companiesQuery.data ?? [])
-      .filter((c) => c.companyTypeName === 'Venue' && !existingIds.has(c.companyId))
+      .filter(
+        (c) =>
+          (c.companyTypeName === 'Venue' || (c.companyTypeNames ?? []).includes('Venue')) &&
+          !existingIds.has(c.companyId),
+      )
       .sort((a, b) => a.companyName.localeCompare(b.companyName, undefined, { sensitivity: 'base' }))
       .map((c) => ({ value: String(c.companyId), label: c.companyName }));
   }, [companiesQuery.data, venues]);
@@ -1722,7 +1726,12 @@ function EditEngagementModal({
   row: ApiEngagementListRow;
   attractions: { attractionId: number; attractionName: string }[];
   tours: { tourId: number; tourName: string; attractionId: number }[];
-  companies: { companyId: number; companyName: string; companyTypeName: string }[];
+  companies: {
+    companyId: number;
+    companyName: string;
+    companyTypeName: string;
+    companyTypeNames?: string[];
+  }[];
   onClose: () => void;
   onSave: (p: import('@/api/engagementApi').UpdateEngagementPayload) => Promise<void>;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
@@ -1730,7 +1739,11 @@ function EditEngagementModal({
   const venueCompanies = useMemo(
     () =>
       companies
-        .filter((c) => c.companyTypeName === 'Venue')
+        .filter(
+          (c) =>
+            c.companyTypeName === 'Venue' ||
+            (c.companyTypeNames ?? []).includes('Venue'),
+        )
         .sort((a, b) =>
           a.companyName.localeCompare(b.companyName, undefined, { sensitivity: 'base' }),
         ),

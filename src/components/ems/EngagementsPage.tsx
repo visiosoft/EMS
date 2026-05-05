@@ -915,7 +915,13 @@ function CreateEngagementModal({
 }: {
   attractions: { attractionId: number; attractionName: string }[];
   tours: { tourId: number; tourName: string; attractionId: number }[];
-  companies: { companyId: number; companyName: string; companyTypeName: string; dmaMarketName?: string }[];
+  companies: {
+    companyId: number;
+    companyName: string;
+    companyTypeName: string;
+    companyTypeNames?: string[];
+    dmaMarketName?: string;
+  }[];
   onClose: () => void;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
   onCreated: () => Promise<void>;
@@ -923,7 +929,11 @@ function CreateEngagementModal({
   const venueCompanies = useMemo(
     () =>
       companies
-        .filter((c) => c.companyTypeName === 'Venue')
+        .filter(
+          (c) =>
+            c.companyTypeName === 'Venue' ||
+            (c.companyTypeNames ?? []).includes('Venue'),
+        )
         .sort((a, b) => a.companyName.localeCompare(b.companyName, undefined, { sensitivity: 'base' })),
     [companies],
   );
@@ -1191,7 +1201,12 @@ export function EditEngagementModal({
   row: ApiEngagementListRow;
   attractions: { attractionId: number; attractionName: string }[];
   tours: { tourId: number; tourName: string; attractionId: number }[];
-  companies: { companyId: number; companyName: string; companyTypeName: string }[];
+  companies: {
+    companyId: number;
+    companyName: string;
+    companyTypeName: string;
+    companyTypeNames?: string[];
+  }[];
   onClose: () => void;
   onSaved: () => Promise<void>;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
@@ -1199,7 +1214,11 @@ export function EditEngagementModal({
   const venueCompanies = useMemo(
     () =>
       companies
-        .filter((c) => c.companyTypeName === 'Venue')
+        .filter(
+          (c) =>
+            c.companyTypeName === 'Venue' ||
+            (c.companyTypeNames ?? []).includes('Venue'),
+        )
         .sort((a, b) => a.companyName.localeCompare(b.companyName, undefined, { sensitivity: 'base' })),
     [companies],
   );

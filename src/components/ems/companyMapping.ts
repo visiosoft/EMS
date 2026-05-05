@@ -13,10 +13,15 @@ export function mapApiCompanyToCompany(row: ApiCompanyListRow): Company {
   return {
     id: String(row.companyId),
     companyTypeId: row.companyTypeId,
+    companyTypeIds: row.companyTypeIds ?? [row.companyTypeId].filter((v): v is number => Number.isFinite(v)),
+    companyTypeNames: row.companyTypeNames ?? [row.companyTypeName].filter(Boolean),
     dmaId: row.dmaId,
     dmaMarketName: row.dmaMarketName,
     name: row.companyName,
-    type: row.companyTypeName,
+    type:
+      (row.companyTypeNames ?? []).filter(Boolean).join(', ') ||
+      row.companyTypeName,
+    types: (row.companyTypeNames ?? []).filter(Boolean),
     city: pa?.city ?? '',
     state: toStateProvinceAbbrevForDisplay(pa?.stateProvince ?? '', physCountry),
     dmaIds: row.dmaId != null ? [String(row.dmaId)] : [],

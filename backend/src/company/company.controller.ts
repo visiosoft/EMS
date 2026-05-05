@@ -51,8 +51,22 @@ export class CompanyController {
   }
 
   @Get(':id/contacts')
-  listContacts(@Param('id', ParseIntPipe) id: number) {
-    return this.companyService.listContacts(id);
+  listContacts(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('roleId') roleIdRaw?: string,
+    @Query('roleName') roleName?: string,
+  ) {
+    const roleId =
+      roleIdRaw != null && String(roleIdRaw).trim().length > 0
+        ? Number(roleIdRaw)
+        : undefined;
+    return this.companyService.listContacts(id, {
+      roleId:
+        roleId != null && Number.isInteger(roleId) && roleId > 0
+          ? roleId
+          : undefined,
+      roleName,
+    });
   }
 
   @Get(':id/contacts/linked-venues')

@@ -26,6 +26,10 @@ import {
 
 type ViewMode = 'list' | 'board';
 
+interface Props {
+  onNavigate?: (view: string, data?: Record<string, unknown>) => void;
+}
+
 function entertainmentComplexChips(names: string | null) {
   if (!names?.trim()) return <span className="text-text-muted">—</span>;
   const parts = names.split(', ').map((s) => s.trim()).filter(Boolean);
@@ -53,7 +57,7 @@ function useDebouncedValue<T>(value: T, ms: number): T {
   return d;
 }
 
-export function AllVenuesPage() {
+export function AllVenuesPage({ onNavigate }: Props) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
@@ -314,7 +318,13 @@ export function AllVenuesPage() {
                   rows.map((r) => (
                     <tr
                       key={r.companyId}
-                      className="border-b border-border/50 hover:bg-elevated/40"
+                      className="border-b border-border/50 hover:bg-elevated/40 cursor-pointer"
+                      title="Open in Companies"
+                      onClick={() =>
+                        onNavigate?.('companies', {
+                          selectedCompanyId: r.companyId,
+                        })
+                      }
                     >
                       <td className="py-2.5 px-3 text-text-primary">{r.venueName || '—'}</td>
                       <td className="py-2.5 px-3 text-text-primary align-top">
@@ -351,7 +361,13 @@ export function AllVenuesPage() {
               {rows.map((r) => (
                 <li
                   key={r.companyId}
-                  className="border border-border rounded-lg p-4 bg-surface shadow-sm"
+                  className="border border-border rounded-lg p-4 bg-surface shadow-sm cursor-pointer hover:bg-elevated/30 transition-colors"
+                  title="Open in Companies"
+                  onClick={() =>
+                    onNavigate?.('companies', {
+                      selectedCompanyId: r.companyId,
+                    })
+                  }
                 >
                   <div className="text-sm font-medium text-text-primary line-clamp-2">
                     {r.venueName}

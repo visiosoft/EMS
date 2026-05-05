@@ -15,6 +15,8 @@ export interface ApiCompanyListRow {
   companyName: string;
   companyTypeId: number;
   companyTypeName: string;
+  companyTypeIds: number[];
+  companyTypeNames: string[];
   physicalCity: string;
   physicalStateProvince: string;
   dmaId: number | null;
@@ -199,7 +201,8 @@ export type ApiVenueDetailsResponse =
 
 export interface CreateCompanyPayload {
   companyName: string;
-  companyTypeId: number;
+  companyTypeId?: number;
+  companyTypeIds: number[];
   dmaId?: number;
   physical: {
     addressLine1: string;
@@ -223,6 +226,7 @@ export interface CreateCompanyPayload {
 export interface UpdateCompanyPayload {
   companyName?: string;
   companyTypeId?: number;
+  companyTypeIds?: number[];
   dmaId?: number;
   physical?: CreateCompanyPayload['physical'];
   mailing?: CreateCompanyPayload['mailing'];
@@ -352,8 +356,21 @@ export function deleteCompany(id: number) {
   return apiFetch<void>(`/companies/${id}`, { method: 'DELETE' });
 }
 
-export function fetchCompanyContacts(companyId: number) {
-  return apiFetch<ApiCompanyContact[]>(`/companies/${companyId}/contacts`).then(
+export function fetchCompanyContacts(
+  companyId: number,
+  opts?: { roleId?: number; roleName?: string },
+) {
+  const params = new URLSearchParams();
+  if (opts?.roleId != null && opts.roleId > 0) {
+    params.set('roleId', String(opts.roleId));
+  } else if (opts?.roleName?.trim()) {
+    params.set('roleName', opts.roleName.trim());
+  }
+  const qs = params.toString();
+  const path = qs
+    ? `/companies/${companyId}/contacts?${qs}`
+    : `/companies/${companyId}/contacts`;
+  return apiFetch<ApiCompanyContact[]>(path).then(
     (data) => (Array.isArray(data) ? data : []),
   );
 }
