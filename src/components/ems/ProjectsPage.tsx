@@ -2692,12 +2692,21 @@ function CreateProjectForm({
               </div>
             </FormField>
             <FormField label="Preferred Venue Type">
-              <div className="text-sm text-text-primary bg-surface px-3 py-1.5 rounded border border-border">
-                {selectedPreferredVenueTypeIds.length > 0
-                  ? selectedPreferredVenueTypeIds
-                    .map((id) => venueTypes.find((v) => v.venueTypeId === id)?.venueTypeName ?? `Type #${id}`)
-                    .join(', ')
-                  : '—'}
+              <div className="text-sm text-text-primary bg-surface px-3 py-2 rounded border border-border">
+                {selectedPreferredVenueTypeIds.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedPreferredVenueTypeIds.map((id) => (
+                      <span
+                        key={id}
+                        className="inline-flex items-center rounded-md border border-border bg-background px-2 py-1 text-xs text-text-primary"
+                      >
+                        {venueTypes.find((v) => v.venueTypeId === id)?.venueTypeName ?? `Type #${id}`}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  '—'
+                )}
               </div>
             </FormField>
             <FormField label="Talent Agency">
@@ -2731,21 +2740,39 @@ function CreateProjectForm({
               </div>
             </FormField>
             <FormField label="Markets (DMAs)">
-              <div className="text-sm text-text-primary bg-surface px-3 py-1.5 rounded border border-border">
-                {selectedDmaIds.length > 0
-                  ? selectedDmaIds
-                    .map((id) => dmaSeenLabels.get(id) ?? `DMA #${id}`)
-                    .join(', ')
-                  : '— Add at least one on the Markets step —'}
+              <div className="text-sm text-text-primary bg-surface px-3 py-2 rounded border border-border">
+                {selectedDmaIds.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedDmaIds.map((id) => (
+                      <span
+                        key={id}
+                        className="inline-flex items-center rounded-md border border-border bg-background px-2 py-1 text-xs text-text-primary"
+                      >
+                        {dmaSeenLabels.get(id) ?? `DMA #${id}`}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  '— Add at least one on the Markets step —'
+                )}
               </div>
             </FormField>
             <FormField label="Selected Venues">
-              <div className="text-sm text-text-primary bg-surface px-3 py-1.5 rounded border border-border">
-                {selectedVenueCompanyIds.length > 0
-                  ? selectedVenueCompanyIds
-                    .map((cid) => venueSeenLabels.get(cid) ?? `Venue #${cid}`)
-                    .join(', ')
-                  : '— Complete the Venues step —'}
+              <div className="text-sm text-text-primary bg-surface px-3 py-2 rounded border border-border">
+                {selectedVenueCompanyIds.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedVenueCompanyIds.map((cid) => (
+                      <span
+                        key={cid}
+                        className="inline-flex items-center rounded-md border border-border bg-background px-2 py-1 text-xs text-text-primary"
+                      >
+                        {venueSeenLabels.get(cid) ?? `Venue #${cid}`}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  '— Complete the Venues step —'
+                )}
               </div>
             </FormField>
             <FormField label="Venue proposal status">
