@@ -1,0 +1,86 @@
+import { Transform, Type } from 'class-transformer';
+import {
+  IsBoolean,
+  IsInt,
+  IsISO8601,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+} from 'class-validator';
+
+export class CreateTourDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  tourName: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  attractionId: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  classId: number;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined || value === '') return undefined;
+    if (value === true || value === 'true' || value === '1') return true;
+    if (value === false || value === 'false' || value === '0') return false;
+    return value;
+  })
+  @IsBoolean()
+  ascap?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined || value === '') return undefined;
+    if (value === true || value === 'true' || value === '1') return true;
+    if (value === false || value === 'false' || value === '0') return false;
+    return value;
+  })
+  @IsBoolean()
+  bmi?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined || value === '') return undefined;
+    if (value === true || value === 'true' || value === '1') return true;
+    if (value === false || value === 'false' || value === '0') return false;
+    return value;
+  })
+  @IsBoolean()
+  sesac?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined || value === '') return undefined;
+    if (value === true || value === 'true' || value === '1') return true;
+    if (value === false || value === 'false' || value === '0') return false;
+    return value;
+  })
+  @IsBoolean()
+  gmr?: boolean;
+
+  /** Required on create; multipart sends numbers as strings. */
+  @Transform(({ value }) => {
+    if (value === undefined || value === '' || value === null) return value;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : value;
+  })
+  @IsInt()
+  @Min(1)
+  talentAgencyCompanyId: number;
+
+  @IsOptional()
+  @IsISO8601()
+  tourStartDate?: string;
+
+  @IsOptional()
+  @IsISO8601()
+  tourEndDate?: string;
+}

@@ -1,0 +1,203 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    --bg-base: 215 28% 7%;
+    --bg-surface: 215 23% 11%;
+    --bg-elevated: 215 18% 16%;
+    --bg-hover: 215 14% 21%;
+    --border-color: 215 12% 22%;
+    --border-subtle: 215 18% 16%;
+    --text-primary: 210 25% 93%;
+    --text-secondary: 215 10% 57%;
+    --text-muted: 215 10% 32%;
+    --ems-accent: 168 100% 42%;
+    --ems-accent-dim: 168 60% 14%;
+    --ems-accent-hover: 168 100% 36%;
+    --ems-amber: 39 72% 48%;
+    --ems-amber-dim: 39 100% 9%;
+    --ems-coral: 0 93% 63%;
+    --ems-coral-dim: 0 70% 14%;
+    --ems-blue: 217 98% 61%;
+    --ems-blue-dim: 220 90% 16%;
+    --ems-purple: 264 100% 77%;
+    --ems-purple-dim: 264 40% 12%;
+    --ems-green: 130 52% 53%;
+    --ems-green-dim: 140 50% 12%;
+
+    --background: var(--bg-base);
+    --foreground: var(--text-primary);
+    --card: var(--bg-surface);
+    --card-foreground: var(--text-primary);
+    --popover: var(--bg-elevated);
+    --popover-foreground: var(--text-primary);
+    --primary: var(--ems-accent);
+    --primary-foreground: 215 28% 7%;
+    --secondary: var(--bg-elevated);
+    --secondary-foreground: var(--text-primary);
+    --muted: var(--bg-elevated);
+    --muted-foreground: var(--text-secondary);
+    --accent: var(--ems-accent-dim);
+    --accent-foreground: var(--ems-accent);
+    --destructive: var(--ems-coral);
+    --destructive-foreground: 210 25% 93%;
+    --border: var(--border-color);
+    --input: var(--border-color);
+    --ring: var(--ems-accent);
+    --radius: 8px;
+
+    --sidebar-background: var(--bg-surface);
+    --sidebar-foreground: var(--text-secondary);
+    --sidebar-primary: var(--ems-accent);
+    --sidebar-primary-foreground: 215 28% 7%;
+    --sidebar-accent: var(--ems-accent-dim);
+    --sidebar-accent-foreground: var(--ems-accent);
+    --sidebar-border: var(--border-color);
+    --sidebar-ring: var(--ems-accent);
+  }
+
+  [data-theme="light"] {
+    color-scheme: light;
+    --bg-base: 220 22% 96%;
+    --bg-surface: 0 0% 100%;
+    --bg-elevated: 220 18% 93%;
+    --bg-hover: 220 15% 88%;
+    --border-color: 215 18% 80%;
+    --border-subtle: 220 18% 90%;
+    --text-primary: 215 32% 11%;
+    --text-secondary: 215 14% 42%;
+    --text-muted: 215 12% 64%;
+    --ems-accent: 168 100% 26%;
+    --ems-accent-dim: 168 60% 88%;
+    --ems-accent-hover: 168 100% 22%;
+    --ems-amber: 39 75% 36%;
+    --ems-amber-dim: 39 100% 88%;
+    --ems-coral: 0 82% 52%;
+    --ems-coral-dim: 0 70% 91%;
+    --ems-blue: 217 88% 48%;
+    --ems-blue-dim: 220 85% 91%;
+    --ems-purple: 264 65% 52%;
+    --ems-purple-dim: 264 40% 91%;
+    --ems-green: 130 50% 36%;
+    --ems-green-dim: 140 50% 87%;
+
+    --background: var(--bg-base);
+    --foreground: var(--text-primary);
+    --card: var(--bg-surface);
+    --card-foreground: var(--text-primary);
+    --popover: var(--bg-surface);
+    --popover-foreground: var(--text-primary);
+    --primary: var(--ems-accent);
+    --primary-foreground: 0 0% 100%;
+    --secondary: var(--bg-elevated);
+    --secondary-foreground: var(--text-primary);
+    --muted: var(--bg-elevated);
+    --muted-foreground: var(--text-secondary);
+    --accent: var(--ems-accent-dim);
+    --accent-foreground: var(--ems-accent);
+    --destructive: var(--ems-coral);
+    --destructive-foreground: 0 0% 100%;
+    --border: var(--border-color);
+    --input: var(--border-color);
+    --ring: var(--ems-accent);
+
+    --sidebar-background: var(--bg-surface);
+    --sidebar-foreground: var(--text-secondary);
+    --sidebar-primary: var(--ems-accent);
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: var(--ems-accent-dim);
+    --sidebar-accent-foreground: var(--ems-accent);
+    --sidebar-border: var(--border-color);
+    --sidebar-ring: var(--ems-accent);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+}
+
+html {
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+[data-theme="light"] body,
+[data-theme="dark"] body {
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace !important;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: hsl(var(--bg-base));
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border-color));
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--text-muted));
+}
+
+/**
+ * Avoid `transition: all` on text inputs — it can cause cursor/pointer flicker on hover/focus
+ * when borders and rings animate. Buttons/links keep a slightly broader set.
+ */
+button,
+a {
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease,
+    opacity 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+}
+select {
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease,
+    opacity 150ms ease,
+    box-shadow 150ms ease;
+}
+input,
+textarea {
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease,
+    opacity 150ms ease,
+    box-shadow 150ms ease;
+}
+
+[data-theme="light"] .bg-card,
+[data-theme="light"] .bg-surface {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="light"] tbody tr:hover {
+  background-color: hsl(var(--bg-hover)) !important;
+}
+
+.theme-toggle-thumb {
+  transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
