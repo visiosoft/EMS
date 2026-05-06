@@ -13,7 +13,7 @@
     "build:all": "npm run build && npm run build:backend",
     "build:dev": "vite build --mode development",
     "start": "node backend/dist/main.js",
-    "start:azure": "npm install --prefix backend && npm run build && npm run build:backend && npm run start",
+    "start:azure": "npm run start",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
