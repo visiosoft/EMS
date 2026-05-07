@@ -1,21 +1,17 @@
-import { Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, JoinColumn, ManyToOne, PrimaryColumn } from 'typeorm';
 import { Company } from './company.entity';
 import { ServiceProvided } from './service-provided.entity';
 import { Venue } from './venue.entity';
 
 @Entity({ name: 'VenueServiceProvider', schema: 'dbo' })
 export class VenueServiceProvider {
-  @PrimaryGeneratedColumn()
-  /** Table has no PK in documentation; create surrogate for TypeORM mapping. */
-  _id: number;
-
-  @Column({ name: 'VenueCompanyID', type: 'int' })
+  @PrimaryColumn({ name: 'VenueCompanyID', type: 'int' })
   venueCompanyId: number;
 
-  @Column({ name: 'ServiceID', type: 'int' })
+  @PrimaryColumn({ name: 'ServiceID', type: 'int' })
   serviceId: number;
 
-  @Column({ name: 'ProviderCompanyID', type: 'int' })
+  @PrimaryColumn({ name: 'ProviderCompanyID', type: 'int' })
   providerCompanyId: number;
 
   @ManyToOne(() => Venue)

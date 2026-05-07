@@ -14,6 +14,9 @@ import { Link } from '../entities/link.entity';
 import { Engagement } from '../entities/engagement.entity';
 import { EngagementFinances } from '../entities/engagement-finance.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
+import { VenueServiceProvider } from '../entities/venue-service-provider.entity';
+import { CompanyService as CompanyServiceEntity } from '../entities/company-service.entity';
+import { ServiceProvided } from '../entities/service-provided.entity';
 import { NonResidentWithholding } from '../entities/non-resident-withholding.entity';
 import { ArtistFinance } from '../entities/artist-finance.entity';
 import { SettlementFinance } from '../entities/settlement-finance.entity';
@@ -65,6 +68,13 @@ export interface EngagementVenueRow {
   stateProvince: string | null;
   dmaMarketName: string | null;
   isPrimary: boolean;
+}
+
+export interface EngagementServiceProviderRow {
+  providerCompanyId: number;
+  providerCompanyName: string | null;
+  serviceProvidedIds: number[];
+  serviceProvidedNames: string[];
 }
 
 export interface EngagementFinanceRow {
@@ -135,6 +145,12 @@ export class EngagementService {
     private readonly venueRepo: Repository<Venue>,
     @InjectRepository(Company)
     private readonly companyRepo: Repository<Company>,
+    @InjectRepository(VenueServiceProvider)
+    private readonly venueServiceProviderRepo: Repository<VenueServiceProvider>,
+    @InjectRepository(CompanyServiceEntity)
+    private readonly companyServiceRepo: Repository<CompanyServiceEntity>,
+    @InjectRepository(ServiceProvided)
+    private readonly serviceProvidedRepo: Repository<ServiceProvided>,
     @InjectRepository(Performance)
     private readonly performanceRepo: Repository<Performance>,
     @InjectRepository(TicketingSales)
@@ -148,6 +164,37 @@ export class EngagementService {
     private readonly emsCreated: EmsAppCreatedStore,
     private readonly dataSource: DataSource,
   ) {}
+
+  private async getPrimaryVenueCompanyIdForEngagement(
+    engagementId: number,
+  ): Promise<number> {
+    const row = await this.engagementVenueRepo.findOne({
+      where: { engagementId, isPrimary: true },
+    });
+    const id = row?.venueCompanyId ?? null;
+    if (id == null || !Number.isInteger(id) || id < 1) {
+      throw new BadRequestException({
+        message:
+          'This engagement has no primary venue, so service providers cannot be managed.',
+      });
+    }
+    return id;
+  }
+
+  private async loadCompanyServices(companyId: number): Promise<ServiceProvided[]> {
+    const rows = await this.companyServiceRepo.find({
+      where: { companyId },
+      relations: { serviceProvided: true },
+    });
+    const list = rows
+      .map((r) => r.serviceProvided)
+      .filter((s): s is ServiceProvided => !!s);
+    const deduped = new Map<number, ServiceProvided>();
+    for (const s of list) deduped.set(s.serviceProvidedId, s);
+    return [...deduped.values()].sort((a, b) =>
+      a.serviceName.localeCompare(b.serviceName, undefined, { sensitivity: 'base' }),
+    );
+  }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -1183,6 +1230,108 @@ export class EngagementService {
     }
 
     await this.engagementVenueRepo.delete({ engagementId, venueCompanyId });
+  }
+
+  // ─── Service Providers (VenueServiceProvider) ─────────────────────────────
+
+  async listServiceProviders(
+    engagementId: number,
+  ): Promise<{ venueCompanyId: number; providers: EngagementServiceProviderRow[] }> {
+    await this.assertEngagementExists(engagementId);
+    const venueCompanyId = await this.getPrimaryVenueCompanyIdForEngagement(engagementId);
+
+    const rawProviderIds = await this.venueServiceProviderRepo
+      .createQueryBuilder('vsp')
+      .select('DISTINCT vsp.providerCompanyId', 'providerCompanyId')
+      .where('vsp.venueCompanyId = :venueCompanyId', { venueCompanyId })
+      .getRawMany<{ providerCompanyId: number | string }>();
+
+    const providerCompanyIds = rawProviderIds
+      .map((r) => Number((r as any).providerCompanyId ?? (r as any).ProviderCompanyID))
+      .filter((id) => Number.isInteger(id) && id > 0);
+
+    if (providerCompanyIds.length === 0) {
+      return { venueCompanyId, providers: [] };
+    }
+
+    const companies = await this.companyRepo.find({
+      where: { companyId: In(providerCompanyIds) },
+    });
+    const nameMap = new Map(companies.map((c) => [c.companyId, c.companyName]));
+
+    const providers: EngagementServiceProviderRow[] = [];
+    for (const providerCompanyId of providerCompanyIds) {
+      const services = await this.loadCompanyServices(providerCompanyId);
+      providers.push({
+        providerCompanyId,
+        providerCompanyName: nameMap.get(providerCompanyId) ?? null,
+        serviceProvidedIds: services.map((s) => s.serviceProvidedId),
+        serviceProvidedNames: services.map((s) => s.serviceName),
+      });
+    }
+    providers.sort((a, b) =>
+      (a.providerCompanyName ?? String(a.providerCompanyId)).localeCompare(
+        b.providerCompanyName ?? String(b.providerCompanyId),
+        undefined,
+        { sensitivity: 'base' },
+      ),
+    );
+    return { venueCompanyId, providers };
+  }
+
+  async addServiceProvider(
+    engagementId: number,
+    providerCompanyId: number,
+  ): Promise<{ added: boolean }> {
+    await this.assertEngagementExists(engagementId);
+    const venueCompanyId = await this.getPrimaryVenueCompanyIdForEngagement(engagementId);
+
+    const pid = Number(providerCompanyId);
+    if (!Number.isInteger(pid) || pid < 1) {
+      throw new BadRequestException({ message: 'Invalid provider company id.' });
+    }
+    const company = await this.companyRepo.findOne({ where: { companyId: pid } });
+    if (!company) {
+      throw new BadRequestException({ message: 'Provider company not found.' });
+    }
+
+    const services = await this.loadCompanyServices(pid);
+    if (services.length === 0) {
+      throw new BadRequestException({
+        message:
+          'This company has no Company Services assigned. Assign services on the company first, then add it here.',
+      });
+    }
+
+    await this.dataSource.transaction(async (em) => {
+      await em.delete(VenueServiceProvider, { venueCompanyId, providerCompanyId: pid });
+      const rows = services.map((s) =>
+        em.create(VenueServiceProvider, {
+          venueCompanyId,
+          providerCompanyId: pid,
+          serviceId: s.serviceProvidedId,
+        } as any),
+      );
+      await em.save(VenueServiceProvider, rows);
+    });
+
+    return { added: true };
+  }
+
+  async removeServiceProvider(
+    engagementId: number,
+    providerCompanyId: number,
+  ): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+    const venueCompanyId = await this.getPrimaryVenueCompanyIdForEngagement(engagementId);
+    const pid = Number(providerCompanyId);
+    if (!Number.isInteger(pid) || pid < 1) {
+      throw new BadRequestException({ message: 'Invalid provider company id.' });
+    }
+    await this.venueServiceProviderRepo.delete({
+      venueCompanyId,
+      providerCompanyId: pid,
+    });
   }
 
   // ─── Performances ─────────────────────────────────────────────────────────
