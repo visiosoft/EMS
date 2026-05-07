@@ -7,7 +7,7 @@ import { CalendarPage } from '@/components/ems/CalendarPage';
 import { ProjectsPage, ProjectDetailPage } from '@/components/ems/ProjectsPage';
 import { EngagementsPage } from '@/components/ems/EngagementsPage';
 import { EngagementDetailPage } from '@/components/ems/EngagementDetailPage';
-import { SettingsPage } from '@/components/ems/SettingsPage';
+import { SettingsPage } from '@/components/ems/SettingsLookupTablesPage';
 import { DailySalesPage } from '@/components/ems/DailySalesPage';
 import { AllVenuesPage } from '@/components/ems/AllVenuesPage';
 import { USERS } from '@/data/constants';
@@ -112,7 +112,12 @@ const Index = () => {
           })()}
 
           {currentView === 'settings' && (
-            <SettingsPage addToast={addToast} users={users} onUpdateUsers={setUsers} />
+            <SettingsPage
+              addToast={addToast}
+              users={users}
+              onUpdateUsers={setUsers}
+              initialMainTab="Users"
+            />
           )}
 
         </main>

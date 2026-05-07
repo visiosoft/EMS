@@ -1,8 +1,8 @@
-import { Column, Entity, PrimaryColumn } from 'typeorm';
+import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
 @Entity({ name: 'CompanyType', schema: 'dbo' })
 export class CompanyType {
-  @PrimaryColumn({ name: 'CompanyTypeID', type: 'int' })
+  @PrimaryGeneratedColumn({ name: 'CompanyTypeID' })
   companyTypeId: number;
 
   @Column({ name: 'CompanyTypeName', type: 'nvarchar', length: 100 })

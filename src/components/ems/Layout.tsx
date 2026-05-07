@@ -95,7 +95,10 @@ const NAV_SECTIONS = [
       { key: 'calendar', label: 'Calendar', icon: '⬡' },
     ],
   },
-  { label: 'SYSTEM', items: [{ key: 'settings', label: 'Settings', icon: '⬡' }] },
+  {
+    label: 'SYSTEM',
+    items: [{ key: 'settings', label: 'Settings', icon: '⬡' }],
+  },
 ];
 
 export function Sidebar({ currentView, onNavigate, mobileOpen, onMobileClose }: SidebarProps) {

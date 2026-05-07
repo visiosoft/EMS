@@ -46,6 +46,18 @@ export interface ApiEngagementVenueRow {
   isPrimary: boolean;
 }
 
+export interface ApiEngagementServiceProviderRow {
+  providerCompanyId: number;
+  providerCompanyName: string | null;
+  serviceProvidedIds: number[];
+  serviceProvidedNames: string[];
+}
+
+export type ApiEngagementServiceProvidersResponse = {
+  venueCompanyId: number;
+  providers: ApiEngagementServiceProviderRow[];
+};
+
 export interface CreateEngagementPayload {
   engagementStatus: string;
   /** ISO date YYYY-MM-DD — stored as dbo.Performance.PerformanceDate */
@@ -207,6 +219,12 @@ export function fetchEngagementFilterOptions() {
 }
 export const fetchEngagement = (id: number) => apiFetch<ApiEngagementListRow>(`/engagements/${id}`);
 export const fetchEngagementVenues = (id: number) => apiFetch<ApiEngagementVenueRow[]>(`/engagements/${id}/venues`);
+export const fetchEngagementServiceProviders = (id: number) =>
+  apiFetch<ApiEngagementServiceProvidersResponse>(`/engagements/${id}/service-providers`);
+export const addEngagementServiceProvider = (id: number, body: { providerCompanyId: number }) =>
+  apiFetch<void>(`/engagements/${id}/service-providers`, { method: 'POST', body: JSON.stringify(body) });
+export const removeEngagementServiceProvider = (id: number, providerCompanyId: number) =>
+  apiFetch<void>(`/engagements/${id}/service-providers/${providerCompanyId}`, { method: 'DELETE' });
 export const addEngagementVenue = (id: number, body: { venueCompanyId: number; isPrimary?: boolean }) =>
   apiFetch<void>(`/engagements/${id}/venues`, { method: 'POST', body: JSON.stringify(body) });
 export const removeEngagementVenue = (id: number, venueCompanyId: number) =>

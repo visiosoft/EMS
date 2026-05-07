@@ -39,14 +39,19 @@ import {
   fetchEngagementFinanceLookups,
   fetchEngagementPerformances,
   fetchEngagementVenues,
+  fetchEngagementServiceProviders,
   addEngagementVenue,
   removeEngagementVenue,
+  addEngagementServiceProvider,
+  removeEngagementServiceProvider,
   updateEngagement,
   updateEngagementFinance,
   updateEngagementPerformance,
   deleteEngagementPerformance,
   type ApiEngagementListRow,
   type ApiEngagementVenueRow,
+  type ApiEngagementServiceProviderRow,
+  type ApiEngagementServiceProvidersResponse,
   type UpdateEngagementFinancePayload,
   type ApiEngagementFinanceLookups,
 } from '@/api/engagementApi';
@@ -362,6 +367,241 @@ function VenuesTab({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Service Providers tab (VenueServiceProvider)
+// ---------------------------------------------------------------------------
+function ServiceProvidersTab({
+  engagementId,
+  addToast,
+}: {
+  engagementId: number;
+  addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+}) {
+  const qc = useQueryClient();
+  const [showAdd, setShowAdd] = useState(false);
+  const [selectedCompanyId, setSelectedCompanyId] = useState('');
+  const [pendingRemove, setPendingRemove] = useState<ApiEngagementServiceProviderRow | null>(null);
+
+  const providersQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'service-providers'],
+    queryFn: () => fetchEngagementServiceProviders(engagementId),
+  });
+
+  const companiesQuery = useQuery({
+    queryKey: companiesPickerQueryKey(),
+    queryFn: fetchCompaniesPickerRows,
+    staleTime: 60_000,
+  });
+
+  const addMutation = useMutation({
+    mutationFn: (providerCompanyId: number) =>
+      addEngagementServiceProvider(engagementId, { providerCompanyId }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'service-providers'] });
+      addToast('Service provider added.', 'success');
+      setShowAdd(false);
+      setSelectedCompanyId('');
+    },
+    onError: (e) => addToast(friendlyApiError(e, 'Could not add service provider.'), 'error'),
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: (providerCompanyId: number) =>
+      removeEngagementServiceProvider(engagementId, providerCompanyId),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'service-providers'] });
+      addToast('Service provider removed.', 'warning');
+      setPendingRemove(null);
+    },
+    onError: (e) => addToast(friendlyApiError(e, 'Could not remove service provider.'), 'error'),
+  });
+
+  const providers: ApiEngagementServiceProviderRow[] =
+    (providersQuery.data as ApiEngagementServiceProvidersResponse | undefined)?.providers ?? [];
+
+  const availableCompanyOptions = useMemo(() => {
+    const existingIds = new Set(providers.map((p) => p.providerCompanyId));
+    return (companiesQuery.data ?? [])
+      .filter((c) => !existingIds.has(c.companyId))
+      .sort((a, b) => a.companyName.localeCompare(b.companyName, undefined, { sensitivity: 'base' }))
+      .map((c) => ({ value: String(c.companyId), label: c.companyName }));
+  }, [companiesQuery.data, providers]);
+
+  if (providersQuery.isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-text-muted text-sm py-6">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Loading service providers…
+      </div>
+    );
+  }
+
+  if (providersQuery.error) {
+    return (
+      <div className="flex items-center gap-2 text-ems-coral text-sm py-4">
+        <AlertCircle className="h-4 w-4 shrink-0" />
+        {friendlyApiError(providersQuery.error)}
+        <button
+          type="button"
+          onClick={() => providersQuery.refetch()}
+          className="text-xs underline ml-1"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <AlertDialog
+        open={pendingRemove !== null}
+        onOpenChange={(open) => {
+          if (!open && !removeMutation.isPending) setPendingRemove(null);
+        }}
+      >
+        <AlertDialogContent className="z-[340] border-border bg-card text-text-primary shadow-xl sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-text-primary font-semibold text-lg">
+              Remove this service provider?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-text-secondary text-sm leading-relaxed">
+              This will remove the provider from this engagement’s service providers list.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:gap-2">
+            <AlertDialogCancel
+              disabled={removeMutation.isPending}
+              className="border-border bg-elevated text-text-primary hover:bg-hover mt-0"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={removeMutation.isPending}
+              className="bg-ems-coral text-white hover:bg-ems-coral/90 sm:ml-0"
+              onClick={() => {
+                if (!pendingRemove) return;
+                void removeMutation.mutateAsync(pendingRemove.providerCompanyId);
+              }}
+            >
+              {removeMutation.isPending ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                  Removing…
+                </>
+              ) : (
+                'Yes, remove'
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-text-primary">Service Providers</h3>
+          <p className="text-xs text-text-muted mt-0.5">
+            Add companies providing services for this engagement’s venue. Services shown come from the company’s assigned Company Services.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => { setShowAdd(!showAdd); setSelectedCompanyId(''); }}
+          className="shrink-0 text-ems-accent text-sm hover:underline"
+        >
+          {showAdd ? 'Cancel' : '+ Add Service Provider'}
+        </button>
+      </div>
+
+      {showAdd && (
+        <div className="bg-elevated border border-border rounded-lg p-4 space-y-3">
+          {availableCompanyOptions.length === 0 ? (
+            <p className="text-sm text-text-muted">No additional companies available.</p>
+          ) : (
+            <>
+              <FormField label="Company">
+                <Select2
+                  options={availableCompanyOptions}
+                  value={selectedCompanyId}
+                  onChange={setSelectedCompanyId}
+                  placeholder="Select company…"
+                  disabled={addMutation.isPending}
+                />
+              </FormField>
+              <div className="flex gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => { setShowAdd(false); setSelectedCompanyId(''); }}
+                  className="text-text-secondary text-sm px-3 py-1.5 hover:text-text-primary"
+                  disabled={addMutation.isPending}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedCompanyId || addMutation.isPending}
+                  onClick={() => {
+                    const id = Number(selectedCompanyId);
+                    if (!Number.isFinite(id) || id < 1) return;
+                    void addMutation.mutateAsync(id);
+                  }}
+                  className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-60"
+                >
+                  {addMutation.isPending ? 'Adding…' : 'Add'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {providers.length === 0 ? (
+        <div className="text-text-muted text-sm">No service providers linked yet.</div>
+      ) : (
+        <div className="space-y-3">
+          {providers.map((p) => (
+            <div
+              key={p.providerCompanyId}
+              className="bg-elevated border border-border rounded-lg p-3 flex items-start justify-between gap-3"
+            >
+              <div className="min-w-0">
+                <div className="text-text-primary font-medium">
+                  {p.providerCompanyName ?? `Company #${p.providerCompanyId}`}
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {(p.serviceProvidedNames ?? []).length > 0 ? (
+                    p.serviceProvidedNames.map((name) => (
+                      <span
+                        key={`${p.providerCompanyId}-${name}`}
+                        className="text-xs bg-background border border-border px-2 py-0.5 rounded-md text-text-secondary"
+                      >
+                        {name}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-xs text-text-muted">
+                      No services assigned on this company.
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="text-xs text-text-muted hover:text-ems-coral hover:underline shrink-0"
+                onClick={() => setPendingRemove(p)}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1326,7 +1566,7 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
 
       {/* Tabs */}
       <TabBar
-        tabs={['Overview', 'Venues', 'Contacts', 'Dates', 'Finance', 'Audit Log']}
+        tabs={['Overview', 'Venues', 'Service Providers', 'Contacts', 'Dates', 'Finance', 'Audit Log']}
         active={tab}
         onChange={setTab}
       />
@@ -1361,6 +1601,13 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
       {tab === 'Venues' && (
         <div className="bg-card border border-border rounded-lg p-5">
           <VenuesTab engagementId={engagementId} addToast={addToast} />
+        </div>
+      )}
+
+      {/* ── Service Providers ────────────────────────────────────────────── */}
+      {tab === 'Service Providers' && (
+        <div className="bg-card border border-border rounded-lg p-5">
+          <ServiceProvidersTab engagementId={engagementId} addToast={addToast} />
         </div>
       )}
 
