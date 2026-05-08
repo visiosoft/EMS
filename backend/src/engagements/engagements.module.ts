@@ -14,6 +14,9 @@ import { Performance } from '../entities/performance.entity';
 import { TicketingSales } from '../entities/ticketing-sales.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
+import { VenueServiceProvider } from '../entities/venue-service-provider.entity';
+import { ServiceProvided } from '../entities/service-provided.entity';
+import { CompanyService as CompanyServiceEntity } from '../entities/company-service.entity';
 import { EngagementController } from './engagement.controller';
 import { EngagementService } from './engagement.service';
 
@@ -30,6 +33,9 @@ import { EngagementService } from './engagement.service';
       Tour,
       Venue,
       Company,
+      VenueServiceProvider,
+      ServiceProvided,
+      CompanyServiceEntity,
       NonResidentWithholding,
       ArtistFinance,
       SettlementFinance,

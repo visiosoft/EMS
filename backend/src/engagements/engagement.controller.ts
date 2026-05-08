@@ -134,6 +134,31 @@ export class EngagementController {
     return this.engagementService.removeVenue(id, venueCompanyId);
   }
 
+  // ─── Service Providers (VenueServiceProvider) ─────────────────────────────
+
+  @Get(':id/service-providers')
+  listServiceProviders(@Param('id', ParseIntPipe) id: number) {
+    return this.engagementService.listServiceProviders(id);
+  }
+
+  @Post(':id/service-providers')
+  @HttpCode(HttpStatus.CREATED)
+  addServiceProvider(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: { providerCompanyId: number },
+  ) {
+    return this.engagementService.addServiceProvider(id, dto.providerCompanyId);
+  }
+
+  @Delete(':id/service-providers/:providerCompanyId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeServiceProvider(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('providerCompanyId', ParseIntPipe) providerCompanyId: number,
+  ) {
+    return this.engagementService.removeServiceProvider(id, providerCompanyId);
+  }
+
   // ─── Performance APIs ──────────────────────────────────────────────────────
 
   @Get(':id/performances')
