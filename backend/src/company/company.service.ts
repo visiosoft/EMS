@@ -464,6 +464,14 @@ export class CompanyService {
       allTypes[0];
     const primaryTypeId = primary?.companyTypeId ?? company.companyTypeId;
     const primaryTypeName = primary?.companyTypeName ?? '';
+    const allMeta = allDmasMetaMap?.get(company.companyId);
+    const allDmas = allMeta?.allDmas ?? false;
+    const allDmasServiceProvidedId = allMeta?.allDmasServiceProvidedId ?? null;
+    const selectedAllServiceName =
+      allDmas && allDmasServiceProvidedId != null
+        ? allServices.find((s) => s.serviceProvidedId === allDmasServiceProvidedId)?.serviceName ??
+          ''
+        : '';
     return {
       companyId: company.companyId,
       companyName: company.companyName,
@@ -479,10 +487,18 @@ export class CompanyService {
       dmaMarketName: company.dma?.marketName ?? '',
       physicalAddress: company.physicalAddress,
       mailingAddress: company.mailingAddress,
-      serviceAreas: serviceAreaMap?.get(company.companyId) ?? [],
-      allDmas: allDmasMetaMap?.get(company.companyId)?.allDmas ?? false,
-      allDmasServiceProvidedId:
-        allDmasMetaMap?.get(company.companyId)?.allDmasServiceProvidedId ?? null,
+      serviceAreas: allDmas
+        ? [
+            {
+              dmaid: 0,
+              dmaMarketName: 'All',
+              serviceProvidedId: allDmasServiceProvidedId ?? 0,
+              serviceName: selectedAllServiceName,
+            },
+          ]
+        : serviceAreaMap?.get(company.companyId) ?? [],
+      allDmas,
+      allDmasServiceProvidedId,
     };
   }
 
