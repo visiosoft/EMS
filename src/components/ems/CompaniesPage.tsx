@@ -353,7 +353,7 @@ function InlineEditableOverview({
     (company.serviceAreas ?? [])
       .filter((r) => {
         const n = (r.dmaMarketName ?? '').trim().toLowerCase();
-        return !(n === 'all dmas' || n === 'nationwide' || n === 'national' || n === 'all markets');
+        return !(n === 'all' || n === 'all dmas' || n === 'nationwide' || n === 'national' || n === 'all markets');
       })
       .map((r) => ({
         dmaid: String(r.dmaid),
@@ -553,7 +553,7 @@ function InlineEditableOverview({
       (company.serviceAreas ?? [])
         .filter((r) => {
           const n = (r.dmaMarketName ?? '').trim().toLowerCase();
-          return !(n === 'all dmas' || n === 'nationwide' || n === 'national' || n === 'all markets');
+          return !(n === 'all' || n === 'all dmas' || n === 'nationwide' || n === 'national' || n === 'all markets');
         })
         .map((r) => ({ dmaid: String(r.dmaid), serviceProvidedId: String(r.serviceProvidedId) })),
     );
@@ -996,7 +996,7 @@ function InlineEditableOverview({
                 />
               </div>
               <div className="text-[11px] text-text-muted">
-                This will apply the selected service to every DMA market.
+                Selected Area: All
               </div>
             </div>
           ) : (
@@ -1662,7 +1662,7 @@ function CompanyFormDb({
     (initial?.serviceAreas ?? [])
       .filter((r) => {
         const n = (r.dmaMarketName ?? '').trim().toLowerCase();
-        return !(n === 'all dmas' || n === 'nationwide' || n === 'national' || n === 'all markets');
+        return !(n === 'all' || n === 'all dmas' || n === 'nationwide' || n === 'national' || n === 'all markets');
       })
       .map((r) => ({
         dmaid: String(r.dmaid),
@@ -1728,7 +1728,7 @@ function CompanyFormDb({
       (initial.serviceAreas ?? [])
         .filter((r) => {
           const n = (r.dmaMarketName ?? '').trim().toLowerCase();
-          return !(n === 'all dmas' || n === 'nationwide' || n === 'national' || n === 'all markets');
+          return !(n === 'all' || n === 'all dmas' || n === 'nationwide' || n === 'national' || n === 'all markets');
         })
         .map((r) => ({ dmaid: String(r.dmaid), serviceProvidedId: String(r.serviceProvidedId) })),
     );
@@ -2157,7 +2157,7 @@ function CompanyFormDb({
               />
             </div>
             <div className="text-[11px] text-text-muted">
-              Applies the selected service to every DMA market.
+              Selected Area: All
             </div>
           </div>
         ) : (
