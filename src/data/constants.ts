@@ -85,6 +85,16 @@ export interface Company {
   serviceProvidedIds?: number[];
   /** dbo.ServiceProvided.ServiceName values linked to this company. */
   serviceProvidedNames?: string[];
+  /** dbo.CompanyServiceArea rows (CompanyID, DMAID, ServiceProvidedID) */
+  serviceAreas?: {
+    dmaid: number;
+    dmaMarketName: string;
+    serviceProvidedId: number;
+    serviceName: string;
+  }[];
+  /** UI helper: nationwide company */
+  allDmas?: boolean;
+  allDmasServiceProvidedId?: number | null;
   /** dbo.Company.DMAID when loaded from API */
   dmaId?: number;
   /** dbo.DMA.MarketName for the company's DMAID (display). */
