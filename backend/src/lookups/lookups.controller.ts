@@ -1,12 +1,19 @@
 import {
+  Body,
   Controller,
+  Delete,
   DefaultValuePipe,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseIntPipe,
+  Patch,
+  Post,
   Query,
 } from '@nestjs/common';
 import { LookupsService } from './lookups.service';
+import { CreateLookupRowDto, UpdateLookupRowDto } from './dto/manage-lookup-row.dto';
 
 @Controller('lookups')
 export class LookupsController {
@@ -100,5 +107,51 @@ export class LookupsController {
       safeLimit,
       query?.trim() ?? '',
     );
+  }
+
+  @Get('manage/:table')
+  listManagedLookupRows(
+    @Param('table') table: string,
+    @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
+    @Query('limit', new DefaultValuePipe(25), ParseIntPipe) limit: number,
+    @Query('q') q?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortDir') sortDir?: string,
+  ) {
+    const safeLimit = Number.isFinite(limit) ? Math.min(500, Math.max(1, Math.floor(limit))) : 25;
+    const safeOffset = Math.max(0, offset);
+    return this.lookupsService.listManagedLookupRows(table, {
+      offset: safeOffset,
+      limit: safeLimit,
+      q: q?.trim(),
+      sortBy: sortBy?.trim(),
+      sortDir: sortDir?.trim(),
+    });
+  }
+
+  @Post('manage/:table')
+  createManagedLookupRow(
+    @Param('table') table: string,
+    @Body() dto: CreateLookupRowDto,
+  ) {
+    return this.lookupsService.createManagedLookupRow(table, dto);
+  }
+
+  @Patch('manage/:table/:id')
+  updateManagedLookupRow(
+    @Param('table') table: string,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateLookupRowDto,
+  ) {
+    return this.lookupsService.updateManagedLookupRow(table, id, dto);
+  }
+
+  @Delete('manage/:table/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeManagedLookupRow(
+    @Param('table') table: string,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.lookupsService.removeManagedLookupRow(table, id);
   }
 }
