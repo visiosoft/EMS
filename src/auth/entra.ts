@@ -31,9 +31,7 @@ const msalConfig: Configuration = {
 };
 
 export const loginRequest = {
-    scopes: apiScope
-        ? ["openid", "profile", "email", "User.Read", apiScope]
-        : ["openid", "profile", "email", "User.Read"],
+    scopes: ["openid", "profile", "email", "User.Read"],
 };
 
 export const msalInstance = new PublicClientApplication(msalConfig);
