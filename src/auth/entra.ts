@@ -9,6 +9,7 @@ import {
 
 const clientId = import.meta.env.VITE_ENTRA_CLIENT_ID;
 const tenantId = import.meta.env.VITE_ENTRA_TENANT_ID;
+const apiScope = import.meta.env.VITE_ENTRA_API_SCOPE?.trim();
 const redirectUriOverride = import.meta.env.VITE_ENTRA_REDIRECT_URI;
 const redirectPath = import.meta.env.VITE_ENTRA_REDIRECT_PATH ?? "/login";
 
@@ -23,7 +24,6 @@ const msalConfig: Configuration = {
         authority: `https://login.microsoftonline.com/${tenantId ?? "common"}`,
         redirectUri: resolveRedirectUri(),
         postLogoutRedirectUri: resolveRedirectUri(),
-        navigateToLoginRequestUrl: true,
     },
     cache: {
         cacheLocation: "sessionStorage",
@@ -31,7 +31,9 @@ const msalConfig: Configuration = {
 };
 
 export const loginRequest = {
-    scopes: ["openid", "profile", "email", "User.Read"],
+    scopes: apiScope
+        ? ["openid", "profile", "email", "User.Read", apiScope]
+        : ["openid", "profile", "email", "User.Read"],
 };
 
 export const msalInstance = new PublicClientApplication(msalConfig);
@@ -97,6 +99,18 @@ export function getAccountName(account: AccountInfo | null | undefined): string 
 
 export function getAccountEmail(account: AccountInfo | null | undefined): string {
     return readClaim(account, "preferred_username") ?? readClaim(account, "email") ?? account?.username ?? "";
+}
+
+export async function acquireApiAccessToken(account: AccountInfo): Promise<string> {
+    if (!apiScope) {
+        throw new Error('Set VITE_ENTRA_API_SCOPE to request an access token for the backend admin users API.');
+    }
+
+    const response = await msalInstance.acquireTokenSilent({
+        account,
+        scopes: [apiScope],
+    });
+    return response.accessToken;
 }
 
 export function getAccountInitials(account: AccountInfo | null | undefined): string {
