@@ -5,13 +5,13 @@ import { initializeMsal, msalInstance } from "./auth/entra.ts";
 import "./index.css";
 
 async function bootstrap() {
-	await initializeMsal();
+    await initializeMsal();
 
-	createRoot(document.getElementById("root")!).render(
-		<MsalProvider instance={msalInstance}>
-			<App />
-		</MsalProvider>,
-	);
+    createRoot(document.getElementById("root")!).render(
+        <MsalProvider instance={msalInstance}>
+            <App />
+        </MsalProvider>,
+    );
 }
 
 void bootstrap();

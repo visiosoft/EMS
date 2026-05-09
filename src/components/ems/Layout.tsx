@@ -121,9 +121,8 @@ export function Sidebar({ currentView, onNavigate, mobileOpen, onMobileClose }: 
           onClick={onMobileClose}
         />
       )}
-      <div className={`w-60 h-screen bg-surface border-r border-border flex flex-col fixed left-0 top-0 z-40 transition-transform duration-200 ${
-        mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
-      }`}>
+      <div className={`w-60 h-screen bg-surface border-r border-border flex flex-col fixed left-0 top-0 z-40 transition-transform duration-200 ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+        }`}>
         <div className="h-14 flex items-center px-4 border-b border-border gap-2">
           <IaeLogo />
           <div className="flex flex-col leading-tight">
@@ -142,11 +141,10 @@ export function Sidebar({ currentView, onNavigate, mobileOpen, onMobileClose }: 
                   <button
                     key={item.key}
                     onClick={() => handleNav(item.key)}
-                    className={`w-full text-left px-4 py-2 text-sm flex items-center gap-2 transition-colors ${
-                      isActive
+                    className={`w-full text-left px-4 py-2 text-sm flex items-center gap-2 transition-colors ${isActive
                         ? 'bg-ems-accent-dim text-ems-accent border-l-[3px] border-l-ems-accent'
                         : 'text-text-secondary hover:bg-hover hover:text-text-primary border-l-[3px] border-l-transparent'
-                    }`}
+                      }`}
                   >
                     <span className="text-xs">{item.icon}</span>
                     {item.label}
@@ -221,13 +219,13 @@ function ThemeToggle() {
     >
       {isDark && (
         <>
-          <span style={{ position:'absolute', top:5, left:6, width:2, height:2, borderRadius:'50%', background:'rgba(255,255,255,0.65)', pointerEvents:'none' }} />
-          <span style={{ position:'absolute', top:14, left:10, width:1.5, height:1.5, borderRadius:'50%', background:'rgba(255,255,255,0.45)', pointerEvents:'none' }} />
-          <span style={{ position:'absolute', top:8, left:14, width:1.5, height:1.5, borderRadius:'50%', background:'rgba(255,255,255,0.55)', pointerEvents:'none' }} />
+          <span style={{ position: 'absolute', top: 5, left: 6, width: 2, height: 2, borderRadius: '50%', background: 'rgba(255,255,255,0.65)', pointerEvents: 'none' }} />
+          <span style={{ position: 'absolute', top: 14, left: 10, width: 1.5, height: 1.5, borderRadius: '50%', background: 'rgba(255,255,255,0.45)', pointerEvents: 'none' }} />
+          <span style={{ position: 'absolute', top: 8, left: 14, width: 1.5, height: 1.5, borderRadius: '50%', background: 'rgba(255,255,255,0.55)', pointerEvents: 'none' }} />
         </>
       )}
       {!isDark && (
-        <span style={{ position:'absolute', right:6, top:'50%', transform:'translateY(-50%)', width:9, height:9, borderRadius:'50%', border:'1.5px solid rgba(255,255,255,0.7)', pointerEvents:'none' }} />
+        <span style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', width: 9, height: 9, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,0.7)', pointerEvents: 'none' }} />
       )}
       <span
         className="theme-toggle-thumb"
@@ -246,19 +244,19 @@ function ThemeToggle() {
       >
         {isDark ? (
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#93b8f5" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
           </svg>
         ) : (
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#e08800" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="4"/>
-            <line x1="12" y1="2" x2="12" y2="4"/>
-            <line x1="12" y1="20" x2="12" y2="22"/>
-            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-            <line x1="2" y1="12" x2="4" y2="12"/>
-            <line x1="20" y1="12" x2="22" y2="12"/>
-            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+            <circle cx="12" cy="12" r="4" />
+            <line x1="12" y1="2" x2="12" y2="4" />
+            <line x1="12" y1="20" x2="12" y2="22" />
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+            <line x1="2" y1="12" x2="4" y2="12" />
+            <line x1="20" y1="12" x2="22" y2="12" />
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
           </svg>
         )}
       </span>
