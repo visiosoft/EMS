@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { useMsal } from '@azure/msal-react';
 import { useTheme } from 'next-themes';
 import { Avatar } from './Primitives';
-import { CURRENT_USER } from '@/data/constants';
+import { getAccountEmail, getAccountInitials, getAccountName, getActiveAccount } from '@/auth/entra';
 
 function IaeLogo() {
   const { resolvedTheme } = useTheme();
@@ -102,6 +103,11 @@ const NAV_SECTIONS = [
 ];
 
 export function Sidebar({ currentView, onNavigate, mobileOpen, onMobileClose }: SidebarProps) {
+  const { accounts, instance } = useMsal();
+  const account = getActiveAccount() ?? accounts[0] ?? null;
+  const displayName = getAccountName(account);
+  const email = getAccountEmail(account) || 'Signed in with Microsoft Entra ID';
+
   const handleNav = (key: string) => {
     onNavigate(key);
     onMobileClose?.();
@@ -153,12 +159,19 @@ export function Sidebar({ currentView, onNavigate, mobileOpen, onMobileClose }: 
 
         <div className="p-4 border-t border-border">
           <div className="flex items-center gap-2">
-            <Avatar name={CURRENT_USER.name} size="sm" />
-            <div>
-              <div className="text-xs text-text-primary font-medium">{CURRENT_USER.name}</div>
-              <div className="text-[10px] text-text-muted">{CURRENT_USER.role}</div>
+            <Avatar name={displayName} size="sm" />
+            <div className="min-w-0">
+              <div className="text-xs text-text-primary font-medium truncate">{displayName}</div>
+              <div className="text-[10px] text-text-muted truncate">{email}</div>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => void instance.logoutRedirect()}
+            className="mt-3 w-full rounded-md border border-border bg-elevated px-3 py-2 text-xs font-medium text-text-secondary hover:bg-hover hover:text-text-primary"
+          >
+            Sign out
+          </button>
         </div>
       </div>
     </>
@@ -267,6 +280,10 @@ function getGreeting(): string {
 }
 
 export function Header({ breadcrumb, onMenuToggle }: HeaderProps) {
+  const { accounts } = useMsal();
+  const account = getActiveAccount() ?? accounts[0] ?? null;
+  const displayName = getAccountName(account);
+  const email = getAccountEmail(account) || 'Microsoft Entra ID';
   const greeting = getGreeting();
 
   return (
@@ -297,15 +314,15 @@ export function Header({ breadcrumb, onMenuToggle }: HeaderProps) {
         <div className="text-right hidden md:block">
           <div className="flex items-center gap-1.5">
             <span className="text-sm text-text-secondary">{greeting},</span>
-            <span className="text-sm font-semibold text-text-primary">Tom 👋</span>
+            <span className="text-sm font-semibold text-text-primary truncate max-w-44">{displayName}</span>
           </div>
-          <div className="text-[11px] text-text-muted leading-none mt-0.5">
-            Have a great day ahead
+          <div className="text-[11px] text-text-muted leading-none mt-0.5 truncate max-w-52">
+            {email}
           </div>
         </div>
         <ThemeToggle />
         <div className="w-8 h-8 rounded-full bg-ems-accent-dim border border-ems-accent/30 flex items-center justify-center text-ems-accent text-xs font-bold select-none">
-          TW
+          {getAccountInitials(account)}
         </div>
       </div>
     </div>
