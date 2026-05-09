@@ -10,6 +10,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { AddressFieldsDto } from './address-fields.dto';
+import { CompanyServiceAreaDto } from './company-service-area.dto';
 
 export class UpdateCompanyDto {
   @IsOptional()
@@ -28,6 +29,22 @@ export class UpdateCompanyDto {
   @IsInt({ each: true })
   @Min(1, { each: true })
   serviceProvidedIds?: number[];
+
+  /** Service Areas: dbo.CompanyServiceArea (CompanyID, DMAID, ServiceProvidedID) */
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => CompanyServiceAreaDto)
+  serviceAreas?: CompanyServiceAreaDto[];
+
+  /** Nationwide company: store against "All DMAs" DMA row (if present). */
+  @IsOptional()
+  allDmas?: boolean;
+
+  /** Required when allDmas=true. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  allDmasServiceProvidedId?: number;
 
   @IsOptional()
   @IsInt()

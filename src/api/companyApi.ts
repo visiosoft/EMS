@@ -19,6 +19,14 @@ export interface ApiCompanyListRow {
   companyTypeNames: string[];
   serviceProvidedIds: number[];
   serviceProvidedNames: string[];
+  serviceAreas?: {
+    dmaid: number;
+    dmaMarketName: string;
+    serviceProvidedId: number;
+    serviceName: string;
+  }[];
+  allDmas?: boolean;
+  allDmasServiceProvidedId?: number | null;
   physicalCity: string;
   physicalStateProvince: string;
   dmaId: number | null;
@@ -205,6 +213,9 @@ export interface CreateCompanyPayload {
   companyName: string;
   companyTypeId: number;
   serviceProvidedIds?: number[];
+  serviceAreas?: { dmaid: number; serviceProvidedId: number }[];
+  allDmas?: boolean;
+  allDmasServiceProvidedId?: number;
   dmaId?: number;
   physical: {
     addressLine1: string;
@@ -229,11 +240,17 @@ export interface UpdateCompanyPayload {
   companyName?: string;
   companyTypeId?: number;
   serviceProvidedIds?: number[];
+  serviceAreas?: { dmaid: number; serviceProvidedId: number }[];
+  allDmas?: boolean;
+  allDmasServiceProvidedId?: number | null;
   dmaId?: number;
   physical?: CreateCompanyPayload['physical'];
   mailing?: CreateCompanyPayload['mailing'];
   mailingSameAsPhysical?: boolean;
 }
+
+export type ApiDmaMarket = { dmaid: number; marketName: string; postalCode: string };
+export type ApiDmaMarketsPage = { data: ApiDmaMarket[]; total: number };
 
 export interface ApiPaginatedResponse<T> {
   data: T[];
@@ -655,6 +672,15 @@ export function fetchDmaByPostal(postalCode: string) {
   return apiFetch<{ dmaid: number; marketName: string; postalCode: string } | null>(
     `/lookups/dma-by-postal/${enc}`,
   );
+}
+
+export function fetchDmaMarketsPage(offset = 0, limit = 500, q = '') {
+  const params = new URLSearchParams({
+    offset: String(Math.max(0, offset)),
+    limit: String(Math.max(1, Math.min(500, limit))),
+  });
+  if (q.trim()) params.set('q', q.trim());
+  return apiFetch<ApiDmaMarketsPage>(`/lookups/dma-markets?${params}`);
 }
 
 export interface ApiDmaMarket {

@@ -38,6 +38,7 @@ import { VenueTax } from '../entities/venue-tax.entity';
 import { Tax } from '../entities/tax.entity';
 import { ServiceProvided } from '../entities/service-provided.entity';
 import { CompanyService as CompanyServiceEntity } from '../entities/company-service.entity';
+import { CompanyServiceArea } from '../entities/company-service-area.entity';
 import { VenueServiceProvider } from '../entities/venue-service-provider.entity';
 import { NonResidentWithholding } from '../entities/non-resident-withholding.entity';
 import { Link } from '../entities/link.entity';
@@ -140,6 +141,14 @@ export interface CompanyListRow {
 export interface CompanyDetail extends CompanyListRow {
   physicalAddress: Address;
   mailingAddress: Address;
+  serviceAreas: {
+    dmaid: number;
+    dmaMarketName: string;
+    serviceProvidedId: number;
+    serviceName: string;
+  }[];
+  allDmas: boolean;
+  allDmasServiceProvidedId: number | null;
 }
 
 export interface CompanyContactRow {
@@ -214,6 +223,8 @@ export class CompanyService {
     private readonly serviceProvidedRepo: Repository<ServiceProvided>,
     @InjectRepository(CompanyServiceEntity)
     private readonly companyServiceRepo: Repository<CompanyServiceEntity>,
+    @InjectRepository(CompanyServiceArea)
+    private readonly companyServiceAreaRepo: Repository<CompanyServiceArea>,
     @InjectRepository(VenueServiceProvider)
     private readonly venueServiceProviderRepo: Repository<VenueServiceProvider>,
     @InjectRepository(NonResidentWithholding)
@@ -439,6 +450,11 @@ export class CompanyService {
     company: Company,
     typeMap: Map<number, CompanyType[]>,
     serviceMap: Map<number, ServiceProvided[]>,
+    serviceAreaMap?: Map<
+      number,
+      { dmaid: number; dmaMarketName: string; serviceProvidedId: number; serviceName: string }[]
+    >,
+    allDmasMetaMap?: Map<number, { allDmas: boolean; allDmasServiceProvidedId: number | null }>,
   ): CompanyDetail {
     const allTypes = typeMap.get(company.companyId) ?? [];
     const allServices = serviceMap.get(company.companyId) ?? [];
@@ -448,6 +464,14 @@ export class CompanyService {
       allTypes[0];
     const primaryTypeId = primary?.companyTypeId ?? company.companyTypeId;
     const primaryTypeName = primary?.companyTypeName ?? '';
+    const allMeta = allDmasMetaMap?.get(company.companyId);
+    const allDmas = allMeta?.allDmas ?? false;
+    const allDmasServiceProvidedId = allMeta?.allDmasServiceProvidedId ?? null;
+    const selectedAllServiceName =
+      allDmas && allDmasServiceProvidedId != null
+        ? allServices.find((s) => s.serviceProvidedId === allDmasServiceProvidedId)?.serviceName ??
+          ''
+        : '';
     return {
       companyId: company.companyId,
       companyName: company.companyName,
@@ -463,7 +487,76 @@ export class CompanyService {
       dmaMarketName: company.dma?.marketName ?? '',
       physicalAddress: company.physicalAddress,
       mailingAddress: company.mailingAddress,
+      serviceAreas: allDmas
+        ? [
+            {
+              dmaid: 0,
+              dmaMarketName: 'All',
+              serviceProvidedId: allDmasServiceProvidedId ?? 0,
+              serviceName: selectedAllServiceName,
+            },
+          ]
+        : serviceAreaMap?.get(company.companyId) ?? [],
+      allDmas,
+      allDmasServiceProvidedId,
     };
+  }
+
+  private async listAllDmaMarketIds(em: EntityManager): Promise<number[]> {
+    const rows = await em.query(
+      `
+      SELECT MIN(d.DMAID) AS dmaid
+      FROM dbo.DMA d
+      WHERE d.MarketName IS NOT NULL
+      GROUP BY d.MarketName
+      `,
+    );
+    return (rows as any[])
+      .map((r) => Number(r.dmaid ?? r.DMAID))
+      .filter((id) => Number.isInteger(id) && id > 0)
+      .sort((a, b) => a - b);
+  }
+
+  private async buildAllDmasMetaMap(
+    em: EntityManager,
+    serviceAreaMap: Map<
+      number,
+      { dmaid: number; dmaMarketName: string; serviceProvidedId: number; serviceName: string }[]
+    >,
+  ): Promise<Map<number, { allDmas: boolean; allDmasServiceProvidedId: number | null }>> {
+    const out = new Map<number, { allDmas: boolean; allDmasServiceProvidedId: number | null }>();
+    const allMarketIds = await this.listAllDmaMarketIds(em);
+    const allSet = new Set(allMarketIds);
+
+    for (const [companyId, list] of serviceAreaMap.entries()) {
+      if (list.length === 0) {
+        out.set(companyId, { allDmas: false, allDmasServiceProvidedId: null });
+        continue;
+      }
+      const sidSet = new Set(list.map((x) => x.serviceProvidedId));
+      if (sidSet.size !== 1) {
+        out.set(companyId, { allDmas: false, allDmasServiceProvidedId: null });
+        continue;
+      }
+      const dmaidSet = new Set(list.map((x) => x.dmaid));
+      if (dmaidSet.size !== allSet.size) {
+        out.set(companyId, { allDmas: false, allDmasServiceProvidedId: null });
+        continue;
+      }
+      let matches = true;
+      for (const id of dmaidSet) {
+        if (!allSet.has(id)) {
+          matches = false;
+          break;
+        }
+      }
+      out.set(companyId, {
+        allDmas: matches,
+        allDmasServiceProvidedId: matches ? [...sidSet][0] : null,
+      });
+    }
+
+    return out;
   }
 
   private async syncCompanyServices(
@@ -480,6 +573,160 @@ export class CompanyService {
       }),
     );
     await em.save(CompanyServiceEntity, rows);
+  }
+
+  private normalizeServiceAreas(
+    list?: { dmaid: number; serviceProvidedId: number }[] | null,
+  ): { dmaid: number; serviceProvidedId: number }[] {
+    const rows = Array.isArray(list) ? list : [];
+    const out: { dmaid: number; serviceProvidedId: number }[] = [];
+    const seen = new Set<string>();
+    for (const r of rows) {
+      const dmaid = Number((r as any)?.dmaid);
+      const serviceProvidedId = Number((r as any)?.serviceProvidedId);
+      if (!Number.isInteger(dmaid) || dmaid < 1) continue;
+      if (!Number.isInteger(serviceProvidedId) || serviceProvidedId < 1) continue;
+      const key = `${dmaid}:${serviceProvidedId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ dmaid, serviceProvidedId });
+    }
+    return out;
+  }
+
+  private async syncCompanyServiceAreas(
+    em: EntityManager,
+    companyId: number,
+    input: {
+      allDmas?: boolean;
+      allDmasServiceProvidedId?: number | null;
+      serviceAreas?: { dmaid: number; serviceProvidedId: number }[] | null;
+    },
+  ): Promise<{ allDmas: boolean; allDmasServiceProvidedId: number | null }> {
+    const allDmas = Boolean(input.allDmas);
+    const allDmasServiceProvidedId =
+      input.allDmasServiceProvidedId != null ? Number(input.allDmasServiceProvidedId) : null;
+
+    await em.delete(CompanyServiceArea, { companyId });
+
+    if (allDmas) {
+      if (
+        allDmasServiceProvidedId == null ||
+        !Number.isInteger(allDmasServiceProvidedId) ||
+        allDmasServiceProvidedId < 1
+      ) {
+        throw new BadRequestException({
+          message: 'Pick a service for All DMAs.',
+        });
+      }
+      const sid = allDmasServiceProvidedId;
+      const known = await em.getRepository(ServiceProvided).findOne({
+        where: { serviceProvidedId: sid },
+      });
+      if (!known) {
+        throw new BadRequestException({
+          message: 'Invalid service for All DMAs.',
+        });
+      }
+      const dmaids = await this.listAllDmaMarketIds(em);
+      if (dmaids.length === 0) {
+        throw new BadRequestException({
+          message: 'No DMA markets were found to apply All DMAs.',
+        });
+      }
+
+      // Insert one row per DMA market (MIN(DMAID) grouped by market name)
+      await em.query(
+        `
+        INSERT INTO [dbo].[CompanyServiceArea] ([CompanyID], [DMAID], [ServiceProvidedID])
+        SELECT ${Number(companyId)}, MIN(d.[DMAID]), ${Number(sid)}
+        FROM [dbo].[DMA] d
+        WHERE d.[MarketName] IS NOT NULL
+        GROUP BY d.[MarketName]
+        `,
+      );
+      return { allDmas: true, allDmasServiceProvidedId: sid };
+    }
+
+    const serviceAreas = this.normalizeServiceAreas(input.serviceAreas);
+    if (serviceAreas.length === 0) {
+      return { allDmas: false, allDmasServiceProvidedId: null };
+    }
+
+    const uniqueDmaids = [...new Set(serviceAreas.map((r) => r.dmaid))];
+    const uniqueServiceIds = [...new Set(serviceAreas.map((r) => r.serviceProvidedId))];
+
+    const [knownDmaCount, knownServiceCount] = await Promise.all([
+      em.getRepository(Dma).count({ where: { dmaid: In(uniqueDmaids) } }),
+      em
+        .getRepository(ServiceProvided)
+        .count({ where: { serviceProvidedId: In(uniqueServiceIds) } }),
+    ]);
+    if (knownServiceCount !== uniqueServiceIds.length) {
+      throw new BadRequestException({ message: 'One or more services are invalid.' });
+    }
+    if (knownDmaCount !== uniqueDmaids.length) {
+      throw new BadRequestException({ message: 'One or more DMAs are invalid.' });
+    }
+
+    const rows = serviceAreas.map((r) =>
+      em.create(CompanyServiceArea, {
+        companyId,
+        dmaid: r.dmaid,
+        serviceProvidedId: r.serviceProvidedId,
+      }),
+    );
+    await em.save(CompanyServiceArea, rows);
+    return { allDmas: false, allDmasServiceProvidedId: null };
+  }
+
+  private async collectCompanyServiceAreasByCompanyId(
+    companyIds: number[],
+    em?: EntityManager,
+  ): Promise<
+    Map<
+      number,
+      {
+        dmaid: number;
+        dmaMarketName: string;
+        serviceProvidedId: number;
+        serviceName: string;
+      }[]
+    >
+  > {
+    const ids = [...new Set(companyIds)].filter((id) => Number.isInteger(id) && id > 0);
+    const out = new Map<
+      number,
+      { dmaid: number; dmaMarketName: string; serviceProvidedId: number; serviceName: string }[]
+    >();
+    if (ids.length === 0) return out;
+
+    const repo = em?.getRepository(CompanyServiceArea) ?? this.companyServiceAreaRepo;
+    const rows = await repo.find({
+      where: { companyId: In(ids) },
+      relations: { dma: true, serviceProvided: true },
+    });
+
+    for (const r of rows) {
+      const list = out.get(r.companyId) ?? [];
+      list.push({
+        dmaid: r.dmaid,
+        dmaMarketName: (r.dma as any)?.marketName ?? '',
+        serviceProvidedId: r.serviceProvidedId,
+        serviceName: (r.serviceProvided as any)?.serviceName ?? '',
+      });
+      out.set(r.companyId, list);
+    }
+
+    for (const [cid, list] of out.entries()) {
+      list.sort((a, b) => {
+        const dma = a.dmaMarketName.localeCompare(b.dmaMarketName, undefined, { sensitivity: 'base' });
+        if (dma !== 0) return dma;
+        return a.serviceName.localeCompare(b.serviceName, undefined, { sensitivity: 'base' });
+      });
+      out.set(cid, list);
+    }
+    return out;
   }
 
   private async syncCompanyTypes(
@@ -1585,13 +1832,17 @@ export class CompanyService {
       .orderBy('c.companyName', 'ASC')
       .getMany();
 
-    const typeMap = await this.collectCompanyTypesByCompanyId(
-      rows.map((row) => row.companyId),
+    const companyIds = rows.map((row) => row.companyId);
+    const typeMap = await this.collectCompanyTypesByCompanyId(companyIds);
+    const serviceMap = await this.collectCompanyServicesByCompanyId(companyIds);
+    const serviceAreaMap = await this.collectCompanyServiceAreasByCompanyId(companyIds);
+    const allDmasMetaMap = await this.buildAllDmasMetaMap(
+      this.dataSource.manager,
+      serviceAreaMap,
     );
-    const serviceMap = await this.collectCompanyServicesByCompanyId(
-      rows.map((row) => row.companyId),
+    return rows.map((c) =>
+      this.mapCompanyToDetail(c, typeMap, serviceMap, serviceAreaMap, allDmasMetaMap),
     );
-    return rows.map((c) => this.mapCompanyToDetail(c, typeMap, serviceMap));
   }
 
   async findAllPaginated(
@@ -1655,15 +1906,19 @@ export class CompanyService {
 
     const total = await qb.getCount();
     const rows = await qb.skip(offset).take(limit).getMany();
-    const typeMap = await this.collectCompanyTypesByCompanyId(
-      rows.map((row) => row.companyId),
-    );
-    const serviceMap = await this.collectCompanyServicesByCompanyId(
-      rows.map((row) => row.companyId),
+    const companyIds = rows.map((row) => row.companyId);
+    const typeMap = await this.collectCompanyTypesByCompanyId(companyIds);
+    const serviceMap = await this.collectCompanyServicesByCompanyId(companyIds);
+    const serviceAreaMap = await this.collectCompanyServiceAreasByCompanyId(companyIds);
+    const allDmasMetaMap = await this.buildAllDmasMetaMap(
+      this.dataSource.manager,
+      serviceAreaMap,
     );
 
     return {
-      data: rows.map((c) => this.mapCompanyToDetail(c, typeMap, serviceMap)),
+      data: rows.map((c) =>
+        this.mapCompanyToDetail(c, typeMap, serviceMap, serviceAreaMap, allDmasMetaMap),
+      ),
       total,
     };
   }
@@ -1679,9 +1934,15 @@ export class CompanyService {
       },
     });
     if (!c) throw new NotFoundException(`Company ${companyId} not found`);
-    const typeMap = await this.collectCompanyTypesByCompanyId([c.companyId]);
-    const serviceMap = await this.collectCompanyServicesByCompanyId([c.companyId]);
-    return this.mapCompanyToDetail(c, typeMap, serviceMap);
+    const companyIds = [c.companyId];
+    const typeMap = await this.collectCompanyTypesByCompanyId(companyIds);
+    const serviceMap = await this.collectCompanyServicesByCompanyId(companyIds);
+    const serviceAreaMap = await this.collectCompanyServiceAreasByCompanyId(companyIds);
+    const allDmasMetaMap = await this.buildAllDmasMetaMap(
+      this.dataSource.manager,
+      serviceAreaMap,
+    );
+    return this.mapCompanyToDetail(c, typeMap, serviceMap, serviceAreaMap, allDmasMetaMap);
   }
 
   async create(dto: CreateCompanyDto): Promise<CompanyDetail> {
@@ -1748,6 +2009,11 @@ export class CompanyService {
       });
       const row = await em.save(Company, company);
       await this.syncCompanyServices(em, row.companyId, serviceProvidedIds);
+      await this.syncCompanyServiceAreas(em, row.companyId, {
+        allDmas: (dto as any).allDmas,
+        allDmasServiceProvidedId: (dto as any).allDmasServiceProvidedId,
+        serviceAreas: (dto as any).serviceAreas,
+      });
       await this.ensureVenueRowForCompanyTypes(
         em,
         row.companyId,
@@ -2503,6 +2769,20 @@ export class CompanyService {
       });
     }
 
+    if (
+      (dto as any).serviceAreas !== undefined ||
+      (dto as any).allDmas !== undefined ||
+      (dto as any).allDmasServiceProvidedId !== undefined
+    ) {
+      await this.dataSource.transaction(async (em) => {
+        await this.syncCompanyServiceAreas(em, companyId, {
+          allDmas: (dto as any).allDmas,
+          allDmasServiceProvidedId: (dto as any).allDmasServiceProvidedId,
+          serviceAreas: (dto as any).serviceAreas,
+        });
+      });
+    }
+
     /**
      * Always return the freshly-joined detail row so the frontend can patch
      * its list cache in place (type name, DMA market name, nested addresses).
@@ -2572,6 +2852,7 @@ export class CompanyService {
           `DELETE FROM [dbo].[CompanyXref] WHERE [CompanyID] = ${cid}`,
         );
         await manager.delete(CompanyServiceEntity, { companyId });
+        await manager.delete(CompanyServiceArea, { companyId });
         // Venue-type companies get a dbo.Venue row (1:1 on CompanyID). Remove it
         // before Company or SQL Server will block the delete with an FK error.
         await manager.delete(Venue, { companyId });

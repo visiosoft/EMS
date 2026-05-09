@@ -38,6 +38,7 @@ import {
   fetchCompanyLinkedVenueContacts,
   fetchCompanyEngagements,
   fetchDmaByPostal,
+  fetchDmaMarketsPage,
   fetchLookups,
   updateCompany,
   updateContactAssignment,
@@ -49,6 +50,7 @@ import {
   type ApiBrand,
   type ApiTax,
   type ApiServiceProvided,
+  type ApiDmaMarket,
   type CreateCompanyPayload,
   type UpdateCompanyPayload,
 } from '@/api/companyApi';
@@ -322,11 +324,12 @@ function InlineSelectField({
 // ─── Inline-editable Overview tab ────────────────────────────────────────────
 
 function InlineEditableOverview({
-  company, companyTypes, servicesProvided, addToast, onSaved,
+  company, companyTypes, servicesProvided, dmaMarkets, addToast, onSaved,
 }: {
   company: Company;
   companyTypes: { companyTypeId: number; companyTypeName: string }[];
   servicesProvided: ApiServiceProvided[];
+  dmaMarkets: ApiDmaMarket[];
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
   /** Receives the fresh list row returned by PATCH /companies/:id so the parent can patch its cache. */
   onSaved: (row: ApiCompanyListRow) => void | Promise<void>;
@@ -339,6 +342,23 @@ function InlineEditableOverview({
     (company.serviceProvidedIds ?? [])
       .map((id) => String(id))
       .filter((id) => id.trim().length > 0),
+  );
+  const [allDmas, setAllDmas] = useState<boolean>(Boolean(company.allDmas));
+  const [allDmasServiceProvidedId, setAllDmasServiceProvidedId] = useState<string>(
+    company.allDmasServiceProvidedId != null ? String(company.allDmasServiceProvidedId) : '',
+  );
+  const [serviceAreas, setServiceAreas] = useState<
+    { dmaid: string; serviceProvidedId: string }[]
+  >(
+    (company.serviceAreas ?? [])
+      .filter((r) => {
+        const n = (r.dmaMarketName ?? '').trim().toLowerCase();
+        return !(n === 'all' || n === 'all dmas' || n === 'nationwide' || n === 'national' || n === 'all markets');
+      })
+      .map((r) => ({
+        dmaid: String(r.dmaid),
+        serviceProvidedId: String(r.serviceProvidedId),
+      })),
   );
   const [physStreet, setPhysStreet] = useState(company.physicalStreet ?? '');
   const [physCity, setPhysCity]     = useState(company.physicalCity ?? company.city ?? '');
@@ -483,6 +503,16 @@ function InlineEditableOverview({
     value: String(service.serviceProvidedId),
     label: service.serviceName,
   }));
+  const dmaMarketOptions = useMemo(
+    () =>
+      (dmaMarkets ?? [])
+        .slice()
+        .sort((a, b) =>
+          a.marketName.localeCompare(b.marketName, undefined, { sensitivity: 'base' }),
+        )
+        .map((d) => ({ value: String(d.dmaid), label: d.marketName })),
+    [dmaMarkets],
+  );
   const venueTypeIds = useMemo(
     () =>
       new Set(
@@ -514,6 +544,18 @@ function InlineEditableOverview({
       (company.serviceProvidedIds ?? [])
         .map((id) => String(id))
         .filter((id) => id.trim().length > 0),
+    );
+    setAllDmas(Boolean(company.allDmas));
+    setAllDmasServiceProvidedId(
+      company.allDmasServiceProvidedId != null ? String(company.allDmasServiceProvidedId) : '',
+    );
+    setServiceAreas(
+      (company.serviceAreas ?? [])
+        .filter((r) => {
+          const n = (r.dmaMarketName ?? '').trim().toLowerCase();
+          return !(n === 'all' || n === 'all dmas' || n === 'nationwide' || n === 'national' || n === 'all markets');
+        })
+        .map((r) => ({ dmaid: String(r.dmaid), serviceProvidedId: String(r.serviceProvidedId) })),
     );
     setPhysStreet(company.physicalStreet ?? ''); setPhysCity(company.physicalCity ?? company.city ?? '');
     setPhysState(company.physicalState ?? company.state ?? ''); setPhysPostal(company.physicalPostalCode ?? '');
@@ -643,6 +685,24 @@ function InlineEditableOverview({
         serviceProvidedIds: serviceProvidedIds
           .map((id) => Number(id))
           .filter((id) => Number.isInteger(id) && id > 0),
+        allDmas,
+        allDmasServiceProvidedId:
+          allDmas && Number(allDmasServiceProvidedId) > 0
+            ? Number(allDmasServiceProvidedId)
+            : allDmas
+              ? null
+              : null,
+        serviceAreas: allDmas
+          ? []
+          : serviceAreas
+              .map((r) => ({ dmaid: Number(r.dmaid), serviceProvidedId: Number(r.serviceProvidedId) }))
+              .filter(
+                (r) =>
+                  Number.isInteger(r.dmaid) &&
+                  r.dmaid > 0 &&
+                  Number.isInteger(r.serviceProvidedId) &&
+                  r.serviceProvidedId > 0,
+              ),
         dmaId: dmaIdToSend,
         physical: {
           addressLine1: physStreet.trim().slice(0, M.addressLine1),
@@ -898,6 +958,110 @@ function InlineEditableOverview({
             </div>
             <p className="text-[11px] text-text-muted mt-1">Auto-resolved from postal code.</p>
           </div>
+        </div>
+
+        {/* Service Area */}
+        <div className="bg-elevated border border-border rounded-lg p-4 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+                Service Area
+              </h4>
+              <p className="text-[11px] text-text-muted mt-1">
+                Select DMAs where this company provides services, and which service is provided in each DMA.
+              </p>
+            </div>
+            <label className="text-xs text-text-secondary flex items-center gap-2 select-none">
+              <input
+                type="checkbox"
+                checked={allDmas}
+                onChange={(e) => mark(setAllDmas)(e.target.checked)}
+              />
+              All DMAs (Nationwide)
+            </label>
+          </div>
+
+          {allDmas ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+              <div>
+                <label className="text-xs text-text-muted block mb-0.5">
+                  Service (Nationwide)
+                  <span className="text-ems-coral ml-0.5">*</span>
+                </label>
+                <Select2
+                  options={serviceOptions}
+                  value={allDmasServiceProvidedId}
+                  onChange={mark(setAllDmasServiceProvidedId)}
+                  placeholder="Select service…"
+                />
+              </div>
+              <div className="text-[11px] text-text-muted">
+                Selected Area: All
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {serviceAreas.length === 0 ? (
+                <div className="text-sm text-text-muted">No service areas added yet.</div>
+              ) : null}
+              {serviceAreas.map((row, idx) => (
+                <div key={`sa-${idx}`} className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+                  <div>
+                    <label className="text-xs text-text-muted block mb-0.5">DMA</label>
+                    <Select2
+                      options={dmaMarketOptions}
+                      value={row.dmaid}
+                      onChange={(v) => {
+                        const next = [...serviceAreas];
+                        next[idx] = { ...next[idx], dmaid: v };
+                        mark(setServiceAreas)(next);
+                      }}
+                      placeholder="Select DMA…"
+                    />
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <div className="flex-1">
+                      <label className="text-xs text-text-muted block mb-0.5">Service</label>
+                      <Select2
+                        options={serviceOptions}
+                        value={row.serviceProvidedId}
+                        onChange={(v) => {
+                          const next = [...serviceAreas];
+                          next[idx] = { ...next[idx], serviceProvidedId: v };
+                          mark(setServiceAreas)(next);
+                        }}
+                        placeholder="Select service…"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="text-xs text-text-muted hover:text-ems-coral hover:underline pb-2"
+                      onClick={() => {
+                        const next = serviceAreas.filter((_, i) => i !== idx);
+                        mark(setServiceAreas)(next);
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ))}
+              <div>
+                <button
+                  type="button"
+                  className="text-sm text-ems-accent hover:underline"
+                  onClick={() => {
+                    mark(setServiceAreas)([
+                      ...serviceAreas,
+                      { dmaid: '', serviceProvidedId: '' },
+                    ]);
+                  }}
+                >
+                  + Add DMA Service Area
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Physical Address */}
@@ -1469,12 +1633,14 @@ const COMPANY_FORM_MAIL_ERR_KEYS = [
 function CompanyFormDb({
   companyTypes,
   servicesProvided,
+  dmaMarkets,
   initial,
   onSubmit,
   onCancel,
 }: {
   companyTypes: { companyTypeId: number; companyTypeName: string }[];
   servicesProvided: ApiServiceProvided[];
+  dmaMarkets: ApiDmaMarket[];
   initial?: Company;
   onSubmit: (payload: CreateCompanyPayload | UpdateCompanyPayload) => Promise<void>;
   onCancel: () => void;
@@ -1485,6 +1651,23 @@ function CompanyFormDb({
   );
   const [serviceProvidedIds, setServiceProvidedIds] = useState<string[]>(
     (initial?.serviceProvidedIds ?? []).map((id) => String(id)),
+  );
+  const [allDmas, setAllDmas] = useState<boolean>(Boolean(initial?.allDmas));
+  const [allDmasServiceProvidedId, setAllDmasServiceProvidedId] = useState<string>(
+    initial?.allDmasServiceProvidedId != null ? String(initial.allDmasServiceProvidedId) : '',
+  );
+  const [serviceAreas, setServiceAreas] = useState<
+    { dmaid: string; serviceProvidedId: string }[]
+  >(
+    (initial?.serviceAreas ?? [])
+      .filter((r) => {
+        const n = (r.dmaMarketName ?? '').trim().toLowerCase();
+        return !(n === 'all' || n === 'all dmas' || n === 'nationwide' || n === 'national' || n === 'all markets');
+      })
+      .map((r) => ({
+        dmaid: String(r.dmaid),
+        serviceProvidedId: String(r.serviceProvidedId),
+      })),
   );
   const [resolvedDma, setResolvedDma] = useState<string | null>(
     initial?.dmaMarketName ?? null,
@@ -1537,6 +1720,18 @@ function CompanyFormDb({
       initial.companyTypeId != null ? String(initial.companyTypeId) : '',
     );
     setServiceProvidedIds((initial.serviceProvidedIds ?? []).map((id) => String(id)));
+    setAllDmas(Boolean(initial.allDmas));
+    setAllDmasServiceProvidedId(
+      initial.allDmasServiceProvidedId != null ? String(initial.allDmasServiceProvidedId) : '',
+    );
+    setServiceAreas(
+      (initial.serviceAreas ?? [])
+        .filter((r) => {
+          const n = (r.dmaMarketName ?? '').trim().toLowerCase();
+          return !(n === 'all' || n === 'all dmas' || n === 'nationwide' || n === 'national' || n === 'all markets');
+        })
+        .map((r) => ({ dmaid: String(r.dmaid), serviceProvidedId: String(r.serviceProvidedId) })),
+    );
     setPhysicalStreet(initial.physicalStreet || '');
     setPhysicalCity(initial.physicalCity || '');
     setPhysicalState(initial.physicalState || '');
@@ -1743,6 +1938,17 @@ function CompanyFormDb({
     [servicesProvided],
   );
 
+  const dmaMarketOpts = useMemo(
+    () =>
+      (dmaMarkets ?? [])
+        .slice()
+        .sort((a, b) =>
+          a.marketName.localeCompare(b.marketName, undefined, { sensitivity: 'base' }),
+        )
+        .map((d) => ({ value: String(d.dmaid), label: d.marketName })),
+    [dmaMarkets],
+  );
+
   const handleSave = async () => {
     const M = COMPANY_FORM;
     const next: Partial<Record<string, string>> = {};
@@ -1863,6 +2069,22 @@ function CompanyFormDb({
       serviceProvidedIds: serviceProvidedIds
         .map((id) => Number(id))
         .filter((id) => Number.isInteger(id) && id > 0),
+      allDmas,
+      allDmasServiceProvidedId:
+        allDmas && Number(allDmasServiceProvidedId) > 0
+          ? Number(allDmasServiceProvidedId)
+          : undefined,
+      serviceAreas: allDmas
+        ? []
+        : serviceAreas
+            .map((r) => ({ dmaid: Number(r.dmaid), serviceProvidedId: Number(r.serviceProvidedId) }))
+            .filter(
+              (r) =>
+                Number.isInteger(r.dmaid) &&
+                r.dmaid > 0 &&
+                Number.isInteger(r.serviceProvidedId) &&
+                r.serviceProvidedId > 0,
+            ),
       physical,
       mailingSameAsPhysical,
       mailing,
@@ -1899,6 +2121,102 @@ function CompanyFormDb({
             placeholder="Select one or more services…"
           />
         </FormField>
+      </div>
+
+      <div className="bg-elevated border border-border rounded-lg p-4 space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-text-primary">Service Area</div>
+            <div className="text-xs text-text-muted mt-0.5">
+              Select which DMAs this company provides services in, and which service is provided in each DMA.
+            </div>
+          </div>
+          <label className="text-xs text-text-secondary flex items-center gap-2 select-none">
+            <input
+              type="checkbox"
+              checked={allDmas}
+              onChange={(e) => setAllDmas(e.target.checked)}
+            />
+            All DMAs (Nationwide)
+          </label>
+        </div>
+
+        {allDmas ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+            <div>
+              <label className="text-xs text-text-muted block mb-0.5">
+                Service (Nationwide)
+                <span className="text-ems-coral ml-0.5">*</span>
+              </label>
+              <Select2
+                options={serviceOpts}
+                value={allDmasServiceProvidedId}
+                onChange={setAllDmasServiceProvidedId}
+                placeholder="Select service…"
+                disabled={saving}
+              />
+            </div>
+            <div className="text-[11px] text-text-muted">
+              Selected Area: All
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {serviceAreas.length === 0 ? (
+              <div className="text-sm text-text-muted">No service areas added yet.</div>
+            ) : null}
+            {serviceAreas.map((row, idx) => (
+              <div key={`sa-create-${idx}`} className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+                <div>
+                  <label className="text-xs text-text-muted block mb-0.5">DMA</label>
+                  <Select2
+                    options={dmaMarketOpts}
+                    value={row.dmaid}
+                    onChange={(v) => {
+                      const next = [...serviceAreas];
+                      next[idx] = { ...next[idx], dmaid: v };
+                      setServiceAreas(next);
+                    }}
+                    placeholder="Select DMA…"
+                    disabled={saving}
+                  />
+                </div>
+                <div className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <label className="text-xs text-text-muted block mb-0.5">Service</label>
+                    <Select2
+                      options={serviceOpts}
+                      value={row.serviceProvidedId}
+                      onChange={(v) => {
+                        const next = [...serviceAreas];
+                        next[idx] = { ...next[idx], serviceProvidedId: v };
+                        setServiceAreas(next);
+                      }}
+                      placeholder="Select service…"
+                      disabled={saving}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="text-xs text-text-muted hover:text-ems-coral hover:underline pb-2"
+                    onClick={() => setServiceAreas(serviceAreas.filter((_, i) => i !== idx))}
+                    disabled={saving}
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="text-sm text-ems-accent hover:underline"
+              onClick={() => setServiceAreas([...serviceAreas, { dmaid: '', serviceProvidedId: '' }])}
+              disabled={saving}
+            >
+              + Add DMA Service Area
+            </button>
+          </div>
+        )}
       </div>
 
       <FormField label="Company Name" required error={fieldErrors.companyName}>
@@ -2449,12 +2767,20 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
     gcTime: 60 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
+  const dmaMarketsQuery = useQuery({
+    queryKey: ['lookups', 'dma-markets', 0, 500, ''],
+    queryFn: () => fetchDmaMarketsPage(0, 500, ''),
+    staleTime: 30 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
   const seatingTypes: ApiSeatingType[] = lookupsQuery.data?.seatingTypes ?? [];
   const venueTypes = lookupsQuery.data?.venueTypes ?? [];
   const brands: ApiBrand[] = lookupsQuery.data?.brands ?? [];
   const taxes: ApiTax[] = lookupsQuery.data?.taxes ?? [];
   const servicesProvided: ApiServiceProvided[] =
     lookupsQuery.data?.servicesProvided ?? [];
+  const dmaMarkets: ApiDmaMarket[] = dmaMarketsQuery.data?.data ?? [];
   const nonResidentWithholdings = lookupsQuery.data?.nonResidentWithholdings ?? [];
   const roles: ApiRole[] = lookupsQuery.data?.roles ?? [];
   const departments: ApiDepartment[] = lookupsQuery.data?.departments ?? [];
@@ -2947,7 +3273,7 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                 ))}
               </tbody>
             </table>
-            {showCompaniesTableRefetchLoader ? (
+            {showCompaniesTableRefetchLoader || deleteMut.isPending ? (
               <div
                 className="absolute inset-0 z-10 flex items-start justify-center bg-background/60 pt-14 sm:pt-20 backdrop-blur-[0.5px]"
                 aria-busy="true"
@@ -3060,6 +3386,7 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                 company={selectedCompany}
                 companyTypes={lookupsQuery.data.companyTypes}
                 servicesProvided={servicesProvided}
+                dmaMarkets={dmaMarkets}
                 addToast={addToast}
                 onSaved={(row) => {
                   upsertCompanyInCache();
@@ -3321,6 +3648,7 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
             key="add-company"
             companyTypes={lookupsQuery.data.companyTypes}
             servicesProvided={servicesProvided}
+            dmaMarkets={dmaMarkets}
             onCancel={() => setShowAddModal(false)}
             onSubmit={async (payload) => {
               try {
