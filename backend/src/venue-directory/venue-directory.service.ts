@@ -2,6 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder } from 'typeorm';
 import { Venue } from '../entities/venue.entity';
+import {
+  ALL_VENUES_ENTERTAINMENT_COMPLEX_NAMES_SQL,
+  applyAllVenuesSort,
+} from './venue-directory-sort';
 
 const VENUE_TYPE_NAME = 'venue';
 
@@ -30,28 +34,6 @@ export class VenueDirectoryService {
     return qb.andWhere('LOWER(LTRIM(RTRIM(ct.companyTypeName))) = :ctVenue', {
       ctVenue: VENUE_TYPE_NAME,
     });
-  }
-
-  private applyAllVenuesSort(
-    qb: SelectQueryBuilder<Venue>,
-    sortByRaw?: string,
-    sortDirRaw?: string,
-  ): void {
-    const sortBy = (sortByRaw ?? '').trim().toLowerCase();
-    const sortDir =
-      (sortDirRaw ?? '').trim().toLowerCase() === 'desc' ? 'DESC' : 'ASC';
-    const tie = 'v.venueName ASC';
-    if (sortBy === 'type') {
-      qb.orderBy('vt.venueTypeName', sortDir).addOrderBy(tie);
-    } else if (sortBy === 'dma') {
-      qb.orderBy('d.marketName', sortDir).addOrderBy(tie);
-    } else if (sortBy === 'capacity') {
-      qb.orderBy('v.seatingCapacity', sortDir).addOrderBy(tie);
-    } else if (sortBy === 'complex') {
-      qb.orderBy('entertainmentComplexNames', sortDir).addOrderBy(tie);
-    } else {
-      qb.orderBy('v.venueName', sortDir).addOrderBy('v.companyId', 'ASC');
-    }
   }
 
   private baseAllVenuesQuery(
@@ -132,20 +114,14 @@ export class VenueDirectoryService {
 
     const dataQb = this.baseAllVenuesQuery(filters)
       .select('v.companyId', 'companyId')
-      .addSelect(
-        `(SELECT STRING_AGG(LTRIM(RTRIM(ccx.CompanyName)), N', ') WITHIN GROUP (ORDER BY LTRIM(RTRIM(ccx.CompanyName)))
-          FROM dbo.VenueComplexMember vcmx
-          INNER JOIN dbo.Company ccx ON ccx.CompanyID = vcmx.ComplexCompanyID
-          WHERE vcmx.VenueCompanyID = v.companyId)`,
-        'entertainmentComplexNames',
-      )
+      .addSelect(ALL_VENUES_ENTERTAINMENT_COMPLEX_NAMES_SQL, 'entertainmentComplexNames')
       .addSelect('v.venueName', 'venueName')
       .addSelect('v.seatingCapacity', 'seatingCapacity')
       .addSelect('v.venueTypeId', 'venueTypeId')
       .addSelect('vt.venueTypeName', 'venueTypeName')
       .addSelect('c.dmaid', 'dmaId')
       .addSelect('d.marketName', 'dmaMarketName');
-    this.applyAllVenuesSort(dataQb, filters.sortBy, filters.sortDir);
+    applyAllVenuesSort(dataQb, filters.sortBy, filters.sortDir);
 
     const countQb = this.baseAllVenuesQuery(filters).select(
       'COUNT(1)',
