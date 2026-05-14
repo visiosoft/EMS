@@ -98,6 +98,19 @@ function formatPerformanceTimeDisplay(sqlTime: string): string {
   return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
 
+function normalizePerformanceTimeInput(value: string): string {
+  const parts = value.trim().split(':');
+  if (parts.length === 2) {
+    return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:00`;
+  }
+  if (parts.length === 3) {
+    return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:${parts[2]
+      .padStart(2, '0')
+      .slice(0, 2)}`;
+  }
+  return value.trim();
+}
+
 const inputCls =
   'w-full bg-surface border border-border rounded-md px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-ems-accent focus:ring-1 focus:ring-ems-accent/20 placeholder:text-text-muted disabled:opacity-60 disabled:cursor-not-allowed transition-colors';
 
@@ -1464,6 +1477,19 @@ export function EngagementDetailPage({
     if (!pfTime.trim()) errs.time = 'Show time is required.';
     if (Object.keys(errs).length) {
       setPfErrors(errs);
+      return;
+    }
+    const normalizedNewTime = normalizePerformanceTimeInput(pfTime);
+    const duplicate = (performancesQuery.data ?? []).some(
+      (p) =>
+        p.performanceDate === pfDate &&
+        normalizePerformanceTimeInput(p.performanceTime) === normalizedNewTime,
+    );
+    if (duplicate) {
+      addToast(
+        'A show already exists for this engagement at the exact same date and time.',
+        'warning',
+      );
       return;
     }
     setPfErrors({});

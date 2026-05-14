@@ -29,7 +29,8 @@ import {
   deleteCompany,
   deleteContactAssignment,
   companiesListQueryKey,
-  COMPANIES_PICKER_LIMIT,
+  companiesPickerQueryKey,
+  fetchCompaniesPickerRows,
   type ApiPaginatedResponse,
   type ApiCompanyContact,
   fetchCompanies,
@@ -2702,34 +2703,41 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
     placeholderData: (prev) => prev,
   });
 
-  const searchSuggestionsQuery = useQuery({
-    queryKey: ['companies', 'suggestions', searchInput.trim(), companyTypeParam] as const,
-    queryFn: () =>
-      fetchCompanies(0, 20, {
-        q: searchInput.trim(),
-        companyType: companyTypeParam,
-        sortBy: 'name',
-        sortDir: 'asc',
-      }),
-    enabled: showSuggestions && searchInput.trim().length >= 1,
-    staleTime: 60 * 1000,
+  const companiesPickerQuery = useQuery({
+    queryKey: companiesPickerQueryKey(),
+    queryFn: fetchCompaniesPickerRows,
+    staleTime: 30 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
+
+  const pickerCompanyNames = useMemo(() => {
+    const rows = companiesPickerQuery.data ?? [];
+    const matchesType = (row: ApiCompanyListRow) => {
+      if (!companyTypeParam) return true;
+      const names =
+        row.companyTypeNames?.length > 0
+          ? row.companyTypeNames
+          : [row.companyTypeName].filter(Boolean);
+      return names.some((n) => String(n).trim() === companyTypeParam);
+    };
+    return rows.filter(matchesType).map((c) => c.companyName.trim()).filter(Boolean);
+  }, [companiesPickerQuery.data, companyTypeParam]);
 
   const searchSuggestions = useMemo(() => {
     const q = searchInput.trim().toLowerCase();
     if (!q) return [];
-    return (searchSuggestionsQuery.data?.data ?? [])
-      .map((c) => mapApiCompanyToCompany(c).name)
+    return pickerCompanyNames
       .filter((name) => name.toLowerCase().includes(q))
       .slice(0, 8);
-  }, [searchInput, searchSuggestionsQuery.data]);
+  }, [searchInput, pickerCompanyNames]);
 
   const searchSuggestPanelOpen =
     showSuggestions &&
     searchInput.trim().length >= 1 &&
-    (searchSuggestionsQuery.isFetching ||
+    (companiesPickerQuery.isFetching ||
       searchSuggestions.length > 0 ||
-      searchSuggestionsQuery.isFetched);
+      companiesPickerQuery.isFetched);
 
   const commitSearch = useCallback(() => {
     setActiveSearch(searchInput.trim());
@@ -2752,12 +2760,12 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
 
   const upsertCompanyInCache = useCallback(() => {
     void qc.invalidateQueries({ queryKey: ['companies', 'list'], exact: false });
-    void qc.invalidateQueries({ queryKey: ['companies', 'suggestions'], exact: false });
+    void qc.invalidateQueries({ queryKey: companiesPickerQueryKey() });
   }, [qc]);
 
   const removeCompanyFromCache = useCallback(() => {
     void qc.invalidateQueries({ queryKey: ['companies', 'list'], exact: false });
-    void qc.invalidateQueries({ queryKey: ['companies', 'suggestions'], exact: false });
+    void qc.invalidateQueries({ queryKey: companiesPickerQueryKey() });
   }, [qc]);
 
   const lookupsQuery = useQuery({
@@ -3105,7 +3113,7 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
               onFocus={() => {
                 if (searchInput.trim()) setShowSuggestions(true);
               }}
-              onBlur={commitSearch}
+              onBlur={() => setShowSuggestions(false)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') commitSearch();
                 if (e.key === 'Escape') setShowSuggestions(false);
@@ -3127,14 +3135,14 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
             <div
               className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden"
               onMouseDown={(e) => e.preventDefault()}
-              aria-busy={searchSuggestionsQuery.isFetching}
+              aria-busy={companiesPickerQuery.isFetching}
             >
-              {searchSuggestionsQuery.isError ? (
+              {companiesPickerQuery.isError ? (
                 <div className="px-3 py-2 text-sm text-ems-coral" role="alert">
-                  Could not load suggestions. Try again in a moment.
+                  Could not load company directory for suggestions.
                 </div>
               ) : null}
-              {!searchSuggestionsQuery.isError && searchSuggestionsQuery.isFetching ? (
+              {!companiesPickerQuery.isError && companiesPickerQuery.isFetching ? (
                 <div
                   className="flex items-center gap-2 px-3 py-2.5 text-sm text-text-muted"
                   role="status"
@@ -3144,11 +3152,11 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                     className="h-4 w-4 shrink-0 animate-spin text-ems-accent"
                     aria-hidden
                   />
-                  <span>Searching…</span>
+                  <span>Loading suggestions…</span>
                 </div>
               ) : null}
-              {!searchSuggestionsQuery.isError &&
-              !searchSuggestionsQuery.isFetching &&
+              {!companiesPickerQuery.isError &&
+              !companiesPickerQuery.isFetching &&
               searchSuggestions.length > 0
                 ? searchSuggestions.map((suggestion, i) => (
                     <button
@@ -3166,9 +3174,9 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                     </button>
                   ))
                 : null}
-              {!searchSuggestionsQuery.isError &&
-              !searchSuggestionsQuery.isFetching &&
-              searchSuggestionsQuery.isFetched &&
+              {!companiesPickerQuery.isError &&
+              !companiesPickerQuery.isFetching &&
+              companiesPickerQuery.isFetched &&
               searchSuggestions.length === 0 ? (
                 <div className="px-3 py-2.5 text-sm text-text-muted">No matching companies</div>
               ) : null}

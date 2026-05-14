@@ -64,6 +64,9 @@ export interface ApiPerformanceSalesRow {
   engagementGrossPotential: number | null;
 }
 
+/** Row cap when prefetching Daily Sales rows for local search suggestions. */
+export const DAILY_SALES_SUGGESTION_PAGE_SIZE = 2500;
+
 export interface ApiPerformanceSalesPage {
   items: ApiPerformanceSalesRow[];
   total: number;

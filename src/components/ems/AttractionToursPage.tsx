@@ -1283,28 +1283,7 @@ export function AttractionToursPage({ addToast }: Props) {
     return [...new Set(matches.map((t) => t.tourName))].slice(0, 8);
   }, [tourInput, tours]);
 
-  const filteredAttractions = useMemo(() => {
-    const q = attractionSearch.trim().toLowerCase();
-    return attractions.filter(
-      (a) => !q || a.attractionName.toLowerCase().includes(q),
-    );
-  }, [attractions, attractionSearch]);
-
-  const filteredTours = useMemo(() => {
-    const q = tourSearch.trim().toLowerCase();
-    return tours.filter(
-      (t) =>
-        !q ||
-        t.tourName.toLowerCase().includes(q) ||
-        t.attractionName.toLowerCase().includes(q) ||
-        t.className.toLowerCase().includes(q) ||
-        (t.talentAgencyCompanyName && t.talentAgencyCompanyName.toLowerCase().includes(q)),
-    );
-  }, [tours, tourSearch]);
-
-  const needServerAttractionSearch = Boolean(
-    attractionSearch.trim() && filteredAttractions.length === 0,
-  );
+  const attractionSearchActive = Boolean(attractionSearch.trim());
   const serverAttractionsSearchQuery = useQuery({
     queryKey: [
       ...attractionsServerSearchKeyPrefix,
@@ -1317,21 +1296,19 @@ export function AttractionToursPage({ addToast }: Props) {
         sortBy: attractionSort.col === 'tours' ? 'tours' : 'name',
         sortDir: attractionSort.dir,
       }),
-    enabled: needServerAttractionSearch,
+    enabled: attractionSearchActive,
     staleTime: 30 * 60 * 1000,
     gcTime: 60 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
   const displayAttractions = useMemo((): ApiAttractionListRow[] => {
-    if (needServerAttractionSearch) {
+    if (attractionSearchActive) {
       return serverAttractionsSearchQuery.data?.data ?? [];
     }
-    return filteredAttractions;
-  }, [needServerAttractionSearch, serverAttractionsSearchQuery.data, filteredAttractions]);
+    return attractions;
+  }, [attractionSearchActive, serverAttractionsSearchQuery.data, attractions]);
 
-  const needServerTourSearch = Boolean(
-    tourSearch.trim() && filteredTours.length === 0,
-  );
+  const tourSearchActive = Boolean(tourSearch.trim());
   const serverToursSearchQuery = useQuery({
     queryKey: [
       ...toursServerSearchKeyPrefix,
@@ -1351,17 +1328,17 @@ export function AttractionToursPage({ addToast }: Props) {
                 : 'management',
         sortDir: tourSort.dir,
       }),
-    enabled: needServerTourSearch,
+    enabled: tourSearchActive,
     staleTime: 30 * 60 * 1000,
     gcTime: 60 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
   const displayTours = useMemo((): ApiTourListRow[] => {
-    if (needServerTourSearch) {
+    if (tourSearchActive) {
       return serverToursSearchQuery.data?.data ?? [];
     }
-    return filteredTours;
-  }, [needServerTourSearch, serverToursSearchQuery.data, filteredTours]);
+    return tours;
+  }, [tourSearchActive, serverToursSearchQuery.data, tours]);
 
   /**
    * Surgical cache helpers — product requirement is a 30-minute staleTime on
@@ -1496,16 +1473,16 @@ export function AttractionToursPage({ addToast }: Props) {
         ? 'grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-3 items-start'
         : 'grid grid-cols-1 md:grid-cols-4 xl:grid-cols-6 gap-3 items-start';
 
-  /** Initial load: lookups + both full lists, or a targeted server search on the active tab. */
+  /** Initial load: lookups + both full lists, or a committed database search on the active tab. */
   const loading =
     lookupsQuery.isPending ||
     attractionsQuery.isPending ||
     toursQuery.isPending ||
     (pageTab === 'Attractions' &&
-      needServerAttractionSearch &&
+      attractionSearchActive &&
       (serverAttractionsSearchQuery.isPending || serverAttractionsSearchQuery.isFetching)) ||
     (pageTab === 'Tours' &&
-      needServerTourSearch &&
+      tourSearchActive &&
       (serverToursSearchQuery.isPending || serverToursSearchQuery.isFetching));
   /** Top progress bar when a background refetch runs after mutations, etc. */
   const refreshing =
@@ -1802,23 +1779,30 @@ export function AttractionToursPage({ addToast }: Props) {
                 </svg>
               </button>
             </div>
-            {showAttractionSuggestions && attractionSuggestions.length > 0 && (
-              <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden">
-                {attractionSuggestions.map((s, i) => (
-                  <button
-                    key={`${i}-${s}`}
-                    type="button"
-                    className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      setAttractionInput(s);
-                      setAttractionSearch(s);
-                      setShowAttractionSuggestions(false);
-                    }}
-                  >
-                    {s}
-                  </button>
-                ))}
+            {showAttractionSuggestions && attractionInput.trim().length >= 1 && (
+              <div
+                className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden"
+                onMouseDown={(e) => e.preventDefault()}
+              >
+                {attractionSuggestions.length > 0 ? (
+                  attractionSuggestions.map((s, i) => (
+                    <button
+                      key={`${i}-${s}`}
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setAttractionInput(s);
+                        setAttractionSearch(s);
+                        setShowAttractionSuggestions(false);
+                      }}
+                    >
+                      {s}
+                    </button>
+                  ))
+                ) : (
+                  <div className="px-3 py-2.5 text-sm text-text-muted">No matching attractions</div>
+                )}
               </div>
             )}
           </div>
@@ -1865,23 +1849,30 @@ export function AttractionToursPage({ addToast }: Props) {
                 </svg>
               </button>
             </div>
-            {showTourSuggestions && tourSuggestions.length > 0 && (
-              <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden">
-                {tourSuggestions.map((s, idx) => (
-                  <button
-                    key={`${s}-${idx}`}
-                    type="button"
-                    className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      setTourInput(s);
-                      setTourSearch(s);
-                      setShowTourSuggestions(false);
-                    }}
-                  >
-                    {s}
-                  </button>
-                ))}
+            {showTourSuggestions && tourInput.trim().length >= 1 && (
+              <div
+                className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden"
+                onMouseDown={(e) => e.preventDefault()}
+              >
+                {tourSuggestions.length > 0 ? (
+                  tourSuggestions.map((s, idx) => (
+                    <button
+                      key={`${s}-${idx}`}
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setTourInput(s);
+                        setTourSearch(s);
+                        setShowTourSuggestions(false);
+                      }}
+                    >
+                      {s}
+                    </button>
+                  ))
+                ) : (
+                  <div className="px-3 py-2.5 text-sm text-text-muted">No matching tours</div>
+                )}
               </div>
             )}
           </div>

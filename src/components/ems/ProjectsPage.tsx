@@ -53,7 +53,10 @@ import {
   deleteProjectVenue,
   fetchProject,
   projectsApiQueryKey,
+  projectsSuggestionCacheQueryKey,
+  PROJECTS_SUGGESTION_CACHE_LIMIT,
   fetchProjects,
+  fetchOptionStatusMeta,
   fetchVenueStatusMeta,
   PROJECT_STAGE_VALUES,
   projectStageDisplayLabel,
@@ -461,6 +464,7 @@ function ProjectInlineOverview({
     const scopeChanged = dmaChanged || tourChanged;
     if (scopeChanged) setScopeTransitioning(true);
     setSaving(true);
+    let savedOk = false;
     try {
       await updateProject(project.engagementProjectId, {
         tourId,
@@ -472,19 +476,22 @@ function ProjectInlineOverview({
         dmaIds: selectedDmaIds,
       });
       setDirty(false);
-      addToast('Project updated.', 'success');
       if (scopeChanged) {
         onGoToVenues();
       }
       await onUpdated();
-      if (scopeChanged) {
-        addToast('Scope changed. Review venues now.', 'warning');
-      }
+      savedOk = true;
     } catch (e) {
       addToast(friendlyApiError(e, 'Could not update project.'), 'error');
     } finally {
       setScopeTransitioning(false);
       setSaving(false);
+    }
+    if (savedOk) {
+      addToast('Project updated.', 'success');
+      if (scopeChanged) {
+        addToast('Scope changed. Review venues now.', 'warning');
+      }
     }
   };
 
@@ -814,9 +821,7 @@ function editProjectStageSelectOptions(currentFromDb: string | null | undefined)
     [...s].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })),
   );
 }
-const OPTION_STATUS_OPTIONS = OPTION_STATUS_VALUES.map((v) => ({ value: v, label: v }));
-
-/** Allowed `VenueStatus` for EngagementProjectVenue: API (CHECK / env / rows), else legacy fallback. */
+/** Allowed `VenueStatus` for EngagementProjectVenue: API meta, else client fallback; current DB value kept if legacy. */
 function useResolvedVenueStatusStrings(currentValue?: string) {
   const q = useQuery({
     queryKey: ['projects', 'meta', 'venue-statuses'],
@@ -835,6 +840,31 @@ function useResolvedVenueStatusStrings(currentValue?: string) {
     }
     return base;
   }, [q.data, currentValue]);
+}
+
+/** Allowed `OptionStatus` for EngagementProjectPerformanceOption: same pattern as venue status. */
+function useResolvedOptionStatusStrings(currentValue?: string) {
+  const q = useQuery({
+    queryKey: ['projects', 'meta', 'option-statuses'],
+    queryFn: fetchOptionStatusMeta,
+    staleTime: 60_000,
+  });
+  return useMemo(() => {
+    const fromApi = q.data?.optionStatuses;
+    const base: string[] =
+      fromApi && fromApi.length > 0
+        ? fromApi
+        : (OPTION_STATUS_VALUES as readonly string[]).slice();
+    const v = (currentValue ?? '').trim();
+    if (v && !base.includes(v)) {
+      return [...base, v].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    }
+    return base;
+  }, [q.data, currentValue]);
+}
+
+function toSelectOptionsFromStrings(strings: string[]): { value: string; label: string }[] {
+  return strings.map((x) => ({ value: x, label: x }));
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1022,8 +1052,10 @@ function ProjectsTableSkeleton({ rowCount = PAGE_SIZE }: { rowCount?: number }) 
 function PerformanceOptionRow({
   opt, projectId, onRefresh, addToast,
 }: {
-  opt: ApiPerformanceOption; projectId: number;
-  onRefresh: () => void; addToast: Props['addToast'];
+  opt: ApiPerformanceOption;
+  projectId: number;
+  onRefresh: () => void | Promise<void>;
+  addToast: Props['addToast'];
 }) {
   const [editing, setEditing] = useState(false);
   const [date, setDate] = useState(opt.proposedDate);
@@ -1032,40 +1064,68 @@ function PerformanceOptionRow({
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  const optionStatusStrings = useResolvedOptionStatusStrings(status);
+  const optionStatusOptions = useMemo(
+    () => toSelectOptionsFromStrings(optionStatusStrings),
+    [optionStatusStrings],
+  );
+
   const inputCls = 'w-full bg-surface border border-border rounded px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-ems-accent';
+
+  useEffect(() => {
+    setDate(opt.proposedDate);
+    setTime(opt.proposedTime ?? '');
+    setStatus(opt.optionStatus);
+  }, [opt.performanceOptionId, opt.proposedDate, opt.proposedTime, opt.optionStatus]);
 
   const handleSave = async () => {
     setSaving(true);
+    let ok = false;
     try {
       await updatePerformanceOption(projectId, opt.performanceOptionId, {
         proposedDate: date, proposedTime: time || null, optionStatus: status,
       });
-      addToast('Date option updated.', 'success');
+      await onRefresh();
       setEditing(false);
-      onRefresh();
+      ok = true;
     } catch (e) {
       addToast(friendlyApiError(e, 'Could not update option.'), 'error');
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+    }
+    if (ok) addToast('Date option updated.', 'success');
   };
 
   const handleDelete = async () => {
     setDeleting(true);
+    let ok = false;
     try {
       await deletePerformanceOption(projectId, opt.performanceOptionId);
-      addToast('Date option removed.', 'warning');
-      onRefresh();
+      await onRefresh();
+      ok = true;
     } catch (e) {
       addToast(friendlyApiError(e, 'Could not remove option.'), 'error');
-    } finally { setDeleting(false); }
+    } finally {
+      setDeleting(false);
+    }
+    if (ok) addToast('Date option removed.', 'warning');
   };
 
   if (editing) {
     return (
       <div className="bg-elevated border border-border rounded p-2 space-y-2">
         <div className="grid grid-cols-3 gap-2">
-          <FormField label="Date"><input type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} /></FormField>
-          <FormField label="Time"><input type="time" className={inputCls} value={time} onChange={(e) => setTime(e.target.value)} /></FormField>
-          <FormField label="Status"><Select2 options={OPTION_STATUS_OPTIONS} value={status} onChange={(v) => setStatus(v as OptionStatus)} /></FormField>
+          <FormField label="Date"><input type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} disabled={saving} /></FormField>
+          <FormField label="Time"><input type="time" className={inputCls} value={time} onChange={(e) => setTime(e.target.value)} disabled={saving} /></FormField>
+          <FormField label="Status">
+            <Select2
+              options={optionStatusOptions}
+              value={status}
+              onChange={(v) => setStatus(v as OptionStatus)}
+              disabled={optionStatusOptions.length === 0 || saving}
+              placeholder={optionStatusOptions.length ? 'Select…' : 'Loading…'}
+            />
+          </FormField>
         </div>
         <div className="flex gap-2 justify-end">
           <button type="button" onClick={() => setEditing(false)} disabled={saving} className="text-text-secondary text-xs px-2 py-1 hover:text-text-primary disabled:opacity-50">Cancel</button>
@@ -1079,15 +1139,38 @@ function PerformanceOptionRow({
   }
 
   return (
-    <div className="flex items-center gap-3 bg-elevated/50 rounded px-2 py-1.5 text-xs group">
+    <div className="relative flex items-center gap-3 bg-elevated/50 rounded px-2 py-1.5 text-xs group min-h-[2.25rem]">
       <span className="text-text-primary font-medium">{opt.proposedDate}</span>
       {opt.proposedTime && <span className="text-text-muted">· {opt.proposedTime}</span>}
       <span className="ml-auto"><StatusBadge status={opt.optionStatus} /></span>
-      <button type="button" onClick={() => setEditing(true)} className="text-text-muted hover:text-ems-accent opacity-0 group-hover:opacity-100 transition-opacity text-[10px]">Edit</button>
-      <button type="button" onClick={() => void handleDelete()} disabled={deleting}
-        className="text-text-muted hover:text-ems-coral opacity-0 group-hover:opacity-100 transition-opacity text-[10px] disabled:opacity-50">
-        {deleting ? '…' : '✕'}
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        disabled={deleting}
+        className="text-text-muted hover:text-ems-accent opacity-0 group-hover:opacity-100 transition-opacity text-[10px] disabled:opacity-30 disabled:pointer-events-none"
+      >
+        Edit
       </button>
+      <button
+        type="button"
+        onClick={() => void handleDelete()}
+        disabled={deleting}
+        title="Remove this date option"
+        className="inline-flex items-center justify-center min-w-[1.25rem] shrink-0 text-text-muted hover:text-ems-coral opacity-0 group-hover:opacity-100 transition-opacity text-[10px] disabled:opacity-40"
+        aria-busy={deleting}
+      >
+        ✕
+      </button>
+      {deleting && (
+        <div
+          className="absolute inset-0 z-[1] flex items-center justify-center gap-2 rounded bg-background/50 backdrop-blur-[1px]"
+          role="status"
+          aria-live="polite"
+        >
+          <Loader2 className="h-4 w-4 animate-spin text-ems-accent shrink-0" aria-hidden />
+          <span className="text-[10px] font-medium text-text-primary">Removing date…</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -1095,42 +1178,83 @@ function PerformanceOptionRow({
 // ─── Add Performance Option form ──────────────────────────────────────────────
 
 function AddPerformanceOptionForm({
-  projectId, onAdded, onCancel, addToast,
+  projectId,
+  onAdded,
+  onCancel,
+  addToast,
 }: {
-  projectId: number; onAdded: () => void; onCancel: () => void; addToast: Props['addToast'];
+  projectId: number;
+  onAdded: () => void | Promise<void>;
+  onCancel: () => void;
+  addToast: Props['addToast'];
 }) {
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
-  const [status, setStatus] = useState<OptionStatus>('Proposed');
+  const [status, setStatus] = useState<OptionStatus>('Pending');
   const [saving, setSaving] = useState(false);
   const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
+
+  const optionStatusStrings = useResolvedOptionStatusStrings(status);
+  const optionStatusOptions = useMemo(
+    () => toSelectOptionsFromStrings(optionStatusStrings),
+    [optionStatusStrings],
+  );
+
+  useEffect(() => {
+    if (optionStatusOptions.length === 0) return;
+    if (!optionStatusOptions.some((o) => o.value === status)) {
+      setStatus(optionStatusOptions[0].value as OptionStatus);
+    }
+  }, [optionStatusOptions, status]);
 
   const handleSave = async () => {
     if (!date) { addToast('Date is required.', 'warning'); return; }
     setSaving(true);
+    let ok = false;
     try {
       await createPerformanceOption(projectId, { proposedDate: date, proposedTime: time || null, optionStatus: status });
-      addToast('Date option added.', 'success');
-      onAdded();
+      await onAdded();
+      ok = true;
     } catch (e) {
       addToast(friendlyApiError(e, 'Could not add option.'), 'error');
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+    }
+    if (ok) addToast('Date option added.', 'success');
   };
 
   return (
-    <div className="bg-elevated border border-border rounded-lg p-3 space-y-3">
+    <div className="relative bg-elevated border border-border rounded-lg p-3 space-y-3">
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <FormField label="Date" required><input type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} /></FormField>
-        <FormField label="Time (optional)"><input type="time" className={inputCls} value={time} onChange={(e) => setTime(e.target.value)} /></FormField>
-        <FormField label="Option Status" required><Select2 options={OPTION_STATUS_OPTIONS} value={status} onChange={(v) => setStatus(v as OptionStatus)} /></FormField>
+        <FormField label="Date" required><input type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} disabled={saving} /></FormField>
+        <FormField label="Time (optional)"><input type="time" className={inputCls} value={time} onChange={(e) => setTime(e.target.value)} disabled={saving} /></FormField>
+        <FormField label="Option Status" required>
+          <Select2
+            options={optionStatusOptions}
+            value={status}
+            onChange={(v) => setStatus(v as OptionStatus)}
+            disabled={optionStatusOptions.length === 0 || saving}
+            placeholder={optionStatusOptions.length ? 'Select status' : 'Loading…'}
+          />
+        </FormField>
       </div>
       <div className="flex gap-2 justify-end">
         <button type="button" onClick={onCancel} disabled={saving} className="text-text-secondary text-sm px-3 py-1.5 hover:text-text-primary disabled:opacity-50">Cancel</button>
         <button type="button" onClick={() => void handleSave()} disabled={saving}
           className="inline-flex items-center gap-2 bg-ems-accent text-background text-sm px-4 py-1.5 rounded-md font-medium disabled:opacity-60">
-          {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Add Date Option
+          {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{saving ? 'Saving…' : 'Add Date Option'}
         </button>
       </div>
+      {saving && (
+        <div
+          className="absolute inset-0 z-[1] flex flex-col items-center justify-center gap-2 rounded-lg bg-background/55 backdrop-blur-[1px]"
+          role="status"
+          aria-live="polite"
+        >
+          <Loader2 className="h-7 w-7 animate-spin text-ems-accent" aria-hidden />
+          <span className="text-xs font-medium text-text-primary">Refreshing dates…</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -1138,22 +1262,29 @@ function AddPerformanceOptionForm({
 // ─── Venue Proposal Row ───────────────────────────────────────────────────────
 
 function VenueProposalRow({
-  venue, projectId, onRefresh, addToast, scopeMismatchReason,
+  venue,
+  projectId,
+  onRefresh,
+  addToast,
+  scopeMismatchReason,
 }: {
-  venue: ApiProjectVenue; projectId: number;
-  onRefresh: () => void; addToast: Props['addToast'];
+  venue: ApiProjectVenue;
+  projectId: number;
+  onRefresh: () => void | Promise<void>;
+  addToast: Props['addToast'];
   scopeMismatchReason?: string;
 }) {
-  const venueStatusStrings = useResolvedVenueStatusStrings(venue.venueStatus);
-  const venueStatusOptions = useMemo(
-    () => venueStatusStrings.map((v) => ({ value: v, label: v })),
-    [venueStatusStrings],
-  );
   const [showAddOpt, setShowAddOpt] = useState(false);
   const [editingStatus, setEditingStatus] = useState(false);
   const [venueStatus, setVenueStatus] = useState<string>(venue.venueStatus);
   const [statusSaving, setStatusSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  const venueStatusStrings = useResolvedVenueStatusStrings(venueStatus);
+  const venueStatusOptions = useMemo(
+    () => toSelectOptionsFromStrings(venueStatusStrings),
+    [venueStatusStrings],
+  );
 
   useEffect(() => {
     setVenueStatus(venue.venueStatus);
@@ -1161,25 +1292,33 @@ function VenueProposalRow({
 
   const handleStatusSave = async () => {
     setStatusSaving(true);
+    let ok = false;
     try {
       await updateProjectVenue(projectId, venue.engagementProjectVenueId, { venueStatus: venueStatus as VenueStatus });
-      addToast('Venue status updated.', 'success');
       setEditingStatus(false);
-      onRefresh();
+      await onRefresh();
+      ok = true;
     } catch (e) {
       addToast(friendlyApiError(e, 'Could not update venue.'), 'error');
-    } finally { setStatusSaving(false); }
+    } finally {
+      setStatusSaving(false);
+    }
+    if (ok) addToast('Venue status updated.', 'success');
   };
 
   const handleDelete = async () => {
     setDeleting(true);
+    let ok = false;
     try {
       await deleteProjectVenue(projectId, venue.engagementProjectVenueId);
-      addToast('Venue proposal removed.', 'warning');
-      onRefresh();
+      await onRefresh();
+      ok = true;
     } catch (e) {
       addToast(friendlyApiError(e, 'Could not remove venue.'), 'error');
-    } finally { setDeleting(false); }
+    } finally {
+      setDeleting(false);
+    }
+    if (ok) addToast('Venue proposal removed.', 'warning');
   };
 
   return (
@@ -1254,12 +1393,21 @@ function VenueProposalRow({
             <p className="text-xs text-text-muted">No date options yet.</p>
           )}
           {venue.performanceOptions.map((opt) => (
-            <PerformanceOptionRow key={opt.performanceOptionId} opt={opt} projectId={projectId} onRefresh={onRefresh} addToast={addToast} />
+            <PerformanceOptionRow
+              key={opt.performanceOptionId}
+              opt={opt}
+              projectId={projectId}
+              onRefresh={onRefresh}
+              addToast={addToast}
+            />
           ))}
           {showAddOpt && (
             <AddPerformanceOptionForm
               projectId={projectId}
-              onAdded={() => { setShowAddOpt(false); onRefresh(); }}
+              onAdded={async () => {
+                await onRefresh();
+                setShowAddOpt(false);
+              }}
               onCancel={() => setShowAddOpt(false)}
               addToast={addToast}
             />
@@ -1273,25 +1421,35 @@ function VenueProposalRow({
 // ─── Add Venue form ───────────────────────────────────────────────────────────
 
 function AddVenueForm({
-  projectId, existingIds, availableVenueRows, onSaved, onCancel, addToast,
+  projectId,
+  existingIds,
+  availableVenueRows,
+  onSaved,
+  onCancel,
+  addToast,
 }: {
-  projectId: number; existingIds: Set<number>;
+  projectId: number;
+  existingIds: Set<number>;
   availableVenueRows: ApiAllVenueRow[];
-  onSaved: () => void; onCancel: () => void; addToast: Props['addToast'];
+  onSaved: () => void | Promise<void>;
+  onCancel: () => void;
+  addToast: Props['addToast'];
 }) {
-  const venueStatusStrings = useResolvedVenueStatusStrings();
-  const venueStatusOptions = useMemo(
-    () => venueStatusStrings.map((v) => ({ value: v, label: v })),
-    [venueStatusStrings],
-  );
   const [venueId, setVenueId] = useState('');
   const [venueStatus, setVenueStatus] = useState<string>('');
   const [saving, setSaving] = useState(false);
 
+  const venueStatusStrings = useResolvedVenueStatusStrings(venueStatus);
+  const venueStatusOptions = useMemo(
+    () => toSelectOptionsFromStrings(venueStatusStrings),
+    [venueStatusStrings],
+  );
+
   useEffect(() => {
     if (venueStatus) return;
-    if (venueStatusStrings[0]) setVenueStatus(venueStatusStrings[0]);
-  }, [venueStatus, venueStatusStrings]);
+    const first = venueStatusOptions[0]?.value;
+    if (first) setVenueStatus(first);
+  }, [venueStatus, venueStatusOptions]);
 
   const venueOptions = useMemo(() => {
     return availableVenueRows
@@ -1316,17 +1474,21 @@ function AddVenueForm({
     if (!venueId) { addToast('Select a venue.', 'warning'); return; }
     if (!venueStatus) { addToast('Select a venue status.', 'warning'); return; }
     setSaving(true);
+    let ok = false;
     try {
       await createProjectVenue(projectId, { venueCompanyId: Number(venueId), venueStatus: venueStatus as VenueStatus });
-      addToast('Venue proposal added.', 'success');
-      onSaved();
+      await onSaved();
+      ok = true;
     } catch (e) {
       addToast(friendlyApiError(e, 'Could not add venue.'), 'error');
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+    }
+    if (ok) addToast('Venue proposal added.', 'success');
   };
 
   return (
-    <div className="bg-elevated border border-border rounded-lg p-4 space-y-3">
+    <div className="relative bg-elevated border border-border rounded-lg p-4 space-y-3">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <FormField label="Venue" required>
           <Select2
@@ -1334,7 +1496,7 @@ function AddVenueForm({
             value={venueId}
             onChange={setVenueId}
             placeholder={venueOptions.length ? 'Select venue…' : 'No eligible venues in current filters'}
-            disabled={venueOptions.length === 0}
+            disabled={venueOptions.length === 0 || saving}
           />
         </FormField>
         <FormField label="Venue Status" required>
@@ -1342,7 +1504,7 @@ function AddVenueForm({
             options={venueStatusOptions}
             value={venueStatus}
             onChange={setVenueStatus}
-            disabled={venueStatusOptions.length === 0}
+            disabled={venueStatusOptions.length === 0 || saving}
             placeholder={venueStatusOptions.length ? 'Select status' : 'Loading…'}
           />
         </FormField>
@@ -1351,9 +1513,19 @@ function AddVenueForm({
         <button type="button" onClick={onCancel} disabled={saving} className="text-text-secondary text-sm px-3 py-1.5 hover:text-text-primary disabled:opacity-50">Cancel</button>
         <button type="button" onClick={() => void handleSave()} disabled={saving}
           className="inline-flex items-center gap-2 bg-ems-accent text-background text-sm px-4 py-1.5 rounded-md font-medium disabled:opacity-60">
-          {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Add Venue
+          {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{saving ? 'Saving…' : 'Add Venue'}
         </button>
       </div>
+      {saving && (
+        <div
+          className="absolute inset-0 z-[1] flex flex-col items-center justify-center gap-2 rounded-lg bg-background/55 backdrop-blur-[1px]"
+          role="status"
+          aria-live="polite"
+        >
+          <Loader2 className="h-7 w-7 animate-spin text-ems-accent" aria-hidden />
+          <span className="text-xs font-medium text-text-primary">Refreshing project…</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -1498,6 +1670,7 @@ function ProjectDetailDrawer({
             onUpdated={async () => {
               await refresh();
               await qc.invalidateQueries({ queryKey: ['projects', 'api'] });
+              await qc.invalidateQueries({ queryKey: ['projects', 'suggestion-cache'], exact: false });
             }}
             onGoToVenues={() => setActiveTab('Venues')}
             addToast={addToast}
@@ -1512,6 +1685,7 @@ function ProjectDetailDrawer({
                 + Add Venue
               </button>
             </div>
+
             <div className="rounded-md border border-border bg-surface px-3 py-2">
               <p className="text-[11px] text-text-muted leading-relaxed">
                 Scope for this project: {projectDmaIds.length} market{projectDmaIds.length === 1 ? '' : 's'} selected
@@ -1537,7 +1711,10 @@ function ProjectDetailDrawer({
                 projectId={projectId}
                 existingIds={existingVenueIds}
                 availableVenueRows={eligibleVenueRows}
-                onSaved={() => { setShowAddVenue(false); void refresh(); }}
+                onSaved={async () => {
+                  await refresh();
+                  setShowAddVenue(false);
+                }}
                 onCancel={() => setShowAddVenue(false)}
                 addToast={addToast}
               />
@@ -1557,7 +1734,7 @@ function ProjectDetailDrawer({
                       ? undefined
                       : 'not in current DMA/preferred-type scope'
                 }
-                onRefresh={() => void refresh()}
+                onRefresh={() => refresh()}
                 addToast={addToast}
               />
             ))}
@@ -2837,10 +3014,19 @@ function CreateProjectForm({
 
 // ─── Main ProjectsPage ────────────────────────────────────────────────────────
 
+function projectListSuggestionLabel(row: ApiProjectListRow): string {
+  const a = (row.attractionName ?? '').trim();
+  const t = (row.tourName ?? '').trim();
+  if (a && t) return `${a} — ${t}`;
+  return a || t || `Project #${row.engagementProjectId}`;
+}
+
 export function ProjectsPage({ addToast }: Props) {
   const qc = useQueryClient();
-  const [search, setSearch] = useState('');
-  const [searchDebounced, setSearchDebounced] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [searchCommitted, setSearchCommitted] = useState('');
+  const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
+  const projectSearchRef = useRef<HTMLDivElement>(null);
   const [stageFilter, setStageFilter] = useState('All');
   const [movableColumnOrder, setMovableColumnOrder] = useState<ProjectMovableColumnId[]>(
     loadProjectMovableColumnOrder,
@@ -2882,18 +3068,80 @@ export function ProjectsPage({ addToast }: Props) {
   }, []);
 
   useEffect(() => {
-    const t = window.setTimeout(() => setSearchDebounced(search.trim()), 300);
-    return () => window.clearTimeout(t);
-  }, [search]);
+    const handleClickOutside = (e: MouseEvent) => {
+      if (projectSearchRef.current && !projectSearchRef.current.contains(e.target as Node)) {
+        setShowSearchSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const sortByParam = sortState.col ? SORT_API_BY_COLUMN[sortState.col] : '';
   const sortDirParam = sortState.col ? sortState.dir : '';
 
+  const projectsSuggestionQuery = useQuery({
+    queryKey: projectsSuggestionCacheQueryKey(stageFilter),
+    queryFn: async () => {
+      const res = await fetchProjects(0, PROJECTS_SUGGESTION_CACHE_LIMIT, {
+        projectStage: stageFilter,
+        sortBy: 'created',
+        sortDir: 'desc',
+      });
+      return res.data ?? [];
+    },
+    staleTime: 30 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  const projectSearchSuggestions = useMemo(() => {
+    const q = searchInput.trim().toLowerCase();
+    if (!q) return [] as Array<{ label: string; query: string }>;
+    const rows = projectsSuggestionQuery.data ?? [];
+    const labels: Array<{ label: string; query: string }> = [];
+    for (const row of rows) {
+      const primary = projectListSuggestionLabel(row);
+      const candidates = [
+        row.tourName,
+        row.attractionName,
+        row.name,
+        row.talentAgencyCompanyName,
+        row.createdBy,
+      ]
+        .map((v) => String(v ?? '').trim())
+        .filter(Boolean);
+      const hay = [
+        primary,
+        ...candidates,
+      ]
+        .filter(Boolean)
+        .map((s) => String(s).toLowerCase())
+        .some((s) => s.includes(q));
+      if (!hay) continue;
+      const query =
+        candidates.find((c) => c.toLowerCase().includes(q)) ??
+        candidates[0] ??
+        '';
+      if (!query) continue;
+      if (!labels.some((l) => l.query.toLowerCase() === query.toLowerCase())) {
+        labels.push({ label: primary, query });
+      }
+      if (labels.length >= 8) break;
+    }
+    return labels;
+  }, [searchInput, projectsSuggestionQuery.data]);
+
+  const commitProjectSearch = useCallback(() => {
+    setSearchCommitted(searchInput.trim());
+    setShowSearchSuggestions(false);
+  }, [searchInput]);
+
   const projectsQuery = useQuery({
-    queryKey: projectsApiQueryKey(offset, limit, searchDebounced, stageFilter, sortByParam, sortDirParam),
+    queryKey: projectsApiQueryKey(offset, limit, searchCommitted, stageFilter, sortByParam, sortDirParam),
     queryFn: async () => {
       const res: ApiPaginatedResponse<ApiProjectListRow> = await fetchProjects(offset, limit, {
-        q: searchDebounced || undefined,
+        q: searchCommitted || undefined,
         projectStage: stageFilter,
         sortBy: sortState.col ? SORT_API_BY_COLUMN[sortState.col] : undefined,
         sortDir: sortState.col ? sortState.dir : undefined,
@@ -2910,6 +3158,7 @@ export function ProjectsPage({ addToast }: Props) {
 
   const refetchProjectList = useCallback(async () => {
     await qc.invalidateQueries({ queryKey: ['projects', 'api'] });
+    await qc.invalidateQueries({ queryKey: ['projects', 'suggestion-cache'], exact: false });
   }, [qc]);
 
   const deleteMut = useMutation({
@@ -2926,7 +3175,7 @@ export function ProjectsPage({ addToast }: Props) {
   const rows = projectsQuery.data?.data ?? [];
   const serverTotal = projectsQuery.data?.total ?? 0;
 
-  useEffect(() => { setPage(1); }, [searchDebounced, stageFilter]);
+  useEffect(() => { setPage(1); }, [searchCommitted, stageFilter]);
 
   useEffect(() => { setPage(1); }, [pageSize]);
 
@@ -3011,8 +3260,91 @@ export function ProjectsPage({ addToast }: Props) {
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        <div className="w-full sm:w-64">
-          <SearchInput value={search} onChange={setSearch} placeholder="Search projects…" disabled={isLoading} />
+        <div className="relative w-full min-w-0 sm:w-64" ref={projectSearchRef}>
+          <div className="flex min-w-0 items-center border border-border rounded-md bg-surface overflow-hidden focus-within:border-ems-accent transition-colors">
+            <input
+              type="text"
+              className="min-w-0 flex-1 cursor-text bg-transparent px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+              placeholder="Search projects…"
+              value={searchInput}
+              disabled={isLoading}
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(e) => {
+                const v = e.target.value;
+                setSearchInput(v);
+                setShowSearchSuggestions(true);
+                if (!v.trim()) setSearchCommitted('');
+              }}
+              onFocus={() => {
+                if (searchInput.trim()) setShowSearchSuggestions(true);
+              }}
+              onBlur={() => setShowSearchSuggestions(false)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitProjectSearch();
+                if (e.key === 'Escape') setShowSearchSuggestions(false);
+              }}
+            />
+            <button
+              type="button"
+              onClick={commitProjectSearch}
+              disabled={isLoading}
+              className="shrink-0 cursor-pointer px-2.5 py-1.5 text-text-muted hover:text-ems-accent transition-colors disabled:opacity-50"
+              title="Search"
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle cx="11" cy="11" r="8" strokeWidth="2" />
+                <path d="m21 21-4.35-4.35" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
+          {showSearchSuggestions &&
+          searchInput.trim().length >= 1 &&
+          (projectsSuggestionQuery.isFetching ||
+            projectSearchSuggestions.length > 0 ||
+            projectsSuggestionQuery.isFetched) ? (
+            <div
+              className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden"
+              onMouseDown={(e) => e.preventDefault()}
+            >
+              {projectsSuggestionQuery.isError ? (
+                <div className="px-3 py-2 text-sm text-ems-coral" role="alert">
+                  Could not load project suggestions.
+                </div>
+              ) : null}
+              {!projectsSuggestionQuery.isError && projectsSuggestionQuery.isFetching ? (
+                <div className="flex items-center gap-2 px-3 py-2.5 text-sm text-text-muted" role="status">
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-ems-accent" aria-hidden />
+                  <span>Loading suggestions…</span>
+                </div>
+              ) : null}
+              {!projectsSuggestionQuery.isError &&
+              !projectsSuggestionQuery.isFetching &&
+              projectSearchSuggestions.length > 0
+                ? projectSearchSuggestions.map((suggestion, i) => (
+                    <button
+                      key={`${i}-${suggestion.label}-${suggestion.query}`}
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setSearchInput(suggestion.query);
+                        setSearchCommitted(suggestion.query);
+                        setShowSearchSuggestions(false);
+                      }}
+                    >
+                      {suggestion.label}
+                    </button>
+                  ))
+                : null}
+              {!projectsSuggestionQuery.isError &&
+              !projectsSuggestionQuery.isFetching &&
+              projectsSuggestionQuery.isFetched &&
+              projectSearchSuggestions.length === 0 ? (
+                <div className="px-3 py-2.5 text-sm text-text-muted">No matching projects</div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
         <div className="w-full sm:w-72">
           <Select2
@@ -3099,7 +3431,7 @@ export function ProjectsPage({ addToast }: Props) {
                 {rows.length === 0 && !projectsQuery.isError && (
                   <tr>
                     <td colSpan={6} className="py-12 px-3 text-center text-sm text-text-muted">
-                      {!searchDebounced && stageFilter === 'All'
+                      {!searchCommitted && stageFilter === 'All'
                         ? 'No projects returned from the database.'
                         : 'No projects match your search or filters.'}
                     </td>
