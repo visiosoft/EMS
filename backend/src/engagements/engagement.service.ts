@@ -212,6 +212,33 @@ export class EngagementService {
     });
   }
 
+  private async assertPerformanceSlotAvailable(
+    engagementId: number,
+    performanceDate: string,
+    performanceTime: string,
+    excludePerformanceId?: number,
+  ): Promise<void> {
+    const qb = this.performanceRepo
+      .createQueryBuilder('p')
+      .where('p.engagementId = :engagementId', { engagementId })
+      .andWhere('p.performanceDate = :performanceDate', { performanceDate })
+      .andWhere('p.performanceTime = :performanceTime', { performanceTime });
+
+    if (excludePerformanceId != null) {
+      qb.andWhere('p.performanceId <> :excludePerformanceId', {
+        excludePerformanceId,
+      });
+    }
+
+    const existing = await qb.getOne();
+    if (existing) {
+      throw new ConflictException({
+        message:
+          'A show already exists for this engagement at the exact same date and time.',
+      });
+    }
+  }
+
   private async assertVenueCompany(venueCompanyId: number): Promise<void> {
     const company = await this.companyRepo.findOne({
       where: { companyId: venueCompanyId },
@@ -1408,10 +1435,18 @@ export class EngagementService {
       });
     }
 
+    const normalizedTime = this.normalizeTime(dto.performanceTime);
+
+    await this.assertPerformanceSlotAvailable(
+      engagementId,
+      dto.performanceDate,
+      normalizedTime,
+    );
+
     const row = this.performanceRepo.create({
       engagementId,
       performanceDate: dto.performanceDate,
-      performanceTime: this.normalizeTime(dto.performanceTime),
+      performanceTime: normalizedTime,
       performanceStatus: dto.performanceStatus?.trim() || 'Public',
     });
 
@@ -1455,6 +1490,13 @@ export class EngagementService {
     if (dto.performanceStatus !== undefined) {
       perf.performanceStatus = dto.performanceStatus.trim() || 'Public';
     }
+
+    await this.assertPerformanceSlotAvailable(
+      engagementId,
+      perf.performanceDate,
+      perf.performanceTime,
+      performanceId,
+    );
 
     await this.performanceRepo.save(perf);
   }

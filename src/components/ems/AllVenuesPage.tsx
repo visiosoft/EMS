@@ -1,6 +1,6 @@
 /** All Venues — list + board from dbo.Venue plus optional complex membership. */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, LayoutGrid, LayoutList, Loader2 } from 'lucide-react';
 import { Select2 } from './Select2';
@@ -14,6 +14,8 @@ import {
 import { PageSizeSelect } from './PageSizeSelect';
 import {
   allVenuesQueryKey,
+  allVenuesSuggestionRowsQueryKey,
+  ALL_VENUES_SUGGESTION_CACHE_LIMIT,
   fetchAllVenues,
   type ApiAllVenueRow,
 } from '@/api/venueDirectoryApi';
@@ -48,21 +50,14 @@ function entertainmentComplexChips(names: string | null) {
   );
 }
 
-function useDebouncedValue<T>(value: T, ms: number): T {
-  const [d, setD] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setD(value), ms);
-    return () => clearTimeout(t);
-  }, [value, ms]);
-  return d;
-}
-
 export function AllVenuesPage({ onNavigate }: Props) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [venueInput, setVenueInput] = useState('');
-  const debouncedVenue = useDebouncedValue(venueInput, 400);
+  const [venueSearchCommitted, setVenueSearchCommitted] = useState('');
+  const [showVenueSuggestions, setShowVenueSuggestions] = useState(false);
+  const venueSearchRef = useRef<HTMLDivElement>(null);
   const [complexId, setComplexId] = useState('');
   const [venueTypeId, setVenueTypeId] = useState('');
   const [dmaId, setDmaId] = useState('');
@@ -78,6 +73,16 @@ export function AllVenuesPage({ onNavigate }: Props) {
     col: VenueSortCol;
     dir: 'asc' | 'desc';
   }>({ col: 'venue', dir: 'asc' });
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (venueSearchRef.current && !venueSearchRef.current.contains(e.target as Node)) {
+        setShowVenueSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const lookupsQ = useQuery({
     queryKey: ['lookups', 'all-venues'],
@@ -120,7 +125,7 @@ export function AllVenuesPage({ onNavigate }: Props) {
 
   const filterParams = useMemo(
     () => ({
-      q: debouncedVenue.trim() || undefined,
+      q: venueSearchCommitted.trim() || undefined,
       complexCompanyId:
         complexId !== '' && Number.isFinite(Number(complexId))
           ? Number(complexId)
@@ -133,8 +138,57 @@ export function AllVenuesPage({ onNavigate }: Props) {
       sortBy: SORT_API[sortState.col],
       sortDir: sortState.dir,
     }),
-    [debouncedVenue, complexId, venueTypeId, dmaId, sortState.col, sortState.dir],
+    [venueSearchCommitted, complexId, venueTypeId, dmaId, sortState.col, sortState.dir],
   );
+
+  const venueSuggestionSourceOpts = useMemo(
+    () => ({
+      complexCompanyId:
+        complexId !== '' && Number.isFinite(Number(complexId))
+          ? Number(complexId)
+          : undefined,
+      venueTypeId:
+        venueTypeId !== '' && Number.isFinite(Number(venueTypeId))
+          ? Number(venueTypeId)
+          : undefined,
+      dmaId: dmaId !== '' && Number.isFinite(Number(dmaId)) ? Number(dmaId) : undefined,
+      sortBy: SORT_API[sortState.col],
+      sortDir: sortState.dir,
+    }),
+    [complexId, venueTypeId, dmaId, sortState.col, sortState.dir],
+  );
+
+  const venueSuggestionRowsQuery = useQuery({
+    queryKey: [
+      ...allVenuesSuggestionRowsQueryKey(SORT_API[sortState.col], sortState.dir),
+      complexId,
+      venueTypeId,
+      dmaId,
+    ] as const,
+    queryFn: () =>
+      fetchAllVenues(0, ALL_VENUES_SUGGESTION_CACHE_LIMIT, venueSuggestionSourceOpts),
+    staleTime: 30 * 60_000,
+    gcTime: 60 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+
+  const venueSearchSuggestions = useMemo(() => {
+    const q = venueInput.trim().toLowerCase();
+    if (!q) return [];
+    const names = (venueSuggestionRowsQuery.data?.data ?? [])
+      .map((r) => (r.venueName ?? '').trim())
+      .filter(Boolean);
+    const dedup: string[] = [];
+    for (const n of names) {
+      if (!dedup.some((d) => d.toLowerCase() === n.toLowerCase())) dedup.push(n);
+    }
+    return dedup.filter((n) => n.toLowerCase().includes(q)).slice(0, 8);
+  }, [venueInput, venueSuggestionRowsQuery.data]);
+
+  const commitVenueSearch = useCallback(() => {
+    setVenueSearchCommitted(venueInput.trim());
+    setShowVenueSuggestions(false);
+  }, [venueInput]);
 
   useEffect(() => {
     setPage(1);
@@ -179,15 +233,90 @@ export function AllVenuesPage({ onNavigate }: Props) {
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 flex-1 min-w-0">
-          <div>
+          <div ref={venueSearchRef} className="relative min-w-0">
             <label className="text-text-muted text-xs block mb-1">Venue</label>
-            <input
-              type="search"
-              value={venueInput}
-              onChange={(e) => setVenueInput(e.target.value)}
-              placeholder="Search by venue name"
-              className="w-full min-w-0 bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted"
-            />
+            <div className="flex min-w-0 items-center border border-border rounded-md bg-surface overflow-hidden focus-within:border-ems-accent transition-colors">
+              <input
+                type="search"
+                value={venueInput}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setVenueInput(v);
+                  setShowVenueSuggestions(true);
+                  if (!v.trim()) setVenueSearchCommitted('');
+                }}
+                onFocus={() => {
+                  if (venueInput.trim()) setShowVenueSuggestions(true);
+                }}
+                onBlur={() => setShowVenueSuggestions(false)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitVenueSearch();
+                  if (e.key === 'Escape') setShowVenueSuggestions(false);
+                }}
+                placeholder="Search by venue name"
+                autoComplete="off"
+                spellCheck={false}
+                className="min-w-0 flex-1 cursor-text bg-transparent px-3 py-1.5 text-sm text-text-primary focus:outline-none placeholder:text-text-muted"
+              />
+              <button
+                type="button"
+                onClick={commitVenueSearch}
+                className="shrink-0 cursor-pointer px-2.5 py-1.5 text-text-muted hover:text-ems-accent transition-colors"
+                title="Search"
+              >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <circle cx="11" cy="11" r="8" strokeWidth="2" />
+                  <path d="m21 21-4.35-4.35" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+            {showVenueSuggestions &&
+            venueInput.trim().length >= 1 &&
+            (venueSuggestionRowsQuery.isFetching ||
+              venueSearchSuggestions.length > 0 ||
+              venueSuggestionRowsQuery.isFetched) ? (
+              <div
+                className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden"
+                onMouseDown={(e) => e.preventDefault()}
+              >
+                {venueSuggestionRowsQuery.isError ? (
+                  <div className="px-3 py-2 text-sm text-ems-coral" role="alert">
+                    Could not load venue suggestions.
+                  </div>
+                ) : null}
+                {!venueSuggestionRowsQuery.isError && venueSuggestionRowsQuery.isFetching ? (
+                  <div className="flex items-center gap-2 px-3 py-2.5 text-sm text-text-muted" role="status">
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-ems-accent" aria-hidden />
+                    <span>Loading suggestions…</span>
+                  </div>
+                ) : null}
+                {!venueSuggestionRowsQuery.isError &&
+                !venueSuggestionRowsQuery.isFetching &&
+                venueSearchSuggestions.length > 0
+                  ? venueSearchSuggestions.map((suggestion, i) => (
+                      <button
+                        key={`${i}-${suggestion}`}
+                        type="button"
+                        className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setVenueInput(suggestion);
+                          setVenueSearchCommitted(suggestion);
+                          setShowVenueSuggestions(false);
+                        }}
+                      >
+                        {suggestion}
+                      </button>
+                    ))
+                  : null}
+                {!venueSuggestionRowsQuery.isError &&
+                !venueSuggestionRowsQuery.isFetching &&
+                venueSuggestionRowsQuery.isFetched &&
+                venueSearchSuggestions.length === 0 ? (
+                  <div className="px-3 py-2.5 text-sm text-text-muted">No matching venues</div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
           <div>
             <label className="text-text-muted text-xs block mb-1">Entertainment Complex</label>

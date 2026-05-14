@@ -680,6 +680,9 @@ export function getStatusColor(status: string): { bg: string; text: string } {
     Accepted: { bg: 'bg-ems-green-dim', text: 'text-ems-green' },
     Declined: { bg: 'bg-ems-coral-dim', text: 'text-ems-coral' },
     Countered: { bg: 'bg-ems-amber-dim', text: 'text-ems-amber' },
+    /** Legacy venue / date-option status values (pre–product allowlist). */
+    Proposed: { bg: 'bg-ems-blue-dim', text: 'text-ems-blue' },
+    Offered: { bg: 'bg-ems-purple-dim', text: 'text-ems-purple' },
   };
   return map[status] || { bg: 'bg-elevated', text: 'text-text-secondary' };
 }

@@ -33,16 +33,16 @@ export interface ProjectStageMeta {
   source: 'application' | 'check_constraint' | 'environment' | 'existing_rows' | 'empty';
 }
 
-/** Allowed `dbo.EngagementProjectVenue.VenueStatus` from CHECK / env / existing rows. */
+/** Allowed `dbo.EngagementProjectVenue.VenueStatus` from env or application canonical list. */
 export interface VenueStatusMeta {
   venueStatuses: string[];
-  source: 'environment' | 'check_constraint' | 'existing_rows' | 'empty';
+  source: 'application' | 'environment';
 }
 
-/** Allowed `dbo.EngagementProjectPerformanceOption.OptionStatus` from CHECK / env / existing rows. */
+/** Allowed `dbo.EngagementProjectPerformanceOption.OptionStatus` from env or application canonical list. */
 export interface OptionStatusMeta {
   optionStatuses: string[];
-  source: 'environment' | 'check_constraint' | 'existing_rows' | 'empty';
+  source: 'application' | 'environment';
 }
 
 /** Human-readable label for a stage (works for any string from the DB). */
@@ -54,23 +54,12 @@ export function projectStageDisplayLabel(
   return value.replace(/([A-Z])/g, ' $1').trim() || value;
 }
 
-/** Valid values for EngagementProjectVenue.VenueStatus */
-export const VENUE_STATUS_VALUES = [
-  'Proposed',
-  'Offered',
-  'Accepted',
-  'Declined',
-  'Cancelled',
-] as const;
+/** Valid values for `dbo.EngagementProjectVenue.VenueStatus` (aligned with API validation). */
+export const VENUE_STATUS_VALUES = ['Confirmed', 'Pending', 'Inactive'] as const;
 export type VenueStatus = (typeof VENUE_STATUS_VALUES)[number];
 
-/** Valid values for EngagementProjectPerformanceOption.OptionStatus */
-export const OPTION_STATUS_VALUES = [
-  'Proposed',
-  'Confirmed',
-  'Declined',
-  'Countered',
-] as const;
+/** Valid values for `dbo.EngagementProjectPerformanceOption.OptionStatus` (aligned with API validation). */
+export const OPTION_STATUS_VALUES = ['Confirmed', 'Pending', 'Inactive'] as const;
 export type OptionStatus = (typeof OPTION_STATUS_VALUES)[number];
 
 // ---------------------------------------------------------------------------
@@ -285,6 +274,13 @@ export function projectsApiQueryKey(
   sortDir = '',
 ) {
   return ['projects', 'api', offset, limit, q, projectStage, sortBy, sortDir] as const;
+}
+
+/** Large prefetch for project name suggestions (local filter while typing). */
+export const PROJECTS_SUGGESTION_CACHE_LIMIT = 5000;
+
+export function projectsSuggestionCacheQueryKey(projectStage: string) {
+  return ['projects', 'suggestion-cache', projectStage] as const;
 }
 
 export function fetchProjects(offset = 0, limit = 25, opts?: ProjectListQueryOpts) {

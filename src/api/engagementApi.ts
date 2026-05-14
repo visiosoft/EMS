@@ -202,6 +202,23 @@ export function engagementsPagedQueryKey(
   ] as const;
 }
 
+/** Large prefetch for engagement search suggestions (local filter while typing). */
+export const ENGAGEMENTS_SUGGESTION_CACHE_LIMIT = 5000;
+
+export function engagementsSuggestionCacheQueryKey(opts: Omit<EngagementPagedQueryOpts, 'q'>) {
+  return [
+    'engagements',
+    'suggestion-cache',
+    opts.status ?? 'All',
+    opts.attraction ?? '',
+    opts.dma ?? '',
+    opts.venue ?? '',
+    opts.timing ?? 'all',
+    opts.sortBy ?? '',
+    opts.sortDir ?? '',
+  ] as const;
+}
+
 export function fetchEngagementsPaged(
   offset = 0,
   limit = 25,
