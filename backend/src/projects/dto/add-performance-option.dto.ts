@@ -1,6 +1,21 @@
-import { IsISO8601, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsInt,
+  IsISO8601,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export class AddPerformanceOptionDto {
+  /** FK → dbo.EngagementProjectVenue — which venue proposal this date belongs to. */
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  engagementProjectVenueId: number;
+
   @IsISO8601()
   proposedDate: string;
 

@@ -90,6 +90,11 @@ export interface CreatePerformanceOptionPayload {
   optionStatus: OptionStatus;
 }
 
+/** Body for POST `/projects/:id/performance-options` — ties the new row to one venue proposal. */
+export type AddPerformanceOptionApiPayload = CreatePerformanceOptionPayload & {
+  engagementProjectVenueId: number;
+};
+
 export type UpdatePerformanceOptionPayload = Partial<CreatePerformanceOptionPayload>;
 
 // ---------------------------------------------------------------------------
@@ -351,7 +356,7 @@ export function deleteProjectVenue(projectId: number, venueId: number) {
 
 export function createPerformanceOption(
   projectId: number,
-  body: CreatePerformanceOptionPayload,
+  body: AddPerformanceOptionApiPayload,
 ) {
   return apiFetch<{ performanceOptionId: number }>(`/projects/${projectId}/performance-options`, {
     method: 'POST',
