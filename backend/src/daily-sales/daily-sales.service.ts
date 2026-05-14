@@ -167,6 +167,14 @@ export interface EngagementSalesDashboardDto {
   }>;
 }
 
+/** One engagement’s seat / revenue caps — used on attraction roll-up to explain summed totals */
+export interface AttractionEngagementBaselineRow {
+  engagementId: number;
+  tourName: string;
+  sellableCapacity: number | null;
+  grossPotential: number | null;
+}
+
 /** GET /daily-sales/attraction-sales-summary — roll-up across all engagements for tours on this attraction */
 export type AttractionSalesDashboardDto = Omit<
   EngagementSalesDashboardDto,
@@ -174,6 +182,8 @@ export type AttractionSalesDashboardDto = Omit<
 > & {
   attractionId: number;
   engagementCount: number;
+  /** Each engagement’s own limits; sellableCapacity / grossPotential on this DTO are the sum of these rows */
+  engagementBaselines: AttractionEngagementBaselineRow[];
 };
 
 function toYmdString(v: unknown): string {
@@ -253,6 +263,12 @@ function revenueRemainingDisplay(potential: number, totalRevenue: number): numbe
   return Math.max(0, potential - totalRevenue);
 }
 
+/**
+ * One point per calendar day from earliest sale to `asOf`.
+ * Y value = sum over performances of that performance’s latest row with salesDate ≤ day
+ * (each row is stored as a running total for that show). The series is not guaranteed
+ * monotone: e.g. a later row can lower a show’s running total, or per-day amounts break the model.
+ */
 function buildDailySeries(
   asOf: string,
   perfIds: number[],
@@ -1103,6 +1119,28 @@ export class DailySalesService {
     let grossSum = 0;
     let grossAny = false;
     const tourNames = new Set<string>();
+    const engagementBaselines: AttractionEngagementBaselineRow[] = engagements
+      .slice()
+      .sort((a, b) => a.engagementId - b.engagementId)
+      .map((e) => {
+        const tn = e.tour?.tourName?.trim();
+        if (tn) tourNames.add(tn);
+        const gpRaw = e.grossPotential;
+        const gpNum =
+          gpRaw != null && gpRaw !== '' && Number.isFinite(Number(gpRaw))
+            ? Number(Number(gpRaw).toFixed(2))
+            : null;
+        return {
+          engagementId: e.engagementId,
+          tourName: tn || `Engagement #${e.engagementId}`,
+          sellableCapacity:
+            e.sellableCapacity != null && Number.isFinite(Number(e.sellableCapacity))
+              ? Math.trunc(Number(e.sellableCapacity))
+              : null,
+          grossPotential: gpNum,
+        };
+      });
+
     for (const e of engagements) {
       const sc = e.sellableCapacity;
       if (sc != null && Number.isFinite(sc)) {
@@ -1117,8 +1155,6 @@ export class DailySalesService {
         grossSum += gp;
         grossAny = true;
       }
-      const tn = e.tour?.tourName?.trim();
-      if (tn) tourNames.add(tn);
     }
     const sellableCapacity = sellableAny ? sellableSum : null;
     const grossPotential = grossAny ? grossSum : null;
@@ -1261,6 +1297,7 @@ export class DailySalesService {
       },
       series,
       summary,
+      engagementBaselines,
     };
   }
 

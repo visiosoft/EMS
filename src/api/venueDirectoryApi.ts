@@ -15,6 +15,13 @@ export interface ApiAllVenueRow {
 
 export const allVenuesQueryKey = ['venue-directory', 'venues'] as const;
 
+/** Prefetch cap for venue-name suggestions on All Venues (local filter while typing). */
+export const ALL_VENUES_SUGGESTION_CACHE_LIMIT = 5000;
+
+export function allVenuesSuggestionRowsQueryKey(sortBy: string, sortDir: string) {
+  return [...allVenuesQueryKey, 'suggestion-rows', sortBy, sortDir] as const;
+}
+
 export function fetchAllVenues(
   offset: number,
   limit: number,

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Loader2,
@@ -12,7 +12,6 @@ import {
   ImageIcon,
 } from 'lucide-react';
 import {
-  SearchInput,
   FilterChips,
   Modal,
   FormField,
@@ -26,6 +25,8 @@ import {
   updateEngagement,
   fetchEngagementsPaged,
   engagementsPagedQueryKey,
+  engagementsSuggestionCacheQueryKey,
+  ENGAGEMENTS_SUGGESTION_CACHE_LIMIT,
   fetchEngagementFilterOptions,
   type ApiEngagementListRow,
   type EngagementPagedQueryOpts,
@@ -330,8 +331,10 @@ function EngagementsTilesSkeleton({ tileCount = 6 }: { tileCount?: number }) {
 // ---------------------------------------------------------------------------
 export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast }: Props) {
   const qc = useQueryClient();
-  const [search, setSearch] = useState('');
-  const [searchDebounced, setSearchDebounced] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [searchCommitted, setSearchCommitted] = useState('');
+  const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
+  const engagementSearchRef = useRef<HTMLDivElement>(null);
   const [statusFilter, setStatusFilter] = useState(initFilter || 'All');
   const [attractionFilter, setAttractionFilter] = useState('');
   const [dmaFilter, setDmaFilter] = useState('');
@@ -378,14 +381,19 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
   }, [initFilter]);
 
   useEffect(() => {
-    const t = window.setTimeout(() => setSearchDebounced(search.trim()), 300);
-    return () => window.clearTimeout(t);
-  }, [search]);
+    const handleClickOutside = (e: MouseEvent) => {
+      if (engagementSearchRef.current && !engagementSearchRef.current.contains(e.target as Node)) {
+        setShowSearchSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const { offset, limit } = getPageParams(page, pageSize);
 
   const pagedOpts: EngagementPagedQueryOpts = {
-    q: searchDebounced || undefined,
+    q: searchCommitted || undefined,
     status: statusFilter !== 'All' ? statusFilter : undefined,
     attraction: attractionFilter || undefined,
     dma: dmaFilter || undefined,
@@ -394,6 +402,77 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
     sortBy: sortState.col ? SORT_API_BY_MOVABLE[sortState.col] : undefined,
     sortDir: sortState.col ? sortState.dir : undefined,
   };
+
+  const engagementSuggestionFetchOpts = useMemo(
+    (): Omit<EngagementPagedQueryOpts, 'q'> => ({
+      status: statusFilter !== 'All' ? statusFilter : undefined,
+      attraction: attractionFilter || undefined,
+      dma: dmaFilter || undefined,
+      venue: venueFilter || undefined,
+      timing: timingFilter,
+      sortBy: sortState.col ? SORT_API_BY_MOVABLE[sortState.col] : undefined,
+      sortDir: sortState.col ? sortState.dir : undefined,
+    }),
+    [statusFilter, attractionFilter, dmaFilter, venueFilter, timingFilter, sortState.col, sortState.dir],
+  );
+
+  const engagementsSuggestionQuery = useQuery({
+    queryKey: engagementsSuggestionCacheQueryKey(engagementSuggestionFetchOpts),
+    queryFn: () =>
+      fetchEngagementsPaged(0, ENGAGEMENTS_SUGGESTION_CACHE_LIMIT, engagementSuggestionFetchOpts),
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
+
+  const engagementSearchSuggestions = useMemo(() => {
+    const q = searchInput.trim().toLowerCase();
+    if (!q) return [] as Array<{ label: string; query: string }>;
+    const list = engagementsSuggestionQuery.data?.data ?? [];
+    const out: Array<{ label: string; query: string }> = [];
+    for (const row of list) {
+      const candidates = [
+        row.tourName,
+        row.attractionName,
+        row.venueCompanyName,
+        row.venueName,
+        row.city,
+        row.stateProvince,
+        row.dmaMarketName,
+      ]
+        .map((v) => String(v ?? '').trim())
+        .filter(Boolean);
+      const hay = [
+        row.displayTitle,
+        ...candidates,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      if (!hay.includes(q)) continue;
+      const query =
+        candidates.find((c) => c.toLowerCase().includes(q)) ??
+        candidates[0] ??
+        String(row.displayTitle ?? '').trim() ??
+        `Engagement #${row.engagementId}`;
+      const label =
+        String(row.displayTitle ?? '').trim() ||
+        query ||
+        `Engagement #${row.engagementId}`;
+      if (!query) continue;
+      if (!out.some((t) => t.query.toLowerCase() === query.toLowerCase())) {
+        out.push({ label, query });
+      }
+      if (out.length >= 8) break;
+    }
+    return out;
+  }, [searchInput, engagementsSuggestionQuery.data]);
+
+  const commitEngagementSearch = useCallback(() => {
+    setSearchCommitted(searchInput.trim());
+    setShowSearchSuggestions(false);
+  }, [searchInput]);
 
   const engagementsPagedQuery = useQuery({
     queryKey: engagementsPagedQueryKey(offset, limit, pagedOpts),
@@ -461,7 +540,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
   const { rangeStart, rangeEnd } = getPageRange(pageClamped, serverTotal, pageSize);
 
   const hasActiveFilters =
-    !!searchDebounced ||
+    !!searchCommitted ||
     statusFilter !== 'All' ||
     !!attractionFilter ||
     !!dmaFilter ||
@@ -470,7 +549,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
 
   useEffect(() => {
     setPage(1);
-  }, [searchDebounced, statusFilter, attractionFilter, dmaFilter, venueFilter, timingFilter]);
+  }, [searchCommitted, statusFilter, attractionFilter, dmaFilter, venueFilter, timingFilter]);
 
   useEffect(() => {
     setPage(1);
@@ -590,13 +669,91 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
       {/* Filters */}
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap gap-3">
-          <div className="w-full sm:w-64">
-            <SearchInput
-              value={search}
-              onChange={setSearch}
-              placeholder="Search engagements…"
-              disabled={loading}
-            />
+          <div className="w-full sm:w-64 relative" ref={engagementSearchRef}>
+            <div className="flex min-w-0 items-center border border-border rounded-md bg-surface overflow-hidden focus-within:border-ems-accent transition-colors">
+              <input
+                type="text"
+                className="min-w-0 flex-1 cursor-text bg-transparent px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                placeholder="Search engagements…"
+                value={searchInput}
+                disabled={loading}
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setSearchInput(v);
+                  setShowSearchSuggestions(true);
+                  if (!v.trim()) setSearchCommitted('');
+                }}
+                onFocus={() => {
+                  if (searchInput.trim()) setShowSearchSuggestions(true);
+                }}
+                onBlur={() => setShowSearchSuggestions(false)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitEngagementSearch();
+                  if (e.key === 'Escape') setShowSearchSuggestions(false);
+                }}
+              />
+              <button
+                type="button"
+                onClick={commitEngagementSearch}
+                disabled={loading}
+                className="shrink-0 cursor-pointer px-2.5 py-1.5 text-text-muted hover:text-ems-accent transition-colors disabled:opacity-50"
+                title="Search"
+              >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <circle cx="11" cy="11" r="8" strokeWidth="2" />
+                  <path d="m21 21-4.35-4.35" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+            {showSearchSuggestions &&
+            searchInput.trim().length >= 1 &&
+            (engagementsSuggestionQuery.isFetching ||
+              engagementSearchSuggestions.length > 0 ||
+              engagementsSuggestionQuery.isFetched) ? (
+              <div
+                className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden"
+                onMouseDown={(e) => e.preventDefault()}
+              >
+                {engagementsSuggestionQuery.isError ? (
+                  <div className="px-3 py-2 text-sm text-ems-coral" role="alert">
+                    Could not load suggestions.
+                  </div>
+                ) : null}
+                {!engagementsSuggestionQuery.isError && engagementsSuggestionQuery.isFetching ? (
+                  <div className="flex items-center gap-2 px-3 py-2.5 text-sm text-text-muted" role="status">
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-ems-accent" aria-hidden />
+                    <span>Loading suggestions…</span>
+                  </div>
+                ) : null}
+                {!engagementsSuggestionQuery.isError &&
+                !engagementsSuggestionQuery.isFetching &&
+                engagementSearchSuggestions.length > 0
+                  ? engagementSearchSuggestions.map((suggestion, i) => (
+                      <button
+                        key={`${i}-${suggestion.label}-${suggestion.query}`}
+                        type="button"
+                        className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setSearchInput(suggestion.query);
+                          setSearchCommitted(suggestion.query);
+                          setShowSearchSuggestions(false);
+                        }}
+                      >
+                        {suggestion.label}
+                      </button>
+                    ))
+                  : null}
+                {!engagementsSuggestionQuery.isError &&
+                !engagementsSuggestionQuery.isFetching &&
+                engagementsSuggestionQuery.isFetched &&
+                engagementSearchSuggestions.length === 0 ? (
+                  <div className="px-3 py-2.5 text-sm text-text-muted">No matching engagements</div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
           <div className="w-full sm:w-52">
             <Select2

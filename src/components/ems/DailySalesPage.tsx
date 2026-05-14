@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Loader2,
@@ -11,12 +11,12 @@ import {
   ArrowDown,
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
-import { SearchInput } from './Primitives';
 import { Select2 } from './Select2';
 import {
   fetchDailySalesByPerformance,
   fetchDailySales,
   updateDailySales,
+  DAILY_SALES_SUGGESTION_PAGE_SIZE,
   type ApiPerformanceSalesRow,
   type ApiDailySalesRow,
   type UpdateDailySalesPayload,
@@ -558,7 +558,7 @@ function PerformanceRow({
   leadColumnOrder: DailySalesLeadColumnId[];
   reportColumnOrder: DailySalesReportColumnId[];
   onEngagementClick: (engagementId: number) => void;
-  onOpenAttractionSalesSummary: (attractionId: number) => void;
+  onOpenAttractionSalesSummary: (attractionId: number) => void | Promise<void>;
   onSaved: () => void;
   addToast: Props['addToast'];
 }) {
@@ -640,7 +640,7 @@ function PerformanceRow({
       title={row.attractionId != null ? 'Open attraction sales summary' : undefined}
       onClick={() => {
         if (row.attractionId != null) {
-          onOpenAttractionSalesSummary(row.attractionId);
+          void onOpenAttractionSalesSummary(row.attractionId);
         }
       }}
     >
@@ -1070,16 +1070,23 @@ function EngagementSalesHistory({
   );
 }
 
-// ─── DailySalesPage ───────────────────────────────────────────────────────────
+function dailySalesRowSuggestionLabel(r: ApiPerformanceSalesRow): string {
+  const a = (r.attractionName ?? '').trim();
+  const t = (r.tourName ?? '').trim();
+  if (a && t) return `${a} — ${t}`;
+  return a || t || (r.venueName ?? '').trim() || `Performance ${r.performanceId}`;
+}
 
 export function DailySalesPage({ onNavigate, addToast }: Props) {
   const qc = useQueryClient();
   const [initialFilters] = useState(() => loadDailySalesFiltersSnapshot());
 
-  const [search, setSearch] = useState(() => initialFilters?.search ?? '');
-  const [searchDebounced, setSearchDebounced] = useState(
+  const [searchInput, setSearchInput] = useState(() => initialFilters?.search ?? '');
+  const [searchCommitted, setSearchCommitted] = useState(
     () => initialFilters?.searchDebounced ?? initialFilters?.search ?? '',
   );
+  const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
+  const dailySalesSearchRef = useRef<HTMLDivElement>(null);
   const [attractionFilter, setAttractionFilter] = useState(
     () => initialFilters?.attractionFilter ?? '',
   );
@@ -1147,15 +1154,20 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
   } | null>(null);
 
   useEffect(() => {
-    const t = window.setTimeout(() => setSearchDebounced(search.trim()), 300);
-    return () => window.clearTimeout(t);
-  }, [search]);
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dailySalesSearchRef.current && !dailySalesSearchRef.current.contains(e.target as Node)) {
+        setShowSearchSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     saveDailySalesFiltersSnapshot({
       v: 1,
-      search,
-      searchDebounced,
+      search: searchInput,
+      searchDebounced: searchCommitted,
       attractionFilter,
       genreFilter,
       tourFilter,
@@ -1172,8 +1184,8 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
       leadSort,
     });
   }, [
-    search,
-    searchDebounced,
+    searchInput,
+    searchCommitted,
     attractionFilter,
     genreFilter,
     tourFilter,
@@ -1197,13 +1209,97 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
         ? 'attraction'
         : 'venue';
 
+  const dailySalesSuggestionQuery = useQuery({
+    queryKey: [
+      'daily-sales-by-perf',
+      'suggestion-rows',
+      asOfDate,
+      attractionFilter,
+      genreFilter,
+      tourFilter,
+      companyFilter,
+      venueFilter,
+      contactFilter,
+      performanceDateFilter,
+      startDateFilter,
+      endDateFilter,
+      leadSort.col,
+      leadSort.dir,
+    ],
+    queryFn: () =>
+      fetchDailySalesByPerformance(asOfDate, {
+        page: 1,
+        pageSize: DAILY_SALES_SUGGESTION_PAGE_SIZE,
+        attraction: attractionFilter || undefined,
+        genre: genreFilter || undefined,
+        tour: tourFilter || undefined,
+        company: companyFilter || undefined,
+        venue: venueFilter || undefined,
+        contact: contactFilter || undefined,
+        performanceDate: performanceDateFilter.trim() || undefined,
+        startDate: startDateFilter.trim() || undefined,
+        endDate: endDateFilter.trim() || undefined,
+        sortBy: dailySalesSortBy,
+        sortDir: leadSort.dir,
+      }),
+    staleTime: 2 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  const dailySalesSearchSuggestions = useMemo(() => {
+    const q = searchInput.trim().toLowerCase();
+    if (!q) return [] as Array<{ label: string; query: string }>;
+    const items = dailySalesSuggestionQuery.data?.items ?? [];
+    const out: Array<{ label: string; query: string }> = [];
+    for (const row of items) {
+      const candidates = [
+        row.tourName,
+        row.attractionName,
+        row.venueName,
+        row.venueCompanyName,
+        row.city,
+        row.stateProvince,
+        row.dmaMarketName,
+        row.genre,
+        row.contactName,
+      ]
+        .map((v) => String(v ?? '').trim())
+        .filter(Boolean);
+      const hay = [
+        ...candidates,
+        row.performanceDate,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      if (!hay.includes(q)) continue;
+      const label = dailySalesRowSuggestionLabel(row);
+      const query =
+        candidates.find((c) => c.toLowerCase().includes(q)) ??
+        candidates[0] ??
+        '';
+      if (!query) continue;
+      if (!out.some((t) => t.query.toLowerCase() === query.toLowerCase())) {
+        out.push({ label, query });
+      }
+      if (out.length >= 8) break;
+    }
+    return out;
+  }, [searchInput, dailySalesSuggestionQuery.data]);
+
+  const commitDailySalesSearch = useCallback(() => {
+    setSearchCommitted(searchInput.trim());
+    setShowSearchSuggestions(false);
+  }, [searchInput]);
+
   const salesQuery = useQuery({
     queryKey: [
       'daily-sales-by-perf',
       asOfDate,
       page,
       pageSize,
-      searchDebounced,
+      searchCommitted,
       attractionFilter,
       genreFilter,
       tourFilter,
@@ -1220,7 +1316,7 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
       fetchDailySalesByPerformance(asOfDate, {
         page,
         pageSize,
-        search: searchDebounced || undefined,
+        search: searchCommitted || undefined,
         attraction: attractionFilter || undefined,
         genre: genreFilter || undefined,
         tour: tourFilter || undefined,
@@ -1239,16 +1335,20 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
 
   const refetch = useCallback(async () => {
     await qc.invalidateQueries({ queryKey: ['daily-sales-by-perf'] });
+    await invalidateSalesCapacityRelatedQueries(qc);
   }, [qc]);
 
   const openAttractionSalesSummary = useCallback(
-    (attractionId: number) => {
+    async (attractionId: number) => {
+      await invalidateSalesCapacityRelatedQueries(qc);
       onNavigate('attraction-sales-summary', {
         attractionId,
         returnView: 'daily-sales',
+        /** Match Daily Sales “Reporting as of” so the summary uses the same window as the grid. */
+        initialAsOf: asOfDate,
       });
     },
-    [onNavigate],
+    [onNavigate, qc, asOfDate],
   );
 
   const pageData = salesQuery.data;
@@ -1316,7 +1416,7 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
 
   useEffect(() => {
     setPage(1);
-  }, [searchDebounced, attractionFilter, genreFilter, tourFilter, companyFilter, venueFilter, contactFilter, asOfDate, performanceDateFilter, startDateFilter, endDateFilter, leadSort.col, leadSort.dir]);
+  }, [searchCommitted, attractionFilter, genreFilter, tourFilter, companyFilter, venueFilter, contactFilter, asOfDate, performanceDateFilter, startDateFilter, endDateFilter, leadSort.col, leadSort.dir]);
 
   useEffect(() => {
     setPage(1);
@@ -1494,9 +1594,92 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
 
         {filtersExpanded && (
           <div className="p-4 sm:p-5 space-y-6">
-            <div className="max-w-2xl">
+            <div className="max-w-2xl relative" ref={dailySalesSearchRef}>
               <label className="mb-1.5 block text-xs font-medium text-text-secondary">Search</label>
-              <SearchInput value={search} onChange={setSearch} placeholder="Search shows, tours, venues, cities…" disabled={showFullSkeleton} />
+              <div className="flex min-w-0 items-center border border-border rounded-md bg-surface overflow-hidden focus-within:border-ems-accent transition-colors">
+                <input
+                  type="text"
+                  className="min-w-0 flex-1 cursor-text bg-transparent px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                  placeholder="Search shows, tours, venues, cities…"
+                  value={searchInput}
+                  disabled={showFullSkeleton}
+                  autoComplete="off"
+                  spellCheck={false}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setSearchInput(v);
+                    setShowSearchSuggestions(true);
+                    if (!v.trim()) setSearchCommitted('');
+                  }}
+                  onFocus={() => {
+                    if (searchInput.trim()) setShowSearchSuggestions(true);
+                  }}
+                  onBlur={() => setShowSearchSuggestions(false)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitDailySalesSearch();
+                    if (e.key === 'Escape') setShowSearchSuggestions(false);
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={commitDailySalesSearch}
+                  disabled={showFullSkeleton}
+                  className="shrink-0 cursor-pointer px-2.5 py-1.5 text-text-muted hover:text-ems-accent transition-colors disabled:opacity-50"
+                  title="Search"
+                >
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <circle cx="11" cy="11" r="8" strokeWidth="2" />
+                    <path d="m21 21-4.35-4.35" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
+              {showSearchSuggestions &&
+              searchInput.trim().length >= 1 &&
+              (dailySalesSuggestionQuery.isFetching ||
+                dailySalesSearchSuggestions.length > 0 ||
+                dailySalesSuggestionQuery.isFetched) ? (
+                <div
+                  className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden"
+                  onMouseDown={(e) => e.preventDefault()}
+                >
+                  {dailySalesSuggestionQuery.isError ? (
+                    <div className="px-3 py-2 text-sm text-ems-coral" role="alert">
+                      Could not load suggestions.
+                    </div>
+                  ) : null}
+                  {!dailySalesSuggestionQuery.isError && dailySalesSuggestionQuery.isFetching ? (
+                    <div className="flex items-center gap-2 px-3 py-2.5 text-sm text-text-muted" role="status">
+                      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-ems-accent" aria-hidden />
+                      <span>Loading suggestions…</span>
+                    </div>
+                  ) : null}
+                  {!dailySalesSuggestionQuery.isError &&
+                  !dailySalesSuggestionQuery.isFetching &&
+                  dailySalesSearchSuggestions.length > 0
+                    ? dailySalesSearchSuggestions.map((suggestion, i) => (
+                        <button
+                          key={`${i}-${suggestion.label}-${suggestion.query}`}
+                          type="button"
+                          className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setSearchInput(suggestion.query);
+                            setSearchCommitted(suggestion.query);
+                            setShowSearchSuggestions(false);
+                          }}
+                        >
+                          {suggestion.label}
+                        </button>
+                      ))
+                    : null}
+                  {!dailySalesSuggestionQuery.isError &&
+                  !dailySalesSuggestionQuery.isFetching &&
+                  dailySalesSuggestionQuery.isFetched &&
+                  dailySalesSearchSuggestions.length === 0 ? (
+                    <div className="px-3 py-2.5 text-sm text-text-muted">No matching rows</div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
 
             <div className="grid gap-5 lg:grid-cols-3">

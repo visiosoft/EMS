@@ -192,6 +192,7 @@ export function SalesDashboardView({
   }
 
   const d = data;
+  const baselines = d.engagementBaselines ?? [];
   const loc =
     [d.header.city, d.header.stateProvince].filter(Boolean).join(', ') || '—';
   const showWhen =
@@ -274,12 +275,47 @@ export function SalesDashboardView({
         />
       </div>
 
+      {baselines.length > 0 && (
+        <div className="rounded-xl border border-border bg-surface/50 px-4 py-3 text-sm space-y-2.5 shadow-sm">
+          <p className="font-medium text-text-primary">
+            Why the big seat number may look higher than “my” 5,000
+          </p>
+          <p className="text-xs text-text-secondary leading-relaxed">
+            This page covers every engagement tied to this attraction. Each tour can have its own seat goal. We{' '}
+            <strong>add</strong> those goals so the charts match reality — like 5,000 seats for one tour plus 100 seats
+            for another tour gives <strong>5,100</strong> seats at the top.
+          </p>
+          <ul className="text-xs text-text-secondary divide-y divide-border/70 border border-border/70 rounded-md overflow-hidden bg-card/60">
+            {baselines.map((row) => (
+              <li
+                key={row.engagementId}
+                className="flex flex-wrap justify-between gap-x-4 gap-y-1 px-3 py-2.5"
+              >
+                <span className="font-medium text-text-primary min-w-0 truncate pr-2" title={row.tourName}>
+                  {row.tourName}
+                </span>
+                <span className="tabular-nums text-text-secondary shrink-0 text-right">
+                  {row.sellableCapacity != null
+                    ? `${row.sellableCapacity.toLocaleString()} seats`
+                    : '— seats'}
+                  <span className="text-text-muted"> · </span>
+                  {row.grossPotential != null ? `${moneyFull(row.grossPotential)} goal` : '— money goal'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <div className="rounded-xl border border-border bg-card shadow-sm p-4 md:p-5 xl:col-span-1 min-h-0">
           <div className="flex items-baseline justify-between gap-2 mb-1">
             <h2 className="text-sm font-semibold text-text-primary">Daily sales</h2>
-            <span className="text-[11px] text-text-muted tabular-nums hidden sm:inline text-right max-w-[11rem] leading-snug">
-              Cumulative tickets through reporting date
+            <span
+              className="text-[11px] text-text-muted tabular-nums hidden sm:inline text-right max-w-[14rem] leading-snug cursor-help"
+              title="Each point is all shows added together up to that date. The line can go down if someone fixes an older saved number."
+            >
+              All shows together, by date
             </span>
           </div>
           <div className="h-[min(22rem,55vh)] w-full min-h-[240px]">
@@ -327,7 +363,7 @@ export function SalesDashboardView({
                   }}
                   labelStyle={{ color: 'hsl(var(--text-primary))', fontWeight: 600, marginBottom: 4 }}
                   itemStyle={{ color: 'hsl(var(--text-secondary))' }}
-                  formatter={(v: number) => [v.toLocaleString(), 'Tickets (cumulative)']}
+                  formatter={(v: number) => [v.toLocaleString(), 'Tickets (all shows added up)']}
                   labelFormatter={(_, p) => {
                     const x = p?.[0]?.payload?.date;
                     return x ? formatOpeningDateSafe(String(x)) : '';
@@ -495,6 +531,18 @@ export function SalesDashboardView({
       <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b border-border bg-surface/50">
           <h2 className="text-sm font-semibold text-text-primary">Summary</h2>
+          <div className="text-xs text-text-secondary mt-2 space-y-2 leading-relaxed max-w-4xl">
+            <p>
+              <span className="font-semibold text-text-primary">What each row is.</span> For that date we add every
+              show’s saved tickets and money <em>through that date</em>. That is not “sold only on that one day.”
+            </p>
+            <p>
+              <span className="font-semibold text-text-primary">Tiny story.</span> Show A is saved at 300 tickets by
+              Monday. Show B reaches 100 tickets by Tuesday. Tuesday’s row shows <strong>400</strong> tickets total.
+              If Show A is later corrected to 250, a row can look lower than before — the table always follows what is
+              saved, like fixing a typo on paper.
+            </p>
+          </div>
         </div>
         <div className="max-h-[min(24rem,50vh)] overflow-y-auto overflow-x-auto">
           <table className="w-full text-sm">

@@ -26,7 +26,12 @@ import {
   isAllowedProjectStage,
   PROJECT_STAGE_VALUES,
 } from './project-stage.constants';
-import { parseStringLiteralsFromCheckDefinition } from './venue-status-check.util';
+
+const ENGAGEMENT_VENUE_OPTION_STATUS_ALLOWLIST = [
+  'Confirmed',
+  'Pending',
+  'Inactive',
+] as const;
 
 @Injectable()
 export class ProjectService {
@@ -36,7 +41,7 @@ export class ProjectService {
     at: number;
     result: {
       values: string[];
-      source: 'environment' | 'check_constraint' | 'existing_rows' | 'empty';
+      source: 'application' | 'environment';
     };
   } | null = null;
 
@@ -45,7 +50,7 @@ export class ProjectService {
     at: number;
     result: {
       values: string[];
-      source: 'environment' | 'check_constraint' | 'existing_rows' | 'empty';
+      source: 'application' | 'environment';
     };
   } | null = null;
   private agentContactColumnNameCache: string | null | undefined = undefined;
@@ -129,97 +134,27 @@ export class ProjectService {
       .filter(Boolean);
   }
 
-  private async loadVenueStatusFromCheck(): Promise<string[] | null> {
-    const rows: { definition: string }[] = await this.dataSource.query(
-      `
-      SELECT cc.definition AS [definition]
-      FROM sys.check_constraints AS cc
-      INNER JOIN sys.objects AS t ON cc.parent_object_id = t.object_id
-      WHERE t.object_id = OBJECT_ID('dbo.EngagementProjectVenue', 'U')
-        AND cc.is_disabled = 0
-        AND cc.definition LIKE N'%VenueStatus%'
-    `,
-    );
-    if (!rows?.length) return null;
-    const collected = new Set<string>();
-    for (const r of rows) {
-      for (const v of parseStringLiteralsFromCheckDefinition(r.definition)) {
-        if (v.length) collected.add(v);
-      }
-    }
-    if (collected.size === 0) return null;
-    return [...collected].sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: 'base' }),
-    );
-  }
-
-  private async loadVenueStatusFromExistingRows(): Promise<string[] | null> {
-    const rows: Record<string, string>[] = await this.dataSource.query(
-      `
-      SELECT DISTINCT LTRIM(RTRIM(CAST([VenueStatus] AS NVARCHAR(200)))) AS [s]
-      FROM [dbo].[EngagementProjectVenue]
-      WHERE [VenueStatus] IS NOT NULL
-        AND LEN(LTRIM(RTRIM(CAST([VenueStatus] AS NVARCHAR(200))))) > 0
-    `,
-    );
-    if (!rows?.length) return null;
-    const collected = new Set<string>();
-    for (const r of rows) {
-      const v = r['s'] ?? r['S'];
-      if (v != null) collected.add(String(v).trim());
-    }
-    if (collected.size === 0) return null;
-    return [...collected].sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: 'base' }),
-    );
-  }
-
   private async resolveVenueStatusAllowlist(): Promise<{
     values: string[];
-    source: 'environment' | 'check_constraint' | 'existing_rows' | 'empty';
+    source: 'application' | 'environment';
   }> {
     const fromEnv = this.parseVenueStatusEnvAllowlist();
     if (fromEnv.length > 0) {
       return { values: fromEnv, source: 'environment' };
     }
-    try {
-      const fromCheck = await this.loadVenueStatusFromCheck();
-      if (fromCheck && fromCheck.length > 0) {
-        return { values: fromCheck, source: 'check_constraint' };
-      }
-    } catch (e) {
-      this.logger.warn(
-        `Could not read CHECK for dbo.EngagementProjectVenue.VenueStatus: ${
-          e instanceof Error ? e.message : String(e)
-        }`,
-      );
-    }
-    try {
-      const fromRows = await this.loadVenueStatusFromExistingRows();
-      if (fromRows && fromRows.length > 0) {
-        this.logger.log(
-          `Venue status list taken from existing dbo.EngagementProjectVenue rows (${fromRows.length} distinct value(s)).`,
-        );
-        return { values: fromRows, source: 'existing_rows' };
-      }
-    } catch (e) {
-      this.logger.warn(
-        `Could not read distinct VenueStatus: ${e instanceof Error ? e.message : String(e)}`,
-      );
-    }
-    this.logger.warn(
-      'No venue status allowlist: set VENUE_STATUS_ALLOWLIST on the API, or ensure the CHECK for VenueStatus can be read, or have at least one project venue row.',
-    );
-    return { values: [], source: 'empty' };
+    return {
+      values: [...ENGAGEMENT_VENUE_OPTION_STATUS_ALLOWLIST],
+      source: 'application',
+    };
   }
 
   /**
-   * Allowed `VenueStatus` values for dbo.EngagementProjectVenue — from the SQL Server CHECK
-   * on the column, or from env `VENUE_STATUS_ALLOWLIST` (comma-separated), or from existing rows.
+   * Allowed `VenueStatus` values for dbo.EngagementProjectVenue — from env
+   * `VENUE_STATUS_ALLOWLIST` (comma-separated), else the canonical list (Confirmed, Pending, Inactive).
    */
   async getVenueStatusMeta(): Promise<{
     venueStatuses: string[];
-    source: 'environment' | 'check_constraint' | 'existing_rows' | 'empty';
+    source: 'application' | 'environment';
   }> {
     const now = Date.now();
     if (
@@ -490,97 +425,27 @@ export class ProjectService {
       .filter(Boolean);
   }
 
-  private async loadOptionStatusFromCheck(): Promise<string[] | null> {
-    const rows: { definition: string }[] = await this.dataSource.query(
-      `
-      SELECT cc.definition AS [definition]
-      FROM sys.check_constraints AS cc
-      INNER JOIN sys.objects AS t ON cc.parent_object_id = t.object_id
-      WHERE t.object_id = OBJECT_ID('dbo.EngagementProjectPerformanceOption', 'U')
-        AND cc.is_disabled = 0
-        AND cc.definition LIKE N'%OptionStatus%'
-    `,
-    );
-    if (!rows?.length) return null;
-    const collected = new Set<string>();
-    for (const r of rows) {
-      for (const v of parseStringLiteralsFromCheckDefinition(r.definition)) {
-        if (v.length) collected.add(v);
-      }
-    }
-    if (collected.size === 0) return null;
-    return [...collected].sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: 'base' }),
-    );
-  }
-
-  private async loadOptionStatusFromExistingRows(): Promise<string[] | null> {
-    const rows: Record<string, string>[] = await this.dataSource.query(
-      `
-      SELECT DISTINCT LTRIM(RTRIM(CAST([OptionStatus] AS NVARCHAR(200)))) AS [s]
-      FROM [dbo].[EngagementProjectPerformanceOption]
-      WHERE [OptionStatus] IS NOT NULL
-        AND LEN(LTRIM(RTRIM(CAST([OptionStatus] AS NVARCHAR(200))))) > 0
-    `,
-    );
-    if (!rows?.length) return null;
-    const collected = new Set<string>();
-    for (const r of rows) {
-      const v = r['s'] ?? r['S'];
-      if (v != null) collected.add(String(v).trim());
-    }
-    if (collected.size === 0) return null;
-    return [...collected].sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: 'base' }),
-    );
-  }
-
   private async resolveOptionStatusAllowlist(): Promise<{
     values: string[];
-    source: 'environment' | 'check_constraint' | 'existing_rows' | 'empty';
+    source: 'application' | 'environment';
   }> {
     const fromEnv = this.parseOptionStatusEnvAllowlist();
     if (fromEnv.length > 0) {
       return { values: fromEnv, source: 'environment' };
     }
-    try {
-      const fromCheck = await this.loadOptionStatusFromCheck();
-      if (fromCheck && fromCheck.length > 0) {
-        return { values: fromCheck, source: 'check_constraint' };
-      }
-    } catch (e) {
-      this.logger.warn(
-        `Could not read CHECK for dbo.EngagementProjectPerformanceOption.OptionStatus: ${
-          e instanceof Error ? e.message : String(e)
-        }`,
-      );
-    }
-    try {
-      const fromRows = await this.loadOptionStatusFromExistingRows();
-      if (fromRows && fromRows.length > 0) {
-        this.logger.log(
-          `Option status list taken from existing dbo.EngagementProjectPerformanceOption rows (${fromRows.length} distinct value(s)).`,
-        );
-        return { values: fromRows, source: 'existing_rows' };
-      }
-    } catch (e) {
-      this.logger.warn(
-        `Could not read distinct OptionStatus: ${e instanceof Error ? e.message : String(e)}`,
-      );
-    }
-    this.logger.warn(
-      'No option status allowlist: set OPTION_STATUS_ALLOWLIST on the API, or ensure the CHECK for OptionStatus can be read, or have at least one performance option row.',
-    );
-    return { values: [], source: 'empty' };
+    return {
+      values: [...ENGAGEMENT_VENUE_OPTION_STATUS_ALLOWLIST],
+      source: 'application',
+    };
   }
 
   /**
-   * Allowed `OptionStatus` values for dbo.EngagementProjectPerformanceOption — from SQL Server CHECK,
-   * env `OPTION_STATUS_ALLOWLIST` (comma-separated), or existing rows.
+   * Allowed `OptionStatus` values for dbo.EngagementProjectPerformanceOption — from env
+   * `OPTION_STATUS_ALLOWLIST` (comma-separated), else the canonical list (Confirmed, Pending, Inactive).
    */
   async getOptionStatusMeta(): Promise<{
     optionStatuses: string[];
-    source: 'environment' | 'check_constraint' | 'existing_rows' | 'empty';
+    source: 'application' | 'environment';
   }> {
     const now = Date.now();
     if (
