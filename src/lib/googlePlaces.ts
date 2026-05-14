@@ -27,6 +27,7 @@ export interface AddressPrediction {
 }
 
 const GOOGLE_SCRIPT_ID = 'google-maps-places-sdk';
+/** Injected at build time from project root `.env` (see `vite.config.ts`: `VITE_GOOGLE_PLACES_API_KEY` or `GOOGLE_PLACES_API_KEY`). */
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_PLACES_API_KEY;
 
 let googleMapsLoadPromise: Promise<void> | null = null;

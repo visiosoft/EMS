@@ -22,14 +22,25 @@ import {
 import {
   entertainmentComplexCompaniesQueryKey,
   fetchEntertainmentComplexCompanyRows,
-  fetchDmaMarkets,
+  fetchDmaMarketsPage,
   fetchLookups,
+  type ApiDmaMarket,
 } from '@/api/companyApi';
 
 type ViewMode = 'list' | 'board';
 
 interface Props {
   onNavigate?: (view: string, data?: Record<string, unknown>) => void;
+}
+
+/** Label used in Venue DMA filter — includes postal so Select2 search matches short codes. */
+function dmaFilterOptionLabel(x: ApiDmaMarket): string {
+  const name = (x.marketName ?? '').trim();
+  const pc = (x.postalCode ?? '').trim();
+  if (name && pc) return `${name} (${pc})`;
+  if (name) return name;
+  if (pc) return pc;
+  return `DMA #${x.dmaid}`;
 }
 
 function entertainmentComplexChips(names: string | null) {
@@ -97,8 +108,21 @@ export function AllVenuesPage({ onNavigate }: Props) {
   });
 
   const dmasQ = useQuery({
-    queryKey: ['dmas', 'all-venues'],
-    queryFn: fetchDmaMarkets,
+    queryKey: ['dmas', 'all-venues', 'paginated-all'],
+    queryFn: async () => {
+      const pageSize = 500;
+      const all: ApiDmaMarket[] = [];
+      let offset = 0;
+      let total = Infinity;
+      while (offset < total && all.length < 25_000) {
+        const chunk = await fetchDmaMarketsPage(offset, pageSize, '');
+        all.push(...chunk.data);
+        total = chunk.total;
+        offset += chunk.data.length;
+        if (chunk.data.length === 0) break;
+      }
+      return all;
+    },
     staleTime: 30 * 60_000,
   });
 
@@ -115,13 +139,6 @@ export function AllVenuesPage({ onNavigate }: Props) {
       .map((x) => ({ value: String(x.venueTypeId), label: x.venueTypeName }))
       .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
   }, [lookupsQ.data?.venueTypes]);
-
-  const dmaOpts = useMemo(() => {
-    const d = dmasQ.data ?? [];
-    return d
-      .map((x) => ({ value: String(x.dmaid), label: x.marketName }))
-      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
-  }, [dmasQ.data]);
 
   const filterParams = useMemo(
     () => ({
@@ -216,6 +233,25 @@ export function AllVenuesPage({ onNavigate }: Props) {
     ] as const,
     queryFn: () => fetchAllVenues(offset, limit, filterParams),
   });
+
+  const dmaOpts = useMemo(() => {
+    const map = new Map<string, { value: string; label: string }>();
+    for (const x of dmasQ.data ?? []) {
+      map.set(String(x.dmaid), { value: String(x.dmaid), label: dmaFilterOptionLabel(x) });
+    }
+    const mergeVenueRow = (r: ApiAllVenueRow) => {
+      if (r.dmaId == null || !Number.isFinite(r.dmaId) || r.dmaId <= 0) return;
+      const k = String(r.dmaId);
+      if (map.has(k)) return;
+      const nm = (r.dmaMarketName ?? '').trim();
+      map.set(k, { value: k, label: nm || `DMA #${r.dmaId}` });
+    };
+    for (const r of venueSuggestionRowsQuery.data?.data ?? []) mergeVenueRow(r);
+    for (const r of listQ.data?.data ?? []) mergeVenueRow(r);
+    return [...map.values()].sort((a, b) =>
+      a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }),
+    );
+  }, [dmasQ.data, venueSuggestionRowsQuery.data, listQ.data]);
 
   const total = listQ.data?.total ?? 0;
   const rows: ApiAllVenueRow[] = listQ.data?.data ?? [];

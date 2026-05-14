@@ -464,6 +464,38 @@ export class DailySalesService {
     const startDate = this.normalizeOptionalYmd(startDateRaw);
     const endDate = this.normalizeOptionalYmd(endDateRaw);
 
+    if (performanceDate && performanceDate > asOf) {
+      throw new BadRequestException({
+        message: 'Performance date filter cannot be after the reporting as-of date.',
+      });
+    }
+    if (startDate && startDate > asOf) {
+      throw new BadRequestException({
+        message: 'Performance range start cannot be after the reporting as-of date.',
+      });
+    }
+    if (endDate && endDate > asOf) {
+      throw new BadRequestException({
+        message: 'Performance range end cannot be after the reporting as-of date.',
+      });
+    }
+    if (startDate && endDate && endDate < startDate) {
+      throw new BadRequestException({
+        message: 'Performance range end cannot be before range start.',
+      });
+    }
+    if (
+      performanceDate &&
+      startDate &&
+      endDate &&
+      (performanceDate < startDate || performanceDate > endDate)
+    ) {
+      throw new BadRequestException({
+        message:
+          'Single performance day must fall within the selected start and end range.',
+      });
+    }
+
     const yesterdayDate = ymdAddDays(asOf, -1);
 
     const baseQb = this.createByPerformanceBaseQb(asOf, {
