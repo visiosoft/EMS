@@ -1,5 +1,6 @@
 import {
   Body,
+  BadRequestException,
   Controller,
   Get,
   HttpCode,
@@ -28,6 +29,43 @@ export class DailySalesController {
   constructor(private readonly dailySalesService: DailySalesService) {}
 
   /**
+   * GET /api/daily-sales/engagement-dashboard?engagementId=…&asOfDate=YYYY-MM-DD
+   * KPIs + cumulative daily series for all performances under the engagement.
+   */
+  @Get('engagement-dashboard')
+  getEngagementDashboard(
+    @Query('engagementId') engagementIdRaw?: string,
+    @Query('asOfDate') asOfDate?: string,
+  ) {
+    const id = engagementIdRaw != null ? Number(engagementIdRaw) : NaN;
+    if (!Number.isFinite(id) || id < 1) {
+      throw new BadRequestException({
+        message: 'Query parameter engagementId is required and must be a positive integer.',
+      });
+    }
+    return this.dailySalesService.getEngagementDashboard(id, asOfDate);
+  }
+
+  /**
+   * GET /api/daily-sales/attraction-sales-summary?attractionId=…&asOfDate=YYYY-MM-DD
+   * KPIs + cumulative daily series rolled up across all engagements for this attraction.
+   * Legacy alias: `attraction-dashboard` (same handler).
+   */
+  @Get(['attraction-sales-summary', 'attraction-dashboard'])
+  getAttractionSalesSummary(
+    @Query('attractionId') attractionIdRaw?: string,
+    @Query('asOfDate') asOfDate?: string,
+  ) {
+    const id = attractionIdRaw != null ? Number(attractionIdRaw) : NaN;
+    if (!Number.isFinite(id) || id < 1) {
+      throw new BadRequestException({
+        message: 'Query parameter attractionId is required and must be a positive integer.',
+      });
+    }
+    return this.dailySalesService.getAttractionSalesSummary(id, asOfDate);
+  }
+
+  /**
    * GET /api/daily-sales/by-performance
    * Paged rows per show with PerformanceDate <= asOf.
    * Reporting columns: asOf (current) and asOf minus one calendar day.
@@ -42,6 +80,13 @@ export class DailySalesController {
     @Query('search') search?: string,
     @Query('attraction') attraction?: string,
     @Query('performanceDate') performanceDate?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('genre') genre?: string,
+    @Query('tour') tour?: string,
+    @Query('company') company?: string,
+    @Query('venue') venue?: string,
+    @Query('contact') contact?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: string,
   ) {
@@ -52,6 +97,13 @@ export class DailySalesController {
       search,
       attraction,
       performanceDate,
+      startDate,
+      endDate,
+      genre,
+      tour,
+      company,
+      venue,
+      contact,
       sortBy,
       sortDir,
     );

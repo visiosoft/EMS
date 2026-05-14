@@ -37,6 +37,8 @@ import { getIaeWaiverStatusAllowlist } from './iae-waiver-status.constants';
 export interface EngagementListRow {
   engagementId: number;
   engagementStatus: string;
+  sellableCapacity: number | null;
+  grossPotential: number | null;
   /** Earliest dbo.Performance for this engagement (opening show), if any */
   openingPerformanceDate: string | null;
   openingPerformanceTime: string | null;
@@ -82,6 +84,7 @@ export interface EngagementFinanceRow {
   engagementId: number;
   estimatedBreakeven: number | null;
   grossPotential: number | null;
+  sellableCapacity: number | null;
   promoterProfit: number | null;
   venueTerms: string | null;
   confirmationPacketApproved: boolean | null;
@@ -282,13 +285,21 @@ export class EngagementService {
   private toFinanceResponse(
     engagementId: number,
     row: EngagementFinances | null,
+    engagement: Engagement,
   ): EngagementFinanceRow {
+    const grossPotential = this.mapFinanceNumber(engagement.grossPotential);
+    const sellableCapacity =
+      engagement.sellableCapacity != null
+        ? Number(engagement.sellableCapacity)
+        : null;
+
     if (!row) {
       return {
         financeId: null,
         engagementId,
         estimatedBreakeven: null,
-        grossPotential: null,
+        grossPotential,
+        sellableCapacity,
         promoterProfit: null,
         venueTerms: null,
         confirmationPacketApproved: null,
@@ -309,7 +320,8 @@ export class EngagementService {
       financeId: row.financeId,
       engagementId: row.engagementId,
       estimatedBreakeven: this.mapFinanceNumber(row.estimatedBreakeven),
-      grossPotential: this.mapFinanceNumber(row.grossPotential),
+      grossPotential,
+      sellableCapacity,
       promoterProfit: this.mapFinanceNumber(row.promoterProfit),
       venueTerms: row.venueTerms,
       confirmationPacketApproved: this.mapBit(row.confirmationPacketApproved),
@@ -361,9 +373,16 @@ export class EngagementService {
       .leftJoin(Company, 'vc', 'vc.companyId = ev.venueCompanyId')
       .leftJoin(Address, 'addr', 'addr.addressId = vc.physicalAddressId')
       .leftJoin(Dma, 'dma', 'dma.dmaid = vc.dmaid')
+      .leftJoin(
+        EngagementFinances,
+        'ef',
+        'ef.engagementId = e.engagementId',
+      )
       .select([
         'e.engagementId         AS engagementId',
         'e.engagementStatus     AS engagementStatus',
+        'e.sellableCapacity     AS sellableCapacity',
+        'e.grossPotential       AS grossPotential',
         'e.tourId               AS tourId',
         't.tourName             AS tourName',
         't.attractionId         AS attractionId',
@@ -458,6 +477,10 @@ export class EngagementService {
       engagementStatus: normalizeEngagementStatus(
         String(g('engagementStatus') ?? ''),
       ),
+      sellableCapacity:
+        g('sellableCapacity') != null ? Number(g('sellableCapacity')) : null,
+      grossPotential:
+        g('grossPotential') != null ? Number(g('grossPotential')) : null,
       openingPerformanceDate: openingDate,
       openingPerformanceTime: openingTime,
       attractionId:
@@ -708,11 +731,11 @@ export class EngagementService {
   }
 
   async getFinance(engagementId: number): Promise<EngagementFinanceRow> {
-    await this.assertEngagementExists(engagementId);
+    const engagement = await this.assertEngagementExists(engagementId);
     const row = await this.engagementFinancesRepo.findOne({
       where: { engagementId },
     });
-    return this.toFinanceResponse(engagementId, row);
+    return this.toFinanceResponse(engagementId, row, engagement);
   }
 
   /**
@@ -837,8 +860,24 @@ export class EngagementService {
     engagementId: number,
     dto: UpdateEngagementFinanceDto,
   ): Promise<void> {
-    await this.assertEngagementExists(engagementId);
+    const engagementRow = await this.assertEngagementExists(engagementId);
     await this.assertFinanceFks(dto);
+
+    let engagementDirty = false;
+    if (dto.sellableCapacity !== undefined) {
+      engagementRow.sellableCapacity =
+        dto.sellableCapacity == null ? null : dto.sellableCapacity;
+      engagementDirty = true;
+    }
+    if (dto.grossPotential !== undefined) {
+      engagementRow.grossPotential =
+        dto.grossPotential == null ? null : dto.grossPotential;
+      engagementDirty = true;
+    }
+    if (engagementDirty) {
+      await this.engagementRepo.save(engagementRow);
+    }
+
     const existing = await this.engagementFinancesRepo.findOne({
       where: { engagementId },
     });
@@ -848,10 +887,6 @@ export class EngagementService {
     if (dto.estimatedBreakeven !== undefined) {
       row.estimatedBreakeven =
         dto.estimatedBreakeven == null ? null : dto.estimatedBreakeven;
-    }
-    if (dto.grossPotential !== undefined) {
-      row.grossPotential =
-        dto.grossPotential == null ? null : dto.grossPotential;
     }
     if (dto.promoterProfit !== undefined) {
       row.promoterProfit =
@@ -996,6 +1031,15 @@ export class EngagementService {
 
     if (dto.engagementStatus !== undefined) {
       existing.engagementStatus = dto.engagementStatus.trim();
+    }
+
+    if (dto.sellableCapacity !== undefined) {
+      existing.sellableCapacity =
+        dto.sellableCapacity == null ? null : dto.sellableCapacity;
+    }
+    if (dto.grossPotential !== undefined) {
+      existing.grossPotential =
+        dto.grossPotential == null ? null : dto.grossPotential;
     }
 
     await this.engagementRepo.save(existing);

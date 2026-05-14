@@ -18,6 +18,7 @@ import {
   CalendarDays,
   MapPin,
   Tag,
+  LineChart as LineChartIcon,
 } from 'lucide-react';
 import { Modal, FormField, TabBar } from './Primitives';
 import { Select2, type Select2Option } from './Select2';
@@ -63,9 +64,11 @@ import {
   fetchCompanyContacts,
 } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
+import { invalidateSalesCapacityRelatedQueries } from '@/api/cacheHelpers';
 import { formatOpeningDateSafe, formatSqlTimeDisplay } from '@/lib/engagementDisplay';
 import { formatE164ForDisplay } from '@/lib/contactPhoneField';
 import { ENGAGEMENT_STATUS_ENUM } from './engagementFormConstants';
+import { EngagementSalesDashboardPanel } from './EngagementSalesDashboardPanel';
 
 const PERFORMANCE_STATUS_OPTIONS = ENGAGEMENT_STATUS_ENUM.map((s) => ({
   value: s,
@@ -933,9 +936,13 @@ function EngagementFinancePanel({
 
   const saveMut = useMutation({
     mutationFn: (body: UpdateEngagementFinancePayload) => updateEngagementFinance(engagementId, body),
-    onSuccess: () => {
+    onSuccess: async (_data, body) => {
       addToast('Finance details saved.', 'success');
-      void qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
+      if (body && ('sellableCapacity' in body || 'grossPotential' in body)) {
+        await invalidateSalesCapacityRelatedQueries(qc);
+      }
     },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
   });
@@ -1255,13 +1262,22 @@ interface Props {
   engagementId: number;
   onNavigate: (view: string, data?: Record<string, unknown>) => void;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  /** When opening from Engagements (deep link), start on this tab */
+  initialTab?: string;
 }
 
-export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Props) {
+export function EngagementDetailPage({
+  engagementId,
+  onNavigate,
+  addToast,
+  initialTab,
+}: Props) {
   const qc = useQueryClient();
   const [tab, setTab] = useState('Overview');
   const [showEdit, setShowEdit] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(false);
+  const [sellableCapacityInput, setSellableCapacityInput] = useState('');
+  const [grossPotentialInput, setGrossPotentialInput] = useState('');
 
   // ── Data ────────────────────────────────────────────────────────────────
   const detailQuery = useQuery({
@@ -1271,8 +1287,8 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
   });
 
   useEffect(() => {
-    setTab('Overview');
-  }, [engagementId]);
+    setTab(initialTab === 'Sales dashboard' ? 'Sales dashboard' : 'Overview');
+  }, [engagementId, initialTab]);
 
   const lookupsQuery = useQuery({
     queryKey: ['engagements-lookups'],
@@ -1322,9 +1338,18 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
   const patchMutation = useMutation({
     mutationFn: (body: Parameters<typeof updateEngagement>[1]) =>
       updateEngagement(engagementId, body),
-    onSuccess: async () => {
+    onSuccess: async (_data, variables) => {
       await qc.invalidateQueries({ queryKey: ['engagements'] });
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
+      if (
+        variables &&
+        ('sellableCapacity' in variables || 'grossPotential' in variables)
+      ) {
+        await invalidateSalesCapacityRelatedQueries(qc);
+        await qc.invalidateQueries({
+          queryKey: ['engagements', engagementId, 'finance'],
+        });
+      }
     },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
   });
@@ -1342,6 +1367,14 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
 
   const row = detailQuery.data;
 
+  useEffect(() => {
+    if (!row) return;
+    setSellableCapacityInput(
+      row.sellableCapacity == null ? '' : String(row.sellableCapacity),
+    );
+    setGrossPotentialInput(row.grossPotential == null ? '' : String(row.grossPotential));
+  }, [row]);
+
   const handleStatusChange = (next: string) => {
     if (!next.trim() || next.length > 50) {
       addToast('Status must be 1–50 characters.', 'warning');
@@ -1357,6 +1390,45 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
     () => ENGAGEMENT_STATUS_ENUM.map((s) => ({ value: s, label: s })),
     [],
   );
+
+  const canSaveCapacityFields = useMemo(() => {
+    if (!row) return false;
+    const nextSellable = sellableCapacityInput.trim();
+    const nextGross = grossPotentialInput.trim();
+    const currentSellable = row.sellableCapacity == null ? '' : String(row.sellableCapacity);
+    const currentGross = row.grossPotential == null ? '' : String(row.grossPotential);
+    return nextSellable !== currentSellable || nextGross !== currentGross;
+  }, [row, sellableCapacityInput, grossPotentialInput]);
+
+  const handleSaveCapacityFields = () => {
+    const nextSellableRaw = sellableCapacityInput.trim();
+    const nextGrossRaw = grossPotentialInput.trim();
+
+    let sellableCapacity: number | null = null;
+    if (nextSellableRaw !== '') {
+      const parsed = Number(nextSellableRaw);
+      if (!Number.isInteger(parsed) || parsed < 0) {
+        addToast('Sellable capacity must be a non-negative whole number.', 'warning');
+        return;
+      }
+      sellableCapacity = parsed;
+    }
+
+    let grossPotential: number | null = null;
+    if (nextGrossRaw !== '') {
+      const parsed = Number(nextGrossRaw);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        addToast('Gross potential must be a non-negative number.', 'warning');
+        return;
+      }
+      grossPotential = Number(parsed.toFixed(2));
+    }
+
+    patchMutation.mutate(
+      { sellableCapacity, grossPotential },
+      { onSuccess: () => addToast('Engagement capacity fields updated.', 'success') },
+    );
+  };
 
   // ── Performances ────────────────────────────────────────────────────────
   const performancesQuery = useQuery({
@@ -1454,7 +1526,8 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
         ← Back to Engagements
       </button>
 
-      {/* Header card */}
+      {/* Header card — hidden on Sales dashboard (that view has its own hero) */}
+      {tab !== 'Sales dashboard' && (
       <div className="bg-card border border-border rounded-lg p-5">
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
           <div className="min-w-0 space-y-2">
@@ -1497,6 +1570,16 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
                 disabled={patchMutation.isPending}
               />
             </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setTab('Sales dashboard')}
+              className="border-ems-accent/35 text-ems-accent hover:bg-ems-accent-dim"
+            >
+              <LineChartIcon className="h-3.5 w-3.5 mr-1 inline" aria-hidden />
+              Sales dashboard
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -1561,19 +1644,105 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
                 : '—'}
             </span>
           </div>
+          <div>
+            <span className="text-text-muted text-xs block mb-0.5 font-medium">Sellable capacity</span>
+            <span className="text-text-secondary">
+              {row.sellableCapacity != null ? row.sellableCapacity.toLocaleString() : '—'}
+            </span>
+          </div>
+          <div>
+            <span className="text-text-muted text-xs block mb-0.5 font-medium">Gross potential</span>
+            <span className="text-text-secondary">
+              {row.grossPotential != null
+                ? new Intl.NumberFormat('en-US', {
+                    style: 'currency',
+                    currency: 'USD',
+                    maximumFractionDigits: 2,
+                  }).format(row.grossPotential)
+                : '—'}
+            </span>
+          </div>
         </div>
       </div>
+      )}
 
       {/* Tabs */}
       <TabBar
-        tabs={['Overview', 'Venues', 'Service Providers', 'Contacts', 'Dates', 'Finance', 'Audit Log']}
+        tabs={[
+          'Overview',
+          'Sales dashboard',
+          'Venues',
+          'Service Providers',
+          'Contacts',
+          'Dates',
+          'Finance',
+          'Audit Log',
+        ]}
         active={tab}
         onChange={setTab}
       />
 
+      {/* ── Sales dashboard (KPIs + charts) ───────────────────────────────── */}
+      {tab === 'Sales dashboard' && (
+        <EngagementSalesDashboardPanel
+          engagementId={engagementId}
+          onBack={() => setTab('Overview')}
+        />
+      )}
+
       {/* ── Overview ─────────────────────────────────────────────────────── */}
       {tab === 'Overview' && (
         <div className="bg-card border border-border rounded-lg p-5 space-y-5">
+          <div className="rounded-lg border border-border bg-surface/40 p-4">
+            <h3 className="text-sm font-semibold text-text-primary mb-1">Sales Baseline Fields</h3>
+            <p className="text-xs text-text-muted mb-4">
+              These values are manually maintained after engagement creation and power sales summary KPIs.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField label="Engagement sellable capacity">
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  className={inputCls}
+                  value={sellableCapacityInput}
+                  onChange={(e) => setSellableCapacityInput(e.target.value)}
+                  disabled={patchMutation.isPending}
+                  placeholder="e.g. 2021"
+                />
+              </FormField>
+              <FormField label="Engagement gross potential">
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  className={inputCls}
+                  value={grossPotentialInput}
+                  onChange={(e) => setGrossPotentialInput(e.target.value)}
+                  disabled={patchMutation.isPending}
+                  placeholder="e.g. 403565.00"
+                />
+              </FormField>
+            </div>
+            <div className="mt-4 flex justify-end">
+              <Button
+                type="button"
+                size="sm"
+                className="bg-ems-accent text-white hover:opacity-90"
+                onClick={handleSaveCapacityFields}
+                disabled={patchMutation.isPending || !canSaveCapacityFields}
+              >
+                {patchMutation.isPending ? (
+                  <span className="inline-flex items-center gap-1">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Saving…
+                  </span>
+                ) : (
+                  'Save capacity fields'
+                )}
+              </Button>
+            </div>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-sm">
             <div>
               <span className="text-text-muted text-xs block mb-1 font-medium">Engagement</span>
@@ -1831,6 +2000,12 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
             await updateEngagement(engagementId, payload);
             await qc.invalidateQueries({ queryKey: ['engagements'] });
             await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
+            if ('sellableCapacity' in payload || 'grossPotential' in payload) {
+              await invalidateSalesCapacityRelatedQueries(qc);
+              await qc.invalidateQueries({
+                queryKey: ['engagements', engagementId, 'finance'],
+              });
+            }
             addToast('Engagement updated.', 'success');
             setShowEdit(false);
           }}

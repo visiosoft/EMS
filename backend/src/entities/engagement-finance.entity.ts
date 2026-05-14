@@ -10,6 +10,7 @@ import { Engagement } from './engagement.entity';
 /**
  * dbo.EngagementFinances — one row per engagement (1:1 on EngagementID).
  * PK is FinanceID (not EngagementFinanceID).
+ * SellableCapacity and GrossPotential are on dbo.Engagement; GET finance merges them into the response.
  */
 @Entity({ name: 'EngagementFinances', schema: 'dbo' })
 export class EngagementFinances {
@@ -31,15 +32,6 @@ export class EngagementFinances {
     nullable: true,
   })
   estimatedBreakeven: string | number | null;
-
-  @Column({
-    name: 'GrossPotential',
-    type: 'decimal',
-    precision: 18,
-    scale: 2,
-    nullable: true,
-  })
-  grossPotential: string | number | null;
 
   @Column({
     name: 'PromoterProfit',

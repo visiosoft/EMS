@@ -776,12 +776,15 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
                     const thumb = engagementTileImageUrl(r);
                     const venueLine = r.venueCompanyName ?? r.venueName ?? '—';
                     return (
-                      <button
-                        type="button"
+                      <div
                         key={r.engagementId}
-                        onClick={() => onNavigate('engagement-detail', { engagementId: r.engagementId })}
-                        className="rounded-xl border border-border bg-card overflow-hidden text-left transition-colors hover:bg-surface/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/50"
+                        className="rounded-xl border border-border bg-card overflow-hidden flex flex-col text-left transition-shadow hover:shadow-md focus-within:ring-2 focus-within:ring-ems-accent/50"
                       >
+                        <button
+                          type="button"
+                          onClick={() => onNavigate('engagement-detail', { engagementId: r.engagementId })}
+                          className="flex-1 min-w-0 text-left focus:outline-none hover:bg-surface/40 transition-colors"
+                        >
                         <div className="relative aspect-[16/9] w-full overflow-hidden border-b border-border/70 bg-elevated">
                           {thumb ? (
                             <img
@@ -824,7 +827,22 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
                             value={formatFirstShowLine(r.openingPerformanceDate, r.openingPerformanceTime)}
                           />
                         </div>
-                      </button>
+                        </button>
+                        <div className="border-t border-border/70 px-3 py-2 flex justify-end bg-surface/30">
+                          <button
+                            type="button"
+                            className="text-xs font-medium text-ems-accent hover:underline"
+                            onClick={() =>
+                              onNavigate('engagement-detail', {
+                                engagementId: r.engagementId,
+                                initialTab: 'Sales dashboard',
+                              })
+                            }
+                          >
+                            Sales dashboard
+                          </button>
+                        </div>
+                      </div>
                     );
                   })}
                 </div>

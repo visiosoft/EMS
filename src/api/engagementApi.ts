@@ -2,6 +2,7 @@
  * Engagement Module API
  *
  * dbo.Engagement columns: EngagementID, EngagementStatus, TourID (NOT NULL).
+ * Sellable capacity and gross potential are on dbo.EngagementFinances (joined for list/detail).
  * Opening show is the earliest dbo.Performance (see openingPerformanceDate/Time).
  * AttractionID was REMOVED from dbo.Engagement.
  * AttractionID is on dbo.Tour — reach via: Engagement.TourID → Tour.AttractionID → Attraction
@@ -13,6 +14,8 @@ import { apiFetch } from './config';
 export interface ApiEngagementListRow {
   engagementId: number;
   engagementStatus: string;
+  sellableCapacity: number | null;
+  grossPotential: number | null;
   /** Earliest dbo.Performance (opening show), if any */
   openingPerformanceDate: string | null;
   openingPerformanceTime: string | null;
@@ -76,11 +79,13 @@ export interface CreateEngagementPayload {
   guarantee?: number | null;
 }
 
-/** Only persisted fields on dbo.Engagement */
+/** Only persisted fields — capacity/potential stored on EngagementFinances */
 export interface UpdateEngagementPayload {
   engagementStatus?: string;
   tourId?: number;
   primaryVenueCompanyId?: number;
+  sellableCapacity?: number | null;
+  grossPotential?: number | null;
 }
 
 /** dbo.EngagementFinances — one row per engagement (GET returns nulls for missing row / empty fields) */
@@ -89,6 +94,7 @@ export interface ApiEngagementFinanceRow {
   engagementId: number;
   estimatedBreakeven: number | null;
   grossPotential: number | null;
+  sellableCapacity: number | null;
   promoterProfit: number | null;
   venueTerms: string | null;
   confirmationPacketApproved: boolean | null;
@@ -107,6 +113,7 @@ export interface ApiEngagementFinanceRow {
 
 export type UpdateEngagementFinancePayload = {
   estimatedBreakeven?: number | null;
+  sellableCapacity?: number | null;
   grossPotential?: number | null;
   promoterProfit?: number | null;
   venueTerms?: string | null;

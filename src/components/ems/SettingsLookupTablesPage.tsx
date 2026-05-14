@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMsal } from '@azure/msal-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, Trash2 } from 'lucide-react';
 import {
@@ -42,6 +43,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
+import { fetchAdminUsers } from '@/api/adminUsersApi';
+import { acquireApiAccessToken, getActiveAccount } from '@/auth/entra';
 
 interface UserRow {
   id: string;
@@ -49,6 +52,7 @@ interface UserRow {
   role: string;
   email: string;
   lastLogin: string;
+  status?: 'Active' | 'Disabled';
 }
 
 interface Props {
@@ -186,6 +190,8 @@ export function SettingsPage({
   onUpdateUsers,
   initialMainTab = 'Users',
 }: Props) {
+  const { accounts } = useMsal();
+  const account = getActiveAccount() ?? accounts[0] ?? null;
   const qc = useQueryClient();
   const [tab, setTab] = useState<'Users' | 'Lookup Tables' | 'System'>(initialMainTab);
   const [lookupTab, setLookupTab] = useState(LOOKUP_TABLES[0].label);
@@ -212,6 +218,19 @@ export function SettingsPage({
 
   const inputCls =
     'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
+
+  const adminUsersQuery = useQuery({
+    queryKey: ['admin-users', account?.homeAccountId ?? null],
+    enabled: tab === 'Users' && account != null,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      if (!account) {
+        throw new Error('Sign in with Microsoft Entra ID to load the admin user directory.');
+      }
+      const accessToken = await acquireApiAccessToken(account);
+      return fetchAdminUsers(accessToken);
+    },
+  });
 
   useEffect(() => {
     setTab(initialMainTab);
@@ -304,10 +323,10 @@ export function SettingsPage({
     const values =
       activeLookupKey === 'company-services'
         ? rows.flatMap((row) => {
-            const companyName = String(row.companyName ?? '').trim();
-            const serviceName = String(row.serviceName ?? '').trim();
-            return [companyName, serviceName].filter(Boolean);
-          })
+          const companyName = String(row.companyName ?? '').trim();
+          const serviceName = String(row.serviceName ?? '').trim();
+          return [companyName, serviceName].filter(Boolean);
+        })
         : rows.map((row) => String(row[activeLookupConfig.nameField ?? activeLookupConfig.idField] ?? '').trim());
     const deduped: string[] = [];
     for (const v of values) {
@@ -449,11 +468,11 @@ export function SettingsPage({
       ? ''
       : activeLookupKey === 'company-services'
         ? `${String(selectedLookupRow.companyName ?? '').trim() || 'Company'} → ${String(
-            selectedLookupRow.serviceName ?? '',
-          ).trim() || 'Service'}`
+          selectedLookupRow.serviceName ?? '',
+        ).trim() || 'Service'}`
         : String(
-            selectedLookupRow[activeLookupConfig.nameField ?? activeLookupConfig.idField] ?? '',
-          ).trim() || `${activeLookupConfig.label} #${selectedLookupId ?? ''}`;
+          selectedLookupRow[activeLookupConfig.nameField ?? activeLookupConfig.idField] ?? '',
+        ).trim() || `${activeLookupConfig.label} #${selectedLookupId ?? ''}`;
 
   return (
     <div className="space-y-4">
@@ -462,97 +481,58 @@ export function SettingsPage({
 
       {tab === 'Users' && (
         <div className="space-y-3">
-          <button
-            onClick={() => setShowInvite(!showInvite)}
-            className="bg-ems-accent hover:bg-ems-accent/80 text-background px-4 py-1.5 rounded-md text-sm font-medium"
-          >
-            + Invite User
-          </button>
-
-          {showInvite && (
-            <div className="bg-elevated border border-border rounded-lg p-3 flex flex-col sm:flex-row gap-3 sm:items-end">
-              <div className="flex-1">
-                <label className="text-xs text-text-muted">Email</label>
-                <input value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls + ' mt-1'} />
-              </div>
-              <div className="w-48">
-                <label className="text-xs text-text-muted">Role</label>
-                <div className="mt-1">
-                  <Select2
-                    options={['Booker', 'WorkflowStaff', 'Management', 'Admin'].map((v) => ({
-                      value: v,
-                      label: v,
-                    }))}
-                    value={role}
-                    onChange={setRole}
-                  />
-                </div>
-              </div>
-              <button
-                onClick={() => {
-                  if (!email) return;
-                  const namePart = email.split('@')[0].replace(/[._-]/g, ' ');
-                  const name = namePart
-                    .split(' ')
-                    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-                    .join(' ');
-                  onUpdateUsers([
-                    { id: `usr-${Date.now()}`, name, email, role, lastLogin: 'Never' },
-                    ...users,
-                  ]);
-                  setEmail('');
-                  setRole('Booker');
-                  setShowInvite(false);
-                  addToast('User invited', 'success');
-                }}
-                className="bg-ems-accent text-background px-3 py-1.5 rounded text-sm"
-              >
-                Send
-              </button>
+          <div className="bg-card border border-border rounded-lg p-4 space-y-3">
+            <div>
+              <h3 className="text-base font-semibold text-text-primary">Microsoft Entra user directory</h3>
+              <p className="mt-1 text-sm text-text-secondary">
+                This table is loaded from the protected backend admin API. The backend decides who can see the full directory.
+              </p>
             </div>
-          )}
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm bg-card border border-border rounded-lg min-w-[550px]">
-              <thead>
-                <tr className="text-text-muted text-xs border-b border-border bg-surface">
-                  <th className="text-left py-2.5 px-3">Name</th>
-                  <th className="text-left py-2.5 px-3">Email</th>
-                  <th className="text-left py-2.5 px-3">Role</th>
-                  <th className="text-left py-2.5 px-3">Last Login</th>
-                  <th className="text-left py-2.5 px-3">Status</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => (
-                  <tr key={u.id} className="border-b border-border/50">
-                    <td className="py-2.5 px-3 text-text-primary">{u.name}</td>
-                    <td className="py-2.5 px-3 text-ems-blue text-xs">{u.email}</td>
-                    <td className="py-2.5 px-3 text-text-secondary">{u.role}</td>
-                    <td className="py-2.5 px-3 text-text-secondary text-xs">{u.lastLogin}</td>
-                    <td className="py-2.5 px-3">
-                      <StatusBadge status="Active" />
-                    </td>
-                    <td className="py-2.5 px-3 text-right">
-                      <ActionMenu
-                        items={[
-                          { label: 'Edit', onClick: () => setEditUser(u) },
-                          {
-                            label: 'Delete',
-                            danger: true,
-                            onClick: () => {
-                              onUpdateUsers(users.filter((x) => x.id !== u.id));
-                              addToast('User removed', 'warning');
-                            },
-                          },
-                        ]}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {adminUsersQuery.isPending ? (
+              <div className="flex items-center gap-2 rounded-md border border-border bg-elevated px-3 py-2 text-sm text-text-secondary">
+                <Loader2 className="h-4 w-4 animate-spin text-ems-accent" />
+                Loading Entra users...
+              </div>
+            ) : null}
+
+            {adminUsersQuery.isError ? (
+              <div className="rounded-md border border-ems-coral/30 bg-ems-coral-dim px-3 py-2 text-sm text-ems-coral">
+                {friendlyApiError(
+                  adminUsersQuery.error,
+                  'Could not load the Entra user directory. Check VITE_ENTRA_API_SCOPE on the frontend and the ENTRA_* backend settings.',
+                )}
+              </div>
+            ) : null}
+
+            {adminUsersQuery.data ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm bg-card border border-border rounded-lg min-w-[550px]">
+                  <thead>
+                    <tr className="text-text-muted text-xs border-b border-border bg-surface">
+                      <th className="text-left py-2.5 px-3">Name</th>
+                      <th className="text-left py-2.5 px-3">Email</th>
+                      <th className="text-left py-2.5 px-3">Role</th>
+                      <th className="text-left py-2.5 px-3">Last Login</th>
+                      <th className="text-left py-2.5 px-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {adminUsersQuery.data.map((u) => (
+                      <tr key={u.id} className="border-b border-border/50">
+                        <td className="py-2.5 px-3 text-text-primary">{u.name}</td>
+                        <td className="py-2.5 px-3 text-ems-blue text-xs">{u.email || '—'}</td>
+                        <td className="py-2.5 px-3 text-text-secondary">{u.role}</td>
+                        <td className="py-2.5 px-3 text-text-secondary text-xs">{u.lastLogin}</td>
+                        <td className="py-2.5 px-3">
+                          <StatusBadge status={u.status} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
           </div>
         </div>
       )}
@@ -649,28 +629,28 @@ export function SettingsPage({
                     </div>
                   ) : null}
                   {!lookupSuggestionsQuery.isError &&
-                  !lookupSuggestionsQuery.isFetching &&
-                  lookupSuggestions.length > 0
+                    !lookupSuggestionsQuery.isFetching &&
+                    lookupSuggestions.length > 0
                     ? lookupSuggestions.map((suggestion, i) => (
-                        <button
-                          key={`${i}-${suggestion}`}
-                          type="button"
-                          className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            setLookupSearchInput(suggestion);
-                            setLookupSearch(suggestion);
-                            setShowLookupSuggestions(false);
-                          }}
-                        >
-                          {suggestion}
-                        </button>
-                      ))
+                      <button
+                        key={`${i}-${suggestion}`}
+                        type="button"
+                        className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setLookupSearchInput(suggestion);
+                          setLookupSearch(suggestion);
+                          setShowLookupSuggestions(false);
+                        }}
+                      >
+                        {suggestion}
+                      </button>
+                    ))
                     : null}
                   {!lookupSuggestionsQuery.isError &&
-                  !lookupSuggestionsQuery.isFetching &&
-                  lookupSuggestionsQuery.isFetched &&
-                  lookupSuggestions.length === 0 ? (
+                    !lookupSuggestionsQuery.isFetching &&
+                    lookupSuggestionsQuery.isFetched &&
+                    lookupSuggestions.length === 0 ? (
                     <div className="px-3 py-2.5 text-sm text-text-muted">No matching results</div>
                   ) : null}
                 </div>
@@ -788,7 +768,7 @@ export function SettingsPage({
               { label: 'Database', value: 'Azure SQL — EngagementDB_Dev' },
               { label: 'DB Host', value: 'engagementdb-sql-dev.database.windows.net' },
               { label: 'Auth Provider', value: 'Azure Active Directory' },
-              { label: 'Active Users', value: `${users.length} users` },
+              { label: 'Active Users', value: `${adminUsersQuery.data?.length ?? users.length} users` },
             ].map((r) => (
               <div key={r.label} className="flex justify-between border-b border-border/50 pb-2">
                 <span className="text-text-muted">{r.label}</span>
@@ -855,11 +835,11 @@ export function SettingsPage({
               <span className="font-medium text-text-primary">
                 {deleteLookupRow
                   ? String(
-                      deleteLookupRow[
-                        activeLookupConfig.nameField ?? activeLookupConfig.idField
-                      ] ?? '',
-                    ).trim() ||
-                    `${activeLookupConfig.label} #${getRowId(deleteLookupRow, activeLookupConfig)}`
+                    deleteLookupRow[
+                    activeLookupConfig.nameField ?? activeLookupConfig.idField
+                    ] ?? '',
+                  ).trim() ||
+                  `${activeLookupConfig.label} #${getRowId(deleteLookupRow, activeLookupConfig)}`
                   : 'this row'}
               </span>{' '}
               from the database. If something blocks the removal, you’ll see a short

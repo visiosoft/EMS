@@ -150,3 +150,27 @@ export function patchEachInList<T>(
 export function removeQueriesByPrefix(qc: QueryClient, prefix: QueryKey): void {
   qc.removeQueries({ queryKey: prefix });
 }
+
+/**
+ * Engagement sellable capacity / gross potential feed Daily Sales + sales dashboards.
+ * Call after PATCH engagement or engagement finance when those fields may have changed.
+ *
+ * Removes cached engagement/attraction dashboard payloads so the next open always hits
+ * the network (invalidate alone can leave inactive queries serving stale data until refetch
+ * timing lines up).
+ */
+export async function invalidateSalesCapacityRelatedQueries(
+  qc: QueryClient,
+): Promise<void> {
+  qc.removeQueries({
+    predicate: (q) =>
+      Array.isArray(q.queryKey) &&
+      (q.queryKey[0] === 'attraction-sales-dashboard' ||
+        q.queryKey[0] === 'engagement-sales-dashboard'),
+  });
+  await qc.invalidateQueries({
+    predicate: (q) =>
+      Array.isArray(q.queryKey) && q.queryKey[0] === 'daily-sales-by-perf',
+    refetchType: 'all',
+  });
+}

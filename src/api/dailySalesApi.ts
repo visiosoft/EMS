@@ -38,7 +38,9 @@ export interface ApiPerformanceSalesRow {
   performanceTime: string;       // HH:MM:SS
   performanceStatus: string;
   engagementStatus: string;
+  attractionId: number | null;
   attractionName: string | null;
+  genre: string | null;
   tourName: string | null;
   venueCompanyName: string | null;
   venueName: string | null;
@@ -52,6 +54,14 @@ export interface ApiPerformanceSalesRow {
   yesterdayDate: string;
   yesterdayTicketsSold: number | null;
   yesterdayRevenue: number | null;
+  soldYesterday: number;
+  totalSold: number;
+  totalRevenue: number;
+  daysOnSale: number;
+  contactName: string | null;
+  /** From engagement; used for save hints (capacity checks are server-side across all performances). */
+  engagementSellableCapacity: number | null;
+  engagementGrossPotential: number | null;
 }
 
 export interface ApiPerformanceSalesPage {
@@ -67,7 +77,15 @@ export interface ApiPerformanceSalesPage {
     yesterdayTickets: number;
     yesterdayRevenue: number;
   };
-  attractionNames: string[];
+  /** Distinct attractions matching current filters (for sales summary links). */
+  attractions: Array<{ attractionId: number; attractionName: string }>;
+  filterOptions: {
+    genres: string[];
+    tours: string[];
+    companies: string[];
+    venues: string[];
+    contacts: string[];
+  };
 }
 
 export function fetchDailySalesByPerformance(
@@ -79,6 +97,13 @@ export function fetchDailySalesByPerformance(
     attraction?: string;
     /** YYYY-MM-DD — only performances on this calendar date */
     performanceDate?: string;
+    startDate?: string;
+    endDate?: string;
+    genre?: string;
+    tour?: string;
+    company?: string;
+    venue?: string;
+    contact?: string;
     sortBy?: string;
     sortDir?: 'asc' | 'desc';
   },
@@ -90,6 +115,13 @@ export function fetchDailySalesByPerformance(
   if (options?.search) p.set('search', options.search);
   if (options?.attraction) p.set('attraction', options.attraction);
   if (options?.performanceDate) p.set('performanceDate', options.performanceDate);
+  if (options?.startDate) p.set('startDate', options.startDate);
+  if (options?.endDate) p.set('endDate', options.endDate);
+  if (options?.genre) p.set('genre', options.genre);
+  if (options?.tour) p.set('tour', options.tour);
+  if (options?.company) p.set('company', options.company);
+  if (options?.venue) p.set('venue', options.venue);
+  if (options?.contact) p.set('contact', options.contact);
   if (options?.sortBy?.trim()) {
     p.set('sortBy', options.sortBy.trim());
     if (options.sortDir) p.set('sortDir', options.sortDir);
@@ -113,5 +145,77 @@ export function updateDailySales(
   return apiFetch<void>(
     `/daily-sales/${performanceId}/${encodeURIComponent(salesDate)}`,
     { method: 'PATCH', body: JSON.stringify(body) },
+  );
+}
+
+// ─── Sales dashboards (KPIs + charts) — engagement or attraction roll-up ─────
+
+export interface ApiSalesDashboardBody {
+  asOfDate: string;
+  header: {
+    attractionName: string | null;
+    tourName: string;
+    venueLabel: string;
+    city: string | null;
+    stateProvince: string | null;
+    showDate: string | null;
+    showTime: string | null;
+  };
+  sellableCapacity: number | null;
+  grossPotential: number | null;
+  kpis: {
+    totalRevenue: number;
+    ticketsDistributed: number;
+    pctSold: number | null;
+    revenueLast7Days: number;
+    ticketsLast7Days: number;
+    daysUntilOpening: number;
+    pctRevenueVsPotential: number | null;
+  };
+  series: Array<{
+    date: string;
+    totalTickets: number;
+    totalRevenue: number;
+  }>;
+  summary: Array<{
+    date: string;
+    totalTicketsSold: number;
+    totalValueSold: number;
+    seatsSoldPct: number | null;
+    seatsRemaining: number | null;
+    revenueRemaining: number | null;
+  }>;
+}
+
+export interface ApiEngagementSalesDashboard extends ApiSalesDashboardBody {
+  engagementId: number;
+}
+
+export interface ApiAttractionSalesDashboard extends ApiSalesDashboardBody {
+  attractionId: number;
+  engagementCount: number;
+}
+
+export function fetchEngagementSalesDashboard(
+  engagementId: number,
+  asOfDate?: string,
+) {
+  const p = new URLSearchParams();
+  p.set('engagementId', String(engagementId));
+  if (asOfDate) p.set('asOfDate', asOfDate);
+  return apiFetch<ApiEngagementSalesDashboard>(
+    `/daily-sales/engagement-dashboard?${p.toString()}`,
+  );
+}
+
+export function fetchAttractionSalesDashboard(
+  attractionId: number,
+  asOfDate?: string,
+) {
+  const p = new URLSearchParams();
+  p.set('attractionId', String(attractionId));
+  if (asOfDate) p.set('asOfDate', asOfDate);
+  return apiFetch<ApiAttractionSalesDashboard>(
+    `/daily-sales/attraction-sales-summary?${p.toString()}`,
   );
 }

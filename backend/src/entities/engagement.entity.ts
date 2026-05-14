@@ -9,7 +9,7 @@ import { Tour } from './tour.entity';
 
 /**
  * dbo.Engagement
- * Columns: EngagementID, EngagementStatus, EngagementScaling (legacy/unused by API), TourID
+ * Includes SellableCapacity (int) and GrossPotential (decimal(18,2)) per dbo schema.
  * Opening show date/time lives in dbo.Performance (earliest performance for the engagement).
  * NOTE: AttractionID was removed — reach Attraction via TourID → Tour → AttractionID.
  * TourID is NOT NULL (required).
@@ -33,6 +33,18 @@ export class Engagement {
   /** FK → Tour.TourID — NOT NULL in DB */
   @Column({ name: 'TourID', type: 'int' })
   tourId: number;
+
+  @Column({ name: 'SellableCapacity', type: 'int', nullable: true })
+  sellableCapacity: number | null;
+
+  @Column({
+    name: 'GrossPotential',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
+  grossPotential: string | number | null;
 
   @ManyToOne(() => Tour)
   @JoinColumn({ name: 'TourID' })
