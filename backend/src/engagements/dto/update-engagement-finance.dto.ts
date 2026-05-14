@@ -36,12 +36,21 @@ function toOptionalBool(v: unknown): boolean | null | undefined {
   return undefined;
 }
 
-/** Partial update for dbo.EngagementFinances */
+/**
+ * Partial update: most fields map to dbo.EngagementFinances.
+ * `sellableCapacity` and `grossPotential` map to dbo.Engagement (same as engagement PATCH).
+ */
 export class UpdateEngagementFinanceDto {
   @IsOptional()
   @Transform(({ value }) => toOptionalNumber(value))
   @IsNumber({ maxDecimalPlaces: 2 })
   estimatedBreakeven?: number | null;
+
+  @IsOptional()
+  @Transform(({ value }) => toOptionalInt(value))
+  @IsInt()
+  @Min(0)
+  sellableCapacity?: number | null;
 
   @IsOptional()
   @Transform(({ value }) => toOptionalNumber(value))

@@ -27,13 +27,17 @@ async function bootstrap() {
     }),
   );
 
-  const frontendDistDir = path.resolve(process.cwd(), 'dist');
+  // Vite outputs to `<repo>/dist`. Nest often runs with cwd `backend/`, so avoid
+  // `process.cwd()` — resolve from this file (works for `backend/dist/main.js` and `backend/src/main.ts`).
+  const repoRoot = path.resolve(__dirname, '..', '..');
+  const frontendDistDir = path.join(repoRoot, 'dist');
   const frontendIndexPath = path.join(frontendDistDir, 'index.html');
+
+  const expressApp = app.getHttpAdapter().getInstance();
 
   if (fs.existsSync(frontendIndexPath)) {
     app.useStaticAssets(frontendDistDir, { index: false });
 
-    const expressApp = app.getHttpAdapter().getInstance();
     expressApp.get(
       /^(?!\/api(?:\/|$))(?!\/uploads(?:\/|$)).*/,
       (_req: Request, res: Response) => {
@@ -44,6 +48,14 @@ async function bootstrap() {
     logger.log(`Serving frontend from ${frontendDistDir}`);
   } else {
     logger.warn(`Frontend build not found at ${frontendIndexPath}; serving API only.`);
+    expressApp.get('/', (_req: Request, res: Response) => {
+      res.status(200).json({
+        message:
+          'This URL is the API host. JSON routes live under /api (for example GET /api). For the web app in development, run npm run dev:vite from the repository root and open the Vite port (see vite.config.ts; default 8080).',
+        apiBase: '/api',
+        statusCheck: '/api',
+      });
+    });
   }
 
   const port = Number(process.env.PORT) || DEFAULT_PORT;

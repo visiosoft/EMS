@@ -1,6 +1,7 @@
 import {
   IsIn,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   MaxLength,
@@ -25,4 +26,17 @@ export class UpdateEngagementDto {
   @IsInt()
   @Min(1)
   primaryVenueCompanyId?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  sellableCapacity?: number | null;
+
+  @IsOptional()
+  @IsNumber(
+    { maxDecimalPlaces: 2 },
+    { message: 'grossPotential must be a valid number with up to 2 decimal places.' },
+  )
+  @Min(0)
+  grossPotential?: number | null;
 }
