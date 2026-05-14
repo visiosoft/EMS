@@ -185,6 +185,16 @@ export interface ApiSalesDashboardBody {
     seatsRemaining: number | null;
     revenueRemaining: number | null;
   }>;
+  /**
+   * Attraction summary only: each engagement’s own seat / money goal.
+   * Top-level `sellableCapacity` / `grossPotential` are the **sum** of these rows.
+   */
+  engagementBaselines?: Array<{
+    engagementId: number;
+    tourName: string;
+    sellableCapacity: number | null;
+    grossPotential: number | null;
+  }>;
 }
 
 export interface ApiEngagementSalesDashboard extends ApiSalesDashboardBody {
@@ -194,6 +204,7 @@ export interface ApiEngagementSalesDashboard extends ApiSalesDashboardBody {
 export interface ApiAttractionSalesDashboard extends ApiSalesDashboardBody {
   attractionId: number;
   engagementCount: number;
+  engagementBaselines: NonNullable<ApiSalesDashboardBody['engagementBaselines']>;
 }
 
 export function fetchEngagementSalesDashboard(

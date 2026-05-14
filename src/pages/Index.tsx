@@ -129,12 +129,19 @@ const Index = () => {
               typeof viewData.returnView === 'string' && viewData.returnView.trim()
                 ? viewData.returnView.trim()
                 : 'daily-sales';
+            const initialAsOfRaw = viewData.initialAsOf;
+            const initialAsOf =
+              typeof initialAsOfRaw === 'string' &&
+              /^\d{4}-\d{2}-\d{2}$/.test(initialAsOfRaw.trim())
+                ? initialAsOfRaw.trim()
+                : undefined;
             if (ok) {
               return (
                 <AttractionSalesDashboardPage
                   attractionId={n}
                   onNavigate={navigate}
                   returnView={rv}
+                  initialAsOf={initialAsOf}
                 />
               );
             }

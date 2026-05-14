@@ -558,7 +558,7 @@ function PerformanceRow({
   leadColumnOrder: DailySalesLeadColumnId[];
   reportColumnOrder: DailySalesReportColumnId[];
   onEngagementClick: (engagementId: number) => void;
-  onOpenAttractionSalesSummary: (attractionId: number) => void;
+  onOpenAttractionSalesSummary: (attractionId: number) => void | Promise<void>;
   onSaved: () => void;
   addToast: Props['addToast'];
 }) {
@@ -640,7 +640,7 @@ function PerformanceRow({
       title={row.attractionId != null ? 'Open attraction sales summary' : undefined}
       onClick={() => {
         if (row.attractionId != null) {
-          onOpenAttractionSalesSummary(row.attractionId);
+          void onOpenAttractionSalesSummary(row.attractionId);
         }
       }}
     >
@@ -1239,16 +1239,20 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
 
   const refetch = useCallback(async () => {
     await qc.invalidateQueries({ queryKey: ['daily-sales-by-perf'] });
+    await invalidateSalesCapacityRelatedQueries(qc);
   }, [qc]);
 
   const openAttractionSalesSummary = useCallback(
-    (attractionId: number) => {
+    async (attractionId: number) => {
+      await invalidateSalesCapacityRelatedQueries(qc);
       onNavigate('attraction-sales-summary', {
         attractionId,
         returnView: 'daily-sales',
+        /** Match Daily Sales “Reporting as of” so the summary uses the same window as the grid. */
+        initialAsOf: asOfDate,
       });
     },
-    [onNavigate],
+    [onNavigate, qc, asOfDate],
   );
 
   const pageData = salesQuery.data;
