@@ -55,6 +55,7 @@ import {
   type ApiEngagementServiceProvidersResponse,
   type UpdateEngagementFinancePayload,
   type ApiEngagementFinanceLookups,
+  type UpdateEngagementPayload,
 } from '@/api/engagementApi';
 import { fetchAttractions, fetchTours } from '@/api/attractionToursApi';
 import {
@@ -152,9 +153,11 @@ export function LegacyEngagementDetailPage({
 function VenuesTab({
   engagementId,
   addToast,
+  onNavigate,
 }: {
   engagementId: number;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  onNavigate: (view: string, data?: Record<string, unknown>) => void;
 }) {
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
@@ -323,9 +326,16 @@ function VenuesTab({
                 />
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-medium text-text-primary">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onNavigate('companies', { selectedCompanyId: v.venueCompanyId })
+                      }
+                      className="text-sm font-medium text-text-primary text-left hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm"
+                      title="Open venue company profile"
+                    >
                       {v.venueCompanyName ?? 'Unknown company'}
-                    </span>
+                    </button>
                     {v.isPrimary && (
                       <span className="inline-flex items-center gap-1 text-[10px] bg-ems-accent/15 text-ems-accent px-1.5 py-0.5 rounded font-medium shrink-0">
                         <Star className="h-2.5 w-2.5" />
@@ -334,7 +344,16 @@ function VenuesTab({
                     )}
                   </div>
                   {v.venueName && v.venueName !== v.venueCompanyName && (
-                    <div className="text-xs text-text-secondary mt-0.5">{v.venueName}</div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onNavigate('companies', { selectedCompanyId: v.venueCompanyId })
+                      }
+                      className="block w-full text-left text-xs text-text-secondary mt-0.5 hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm"
+                      title="Open venue company profile"
+                    >
+                      {v.venueName}
+                    </button>
                   )}
                   {(v.city || v.stateProvince || v.dmaMarketName) && (
                     <div className="flex items-center gap-1 text-xs text-text-muted mt-0.5">
@@ -1295,6 +1314,8 @@ export function EngagementDetailPage({
   const [pendingDelete, setPendingDelete] = useState(false);
   const [sellableCapacityInput, setSellableCapacityInput] = useState('');
   const [grossPotentialInput, setGrossPotentialInput] = useState('');
+  const [rehearsalDateInput, setRehearsalDateInput] = useState('');
+  const [loadInDateInput, setLoadInDateInput] = useState('');
 
   // ── Data ────────────────────────────────────────────────────────────────
   const detailQuery = useQuery({
@@ -1351,25 +1372,53 @@ export function EngagementDetailPage({
       tourMgmtCompanyId > 0,
   });
 
-  // ── Status inline patch ─────────────────────────────────────────────────
-  const patchMutation = useMutation({
-    mutationFn: (body: Parameters<typeof updateEngagement>[1]) =>
+  // ── Engagement PATCH (split mutations so each Overview card gets a real isPending + loader) ──
+  const engagementPatchError = (e: unknown) => addToast(friendlyApiError(e), 'error');
+
+  const invalidateEngagementListAndDetail = async () => {
+    await qc.invalidateQueries({ queryKey: ['engagements'] });
+    await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
+  };
+
+  const engagementStatusMutation = useMutation({
+    mutationFn: (body: Pick<UpdateEngagementPayload, 'engagementStatus'>) =>
       updateEngagement(engagementId, body),
-    onSuccess: async (_data, variables) => {
-      await qc.invalidateQueries({ queryKey: ['engagements'] });
-      await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
-      if (
-        variables &&
-        ('sellableCapacity' in variables || 'grossPotential' in variables)
-      ) {
-        await invalidateSalesCapacityRelatedQueries(qc);
-        await qc.invalidateQueries({
-          queryKey: ['engagements', engagementId, 'finance'],
-        });
-      }
+    onSuccess: async () => {
+      await invalidateEngagementListAndDetail();
+      addToast('Status updated.', 'success');
     },
-    onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
+    onError: engagementPatchError,
   });
+
+  const capacityFieldsMutation = useMutation({
+    mutationFn: (
+      body: Pick<UpdateEngagementPayload, 'sellableCapacity' | 'grossPotential'>,
+    ) => updateEngagement(engagementId, body),
+    onSuccess: async () => {
+      await invalidateEngagementListAndDetail();
+      await invalidateSalesCapacityRelatedQueries(qc);
+      await qc.invalidateQueries({
+        queryKey: ['engagements', engagementId, 'finance'],
+      });
+      addToast('Engagement capacity fields updated.', 'success');
+    },
+    onError: engagementPatchError,
+  });
+
+  const productionDatesMutation = useMutation({
+    mutationFn: (body: Pick<UpdateEngagementPayload, 'rehearsalDate' | 'loadInDate'>) =>
+      updateEngagement(engagementId, body),
+    onSuccess: async () => {
+      await invalidateEngagementListAndDetail();
+      addToast('Production dates saved.', 'success');
+    },
+    onError: engagementPatchError,
+  });
+
+  const anyEngagementPatchPending =
+    engagementStatusMutation.isPending ||
+    capacityFieldsMutation.isPending ||
+    productionDatesMutation.isPending;
 
   // ── Delete ──────────────────────────────────────────────────────────────
   const deleteMutation = useMutation({
@@ -1393,6 +1442,8 @@ export function EngagementDetailPage({
       row.sellableCapacity == null ? '' : String(row.sellableCapacity),
     );
     setGrossPotentialInput(row.grossPotential == null ? '' : String(row.grossPotential));
+    setRehearsalDateInput(row.rehearsalDate ?? '');
+    setLoadInDateInput(row.loadInDate ?? '');
   }, [row]);
 
   const handleStatusChange = (next: string) => {
@@ -1400,10 +1451,7 @@ export function EngagementDetailPage({
       addToast('Status must be 1–50 characters.', 'warning');
       return;
     }
-    patchMutation.mutate(
-      { engagementStatus: next },
-      { onSuccess: () => addToast('Status updated.', 'success') },
-    );
+    engagementStatusMutation.mutate({ engagementStatus: next });
   };
 
   const statusSelectOptions = useMemo(
@@ -1419,6 +1467,34 @@ export function EngagementDetailPage({
     const currentGross = row.grossPotential == null ? '' : String(row.grossPotential);
     return nextSellable !== currentSellable || nextGross !== currentGross;
   }, [row, sellableCapacityInput, grossPotentialInput]);
+
+  const canSaveProductionDates = useMemo(() => {
+    if (!row) return false;
+    const curR = row.rehearsalDate ?? '';
+    const curL = row.loadInDate ?? '';
+    return rehearsalDateInput !== curR || loadInDateInput !== curL;
+  }, [row, rehearsalDateInput, loadInDateInput]);
+
+  const capacitySectionSaving = capacityFieldsMutation.isPending;
+  const productionSectionSaving = productionDatesMutation.isPending;
+
+  const handleSaveProductionDates = () => {
+    const r = rehearsalDateInput.trim();
+    const l = loadInDateInput.trim();
+    const ymd = /^\d{4}-\d{2}-\d{2}$/;
+    if (r && !ymd.test(r)) {
+      addToast('Rehearsal date must be YYYY-MM-DD or empty.', 'warning');
+      return;
+    }
+    if (l && !ymd.test(l)) {
+      addToast('Load-in date must be YYYY-MM-DD or empty.', 'warning');
+      return;
+    }
+    productionDatesMutation.mutate({
+      rehearsalDate: r ? r : null,
+      loadInDate: l ? l : null,
+    });
+  };
 
   const handleSaveCapacityFields = () => {
     const nextSellableRaw = sellableCapacityInput.trim();
@@ -1444,10 +1520,7 @@ export function EngagementDetailPage({
       grossPotential = Number(parsed.toFixed(2));
     }
 
-    patchMutation.mutate(
-      { sellableCapacity, grossPotential },
-      { onSuccess: () => addToast('Engagement capacity fields updated.', 'success') },
-    );
+    capacityFieldsMutation.mutate({ sellableCapacity, grossPotential });
   };
 
   // ── Performances ────────────────────────────────────────────────────────
@@ -1602,7 +1675,7 @@ export function EngagementDetailPage({
                 value={row.engagementStatus}
                 onChange={handleStatusChange}
                 placeholder="Status…"
-                disabled={patchMutation.isPending}
+                disabled={anyEngagementPatchPending}
               />
             </div>
             <Button
@@ -1728,11 +1801,22 @@ export function EngagementDetailPage({
       {/* ── Overview ─────────────────────────────────────────────────────── */}
       {tab === 'Overview' && (
         <div className="bg-card border border-border rounded-lg p-5 space-y-5">
-          <div className="rounded-lg border border-border bg-surface/40 p-4">
+          <div
+            className="relative rounded-lg border border-border bg-surface/40 p-4"
+            aria-busy={capacitySectionSaving}
+          >
+            {capacitySectionSaving && (
+              <div
+                className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/55 backdrop-blur-[1px]"
+                aria-live="polite"
+              >
+                <span className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2.5 text-sm font-medium text-text-primary shadow-md">
+                  <Loader2 className="h-5 w-5 animate-spin text-ems-accent shrink-0" />
+                  Saving to database…
+                </span>
+              </div>
+            )}
             <h3 className="text-sm font-semibold text-text-primary mb-1">Sales Baseline Fields</h3>
-            <p className="text-xs text-text-muted mb-4">
-              These values are manually maintained after engagement creation and power sales summary KPIs.
-            </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField label="Engagement sellable capacity">
                 <input
@@ -1742,7 +1826,7 @@ export function EngagementDetailPage({
                   className={inputCls}
                   value={sellableCapacityInput}
                   onChange={(e) => setSellableCapacityInput(e.target.value)}
-                  disabled={patchMutation.isPending}
+                  disabled={anyEngagementPatchPending}
                   placeholder="e.g. 2021"
                 />
               </FormField>
@@ -1754,7 +1838,7 @@ export function EngagementDetailPage({
                   className={inputCls}
                   value={grossPotentialInput}
                   onChange={(e) => setGrossPotentialInput(e.target.value)}
-                  disabled={patchMutation.isPending}
+                  disabled={anyEngagementPatchPending}
                   placeholder="e.g. 403565.00"
                 />
               </FormField>
@@ -1765,15 +1849,74 @@ export function EngagementDetailPage({
                 size="sm"
                 className="bg-ems-accent text-white hover:opacity-90"
                 onClick={handleSaveCapacityFields}
-                disabled={patchMutation.isPending || !canSaveCapacityFields}
+                disabled={
+                  !canSaveCapacityFields || anyEngagementPatchPending
+                }
               >
-                {patchMutation.isPending ? (
+                {capacitySectionSaving ? (
                   <span className="inline-flex items-center gap-1">
                     <Loader2 className="h-3 w-3 animate-spin" />
                     Saving…
                   </span>
                 ) : (
                   'Save capacity fields'
+                )}
+              </Button>
+            </div>
+          </div>
+          <div
+            className="relative rounded-lg border border-border bg-surface/40 p-4"
+            aria-busy={productionSectionSaving}
+          >
+            {productionSectionSaving && (
+              <div
+                className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/55 backdrop-blur-[1px]"
+                aria-live="polite"
+              >
+                <span className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2.5 text-sm font-medium text-text-primary shadow-md">
+                  <Loader2 className="h-5 w-5 animate-spin text-ems-accent shrink-0" />
+                  Saving to database…
+                </span>
+              </div>
+            )}
+            <h3 className="text-sm font-semibold text-text-primary mb-1">Rehearsal and load-in</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField label="Rehearsal date">
+                <input
+                  type="date"
+                  className={inputCls}
+                  value={rehearsalDateInput}
+                  onChange={(e) => setRehearsalDateInput(e.target.value)}
+                  disabled={anyEngagementPatchPending}
+                />
+              </FormField>
+              <FormField label="Load-in date">
+                <input
+                  type="date"
+                  className={inputCls}
+                  value={loadInDateInput}
+                  onChange={(e) => setLoadInDateInput(e.target.value)}
+                  disabled={anyEngagementPatchPending}
+                />
+              </FormField>
+            </div>
+            <div className="mt-4 flex justify-end">
+              <Button
+                type="button"
+                size="sm"
+                className="bg-ems-accent text-white hover:opacity-90"
+                onClick={() => void handleSaveProductionDates()}
+                disabled={
+                  !canSaveProductionDates || anyEngagementPatchPending
+                }
+              >
+                {productionSectionSaving ? (
+                  <span className="inline-flex items-center gap-1">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Saving…
+                  </span>
+                ) : (
+                  'Save production dates'
                 )}
               </Button>
             </div>
@@ -1804,7 +1947,7 @@ export function EngagementDetailPage({
       {/* ── Venues ───────────────────────────────────────────────────────── */}
       {tab === 'Venues' && (
         <div className="bg-card border border-border rounded-lg p-5">
-          <VenuesTab engagementId={engagementId} addToast={addToast} />
+          <VenuesTab engagementId={engagementId} addToast={addToast} onNavigate={onNavigate} />
         </div>
       )}
 

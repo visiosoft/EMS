@@ -1,4 +1,5 @@
 import {
+  IsDateString,
   IsIn,
   IsInt,
   IsNumber,
@@ -6,6 +7,7 @@ import {
   IsString,
   MaxLength,
   Min,
+  ValidateIf,
 } from 'class-validator';
 import { ENGAGEMENT_STATUS_VALUES } from './create-engagement.dto';
 
@@ -39,4 +41,16 @@ export class UpdateEngagementDto {
   )
   @Min(0)
   grossPotential?: number | null;
+
+  /** dbo.EngagementProduction.RehearsalDate (yyyy-MM-dd or null to clear) */
+  @IsOptional()
+  @ValidateIf((_, v) => v != null && v !== '')
+  @IsDateString()
+  rehearsalDate?: string | null;
+
+  /** dbo.EngagementProduction.LoadInDate */
+  @IsOptional()
+  @ValidateIf((_, v) => v != null && v !== '')
+  @IsDateString()
+  loadInDate?: string | null;
 }
