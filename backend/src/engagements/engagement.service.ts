@@ -156,8 +156,6 @@ export class EngagementService {
     private readonly serviceProvidedRepo: Repository<ServiceProvided>,
     @InjectRepository(Performance)
     private readonly performanceRepo: Repository<Performance>,
-    @InjectRepository(TicketingSales)
-    private readonly ticketingSalesRepo: Repository<TicketingSales>,
     @InjectRepository(NonResidentWithholding)
     private readonly nonResidentWithholdingRepo: Repository<NonResidentWithholding>,
     @InjectRepository(ArtistFinance)
@@ -1110,47 +1108,21 @@ export class EngagementService {
   }
 
   /**
-   * Deletion is allowed for any engagement unless:
-   * - the earliest (opening) show date is **before today** (server date), or
-   * - **TicketingSales** rows exist for any of its performances (revenue / ticket data).
+   * Engagements are created with one show. Whole-engagement delete is allowed only while
+   * that single show remains; remove extra performances on the Performances tab first.
    */
   private async assertEngagementDeletableForDelete(
     engagementId: number,
   ): Promise<void> {
     await this.assertEngagementExists(engagementId);
 
-    const minRow = await this.performanceRepo
-      .createQueryBuilder('p')
-      .select('MIN(CAST(p.performanceDate AS date))', 'minD')
-      .where('p.engagementId = :eid', { eid: engagementId })
-      .getRawOne<{ minD: Date | string | null }>();
-    const raw = minRow?.minD;
-    if (raw != null) {
-      const ymd =
-        raw instanceof Date
-          ? `${raw.getFullYear()}-${String(raw.getMonth() + 1).padStart(2, '0')}-${String(raw.getDate()).padStart(2, '0')}`
-          : String(raw).slice(0, 10);
-      if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
-        const t = new Date();
-        const todayStr = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
-        if (ymd < todayStr) {
-          throw new BadRequestException({
-            message:
-              'The first show for this engagement is in the past. Remove or archive it instead of deleting.',
-          });
-        }
-      }
-    }
-
-    const salesCount = await this.ticketingSalesRepo
-      .createQueryBuilder('ts')
-      .innerJoin(Performance, 'p', 'p.performanceId = ts.performanceId')
-      .where('p.engagementId = :eid', { eid: engagementId })
-      .getCount();
-    if (salesCount > 0) {
+    const performanceCount = await this.performanceRepo.count({
+      where: { engagementId },
+    });
+    if (performanceCount > 1) {
       throw new BadRequestException({
         message:
-          'This engagement has ticket sales or revenue on file for one or more performances. Resolve or reassign that data in Daily Sales / ticketing before deleting.',
+          'This engagement has more than one show date. Remove the extra performances on the Performances tab, then delete the engagement.',
       });
     }
   }
@@ -1516,6 +1488,19 @@ export class EngagementService {
       });
     }
 
-    await this.performanceRepo.delete({ performanceId, engagementId });
+    const performanceCount = await this.performanceRepo.count({
+      where: { engagementId },
+    });
+    if (performanceCount <= 1) {
+      throw new BadRequestException({
+        message:
+          'This is the only show for this engagement. Use Delete Engagement to remove the engagement and its show.',
+      });
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.delete(TicketingSales, { performanceId });
+      await manager.delete(Performance, { performanceId, engagementId });
+    });
   }
 }

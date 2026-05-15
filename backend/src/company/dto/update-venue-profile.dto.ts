@@ -108,6 +108,13 @@ export class UpdateVenueProfileDto {
   @Min(1, { each: true })
   entertainmentComplexCompanyIds?: number[];
 
+  /** dbo.VenueBrand — replaces all brand links for this venue when sent. */
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  brandIds?: number[];
+
   @IsOptional()
   @ValidateIf((_, v) => v !== null && v !== undefined)
   @IsString()

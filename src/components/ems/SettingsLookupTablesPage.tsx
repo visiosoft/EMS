@@ -146,11 +146,9 @@ const LOOKUP_TABLES: LookupTableConfig[] = [
     key: 'company-services',
     label: 'CompanyService',
     idField: 'companyServiceId',
+    nameField: 'serviceName',
     manualIdOnCreate: false,
-    columns: [
-      { label: 'Company Name', field: 'companyName', sortBy: 'companyName' },
-      { label: 'Service Name', field: 'serviceName', sortBy: 'serviceName' },
-    ],
+    columns: [{ label: 'Service Name', field: 'serviceName', sortBy: 'serviceName' }],
   },
   {
     key: 'services-provided',
@@ -278,7 +276,7 @@ export function SettingsPage({
     setLookupSearch('');
     setShowLookupSuggestions(false);
     setLookupSort({
-      sortBy: activeLookupKey === 'company-services' ? 'id' : 'name',
+      sortBy: activeLookupKey === 'company-services' ? 'serviceName' : 'name',
       sortDir: 'asc',
     });
   }, [activeLookupKey]);
@@ -351,7 +349,7 @@ export function SettingsPage({
 
   const suggestionSortBy =
     activeLookupKey === 'company-services'
-      ? 'companyName'
+      ? 'serviceName'
       : activeLookupKey === 'dmas'
         ? 'name'
         : 'name';
@@ -383,10 +381,9 @@ export function SettingsPage({
     const values =
       activeLookupKey === 'company-services'
         ? rows.flatMap((row) => {
-          const companyName = String(row.companyName ?? '').trim();
-          const serviceName = String(row.serviceName ?? '').trim();
-          return [companyName, serviceName].filter(Boolean);
-        })
+            const serviceName = String(row.serviceName ?? '').trim();
+            return serviceName ? [serviceName] : [];
+          })
         : rows.map((row) => String(row[activeLookupConfig.nameField ?? activeLookupConfig.idField] ?? '').trim());
     const deduped: string[] = [];
     for (const v of values) {
@@ -539,9 +536,7 @@ export function SettingsPage({
     selectedLookupRow == null
       ? ''
       : activeLookupKey === 'company-services'
-        ? `${String(selectedLookupRow.companyName ?? '').trim() || 'Company'} → ${String(
-          selectedLookupRow.serviceName ?? '',
-        ).trim() || 'Service'}`
+        ? String(selectedLookupRow.serviceName ?? '').trim() || 'Service'
         : String(
           selectedLookupRow[activeLookupConfig.nameField ?? activeLookupConfig.idField] ?? '',
         ).trim() || `${activeLookupConfig.label} #${selectedLookupId ?? ''}`;

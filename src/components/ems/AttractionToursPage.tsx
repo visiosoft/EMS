@@ -145,7 +145,7 @@ function AttractionToursTableSkeleton({
                   <th className="text-left py-2.5 px-3">Tour Name</th>
                   <th className="text-left py-2.5 px-3">Attraction</th>
                   <th className="text-left py-2.5 px-3">Class</th>
-                  <th className="text-left py-2.5 px-3">TalentAgent</th>
+                  <th className="text-left py-2.5 px-3">Talent Agency</th>
                   <th className="w-10" />
                 </>
               )}
@@ -284,7 +284,7 @@ function TourCardReadOnly({
         </span>
       </div>
       <div className="text-[11px] text-text-secondary">
-        <span className="text-text-muted">TalentAgent </span>
+        <span className="text-text-muted">Talent Agency </span>
         {t.talentAgencyCompanyName ?? '—'}
       </div>
     </button>
@@ -918,7 +918,7 @@ function TourDrawer({
                 error={tourFieldErrors.classId}
               />
               <InlineSelectField
-                label="TalentAgent"
+                label="Talent Agency"
                 value={talentAgencyCompanyId}
                 onChange={mark(setTalentAgencyCompanyId)}
                 options={mgmtOptions}
@@ -1091,11 +1091,11 @@ function TourDrawer({
         {activeTab === 'Contacts' && (
           <div>
             {!tour.talentAgencyCompanyId ? (
-              <p className="text-text-secondary">No TalentAgent assigned to this tour.</p>
+              <p className="text-text-secondary">No talent agency assigned to this tour.</p>
             ) : contactsQuery.isLoading ? (
               <div className="flex items-center gap-2 text-text-muted"><Loader2 className="h-4 w-4 animate-spin" />Loading contacts…</div>
             ) : contacts.length === 0 ? (
-              <p className="text-text-secondary">No contacts listed for this TalentAgent.</p>
+              <p className="text-text-secondary">No contacts listed for this talent agency.</p>
             ) : (
               <div className="space-y-3">
                 {contacts.map(c => (
@@ -2221,7 +2221,7 @@ export function AttractionToursPage({ addToast }: Props) {
                           className="inline-flex items-center gap-1 font-medium hover:text-text-primary"
                           onClick={() => toggleTourSort('management')}
                         >
-                          TalentAgent
+                          Talent Agency
                           {tourSort.col === 'management' &&
                             (tourSort.dir === 'asc' ? (
                               <ArrowUp className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
@@ -2714,12 +2714,12 @@ function TourFormDb({
           />
         </FormField>
       </div>
-      <FormField label="TalentAgent">
+      <FormField label="Talent Agency">
         <Select2
           options={mgmtOptions}
           value={talentAgentCompanyId}
           onChange={setTalentAgentCompanyId}
-          placeholder="Select company…"
+          placeholder="Select talent agency…"
           allowClear
         />
       </FormField>

@@ -76,9 +76,8 @@ export function AddTourForm({
 
   const showBannerUpload = variant === 'attraction-tours';
   const talentAgencyOptions = managementCompanyOptions ?? [];
-  const talentAgencyFieldLabel = variant === 'project-wizard' ? 'Talent Agent' : 'Talent Agency';
-  const talentAgencyPlaceholder =
-    variant === 'project-wizard' ? 'Select talent agent…' : 'Select talent agency…';
+  const talentAgencyFieldLabel = 'Talent Agency';
+  const talentAgencyPlaceholder = 'Select talent agency…';
 
   return (
     <div className="space-y-4">
