@@ -1,7 +1,36 @@
 import fs from "node:fs";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "path";
+import type { Socket } from "node:net";
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react-swc";
+
+/** One clear message instead of dozens of ECONNREFUSED lines when the API is down. */
+function apiProxyErrorHandler(proxy: {
+  on(
+    event: "error",
+    listener: (err: NodeJS.ErrnoException, req: IncomingMessage, res: ServerResponse | Socket) => void,
+  ): void;
+}) {
+  let warned = false;
+  proxy.on("error", (err, _req, res) => {
+    if (!warned && (err.code === "ECONNREFUSED" || err.code === "ECONNRESET")) {
+      warned = true;
+      console.error(
+        "\n\x1b[31m[vite proxy]\x1b[0m API not reachable at http://127.0.0.1:3001 — run \x1b[1mnpm run dev\x1b[0m from the repo root (starts API + Vite).\n",
+      );
+    }
+    if (res && "writeHead" in res && !(res as ServerResponse).headersSent) {
+      (res as ServerResponse).writeHead(503, { "Content-Type": "application/json" });
+      (res as ServerResponse).end(
+        JSON.stringify({
+          message:
+            "API server unavailable. From the repo root run: npm run dev",
+        }),
+      );
+    }
+  });
+}
 
 /**
  * Env files for this app:
@@ -49,10 +78,12 @@ export default defineConfig(({ mode }) => {
         "/api": {
           target: "http://127.0.0.1:3001",
           changeOrigin: true,
+          configure: apiProxyErrorHandler,
         },
         "/uploads": {
           target: "http://127.0.0.1:3001",
           changeOrigin: true,
+          configure: apiProxyErrorHandler,
         },
       },
       hmr: {
