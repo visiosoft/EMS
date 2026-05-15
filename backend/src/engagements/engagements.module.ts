@@ -6,6 +6,7 @@ import { Company } from '../entities/company.entity';
 import { Engagement } from '../entities/engagement.entity';
 import { Link } from '../entities/link.entity';
 import { EngagementFinances } from '../entities/engagement-finance.entity';
+import { EngagementProduction } from '../entities/engagement-production.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { NonResidentWithholding } from '../entities/non-resident-withholding.entity';
 import { ArtistFinance } from '../entities/artist-finance.entity';
@@ -27,6 +28,7 @@ import { EngagementService } from './engagement.service';
       Link,
       EngagementFinances,
       EngagementVenue,
+      EngagementProduction,
       Performance,
       TicketingSales,
       Attraction,

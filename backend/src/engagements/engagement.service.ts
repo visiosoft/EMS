@@ -13,6 +13,7 @@ import { Dma } from '../entities/dma.entity';
 import { Link } from '../entities/link.entity';
 import { Engagement } from '../entities/engagement.entity';
 import { EngagementFinances } from '../entities/engagement-finance.entity';
+import { EngagementProduction } from '../entities/engagement-production.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { VenueServiceProvider } from '../entities/venue-service-provider.entity';
 import { CompanyService as CompanyServiceEntity } from '../entities/company-service.entity';
@@ -57,6 +58,9 @@ export interface EngagementListRow {
   tourBannerImageUrl: string | null;
   /** dbo.VenueComplexMember → complex company names (comma-separated) for primary venue */
   entertainmentComplexNames: string | null;
+  /** Latest dbo.EngagementProduction row for this engagement (RehearsalDate / LoadInDate). */
+  rehearsalDate: string | null;
+  loadInDate: string | null;
   displayTitle: string;
   appCreated: boolean;
 }
@@ -142,6 +146,8 @@ export class EngagementService {
     private readonly engagementFinancesRepo: Repository<EngagementFinances>,
     @InjectRepository(EngagementVenue)
     private readonly engagementVenueRepo: Repository<EngagementVenue>,
+    @InjectRepository(EngagementProduction)
+    private readonly engagementProductionRepo: Repository<EngagementProduction>,
     @InjectRepository(Tour)
     private readonly tourRepo: Repository<Tour>,
     @InjectRepository(Venue)
@@ -428,7 +434,9 @@ export class EngagementService {
       .addSelect(
         this.openingPerformanceTimeSubquery(),
         'openingPerformanceTime',
-      );
+      )
+      .addSelect(this.engagementRehearsalDateSubquery(), 'rehearsalDate')
+      .addSelect(this.engagementLoadInDateSubquery(), 'loadInDate');
 
     if (whereId !== undefined) {
       qb.where('e.engagementId = :id', { id: whereId });
@@ -536,6 +544,8 @@ export class EngagementService {
         const s = String(x).trim();
         return s || null;
       })(),
+      rehearsalDate: this.parseOpeningDateOnly(g('rehearsalDate')),
+      loadInDate: this.parseOpeningDateOnly(g('loadInDate')),
       displayTitle: buildEngagementDisplayTitle(
         attractionName,
         tourName,
@@ -574,6 +584,26 @@ export class EngagementService {
           FROM dbo.[Performance] op
           WHERE op.EngagementID = e.EngagementID
           ORDER BY op.PerformanceDate ASC, op.PerformanceTime ASC
+        )`;
+  }
+
+  /** Latest production row's rehearsal date as `yyyy-MM-dd`. */
+  private engagementRehearsalDateSubquery(): string {
+    return `(
+          SELECT TOP 1 CONVERT(varchar(10), ep.RehearsalDate, 23)
+          FROM dbo.EngagementProduction ep
+          WHERE ep.EngagementID = e.EngagementID
+          ORDER BY ep.ProductionID DESC
+        )`;
+  }
+
+  /** Latest production row's load-in date as `yyyy-MM-dd`. */
+  private engagementLoadInDateSubquery(): string {
+    return `(
+          SELECT TOP 1 CONVERT(varchar(10), ep.LoadInDate, 23)
+          FROM dbo.EngagementProduction ep
+          WHERE ep.EngagementID = e.EngagementID
+          ORDER BY ep.ProductionID DESC
         )`;
   }
 
@@ -1105,6 +1135,35 @@ export class EngagementService {
         }
       });
     }
+
+    if (dto.rehearsalDate !== undefined || dto.loadInDate !== undefined) {
+      const rows = await this.engagementProductionRepo.find({
+        where: { engagementId: id },
+        order: { productionId: 'DESC' },
+        take: 1,
+      });
+      let prod = rows[0] ?? null;
+      if (!prod) {
+        prod = this.engagementProductionRepo.create({
+          engagementId: id,
+          rehearsalDate: null,
+          loadInDate: null,
+        });
+      }
+      if (dto.rehearsalDate !== undefined) {
+        prod.rehearsalDate =
+          dto.rehearsalDate == null || dto.rehearsalDate === ''
+            ? null
+            : this.assertYmdOrNull(dto.rehearsalDate);
+      }
+      if (dto.loadInDate !== undefined) {
+        prod.loadInDate =
+          dto.loadInDate == null || dto.loadInDate === ''
+            ? null
+            : this.assertYmdOrNull(dto.loadInDate);
+      }
+      await this.engagementProductionRepo.save(prod);
+    }
   }
 
   /**
@@ -1147,6 +1206,7 @@ export class EngagementService {
       }
       await manager.delete(Performance, { engagementId: id });
       await manager.delete(EngagementFinances, { engagementId: id });
+      await manager.delete(EngagementProduction, { engagementId: id });
       await manager.delete(EngagementVenue, { engagementId: id });
       await manager.delete(Engagement, { engagementId: id });
     });
