@@ -51,6 +51,7 @@ function moneyFull(n: number) {
 
 function pctDisplay(n: number | null | undefined) {
   if (n == null || !Number.isFinite(n)) return '—';
+  if (n > 100) return `${n.toFixed(1)}%`;
   return `${n.toFixed(n >= 100 ? 0 : 1)}%`;
 }
 
@@ -120,11 +121,27 @@ export function SalesDashboardView({
     if (cap == null || cap <= 0) {
       return null;
     }
+    const over = Math.max(0, sold - cap);
+    const soldToCap = Math.min(sold, cap);
     const open = Math.max(0, cap - sold);
-    return [
-      { name: 'Sold', value: sold, fill: CHART_SOLD },
-      { name: 'Open', value: open, fill: CHART_OPEN },
-    ];
+    const segments: Array<{ name: string; value: number; fill: string }> = [];
+    if (soldToCap > 0) {
+      segments.push({ name: 'Sold', value: soldToCap, fill: CHART_SOLD });
+    }
+    if (over > 0) {
+      segments.push({
+        name: 'Over capacity',
+        value: over,
+        fill: 'hsl(var(--destructive) / 0.88)',
+      });
+    }
+    if (open > 0) {
+      segments.push({ name: 'Open', value: open, fill: CHART_OPEN });
+    }
+    if (segments.length === 0) {
+      return [{ name: 'Open', value: cap, fill: CHART_OPEN }];
+    }
+    return segments;
   }, [data?.sellableCapacity, data?.kpis.ticketsDistributed]);
 
   /** Fewer X labels when the series is long (readability) */
@@ -313,7 +330,7 @@ export function SalesDashboardView({
             <h2 className="text-sm font-semibold text-text-primary">Daily sales</h2>
             <span
               className="text-[11px] text-text-muted tabular-nums hidden sm:inline text-right max-w-[14rem] leading-snug cursor-help"
-              title="Each point is all shows added together up to that date. The line can go down if someone fixes an older saved number."
+              title="Each point sums every show’s dbo.TicketingSales daily amounts for all SalesDates on or before that day (cumulative). The line can dip if an older day is corrected downward."
             >
               All shows together, by date
             </span>
@@ -533,14 +550,15 @@ export function SalesDashboardView({
           <h2 className="text-sm font-semibold text-text-primary">Summary</h2>
           <div className="text-xs text-text-secondary mt-2 space-y-2 leading-relaxed max-w-4xl">
             <p>
-              <span className="font-semibold text-text-primary">What each row is.</span> For that date we add every
-              show’s saved tickets and money <em>through that date</em>. That is not “sold only on that one day.”
+              <span className="font-semibold text-text-primary">What each row is.</span> Each show saves{' '}
+              <em>tickets and revenue for that calendar day only</em> in dbo.TicketingSales. For each date in this
+              table we <strong>sum every show’s daily rows with SalesDate on or before that date</strong>, so the row
+              is the <strong>cumulative</strong> total through that day (not “sold only on that one day”).
             </p>
             <p>
-              <span className="font-semibold text-text-primary">Tiny story.</span> Show A is saved at 300 tickets by
-              Monday. Show B reaches 100 tickets by Tuesday. Tuesday’s row shows <strong>400</strong> tickets total.
-              If Show A is later corrected to 250, a row can look lower than before — the table always follows what is
-              saved, like fixing a typo on paper.
+              <span className="font-semibold text-text-primary">Tiny story.</span> Show A saves 100 on Monday and 50
+              on Tuesday (daily). Show B saves 100 on Tuesday only. Monday’s row shows <strong>100</strong>. Tuesday’s
+              row shows <strong>250</strong> (100 + 50 + 100).
             </p>
           </div>
         </div>

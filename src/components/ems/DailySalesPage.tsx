@@ -72,10 +72,10 @@ function validateField(val: string, field: 'tickets' | 'revenue'): string | null
   return null;
 }
 
-/** Aligns with sales dashboards: remaining never negative, % sold capped at 100. */
-function clampPctDisplay(total: number, cap: number): number {
+/** % of baseline; can exceed 100 when sold exceeds capacity / potential. */
+function pctVsBaselineDisplay(total: number, cap: number): number {
   if (!(cap > 0) || !Number.isFinite(total)) return 0;
-  return Math.min(100, (total / cap) * 100);
+  return (total / cap) * 100;
 }
 
 function seatsRemainingForDisplay(cap: number, sold: number): number {
@@ -801,25 +801,17 @@ function EngagementSalesHistory({
     const allDates = [...new Set(rows.map((r) => r.salesDate))].sort((a, b) =>
       a.localeCompare(b),
     );
-    const perfProgress = new Map<number, { idx: number; t: number; rev: number }>();
-    for (const perfId of perfMap.keys()) {
-      perfProgress.set(perfId, { idx: -1, t: 0, rev: 0 });
-    }
-
     const out: Array<{ salesDate: string; totalTickets: number; totalRevenue: number }> = [];
     for (const date of allDates) {
       let sumTickets = 0;
       let sumRevenue = 0;
-      for (const [perfId, list] of perfMap.entries()) {
-        const prog = perfProgress.get(perfId)!;
-        while (prog.idx + 1 < list.length && list[prog.idx + 1].salesDate <= date) {
-          prog.idx += 1;
-          const rec = list[prog.idx];
-          prog.t = rec.ticketsSold ?? 0;
-          prog.rev = rec.revenue ?? 0;
+      for (const [, list] of perfMap.entries()) {
+        for (const rec of list) {
+          if (rec.salesDate <= date) {
+            sumTickets += rec.ticketsSold ?? 0;
+            sumRevenue += rec.revenue ?? 0;
+          }
         }
-        sumTickets += prog.t;
-        sumRevenue += prog.rev;
       }
       out.push({ salesDate: date, totalTickets: sumTickets, totalRevenue: sumRevenue });
     }
@@ -851,11 +843,11 @@ function EngagementSalesHistory({
       : null;
   const soldPct =
     sellableCapacity != null && sellableCapacity > 0 && latest
-      ? clampPctDisplay(latest.totalTickets, sellableCapacity)
+      ? pctVsBaselineDisplay(latest.totalTickets, sellableCapacity)
       : null;
   const revenuePct =
     grossPotentialNum != null && latest
-      ? clampPctDisplay(latest.totalRevenue, grossPotentialNum)
+      ? pctVsBaselineDisplay(latest.totalRevenue, grossPotentialNum)
       : null;
   const remainingSeats =
     sellableCapacity != null && latest
@@ -1044,7 +1036,7 @@ function EngagementSalesHistory({
                   .map((r) => {
                     const seatsPct =
                       sellableCapacity != null && sellableCapacity > 0
-                        ? clampPctDisplay(r.totalTickets, sellableCapacity)
+                        ? pctVsBaselineDisplay(r.totalTickets, sellableCapacity)
                         : null;
                     const seatsLeft =
                       sellableCapacity != null
@@ -1888,6 +1880,15 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
         />
       ) : (
         <>
+          <p className="text-[11px] text-text-muted leading-relaxed px-0.5">
+            <span className="font-medium text-text-secondary">How ticket columns work:</span> the{' '}
+            <strong className="text-text-primary">prior day</strong> and <strong className="text-text-primary">reporting day</strong>{' '}
+            inputs are <strong className="text-text-primary">only that calendar day’s</strong> tickets/revenue for this
+            show (what is stored on each dbo.TicketingSales row). <strong className="text-text-primary">Total sold</strong>{' '}
+            and <strong className="text-text-primary">total revenue</strong> are the <strong className="text-text-primary">sum of all saved days through the reporting date</strong>{' '}
+            (cumulative). <strong className="text-text-primary">Sold yesterday</strong> = that cumulative total minus the
+            same sum through the day before reporting.
+          </p>
           <div className="relative overflow-hidden rounded-lg border border-border bg-card">
             {showTableOverlay && (
               <div
