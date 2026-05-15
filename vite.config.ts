@@ -27,12 +27,6 @@ export default defineConfig(({ mode }) => {
   const rootDir = path.resolve(__dirname);
   const fileEnv = loadMergedEnv(mode, rootDir);
 
-  const googlePlacesKey = (
-    fileEnv.VITE_GOOGLE_PLACES_API_KEY ||
-    fileEnv.GOOGLE_PLACES_API_KEY ||
-    ""
-  ).trim();
-
   const vitePublicDefines: Record<string, string> = {
     "import.meta.env.VITE_API_URL": JSON.stringify((fileEnv.VITE_API_URL ?? "").trim()),
     "import.meta.env.VITE_ENTRA_CLIENT_ID": JSON.stringify((fileEnv.VITE_ENTRA_CLIENT_ID ?? "").trim()),
@@ -42,7 +36,6 @@ export default defineConfig(({ mode }) => {
     "import.meta.env.VITE_ENTRA_REDIRECT_PATH": JSON.stringify(
       (fileEnv.VITE_ENTRA_REDIRECT_PATH ?? "/login").trim() || "/login",
     ),
-    "import.meta.env.VITE_GOOGLE_PLACES_API_KEY": JSON.stringify(googlePlacesKey),
   };
 
   return {

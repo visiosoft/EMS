@@ -72,10 +72,10 @@ function validateField(val: string, field: 'tickets' | 'revenue'): string | null
   return null;
 }
 
-/** Aligns with sales dashboards: remaining never negative, % sold capped at 100. */
-function clampPctDisplay(total: number, cap: number): number {
+/** % of baseline; can exceed 100 when sold exceeds capacity / potential. */
+function pctVsBaselineDisplay(total: number, cap: number): number {
   if (!(cap > 0) || !Number.isFinite(total)) return 0;
-  return Math.min(100, (total / cap) * 100);
+  return (total / cap) * 100;
 }
 
 function seatsRemainingForDisplay(cap: number, sold: number): number {
@@ -801,25 +801,17 @@ function EngagementSalesHistory({
     const allDates = [...new Set(rows.map((r) => r.salesDate))].sort((a, b) =>
       a.localeCompare(b),
     );
-    const perfProgress = new Map<number, { idx: number; t: number; rev: number }>();
-    for (const perfId of perfMap.keys()) {
-      perfProgress.set(perfId, { idx: -1, t: 0, rev: 0 });
-    }
-
     const out: Array<{ salesDate: string; totalTickets: number; totalRevenue: number }> = [];
     for (const date of allDates) {
       let sumTickets = 0;
       let sumRevenue = 0;
-      for (const [perfId, list] of perfMap.entries()) {
-        const prog = perfProgress.get(perfId)!;
-        while (prog.idx + 1 < list.length && list[prog.idx + 1].salesDate <= date) {
-          prog.idx += 1;
-          const rec = list[prog.idx];
-          prog.t = rec.ticketsSold ?? 0;
-          prog.rev = rec.revenue ?? 0;
+      for (const [, list] of perfMap.entries()) {
+        for (const rec of list) {
+          if (rec.salesDate <= date) {
+            sumTickets += rec.ticketsSold ?? 0;
+            sumRevenue += rec.revenue ?? 0;
+          }
         }
-        sumTickets += prog.t;
-        sumRevenue += prog.rev;
       }
       out.push({ salesDate: date, totalTickets: sumTickets, totalRevenue: sumRevenue });
     }
@@ -851,11 +843,11 @@ function EngagementSalesHistory({
       : null;
   const soldPct =
     sellableCapacity != null && sellableCapacity > 0 && latest
-      ? clampPctDisplay(latest.totalTickets, sellableCapacity)
+      ? pctVsBaselineDisplay(latest.totalTickets, sellableCapacity)
       : null;
   const revenuePct =
     grossPotentialNum != null && latest
-      ? clampPctDisplay(latest.totalRevenue, grossPotentialNum)
+      ? pctVsBaselineDisplay(latest.totalRevenue, grossPotentialNum)
       : null;
   const remainingSeats =
     sellableCapacity != null && latest
@@ -1044,7 +1036,7 @@ function EngagementSalesHistory({
                   .map((r) => {
                     const seatsPct =
                       sellableCapacity != null && sellableCapacity > 0
-                        ? clampPctDisplay(r.totalTickets, sellableCapacity)
+                        ? pctVsBaselineDisplay(r.totalTickets, sellableCapacity)
                         : null;
                     const seatsLeft =
                       sellableCapacity != null
@@ -1592,9 +1584,6 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
         <div className="flex flex-col gap-3 border-b border-border/80 bg-surface/35 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-text-primary">Report filters</h2>
-            <p className="text-xs text-text-muted mt-0.5 max-w-prose">
-              Use dates to limit which performances appear, then refine by show, venue, or contact. Reporting totals still follow the date in the table header.
-            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 shrink-0">
             {activeFilterCount > 0 && (

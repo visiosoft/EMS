@@ -233,26 +233,20 @@ function totalsForReportingDay(
   let revenue = 0;
   for (const pid of perfIds) {
     const rows = byPerf.get(pid) ?? [];
-    let t = 0;
-    let r = 0;
     for (const row of rows) {
       if (row.salesDate <= day) {
-        t = row.tickets;
-        r = row.revenue;
-      } else {
-        break;
+        tickets += row.tickets;
+        revenue += row.revenue;
       }
     }
-    tickets += t;
-    revenue += r;
   }
   return { tickets, revenue };
 }
 
-/** KPI / summary display: never show impossible % or negative “remaining”. */
-function clampPctVsCap(total: number, cap: number): number {
+/** % of baseline (capacity or gross potential); can exceed 100 when totals are over the goal. */
+function pctVsCap(total: number, cap: number): number {
   if (!(cap > 0) || !Number.isFinite(total)) return 0;
-  return Math.min(100, (total / cap) * 100);
+  return (total / cap) * 100;
 }
 
 function seatsRemainingDisplay(cap: number, totalTickets: number): number {
@@ -265,9 +259,8 @@ function revenueRemainingDisplay(potential: number, totalRevenue: number): numbe
 
 /**
  * One point per calendar day from earliest sale to `asOf`.
- * Y value = sum over performances of that performance’s latest row with salesDate ≤ day
- * (each row is stored as a running total for that show). The series is not guaranteed
- * monotone: e.g. a later row can lower a show’s running total, or per-day amounts break the model.
+ * Y value = sum over performances of (sum of that show's dbo.TicketingSales rows with SalesDate ≤ day).
+ * Each stored row is the amount for that calendar day only (not a running snapshot).
  */
 function buildDailySeries(
   asOf: string,
@@ -557,6 +550,30 @@ export class DailySalesService {
             'CONVERT(varchar(10), DATEADD(day, -1, CAST(:asOf AS date)), 120) AS yesterdayDate',
             'ts_yesterday.performanceSalesQuantity                  AS yesterdayTicketsSold',
             'ts_yesterday.performanceSalesRevenue                    AS yesterdayRevenue',
+            `(
+              SELECT COALESCE(SUM(CAST(ts_ca.performanceSalesQuantity AS BIGINT)), 0)
+              FROM dbo.TicketingSales ts_ca
+              WHERE ts_ca.performanceId = p.performanceId
+                AND CONVERT(date, ts_ca.salesDate) <= CAST(:asOf AS date)
+            )                                                       AS cumTicketsThruAsOf`,
+            `(
+              SELECT COALESCE(SUM(ts_cr.performanceSalesRevenue), 0)
+              FROM dbo.TicketingSales ts_cr
+              WHERE ts_cr.performanceId = p.performanceId
+                AND CONVERT(date, ts_cr.salesDate) <= CAST(:asOf AS date)
+            )                                                       AS cumRevenueThruAsOf`,
+            `(
+              SELECT COALESCE(SUM(CAST(ts_cy.performanceSalesQuantity AS BIGINT)), 0)
+              FROM dbo.TicketingSales ts_cy
+              WHERE ts_cy.performanceId = p.performanceId
+                AND CONVERT(date, ts_cy.salesDate) <= DATEADD(day, -1, CAST(:asOf AS date))
+            )                                                       AS cumTicketsThruPrior`,
+            `(
+              SELECT COALESCE(SUM(ts_cy2.performanceSalesRevenue), 0)
+              FROM dbo.TicketingSales ts_cy2
+              WHERE ts_cy2.performanceId = p.performanceId
+                AND CONVERT(date, ts_cy2.salesDate) <= DATEADD(day, -1, CAST(:asOf AS date))
+            )                                                       AS cumRevenueThruPrior`,
           ])
           .setParameter('asOf', asOf);
         this.applyByPerformanceSort(pageQb, sortByRaw, sortDirRaw);
@@ -580,6 +597,10 @@ export class DailySalesService {
           ? Number(r['yesterdayTicketsSold'])
           : null;
       const todayRev = r['todayRevenue'] != null ? Number(r['todayRevenue']) : null;
+      const cumTicketsThruAsOf = numOrZero(r['cumTicketsThruAsOf']);
+      const cumTicketsThruPrior = numOrZero(r['cumTicketsThruPrior']);
+      const cumRevenueThruAsOf = numOrZero(r['cumRevenueThruAsOf']);
+      const cumRevenueThruPrior = numOrZero(r['cumRevenueThruPrior']);
       const firstSalesDate =
         r['firstSalesDate'] != null ? String(r['firstSalesDate']) : null;
 
@@ -611,9 +632,9 @@ export class DailySalesService {
         yesterdayTicketsSold: ydayTickets,
         yesterdayRevenue:
           r['yesterdayRevenue'] != null ? Number(r['yesterdayRevenue']) : null,
-        soldYesterday: Math.max(0, (todayTickets ?? 0) - (ydayTickets ?? 0)),
-        totalSold: todayTickets ?? 0,
-        totalRevenue: todayRev ?? 0,
+        soldYesterday: Math.max(0, cumTicketsThruAsOf - cumTicketsThruPrior),
+        totalSold: cumTicketsThruAsOf,
+        totalRevenue: cumRevenueThruAsOf,
         daysOnSale:
           firstSalesDate && /^\d{4}-\d{2}-\d{2}$/.test(firstSalesDate)
             ? Math.max(
@@ -894,29 +915,53 @@ export class DailySalesService {
     };
   }
 
+  /**
+   * Sum tickets/revenue through reporting day across all performances matching `base`.
+   * Uses a flat SUM on TicketingSales (SQL Server forbids SUM(subquery containing SUM)).
+   */
   private async sumSalesForByPerformanceQuery(
     base: SelectQueryBuilder<Performance>,
     asOf: string,
   ): Promise<Record<string, unknown>> {
-    const one = await base
+    const yest = ymdAddDays(asOf, -1);
+    const idRows = await base
       .clone()
-      .setParameter('asOf', asOf)
+      .select('p.performanceId', 'performanceId')
+      .distinct(true)
+      .getRawMany<{ performanceId: string | number }>();
+    const ids = idRows
+      .map((r) => Number(r.performanceId))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    if (ids.length === 0) {
+      return {
+        sumTixT: 0,
+        sumRevT: 0,
+        sumTixY: 0,
+        sumRevY: 0,
+      };
+    }
+
+    const one = await this.salesRepo
+      .createQueryBuilder('ts')
       .select(
-        'COALESCE(SUM(CAST(ts_today.performanceSalesQuantity AS BIGINT)), 0)',
+        'COALESCE(SUM(CASE WHEN CONVERT(date, ts.salesDate) <= CAST(:asOf AS date) THEN CAST(ts.performanceSalesQuantity AS BIGINT) ELSE 0 END), 0)',
         'sumTixT',
       )
       .addSelect(
-        'COALESCE(SUM(ts_today.performanceSalesRevenue), 0)',
+        'COALESCE(SUM(CASE WHEN CONVERT(date, ts.salesDate) <= CAST(:asOf AS date) THEN CAST(ts.performanceSalesRevenue AS decimal(18,2)) ELSE 0 END), 0)',
         'sumRevT',
       )
       .addSelect(
-        'COALESCE(SUM(CAST(ts_yesterday.performanceSalesQuantity AS BIGINT)), 0)',
+        'COALESCE(SUM(CASE WHEN CONVERT(date, ts.salesDate) <= CAST(:yestEnd AS date) THEN CAST(ts.performanceSalesQuantity AS BIGINT) ELSE 0 END), 0)',
         'sumTixY',
       )
       .addSelect(
-        'COALESCE(SUM(ts_yesterday.performanceSalesRevenue), 0)',
+        'COALESCE(SUM(CASE WHEN CONVERT(date, ts.salesDate) <= CAST(:yestEnd AS date) THEN CAST(ts.performanceSalesRevenue AS decimal(18,2)) ELSE 0 END), 0)',
         'sumRevY',
       )
+      .where('ts.performanceId IN (:...ids)', { ids })
+      .setParameter('asOf', asOf)
+      .setParameter('yestEnd', yest)
       .getRawOne<Record<string, unknown>>();
     return (one as Record<string, unknown>) ?? {};
   }
@@ -971,7 +1016,7 @@ export class DailySalesService {
 
   /**
    * Sales KPIs, cumulative daily series, and summary rows for all performances
-   * under one engagement (sums cumulative totals per performance by sales date).
+   * under one engagement (each TicketingSales row = that calendar day's amount; totals sum through each day).
    */
   async getEngagementDashboard(
     engagementId: number,
@@ -1048,10 +1093,10 @@ export class DailySalesService {
       return Number.isFinite(n) ? n : null;
     })();
     const pctSold =
-      cap != null && cap > 0 ? clampPctVsCap(endTotals.tickets, cap) : null;
+      cap != null && cap > 0 ? pctVsCap(endTotals.tickets, cap) : null;
     const pctRevenueVsPotential =
       grossPotentialNum != null && grossPotentialNum > 0
-        ? clampPctVsCap(endTotals.revenue, grossPotentialNum)
+        ? pctVsCap(endTotals.revenue, grossPotentialNum)
         : null;
 
     const openingYmd =
@@ -1076,7 +1121,7 @@ export class DailySalesService {
 
     const summary = series.map((pt) => {
       const seatsSoldPct =
-        cap != null && cap > 0 ? clampPctVsCap(pt.totalTickets, cap) : null;
+        cap != null && cap > 0 ? pctVsCap(pt.totalTickets, cap) : null;
       const seatsRemaining =
         cap != null ? seatsRemainingDisplay(cap, pt.totalTickets) : null;
       const revenueRemaining =
@@ -1249,10 +1294,10 @@ export class DailySalesService {
     const cap = sellableCapacity;
     const potential = grossPotential;
     const pctSold =
-      cap != null && cap > 0 ? clampPctVsCap(endTotals.tickets, cap) : null;
+      cap != null && cap > 0 ? pctVsCap(endTotals.tickets, cap) : null;
     const pctRevenueVsPotential =
       potential != null && potential > 0
-        ? clampPctVsCap(endTotals.revenue, potential)
+        ? pctVsCap(endTotals.revenue, potential)
         : null;
 
     const first = perfs[0];
@@ -1275,7 +1320,7 @@ export class DailySalesService {
 
     const summary = series.map((pt) => {
       const seatsSoldPct =
-        cap != null && cap > 0 ? clampPctVsCap(pt.totalTickets, cap) : null;
+        cap != null && cap > 0 ? pctVsCap(pt.totalTickets, cap) : null;
       const seatsRemaining =
         cap != null ? seatsRemainingDisplay(cap, pt.totalTickets) : null;
       const revenueRemaining =
@@ -1343,108 +1388,52 @@ export class DailySalesService {
     return s;
   }
 
+  /** Calendar YYYY-MM-DD in local timezone (matches typical “business day” entry). */
+  private ymdFromLocalCalendar(d: Date): string {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
   /**
-   * After applying the patch for one (performance, sales date), cumulative tickets/revenue
-   * summed across all performances on the engagement (each perf’s latest row on or before
-   * that reporting day) must not exceed sellable capacity / gross potential when those are set.
+   * No extra DB columns: earliest allowed ticketing SalesDate is derived at runtime from
+   * dbo.Performance — MIN(performanceDate) for this engagement (opening / earliest show date).
    */
-  private async assertEngagementCumulativeWithinBaseline(
+  private async assertTicketingSalesDateOnOrAfterEarliestPerformance(
     engagementId: number,
-    reportingDayYmd: string,
-    performanceId: number,
-    mergedTickets: number,
-    mergedRevenue: number,
+    salesDateYmd: string,
   ): Promise<void> {
-    const eng = await this.engagementRepo.findOne({ where: { engagementId } });
-    if (!eng) return;
-
-    const cap =
-      eng.sellableCapacity != null &&
-      Number.isFinite(Number(eng.sellableCapacity)) &&
-      Number(eng.sellableCapacity) > 0
-        ? Math.trunc(Number(eng.sellableCapacity))
-        : null;
-    let potential: number | null = null;
-    if (eng.grossPotential != null && eng.grossPotential !== '') {
-      const p = Number(eng.grossPotential);
-      if (Number.isFinite(p) && p > 0) potential = p;
-    }
-
-    if (cap == null && potential == null) return;
-
-    const perfs = await this.performanceRepo.find({
-      where: { engagementId },
-      order: { performanceDate: 'ASC', performanceTime: 'ASC' },
-      select: { performanceId: true },
-    });
-    const perfIds = perfs.map((p) => p.performanceId);
-    if (perfIds.length === 0) return;
-
-    if (!perfIds.includes(performanceId)) {
-      throw new BadRequestException(
-        'That performance is not linked to this engagement; sales were not saved.',
-      );
-    }
-
-    const byPerf = new Map<
-      number,
-      { salesDate: string; tickets: number; revenue: number }[]
-    >();
-    for (const id of perfIds) byPerf.set(id, []);
-
-    const rows = await this.salesRepo
-      .createQueryBuilder('ts')
-      .where('ts.performanceId IN (:...ids)', { ids: perfIds })
-      .andWhere('CONVERT(date, ts.salesDate) <= CAST(:asOf AS date)', {
-        asOf: reportingDayYmd,
-      })
-      .orderBy('ts.performanceId', 'ASC')
-      .addOrderBy('ts.salesDate', 'ASC')
-      .getMany();
-
-    for (const row of rows) {
-      const ymd = toYmdString(row.salesDate);
-      if (!ymd) continue;
-      if (row.performanceId === performanceId && ymd === reportingDayYmd) {
-        continue;
+    const raw = await this.performanceRepo
+      .createQueryBuilder('p')
+      .select('MIN(p.performanceDate)', 'minD')
+      .where('p.engagementId = :engagementId', { engagementId })
+      .getRawOne<{ minD: unknown }>();
+    const v = raw?.minD;
+    let floor: string | null = null;
+    if (v != null && v !== '') {
+      if (typeof v === 'string') {
+        floor = v.length >= 10 ? v.slice(0, 10) : null;
+      } else if (v instanceof Date) {
+        floor = this.ymdFromLocalCalendar(v);
+      } else {
+        const s = String(v);
+        floor = s.length >= 10 ? s.slice(0, 10) : null;
       }
-      byPerf.get(row.performanceId)!.push({
-        salesDate: ymd,
-        tickets: row.performanceSalesQuantity ?? 0,
-        revenue:
-          row.performanceSalesRevenue != null
-            ? Number(row.performanceSalesRevenue)
-            : 0,
+    }
+    if (!floor || !/^\d{4}-\d{2}-\d{2}$/.test(floor)) return;
+    if (salesDateYmd < floor) {
+      throw new BadRequestException({
+        message: `Ticket sales cannot be saved for ${salesDateYmd}: that calendar day is before this engagement's earliest performance date (${floor}).`,
       });
-    }
-
-    const targetArr = byPerf.get(performanceId)!;
-    targetArr.push({
-      salesDate: reportingDayYmd,
-      tickets: mergedTickets,
-      revenue: mergedRevenue,
-    });
-    targetArr.sort((a, b) => a.salesDate.localeCompare(b.salesDate));
-
-    const totals = totalsForReportingDay(perfIds, byPerf, reportingDayYmd);
-
-    if (cap != null && totals.tickets > cap) {
-      throw new BadRequestException(
-        `Cumulative tickets across all performances on this engagement would be ${totals.tickets.toLocaleString('en-US')} as of ${reportingDayYmd}, which is above sellable capacity (${cap.toLocaleString('en-US')}). Increase sellable capacity on the engagement, lower cumulative ticket totals on one or more days or performances, or correct the baseline if it was entered too low.`,
-      );
-    }
-    if (potential != null && totals.revenue > potential + 0.01) {
-      throw new BadRequestException(
-        `Cumulative revenue across all performances would be $${totals.revenue.toFixed(2)} as of ${reportingDayYmd}, which is above gross potential ($${potential.toFixed(2)}). Increase gross potential on the engagement or lower cumulative revenue on one or more days or performances.`,
-      );
     }
   }
 
   // ─── PATCH — upsert sales for a specific performance + date ──────────────
   /**
    * Creates or updates the single dbo.TicketingSales row for (PerformanceID, SalesDate).
-   * Business: one record per day per show = the **running (cumulative) total** to that point
-   * for that performance; the stored value is the latest total, not a delta to stack.
+   * Each row holds tickets/revenue for that calendar SalesDate only (daily amounts). Dashboards
+   * sum rows through a date to get cumulative totals.
    */
   async updateSales(
     performanceId: number,
@@ -1476,6 +1465,11 @@ export class DailySalesService {
       throw new NotFoundException(`Performance #${performanceId} was not found.`);
     }
 
+    await this.assertTicketingSalesDateOnOrAfterEarliestPerformance(
+      perf.engagementId,
+      ymd,
+    );
+
     let row = await this.salesRepo.findOne({
       where: { performanceId, salesDate: ymd },
     });
@@ -1501,14 +1495,6 @@ export class DailySalesService {
         : row.performanceSalesRevenue != null
           ? Number(Number(row.performanceSalesRevenue).toFixed(2))
           : 0;
-
-    await this.assertEngagementCumulativeWithinBaseline(
-      perf.engagementId,
-      ymd,
-      performanceId,
-      mergedTickets,
-      mergedRevenue,
-    );
 
     if (body.ticketsSold !== undefined) {
       row.performanceSalesQuantity = body.ticketsSold;
