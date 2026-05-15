@@ -34,6 +34,9 @@ export interface ApiEngagementListRow {
   tourBannerImageUrl: string | null;
   /** Entertainment complex company names for primary venue (comma-separated) */
   entertainmentComplexNames: string | null;
+  /** dbo.EngagementProduction (latest row by ProductionID) */
+  rehearsalDate: string | null;
+  loadInDate: string | null;
   displayTitle: string;
   appCreated: boolean;
 }
@@ -86,6 +89,8 @@ export interface UpdateEngagementPayload {
   primaryVenueCompanyId?: number;
   sellableCapacity?: number | null;
   grossPotential?: number | null;
+  rehearsalDate?: string | null;
+  loadInDate?: string | null;
 }
 
 /** dbo.EngagementFinances — one row per engagement (GET returns nulls for missing row / empty fields) */
