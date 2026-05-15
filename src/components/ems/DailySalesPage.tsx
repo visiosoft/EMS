@@ -1584,9 +1584,6 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
         <div className="flex flex-col gap-3 border-b border-border/80 bg-surface/35 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-text-primary">Report filters</h2>
-            <p className="text-xs text-text-muted mt-0.5 max-w-prose">
-              Use dates to limit which performances appear, then refine by show, venue, or contact. Reporting totals still follow the date in the table header.
-            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 shrink-0">
             {activeFilterCount > 0 && (
@@ -1880,15 +1877,6 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
         />
       ) : (
         <>
-          <p className="text-[11px] text-text-muted leading-relaxed px-0.5">
-            <span className="font-medium text-text-secondary">How ticket columns work:</span> the{' '}
-            <strong className="text-text-primary">prior day</strong> and <strong className="text-text-primary">reporting day</strong>{' '}
-            inputs are <strong className="text-text-primary">only that calendar day’s</strong> tickets/revenue for this
-            show (what is stored on each dbo.TicketingSales row). <strong className="text-text-primary">Total sold</strong>{' '}
-            and <strong className="text-text-primary">total revenue</strong> are the <strong className="text-text-primary">sum of all saved days through the reporting date</strong>{' '}
-            (cumulative). <strong className="text-text-primary">Sold yesterday</strong> = that cumulative total minus the
-            same sum through the day before reporting.
-          </p>
           <div className="relative overflow-hidden rounded-lg border border-border bg-card">
             {showTableOverlay && (
               <div

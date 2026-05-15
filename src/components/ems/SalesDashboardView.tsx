@@ -1,10 +1,12 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { format, parseISO } from 'date-fns';
 import {
   ArrowLeft,
   Loader2,
   AlertCircle,
   RefreshCw,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import {
   LineChart,
@@ -158,6 +160,8 @@ export function SalesDashboardView({
     return [...s].reverse();
   }, [data?.summary]);
 
+  const [engagementGoalsExpanded, setEngagementGoalsExpanded] = useState(false);
+
   const ticketsBarPct = useMemo(() => {
     const cap = data?.sellableCapacity;
     const sold = data?.kpis.ticketsDistributed ?? 0;
@@ -293,16 +297,33 @@ export function SalesDashboardView({
       </div>
 
       {baselines.length > 0 && (
-        <div className="rounded-xl border border-border bg-surface/50 px-4 py-3 text-sm space-y-2.5 shadow-sm">
-          <p className="font-medium text-text-primary">
-            Why the big seat number may look higher than “my” 5,000
-          </p>
-          <p className="text-xs text-text-secondary leading-relaxed">
-            This page covers every engagement tied to this attraction. Each tour can have its own seat goal. We{' '}
-            <strong>add</strong> those goals so the charts match reality — like 5,000 seats for one tour plus 100 seats
-            for another tour gives <strong>5,100</strong> seats at the top.
-          </p>
-          <ul className="text-xs text-text-secondary divide-y divide-border/70 border border-border/70 rounded-md overflow-hidden bg-card/60">
+        <div className="rounded-xl border border-border bg-surface/50 shadow-sm overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setEngagementGoalsExpanded((v) => !v)}
+            className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-hover/40 transition-colors"
+            aria-expanded={engagementGoalsExpanded}
+          >
+            <span className="font-medium text-text-primary text-sm">
+              Engagement goals included in this roll-up
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-xs text-text-muted shrink-0">
+              {engagementGoalsExpanded ? 'Hide' : 'Show'}
+              {engagementGoalsExpanded ? (
+                <ChevronUp className="h-4 w-4" aria-hidden />
+              ) : (
+                <ChevronDown className="h-4 w-4" aria-hidden />
+              )}
+            </span>
+          </button>
+          {engagementGoalsExpanded && (
+            <div className="px-4 pb-3 pt-0 text-sm space-y-2.5 border-t border-border/70">
+              <p className="text-xs text-text-secondary leading-relaxed pt-3">
+                This summary rolls up every engagement for this attraction. Each engagement can have its own sellable
+                capacity and gross potential; those values are <strong>added together</strong> for the capacity and
+                revenue KPIs at the top of the page.
+              </p>
+              <ul className="text-xs text-text-secondary divide-y divide-border/70 border border-border/70 rounded-md overflow-hidden bg-card/60">
             {baselines.map((row) => (
               <li
                 key={row.engagementId}
@@ -320,7 +341,9 @@ export function SalesDashboardView({
                 </span>
               </li>
             ))}
-          </ul>
+              </ul>
+            </div>
+          )}
         </div>
       )}
 
@@ -548,19 +571,6 @@ export function SalesDashboardView({
       <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b border-border bg-surface/50">
           <h2 className="text-sm font-semibold text-text-primary">Summary</h2>
-          <div className="text-xs text-text-secondary mt-2 space-y-2 leading-relaxed max-w-4xl">
-            <p>
-              <span className="font-semibold text-text-primary">What each row is.</span> Each show saves{' '}
-              <em>tickets and revenue for that calendar day only</em> in dbo.TicketingSales. For each date in this
-              table we <strong>sum every show’s daily rows with SalesDate on or before that date</strong>, so the row
-              is the <strong>cumulative</strong> total through that day (not “sold only on that one day”).
-            </p>
-            <p>
-              <span className="font-semibold text-text-primary">Tiny story.</span> Show A saves 100 on Monday and 50
-              on Tuesday (daily). Show B saves 100 on Tuesday only. Monday’s row shows <strong>100</strong>. Tuesday’s
-              row shows <strong>250</strong> (100 + 50 + 100).
-            </p>
-          </div>
         </div>
         <div className="max-h-[min(24rem,50vh)] overflow-y-auto overflow-x-auto">
           <table className="w-full text-sm">
