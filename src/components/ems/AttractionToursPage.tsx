@@ -2234,7 +2234,7 @@ export function AttractionToursPage({ addToast }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredTours.length === 0 && !toursQuery.isError && (
+                    {serverTotal === 0 && !toursQuery.isError && (
                       <tr>
                         <td colSpan={5} className="py-12 px-3 text-center text-sm text-text-muted">
                           {!tourSearch.trim() ? 'No tours found.' : 'No tours match your search.'}

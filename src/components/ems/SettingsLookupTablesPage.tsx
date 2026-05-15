@@ -184,6 +184,19 @@ function getRowId(row: LookupManageRow, config: LookupTableConfig) {
   return Number(row[config.idField]);
 }
 
+/** Stable React keys even when row shape does not match `config` (e.g. transient placeholder mismatch). */
+function getLookupRowElementKey(row: LookupManageRow, config: LookupTableConfig, index: number) {
+  const raw = row[config.idField];
+  const n = Number(raw);
+  if (Number.isFinite(n) && n > 0) {
+    return `${config.key}-${n}`;
+  }
+  const fingerprint = config.columns
+    .map((c) => String(row[c.field] ?? '').trim())
+    .join('\u241e');
+  return `${config.key}-r${index}-${fingerprint}`;
+}
+
 export function SettingsPage({
   addToast,
   users,
@@ -272,12 +285,29 @@ export function SettingsPage({
 
   const { offset, limit } = getPageParams(lookupPage, lookupPageSize);
 
-  const lookupListQuery = useQuery({
-    queryKey: lookupManageListQueryKey(activeLookupKey, offset, limit, {
+  const lookupListOpts = useMemo(
+    () => ({
       q: lookupSearch,
       sortBy: lookupSort.sortBy,
       sortDir: lookupSort.sortDir,
     }),
+    [lookupSearch, lookupSort.sortBy, lookupSort.sortDir],
+  );
+
+  const lookupListQueryKey = useMemo(
+    () => lookupManageListQueryKey(activeLookupKey, offset, limit, lookupListOpts),
+    [activeLookupKey, offset, limit, lookupListOpts],
+  );
+
+  const lookupListQueryKeySerialized = useMemo(
+    () => JSON.stringify(lookupListQueryKey),
+    [lookupListQueryKey],
+  );
+
+  const [lookupListSettledKey, setLookupListSettledKey] = useState<string | null>(null);
+
+  const lookupListQuery = useQuery({
+    queryKey: lookupListQueryKey,
     queryFn: () =>
       fetchLookupManageRows(activeLookupKey, offset, limit, {
         q: lookupSearch || undefined,
@@ -286,8 +316,38 @@ export function SettingsPage({
       }),
     enabled: tab === 'Lookup Tables',
     staleTime: 5 * 60 * 1000,
-    placeholderData: (prev) => prev,
+    // Never reuse rows from another lookup table: same-table keys (sort/page/search) still get smooth placeholders.
+    placeholderData: (previousData, previousQuery) => {
+      if (!previousData) return undefined;
+      const prevTable = previousQuery?.queryKey?.[1];
+      if (prevTable !== activeLookupKey) return undefined;
+      return previousData;
+    },
   });
+
+  useEffect(() => {
+    if (tab !== 'Lookup Tables') {
+      setLookupListSettledKey(null);
+    }
+  }, [tab]);
+
+  useEffect(() => {
+    if (tab !== 'Lookup Tables') return;
+    if (lookupListQuery.isError) {
+      setLookupListSettledKey(lookupListQueryKeySerialized);
+      return;
+    }
+    if (lookupListQuery.fetchStatus === 'idle' && lookupListQuery.isFetched) {
+      setLookupListSettledKey(lookupListQueryKeySerialized);
+    }
+  }, [
+    tab,
+    lookupListQueryKeySerialized,
+    lookupListQuery.isError,
+    lookupListQuery.fetchStatus,
+    lookupListQuery.isFetched,
+    lookupListQuery.dataUpdatedAt,
+  ]);
 
   const suggestionSortBy =
     activeLookupKey === 'company-services'
@@ -435,7 +495,19 @@ export function SettingsPage({
   const lookupPageCount = getTotalPages(lookupTotal, lookupPageSize);
   const pageClamped = Math.min(lookupPage, lookupPageCount);
   const { rangeStart, rangeEnd } = getPageRange(pageClamped, lookupTotal, lookupPageSize);
-  const lookupIsLoading = lookupListQuery.isPending || (lookupListQuery.isFetching && !lookupListQuery.data);
+  const lookupListAwaitingSettledFetch =
+    tab === 'Lookup Tables' && lookupListSettledKey !== lookupListQueryKeySerialized;
+  const lookupIsLoading =
+    lookupListAwaitingSettledFetch ||
+    lookupListQuery.isPending ||
+    (lookupListQuery.isFetching && !lookupListQuery.data);
+  const lookupTableBusyOverlay =
+    tab === 'Lookup Tables' &&
+    !lookupListQuery.isError &&
+    (lookupListAwaitingSettledFetch ||
+      lookupListQuery.isPlaceholderData ||
+      (lookupListQuery.data === undefined &&
+        (lookupListQuery.isPending || lookupListQuery.isFetching)));
 
   const toggleSort = (sortBy: string) => {
     setLookupSort((prev) => {
@@ -551,7 +623,7 @@ export function SettingsPage({
             <div className="flex items-center gap-3">
               <h3 className="text-base font-semibold text-text-primary">{activeLookupConfig.label}</h3>
               <span className="text-xs bg-elevated px-2 py-0.5 rounded text-text-secondary tabular-nums">
-                {lookupTotal.toLocaleString()}
+                {lookupTableBusyOverlay ? '…' : lookupTotal.toLocaleString()}
               </span>
             </div>
             <button
@@ -658,7 +730,22 @@ export function SettingsPage({
             </div>
           </div>
 
-          <div className="relative bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip">
+          {lookupTableBusyOverlay ? (
+            <div
+              className="flex items-center gap-2 rounded-md border border-border bg-elevated px-3 py-2 text-sm text-text-secondary"
+              role="status"
+              aria-live="polite"
+            >
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-ems-accent" aria-hidden />
+              <span>Loading rows…</span>
+            </div>
+          ) : null}
+
+          <div
+            className={`relative bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip ${
+              lookupTableBusyOverlay ? 'min-h-[240px]' : ''
+            }`}
+          >
             <table className="w-full text-sm min-w-[680px]">
               <thead>
                 <tr className="text-text-muted text-xs border-b border-border bg-surface">
@@ -677,7 +764,7 @@ export function SettingsPage({
                 </tr>
               </thead>
               <tbody>
-                {lookupDisplayRows.length === 0 && !lookupIsLoading && (
+                {lookupDisplayRows.length === 0 && !lookupTableBusyOverlay && (
                   <tr>
                     <td
                       colSpan={activeLookupConfig.columns.length}
@@ -687,9 +774,9 @@ export function SettingsPage({
                     </td>
                   </tr>
                 )}
-                {lookupDisplayRows.map((row) => (
+                {lookupDisplayRows.map((row, rowIndex) => (
                   <tr
-                    key={getRowId(row, activeLookupConfig)}
+                    key={getLookupRowElementKey(row, activeLookupConfig, rowIndex)}
                     className="border-b border-border/50 hover:bg-hover cursor-pointer"
                     onClick={() => {
                       setSelectedLookupRow(row);
@@ -705,9 +792,9 @@ export function SettingsPage({
                 ))}
               </tbody>
             </table>
-            {lookupListQuery.isFetching && lookupListQuery.isPlaceholderData ? (
+            {lookupTableBusyOverlay ? (
               <div
-                className="absolute inset-0 z-10 flex items-start justify-center bg-background/60 pt-14 sm:pt-20 backdrop-blur-[0.5px]"
+                className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 px-4 py-8 backdrop-blur-[0.5px]"
                 aria-busy="true"
                 aria-live="polite"
               >

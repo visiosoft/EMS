@@ -1179,11 +1179,13 @@ function PerformanceOptionRow({
 
 function AddPerformanceOptionForm({
   projectId,
+  engagementProjectVenueId,
   onAdded,
   onCancel,
   addToast,
 }: {
   projectId: number;
+  engagementProjectVenueId: number;
   onAdded: () => void | Promise<void>;
   onCancel: () => void;
   addToast: Props['addToast'];
@@ -1212,7 +1214,12 @@ function AddPerformanceOptionForm({
     setSaving(true);
     let ok = false;
     try {
-      await createPerformanceOption(projectId, { proposedDate: date, proposedTime: time || null, optionStatus: status });
+      await createPerformanceOption(projectId, {
+        engagementProjectVenueId,
+        proposedDate: date,
+        proposedTime: time || null,
+        optionStatus: status,
+      });
       await onAdded();
       ok = true;
     } catch (e) {
@@ -1404,6 +1411,7 @@ function VenueProposalRow({
           {showAddOpt && (
             <AddPerformanceOptionForm
               projectId={projectId}
+              engagementProjectVenueId={venue.engagementProjectVenueId}
               onAdded={async () => {
                 await onRefresh();
                 setShowAddOpt(false);

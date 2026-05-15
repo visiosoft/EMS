@@ -1260,9 +1260,10 @@ export class ProjectService {
   ): Promise<{ performanceOptionId: number }> {
     await this.assertProjectExists(projectId);
     await this.assertValidOptionStatus(dto.optionStatus);
+    await this.assertVenueInProject(projectId, dto.engagementProjectVenueId);
     const opt = this.optionRepo.create({
       engagementProjectId: projectId,
-      engagementProjectVenueId: null,
+      engagementProjectVenueId: dto.engagementProjectVenueId,
       proposedDate: dto.proposedDate,
       proposedTime: this.normalizeTime(dto.proposedTime),
       optionStatus: dto.optionStatus,

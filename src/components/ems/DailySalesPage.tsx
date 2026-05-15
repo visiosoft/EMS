@@ -22,6 +22,7 @@ import {
   type UpdateDailySalesPayload,
 } from '@/api/dailySalesApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
+import { validateDailySalesPerformanceDates } from '@/lib/dailySalesPerformanceDateValidation';
 import { invalidateSalesCapacityRelatedQueries } from '@/api/cacheHelpers';
 import { PAGE_SIZE, PAGE_SIZE_ALL, type PageSizeOption, isAllPageSize, toPageSize } from '@/lib/serverPagination';
 import { PageSizeSelect } from './PageSizeSelect';
@@ -71,10 +72,10 @@ function validateField(val: string, field: 'tickets' | 'revenue'): string | null
   return null;
 }
 
-/** Aligns with sales dashboards: remaining never negative, % sold capped at 100. */
-function clampPctDisplay(total: number, cap: number): number {
+/** % of baseline; can exceed 100 when sold exceeds capacity / potential. */
+function pctVsBaselineDisplay(total: number, cap: number): number {
   if (!(cap > 0) || !Number.isFinite(total)) return 0;
-  return Math.min(100, (total / cap) * 100);
+  return (total / cap) * 100;
 }
 
 function seatsRemainingForDisplay(cap: number, sold: number): number {
@@ -107,11 +108,19 @@ function ReportingAsOfBar({
   asOfDate,
   onAsOfDateChange,
   disabled,
+  inputInvalid,
 }: {
   asOfDate: string;
   onAsOfDateChange: (next: string) => void;
   disabled?: boolean;
+  /** Highlights border when “Reporting as of” fails validation. */
+  inputInvalid?: boolean;
 }) {
+  const inputClass =
+    'h-9 w-[10.5rem] shrink-0 rounded-md border bg-background px-2.5 text-sm text-text-primary shadow-sm focus:outline-none focus:ring-2 disabled:opacity-50 ' +
+    (inputInvalid
+      ? 'border-ems-coral focus:ring-ems-coral/25 focus:border-ems-coral'
+      : 'border-border focus:ring-ems-accent/30 focus:border-ems-accent');
   return (
     <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3 border-b border-border bg-surface/50 px-3 py-2.5 sm:px-4">
       <label htmlFor="daily-sales-asof" className="text-xs font-medium text-text-secondary whitespace-nowrap">
@@ -120,10 +129,11 @@ function ReportingAsOfBar({
       <input
         id="daily-sales-asof"
         type="date"
-        className="h-9 w-[10.5rem] shrink-0 rounded-md border border-border bg-background px-2.5 text-sm text-text-primary shadow-sm focus:outline-none focus:ring-2 focus:ring-ems-accent/30 focus:border-ems-accent disabled:opacity-50"
+        className={inputClass}
         value={asOfDate}
         onChange={(e) => onAsOfDateChange(e.target.value || todayLocalYmd())}
         disabled={disabled}
+        aria-invalid={inputInvalid ? true : undefined}
         aria-label="Select reporting date"
       />
     </div>
@@ -517,13 +527,19 @@ function renderDailySalesLeadCell(
 function TableSkeleton({
   asOfDate,
   onAsOfDateChange,
+  asOfInputInvalid,
 }: {
   asOfDate: string;
   onAsOfDateChange: (next: string) => void;
+  asOfInputInvalid?: boolean;
 }) {
   return (
     <div className="bg-card border border-border rounded-lg overflow-hidden">
-      <ReportingAsOfBar asOfDate={asOfDate} onAsOfDateChange={onAsOfDateChange} />
+      <ReportingAsOfBar
+        asOfDate={asOfDate}
+        onAsOfDateChange={onAsOfDateChange}
+        inputInvalid={asOfInputInvalid}
+      />
       <div className="flex items-center gap-3 border-b border-border bg-surface/30 px-4 py-4 sm:px-6">
         <Loader2 className="h-6 w-6 text-ems-accent animate-spin" />
         <span className="text-sm font-medium text-text-primary">Loading…</span>
@@ -785,25 +801,17 @@ function EngagementSalesHistory({
     const allDates = [...new Set(rows.map((r) => r.salesDate))].sort((a, b) =>
       a.localeCompare(b),
     );
-    const perfProgress = new Map<number, { idx: number; t: number; rev: number }>();
-    for (const perfId of perfMap.keys()) {
-      perfProgress.set(perfId, { idx: -1, t: 0, rev: 0 });
-    }
-
     const out: Array<{ salesDate: string; totalTickets: number; totalRevenue: number }> = [];
     for (const date of allDates) {
       let sumTickets = 0;
       let sumRevenue = 0;
-      for (const [perfId, list] of perfMap.entries()) {
-        const prog = perfProgress.get(perfId)!;
-        while (prog.idx + 1 < list.length && list[prog.idx + 1].salesDate <= date) {
-          prog.idx += 1;
-          const rec = list[prog.idx];
-          prog.t = rec.ticketsSold ?? 0;
-          prog.rev = rec.revenue ?? 0;
+      for (const [, list] of perfMap.entries()) {
+        for (const rec of list) {
+          if (rec.salesDate <= date) {
+            sumTickets += rec.ticketsSold ?? 0;
+            sumRevenue += rec.revenue ?? 0;
+          }
         }
-        sumTickets += prog.t;
-        sumRevenue += prog.rev;
       }
       out.push({ salesDate: date, totalTickets: sumTickets, totalRevenue: sumRevenue });
     }
@@ -835,11 +843,11 @@ function EngagementSalesHistory({
       : null;
   const soldPct =
     sellableCapacity != null && sellableCapacity > 0 && latest
-      ? clampPctDisplay(latest.totalTickets, sellableCapacity)
+      ? pctVsBaselineDisplay(latest.totalTickets, sellableCapacity)
       : null;
   const revenuePct =
     grossPotentialNum != null && latest
-      ? clampPctDisplay(latest.totalRevenue, grossPotentialNum)
+      ? pctVsBaselineDisplay(latest.totalRevenue, grossPotentialNum)
       : null;
   const remainingSeats =
     sellableCapacity != null && latest
@@ -1028,7 +1036,7 @@ function EngagementSalesHistory({
                   .map((r) => {
                     const seatsPct =
                       sellableCapacity != null && sellableCapacity > 0
-                        ? clampPctDisplay(r.totalTickets, sellableCapacity)
+                        ? pctVsBaselineDisplay(r.totalTickets, sellableCapacity)
                         : null;
                     const seatsLeft =
                       sellableCapacity != null
@@ -1202,6 +1210,18 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
     leadSort,
   ]);
 
+  const perfDateValidation = useMemo(
+    () =>
+      validateDailySalesPerformanceDates({
+        asOfDate,
+        performanceDate: performanceDateFilter,
+        startDate: startDateFilter,
+        endDate: endDateFilter,
+      }),
+    [asOfDate, performanceDateFilter, startDateFilter, endDateFilter],
+  );
+  const perfDatesOk = perfDateValidation.ok;
+
   const dailySalesSortBy =
     leadSort.col === 'date'
       ? undefined
@@ -1245,11 +1265,13 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
     staleTime: 2 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
     refetchOnWindowFocus: false,
+    enabled: perfDatesOk,
   });
 
   const dailySalesSearchSuggestions = useMemo(() => {
     const q = searchInput.trim().toLowerCase();
     if (!q) return [] as Array<{ label: string; query: string }>;
+    if (!perfDatesOk) return [] as Array<{ label: string; query: string }>;
     const items = dailySalesSuggestionQuery.data?.items ?? [];
     const out: Array<{ label: string; query: string }> = [];
     for (const row of items) {
@@ -1286,7 +1308,7 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
       if (out.length >= 8) break;
     }
     return out;
-  }, [searchInput, dailySalesSuggestionQuery.data]);
+  }, [searchInput, dailySalesSuggestionQuery.data, perfDatesOk]);
 
   const commitDailySalesSearch = useCallback(() => {
     setSearchCommitted(searchInput.trim());
@@ -1331,6 +1353,7 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
       }),
     staleTime: 2 * 60 * 1000,
     placeholderData: (prev) => prev,
+    enabled: perfDatesOk,
   });
 
   const refetch = useCallback(async () => {
@@ -1352,8 +1375,10 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
   );
 
   const pageData = salesQuery.data;
-  const rows = pageData?.items ?? [];
-  const serverTotal = pageData?.total ?? 0;
+  const rowsSource = pageData?.items ?? [];
+  const serverTotalSource = pageData?.total ?? 0;
+  const rows = perfDatesOk ? rowsSource : [];
+  const serverTotal = perfDatesOk ? serverTotalSource : 0;
   const todayDateStr = pageData?.todayDate ?? asOfDate;
   const yesterdayDateStr = pageData?.yesterdayDate ?? ymdAddDays(asOfDate, -1);
   const todayLabel = fmtDateHeader(todayDateStr);
@@ -1461,6 +1486,25 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
     'h-10 w-full min-w-0 rounded-lg border border-border bg-background px-3 text-sm text-text-primary shadow-sm ' +
     'focus:outline-none focus:ring-2 focus:ring-ems-accent/25 focus:border-ems-accent disabled:opacity-50';
 
+  const dateFieldClass = (invalid: boolean) =>
+    `${dateInputClass}${invalid ? ' border-ems-coral focus:ring-ems-coral/25 focus:border-ems-coral' : ''}`;
+
+  const isoYmd = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s.trim());
+  const asMax = isoYmd(asOfDate) ? asOfDate : undefined;
+  const stY = isoYmd(startDateFilter) ? startDateFilter : undefined;
+  const enY = isoYmd(endDateFilter) ? endDateFilter : undefined;
+  const rangeChronoOk = !!(stY && enY && stY <= enY);
+  const perfDateMin = rangeChronoOk ? stY : undefined;
+  const perfDateMax =
+    rangeChronoOk && enY
+      ? asMax
+        ? enY < asMax
+          ? enY
+          : asMax
+        : enY
+      : asMax;
+  const startDateMax = enY && asMax ? (enY < asMax ? enY : asMax) : enY || asMax;
+
   // ── Item 7: show engagement history if one is selected ──────────────────────
   if (selectedEngagement) {
     return (
@@ -1540,9 +1584,6 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
         <div className="flex flex-col gap-3 border-b border-border/80 bg-surface/35 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-text-primary">Report filters</h2>
-            <p className="text-xs text-text-muted mt-0.5 max-w-prose">
-              Use dates to limit which performances appear, then refine by show, venue, or contact. Reporting totals still follow the date in the table header.
-            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 shrink-0">
             {activeFilterCount > 0 && (
@@ -1686,6 +1727,18 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
               <fieldset className="min-w-0 space-y-3 rounded-xl border border-border/70 bg-surface/25 p-4">
                 <legend className="px-1 text-xs font-semibold text-text-primary">Performance dates</legend>
                 <p className="text-[11px] text-text-muted -mt-1 mb-1">Calendar filters for which rows load into the table.</p>
+                {!perfDatesOk && perfDateValidation.messages.length > 0 ? (
+                  <div
+                    role="alert"
+                    className="text-sm text-ems-coral border border-ems-coral/30 rounded-lg px-3 py-2 bg-ems-coral-dim"
+                  >
+                    <ul className="list-disc pl-4 space-y-0.5">
+                      {perfDateValidation.messages.map((msg, i) => (
+                        <li key={i}>{msg}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
                 <div className="space-y-3">
                   <div>
                     <label htmlFor="daily-sales-perf-date" className="mb-1 block text-[11px] font-medium text-text-secondary">
@@ -1694,10 +1747,13 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
                     <input
                       id="daily-sales-perf-date"
                       type="date"
-                      className={dateInputClass}
+                      className={dateFieldClass(perfDateValidation.highlightPerf)}
                       value={performanceDateFilter}
                       onChange={(e) => setPerformanceDateFilter(e.target.value)}
                       disabled={showFullSkeleton}
+                      min={perfDateMin}
+                      max={perfDateMax}
+                      aria-invalid={perfDateValidation.highlightPerf ? true : undefined}
                     />
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
@@ -1708,10 +1764,12 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
                       <input
                         id="daily-sales-start-date"
                         type="date"
-                        className={dateInputClass}
+                        className={dateFieldClass(perfDateValidation.highlightStart)}
                         value={startDateFilter}
                         onChange={(e) => setStartDateFilter(e.target.value)}
                         disabled={showFullSkeleton}
+                        max={startDateMax}
+                        aria-invalid={perfDateValidation.highlightStart ? true : undefined}
                       />
                     </div>
                     <div>
@@ -1721,10 +1779,13 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
                       <input
                         id="daily-sales-end-date"
                         type="date"
-                        className={dateInputClass}
+                        className={dateFieldClass(perfDateValidation.highlightEnd)}
                         value={endDateFilter}
                         onChange={(e) => setEndDateFilter(e.target.value)}
                         disabled={showFullSkeleton}
+                        min={stY}
+                        max={asMax}
+                        aria-invalid={perfDateValidation.highlightEnd ? true : undefined}
                       />
                     </div>
                   </div>
@@ -1809,7 +1870,11 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
 
       {/* Table (Reporting as of: top right of this card) */}
       {showFullSkeleton ? (
-        <TableSkeleton asOfDate={asOfDate} onAsOfDateChange={setAsOfDate} />
+        <TableSkeleton
+          asOfDate={asOfDate}
+          onAsOfDateChange={setAsOfDate}
+          asOfInputInvalid={perfDateValidation.highlightAsOf}
+        />
       ) : (
         <>
           <div className="relative overflow-hidden rounded-lg border border-border bg-card">
@@ -1822,7 +1887,11 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
                 <Loader2 className="h-8 w-8 text-ems-accent animate-spin" />
               </div>
             )}
-            <ReportingAsOfBar asOfDate={asOfDate} onAsOfDateChange={setAsOfDate} />
+            <ReportingAsOfBar
+              asOfDate={asOfDate}
+              onAsOfDateChange={setAsOfDate}
+              inputInvalid={perfDateValidation.highlightAsOf}
+            />
             <div className="overflow-x-auto">
               <table className="w-full text-sm" style={{ minWidth: '900px' }}>
               <thead>
@@ -1950,7 +2019,18 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
                 {serverTotal === 0 && !salesQuery.isError && (
                   <tr>
                     <td colSpan={totalColSpan} className="py-12 text-center text-sm text-text-muted">
-                      No performances for this reporting date, or none match your filters. Try clearing filters or widening the performance date range.
+                      {!perfDatesOk ? (
+                        <span>
+                          Adjust the performance date filters above. Reporting and performance dates must be
+                          consistent (range end on or after range start; nothing after Reporting as of; single day
+                          within the range when all three are set).
+                        </span>
+                      ) : (
+                        <span>
+                          No performances for this reporting date, or none match your filters. Try clearing filters
+                          or widening the performance date range.
+                        </span>
+                      )}
                     </td>
                   </tr>
                 )}
