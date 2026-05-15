@@ -629,6 +629,7 @@ function EditablePerformanceRow({
   perf,
   isPrimary,
   engagementId,
+  allowDeleteShow,
   onRefresh,
   addToast,
 }: {
@@ -640,6 +641,7 @@ function EditablePerformanceRow({
   };
   isPrimary: boolean;
   engagementId: number;
+  allowDeleteShow: boolean;
   onRefresh: () => void;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 }) {
@@ -775,17 +777,19 @@ function EditablePerformanceRow({
           <button
             type="button"
             onClick={() => setEditing(true)}
-            className="text-xs text-text-muted hover:text-ems-accent px-2.5 py-1.5 rounded hover:bg-elevated opacity-0 group-hover:opacity-100 transition-all"
+            className="text-xs text-text-secondary hover:text-ems-accent px-2.5 py-1.5 rounded hover:bg-elevated transition-colors"
           >
             Edit
           </button>
-          <button
-            type="button"
-            onClick={() => setConfirmDelete(true)}
-            className="text-xs text-text-muted hover:text-ems-coral px-2.5 py-1.5 rounded hover:bg-elevated opacity-0 group-hover:opacity-100 transition-all"
-          >
-            Delete
-          </button>
+          {allowDeleteShow && (
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(true)}
+              className="text-xs text-text-secondary hover:text-ems-coral px-2.5 py-1.5 rounded hover:bg-elevated transition-colors"
+            >
+              Delete
+            </button>
+          )}
         </div>
       </li>
 
@@ -1375,7 +1379,10 @@ export function EngagementDetailPage({
       addToast('Engagement deleted.', 'warning');
       onNavigate('engagements');
     },
-    onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
+    onError: (e: unknown) => {
+      addToast(friendlyApiError(e), 'error');
+      setPendingDelete(false);
+    },
   });
 
   const row = detailQuery.data;
@@ -1447,8 +1454,10 @@ export function EngagementDetailPage({
   const performancesQuery = useQuery({
     queryKey: ['engagements', engagementId, 'performances'],
     queryFn: () => fetchEngagementPerformances(engagementId),
-    enabled: tab === 'Dates',
   });
+
+  const performanceCount = (performancesQuery.data ?? []).length;
+  const canDeleteIndividualShow = performanceCount > 1;
 
   const [showAddPerformance, setShowAddPerformance] = useState(false);
   const [pfDate, setPfDate] = useState('');
@@ -1627,7 +1636,7 @@ export function EngagementDetailPage({
               size="sm"
               onClick={() => setPendingDelete(true)}
               disabled={deleteMutation.isPending}
-              className="border-ems-coral/40 text-ems-coral hover:bg-ems-coral-dim hover:text-ems-coral"
+              className="border-ems-coral/40 text-ems-coral hover:bg-ems-coral-dim hover:text-ems-coral disabled:opacity-50"
             >
               Delete Engagement
             </Button>
@@ -1700,7 +1709,7 @@ export function EngagementDetailPage({
           'Venues',
           'Service Providers',
           'Contacts',
-          'Dates',
+          'Performances',
           'Finance',
           'Audit Log',
         ]}
@@ -1857,8 +1866,8 @@ export function EngagementDetailPage({
         </div>
       )}
 
-      {/* ── Dates ────────────────────────────────────────────────────────── */}
-      {tab === 'Dates' && (
+      {/* ── Performances ─────────────────────────────────────────────────── */}
+      {tab === 'Performances' && (
         <div className="bg-card border border-border rounded-lg p-5 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
@@ -1906,6 +1915,7 @@ export function EngagementDetailPage({
                   perf={p}
                   isPrimary={idx === 0}
                   engagementId={engagementId}
+                  allowDeleteShow={canDeleteIndividualShow}
                   onRefresh={() =>
                     qc.invalidateQueries({
                       queryKey: ['engagements', engagementId, 'performances'],
@@ -2055,9 +2065,9 @@ export function EngagementDetailPage({
               You’re about to remove{' '}
               <span className="font-medium text-text-primary">
                 {row.displayTitle}
-              </span>{' '}
-              from your list. If something blocks the removal, you’ll see a short explanation right
-              after you confirm.
+              </span>
+              . This cannot be undone. If removal isn’t allowed, you’ll see an error message after you
+              confirm.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {deleteMutation.isPending && (

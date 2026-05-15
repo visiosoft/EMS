@@ -67,6 +67,11 @@ type EngagementMovableColumnId =
 
 type EngagementTableColumnId = EngagementMovableColumnId | 'status';
 
+type EngagementTimingFilter = 'all' | 'upcoming' | 'past';
+
+/** Default timeframe on first load (sidebar / direct navigation). */
+const DEFAULT_ENGAGEMENT_TIMING_FILTER: EngagementTimingFilter = 'upcoming';
+
 const DEFAULT_ENGAGEMENT_MOVABLE_COLUMNS: EngagementMovableColumnId[] = [
   'attraction',
   'tour',
@@ -339,7 +344,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
   const [attractionFilter, setAttractionFilter] = useState('');
   const [dmaFilter, setDmaFilter] = useState('');
   const [venueFilter, setVenueFilter] = useState('');
-  const [timingFilter, setTimingFilter] = useState<'all' | 'upcoming' | 'past'>('all');
+  const [timingFilter, setTimingFilter] = useState<EngagementTimingFilter>(DEFAULT_ENGAGEMENT_TIMING_FILTER);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE);
   const [showCreate, setShowCreate] = useState(false);
@@ -545,7 +550,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
     !!attractionFilter ||
     !!dmaFilter ||
     !!venueFilter ||
-    timingFilter !== 'all';
+    timingFilter !== DEFAULT_ENGAGEMENT_TIMING_FILTER;
 
   useEffect(() => {
     setPage(1);

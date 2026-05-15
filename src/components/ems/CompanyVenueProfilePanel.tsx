@@ -633,6 +633,7 @@ export function CompanyVenueProfilePanel({
     setLoadDockStateProvince(full.loadDockAddress?.stateProvince ?? '');
     setLoadDockPostalCode(full.loadDockAddress?.postalCode ?? '');
     setLoadDockCountry(full.loadDockAddress?.country ?? '');
+    setBrandIds([...(full.brandIds ?? [])].sort((a, b) => a - b));
   }, [vq.data]);
 
   useEffect(() => {
@@ -767,6 +768,7 @@ export function CompanyVenueProfilePanel({
           (full.entertainmentComplexCompanyIds ?? []).find(
             (id) => Number.isInteger(id) && id > 0,
           ) ?? null,
+        brands: [...(full.brandIds ?? [])].sort((a, b) => a - b),
       }),
       loadDock: JSON.stringify(loadDock),
     };
@@ -799,7 +801,6 @@ export function CompanyVenueProfilePanel({
         contactSigFromApiRows(d.settlementManagers),
       ]),
       marketing: JSON.stringify({
-        brands: [...(d.brandIds ?? [])].sort((a, b) => a - b),
         c: contactSigFromApiRows(d.marketingDirectors),
       }),
       technical: JSON.stringify({
@@ -894,6 +895,7 @@ export function CompanyVenueProfilePanel({
         insuranceLanguage: insuranceLanguage ?? '',
         venueTypeId: venueTypeId || '',
         entertainmentComplexCompanyId,
+        brands: [...brandIds].sort((a, b) => a - b),
       }) !== profileSectionBaseline.core
     );
   }, [
@@ -904,6 +906,7 @@ export function CompanyVenueProfilePanel({
     insuranceLanguage,
     venueTypeId,
     entertainmentComplexCompanyId,
+    brandIds,
   ]);
 
   const isLoadDockDirty = useMemo(() => {
@@ -944,11 +947,10 @@ export function CompanyVenueProfilePanel({
     if (!extensionsSectionBaseline) return false;
     return (
       JSON.stringify({
-        brands: [...brandIds].sort((a, b) => a - b),
         c: contactBlocksSignature(marketingBlocks),
       }) !== extensionsSectionBaseline.marketing
     );
-  }, [extensionsSectionBaseline, brandIds, marketingBlocks]);
+  }, [extensionsSectionBaseline, marketingBlocks]);
 
   const isTechnicalDirty = useMemo(() => {
     if (!extensionsSectionBaseline) return false;
@@ -1143,6 +1145,7 @@ export function CompanyVenueProfilePanel({
       case 'core':
         return Promise.all([
           inv('venue-profile'),
+          inv('venue-details'),
           qc.invalidateQueries({ queryKey: allVenuesQueryKey }),
         ]);
       case 'loadDock':
@@ -1223,6 +1226,7 @@ export function CompanyVenueProfilePanel({
           Number.isFinite(entertainmentComplexCompanyIdRef.current)
             ? [entertainmentComplexCompanyIdRef.current]
             : [],
+        brandIds: [...brandIds].sort((a, b) => a - b),
       });
       await refetchAfterSectionSave('core');
       addToast('General venue information saved.', 'success');
@@ -1287,7 +1291,6 @@ export function CompanyVenueProfilePanel({
     try {
       await updateVenueDetails(companyId, {
         marketingDirectors: blocksToContactPayload(marketingBlocks ?? []),
-        brandIds,
       });
       await refetchAfterSectionSave('marketing');
       addToast('Marketing details saved.', 'success');
@@ -1637,6 +1640,45 @@ export function CompanyVenueProfilePanel({
               allowClear
             />
           </FormField>
+          <div className="md:col-span-2 space-y-1.5">
+            <FormField label="Venue brand">
+              <Select2
+                className="w-full"
+                value=""
+                onChange={(v) => {
+                  if (!v) return;
+                  const id = Number(v);
+                  if (!Number.isFinite(id) || brandIds.includes(id)) return;
+                  setBrandIds((prev) => Array.from(new Set([...prev, id])));
+                }}
+                options={brandAddOptions}
+                placeholder="Add brand…"
+              />
+              {brandIds.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-0.5">
+                  {brandIds.map((id) => {
+                    const name = brands.find((b) => b.brandId === id)?.brandName ?? `#${id}`;
+                    return (
+                      <span
+                        key={id}
+                        className="inline-flex items-center gap-1 text-xs text-text-primary border border-border rounded px-2 py-0.5 bg-surface/50"
+                      >
+                        {name}
+                        <button
+                          type="button"
+                          className="p-0.5 rounded hover:bg-surface-hover"
+                          onClick={() => setBrandIds((prev) => prev.filter((x) => x !== id))}
+                          aria-label={`Remove ${name}`}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+            </FormField>
+          </div>
           <div className="md:col-span-2">
             <FormField label="Insurance language">
               <textarea
@@ -1834,44 +1876,6 @@ export function CompanyVenueProfilePanel({
               }
               inputCls={inputCls}
             />
-            <div className="space-y-1.5 pt-1">
-              <div className="text-sm font-medium text-text-primary">Brand or Series</div>
-              <Select2
-                className="w-full"
-                value=""
-                onChange={(v) => {
-                  if (!v) return;
-                  const id = Number(v);
-                  if (!Number.isFinite(id) || brandIds.includes(id)) return;
-                  setBrandIds((prev) => Array.from(new Set([...prev, id])));
-                }}
-                options={brandAddOptions}
-                placeholder="Brand or Series"
-              />
-              {brandIds.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {brandIds.map((id) => {
-                    const name = brands.find((b) => b.brandId === id)?.brandName ?? `#${id}`;
-                    return (
-                      <span
-                        key={id}
-                        className="inline-flex items-center gap-1 text-xs text-text-primary border border-border rounded px-2 py-0.5 bg-surface/50"
-                      >
-                        {name}
-                        <button
-                          type="button"
-                          className="p-0.5 rounded hover:bg-surface-hover"
-                          onClick={() => setBrandIds((prev) => prev.filter((x) => x !== id))}
-                          aria-label={`Remove ${name}`}
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
             <div className="flex flex-wrap justify-end pt-1">
               <button
                 type="button"

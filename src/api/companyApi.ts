@@ -110,6 +110,8 @@ export type ApiVenueProfileResponse =
       seatingTypeName: string | null;
       ticketingSystem: string | null;
       venueWebsite: string | null;
+      /** dbo.VenueBrand — BrandID values linked to this venue company. */
+      brandIds: number[];
       loadDockAddress: ApiAddress | null;
     };
 
@@ -488,6 +490,7 @@ export function updateVenueProfile(
       postalCode: string;
       country: string;
     } | null;
+    brandIds?: number[];
   }>,
 ) {
   return apiFetch<void>(`/companies/${companyId}/venue-profile`, {

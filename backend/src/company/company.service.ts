@@ -2256,6 +2256,11 @@ export class CompanyService {
       };
     });
     const tw = await this.loadVenueTicketingWebsiteColumns(companyId);
+    const venueBrandRows = await this.venueBrandRepo.find({
+      where: { venueCompanyId: companyId },
+      order: { brandId: 'ASC' },
+    });
+    const brandIds = venueBrandRows.map((r) => r.brandId);
     return {
       missing: false as const,
       companyId: venue.companyId,
@@ -2277,6 +2282,7 @@ export class CompanyService {
       seatingTypeName: venue.seatingType?.seatingName ?? null,
       ticketingSystem: tw.ticketingSystem,
       venueWebsite: tw.venueWebsite,
+      brandIds,
       loadDockAddress: venue.loadDockAddress
         ? {
             addressId: venue.loadDockAddress.addressId,
@@ -2544,6 +2550,20 @@ export class CompanyService {
       await this.updateVenueTicketingWebsiteColumns(companyId, {
         ticketingSystem: dto.ticketingSystem,
         venueWebsite: dto.venueWebsite,
+      });
+    }
+    if (dto.brandIds !== undefined) {
+      await this.dataSource.transaction(async (em) => {
+        await em.delete(VenueBrand, { venueCompanyId: companyId });
+        const next = Array.from(new Set(dto.brandIds)).filter(
+          (x) => Number.isInteger(x) && x > 0,
+        );
+        if (next.length) {
+          await em.insert(
+            VenueBrand,
+            next.map((brandId) => ({ venueCompanyId: companyId, brandId })),
+          );
+        }
       });
     }
   }
