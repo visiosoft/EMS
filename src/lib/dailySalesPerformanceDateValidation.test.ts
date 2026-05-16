@@ -25,27 +25,14 @@ describe('validateDailySalesPerformanceDates', () => {
     expect(r.highlightStart && r.highlightEnd).toBe(true);
   });
 
-  it('rejects performance day after as-of', () => {
+  it('accepts performance day after as-of (future show date)', () => {
     const r = validateDailySalesPerformanceDates({
-      asOfDate: '2026-05-14',
-      performanceDate: '2026-05-20',
+      asOfDate: '2026-05-09',
+      performanceDate: '2026-05-10',
       startDate: '',
       endDate: '',
     });
-    expect(r.ok).toBe(false);
-    expect(r.highlightPerf).toBe(true);
-  });
-
-  it('rejects range bounds after as-of', () => {
-    const r = validateDailySalesPerformanceDates({
-      asOfDate: '2026-05-14',
-      performanceDate: '',
-      startDate: '2026-05-01',
-      endDate: '2026-05-20',
-    });
-    expect(r.ok).toBe(false);
-    expect(r.messages.some((m) => m.includes('Range end'))).toBe(true);
-    expect(r.highlightEnd).toBe(true);
+    expect(r.ok).toBe(true);
   });
 
   it('rejects single day outside inclusive range', () => {

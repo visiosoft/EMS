@@ -24,7 +24,7 @@ function ymdCompare(a: string, b: string): number {
 }
 
 /**
- * Validates performance single-day + range filters against each other and “Reporting as of”.
+ * Validates performance single-day + range filters against each other.
  * Mirrors server rules in `DailySalesService.findByPerformancePage`.
  */
 export function validateDailySalesPerformanceDates(params: {
@@ -57,34 +57,19 @@ export function validateDailySalesPerformanceDates(params: {
     };
   }
 
-  if (perf) {
-    if (!isYmd(perf)) {
-      messages.push('Single performance day must be a valid calendar date.');
-      highlightPerf = true;
-    } else if (ymdCompare(perf, asOf) > 0) {
-      messages.push('Single performance day cannot be after Reporting as of.');
-      highlightPerf = true;
-    }
+  if (perf && !isYmd(perf)) {
+    messages.push('Single performance day must be a valid calendar date.');
+    highlightPerf = true;
   }
 
-  if (start) {
-    if (!isYmd(start)) {
-      messages.push('Range start must be a valid calendar date.');
-      highlightStart = true;
-    } else if (ymdCompare(start, asOf) > 0) {
-      messages.push('Range start cannot be after Reporting as of.');
-      highlightStart = true;
-    }
+  if (start && !isYmd(start)) {
+    messages.push('Range start must be a valid calendar date.');
+    highlightStart = true;
   }
 
-  if (end) {
-    if (!isYmd(end)) {
-      messages.push('Range end must be a valid calendar date.');
-      highlightEnd = true;
-    } else if (ymdCompare(end, asOf) > 0) {
-      messages.push('Range end cannot be after Reporting as of.');
-      highlightEnd = true;
-    }
+  if (end && !isYmd(end)) {
+    messages.push('Range end must be a valid calendar date.');
+    highlightEnd = true;
   }
 
   if (start && end && isYmd(start) && isYmd(end) && ymdCompare(end, start) < 0) {

@@ -59,9 +59,6 @@ function sanitizeViewDataForView(view: string, raw: unknown): Record<string, unk
     const id = parsePositiveIntId(obj.engagementId);
     const out: Record<string, unknown> = {};
     if (id != null) out.engagementId = id;
-    if (typeof obj.initialTab === 'string' && obj.initialTab.trim()) {
-      out.initialTab = obj.initialTab.trim().slice(0, 80);
-    }
     return out;
   }
   if (view === 'attraction-sales-summary') {
@@ -283,7 +280,6 @@ const Index = () => {
                   engagementId={n}
                   onNavigate={navigate}
                   addToast={addToast}
-                  initialTab={viewData.initialTab as string | undefined}
                 />
               );
             }

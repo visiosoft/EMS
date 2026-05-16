@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, DataSource, EntityManager, In, QueryFailedError, Repository } from 'typeorm';
+import { AdminUsersService } from '../admin-users/admin-users.service';
 import { EngagementProject } from '../entities/engagement-project.entity';
 import { EngagementProjectDma } from '../entities/engagement-project-dma.entity';
 import { EngagementProjectVenue } from '../entities/engagement-project-venue.entity';
@@ -22,6 +23,7 @@ import { AddProjectVenueDto } from './dto/add-project-venue.dto';
 import { UpdateProjectVenueDto } from './dto/update-project-venue.dto';
 import { AddPerformanceOptionDto } from './dto/add-performance-option.dto';
 import { UpdatePerformanceOptionDto } from './dto/update-performance-option.dto';
+import { AuditRequestContext } from '../audit/audit-request-context.service';
 import {
   isAllowedProjectStage,
   PROJECT_STAGE_VALUES,
@@ -32,6 +34,8 @@ const ENGAGEMENT_VENUE_OPTION_STATUS_ALLOWLIST = [
   'Pending',
   'Inactive',
 ] as const;
+const GUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 @Injectable()
 export class ProjectService {
@@ -55,6 +59,13 @@ export class ProjectService {
   } | null = null;
   private agentContactColumnNameCache: string | null | undefined = undefined;
   private companyTypeLinkTableCache: string | null | undefined = undefined;
+  private static readonly CREATED_BY_NAME_CACHE_TTL_MS = 5 * 60_000;
+  private createdByNameCache:
+    | {
+        at: number;
+        byOid: Map<string, string>;
+      }
+    | null = null;
 
   constructor(
     @InjectRepository(EngagementProject)
@@ -74,6 +85,8 @@ export class ProjectService {
     @InjectRepository(Company)
     private readonly companyRepo: Repository<Company>,
     private readonly dataSource: DataSource,
+    private readonly auditContext: AuditRequestContext,
+    private readonly adminUsersService: AdminUsersService,
   ) {}
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -526,6 +539,99 @@ export class ProjectService {
     return project;
   }
 
+  private isOidLike(value: string | null | undefined): boolean {
+    const trimmed = String(value ?? '').trim();
+    return GUID_RE.test(trimmed);
+  }
+
+  private async getCreatedByNameMap(): Promise<Map<string, string>> {
+    const now = Date.now();
+    if (
+      this.createdByNameCache &&
+      now - this.createdByNameCache.at <
+        ProjectService.CREATED_BY_NAME_CACHE_TTL_MS
+    ) {
+      return this.createdByNameCache.byOid;
+    }
+
+    try {
+      const users = await this.adminUsersService.listUsers();
+      const byOid = new Map<string, string>();
+      for (const user of users) {
+        const id = String(user.id ?? '').trim().toLowerCase();
+        const name = String(user.name ?? '').trim();
+        if (!id || !name) continue;
+        byOid.set(id, name);
+      }
+      this.createdByNameCache = { at: now, byOid };
+      return byOid;
+    } catch (error) {
+      this.logger.warn(
+        `Could not resolve CreatedBy display names from user directory: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return new Map<string, string>();
+    }
+  }
+
+  private async resolveCreatedByDisplayValue(
+    value: string | null,
+    createdByNameMap?: Map<string, string>,
+  ): Promise<string | null> {
+    if (value == null) return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (!this.isOidLike(trimmed)) return trimmed;
+
+    const byOid = createdByNameMap ?? (await this.getCreatedByNameMap());
+    const oid = trimmed.toLowerCase();
+    const mappedName = byOid.get(oid);
+    if (mappedName) return mappedName;
+
+    const requestOid = this.auditContext.getUserOid()?.trim().toLowerCase();
+    if (requestOid && requestOid === oid) {
+      const requestName = this.auditContext.getUserDisplayName()?.trim();
+      if (requestName) return requestName.slice(0, 200);
+    }
+    return null;
+  }
+
+  private async resolveCreatedByDisplayValuesForRows(
+    rows: Array<{ createdBy: string | null }>,
+  ): Promise<Map<string, string>> {
+    const oids = new Set<string>();
+    for (const row of rows) {
+      const raw = row.createdBy?.trim();
+      if (!raw || !this.isOidLike(raw)) continue;
+      oids.add(raw.toLowerCase());
+    }
+    if (oids.size === 0) return new Map<string, string>();
+
+    const byOid = await this.getCreatedByNameMap();
+    const resolved = new Map<string, string>();
+    for (const oid of oids) {
+      const name = byOid.get(oid);
+      if (name) resolved.set(oid, name);
+    }
+    return resolved;
+  }
+
+  /**
+   * Persist Entra OID when available; keep payload fallback for backward compatibility.
+   */
+  private resolveProjectCreatedBy(
+    createdByFromPayload: string | null | undefined,
+  ): string | null {
+    const auditOid = this.auditContext.getUserOid();
+    if (auditOid && auditOid.trim().length > 0) {
+      return auditOid.trim().slice(0, 200);
+    }
+    const fallback = createdByFromPayload?.trim();
+    if (!fallback) return null;
+    return this.isOidLike(fallback) ? fallback.slice(0, 200) : null;
+  }
+
   /** Distinct positive DMA IDs, sorted ascending (for stable inserts / responses). */
   private normalizeDmaIds(ids: number[] | undefined): number[] {
     if (!ids?.length) return [];
@@ -733,6 +839,8 @@ export class ProjectService {
       }),
     );
 
+    const createdBy = await this.resolveCreatedByDisplayValue(project.createdBy);
+
     return {
       engagementProjectId: project.engagementProjectId,
       tourId: project.tourId,
@@ -749,7 +857,7 @@ export class ProjectService {
       talentAgencyCompanyName: effectiveMgmtName,
       projectStage: project.projectStage,
       createdDate: project.createdDate,
-      createdBy: project.createdBy,
+      createdBy,
       name: null,
       bookerId: null,
       agentContactId,
@@ -802,7 +910,7 @@ export class ProjectService {
           tourId: dto.tourId,
           projectStage: dto.projectStage,
           createdDate: new Date(),
-          createdBy: dto.createdBy?.trim() ?? null,
+          createdBy: this.resolveProjectCreatedBy(dto.createdBy),
         });
         const savedProject = await manager.save(EngagementProject, project);
 
@@ -876,8 +984,7 @@ export class ProjectService {
       this.assertValidProjectStage(dto.projectStage);
       project.projectStage = dto.projectStage;
     }
-    if (dto.createdBy !== undefined)
-      project.createdBy = dto.createdBy?.trim() ?? null;
+    // CreatedBy is immutable: store creator ID at insert time only.
     if (dto.tourId !== undefined) {
       await this.assertTourExists(dto.tourId);
       project.tourId = dto.tourId;
@@ -1101,6 +1208,9 @@ export class ProjectService {
 
     const total = await qb.getCount();
     const rows = await qb.skip(offset).take(limit).getMany();
+    const createdByNameMap = await this.resolveCreatedByDisplayValuesForRows(
+      rows.map((p) => ({ createdBy: p.createdBy })),
+    );
 
     const projectIds = rows.map((p) => p.engagementProjectId);
     const dmaByProject = new Map<number, number[]>();
@@ -1117,7 +1227,7 @@ export class ProjectService {
     }
 
     return {
-      data: rows.map((p) => ({
+      data: await Promise.all(rows.map(async (p) => ({
         engagementProjectId: p.engagementProjectId,
         tourId: p.tourId,
         attractionId: p.tour?.attractionId ?? null,
@@ -1133,14 +1243,17 @@ export class ProjectService {
         talentAgencyCompanyName: p.tour?.talentAgencyCompany?.companyName ?? null,
         projectStage: p.projectStage,
         createdDate: p.createdDate,
-        createdBy: p.createdBy,
+        createdBy: await this.resolveCreatedByDisplayValue(
+          p.createdBy,
+          createdByNameMap,
+        ),
         name: null,
         bookerId: null,
         agentContactId: null,
         dmaIds: dmaByProject.get(p.engagementProjectId) ?? [],
         targetOnSale: null,
         notes: null,
-      })),
+      }))),
       total,
     };
   }

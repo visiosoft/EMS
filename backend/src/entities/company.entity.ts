@@ -5,12 +5,13 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+import { AuditColumns } from '../audit/audit-columns';
 import { Address } from './address.entity';
 import { CompanyType } from './company-type.entity';
 import { Dma } from './dma.entity';
 
 @Entity({ name: 'Company', schema: 'dbo' })
-export class Company {
+export class Company extends AuditColumns {
   @PrimaryGeneratedColumn({ name: 'CompanyID' })
   companyId: number;
 

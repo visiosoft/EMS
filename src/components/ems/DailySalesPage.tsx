@@ -1103,7 +1103,7 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
   const [companyFilter, setCompanyFilter] = useState(() => initialFilters?.companyFilter ?? '');
   const [venueFilter, setVenueFilter] = useState(() => initialFilters?.venueFilter ?? '');
   const [contactFilter, setContactFilter] = useState(() => initialFilters?.contactFilter ?? '');
-  /** YYYY-MM-DD — empty = all performance dates (within reporting as-of). */
+  /** YYYY-MM-DD — empty = performances on/after reporting as-of; set to target a specific day. */
   const [performanceDateFilter, setPerformanceDateFilter] = useState(
     () => initialFilters?.performanceDateFilter ?? '',
   );
@@ -1123,7 +1123,6 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
     col: DailySalesLeadColumnId;
     dir: 'asc' | 'desc';
   }>(() => initialFilters?.leadSort ?? { col: 'date', dir: 'asc' });
-
   const reorderLeadColumns = useCallback((fromIndex: number, toIndex: number) => {
     if (fromIndex === toIndex) return;
     setLeadColumnOrder((prev) => {
@@ -1490,20 +1489,12 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
     `${dateInputClass}${invalid ? ' border-ems-coral focus:ring-ems-coral/25 focus:border-ems-coral' : ''}`;
 
   const isoYmd = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s.trim());
-  const asMax = isoYmd(asOfDate) ? asOfDate : undefined;
   const stY = isoYmd(startDateFilter) ? startDateFilter : undefined;
   const enY = isoYmd(endDateFilter) ? endDateFilter : undefined;
   const rangeChronoOk = !!(stY && enY && stY <= enY);
   const perfDateMin = rangeChronoOk ? stY : undefined;
-  const perfDateMax =
-    rangeChronoOk && enY
-      ? asMax
-        ? enY < asMax
-          ? enY
-          : asMax
-        : enY
-      : asMax;
-  const startDateMax = enY && asMax ? (enY < asMax ? enY : asMax) : enY || asMax;
+  const perfDateMax = rangeChronoOk ? enY : undefined;
+  const startDateMax = enY;
 
   // ── Item 7: show engagement history if one is selected ──────────────────────
   if (selectedEngagement) {
@@ -1726,7 +1717,10 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
             <div className="grid gap-5 lg:grid-cols-3">
               <fieldset className="min-w-0 space-y-3 rounded-xl border border-border/70 bg-surface/25 p-4">
                 <legend className="px-1 text-xs font-semibold text-text-primary">Performance dates</legend>
-                <p className="text-[11px] text-text-muted -mt-1 mb-1">Calendar filters for which rows load into the table.</p>
+                <p className="text-[11px] text-text-muted -mt-1 mb-1">
+                  By default, shows on or after <strong className="font-medium text-text-secondary">Reporting as of</strong> appear.
+                  Use these fields to narrow to a specific performance day or range (including past dates).
+                </p>
                 {!perfDatesOk && perfDateValidation.messages.length > 0 ? (
                   <div
                     role="alert"
@@ -1784,7 +1778,7 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
                         onChange={(e) => setEndDateFilter(e.target.value)}
                         disabled={showFullSkeleton}
                         min={stY}
-                        max={asMax}
+                        max={enY}
                         aria-invalid={perfDateValidation.highlightEnd ? true : undefined}
                       />
                     </div>

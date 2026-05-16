@@ -997,11 +997,10 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
                             onClick={() =>
                               onNavigate('engagement-detail', {
                                 engagementId: r.engagementId,
-                                initialTab: 'Sales dashboard',
                               })
                             }
                           >
-                            Sales dashboard
+                            Open
                           </button>
                         </div>
                       </div>

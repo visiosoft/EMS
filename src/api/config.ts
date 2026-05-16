@@ -1,3 +1,11 @@
+import {
+  acquireApiAccessToken,
+  getActiveAccount,
+  getAccountName,
+  getAccountOid,
+  isApiAccessTokenConfigured,
+} from '../auth/entra';
+
 /** Base URL for the Nest API (no trailing slash). Uses same-origin /api when proxied by Vite. */
 export function getApiBaseUrl(): string {
   const env = import.meta.env.VITE_API_URL as string | undefined;
@@ -12,14 +20,15 @@ export async function apiFetch<T>(
 ): Promise<T> {
   const base = getApiBaseUrl();
   const url = `${base}/api${path.startsWith('/') ? path : `/${path}`}`;
+  const headers = await buildApiHeaders(
+    { 'Content-Type': 'application/json' },
+    init?.headers,
+  );
   const res = await fetch(url, {
     ...init,
     /** Avoid stale 304 cached JSON for GETs after PATCH (venue profile, lists, etc.). */
     cache: init?.cache ?? 'no-store',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers || {}),
-    },
+    headers,
   });
   return handleApiResponse<T>(res);
 }
@@ -32,15 +41,55 @@ export async function apiFetchMultipart<T>(
   const base = getApiBaseUrl();
   const url = `${base}/api${path.startsWith('/') ? path : `/${path}`}`;
   const { body, headers, ...rest } = init;
+  const requestHeaders = await buildApiHeaders(undefined, headers);
   const res = await fetch(url, {
     ...rest,
     body,
     cache: rest.cache ?? 'no-store',
-    headers: {
-      ...(headers ?? {}),
-    },
+    headers: requestHeaders,
   });
   return handleApiResponse<T>(res);
+}
+
+async function buildApiHeaders(
+  defaults?: HeadersInit,
+  incoming?: HeadersInit,
+): Promise<Headers> {
+  const headers = new Headers(defaults);
+  if (incoming) {
+    new Headers(incoming).forEach((value, key) => headers.set(key, value));
+  }
+
+  if (!headers.has('Authorization') && isApiAccessTokenConfigured()) {
+    const account = getActiveAccount();
+    if (account) {
+      const oid = getAccountOid(account);
+      const name = getAccountName(account).trim();
+      if (oid && !headers.has('X-User-Oid')) {
+        headers.set('X-User-Oid', oid);
+      }
+      if (name && !headers.has('X-User-Name')) {
+        headers.set('X-User-Name', name);
+      }
+      try {
+        headers.set('Authorization', `Bearer ${await acquireApiAccessToken(account)}`);
+      } catch {
+        headers.delete('Authorization');
+      }
+    }
+  } else {
+    const account = getActiveAccount();
+    const oid = getAccountOid(account);
+    const name = getAccountName(account).trim();
+    if (oid && !headers.has('X-User-Oid')) {
+      headers.set('X-User-Oid', oid);
+    }
+    if (name && !headers.has('X-User-Name')) {
+      headers.set('X-User-Name', name);
+    }
+  }
+
+  return headers;
 }
 
 async function handleApiResponse<T>(res: Response): Promise<T> {

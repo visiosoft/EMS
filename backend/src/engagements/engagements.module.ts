@@ -3,7 +3,10 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AttractionToursModule } from '../attraction-tours/attraction-tours.module';
 import { Attraction } from '../entities/attraction.entity';
 import { Company } from '../entities/company.entity';
+import { Contact } from '../entities/contact.entity';
+import { Department } from '../entities/department.entity';
 import { Engagement } from '../entities/engagement.entity';
+import { EngagementIAEContact } from '../entities/engagement-iae-contact.entity';
 import { Link } from '../entities/link.entity';
 import { EngagementFinances } from '../entities/engagement-finance.entity';
 import { EngagementProduction } from '../entities/engagement-production.entity';
@@ -12,6 +15,8 @@ import { NonResidentWithholding } from '../entities/non-resident-withholding.ent
 import { ArtistFinance } from '../entities/artist-finance.entity';
 import { SettlementFinance } from '../entities/settlement-finance.entity';
 import { Performance } from '../entities/performance.entity';
+import { PerformanceTicketing } from '../entities/performance-ticketing.entity';
+import { Role } from '../entities/role.entity';
 import { TicketingSales } from '../entities/ticketing-sales.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
@@ -30,6 +35,7 @@ import { EngagementService } from './engagement.service';
       EngagementVenue,
       EngagementProduction,
       Performance,
+      PerformanceTicketing,
       TicketingSales,
       Attraction,
       Tour,
@@ -41,6 +47,10 @@ import { EngagementService } from './engagement.service';
       NonResidentWithholding,
       ArtistFinance,
       SettlementFinance,
+      EngagementIAEContact,
+      Contact,
+      Role,
+      Department,
     ]),
     AttractionToursModule,
   ],

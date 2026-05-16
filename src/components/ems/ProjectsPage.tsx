@@ -12,6 +12,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMsal } from '@azure/msal-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, Check, GripVertical, Loader2, Pencil, Trash2, X } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -35,6 +36,7 @@ import {
 } from './Primitives';
 import { Select2 } from './Select2';
 import { friendlyApiError } from '@/lib/friendlyApiError';
+import { getAccountName, getAccountOid, getActiveAccount } from '@/auth/entra';
 import {
   getPageParams,
   getPageRange,
@@ -278,7 +280,6 @@ function ProjectInlineOverview({
   const [dirty, setDirty] = useState(false);
   const [tourId, setTourId] = useState(project.tourId);
   const [projectStage, setProjectStage] = useState(project.projectStage);
-  const [createdBy, setCreatedBy] = useState(project.createdBy ?? '');
   const [tourStartDate, setTourStartDate] = useState(project.tourStartDate ?? '');
   const [tourEndDate, setTourEndDate] = useState(project.tourEndDate ?? '');
   const [talentAgencyCompanyId, setTalentAgencyCompanyId] = useState<number | null>(
@@ -298,7 +299,6 @@ function ProjectInlineOverview({
   useEffect(() => {
     setTourId(project.tourId);
     setProjectStage(project.projectStage);
-    setCreatedBy(project.createdBy ?? '');
     setTourStartDate(project.tourStartDate ?? '');
     setTourEndDate(project.tourEndDate ?? '');
     setTalentAgencyCompanyId(project.talentAgencyCompanyId ?? null);
@@ -402,7 +402,6 @@ function ProjectInlineOverview({
   const discard = () => {
     setTourId(project.tourId);
     setProjectStage(project.projectStage);
-    setCreatedBy(project.createdBy ?? '');
     setTourStartDate(project.tourStartDate ?? '');
     setTourEndDate(project.tourEndDate ?? '');
     setTalentAgencyCompanyId(project.talentAgencyCompanyId ?? null);
@@ -472,7 +471,6 @@ function ProjectInlineOverview({
         tourStartDate: tourStartDate.trim(),
         tourEndDate: tourEndDate.trim(),
         projectStage: projectStage as ProjectStage,
-        createdBy: createdBy.trim() || null,
         dmaIds: selectedDmaIds,
       });
       setDirty(false);
@@ -636,13 +634,12 @@ function ProjectInlineOverview({
             onChange={mark(setProjectStage)}
             options={stageOptions}
           />
-          <InlineEditField
-            label="Created by (optional)"
-            value={createdBy}
-            onChange={mark(setCreatedBy)}
-            placeholder="—"
-            maxLength={200}
-          />
+          <div>
+            <span className="text-xs text-text-muted">Created by</span>
+            <div className="mt-0.5 w-full min-w-0 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary">
+              {project.createdBy ?? '—'}
+            </div>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-4">
@@ -1910,7 +1907,10 @@ function CreateProjectForm({
   });
 
   const [projectStage, setProjectStage] = useState<ProjectStage>('Pending');
-  const [createdBy, setCreatedBy] = useState('');
+  const { accounts } = useMsal();
+  const activeAccount = getActiveAccount() ?? accounts[0] ?? null;
+  const createdByDisplayName = getAccountName(activeAccount);
+  const createdByOid = getAccountOid(activeAccount).trim();
 
   const [showAddTourModal, setShowAddTourModal] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -2263,7 +2263,7 @@ function CreateProjectForm({
         tourId: selectedTourId,
         talentAgencyCompanyId: projectTourMgmtCompanyId,
         projectStage: stage,
-        createdBy: createdBy.trim() ? createdBy.trim() : undefined,
+        createdBy: createdByOid || undefined,
         tourStartDate: dateRangeStart.trim(),
         tourEndDate: dateRangeEnd.trim(),
         dmaIds: selectedDmaIds,
@@ -2943,9 +2943,9 @@ function CreateProjectForm({
                   <input
                     className={inputCls}
                     maxLength={200}
-                    value={createdBy}
-                    onChange={(e) => setCreatedBy(e.target.value)}
-                    placeholder="Your name or user ID"
+                    value={createdByDisplayName}
+                    readOnly
+                    placeholder="Signed-in user"
                   />
                 </FormField>
               </div>

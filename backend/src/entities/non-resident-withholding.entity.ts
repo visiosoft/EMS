@@ -1,8 +1,8 @@
-import { Column, Entity, PrimaryColumn } from 'typeorm';
+import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
 @Entity({ name: 'NonResidentWithholding', schema: 'dbo' })
 export class NonResidentWithholding {
-  @PrimaryColumn({ name: 'WithholdingID', type: 'int' })
+  @PrimaryGeneratedColumn({ name: 'WithholdingID', type: 'int' })
   withholdingId: number;
 
   @Column({

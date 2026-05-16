@@ -1,4 +1,5 @@
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { AuditColumns } from '../audit/audit-columns';
 
 /**
  * dbo.Attraction
@@ -6,7 +7,7 @@ import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
  * NOTE: ClassID was removed from this table — it lives exclusively on Tour.
  */
 @Entity({ name: 'Attraction', schema: 'dbo' })
-export class Attraction {
+export class Attraction extends AuditColumns {
   @PrimaryGeneratedColumn({ name: 'AttractionID' })
   attractionId: number;
 

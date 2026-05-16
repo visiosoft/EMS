@@ -18,6 +18,11 @@ export class UpdateEngagementDto {
   @IsIn(ENGAGEMENT_STATUS_VALUES as unknown as string[])
   engagementStatus?: string;
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  engagementScaling?: string | null;
+
   /** dbo.Engagement.TourID — optional on update */
   @IsOptional()
   @IsInt()
