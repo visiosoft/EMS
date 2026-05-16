@@ -56,7 +56,7 @@ export class EngagementFinances {
   @Column({
     name: 'IAEWaiverApplicationConfirmationNumber',
     type: 'nvarchar',
-    length: 10,
+    length: 100,
     nullable: true,
   })
   iaeWaiverApplicationConfirmationNumber: string | null;

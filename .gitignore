@@ -38,6 +38,7 @@ backend/data/ems-app-created-ids.json
 # Local EMS reference (not committed; still present on disk for editors/agents)
 EMS_DATABASE_ARCHITECTURE.md
 EMS/EMS_DATABASE_ARCHITECTURE.md
+docs/database-schema.md
 
 # Editor directories and files
 .vscode/*

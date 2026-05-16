@@ -5,11 +5,12 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+import { AuditColumns } from '../audit/audit-columns';
 import { Engagement } from './engagement.entity';
 
 /** dbo.Performance — one row per show / performance under an engagement (see EMS_DATABASE_ARCHITECTURE §4.27). */
 @Entity({ name: 'Performance', schema: 'dbo' })
-export class Performance {
+export class Performance extends AuditColumns {
   @PrimaryGeneratedColumn({ name: 'PerformanceID' })
   performanceId: number;
 

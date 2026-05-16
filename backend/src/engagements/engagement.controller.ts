@@ -14,9 +14,13 @@ import {
 } from '@nestjs/common';
 import { AddEngagementVenueDto } from './dto/add-engagement-venue.dto';
 import { CreateEngagementDto } from './dto/create-engagement.dto';
+import { CreateEngagementIaeContactDto } from './dto/create-engagement-iae-contact.dto';
 import { CreatePerformanceDto } from './dto/create-performance.dto';
 import { UpdateEngagementDto } from './dto/update-engagement.dto';
 import { UpdateEngagementFinanceDto } from './dto/update-engagement-finance.dto';
+import { UpdateEngagementIaeContactDto } from './dto/update-engagement-iae-contact.dto';
+import { UpdateNonResidentWithholdingLinksDto } from './dto/update-non-resident-withholding-links.dto';
+import { UpdatePerformanceTicketingDto } from './dto/update-performance-ticketing.dto';
 import { EngagementService } from './engagement.service';
 
 @Controller('engagements')
@@ -40,6 +44,29 @@ export class EngagementController {
   @Get('finance-lookups')
   financeLookups() {
     return this.engagementService.getFinanceLookups();
+  }
+
+  @Get('iae-contact-lookups')
+  iaeContactLookups() {
+    return this.engagementService.getEngagementIaeContactLookups();
+  }
+
+  @Patch('withholdings/:withholdingId/links')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  updateWithholdingLinks(
+    @Param('withholdingId', ParseIntPipe) withholdingId: number,
+    @Body() dto: UpdateNonResidentWithholdingLinksDto,
+  ) {
+    return this.engagementService.updateNonResidentWithholdingLinks(
+      withholdingId,
+      dto,
+    );
+  }
+
+  @Post(':id/withholding')
+  @HttpCode(HttpStatus.CREATED)
+  createWithholdingForEngagement(@Param('id', ParseIntPipe) id: number) {
+    return this.engagementService.createWithholdingForEngagement(id);
   }
 
   @Get(':id/finance')
@@ -101,6 +128,39 @@ export class EngagementController {
     @Body() dto: UpdateEngagementDto,
   ) {
     return this.engagementService.update(id, dto);
+  }
+
+  @Get(':id/iae-contacts')
+  listIaeContacts(@Param('id', ParseIntPipe) id: number) {
+    return this.engagementService.listEngagementIaeContacts(id);
+  }
+
+  @Post(':id/iae-contacts')
+  @HttpCode(HttpStatus.CREATED)
+  addIaeContact(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateEngagementIaeContactDto,
+  ) {
+    return this.engagementService.addEngagementIaeContact(id, dto);
+  }
+
+  @Patch(':id/iae-contacts/:eicId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  updateIaeContact(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('eicId', ParseIntPipe) eicId: number,
+    @Body() dto: UpdateEngagementIaeContactDto,
+  ) {
+    return this.engagementService.updateEngagementIaeContact(id, eicId, dto);
+  }
+
+  @Delete(':id/iae-contacts/:eicId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeIaeContact(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('eicId', ParseIntPipe) eicId: number,
+  ) {
+    return this.engagementService.removeEngagementIaeContact(id, eicId);
   }
 
   @Delete(':id')
@@ -197,5 +257,23 @@ export class EngagementController {
     @Param('performanceId', ParseIntPipe) performanceId: number,
   ) {
     return this.engagementService.deletePerformance(id, performanceId);
+  }
+
+  @Get(':id/performances/:performanceId/ticketing')
+  getPerformanceTicketing(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('performanceId', ParseIntPipe) performanceId: number,
+  ) {
+    return this.engagementService.getPerformanceTicketing(id, performanceId);
+  }
+
+  @Patch(':id/performances/:performanceId/ticketing')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  updatePerformanceTicketing(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('performanceId', ParseIntPipe) performanceId: number,
+    @Body() dto: UpdatePerformanceTicketingDto,
+  ) {
+    return this.engagementService.upsertPerformanceTicketing(id, performanceId, dto);
   }
 }

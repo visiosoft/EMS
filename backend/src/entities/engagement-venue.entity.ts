@@ -1,7 +1,8 @@
 import { Column, Entity, PrimaryColumn } from 'typeorm';
+import { AuditColumns } from '../audit/audit-columns';
 
 @Entity({ name: 'EngagementVenue', schema: 'dbo' })
-export class EngagementVenue {
+export class EngagementVenue extends AuditColumns {
   @PrimaryColumn({ name: 'EngagementID', type: 'int' })
   engagementId: number;
 

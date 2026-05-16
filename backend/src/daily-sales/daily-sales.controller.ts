@@ -67,7 +67,7 @@ export class DailySalesController {
 
   /**
    * GET /api/daily-sales/by-performance
-   * Paged rows per show with PerformanceDate <= asOf.
+   * Paged rows per show; default list is performances on/after reporting as-of.
    * Reporting columns: asOf (current) and asOf minus one calendar day.
    * ?asOfDate=YYYY-MM-DD (optional; defaults to server date in SQL)
    * &page=1&pageSize=25&search=&attraction=&performanceDate=YYYY-MM-DD

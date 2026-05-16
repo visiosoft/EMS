@@ -5,10 +5,11 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+import { AuditColumns } from '../audit/audit-columns';
 import { ContactInfo } from './contact-info.entity';
 
 @Entity({ name: 'Contact', schema: 'dbo' })
-export class Contact {
+export class Contact extends AuditColumns {
   @PrimaryGeneratedColumn({ name: 'ContactID' })
   contactId: number;
 
