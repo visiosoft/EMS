@@ -9,9 +9,12 @@ import { DataSource, In, Repository, SelectQueryBuilder } from 'typeorm';
 import { Address } from '../entities/address.entity';
 import { Attraction } from '../entities/attraction.entity';
 import { Company } from '../entities/company.entity';
+import { Contact } from '../entities/contact.entity';
+import { Department } from '../entities/department.entity';
 import { Dma } from '../entities/dma.entity';
 import { Link } from '../entities/link.entity';
 import { Engagement } from '../entities/engagement.entity';
+import { EngagementIAEContact } from '../entities/engagement-iae-contact.entity';
 import { EngagementFinances } from '../entities/engagement-finance.entity';
 import { EngagementProduction } from '../entities/engagement-production.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
@@ -22,6 +25,8 @@ import { NonResidentWithholding } from '../entities/non-resident-withholding.ent
 import { ArtistFinance } from '../entities/artist-finance.entity';
 import { SettlementFinance } from '../entities/settlement-finance.entity';
 import { Performance } from '../entities/performance.entity';
+import { PerformanceTicketing } from '../entities/performance-ticketing.entity';
+import { Role } from '../entities/role.entity';
 import { TicketingSales } from '../entities/ticketing-sales.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
@@ -30,6 +35,10 @@ import { CreateEngagementDto } from './dto/create-engagement.dto';
 import { CreatePerformanceDto } from './dto/create-performance.dto';
 import { UpdateEngagementDto } from './dto/update-engagement.dto';
 import { UpdateEngagementFinanceDto } from './dto/update-engagement-finance.dto';
+import { UpdatePerformanceTicketingDto } from './dto/update-performance-ticketing.dto';
+import { CreateEngagementIaeContactDto } from './dto/create-engagement-iae-contact.dto';
+import { UpdateEngagementIaeContactDto } from './dto/update-engagement-iae-contact.dto';
+import { UpdateNonResidentWithholdingLinksDto } from './dto/update-non-resident-withholding-links.dto';
 import { AddEngagementVenueDto } from './dto/add-engagement-venue.dto';
 import { buildEngagementDisplayTitle } from './engagement-display.util';
 import { normalizeEngagementStatus } from './engagement-status.util';
@@ -38,6 +47,7 @@ import { getIaeWaiverStatusAllowlist } from './iae-waiver-status.constants';
 export interface EngagementListRow {
   engagementId: number;
   engagementStatus: string;
+  engagementScaling: string | null;
   sellableCapacity: number | null;
   grossPotential: number | null;
   /** Earliest dbo.Performance for this engagement (opening show), if any */
@@ -103,11 +113,48 @@ export interface EngagementFinanceRow {
   requiredNonResidentWithholdingId: number | null;
   artistFinanceId: number | null;
   settlementFinanceId: number | null;
+  /** dbo.SettlementFinance (via EngagementFinances.SettlementFinanceID) */
+  artistSettlementStatus: string | null;
+  venueSettlementStatus: string | null;
+  subscriptionSalesRevenueTotal: number | null;
+  seasonTicketSalesByIae: number | null;
+  seasonTicketFundsTransferred: number | null;
+  netBoxOfficeFundsDepositedAccount: string | null;
+  hstCollectedFromTicketSales: number | null;
+  hstPaidOnTourPayments: number | null;
+  hstPaidOnShowExpenses: number | null;
+  hstPaidOnVenueExpenses: number | null;
+  artistGrossTaxableCompensation: number | null;
+  amountDueToDeptOfRevenue: number | null;
+  checkNumberOrConfOfWithholdingPayment: string | null;
+  /** dbo.ArtistFinance (via EngagementFinances.ArtistFinanceID) */
+  artistDealType: string | null;
+  artistGuarantee: number | null;
+  artistMiddleMoney: number | null;
+  artistRoyaltyVariableFee: string | null;
+  artistBackEndTerms: string | null;
+  /** dbo.EngagementFinances — add columns if missing */
+  finalAcceptedOfferLink: string | null;
+  settlementFileSharePointLink: string | null;
 }
 
 export interface FinanceMasterOption {
   id: number;
   label: string;
+  withholdingTaxRate?: string | null;
+  dmaid?: number | null;
+  taxAgencyId?: number | null;
+  withholdingLink?: FinanceLink | null;
+  artistWaiverInstructions?: FinanceLink | null;
+  iaeWaiverInstructions?: FinanceLink | null;
+}
+
+export interface FinanceLink {
+  linkId: number;
+  linkType: string;
+  linkUrl: string;
+  linkName: string;
+  linkPath: string;
 }
 
 export interface EngagementFinanceLookups {
@@ -115,6 +162,44 @@ export interface EngagementFinanceLookups {
   artistFinances: FinanceMasterOption[];
   settlementFinances: FinanceMasterOption[];
   iaeApplicationWaiverStatuses: { value: string; label: string }[];
+}
+
+/** dbo.PerformanceTicketing (one logical row per performance in the EMS UI). */
+export interface PerformanceTicketingRow {
+  ticketingId: number | null;
+  performanceId: number;
+  ticketingStatus: string | null;
+  onSaleDate: string | null;
+  preSaleDate: string | null;
+  vipPackagedOffer: string | null;
+  preSaleSpecialPrices: string | null;
+  kidsTicketsPrices: string | null;
+  ticketingLinkId: number | null;
+  ticketingLinkUrl: string | null;
+  grossTicketSales: number | null;
+  totalComps: number | null;
+  totalTickets: number | null;
+  totalAdmissions: number | null;
+}
+
+export interface EngagementIaeContactRow {
+  engagementIaeContactId: number;
+  engagementId: number;
+  contactId: number;
+  contactLabel: string;
+  roleId: number | null;
+  roleName: string | null;
+  departmentId: number | null;
+  departmentName: string | null;
+  isPrimary: boolean;
+  notes: string | null;
+  createdDate: string;
+}
+
+export interface EngagementIaeContactLookups {
+  contacts: FinanceMasterOption[];
+  roles: FinanceMasterOption[];
+  departments: FinanceMasterOption[];
 }
 
 /** Query params for {@link EngagementService.listPaginated}. */
@@ -139,6 +224,12 @@ function pickRaw(r: Record<string, unknown>, key: string): unknown {
 
 @Injectable()
 export class EngagementService {
+  /**
+   * When dbo.EngagementFinances has optional SharePoint link columns, read/write them via raw SQL.
+   * `null` = not yet probed; avoids repeated metadata queries once resolved.
+   */
+  private engagementFinanceSharePointLinkColsPresent: boolean | null = null;
+
   constructor(
     @InjectRepository(Engagement)
     private readonly engagementRepo: Repository<Engagement>,
@@ -162,6 +253,18 @@ export class EngagementService {
     private readonly serviceProvidedRepo: Repository<ServiceProvided>,
     @InjectRepository(Performance)
     private readonly performanceRepo: Repository<Performance>,
+    @InjectRepository(PerformanceTicketing)
+    private readonly performanceTicketingRepo: Repository<PerformanceTicketing>,
+    @InjectRepository(Link)
+    private readonly linkRepo: Repository<Link>,
+    @InjectRepository(EngagementIAEContact)
+    private readonly engagementIaeContactRepo: Repository<EngagementIAEContact>,
+    @InjectRepository(Contact)
+    private readonly contactRepo: Repository<Contact>,
+    @InjectRepository(Role)
+    private readonly roleRepo: Repository<Role>,
+    @InjectRepository(Department)
+    private readonly departmentRepo: Repository<Department>,
     @InjectRepository(NonResidentWithholding)
     private readonly nonResidentWithholdingRepo: Repository<NonResidentWithholding>,
     @InjectRepository(ArtistFinance)
@@ -303,6 +406,116 @@ export class EngagementService {
     return value;
   }
 
+  private escapeSqlNVarCharLiteral(value: string): string {
+    return `N'${String(value).replace(/'/g, "''")}'`;
+  }
+
+  private async engagementFinancesHasSharePointLinkColumns(): Promise<boolean> {
+    if (this.engagementFinanceSharePointLinkColsPresent !== null) {
+      return this.engagementFinanceSharePointLinkColsPresent;
+    }
+    try {
+      const r = await this.dataSource.query(
+        `
+        SELECT CASE WHEN
+          EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'EngagementFinances' AND c.name = N'FinalAcceptedOfferLink'
+          ) AND EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'EngagementFinances' AND c.name = N'SettlementFileSharePointLink'
+          )
+        THEN 1 ELSE 0 END AS ok
+      `,
+      );
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      const rawOk = row0 ? pickRaw(row0, 'ok') : undefined;
+      const ok =
+        rawOk === 1 ||
+        rawOk === true ||
+        rawOk === '1' ||
+        Number(rawOk) === 1;
+      this.engagementFinanceSharePointLinkColsPresent = ok;
+      return ok;
+    } catch {
+      this.engagementFinanceSharePointLinkColsPresent = false;
+      return false;
+    }
+  }
+
+  private async mergeFinanceSharePointLinksFromDb(
+    financeId: number,
+    base: EngagementFinanceRow,
+  ): Promise<EngagementFinanceRow> {
+    if (!(await this.engagementFinancesHasSharePointLinkColumns())) {
+      return base;
+    }
+    try {
+      const fid = Math.floor(Number(financeId));
+      if (!Number.isFinite(fid) || fid < 1) return base;
+      const r = await this.dataSource.query(
+        `SELECT [FinalAcceptedOfferLink] AS fl, [SettlementFileSharePointLink] AS sl
+         FROM dbo.EngagementFinances WHERE [FinanceID] = ${fid}`,
+      );
+      const lr = (r as Record<string, unknown>[])?.[0];
+      if (!lr) return base;
+      const fl = pickRaw(lr, 'fl');
+      const sl = pickRaw(lr, 'sl');
+      return {
+        ...base,
+        finalAcceptedOfferLink:
+          fl == null || fl === '' ? null : String(fl).slice(0, 500),
+        settlementFileSharePointLink:
+          sl == null || sl === '' ? null : String(sl).slice(0, 500),
+      };
+    } catch {
+      return base;
+    }
+  }
+
+  private async tryPersistFinanceSharePointLinks(
+    financeId: number | null | undefined,
+    dto: UpdateEngagementFinanceDto,
+  ): Promise<void> {
+    const fid = financeId == null ? NaN : Math.floor(Number(financeId));
+    if (!Number.isFinite(fid) || fid < 1) return;
+    if (!(await this.engagementFinancesHasSharePointLinkColumns())) return;
+    const wantF = dto.finalAcceptedOfferLink !== undefined;
+    const wantS = dto.settlementFileSharePointLink !== undefined;
+    if (!wantF && !wantS) return;
+    const fSql =
+      wantF &&
+      (dto.finalAcceptedOfferLink == null ||
+        String(dto.finalAcceptedOfferLink).trim() === '')
+        ? 'NULL'
+        : wantF
+          ? this.escapeSqlNVarCharLiteral(
+              String(dto.finalAcceptedOfferLink).trim().slice(0, 500),
+            )
+          : null;
+    const sSql =
+      wantS &&
+      (dto.settlementFileSharePointLink == null ||
+        String(dto.settlementFileSharePointLink).trim() === '')
+        ? 'NULL'
+        : wantS
+          ? this.escapeSqlNVarCharLiteral(
+              String(dto.settlementFileSharePointLink).trim().slice(0, 500),
+            )
+          : null;
+    const sets: string[] = [];
+    if (wantF && fSql != null) sets.push(`[FinalAcceptedOfferLink] = ${fSql}`);
+    if (wantS && sSql != null) sets.push(`[SettlementFileSharePointLink] = ${sSql}`);
+    if (!sets.length) return;
+    await this.dataSource.query(
+      `UPDATE dbo.EngagementFinances SET ${sets.join(', ')} WHERE [FinanceID] = ${fid}`,
+    );
+  }
+
   private mapBit(
     v: boolean | number | Buffer | null | undefined,
   ): boolean | null {
@@ -313,16 +526,166 @@ export class EngagementService {
     return null;
   }
 
+  private mapFinanceLink(link: Link | null | undefined): FinanceLink | null {
+    if (!link) return null;
+    return {
+      linkId: link.linkId,
+      linkType: link.linkType,
+      linkUrl: link.linkUrl,
+      linkName: link.linkName,
+      linkPath: link.linkPath,
+    };
+  }
+
+  private normalizeHttpOrHttpsUrl(
+    raw: string | null | undefined,
+    label: string,
+  ): string | null {
+    const trimmed = String(raw ?? '').trim();
+    if (!trimmed) return null;
+    let parsed: URL;
+    try {
+      parsed = new URL(trimmed);
+    } catch {
+      throw new BadRequestException({
+        message: `${label} must be a valid http(s) URL.`,
+      });
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new BadRequestException({
+        message: `${label} must start with http:// or https://.`,
+      });
+    }
+    return trimmed.slice(0, 2048);
+  }
+
+  private async upsertUrlLink(
+    rawUrl: string | null | undefined,
+    existingLinkId: number | null,
+    label: string,
+  ): Promise<number | null> {
+    const url = this.normalizeHttpOrHttpsUrl(rawUrl, label);
+    if (!url) return null;
+
+    const existing =
+      existingLinkId != null && existingLinkId > 0
+        ? await this.linkRepo.findOne({ where: { linkId: existingLinkId } })
+        : null;
+    const link =
+      existing ??
+      this.linkRepo.create({
+        linkType: 'URL',
+        linkName: label,
+      });
+    link.linkType = 'URL';
+    link.linkUrl = url;
+    link.linkPath = url.slice(0, 1024);
+    link.linkName = (link.linkName?.trim() || label).slice(0, 255);
+    const saved = await this.linkRepo.save(link);
+    return saved.linkId;
+  }
+
+  private async upsertTicketingUrlLink(
+    rawUrl: string | null | undefined,
+    existingLinkId: number | null,
+  ): Promise<number | null> {
+    return this.upsertUrlLink(rawUrl, existingLinkId, 'Ticketing link');
+  }
+
+  private settlementFinanceResponseSlice(
+    settlementRow: SettlementFinance | null,
+  ): Pick<
+    EngagementFinanceRow,
+    | 'artistSettlementStatus'
+    | 'venueSettlementStatus'
+    | 'subscriptionSalesRevenueTotal'
+    | 'seasonTicketSalesByIae'
+    | 'seasonTicketFundsTransferred'
+    | 'netBoxOfficeFundsDepositedAccount'
+    | 'hstCollectedFromTicketSales'
+    | 'hstPaidOnTourPayments'
+    | 'hstPaidOnShowExpenses'
+    | 'hstPaidOnVenueExpenses'
+    | 'artistGrossTaxableCompensation'
+    | 'amountDueToDeptOfRevenue'
+    | 'checkNumberOrConfOfWithholdingPayment'
+  > {
+    if (!settlementRow) {
+      return {
+        artistSettlementStatus: null,
+        venueSettlementStatus: null,
+        subscriptionSalesRevenueTotal: null,
+        seasonTicketSalesByIae: null,
+        seasonTicketFundsTransferred: null,
+        netBoxOfficeFundsDepositedAccount: null,
+        hstCollectedFromTicketSales: null,
+        hstPaidOnTourPayments: null,
+        hstPaidOnShowExpenses: null,
+        hstPaidOnVenueExpenses: null,
+        artistGrossTaxableCompensation: null,
+        amountDueToDeptOfRevenue: null,
+        checkNumberOrConfOfWithholdingPayment: null,
+      };
+    }
+    return {
+      artistSettlementStatus: settlementRow.artistSettlementStatus ?? null,
+      venueSettlementStatus: settlementRow.venueSettlementStatus ?? null,
+      subscriptionSalesRevenueTotal: this.mapFinanceNumber(
+        settlementRow.subscriptionSalesRevenueTotal,
+      ),
+      seasonTicketSalesByIae: this.mapFinanceNumber(
+        settlementRow.seasonTicketSalesByIae,
+      ),
+      seasonTicketFundsTransferred: this.mapFinanceNumber(
+        settlementRow.seasonTicketFundsTransferred,
+      ),
+      netBoxOfficeFundsDepositedAccount:
+        settlementRow.netBoxOfficeFundsDepositedAccount ?? null,
+      hstCollectedFromTicketSales: this.mapFinanceNumber(
+        settlementRow.hstCollectedFromTicketSales,
+      ),
+      hstPaidOnTourPayments: this.mapFinanceNumber(
+        settlementRow.hstPaidOnTourPayments,
+      ),
+      hstPaidOnShowExpenses: this.mapFinanceNumber(
+        settlementRow.hstPaidOnShowExpenses,
+      ),
+      hstPaidOnVenueExpenses: this.mapFinanceNumber(
+        settlementRow.hstPaidOnVenueExpenses,
+      ),
+      artistGrossTaxableCompensation: this.mapFinanceNumber(
+        settlementRow.artistGrossTaxableCompensation,
+      ),
+      amountDueToDeptOfRevenue: this.mapFinanceNumber(
+        settlementRow.amountDueToDeptOfRevenue,
+      ),
+      checkNumberOrConfOfWithholdingPayment:
+        settlementRow.checkNumberOrConfOfWithholdingPayment ?? null,
+    };
+  }
+
   private toFinanceResponse(
     engagementId: number,
     row: EngagementFinances | null,
     engagement: Engagement,
+    artistRow: ArtistFinance | null,
+    settlementRow: SettlementFinance | null,
   ): EngagementFinanceRow {
     const grossPotential = this.mapFinanceNumber(engagement.grossPotential);
     const sellableCapacity =
       engagement.sellableCapacity != null
         ? Number(engagement.sellableCapacity)
         : null;
+
+    const artistDealType = artistRow?.artistDealType ?? null;
+    const artistGuarantee = artistRow
+      ? this.mapFinanceNumber(artistRow.artistGuarantee)
+      : null;
+    const artistMiddleMoney = artistRow
+      ? this.mapFinanceNumber(artistRow.artistMiddleMoney)
+      : null;
+    const artistRoyaltyVariableFee = artistRow?.artistRoyaltyVariableFee ?? null;
+    const artistBackEndTerms = artistRow?.artistBackEndTerms ?? null;
 
     if (!row) {
       return {
@@ -345,6 +708,14 @@ export class EngagementService {
         requiredNonResidentWithholdingId: null,
         artistFinanceId: null,
         settlementFinanceId: null,
+        artistDealType,
+        artistGuarantee,
+        artistMiddleMoney,
+        artistRoyaltyVariableFee,
+        artistBackEndTerms,
+        ...this.settlementFinanceResponseSlice(settlementRow),
+        finalAcceptedOfferLink: null,
+        settlementFileSharePointLink: null,
       };
     }
     return {
@@ -372,6 +743,14 @@ export class EngagementService {
       requiredNonResidentWithholdingId: row.requiredNonResidentWithholdingId,
       artistFinanceId: row.artistFinanceId,
       settlementFinanceId: row.settlementFinanceId,
+      artistDealType,
+      artistGuarantee,
+      artistMiddleMoney,
+      artistRoyaltyVariableFee,
+      artistBackEndTerms,
+      ...this.settlementFinanceResponseSlice(settlementRow),
+      finalAcceptedOfferLink: null,
+      settlementFileSharePointLink: null,
     };
   }
 
@@ -412,6 +791,7 @@ export class EngagementService {
       .select([
         'e.engagementId         AS engagementId',
         'e.engagementStatus     AS engagementStatus',
+        'e.engagementScaling    AS engagementScaling',
         'e.sellableCapacity     AS sellableCapacity',
         'e.grossPotential       AS grossPotential',
         'e.tourId               AS tourId',
@@ -510,6 +890,10 @@ export class EngagementService {
       engagementStatus: normalizeEngagementStatus(
         String(g('engagementStatus') ?? ''),
       ),
+      engagementScaling:
+        g('engagementScaling') != null && String(g('engagementScaling')).trim() !== ''
+          ? String(g('engagementScaling')).trim()
+          : null,
       sellableCapacity:
         g('sellableCapacity') != null ? Number(g('sellableCapacity')) : null,
       grossPotential:
@@ -790,7 +1174,29 @@ export class EngagementService {
     const row = await this.engagementFinancesRepo.findOne({
       where: { engagementId },
     });
-    return this.toFinanceResponse(engagementId, row, engagement);
+    let artistRow: ArtistFinance | null = null;
+    const afId = row?.artistFinanceId ?? null;
+    if (afId != null) {
+      artistRow = await this.artistFinanceRepo.findOne({
+        where: { artistFinanceId: afId },
+      });
+    }
+    let settlementRow: SettlementFinance | null = null;
+    const sfId = row?.settlementFinanceId ?? null;
+    if (sfId != null) {
+      settlementRow = await this.settlementFinanceRepo.findOne({
+        where: { settlementFinanceId: sfId },
+      });
+    }
+    const base = this.toFinanceResponse(
+      engagementId,
+      row,
+      engagement,
+      artistRow,
+      settlementRow,
+    );
+    if (!row?.financeId) return base;
+    return this.mergeFinanceSharePointLinksFromDb(row.financeId, base);
   }
 
   /**
@@ -806,9 +1212,39 @@ export class EngagementService {
     const nrRows = await this.nonResidentWithholdingRepo.find({
       order: { withholdingId: 'ASC' },
     });
+    const linkIds = Array.from(
+      new Set(
+        nrRows
+          .flatMap((r) => [
+            r.withholdingLinkId,
+            r.artistWaiverInstructionsId,
+            r.iaeWaiverInstructionsId,
+          ])
+          .filter((id): id is number => id != null && Number.isInteger(id) && id > 0),
+      ),
+    );
+    const links =
+      linkIds.length > 0
+        ? await this.linkRepo.find({ where: { linkId: In(linkIds) } })
+        : [];
+    const linksById = new Map(links.map((link) => [link.linkId, link]));
     const nonResidentWithholdings: FinanceMasterOption[] = nrRows.map((r) => ({
       id: r.withholdingId,
       label: `Withholding #${r.withholdingId} (rate ${r.withholdingTaxRate})`,
+      withholdingTaxRate: String(r.withholdingTaxRate ?? ''),
+      dmaid: r.dmaid ?? null,
+      taxAgencyId: r.taxAgencyId ?? null,
+      withholdingLink: this.mapFinanceLink(
+        r.withholdingLinkId ? linksById.get(r.withholdingLinkId) : null,
+      ),
+      artistWaiverInstructions: this.mapFinanceLink(
+        r.artistWaiverInstructionsId
+          ? linksById.get(r.artistWaiverInstructionsId)
+          : null,
+      ),
+      iaeWaiverInstructions: this.mapFinanceLink(
+        r.iaeWaiverInstructionsId ? linksById.get(r.iaeWaiverInstructionsId) : null,
+      ),
     }));
 
     let artistFinances: FinanceMasterOption[] = [];
@@ -819,7 +1255,9 @@ export class EngagementService {
       });
       artistFinances = ar.map((r) => ({
         id: r.artistFinanceId,
-        label: `Artist finance #${r.artistFinanceId}`,
+        label:
+          (r.artistDealType?.trim() || '').slice(0, 80) ||
+          `Artist finance #${r.artistFinanceId}`,
       }));
     } catch {
       try {
@@ -841,10 +1279,16 @@ export class EngagementService {
         order: { settlementFinanceId: 'ASC' },
         take: 5000,
       });
-      settlementFinances = sf.map((r) => ({
-        id: r.settlementFinanceId,
-        label: `Settlement finance #${r.settlementFinanceId}`,
-      }));
+      settlementFinances = sf.map((r) => {
+        const parts = [r.artistSettlementStatus, r.venueSettlementStatus]
+          .map((x) => (x ?? '').trim())
+          .filter(Boolean);
+        const hint = parts.join(' / ').slice(0, 80);
+        return {
+          id: r.settlementFinanceId,
+          label: hint || `Settlement finance #${r.settlementFinanceId}`,
+        };
+      });
     } catch {
       try {
         const raw = await this.dataSource.query(
@@ -865,6 +1309,130 @@ export class EngagementService {
       settlementFinances,
       iaeApplicationWaiverStatuses,
     };
+  }
+
+  async updateNonResidentWithholdingLinks(
+    withholdingId: number,
+    dto: UpdateNonResidentWithholdingLinksDto,
+  ): Promise<void> {
+    const id = Math.floor(Number(withholdingId));
+    if (!Number.isInteger(id) || id < 1) {
+      throw new BadRequestException({ message: 'Invalid withholding id.' });
+    }
+
+    const row = await this.nonResidentWithholdingRepo.findOne({
+      where: { withholdingId: id },
+    });
+    if (!row) {
+      throw new NotFoundException({
+        message: `Non-resident withholding #${id} was not found.`,
+      });
+    }
+
+    if (dto.iaeWaiverInstructionsUrl !== undefined) {
+      row.iaeWaiverInstructionsId = await this.upsertUrlLink(
+        dto.iaeWaiverInstructionsUrl,
+        row.iaeWaiverInstructionsId,
+        'IAE waiver instructions',
+      );
+    }
+    if (dto.artistWaiverInstructionsUrl !== undefined) {
+      row.artistWaiverInstructionsId = await this.upsertUrlLink(
+        dto.artistWaiverInstructionsUrl,
+        row.artistWaiverInstructionsId,
+        'Artist waiver instructions',
+      );
+    }
+
+    await this.nonResidentWithholdingRepo.save(row);
+  }
+
+  async createWithholdingForEngagement(
+    engagementId: number,
+  ): Promise<{ withholdingId: number }> {
+    const id = Math.floor(Number(engagementId));
+    if (!Number.isInteger(id) || id < 1) {
+      throw new BadRequestException({ message: 'Invalid engagement id.' });
+    }
+    await this.assertEngagementExists(id);
+
+    return this.dataSource.transaction(async (em) => {
+      const existingFinance = await em.findOne(EngagementFinances, {
+        where: { engagementId: id },
+      });
+      const existingFinanceWithholdingId =
+        existingFinance?.requiredNonResidentWithholdingId ?? null;
+      const primaryEngagementVenue = await em.findOne(EngagementVenue, {
+        where: { engagementId: id, isPrimary: true },
+      });
+      const venueCompanyId = primaryEngagementVenue?.venueCompanyId ?? null;
+      const venue =
+        venueCompanyId != null
+          ? await em.findOne(Venue, { where: { companyId: venueCompanyId } })
+          : null;
+
+      if (existingFinanceWithholdingId != null) {
+        const existingWithholding = await em.findOne(NonResidentWithholding, {
+          where: { withholdingId: existingFinanceWithholdingId },
+        });
+        if (existingWithholding) {
+          if (venue && venue.nonResidentWithholdingId == null) {
+            venue.nonResidentWithholdingId = existingWithholding.withholdingId;
+            await em.save(Venue, venue);
+          }
+          return { withholdingId: existingWithholding.withholdingId };
+        }
+      }
+
+      const venueWithholdingId = venue?.nonResidentWithholdingId ?? null;
+      let venueWithholdingMissing = false;
+      if (venueWithholdingId != null) {
+        const venueWithholding = await em.findOne(NonResidentWithholding, {
+          where: { withholdingId: venueWithholdingId },
+        });
+        if (venueWithholding) {
+          const finance =
+            existingFinance ?? em.create(EngagementFinances, { engagementId: id });
+          finance.requiredNonResidentWithholdingId =
+            venueWithholding.withholdingId;
+          await em.save(EngagementFinances, finance);
+          return { withholdingId: venueWithholding.withholdingId };
+        }
+        venueWithholdingMissing = true;
+      }
+
+      const venueCompany =
+        venueCompanyId != null
+          ? await em.findOne(Company, { where: { companyId: venueCompanyId } })
+          : null;
+      const withholding = em.create(NonResidentWithholding, {
+        withholdingTaxRate: '0',
+        dmaid: venueCompany?.dmaid ?? null,
+        taxAgencyId: null,
+        withholdingLinkId: null,
+        artistWaiverInstructionsId: null,
+        iaeWaiverInstructionsId: null,
+      });
+      const savedWithholding = await em.save(NonResidentWithholding, withholding);
+      const savedWithholdingId = savedWithholding.withholdingId;
+      if (!Number.isInteger(savedWithholdingId) || savedWithholdingId < 1) {
+        throw new BadRequestException({
+          message: 'Could not create a withholding record.',
+        });
+      }
+
+      const finance =
+        existingFinance ?? em.create(EngagementFinances, { engagementId: id });
+      finance.requiredNonResidentWithholdingId = savedWithholdingId;
+      await em.save(EngagementFinances, finance);
+
+      if (venue && (venue.nonResidentWithholdingId == null || venueWithholdingMissing)) {
+        venue.nonResidentWithholdingId = savedWithholdingId;
+        await em.save(Venue, venue);
+      }
+
+      return { withholdingId: savedWithholdingId };
+    });
   }
 
   private async assertFinanceFks(
@@ -939,6 +1507,10 @@ export class EngagementService {
     const row =
       existing ?? this.engagementFinancesRepo.create({ engagementId });
 
+    if (dto.artistFinanceId !== undefined) {
+      row.artistFinanceId = dto.artistFinanceId;
+    }
+
     if (dto.estimatedBreakeven !== undefined) {
       row.estimatedBreakeven =
         dto.estimatedBreakeven == null ? null : dto.estimatedBreakeven;
@@ -957,7 +1529,7 @@ export class EngagementService {
     if (dto.iaeWaiverApplicationConfirmationNumber !== undefined) {
       const t = dto.iaeWaiverApplicationConfirmationNumber;
       row.iaeWaiverApplicationConfirmationNumber =
-        t == null || t.trim() === '' ? null : t.trim().slice(0, 10);
+        t == null || t.trim() === '' ? null : t.trim().slice(0, 100);
     }
     if (dto.iaeWaiverApplicationSubmissionDate !== undefined) {
       row.iaeWaiverApplicationSubmissionDate = this.assertYmdOrNull(
@@ -990,14 +1562,290 @@ export class EngagementService {
       row.requiredNonResidentWithholdingId =
         dto.requiredNonResidentWithholdingId;
     }
-    if (dto.artistFinanceId !== undefined) {
-      row.artistFinanceId = dto.artistFinanceId;
-    }
     if (dto.settlementFinanceId !== undefined) {
       row.settlementFinanceId = dto.settlementFinanceId;
     }
 
+    const touchesArtistMaster =
+      dto.artistDealType !== undefined ||
+      dto.artistGuarantee !== undefined ||
+      dto.artistMiddleMoney !== undefined ||
+      dto.artistRoyaltyVariableFee !== undefined ||
+      dto.artistBackEndTerms !== undefined;
+
+    if (touchesArtistMaster) {
+      let afId = row.artistFinanceId;
+      if (afId == null) {
+        const created = this.artistFinanceRepo.create({
+          artistDealType:
+            dto.artistDealType === undefined
+              ? null
+              : dto.artistDealType == null || dto.artistDealType.trim() === ''
+                ? null
+                : dto.artistDealType.trim().slice(0, 100),
+          artistGuarantee:
+            dto.artistGuarantee === undefined
+              ? null
+              : dto.artistGuarantee == null
+                ? null
+                : dto.artistGuarantee,
+          artistMiddleMoney:
+            dto.artistMiddleMoney === undefined
+              ? null
+              : dto.artistMiddleMoney == null
+                ? null
+                : dto.artistMiddleMoney,
+          artistRoyaltyVariableFee:
+            dto.artistRoyaltyVariableFee === undefined
+              ? null
+              : dto.artistRoyaltyVariableFee == null ||
+                  dto.artistRoyaltyVariableFee.trim() === ''
+                ? null
+                : dto.artistRoyaltyVariableFee.trim().slice(0, 255),
+          artistBackEndTerms:
+            dto.artistBackEndTerms === undefined
+              ? null
+              : dto.artistBackEndTerms == null || dto.artistBackEndTerms.trim() === ''
+                ? null
+                : dto.artistBackEndTerms.trim(),
+        });
+        const savedAf = await this.artistFinanceRepo.save(created);
+        afId = savedAf.artistFinanceId;
+        row.artistFinanceId = afId;
+      } else {
+        const af = await this.artistFinanceRepo.findOne({
+          where: { artistFinanceId: afId },
+        });
+        if (!af) {
+          throw new BadRequestException({
+            message: `Artist finance #${afId} was not found.`,
+          });
+        }
+        if (dto.artistDealType !== undefined) {
+          const t = dto.artistDealType;
+          af.artistDealType =
+            t == null || t.trim() === '' ? null : t.trim().slice(0, 100);
+        }
+        if (dto.artistGuarantee !== undefined) {
+          af.artistGuarantee =
+            dto.artistGuarantee == null ? null : dto.artistGuarantee;
+        }
+        if (dto.artistMiddleMoney !== undefined) {
+          af.artistMiddleMoney =
+            dto.artistMiddleMoney == null ? null : dto.artistMiddleMoney;
+        }
+        if (dto.artistRoyaltyVariableFee !== undefined) {
+          const t = dto.artistRoyaltyVariableFee;
+          af.artistRoyaltyVariableFee =
+            t == null || t.trim() === '' ? null : t.trim().slice(0, 255);
+        }
+        if (dto.artistBackEndTerms !== undefined) {
+          const t = dto.artistBackEndTerms;
+          af.artistBackEndTerms =
+            t == null || t.trim() === '' ? null : t.trim();
+        }
+        await this.artistFinanceRepo.save(af);
+      }
+    }
+
+    const touchesSettlementMaster =
+      dto.artistSettlementStatus !== undefined ||
+      dto.venueSettlementStatus !== undefined ||
+      dto.subscriptionSalesRevenueTotal !== undefined ||
+      dto.seasonTicketSalesByIae !== undefined ||
+      dto.seasonTicketFundsTransferred !== undefined ||
+      dto.netBoxOfficeFundsDepositedAccount !== undefined ||
+      dto.hstCollectedFromTicketSales !== undefined ||
+      dto.hstPaidOnTourPayments !== undefined ||
+      dto.hstPaidOnShowExpenses !== undefined ||
+      dto.hstPaidOnVenueExpenses !== undefined ||
+      dto.artistGrossTaxableCompensation !== undefined ||
+      dto.amountDueToDeptOfRevenue !== undefined ||
+      dto.checkNumberOrConfOfWithholdingPayment !== undefined;
+
+    if (touchesSettlementMaster) {
+      let sfId = row.settlementFinanceId;
+      if (sfId == null) {
+        const created = this.settlementFinanceRepo.create({
+          artistSettlementStatus:
+            dto.artistSettlementStatus === undefined
+              ? null
+              : dto.artistSettlementStatus == null ||
+                  String(dto.artistSettlementStatus).trim() === ''
+                ? null
+                : String(dto.artistSettlementStatus).trim().slice(0, 50),
+          venueSettlementStatus:
+            dto.venueSettlementStatus === undefined
+              ? null
+              : dto.venueSettlementStatus == null ||
+                  String(dto.venueSettlementStatus).trim() === ''
+                ? null
+                : String(dto.venueSettlementStatus).trim().slice(0, 50),
+          subscriptionSalesRevenueTotal:
+            dto.subscriptionSalesRevenueTotal === undefined
+              ? null
+              : dto.subscriptionSalesRevenueTotal == null
+                ? null
+                : dto.subscriptionSalesRevenueTotal,
+          seasonTicketSalesByIae:
+            dto.seasonTicketSalesByIae === undefined
+              ? null
+              : dto.seasonTicketSalesByIae == null
+                ? null
+                : dto.seasonTicketSalesByIae,
+          seasonTicketFundsTransferred:
+            dto.seasonTicketFundsTransferred === undefined
+              ? null
+              : dto.seasonTicketFundsTransferred == null
+                ? null
+                : dto.seasonTicketFundsTransferred,
+          netBoxOfficeFundsDepositedAccount:
+            dto.netBoxOfficeFundsDepositedAccount === undefined
+              ? null
+              : dto.netBoxOfficeFundsDepositedAccount == null ||
+                  String(dto.netBoxOfficeFundsDepositedAccount).trim() === ''
+                ? null
+                : String(dto.netBoxOfficeFundsDepositedAccount)
+                    .trim()
+                    .slice(0, 255),
+          hstCollectedFromTicketSales:
+            dto.hstCollectedFromTicketSales === undefined
+              ? null
+              : dto.hstCollectedFromTicketSales == null
+                ? null
+                : dto.hstCollectedFromTicketSales,
+          hstPaidOnTourPayments:
+            dto.hstPaidOnTourPayments === undefined
+              ? null
+              : dto.hstPaidOnTourPayments == null
+                ? null
+                : dto.hstPaidOnTourPayments,
+          hstPaidOnShowExpenses:
+            dto.hstPaidOnShowExpenses === undefined
+              ? null
+              : dto.hstPaidOnShowExpenses == null
+                ? null
+                : dto.hstPaidOnShowExpenses,
+          hstPaidOnVenueExpenses:
+            dto.hstPaidOnVenueExpenses === undefined
+              ? null
+              : dto.hstPaidOnVenueExpenses == null
+                ? null
+                : dto.hstPaidOnVenueExpenses,
+          artistGrossTaxableCompensation:
+            dto.artistGrossTaxableCompensation === undefined
+              ? null
+              : dto.artistGrossTaxableCompensation == null
+                ? null
+                : dto.artistGrossTaxableCompensation,
+          amountDueToDeptOfRevenue:
+            dto.amountDueToDeptOfRevenue === undefined
+              ? null
+              : dto.amountDueToDeptOfRevenue == null
+                ? null
+                : dto.amountDueToDeptOfRevenue,
+          checkNumberOrConfOfWithholdingPayment:
+            dto.checkNumberOrConfOfWithholdingPayment === undefined
+              ? null
+              : dto.checkNumberOrConfOfWithholdingPayment == null ||
+                  String(dto.checkNumberOrConfOfWithholdingPayment).trim() === ''
+                ? null
+                : String(dto.checkNumberOrConfOfWithholdingPayment)
+                    .trim()
+                    .slice(0, 100),
+        });
+        const savedSf = await this.settlementFinanceRepo.save(created);
+        sfId = savedSf.settlementFinanceId;
+        row.settlementFinanceId = sfId;
+      } else {
+        const sf = await this.settlementFinanceRepo.findOne({
+          where: { settlementFinanceId: sfId },
+        });
+        if (!sf) {
+          throw new BadRequestException({
+            message: `Settlement finance #${sfId} was not found.`,
+          });
+        }
+        if (dto.artistSettlementStatus !== undefined) {
+          const t = dto.artistSettlementStatus;
+          sf.artistSettlementStatus =
+            t == null || String(t).trim() === ''
+              ? null
+              : String(t).trim().slice(0, 50);
+        }
+        if (dto.venueSettlementStatus !== undefined) {
+          const t = dto.venueSettlementStatus;
+          sf.venueSettlementStatus =
+            t == null || String(t).trim() === ''
+              ? null
+              : String(t).trim().slice(0, 50);
+        }
+        if (dto.subscriptionSalesRevenueTotal !== undefined) {
+          sf.subscriptionSalesRevenueTotal =
+            dto.subscriptionSalesRevenueTotal == null
+              ? null
+              : dto.subscriptionSalesRevenueTotal;
+        }
+        if (dto.seasonTicketSalesByIae !== undefined) {
+          sf.seasonTicketSalesByIae =
+            dto.seasonTicketSalesByIae == null ? null : dto.seasonTicketSalesByIae;
+        }
+        if (dto.seasonTicketFundsTransferred !== undefined) {
+          sf.seasonTicketFundsTransferred =
+            dto.seasonTicketFundsTransferred == null
+              ? null
+              : dto.seasonTicketFundsTransferred;
+        }
+        if (dto.netBoxOfficeFundsDepositedAccount !== undefined) {
+          const t = dto.netBoxOfficeFundsDepositedAccount;
+          sf.netBoxOfficeFundsDepositedAccount =
+            t == null || String(t).trim() === ''
+              ? null
+              : String(t).trim().slice(0, 255);
+        }
+        if (dto.hstCollectedFromTicketSales !== undefined) {
+          sf.hstCollectedFromTicketSales =
+            dto.hstCollectedFromTicketSales == null
+              ? null
+              : dto.hstCollectedFromTicketSales;
+        }
+        if (dto.hstPaidOnTourPayments !== undefined) {
+          sf.hstPaidOnTourPayments =
+            dto.hstPaidOnTourPayments == null ? null : dto.hstPaidOnTourPayments;
+        }
+        if (dto.hstPaidOnShowExpenses !== undefined) {
+          sf.hstPaidOnShowExpenses =
+            dto.hstPaidOnShowExpenses == null ? null : dto.hstPaidOnShowExpenses;
+        }
+        if (dto.hstPaidOnVenueExpenses !== undefined) {
+          sf.hstPaidOnVenueExpenses =
+            dto.hstPaidOnVenueExpenses == null ? null : dto.hstPaidOnVenueExpenses;
+        }
+        if (dto.artistGrossTaxableCompensation !== undefined) {
+          sf.artistGrossTaxableCompensation =
+            dto.artistGrossTaxableCompensation == null
+              ? null
+              : dto.artistGrossTaxableCompensation;
+        }
+        if (dto.amountDueToDeptOfRevenue !== undefined) {
+          sf.amountDueToDeptOfRevenue =
+            dto.amountDueToDeptOfRevenue == null
+              ? null
+              : dto.amountDueToDeptOfRevenue;
+        }
+        if (dto.checkNumberOrConfOfWithholdingPayment !== undefined) {
+          const t = dto.checkNumberOrConfOfWithholdingPayment;
+          sf.checkNumberOrConfOfWithholdingPayment =
+            t == null || String(t).trim() === ''
+              ? null
+              : String(t).trim().slice(0, 100);
+        }
+        await this.settlementFinanceRepo.save(sf);
+      }
+    }
+
     await this.engagementFinancesRepo.save(row);
+    await this.tryPersistFinanceSharePointLinks(row.financeId, dto);
   }
 
   async create(dto: CreateEngagementDto): Promise<{ engagementId: number }> {
@@ -1086,6 +1934,14 @@ export class EngagementService {
 
     if (dto.engagementStatus !== undefined) {
       existing.engagementStatus = dto.engagementStatus.trim();
+    }
+
+    if (dto.engagementScaling !== undefined) {
+      const t = dto.engagementScaling;
+      existing.engagementScaling =
+        t == null || String(t).trim() === ''
+          ? null
+          : String(t).trim().slice(0, 50);
     }
 
     if (dto.sellableCapacity !== undefined) {
@@ -1203,11 +2059,18 @@ export class EngagementService {
           .from(TicketingSales)
           .where('performanceId IN (:...pids)', { pids })
           .execute();
+        await manager
+          .createQueryBuilder()
+          .delete()
+          .from(PerformanceTicketing)
+          .where('performanceId IN (:...pids)', { pids })
+          .execute();
       }
       await manager.delete(Performance, { engagementId: id });
       await manager.delete(EngagementFinances, { engagementId: id });
       await manager.delete(EngagementProduction, { engagementId: id });
       await manager.delete(EngagementVenue, { engagementId: id });
+      await manager.delete(EngagementIAEContact, { engagementId: id });
       await manager.delete(Engagement, { engagementId: id });
     });
 
@@ -1248,9 +2111,9 @@ export class EngagementService {
         venueCompanyId: ev.venueCompanyId,
         venueCompanyName: company?.companyName ?? null,
         venueName: venue?.venueName ?? null,
-        city: (company as any)?.physicalAddress?.city ?? null,
-        stateProvince: (company as any)?.physicalAddress?.stateProvince ?? null,
-        dmaMarketName: (company as any)?.dma?.marketName ?? null,
+        city: company?.physicalAddress?.city ?? null,
+        stateProvince: company?.physicalAddress?.stateProvince ?? null,
+        dmaMarketName: company?.dma?.marketName ?? null,
         isPrimary: Boolean(ev.isPrimary),
       };
     });
@@ -1347,10 +2210,13 @@ export class EngagementService {
       .createQueryBuilder('vsp')
       .select('DISTINCT vsp.providerCompanyId', 'providerCompanyId')
       .where('vsp.venueCompanyId = :venueCompanyId', { venueCompanyId })
-      .getRawMany<{ providerCompanyId: number | string }>();
+      .getRawMany<{
+        providerCompanyId?: number | string;
+        ProviderCompanyID?: number | string;
+      }>();
 
     const providerCompanyIds = rawProviderIds
-      .map((r) => Number((r as any).providerCompanyId ?? (r as any).ProviderCompanyID))
+      .map((r) => Number(r.providerCompanyId ?? r.ProviderCompanyID))
       .filter((id) => Number.isInteger(id) && id > 0);
 
     if (providerCompanyIds.length === 0) {
@@ -1413,7 +2279,7 @@ export class EngagementService {
           venueCompanyId,
           providerCompanyId: pid,
           serviceId: s.serviceProvidedId,
-        } as any),
+        }),
       );
       await em.save(VenueServiceProvider, rows);
     });
@@ -1437,6 +2303,338 @@ export class EngagementService {
     });
   }
 
+  // ─── Engagement IAE staff (dbo.EngagementIAEContact) ─────────────────────
+
+  private mapIaeCreatedDate(d: Date | string | null | undefined): string {
+    if (d == null || d === '') return '';
+    if (d instanceof Date) {
+      if (Number.isNaN(d.getTime())) return '';
+      return d.toISOString();
+    }
+    const t = Date.parse(String(d));
+    return Number.isNaN(t) ? String(d) : new Date(t).toISOString();
+  }
+
+  private contactDisplayLabel(
+    first: string | null | undefined,
+    last: string | null | undefined,
+    email: string | null | undefined,
+    contactId: number,
+  ): string {
+    const name = [first, last]
+      .map((x) => (x ?? '').trim())
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+    if (name) return name;
+    const em = (email ?? '').trim();
+    if (em) return em;
+    return `Contact #${contactId}`;
+  }
+
+  private async assertNoDuplicateIaeAssignment(
+    engagementId: number,
+    contactId: number,
+    roleId: number | null,
+    excludeEicId?: number | null,
+  ): Promise<void> {
+    const qb = this.engagementIaeContactRepo
+      .createQueryBuilder('e')
+      .where('e.engagementId = :eid', { eid: engagementId })
+      .andWhere('e.contactId = :cid', { cid: contactId });
+    if (roleId == null) {
+      qb.andWhere('e.roleId IS NULL');
+    } else {
+      qb.andWhere('e.roleId = :rid', { rid: roleId });
+    }
+    if (excludeEicId != null) {
+      qb.andWhere('e.engagementIaeContactId <> :xid', { xid: excludeEicId });
+    }
+    const n = await qb.getCount();
+    if (n > 0) {
+      throw new ConflictException({
+        message:
+          'This person is already assigned for this role on this engagement (including “no role”). Edit or remove the existing row.',
+      });
+    }
+  }
+
+  private async clearOtherPrimaryIaeContacts(
+    engagementId: number,
+    keepEicId: number,
+  ): Promise<void> {
+    await this.engagementIaeContactRepo
+      .createQueryBuilder()
+      .update(EngagementIAEContact)
+      .set({ isPrimary: false })
+      .where('engagementId = :eid', { eid: engagementId })
+      .andWhere('engagementIaeContactId <> :kid', { kid: keepEicId })
+      .execute();
+  }
+
+  async getEngagementIaeContactLookups(): Promise<EngagementIaeContactLookups> {
+    const [roles, departments, contactRows] = await Promise.all([
+      this.roleRepo.find({
+        order: { roleId: 'ASC' },
+        take: 5000,
+      }),
+      this.departmentRepo.find({
+        order: { departmentId: 'ASC' },
+        take: 5000,
+      }),
+      this.contactRepo.find({
+        relations: { contactInfo: true },
+        order: { contactId: 'ASC' },
+        take: 8000,
+      }),
+    ]);
+
+    return {
+      roles: roles.map((r) => ({
+        id: r.roleId,
+        label: (r.roleName ?? '').trim() || `Role #${r.roleId}`,
+      })),
+      departments: departments.map((d) => ({
+        id: d.departmentId,
+        label: (d.departmentName ?? '').trim() || `Dept #${d.departmentId}`,
+      })),
+      contacts: contactRows.map((c) => ({
+        id: c.contactId,
+        label: this.contactDisplayLabel(
+          c.contactInfo?.firstName,
+          c.contactInfo?.lastName,
+          c.contactInfo?.email,
+          c.contactId,
+        ),
+      })),
+    };
+  }
+
+  async listEngagementIaeContacts(
+    engagementId: number,
+  ): Promise<EngagementIaeContactRow[]> {
+    await this.assertEngagementExists(engagementId);
+    const rows = await this.engagementIaeContactRepo.find({
+      where: { engagementId },
+      order: { isPrimary: 'DESC', createdDate: 'DESC' },
+    });
+    if (rows.length === 0) return [];
+
+    const contactIds = [...new Set(rows.map((r) => r.contactId))];
+    const roleIds = [
+      ...new Set(rows.map((r) => r.roleId).filter((x): x is number => x != null)),
+    ];
+    const deptIds = [
+      ...new Set(rows.map((r) => r.departmentId).filter((x): x is number => x != null)),
+    ];
+
+    const [contacts, roles, depts] = await Promise.all([
+      this.contactRepo.find({
+        where: { contactId: In(contactIds) },
+        relations: { contactInfo: true },
+      }),
+      roleIds.length ? this.roleRepo.find({ where: { roleId: In(roleIds) } }) : [],
+      deptIds.length
+        ? this.departmentRepo.find({ where: { departmentId: In(deptIds) } })
+        : [],
+    ]);
+
+    const cMap = new Map(contacts.map((c) => [c.contactId, c]));
+    const rMap = new Map<number, string>(
+      roles.map((r): [number, string] => [r.roleId, r.roleName]),
+    );
+    const dMap = new Map<number, string>(
+      depts.map((d): [number, string] => [d.departmentId, d.departmentName]),
+    );
+
+    return rows.map((eic) => {
+      const ci = cMap.get(eic.contactId)?.contactInfo;
+      return {
+        engagementIaeContactId: eic.engagementIaeContactId,
+        engagementId: eic.engagementId,
+        contactId: eic.contactId,
+        contactLabel: this.contactDisplayLabel(
+          ci?.firstName,
+          ci?.lastName,
+          ci?.email,
+          eic.contactId,
+        ),
+        roleId: eic.roleId,
+        roleName: eic.roleId != null ? (rMap.get(eic.roleId) ?? null) : null,
+        departmentId: eic.departmentId,
+        departmentName:
+          eic.departmentId != null ? (dMap.get(eic.departmentId) ?? null) : null,
+        isPrimary: this.mapBit(eic.isPrimary as never) === true,
+        notes: eic.notes,
+        createdDate: this.mapIaeCreatedDate(eic.createdDate),
+      };
+    });
+  }
+
+  async addEngagementIaeContact(
+    engagementId: number,
+    dto: CreateEngagementIaeContactDto,
+  ): Promise<{ engagementIaeContactId: number }> {
+    await this.assertEngagementExists(engagementId);
+
+    const contact = await this.contactRepo.findOne({
+      where: { contactId: dto.contactId },
+    });
+    if (!contact) {
+      throw new BadRequestException({
+        message: `Contact #${dto.contactId} was not found.`,
+      });
+    }
+
+    if (dto.roleId != null && dto.roleId !== undefined) {
+      const role = await this.roleRepo.findOne({ where: { roleId: dto.roleId } });
+      if (!role) {
+        throw new BadRequestException({
+          message: `Role #${dto.roleId} was not found.`,
+        });
+      }
+    }
+
+    if (dto.departmentId != null && dto.departmentId !== undefined) {
+      const dept = await this.departmentRepo.findOne({
+        where: { departmentId: dto.departmentId },
+      });
+      if (!dept) {
+        throw new BadRequestException({
+          message: `Department #${dto.departmentId} was not found.`,
+        });
+      }
+    }
+
+    const roleId = dto.roleId === undefined ? null : (dto.roleId ?? null);
+    await this.assertNoDuplicateIaeAssignment(
+      engagementId,
+      dto.contactId,
+      roleId,
+      null,
+    );
+
+    const wantPrimary = dto.isPrimary === true;
+    const row = this.engagementIaeContactRepo.create({
+      engagementId,
+      contactId: dto.contactId,
+      roleId,
+      departmentId:
+        dto.departmentId === undefined ? null : (dto.departmentId ?? null),
+      isPrimary: wantPrimary,
+      notes:
+        dto.notes === undefined || dto.notes == null || String(dto.notes).trim() === ''
+          ? null
+          : String(dto.notes).trim().slice(0, 500),
+      createdDate: new Date(),
+    });
+    const saved = await this.engagementIaeContactRepo.save(row);
+
+    if (wantPrimary) {
+      await this.clearOtherPrimaryIaeContacts(
+        engagementId,
+        saved.engagementIaeContactId,
+      );
+    }
+
+    return { engagementIaeContactId: saved.engagementIaeContactId };
+  }
+
+  async updateEngagementIaeContact(
+    engagementId: number,
+    eicId: number,
+    dto: UpdateEngagementIaeContactDto,
+  ): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+    const row = await this.engagementIaeContactRepo.findOne({
+      where: { engagementIaeContactId: eicId, engagementId },
+    });
+    if (!row) {
+      throw new NotFoundException({
+        message: `IAE assignment #${eicId} was not found for engagement #${engagementId}.`,
+      });
+    }
+
+    const nextContactId =
+      dto.contactId !== undefined ? dto.contactId : row.contactId;
+    const nextRoleId =
+      dto.roleId !== undefined ? (dto.roleId ?? null) : row.roleId;
+    const nextDeptId =
+      dto.departmentId !== undefined ? (dto.departmentId ?? null) : row.departmentId;
+
+    if (dto.contactId !== undefined) {
+      const c = await this.contactRepo.findOne({ where: { contactId: dto.contactId } });
+      if (!c) {
+        throw new BadRequestException({
+          message: `Contact #${dto.contactId} was not found.`,
+        });
+      }
+    }
+    if (dto.roleId !== undefined && dto.roleId != null) {
+      const role = await this.roleRepo.findOne({ where: { roleId: dto.roleId } });
+      if (!role) {
+        throw new BadRequestException({
+          message: `Role #${dto.roleId} was not found.`,
+        });
+      }
+    }
+    if (dto.departmentId !== undefined && dto.departmentId != null) {
+      const dept = await this.departmentRepo.findOne({
+        where: { departmentId: dto.departmentId },
+      });
+      if (!dept) {
+        throw new BadRequestException({
+          message: `Department #${dto.departmentId} was not found.`,
+        });
+      }
+    }
+
+    if (dto.contactId !== undefined || dto.roleId !== undefined) {
+      await this.assertNoDuplicateIaeAssignment(
+        engagementId,
+        nextContactId,
+        nextRoleId,
+        eicId,
+      );
+    }
+
+    if (dto.contactId !== undefined) row.contactId = nextContactId;
+    if (dto.roleId !== undefined) row.roleId = nextRoleId;
+    if (dto.departmentId !== undefined) row.departmentId = nextDeptId;
+
+    if (dto.notes !== undefined) {
+      const t = dto.notes;
+      row.notes =
+        t == null || String(t).trim() === '' ? null : String(t).trim().slice(0, 500);
+    }
+
+    if (dto.isPrimary !== undefined) {
+      row.isPrimary = dto.isPrimary === true;
+    }
+
+    await this.engagementIaeContactRepo.save(row);
+
+    if (dto.isPrimary === true) {
+      await this.clearOtherPrimaryIaeContacts(engagementId, eicId);
+    }
+  }
+
+  async removeEngagementIaeContact(
+    engagementId: number,
+    eicId: number,
+  ): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+    const res = await this.engagementIaeContactRepo.delete({
+      engagementIaeContactId: eicId,
+      engagementId,
+    });
+    if (!res.affected) {
+      throw new NotFoundException({
+        message: `IAE assignment #${eicId} was not found for engagement #${engagementId}.`,
+      });
+    }
+  }
+
   // ─── Performances ─────────────────────────────────────────────────────────
 
   async listPerformances(engagementId: number) {
@@ -1452,6 +2650,157 @@ export class EngagementService {
       performanceDate: r.performanceDate,
       performanceTime: r.performanceTime,
     }));
+  }
+
+  private async assertPerformanceForEngagement(
+    engagementId: number,
+    performanceId: number,
+  ): Promise<Performance> {
+    await this.assertEngagementExists(engagementId);
+    const perf = await this.performanceRepo.findOne({
+      where: { performanceId, engagementId },
+    });
+    if (!perf) {
+      throw new NotFoundException({
+        message: `Performance #${performanceId} was not found for engagement #${engagementId}.`,
+      });
+    }
+    return perf;
+  }
+
+  async getPerformanceTicketing(
+    engagementId: number,
+    performanceId: number,
+  ): Promise<PerformanceTicketingRow> {
+    await this.assertPerformanceForEngagement(engagementId, performanceId);
+    const row = await this.performanceTicketingRepo.findOne({
+      where: { performanceId },
+      order: { ticketingId: 'ASC' },
+    });
+    if (!row) {
+      return {
+        ticketingId: null,
+        performanceId,
+        ticketingStatus: null,
+        onSaleDate: null,
+        preSaleDate: null,
+        vipPackagedOffer: null,
+        preSaleSpecialPrices: null,
+        kidsTicketsPrices: null,
+        ticketingLinkId: null,
+        ticketingLinkUrl: null,
+        grossTicketSales: null,
+        totalComps: null,
+        totalTickets: null,
+        totalAdmissions: null,
+      };
+    }
+    const ticketingLink =
+      row.ticketingLinkId != null
+        ? await this.linkRepo.findOne({ where: { linkId: row.ticketingLinkId } })
+        : null;
+    return {
+      ticketingId: row.ticketingId,
+      performanceId,
+      ticketingStatus: row.ticketingStatus,
+      onSaleDate: this.mapFinanceYmd(row.onSaleDate),
+      preSaleDate: this.mapFinanceYmd(row.preSaleDate),
+      vipPackagedOffer: row.vipPackagedOffer,
+      preSaleSpecialPrices: row.preSaleSpecialPrices,
+      kidsTicketsPrices: row.kidsTicketsPrices,
+      ticketingLinkId: row.ticketingLinkId,
+      ticketingLinkUrl: ticketingLink?.linkUrl ?? null,
+      grossTicketSales: this.mapFinanceNumber(row.grossTicketSales),
+      totalComps: row.totalComps,
+      totalTickets: row.totalTickets,
+      totalAdmissions: row.totalAdmissions,
+    };
+  }
+
+  async upsertPerformanceTicketing(
+    engagementId: number,
+    performanceId: number,
+    dto: UpdatePerformanceTicketingDto,
+  ): Promise<void> {
+    await this.assertPerformanceForEngagement(engagementId, performanceId);
+
+    if (
+      dto.ticketingLinkUrl === undefined &&
+      dto.ticketingLinkId !== undefined &&
+      dto.ticketingLinkId != null
+    ) {
+      const link = await this.linkRepo.findOne({
+        where: { linkId: dto.ticketingLinkId },
+      });
+      if (!link) {
+        throw new BadRequestException({
+          message: `Link #${dto.ticketingLinkId} was not found.`,
+        });
+      }
+    }
+
+    let row = await this.performanceTicketingRepo.findOne({
+      where: { performanceId },
+      order: { ticketingId: 'ASC' },
+    });
+
+    if (!row) {
+      row = this.performanceTicketingRepo.create({ performanceId });
+    }
+
+    if (dto.ticketingStatus !== undefined) {
+      const t = dto.ticketingStatus;
+      row.ticketingStatus =
+        t == null || String(t).trim() === ''
+          ? null
+          : String(t).trim().slice(0, 50);
+    }
+    if (dto.onSaleDate !== undefined) {
+      row.onSaleDate = this.assertYmdOrNull(dto.onSaleDate);
+    }
+    if (dto.preSaleDate !== undefined) {
+      row.preSaleDate = this.assertYmdOrNull(dto.preSaleDate);
+    }
+    if (dto.vipPackagedOffer !== undefined) {
+      const t = dto.vipPackagedOffer;
+      row.vipPackagedOffer =
+        t == null || String(t).trim() === ''
+          ? null
+          : String(t).trim().slice(0, 255);
+    }
+    if (dto.preSaleSpecialPrices !== undefined) {
+      const t = dto.preSaleSpecialPrices;
+      row.preSaleSpecialPrices =
+        t == null || String(t).trim() === '' ? null : String(t).trim();
+    }
+    if (dto.kidsTicketsPrices !== undefined) {
+      const t = dto.kidsTicketsPrices;
+      row.kidsTicketsPrices =
+        t == null || String(t).trim() === '' ? null : String(t).trim();
+    }
+    if (dto.ticketingLinkUrl !== undefined) {
+      row.ticketingLinkId = await this.upsertTicketingUrlLink(
+        dto.ticketingLinkUrl,
+        row.ticketingLinkId,
+      );
+    } else if (dto.ticketingLinkId !== undefined) {
+      row.ticketingLinkId = dto.ticketingLinkId;
+    }
+    if (dto.grossTicketSales !== undefined) {
+      row.grossTicketSales =
+        dto.grossTicketSales == null ? null : dto.grossTicketSales;
+    }
+    if (dto.totalComps !== undefined) {
+      row.totalComps = dto.totalComps;
+    }
+    if (dto.totalTickets !== undefined) {
+      row.totalTickets = dto.totalTickets;
+    }
+    if (dto.totalAdmissions !== undefined) {
+      row.totalAdmissions = dto.totalAdmissions;
+    }
+
+    await this.performanceTicketingRepo.save(row);
   }
 
   async createPerformance(
@@ -1559,6 +2908,7 @@ export class EngagementService {
     }
 
     await this.dataSource.transaction(async (manager) => {
+      await manager.delete(PerformanceTicketing, { performanceId });
       await manager.delete(TicketingSales, { performanceId });
       await manager.delete(Performance, { performanceId, engagementId });
     });

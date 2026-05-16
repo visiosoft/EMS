@@ -382,8 +382,8 @@ export class DailySalesService {
 
   // ─── GET /daily-sales/by-performance (paged) ────────────────────────────
   /**
-   * One page of performances with PerformanceDate <= asOf, plus totals over the full
-   * filter (not just the current page) and options for the attraction filter.
+   * One page of performances for Daily Sales. Sales columns still respect asOf;
+   * show timing filters which performance rows appear (default: upcoming).
    */
   private applyByPerformanceSort(
     qb: SelectQueryBuilder<Performance>,
@@ -457,21 +457,6 @@ export class DailySalesService {
     const startDate = this.normalizeOptionalYmd(startDateRaw);
     const endDate = this.normalizeOptionalYmd(endDateRaw);
 
-    if (performanceDate && performanceDate > asOf) {
-      throw new BadRequestException({
-        message: 'Performance date filter cannot be after the reporting as-of date.',
-      });
-    }
-    if (startDate && startDate > asOf) {
-      throw new BadRequestException({
-        message: 'Performance range start cannot be after the reporting as-of date.',
-      });
-    }
-    if (endDate && endDate > asOf) {
-      throw new BadRequestException({
-        message: 'Performance range end cannot be after the reporting as-of date.',
-      });
-    }
     if (startDate && endDate && endDate < startDate) {
       throw new BadRequestException({
         message: 'Performance range end cannot be before range start.',
@@ -722,8 +707,16 @@ export class DailySalesService {
         'ts_yesterday.performanceId = p.performanceId AND ' +
           'CONVERT(date, ts_yesterday.salesDate) = DATEADD(day, -1, CAST(:asOf AS date))',
       )
-      .where('CONVERT(date, p.performanceDate) <= CAST(:asOf AS date)')
       .setParameter('asOf', asOf);
+
+    const hasExplicitPerfDateFilter = Boolean(
+      options.performanceDate || options.startDate || options.endDate,
+    );
+    if (!hasExplicitPerfDateFilter) {
+      qb.andWhere(
+        'CONVERT(date, p.performanceDate) >= CAST(:asOf AS date)',
+      );
+    }
 
     if (options.performanceDate) {
       qb.andWhere(
@@ -834,8 +827,16 @@ export class DailySalesService {
       )
       .leftJoin(Venue, 'v', 'v.companyId = ev.venueCompanyId')
       .leftJoin(Company, 'vc', 'vc.companyId = ev.venueCompanyId')
-      .where('CONVERT(date, p.performanceDate) <= CAST(:asOf AS date)')
       .setParameter('asOf', asOf);
+
+    const hasExplicitPerfDateFilter = Boolean(
+      options.performanceDate || options.startDate || options.endDate,
+    );
+    if (!hasExplicitPerfDateFilter) {
+      base.andWhere(
+        'CONVERT(date, p.performanceDate) >= CAST(:asOf AS date)',
+      );
+    }
 
     if (options.performanceDate) {
       base.andWhere(

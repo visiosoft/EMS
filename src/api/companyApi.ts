@@ -552,6 +552,12 @@ export function fetchLookups() {
   );
 }
 
+export function fetchStagehandProviderCompanies() {
+  return apiFetch<ApiStagehandProviderCompany[]>('/lookups/stagehand-providers').then(
+    (data) => (Array.isArray(data) ? data : []),
+  );
+}
+
 export function fetchVenueDetails(companyId: number) {
   return apiFetch<ApiVenueDetailsResponse>(`/companies/${companyId}/venue-details`);
 }

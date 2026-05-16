@@ -1,8 +1,11 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { AuditContextMiddleware } from './audit/audit-context.middleware';
+import { AuditModule } from './audit/audit.module';
+import { AuditSubscriber } from './audit/audit.subscriber';
 import { AttractionToursModule } from './attraction-tours/attraction-tours.module';
 import { CompanyModule } from './company/company.module';
 import { EngagementsModule } from './engagements/engagements.module';
@@ -86,6 +89,7 @@ const parseNumber = (value: string | undefined, fallback: number): number => {
         },
       }),
     }),
+    AuditModule,
     CompanyModule,
     AttractionToursModule,
     EngagementsModule,
@@ -96,6 +100,10 @@ const parseNumber = (value: string | undefined, fallback: number): number => {
     AdminUsersModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, AuditSubscriber],
 })
-export class AppModule { }
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(AuditContextMiddleware).forRoutes('*');
+  }
+}

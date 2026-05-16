@@ -99,6 +99,10 @@ export function getAccountEmail(account: AccountInfo | null | undefined): string
     return readClaim(account, "preferred_username") ?? readClaim(account, "email") ?? account?.username ?? "";
 }
 
+export function getAccountOid(account: AccountInfo | null | undefined): string {
+    return readClaim(account, "oid") ?? account?.localAccountId ?? "";
+}
+
 export async function acquireApiAccessToken(account: AccountInfo): Promise<string> {
     if (!apiScope) {
         throw new Error('Set VITE_ENTRA_API_SCOPE to request an access token for the backend admin users API.');
@@ -109,6 +113,10 @@ export async function acquireApiAccessToken(account: AccountInfo): Promise<strin
         scopes: [apiScope],
     });
     return response.accessToken;
+}
+
+export function isApiAccessTokenConfigured(): boolean {
+    return Boolean(apiScope);
 }
 
 export function getAccountInitials(account: AccountInfo | null | undefined): string {

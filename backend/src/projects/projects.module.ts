@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AdminUsersModule } from '../admin-users/admin-users.module';
 import { Attraction } from '../entities/attraction.entity';
 import { Company } from '../entities/company.entity';
 import { EngagementProject } from '../entities/engagement-project.entity';
@@ -13,6 +14,7 @@ import { ProjectService } from './project.service';
 
 @Module({
   imports: [
+    AdminUsersModule,
     TypeOrmModule.forFeature([
       EngagementProject,
       EngagementProjectDma,

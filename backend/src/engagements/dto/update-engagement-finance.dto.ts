@@ -73,7 +73,7 @@ export class UpdateEngagementFinanceDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(10)
+  @MaxLength(100)
   iaeWaiverApplicationConfirmationNumber?: string | null;
 
   @IsOptional()
@@ -126,4 +126,105 @@ export class UpdateEngagementFinanceDto {
   @IsInt()
   @Min(1)
   settlementFinanceId?: number | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  artistDealType?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  artistGuarantee?: number | null;
+
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  artistMiddleMoney?: number | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  artistRoyaltyVariableFee?: string | null;
+
+  @IsOptional()
+  @IsString()
+  artistBackEndTerms?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  finalAcceptedOfferLink?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  settlementFileSharePointLink?: string | null;
+
+  // ── dbo.SettlementFinance (via EngagementFinances.SettlementFinanceID) ──
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  artistSettlementStatus?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  venueSettlementStatus?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  subscriptionSalesRevenueTotal?: number | null;
+
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  seasonTicketSalesByIae?: number | null;
+
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  seasonTicketFundsTransferred?: number | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  netBoxOfficeFundsDepositedAccount?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  hstCollectedFromTicketSales?: number | null;
+
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  hstPaidOnTourPayments?: number | null;
+
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  hstPaidOnShowExpenses?: number | null;
+
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  hstPaidOnVenueExpenses?: number | null;
+
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  artistGrossTaxableCompensation?: number | null;
+
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  amountDueToDeptOfRevenue?: number | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  checkNumberOrConfOfWithholdingPayment?: string | null;
 }
