@@ -1389,43 +1389,19 @@ export class DailySalesService {
     return s;
   }
 
-  /** Calendar YYYY-MM-DD in local timezone (matches typical “business day” entry). */
-  private ymdFromLocalCalendar(d: Date): string {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  }
-
   /**
-   * No extra DB columns: earliest allowed ticketing SalesDate is derived at runtime from
-   * dbo.Performance — MIN(performanceDate) for this engagement (opening / earliest show date).
+   * Sales may be entered on or before this performance's show date (presale / on-sale),
+   * but not after the performance calendar day.
    */
-  private async assertTicketingSalesDateOnOrAfterEarliestPerformance(
-    engagementId: number,
+  private assertTicketingSalesDateOnOrBeforePerformance(
+    performanceDateRaw: unknown,
     salesDateYmd: string,
-  ): Promise<void> {
-    const raw = await this.performanceRepo
-      .createQueryBuilder('p')
-      .select('MIN(p.performanceDate)', 'minD')
-      .where('p.engagementId = :engagementId', { engagementId })
-      .getRawOne<{ minD: unknown }>();
-    const v = raw?.minD;
-    let floor: string | null = null;
-    if (v != null && v !== '') {
-      if (typeof v === 'string') {
-        floor = v.length >= 10 ? v.slice(0, 10) : null;
-      } else if (v instanceof Date) {
-        floor = this.ymdFromLocalCalendar(v);
-      } else {
-        const s = String(v);
-        floor = s.length >= 10 ? s.slice(0, 10) : null;
-      }
-    }
-    if (!floor || !/^\d{4}-\d{2}-\d{2}$/.test(floor)) return;
-    if (salesDateYmd < floor) {
+  ): void {
+    const cap = toYmdString(performanceDateRaw);
+    if (!cap || !/^\d{4}-\d{2}-\d{2}$/.test(cap)) return;
+    if (salesDateYmd > cap) {
       throw new BadRequestException({
-        message: `Ticket sales cannot be saved for ${salesDateYmd}: that calendar day is before this engagement's earliest performance date (${floor}).`,
+        message: `Ticket sales cannot be saved for ${salesDateYmd}: sales can only be entered on or before this show's performance date (${cap}).`,
       });
     }
   }
@@ -1460,16 +1436,13 @@ export class DailySalesService {
 
     const perf = await this.performanceRepo.findOne({
       where: { performanceId },
-      select: { performanceId: true, engagementId: true },
+      select: { performanceId: true, engagementId: true, performanceDate: true },
     });
     if (!perf) {
       throw new NotFoundException(`Performance #${performanceId} was not found.`);
     }
 
-    await this.assertTicketingSalesDateOnOrAfterEarliestPerformance(
-      perf.engagementId,
-      ymd,
-    );
+    this.assertTicketingSalesDateOnOrBeforePerformance(perf.performanceDate, ymd);
 
     let row = await this.salesRepo.findOne({
       where: { performanceId, salesDate: ymd },
