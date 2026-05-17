@@ -917,7 +917,7 @@ export class DailySalesService {
   }
 
   /**
-   * Sum tickets/revenue through reporting day across all performances matching `base`.
+   * Sum tickets/revenue for the reporting day and prior day only (not cumulative through those dates).
    * Uses a flat SUM on TicketingSales (SQL Server forbids SUM(subquery containing SUM)).
    */
   private async sumSalesForByPerformanceQuery(
@@ -945,24 +945,24 @@ export class DailySalesService {
     const one = await this.salesRepo
       .createQueryBuilder('ts')
       .select(
-        'COALESCE(SUM(CASE WHEN CONVERT(date, ts.salesDate) <= CAST(:asOf AS date) THEN CAST(ts.performanceSalesQuantity AS BIGINT) ELSE 0 END), 0)',
+        'COALESCE(SUM(CASE WHEN CONVERT(date, ts.salesDate) = CAST(:asOf AS date) THEN CAST(ts.performanceSalesQuantity AS BIGINT) ELSE 0 END), 0)',
         'sumTixT',
       )
       .addSelect(
-        'COALESCE(SUM(CASE WHEN CONVERT(date, ts.salesDate) <= CAST(:asOf AS date) THEN CAST(ts.performanceSalesRevenue AS decimal(18,2)) ELSE 0 END), 0)',
+        'COALESCE(SUM(CASE WHEN CONVERT(date, ts.salesDate) = CAST(:asOf AS date) THEN CAST(ts.performanceSalesRevenue AS decimal(18,2)) ELSE 0 END), 0)',
         'sumRevT',
       )
       .addSelect(
-        'COALESCE(SUM(CASE WHEN CONVERT(date, ts.salesDate) <= CAST(:yestEnd AS date) THEN CAST(ts.performanceSalesQuantity AS BIGINT) ELSE 0 END), 0)',
+        'COALESCE(SUM(CASE WHEN CONVERT(date, ts.salesDate) = CAST(:yestDay AS date) THEN CAST(ts.performanceSalesQuantity AS BIGINT) ELSE 0 END), 0)',
         'sumTixY',
       )
       .addSelect(
-        'COALESCE(SUM(CASE WHEN CONVERT(date, ts.salesDate) <= CAST(:yestEnd AS date) THEN CAST(ts.performanceSalesRevenue AS decimal(18,2)) ELSE 0 END), 0)',
+        'COALESCE(SUM(CASE WHEN CONVERT(date, ts.salesDate) = CAST(:yestDay AS date) THEN CAST(ts.performanceSalesRevenue AS decimal(18,2)) ELSE 0 END), 0)',
         'sumRevY',
       )
       .where('ts.performanceId IN (:...ids)', { ids })
       .setParameter('asOf', asOf)
-      .setParameter('yestEnd', yest)
+      .setParameter('yestDay', yest)
       .getRawOne<Record<string, unknown>>();
     return (one as Record<string, unknown>) ?? {};
   }

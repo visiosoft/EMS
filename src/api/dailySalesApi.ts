@@ -74,6 +74,7 @@ export interface ApiPerformanceSalesPage {
   pageSize: number;
   todayDate: string;
   yesterdayDate: string;
+  /** Per-day totals for reporting day and prior day (not cumulative through those dates). */
   summary: {
     todayTickets: number;
     todayRevenue: number;
