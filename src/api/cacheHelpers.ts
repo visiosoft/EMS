@@ -154,10 +154,16 @@ export function removeQueriesByPrefix(qc: QueryClient, prefix: QueryKey): void {
 /** Picker lists (`/lookups/dma-markets`) after dbo.DMA CRUD in Settings or elsewhere. */
 export function invalidateDmaMarketsQueries(qc: QueryClient): void {
   void qc.invalidateQueries({
-    predicate: (q) =>
-      Array.isArray(q.queryKey) &&
-      (q.queryKey[0] === 'dma-markets' ||
-        (q.queryKey[0] === 'lookups' && q.queryKey[1] === 'dma-markets')),
+    predicate: (q) => {
+      if (!Array.isArray(q.queryKey)) return false;
+      if (q.queryKey[0] === 'dma-markets' && q.queryKey[1] === 'project-wizard') {
+        return false;
+      }
+      return (
+        q.queryKey[0] === 'dma-markets' ||
+        (q.queryKey[0] === 'lookups' && q.queryKey[1] === 'dma-markets')
+      );
+    },
   });
 }
 
