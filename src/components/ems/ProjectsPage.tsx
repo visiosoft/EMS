@@ -35,13 +35,17 @@ import {
   TabBar,
 } from './Primitives';
 import { Select2 } from './Select2';
-import { invalidateDmaMarketsQueries } from '@/api/cacheHelpers';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import {
   deriveValidSelectedDmaIds,
-  normalizeDmaMarketRows,
+  dmaSelectionKey,
+  EMPTY_PREFERRED_VENUE_TYPE_IDS,
+  fetchAllDmaMarketsForWizard,
+  mapSelectionToCanonicalDmaIds,
   normalizePositiveIntId,
+  PROJECT_WIZARD_DMA_QUERY_KEY,
 } from '@/lib/projectWizardDma';
+import { ProjectWizardMarketsStep } from './ProjectWizardMarketsStep';
 import { getAccountName, getAccountOid, getActiveAccount } from '@/auth/entra';
 import {
   getPageParams,
@@ -138,6 +142,7 @@ const EMPTY_ATTRACTIONS: ApiAttractionListRow[] = [];
 const EMPTY_TOURS: ApiTourListRow[] = [];
 const EMPTY_CLASSES: ApiClass[] = [];
 const EMPTY_VENUE_TYPES: ApiVenueType[] = [];
+const EMPTY_TOUR_LIST: ApiTourListRow[] = [];
 
 /** API returns one row per market name; label is market name only (no postal in UI). */
 function formatDmaPickerLabel(r: { dmaid?: number; marketName?: string | null }): string {
@@ -153,13 +158,17 @@ function formatVenueCapacity(cap: unknown): string {
 }
 
 class CreateProjectWizardErrorBoundary extends React.Component<
-  { children: React.ReactNode; step: number; onRecover: () => void },
+  { children: React.ReactNode; step: number; onRecover: () => void; onClose?: () => void },
   { error: Error | null }
 > {
   state: { error: Error | null } = { error: null };
 
   static getDerivedStateFromError(error: Error) {
     return { error };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('[CreateProjectWizard]', error, info.componentStack);
   }
 
   componentDidUpdate(prevProps: { step: number }) {
@@ -171,19 +180,33 @@ class CreateProjectWizardErrorBoundary extends React.Component<
   render() {
     if (this.state.error) {
       return (
-        <div className="rounded-lg border border-ems-coral/40 bg-ems-coral/10 px-4 py-3 text-sm space-y-2">
-          <p className="font-medium text-text-primary">This step could not be displayed.</p>
+        <div className="rounded-lg border border-ems-coral/40 bg-ems-coral/10 px-4 py-4 text-sm space-y-3 min-h-[12rem]">
+          <p className="font-medium text-text-primary">Create project wizard ran into an error</p>
           <p className="text-text-muted text-xs break-words">{this.state.error.message}</p>
-          <button
-            type="button"
-            className="text-sm font-medium text-ems-accent hover:underline"
-            onClick={() => {
-              this.setState({ error: null });
-              this.props.onRecover();
-            }}
-          >
-            Try again
-          </button>
+          <p className="text-[11px] text-text-muted">
+            Try another step or close and reopen the wizard. If this repeats, note which step you were on.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              className="text-sm font-medium text-ems-accent hover:underline"
+              onClick={() => {
+                this.setState({ error: null });
+                this.props.onRecover();
+              }}
+            >
+              Try again on this step
+            </button>
+            {this.props.onClose && (
+              <button
+                type="button"
+                className="text-sm font-medium text-text-secondary hover:underline"
+                onClick={this.props.onClose}
+              >
+                Close wizard
+              </button>
+            )}
+          </div>
         </div>
       );
     }
@@ -1919,15 +1942,12 @@ function CreateProjectForm({
     staleTime: 60_000,
   });
   const [step, setStep] = useState(1);
+  const lastSyncedTourRef = useRef<number | null>(null);
   const dmaMarketsQuery = useQuery({
-    queryKey: ['dma-markets', 'project-wizard', 'all'],
-    queryFn: async () => {
-      const page = await fetchDmaMarketsPaged(0, projectWizardLookupLimit);
-      return { ...page, data: normalizeDmaMarketRows(page.data ?? []) };
-    },
+    queryKey: PROJECT_WIZARD_DMA_QUERY_KEY,
+    queryFn: fetchAllDmaMarketsForWizard,
     staleTime: 60_000,
     enabled: step >= 5,
-    refetchOnMount: 'always',
   });
 
   const [attractionSearch, setAttractionSearch] = useState('');
@@ -1944,12 +1964,10 @@ function CreateProjectForm({
     () => deriveValidSelectedDmaIds(selectedDmaIds),
     [selectedDmaIds],
   );
-  /** Stable key when market selection changes — clears venue / performance draft state. */
-  const selectedDmaIdsKey = useMemo(() => validSelectedDmaIds.join(','), [validSelectedDmaIds]);
+  /** Stable key when market selection changes — used for venue query + clearing venue draft. */
+  const selectedDmaIdsKey = useMemo(() => dmaSelectionKey(selectedDmaIds), [selectedDmaIds]);
   /** Wizard step 3 — talent agency; persisted on dbo.Tour.TalentAgencyCompanyID when the project is created. */
   const [projectTourMgmtCompanyId, setProjectTourMgmtCompanyId] = useState<number | null>(null);
-  /** Labels for any DMA row we have shown or toggled (survives search/scroll changes). */
-  const [dmaSeenLabels, setDmaSeenLabels] = useState(() => new Map<number, string>());
 
   const [venueSearch, setVenueSearch] = useState('');
   const [selectedVenueCompanyIds, setSelectedVenueCompanyIds] = useState<number[]>([]);
@@ -2034,9 +2052,16 @@ function CreateProjectForm({
     );
   }, [preferredVenueTypeOptions, preferredVenueTypeSearch]);
   const dmaFlatRows = useMemo(
-    () => dmaMarketsQuery.data?.data ?? EMPTY_DMA_MARKETS,
+    () => dmaMarketsQuery.data ?? EMPTY_DMA_MARKETS,
     [dmaMarketsQuery.data],
   );
+  const dmaLabelById = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const r of dmaFlatRows) {
+      map.set(r.dmaid, formatDmaPickerLabel(r));
+    }
+    return map;
+  }, [dmaFlatRows]);
   const talentAgentOptions = useMemo(
     () =>
       (talentAgentContactsQuery.data ?? []).map((row: ApiCompanyContact) => ({
@@ -2079,56 +2104,15 @@ function CreateProjectForm({
     });
   }, [venueRowsAll, venueSearch, selectedPreferredVenueTypeIds]);
 
-  const recordDmaLabels = useCallback((rows: ApiDmaMarket[]) => {
-    if (rows.length === 0) return;
-    setDmaSeenLabels((prev) => {
-      const next = new Map(prev);
-      let changed = false;
-      for (const r of rows) {
-        const dmaid = normalizePositiveIntId(r.dmaid);
-        if (dmaid == null) continue;
-        const label = formatDmaPickerLabel(r);
-        if (next.get(dmaid) !== label) {
-          next.set(dmaid, label);
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, []);
-
-  const recordVenueLabels = useCallback((rows: ApiAllVenueRow[]) => {
-    if (rows.length === 0) return;
+  const rememberVenueLabel = useCallback((r: ApiAllVenueRow) => {
+    const label = formatVenueWizardLabel(r);
     setVenueSeenLabels((prev) => {
+      if (prev.get(r.companyId) === label) return prev;
       const next = new Map(prev);
-      let changed = false;
-      for (const r of rows) {
-        const label = formatVenueWizardLabel(r);
-        if (next.get(r.companyId) !== label) {
-          next.set(r.companyId, label);
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
+      next.set(r.companyId, label);
+      return next;
     });
   }, []);
-
-  /** Sync label cache when the DMA list refetches — depend on dataUpdatedAt, not row array identity. */
-  useEffect(() => {
-    const rows = dmaMarketsQuery.data?.data;
-    if (rows?.length) recordDmaLabels(rows);
-  }, [dmaMarketsQuery.dataUpdatedAt, recordDmaLabels]);
-
-  useEffect(() => {
-    const rows = venuesWizardQuery.data;
-    if (rows?.length) recordVenueLabels(rows);
-  }, [venuesWizardQuery.dataUpdatedAt, recordVenueLabels]);
-
-  useEffect(() => {
-    setSelectedVenueCompanyIds((prev) => (prev.length === 0 ? prev : []));
-    setVenueSeenLabels((prev) => (prev.size === 0 ? prev : new Map()));
-    setVenueSearch((prev) => (prev === '' ? prev : ''));
-  }, [selectedDmaIdsKey]);
 
   const toursByAttraction = useMemo(() => {
     const map = new Map<number, typeof tours>();
@@ -2149,8 +2133,10 @@ function CreateProjectForm({
   }, [attractions, attractionSearch]);
 
   const toursForSelectedAttraction = useMemo(() => {
-    if (selectedAttractionId == null) return [];
-    return (toursByAttraction.get(selectedAttractionId) ?? []).slice().sort((a, b) =>
+    if (selectedAttractionId == null) return EMPTY_TOUR_LIST;
+    const list = toursByAttraction.get(selectedAttractionId);
+    if (!list?.length) return EMPTY_TOUR_LIST;
+    return list.slice().sort((a, b) =>
       (a.tourName ?? '').localeCompare(b.tourName ?? '', undefined, { sensitivity: 'base' }),
     );
   }, [selectedAttractionId, toursByAttraction]);
@@ -2169,40 +2155,71 @@ function CreateProjectForm({
     setTourSearch('');
   }, [selectedAttractionId]);
 
-  /** Reset tour-derived fields when selection clears — must not depend on `tours` (unstable `?? []` while loading). */
-  useEffect(() => {
-    if (selectedTourId != null) return;
+  const clearTourDerivedFields = useCallback(() => {
     setProjectTourMgmtCompanyId(null);
     setDateRangeStart('');
     setDateRangeEnd('');
-    setSelectedPreferredVenueTypeIds([]);
-  }, [selectedTourId]);
+    setSelectedPreferredVenueTypeIds(EMPTY_PREFERRED_VENUE_TYPE_IDS);
+    lastSyncedTourRef.current = null;
+  }, []);
 
-  useEffect(() => {
-    if (selectedTourId == null) return;
-    const t = tours.find((x) => x.tourId === selectedTourId);
-    if (t == null) {
-      /** Picker list may not include the row yet (e.g. right after “Create Tour”) — do not clear `projectTourMgmtCompanyId`; onSuccess already set it from the API response. */
-      return;
-    }
+  const applyTourFields = useCallback((t: ApiTourListRow) => {
     setProjectTourMgmtCompanyId(t.talentAgencyCompanyId ?? null);
     setDateRangeStart(t.tourStartDate ?? '');
     setDateRangeEnd(t.tourEndDate ?? '');
-    if (t.venueTypePreferenceId != null && t.venueTypePreferenceId >= 1) {
-      setSelectedPreferredVenueTypeIds([t.venueTypePreferenceId]);
-    } else {
-      setSelectedPreferredVenueTypeIds([]);
+    setSelectedPreferredVenueTypeIds(
+      t.venueTypePreferenceId != null && t.venueTypePreferenceId >= 1
+        ? [t.venueTypePreferenceId]
+        : EMPTY_PREFERRED_VENUE_TYPE_IDS,
+    );
+    lastSyncedTourRef.current = t.tourId;
+  }, []);
+
+  /** Sync tour fields once per tour id when picker data arrives (no inline `[]` in deps). */
+  useEffect(() => {
+    if (selectedTourId == null) {
+      if (lastSyncedTourRef.current != null) clearTourDerivedFields();
+      return;
     }
-  }, [selectedTourId, tours]);
+    if (lastSyncedTourRef.current === selectedTourId) return;
+    const t = tours.find((x) => x.tourId === selectedTourId);
+    if (!t) return;
+    applyTourFields(t);
+  }, [selectedTourId, tours, applyTourFields, clearTourDerivedFields]);
+
+  const lastDmaCatalogAtRef = useRef(0);
+  useEffect(() => {
+    if (!dmaMarketsQuery.data?.length || !dmaMarketsQuery.dataUpdatedAt) return;
+    if (lastDmaCatalogAtRef.current === dmaMarketsQuery.dataUpdatedAt) return;
+    lastDmaCatalogAtRef.current = dmaMarketsQuery.dataUpdatedAt;
+    setSelectedDmaIds((prev) => {
+      if (prev.length === 0) return prev;
+      const canon = mapSelectionToCanonicalDmaIds(prev, dmaMarketsQuery.data ?? []);
+      if (dmaSelectionKey(prev) === dmaSelectionKey(canon)) return prev;
+      return canon;
+    });
+  }, [dmaMarketsQuery.data, dmaMarketsQuery.dataUpdatedAt]);
+
+  const onDmaSelectionChange = useCallback(
+    (ids: number[]) => {
+      const canonical = mapSelectionToCanonicalDmaIds(ids, dmaFlatRows);
+      setSelectedDmaIds((prev) => {
+        if (dmaSelectionKey(prev) === dmaSelectionKey(canonical)) return prev;
+        return canonical;
+      });
+      setSelectedVenueCompanyIds((prev) => (prev.length === 0 ? prev : []));
+      setVenueSeenLabels((prev) => (prev.size === 0 ? prev : new Map()));
+      setVenueSearch((prev) => (prev === '' ? prev : ''));
+    },
+    [dmaFlatRows],
+  );
 
   /** One section per selected market (even if no venues pass type/search filters). */
   const venuesGroupedBySelectedDma = useMemo(() => {
     const norm = (s: string | null | undefined) => (s ?? '').trim().toLowerCase();
     return validSelectedDmaIds.map((dmaid) => {
       const meta = dmaFlatRows.find((d) => d.dmaid === dmaid);
-      const label = meta
-        ? formatDmaPickerLabel(meta)
-        : dmaSeenLabels.get(dmaid) ?? `Market #${dmaid}`;
+      const label = dmaLabelById.get(dmaid) ?? `Market #${dmaid}`;
       const selMk = norm(meta?.marketName);
       const rows = venueRowsFiltered.filter((v) => {
         if (v.dmaId != null && v.dmaId === dmaid) return true;
@@ -2211,7 +2228,7 @@ function CreateProjectForm({
       });
       return { dmaid, label, rows };
     });
-  }, [validSelectedDmaIds, dmaFlatRows, venueRowsFiltered, dmaSeenLabels]);
+  }, [validSelectedDmaIds, dmaFlatRows, venueRowsFiltered, dmaLabelById]);
 
   const inputCls =
     'w-full min-w-0 cursor-text bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted';
@@ -2311,7 +2328,7 @@ function CreateProjectForm({
         );
       });
       setSelectedTourId(res.tourId);
-      setProjectTourMgmtCompanyId(res.talentAgencyCompanyId ?? null);
+      applyTourFields(res);
       setShowAddTourModal(false);
       addToast('Tour created.', 'success');
       /**
@@ -2377,20 +2394,8 @@ function CreateProjectForm({
     }
   };
 
-  const toggleDmaRow = (r: ApiDmaMarket) => {
-    const dmaid = normalizePositiveIntId(r.dmaid);
-    if (dmaid == null) {
-      addToast('This market row is missing a valid ID. Refresh the list or recreate the DMA in Settings.', 'error');
-      return;
-    }
-    recordDmaLabels([{ ...r, dmaid }]);
-    setSelectedDmaIds((prev) =>
-      prev.includes(dmaid) ? prev.filter((id) => id !== dmaid) : [...prev, dmaid],
-    );
-  };
-
   const setVenueSelected = (r: ApiAllVenueRow, checked: boolean) => {
-    recordVenueLabels([r]);
+    rememberVenueLabel(r);
     if (checked) {
       setSelectedVenueCompanyIds((prev) =>
         prev.includes(r.companyId) ? prev : [...prev, r.companyId],
@@ -2404,24 +2409,27 @@ function CreateProjectForm({
     setSelectedVenueCompanyIds((prev) => prev.filter((id) => id !== companyId));
   };
 
-  if (lookupsLoading) {
-    return (
-      <div className="flex items-center justify-center gap-2 text-text-muted text-sm py-12">
-        <Loader2 className="h-5 w-5 animate-spin text-ems-accent" />Loading data…
-      </div>
-    );
-  }
-
   return (
     <>
     <CreateProjectWizardErrorBoundary
       step={step}
+      onClose={onCancel}
       onRecover={() => {
         if (step >= 5) void dmaMarketsQuery.refetch();
         if (step >= 6) void venuesWizardQuery.refetch();
       }}
     >
-    <div className="space-y-4">
+    <div className="relative space-y-4">
+      {lookupsLoading && (
+        <div
+          className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 rounded-lg bg-background/85 text-sm text-text-muted"
+          role="status"
+          aria-live="polite"
+        >
+          <Loader2 className="h-6 w-6 animate-spin text-ems-accent" aria-hidden />
+          Loading wizard data…
+        </div>
+      )}
       <WizardStepIndicator currentStep={step} />
 
       {step === 1 && (
@@ -2450,6 +2458,7 @@ function CreateProjectForm({
                 onClick={() => {
                   setSelectedAttractionId(a.attractionId);
                   setSelectedTourId(null);
+                  clearTourDerivedFields();
                 }}
                 className={`w-full text-left px-3 py-2.5 rounded-md text-sm transition-colors flex items-center justify-between gap-2 ${
                   selectedAttractionId === a.attractionId
@@ -2510,7 +2519,10 @@ function CreateProjectForm({
               <button
                 key={tour.tourId}
                 type="button"
-                onClick={() => setSelectedTourId(tour.tourId)}
+                onClick={() => {
+                  setSelectedTourId(tour.tourId);
+                  applyTourFields(tour);
+                }}
                 className={`w-full text-left px-3 py-2.5 rounded-md text-sm transition-colors flex items-center justify-between gap-2 ${
                   selectedTourId === tour.tourId
                     ? 'bg-ems-accent/10 border border-ems-accent/30 text-text-primary'
@@ -2714,62 +2726,16 @@ function CreateProjectForm({
           <p className="text-xs text-text-muted">
             Please select all Markets where you plan to Make an offer
           </p>
-          {dmaMarketsQuery.isPending ? (
-            <div className="flex items-center gap-2 text-sm text-text-muted py-8 justify-center border border-dashed border-border rounded-lg">
-              <Loader2 className="h-5 w-5 animate-spin text-ems-accent shrink-0" />
-              Loading DMA markets…
-            </div>
-          ) : dmaMarketsQuery.isError ? (
-            <div className="rounded-lg border border-ems-coral/40 bg-ems-coral/10 px-3 py-2 text-sm text-text-primary space-y-2">
-              <p>Could not load DMA options: {friendlyApiError(dmaMarketsQuery.error)}</p>
-              <button
-                type="button"
-                className="text-sm font-medium text-ems-accent hover:underline"
-                onClick={() => void dmaMarketsQuery.refetch()}
-              >
-                Retry
-              </button>
-            </div>
-          ) : (
-            <div className="max-h-[min(24rem,50vh)] overflow-y-auto py-1">
-              {dmaFlatRows.length === 0 && (
-                <p className="text-sm text-text-muted py-6 text-center">No DMA rows returned.</p>
-              )}
-              <div className="flex flex-wrap gap-2">
-                {dmaFlatRows.map((r) => {
-                  const checked = validSelectedDmaIds.includes(r.dmaid);
-                  return (
-                    <label
-                      key={r.dmaid}
-                      className={[
-                        'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs cursor-pointer transition-colors',
-                        checked
-                          ? 'border-ems-accent bg-ems-accent/10 text-ems-accent'
-                          : 'border-border bg-transparent text-text-secondary hover:border-ems-accent/50 hover:text-text-primary',
-                      ].join(' ')}
-                    >
-                      <input
-                        type="checkbox"
-                        className="sr-only"
-                        checked={checked}
-                        onChange={() => toggleDmaRow(r)}
-                      />
-                      <span
-                        className={[
-                          'inline-flex h-3.5 w-3.5 items-center justify-center rounded border transition-colors',
-                          checked ? 'border-ems-accent bg-ems-accent text-background' : 'border-border bg-background',
-                        ].join(' ')}
-                        aria-hidden
-                      >
-                        {checked ? <Check className="h-2.5 w-2.5" /> : null}
-                      </span>
-                      <span className="whitespace-nowrap">{formatDmaPickerLabel(r)}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+          <ProjectWizardMarketsStep
+            rows={dmaFlatRows}
+            isPending={dmaMarketsQuery.isPending}
+            isError={dmaMarketsQuery.isError}
+            error={dmaMarketsQuery.error}
+            onRetry={() => void dmaMarketsQuery.refetch()}
+            selectedIds={selectedDmaIds}
+            onSelectedIdsChange={onDmaSelectionChange}
+            addToast={addToast}
+          />
         </div>
       )}
 
@@ -3010,7 +2976,7 @@ function CreateProjectForm({
                         key={id}
                         className="inline-flex items-center rounded-md border border-border bg-background px-2 py-1 text-xs text-text-primary"
                       >
-                        {dmaSeenLabels.get(id) ?? `DMA #${id}`}
+                        {dmaLabelById.get(id) ?? `DMA #${id}`}
                       </span>
                     ))}
                   </div>
@@ -3381,10 +3347,7 @@ export function ProjectsPage({ addToast }: Props) {
         </div>
         <button
           type="button"
-          onClick={() => {
-            invalidateDmaMarketsQueries(qc);
-            setShowCreateModal(true);
-          }}
+          onClick={() => setShowCreateModal(true)}
           disabled={isLoading}
           className="bg-ems-accent hover:bg-ems-accent/80 text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
         >

@@ -14,6 +14,8 @@ import {
 import { Select2, type Select2Option } from './Select2';
 import { PageSizeSelect } from './PageSizeSelect';
 import { invalidateDmaMarketsQueries } from '@/api/cacheHelpers';
+import { normalizeDmaMarketRows, patchWizardDmaMarketsCache } from '@/lib/projectWizardDma';
+import type { ApiDmaMarket } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import {
   getPageParams,
@@ -461,10 +463,22 @@ export function SettingsPage({
       }
       return updateLookupManageRow(activeLookupKey, Number(args.id), args.body);
     },
-    onSuccess: () => {
+    onSuccess: (created) => {
       void qc.invalidateQueries({ queryKey: ['lookup-manage', activeLookupKey], exact: false });
       void qc.invalidateQueries({ queryKey: ['lookups'], exact: false });
       if (activeLookupKey === 'dmas') {
+        const row = created as LookupManageRow;
+        const normalized = normalizeDmaMarketRows([
+          {
+            dmaid: Number(row.dmaid),
+            marketName: String(row.marketName ?? ''),
+            postalCode: String(row.postalCode ?? ''),
+          } as ApiDmaMarket,
+        ]);
+        if (normalized.length > 0) {
+          patchWizardDmaMarketsCache(qc, normalized[0]);
+        }
+        /** Do not invalidate project-wizard cache — patch is enough; refetch can drop app-created rows until paginated load completes. */
         invalidateDmaMarketsQueries(qc);
       }
     },
