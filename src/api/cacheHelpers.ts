@@ -151,6 +151,16 @@ export function removeQueriesByPrefix(qc: QueryClient, prefix: QueryKey): void {
   qc.removeQueries({ queryKey: prefix });
 }
 
+/** Picker lists (`/lookups/dma-markets`) after dbo.DMA CRUD in Settings or elsewhere. */
+export function invalidateDmaMarketsQueries(qc: QueryClient): void {
+  void qc.invalidateQueries({
+    predicate: (q) =>
+      Array.isArray(q.queryKey) &&
+      (q.queryKey[0] === 'dma-markets' ||
+        (q.queryKey[0] === 'lookups' && q.queryKey[1] === 'dma-markets')),
+  });
+}
+
 /**
  * Engagement sellable capacity / gross potential feed Daily Sales + sales dashboards.
  * Call after PATCH engagement or engagement finance when those fields may have changed.

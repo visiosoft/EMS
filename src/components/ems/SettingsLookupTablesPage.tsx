@@ -13,6 +13,7 @@ import {
 } from './Primitives';
 import { Select2, type Select2Option } from './Select2';
 import { PageSizeSelect } from './PageSizeSelect';
+import { invalidateDmaMarketsQueries } from '@/api/cacheHelpers';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import {
   getPageParams,
@@ -463,6 +464,9 @@ export function SettingsPage({
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['lookup-manage', activeLookupKey], exact: false });
       void qc.invalidateQueries({ queryKey: ['lookups'], exact: false });
+      if (activeLookupKey === 'dmas') {
+        invalidateDmaMarketsQueries(qc);
+      }
     },
   });
 
@@ -471,6 +475,9 @@ export function SettingsPage({
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['lookup-manage', activeLookupKey], exact: false });
       void qc.invalidateQueries({ queryKey: ['lookups'], exact: false });
+      if (activeLookupKey === 'dmas') {
+        invalidateDmaMarketsQueries(qc);
+      }
     },
   });
 
