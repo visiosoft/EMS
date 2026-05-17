@@ -35,7 +35,13 @@ import {
   TabBar,
 } from './Primitives';
 import { Select2 } from './Select2';
+import { invalidateDmaMarketsQueries } from '@/api/cacheHelpers';
 import { friendlyApiError } from '@/lib/friendlyApiError';
+import {
+  deriveValidSelectedDmaIds,
+  normalizeDmaMarketRows,
+  normalizePositiveIntId,
+} from '@/lib/projectWizardDma';
 import { getAccountName, getAccountOid, getActiveAccount } from '@/auth/entra';
 import {
   getPageParams,
@@ -85,7 +91,12 @@ import {
   fetchTours,
   fetchVenueTypesLookup,
 } from '@/api/attractionToursApi';
-import type { ApiAttractionListRow, ApiTourListRow, ApiVenueType } from '@/api/attractionToursApi';
+import type {
+  ApiAttractionListRow,
+  ApiClass,
+  ApiTourListRow,
+  ApiVenueType,
+} from '@/api/attractionToursApi';
 import {
   fetchCompanyContacts,
   fetchDmaMarketsPaged,
@@ -118,12 +129,66 @@ function projectDetailToListRow(p: ApiProjectDetail): ApiProjectListRow {
 }
 
 const PROJECT_LOOKUP_LIMIT = 8000;
+/** Avoid rendering thousands of venue checkboxes if DMA filter is dropped server-side. */
+const PROJECT_WIZARD_VENUE_RENDER_CAP = 250;
+/** Stable empty arrays for query fallbacks — `?? []` inline creates a new reference every render and can infinite-loop effects. */
+const EMPTY_DMA_MARKETS: ApiDmaMarket[] = [];
+const EMPTY_VENUE_ROWS: ApiAllVenueRow[] = [];
+const EMPTY_ATTRACTIONS: ApiAttractionListRow[] = [];
+const EMPTY_TOURS: ApiTourListRow[] = [];
+const EMPTY_CLASSES: ApiClass[] = [];
+const EMPTY_VENUE_TYPES: ApiVenueType[] = [];
 
 /** API returns one row per market name; label is market name only (no postal in UI). */
 function formatDmaPickerLabel(r: { dmaid?: number; marketName?: string | null }): string {
   const name = (r.marketName ?? '').trim();
   if (name) return name;
   return r.dmaid != null ? `DMA #${r.dmaid}` : '—';
+}
+
+function formatVenueCapacity(cap: unknown): string {
+  const n = typeof cap === 'number' ? cap : Number(cap);
+  if (!Number.isFinite(n) || n < 0) return '—';
+  return n.toLocaleString();
+}
+
+class CreateProjectWizardErrorBoundary extends React.Component<
+  { children: React.ReactNode; step: number; onRecover: () => void },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidUpdate(prevProps: { step: number }) {
+    if (prevProps.step !== this.props.step && this.state.error) {
+      this.setState({ error: null });
+    }
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="rounded-lg border border-ems-coral/40 bg-ems-coral/10 px-4 py-3 text-sm space-y-2">
+          <p className="font-medium text-text-primary">This step could not be displayed.</p>
+          <p className="text-text-muted text-xs break-words">{this.state.error.message}</p>
+          <button
+            type="button"
+            className="text-sm font-medium text-ems-accent hover:underline"
+            onClick={() => {
+              this.setState({ error: null });
+              this.props.onRecover();
+            }}
+          >
+            Try again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 function formatVenueWizardLabel(r: ApiAllVenueRow): string {
@@ -1856,9 +1921,13 @@ function CreateProjectForm({
   const [step, setStep] = useState(1);
   const dmaMarketsQuery = useQuery({
     queryKey: ['dma-markets', 'project-wizard', 'all'],
-    queryFn: () => fetchDmaMarketsPaged(0, projectWizardLookupLimit),
+    queryFn: async () => {
+      const page = await fetchDmaMarketsPaged(0, projectWizardLookupLimit);
+      return { ...page, data: normalizeDmaMarketRows(page.data ?? []) };
+    },
     staleTime: 60_000,
     enabled: step >= 5,
+    refetchOnMount: 'always',
   });
 
   const [attractionSearch, setAttractionSearch] = useState('');
@@ -1871,11 +1940,12 @@ function CreateProjectForm({
   const [preferredVenueTypeSearch, setPreferredVenueTypeSearch] = useState('');
 
   const [selectedDmaIds, setSelectedDmaIds] = useState<number[]>([]);
-  /** Stable key when market selection changes — clears venue / performance draft state. */
-  const selectedDmaIdsKey = useMemo(
-    () => [...selectedDmaIds].sort((a, b) => a - b).join(','),
+  const validSelectedDmaIds = useMemo(
+    () => deriveValidSelectedDmaIds(selectedDmaIds),
     [selectedDmaIds],
   );
+  /** Stable key when market selection changes — clears venue / performance draft state. */
+  const selectedDmaIdsKey = useMemo(() => validSelectedDmaIds.join(','), [validSelectedDmaIds]);
   /** Wizard step 3 — talent agency; persisted on dbo.Tour.TalentAgencyCompanyID when the project is created. */
   const [projectTourMgmtCompanyId, setProjectTourMgmtCompanyId] = useState<number | null>(null);
   /** Labels for any DMA row we have shown or toggled (survives search/scroll changes). */
@@ -1895,14 +1965,16 @@ function CreateProjectForm({
   });
   const venuesWizardQuery = useQuery({
     queryKey: ['venue-directory', 'project-wizard-venues', selectedDmaIdsKey],
-    queryFn: async () =>
-      (
+    queryFn: async () => {
+      if (validSelectedDmaIds.length === 0) return [];
+      return (
         await fetchAllVenues(0, projectWizardLookupLimit, {
-          dmaIds: selectedDmaIds,
+          dmaIds: validSelectedDmaIds,
           sortDir: 'asc',
         })
-      ).data,
-    enabled: selectedDmaIds.length > 0 && step >= 6 && step <= 7,
+      ).data;
+    },
+    enabled: validSelectedDmaIds.length > 0 && step >= 6 && step <= 7,
     staleTime: 60_000,
   });
 
@@ -1922,16 +1994,23 @@ function CreateProjectForm({
     staleTime: 60_000,
   });
 
-  const attractions = attractionsQuery.data ?? [];
-  const tours = toursQuery.data ?? [];
-  const classes = classesQuery.data ?? [];
+  const attractions = useMemo(
+    () => attractionsQuery.data ?? EMPTY_ATTRACTIONS,
+    [attractionsQuery.data],
+  );
+  const tours = useMemo(() => toursQuery.data ?? EMPTY_TOURS, [toursQuery.data]);
+  const classes = useMemo(() => classesQuery.data ?? EMPTY_CLASSES, [classesQuery.data]);
   const managementCompanyOptions = useMemo(() => {
-    const rows = talentAgencyPickerQuery.data ?? [];
+    const rows = talentAgencyPickerQuery.data;
+    if (!rows?.length) return [];
     return rows
       .map((c) => ({ value: String(c.companyId), label: c.companyName }))
       .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
   }, [talentAgencyPickerQuery.data]);
-  const venueTypes: ApiVenueType[] = venueTypesQuery.data ?? [];
+  const venueTypes = useMemo(
+    () => venueTypesQuery.data ?? EMPTY_VENUE_TYPES,
+    [venueTypesQuery.data],
+  );
   const preferredVenueTypeOptions = useMemo(
     () =>
       venueTypes
@@ -1954,7 +2033,10 @@ function CreateProjectForm({
       opt.label.toLowerCase().includes(q),
     );
   }, [preferredVenueTypeOptions, preferredVenueTypeSearch]);
-  const dmaFlatRows: ApiDmaMarket[] = dmaMarketsQuery.data?.data ?? [];
+  const dmaFlatRows = useMemo(
+    () => dmaMarketsQuery.data?.data ?? EMPTY_DMA_MARKETS,
+    [dmaMarketsQuery.data],
+  );
   const talentAgentOptions = useMemo(
     () =>
       (talentAgentContactsQuery.data ?? []).map((row: ApiCompanyContact) => ({
@@ -1971,7 +2053,10 @@ function CreateProjectForm({
     return list.map((v) => ({ value: v, label: v }));
   }, [venueStatusMetaQuery.data]);
 
-  const venueRowsAll = venuesWizardQuery.data ?? [];
+  const venueRowsAll = useMemo(
+    () => venuesWizardQuery.data ?? EMPTY_VENUE_ROWS,
+    [venuesWizardQuery.data],
+  );
   const venueRowsFiltered = useMemo(() => {
     const q = venueSearch.trim().toLowerCase();
     return venueRowsAll.filter((r) => {
@@ -2000,9 +2085,11 @@ function CreateProjectForm({
       const next = new Map(prev);
       let changed = false;
       for (const r of rows) {
+        const dmaid = normalizePositiveIntId(r.dmaid);
+        if (dmaid == null) continue;
         const label = formatDmaPickerLabel(r);
-        if (next.get(r.dmaid) !== label) {
-          next.set(r.dmaid, label);
+        if (next.get(dmaid) !== label) {
+          next.set(dmaid, label);
           changed = true;
         }
       }
@@ -2026,18 +2113,21 @@ function CreateProjectForm({
     });
   }, []);
 
+  /** Sync label cache when the DMA list refetches — depend on dataUpdatedAt, not row array identity. */
   useEffect(() => {
-    recordDmaLabels(dmaFlatRows);
-  }, [dmaFlatRows, recordDmaLabels]);
+    const rows = dmaMarketsQuery.data?.data;
+    if (rows?.length) recordDmaLabels(rows);
+  }, [dmaMarketsQuery.dataUpdatedAt, recordDmaLabels]);
 
   useEffect(() => {
-    recordVenueLabels(venueRowsAll);
-  }, [venueRowsAll, recordVenueLabels]);
+    const rows = venuesWizardQuery.data;
+    if (rows?.length) recordVenueLabels(rows);
+  }, [venuesWizardQuery.dataUpdatedAt, recordVenueLabels]);
 
   useEffect(() => {
-    setSelectedVenueCompanyIds([]);
-    setVenueSeenLabels(new Map());
-    setVenueSearch('');
+    setSelectedVenueCompanyIds((prev) => (prev.length === 0 ? prev : []));
+    setVenueSeenLabels((prev) => (prev.size === 0 ? prev : new Map()));
+    setVenueSearch((prev) => (prev === '' ? prev : ''));
   }, [selectedDmaIdsKey]);
 
   const toursByAttraction = useMemo(() => {
@@ -2079,14 +2169,17 @@ function CreateProjectForm({
     setTourSearch('');
   }, [selectedAttractionId]);
 
+  /** Reset tour-derived fields when selection clears — must not depend on `tours` (unstable `?? []` while loading). */
   useEffect(() => {
-    if (selectedTourId == null) {
-      setProjectTourMgmtCompanyId(null);
-      setDateRangeStart('');
-      setDateRangeEnd('');
-      setSelectedPreferredVenueTypeIds([]);
-      return;
-    }
+    if (selectedTourId != null) return;
+    setProjectTourMgmtCompanyId(null);
+    setDateRangeStart('');
+    setDateRangeEnd('');
+    setSelectedPreferredVenueTypeIds([]);
+  }, [selectedTourId]);
+
+  useEffect(() => {
+    if (selectedTourId == null) return;
     const t = tours.find((x) => x.tourId === selectedTourId);
     if (t == null) {
       /** Picker list may not include the row yet (e.g. right after “Create Tour”) — do not clear `projectTourMgmtCompanyId`; onSuccess already set it from the API response. */
@@ -2105,7 +2198,7 @@ function CreateProjectForm({
   /** One section per selected market (even if no venues pass type/search filters). */
   const venuesGroupedBySelectedDma = useMemo(() => {
     const norm = (s: string | null | undefined) => (s ?? '').trim().toLowerCase();
-    return selectedDmaIds.map((dmaid) => {
+    return validSelectedDmaIds.map((dmaid) => {
       const meta = dmaFlatRows.find((d) => d.dmaid === dmaid);
       const label = meta
         ? formatDmaPickerLabel(meta)
@@ -2118,7 +2211,7 @@ function CreateProjectForm({
       });
       return { dmaid, label, rows };
     });
-  }, [selectedDmaIds, dmaFlatRows, venueRowsFiltered, dmaSeenLabels]);
+  }, [validSelectedDmaIds, dmaFlatRows, venueRowsFiltered, dmaSeenLabels]);
 
   const inputCls =
     'w-full min-w-0 cursor-text bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted';
@@ -2150,7 +2243,7 @@ function CreateProjectForm({
     dateRangeStart <= dateRangeEnd;
   const canProceedTourMgmt =
     projectTourMgmtCompanyId != null && projectTourMgmtCompanyId >= 1;
-  const canProceedMarkets = selectedDmaIds.length > 0;
+  const canProceedMarkets = validSelectedDmaIds.length > 0;
   const canProceedVenues = selectedVenueCompanyIds.length > 0;
   const canProceedVenueStatusStep = wizardVenueStatus.trim().length > 0;
   /** Final step: tour, tour mgmt, markets, venues, venue status, and project stage. */
@@ -2174,7 +2267,14 @@ function CreateProjectForm({
       return;
     }
     if (step === 5 && !canProceedMarkets) {
-      addToast('Select at least one market (DMA). Your choices are saved on the project.', 'warning');
+      if (selectedDmaIds.length > 0 && validSelectedDmaIds.length === 0) {
+        addToast(
+          'The selected market has no valid ID. Close this dialog, reopen Create Project, or recreate the DMA in Settings.',
+          'error',
+        );
+      } else {
+        addToast('Select at least one market (DMA). Your choices are saved on the project.', 'warning');
+      }
       return;
     }
     if (step === 6 && !canProceedVenues) {
@@ -2234,7 +2334,7 @@ function CreateProjectForm({
       addToast('Select a tour that has a Talent Agency.', 'error');
       return;
     }
-    if (selectedDmaIds.length === 0) {
+    if (validSelectedDmaIds.length === 0) {
       addToast('Select at least one market (DMA) on the Markets step.', 'error');
       return;
     }
@@ -2266,7 +2366,7 @@ function CreateProjectForm({
         createdBy: createdByOid || undefined,
         tourStartDate: dateRangeStart.trim(),
         tourEndDate: dateRangeEnd.trim(),
-        dmaIds: selectedDmaIds,
+        dmaIds: validSelectedDmaIds,
         venues: venuesPayload,
       });
       onSaved(res.engagementProjectId);
@@ -2278,9 +2378,14 @@ function CreateProjectForm({
   };
 
   const toggleDmaRow = (r: ApiDmaMarket) => {
-    recordDmaLabels([r]);
+    const dmaid = normalizePositiveIntId(r.dmaid);
+    if (dmaid == null) {
+      addToast('This market row is missing a valid ID. Refresh the list or recreate the DMA in Settings.', 'error');
+      return;
+    }
+    recordDmaLabels([{ ...r, dmaid }]);
     setSelectedDmaIds((prev) =>
-      prev.includes(r.dmaid) ? prev.filter((id) => id !== r.dmaid) : [...prev, r.dmaid],
+      prev.includes(dmaid) ? prev.filter((id) => id !== dmaid) : [...prev, dmaid],
     );
   };
 
@@ -2309,6 +2414,13 @@ function CreateProjectForm({
 
   return (
     <>
+    <CreateProjectWizardErrorBoundary
+      step={step}
+      onRecover={() => {
+        if (step >= 5) void dmaMarketsQuery.refetch();
+        if (step >= 6) void venuesWizardQuery.refetch();
+      }}
+    >
     <div className="space-y-4">
       <WizardStepIndicator currentStep={step} />
 
@@ -2625,7 +2737,7 @@ function CreateProjectForm({
               )}
               <div className="flex flex-wrap gap-2">
                 {dmaFlatRows.map((r) => {
-                  const checked = selectedDmaIds.includes(r.dmaid);
+                  const checked = validSelectedDmaIds.includes(r.dmaid);
                   return (
                     <label
                       key={r.dmaid}
@@ -2682,7 +2794,7 @@ function CreateProjectForm({
           {venuesWizardQuery.isPending && (
             <div className="flex flex-col items-center gap-2 text-sm text-text-muted py-10 justify-center border border-dashed border-border rounded-lg bg-surface/50">
               <Loader2 className="h-8 w-8 animate-spin text-ems-accent shrink-0" aria-hidden />
-              <span role="status">Loading venues for {selectedDmaIds.length} selected market{selectedDmaIds.length === 1 ? '' : 's'}…</span>
+              <span role="status">Loading venues for {validSelectedDmaIds.length} selected market{validSelectedDmaIds.length === 1 ? '' : 's'}…</span>
             </div>
           )}
           {venuesWizardQuery.isError && (
@@ -2739,7 +2851,7 @@ function CreateProjectForm({
                         </p>
                       ) : (
                         <div className="space-y-1.5">
-                          {rows.map((r) => {
+                          {rows.slice(0, PROJECT_WIZARD_VENUE_RENDER_CAP).map((r) => {
                             const checked = selectedVenueCompanyIds.includes(r.companyId);
                             const complex = (r.entertainmentComplexNames ?? '').trim() || '—';
                             return (
@@ -2756,12 +2868,18 @@ function CreateProjectForm({
                                 <span className="min-w-0 break-words">
                                   <span className="font-medium">{r.venueName}</span>
                                   <span className="text-text-muted text-xs block mt-0.5">
-                                    Entertainment Complex: {complex} · Capacity: {r.seatingCapacity.toLocaleString()}
+                                    Entertainment Complex: {complex} · Capacity: {formatVenueCapacity(r.seatingCapacity)}
                                   </span>
                                 </span>
                               </label>
                             );
                           })}
+                          {rows.length > PROJECT_WIZARD_VENUE_RENDER_CAP && (
+                            <p className="text-xs text-ems-amber px-2 py-1">
+                              Showing first {PROJECT_WIZARD_VENUE_RENDER_CAP.toLocaleString()} of{" "}
+                              {rows.length.toLocaleString()} venues in this section — narrow filters or search to find more.
+                            </p>
+                          )}
                         </div>
                       )}
                     </div>
@@ -2777,10 +2895,10 @@ function CreateProjectForm({
                   {selectedPreferredVenueTypeIds.length > 0
                     ? 'match your selected preferred venue type filters and your search.'
                     : 'match your search (no preferred venue type filters applied).'}{' '}
-                  {selectedDmaIds.length} market{selectedDmaIds.length === 1 ? '' : 's'} selected — browse by section above.
+                  {validSelectedDmaIds.length} market{validSelectedDmaIds.length === 1 ? '' : 's'} selected — browse by section above.
                 </p>
               )}
-              {venueRowsAll.length === 0 && selectedDmaIds.length > 0 && (
+              {venueRowsAll.length === 0 && validSelectedDmaIds.length > 0 && (
                 <p className="text-[11px] text-text-muted">
                   No venues were returned for the selected markets. Try different markets or check the venue directory.
                 </p>
@@ -2885,9 +3003,9 @@ function CreateProjectForm({
             </FormField>
             <FormField label="Markets (DMAs)">
               <div className="text-sm text-text-primary bg-surface px-3 py-2 rounded border border-border">
-                {selectedDmaIds.length > 0 ? (
+                {validSelectedDmaIds.length > 0 ? (
                   <div className="flex flex-wrap gap-2">
-                    {selectedDmaIds.map((id) => (
+                    {validSelectedDmaIds.map((id) => (
                       <span
                         key={id}
                         className="inline-flex items-center rounded-md border border-border bg-background px-2 py-1 text-xs text-text-primary"
@@ -2994,6 +3112,7 @@ function CreateProjectForm({
         </div>
       </div>
     </div>
+    </CreateProjectWizardErrorBoundary>
 
     {showAddTourModal && selectedAttractionId != null && classes.length > 0 && (
       <Modal
@@ -3260,8 +3379,15 @@ export function ProjectsPage({ addToast }: Props) {
             </span>
           )}
         </div>
-        <button type="button" onClick={() => setShowCreateModal(true)} disabled={isLoading}
-          className="bg-ems-accent hover:bg-ems-accent/80 text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+        <button
+          type="button"
+          onClick={() => {
+            invalidateDmaMarketsQueries(qc);
+            setShowCreateModal(true);
+          }}
+          disabled={isLoading}
+          className="bg-ems-accent hover:bg-ems-accent/80 text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+        >
           + Create Project
         </button>
       </div>

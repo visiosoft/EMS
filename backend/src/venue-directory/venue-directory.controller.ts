@@ -30,6 +30,14 @@ export class VenueDirectoryController {
     const venueTypeId = this.parseOptPosInt(venueTypeIdRaw);
     const dmaId = this.parseOptPosInt(dmaIdRaw);
     const dmaIds = this.parseCommaSeparatedPositiveInts(dmaIdsRaw);
+    /**
+     * If the client sent `dmaIds` but nothing parsed (NaN, "undefined", etc.), do not drop the
+     * filter and return the full catalog — that freezes the Create Project wizard.
+     */
+    const dmaIdsParamSent = dmaIdsRaw != null && String(dmaIdsRaw).trim().length > 0;
+    if (dmaIdsParamSent && dmaIds.length === 0) {
+      return { data: [], total: 0 };
+    }
     return this.venueDirectoryService.listAllVenues(offset, limit, {
       q,
       complexName,
