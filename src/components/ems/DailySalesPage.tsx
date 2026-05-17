@@ -252,8 +252,6 @@ const DEFAULT_DAILY_SALES_REPORT_COLUMNS: DailySalesReportColumnId[] = [
   'state',
   'daysOnSale',
   'soldYesterday',
-  'totalSold',
-  'totalRevenue',
   'contact',
 ];
 
@@ -289,10 +287,13 @@ function loadDailySalesReportColumnOrder(): DailySalesReportColumnId[] {
     if (!Array.isArray(parsed)) return DEFAULT_DAILY_SALES_REPORT_COLUMNS;
     const need = new Set<DailySalesReportColumnId>(DEFAULT_DAILY_SALES_REPORT_COLUMNS);
     const out: DailySalesReportColumnId[] = [];
+    const hiddenOnMain = new Set<DailySalesReportColumnId>(['totalSold', 'totalRevenue']);
     for (const x of parsed) {
       if (typeof x === 'string' && need.has(x as DailySalesReportColumnId)) {
-        out.push(x as DailySalesReportColumnId);
-        need.delete(x as DailySalesReportColumnId);
+        const id = x as DailySalesReportColumnId;
+        if (hiddenOnMain.has(id)) continue;
+        out.push(id);
+        need.delete(id);
       }
     }
     for (const id of DEFAULT_DAILY_SALES_REPORT_COLUMNS) {
@@ -783,45 +784,43 @@ function EngagementSalesHistory({
     },
   });
 
-  const timelineRows = useMemo(() => {
-    if (rows.length === 0) return [] as Array<{
-      salesDate: string;
-      totalTickets: number;
-      totalRevenue: number;
-    }>;
-    const perfMap = new Map<number, ApiDailySalesRow[]>();
+  type EngagementSalesDayRow = {
+    salesDate: string;
+    dailyTickets: number;
+    dailyRevenue: number;
+    cumulativeTickets: number;
+    cumulativeRevenue: number;
+  };
+
+  const timelineRows = useMemo((): EngagementSalesDayRow[] => {
+    if (rows.length === 0) return [];
+    const dailyMap = new Map<string, { tickets: number; revenue: number }>();
     for (const r of rows) {
-      const list = perfMap.get(r.performanceId) ?? [];
-      list.push(r);
-      perfMap.set(r.performanceId, list);
+      const prev = dailyMap.get(r.salesDate) ?? { tickets: 0, revenue: 0 };
+      dailyMap.set(r.salesDate, {
+        tickets: prev.tickets + (r.ticketsSold ?? 0),
+        revenue: prev.revenue + (r.revenue ?? 0),
+      });
     }
-    for (const list of perfMap.values()) {
-      list.sort((a, b) => a.salesDate.localeCompare(b.salesDate));
-    }
-    const allDates = [...new Set(rows.map((r) => r.salesDate))].sort((a, b) =>
-      a.localeCompare(b),
-    );
-    const out: Array<{ salesDate: string; totalTickets: number; totalRevenue: number }> = [];
-    for (const date of allDates) {
-      let sumTickets = 0;
-      let sumRevenue = 0;
-      for (const [, list] of perfMap.entries()) {
-        for (const rec of list) {
-          if (rec.salesDate <= date) {
-            sumTickets += rec.ticketsSold ?? 0;
-            sumRevenue += rec.revenue ?? 0;
-          }
-        }
-      }
-      out.push({ salesDate: date, totalTickets: sumTickets, totalRevenue: sumRevenue });
-    }
-    return out;
+    const dates = [...dailyMap.keys()].sort((a, b) => a.localeCompare(b));
+    let cumulativeTickets = 0;
+    let cumulativeRevenue = 0;
+    return dates.map((salesDate) => {
+      const day = dailyMap.get(salesDate)!;
+      cumulativeTickets += day.tickets;
+      cumulativeRevenue += day.revenue;
+      return {
+        salesDate,
+        dailyTickets: day.tickets,
+        dailyRevenue: day.revenue,
+        cumulativeTickets,
+        cumulativeRevenue,
+      };
+    });
   }, [rows]);
 
   const latest = timelineRows.length > 0 ? timelineRows[timelineRows.length - 1] : null;
-  const previous = timelineRows.length > 1 ? timelineRows[timelineRows.length - 2] : null;
-  const soldYesterday = latest ? latest.totalTickets - (previous?.totalTickets ?? 0) : 0;
-  const revenueYesterday = latest ? latest.totalRevenue - (previous?.totalRevenue ?? 0) : 0;
+  const priorDay = timelineRows.length > 1 ? timelineRows[timelineRows.length - 2] : null;
   const daysOnSale = useMemo(() => {
     if (timelineRows.length === 0) return 0;
     const first = timelineRows[0].salesDate;
@@ -843,19 +842,19 @@ function EngagementSalesHistory({
       : null;
   const soldPct =
     sellableCapacity != null && sellableCapacity > 0 && latest
-      ? pctVsBaselineDisplay(latest.totalTickets, sellableCapacity)
+      ? pctVsBaselineDisplay(latest.cumulativeTickets, sellableCapacity)
       : null;
   const revenuePct =
     grossPotentialNum != null && latest
-      ? pctVsBaselineDisplay(latest.totalRevenue, grossPotentialNum)
+      ? pctVsBaselineDisplay(latest.cumulativeRevenue, grossPotentialNum)
       : null;
   const remainingSeats =
     sellableCapacity != null && latest
-      ? seatsRemainingForDisplay(sellableCapacity, latest.totalTickets)
+      ? seatsRemainingForDisplay(sellableCapacity, latest.cumulativeTickets)
       : null;
   const remainingRevenue =
     grossPotentialNum != null && latest
-      ? revenueRemainingForDisplay(grossPotentialNum, latest.totalRevenue)
+      ? revenueRemainingForDisplay(grossPotentialNum, latest.cumulativeRevenue)
       : null;
 
   return (
@@ -887,7 +886,7 @@ function EngagementSalesHistory({
           </div>
         ) : (
           <p className="mt-1 text-xs text-text-muted">
-            Engagement sales dashboard and baseline fields.
+            Daily ticket and revenue activity by sales date. Capacity and gross-potential metrics use totals through each day.
           </p>
         )}
       </div>
@@ -910,44 +909,52 @@ function EngagementSalesHistory({
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
             <DailySummaryCard
               dateStr={latest ? fmtDateHeader(latest.salesDate) : '—'}
-              statLabel="Total Revenue"
-              value={latest ? fmtCurrency(latest.totalRevenue) : '$0'}
-              sub="Current cumulative"
+              statLabel="Tickets sold"
+              value={latest ? latest.dailyTickets.toLocaleString() : '0'}
+              sub="Latest sales day"
               tone="current"
             />
             <DailySummaryCard
               dateStr={latest ? fmtDateHeader(latest.salesDate) : '—'}
-              statLabel="Tickets Distributed"
-              value={latest ? latest.totalTickets.toLocaleString() : '0'}
-              sub="Current cumulative"
+              statLabel="Revenue"
+              value={latest ? fmtCurrency(latest.dailyRevenue) : '$0'}
+              sub="Latest sales day"
+              tone="current"
+            />
+            <DailySummaryCard
+              dateStr={priorDay ? fmtDateHeader(priorDay.salesDate) : '—'}
+              statLabel="Tickets sold"
+              value={priorDay ? priorDay.dailyTickets.toLocaleString() : '0'}
+              sub="Prior sales day"
+              tone="prior"
+            />
+            <DailySummaryCard
+              dateStr={priorDay ? fmtDateHeader(priorDay.salesDate) : '—'}
+              statLabel="Revenue"
+              value={priorDay ? fmtCurrency(priorDay.dailyRevenue) : '$0'}
+              sub="Prior sales day"
               tone="prior"
             />
             <DailySummaryCard
               dateStr={latest ? fmtDateHeader(latest.salesDate) : '—'}
               statLabel="% Sold"
               value={soldPct != null ? `${soldPct.toFixed(1)}%` : '—'}
-              sub={sellableCapacity != null ? `Capacity ${sellableCapacity.toLocaleString()}` : 'Set sellable capacity'}
+              sub={
+                sellableCapacity != null
+                  ? `${latest?.cumulativeTickets.toLocaleString() ?? '0'} of ${sellableCapacity.toLocaleString()} through latest day`
+                  : 'Set sellable capacity'
+              }
               tone="current"
             />
             <DailySummaryCard
               dateStr={latest ? fmtDateHeader(latest.salesDate) : '—'}
-              statLabel="Days On Sale"
+              statLabel="Days on sale"
               value={String(daysOnSale)}
-              sub="From first sales day"
-              tone="prior"
-            />
-            <DailySummaryCard
-              dateStr={latest ? fmtDateHeader(latest.salesDate) : '—'}
-              statLabel="Sold Yesterday"
-              value={soldYesterday.toLocaleString()}
-              sub="Incremental change"
-              tone="current"
-            />
-            <DailySummaryCard
-              dateStr={latest ? fmtDateHeader(latest.salesDate) : '—'}
-              statLabel="Revenue Yesterday"
-              value={fmtCurrency(revenueYesterday)}
-              sub={revenuePct != null ? `${revenuePct.toFixed(1)}% of gross potential` : 'Incremental change'}
+              sub={
+                revenuePct != null
+                  ? `${revenuePct.toFixed(1)}% of gross potential through latest day`
+                  : 'From first sales day'
+              }
               tone="prior"
             />
           </div>
@@ -1019,15 +1026,19 @@ function EngagementSalesHistory({
           </div>
 
           <div className="bg-card border border-border rounded-lg overflow-x-auto">
+            <p className="px-3 pt-3 text-[11px] text-text-muted">
+              Tickets sold and revenue are amounts recorded on that date. % of capacity, seats remaining, and revenue
+              remaining use cumulative totals through that date.
+            </p>
             <table className="w-full text-sm min-w-[760px]">
               <thead>
                 <tr className="text-text-muted text-xs border-b border-border bg-surface">
                   <th className="text-left py-2.5 px-3">Date</th>
-                  <th className="text-right py-2.5 px-3">Total Tickets Sold</th>
-                  <th className="text-right py-2.5 px-3">Total Value Sold</th>
-                  <th className="text-right py-2.5 px-3">Seats Sold %</th>
-                  <th className="text-right py-2.5 px-3">Seats Remaining</th>
-                  <th className="text-right py-2.5 px-3">Revenue Remaining</th>
+                  <th className="text-right py-2.5 px-3">Tickets sold</th>
+                  <th className="text-right py-2.5 px-3">Revenue</th>
+                  <th className="text-right py-2.5 px-3">% of capacity</th>
+                  <th className="text-right py-2.5 px-3">Seats remaining</th>
+                  <th className="text-right py-2.5 px-3">Revenue remaining</th>
                 </tr>
               </thead>
               <tbody>
@@ -1036,15 +1047,15 @@ function EngagementSalesHistory({
                   .map((r) => {
                     const seatsPct =
                       sellableCapacity != null && sellableCapacity > 0
-                        ? pctVsBaselineDisplay(r.totalTickets, sellableCapacity)
+                        ? pctVsBaselineDisplay(r.cumulativeTickets, sellableCapacity)
                         : null;
                     const seatsLeft =
                       sellableCapacity != null
-                        ? seatsRemainingForDisplay(sellableCapacity, r.totalTickets)
+                        ? seatsRemainingForDisplay(sellableCapacity, r.cumulativeTickets)
                         : null;
                     const revLeft =
                       grossPotentialNum != null
-                        ? revenueRemainingForDisplay(grossPotentialNum, r.totalRevenue)
+                        ? revenueRemainingForDisplay(grossPotentialNum, r.cumulativeRevenue)
                         : null;
                     return (
                       <tr key={r.salesDate} className="border-b border-border/50 hover:bg-hover/30">
@@ -1052,10 +1063,10 @@ function EngagementSalesHistory({
                           {fmtDateHeader(r.salesDate)}
                         </td>
                         <td className="py-2.5 px-3 text-right tabular-nums text-text-primary">
-                          {r.totalTickets.toLocaleString()}
+                          {r.dailyTickets.toLocaleString()}
                         </td>
                         <td className="py-2.5 px-3 text-right tabular-nums text-ems-green font-medium">
-                          {fmtCurrency(r.totalRevenue)}
+                          {fmtCurrency(r.dailyRevenue)}
                         </td>
                         <td className="py-2.5 px-3 text-right tabular-nums text-text-secondary">
                           {seatsPct != null ? `${seatsPct.toFixed(1)}%` : '—'}
