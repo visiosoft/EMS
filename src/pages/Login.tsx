@@ -14,6 +14,7 @@ import {
     loginRequest,
 } from "@/auth/entra";
 import { IaeLogoFull } from "@/components/ems/Layout";
+import { resolvePostLoginPath } from "@/routing/postLogin";
 
 type LocationState = {
     from?: string;
@@ -27,7 +28,7 @@ const Login = () => {
     const account = getActiveAccount() ?? accounts[0] ?? null;
     const displayName = getAccountName(account);
     const email = getAccountEmail(account);
-    const targetPath = (location.state as LocationState | null)?.from ?? "/";
+    const targetPath = resolvePostLoginPath((location.state as LocationState | null)?.from);
 
     useEffect(() => {
         if (isAuthenticated && account) {
@@ -53,7 +54,7 @@ const Login = () => {
                         <div>
                             <CardTitle className="text-3xl">Sign in with Microsoft Entra ID</CardTitle>
                             <CardDescription className="mt-2 max-w-lg text-sm leading-6">
-                                Use an existing Entra user to open the EMS app. After sign-in, the app header and sidebar will show the signed-in user&apos;s name and email.
+                                Use your Entra account to sign in. After authentication you can open Event Management (EMS) or the iAE Company Hub.
                             </CardDescription>
                         </div>
                     </CardHeader>

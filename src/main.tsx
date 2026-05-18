@@ -5,7 +5,11 @@ import { initializeMsal, msalInstance } from "./auth/entra.ts";
 import "./index.css";
 
 async function bootstrap() {
-    await initializeMsal();
+    try {
+        await initializeMsal();
+    } catch (err) {
+        console.error("[MSAL] initialize failed — login page will still load:", err);
+    }
 
     createRoot(document.getElementById("root")!).render(
         <MsalProvider instance={msalInstance}>

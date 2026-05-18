@@ -65,6 +65,7 @@ export default defineConfig(({ mode }) => {
     "import.meta.env.VITE_ENTRA_REDIRECT_PATH": JSON.stringify(
       (fileEnv.VITE_ENTRA_REDIRECT_PATH ?? "/login").trim() || "/login",
     ),
+    "import.meta.env.VITE_APP_SUITE": JSON.stringify((fileEnv.VITE_APP_SUITE ?? "all").trim() || "all"),
   };
 
   return {
@@ -74,6 +75,23 @@ export default defineConfig(({ mode }) => {
     server: {
       host: "::",
       port: 8080,
+      /**
+       * Nest `dev:backend` writes to `backend/dist` continuously. Without ignores, Vite watches
+       * that tree and can hit Linux ENOSPC (inotify watcher limit).
+       */
+      watch: {
+        ignored: [
+          "**/backend/**",
+          "**/node_modules/**",
+          "**/dist/**",
+          "**/dist-ssr/**",
+          "**/.git/**",
+          "**/coverage/**",
+          "**/playwright-report/**",
+          "**/test-results/**",
+          "**/.cache/**",
+        ],
+      },
       proxy: {
         "/api": {
           target: "http://127.0.0.1:3001",
