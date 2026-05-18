@@ -33,38 +33,38 @@ export function TimeZonesWidget() {
   }, []);
 
   return (
-    <section className="rounded-sm border border-neutral-200 bg-white p-4">
-      <h3 className="mb-3 text-base font-semibold text-black">Time Zones</h3>
+    <section className="animate-slide-up bg-white">
+      <h3 className="mb-4 text-[17px] font-semibold tracking-[0.02em] text-neutral-900">Time Zones</h3>
       <ul className="space-y-2">
         {TIME_ZONE_LOCATIONS.map((loc, index) => {
           const { time, date } = formatClock(loc.timeZone, now);
+          const [clockTime, meridiem = ""] = time.split(" ");
           const isPrimary = index === 0;
 
           return (
             <li
               key={loc.city}
-              className={
-                isPrimary
-                  ? "rounded border border-neutral-200 bg-neutral-50 px-4 py-4"
-                  : "rounded border border-neutral-100 px-4 py-3"
-              }
+              className="border border-neutral-200 bg-white px-4 py-3 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_7px_20px_rgba(0,0,0,0.08)]"
             >
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="text-sm font-medium text-neutral-800">{loc.city}</span>
+              <div className="flex items-start justify-between gap-3">
+                <span className="text-sm font-medium text-neutral-700">{loc.city}</span>
                 {loc.offsetLabel ? (
-                  <span className="text-xs font-medium text-neutral-500">{loc.offsetLabel}</span>
+                  <span className="pt-5 text-[12px] font-medium text-neutral-600">{loc.offsetLabel}</span>
                 ) : null}
               </div>
-              <p
-                className={
-                  isPrimary
-                    ? "mt-1 text-3xl font-semibold tracking-tight text-black"
-                    : "mt-0.5 text-xl font-semibold text-black"
-                }
-              >
-                {time}
-              </p>
-              <p className="text-xs text-neutral-500">{date}</p>
+              <div className="mt-1 flex items-baseline gap-2">
+                <span
+                  className={
+                    isPrimary
+                      ? "text-[31px] font-semibold leading-none tracking-tight text-neutral-950"
+                      : "text-[28px] font-semibold leading-none tracking-tight text-neutral-950"
+                  }
+                >
+                  {clockTime}
+                </span>
+                <span className="text-xs font-semibold uppercase text-neutral-700">{meridiem}</span>
+              </div>
+              <p className="mt-0.5 text-xs text-neutral-500">{date}</p>
             </li>
           );
         })}
