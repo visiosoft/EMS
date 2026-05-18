@@ -3,11 +3,11 @@ import { DOCUMENT_ITEMS, QUICK_LINKS } from "../constants/quickLinks";
 
 export function InternalQuickLinksSidebar() {
   return (
-    <aside className="hidden w-[290px] shrink-0 self-stretch bg-black text-white lg:flex xl:w-[324px]">
-      <div className="sticky top-[56px] flex max-h-[calc(100vh-56px)] w-full flex-col overflow-y-auto px-6 pb-10 pt-7 xl:px-8">
+    <aside className="w-full shrink-0 self-stretch bg-black text-white lg:w-[290px] xl:w-[324px]">
+      <div className="flex w-full flex-col overflow-y-auto px-6 pb-10 pt-7 lg:sticky lg:top-[56px] lg:max-h-[calc(100vh-56px)] xl:px-8">
         <section className="animate-slide-up">
           <h2 className="mb-6 text-xl font-semibold tracking-[0.02em] text-white">Quick Links</h2>
-          <ul className="space-y-4">
+          <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 lg:gap-4">
             {QUICK_LINKS.map((link) => {
               const Icon = link.icon;
               return (
@@ -25,7 +25,7 @@ export function InternalQuickLinksSidebar() {
           </ul>
         </section>
 
-        <hr className="my-12 border-white/20" />
+        <hr className="my-10 border-white/20 lg:my-12" />
 
         <section className="animate-slide-up">
           <h2 className="mb-4 text-xl font-semibold tracking-[0.02em] text-white">Documents</h2>
