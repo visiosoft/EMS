@@ -69,8 +69,12 @@ function sanitizeViewDataForView(view: string, raw: unknown): Record<string, unk
     const id = parsePositiveIntId(obj.engagementId);
     const out: Record<string, unknown> = {};
     if (id != null) out.engagementId = id;
+    const pid = parsePositiveIntId(obj.performanceId);
+    if (pid != null) out.performanceId = pid;
     const rv = typeof obj.returnView === 'string' ? obj.returnView.trim() : '';
     if (rv && SALES_SUMMARY_RETURN_VIEWS.has(rv)) out.returnView = rv;
+    const asOf = typeof obj.initialAsOf === 'string' ? obj.initialAsOf.trim() : '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(asOf)) out.initialAsOf = asOf;
     return out;
   }
   if (view === 'attraction-sales-summary') {
@@ -290,9 +294,10 @@ const Index = () => {
 
           {currentView === 'sales-summary' && (
             <SalesSummaryPage
-              onOpenEngagement={(engagementId) =>
+              onOpenEngagement={(engagementId, performanceId) =>
                 navigate('engagement-sales-dashboard', {
                   engagementId,
+                  performanceId,
                   returnView: 'sales-summary',
                 })
               }
@@ -308,10 +313,27 @@ const Index = () => {
               typeof viewData.returnView === 'string' && viewData.returnView.trim()
                 ? viewData.returnView.trim()
                 : 'sales-summary';
+            const pidRaw = viewData.performanceId;
+            const pidStr = pidRaw != null ? String(pidRaw) : '';
+            const pidNum = Number(pidStr);
+            const pid =
+              pidStr !== '' && Number.isFinite(pidNum) && String(pidNum) === pidStr && pidNum >= 1
+                ? pidNum
+                : undefined;
+            const initialAsOfRaw = viewData.initialAsOf;
+            const initialAsOf =
+              typeof initialAsOfRaw === 'string' &&
+              /^\d{4}-\d{2}-\d{2}$/.test(initialAsOfRaw.trim())
+                ? initialAsOfRaw.trim()
+                : undefined;
+            const backTitle = rv === 'sales-summary' ? 'Back to Sales Summary' : 'Back';
             if (ok) {
               return (
                 <EngagementSalesDashboardPanel
                   engagementId={n}
+                  performanceId={pid}
+                  initialAsOf={initialAsOf}
+                  backTitle={backTitle}
                   onBack={() => navigate(rv)}
                 />
               );

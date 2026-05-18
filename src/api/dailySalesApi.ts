@@ -178,13 +178,23 @@ export interface ApiSalesDashboardBody {
   };
   series: Array<{
     date: string;
+    /** Cumulative tickets sold through this calendar day. */
     totalTickets: number;
+    /** Cumulative revenue through this calendar day. */
     totalRevenue: number;
+    /** New tickets sold on this calendar day only. */
+    dailyTickets: number;
+    /** New revenue on this calendar day only. */
+    dailyRevenue: number;
   }>;
   summary: Array<{
     date: string;
     totalTicketsSold: number;
     totalValueSold: number;
+    /** New tickets sold on this calendar day only. */
+    dailyTicketsSold: number;
+    /** New revenue on this calendar day only. */
+    dailyValueSold: number;
     seatsSoldPct: number | null;
     seatsRemaining: number | null;
     revenueRemaining: number | null;
@@ -199,6 +209,8 @@ export interface ApiSalesDashboardBody {
     sellableCapacity: number | null;
     grossPotential: number | null;
   }>;
+  /** Echo of the optional performance filter; null when the response is an engagement/attraction roll-up. */
+  performanceId: number | null;
 }
 
 export interface ApiEngagementSalesDashboard extends ApiSalesDashboardBody {
@@ -211,13 +223,22 @@ export interface ApiAttractionSalesDashboard extends ApiSalesDashboardBody {
   engagementBaselines: NonNullable<ApiSalesDashboardBody['engagementBaselines']>;
 }
 
+/**
+ * KPIs + daily series for one engagement.
+ * When `performanceId` is provided, the dashboard is scoped to just that single show;
+ * otherwise it rolls up every performance under the engagement.
+ */
 export function fetchEngagementSalesDashboard(
   engagementId: number,
   asOfDate?: string,
+  performanceId?: number,
 ) {
   const p = new URLSearchParams();
   p.set('engagementId', String(engagementId));
   if (asOfDate) p.set('asOfDate', asOfDate);
+  if (performanceId != null && Number.isFinite(performanceId)) {
+    p.set('performanceId', String(performanceId));
+  }
   return apiFetch<ApiEngagementSalesDashboard>(
     `/daily-sales/engagement-dashboard?${p.toString()}`,
   );

@@ -29,13 +29,15 @@ export class DailySalesController {
   constructor(private readonly dailySalesService: DailySalesService) {}
 
   /**
-   * GET /api/daily-sales/engagement-dashboard?engagementId=…&asOfDate=YYYY-MM-DD
-   * KPIs + cumulative daily series for all performances under the engagement.
+   * GET /api/daily-sales/engagement-dashboard?engagementId=…&asOfDate=YYYY-MM-DD&performanceId=…
+   * KPIs + daily series for performances under the engagement.
+   * When `performanceId` is provided, the dashboard is scoped to that single show only.
    */
   @Get('engagement-dashboard')
   getEngagementDashboard(
     @Query('engagementId') engagementIdRaw?: string,
     @Query('asOfDate') asOfDate?: string,
+    @Query('performanceId') performanceIdRaw?: string,
   ) {
     const id = engagementIdRaw != null ? Number(engagementIdRaw) : NaN;
     if (!Number.isFinite(id) || id < 1) {
@@ -43,7 +45,17 @@ export class DailySalesController {
         message: 'Query parameter engagementId is required and must be a positive integer.',
       });
     }
-    return this.dailySalesService.getEngagementDashboard(id, asOfDate);
+    let performanceId: number | undefined;
+    if (performanceIdRaw != null && performanceIdRaw !== '') {
+      const pid = Number(performanceIdRaw);
+      if (!Number.isFinite(pid) || pid < 1 || !Number.isInteger(pid)) {
+        throw new BadRequestException({
+          message: 'Query parameter performanceId, when provided, must be a positive integer.',
+        });
+      }
+      performanceId = pid;
+    }
+    return this.dailySalesService.getEngagementDashboard(id, asOfDate, performanceId);
   }
 
   /**

@@ -154,17 +154,29 @@ export interface EngagementSalesDashboardDto {
   };
   series: Array<{
     date: string;
+    /** Cumulative tickets sold through this calendar day. */
     totalTickets: number;
+    /** Cumulative revenue through this calendar day. */
     totalRevenue: number;
+    /** New tickets sold on this calendar day only (per-day delta). */
+    dailyTickets: number;
+    /** New revenue on this calendar day only (per-day delta). */
+    dailyRevenue: number;
   }>;
   summary: Array<{
     date: string;
     totalTicketsSold: number;
     totalValueSold: number;
+    /** New tickets sold on this calendar day only. */
+    dailyTicketsSold: number;
+    /** New revenue on this calendar day only. */
+    dailyValueSold: number;
     seatsSoldPct: number | null;
     seatsRemaining: number | null;
     revenueRemaining: number | null;
   }>;
+  /** Echo of the optional performance filter (null when the whole engagement is rolled up). */
+  performanceId: number | null;
 }
 
 /** One engagement’s seat / revenue caps — used on attraction roll-up to explain summed totals */
@@ -259,30 +271,57 @@ function revenueRemainingDisplay(potential: number, totalRevenue: number): numbe
 
 /**
  * One point per calendar day from earliest sale to `asOf`.
- * Y value = sum over performances of (sum of that show's dbo.TicketingSales rows with SalesDate ≤ day).
- * Each stored row is the amount for that calendar day only (not a running snapshot).
+ * - `totalTickets` / `totalRevenue` = cumulative through this day across the requested performances.
+ * - `dailyTickets` / `dailyRevenue` = new sales recorded ON this calendar day only.
+ * Each stored dbo.TicketingSales row is the amount for that calendar day only (not a running snapshot).
  */
 function buildDailySeries(
   asOf: string,
   perfIds: number[],
   byPerf: Map<number, { salesDate: string; tickets: number; revenue: number }[]>,
-): Array<{ date: string; totalTickets: number; totalRevenue: number }> {
+): Array<{
+  date: string;
+  totalTickets: number;
+  totalRevenue: number;
+  dailyTickets: number;
+  dailyRevenue: number;
+}> {
   let minD: string | null = null;
+  const dailyTickets = new Map<string, number>();
+  const dailyRevenue = new Map<string, number>();
   for (const pid of perfIds) {
     const rows = byPerf.get(pid);
-    if (rows?.length) {
-      const d0 = rows[0].salesDate;
-      if (!minD || d0 < minD) minD = d0;
+    if (!rows?.length) continue;
+    for (const r of rows) {
+      if (!minD || r.salesDate < minD) minD = r.salesDate;
+      dailyTickets.set(r.salesDate, (dailyTickets.get(r.salesDate) ?? 0) + r.tickets);
+      dailyRevenue.set(r.salesDate, (dailyRevenue.get(r.salesDate) ?? 0) + r.revenue);
     }
   }
   if (!minD) {
-    return [{ date: asOf, totalTickets: 0, totalRevenue: 0 }];
+    return [{ date: asOf, totalTickets: 0, totalRevenue: 0, dailyTickets: 0, dailyRevenue: 0 }];
   }
-  const out: Array<{ date: string; totalTickets: number; totalRevenue: number }> =
-    [];
+  const out: Array<{
+    date: string;
+    totalTickets: number;
+    totalRevenue: number;
+    dailyTickets: number;
+    dailyRevenue: number;
+  }> = [];
+  let cumTickets = 0;
+  let cumRevenue = 0;
   for (let d = minD; d <= asOf; d = ymdAddDays(d, 1)) {
-    const { tickets, revenue } = totalsForReportingDay(perfIds, byPerf, d);
-    out.push({ date: d, totalTickets: tickets, totalRevenue: revenue });
+    const dayT = dailyTickets.get(d) ?? 0;
+    const dayR = dailyRevenue.get(d) ?? 0;
+    cumTickets += dayT;
+    cumRevenue += dayR;
+    out.push({
+      date: d,
+      totalTickets: cumTickets,
+      totalRevenue: cumRevenue,
+      dailyTickets: dayT,
+      dailyRevenue: dayR,
+    });
   }
   return out;
 }
@@ -1016,12 +1055,16 @@ export class DailySalesService {
   }
 
   /**
-   * Sales KPIs, cumulative daily series, and summary rows for all performances
-   * under one engagement (each TicketingSales row = that calendar day's amount; totals sum through each day).
+   * Sales KPIs, cumulative daily series, and summary rows for performances
+   * under one engagement. Each TicketingSales row = that calendar day's amount;
+   * totals sum through each day. When `performanceId` is provided, the dashboard
+   * is scoped to that single show only (used by Sales Summary row-click → detail);
+   * otherwise it rolls up every performance under the engagement.
    */
   async getEngagementDashboard(
     engagementId: number,
     asOfDateParam?: string,
+    performanceIdFilter?: number,
   ): Promise<EngagementSalesDashboardDto> {
     const asOf = await this.resolveAsOfDateString(asOfDateParam);
     let engagement: Awaited<ReturnType<EngagementService['getOne']>>;
@@ -1033,11 +1076,25 @@ export class DailySalesService {
       });
     }
 
-    const perfs = await this.performanceRepo.find({
+    const allPerfs = await this.performanceRepo.find({
       where: { engagementId },
       order: { performanceDate: 'ASC', performanceTime: 'ASC' },
     });
+
+    let perfs = allPerfs;
+    if (performanceIdFilter != null) {
+      const match = allPerfs.find(
+        (p) => p.performanceId === performanceIdFilter,
+      );
+      if (!match) {
+        throw new NotFoundException({
+          message: `Performance #${performanceIdFilter} does not belong to engagement #${engagementId}.`,
+        });
+      }
+      perfs = [match];
+    }
     const perfIds = perfs.map((p) => p.performanceId);
+    const performanceCount = perfs.length;
 
     const byPerf = new Map<
       number,
@@ -1085,14 +1142,28 @@ export class DailySalesService {
       endTotals.revenue - baselineTotals.revenue,
     );
 
-    const cap = engagement.sellableCapacity;
-    const grossPotentialNum = (() => {
+    /**
+     * `engagement.sellableCapacity` / `grossPotential` are stored per-show on the engagement
+     * (one venue, repeated for each performance). When we roll up the whole engagement
+     * (no `performanceIdFilter`), scale the caps by the number of performances so the
+     * "% sold" / "% revenue vs potential" KPIs make sense across all shows.
+     */
+    const perShowCapRaw = engagement.sellableCapacity;
+    const perShowGrossRaw = (() => {
       const v = engagement.grossPotential as string | number | null | undefined;
       if (v == null) return null;
       if (typeof v === 'string' && v.trim() === '') return null;
       const n = Number(v);
       return Number.isFinite(n) ? n : null;
     })();
+    const cap =
+      perShowCapRaw != null && performanceCount > 0
+        ? perShowCapRaw * performanceCount
+        : perShowCapRaw;
+    const grossPotentialNum =
+      perShowGrossRaw != null && performanceCount > 0
+        ? perShowGrossRaw * performanceCount
+        : perShowGrossRaw;
     const pctSold =
       cap != null && cap > 0 ? pctVsCap(endTotals.tickets, cap) : null;
     const pctRevenueVsPotential =
@@ -1133,6 +1204,8 @@ export class DailySalesService {
         date: pt.date,
         totalTicketsSold: pt.totalTickets,
         totalValueSold: pt.totalRevenue,
+        dailyTicketsSold: pt.dailyTickets,
+        dailyValueSold: pt.dailyRevenue,
         seatsSoldPct,
         seatsRemaining,
         revenueRemaining,
@@ -1164,6 +1237,7 @@ export class DailySalesService {
       },
       series,
       summary,
+      performanceId: performanceIdFilter ?? null,
     };
   }
 
@@ -1332,6 +1406,8 @@ export class DailySalesService {
         date: pt.date,
         totalTicketsSold: pt.totalTickets,
         totalValueSold: pt.totalRevenue,
+        dailyTicketsSold: pt.dailyTickets,
+        dailyValueSold: pt.dailyRevenue,
         seatsSoldPct,
         seatsRemaining,
         revenueRemaining,
@@ -1376,6 +1452,7 @@ export class DailySalesService {
       series,
       summary,
       engagementBaselines,
+      performanceId: null,
     };
   }
 
