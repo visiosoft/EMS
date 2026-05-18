@@ -4,16 +4,14 @@ import { InternalQuickLinksSidebar } from "./InternalQuickLinksSidebar";
 
 /**
  * Shell for the iAE Company Hub module.
- * Header + main column + right Quick Links sidebar.
- * The sidebar is permanently black and grows to fill the viewport height.
+ * Header + main column + responsive Quick Links panel.
  */
 export function InternalLayout({ showSidebar = true }: { showSidebar?: boolean }) {
   return (
-    <div className="min-h-screen bg-white text-black flex flex-col">
+    <div className="flex min-h-screen flex-col bg-white text-black">
       <InternalHeader />
 
-      {/* Body: stretches so the black sidebar always fills remaining viewport height */}
-      <div className="flex flex-1 mx-auto w-full max-w-[1600px]">
+      <div className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col lg:flex-row">
         <main className="min-w-0 flex-1">
           <Outlet />
         </main>
