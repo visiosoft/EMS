@@ -1,12 +1,16 @@
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 import { InternalHeader } from "./InternalHeader";
 import { InternalQuickLinksSidebar } from "./InternalQuickLinksSidebar";
 
 /**
  * Shell for the iAE Company Hub module.
- * Header + main column + responsive Quick Links panel.
+ * The Quick Links rail belongs to the main hub landing screen only, matching the SharePoint references.
  */
 export function InternalLayout({ showSidebar = true }: { showSidebar?: boolean }) {
+  const location = useLocation();
+  const isHubLanding = location.pathname === "/internal" || location.pathname === "/internal/";
+  const shouldShowSidebar = showSidebar && isHubLanding;
+
   return (
     <div className="flex min-h-screen flex-col bg-white text-black">
       <InternalHeader />
@@ -16,7 +20,7 @@ export function InternalLayout({ showSidebar = true }: { showSidebar?: boolean }
           <Outlet />
         </main>
 
-        {showSidebar ? <InternalQuickLinksSidebar /> : null}
+        {shouldShowSidebar ? <InternalQuickLinksSidebar /> : null}
       </div>
     </div>
   );
