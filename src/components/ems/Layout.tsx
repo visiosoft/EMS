@@ -6,6 +6,7 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
   Landmark,
   LineChart,
   LogOut,
@@ -17,74 +18,10 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { Avatar } from './Primitives';
 import { getAccountEmail, getAccountInitials, getAccountName, getActiveAccount } from '@/auth/entra';
+import { IaeBrandMark } from '@/components/brand/IaeBrandMark';
 import { cn } from '@/lib/utils';
 
-function IaeLogo() {
-  const { resolvedTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => { setMounted(true); }, []);
-
-  if (!mounted) {
-    return <div className="rounded bg-elevated animate-pulse" style={{ width: 48, height: 24 }} />;
-  }
-
-  const isDark = resolvedTheme !== 'light';
-
-  return (
-    <div
-      style={{
-        width: 48,
-        height: 24,
-        borderRadius: 4,
-        overflow: 'hidden',
-        flexShrink: 0,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      <img
-        src="/iae_logo.png"
-        alt="IAE Logo"
-        style={{
-          width: '100%',
-          height: '100%',
-          objectFit: 'contain',
-          borderRadius: 4,
-          filter: isDark ? 'none' : 'invert(1)',
-          mixBlendMode: isDark ? 'screen' : 'multiply',
-          transition: 'filter 0.25s ease',
-        }}
-      />
-    </div>
-  );
-}
-
-export function IaeLogoFull({ height = 28 }: { height?: number }) {
-  const { resolvedTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => { setMounted(true); }, []);
-  if (!mounted) return null;
-
-  const isDark = resolvedTheme !== 'light';
-
-  return (
-    <img
-      src="/iae_logo.png"
-      alt="IAE"
-      style={{
-        height,
-        width: 'auto',
-        objectFit: 'contain',
-        filter: isDark ? 'none' : 'invert(1)',
-        mixBlendMode: isDark ? 'screen' : 'multiply',
-        transition: 'filter 0.25s ease',
-      }}
-    />
-  );
-}
+export { IaeLogoFull } from '@/components/brand/IaeBrandMark';
 
 interface SidebarProps {
   currentView: string;
@@ -100,6 +37,7 @@ const NAV_ITEM_ICONS: Record<string, LucideIcon> = {
   projects: FolderKanban,
   engagements: Users,
   'daily-sales': LineChart,
+  'sales-summary': ClipboardList,
   companies: Building2,
   'all-venues': Landmark,
   'attraction-tours': Map,
@@ -114,6 +52,7 @@ const NAV_SECTIONS = [
       { key: 'projects', label: 'Projects', icon: '⬡' },
       { key: 'engagements', label: 'Engagements', icon: '⬡' },
       { key: 'daily-sales', label: 'Daily Sales', icon: '⬡' },
+      { key: 'sales-summary', label: 'Sales Summary', icon: '⬡' },
     ],
   },
   {
@@ -183,16 +122,7 @@ export function Sidebar({
               desktopCollapsed && 'lg:flex-col lg:justify-center',
             )}
           >
-            <IaeLogo />
-            <div
-              className={cn(
-                'flex flex-col leading-tight min-w-0',
-                desktopCollapsed && 'lg:hidden',
-              )}
-            >
-              <span className="text-text-primary font-semibold text-sm tracking-wide">IAE</span>
-              <span className="text-text-muted text-[10px] tracking-widest uppercase font-medium">Event Flow</span>
-            </div>
+            <IaeBrandMark collapseLabelsOnDesktop={desktopCollapsed} />
           </div>
           {onCollapsedChange && (
             <button

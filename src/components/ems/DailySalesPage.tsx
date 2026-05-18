@@ -1,9 +1,8 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Loader2,
   Save,
-  ChevronLeft,
   ChevronDown,
   ChevronUp,
   GripVertical,
@@ -14,11 +13,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Select2 } from './Select2';
 import {
   fetchDailySalesByPerformance,
-  fetchDailySales,
   updateDailySales,
   DAILY_SALES_SUGGESTION_PAGE_SIZE,
   type ApiPerformanceSalesRow,
-  type ApiDailySalesRow,
   type UpdateDailySalesPayload,
 } from '@/api/dailySalesApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
@@ -26,7 +23,6 @@ import { validateDailySalesPerformanceDates } from '@/lib/dailySalesPerformanceD
 import { invalidateSalesCapacityRelatedQueries } from '@/api/cacheHelpers';
 import { PAGE_SIZE, PAGE_SIZE_ALL, type PageSizeOption, isAllPageSize, toPageSize } from '@/lib/serverPagination';
 import { PageSizeSelect } from './PageSizeSelect';
-import { fetchEngagement, updateEngagement } from '@/api/engagementApi';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -72,21 +68,7 @@ function validateField(val: string, field: 'tickets' | 'revenue'): string | null
   return null;
 }
 
-/** % of baseline; can exceed 100 when sold exceeds capacity / potential. */
-function pctVsBaselineDisplay(total: number, cap: number): number {
-  if (!(cap > 0) || !Number.isFinite(total)) return 0;
-  return (total / cap) * 100;
-}
-
-function seatsRemainingForDisplay(cap: number, sold: number): number {
-  return Math.max(0, cap - sold);
-}
-
-function revenueRemainingForDisplay(potential: number, revenue: number): number {
-  return Math.max(0, potential - revenue);
-}
-
-/** Local calendar YYYY-MM-DD (for default “as of” date). */
+/** Local calendar YYYY-MM-DD (for default "as of" date). */
 function todayLocalYmd(): string {
   const d = new Date();
   const y = d.getFullYear();
@@ -113,7 +95,7 @@ function ReportingAsOfBar({
   asOfDate: string;
   onAsOfDateChange: (next: string) => void;
   disabled?: boolean;
-  /** Highlights border when “Reporting as of” fails validation. */
+  /** Highlights border when "Reporting as of" fails validation. */
   inputInvalid?: boolean;
 }) {
   const inputClass =
@@ -179,22 +161,24 @@ function DailySummaryCard({
   );
 }
 
-// ─── Reorderable lead columns (Attraction / Date / Venue) — same pattern as Engagements ─
+// ─── Reorderable lead columns (Attraction / Date / Venue / City) ─────────────
 
-const DAILY_SALES_LEAD_COLUMN_ORDER_KEY = 'iae-daily-sales-lead-column-order-v1';
+const DAILY_SALES_LEAD_COLUMN_ORDER_KEY = 'iae-daily-sales-lead-column-order-v2';
 
-type DailySalesLeadColumnId = 'attraction' | 'date' | 'venue';
+type DailySalesLeadColumnId = 'attraction' | 'date' | 'venue' | 'city';
 
 const DEFAULT_DAILY_SALES_LEAD_COLUMNS: DailySalesLeadColumnId[] = [
   'attraction',
   'date',
   'venue',
+  'city',
 ];
 
 const DAILY_SALES_LEAD_COLUMN_LABELS: Record<DailySalesLeadColumnId, string> = {
   attraction: 'Attraction',
   date: 'Date',
   venue: 'Venue',
+  city: 'City',
 };
 
 function loadDailySalesLeadColumnOrder(): DailySalesLeadColumnId[] {
@@ -232,109 +216,24 @@ function saveDailySalesLeadColumnOrder(order: DailySalesLeadColumnId[]) {
   }
 }
 
-// ─── Reorderable report metric columns (Genre … Contact) ─────────────────────
-
-const DAILY_SALES_REPORT_COLUMN_ORDER_KEY = 'iae-daily-sales-report-column-order-v1';
-
-type DailySalesReportColumnId =
-  | 'genre'
-  | 'city'
-  | 'state'
-  | 'daysOnSale'
-  | 'soldYesterday'
-  | 'totalSold'
-  | 'totalRevenue'
-  | 'contact';
-
-const DEFAULT_DAILY_SALES_REPORT_COLUMNS: DailySalesReportColumnId[] = [
-  'genre',
-  'city',
-  'state',
-  'daysOnSale',
-  'soldYesterday',
-  'contact',
-];
-
-const DAILY_SALES_REPORT_COLUMN_LABELS: Record<DailySalesReportColumnId, string> = {
-  genre: 'Genre',
-  city: 'City',
-  state: 'State',
-  daysOnSale: 'Days on Sale',
-  soldYesterday: 'Sold Yesterday',
-  totalSold: 'Total Sold',
-  totalRevenue: 'Total Revenue',
-  contact: 'Contact',
-};
-
-function reportColumnHeaderAlign(id: DailySalesReportColumnId): string {
-  if (
-    id === 'daysOnSale' ||
-    id === 'soldYesterday' ||
-    id === 'totalSold' ||
-    id === 'totalRevenue'
-  ) {
-    return 'text-right';
-  }
-  return 'text-left';
-}
-
-function loadDailySalesReportColumnOrder(): DailySalesReportColumnId[] {
-  if (typeof window === 'undefined') return DEFAULT_DAILY_SALES_REPORT_COLUMNS;
-  try {
-    const raw = localStorage.getItem(DAILY_SALES_REPORT_COLUMN_ORDER_KEY);
-    if (!raw) return DEFAULT_DAILY_SALES_REPORT_COLUMNS;
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return DEFAULT_DAILY_SALES_REPORT_COLUMNS;
-    const need = new Set<DailySalesReportColumnId>(DEFAULT_DAILY_SALES_REPORT_COLUMNS);
-    const out: DailySalesReportColumnId[] = [];
-    const hiddenOnMain = new Set<DailySalesReportColumnId>(['totalSold', 'totalRevenue']);
-    for (const x of parsed) {
-      if (typeof x === 'string' && need.has(x as DailySalesReportColumnId)) {
-        const id = x as DailySalesReportColumnId;
-        if (hiddenOnMain.has(id)) continue;
-        out.push(id);
-        need.delete(id);
-      }
-    }
-    for (const id of DEFAULT_DAILY_SALES_REPORT_COLUMNS) {
-      if (need.has(id)) {
-        out.push(id);
-        need.delete(id);
-      }
-    }
-    return out;
-  } catch {
-    return DEFAULT_DAILY_SALES_REPORT_COLUMNS;
-  }
-}
-
-function saveDailySalesReportColumnOrder(order: DailySalesReportColumnId[]) {
-  try {
-    localStorage.setItem(DAILY_SALES_REPORT_COLUMN_ORDER_KEY, JSON.stringify(order));
-  } catch {
-    /* ignore */
-  }
-}
-
-/** Persist list filters + paging when navigating away (e.g. Attraction sales summary) so back restores UI. */
-const DAILY_SALES_FILTERS_SESSION_KEY = 'iae-daily-sales-filters-v1';
-
 const DAILY_SALES_LEAD_SORT_COLS = new Set<DailySalesLeadColumnId>([
   'attraction',
   'date',
   'venue',
+  'city',
 ]);
 
+/** Persist list filters + paging in the tab so reloads keep the view. */
+const DAILY_SALES_FILTERS_SESSION_KEY = 'iae-daily-sales-filters-v2';
+
 interface DailySalesFiltersSnapshot {
-  v: 1;
+  v: 2;
   search: string;
   searchDebounced: string;
   attractionFilter: string;
-  genreFilter: string;
   tourFilter: string;
-  companyFilter: string;
   venueFilter: string;
-  contactFilter: string;
+  cityFilter: string;
   performanceDateFilter: string;
   startDateFilter: string;
   endDateFilter: string;
@@ -376,9 +275,9 @@ function loadDailySalesFiltersSnapshot(): DailySalesFiltersSnapshot | null {
     const raw = window.sessionStorage.getItem(DAILY_SALES_FILTERS_SESSION_KEY);
     if (!raw) return null;
     const o = JSON.parse(raw) as Record<string, unknown>;
-    if (o.v !== 1) return null;
+    if (o.v !== 2) return null;
     return {
-      v: 1,
+      v: 2,
       search: typeof o.search === 'string' ? o.search : '',
       searchDebounced:
         typeof o.searchDebounced === 'string'
@@ -387,11 +286,9 @@ function loadDailySalesFiltersSnapshot(): DailySalesFiltersSnapshot | null {
             ? o.search.trim()
             : '',
       attractionFilter: typeof o.attractionFilter === 'string' ? o.attractionFilter : '',
-      genreFilter: typeof o.genreFilter === 'string' ? o.genreFilter : '',
       tourFilter: typeof o.tourFilter === 'string' ? o.tourFilter : '',
-      companyFilter: typeof o.companyFilter === 'string' ? o.companyFilter : '',
       venueFilter: typeof o.venueFilter === 'string' ? o.venueFilter : '',
-      contactFilter: typeof o.contactFilter === 'string' ? o.contactFilter : '',
+      cityFilter: typeof o.cityFilter === 'string' ? o.cityFilter : '',
       performanceDateFilter:
         typeof o.performanceDateFilter === 'string' ? o.performanceDateFilter : '',
       startDateFilter: typeof o.startDateFilter === 'string' ? o.startDateFilter : '',
@@ -416,71 +313,12 @@ function saveDailySalesFiltersSnapshot(s: DailySalesFiltersSnapshot): void {
   }
 }
 
-function renderDailySalesReportCell(col: DailySalesReportColumnId, row: ApiPerformanceSalesRow) {
-  switch (col) {
-    case 'genre':
-      return (
-        <td key={col} className="py-2 px-3 text-xs text-text-secondary">
-          {row.genre ?? '—'}
-        </td>
-      );
-    case 'city':
-      return (
-        <td key={col} className="py-2 px-3 text-xs text-text-secondary">
-          {row.city ?? '—'}
-        </td>
-      );
-    case 'state':
-      return (
-        <td key={col} className="py-2 px-3 text-xs text-text-secondary">
-          {row.stateProvince ?? '—'}
-        </td>
-      );
-    case 'daysOnSale':
-      return (
-        <td key={col} className="py-2 px-3 text-right text-xs tabular-nums text-text-secondary">
-          {row.daysOnSale > 0 ? row.daysOnSale.toLocaleString() : '—'}
-        </td>
-      );
-    case 'soldYesterday':
-      return (
-        <td key={col} className="py-2 px-3 text-right text-xs tabular-nums text-text-primary">
-          {row.soldYesterday.toLocaleString()}
-        </td>
-      );
-    case 'totalSold':
-      return (
-        <td key={col} className="py-2 px-3 text-right text-xs tabular-nums text-text-primary">
-          {row.totalSold.toLocaleString()}
-        </td>
-      );
-    case 'totalRevenue':
-      return (
-        <td key={col} className="py-2 px-3 text-right text-xs tabular-nums text-ems-green font-medium">
-          {fmtCurrency(row.totalRevenue)}
-        </td>
-      );
-    case 'contact':
-      return (
-        <td key={col} className="py-2 px-3 text-xs text-text-secondary">
-          {row.contactName ?? '—'}
-        </td>
-      );
-    default:
-      return null;
-  }
-}
-
-function renderDailySalesLeadCell(
-  col: DailySalesLeadColumnId,
-  row: ApiPerformanceSalesRow,
-  onEngagementClick: (engagementId: number) => void,
-) {
+function renderDailySalesLeadCell(col: DailySalesLeadColumnId, row: ApiPerformanceSalesRow) {
   switch (col) {
     case 'attraction':
       return (
         <td key={col} className="py-2 px-3 align-top min-w-0">
-          <div className="space-y-1 min-w-0">
+          <div className="space-y-0.5 min-w-0">
             <div className="font-medium text-sm text-text-primary">
               {row.attractionName ?? <span className="text-text-muted italic text-xs">Unknown</span>}
             </div>
@@ -489,16 +327,6 @@ function renderDailySalesLeadCell(
                 {row.tourName}
               </div>
             )}
-            <button
-              type="button"
-              className="text-[10px] font-medium text-ems-accent hover:underline"
-              onClick={(e) => {
-                e.stopPropagation();
-                onEngagementClick(row.engagementId);
-              }}
-            >
-              Engagement detail
-            </button>
           </div>
         </td>
       );
@@ -512,10 +340,13 @@ function renderDailySalesLeadCell(
     case 'venue':
       return (
         <td key={col} className="py-2 px-3 text-sm text-text-secondary">
-          <div className="truncate max-w-[11rem]">{row.venueName ?? row.venueCompanyName ?? '—'}</div>
-          {(row.city || row.stateProvince) && (
-            <div className="text-xs text-text-muted">{[row.city, row.stateProvince].filter(Boolean).join(', ')}</div>
-          )}
+          <div className="truncate max-w-[14rem]">{row.venueName ?? row.venueCompanyName ?? '—'}</div>
+        </td>
+      );
+    case 'city':
+      return (
+        <td key={col} className="py-2 px-3 text-xs text-text-secondary whitespace-nowrap">
+          {row.city ?? '—'}
         </td>
       );
     default:
@@ -565,17 +396,11 @@ function TableSkeleton({
 function PerformanceRow({
   row,
   leadColumnOrder,
-  reportColumnOrder,
-  onEngagementClick,
-  onOpenAttractionSalesSummary,
   onSaved,
   addToast,
 }: {
   row: ApiPerformanceSalesRow;
   leadColumnOrder: DailySalesLeadColumnId[];
-  reportColumnOrder: DailySalesReportColumnId[];
-  onEngagementClick: (engagementId: number) => void;
-  onOpenAttractionSalesSummary: (attractionId: number) => void | Promise<void>;
   onSaved: () => void;
   addToast: Props['addToast'];
 }) {
@@ -649,22 +474,8 @@ function PerformanceRow({
     'placeholder:text-text-muted text-text-primary transition-colors';
 
   return (
-    <tr
-      className={[
-        'border-b border-border/50 group',
-        row.attractionId != null ? 'cursor-pointer hover:bg-hover/40' : 'hover:bg-hover/30',
-      ].join(' ')}
-      title={row.attractionId != null ? 'Open attraction sales summary' : undefined}
-      onClick={() => {
-        if (row.attractionId != null) {
-          void onOpenAttractionSalesSummary(row.attractionId);
-        }
-      }}
-    >
-      {leadColumnOrder.map((colId) =>
-        renderDailySalesLeadCell(colId, row, onEngagementClick),
-      )}
-      {reportColumnOrder.map((colId) => renderDailySalesReportCell(colId, row))}
+    <tr className="border-b border-border/50 group hover:bg-hover/30">
+      {leadColumnOrder.map((colId) => renderDailySalesLeadCell(colId, row))}
 
       {/* Prior day (soft blue) */}
       <td
@@ -716,379 +527,6 @@ function PerformanceRow({
   );
 }
 
-// ─── Engagement Sales History (Item 7) ────────────────────────────────────────
-
-function EngagementSalesHistory({
-  engagementId,
-  attractionName,
-  tourName,
-  onBack,
-}: {
-  engagementId: number;
-  attractionName: string | null;
-  tourName: string | null;
-  onBack: () => void;
-}) {
-  const qc = useQueryClient();
-  const historyQuery = useQuery({
-    queryKey: ['daily-sales-history', engagementId],
-    queryFn: () => fetchDailySales(engagementId),
-    staleTime: 60_000,
-  });
-  const engagementQuery = useQuery({
-    queryKey: ['engagements', engagementId],
-    queryFn: () => fetchEngagement(engagementId),
-    staleTime: 60_000,
-  });
-  const [sellableCapacityInput, setSellableCapacityInput] = useState('');
-  const [grossPotentialInput, setGrossPotentialInput] = useState('');
-
-  const rows = historyQuery.data ?? [];
-  const engagement = engagementQuery.data;
-
-  useEffect(() => {
-    if (!engagement) return;
-    setSellableCapacityInput(
-      engagement.sellableCapacity == null ? '' : String(engagement.sellableCapacity),
-    );
-    setGrossPotentialInput(
-      engagement.grossPotential == null ? '' : String(engagement.grossPotential),
-    );
-  }, [engagement]);
-
-  const saveBaselineMutation = useMutation({
-    mutationFn: async () => {
-      const nextSellable = sellableCapacityInput.trim();
-      const nextGross = grossPotentialInput.trim();
-      let sellableCapacity: number | null = null;
-      let grossPotential: number | null = null;
-      if (nextSellable !== '') {
-        const parsed = Number(nextSellable);
-        if (!Number.isInteger(parsed) || parsed < 0) {
-          throw new Error('Sellable capacity must be a non-negative whole number.');
-        }
-        sellableCapacity = parsed;
-      }
-      if (nextGross !== '') {
-        const parsed = Number(nextGross);
-        if (!Number.isFinite(parsed) || parsed < 0) {
-          throw new Error('Gross potential must be a non-negative number.');
-        }
-        grossPotential = Number(parsed.toFixed(2));
-      }
-      await updateEngagement(engagementId, { sellableCapacity, grossPotential });
-    },
-    onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
-      await invalidateSalesCapacityRelatedQueries(qc);
-    },
-  });
-
-  type EngagementSalesDayRow = {
-    salesDate: string;
-    dailyTickets: number;
-    dailyRevenue: number;
-    cumulativeTickets: number;
-    cumulativeRevenue: number;
-  };
-
-  const timelineRows = useMemo((): EngagementSalesDayRow[] => {
-    if (rows.length === 0) return [];
-    const dailyMap = new Map<string, { tickets: number; revenue: number }>();
-    for (const r of rows) {
-      const prev = dailyMap.get(r.salesDate) ?? { tickets: 0, revenue: 0 };
-      dailyMap.set(r.salesDate, {
-        tickets: prev.tickets + (r.ticketsSold ?? 0),
-        revenue: prev.revenue + (r.revenue ?? 0),
-      });
-    }
-    const dates = [...dailyMap.keys()].sort((a, b) => a.localeCompare(b));
-    let cumulativeTickets = 0;
-    let cumulativeRevenue = 0;
-    return dates.map((salesDate) => {
-      const day = dailyMap.get(salesDate)!;
-      cumulativeTickets += day.tickets;
-      cumulativeRevenue += day.revenue;
-      return {
-        salesDate,
-        dailyTickets: day.tickets,
-        dailyRevenue: day.revenue,
-        cumulativeTickets,
-        cumulativeRevenue,
-      };
-    });
-  }, [rows]);
-
-  const latest = timelineRows.length > 0 ? timelineRows[timelineRows.length - 1] : null;
-  const priorDay = timelineRows.length > 1 ? timelineRows[timelineRows.length - 2] : null;
-  const daysOnSale = useMemo(() => {
-    if (timelineRows.length === 0) return 0;
-    const first = timelineRows[0].salesDate;
-    const last = timelineRows[timelineRows.length - 1].salesDate;
-    const [fy, fm, fd] = first.split('-').map(Number);
-    const [ly, lm, ld] = last.split('-').map(Number);
-    const start = new Date(fy, fm - 1, fd);
-    const end = new Date(ly, lm - 1, ld);
-    return Math.max(1, Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1);
-  }, [timelineRows]);
-  const sellableCapacity = engagement?.sellableCapacity ?? null;
-  const grossPotentialRaw = engagement?.grossPotential;
-  const grossPotentialNum =
-    grossPotentialRaw != null &&
-    grossPotentialRaw !== '' &&
-    Number.isFinite(Number(grossPotentialRaw)) &&
-    Number(grossPotentialRaw) > 0
-      ? Number(grossPotentialRaw)
-      : null;
-  const soldPct =
-    sellableCapacity != null && sellableCapacity > 0 && latest
-      ? pctVsBaselineDisplay(latest.cumulativeTickets, sellableCapacity)
-      : null;
-  const revenuePct =
-    grossPotentialNum != null && latest
-      ? pctVsBaselineDisplay(latest.cumulativeRevenue, grossPotentialNum)
-      : null;
-  const remainingSeats =
-    sellableCapacity != null && latest
-      ? seatsRemainingForDisplay(sellableCapacity, latest.cumulativeTickets)
-      : null;
-  const remainingRevenue =
-    grossPotentialNum != null && latest
-      ? revenueRemainingForDisplay(grossPotentialNum, latest.cumulativeRevenue)
-      : null;
-
-  return (
-    <div className="space-y-4">
-      {/* Back button */}
-      <button type="button" onClick={onBack}
-        className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-primary transition-colors">
-        <ChevronLeft className="h-4 w-4" />
-        Back to Daily Sales
-      </button>
-
-      {/* Title */}
-      <div className="bg-card border border-border rounded-lg p-4">
-        <h2 className="text-lg font-semibold text-text-primary">
-          {attractionName ? (
-            <>
-              {attractionName}
-              {tourName && <span className="text-text-muted font-normal"> — {tourName}</span>}
-            </>
-          ) : tourName ? (
-            tourName
-          ) : (
-            'Sales history'
-          )}
-        </h2>
-        {engagementQuery.isLoading ? (
-          <div className="mt-2 text-xs text-text-muted inline-flex items-center gap-1.5">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading engagement baseline…
-          </div>
-        ) : (
-          <p className="mt-1 text-xs text-text-muted">
-            Daily ticket and revenue activity by sales date. Capacity and gross-potential metrics use totals through each day.
-          </p>
-        )}
-      </div>
-
-      {/* History table */}
-      {historyQuery.isPending ? (
-        <div className="flex items-center gap-2 text-text-muted text-sm py-6">
-          <Loader2 className="h-4 w-4 animate-spin text-ems-accent" /> Loading history…
-        </div>
-      ) : historyQuery.isError ? (
-        <div className="text-sm text-ems-coral border border-ems-coral/30 rounded px-3 py-2 bg-ems-coral-dim">
-          {friendlyApiError(historyQuery.error)}
-        </div>
-      ) : rows.length === 0 ? (
-        <div className="bg-card border border-border rounded-lg p-8 text-center text-sm text-text-muted">
-          No sales records found for this engagement.
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-            <DailySummaryCard
-              dateStr={latest ? fmtDateHeader(latest.salesDate) : '—'}
-              statLabel="Tickets sold"
-              value={latest ? latest.dailyTickets.toLocaleString() : '0'}
-              sub="Latest sales day"
-              tone="current"
-            />
-            <DailySummaryCard
-              dateStr={latest ? fmtDateHeader(latest.salesDate) : '—'}
-              statLabel="Revenue"
-              value={latest ? fmtCurrency(latest.dailyRevenue) : '$0'}
-              sub="Latest sales day"
-              tone="current"
-            />
-            <DailySummaryCard
-              dateStr={priorDay ? fmtDateHeader(priorDay.salesDate) : '—'}
-              statLabel="Tickets sold"
-              value={priorDay ? priorDay.dailyTickets.toLocaleString() : '0'}
-              sub="Prior sales day"
-              tone="prior"
-            />
-            <DailySummaryCard
-              dateStr={priorDay ? fmtDateHeader(priorDay.salesDate) : '—'}
-              statLabel="Revenue"
-              value={priorDay ? fmtCurrency(priorDay.dailyRevenue) : '$0'}
-              sub="Prior sales day"
-              tone="prior"
-            />
-            <DailySummaryCard
-              dateStr={latest ? fmtDateHeader(latest.salesDate) : '—'}
-              statLabel="% Sold"
-              value={soldPct != null ? `${soldPct.toFixed(1)}%` : '—'}
-              sub={
-                sellableCapacity != null
-                  ? `${latest?.cumulativeTickets.toLocaleString() ?? '0'} of ${sellableCapacity.toLocaleString()} through latest day`
-                  : 'Set sellable capacity'
-              }
-              tone="current"
-            />
-            <DailySummaryCard
-              dateStr={latest ? fmtDateHeader(latest.salesDate) : '—'}
-              statLabel="Days on sale"
-              value={String(daysOnSale)}
-              sub={
-                revenuePct != null
-                  ? `${revenuePct.toFixed(1)}% of gross potential through latest day`
-                  : 'From first sales day'
-              }
-              tone="prior"
-            />
-          </div>
-
-          <div className="rounded-lg border border-border bg-card p-4">
-            <h3 className="text-sm font-semibold text-text-primary">Engagement Baseline Fields</h3>
-            <p className="text-xs text-text-muted mt-1">
-              Fill these after engagement creation to power capacity and gross-potential KPIs.
-            </p>
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-text-secondary">
-                  Sellable capacity
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  step={1}
-                  className="h-9 w-full rounded-md border border-border bg-background px-2.5 text-sm text-text-primary shadow-sm focus:outline-none focus:ring-2 focus:ring-ems-accent/30 focus:border-ems-accent"
-                  value={sellableCapacityInput}
-                  onChange={(e) => setSellableCapacityInput(e.target.value)}
-                  disabled={saveBaselineMutation.isPending}
-                />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-text-secondary">
-                  Gross potential
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  className="h-9 w-full rounded-md border border-border bg-background px-2.5 text-sm text-text-primary shadow-sm focus:outline-none focus:ring-2 focus:ring-ems-accent/30 focus:border-ems-accent"
-                  value={grossPotentialInput}
-                  onChange={(e) => setGrossPotentialInput(e.target.value)}
-                  disabled={saveBaselineMutation.isPending}
-                />
-              </div>
-            </div>
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-              <p className="text-xs text-text-muted">
-                Seats remaining: {remainingSeats != null ? remainingSeats.toLocaleString() : '—'} · Revenue remaining:{' '}
-                {remainingRevenue != null ? fmtCurrency(remainingRevenue) : '—'}
-              </p>
-              <button
-                type="button"
-                onClick={() => saveBaselineMutation.mutate()}
-                disabled={saveBaselineMutation.isPending}
-                className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded font-medium transition-all bg-ems-accent text-background hover:bg-ems-accent/80 disabled:opacity-50"
-              >
-                {saveBaselineMutation.isPending ? (
-                  <>
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Saving…
-                  </>
-                ) : (
-                  <>
-                    <Save className="h-3 w-3" />
-                    Save baseline
-                  </>
-                )}
-              </button>
-            </div>
-            {saveBaselineMutation.isError && (
-              <p className="mt-2 text-xs text-ems-coral">
-                {friendlyApiError(saveBaselineMutation.error, 'Could not save baseline fields.')}
-              </p>
-            )}
-          </div>
-
-          <div className="bg-card border border-border rounded-lg overflow-x-auto">
-            <p className="px-3 pt-3 text-[11px] text-text-muted">
-              Tickets sold and revenue are amounts recorded on that date. % of capacity, seats remaining, and revenue
-              remaining use cumulative totals through that date.
-            </p>
-            <table className="w-full text-sm min-w-[760px]">
-              <thead>
-                <tr className="text-text-muted text-xs border-b border-border bg-surface">
-                  <th className="text-left py-2.5 px-3">Date</th>
-                  <th className="text-right py-2.5 px-3">Tickets sold</th>
-                  <th className="text-right py-2.5 px-3">Revenue</th>
-                  <th className="text-right py-2.5 px-3">% of capacity</th>
-                  <th className="text-right py-2.5 px-3">Seats remaining</th>
-                  <th className="text-right py-2.5 px-3">Revenue remaining</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...timelineRows]
-                  .reverse()
-                  .map((r) => {
-                    const seatsPct =
-                      sellableCapacity != null && sellableCapacity > 0
-                        ? pctVsBaselineDisplay(r.cumulativeTickets, sellableCapacity)
-                        : null;
-                    const seatsLeft =
-                      sellableCapacity != null
-                        ? seatsRemainingForDisplay(sellableCapacity, r.cumulativeTickets)
-                        : null;
-                    const revLeft =
-                      grossPotentialNum != null
-                        ? revenueRemainingForDisplay(grossPotentialNum, r.cumulativeRevenue)
-                        : null;
-                    return (
-                      <tr key={r.salesDate} className="border-b border-border/50 hover:bg-hover/30">
-                        <td className="py-2.5 px-3 text-xs text-text-secondary tabular-nums whitespace-nowrap">
-                          {fmtDateHeader(r.salesDate)}
-                        </td>
-                        <td className="py-2.5 px-3 text-right tabular-nums text-text-primary">
-                          {r.dailyTickets.toLocaleString()}
-                        </td>
-                        <td className="py-2.5 px-3 text-right tabular-nums text-ems-green font-medium">
-                          {fmtCurrency(r.dailyRevenue)}
-                        </td>
-                        <td className="py-2.5 px-3 text-right tabular-nums text-text-secondary">
-                          {seatsPct != null ? `${seatsPct.toFixed(1)}%` : '—'}
-                        </td>
-                        <td className="py-2.5 px-3 text-right tabular-nums text-text-secondary">
-                          {seatsLeft != null ? seatsLeft.toLocaleString() : '—'}
-                        </td>
-                        <td className="py-2.5 px-3 text-right tabular-nums text-text-secondary">
-                          {revLeft != null ? fmtCurrency(revLeft) : '—'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function dailySalesRowSuggestionLabel(r: ApiPerformanceSalesRow): string {
   const a = (r.attractionName ?? '').trim();
   const t = (r.tourName ?? '').trim();
@@ -1096,7 +534,8 @@ function dailySalesRowSuggestionLabel(r: ApiPerformanceSalesRow): string {
   return a || t || (r.venueName ?? '').trim() || `Performance ${r.performanceId}`;
 }
 
-export function DailySalesPage({ onNavigate, addToast }: Props) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
   const qc = useQueryClient();
   const [initialFilters] = useState(() => loadDailySalesFiltersSnapshot());
 
@@ -1109,11 +548,9 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
   const [attractionFilter, setAttractionFilter] = useState(
     () => initialFilters?.attractionFilter ?? '',
   );
-  const [genreFilter, setGenreFilter] = useState(() => initialFilters?.genreFilter ?? '');
   const [tourFilter, setTourFilter] = useState(() => initialFilters?.tourFilter ?? '');
-  const [companyFilter, setCompanyFilter] = useState(() => initialFilters?.companyFilter ?? '');
   const [venueFilter, setVenueFilter] = useState(() => initialFilters?.venueFilter ?? '');
-  const [contactFilter, setContactFilter] = useState(() => initialFilters?.contactFilter ?? '');
+  const [cityFilter, setCityFilter] = useState(() => initialFilters?.cityFilter ?? '');
   /** YYYY-MM-DD — empty = performances on/after reporting as-of; set to target a specific day. */
   const [performanceDateFilter, setPerformanceDateFilter] = useState(
     () => initialFilters?.performanceDateFilter ?? '',
@@ -1126,9 +563,8 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
     () => initialFilters?.pageSize ?? PAGE_SIZE,
   );
   const [leadColumnOrder, setLeadColumnOrder] = useState<DailySalesLeadColumnId[]>(loadDailySalesLeadColumnOrder);
-  const [reportColumnOrder, setReportColumnOrder] = useState<DailySalesReportColumnId[]>(loadDailySalesReportColumnOrder);
   const [filtersExpanded, setFiltersExpanded] = useState(
-    () => initialFilters?.filtersExpanded ?? true,
+    () => initialFilters?.filtersExpanded ?? false,
   );
   const [leadSort, setLeadSort] = useState<{
     col: DailySalesLeadColumnId;
@@ -1145,17 +581,6 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
     });
   }, []);
 
-  const reorderReportColumns = useCallback((fromIndex: number, toIndex: number) => {
-    if (fromIndex === toIndex) return;
-    setReportColumnOrder((prev) => {
-      const next = [...prev];
-      const [moved] = next.splice(fromIndex, 1);
-      next.splice(toIndex, 0, moved);
-      saveDailySalesReportColumnOrder(next);
-      return next;
-    });
-  }, []);
-
   const toggleLeadSort = useCallback((col: DailySalesLeadColumnId) => {
     setLeadSort((s) => {
       if (s.col === col) return { col, dir: s.dir === 'asc' ? 'desc' : 'asc' };
@@ -1163,13 +588,6 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
     });
     setPage(1);
   }, []);
-
-  // Item 7 — engagement click-through state
-  const [selectedEngagement, setSelectedEngagement] = useState<{
-    engagementId: number;
-    attractionName: string | null;
-    tourName: string | null;
-  } | null>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -1183,15 +601,13 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
 
   useEffect(() => {
     saveDailySalesFiltersSnapshot({
-      v: 1,
+      v: 2,
       search: searchInput,
       searchDebounced: searchCommitted,
       attractionFilter,
-      genreFilter,
       tourFilter,
-      companyFilter,
       venueFilter,
-      contactFilter,
+      cityFilter,
       performanceDateFilter,
       startDateFilter,
       endDateFilter,
@@ -1205,11 +621,9 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
     searchInput,
     searchCommitted,
     attractionFilter,
-    genreFilter,
     tourFilter,
-    companyFilter,
     venueFilter,
-    contactFilter,
+    cityFilter,
     performanceDateFilter,
     startDateFilter,
     endDateFilter,
@@ -1237,7 +651,9 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
       ? undefined
       : leadSort.col === 'attraction'
         ? 'attraction'
-        : 'venue';
+        : leadSort.col === 'city'
+          ? 'city'
+          : 'venue';
 
   const dailySalesSuggestionQuery = useQuery({
     queryKey: [
@@ -1245,11 +661,9 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
       'suggestion-rows',
       asOfDate,
       attractionFilter,
-      genreFilter,
       tourFilter,
-      companyFilter,
       venueFilter,
-      contactFilter,
+      cityFilter,
       performanceDateFilter,
       startDateFilter,
       endDateFilter,
@@ -1261,11 +675,8 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
         page: 1,
         pageSize: DAILY_SALES_SUGGESTION_PAGE_SIZE,
         attraction: attractionFilter || undefined,
-        genre: genreFilter || undefined,
         tour: tourFilter || undefined,
-        company: companyFilter || undefined,
         venue: venueFilter || undefined,
-        contact: contactFilter || undefined,
         performanceDate: performanceDateFilter.trim() || undefined,
         startDate: startDateFilter.trim() || undefined,
         endDate: endDateFilter.trim() || undefined,
@@ -1292,9 +703,6 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
         row.venueCompanyName,
         row.city,
         row.stateProvince,
-        row.dmaMarketName,
-        row.genre,
-        row.contactName,
       ]
         .map((v) => String(v ?? '').trim())
         .filter(Boolean);
@@ -1333,11 +741,9 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
       pageSize,
       searchCommitted,
       attractionFilter,
-      genreFilter,
       tourFilter,
-      companyFilter,
       venueFilter,
-      contactFilter,
+      cityFilter,
       performanceDateFilter,
       startDateFilter,
       endDateFilter,
@@ -1347,14 +753,11 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
     queryFn: () =>
       fetchDailySalesByPerformance(asOfDate, {
         page,
-        pageSize,
+        pageSize: isAllPageSize(pageSize) ? DAILY_SALES_SUGGESTION_PAGE_SIZE : pageSize,
         search: searchCommitted || undefined,
         attraction: attractionFilter || undefined,
-        genre: genreFilter || undefined,
         tour: tourFilter || undefined,
-        company: companyFilter || undefined,
         venue: venueFilter || undefined,
-        contact: contactFilter || undefined,
         performanceDate: performanceDateFilter.trim() || undefined,
         startDate: startDateFilter.trim() || undefined,
         endDate: endDateFilter.trim() || undefined,
@@ -1371,23 +774,15 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
     await invalidateSalesCapacityRelatedQueries(qc);
   }, [qc]);
 
-  const openAttractionSalesSummary = useCallback(
-    async (attractionId: number) => {
-      await invalidateSalesCapacityRelatedQueries(qc);
-      onNavigate('attraction-sales-summary', {
-        attractionId,
-        returnView: 'daily-sales',
-        /** Match Daily Sales “Reporting as of” so the summary uses the same window as the grid. */
-        initialAsOf: asOfDate,
-      });
-    },
-    [onNavigate, qc, asOfDate],
-  );
-
   const pageData = salesQuery.data;
   const rowsSource = pageData?.items ?? [];
   const serverTotalSource = pageData?.total ?? 0;
-  const rows = perfDatesOk ? rowsSource : [];
+  // Client-side city filter (no server param available).
+  const rows = useMemo(() => {
+    if (!perfDatesOk) return [];
+    if (!cityFilter) return rowsSource;
+    return rowsSource.filter((r) => (r.city ?? '') === cityFilter);
+  }, [perfDatesOk, rowsSource, cityFilter]);
   const serverTotal = perfDatesOk ? serverTotalSource : 0;
   const todayDateStr = pageData?.todayDate ?? asOfDate;
   const yesterdayDateStr = pageData?.yesterdayDate ?? ymdAddDays(asOfDate, -1);
@@ -1403,26 +798,12 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
       ...list.map((a) => ({ value: a.attractionName, label: a.attractionName })),
     ];
   }, [pageData?.attractions]);
-  const genreOptions = useMemo(
-    () => [
-      { value: '', label: 'All genres' },
-      ...((pageData?.filterOptions.genres ?? []).map((n) => ({ value: n, label: n }))),
-    ],
-    [pageData?.filterOptions.genres],
-  );
   const tourOptions = useMemo(
     () => [
-      { value: '', label: 'All tours' },
+      { value: '', label: 'All events' },
       ...((pageData?.filterOptions.tours ?? []).map((n) => ({ value: n, label: n }))),
     ],
     [pageData?.filterOptions.tours],
-  );
-  const companyOptions = useMemo(
-    () => [
-      { value: '', label: 'All companies' },
-      ...((pageData?.filterOptions.companies ?? []).map((n) => ({ value: n, label: n }))),
-    ],
-    [pageData?.filterOptions.companies],
   );
   const venueOptions = useMemo(
     () => [
@@ -1431,13 +812,18 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
     ],
     [pageData?.filterOptions.venues],
   );
-  const contactOptions = useMemo(
-    () => [
-      { value: '', label: 'All contacts' },
-      ...((pageData?.filterOptions.contacts ?? []).map((n) => ({ value: n, label: n }))),
-    ],
-    [pageData?.filterOptions.contacts],
-  );
+  const cityOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const list: Array<{ value: string; label: string }> = [{ value: '', label: 'All cities' }];
+    for (const row of rowsSource) {
+      const c = (row.city ?? '').trim();
+      if (!c || seen.has(c)) continue;
+      seen.add(c);
+      list.push({ value: c, label: c });
+    }
+    list.sort((a, b) => (a.value === '' ? -1 : b.value === '' ? 1 : a.label.localeCompare(b.label)));
+    return list;
+  }, [rowsSource]);
 
   const totalTicketsToday = pageData?.summary.todayTickets ?? 0;
   const totalRevenueToday = pageData?.summary.todayRevenue ?? 0;
@@ -1451,7 +837,7 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
 
   useEffect(() => {
     setPage(1);
-  }, [searchCommitted, attractionFilter, genreFilter, tourFilter, companyFilter, venueFilter, contactFilter, asOfDate, performanceDateFilter, startDateFilter, endDateFilter, leadSort.col, leadSort.dir]);
+  }, [searchCommitted, attractionFilter, tourFilter, venueFilter, cityFilter, asOfDate, performanceDateFilter, startDateFilter, endDateFilter, leadSort.col, leadSort.dir]);
 
   useEffect(() => {
     setPage(1);
@@ -1466,27 +852,23 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
   const isRefreshing = salesQuery.isFetching && !showFullSkeleton;
   const $fmt = (n: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
-  const totalColSpan = leadColumnOrder.length + reportColumnOrder.length + 5;
+  const totalColSpan = leadColumnOrder.length + 5;
 
   const activeFilterCount = useMemo(() => {
     let n = 0;
     if (attractionFilter) n += 1;
-    if (genreFilter) n += 1;
     if (tourFilter) n += 1;
-    if (companyFilter) n += 1;
     if (venueFilter) n += 1;
-    if (contactFilter) n += 1;
+    if (cityFilter) n += 1;
     if (performanceDateFilter.trim()) n += 1;
     if (startDateFilter.trim()) n += 1;
     if (endDateFilter.trim()) n += 1;
     return n;
   }, [
     attractionFilter,
-    genreFilter,
     tourFilter,
-    companyFilter,
     venueFilter,
-    contactFilter,
+    cityFilter,
     performanceDateFilter,
     startDateFilter,
     endDateFilter,
@@ -1506,21 +888,6 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
   const perfDateMin = rangeChronoOk ? stY : undefined;
   const perfDateMax = rangeChronoOk ? enY : undefined;
   const startDateMax = enY;
-
-  // ── Item 7: show engagement history if one is selected ──────────────────────
-  if (selectedEngagement) {
-    return (
-      <EngagementSalesHistory
-        engagementId={selectedEngagement.engagementId}
-        attractionName={selectedEngagement.attractionName}
-        tourName={selectedEngagement.tourName}
-        onBack={() => {
-          void invalidateSalesCapacityRelatedQueries(qc);
-          setSelectedEngagement(null);
-        }}
-      />
-    );
-  }
 
   return (
     <div className="space-y-4">
@@ -1599,11 +966,9 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
                 disabled={showFullSkeleton}
                 onClick={() => {
                   setAttractionFilter('');
-                  setGenreFilter('');
                   setTourFilter('');
-                  setCompanyFilter('');
                   setVenueFilter('');
-                  setContactFilter('');
+                  setCityFilter('');
                   setPerformanceDateFilter('');
                   setStartDateFilter('');
                   setEndDateFilter('');
@@ -1725,7 +1090,7 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
               ) : null}
             </div>
 
-            <div className="grid gap-5 lg:grid-cols-3">
+            <div className="grid gap-5 lg:grid-cols-2">
               <fieldset className="min-w-0 space-y-3 rounded-xl border border-border/70 bg-surface/25 p-4">
                 <legend className="px-1 text-xs font-semibold text-text-primary">Performance dates</legend>
                 <p className="text-[11px] text-text-muted -mt-1 mb-1">
@@ -1798,8 +1163,8 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
               </fieldset>
 
               <fieldset className="min-w-0 space-y-3 rounded-xl border border-border/70 bg-surface/25 p-4">
-                <legend className="px-1 text-xs font-semibold text-text-primary">Show and classification</legend>
-                <div className="space-y-3">
+                <legend className="px-1 text-xs font-semibold text-text-primary">Filters</legend>
+                <div className="grid gap-3 sm:grid-cols-2">
                   <div>
                     <label className="mb-1 block text-[11px] font-medium text-text-secondary">Attraction</label>
                     <Select2
@@ -1811,39 +1176,13 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
                     />
                   </div>
                   <div>
-                    <label className="mb-1 block text-[11px] font-medium text-text-secondary">Genre</label>
-                    <Select2
-                      options={genreOptions}
-                      value={genreFilter}
-                      onChange={setGenreFilter}
-                      disabled={showFullSkeleton}
-                      placeholder="All genres"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-text-secondary">Tour</label>
+                    <label className="mb-1 block text-[11px] font-medium text-text-secondary">Event</label>
                     <Select2
                       options={tourOptions}
                       value={tourFilter}
                       onChange={setTourFilter}
                       disabled={showFullSkeleton}
-                      placeholder="All tours"
-                    />
-                  </div>
-                </div>
-              </fieldset>
-
-              <fieldset className="min-w-0 space-y-3 rounded-xl border border-border/70 bg-surface/25 p-4">
-                <legend className="px-1 text-xs font-semibold text-text-primary">Venue and contacts</legend>
-                <div className="space-y-3">
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-text-secondary">Company</label>
-                    <Select2
-                      options={companyOptions}
-                      value={companyFilter}
-                      onChange={setCompanyFilter}
-                      disabled={showFullSkeleton}
-                      placeholder="All companies"
+                      placeholder="All events"
                     />
                   </div>
                   <div>
@@ -1857,13 +1196,13 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
                     />
                   </div>
                   <div>
-                    <label className="mb-1 block text-[11px] font-medium text-text-secondary">Contact</label>
+                    <label className="mb-1 block text-[11px] font-medium text-text-secondary">City</label>
                     <Select2
-                      options={contactOptions}
-                      value={contactFilter}
-                      onChange={setContactFilter}
+                      options={cityOptions}
+                      value={cityFilter}
+                      onChange={setCityFilter}
                       disabled={showFullSkeleton}
-                      placeholder="All contacts"
+                      placeholder="All cities"
                     />
                   </div>
                 </div>
@@ -1948,43 +1287,6 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
                       </span>
                     </th>
                   ))}
-                  {reportColumnOrder.map((colId, colIndex) => (
-                    <th
-                      key={colId}
-                      scope="col"
-                      rowSpan={2}
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData('text/plain', `report:${colIndex}`);
-                        e.dataTransfer.effectAllowed = 'move';
-                      }}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        const raw = e.dataTransfer.getData('text/plain');
-                        const m = /^report:(\d+)$/.exec(raw);
-                        if (!m) return;
-                        const from = parseInt(m[1], 10);
-                        if (Number.isNaN(from)) return;
-                        reorderReportColumns(from, colIndex);
-                      }}
-                      className={[
-                        'py-2.5 px-3 text-text-muted align-bottom bg-surface/90 select-none cursor-grab active:cursor-grabbing min-w-0',
-                        reportColumnHeaderAlign(colId),
-                      ].join(' ')}
-                      title="Drag to reorder column"
-                    >
-                      <span className="inline-flex items-center gap-1 min-w-0 max-w-full">
-                        <GripVertical
-                          className="h-3.5 w-3.5 shrink-0 text-text-muted opacity-70"
-                          aria-hidden
-                        />
-                        <span className="truncate font-medium">
-                          {DAILY_SALES_REPORT_COLUMN_LABELS[colId]}
-                        </span>
-                      </span>
-                    </th>
-                  ))}
                   <th
                     colSpan={2}
                     className="text-center py-2.5 px-3 font-semibold bg-ems-blue-dim/80 border-l border-ems-blue/20"
@@ -2009,19 +1311,19 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
                 </tr>
                 <tr className="text-xs border-b border-border">
                   <th className="text-right py-2 px-2 font-medium text-text-secondary bg-ems-blue-dim/40 border-l border-ems-blue/15">
-                    Tickets
+                    Ticket Sold
                   </th>
                   <th className="text-right py-2 px-2 font-medium text-text-secondary bg-ems-blue-dim/40 border-r border-ems-blue/10">
-                    Revenue
+                    Total Revenue
                   </th>
                   <th className="text-right py-2 px-2 font-medium text-text-secondary bg-ems-accent-dim/50 border-l border-ems-accent/20">
-                    Tickets
+                    Ticket Sold
                   </th>
-                  <th className="text-right py-2 px-2 font-medium text-text-secondary bg-ems-accent-dim/50">Revenue</th>
+                  <th className="text-right py-2 px-2 font-medium text-text-secondary bg-ems-accent-dim/50">Total Revenue</th>
                 </tr>
               </thead>
               <tbody>
-                {serverTotal === 0 && !salesQuery.isError && (
+                {rows.length === 0 && !salesQuery.isError && (
                   <tr>
                     <td colSpan={totalColSpan} className="py-12 text-center text-sm text-text-muted">
                       {!perfDatesOk ? (
@@ -2044,13 +1346,6 @@ export function DailySalesPage({ onNavigate, addToast }: Props) {
                     key={`${r.performanceId}-${r.todayDate}`}
                     row={r}
                     leadColumnOrder={leadColumnOrder}
-                    reportColumnOrder={reportColumnOrder}
-                    onEngagementClick={(id) => setSelectedEngagement({
-                      engagementId: id,
-                      attractionName: r.attractionName,
-                      tourName: r.tourName,
-                    })}
-                    onOpenAttractionSalesSummary={openAttractionSalesSummary}
                     onSaved={refetch}
                     addToast={addToast}
                   />

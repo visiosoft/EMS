@@ -1,16 +1,19 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useIsAuthenticated, useMsal } from "@azure/msal-react";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "next-themes";
-import { Navigate, useLocation } from "react-router-dom";
 import Index from "./pages/Index.tsx";
 import Login from "./pages/Login.tsx";
 import NotFound from "./pages/NotFound.tsx";
+import AppChooser from "./pages/AppChooser.tsx";
+import InternalApp from "./pages/InternalApp.tsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
-import { getActiveAccount } from "./auth/entra.ts";
+import { getActiveAccount, isMsalBusy } from "./auth/entra.ts";
+import { isEmsEnabled, isInternalEnabled } from "./routing/appSuite.ts";
+import { APP_CHOOSER_PATH, EMS_ROOT, INTERNAL_ROOT, LOGIN_PATH } from "./routing/paths.ts";
 
 /**
  * Global cache policy for the EMS app:
@@ -39,12 +42,20 @@ const queryClient = new QueryClient({
 
 function ProtectedRoute({ children }: { children: JSX.Element }) {
   const isAuthenticated = useIsAuthenticated();
-  const { accounts } = useMsal();
+  const { accounts, inProgress } = useMsal();
   const location = useLocation();
   const account = getActiveAccount() ?? accounts[0] ?? null;
 
+  if (isMsalBusy(inProgress)) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-sm text-text-muted">
+        Checking sign-in…
+      </div>
+    );
+  }
+
   if (!isAuthenticated && !account) {
-    return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}${location.hash}` }} />;
+    return <Navigate to={LOGIN_PATH} replace state={{ from: `${location.pathname}${location.search}${location.hash}` }} />;
   }
 
   return children;
@@ -64,8 +75,43 @@ const App = () => (
         <BrowserRouter>
           <ErrorBoundary>
             <Routes>
-              <Route path="/login" element={<Login />} />
-              <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
+              <Route path={LOGIN_PATH} element={<Login />} />
+
+              {isEmsEnabled() && isInternalEnabled() ? (
+                <Route
+                  path={APP_CHOOSER_PATH}
+                  element={
+                    <ProtectedRoute>
+                      <AppChooser />
+                    </ProtectedRoute>
+                  }
+                />
+              ) : null}
+
+              {isInternalEnabled() ? (
+                <Route
+                  path={`${INTERNAL_ROOT}/*`}
+                  element={
+                    <ProtectedRoute>
+                      <InternalApp />
+                    </ProtectedRoute>
+                  }
+                />
+              ) : null}
+
+              {isEmsEnabled() ? (
+                <Route
+                  path={EMS_ROOT}
+                  element={
+                    <ProtectedRoute>
+                      <Index />
+                    </ProtectedRoute>
+                  }
+                />
+              ) : (
+                <Route path={EMS_ROOT} element={<Navigate to={INTERNAL_ROOT} replace />} />
+              )}
+
               <Route path="*" element={<NotFound />} />
             </Routes>
           </ErrorBoundary>
