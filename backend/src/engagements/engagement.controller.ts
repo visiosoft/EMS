@@ -274,6 +274,10 @@ export class EngagementController {
     @Param('performanceId', ParseIntPipe) performanceId: number,
     @Body() dto: UpdatePerformanceTicketingDto,
   ) {
-    return this.engagementService.upsertPerformanceTicketing(id, performanceId, dto);
+    return this.engagementService.upsertPerformanceTicketing(
+      id,
+      performanceId,
+      dto,
+    );
   }
 }

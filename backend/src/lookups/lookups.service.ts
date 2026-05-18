@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
 import { Class } from '../entities/class.entity';
@@ -14,7 +18,10 @@ import { Tax } from '../entities/tax.entity';
 import { CompanyService as CompanyServiceEntity } from '../entities/company-service.entity';
 import { Company } from '../entities/company.entity';
 import { NonResidentWithholding } from '../entities/non-resident-withholding.entity';
-import { CreateLookupRowDto, UpdateLookupRowDto } from './dto/manage-lookup-row.dto';
+import {
+  CreateLookupRowDto,
+  UpdateLookupRowDto,
+} from './dto/manage-lookup-row.dto';
 
 type ManagedLookupTable =
   | 'company-types'
@@ -90,14 +97,18 @@ export class LookupsService {
   }
 
   findTaxes() {
-    return this.taxRepo.find({ order: { taxJurisdictionType: 'ASC' as const, taxName: 'ASC' as const } });
+    return this.taxRepo.find({
+      order: { taxJurisdictionType: 'ASC' as const, taxName: 'ASC' as const },
+    });
   }
 
   findServicesProvided() {
     return this.serviceProvidedRepo.find({ order: { serviceName: 'ASC' } });
   }
 
-  async findStagehandProviders(): Promise<{ companyId: number; companyName: string }[]> {
+  async findStagehandProviders(): Promise<
+    { companyId: number; companyName: string }[]
+  > {
     const stagehands = await this.serviceProvidedRepo
       .createQueryBuilder('sp')
       .where('LOWER(sp.serviceName) = LOWER(:n)', { n: 'Stagehands' })
@@ -107,7 +118,9 @@ export class LookupsService {
     const rows = await this.companyServiceRepo
       .createQueryBuilder('cs')
       .innerJoin(Company, 'c', 'c.companyId = cs.companyId')
-      .where('cs.serviceProvidedId = :sid', { sid: stagehands.serviceProvidedId })
+      .where('cs.serviceProvidedId = :sid', {
+        sid: stagehands.serviceProvidedId,
+      })
       .select(['c.companyId AS companyId', 'c.companyName AS companyName'])
       .orderBy('c.companyName', 'ASC')
       .getRawMany<Record<string, unknown>>();
@@ -119,7 +132,12 @@ export class LookupsService {
   }
 
   async findNonResidentWithholdings(): Promise<
-    { withholdingId: number; withholdingTaxRate: string; dmaid: number | null; taxAgencyId: number | null }[]
+    {
+      withholdingId: number;
+      withholdingTaxRate: string;
+      dmaid: number | null;
+      taxAgencyId: number | null;
+    }[]
   > {
     const rows = await this.nonResidentWithholdingRepo.find({
       order: { withholdingId: 'ASC' as const },
@@ -317,13 +335,19 @@ export class LookupsService {
   private toPositiveInt(value: unknown, label: string) {
     const n = Number(value);
     if (!Number.isInteger(n) || n < 1) {
-      throw new BadRequestException({ message: `${label} must be a positive integer.` });
+      throw new BadRequestException({
+        message: `${label} must be a positive integer.`,
+      });
     }
     return n;
   }
 
   private parseSortDirection(raw?: string): 'ASC' | 'DESC' {
-    return String(raw ?? '').trim().toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+    return String(raw ?? '')
+      .trim()
+      .toLowerCase() === 'desc'
+      ? 'DESC'
+      : 'ASC';
   }
 
   private toContainsPattern(raw?: string): string | null {
@@ -341,10 +365,18 @@ export class LookupsService {
 
   async listManagedLookupRows(
     tableRaw: string,
-    opts: { offset: number; limit: number; q?: string; sortBy?: string; sortDir?: string },
+    opts: {
+      offset: number;
+      limit: number;
+      q?: string;
+      sortBy?: string;
+      sortDir?: string;
+    },
   ): Promise<{ data: Record<string, unknown>[]; total: number }> {
     const table = this.resolveManagedLookupTable(tableRaw);
-    const sortBy = String(opts.sortBy ?? '').trim().toLowerCase();
+    const sortBy = String(opts.sortBy ?? '')
+      .trim()
+      .toLowerCase();
     const sortDir = this.parseSortDirection(opts.sortDir);
     const like = this.toContainsPattern(opts.q);
 
@@ -352,7 +384,11 @@ export class LookupsService {
       const qb = this.companyServiceRepo
         .createQueryBuilder('cs')
         .leftJoin(Company, 'c', 'c.companyId = cs.companyId')
-        .leftJoin(ServiceProvided, 'sp', 'sp.serviceProvidedId = cs.serviceProvidedId')
+        .leftJoin(
+          ServiceProvided,
+          'sp',
+          'sp.serviceProvidedId = cs.serviceProvidedId',
+        )
         .select([
           'cs.companyServiceId AS companyServiceId',
           'cs.companyId AS companyId',
@@ -375,15 +411,30 @@ export class LookupsService {
       }
 
       if (sortBy === 'companyid') {
-        qb.orderBy('cs.companyId', sortDir).addOrderBy('cs.companyServiceId', 'ASC');
+        qb.orderBy('cs.companyId', sortDir).addOrderBy(
+          'cs.companyServiceId',
+          'ASC',
+        );
       } else if (sortBy === 'serviceprovidedid') {
-        qb.orderBy('cs.serviceProvidedId', sortDir).addOrderBy('cs.companyServiceId', 'ASC');
+        qb.orderBy('cs.serviceProvidedId', sortDir).addOrderBy(
+          'cs.companyServiceId',
+          'ASC',
+        );
       } else if (sortBy === 'companyname') {
-        qb.orderBy('c.companyName', sortDir).addOrderBy('cs.companyServiceId', 'ASC');
+        qb.orderBy('c.companyName', sortDir).addOrderBy(
+          'cs.companyServiceId',
+          'ASC',
+        );
       } else if (sortBy === 'servicename') {
-        qb.orderBy('sp.serviceName', sortDir).addOrderBy('cs.companyServiceId', 'ASC');
+        qb.orderBy('sp.serviceName', sortDir).addOrderBy(
+          'cs.companyServiceId',
+          'ASC',
+        );
       } else {
-        qb.orderBy('cs.companyServiceId', sortDir).addOrderBy('cs.companyId', 'ASC');
+        qb.orderBy('cs.companyServiceId', sortDir).addOrderBy(
+          'cs.companyId',
+          'ASC',
+        );
       }
 
       const total = await qb.getCount();
@@ -525,7 +576,9 @@ export class LookupsService {
     const rows = await qb.offset(opts.offset).limit(opts.limit).getMany();
     const data = rows.map((row) => ({
       [config.idKey]: Number((row as Record<string, unknown>)[config.idKey]),
-      [config.nameKey]: String((row as Record<string, unknown>)[config.nameKey] ?? ''),
+      [config.nameKey]: String(
+        (row as Record<string, unknown>)[config.nameKey] ?? '',
+      ),
     }));
     return { data, total };
   }
@@ -534,16 +587,23 @@ export class LookupsService {
     const table = this.resolveManagedLookupTable(tableRaw);
     if (table === 'company-services') {
       const companyId = this.toPositiveInt(dto.companyId, 'companyId');
-      const serviceProvidedId = this.toPositiveInt(dto.serviceProvidedId, 'serviceProvidedId');
+      const serviceProvidedId = this.toPositiveInt(
+        dto.serviceProvidedId,
+        'serviceProvidedId',
+      );
       const [company, service] = await Promise.all([
         this.companyRepo.findOne({ where: { companyId } }),
         this.serviceProvidedRepo.findOne({ where: { serviceProvidedId } }),
       ]);
       if (!company) {
-        throw new BadRequestException({ message: 'Selected company does not exist.' });
+        throw new BadRequestException({
+          message: 'Selected company does not exist.',
+        });
       }
       if (!service) {
-        throw new BadRequestException({ message: 'Selected service does not exist.' });
+        throw new BadRequestException({
+          message: 'Selected service does not exist.',
+        });
       }
       const existing = await this.companyServiceRepo.findOne({
         where: { companyId, serviceProvidedId },
@@ -567,7 +627,9 @@ export class LookupsService {
 
     if (table === 'brands') {
       const brandName = this.normalizeRequiredName(dto.name);
-      const saved = await this.brandRepo.save(this.brandRepo.create({ brandName }));
+      const saved = await this.brandRepo.save(
+        this.brandRepo.create({ brandName }),
+      );
       return { brandId: saved.brandId, brandName: saved.brandName };
     }
 
@@ -576,7 +638,10 @@ export class LookupsService {
       const saved = await this.serviceProvidedRepo.save(
         this.serviceProvidedRepo.create({ serviceName }),
       );
-      return { serviceProvidedId: saved.serviceProvidedId, serviceName: saved.serviceName };
+      return {
+        serviceProvidedId: saved.serviceProvidedId,
+        serviceName: saved.serviceName,
+      };
     }
     if (table === 'dmas') {
       const marketName = this.normalizeRequiredName(dto.name);
@@ -584,7 +649,11 @@ export class LookupsService {
       const saved = await this.dmaRepo.save(
         this.dmaRepo.create({ marketName, postalCode }),
       );
-      return { dmaid: saved.dmaid, marketName: saved.marketName, postalCode: saved.postalCode };
+      return {
+        dmaid: saved.dmaid,
+        marketName: saved.marketName,
+        postalCode: saved.postalCode,
+      };
     }
 
     const name = this.normalizeRequiredName(dto.name);
@@ -592,25 +661,37 @@ export class LookupsService {
       const saved = await this.companyTypeRepo.save(
         this.companyTypeRepo.create({ companyTypeName: name }),
       );
-      return { companyTypeId: saved.companyTypeId, companyTypeName: saved.companyTypeName };
+      return {
+        companyTypeId: saved.companyTypeId,
+        companyTypeName: saved.companyTypeName,
+      };
     }
     if (table === 'venue-types') {
       const saved = await this.venueTypeRepo.save(
         this.venueTypeRepo.create({ venueTypeName: name }),
       );
-      return { venueTypeId: saved.venueTypeId, venueTypeName: saved.venueTypeName };
+      return {
+        venueTypeId: saved.venueTypeId,
+        venueTypeName: saved.venueTypeName,
+      };
     }
     if (table === 'seating-types') {
       const saved = await this.seatingTypeRepo.save(
         this.seatingTypeRepo.create({ seatingName: name }),
       );
-      return { seatingTypeId: saved.seatingTypeId, seatingName: saved.seatingName };
+      return {
+        seatingTypeId: saved.seatingTypeId,
+        seatingName: saved.seatingName,
+      };
     }
     if (table === 'departments') {
       const saved = await this.departmentRepo.save(
         this.departmentRepo.create({ departmentName: name }),
       );
-      return { departmentId: saved.departmentId, departmentName: saved.departmentName };
+      return {
+        departmentId: saved.departmentId,
+        departmentName: saved.departmentName,
+      };
     }
     if (table === 'classes') {
       const saved = await this.classRepo.save(
@@ -619,29 +700,47 @@ export class LookupsService {
       return { classId: saved.classId, className: saved.className };
     }
 
-    const saved = await this.roleRepo.save(this.roleRepo.create({ roleName: name }));
+    const saved = await this.roleRepo.save(
+      this.roleRepo.create({ roleName: name }),
+    );
     return { roleId: saved.roleId, roleName: saved.roleName };
   }
 
-  async updateManagedLookupRow(tableRaw: string, id: number, dto: UpdateLookupRowDto) {
+  async updateManagedLookupRow(
+    tableRaw: string,
+    id: number,
+    dto: UpdateLookupRowDto,
+  ) {
     const table = this.resolveManagedLookupTable(tableRaw);
     if (table === 'company-services') {
-      const row = await this.companyServiceRepo.findOne({ where: { companyServiceId: id } });
+      const row = await this.companyServiceRepo.findOne({
+        where: { companyServiceId: id },
+      });
       if (!row) {
         throw new NotFoundException(`CompanyService ${id} was not found.`);
       }
       const nextCompanyId =
-        dto.companyId != null ? this.toPositiveInt(dto.companyId, 'companyId') : row.companyId;
+        dto.companyId != null
+          ? this.toPositiveInt(dto.companyId, 'companyId')
+          : row.companyId;
       const nextServiceProvidedId =
         dto.serviceProvidedId != null
           ? this.toPositiveInt(dto.serviceProvidedId, 'serviceProvidedId')
           : row.serviceProvidedId;
       const [company, service] = await Promise.all([
         this.companyRepo.findOne({ where: { companyId: nextCompanyId } }),
-        this.serviceProvidedRepo.findOne({ where: { serviceProvidedId: nextServiceProvidedId } }),
+        this.serviceProvidedRepo.findOne({
+          where: { serviceProvidedId: nextServiceProvidedId },
+        }),
       ]);
-      if (!company) throw new BadRequestException({ message: 'Selected company does not exist.' });
-      if (!service) throw new BadRequestException({ message: 'Selected service does not exist.' });
+      if (!company)
+        throw new BadRequestException({
+          message: 'Selected company does not exist.',
+        });
+      if (!service)
+        throw new BadRequestException({
+          message: 'Selected service does not exist.',
+        });
 
       const duplicate = await this.companyServiceRepo
         .createQueryBuilder('cs')
@@ -671,32 +770,52 @@ export class LookupsService {
 
     const name = this.normalizeRequiredName(dto.name);
     if (table === 'company-types') {
-      const row = await this.companyTypeRepo.findOne({ where: { companyTypeId: id } });
+      const row = await this.companyTypeRepo.findOne({
+        where: { companyTypeId: id },
+      });
       if (!row) throw new NotFoundException(`CompanyType ${id} was not found.`);
       row.companyTypeName = name;
       const saved = await this.companyTypeRepo.save(row);
-      return { companyTypeId: saved.companyTypeId, companyTypeName: saved.companyTypeName };
+      return {
+        companyTypeId: saved.companyTypeId,
+        companyTypeName: saved.companyTypeName,
+      };
     }
     if (table === 'venue-types') {
-      const row = await this.venueTypeRepo.findOne({ where: { venueTypeId: id } });
+      const row = await this.venueTypeRepo.findOne({
+        where: { venueTypeId: id },
+      });
       if (!row) throw new NotFoundException(`VenueType ${id} was not found.`);
       row.venueTypeName = name;
       const saved = await this.venueTypeRepo.save(row);
-      return { venueTypeId: saved.venueTypeId, venueTypeName: saved.venueTypeName };
+      return {
+        venueTypeId: saved.venueTypeId,
+        venueTypeName: saved.venueTypeName,
+      };
     }
     if (table === 'seating-types') {
-      const row = await this.seatingTypeRepo.findOne({ where: { seatingTypeId: id } });
+      const row = await this.seatingTypeRepo.findOne({
+        where: { seatingTypeId: id },
+      });
       if (!row) throw new NotFoundException(`SeatingType ${id} was not found.`);
       row.seatingName = name;
       const saved = await this.seatingTypeRepo.save(row);
-      return { seatingTypeId: saved.seatingTypeId, seatingName: saved.seatingName };
+      return {
+        seatingTypeId: saved.seatingTypeId,
+        seatingName: saved.seatingName,
+      };
     }
     if (table === 'departments') {
-      const row = await this.departmentRepo.findOne({ where: { departmentId: id } });
+      const row = await this.departmentRepo.findOne({
+        where: { departmentId: id },
+      });
       if (!row) throw new NotFoundException(`Department ${id} was not found.`);
       row.departmentName = name;
       const saved = await this.departmentRepo.save(row);
-      return { departmentId: saved.departmentId, departmentName: saved.departmentName };
+      return {
+        departmentId: saved.departmentId,
+        departmentName: saved.departmentName,
+      };
     }
     if (table === 'classes') {
       const row = await this.classRepo.findOne({ where: { classId: id } });
@@ -728,15 +847,23 @@ export class LookupsService {
           ? this.normalizeRequiredPostal(dto.postalCode)
           : this.normalizeRequiredPostal(row.postalCode);
       const saved = await this.dmaRepo.save(row);
-      return { dmaid: saved.dmaid, marketName: saved.marketName, postalCode: saved.postalCode };
+      return {
+        dmaid: saved.dmaid,
+        marketName: saved.marketName,
+        postalCode: saved.postalCode,
+      };
     }
     const row = await this.serviceProvidedRepo.findOne({
       where: { serviceProvidedId: id },
     });
-    if (!row) throw new NotFoundException(`ServiceProvided ${id} was not found.`);
+    if (!row)
+      throw new NotFoundException(`ServiceProvided ${id} was not found.`);
     row.serviceName = name;
     const saved = await this.serviceProvidedRepo.save(row);
-    return { serviceProvidedId: saved.serviceProvidedId, serviceName: saved.serviceName };
+    return {
+      serviceProvidedId: saved.serviceProvidedId,
+      serviceName: saved.serviceName,
+    };
   }
 
   async removeManagedLookupRow(tableRaw: string, id: number): Promise<void> {
@@ -744,61 +871,81 @@ export class LookupsService {
     const remove = async () => {
       if (table === 'company-types') {
         const res = await this.companyTypeRepo.delete({ companyTypeId: id });
-        if (!res.affected) throw new NotFoundException(`CompanyType ${id} was not found.`);
+        if (!res.affected)
+          throw new NotFoundException(`CompanyType ${id} was not found.`);
         return;
       }
       if (table === 'venue-types') {
         const res = await this.venueTypeRepo.delete({ venueTypeId: id });
-        if (!res.affected) throw new NotFoundException(`VenueType ${id} was not found.`);
+        if (!res.affected)
+          throw new NotFoundException(`VenueType ${id} was not found.`);
         return;
       }
       if (table === 'seating-types') {
         const res = await this.seatingTypeRepo.delete({ seatingTypeId: id });
-        if (!res.affected) throw new NotFoundException(`SeatingType ${id} was not found.`);
+        if (!res.affected)
+          throw new NotFoundException(`SeatingType ${id} was not found.`);
         return;
       }
       if (table === 'departments') {
         const res = await this.departmentRepo.delete({ departmentId: id });
-        if (!res.affected) throw new NotFoundException(`Department ${id} was not found.`);
+        if (!res.affected)
+          throw new NotFoundException(`Department ${id} was not found.`);
         return;
       }
       if (table === 'classes') {
         const res = await this.classRepo.delete({ classId: id });
-        if (!res.affected) throw new NotFoundException(`Class ${id} was not found.`);
+        if (!res.affected)
+          throw new NotFoundException(`Class ${id} was not found.`);
         return;
       }
       if (table === 'roles') {
         const res = await this.roleRepo.delete({ roleId: id });
-        if (!res.affected) throw new NotFoundException(`Role ${id} was not found.`);
+        if (!res.affected)
+          throw new NotFoundException(`Role ${id} was not found.`);
         return;
       }
       if (table === 'brands') {
         const res = await this.brandRepo.delete({ brandId: id });
-        if (!res.affected) throw new NotFoundException(`Brand ${id} was not found.`);
+        if (!res.affected)
+          throw new NotFoundException(`Brand ${id} was not found.`);
         return;
       }
       if (table === 'company-services') {
-        const res = await this.companyServiceRepo.delete({ companyServiceId: id });
-        if (!res.affected) throw new NotFoundException(`CompanyService ${id} was not found.`);
+        const res = await this.companyServiceRepo.delete({
+          companyServiceId: id,
+        });
+        if (!res.affected)
+          throw new NotFoundException(`CompanyService ${id} was not found.`);
         return;
       }
       if (table === 'dmas') {
         const res = await this.dmaRepo.delete({ dmaid: id });
-        if (!res.affected) throw new NotFoundException(`DMA ${id} was not found.`);
+        if (!res.affected)
+          throw new NotFoundException(`DMA ${id} was not found.`);
         return;
       }
-      const res = await this.serviceProvidedRepo.delete({ serviceProvidedId: id });
-      if (!res.affected) throw new NotFoundException(`ServiceProvided ${id} was not found.`);
+      const res = await this.serviceProvidedRepo.delete({
+        serviceProvidedId: id,
+      });
+      if (!res.affected)
+        throw new NotFoundException(`ServiceProvided ${id} was not found.`);
     };
 
     try {
       await remove();
     } catch (error) {
       if (error instanceof QueryFailedError) {
-        const driverError = error.driverError as { number?: number; message?: string } | undefined;
-        if (driverError?.number === 547 || /constraint|reference/i.test(driverError?.message ?? '')) {
+        const driverError = error.driverError as
+          | { number?: number; message?: string }
+          | undefined;
+        if (
+          driverError?.number === 547 ||
+          /constraint|reference/i.test(driverError?.message ?? '')
+        ) {
           throw new BadRequestException({
-            message: 'Cannot delete this row because it is referenced by other records.',
+            message:
+              'Cannot delete this row because it is referenced by other records.',
           });
         }
       }

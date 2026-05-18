@@ -12,4 +12,3 @@ export class CompanyServiceAreaDto {
   @Min(1)
   serviceProvidedId: number;
 }
-

@@ -8,4 +8,3 @@ export class Brand {
   @Column({ name: 'BrandName', type: 'nvarchar', length: 100 })
   brandName: string;
 }
-

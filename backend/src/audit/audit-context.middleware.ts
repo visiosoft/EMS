@@ -17,6 +17,7 @@ export class AuditContextMiddleware implements NestMiddleware {
     const token = getOptionalBearerToken(req.headers.authorization);
     let userOid = readAuditUserOidHeader(req);
     let userDisplayName = readAuditUserNameHeader(req);
+    let userEmail = readAuditUserEmailHeader(req);
 
     if (token) {
       try {
@@ -26,13 +27,19 @@ export class AuditContextMiddleware implements NestMiddleware {
           normalizeAuditUserName(user.name) ??
           normalizeAuditUserName(user.preferred_username) ??
           userDisplayName;
+        userEmail =
+          normalizeAuditUserEmail(user.email) ??
+          normalizeAuditUserEmail(user.preferred_username) ??
+          normalizeAuditUserEmail(user.upn) ??
+          userEmail;
       } catch {
         userOid = readAuditUserOidHeader(req);
         userDisplayName = readAuditUserNameHeader(req);
+        userEmail = readAuditUserEmailHeader(req);
       }
     }
 
-    this.auditContext.run({ userOid, userDisplayName }, next);
+    this.auditContext.run({ userOid, userDisplayName, userEmail }, next);
   }
 }
 
@@ -54,7 +61,9 @@ function readAuditUserNameHeader(req: Request): string | null {
   );
 }
 
-function normalizeAuditUserOid(value: string | undefined | null): string | null {
+function normalizeAuditUserOid(
+  value: string | undefined | null,
+): string | null {
   const oid = String(value ?? '').trim();
   if (!oid || oid.length > 150) return null;
   if (
@@ -68,7 +77,28 @@ function normalizeAuditUserOid(value: string | undefined | null): string | null 
   return oid;
 }
 
-function normalizeAuditUserName(value: string | undefined | null): string | null {
+function readAuditUserEmailHeader(req: Request): string | null {
+  return (
+    normalizeAuditUserEmail(req.header('x-user-email')) ??
+    normalizeAuditUserEmail(req.header('x-entra-email')) ??
+    null
+  );
+}
+
+function normalizeAuditUserEmail(
+  value: string | undefined | null,
+): string | null {
+  const email = String(value ?? '')
+    .trim()
+    .toLowerCase();
+  if (!email || email.length > 254) return null;
+  if (!email.includes('@')) return null;
+  return email;
+}
+
+function normalizeAuditUserName(
+  value: string | undefined | null,
+): string | null {
   const name = String(value ?? '').trim();
   if (!name || name.length > 200) return null;
   if (

@@ -77,7 +77,8 @@ export class TourService {
     if (!co) {
       throw new NotFoundException({ message: 'Company not found.' });
     }
-    const typeName = co.companyType?.companyTypeName?.trim().toLowerCase() ?? '';
+    const typeName =
+      co.companyType?.companyTypeName?.trim().toLowerCase() ?? '';
     if (typeName !== 'talent agency') {
       throw new BadRequestException({
         message: 'Talent agency must be a company of type Talent Agency.',
@@ -304,7 +305,9 @@ export class TourService {
     await this.assertUniqueTourName(tourName);
 
     if (dto.talentAgencyCompanyId == null || dto.talentAgencyCompanyId < 1) {
-      throw new BadRequestException('Talent agency is required when creating a tour.');
+      throw new BadRequestException(
+        'Talent agency is required when creating a tour.',
+      );
     }
     await this.assertTalentAgencyCompany(dto.talentAgencyCompanyId);
     const tourStartDate = this.normalizeTourDateInput(dto.tourStartDate);

@@ -1,16 +1,22 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository, SelectQueryBuilder } from 'typeorm';
 import { Address } from '../entities/address.entity';
 import { Attraction } from '../entities/attraction.entity';
 import { Class } from '../entities/class.entity';
 import { Company } from '../entities/company.entity';
+import { Contact } from '../entities/contact.entity';
 import { Engagement } from '../entities/engagement.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { Performance } from '../entities/performance.entity';
 import { TicketingSales } from '../entities/ticketing-sales.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
+import { AuditRequestContext } from '../audit/audit-request-context.service';
 import { EngagementService } from '../engagements/engagement.service';
 import { normalizeEngagementStatus } from '../engagements/engagement-status.util';
 
@@ -45,6 +51,16 @@ function pickRow<T>(
     if (k.toLowerCase() === l) return row[k] as T;
   }
   return undefined;
+}
+
+function parsePositiveIntCsv(raw: string | undefined): number[] {
+  if (!raw) return [];
+  const out = new Set<number>();
+  for (const token of raw.split(',')) {
+    const n = Number(token.trim());
+    if (Number.isInteger(n) && n > 0) out.add(n);
+  }
+  return [...out];
 }
 
 export interface DailySalesRow {
@@ -217,7 +233,10 @@ function timeToHhmmss(v: unknown): string | null {
   const s = String(v).trim();
   const m = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
   if (m) {
-    const h = String(Math.min(23, Math.max(0, parseInt(m[1], 10)))).padStart(2, '0');
+    const h = String(Math.min(23, Math.max(0, parseInt(m[1], 10)))).padStart(
+      2,
+      '0',
+    );
     const min = m[2].padStart(2, '0');
     const sec = (m[3] ?? '00').padStart(2, '0');
     return `${h}:${min}:${sec}`;
@@ -238,7 +257,10 @@ function venueLabelFromEngagement(e: {
 
 function totalsForReportingDay(
   perfIds: number[],
-  byPerf: Map<number, { salesDate: string; tickets: number; revenue: number }[]>,
+  byPerf: Map<
+    number,
+    { salesDate: string; tickets: number; revenue: number }[]
+  >,
   day: string,
 ): { tickets: number; revenue: number } {
   let tickets = 0;
@@ -265,7 +287,10 @@ function seatsRemainingDisplay(cap: number, totalTickets: number): number {
   return Math.max(0, cap - totalTickets);
 }
 
-function revenueRemainingDisplay(potential: number, totalRevenue: number): number {
+function revenueRemainingDisplay(
+  potential: number,
+  totalRevenue: number,
+): number {
   return Math.max(0, potential - totalRevenue);
 }
 
@@ -278,7 +303,10 @@ function revenueRemainingDisplay(potential: number, totalRevenue: number): numbe
 function buildDailySeries(
   asOf: string,
   perfIds: number[],
-  byPerf: Map<number, { salesDate: string; tickets: number; revenue: number }[]>,
+  byPerf: Map<
+    number,
+    { salesDate: string; tickets: number; revenue: number }[]
+  >,
 ): Array<{
   date: string;
   totalTickets: number;
@@ -294,12 +322,26 @@ function buildDailySeries(
     if (!rows?.length) continue;
     for (const r of rows) {
       if (!minD || r.salesDate < minD) minD = r.salesDate;
-      dailyTickets.set(r.salesDate, (dailyTickets.get(r.salesDate) ?? 0) + r.tickets);
-      dailyRevenue.set(r.salesDate, (dailyRevenue.get(r.salesDate) ?? 0) + r.revenue);
+      dailyTickets.set(
+        r.salesDate,
+        (dailyTickets.get(r.salesDate) ?? 0) + r.tickets,
+      );
+      dailyRevenue.set(
+        r.salesDate,
+        (dailyRevenue.get(r.salesDate) ?? 0) + r.revenue,
+      );
     }
   }
   if (!minD) {
-    return [{ date: asOf, totalTickets: 0, totalRevenue: 0, dailyTickets: 0, dailyRevenue: 0 }];
+    return [
+      {
+        date: asOf,
+        totalTickets: 0,
+        totalRevenue: 0,
+        dailyTickets: 0,
+        dailyRevenue: 0,
+      },
+    ];
   }
   const out: Array<{
     date: string;
@@ -337,8 +379,29 @@ export class DailySalesService {
     private readonly engagementRepo: Repository<Engagement>,
     @InjectRepository(Attraction)
     private readonly attractionRepo: Repository<Attraction>,
+    @InjectRepository(Contact)
+    private readonly contactRepo: Repository<Contact>,
     private readonly engagementService: EngagementService,
+    private readonly auditContext: AuditRequestContext,
   ) {}
+
+  /**
+   * Map the signed-in Entra user to dbo.Contact via dbo.ContactInfo.Email.
+   * IAE staff on engagements are stored as ContactID in dbo.EngagementIAEContact.
+   */
+  private async resolveIaeContactIdForSignedInUser(): Promise<number | null> {
+    const email = this.auditContext.getUserEmail()?.trim().toLowerCase();
+    if (!email) return null;
+    const row = await this.contactRepo
+      .createQueryBuilder('c')
+      .innerJoin('c.contactInfo', 'ci')
+      .where('LOWER(LTRIM(RTRIM(ci.email))) = :email', { email })
+      .select('c.contactId', 'contactId')
+      .getRawOne<{ contactId: number | string }>();
+    if (row?.contactId == null) return null;
+    const id = Number(row.contactId);
+    return Number.isFinite(id) && id >= 1 ? id : null;
+  }
 
   // ─── GET /daily-sales (legacy flat list) ──────────────────────────────────
 
@@ -484,6 +547,8 @@ export class DailySalesService {
     contactRaw?: string,
     sortByRaw?: string,
     sortDirRaw?: string,
+    eventsScopeRaw?: string,
+    iaeContactIdsRaw?: string,
   ): Promise<PerformanceSalesPageResult> {
     const asOf = await this.resolveAsOfDateString(asOfDateParam);
     const page = Math.max(1, Number.isFinite(pageIn) ? Math.floor(pageIn) : 1);
@@ -514,6 +579,42 @@ export class DailySalesService {
     }
 
     const yesterdayDate = ymdAddDays(asOf, -1);
+    const eventsScope = (eventsScopeRaw ?? '').trim().toLowerCase();
+    const mineOnly = eventsScope === 'mine' || eventsScope === 'my';
+    const explicitIaeContactIds = parsePositiveIntCsv(iaeContactIdsRaw);
+    let myIaeContactId: number | null = null;
+    if (mineOnly) {
+      const userEmail = this.auditContext.getUserEmail()?.trim().toLowerCase();
+      if (!userEmail) {
+        throw new BadRequestException({
+          message:
+            'Cannot filter to My Events without a signed-in user email. Sign in again or choose All Events.',
+        });
+      }
+      myIaeContactId = await this.resolveIaeContactIdForSignedInUser();
+      if (myIaeContactId == null) {
+        return {
+          items: [],
+          total: 0,
+          page,
+          pageSize,
+          todayDate: asOf,
+          yesterdayDate,
+          summary: {
+            todayTickets: 0,
+            todayRevenue: 0,
+            yesterdayTickets: 0,
+            yesterdayRevenue: 0,
+          },
+          attractions: [],
+          filterOptions: await this.getByPerformanceFilterOptions(asOf, {
+            performanceDate,
+            startDate,
+            endDate,
+          }),
+        };
+      }
+    }
 
     const baseQb = this.createByPerformanceBaseQb(asOf, {
       search,
@@ -526,36 +627,39 @@ export class DailySalesService {
       companyName: companyRaw?.trim() || undefined,
       venueName: venueRaw?.trim() || undefined,
       contactName: contactRaw?.trim() || undefined,
+      myIaeContactId: myIaeContactId ?? undefined,
+      iaeContactIds:
+        explicitIaeContactIds.length > 0 ? explicitIaeContactIds : undefined,
     });
 
     // Run in parallel: previously (attraction list → count) were sequential, doubling wait time
     // on large dbo.Performance sets. Count + rollups + page each scan the same join pattern.
     const [attractions, total, agg, rawItems, filterOptions] =
       await Promise.all([
-      this.getDistinctAttractionsFromBase(baseQb),
-      baseQb.clone().getCount(),
-      this.sumSalesForByPerformanceQuery(baseQb.clone(), asOf),
-      (async () => {
-        const pageQb = baseQb
-          .clone()
-          .select([
-            'p.performanceId                                         AS performanceId',
-            'p.engagementId                                         AS engagementId',
-            'CONVERT(varchar(10), p.performanceDate, 120)           AS performanceDate',
-            'CONVERT(varchar(8),  p.performanceTime, 108)          AS performanceTime',
-            'p.performanceStatus                                    AS performanceStatus',
-            'e.engagementStatus                                     AS engagementStatus',
-            'e.sellableCapacity                                     AS engagementSellableCapacity',
-            'e.grossPotential                                       AS engagementGrossPotential',
-            'a.attractionId                                         AS attractionId',
-            'a.attractionName                                       AS attractionName',
-            'cls.className                                          AS genre',
-            't.tourName                                             AS tourName',
-            'vc.companyName                                         AS venueCompanyName',
-            'v.venueName                                            AS venueName',
-            'addr.city                                              AS city',
-            'addr.stateProvince                                   AS stateProvince',
-            `(
+        this.getDistinctAttractionsFromBase(baseQb),
+        baseQb.clone().getCount(),
+        this.sumSalesForByPerformanceQuery(baseQb.clone(), asOf),
+        (async () => {
+          const pageQb = baseQb
+            .clone()
+            .select([
+              'p.performanceId                                         AS performanceId',
+              'p.engagementId                                         AS engagementId',
+              'CONVERT(varchar(10), p.performanceDate, 120)           AS performanceDate',
+              'CONVERT(varchar(8),  p.performanceTime, 108)          AS performanceTime',
+              'p.performanceStatus                                    AS performanceStatus',
+              'e.engagementStatus                                     AS engagementStatus',
+              'e.sellableCapacity                                     AS engagementSellableCapacity',
+              'e.grossPotential                                       AS engagementGrossPotential',
+              'a.attractionId                                         AS attractionId',
+              'a.attractionName                                       AS attractionName',
+              'cls.className                                          AS genre',
+              't.tourName                                             AS tourName',
+              'vc.companyName                                         AS venueCompanyName',
+              'v.venueName                                            AS venueName',
+              'addr.city                                              AS city',
+              'addr.stateProvince                                   AS stateProvince',
+              `(
               SELECT TOP 1 CONCAT(ci.FirstName, N' ', ci.LastName)
               FROM dbo.ContactAssignment ca
               INNER JOIN dbo.Contact c ON c.ContactID = ca.ContactID
@@ -563,55 +667,55 @@ export class DailySalesService {
               WHERE ca.CompanyID = ev.venueCompanyId
               ORDER BY ci.FirstName, ci.LastName
             )                                                       AS contactName`,
-            `(
+              `(
               SELECT CONVERT(varchar(10), MIN(CONVERT(date, ts0.SalesDate)), 120)
               FROM dbo.TicketingSales ts0
               WHERE ts0.PerformanceID = p.performanceId
             )                                                       AS firstSalesDate`,
-            'CONVERT(varchar(10), CAST(:asOf AS date), 120)         AS todayDate',
-            'ts_today.performanceSalesQuantity                      AS todayTicketsSold',
-            'ts_today.performanceSalesRevenue                        AS todayRevenue',
-            'CONVERT(varchar(10), DATEADD(day, -1, CAST(:asOf AS date)), 120) AS yesterdayDate',
-            'ts_yesterday.performanceSalesQuantity                  AS yesterdayTicketsSold',
-            'ts_yesterday.performanceSalesRevenue                    AS yesterdayRevenue',
-            `(
+              'CONVERT(varchar(10), CAST(:asOf AS date), 120)         AS todayDate',
+              'ts_today.performanceSalesQuantity                      AS todayTicketsSold',
+              'ts_today.performanceSalesRevenue                        AS todayRevenue',
+              'CONVERT(varchar(10), DATEADD(day, -1, CAST(:asOf AS date)), 120) AS yesterdayDate',
+              'ts_yesterday.performanceSalesQuantity                  AS yesterdayTicketsSold',
+              'ts_yesterday.performanceSalesRevenue                    AS yesterdayRevenue',
+              `(
               SELECT COALESCE(SUM(CAST(ts_ca.performanceSalesQuantity AS BIGINT)), 0)
               FROM dbo.TicketingSales ts_ca
               WHERE ts_ca.performanceId = p.performanceId
                 AND CONVERT(date, ts_ca.salesDate) <= CAST(:asOf AS date)
             )                                                       AS cumTicketsThruAsOf`,
-            `(
+              `(
               SELECT COALESCE(SUM(ts_cr.performanceSalesRevenue), 0)
               FROM dbo.TicketingSales ts_cr
               WHERE ts_cr.performanceId = p.performanceId
                 AND CONVERT(date, ts_cr.salesDate) <= CAST(:asOf AS date)
             )                                                       AS cumRevenueThruAsOf`,
-            `(
+              `(
               SELECT COALESCE(SUM(CAST(ts_cy.performanceSalesQuantity AS BIGINT)), 0)
               FROM dbo.TicketingSales ts_cy
               WHERE ts_cy.performanceId = p.performanceId
                 AND CONVERT(date, ts_cy.salesDate) <= DATEADD(day, -1, CAST(:asOf AS date))
             )                                                       AS cumTicketsThruPrior`,
-            `(
+              `(
               SELECT COALESCE(SUM(ts_cy2.performanceSalesRevenue), 0)
               FROM dbo.TicketingSales ts_cy2
               WHERE ts_cy2.performanceId = p.performanceId
                 AND CONVERT(date, ts_cy2.salesDate) <= DATEADD(day, -1, CAST(:asOf AS date))
             )                                                       AS cumRevenueThruPrior`,
-          ])
-          .setParameter('asOf', asOf);
-        this.applyByPerformanceSort(pageQb, sortByRaw, sortDirRaw);
-        return pageQb
-          .skip((page - 1) * pageSize)
-          .take(pageSize)
-          .getRawMany<Record<string, unknown>>();
-      })(),
-      this.getByPerformanceFilterOptions(asOf, {
-        performanceDate,
-        startDate,
-        endDate,
-      }),
-    ]);
+            ])
+            .setParameter('asOf', asOf);
+          this.applyByPerformanceSort(pageQb, sortByRaw, sortDirRaw);
+          return pageQb
+            .skip((page - 1) * pageSize)
+            .take(pageSize)
+            .getRawMany<Record<string, unknown>>();
+        })(),
+        this.getByPerformanceFilterOptions(asOf, {
+          performanceDate,
+          startDate,
+          endDate,
+        }),
+      ]);
 
     const items: PerformanceSalesRow[] = rawItems.map((r) => {
       const todayTickets =
@@ -620,7 +724,8 @@ export class DailySalesService {
         r['yesterdayTicketsSold'] != null
           ? Number(r['yesterdayTicketsSold'])
           : null;
-      const todayRev = r['todayRevenue'] != null ? Number(r['todayRevenue']) : null;
+      const todayRev =
+        r['todayRevenue'] != null ? Number(r['todayRevenue']) : null;
       const cumTicketsThruAsOf = numOrZero(r['cumTicketsThruAsOf']);
       const cumTicketsThruPrior = numOrZero(r['cumTicketsThruPrior']);
       const cumRevenueThruAsOf = numOrZero(r['cumRevenueThruAsOf']);
@@ -717,6 +822,10 @@ export class DailySalesService {
       companyName?: string;
       venueName?: string;
       contactName?: string;
+      /** dbo.Contact.ContactID for the signed-in user (from ContactInfo.Email). */
+      myIaeContactId?: number;
+      /** Optional multi-select filter from UI (dbo.Contact.ContactID values). */
+      iaeContactIds?: number[];
     },
   ): SelectQueryBuilder<Performance> {
     const qb = this.performanceRepo
@@ -752,26 +861,29 @@ export class DailySalesService {
       options.performanceDate || options.startDate || options.endDate,
     );
     if (!hasExplicitPerfDateFilter) {
-      qb.andWhere(
-        'CONVERT(date, p.performanceDate) >= CAST(:asOf AS date)',
-      );
+      qb.andWhere('CONVERT(date, p.performanceDate) >= CAST(:asOf AS date)');
     }
 
     if (options.performanceDate) {
-      qb.andWhere(
-        'CONVERT(date, p.performanceDate) = CAST(:perfDay AS date)',
-        { perfDay: options.performanceDate },
-      );
+      qb.andWhere('CONVERT(date, p.performanceDate) = CAST(:perfDay AS date)', {
+        perfDay: options.performanceDate,
+      });
     }
     if (options.startDate) {
-      qb.andWhere('CONVERT(date, p.performanceDate) >= CAST(:startDate AS date)', {
-        startDate: options.startDate,
-      });
+      qb.andWhere(
+        'CONVERT(date, p.performanceDate) >= CAST(:startDate AS date)',
+        {
+          startDate: options.startDate,
+        },
+      );
     }
     if (options.endDate) {
-      qb.andWhere('CONVERT(date, p.performanceDate) <= CAST(:endDate AS date)', {
-        endDate: options.endDate,
-      });
+      qb.andWhere(
+        'CONVERT(date, p.performanceDate) <= CAST(:endDate AS date)',
+        {
+          endDate: options.endDate,
+        },
+      );
     }
 
     if (options.attractionName) {
@@ -786,7 +898,9 @@ export class DailySalesService {
       qb.andWhere('t.tourName = :tourName', { tourName: options.tourName });
     }
     if (options.companyName) {
-      qb.andWhere('vc.companyName = :companyName', { companyName: options.companyName });
+      qb.andWhere('vc.companyName = :companyName', {
+        companyName: options.companyName,
+      });
     }
     if (options.venueName) {
       qb.andWhere('v.venueName = :venueName', { venueName: options.venueName });
@@ -802,6 +916,30 @@ export class DailySalesService {
             AND LOWER(CONCAT(ci.FirstName, N' ', ci.LastName)) = LOWER(:contactName)
         )`,
         { contactName: options.contactName },
+      );
+    }
+
+    if (options.myIaeContactId != null) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM dbo.EngagementIAEContact eic
+          WHERE eic.EngagementID = e.engagementId
+            AND eic.ContactID = :myIaeContactId
+        )`,
+        { myIaeContactId: options.myIaeContactId },
+      );
+    }
+
+    if (options.iaeContactIds?.length) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM dbo.EngagementIAEContact eic
+          WHERE eic.EngagementID = e.engagementId
+            AND eic.ContactID IN (:...iaeContactIds)
+        )`,
+        { iaeContactIds: options.iaeContactIds },
       );
     }
 
@@ -872,9 +1010,7 @@ export class DailySalesService {
       options.performanceDate || options.startDate || options.endDate,
     );
     if (!hasExplicitPerfDateFilter) {
-      base.andWhere(
-        'CONVERT(date, p.performanceDate) >= CAST(:asOf AS date)',
-      );
+      base.andWhere('CONVERT(date, p.performanceDate) >= CAST(:asOf AS date)');
     }
 
     if (options.performanceDate) {
@@ -884,14 +1020,20 @@ export class DailySalesService {
       );
     }
     if (options.startDate) {
-      base.andWhere('CONVERT(date, p.performanceDate) >= CAST(:startDate AS date)', {
-        startDate: options.startDate,
-      });
+      base.andWhere(
+        'CONVERT(date, p.performanceDate) >= CAST(:startDate AS date)',
+        {
+          startDate: options.startDate,
+        },
+      );
     }
     if (options.endDate) {
-      base.andWhere('CONVERT(date, p.performanceDate) <= CAST(:endDate AS date)', {
-        endDate: options.endDate,
-      });
+      base.andWhere(
+        'CONVERT(date, p.performanceDate) <= CAST(:endDate AS date)',
+        {
+          endDate: options.endDate,
+        },
+      );
     }
 
     const [genres, tours, companies, venues, contacts] = await Promise.all([
@@ -1286,7 +1428,8 @@ export class DailySalesService {
           engagementId: e.engagementId,
           tourName: tn || `Engagement #${e.engagementId}`,
           sellableCapacity:
-            e.sellableCapacity != null && Number.isFinite(Number(e.sellableCapacity))
+            e.sellableCapacity != null &&
+            Number.isFinite(Number(e.sellableCapacity))
               ? Math.trunc(Number(e.sellableCapacity))
               : null,
           grossPotential: gpNum,
@@ -1376,8 +1519,7 @@ export class DailySalesService {
         : null;
 
     const first = perfs[0];
-    const openingYmd =
-      (first && toYmdString(first.performanceDate)) || null;
+    const openingYmd = (first && toYmdString(first.performanceDate)) || null;
     let daysUntilOpening = 0;
     if (openingYmd && /^\d{4}-\d{2}-\d{2}$/.test(openingYmd)) {
       const openMs = new Date(`${openingYmd}T12:00:00`).getTime();
@@ -1386,12 +1528,8 @@ export class DailySalesService {
       daysUntilOpening = diff > 0 ? diff : 0;
     }
 
-    const showDate = first
-      ? toYmdString(first.performanceDate) || null
-      : null;
-    const showTime = first
-      ? timeToHhmmss(first.performanceTime)
-      : null;
+    const showDate = first ? toYmdString(first.performanceDate) || null : null;
+    const showTime = first ? timeToHhmmss(first.performanceTime) : null;
 
     const summary = series.map((pt) => {
       const seatsSoldPct =
@@ -1513,13 +1651,22 @@ export class DailySalesService {
 
     const perf = await this.performanceRepo.findOne({
       where: { performanceId },
-      select: { performanceId: true, engagementId: true, performanceDate: true },
+      select: {
+        performanceId: true,
+        engagementId: true,
+        performanceDate: true,
+      },
     });
     if (!perf) {
-      throw new NotFoundException(`Performance #${performanceId} was not found.`);
+      throw new NotFoundException(
+        `Performance #${performanceId} was not found.`,
+      );
     }
 
-    this.assertTicketingSalesDateOnOrBeforePerformance(perf.performanceDate, ymd);
+    this.assertTicketingSalesDateOnOrBeforePerformance(
+      perf.performanceDate,
+      ymd,
+    );
 
     let row = await this.salesRepo.findOne({
       where: { performanceId, salesDate: ymd },

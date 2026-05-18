@@ -103,6 +103,14 @@ const PERFORMANCE_STATUS_OPTIONS = ENGAGEMENT_STATUS_ENUM.map((s) => ({
   value: s,
   label: s,
 }));
+const TICKETING_STATUS_OPTIONS = [
+  { value: 'OnSale', label: 'OnSale' },
+  { value: 'Build & Hold', label: 'Build & Hold' },
+];
+const SETTLEMENT_STATUS_OPTIONS = [
+  { value: 'Settled', label: 'Settled' },
+  { value: 'Open', label: 'Open' },
+];
 
 function formatPerformanceDateDisplay(isoDate: string): string {
   try {
@@ -2783,11 +2791,11 @@ function EngagementMainInformationPanel({
 
           {fieldRow(
             'Ticketing Status',
-            <input
-              className={inputCls}
-              maxLength={50}
+            <Select2
+              options={TICKETING_STATUS_OPTIONS}
               value={ticketingStatus}
-              onChange={(e) => setTicketingStatus(e.target.value)}
+              onChange={setTicketingStatus}
+              placeholder="Select ticketing status..."
               disabled={disabled || openingPerformance == null}
             />,
             openingPerformance == null ? 'Stored on dbo.PerformanceTicketing after an opening performance exists.' : null,
@@ -3514,23 +3522,21 @@ function EngagementEventBusinessPanel({
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
           {fieldRow(
             'Artist settlement status',
-            <input
-              id="eb-artist-settle-status"
-              className={inputCls}
-              maxLength={50}
+            <Select2
+              options={SETTLEMENT_STATUS_OPTIONS}
               value={artistSettlementStatus}
-              onChange={(e) => setArtistSettlementStatus(e.target.value)}
+              onChange={setArtistSettlementStatus}
+              placeholder="Select status..."
               disabled={disabled}
             />,
           )}
           {fieldRow(
             'Venue settlement status',
-            <input
-              id="eb-venue-settle-status"
-              className={inputCls}
-              maxLength={50}
+            <Select2
+              options={SETTLEMENT_STATUS_OPTIONS}
               value={venueSettlementStatus}
-              onChange={(e) => setVenueSettlementStatus(e.target.value)}
+              onChange={setVenueSettlementStatus}
+              placeholder="Select status..."
               disabled={disabled}
             />,
           )}
@@ -3985,12 +3991,11 @@ function EngagementMarketingPanel({
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
               {fieldRow(
                 'Ticketing status',
-                <input
-                  id="mkt-status"
-                  className={inputCls}
-                  maxLength={50}
+                <Select2
+                  options={TICKETING_STATUS_OPTIONS}
                   value={ticketingStatus}
-                  onChange={(e) => setTicketingStatus(e.target.value)}
+                  onChange={setTicketingStatus}
+                  placeholder="Select ticketing status..."
                   disabled={saveDisabled}
                 />,
               )}

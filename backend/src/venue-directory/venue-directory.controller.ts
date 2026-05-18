@@ -34,7 +34,8 @@ export class VenueDirectoryController {
      * If the client sent `dmaIds` but nothing parsed (NaN, "undefined", etc.), do not drop the
      * filter and return the full catalog — that freezes the Create Project wizard.
      */
-    const dmaIdsParamSent = dmaIdsRaw != null && String(dmaIdsRaw).trim().length > 0;
+    const dmaIdsParamSent =
+      dmaIdsRaw != null && String(dmaIdsRaw).trim().length > 0;
     if (dmaIdsParamSent && dmaIds.length === 0) {
       return { data: [], total: 0 };
     }
@@ -60,9 +61,7 @@ export class VenueDirectoryController {
     return [...new Set(out)];
   }
 
-  private parseOptPosInt(
-    raw: string | undefined,
-  ): number | null | undefined {
+  private parseOptPosInt(raw: string | undefined): number | null | undefined {
     if (raw == null || String(raw).trim() === '') return undefined;
     const n = parseInt(String(raw), 10);
     if (!Number.isFinite(n) || n < 1) return undefined;

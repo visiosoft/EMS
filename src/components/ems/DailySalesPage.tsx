@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Loader2,
@@ -10,7 +10,7 @@ import {
   ArrowDown,
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Select2 } from './Select2';
+import { Select2, Select2Multi } from './Select2';
 import {
   fetchDailySalesByPerformance,
   updateDailySales,
@@ -21,6 +21,7 @@ import {
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { validateDailySalesPerformanceDates } from '@/lib/dailySalesPerformanceDateValidation';
 import { invalidateSalesCapacityRelatedQueries } from '@/api/cacheHelpers';
+import { fetchEngagementIaeContactLookups } from '@/api/engagementApi';
 import { PAGE_SIZE, PAGE_SIZE_ALL, type PageSizeOption, isAllPageSize, toPageSize } from '@/lib/serverPagination';
 import { PageSizeSelect } from './PageSizeSelect';
 
@@ -122,45 +123,6 @@ function ReportingAsOfBar({
   );
 }
 
-// ─── Summary cards (two date columns: soft blue = prior day, soft teal = current) ─
-
-function DailySummaryCard({
-  dateStr,
-  statLabel,
-  value,
-  sub,
-  tone,
-}: {
-  dateStr: string;
-  statLabel: string;
-  value: string;
-  sub?: string;
-  tone: 'prior' | 'current';
-}) {
-  const shell =
-    tone === 'prior'
-      ? 'border-ems-blue/20 bg-ems-blue-dim/50 shadow-sm shadow-ems-blue/[0.06]'
-      : 'border-ems-accent/25 bg-ems-accent-dim/60 shadow-sm shadow-ems-accent/[0.08]';
-  const dateChip =
-    tone === 'prior'
-      ? 'bg-ems-blue/12 text-ems-blue ring-1 ring-ems-blue/15'
-      : 'bg-ems-accent/12 text-ems-accent ring-1 ring-ems-accent/20';
-  return (
-    <div className={['rounded-xl border p-3.5 sm:p-4 transition-colors', shell].join(' ')}>
-      <div className={['inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums', dateChip].join(' ')}>
-        <span
-          className={tone === 'prior' ? 'h-1.5 w-1.5 shrink-0 rounded-full bg-ems-blue' : 'h-1.5 w-1.5 shrink-0 rounded-full bg-ems-accent'}
-          aria-hidden
-        />
-        <span className="truncate">{dateStr}</span>
-      </div>
-      <div className="text-[11px] font-medium uppercase tracking-wide text-text-muted mt-2.5">{statLabel}</div>
-      <div className="text-xl font-semibold text-text-primary mt-0.5 tabular-nums">{value}</div>
-      {sub && <div className="text-xs text-text-secondary mt-1">{sub}</div>}
-    </div>
-  );
-}
-
 // ─── Reorderable lead columns (Attraction / Date / Venue / City) ─────────────
 
 const DAILY_SALES_LEAD_COLUMN_ORDER_KEY = 'iae-daily-sales-lead-column-order-v2';
@@ -226,17 +188,15 @@ const DAILY_SALES_LEAD_SORT_COLS = new Set<DailySalesLeadColumnId>([
 /** Persist list filters + paging in the tab so reloads keep the view. */
 const DAILY_SALES_FILTERS_SESSION_KEY = 'iae-daily-sales-filters-v2';
 
+type DailySalesEventsScope = 'all' | 'mine';
+
 interface DailySalesFiltersSnapshot {
   v: 2;
-  search: string;
-  searchDebounced: string;
   attractionFilter: string;
-  tourFilter: string;
+  eventsScope: DailySalesEventsScope;
+  iaeContactIds: string[];
   venueFilter: string;
   cityFilter: string;
-  performanceDateFilter: string;
-  startDateFilter: string;
-  endDateFilter: string;
   asOfDate: string;
   page: number;
   pageSize: PageSizeOption;
@@ -278,21 +238,16 @@ function loadDailySalesFiltersSnapshot(): DailySalesFiltersSnapshot | null {
     if (o.v !== 2) return null;
     return {
       v: 2,
-      search: typeof o.search === 'string' ? o.search : '',
-      searchDebounced:
-        typeof o.searchDebounced === 'string'
-          ? o.searchDebounced
-          : typeof o.search === 'string'
-            ? o.search.trim()
-            : '',
       attractionFilter: typeof o.attractionFilter === 'string' ? o.attractionFilter : '',
-      tourFilter: typeof o.tourFilter === 'string' ? o.tourFilter : '',
+      eventsScope:
+        o.eventsScope === 'mine' || o.tourFilter === 'mine'
+          ? 'mine'
+          : 'all',
+      iaeContactIds: Array.isArray(o.iaeContactIds)
+        ? o.iaeContactIds.map((x) => String(x)).filter((x) => x.trim().length > 0)
+        : [],
       venueFilter: typeof o.venueFilter === 'string' ? o.venueFilter : '',
       cityFilter: typeof o.cityFilter === 'string' ? o.cityFilter : '',
-      performanceDateFilter:
-        typeof o.performanceDateFilter === 'string' ? o.performanceDateFilter : '',
-      startDateFilter: typeof o.startDateFilter === 'string' ? o.startDateFilter : '',
-      endDateFilter: typeof o.endDateFilter === 'string' ? o.endDateFilter : '',
       asOfDate: coerceYmdOr(o.asOfDate, todayLocalYmd()),
       page: Math.max(1, Math.floor(Number(o.page)) || 1),
       pageSize: coercePageSizeStored(o.pageSize),
@@ -527,36 +482,21 @@ function PerformanceRow({
   );
 }
 
-function dailySalesRowSuggestionLabel(r: ApiPerformanceSalesRow): string {
-  const a = (r.attractionName ?? '').trim();
-  const t = (r.tourName ?? '').trim();
-  if (a && t) return `${a} — ${t}`;
-  return a || t || (r.venueName ?? '').trim() || `Performance ${r.performanceId}`;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
   const qc = useQueryClient();
   const [initialFilters] = useState(() => loadDailySalesFiltersSnapshot());
 
-  const [searchInput, setSearchInput] = useState(() => initialFilters?.search ?? '');
-  const [searchCommitted, setSearchCommitted] = useState(
-    () => initialFilters?.searchDebounced ?? initialFilters?.search ?? '',
-  );
-  const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
-  const dailySalesSearchRef = useRef<HTMLDivElement>(null);
   const [attractionFilter, setAttractionFilter] = useState(
     () => initialFilters?.attractionFilter ?? '',
   );
-  const [tourFilter, setTourFilter] = useState(() => initialFilters?.tourFilter ?? '');
+  const [eventsScope, setEventsScope] = useState<DailySalesEventsScope>(
+    () => initialFilters?.eventsScope ?? 'all',
+  );
+  const [iaeContactIds, setIaeContactIds] = useState<string[]>(
+    () => initialFilters?.iaeContactIds ?? [],
+  );
   const [venueFilter, setVenueFilter] = useState(() => initialFilters?.venueFilter ?? '');
   const [cityFilter, setCityFilter] = useState(() => initialFilters?.cityFilter ?? '');
-  /** YYYY-MM-DD — empty = performances on/after reporting as-of; set to target a specific day. */
-  const [performanceDateFilter, setPerformanceDateFilter] = useState(
-    () => initialFilters?.performanceDateFilter ?? '',
-  );
-  const [startDateFilter, setStartDateFilter] = useState(() => initialFilters?.startDateFilter ?? '');
-  const [endDateFilter, setEndDateFilter] = useState(() => initialFilters?.endDateFilter ?? '');
   const [asOfDate, setAsOfDate] = useState(() => initialFilters?.asOfDate ?? todayLocalYmd());
   const [page, setPage] = useState(() => initialFilters?.page ?? 1);
   const [pageSize, setPageSize] = useState<PageSizeOption>(
@@ -590,27 +530,13 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
   }, []);
 
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dailySalesSearchRef.current && !dailySalesSearchRef.current.contains(e.target as Node)) {
-        setShowSearchSuggestions(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  useEffect(() => {
     saveDailySalesFiltersSnapshot({
       v: 2,
-      search: searchInput,
-      searchDebounced: searchCommitted,
       attractionFilter,
-      tourFilter,
+      eventsScope,
+      iaeContactIds,
       venueFilter,
       cityFilter,
-      performanceDateFilter,
-      startDateFilter,
-      endDateFilter,
       asOfDate,
       page,
       pageSize,
@@ -618,15 +544,11 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
       leadSort,
     });
   }, [
-    searchInput,
-    searchCommitted,
     attractionFilter,
-    tourFilter,
+    eventsScope,
+    iaeContactIds,
     venueFilter,
     cityFilter,
-    performanceDateFilter,
-    startDateFilter,
-    endDateFilter,
     asOfDate,
     page,
     pageSize,
@@ -638,11 +560,11 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
     () =>
       validateDailySalesPerformanceDates({
         asOfDate,
-        performanceDate: performanceDateFilter,
-        startDate: startDateFilter,
-        endDate: endDateFilter,
+        performanceDate: '',
+        startDate: '',
+        endDate: '',
       }),
-    [asOfDate, performanceDateFilter, startDateFilter, endDateFilter],
+    [asOfDate],
   );
   const perfDatesOk = perfDateValidation.ok;
 
@@ -654,84 +576,14 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
         : leadSort.col === 'city'
           ? 'city'
           : 'venue';
-
-  const dailySalesSuggestionQuery = useQuery({
-    queryKey: [
-      'daily-sales-by-perf',
-      'suggestion-rows',
-      asOfDate,
-      attractionFilter,
-      tourFilter,
-      venueFilter,
-      cityFilter,
-      performanceDateFilter,
-      startDateFilter,
-      endDateFilter,
-      leadSort.col,
-      leadSort.dir,
-    ],
-    queryFn: () =>
-      fetchDailySalesByPerformance(asOfDate, {
-        page: 1,
-        pageSize: DAILY_SALES_SUGGESTION_PAGE_SIZE,
-        attraction: attractionFilter || undefined,
-        tour: tourFilter || undefined,
-        venue: venueFilter || undefined,
-        performanceDate: performanceDateFilter.trim() || undefined,
-        startDate: startDateFilter.trim() || undefined,
-        endDate: endDateFilter.trim() || undefined,
-        sortBy: dailySalesSortBy,
-        sortDir: leadSort.dir,
-      }),
-    staleTime: 2 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
-    refetchOnWindowFocus: false,
-    enabled: perfDatesOk,
-  });
-
-  const dailySalesSearchSuggestions = useMemo(() => {
-    const q = searchInput.trim().toLowerCase();
-    if (!q) return [] as Array<{ label: string; query: string }>;
-    if (!perfDatesOk) return [] as Array<{ label: string; query: string }>;
-    const items = dailySalesSuggestionQuery.data?.items ?? [];
-    const out: Array<{ label: string; query: string }> = [];
-    for (const row of items) {
-      const candidates = [
-        row.tourName,
-        row.attractionName,
-        row.venueName,
-        row.venueCompanyName,
-        row.city,
-        row.stateProvince,
-      ]
-        .map((v) => String(v ?? '').trim())
-        .filter(Boolean);
-      const hay = [
-        ...candidates,
-        row.performanceDate,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      if (!hay.includes(q)) continue;
-      const label = dailySalesRowSuggestionLabel(row);
-      const query =
-        candidates.find((c) => c.toLowerCase().includes(q)) ??
-        candidates[0] ??
-        '';
-      if (!query) continue;
-      if (!out.some((t) => t.query.toLowerCase() === query.toLowerCase())) {
-        out.push({ label, query });
-      }
-      if (out.length >= 8) break;
-    }
-    return out;
-  }, [searchInput, dailySalesSuggestionQuery.data, perfDatesOk]);
-
-  const commitDailySalesSearch = useCallback(() => {
-    setSearchCommitted(searchInput.trim());
-    setShowSearchSuggestions(false);
-  }, [searchInput]);
+  const iaeContactIdsKey = useMemo(() => iaeContactIds.join(','), [iaeContactIds]);
+  const iaeContactIdNumbers = useMemo(
+    () =>
+      iaeContactIds
+        .map((v) => Number(v))
+        .filter((n) => Number.isInteger(n) && n > 0),
+    [iaeContactIdsKey],
+  );
 
   const salesQuery = useQuery({
     queryKey: [
@@ -739,14 +591,11 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
       asOfDate,
       page,
       pageSize,
-      searchCommitted,
       attractionFilter,
-      tourFilter,
+      eventsScope,
+      iaeContactIdsKey,
       venueFilter,
       cityFilter,
-      performanceDateFilter,
-      startDateFilter,
-      endDateFilter,
       leadSort.col,
       leadSort.dir,
     ],
@@ -754,13 +603,10 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
       fetchDailySalesByPerformance(asOfDate, {
         page,
         pageSize: isAllPageSize(pageSize) ? DAILY_SALES_SUGGESTION_PAGE_SIZE : pageSize,
-        search: searchCommitted || undefined,
         attraction: attractionFilter || undefined,
-        tour: tourFilter || undefined,
+        eventsScope: eventsScope === 'mine' ? 'mine' : undefined,
+        iaeContactIds: iaeContactIdNumbers.length > 0 ? iaeContactIdNumbers : undefined,
         venue: venueFilter || undefined,
-        performanceDate: performanceDateFilter.trim() || undefined,
-        startDate: startDateFilter.trim() || undefined,
-        endDate: endDateFilter.trim() || undefined,
         sortBy: dailySalesSortBy,
         sortDir: leadSort.dir,
       }),
@@ -788,9 +634,6 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
   const yesterdayDateStr = pageData?.yesterdayDate ?? ymdAddDays(asOfDate, -1);
   const todayLabel = fmtDateHeader(todayDateStr);
   const yesterdayLabel = fmtDateHeader(yesterdayDateStr);
-  const asOfIsLocalToday = asOfDate === todayLocalYmd();
-  const labelCurShort = asOfIsLocalToday ? 'today' : 'selected day';
-  const labelPriorShort = asOfIsLocalToday ? 'yesterday' : 'prior day';
   const attractionOptions = useMemo(() => {
     const list = pageData?.attractions ?? [];
     return [
@@ -798,12 +641,20 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
       ...list.map((a) => ({ value: a.attractionName, label: a.attractionName })),
     ];
   }, [pageData?.attractions]);
-  const tourOptions = useMemo(
-    () => [
-      { value: '', label: 'All events' },
-      ...((pageData?.filterOptions.tours ?? []).map((n) => ({ value: n, label: n }))),
-    ],
-    [pageData?.filterOptions.tours],
+  const iaeLookupsQuery = useQuery({
+    queryKey: ['engagements', 'iae-contact-lookups', 'daily-sales-filter'],
+    queryFn: fetchEngagementIaeContactLookups,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+  const iaeContactOptions = useMemo(
+    () =>
+      (iaeLookupsQuery.data?.contacts ?? []).map((c) => ({
+        value: String(c.id),
+        label: c.label,
+      })),
+    [iaeLookupsQuery.data?.contacts],
   );
   const venueOptions = useMemo(
     () => [
@@ -825,11 +676,6 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
     return list;
   }, [rowsSource]);
 
-  const totalTicketsToday = pageData?.summary.todayTickets ?? 0;
-  const totalRevenueToday = pageData?.summary.todayRevenue ?? 0;
-  const totalTicketsYest = pageData?.summary.yesterdayTickets ?? 0;
-  const totalRevenueYest = pageData?.summary.yesterdayRevenue ?? 0;
-
   const pageCount = isAllPageSize(pageSize)
     ? 1
     : Math.max(1, Math.ceil(serverTotal / pageSize));
@@ -837,7 +683,7 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
 
   useEffect(() => {
     setPage(1);
-  }, [searchCommitted, attractionFilter, tourFilter, venueFilter, cityFilter, asOfDate, performanceDateFilter, startDateFilter, endDateFilter, leadSort.col, leadSort.dir]);
+  }, [attractionFilter, eventsScope, iaeContactIdsKey, venueFilter, cityFilter, asOfDate, leadSort.col, leadSort.dir]);
 
   useEffect(() => {
     setPage(1);
@@ -850,44 +696,17 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
   const showFullSkeleton = salesQuery.isPending && !salesQuery.data;
   const showTableOverlay = salesQuery.isFetching && !!salesQuery.data;
   const isRefreshing = salesQuery.isFetching && !showFullSkeleton;
-  const $fmt = (n: number) =>
-    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
   const totalColSpan = leadColumnOrder.length + 5;
 
   const activeFilterCount = useMemo(() => {
     let n = 0;
     if (attractionFilter) n += 1;
-    if (tourFilter) n += 1;
+    if (eventsScope === 'mine') n += 1;
+    if (iaeContactIds.length > 0) n += 1;
     if (venueFilter) n += 1;
     if (cityFilter) n += 1;
-    if (performanceDateFilter.trim()) n += 1;
-    if (startDateFilter.trim()) n += 1;
-    if (endDateFilter.trim()) n += 1;
     return n;
-  }, [
-    attractionFilter,
-    tourFilter,
-    venueFilter,
-    cityFilter,
-    performanceDateFilter,
-    startDateFilter,
-    endDateFilter,
-  ]);
-
-  const dateInputClass =
-    'h-10 w-full min-w-0 rounded-lg border border-border bg-background px-3 text-sm text-text-primary shadow-sm ' +
-    'focus:outline-none focus:ring-2 focus:ring-ems-accent/25 focus:border-ems-accent disabled:opacity-50';
-
-  const dateFieldClass = (invalid: boolean) =>
-    `${dateInputClass}${invalid ? ' border-ems-coral focus:ring-ems-coral/25 focus:border-ems-coral' : ''}`;
-
-  const isoYmd = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s.trim());
-  const stY = isoYmd(startDateFilter) ? startDateFilter : undefined;
-  const enY = isoYmd(endDateFilter) ? endDateFilter : undefined;
-  const rangeChronoOk = !!(stY && enY && stY <= enY);
-  const perfDateMin = rangeChronoOk ? stY : undefined;
-  const perfDateMax = rangeChronoOk ? enY : undefined;
-  const startDateMax = enY;
+  }, [attractionFilter, eventsScope, iaeContactIds.length, venueFilter, cityFilter]);
 
   return (
     <div className="space-y-4">
@@ -914,40 +733,6 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
         </div>
       )}
 
-      {/* Summary */}
-      {!showFullSkeleton && serverTotal > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <DailySummaryCard
-            dateStr={yesterdayLabel}
-            statLabel="Tickets"
-            value={totalTicketsYest.toLocaleString()}
-            sub={labelPriorShort}
-            tone="prior"
-          />
-          <DailySummaryCard
-            dateStr={yesterdayLabel}
-            statLabel="Revenue"
-            value={$fmt(totalRevenueYest)}
-            sub={labelPriorShort}
-            tone="prior"
-          />
-          <DailySummaryCard
-            dateStr={todayLabel}
-            statLabel="Tickets"
-            value={totalTicketsToday.toLocaleString()}
-            sub={labelCurShort}
-            tone="current"
-          />
-          <DailySummaryCard
-            dateStr={todayLabel}
-            statLabel="Revenue"
-            value={$fmt(totalRevenueToday)}
-            sub={labelCurShort}
-            tone="current"
-          />
-        </div>
-      )}
-
       {/* Filters — grouped card (less congested than a single crowded row) */}
       <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-border/80 bg-surface/35 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
@@ -966,12 +751,10 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
                 disabled={showFullSkeleton}
                 onClick={() => {
                   setAttractionFilter('');
-                  setTourFilter('');
+                  setEventsScope('all');
+                  setIaeContactIds([]);
                   setVenueFilter('');
                   setCityFilter('');
-                  setPerformanceDateFilter('');
-                  setStartDateFilter('');
-                  setEndDateFilter('');
                 }}
                 className="text-xs font-medium text-text-secondary hover:text-ems-accent underline-offset-2 hover:underline disabled:opacity-50"
               >
@@ -1001,212 +784,82 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
         </div>
 
         {filtersExpanded && (
-          <div className="p-4 sm:p-5 space-y-6">
-            <div className="max-w-2xl relative" ref={dailySalesSearchRef}>
-              <label className="mb-1.5 block text-xs font-medium text-text-secondary">Search</label>
-              <div className="flex min-w-0 items-center border border-border rounded-md bg-surface overflow-hidden focus-within:border-ems-accent transition-colors">
-                <input
-                  type="text"
-                  className="min-w-0 flex-1 cursor-text bg-transparent px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                  placeholder="Search shows, tours, venues, cities…"
-                  value={searchInput}
+          <div className="p-4 sm:p-5">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-text-secondary">Attraction</label>
+                <Select2
+                  options={attractionOptions}
+                  value={attractionFilter}
+                  onChange={setAttractionFilter}
                   disabled={showFullSkeleton}
-                  autoComplete="off"
-                  spellCheck={false}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setSearchInput(v);
-                    setShowSearchSuggestions(true);
-                    if (!v.trim()) setSearchCommitted('');
-                  }}
-                  onFocus={() => {
-                    if (searchInput.trim()) setShowSearchSuggestions(true);
-                  }}
-                  onBlur={() => setShowSearchSuggestions(false)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') commitDailySalesSearch();
-                    if (e.key === 'Escape') setShowSearchSuggestions(false);
-                  }}
+                  placeholder="All attractions"
                 />
-                <button
-                  type="button"
-                  onClick={commitDailySalesSearch}
-                  disabled={showFullSkeleton}
-                  className="shrink-0 cursor-pointer px-2.5 py-1.5 text-text-muted hover:text-ems-accent transition-colors disabled:opacity-50"
-                  title="Search"
-                >
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <circle cx="11" cy="11" r="8" strokeWidth="2" />
-                    <path d="m21 21-4.35-4.35" strokeWidth="2" strokeLinecap="round" />
-                  </svg>
-                </button>
               </div>
-              {showSearchSuggestions &&
-              searchInput.trim().length >= 1 &&
-              (dailySalesSuggestionQuery.isFetching ||
-                dailySalesSearchSuggestions.length > 0 ||
-                dailySalesSuggestionQuery.isFetched) ? (
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-text-secondary">Event</label>
                 <div
-                  className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden"
-                  onMouseDown={(e) => e.preventDefault()}
+                  className="flex h-10 items-stretch overflow-hidden rounded-md border border-border text-xs font-medium"
+                  role="group"
+                  aria-label="Event scope"
                 >
-                  {dailySalesSuggestionQuery.isError ? (
-                    <div className="px-3 py-2 text-sm text-ems-coral" role="alert">
-                      Could not load suggestions.
-                    </div>
-                  ) : null}
-                  {!dailySalesSuggestionQuery.isError && dailySalesSuggestionQuery.isFetching ? (
-                    <div className="flex items-center gap-2 px-3 py-2.5 text-sm text-text-muted" role="status">
-                      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-ems-accent" aria-hidden />
-                      <span>Loading suggestions…</span>
-                    </div>
-                  ) : null}
-                  {!dailySalesSuggestionQuery.isError &&
-                  !dailySalesSuggestionQuery.isFetching &&
-                  dailySalesSearchSuggestions.length > 0
-                    ? dailySalesSearchSuggestions.map((suggestion, i) => (
-                        <button
-                          key={`${i}-${suggestion.label}-${suggestion.query}`}
-                          type="button"
-                          className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            setSearchInput(suggestion.query);
-                            setSearchCommitted(suggestion.query);
-                            setShowSearchSuggestions(false);
-                          }}
-                        >
-                          {suggestion.label}
-                        </button>
-                      ))
-                    : null}
-                  {!dailySalesSuggestionQuery.isError &&
-                  !dailySalesSuggestionQuery.isFetching &&
-                  dailySalesSuggestionQuery.isFetched &&
-                  dailySalesSearchSuggestions.length === 0 ? (
-                    <div className="px-3 py-2.5 text-sm text-text-muted">No matching rows</div>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-
-            <div className="grid gap-5 lg:grid-cols-2">
-              <fieldset className="min-w-0 space-y-3 rounded-xl border border-border/70 bg-surface/25 p-4">
-                <legend className="px-1 text-xs font-semibold text-text-primary">Performance dates</legend>
-                <p className="text-[11px] text-text-muted -mt-1 mb-1">
-                  By default, shows on or after <strong className="font-medium text-text-secondary">Reporting as of</strong> appear.
-                  Use these fields to narrow to a specific performance day or range (including past dates).
-                </p>
-                {!perfDatesOk && perfDateValidation.messages.length > 0 ? (
-                  <div
-                    role="alert"
-                    className="text-sm text-ems-coral border border-ems-coral/30 rounded-lg px-3 py-2 bg-ems-coral-dim"
-                  >
-                    <ul className="list-disc pl-4 space-y-0.5">
-                      {perfDateValidation.messages.map((msg, i) => (
-                        <li key={i}>{msg}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-                <div className="space-y-3">
-                  <div>
-                    <label htmlFor="daily-sales-perf-date" className="mb-1 block text-[11px] font-medium text-text-secondary">
-                      Single performance day
-                    </label>
-                    <input
-                      id="daily-sales-perf-date"
-                      type="date"
-                      className={dateFieldClass(perfDateValidation.highlightPerf)}
-                      value={performanceDateFilter}
-                      onChange={(e) => setPerformanceDateFilter(e.target.value)}
-                      disabled={showFullSkeleton}
-                      min={perfDateMin}
-                      max={perfDateMax}
-                      aria-invalid={perfDateValidation.highlightPerf ? true : undefined}
-                    />
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div>
-                      <label htmlFor="daily-sales-start-date" className="mb-1 block text-[11px] font-medium text-text-secondary">
-                        Range start
-                      </label>
-                      <input
-                        id="daily-sales-start-date"
-                        type="date"
-                        className={dateFieldClass(perfDateValidation.highlightStart)}
-                        value={startDateFilter}
-                        onChange={(e) => setStartDateFilter(e.target.value)}
+                  {(
+                    [
+                      { id: 'all' as const, label: 'All Events' },
+                      { id: 'mine' as const, label: 'My Events' },
+                    ] as const
+                  ).map((opt) => {
+                    const active = eventsScope === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
                         disabled={showFullSkeleton}
-                        max={startDateMax}
-                        aria-invalid={perfDateValidation.highlightStart ? true : undefined}
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="daily-sales-end-date" className="mb-1 block text-[11px] font-medium text-text-secondary">
-                        Range end
-                      </label>
-                      <input
-                        id="daily-sales-end-date"
-                        type="date"
-                        className={dateFieldClass(perfDateValidation.highlightEnd)}
-                        value={endDateFilter}
-                        onChange={(e) => setEndDateFilter(e.target.value)}
-                        disabled={showFullSkeleton}
-                        min={stY}
-                        max={enY}
-                        aria-invalid={perfDateValidation.highlightEnd ? true : undefined}
-                      />
-                    </div>
-                  </div>
+                        onClick={() => setEventsScope(opt.id)}
+                        aria-pressed={active}
+                        className={[
+                          'flex-1 px-2 transition-colors disabled:opacity-50',
+                          active
+                            ? 'bg-ems-accent text-background'
+                            : 'bg-card text-text-secondary hover:bg-hover',
+                        ].join(' ')}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
                 </div>
-              </fieldset>
-
-              <fieldset className="min-w-0 space-y-3 rounded-xl border border-border/70 bg-surface/25 p-4">
-                <legend className="px-1 text-xs font-semibold text-text-primary">Filters</legend>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-text-secondary">Attraction</label>
-                    <Select2
-                      options={attractionOptions}
-                      value={attractionFilter}
-                      onChange={setAttractionFilter}
-                      disabled={showFullSkeleton}
-                      placeholder="All attractions"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-text-secondary">Event</label>
-                    <Select2
-                      options={tourOptions}
-                      value={tourFilter}
-                      onChange={setTourFilter}
-                      disabled={showFullSkeleton}
-                      placeholder="All events"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-text-secondary">Venue</label>
-                    <Select2
-                      options={venueOptions}
-                      value={venueFilter}
-                      onChange={setVenueFilter}
-                      disabled={showFullSkeleton}
-                      placeholder="All venues"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-text-secondary">City</label>
-                    <Select2
-                      options={cityOptions}
-                      value={cityFilter}
-                      onChange={setCityFilter}
-                      disabled={showFullSkeleton}
-                      placeholder="All cities"
-                    />
-                  </div>
-                </div>
-              </fieldset>
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-text-secondary">IAE contacts</label>
+                <Select2Multi
+                  options={iaeContactOptions}
+                  values={iaeContactIds}
+                  onChange={setIaeContactIds}
+                  placeholder="All IAE contacts"
+                  className={iaeLookupsQuery.isFetching ? 'opacity-80' : ''}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-text-secondary">Venue</label>
+                <Select2
+                  options={venueOptions}
+                  value={venueFilter}
+                  onChange={setVenueFilter}
+                  disabled={showFullSkeleton}
+                  placeholder="All venues"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-text-secondary">City</label>
+                <Select2
+                  options={cityOptions}
+                  value={cityFilter}
+                  onChange={setCityFilter}
+                  disabled={showFullSkeleton}
+                  placeholder="All cities"
+                />
+              </div>
             </div>
           </div>
         )}

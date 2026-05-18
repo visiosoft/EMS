@@ -8,4 +8,3 @@ export class ServiceProvided {
   @Column({ name: 'ServiceName', type: 'nvarchar', length: 100 })
   serviceName: string;
 }
-

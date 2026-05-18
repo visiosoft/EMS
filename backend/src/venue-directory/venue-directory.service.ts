@@ -114,7 +114,10 @@ export class VenueDirectoryService {
 
     const dataQb = this.baseAllVenuesQuery(filters)
       .select('v.companyId', 'companyId')
-      .addSelect(ALL_VENUES_ENTERTAINMENT_COMPLEX_NAMES_SQL, 'entertainmentComplexNames')
+      .addSelect(
+        ALL_VENUES_ENTERTAINMENT_COMPLEX_NAMES_SQL,
+        'entertainmentComplexNames',
+      )
       .addSelect('v.venueName', 'venueName')
       .addSelect('v.seatingCapacity', 'seatingCapacity')
       .addSelect('v.venueTypeId', 'venueTypeId')
@@ -123,27 +126,17 @@ export class VenueDirectoryService {
       .addSelect('d.marketName', 'dmaMarketName');
     applyAllVenuesSort(dataQb, filters.sortBy, filters.sortDir);
 
-    const countQb = this.baseAllVenuesQuery(filters).select(
-      'COUNT(1)',
-      'cnt',
-    );
+    const countQb = this.baseAllVenuesQuery(filters).select('COUNT(1)', 'cnt');
     const totalRow = await countQb.getRawOne<Record<string, string | number>>();
     const total = Math.floor(
       Number(
-        (totalRow?.cnt as string | number | undefined) ??
-          this.pickRaw(
-            (totalRow ?? {}) as Record<string, unknown>,
-            'cnt',
-            0,
-          ) ??
+        totalRow?.cnt ??
+          this.pickRaw((totalRow ?? {}) as Record<string, unknown>, 'cnt', 0) ??
           0,
       ),
     );
 
-    const raw = (await dataQb
-      .offset(safeOffset)
-      .limit(safeLimit)
-      .getRawMany()) as Record<string, unknown>[];
+    const raw = await dataQb.offset(safeOffset).limit(safeLimit).getRawMany();
 
     const data: AllVenueDirectoryRow[] = raw.map((row) => ({
       companyId: Math.floor(Number(this.pickRaw(row, 'companyId', 0))),
@@ -154,16 +147,10 @@ export class VenueDirectoryService {
       seatingCapacity: Math.floor(
         Number(this.pickRaw(row, 'seatingCapacity', 0)),
       ),
-      venueTypeId: this.nullableInt(
-        this.pickRaw(row, 'venueTypeId', null),
-      ),
-      venueTypeName: this.nullableStr(
-        this.pickRaw(row, 'venueTypeName', null),
-      ),
+      venueTypeId: this.nullableInt(this.pickRaw(row, 'venueTypeId', null)),
+      venueTypeName: this.nullableStr(this.pickRaw(row, 'venueTypeName', null)),
       dmaId: this.nullableInt(this.pickRaw(row, 'dmaId', null)),
-      dmaMarketName: this.nullableStr(
-        this.pickRaw(row, 'dmaMarketName', null),
-      ),
+      dmaMarketName: this.nullableStr(this.pickRaw(row, 'dmaMarketName', null)),
     }));
 
     return { data, total: Number.isFinite(total) && total > 0 ? total : 0 };
@@ -183,20 +170,15 @@ export class VenueDirectoryService {
     return def;
   }
 
-  private nullableInt(
-    v: string | number | null,
-  ): number | null {
+  private nullableInt(v: string | number | null): number | null {
     if (v == null || v === '') return null;
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
   }
 
-  private nullableStr(
-    v: string | number | null,
-  ): string | null {
+  private nullableStr(v: string | number | null): string | null {
     if (v == null) return null;
     const t = String(v).trim();
     return t || null;
   }
-
 }

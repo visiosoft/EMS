@@ -18,4 +18,3 @@ export class VenueTax {
   @JoinColumn({ name: 'TaxID' })
   tax: Tax;
 }
-
