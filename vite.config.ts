@@ -65,6 +65,7 @@ export default defineConfig(({ mode }) => {
     "import.meta.env.VITE_ENTRA_REDIRECT_PATH": JSON.stringify(
       (fileEnv.VITE_ENTRA_REDIRECT_PATH ?? "/login").trim() || "/login",
     ),
+    "import.meta.env.VITE_APP_SUITE": JSON.stringify((fileEnv.VITE_APP_SUITE ?? "all").trim() || "all"),
   };
 
   return {
