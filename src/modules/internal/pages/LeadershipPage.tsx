@@ -12,54 +12,54 @@ export function LeadershipPage() {
         subtitle="A central space for leaders to share updates, align on strategy, and drive organizational success."
       />
 
-      <main className="mx-auto w-full max-w-[1180px] px-5 pb-8 pt-16 sm:px-8 lg:px-10 xl:px-12">
+      <main className="mx-auto w-full max-w-[1060px] px-5 pb-8 pt-16 sm:px-8 lg:px-0">
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {LEADERSHIP_CONTACTS.map((person, index) => (
             <article
               key={person.name}
-              className="group rounded-lg bg-[#050505] px-7 py-6 text-white shadow-[0_4px_16px_rgba(0,0,0,0.22)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_36px_rgba(0,0,0,0.28)]"
+              className="group min-h-[258px] rounded-lg bg-[#050505] px-6 py-5 text-white shadow-[0_4px_16px_rgba(0,0,0,0.22)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_36px_rgba(0,0,0,0.28)]"
               style={{ animationDelay: `${index * 55}ms` }}
             >
               <div className="flex flex-col items-center text-center">
-                <div className="flex h-[72px] w-[72px] items-center justify-center rounded-full border-2 border-white/85 text-white">
+                <div className="flex h-[56px] w-[56px] items-center justify-center rounded-full border-2 border-white/85 text-white">
                   {person.companyMark ? (
-                    <IaeLogoIcon surface="on-dark" className="h-9 w-14" />
+                    <IaeLogoIcon surface="on-dark" className="h-7 w-12" />
                   ) : (
-                    <UserRound className="h-12 w-12" strokeWidth={1.25} aria-hidden />
+                    <UserRound className="h-9 w-9" strokeWidth={1.25} aria-hidden />
                   )}
                 </div>
-                <h3 className="mt-4 text-lg font-semibold leading-tight text-white">{person.name}</h3>
-                <p className="mt-1 min-h-[32px] text-[11px] font-semibold uppercase tracking-[0.18em] text-white/58">
+                <h3 className="mt-3 text-base font-semibold leading-tight text-white">{person.name}</h3>
+                <p className="mt-1 min-h-[28px] text-[10px] font-semibold uppercase tracking-[0.18em] text-white/58">
                   {person.title}
                 </p>
               </div>
 
-              <div className="mt-5 border-t border-white/12 pt-4">
-                <dl className="space-y-3 text-xs">
-                  <div className="grid grid-cols-[34px_1fr] gap-2">
-                    <dt className="flex h-8 w-8 items-center justify-center rounded-md bg-white text-black">
-                      <Phone className="h-4 w-4" aria-label="Extension" />
+              <div className="mt-4 border-t border-white/18 pt-3">
+                <dl className="space-y-2 text-xs">
+                  <div className="grid grid-cols-[28px_1fr] gap-2">
+                    <dt className="flex h-7 w-7 items-center justify-center rounded-md bg-white text-black">
+                      <Phone className="h-3.5 w-3.5" aria-label="Extension" />
                     </dt>
                     <dd>
-                      <span className="block text-[10px] uppercase tracking-[0.16em] text-white/50">Extension</span>
+                      <span className="block text-[9px] uppercase tracking-[0.16em] text-white/50">Extension</span>
                       <span className="font-semibold text-white">{person.extension}</span>
                     </dd>
                   </div>
-                  <div className="grid grid-cols-[34px_1fr] gap-2">
-                    <dt className="flex h-8 w-8 items-center justify-center rounded-md bg-white text-black">
-                      <Smartphone className="h-4 w-4" aria-label="Mobile" />
+                  <div className="grid grid-cols-[28px_1fr] gap-2">
+                    <dt className="flex h-7 w-7 items-center justify-center rounded-md bg-white text-black">
+                      <Smartphone className="h-3.5 w-3.5" aria-label="Mobile" />
                     </dt>
                     <dd>
-                      <span className="block text-[10px] uppercase tracking-[0.16em] text-white/50">Mobile</span>
+                      <span className="block text-[9px] uppercase tracking-[0.16em] text-white/50">Mobile</span>
                       <span className="font-semibold text-white">{person.mobile}</span>
                     </dd>
                   </div>
-                  <div className="grid grid-cols-[34px_1fr] gap-2">
-                    <dt className="flex h-8 w-8 items-center justify-center rounded-md bg-white text-black">
-                      <Mail className="h-4 w-4" aria-label="Email" />
+                  <div className="grid grid-cols-[28px_1fr] gap-2">
+                    <dt className="flex h-7 w-7 items-center justify-center rounded-md bg-white text-black">
+                      <Mail className="h-3.5 w-3.5" aria-label="Email" />
                     </dt>
                     <dd className="min-w-0">
-                      <span className="block text-[10px] uppercase tracking-[0.16em] text-white/50">Email</span>
+                      <span className="block text-[9px] uppercase tracking-[0.16em] text-white/50">Email</span>
                       <span className="block truncate font-semibold text-white">{person.email}</span>
                     </dd>
                   </div>
