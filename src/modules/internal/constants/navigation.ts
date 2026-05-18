@@ -10,5 +10,5 @@ export const INTERNAL_NAV_ITEMS: InternalNavItem[] = [
   { key: "departments", label: "Departments", href: "/internal/departments" },
   { key: "markets", label: "Markets", href: "#markets" },
   { key: "venues", label: "Venues", href: "#venues" },
-  { key: "attractions", label: "Attractions", href: "/internal" },
+  { key: "attractions", label: "Attractions", href: "#attractions" },
 ];
