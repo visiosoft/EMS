@@ -42,7 +42,10 @@ export class UpdateEngagementDto {
   @IsOptional()
   @IsNumber(
     { maxDecimalPlaces: 2 },
-    { message: 'grossPotential must be a valid number with up to 2 decimal places.' },
+    {
+      message:
+        'grossPotential must be a valid number with up to 2 decimal places.',
+    },
   )
   @Min(0)
   grossPotential?: number | null;

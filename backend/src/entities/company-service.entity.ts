@@ -1,4 +1,10 @@
-import { Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import {
+  Column,
+  Entity,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+} from 'typeorm';
 import { Company } from './company.entity';
 import { ServiceProvided } from './service-provided.entity';
 
@@ -21,4 +27,3 @@ export class CompanyService {
   @JoinColumn({ name: 'ServiceProvidedID' })
   serviceProvided: ServiceProvided;
 }
-

@@ -1,4 +1,10 @@
-import { IsISO8601, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import {
+  IsISO8601,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+} from 'class-validator';
 
 export class UpdatePerformanceOptionDto {
   @IsOptional()

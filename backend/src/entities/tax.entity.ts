@@ -14,4 +14,3 @@ export class Tax {
   @Column({ name: 'TaxJurisdictionType', type: 'nvarchar', length: 100 })
   taxJurisdictionType: string;
 }
-

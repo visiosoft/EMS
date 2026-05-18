@@ -64,7 +64,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const expose = !isProd || forceExpose;
 
     if (!(exception instanceof HttpException)) {
-      const err = exception instanceof Error ? exception : new Error(String(exception));
+      const err =
+        exception instanceof Error ? exception : new Error(String(exception));
       this.logger.error(err.message, err.stack);
     }
 

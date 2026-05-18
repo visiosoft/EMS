@@ -42,7 +42,8 @@ export class DailySalesController {
     const id = engagementIdRaw != null ? Number(engagementIdRaw) : NaN;
     if (!Number.isFinite(id) || id < 1) {
       throw new BadRequestException({
-        message: 'Query parameter engagementId is required and must be a positive integer.',
+        message:
+          'Query parameter engagementId is required and must be a positive integer.',
       });
     }
     let performanceId: number | undefined;
@@ -50,12 +51,17 @@ export class DailySalesController {
       const pid = Number(performanceIdRaw);
       if (!Number.isFinite(pid) || pid < 1 || !Number.isInteger(pid)) {
         throw new BadRequestException({
-          message: 'Query parameter performanceId, when provided, must be a positive integer.',
+          message:
+            'Query parameter performanceId, when provided, must be a positive integer.',
         });
       }
       performanceId = pid;
     }
-    return this.dailySalesService.getEngagementDashboard(id, asOfDate, performanceId);
+    return this.dailySalesService.getEngagementDashboard(
+      id,
+      asOfDate,
+      performanceId,
+    );
   }
 
   /**
@@ -71,7 +77,8 @@ export class DailySalesController {
     const id = attractionIdRaw != null ? Number(attractionIdRaw) : NaN;
     if (!Number.isFinite(id) || id < 1) {
       throw new BadRequestException({
-        message: 'Query parameter attractionId is required and must be a positive integer.',
+        message:
+          'Query parameter attractionId is required and must be a positive integer.',
       });
     }
     return this.dailySalesService.getAttractionSalesSummary(id, asOfDate);
@@ -101,6 +108,8 @@ export class DailySalesController {
     @Query('contact') contact?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: string,
+    @Query('eventsScope') eventsScope?: string,
+    @Query('iaeContactIds') iaeContactIds?: string,
   ) {
     return this.dailySalesService.findByPerformancePage(
       asOfDate,
@@ -118,6 +127,8 @@ export class DailySalesController {
       contact,
       sortBy,
       sortDir,
+      eventsScope,
+      iaeContactIds,
     );
   }
 

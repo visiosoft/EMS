@@ -110,6 +110,10 @@ export function fetchDailySalesByPerformance(
     contact?: string;
     sortBy?: string;
     sortDir?: 'asc' | 'desc';
+    /** `all` (default) or `mine` — mine = engagements where you are an IAE contact */
+    eventsScope?: 'all' | 'mine';
+    /** One or more dbo.Contact IDs from Engagement IAE staff assignments. */
+    iaeContactIds?: number[];
   },
 ) {
   const p = new URLSearchParams();
@@ -129,6 +133,13 @@ export function fetchDailySalesByPerformance(
   if (options?.sortBy?.trim()) {
     p.set('sortBy', options.sortBy.trim());
     if (options.sortDir) p.set('sortDir', options.sortDir);
+  }
+  if (options?.eventsScope === 'mine') p.set('eventsScope', 'mine');
+  if (options?.iaeContactIds?.length) {
+    const ids = options.iaeContactIds
+      .filter((n) => Number.isInteger(n) && n > 0)
+      .map((n) => String(n));
+    if (ids.length > 0) p.set('iaeContactIds', ids.join(','));
   }
   const qs = p.toString() ? `?${p.toString()}` : '';
   return apiFetch<ApiPerformanceSalesPage>(`/daily-sales/by-performance${qs}`);

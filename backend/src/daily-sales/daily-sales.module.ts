@@ -13,12 +13,14 @@ import { Performance } from '../entities/performance.entity';
 import { TicketingSales } from '../entities/ticketing-sales.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
+import { AuditModule } from '../audit/audit.module';
 import { EngagementsModule } from '../engagements/engagements.module';
 import { DailySalesController } from './daily-sales.controller';
 import { DailySalesService } from './daily-sales.service';
 
 @Module({
   imports: [
+    AuditModule,
     EngagementsModule,
     TypeOrmModule.forFeature([
       TicketingSales,

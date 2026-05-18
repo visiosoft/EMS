@@ -6,10 +6,10 @@ import { EntraAuthGuard } from './entra-auth.guard';
 @Controller('admin')
 @UseGuards(EntraAuthGuard, AdminRoleGuard)
 export class AdminUsersController {
-    constructor(private readonly adminUsersService: AdminUsersService) { }
+  constructor(private readonly adminUsersService: AdminUsersService) {}
 
-    @Get('users')
-    async listUsers() {
-        return this.adminUsersService.listUsers();
-    }
+  @Get('users')
+  async listUsers() {
+    return this.adminUsersService.listUsers();
+  }
 }

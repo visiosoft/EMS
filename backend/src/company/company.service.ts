@@ -87,10 +87,7 @@ function isBlank(v: unknown): boolean {
  * casing than our `AS` aliases, so `row.roleName` may be undefined while `row.rolename` holds
  * the value. Same idea as `listEngagements` (g/lower helpers).
  */
-function pickRawRowValue(
-  row: Record<string, unknown>,
-  key: string,
-): unknown {
+function pickRawRowValue(row: Record<string, unknown>, key: string): unknown {
   if (row[key] !== undefined && row[key] !== null) {
     return row[key];
   }
@@ -102,19 +99,30 @@ function pickRawRowValue(
   }
   for (const k of Object.keys(row)) {
     const kl = k.toLowerCase();
-    if (kl === `r_${pl}` || kl === `ci_${pl}` || kl === `ca_${pl}` || kl === `d_${pl}`) {
+    if (
+      kl === `r_${pl}` ||
+      kl === `ci_${pl}` ||
+      kl === `ca_${pl}` ||
+      kl === `d_${pl}`
+    ) {
       return row[k];
     }
   }
   return undefined;
 }
 
-function splitFullName(fullName: string): { firstName: string; lastName: string } {
+function splitFullName(fullName: string): {
+  firstName: string;
+  lastName: string;
+} {
   const t = fullName.trim().replace(/\s+/g, ' ');
   if (!t) return { firstName: '', lastName: '' };
   const idx = t.indexOf(' ');
   if (idx < 0) return { firstName: t, lastName: '' };
-  return { firstName: t.slice(0, idx).trim(), lastName: t.slice(idx + 1).trim() };
+  return {
+    firstName: t.slice(0, idx).trim(),
+    lastName: t.slice(idx + 1).trim(),
+  };
 }
 
 /** Nvarchar literal for safe dynamic SQL on SQL Server. */
@@ -186,7 +194,8 @@ export class CompanyService {
   private readonly logger = new Logger(CompanyService.name);
 
   /** First successful resolution; restarted if process restarts. */
-  private venueTicketingColCache: ResolvedVenueTicketingWebsiteColumns | null = null;
+  private venueTicketingColCache: ResolvedVenueTicketingWebsiteColumns | null =
+    null;
   /** Undefined while unresolved; null means DB has no company-type link table. */
   private companyTypeLinkTableCache: string | null | undefined;
 
@@ -292,7 +301,7 @@ export class CompanyService {
       }
     }
     try {
-      const rows = (await manager.query(
+      const rows = await manager.query(
         `
           SELECT t.TABLE_NAME AS [tableName]
           FROM INFORMATION_SCHEMA.TABLES t
@@ -317,7 +326,7 @@ export class CompanyService {
             END,
             t.TABLE_NAME ASC
         `,
-      )) as Array<Record<string, unknown>>;
+      );
       const candidates = rows
         .map((row) => String(row.tableName ?? row.TABLENAME ?? '').trim())
         .filter((name) => name.length > 0);
@@ -346,7 +355,9 @@ export class CompanyService {
     companyIds: number[],
     em?: EntityManager,
   ): Promise<Map<number, CompanyType[]>> {
-    const ids = [...new Set(companyIds.filter((id) => Number.isInteger(id) && id > 0))];
+    const ids = [
+      ...new Set(companyIds.filter((id) => Number.isInteger(id) && id > 0)),
+    ];
     const out = new Map<number, CompanyType[]>();
     if (ids.length === 0) {
       return out;
@@ -356,7 +367,7 @@ export class CompanyService {
     if (linkTable) {
       const inList = ids.join(',');
       try {
-        const rows = (await manager.query(
+        const rows = await manager.query(
           `
             SELECT
               m.CompanyID AS [companyId],
@@ -367,7 +378,7 @@ export class CompanyService {
               ON ct.CompanyTypeID = m.CompanyTypeID
             WHERE m.CompanyID IN (${inList})
           `,
-        )) as Array<Record<string, unknown>>;
+        );
         for (const row of rows) {
           const companyId = Number(row.companyId ?? row.COMPANYID);
           const companyTypeId = Number(row.companyTypeId ?? row.COMPANYTYPEID);
@@ -391,7 +402,9 @@ export class CompanyService {
       }
     }
 
-    const companies = await (em?.getRepository(Company) ?? this.companyRepo).find({
+    const companies = await (
+      em?.getRepository(Company) ?? this.companyRepo
+    ).find({
       where: { companyId: In(ids) },
       relations: { companyType: true },
     });
@@ -419,11 +432,15 @@ export class CompanyService {
     companyIds: number[],
     em?: EntityManager,
   ): Promise<Map<number, ServiceProvided[]>> {
-    const ids = [...new Set(companyIds.filter((id) => Number.isInteger(id) && id > 0))];
+    const ids = [
+      ...new Set(companyIds.filter((id) => Number.isInteger(id) && id > 0)),
+    ];
     const out = new Map<number, ServiceProvided[]>();
     if (ids.length === 0) return out;
 
-    const rows = await (em?.getRepository(CompanyServiceEntity) ?? this.companyServiceRepo).find({
+    const rows = await (
+      em?.getRepository(CompanyServiceEntity) ?? this.companyServiceRepo
+    ).find({
       where: { companyId: In(ids) },
       relations: { serviceProvided: true },
     });
@@ -432,14 +449,18 @@ export class CompanyService {
       const service = row.serviceProvided;
       if (!service) continue;
       const list = out.get(row.companyId) ?? [];
-      if (!list.some((s) => s.serviceProvidedId === service.serviceProvidedId)) {
+      if (
+        !list.some((s) => s.serviceProvidedId === service.serviceProvidedId)
+      ) {
         list.push(service);
       }
       out.set(row.companyId, list);
     }
     for (const [companyId, list] of out.entries()) {
       list.sort((a, b) =>
-        a.serviceName.localeCompare(b.serviceName, undefined, { sensitivity: 'base' }),
+        a.serviceName.localeCompare(b.serviceName, undefined, {
+          sensitivity: 'base',
+        }),
       );
       out.set(companyId, list);
     }
@@ -452,9 +473,17 @@ export class CompanyService {
     serviceMap: Map<number, ServiceProvided[]>,
     serviceAreaMap?: Map<
       number,
-      { dmaid: number; dmaMarketName: string; serviceProvidedId: number; serviceName: string }[]
+      {
+        dmaid: number;
+        dmaMarketName: string;
+        serviceProvidedId: number;
+        serviceName: string;
+      }[]
     >,
-    allDmasMetaMap?: Map<number, { allDmas: boolean; allDmasServiceProvidedId: number | null }>,
+    allDmasMetaMap?: Map<
+      number,
+      { allDmas: boolean; allDmasServiceProvidedId: number | null }
+    >,
   ): CompanyDetail {
     const allTypes = typeMap.get(company.companyId) ?? [];
     const allServices = serviceMap.get(company.companyId) ?? [];
@@ -469,8 +498,9 @@ export class CompanyService {
     const allDmasServiceProvidedId = allMeta?.allDmasServiceProvidedId ?? null;
     const selectedAllServiceName =
       allDmas && allDmasServiceProvidedId != null
-        ? allServices.find((s) => s.serviceProvidedId === allDmasServiceProvidedId)?.serviceName ??
-          ''
+        ? (allServices.find(
+            (s) => s.serviceProvidedId === allDmasServiceProvidedId,
+          )?.serviceName ?? '')
         : '';
     return {
       companyId: company.companyId,
@@ -479,7 +509,9 @@ export class CompanyService {
       companyTypeName: primaryTypeName,
       companyTypeIds: primaryTypeId > 0 ? [primaryTypeId] : [],
       companyTypeNames: primaryTypeName ? [primaryTypeName] : [],
-      serviceProvidedIds: allServices.map((service) => service.serviceProvidedId),
+      serviceProvidedIds: allServices.map(
+        (service) => service.serviceProvidedId,
+      ),
       serviceProvidedNames: allServices.map((service) => service.serviceName),
       physicalCity: company.physicalAddress?.city ?? '',
       physicalStateProvince: company.physicalAddress?.stateProvince ?? '',
@@ -496,7 +528,7 @@ export class CompanyService {
               serviceName: selectedAllServiceName,
             },
           ]
-        : serviceAreaMap?.get(company.companyId) ?? [],
+        : (serviceAreaMap?.get(company.companyId) ?? []),
       allDmas,
       allDmasServiceProvidedId,
     };
@@ -521,10 +553,20 @@ export class CompanyService {
     em: EntityManager,
     serviceAreaMap: Map<
       number,
-      { dmaid: number; dmaMarketName: string; serviceProvidedId: number; serviceName: string }[]
+      {
+        dmaid: number;
+        dmaMarketName: string;
+        serviceProvidedId: number;
+        serviceName: string;
+      }[]
     >,
-  ): Promise<Map<number, { allDmas: boolean; allDmasServiceProvidedId: number | null }>> {
-    const out = new Map<number, { allDmas: boolean; allDmasServiceProvidedId: number | null }>();
+  ): Promise<
+    Map<number, { allDmas: boolean; allDmasServiceProvidedId: number | null }>
+  > {
+    const out = new Map<
+      number,
+      { allDmas: boolean; allDmasServiceProvidedId: number | null }
+    >();
     const allMarketIds = await this.listAllDmaMarketIds(em);
     const allSet = new Set(allMarketIds);
 
@@ -585,7 +627,8 @@ export class CompanyService {
       const dmaid = Number((r as any)?.dmaid);
       const serviceProvidedId = Number((r as any)?.serviceProvidedId);
       if (!Number.isInteger(dmaid) || dmaid < 1) continue;
-      if (!Number.isInteger(serviceProvidedId) || serviceProvidedId < 1) continue;
+      if (!Number.isInteger(serviceProvidedId) || serviceProvidedId < 1)
+        continue;
       const key = `${dmaid}:${serviceProvidedId}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -605,7 +648,9 @@ export class CompanyService {
   ): Promise<{ allDmas: boolean; allDmasServiceProvidedId: number | null }> {
     const allDmas = Boolean(input.allDmas);
     const allDmasServiceProvidedId =
-      input.allDmasServiceProvidedId != null ? Number(input.allDmasServiceProvidedId) : null;
+      input.allDmasServiceProvidedId != null
+        ? Number(input.allDmasServiceProvidedId)
+        : null;
 
     await em.delete(CompanyServiceArea, { companyId });
 
@@ -654,7 +699,9 @@ export class CompanyService {
     }
 
     const uniqueDmaids = [...new Set(serviceAreas.map((r) => r.dmaid))];
-    const uniqueServiceIds = [...new Set(serviceAreas.map((r) => r.serviceProvidedId))];
+    const uniqueServiceIds = [
+      ...new Set(serviceAreas.map((r) => r.serviceProvidedId)),
+    ];
 
     const [knownDmaCount, knownServiceCount] = await Promise.all([
       em.getRepository(Dma).count({ where: { dmaid: In(uniqueDmaids) } }),
@@ -663,10 +710,14 @@ export class CompanyService {
         .count({ where: { serviceProvidedId: In(uniqueServiceIds) } }),
     ]);
     if (knownServiceCount !== uniqueServiceIds.length) {
-      throw new BadRequestException({ message: 'One or more services are invalid.' });
+      throw new BadRequestException({
+        message: 'One or more services are invalid.',
+      });
     }
     if (knownDmaCount !== uniqueDmaids.length) {
-      throw new BadRequestException({ message: 'One or more DMAs are invalid.' });
+      throw new BadRequestException({
+        message: 'One or more DMAs are invalid.',
+      });
     }
 
     const rows = serviceAreas.map((r) =>
@@ -694,14 +745,22 @@ export class CompanyService {
       }[]
     >
   > {
-    const ids = [...new Set(companyIds)].filter((id) => Number.isInteger(id) && id > 0);
+    const ids = [...new Set(companyIds)].filter(
+      (id) => Number.isInteger(id) && id > 0,
+    );
     const out = new Map<
       number,
-      { dmaid: number; dmaMarketName: string; serviceProvidedId: number; serviceName: string }[]
+      {
+        dmaid: number;
+        dmaMarketName: string;
+        serviceProvidedId: number;
+        serviceName: string;
+      }[]
     >();
     if (ids.length === 0) return out;
 
-    const repo = em?.getRepository(CompanyServiceArea) ?? this.companyServiceAreaRepo;
+    const repo =
+      em?.getRepository(CompanyServiceArea) ?? this.companyServiceAreaRepo;
     const rows = await repo.find({
       where: { companyId: In(ids) },
       relations: { dma: true, serviceProvided: true },
@@ -720,9 +779,13 @@ export class CompanyService {
 
     for (const [cid, list] of out.entries()) {
       list.sort((a, b) => {
-        const dma = a.dmaMarketName.localeCompare(b.dmaMarketName, undefined, { sensitivity: 'base' });
+        const dma = a.dmaMarketName.localeCompare(b.dmaMarketName, undefined, {
+          sensitivity: 'base',
+        });
         if (dma !== 0) return dma;
-        return a.serviceName.localeCompare(b.serviceName, undefined, { sensitivity: 'base' });
+        return a.serviceName.localeCompare(b.serviceName, undefined, {
+          sensitivity: 'base',
+        });
       });
       out.set(cid, list);
     }
@@ -765,15 +828,21 @@ export class CompanyService {
     em?: EntityManager,
   ): Promise<number[]> {
     const map = await this.collectCompanyTypesByCompanyId([companyId], em);
-    const fromMap = (map.get(companyId) ?? []).map((type) => type.companyTypeId);
+    const fromMap = (map.get(companyId) ?? []).map(
+      (type) => type.companyTypeId,
+    );
     const deduped = [...new Set([...fromMap, fallbackCompanyTypeId])].filter(
       (id) => Number.isInteger(id) && id > 0,
     );
     return deduped;
   }
 
-  private async getStagehandsServiceId(em?: EntityManager): Promise<number | null> {
-    const repo = em ? em.getRepository(ServiceProvided) : this.serviceProvidedRepo;
+  private async getStagehandsServiceId(
+    em?: EntityManager,
+  ): Promise<number | null> {
+    const repo = em
+      ? em.getRepository(ServiceProvided)
+      : this.serviceProvidedRepo;
     const row = await repo
       .createQueryBuilder('sp')
       .where('LOWER(sp.serviceName) = LOWER(:n)', { n: 'Stagehands' })
@@ -781,7 +850,10 @@ export class CompanyService {
     return row?.serviceProvidedId ?? null;
   }
 
-  private async getRoleIdByName(name: string, em: EntityManager): Promise<number> {
+  private async getRoleIdByName(
+    name: string,
+    em: EntityManager,
+  ): Promise<number> {
     const t = name.trim();
     const row = await em
       .getRepository(Role)
@@ -820,7 +892,12 @@ export class CompanyService {
     roleName: string,
     departmentName: string,
     draft:
-      | { fullName?: string; email?: string; phone?: string; cellPhone?: string }
+      | {
+          fullName?: string;
+          email?: string;
+          phone?: string;
+          cellPhone?: string;
+        }
       | undefined,
   ): Promise<void> {
     if (!draft) return;
@@ -835,7 +912,8 @@ export class CompanyService {
     const fullName = String(draft.fullName ?? '').trim();
     const email = String(draft.email ?? '').trim();
     const phone = draft.phone != null ? String(draft.phone).trim() : '';
-    const cellPhone = draft.cellPhone != null ? String(draft.cellPhone).trim() : '';
+    const cellPhone =
+      draft.cellPhone != null ? String(draft.cellPhone).trim() : '';
 
     if (!email) {
       throw new BadRequestException({
@@ -910,7 +988,8 @@ export class CompanyService {
         ci.lastName = lastName || '';
         if (phone) ci.workPhone = phone;
         if (cellPhone) ci.cellPhone = cellPhone;
-        else if (draft.cellPhone !== undefined && !cellPhone) ci.cellPhone = null;
+        else if (draft.cellPhone !== undefined && !cellPhone)
+          ci.cellPhone = null;
         await em.save(ContactInfo, ci);
       }
     }
@@ -1056,12 +1135,18 @@ export class CompanyService {
     departmentId: number,
     roleName: string,
     departmentName: string,
-    draft: { fullName?: string; email?: string; phone?: string; cellPhone?: string },
+    draft: {
+      fullName?: string;
+      email?: string;
+      phone?: string;
+      cellPhone?: string;
+    },
   ): Promise<void> {
     const fullName = String(draft.fullName ?? '').trim();
     const email = String(draft.email ?? '').trim();
     const phone = draft.phone != null ? String(draft.phone).trim() : '';
-    const cellPhone = draft.cellPhone != null ? String(draft.cellPhone).trim() : '';
+    const cellPhone =
+      draft.cellPhone != null ? String(draft.cellPhone).trim() : '';
 
     if (!email) {
       throw new BadRequestException({
@@ -1122,7 +1207,8 @@ export class CompanyService {
         ci.lastName = lastName || '';
         if (phone) ci.workPhone = phone;
         if (cellPhone) ci.cellPhone = cellPhone;
-        else if (draft.cellPhone !== undefined && !cellPhone) ci.cellPhone = null;
+        else if (draft.cellPhone !== undefined && !cellPhone)
+          ci.cellPhone = null;
         await em.save(ContactInfo, ci);
       }
     }
@@ -1192,7 +1278,8 @@ export class CompanyService {
     const hasAny = url.length > 0 || path.length > 0 || name.length > 0;
     if (!hasAny) return null;
 
-    const linkType = String(draft.linkType ?? '').trim() || (path ? 'File' : 'URL');
+    const linkType =
+      String(draft.linkType ?? '').trim() || (path ? 'File' : 'URL');
     const linkUrl = url || path || '';
     const linkPath = path || (url ? url : '');
     const linkName = name || linkUrl.slice(0, 255) || 'Link';
@@ -1228,7 +1315,10 @@ export class CompanyService {
     });
     if (!venue) return { missing: true as const };
 
-    const venueProfile = await this.buildVenueProfileReadModel(companyId, venue);
+    const venueProfile = await this.buildVenueProfileReadModel(
+      companyId,
+      venue,
+    );
 
     const brands = await this.venueBrandRepo.find({
       where: { venueCompanyId: companyId },
@@ -1244,11 +1334,16 @@ export class CompanyService {
     const stagehandsProvider =
       stagehandsServiceId != null
         ? await this.venueServiceProviderRepo.findOne({
-            where: { venueCompanyId: companyId, serviceId: stagehandsServiceId },
+            where: {
+              venueCompanyId: companyId,
+              serviceId: stagehandsServiceId,
+            },
           })
         : null;
 
-    const taxJurisdictions = taxes.map((t) => (t.tax?.taxJurisdictionType ?? '').toLowerCase());
+    const taxJurisdictions = taxes.map((t) =>
+      (t.tax?.taxJurisdictionType ?? '').toLowerCase(),
+    );
     const hasStateTaxOnTickets = taxJurisdictions.includes('state') ? 1 : 0;
     const hasCityTaxOnTickets = taxJurisdictions.includes('city') ? 1 : 0;
 
@@ -1258,13 +1353,19 @@ export class CompanyService {
         })
       : null;
     const withholdingLink = withholding?.withholdingLinkId
-      ? await this.linkRepo.findOne({ where: { linkId: withholding.withholdingLinkId } })
+      ? await this.linkRepo.findOne({
+          where: { linkId: withholding.withholdingLinkId },
+        })
       : null;
     const artistWaiver = withholding?.artistWaiverInstructionsId
-      ? await this.linkRepo.findOne({ where: { linkId: withholding.artistWaiverInstructionsId } })
+      ? await this.linkRepo.findOne({
+          where: { linkId: withholding.artistWaiverInstructionsId },
+        })
       : null;
     const iaeWaiver = withholding?.iaeWaiverInstructionsId
-      ? await this.linkRepo.findOne({ where: { linkId: withholding.iaeWaiverInstructionsId } })
+      ? await this.linkRepo.findOne({
+          where: { linkId: withholding.iaeWaiverInstructionsId },
+        })
       : null;
 
     const inheritedComplexCompanyIds =
@@ -1393,10 +1494,8 @@ export class CompanyService {
     return this.dataSource.transaction(async (em) => {
       // 1) Venue profile (dbo.Venue + load dock address)
       if (dto.venueProfile) {
-        const {
-          entertainmentComplexCompanyIds,
-          ...venueProfilePatch
-        } = dto.venueProfile;
+        const { entertainmentComplexCompanyIds, ...venueProfilePatch } =
+          dto.venueProfile;
         if (Object.keys(venueProfilePatch).length > 0) {
           await this.updateVenueProfile(companyId, venueProfilePatch);
         }
@@ -1426,7 +1525,9 @@ export class CompanyService {
       // 3) Brands: replace set for this venue
       if (dto.brandIds !== undefined) {
         await em.delete(VenueBrand, { venueCompanyId: companyId });
-        const next = Array.from(new Set(dto.brandIds)).filter((x) => Number.isInteger(x) && x > 0);
+        const next = Array.from(new Set(dto.brandIds)).filter(
+          (x) => Number.isInteger(x) && x > 0,
+        );
         if (next.length) {
           await em.insert(
             VenueBrand,
@@ -1438,7 +1539,9 @@ export class CompanyService {
       // 4) Taxes: replace set for this venue
       if (dto.taxIds !== undefined) {
         await em.delete(VenueTax, { venueCompanyId: companyId });
-        const next = Array.from(new Set(dto.taxIds)).filter((x) => Number.isInteger(x) && x > 0);
+        const next = Array.from(new Set(dto.taxIds)).filter(
+          (x) => Number.isInteger(x) && x > 0,
+        );
         if (next.length) {
           await em.insert(
             VenueTax,
@@ -1459,7 +1562,10 @@ export class CompanyService {
           if (providerId != null) {
             // Ensure provider offers stagehands (CompanyService composite enforced in DB)
             const providerOffers = await em.findOne(CompanyServiceEntity, {
-              where: { companyId: providerId, serviceProvidedId: stagehandsServiceId },
+              where: {
+                companyId: providerId,
+                serviceProvidedId: stagehandsServiceId,
+              },
             });
             if (!providerOffers) {
               throw new BadRequestException({
@@ -1485,7 +1591,9 @@ export class CompanyService {
           });
         }
         const wid =
-          dto.nonResidentWithholdingId ?? venueForNrw.nonResidentWithholdingId ?? null;
+          dto.nonResidentWithholdingId ??
+          venueForNrw.nonResidentWithholdingId ??
+          null;
         if (!wid) {
           throw new BadRequestException({
             message:
@@ -1503,7 +1611,10 @@ export class CompanyService {
         }
 
         if (dto.nonResidentWithholding.withholdingTaxRate !== undefined) {
-          row.withholdingTaxRate = String(dto.nonResidentWithholding.withholdingTaxRate ?? '').trim() || row.withholdingTaxRate;
+          row.withholdingTaxRate =
+            String(
+              dto.nonResidentWithholding.withholdingTaxRate ?? '',
+            ).trim() || row.withholdingTaxRate;
         }
         if (dto.nonResidentWithholding.dmaid !== undefined) {
           row.dmaid = dto.nonResidentWithholding.dmaid ?? null;
@@ -1512,7 +1623,10 @@ export class CompanyService {
           row.taxAgencyId = dto.nonResidentWithholding.taxAgencyId ?? null;
         }
         if (dto.nonResidentWithholding.withholdingLink !== undefined) {
-          row.withholdingLinkId = await this.upsertLink(em, dto.nonResidentWithholding.withholdingLink);
+          row.withholdingLinkId = await this.upsertLink(
+            em,
+            dto.nonResidentWithholding.withholdingLink,
+          );
         }
         if (dto.nonResidentWithholding.artistWaiverInstructions !== undefined) {
           row.artistWaiverInstructionsId = await this.upsertLink(
@@ -1835,13 +1949,20 @@ export class CompanyService {
     const companyIds = rows.map((row) => row.companyId);
     const typeMap = await this.collectCompanyTypesByCompanyId(companyIds);
     const serviceMap = await this.collectCompanyServicesByCompanyId(companyIds);
-    const serviceAreaMap = await this.collectCompanyServiceAreasByCompanyId(companyIds);
+    const serviceAreaMap =
+      await this.collectCompanyServiceAreasByCompanyId(companyIds);
     const allDmasMetaMap = await this.buildAllDmasMetaMap(
       this.dataSource.manager,
       serviceAreaMap,
     );
     return rows.map((c) =>
-      this.mapCompanyToDetail(c, typeMap, serviceMap, serviceAreaMap, allDmasMetaMap),
+      this.mapCompanyToDetail(
+        c,
+        typeMap,
+        serviceMap,
+        serviceAreaMap,
+        allDmasMetaMap,
+      ),
     );
   }
 
@@ -1909,7 +2030,8 @@ export class CompanyService {
     const companyIds = rows.map((row) => row.companyId);
     const typeMap = await this.collectCompanyTypesByCompanyId(companyIds);
     const serviceMap = await this.collectCompanyServicesByCompanyId(companyIds);
-    const serviceAreaMap = await this.collectCompanyServiceAreasByCompanyId(companyIds);
+    const serviceAreaMap =
+      await this.collectCompanyServiceAreasByCompanyId(companyIds);
     const allDmasMetaMap = await this.buildAllDmasMetaMap(
       this.dataSource.manager,
       serviceAreaMap,
@@ -1917,7 +2039,13 @@ export class CompanyService {
 
     return {
       data: rows.map((c) =>
-        this.mapCompanyToDetail(c, typeMap, serviceMap, serviceAreaMap, allDmasMetaMap),
+        this.mapCompanyToDetail(
+          c,
+          typeMap,
+          serviceMap,
+          serviceAreaMap,
+          allDmasMetaMap,
+        ),
       ),
       total,
     };
@@ -1937,12 +2065,19 @@ export class CompanyService {
     const companyIds = [c.companyId];
     const typeMap = await this.collectCompanyTypesByCompanyId(companyIds);
     const serviceMap = await this.collectCompanyServicesByCompanyId(companyIds);
-    const serviceAreaMap = await this.collectCompanyServiceAreasByCompanyId(companyIds);
+    const serviceAreaMap =
+      await this.collectCompanyServiceAreasByCompanyId(companyIds);
     const allDmasMetaMap = await this.buildAllDmasMetaMap(
       this.dataSource.manager,
       serviceAreaMap,
     );
-    return this.mapCompanyToDetail(c, typeMap, serviceMap, serviceAreaMap, allDmasMetaMap);
+    return this.mapCompanyToDetail(
+      c,
+      typeMap,
+      serviceMap,
+      serviceAreaMap,
+      allDmasMetaMap,
+    );
   }
 
   async create(dto: CreateCompanyDto): Promise<CompanyDetail> {
@@ -1957,10 +2092,13 @@ export class CompanyService {
     });
     if (!knownType) {
       throw new BadRequestException({
-        message: 'Selected company type is not valid. Pick from the company type list.',
+        message:
+          'Selected company type is not valid. Pick from the company type list.',
       });
     }
-    const serviceProvidedIds = this.normalizeServiceProvidedIds(dto.serviceProvidedIds);
+    const serviceProvidedIds = this.normalizeServiceProvidedIds(
+      dto.serviceProvidedIds,
+    );
     if (serviceProvidedIds.length > 0) {
       const knownServiceCount = await this.serviceProvidedRepo.count({
         where: { serviceProvidedId: In(serviceProvidedIds) },
@@ -2103,12 +2241,13 @@ export class CompanyService {
       : 'CAST(NULL AS NVARCHAR(4000))';
     try {
       const sql = `SELECT ${tPart} AS [ts], ${wPart} AS [vw] FROM [dbo].[Venue] WITH (NOLOCK) WHERE [CompanyID] = ${cid}`;
-      const rows = (await this.dataSource.query(sql)) as Record<string, unknown>[];
+      const rows = await this.dataSource.query(sql);
       const r = rows[0];
       if (!r) {
         return { ticketingSystem: null, venueWebsite: null };
       }
-      const pv = (k: string) => r[k] ?? r[k.toLowerCase()] ?? r[k.toUpperCase()];
+      const pv = (k: string) =>
+        r[k] ?? r[k.toLowerCase()] ?? r[k.toUpperCase()];
       const t = pv('ts') != null ? String(pv('ts')).trim() : '';
       const w = pv('vw') != null ? String(pv('vw')).trim() : '';
       return {
@@ -2129,7 +2268,10 @@ export class CompanyService {
     companyId: number,
     patch: { ticketingSystem?: string | null; venueWebsite?: string | null },
   ): Promise<void> {
-    if (patch.ticketingSystem === undefined && patch.venueWebsite === undefined) {
+    if (
+      patch.ticketingSystem === undefined &&
+      patch.venueWebsite === undefined
+    ) {
       return;
     }
     const cid = Number(companyId);
@@ -2316,7 +2458,11 @@ export class CompanyService {
     chunkSize = 500,
   ): Promise<Company[]> {
     const unique = Array.from(
-      new Set(companyIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0)),
+      new Set(
+        companyIds
+          .map((id) => Number(id))
+          .filter((id) => Number.isInteger(id) && id > 0),
+      ),
     );
     if (unique.length === 0) {
       return [];
@@ -2383,7 +2529,8 @@ export class CompanyService {
 
     if (next.includes(venueCompanyId)) {
       throw new BadRequestException({
-        message: 'A venue cannot be linked to itself as an entertainment complex.',
+        message:
+          'A venue cannot be linked to itself as an entertainment complex.',
       });
     }
 
@@ -2406,7 +2553,9 @@ export class CompanyService {
           message: `Only companies with type "${ENTERTAINMENT_COMPLEX_COMPANY_TYPE}" may be linked as an entertainment complex (company #${complexId}).`,
         });
       }
-      const complexRow = await complexRepo.findOne({ where: { companyId: complexId } });
+      const complexRow = await complexRepo.findOne({
+        where: { companyId: complexId },
+      });
       if (!complexRow) {
         await complexRepo.save(
           complexRepo.create({
@@ -2687,7 +2836,9 @@ export class CompanyService {
       existing.companyName = dto.companyName.trim();
     }
     const nextCompanyTypeId =
-      dto.companyTypeId != null && Number.isInteger(dto.companyTypeId) && dto.companyTypeId > 0
+      dto.companyTypeId != null &&
+      Number.isInteger(dto.companyTypeId) &&
+      dto.companyTypeId > 0
         ? Number(dto.companyTypeId)
         : existing.companyTypeId;
     if (dto.companyTypeId != null) {
@@ -2696,7 +2847,8 @@ export class CompanyService {
       });
       if (!knownType) {
         throw new BadRequestException({
-          message: 'Selected company type is not valid. Pick from the company type list.',
+          message:
+            'Selected company type is not valid. Pick from the company type list.',
         });
       }
     }
@@ -2704,7 +2856,8 @@ export class CompanyService {
     const hadVenueTypeBefore = await this.typeIdsIncludeVenue(
       existingCompanyTypeIds,
     );
-    const hasVenueTypeAfter = await this.typeIdsIncludeVenue(nextCompanyTypeIds);
+    const hasVenueTypeAfter =
+      await this.typeIdsIncludeVenue(nextCompanyTypeIds);
     const companyTypesChanged =
       nextCompanyTypeIds.length !== existingCompanyTypeIds.length ||
       nextCompanyTypeIds.some((id) => !existingCompanyTypeIds.includes(id));
@@ -2927,7 +3080,11 @@ export class CompanyService {
         'd.departmentName AS departmentName',
       ]);
 
-    if (filters?.roleId != null && Number.isInteger(filters.roleId) && filters.roleId > 0) {
+    if (
+      filters?.roleId != null &&
+      Number.isInteger(filters.roleId) &&
+      filters.roleId > 0
+    ) {
       qb.andWhere('ca.roleId = :roleId', { roleId: filters.roleId });
     } else if ((filters?.roleName ?? '').trim().length > 0) {
       qb.andWhere('LOWER(LTRIM(RTRIM(r.roleName))) = LOWER(:roleName)', {
@@ -2940,7 +3097,9 @@ export class CompanyService {
       .addOrderBy('ci.firstName', 'ASC')
       .getRawMany();
 
-    return raw.map((row) => this.mapRawContactRow(row as Record<string, unknown>));
+    return raw.map((row) =>
+      this.mapRawContactRow(row as Record<string, unknown>),
+    );
   }
 
   async listLinkedVenueContactsForComplex(
@@ -3010,7 +3169,9 @@ export class CompanyService {
 
     const byVenue = new Map<number, CompanyVenueLinkedContactsSection>();
     for (const row of raw as Record<string, unknown>[]) {
-      const venueCompanyId = Number(pickRawRowValue(row, 'venueCompanyId') ?? 0);
+      const venueCompanyId = Number(
+        pickRawRowValue(row, 'venueCompanyId') ?? 0,
+      );
       if (!Number.isFinite(venueCompanyId) || venueCompanyId < 1) continue;
       const venueCompanyName = String(
         pickRawRowValue(row, 'venueCompanyName') ?? `Venue #${venueCompanyId}`,

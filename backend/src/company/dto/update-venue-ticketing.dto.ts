@@ -1,4 +1,11 @@
-import { IsInt, IsOptional, IsString, MaxLength, Min, ValidateIf } from 'class-validator';
+import {
+  IsInt,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+  ValidateIf,
+} from 'class-validator';
 
 /** SeatingTypeID via TypeORM; ticketing/website use dynamic column names (see venue-ticketing-columns.resolver.ts). */
 export class UpdateVenueTicketingDto {

@@ -353,19 +353,29 @@ export function Select2Multi({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [menuStyle, setMenuStyle] = useState<React.CSSProperties | null>(null);
+  const modalBodyScrollElementRef = useContext(EmsModalBodyScrollElementRef);
   const optionsSafe = options ?? [];
   const valuesSafe = values ?? [];
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setSearch('');
+      const t = e.target as Node;
+      if (containerRef.current?.contains(t) || menuRef.current?.contains(t)) {
+        return;
       }
+      setOpen(false);
+      setSearch('');
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+  useEffect(() => {
+    if (open && searchRef.current) searchRef.current.focus();
+  }, [open]);
 
   const filtered = optionsSafe.filter((o) =>
     (o.label ?? '').toLowerCase().includes((search ?? '').toLowerCase()),
@@ -382,15 +392,120 @@ export function Select2Multi({
         .map((v) => optionsSafe.find((o) => o.value === v)?.label || v)
         .join(', ');
 
-  const [dropUp, setDropUp] = useState(false);
-  useEffect(() => {
-    if (open && containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - rect.bottom;
-      const needHeight = 300;
-      setDropUp(spaceBelow < needHeight && rect.top > needHeight);
+  const updateMenuPosition = useCallback(() => {
+    if (!open || !containerRef.current) return;
+    const r = containerRef.current.getBoundingClientRect();
+    const needHeight = 300;
+    const spaceBelow = window.innerHeight - r.bottom;
+    const up = spaceBelow < needHeight && r.top > needHeight;
+    if (up) {
+      setMenuStyle({
+        position: 'fixed',
+        left: r.left,
+        width: r.width,
+        minWidth: r.width,
+        bottom: window.innerHeight - r.top + 4,
+        zIndex: 2000,
+        maxHeight: 'min(360px, 80dvh)',
+      });
+    } else {
+      setMenuStyle({
+        position: 'fixed',
+        top: r.bottom + 4,
+        left: r.left,
+        width: r.width,
+        minWidth: r.width,
+        zIndex: 2000,
+        maxHeight: 'min(360px, 80dvh)',
+      });
     }
   }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setMenuStyle(null);
+      return;
+    }
+    updateMenuPosition();
+    const onReposition = () => updateMenuPosition();
+    window.addEventListener('resize', onReposition);
+    const scrollHost = modalBodyScrollElementRef?.current;
+    scrollHost?.addEventListener('scroll', onReposition, { passive: true });
+    const tick = window.setInterval(onReposition, 100);
+    return () => {
+      window.removeEventListener('resize', onReposition);
+      scrollHost?.removeEventListener('scroll', onReposition);
+      window.clearInterval(tick);
+    };
+  }, [open, updateMenuPosition, modalBodyScrollElementRef]);
+
+  const dropdown = open && menuStyle && (
+    <div
+      ref={menuRef}
+      className={[
+        'select2-dropdown',
+        'bg-elevated border border-border rounded-md shadow-xl',
+        'overflow-hidden',
+        'w-full',
+      ].join(' ')}
+      style={menuStyle}
+    >
+      <div className="select2-search p-2 border-b border-border">
+        <div className="relative min-w-0 cursor-text">
+          <span className="pointer-events-none absolute left-2.5 top-1/2 z-[1] -translate-y-1/2 text-text-muted text-xs select-none">
+            ⌕
+          </span>
+          <input
+            ref={searchRef}
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search..."
+            autoComplete="off"
+            spellCheck={false}
+            className={[
+              'select2-search__field',
+              'w-full min-w-0 cursor-text pl-7 pr-3 py-1.5',
+              'bg-surface border border-border rounded text-sm',
+              'text-text-primary placeholder:text-text-muted',
+              'focus:outline-none focus:border-ems-accent focus:ring-1 focus:ring-ems-accent/30',
+            ].join(' ')}
+          />
+        </div>
+      </div>
+
+      <ul role="listbox" className="select2-results max-h-[min(280px,50vh)] overflow-y-auto py-1">
+        {filtered.length === 0 ? (
+          <li className="select2-results__option px-3 py-2 text-sm text-text-muted text-center">
+            No results found
+          </li>
+        ) : (
+          filtered.map(opt => {
+            const selected = valuesSafe.includes(opt.value);
+            return (
+              <li
+                key={opt.value}
+                role="option"
+                aria-selected={selected}
+                onClick={() => !opt.disabled && toggle(opt.value)}
+                className={[
+                  'select2-results__option',
+                  'px-3 py-2 text-sm transition-colors select-none',
+                  opt.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer',
+                  selected
+                    ? 'bg-ems-accent-dim text-ems-accent font-medium'
+                    : 'text-text-primary hover:bg-hover',
+                ].filter(Boolean).join(' ')}
+              >
+                <span className="mr-2 text-xs w-4 inline-block text-center">{selected ? '✓' : ''}</span>
+                {opt.label}
+              </li>
+            );
+          })
+        )}
+      </ul>
+    </div>
+  );
 
   return (
     <div ref={containerRef} className={`select2 relative ${className}`}>
@@ -418,73 +533,7 @@ export function Select2Multi({
           ▼
         </span>
       </button>
-
-      {open && (
-        <div
-          className={[
-            'select2-dropdown',
-            'absolute z-[500] w-full',
-            'bg-elevated border border-border rounded-md shadow-xl',
-            'overflow-hidden',
-            dropUp ? 'bottom-full mb-1' : 'top-full mt-1',
-          ].join(' ')}
-          style={{ minWidth: '100%' }}
-        >
-          <div className="select2-search p-2 border-b border-border">
-            <div className="relative min-w-0 cursor-text">
-              <span className="pointer-events-none absolute left-2.5 top-1/2 z-[1] -translate-y-1/2 text-text-muted text-xs select-none">
-                ⌕
-              </span>
-              <input
-                type="text"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Search..."
-                autoComplete="off"
-                spellCheck={false}
-                className={[
-                  'select2-search__field',
-                  'w-full min-w-0 cursor-text pl-7 pr-3 py-1.5',
-                  'bg-surface border border-border rounded text-sm',
-                  'text-text-primary placeholder:text-text-muted',
-                  'focus:outline-none focus:border-ems-accent focus:ring-1 focus:ring-ems-accent/30',
-                ].join(' ')}
-              />
-            </div>
-          </div>
-
-          <ul role="listbox" className="select2-results max-h-[min(280px,50vh)] overflow-y-auto py-1">
-            {filtered.length === 0 ? (
-              <li className="select2-results__option px-3 py-2 text-sm text-text-muted text-center">
-                No results found
-              </li>
-            ) : (
-              filtered.map(opt => {
-                const selected = valuesSafe.includes(opt.value);
-                return (
-                  <li
-                    key={opt.value}
-                    role="option"
-                    aria-selected={selected}
-                    onClick={() => !opt.disabled && toggle(opt.value)}
-                    className={[
-                      'select2-results__option',
-                      'px-3 py-2 text-sm transition-colors select-none',
-                      opt.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer',
-                      selected
-                        ? 'bg-ems-accent-dim text-ems-accent font-medium'
-                        : 'text-text-primary hover:bg-hover',
-                    ].filter(Boolean).join(' ')}
-                  >
-                    <span className="mr-2 text-xs w-4 inline-block text-center">{selected ? '✓' : ''}</span>
-                    {opt.label}
-                  </li>
-                );
-              })
-            )}
-          </ul>
-        </div>
-      )}
+      {open && menuStyle && typeof document !== 'undefined' && createPortal(dropdown, document.body)}
     </div>
   );
 }

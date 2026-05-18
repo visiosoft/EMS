@@ -47,7 +47,9 @@ export class AuditSubscriber implements EntitySubscriberInterface<object> {
     event: InsertEvent<object> | UpdateEvent<object>,
   ): AuditColumnFlags {
     const has = (propertyName: string) =>
-      event.metadata.columns.some((column) => column.propertyName === propertyName);
+      event.metadata.columns.some(
+        (column) => column.propertyName === propertyName,
+      );
 
     return {
       createdBy: has('createdBy'),

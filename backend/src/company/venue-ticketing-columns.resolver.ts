@@ -3,7 +3,11 @@ import { DataSource } from 'typeorm';
 
 /** Whitelist: SQL Server bracket identifier without injection. */
 function isSafeSqlIdent(name: string): boolean {
-  return name.length > 0 && name.length <= 128 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(name);
+  return (
+    name.length > 0 &&
+    name.length <= 128 &&
+    /^[A-Za-z_][A-Za-z0-9_]*$/.test(name)
+  );
 }
 
 /**
@@ -100,14 +104,14 @@ export async function resolveVenueTicketingWebsiteColumns(
   const fromEnvW = config.get<string>('VENUE_COL_VENUE_WEBSITE');
 
   type Row = { colName: string; typeName: string };
-  const rows = (await dataSource.query(
+  const rows = await dataSource.query(
     `SELECT c.name AS colName, t.name AS typeName
      FROM sys.columns c
      INNER JOIN sys.types t ON c.user_type_id = t.user_type_id
      INNER JOIN sys.tables tb ON c.object_id = tb.object_id
      INNER JOIN sys.schemas s ON tb.schema_id = s.schema_id
      WHERE s.name = 'dbo' AND tb.name = 'Venue'`,
-  )) as Row[];
+  );
 
   const stringCols: StringColMap = new Map();
   for (const r of rows) {
@@ -120,7 +124,17 @@ export async function resolveVenueTicketingWebsiteColumns(
   }
 
   return {
-    ticketing: pickOne(fromEnvT, TICKETING_STRING_COLUMN_CANDIDATES, stringCols, 'ticketing'),
-    website: pickOne(fromEnvW, WEBSITE_STRING_COLUMN_CANDIDATES, stringCols, 'venue website'),
+    ticketing: pickOne(
+      fromEnvT,
+      TICKETING_STRING_COLUMN_CANDIDATES,
+      stringCols,
+      'ticketing',
+    ),
+    website: pickOne(
+      fromEnvW,
+      WEBSITE_STRING_COLUMN_CANDIDATES,
+      stringCols,
+      'venue website',
+    ),
   };
 }

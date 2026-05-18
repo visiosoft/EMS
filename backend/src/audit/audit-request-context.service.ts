@@ -4,6 +4,8 @@ import { Injectable } from '@nestjs/common';
 type AuditRequestStore = {
   userOid: string | null;
   userDisplayName: string | null;
+  /** Entra preferred_username / UPN when available (used for "my" list filters). */
+  userEmail: string | null;
 };
 
 @Injectable()
@@ -20,5 +22,9 @@ export class AuditRequestContext {
 
   getUserDisplayName(): string | null {
     return this.storage.getStore()?.userDisplayName ?? null;
+  }
+
+  getUserEmail(): string | null {
+    return this.storage.getStore()?.userEmail ?? null;
   }
 }

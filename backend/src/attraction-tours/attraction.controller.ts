@@ -26,7 +26,13 @@ export class AttractionController {
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: string,
   ) {
-    return this.attractionService.listPaginated(offset, limit, q, sortBy, sortDir);
+    return this.attractionService.listPaginated(
+      offset,
+      limit,
+      q,
+      sortBy,
+      sortDir,
+    );
   }
 
   @Post()
