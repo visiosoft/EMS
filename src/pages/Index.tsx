@@ -10,6 +10,8 @@ import { EngagementsPage } from '@/components/ems/EngagementsPage';
 import { EngagementDetailPage } from '@/components/ems/EngagementDetailPage';
 import { SettingsPage } from '@/components/ems/SettingsLookupTablesPage';
 import { DailySalesPage } from '@/components/ems/DailySalesPage';
+import { SalesSummaryPage } from '@/components/ems/SalesSummaryPage';
+import { EngagementSalesDashboardPanel } from '@/components/ems/EngagementSalesDashboardPanel';
 import { AllVenuesPage } from '@/components/ems/AllVenuesPage';
 import { USERS } from '@/data/constants';
 import type { ToastItem } from '@/components/ems/Primitives';
@@ -30,11 +32,13 @@ const VALID_VIEWS = new Set([
   'project-detail',
   'engagements',
   'daily-sales',
+  'sales-summary',
+  'engagement-sales-dashboard',
   'engagement-detail',
   'settings',
 ]);
 
-const SALES_SUMMARY_RETURN_VIEWS = new Set(['daily-sales', 'projects', 'engagements']);
+const SALES_SUMMARY_RETURN_VIEWS = new Set(['daily-sales', 'projects', 'engagements', 'sales-summary']);
 
 function readSidebarCollapsed(): boolean {
   if (typeof window === 'undefined') return false;
@@ -59,6 +63,14 @@ function sanitizeViewDataForView(view: string, raw: unknown): Record<string, unk
     const id = parsePositiveIntId(obj.engagementId);
     const out: Record<string, unknown> = {};
     if (id != null) out.engagementId = id;
+    return out;
+  }
+  if (view === 'engagement-sales-dashboard') {
+    const id = parsePositiveIntId(obj.engagementId);
+    const out: Record<string, unknown> = {};
+    if (id != null) out.engagementId = id;
+    const rv = typeof obj.returnView === 'string' ? obj.returnView.trim() : '';
+    if (rv && SALES_SUMMARY_RETURN_VIEWS.has(rv)) out.returnView = rv;
     return out;
   }
   if (view === 'attraction-sales-summary') {
@@ -91,6 +103,9 @@ function readStoredSessionRoute(): { view: string; viewData: Record<string, unkn
     const viewData = sanitizeViewDataForView(view, parsed.viewData);
     if (view === 'engagement-detail' && viewData.engagementId == null) {
       return { view: 'engagements', viewData: {} };
+    }
+    if (view === 'engagement-sales-dashboard' && viewData.engagementId == null) {
+      return { view: 'sales-summary', viewData: {} };
     }
     if (view === 'attraction-sales-summary' && viewData.attractionId == null) {
       return { view: 'daily-sales', viewData: {} };
@@ -166,6 +181,8 @@ const Index = () => {
       'project-detail':   ['Projects', 'Project detail'],
       engagements:        ['Engagements'],
       'daily-sales':      ['Daily Sales'],
+      'sales-summary':    ['Sales Summary'],
+      'engagement-sales-dashboard': ['Sales Summary', 'Sales trends'],
       'engagement-detail': ['Engagements', 'Engagement detail'],
       settings:           ['Settings'],
     };
@@ -179,7 +196,9 @@ const Index = () => {
         ? 'engagements'
         : currentView === 'attraction-sales-summary'
           ? 'daily-sales'
-          : currentView;
+          : currentView === 'engagement-sales-dashboard'
+            ? 'sales-summary'
+            : currentView;
 
   return (
     <div className="min-h-screen bg-background">
@@ -268,6 +287,41 @@ const Index = () => {
           {currentView === 'daily-sales' && (
             <DailySalesPage onNavigate={navigate} addToast={addToast} />
           )}
+
+          {currentView === 'sales-summary' && (
+            <SalesSummaryPage
+              onOpenEngagement={(engagementId) =>
+                navigate('engagement-sales-dashboard', {
+                  engagementId,
+                  returnView: 'sales-summary',
+                })
+              }
+            />
+          )}
+
+          {currentView === 'engagement-sales-dashboard' && (() => {
+            const raw = viewData.engagementId;
+            const s = raw != null ? String(raw) : '';
+            const n = Number(s);
+            const ok = s !== '' && Number.isFinite(n) && String(n) === s && n >= 1;
+            const rv =
+              typeof viewData.returnView === 'string' && viewData.returnView.trim()
+                ? viewData.returnView.trim()
+                : 'sales-summary';
+            if (ok) {
+              return (
+                <EngagementSalesDashboardPanel
+                  engagementId={n}
+                  onBack={() => navigate(rv)}
+                />
+              );
+            }
+            return (
+              <div className="text-text-muted text-sm">
+                Engagement not found. Open the sales summary again and pick a row.
+              </div>
+            );
+          })()}
 
           {currentView === 'engagement-detail' && (() => {
             const raw = viewData.engagementId;
