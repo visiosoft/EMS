@@ -6,6 +6,7 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
   Landmark,
   LineChart,
   LogOut,
@@ -36,6 +37,7 @@ const NAV_ITEM_ICONS: Record<string, LucideIcon> = {
   projects: FolderKanban,
   engagements: Users,
   'daily-sales': LineChart,
+  'sales-summary': ClipboardList,
   companies: Building2,
   'all-venues': Landmark,
   'attraction-tours': Map,
@@ -50,6 +52,7 @@ const NAV_SECTIONS = [
       { key: 'projects', label: 'Projects', icon: '⬡' },
       { key: 'engagements', label: 'Engagements', icon: '⬡' },
       { key: 'daily-sales', label: 'Daily Sales', icon: '⬡' },
+      { key: 'sales-summary', label: 'Sales Summary', icon: '⬡' },
     ],
   },
   {
