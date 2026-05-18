@@ -11,6 +11,7 @@ import {
 import {
   LineChart,
   Line,
+  LabelList,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -103,19 +104,148 @@ export function SalesDashboardView({
   data,
   capacityHint = DEFAULT_CAPACITY_HINT,
 }: SalesDashboardViewProps) {
-  const lineData = useMemo(() => {
+  /**
+   * Bucket mode for the daily-sales chart.
+   * - `day`: render every SalesDate row as its own point.
+   * - `week`: sum dailyTickets into Monday-start weeks.
+   * - `month`: sum dailyTickets into calendar months (default — cleanest for typical
+   *   on-sale windows that span several months).
+   */
+  type ChartGranularity = 'day' | 'week' | 'month';
+  const [granularityMode, setGranularityMode] = useState<ChartGranularity>('month');
+
+  const trimmedSeries = useMemo(() => {
     const rows = data?.series ?? [];
-    return rows.map((r) => ({
-      ...r,
-      label: (() => {
-        try {
-          return format(parseISO(r.date), 'MMM d');
-        } catch {
-          return r.date;
-        }
-      })(),
-    }));
+    if (rows.length === 0) return rows;
+    const firstNonZero = rows.findIndex((r) => (r.dailyTickets ?? 0) > 0);
+    if (firstNonZero < 0) return rows;
+    return rows.slice(firstNonZero);
   }, [data?.series]);
+
+  /** Final data passed to recharts. One entry per visible point. */
+  const chartData = useMemo(() => {
+    if (granularityMode === 'day') {
+      return trimmedSeries.map((r) => ({
+        date: r.date,
+        value: r.dailyTickets ?? 0,
+        label: (() => {
+          try {
+            return format(parseISO(r.date), 'MMM d');
+          } catch {
+            return r.date;
+          }
+        })(),
+        tooltipLabel: (() => {
+          try {
+            return format(parseISO(r.date), 'EEE, MMM d, yyyy');
+          } catch {
+            return r.date;
+          }
+        })(),
+      }));
+    }
+
+    if (granularityMode === 'week') {
+      const buckets = new Map<
+        string,
+        { date: string; value: number; label: string; tooltipLabel: string }
+      >();
+      for (const r of trimmedSeries) {
+        let monday: Date;
+        try {
+          const d = parseISO(r.date);
+          const dow = d.getDay();
+          const offset = (dow + 6) % 7;
+          monday = new Date(d);
+          monday.setDate(d.getDate() - offset);
+        } catch {
+          continue;
+        }
+        const key = format(monday, 'yyyy-MM-dd');
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        const tip = `${format(monday, 'MMM d')} – ${format(sunday, 'MMM d, yyyy')}`;
+        const existing = buckets.get(key);
+        if (existing) {
+          existing.value += r.dailyTickets ?? 0;
+        } else {
+          buckets.set(key, {
+            date: key,
+            value: r.dailyTickets ?? 0,
+            label: format(monday, 'MMM d'),
+            tooltipLabel: tip,
+          });
+        }
+      }
+      return Array.from(buckets.values()).sort((a, b) =>
+        a.date.localeCompare(b.date),
+      );
+    }
+
+    // month
+    const buckets = new Map<
+      string,
+      { date: string; value: number; label: string; tooltipLabel: string; year: number; monthIdx: number }
+    >();
+    for (const r of trimmedSeries) {
+      let monthStart: Date;
+      try {
+        const d = parseISO(r.date);
+        monthStart = new Date(d.getFullYear(), d.getMonth(), 1);
+      } catch {
+        continue;
+      }
+      const key = format(monthStart, 'yyyy-MM');
+      const existing = buckets.get(key);
+      if (existing) {
+        existing.value += r.dailyTickets ?? 0;
+      } else {
+        buckets.set(key, {
+          date: format(monthStart, 'yyyy-MM-dd'),
+          value: r.dailyTickets ?? 0,
+          label: format(monthStart, 'MMM'),
+          tooltipLabel: format(monthStart, 'MMMM yyyy'),
+          year: monthStart.getFullYear(),
+          monthIdx: monthStart.getMonth(),
+        });
+      }
+    }
+    const sorted = Array.from(buckets.values()).sort((a, b) =>
+      a.date.localeCompare(b.date),
+    );
+    // Show the year on the very first bucket and any bucket that starts a new year,
+    // so a multi-year series doesn't lose context once labels are shortened to "MMM".
+    let prevYear: number | null = null;
+    return sorted.map((b) => {
+      const showYear = prevYear == null || b.year !== prevYear;
+      prevYear = b.year;
+      return {
+        date: b.date,
+        value: b.value,
+        label: showYear ? `${b.label} ’${String(b.year).slice(-2)}` : b.label,
+        tooltipLabel: b.tooltipLabel,
+      };
+    });
+  }, [trimmedSeries, granularityMode]);
+
+  const granularityLabel: { title: string; subtitle: string; tooltipName: string } =
+    granularityMode === 'month'
+      ? {
+          title: 'Monthly sales',
+          subtitle: 'Tickets sold per month',
+          tooltipName: 'Tickets this month',
+        }
+      : granularityMode === 'week'
+      ? {
+          title: 'Weekly sales',
+          subtitle: 'Tickets sold per week (Mon–Sun)',
+          tooltipName: 'Tickets this week',
+        }
+      : {
+          title: 'Daily sales',
+          subtitle: 'Tickets sold per day',
+          tooltipName: 'Tickets this day',
+        };
 
   const donutData = useMemo(() => {
     const cap = data?.sellableCapacity;
@@ -148,12 +278,12 @@ export function SalesDashboardView({
 
   /** Fewer X labels when the series is long (readability) */
   const xAxisInterval = useMemo(() => {
-    const n = lineData.length;
+    const n = chartData.length;
     if (n <= 10) return 0;
     if (n <= 20) return 1;
     if (n <= 40) return 2;
     return Math.max(1, Math.floor(n / 12));
-  }, [lineData.length]);
+  }, [chartData.length]);
 
   const summaryDesc = useMemo(() => {
     const s = data?.summary ?? [];
@@ -349,78 +479,165 @@ export function SalesDashboardView({
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <div className="rounded-xl border border-border bg-card shadow-sm p-4 md:p-5 xl:col-span-1 min-h-0">
-          <div className="flex items-baseline justify-between gap-2 mb-1">
-            <h2 className="text-sm font-semibold text-text-primary">Daily sales</h2>
-            <span
-              className="text-[11px] text-text-muted tabular-nums hidden sm:inline text-right max-w-[14rem] leading-snug cursor-help"
-              title="Each point sums every show’s dbo.TicketingSales daily amounts for all SalesDates on or before that day (cumulative). The line can dip if an older day is corrected downward."
-            >
-              All shows together, by date
-            </span>
-          </div>
-          <div className="h-[min(22rem,55vh)] w-full min-h-[240px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={lineData}
-                margin={{
-                  top: 16,
-                  right: 12,
-                  left: 8,
-                  bottom: lineData.length > 12 ? 52 : 28,
-                }}
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <div className="flex items-baseline gap-2 min-w-0">
+              <h2 className="text-sm font-semibold text-text-primary">
+                {granularityLabel.title}
+              </h2>
+              <span
+                className="text-[11px] text-text-muted tabular-nums hidden sm:inline leading-snug cursor-help"
+                title={
+                  granularityMode === 'month'
+                    ? 'Each point sums the tickets sold during that calendar month from dbo.TicketingSales.'
+                    : granularityMode === 'week'
+                    ? 'Each point sums the tickets sold during that week (Mon–Sun) from dbo.TicketingSales.'
+                    : 'Each point shows the tickets sold on that specific SalesDate from dbo.TicketingSales (per-day delta, not running total).'
+                }
               >
-                <CartesianGrid stroke={CHART_GRID} strokeDasharray="3 3" vertical={false} />
-                <XAxis
-                  dataKey="label"
-                  interval={xAxisInterval}
-                  tick={{ fill: CHART_AXIS, fontSize: 11 }}
-                  tickLine={{ stroke: CHART_GRID }}
-                  axisLine={{ stroke: CHART_GRID }}
-                  angle={lineData.length > 12 ? -32 : 0}
-                  textAnchor={lineData.length > 12 ? 'end' : 'middle'}
-                  height={lineData.length > 12 ? 48 : 28}
-                  dy={lineData.length > 12 ? 6 : 0}
-                />
-                <YAxis
-                  orientation="left"
-                  width={44}
-                  tick={{ fill: CHART_AXIS, fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={{ stroke: CHART_GRID }}
-                  tickFormatter={(v) =>
-                    typeof v === 'number' && Math.abs(v) >= 1000
-                      ? `${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k`
-                      : String(v)
-                  }
-                />
-                <Tooltip
-                  cursor={{ stroke: CHART_GRID, strokeWidth: 1 }}
-                  contentStyle={{
-                    borderRadius: 'var(--radius, 8px)',
-                    border: '1px solid hsl(var(--border))',
-                    background: 'hsl(var(--card))',
-                    boxShadow: '0 4px 12px hsl(0 0% 0% / 0.12)',
-                  }}
-                  labelStyle={{ color: 'hsl(var(--text-primary))', fontWeight: 600, marginBottom: 4 }}
-                  itemStyle={{ color: 'hsl(var(--text-secondary))' }}
-                  formatter={(v: number) => [v.toLocaleString(), 'Tickets (all shows added up)']}
-                  labelFormatter={(_, p) => {
-                    const x = p?.[0]?.payload?.date;
-                    return x ? formatOpeningDateSafe(String(x)) : '';
-                  }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="totalTickets"
-                  name="Tickets"
-                  stroke={CHART_LINE}
-                  strokeWidth={2.5}
-                  dot={false}
-                  activeDot={{ r: 6, strokeWidth: 2, stroke: 'hsl(var(--card))', fill: CHART_LINE }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+                {granularityLabel.subtitle}
+              </span>
+            </div>
+            <div
+              role="tablist"
+              aria-label="Chart granularity"
+              className="inline-flex rounded-md border border-border bg-elevated/50 p-0.5 text-[11px]"
+            >
+              {(
+                [
+                  { id: 'day', label: 'Day' },
+                  { id: 'week', label: 'Week' },
+                  { id: 'month', label: 'Month' },
+                ] as Array<{ id: ChartGranularity; label: string }>
+              ).map((opt) => {
+                const active = granularityMode === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    role="tab"
+                    aria-selected={active}
+                    type="button"
+                    onClick={() => setGranularityMode(opt.id)}
+                    className={[
+                      'px-2.5 py-1 rounded-[5px] font-medium transition-colors',
+                      active
+                        ? 'bg-ems-accent text-ems-accent-foreground shadow-sm'
+                        : 'text-text-muted hover:text-text-primary hover:bg-hover/60',
+                    ].join(' ')}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
+          {chartData.length === 0 ? (
+            <div className="h-[min(22rem,55vh)] w-full min-h-[240px] flex items-center justify-center text-sm text-text-muted">
+              No sales recorded in this date range yet.
+            </div>
+          ) : (
+            <div className="h-[min(22rem,55vh)] w-full min-h-[240px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart
+                  data={chartData}
+                  margin={{
+                    top: 22,
+                    right: 16,
+                    left: 8,
+                    bottom: chartData.length > 6 ? 56 : 28,
+                  }}
+                >
+                  <CartesianGrid stroke={CHART_GRID} strokeDasharray="3 3" vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    interval={xAxisInterval}
+                    tick={{ fill: CHART_AXIS, fontSize: 11 }}
+                    tickLine={{ stroke: CHART_GRID }}
+                    axisLine={{ stroke: CHART_GRID }}
+                    angle={chartData.length > 6 ? -35 : 0}
+                    textAnchor={chartData.length > 6 ? 'end' : 'middle'}
+                    height={chartData.length > 6 ? 52 : 28}
+                    dy={chartData.length > 6 ? 6 : 0}
+                    minTickGap={4}
+                    padding={{ left: 12, right: 12 }}
+                  />
+                  <YAxis
+                    orientation="right"
+                    width={44}
+                    tick={{ fill: CHART_AXIS, fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(v) =>
+                      typeof v === 'number' && Math.abs(v) >= 1000
+                        ? `${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k`
+                        : String(v)
+                    }
+                  />
+                  <Tooltip
+                    cursor={{ stroke: CHART_GRID, strokeWidth: 1 }}
+                    contentStyle={{
+                      borderRadius: 'var(--radius, 8px)',
+                      border: '1px solid hsl(var(--border))',
+                      background: 'hsl(var(--card))',
+                      boxShadow: '0 4px 12px hsl(0 0% 0% / 0.12)',
+                    }}
+                    labelStyle={{
+                      color: 'hsl(var(--text-primary))',
+                      fontWeight: 600,
+                      marginBottom: 4,
+                    }}
+                    itemStyle={{ color: 'hsl(var(--text-secondary))' }}
+                    formatter={(v: number) => [v.toLocaleString(), granularityLabel.tooltipName]}
+                    labelFormatter={(_, p) => {
+                      const tip = p?.[0]?.payload?.tooltipLabel;
+                      if (tip) return String(tip);
+                      const x = p?.[0]?.payload?.date;
+                      return x ? formatOpeningDateSafe(String(x)) : '';
+                    }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="value"
+                    name="Tickets"
+                    stroke={CHART_LINE}
+                    strokeWidth={2}
+                    dot={
+                      chartData.length <= 80
+                        ? {
+                            r: 3.5,
+                            strokeWidth: 1.5,
+                            stroke: CHART_LINE,
+                            fill: 'hsl(var(--card))',
+                          }
+                        : false
+                    }
+                    activeDot={{
+                      r: 6,
+                      strokeWidth: 2,
+                      stroke: 'hsl(var(--card))',
+                      fill: CHART_LINE,
+                    }}
+                    isAnimationActive={chartData.length <= 60}
+                  >
+                    {chartData.length <= 16 && (
+                      <LabelList
+                        dataKey="value"
+                        position="top"
+                        offset={10}
+                        style={{
+                          fill: CHART_AXIS,
+                          fontSize: 11,
+                          fontWeight: 500,
+                        }}
+                        formatter={(v: unknown) =>
+                          typeof v === 'number' ? v.toLocaleString() : ''
+                        }
+                      />
+                    )}
+                  </Line>
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
 
         <div className="rounded-xl border border-border bg-card shadow-sm p-4 md:p-5 space-y-6">
@@ -498,8 +715,8 @@ export function SalesDashboardView({
         <div className="rounded-xl border border-border bg-card shadow-sm p-4 md:p-5">
           <h2 className="text-sm font-semibold text-text-primary mb-4">Capacity</h2>
           {donutData && d.sellableCapacity != null ? (
-            <div className="flex flex-col sm:flex-row sm:items-stretch gap-6 sm:gap-8">
-              <div className="relative mx-auto sm:mx-0 w-[200px] h-[200px] shrink-0">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-5 sm:gap-6">
+              <div className="relative mx-auto sm:mx-0 w-[220px] h-[220px] shrink-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
                     <Pie
@@ -508,9 +725,9 @@ export function SalesDashboardView({
                       nameKey="name"
                       cx="50%"
                       cy="50%"
-                      innerRadius={58}
-                      outerRadius={82}
-                      paddingAngle={2}
+                      innerRadius={72}
+                      outerRadius={104}
+                      paddingAngle={donutData.length > 1 ? 2 : 0}
                       stroke="hsl(var(--card))"
                       strokeWidth={2}
                     >
@@ -530,37 +747,41 @@ export function SalesDashboardView({
                     />
                   </PieChart>
                 </ResponsiveContainer>
-              </div>
-              <div className="flex-1 flex flex-col justify-center gap-5 min-w-0 pt-1">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
-                    Total sellable seats
-                  </p>
-                  <p className="text-3xl font-bold text-text-primary tabular-nums tracking-tight mt-1">
+                <div
+                  className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center"
+                  aria-hidden
+                >
+                  <span className="text-[11px] font-medium uppercase tracking-wider text-text-muted">
+                    Capacity
+                  </span>
+                  <span className="text-2xl font-bold text-text-primary tabular-nums tracking-tight leading-none mt-1">
                     {d.sellableCapacity.toLocaleString()}
-                  </p>
+                  </span>
                 </div>
-                <ul className="space-y-3" aria-label="Sold and remaining seats">
-                  {donutData.map((seg) => (
-                    <li
-                      key={seg.name}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-elevated/50 px-3 py-2.5"
-                    >
-                      <span className="flex items-center gap-2.5 min-w-0">
-                        <span
-                          className="h-3 w-3 rounded-sm shrink-0 ring-1 ring-border/50"
-                          style={{ backgroundColor: seg.fill }}
-                          aria-hidden
-                        />
-                        <span className="text-sm font-medium text-text-primary">{seg.name}</span>
-                      </span>
-                      <span className="text-sm tabular-nums text-text-secondary font-medium">
-                        {seg.value.toLocaleString()}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
               </div>
+              <ul
+                className="flex-1 flex flex-col justify-center gap-2.5 min-w-0"
+                aria-label="Sold and remaining seats"
+              >
+                {donutData.map((seg) => (
+                  <li
+                    key={seg.name}
+                    className="flex items-center justify-between gap-3"
+                  >
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span
+                        className="h-2.5 w-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: seg.fill }}
+                        aria-hidden
+                      />
+                      <span className="text-sm text-text-secondary">{seg.name}</span>
+                    </span>
+                    <span className="text-sm tabular-nums text-text-primary font-medium">
+                      {seg.value.toLocaleString()}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </div>
           ) : (
             <p className="text-sm text-text-secondary py-6 text-center leading-relaxed">{capacityHint}</p>
@@ -569,7 +790,7 @@ export function SalesDashboardView({
       </div>
 
       <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-border bg-surface/50">
+        <div className="px-4 py-3 border-b border-border bg-surface/50 flex items-baseline justify-between gap-3">
           <h2 className="text-sm font-semibold text-text-primary">Summary</h2>
         </div>
         <div className="max-h-[min(24rem,50vh)] overflow-y-auto overflow-x-auto">
@@ -585,28 +806,35 @@ export function SalesDashboardView({
               </tr>
             </thead>
             <tbody>
-              {summaryDesc.map((row) => (
-                <tr key={row.date} className="border-b border-border/80 hover:bg-hover/40">
-                  <td className="px-4 py-2 text-text-primary whitespace-nowrap">
-                    {formatOpeningDateSafe(row.date)}
-                  </td>
-                  <td className="px-4 py-2 text-right tabular-nums">
-                    {row.totalTicketsSold.toLocaleString()}
-                  </td>
-                  <td className="px-4 py-2 text-right tabular-nums text-ems-accent font-medium">
-                    {money(row.totalValueSold)}
-                  </td>
-                  <td className="px-4 py-2 text-right tabular-nums">
-                    {pctDisplay(row.seatsSoldPct)}
-                  </td>
-                  <td className="px-4 py-2 text-right tabular-nums text-text-secondary">
-                    {row.seatsRemaining != null ? row.seatsRemaining.toLocaleString() : '—'}
-                  </td>
-                  <td className="px-4 py-2 text-right tabular-nums text-text-secondary">
-                    {row.revenueRemaining != null ? money(row.revenueRemaining) : '—'}
-                  </td>
-                </tr>
-              ))}
+              {summaryDesc.map((row) => {
+                const dailyTickets = row.dailyTicketsSold ?? 0;
+                const dailyValue = row.dailyValueSold ?? 0;
+                const cap = data?.sellableCapacity ?? null;
+                const dailyPct =
+                  cap != null && cap > 0 ? (dailyTickets / cap) * 100 : null;
+                return (
+                  <tr key={row.date} className="border-b border-border/80 hover:bg-hover/40">
+                    <td className="px-4 py-2 text-text-primary whitespace-nowrap">
+                      {formatOpeningDateSafe(row.date)}
+                    </td>
+                    <td className="px-4 py-2 text-right tabular-nums">
+                      {dailyTickets.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-2 text-right tabular-nums text-ems-accent font-medium">
+                      {money(dailyValue)}
+                    </td>
+                    <td className="px-4 py-2 text-right tabular-nums">
+                      {dailyPct != null ? pctDisplay(dailyPct) : '—'}
+                    </td>
+                    <td className="px-4 py-2 text-right tabular-nums text-text-muted">
+                      —
+                    </td>
+                    <td className="px-4 py-2 text-right tabular-nums text-text-muted">
+                      —
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
