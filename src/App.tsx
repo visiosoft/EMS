@@ -10,7 +10,7 @@ import Index from "./pages/Index.tsx";
 import Login from "./pages/Login.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
-import { getActiveAccount } from "./auth/entra.ts";
+import { getActiveAccount, isMsalBusy } from "./auth/entra.ts";
 
 /**
  * Global cache policy for the EMS app:
@@ -39,9 +39,17 @@ const queryClient = new QueryClient({
 
 function ProtectedRoute({ children }: { children: JSX.Element }) {
   const isAuthenticated = useIsAuthenticated();
-  const { accounts } = useMsal();
+  const { accounts, inProgress } = useMsal();
   const location = useLocation();
   const account = getActiveAccount() ?? accounts[0] ?? null;
+
+  if (isMsalBusy(inProgress)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background text-sm text-text-muted">
+        Checking sign-in…
+      </div>
+    );
+  }
 
   if (!isAuthenticated && !account) {
     return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}${location.hash}` }} />;
