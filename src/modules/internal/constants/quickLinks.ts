@@ -13,15 +13,21 @@ export type QuickLinkItem = {
   label: string;
   href: string;
   icon: LucideIcon;
+  external?: boolean;
 };
 
 export const QUICK_LINKS: QuickLinkItem[] = [
-  { label: "Company News", href: "#company-news", icon: Newspaper },
-  { label: "Tech Support", href: "#tech-support", icon: UsersRound },
-  { label: "ADP Payroll Schedule", href: "#adp-payroll", icon: BadgeDollarSign },
-  { label: "PTO Requests", href: "#pto-requests", icon: CalendarDays },
-  { label: "Payment Requests", href: "#payment-requests", icon: CreditCard },
-  { label: "Shipping Requests", href: "#shipping-requests", icon: Mail },
+  { label: "Company News", href: "/internal/company-news", icon: Newspaper },
+  { label: "Tech Support", href: "/internal/tech-support", icon: UsersRound },
+  {
+    label: "ADP Payroll Schedule",
+    href: "https://innovationae.sharepoint.com/sites/IAECloudServer/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FIAECloudServer%2FShared%20Documents%2FMarketing%2FTO%20REVIEW%2FMandy%2FzMANDY%20PRINT%20REQUESTS%2FADAM%20REVIEW%2F2026%20Payroll%20Schedule%20%28Revised%29%20%281%29%2Epdf&parent=%2Fsites%2FIAECloudServer%2FShared%20Documents%2FMarketing%2FTO%20REVIEW%2FMandy%2FzMANDY%20PRINT%20REQUESTS%2FADAM%20REVIEW&p=true&ga=1",
+    icon: BadgeDollarSign,
+    external: true,
+  },
+  { label: "PTO Requests", href: "https://signin.adp.com/", icon: CalendarDays, external: true },
+  { label: "Payment Requests", href: "https://ramp.com/", icon: CreditCard, external: true },
+  { label: "Shipping Requests", href: "/internal/shipping-requests", icon: Mail },
 ];
 
 export const HUB_ACTION_CARDS = [
