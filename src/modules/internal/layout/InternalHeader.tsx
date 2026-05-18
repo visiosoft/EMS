@@ -1,6 +1,4 @@
-import { Globe } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
-import { APP_CHOOSER_PATH } from "@/routing/paths";
 import { cn } from "@/lib/utils";
 import { IaeLogoIcon } from "@/components/brand/IaeBrandMark";
 import { INTERNAL_NAV_ITEMS } from "../constants/navigation";
@@ -64,13 +62,7 @@ export function InternalHeader() {
             </div>
           </nav>
 
-          <Link
-            to={APP_CHOOSER_PATH}
-            className="flex shrink-0 items-center gap-1.5 text-sm font-medium text-white/85 hover:text-white"
-          >
-            <Globe className="h-4 w-4" aria-hidden />
-            <span className="hidden sm:inline">Site access</span>
-          </Link>
+          <div className="hidden w-[70px] shrink-0 xl:block" aria-hidden />
         </div>
       </div>
     </header>
