@@ -1,5 +1,13 @@
 import type { LucideIcon } from "lucide-react";
-import { CreditCard, FileText, Headphones, Newspaper, Plane, Ship, Wallet } from "lucide-react";
+import {
+  BadgeDollarSign,
+  CalendarDays,
+  CreditCard,
+  FileText,
+  Mail,
+  Newspaper,
+  UsersRound,
+} from "lucide-react";
 
 export type QuickLinkItem = {
   label: string;
@@ -9,11 +17,11 @@ export type QuickLinkItem = {
 
 export const QUICK_LINKS: QuickLinkItem[] = [
   { label: "Company News", href: "#company-news", icon: Newspaper },
-  { label: "Tech Support", href: "#tech-support", icon: Headphones },
-  { label: "ADP Payroll Schedule", href: "#adp-payroll", icon: Wallet },
-  { label: "PTO Requests", href: "#pto-requests", icon: Plane },
+  { label: "Tech Support", href: "#tech-support", icon: UsersRound },
+  { label: "ADP Payroll Schedule", href: "#adp-payroll", icon: BadgeDollarSign },
+  { label: "PTO Requests", href: "#pto-requests", icon: CalendarDays },
   { label: "Payment Requests", href: "#payment-requests", icon: CreditCard },
-  { label: "Shipping Requests", href: "#shipping-requests", icon: Ship },
+  { label: "Shipping Requests", href: "#shipping-requests", icon: Mail },
 ];
 
 export const HUB_ACTION_CARDS = [
@@ -28,4 +36,58 @@ export const TIME_ZONE_LOCATIONS = [
   { city: "New York, NY", timeZone: "America/New_York", offsetLabel: "+1h" },
   { city: "Denver, CO", timeZone: "America/Denver", offsetLabel: "-1h" },
   { city: "Los Angeles, CA", timeZone: "America/Los_Angeles", offsetLabel: "-2h" },
+] as const;
+
+export const DOCUMENT_ITEMS = [
+  { name: "Employee-Handbook", type: "folder", colorClass: "text-teal-600" },
+  { name: "Handbook Images", type: "folder", colorClass: "text-yellow-500" },
+  { name: "spx-iae-custom-css.sppkg", type: "file", colorClass: "text-neutral-500" },
+] as const;
+
+export const SAMPLE_ENGAGEMENTS = [
+  { month: "Month", day: "01", title: "Title of event", time: "Tuesday 12:00 AM - 1:00 PM" },
+  { month: "Month", day: "01", title: "Title of event", time: "Tuesday 12:00 AM - 1:00 PM" },
+  { month: "Month", day: "01", title: "Title of event", time: "Tuesday 12:00 AM - 1:00 PM" },
+] as const;
+
+export const HOME_NEWS_ITEMS = [
+  {
+    title: "Highlights and plans",
+    summary: "Highlights and plans from the AI Team January 1, 2025...",
+    author: "Haider Khalil",
+    date: "February 18",
+    views: "6 views",
+    accent: "slate",
+  },
+  {
+    title: "New Employee Benefit",
+    summary: "New employee benefits at Lamna Healthcare Company...",
+    author: "zulfiqar khan",
+    date: "February 3",
+    views: "8 views",
+    accent: "orange",
+  },
+  {
+    title: "iAE new Version is ready for launch",
+    summary: "Highlights and plans from the AI Team January 1, 2025...",
+    author: "zulfiqar khan",
+    date: "February 3",
+    views: "7 views",
+    accent: "charcoal",
+  },
+] as const;
+
+export const FOOTER_LINK_GROUPS = [
+  {
+    title: "Company Hub",
+    links: ["Company News", "Employee Services", "Leadership", "Departments"],
+  },
+  {
+    title: "Requests",
+    links: ["PTO Requests", "Payment Requests", "Shipping Requests", "Tech Support"],
+  },
+  {
+    title: "Resources",
+    links: ["Employee Handbook", "Markets", "Venues", "Attractions"],
+  },
 ] as const;

@@ -1,26 +1,45 @@
 import { EngagementWidget } from "../components/EngagementWidget";
+import { HomeNewsSection } from "../components/HomeNewsSection";
 import { HubActionCards } from "../components/HubActionCards";
 import { TimeZonesWidget } from "../components/TimeZonesWidget";
 
 export function InternalHomePage() {
   return (
-    <div className="px-4 py-8 sm:px-6 lg:px-8">
-      <section className="mb-10 text-center">
-        <p className="mx-auto mb-4 inline-block bg-black px-4 py-1.5 text-[11px] font-bold uppercase tracking-[0.2em] text-white">
-          Welcome
-        </p>
-        <h1 className="text-3xl font-bold tracking-tight text-black sm:text-4xl lg:text-[2.35rem]">
-          Your Hub For All Things iAE
-        </h1>
+    <div className="bg-white text-black">
+      <section
+        className="relative isolate flex min-h-[348px] items-center justify-center overflow-hidden bg-[#0b080c] px-5 py-16 text-center text-white sm:px-8 md:min-h-[360px] lg:px-10 xl:px-12"
+        style={{
+          backgroundImage: "url('/internal-hub-bg.svg')",
+          backgroundPosition: "center center",
+          backgroundRepeat: "no-repeat",
+          backgroundSize: "cover",
+        }}
+      >
+        <div className="absolute inset-0 bg-black/8" aria-hidden />
+        <div className="relative mx-auto flex max-w-[980px] flex-col items-center">
+          <p className="mb-5 inline-flex border border-white/35 bg-black/55 px-4 py-1.5 text-[11px] font-bold uppercase tracking-[0.24em] text-white shadow-sm backdrop-blur-sm">
+            Welcome
+          </p>
+          <h1 className="text-4xl font-bold tracking-[-0.035em] text-white sm:text-5xl lg:text-[64px] lg:leading-[1.05]">
+            Your Hub For All Things iAE
+          </h1>
+          <p className="mt-6 max-w-[620px] text-base font-semibold leading-relaxed text-white/86 sm:text-lg">
+            A central space for news, services, documents, events, and the resources that keep the day moving.
+          </p>
+        </div>
       </section>
 
-      <HubActionCards />
+      <div className="mx-auto w-full max-w-[1180px] px-5 pb-16 pt-14 sm:px-8 md:pt-20 lg:px-10 xl:px-12">
+        <HubActionCards />
 
-      <section className="mt-8 grid gap-4 lg:grid-cols-3">
-        <EngagementWidget title="Engagements This Week" />
-        <TimeZonesWidget />
-        <EngagementWidget title="Engagements Next Week" />
-      </section>
+        <section className="mt-12 grid gap-x-8 gap-y-10 lg:grid-cols-[minmax(260px,1fr)_minmax(260px,0.92fr)_minmax(260px,1fr)] xl:gap-x-10">
+          <EngagementWidget title="Engagements This Week" />
+          <TimeZonesWidget />
+          <EngagementWidget title="Engagements Next Week" />
+        </section>
+
+        <HomeNewsSection />
+      </div>
     </div>
   );
 }

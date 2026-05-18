@@ -10,32 +10,21 @@ export function InternalHeader() {
   const isHome = location.pathname === "/internal" || location.pathname === "/internal/";
 
   return (
-    <header className="bg-black text-white sticky top-0 z-50">
+    <header className="sticky top-0 z-50 bg-black text-white shadow-[0_1px_0_rgba(255,255,255,0.08)]">
       <div className="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8">
-        <div className="flex min-h-[56px] items-center justify-between gap-4">
-          {/* Logo – icon only, no "IAE EVENT FLOW" label */}
-          <Link
-            to="/internal"
-            className="shrink-0 flex items-center gap-2"
-            aria-label="iAE Company Hub home"
-          >
-            <IaeLogoIcon surface="on-dark" />
+        <div className="flex min-h-[56px] items-center justify-between gap-5">
+          <Link to="/internal" className="shrink-0" aria-label="iAE Company Hub home">
+            <IaeLogoIcon surface="on-dark" className="h-[31px] w-[70px]" />
           </Link>
 
-          {/* Centred nav – visible on xl+ */}
-          <nav
-            className="hidden flex-1 items-center justify-center gap-6 xl:flex"
-            aria-label="Primary"
-          >
+          <nav className="hidden flex-1 items-center justify-center gap-7 xl:flex" aria-label="Primary">
             {INTERNAL_NAV_ITEMS.map((item) => (
               <a
                 key={item.key}
                 href={item.href}
                 className={cn(
-                  "text-[11px] font-semibold uppercase tracking-[0.12em] text-white/80 transition-colors hover:text-white whitespace-nowrap",
-                  item.key === "attractions" &&
-                    isHome &&
-                    "border-b-2 border-white pb-0.5 text-white",
+                  "whitespace-nowrap border-b-2 border-transparent pb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/78 transition-colors hover:border-white/70 hover:text-white",
+                  item.key === "attractions" && isHome && "border-white text-white",
                 )}
               >
                 {item.label}
@@ -43,14 +32,13 @@ export function InternalHeader() {
             ))}
           </nav>
 
-          {/* Mobile hamburger nav (collapsed) */}
-          <nav className="flex xl:hidden flex-1 items-center justify-end">
-            <div className="flex items-center gap-3 overflow-x-auto scrollbar-none">
+          <nav className="flex min-w-0 flex-1 items-center justify-end xl:hidden" aria-label="Primary mobile">
+            <div className="flex min-w-0 items-center gap-4 overflow-x-auto">
               {INTERNAL_NAV_ITEMS.map((item) => (
                 <a
                   key={item.key}
                   href={item.href}
-                  className="text-[10px] font-semibold uppercase tracking-wider text-white/70 whitespace-nowrap hover:text-white transition-colors"
+                  className="whitespace-nowrap border-b-2 border-transparent pb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/70 hover:border-white/60 hover:text-white"
                 >
                   {item.label}
                 </a>
@@ -58,10 +46,9 @@ export function InternalHeader() {
             </div>
           </nav>
 
-          {/* Site access */}
           <Link
             to={APP_CHOOSER_PATH}
-            className="flex shrink-0 items-center gap-1.5 text-sm font-medium text-white/80 transition-colors hover:text-white"
+            className="flex shrink-0 items-center gap-1.5 text-sm font-medium text-white/85 hover:text-white"
           >
             <Globe className="h-4 w-4" aria-hidden />
             <span className="hidden sm:inline">Site access</span>
