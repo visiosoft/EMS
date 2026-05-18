@@ -7,7 +7,6 @@ export function InternalHeader() {
   const location = useLocation();
 
   function isActive(itemKey: string) {
-    if (itemKey === "attractions") return location.pathname === "/internal" || location.pathname === "/internal/";
     return location.pathname.includes(itemKey);
   }
 
