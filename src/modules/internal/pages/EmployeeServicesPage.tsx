@@ -1,5 +1,4 @@
 import { Eye, FileSpreadsheet, Grid2X2, Link as LinkIcon, Plus, Share2, UserRound } from "lucide-react";
-import { InternalPageHero } from "../components/InternalPageHero";
 import { EMPLOYEE_DIRECTORY_ROWS, EMPLOYEE_SERVICE_ITEMS } from "../constants/pageData";
 
 const contactBadgeClass: Record<string, string> = {
@@ -14,46 +13,41 @@ export function EmployeeServicesPage() {
 
   return (
     <div className="bg-white text-black">
-      <InternalPageHero
-        title="Employee Services"
-        subtitle="A dedicated space to connect with employees, discover profiles, and access people-related resources in one place."
-      />
-
-      <main className="mx-auto w-full max-w-[1180px] px-5 pb-16 pt-16 sm:px-8 lg:px-10 xl:px-12">
-        <section className="space-y-4" aria-label="Employee services resources">
+      <main className="mx-auto w-full max-w-[1040px] px-5 pb-16 pt-[116px] sm:px-8 lg:px-0">
+        <section className="space-y-3" aria-label="Employee services resources">
           {handbookCard ? (
             <a
               href={`#${handbookCard.title.toLowerCase().replace(/\s+/g, "-")}`}
-              className="group flex min-h-[126px] items-center justify-center gap-6 rounded-lg bg-[#0c0c0c] px-8 py-7 text-white shadow-[0_4px_16px_rgba(0,0,0,0.22)] transition-all duration-300 hover:-translate-y-1 hover:bg-black hover:shadow-[0_20px_40px_rgba(0,0,0,0.24)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-4"
+              className="group flex min-h-[112px] items-center justify-center gap-5 rounded-lg bg-[#0c0c0c] px-8 py-6 text-white shadow-[0_4px_16px_rgba(0,0,0,0.22)] transition-all duration-300 hover:-translate-y-1 hover:bg-black hover:shadow-[0_20px_40px_rgba(0,0,0,0.24)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-4"
             >
-              <span className="rounded-xl bg-black/20 p-4 transition-transform duration-300 group-hover:scale-110" aria-hidden>
-                <handbookCard.icon className="h-16 w-16" strokeWidth={1.55} />
+              <span className="rounded-xl bg-black/20 p-3 transition-transform duration-300 group-hover:scale-110" aria-hidden>
+                <handbookCard.icon className="h-[66px] w-[66px]" strokeWidth={1.55} />
               </span>
               <span className="text-lg font-semibold tracking-[0.02em]">{handbookCard.title}</span>
             </a>
           ) : null}
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {serviceCards.map((item, index) => {
               const Icon = item.icon;
               return (
                 <a
                   key={item.title}
                   href={`#${item.title.toLowerCase().replace(/\s+/g, "-")}`}
-                  className="group flex min-h-[255px] flex-col items-center justify-center gap-6 rounded-lg bg-[#0c0c0c] px-6 py-10 text-center text-white shadow-[0_4px_16px_rgba(0,0,0,0.22)] transition-all duration-300 hover:-translate-y-1 hover:bg-black hover:shadow-[0_20px_40px_rgba(0,0,0,0.24)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-4"
+                  className="group flex min-h-[232px] flex-col items-center justify-center gap-5 rounded-lg bg-[#0c0c0c] px-6 py-9 text-center text-white shadow-[0_4px_16px_rgba(0,0,0,0.22)] transition-all duration-300 hover:-translate-y-1 hover:bg-black hover:shadow-[0_20px_40px_rgba(0,0,0,0.24)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-4"
                   style={{ animationDelay: `${index * 70}ms` }}
                 >
-                  <span className="rounded-xl bg-black/20 p-4 transition-transform duration-300 group-hover:scale-110" aria-hidden>
-                    <Icon className="h-20 w-20" strokeWidth={1.55} />
+                  <span className="rounded-xl bg-black/20 p-3 transition-transform duration-300 group-hover:scale-110" aria-hidden>
+                    <Icon className="h-[84px] w-[84px]" strokeWidth={1.55} />
                   </span>
-                  <span className="text-lg font-semibold tracking-[0.02em]">{item.title}</span>
+                  <span className="text-base font-semibold tracking-[0.02em]">{item.title}</span>
                 </a>
               );
             })}
           </div>
         </section>
 
-        <section className="mt-20">
+        <section className="mt-10">
           <h2 className="mb-5 text-2xl font-semibold tracking-[0.01em] text-neutral-950">IAE Employees</h2>
 
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-neutral-200 pb-4">
@@ -94,7 +88,7 @@ export function EmployeeServicesPage() {
                   <th className="px-4 py-4">Extension</th>
                   <th className="px-4 py-4">Mobile</th>
                   <th className="px-4 py-4">Work Email</th>
-                  <th className="px-4 py-4">Preferred Contact...</th>
+                  <th className="px-4 py-4">Preferred Conta...</th>
                   <th className="px-4 py-4">Title</th>
                 </tr>
               </thead>
