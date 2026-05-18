@@ -24,8 +24,12 @@ import { Select2 } from './Select2';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Props {
-  /** Open the engagement-level sales dashboard for the clicked row. */
-  onOpenEngagement: (engagementId: number) => void;
+  /**
+   * Open the sales dashboard for the clicked row. Each row represents a single
+   * performance, so we forward both `engagementId` (parent) and `performanceId`
+   * (this specific show) — the detail page scopes KPIs to the chosen performance.
+   */
+  onOpenEngagement: (engagementId: number, performanceId: number) => void;
 }
 
 type SortColumn =
@@ -164,7 +168,7 @@ function KpiCard({
   sub,
   tone,
 }: {
-  icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean }>;
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement> & { className?: string }>;
   label: string;
   value: string;
   sub?: string;
@@ -723,7 +727,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                           zebra,
                           'hover:bg-ems-accent-dim/30',
                         ].join(' ')}
-                        onClick={() => onOpenEngagement(r.engagementId)}
+                        onClick={() => onOpenEngagement(r.engagementId, r.performanceId)}
                         title="Open sales trends"
                       >
                         <td className="px-4 py-3 align-top">
