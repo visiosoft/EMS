@@ -40,6 +40,8 @@ const VALID_VIEWS = new Set([
 ]);
 
 const SALES_SUMMARY_RETURN_VIEWS = new Set(['daily-sales', 'projects', 'engagements', 'sales-summary']);
+const ENGAGEMENT_TIMING_FILTERS = new Set(['all', 'upcoming', 'past']);
+type EngagementTimingFilter = 'all' | 'upcoming' | 'past';
 
 function readSidebarCollapsed(): boolean {
   if (typeof window === 'undefined') return false;
@@ -93,6 +95,9 @@ function sanitizeViewDataForView(view: string, raw: unknown): Record<string, unk
     if (typeof obj.statusFilter === 'string' && obj.statusFilter.trim()) {
       out.statusFilter = obj.statusFilter.trim().slice(0, 120);
     }
+    if (typeof obj.timingFilter === 'string' && ENGAGEMENT_TIMING_FILTERS.has(obj.timingFilter.trim())) {
+      out.timingFilter = obj.timingFilter.trim();
+    }
     if (obj.createEngagement === true || obj.createEngagement === '1') {
       out.createEngagement = true;
     }
@@ -113,6 +118,7 @@ function readRouteFromUrl(): { view: string; viewData: Record<string, unknown> }
 
     const viewData = sanitizeViewDataForView(view, {
       statusFilter: params.get('statusFilter') ?? undefined,
+      timingFilter: params.get('timingFilter') ?? undefined,
       createEngagement: params.get('createEngagement') === '1',
     });
 
@@ -129,7 +135,12 @@ function readAndConsumeOpenIntent(): { view: string; viewData: Record<string, un
     if (!raw) return null;
     window.localStorage.removeItem(EMS_OPEN_INTENT_KEY);
 
-    const parsed = JSON.parse(raw) as { view?: unknown; createEngagement?: unknown; expiresAt?: unknown };
+    const parsed = JSON.parse(raw) as {
+      view?: unknown;
+      createEngagement?: unknown;
+      timingFilter?: unknown;
+      expiresAt?: unknown;
+    };
     const expiresAt = typeof parsed.expiresAt === 'number' ? parsed.expiresAt : 0;
     const view = typeof parsed.view === 'string' ? parsed.view : '';
     if (Date.now() > expiresAt || view !== 'engagements') return null;
@@ -138,6 +149,7 @@ function readAndConsumeOpenIntent(): { view: string; viewData: Record<string, un
       view: 'engagements',
       viewData: sanitizeViewDataForView('engagements', {
         createEngagement: parsed.createEngagement === true,
+        timingFilter: parsed.timingFilter,
       }),
     };
   } catch {
@@ -384,6 +396,7 @@ const Index = () => {
             <EngagementsPage
               onNavigate={navigate}
               statusFilter={viewData.statusFilter as string | undefined}
+              timingFilter={viewData.timingFilter as EngagementTimingFilter | undefined}
               addToast={addToast}
             />
           )}
