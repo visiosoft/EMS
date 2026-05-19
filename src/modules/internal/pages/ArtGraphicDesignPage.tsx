@@ -1,4 +1,4 @@
-import { Calendar, ExternalLink, GraduationCap, ImageIcon, Palette, PenTool, Play, Plus, Sparkles, UsersRound, UserRound } from "lucide-react";
+import { Calendar, GraduationCap, ImageIcon, Palette, PenTool, Plus } from "lucide-react";
 
 const TEAM_MEMBERS = [
   { name: "Alex Abalo", title: "Graphic Designer" },
@@ -21,41 +21,27 @@ const URGENT_EVENTS = [
 
 function TeamAvatar() {
   return (
-    <div className="flex h-10 w-8 items-end justify-center overflow-hidden bg-neutral-100 text-neutral-950">
-      <UserRound className="h-8 w-8" strokeWidth={1.2} aria-hidden />
+    <div className="relative h-[40px] w-[31px] overflow-hidden bg-neutral-100 shadow-sm" aria-hidden>
+      <div className="absolute left-1/2 top-[7px] h-[13px] w-[13px] -translate-x-1/2 rounded-full bg-[#111]" />
+      <div className="absolute bottom-0 left-1/2 h-[22px] w-[20px] -translate-x-1/2 rounded-t-[9px] bg-[#111]" />
+      <div className="absolute bottom-0 left-1/2 h-[19px] w-[8px] -translate-x-1/2 bg-white" />
+      <div className="absolute bottom-[3px] left-1/2 h-[13px] w-[4px] -translate-x-1/2 bg-[#b10f18]" />
+      <div className="absolute bottom-[15px] left-1/2 h-[4px] w-[8px] -translate-x-1/2 rotate-45 bg-[#b10f18]" />
+      <div className="absolute bottom-[15px] left-1/2 h-[4px] w-[8px] -translate-x-1/2 -rotate-45 bg-[#b10f18]" />
     </div>
   );
 }
 
-function YouTubePreview() {
+function YouTubeEmbed() {
   return (
-    <div className="relative mt-10 h-[250px] w-full max-w-[520px] overflow-hidden bg-[#0b0b0b] text-white shadow-sm">
-      <div className="absolute inset-0 opacity-80" style={{ backgroundImage: "radial-gradient(circle at center, rgba(255,255,255,0.18) 0 1px, transparent 1px)", backgroundSize: "18px 18px" }} />
-      <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(30,30,30,0.98),rgba(0,0,0,0.88))]" />
-      <div className="relative flex h-full flex-col px-8 py-5">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black text-sm font-bold">iAE</div>
-          <div>
-            <p className="text-lg font-bold leading-tight">“Attack on Titan” - Beyond the Walls World Tour - 2026</p>
-            <p className="text-xs text-white/75">Innovation Arts & Entertainment</p>
-          </div>
-        </div>
-        <div className="mt-5 flex flex-1 items-center justify-center text-center">
-          <div>
-            <p className="font-serif text-5xl font-bold leading-none text-white/90">Attack on Titan</p>
-            <p className="mt-1 text-2xl uppercase tracking-[0.12em] text-white/75">Beyond the Walls World Tour</p>
-            <p className="mt-4 text-xs uppercase tracking-[0.18em] text-red-300">The official concert</p>
-          </div>
-        </div>
-        <div className="absolute inset-0 flex items-center justify-center">
-          <button className="flex h-14 w-20 items-center justify-center rounded-xl bg-red-600 text-white shadow-lg transition-transform hover:scale-105" aria-label="Play video">
-            <Play className="h-8 w-8 fill-white" />
-          </button>
-        </div>
-        <div className="relative mt-auto flex items-center justify-end gap-2 text-sm text-white/90">
-          Watch on <span className="font-bold">YouTube</span>
-        </div>
-      </div>
+    <div className="mt-10 w-full max-w-[520px] overflow-hidden bg-black shadow-sm">
+      <iframe
+        className="aspect-video w-full"
+        src="https://www.youtube.com/embed/v0BrTJHoYC0?rel=0"
+        title="Attack on Titan - Beyond the Walls World Tour - 2026"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        allowFullScreen
+      />
     </div>
   );
 }
@@ -69,8 +55,8 @@ export function ArtGraphicDesignPage() {
       >
         <div className="mx-auto grid min-h-[300px] max-w-[1120px] items-center gap-8 md:grid-cols-[1fr_0.75fr]">
           <div>
-            <h1 className="max-w-[440px] text-[58px] font-bold leading-[1.1] tracking-[-0.025em] text-white sm:text-[70px]">
-              Art &amp; Graphic Design
+            <h1 className="max-w-[560px] text-[58px] font-bold leading-[1.13] tracking-[-0.025em] text-white sm:text-[70px] md:text-[76px]">
+              Art &amp; Graphic<br />Design
             </h1>
             <p className="mt-6 text-lg font-bold text-white">Department Overview</p>
             <div className="mt-4 h-px max-w-[650px] bg-white/45" />
@@ -79,7 +65,7 @@ export function ArtGraphicDesignPage() {
             </p>
           </div>
           <div className="hidden justify-center md:flex">
-            <PenTool className="h-[180px] w-[180px] text-white" strokeWidth={1.6} aria-hidden />
+            <PenTool className="h-[185px] w-[185px] text-white" strokeWidth={1.6} aria-hidden />
           </div>
         </div>
       </section>
@@ -123,16 +109,18 @@ export function ArtGraphicDesignPage() {
           </div>
 
           <h2 className="mt-6 border-b border-neutral-600 pb-7 text-2xl font-semibold">Fun Corner</h2>
-          <YouTubePreview />
+          <YouTubeEmbed />
         </section>
       </main>
 
       <section className="mt-8 bg-black px-5 py-16 text-white sm:px-8 lg:px-10">
         <div className="mx-auto max-w-[1120px]">
-          <div className="grid items-start gap-4 md:grid-cols-[1fr_auto_1fr]">
+          <div className="grid gap-7 md:grid-cols-[1fr_230px]">
             <h2 className="text-[34px] font-semibold tracking-[0.04em]">Urgent / Upcoming</h2>
-            <a href="#calendar" className="mt-2 text-base font-medium underline underline-offset-2">View Full Calendar</a>
-            <a href="#see-all" className="mt-14 justify-self-end text-sm font-semibold">See all</a>
+            <div className="flex flex-col items-start gap-10 md:items-start">
+              <a href="#calendar" className="text-base font-medium underline underline-offset-2">View Full Calendar</a>
+              <a href="#see-all" className="text-sm font-semibold">See all</a>
+            </div>
           </div>
 
           <button type="button" className="mt-12 inline-flex items-center gap-3 text-sm font-semibold text-white hover:text-white/75">
