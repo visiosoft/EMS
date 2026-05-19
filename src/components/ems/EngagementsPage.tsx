@@ -49,6 +49,7 @@ import { ENGAGEMENT_STATUS_ENUM } from './engagementFormConstants';
 interface Props {
   onNavigate: (view: string, data?: Record<string, unknown>) => void;
   statusFilter?: string;
+  timingFilter?: EngagementTimingFilter;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 }
 
@@ -334,7 +335,7 @@ function EngagementsTilesSkeleton({ tileCount = 6 }: { tileCount?: number }) {
 // ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
-export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast }: Props) {
+export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFilter: initTimingFilter, addToast }: Props) {
   const qc = useQueryClient();
   const [searchInput, setSearchInput] = useState('');
   const [searchCommitted, setSearchCommitted] = useState('');
@@ -344,7 +345,9 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
   const [attractionFilter, setAttractionFilter] = useState('');
   const [dmaFilter, setDmaFilter] = useState('');
   const [venueFilter, setVenueFilter] = useState('');
-  const [timingFilter, setTimingFilter] = useState<EngagementTimingFilter>(DEFAULT_ENGAGEMENT_TIMING_FILTER);
+  const [timingFilter, setTimingFilter] = useState<EngagementTimingFilter>(
+    initTimingFilter || DEFAULT_ENGAGEMENT_TIMING_FILTER,
+  );
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE);
   const [showCreate, setShowCreate] = useState(false);
@@ -384,6 +387,10 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
   useEffect(() => {
     if (initFilter) setStatusFilter(initFilter);
   }, [initFilter]);
+
+  useEffect(() => {
+    if (initTimingFilter) setTimingFilter(initTimingFilter);
+  }, [initTimingFilter]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
