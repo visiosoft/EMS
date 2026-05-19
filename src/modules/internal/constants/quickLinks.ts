@@ -58,28 +58,28 @@ export const SAMPLE_ENGAGEMENTS = [
 
 export const HOME_NEWS_ITEMS = [
   {
+    title: "Company News",
+    summary: "Company News Stay updated with the latest announcements, achievements, and company-wide updates.",
+    createdBy: "Haider Khalil",
+    date: "about an hour ago",
+  },
+  {
     title: "Highlights and plans",
     summary: "Highlights and plans from the AI Team January 1, 2025...",
-    author: "Haider Khalil",
+    createdBy: "Haider Khalil",
     date: "February 18",
-    views: "6 views",
-    accent: "slate",
   },
   {
     title: "New Employee Benefit",
     summary: "New employee benefits at Lamna Healthcare Company...",
-    author: "zulfiqar khan",
+    createdBy: "zulfiqar khan",
     date: "February 3",
-    views: "8 views",
-    accent: "orange",
   },
   {
     title: "iAE new Version is ready for launch",
     summary: "Highlights and plans from the AI Team January 1, 2025...",
-    author: "zulfiqar khan",
+    createdBy: "zulfiqar khan",
     date: "February 3",
-    views: "7 views",
-    accent: "charcoal",
   },
 ] as const;
 
