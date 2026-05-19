@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -55,6 +56,7 @@ export class InternalNewsService {
     const userOid = this.auditContext.getUserOid();
 
     const row = this.newsRepository.create({
+      id: randomUUID(),
       title,
       summary,
       body,
