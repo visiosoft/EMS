@@ -52,22 +52,24 @@ function primeEngagementsTab(timingFilter: "past" | "upcoming") {
 function getCardHref(key: (typeof HUB_ACTION_CARDS)[number]["key"]) {
   if (key === "sales-update") return SALES_UPDATE_URL;
   if (key === "employee-services") return "/internal/employee-services";
-  if (key === "past-engagements") return "/?view=engagements&timingFilter=past";
-  if (key === "upcoming-engagements") return "/?view=engagements&timingFilter=upcoming";
+  if (key === "past-engagements" || key === "upcoming-engagements") return "/";
   return `#${key}`;
 }
 
 function getCardTarget(key: (typeof HUB_ACTION_CARDS)[number]["key"]) {
-  if (key === "sales-update" || key === "past-engagements" || key === "upcoming-engagements") return "_blank";
+  if (key === "sales-update") return "_blank";
   return undefined;
 }
 
 function handleCardClick(
-  _event: MouseEvent<HTMLAnchorElement>,
+  event: MouseEvent<HTMLAnchorElement>,
   key: (typeof HUB_ACTION_CARDS)[number]["key"],
 ) {
-  if (key === "past-engagements") primeEngagementsTab("past");
-  if (key === "upcoming-engagements") primeEngagementsTab("upcoming");
+  if (key !== "past-engagements" && key !== "upcoming-engagements") return;
+
+  event.preventDefault();
+  primeEngagementsTab(key === "past-engagements" ? "past" : "upcoming");
+  window.open("/", "_blank", "noopener,noreferrer");
 }
 
 export function HubActionCards() {
