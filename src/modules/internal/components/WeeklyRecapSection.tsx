@@ -7,13 +7,20 @@ export function WeeklyRecapSection() {
       <div className="mx-auto max-w-[1180px]">
         <div className="flex items-end justify-between gap-4 border-b border-white/35 pb-4">
           <h2 className="text-2xl font-semibold tracking-[0.01em] sm:text-[30px]">Weekly Dept Head Meeting Recap</h2>
-          <a href="/?view=engagements" className="text-sm font-semibold text-white/90 underline-offset-4 hover:underline">
+          <a
+            href="/engagements"
+            target="_blank"
+            rel="noreferrer"
+            className="text-sm font-semibold text-white/90 underline-offset-4 hover:underline"
+          >
             See all
           </a>
         </div>
 
         <a
-          href="/?view=engagements&createEngagement=1"
+          href="/engagements/create"
+          target="_blank"
+          rel="noreferrer"
           className="mt-8 inline-flex items-center gap-3 text-sm font-semibold text-white hover:text-white/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-4 focus-visible:ring-offset-black"
         >
           <Plus className="h-4 w-4" aria-hidden />
