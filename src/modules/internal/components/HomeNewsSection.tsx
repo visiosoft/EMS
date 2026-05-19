@@ -6,7 +6,6 @@ type NewsFormValues = {
   title: string;
   summary: string;
   body: string;
-  publishDate: string;
 };
 
 type NewsItem = {
@@ -15,7 +14,6 @@ type NewsItem = {
   summary: string;
   body?: string;
   createdBy: string;
-  date: string;
 };
 
 type NewsFormErrors = Partial<Record<keyof NewsFormValues, string>>;
@@ -26,7 +24,6 @@ const DEFAULT_FORM_VALUES: NewsFormValues = {
   title: "",
   summary: "",
   body: "",
-  publishDate: new Date().toISOString().slice(0, 10),
 };
 
 function NewsImage({ featured = false }: { featured?: boolean }) {
@@ -56,13 +53,6 @@ function NewsImage({ featured = false }: { featured?: boolean }) {
   );
 }
 
-function formatNewsDate(dateValue: string) {
-  const date = new Date(`${dateValue}T12:00:00`);
-  if (Number.isNaN(date.getTime())) return "Today";
-
-  return new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric" }).format(date);
-}
-
 function validateNewsForm(values: NewsFormValues): NewsFormErrors {
   const errors: NewsFormErrors = {};
   const trimmedTitle = values.title.trim();
@@ -80,8 +70,6 @@ function validateNewsForm(values: NewsFormValues): NewsFormErrors {
   if (!trimmedBody) errors.body = "News body is required.";
   else if (trimmedBody.length < 20) errors.body = "News body must be at least 20 characters.";
   else if (trimmedBody.length > 5000) errors.body = "News body must be 5,000 characters or fewer.";
-
-  if (!values.publishDate) errors.publishDate = "Publish date is required.";
 
   return errors;
 }
@@ -138,7 +126,7 @@ function AddNewsModal({
   useEffect(() => {
     if (open) return;
 
-    setValues({ ...DEFAULT_FORM_VALUES, publishDate: new Date().toISOString().slice(0, 10) });
+    setValues(DEFAULT_FORM_VALUES);
     setErrors({});
     setTouched({});
     setIsSubmitting(false);
@@ -166,7 +154,7 @@ function AddNewsModal({
     event.preventDefault();
     const validationErrors = validateNewsForm(values);
     setErrors(validationErrors);
-    setTouched({ title: true, summary: true, body: true, publishDate: true });
+    setTouched({ title: true, summary: true, body: true });
 
     if (Object.keys(validationErrors).length > 0) return;
 
@@ -267,19 +255,6 @@ function AddNewsModal({
                 <span className="ml-auto text-xs text-neutral-500">{values.body.length}/5000</span>
               </div>
             </label>
-
-            <label className="sm:col-span-2">
-              <span className="text-sm font-semibold text-neutral-900">Publish date *</span>
-              <input
-                type="date"
-                value={values.publishDate}
-                onChange={(event) => setField("publishDate", event.target.value)}
-                onBlur={() => markTouched("publishDate")}
-                className="mt-2 h-11 w-full rounded-md border border-neutral-300 px-3 text-sm outline-none transition focus:border-black focus:ring-2 focus:ring-black/10 sm:max-w-[260px]"
-                aria-invalid={Boolean(errors.publishDate)}
-              />
-              <FieldError message={errors.publishDate} />
-            </label>
           </div>
 
           <div className="sticky bottom-0 -mx-5 mt-6 flex flex-col-reverse gap-3 border-t border-neutral-200 bg-white/96 px-5 py-4 backdrop-blur sm:-mx-7 sm:flex-row sm:items-center sm:justify-end sm:px-7">
@@ -320,7 +295,6 @@ export function HomeNewsSection() {
       title: item.title,
       summary: item.summary,
       createdBy: item.createdBy,
-      date: item.date,
     })),
   );
 
@@ -335,7 +309,6 @@ export function HomeNewsSection() {
       summary: values.summary.trim(),
       body: values.body.trim(),
       createdBy: CURRENT_USER_ID,
-      date: formatNewsDate(values.publishDate),
     };
 
     setNewsItems((previous) => [nextNewsItem, ...previous].slice(0, 7));
@@ -374,7 +347,7 @@ export function HomeNewsSection() {
                   <UserRound className="h-5 w-5" aria-hidden />
                 </span>
                 <span>
-                  <strong className="font-semibold text-neutral-900">{featuredNews.createdBy}</strong> {featuredNews.date}
+                  <strong className="font-semibold text-neutral-900">{featuredNews.createdBy}</strong>
                 </span>
               </div>
             </div>
@@ -394,7 +367,7 @@ export function HomeNewsSection() {
                 </h3>
                 <p className="mt-2 line-clamp-1 text-[13px] text-neutral-600">{item.summary}</p>
                 <p className="mt-5 text-xs text-neutral-700">
-                  <strong className="font-semibold text-neutral-900">{item.createdBy}</strong> {item.date}
+                  <strong className="font-semibold text-neutral-900">{item.createdBy}</strong>
                 </p>
               </div>
             </article>
