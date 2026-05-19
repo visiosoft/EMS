@@ -13,17 +13,10 @@ import InternalApp from "./pages/InternalApp.tsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
 import { getActiveAccount, isMsalBusy } from "./auth/entra.ts";
 import { isEmsEnabled, isInternalEnabled } from "./routing/appSuite.ts";
+import { canAccessInternalHub } from "./routing/internalHubAccess.ts";
 import { APP_CHOOSER_PATH, EMS_ROOT, INTERNAL_ROOT, LOGIN_PATH } from "./routing/paths.ts";
+import { rememberWorkspacePath } from "./routing/workspacePreference.ts";
 
-/**
- * Global cache policy for the EMS app:
- *  - `staleTime` (30 min): list queries (companies/tours/attractions/engagements)
- *    do NOT refetch on mount, focus, or reconnect within this window.
- *  - `gcTime` (60 min): keep unused queries around long enough to survive
- *    route switches without re-fetching.
- *  - `refetchOn*` flags are all off — mutations surgically patch the cache,
- *    so we don't want the network to silently bust what we just wrote.
- */
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -40,22 +33,44 @@ const queryClient = new QueryClient({
   },
 });
 
+function LoadingAuthState() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background text-sm text-text-muted">
+      Checking sign-in…
+    </div>
+  );
+}
+
 function ProtectedRoute({ children }: { children: JSX.Element }) {
   const isAuthenticated = useIsAuthenticated();
   const { accounts, inProgress } = useMsal();
   const location = useLocation();
   const account = getActiveAccount() ?? accounts[0] ?? null;
 
-  if (isMsalBusy(inProgress)) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background text-sm text-text-muted">
-        Checking sign-in…
-      </div>
-    );
-  }
+  if (isMsalBusy(inProgress)) return <LoadingAuthState />;
 
   if (!isAuthenticated && !account) {
     return <Navigate to={LOGIN_PATH} replace state={{ from: `${location.pathname}${location.search}${location.hash}` }} />;
+  }
+
+  return children;
+}
+
+function InternalHubRoute({ children }: { children: JSX.Element }) {
+  const isAuthenticated = useIsAuthenticated();
+  const { accounts, inProgress } = useMsal();
+  const location = useLocation();
+  const account = getActiveAccount() ?? accounts[0] ?? null;
+
+  if (isMsalBusy(inProgress)) return <LoadingAuthState />;
+
+  if (!isAuthenticated && !account) {
+    return <Navigate to={LOGIN_PATH} replace state={{ from: `${location.pathname}${location.search}${location.hash}` }} />;
+  }
+
+  if (!canAccessInternalHub(account)) {
+    rememberWorkspacePath(EMS_ROOT);
+    return <Navigate to={EMS_ROOT} replace />;
   }
 
   return children;
@@ -92,9 +107,9 @@ const App = () => (
                 <Route
                   path={`${INTERNAL_ROOT}/*`}
                   element={
-                    <ProtectedRoute>
+                    <InternalHubRoute>
                       <InternalApp />
-                    </ProtectedRoute>
+                    </InternalHubRoute>
                   }
                 />
               ) : null}

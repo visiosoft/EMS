@@ -28,7 +28,7 @@ const Login = () => {
     const account = getActiveAccount() ?? accounts[0] ?? null;
     const displayName = getAccountName(account);
     const email = getAccountEmail(account);
-    const targetPath = resolvePostLoginPath((location.state as LocationState | null)?.from);
+    const targetPath = resolvePostLoginPath((location.state as LocationState | null)?.from, account);
 
     useEffect(() => {
         if (isAuthenticated && account) {
