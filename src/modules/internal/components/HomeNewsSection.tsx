@@ -1,5 +1,20 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Loader2, Plus, UserRound, X } from "lucide-react";
+import {
+  AlertCircle,
+  Bold,
+  Eraser,
+  Heading2,
+  Italic,
+  Link2,
+  List,
+  ListOrdered,
+  Loader2,
+  Pilcrow,
+  Plus,
+  Underline,
+  UserRound,
+  X,
+} from "lucide-react";
 import { HOME_NEWS_ITEMS } from "../constants/quickLinks";
 
 type NewsFormValues = {
@@ -18,13 +33,75 @@ type NewsItem = {
 
 type NewsFormErrors = Partial<Record<keyof NewsFormValues, string>>;
 
+type EditorCommand = {
+  label: string;
+  icon: typeof Bold;
+  action: () => void;
+};
+
 const CURRENT_USER_ID = "current-user";
+const MAX_BODY_TEXT_LENGTH = 5000;
 
 const DEFAULT_FORM_VALUES: NewsFormValues = {
   title: "",
   summary: "",
   body: "",
 };
+
+const ALLOWED_NEWS_HTML_TAGS = new Set(["a", "b", "blockquote", "br", "div", "em", "h2", "h3", "li", "ol", "p", "span", "strong", "u", "ul"]);
+
+function getTextFromHtml(html: string) {
+  if (!html) return "";
+
+  if (typeof window === "undefined") {
+    return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  }
+
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  return doc.body.textContent?.replace(/\s+/g, " ").trim() ?? "";
+}
+
+function sanitizeNewsHtml(html: string) {
+  if (!html || typeof document === "undefined") return html.trim();
+
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  template.content.querySelectorAll("script,style,iframe,object,embed,link,meta").forEach((element) => element.remove());
+
+  const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_ELEMENT);
+  const elements: Element[] = [];
+
+  while (walker.nextNode()) {
+    elements.push(walker.currentNode as Element);
+  }
+
+  elements.forEach((element) => {
+    const tagName = element.tagName.toLowerCase();
+
+    if (!ALLOWED_NEWS_HTML_TAGS.has(tagName)) {
+      element.replaceWith(document.createTextNode(element.textContent ?? ""));
+      return;
+    }
+
+    Array.from(element.attributes).forEach((attribute) => {
+      const name = attribute.name.toLowerCase();
+      const value = attribute.value.trim();
+      const isSafeHref = tagName === "a" && name === "href" && /^(https?:\/\/|mailto:|#)/i.test(value);
+      const isAnchorTarget = tagName === "a" && name === "target";
+      const isAnchorRel = tagName === "a" && name === "rel";
+
+      if (isSafeHref || isAnchorTarget || isAnchorRel) return;
+      element.removeAttribute(attribute.name);
+    });
+
+    if (tagName === "a") {
+      element.setAttribute("target", "_blank");
+      element.setAttribute("rel", "noreferrer");
+    }
+  });
+
+  return template.innerHTML.trim();
+}
 
 function NewsImage({ featured = false }: { featured?: boolean }) {
   if (featured) {
@@ -57,7 +134,7 @@ function validateNewsForm(values: NewsFormValues): NewsFormErrors {
   const errors: NewsFormErrors = {};
   const trimmedTitle = values.title.trim();
   const trimmedSummary = values.summary.trim();
-  const trimmedBody = values.body.trim();
+  const bodyText = getTextFromHtml(values.body);
 
   if (!trimmedTitle) errors.title = "Title is required.";
   else if (trimmedTitle.length < 3) errors.title = "Title must be at least 3 characters.";
@@ -67,9 +144,9 @@ function validateNewsForm(values: NewsFormValues): NewsFormErrors {
   else if (trimmedSummary.length < 10) errors.summary = "Summary must be at least 10 characters.";
   else if (trimmedSummary.length > 220) errors.summary = "Summary must be 220 characters or fewer.";
 
-  if (!trimmedBody) errors.body = "News body is required.";
-  else if (trimmedBody.length < 20) errors.body = "News body must be at least 20 characters.";
-  else if (trimmedBody.length > 5000) errors.body = "News body must be 5,000 characters or fewer.";
+  if (!bodyText) errors.body = "News body is required.";
+  else if (bodyText.length < 20) errors.body = "News body must be at least 20 characters.";
+  else if (bodyText.length > MAX_BODY_TEXT_LENGTH) errors.body = "News body must be 5,000 characters or fewer.";
 
   return errors;
 }
@@ -82,6 +159,100 @@ function FieldError({ message }: { message?: string }) {
       <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
       {message}
     </p>
+  );
+}
+
+function HtmlEditor({
+  value,
+  onChange,
+  onBlur,
+  hasError,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onBlur: () => void;
+  hasError?: boolean;
+}) {
+  const editorRef = useRef<HTMLDivElement | null>(null);
+  const bodyTextLength = getTextFromHtml(value).length;
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || document.activeElement === editor || editor.innerHTML === value) return;
+    editor.innerHTML = value;
+  }, [value]);
+
+  const syncValue = () => onChange(editorRef.current?.innerHTML ?? "");
+
+  const runCommand = (command: string, commandValue?: string) => {
+    editorRef.current?.focus();
+    document.execCommand(command, false, commandValue);
+    syncValue();
+  };
+
+  const addLink = () => {
+    const rawUrl = window.prompt("Paste the link URL");
+    if (!rawUrl) return;
+
+    const trimmedUrl = rawUrl.trim();
+    const safeUrl = /^(https?:\/\/|mailto:|#)/i.test(trimmedUrl) ? trimmedUrl : `https://${trimmedUrl}`;
+    runCommand("createLink", safeUrl);
+  };
+
+  const commands: EditorCommand[] = [
+    { label: "Heading", icon: Heading2, action: () => runCommand("formatBlock", "h2") },
+    { label: "Paragraph", icon: Pilcrow, action: () => runCommand("formatBlock", "p") },
+    { label: "Bold", icon: Bold, action: () => runCommand("bold") },
+    { label: "Italic", icon: Italic, action: () => runCommand("italic") },
+    { label: "Underline", icon: Underline, action: () => runCommand("underline") },
+    { label: "Bulleted list", icon: List, action: () => runCommand("insertUnorderedList") },
+    { label: "Numbered list", icon: ListOrdered, action: () => runCommand("insertOrderedList") },
+    { label: "Link", icon: Link2, action: addLink },
+    { label: "Clear formatting", icon: Eraser, action: () => runCommand("removeFormat") },
+  ];
+
+  return (
+    <div className={`mt-2 overflow-hidden rounded-md border bg-white ${hasError ? "border-red-400" : "border-neutral-300"}`}>
+      <div className="flex flex-wrap gap-1 border-b border-neutral-200 bg-neutral-50 p-2">
+        {commands.map(({ label, icon: Icon, action }) => (
+          <button
+            key={label}
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={action}
+            className="inline-flex h-9 min-w-9 items-center justify-center rounded border border-transparent px-2 text-neutral-700 transition hover:border-neutral-300 hover:bg-white hover:text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black"
+            aria-label={label}
+            title={label}
+          >
+            <Icon className="h-4 w-4" aria-hidden />
+          </button>
+        ))}
+      </div>
+
+      <div className="relative">
+        {!getTextFromHtml(value) ? (
+          <p className="pointer-events-none absolute left-4 top-3 text-sm text-neutral-400">Write the full announcement or update here. Use the toolbar for formatting.</p>
+        ) : null}
+        <div
+          ref={editorRef}
+          contentEditable
+          suppressContentEditableWarning
+          role="textbox"
+          aria-multiline="true"
+          aria-invalid={hasError}
+          onInput={syncValue}
+          onBlur={onBlur}
+          className="min-h-[190px] w-full overflow-y-auto px-4 py-3 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-inset focus:ring-black/10 [&_a]:font-semibold [&_a]:text-black [&_a]:underline [&_blockquote]:border-l-4 [&_blockquote]:border-neutral-300 [&_blockquote]:pl-4 [&_h2]:mb-2 [&_h2]:mt-3 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:mt-3 [&_h3]:text-lg [&_h3]:font-semibold [&_li]:ml-5 [&_ol]:list-decimal [&_p]:mb-2 [&_ul]:list-disc"
+        />
+      </div>
+
+      <div className="flex items-center justify-between border-t border-neutral-100 bg-white px-3 py-2 text-xs text-neutral-500">
+        <span>Supports headings, bold, italic, underline, lists, quotes, and links.</span>
+        <span className={bodyTextLength > MAX_BODY_TEXT_LENGTH ? "font-semibold text-red-600" : ""}>
+          {bodyTextLength}/{MAX_BODY_TEXT_LENGTH}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -152,7 +323,14 @@ function AddNewsModal({
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const validationErrors = validateNewsForm(values);
+
+    const sanitizedValues: NewsFormValues = {
+      title: values.title.trim(),
+      summary: values.summary.trim(),
+      body: sanitizeNewsHtml(values.body),
+    };
+    const validationErrors = validateNewsForm(sanitizedValues);
+
     setErrors(validationErrors);
     setTouched({ title: true, summary: true, body: true });
 
@@ -161,7 +339,7 @@ function AddNewsModal({
     try {
       setIsSubmitting(true);
       setSubmitError(null);
-      await onSubmit(values);
+      await onSubmit(sanitizedValues);
       onClose();
     } catch {
       setSubmitError("Something went wrong while preparing the news item. Please try again.");
@@ -179,15 +357,15 @@ function AddNewsModal({
         onClick={() => (!isSubmitting ? onClose() : undefined)}
       />
 
-      <div className="relative flex max-h-[calc(100vh-48px)] w-full max-w-[760px] animate-slide-up flex-col overflow-hidden rounded-lg bg-white shadow-[0_24px_70px_rgba(0,0,0,0.34)]">
+      <div className="relative flex max-h-[calc(100vh-48px)] w-full max-w-[820px] animate-slide-up flex-col overflow-hidden rounded-lg bg-white shadow-[0_24px_70px_rgba(0,0,0,0.34)]">
         <div className="flex items-start justify-between gap-4 border-b border-neutral-200 px-5 py-4 sm:px-7 sm:py-5">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-neutral-500">Company Hub</p>
             <h3 id="add-news-title" className="mt-1 text-2xl font-semibold tracking-[-0.02em] text-neutral-950">
               Add news
             </h3>
-            <p className="mt-1 max-w-[560px] text-sm leading-relaxed text-neutral-600">
-              The author will be taken from the logged-in user and saved through created_by when the backend is connected.
+            <p className="mt-1 max-w-[620px] text-sm leading-relaxed text-neutral-600">
+              The author will be taken from the logged-in user and saved through created_by. The body is stored as sanitized HTML.
             </p>
           </div>
           <button
@@ -238,23 +416,16 @@ function AddNewsModal({
               </div>
             </label>
 
-            <label className="sm:col-span-2">
+            <div className="sm:col-span-2">
               <span className="text-sm font-semibold text-neutral-900">News body *</span>
-              <textarea
+              <HtmlEditor
                 value={values.body}
-                onChange={(event) => setField("body", event.target.value)}
+                onChange={(nextValue) => setField("body", nextValue)}
                 onBlur={() => markTouched("body")}
-                maxLength={5000}
-                rows={6}
-                className="mt-2 w-full resize-y rounded-md border border-neutral-300 px-3 py-2.5 text-sm outline-none transition focus:border-black focus:ring-2 focus:ring-black/10"
-                placeholder="Write the full announcement or update here."
-                aria-invalid={Boolean(errors.body)}
+                hasError={Boolean(errors.body)}
               />
-              <div className="mt-1 flex items-start justify-between gap-3">
-                <FieldError message={errors.body} />
-                <span className="ml-auto text-xs text-neutral-500">{values.body.length}/5000</span>
-              </div>
-            </label>
+              <FieldError message={errors.body} />
+            </div>
           </div>
 
           <div className="sticky bottom-0 -mx-5 mt-6 flex flex-col-reverse gap-3 border-t border-neutral-200 bg-white/96 px-5 py-4 backdrop-blur sm:-mx-7 sm:flex-row sm:items-center sm:justify-end sm:px-7">
@@ -305,9 +476,9 @@ export function HomeNewsSection() {
 
     const nextNewsItem: NewsItem = {
       id: `local-news-${Date.now()}`,
-      title: values.title.trim(),
-      summary: values.summary.trim(),
-      body: values.body.trim(),
+      title: values.title,
+      summary: values.summary,
+      body: values.body,
       createdBy: CURRENT_USER_ID,
     };
 
