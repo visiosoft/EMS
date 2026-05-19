@@ -26,7 +26,8 @@ const msalConfig: Configuration = {
         postLogoutRedirectUri: resolveRedirectUri(),
     },
     cache: {
-        cacheLocation: "sessionStorage",
+        cacheLocation: "localStorage",
+        storeAuthStateInCookie: false,
     },
 };
 
