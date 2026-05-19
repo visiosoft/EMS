@@ -172,17 +172,17 @@ export function ArtGraphicDesignPage() {
         </section>
       </main>
 
-      <section className="mt-8 bg-black px-5 py-16 text-white sm:px-8 lg:px-10">
-        <div className="mx-auto max-w-[1120px]">
-          <div className="grid gap-7 md:grid-cols-[1fr_230px]">
-            <h2 className="text-[34px] font-semibold tracking-[0.04em]">Urgent / Upcoming</h2>
-            <div className="flex flex-col items-start gap-10 md:items-start">
-              <a href="#calendar" className="text-base font-medium underline underline-offset-2">View Full Calendar</a>
-              <a href="#see-all" className="text-sm font-semibold">See all</a>
+      <section className="mt-8 bg-black px-5 pb-16 pt-[84px] text-white sm:px-8 lg:px-10">
+        <div className="mx-auto max-w-[1104px]">
+          <div className="grid gap-7 md:grid-cols-[1fr_216px]">
+            <h2 className="text-[34px] font-semibold leading-none tracking-[-0.02em]">Urgent / Upcoming</h2>
+            <div className="relative h-[116px] w-[216px]">
+              <a href="#calendar" className="absolute left-[10px] top-0 text-base font-medium underline underline-offset-2">View Full Calendar</a>
+              <a href="#see-all" className="absolute left-[107px] top-[92px] text-sm font-semibold">See all</a>
             </div>
           </div>
 
-          <button type="button" className="mt-12 inline-flex items-center gap-3 text-sm font-semibold text-white hover:text-white/75">
+          <button type="button" className="mt-[20px] inline-flex items-center gap-3 text-sm font-semibold text-white hover:text-white/75">
             <Plus className="h-4 w-4" aria-hidden />
             Add event
           </button>
