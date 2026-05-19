@@ -28,12 +28,12 @@ function AddressColumn({ title, contactLabel }: { title: string; contactLabel: s
       <span className="text-xs">Address Line 1</span>
       <TextInput />
       <span className="text-xs">Address Line 2</span>
-      <div className="grid grid-cols-[1fr_1fr_0.52fr] gap-1">
+      <div className="grid grid-cols-1 gap-1 sm:grid-cols-[1fr_1fr_0.52fr]">
         <TextInput />
         <SelectInput />
         <TextInput />
       </div>
-      <div className="grid grid-cols-[1fr_1fr_0.52fr] gap-1 text-xs">
+      <div className="hidden grid-cols-[1fr_1fr_0.52fr] gap-1 text-xs sm:grid">
         <span>City</span>
         <span>State</span>
         <span>ZIP Code</span>

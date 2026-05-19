@@ -67,17 +67,17 @@ export function BookingPage() {
   return (
     <div className="bg-white text-black">
       <section
-        className="relative isolate overflow-hidden bg-[#0b080c] px-5 py-10 text-white sm:px-8 lg:px-10"
+        className="relative isolate overflow-hidden bg-[#0b080c] px-4 py-8 text-white sm:px-8 sm:py-10 lg:px-10"
         style={{ backgroundImage: "url('/internal-hub-bg.svg')", backgroundPosition: "center", backgroundRepeat: "no-repeat", backgroundSize: "cover" }}
       >
         <div className="mx-auto grid min-h-[300px] max-w-[1120px] items-center gap-8 md:grid-cols-[1fr_0.75fr]">
           <div>
-            <h1 className="max-w-[560px] text-[58px] font-bold leading-[1.08] tracking-[-0.025em] text-white sm:text-[70px] md:text-[76px]">
+            <h1 className="max-w-[560px] text-[clamp(2.25rem,11vw,4.75rem)] font-bold leading-[1.08] tracking-[-0.025em] text-white">
               Booking
             </h1>
-            <p className="mt-10 text-lg font-bold text-white">Department Overview</p>
+            <p className="mt-6 text-base font-bold text-white sm:mt-10 sm:text-lg">Department Overview</p>
             <div className="mt-4 h-px max-w-[650px] bg-white/45" />
-            <p className="mt-6 max-w-[620px] text-lg font-bold leading-snug text-white">
+            <p className="mt-6 max-w-[620px] text-base font-bold leading-snug text-white sm:text-lg">
               A central hub for managing financial records, budgets, and accounting resources with clarity and control.
             </p>
           </div>
@@ -87,7 +87,7 @@ export function BookingPage() {
         </div>
       </section>
 
-      <main className="mx-auto grid max-w-[1120px] gap-10 px-5 py-6 sm:px-8 lg:grid-cols-[1.05fr_1fr] lg:px-0">
+      <main className="mx-auto grid max-w-[1120px] gap-10 px-4 py-6 sm:px-8 lg:grid-cols-[1.05fr_1fr] lg:px-0">
         <section>
           <h2 className="text-2xl font-semibold">Team Members</h2>
           <div className="mt-7 border-t border-neutral-600">
@@ -140,13 +140,13 @@ export function BookingPage() {
         </section>
       </main>
 
-      <section className="mt-8 bg-black px-5 pb-16 pt-[84px] text-white sm:px-8 lg:px-10">
+      <section className="mt-8 bg-black px-4 pb-14 pt-12 text-white sm:px-8 sm:pb-16 sm:pt-[84px] lg:px-10">
         <div className="mx-auto max-w-[1104px]">
-          <div className="grid gap-7 md:grid-cols-[1fr_216px]">
-            <h2 className="text-[34px] font-semibold leading-none tracking-[-0.02em]">Urgent / Upcoming</h2>
-            <div className="relative h-[116px] w-[216px]">
-              <a href="#calendar" className="absolute left-[10px] top-0 text-base font-medium underline underline-offset-2">View Full Calendar</a>
-              <a href="#see-all" className="absolute left-[107px] top-[92px] text-sm font-semibold">See all</a>
+          <div className="grid gap-4 sm:gap-7 md:grid-cols-[1fr_216px]">
+            <h2 className="text-[28px] font-semibold leading-none tracking-[-0.02em] sm:text-[34px]">Urgent / Upcoming</h2>
+            <div className="flex items-center justify-between gap-4 md:relative md:block md:h-[116px] md:w-[216px]">
+              <a href="#calendar" className="text-sm font-medium underline underline-offset-2 sm:text-base md:absolute md:left-[10px] md:top-0">View Full Calendar</a>
+              <a href="#see-all" className="text-sm font-semibold md:absolute md:left-[107px] md:top-[92px]">See all</a>
             </div>
           </div>
 
@@ -155,7 +155,7 @@ export function BookingPage() {
             Add event
           </button>
 
-          <div className="mt-8 grid gap-8 md:grid-cols-[minmax(230px,1.05fr)_repeat(3,minmax(150px,1fr))]">
+          <div className="mt-8 grid gap-7 md:grid-cols-[minmax(230px,1.05fr)_repeat(3,minmax(150px,1fr))]">
             <div className="flex items-center gap-4">
               <div className="flex h-[64px] w-[64px] shrink-0 items-center justify-center bg-white/40 text-black">
                 <Calendar className="h-7 w-7" strokeWidth={1.7} aria-hidden />
@@ -173,7 +173,7 @@ export function BookingPage() {
                 </div>
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-white">{event.title}</p>
-                  <p className="mt-1 truncate text-xs font-semibold text-white/90">{event.time}</p>
+                  <p className="mt-1 text-xs font-semibold text-white/90">{event.time}</p>
                 </div>
               </article>
             ))}

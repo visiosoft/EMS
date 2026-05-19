@@ -180,7 +180,7 @@ function BusinessCard({
 }) {
   return (
     <article
-      className="group flex h-[214px] w-[184px] flex-col items-center rounded-md bg-black px-6 pb-5 pt-5 text-white shadow-[0_4px_16px_rgba(0,0,0,0.24)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_36px_rgba(0,0,0,0.28)]"
+      className="group flex h-[214px] w-full max-w-[210px] flex-col items-center rounded-md bg-black px-6 pb-5 pt-5 text-white shadow-[0_4px_16px_rgba(0,0,0,0.24)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_36px_rgba(0,0,0,0.28)]"
       style={{ animationDelay: `${index * 55}ms` }}
     >
       <div className="flex flex-1 items-center justify-center">
@@ -201,15 +201,15 @@ function BusinessCard({
 
 function UrgentUpcomingSection() {
   return (
-    <section className="bg-white px-5 pb-16 pt-[72px] text-black sm:px-8 lg:px-10">
+    <section className="bg-white px-4 pb-14 pt-12 text-black sm:px-8 sm:pb-16 sm:pt-[72px] lg:px-10">
       <div className="mx-auto max-w-[1120px]">
-        <div className="grid gap-6 md:grid-cols-[1fr_216px]">
-          <h2 className="text-[34px] font-semibold leading-none tracking-[-0.02em] text-neutral-900">Urgent / Upcoming</h2>
-          <div className="relative h-[112px] w-[216px]">
-            <a href="#calendar" className="absolute left-0 top-[6px] text-base text-neutral-800 underline underline-offset-2 hover:text-black">
+        <div className="grid gap-4 sm:gap-6 md:grid-cols-[1fr_216px]">
+          <h2 className="text-[28px] font-semibold leading-none tracking-[-0.02em] text-neutral-900 sm:text-[34px]">Urgent / Upcoming</h2>
+          <div className="flex items-center justify-between gap-4 md:relative md:block md:h-[112px] md:w-[216px]">
+            <a href="#calendar" className="text-sm text-neutral-800 underline underline-offset-2 hover:text-black sm:text-base md:absolute md:left-0 md:top-[6px]">
               View Full Calendar
             </a>
-            <a href="#see-all" className="absolute left-[98px] top-[95px] text-sm font-semibold text-neutral-900 hover:underline">
+            <a href="#see-all" className="text-sm font-semibold text-neutral-900 hover:underline md:absolute md:left-[98px] md:top-[95px]">
               See all
             </a>
           </div>
@@ -220,7 +220,7 @@ function UrgentUpcomingSection() {
           Add event
         </button>
 
-        <div className="mt-[24px] grid gap-8 md:grid-cols-[minmax(240px,0.92fr)_repeat(3,minmax(205px,1fr))]">
+        <div className="mt-[24px] grid gap-7 sm:gap-8 md:grid-cols-[minmax(240px,0.92fr)_repeat(3,minmax(170px,1fr))]">
           <div className="flex items-center gap-4">
             <div className="flex h-[58px] w-[58px] shrink-0 items-center justify-center bg-black text-white">
               <Calendar className="h-7 w-7" strokeWidth={1.65} aria-hidden />
@@ -239,7 +239,7 @@ function UrgentUpcomingSection() {
               </div>
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-neutral-900">{event.title}</p>
-                <p className="mt-1 whitespace-nowrap text-xs font-medium text-neutral-800">{event.time}</p>
+                <p className="mt-1 text-xs font-medium text-neutral-800">{event.time}</p>
               </div>
             </article>
           ))}
@@ -253,15 +253,15 @@ export function EventBusinessPage() {
   return (
     <div className="bg-white text-black">
       <section
-        className="relative isolate overflow-hidden bg-[#0b080c] px-5 py-9 text-white sm:px-8 lg:px-10"
+        className="relative isolate overflow-hidden bg-[#0b080c] px-4 py-8 text-white sm:px-8 sm:py-9 lg:px-10"
         style={{ backgroundImage: "url('/internal-hub-bg.svg')", backgroundPosition: "center", backgroundRepeat: "no-repeat", backgroundSize: "cover" }}
       >
         <div className="mx-auto grid min-h-[276px] max-w-[1080px] items-center gap-10 md:grid-cols-[1fr_0.65fr]">
           <div>
-            <h1 className="text-[58px] font-bold leading-[1.05] tracking-[-0.025em] text-white sm:text-[68px]">Event Business</h1>
-            <p className="mt-9 text-lg font-bold text-white">Department Overview</p>
+            <h1 className="text-[clamp(2.25rem,11vw,4.25rem)] font-bold leading-[1.05] tracking-[-0.025em] text-white">Event Business</h1>
+            <p className="mt-6 text-base font-bold text-white sm:mt-9 sm:text-lg">Department Overview</p>
             <div className="mt-4 h-px max-w-[690px] bg-white/45" />
-            <p className="mt-5 max-w-[640px] text-lg font-bold leading-snug text-white">
+            <p className="mt-5 max-w-[640px] text-base font-bold leading-snug text-white sm:text-lg">
               A central hub for managing financial records, budgets, and accounting resources with clarity and control.
             </p>
           </div>
@@ -271,7 +271,7 @@ export function EventBusinessPage() {
         </div>
       </section>
 
-      <main className="mx-auto max-w-[980px] px-5 pb-0 pt-9 sm:px-8 lg:px-0">
+      <main className="mx-auto max-w-[980px] px-4 pb-0 pt-8 sm:px-8 sm:pt-9 lg:px-0">
         <h2 className="mb-8 text-[17px] font-semibold text-neutral-900">Event &amp; Business List</h2>
         <section className="grid grid-cols-1 justify-items-center gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5" aria-label="Event and business list">
           {BUSINESS_CARDS.map((card, index) => (

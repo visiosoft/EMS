@@ -24,9 +24,11 @@ const AUTHORED_BY_ME = [
 ];
 
 function NewsThumb({ variant, large = false }: { variant: string; large?: boolean }) {
+  const sizeClass = large ? "h-[88px] w-full sm:w-[170px]" : "h-[76px] w-full sm:w-[118px]";
+
   if (variant === "yellow") {
     return (
-      <div className={`${large ? "h-[88px] w-[170px]" : "h-[76px] w-[118px]"} relative shrink-0 overflow-hidden bg-[#f2d600]`}>
+      <div className={`${sizeClass} relative shrink-0 overflow-hidden bg-[#f2d600]`}>
         <div className="absolute -left-7 top-0 h-[120%] w-[55%] rotate-[-10deg] bg-white shadow-md" />
         <div className="absolute left-1 top-1 grid h-[96px] w-[82px] rotate-[-10deg] grid-cols-3 gap-px bg-neutral-300 opacity-70">
           {Array.from({ length: 18 }).map((_, i) => <span key={i} className="bg-white" />)}
@@ -34,9 +36,9 @@ function NewsThumb({ variant, large = false }: { variant: string; large?: boolea
       </div>
     );
   }
-  if (variant === "orange") return <div className={`${large ? "h-[88px] w-[170px]" : "h-[76px] w-[118px]"} shrink-0 bg-[radial-gradient(circle_at_20%_45%,#ee8e4d_0,#ee8e4d_22%,#ff762c_23%,#ff762c_63%,#fff_64%)]`} />;
-  if (variant === "office") return <div className={`${large ? "h-[88px] w-[170px]" : "h-[76px] w-[118px]"} shrink-0 bg-[linear-gradient(135deg,#c7b18d,#e8e3da_38%,#743b2f_39%,#b16539_68%,#e9e1d5)]`} />;
-  return <div className={`${large ? "h-[88px] w-[170px]" : "h-[76px] w-[118px]"} shrink-0 bg-[linear-gradient(180deg,#f1f1f1_0%,#f1f1f1_45%,#54534f_46%,#54534f_100%)]`} />;
+  if (variant === "orange") return <div className={`${sizeClass} shrink-0 bg-[radial-gradient(circle_at_20%_45%,#ee8e4d_0,#ee8e4d_22%,#ff762c_23%,#ff762c_63%,#fff_64%)]`} />;
+  if (variant === "office") return <div className={`${sizeClass} shrink-0 bg-[linear-gradient(135deg,#c7b18d,#e8e3da_38%,#743b2f_39%,#b16539_68%,#e9e1d5)]`} />;
+  return <div className={`${sizeClass} shrink-0 bg-[linear-gradient(180deg,#f1f1f1_0%,#f1f1f1_45%,#54534f_46%,#54534f_100%)]`} />;
 }
 
 function AuthorAvatar({ photo }: { photo?: boolean }) {
@@ -50,9 +52,9 @@ function AuthorAvatar({ photo }: { photo?: boolean }) {
 export function CompanyNewsPage() {
   return (
     <div className="bg-white text-black">
-      <section className="flex min-h-[260px] flex-col items-center justify-center bg-black px-6 py-14 text-center text-white">
-        <h1 className="text-5xl font-bold tracking-[0.08em] sm:text-[72px]">Company News</h1>
-        <p className="mt-9 max-w-[650px] text-base font-medium leading-snug text-white/95">
+      <section className="flex min-h-[240px] flex-col items-center justify-center bg-black px-4 py-10 text-center text-white sm:px-6 sm:py-14">
+        <h1 className="text-[clamp(2rem,10vw,4.5rem)] font-bold tracking-[0.04em] sm:tracking-[0.08em]">Company News</h1>
+        <p className="mt-6 max-w-[650px] text-base font-medium leading-snug text-white/95 sm:mt-9">
           Stay updated with the latest announcements, achievements, and important updates across the organization.
         </p>
       </section>
@@ -69,7 +71,7 @@ export function CompanyNewsPage() {
             </div>
             <div className="divide-y divide-neutral-200">
               {FEATURED_NEWS.map((item) => (
-                <article key={item.title} className="flex gap-5 py-4 first:pt-0">
+                <article key={item.title} className="flex flex-col gap-4 py-4 first:pt-0 sm:flex-row sm:gap-5">
                   <NewsThumb variant={item.image} large />
                   <div className="min-w-0 flex-1">
                     <h3 className="text-base font-semibold">{item.title}</h3>
@@ -113,7 +115,7 @@ export function CompanyNewsPage() {
         <div>
           <h2 className="mb-5 text-2xl font-semibold">Employee Updates</h2>
           <button className="mb-6 inline-flex items-center gap-2 text-sm"><Plus className="h-4 w-4" /> Add <ChevronDown className="h-3 w-3" /></button>
-          <article className="flex gap-4 border-b border-neutral-200 pb-5">
+          <article className="flex flex-col gap-4 border-b border-neutral-200 pb-5 sm:flex-row">
             <NewsThumb variant="orange" />
             <div><h3 className="font-semibold">New Employee Benefit</h3><p className="mt-2 line-clamp-1 text-sm text-neutral-600">New employee benefits at Lamna...</p><p className="mt-4 text-xs font-semibold">zulfiqar khan <span className="font-normal">February 3</span></p><p className="text-xs text-neutral-500">8 views</p></div>
           </article>
@@ -121,7 +123,7 @@ export function CompanyNewsPage() {
         <div>
           <h2 className="mb-5 text-2xl font-semibold">Latest Updates</h2>
           <button className="mb-6 inline-flex items-center gap-2 text-sm"><Plus className="h-4 w-4" /> Add <ChevronDown className="h-3 w-3" /></button>
-          <article className="flex gap-4 border-b border-neutral-200 pb-5">
+          <article className="flex flex-col gap-4 border-b border-neutral-200 pb-5 sm:flex-row">
             <div className="flex h-[76px] w-[118px] shrink-0 flex-col items-center justify-center bg-black text-white"><Newspaper className="h-6 w-6" /><span className="mt-2 text-sm">Add News</span></div>
             <div><h3 className="font-semibold">Create a news post</h3><p className="mt-2 text-sm text-neutral-600">Keep your audience engaged by...</p><p className="mt-3 text-xs">now</p></div>
           </article>
@@ -131,7 +133,7 @@ export function CompanyNewsPage() {
           <h2 className="mb-5 text-2xl font-semibold">News Authored by Me</h2>
           <button className="mb-6 inline-flex items-center gap-2 text-sm"><Plus className="h-4 w-4" /> Add <ChevronDown className="h-3 w-3" /></button>
           <div className="divide-y divide-neutral-200">
-            {AUTHORED_BY_ME.map(item => <article key={item.title} className="flex gap-4 py-4 first:pt-0"><NewsThumb variant={item.image} /><div><h3 className="font-semibold">{item.title}</h3><p className="mt-2 line-clamp-1 text-sm text-neutral-600">{item.summary}</p><p className="mt-4 text-xs font-semibold">{item.author} <span className="font-normal">{item.date}</span></p><p className="text-xs text-neutral-500">{item.views}</p></div></article>)}
+            {AUTHORED_BY_ME.map(item => <article key={item.title} className="flex flex-col gap-4 py-4 first:pt-0 sm:flex-row"><NewsThumb variant={item.image} /><div><h3 className="font-semibold">{item.title}</h3><p className="mt-2 line-clamp-1 text-sm text-neutral-600">{item.summary}</p><p className="mt-4 text-xs font-semibold">{item.author} <span className="font-normal">{item.date}</span></p><p className="text-xs text-neutral-500">{item.views}</p></div></article>)}
           </div>
         </div>
       </section>
