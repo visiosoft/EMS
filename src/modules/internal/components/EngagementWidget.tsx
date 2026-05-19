@@ -13,7 +13,9 @@ export function EngagementWidget({ title }: EngagementWidgetProps) {
           {title}
         </h3>
         <a
-          href="/?view=engagements"
+          href="/engagements"
+          target="_blank"
+          rel="noreferrer"
           className="shrink-0 text-xs font-semibold text-neutral-900 underline-offset-4 hover:underline"
         >
           See all
@@ -21,7 +23,9 @@ export function EngagementWidget({ title }: EngagementWidgetProps) {
       </div>
 
       <a
-        href="/?view=engagements&createEngagement=1"
+        href="/engagements/create"
+        target="_blank"
+        rel="noreferrer"
         className="mb-5 inline-flex items-center gap-2 text-sm font-medium text-neutral-900 hover:text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-4"
       >
         <Plus className="h-4 w-4" aria-hidden />
