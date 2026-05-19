@@ -7,8 +7,11 @@ export class InternalNewsController {
   constructor(private readonly internalNewsService: InternalNewsService) {}
 
   @Get()
-  findAll(@Query('limit', new DefaultValuePipe(12), ParseIntPipe) limit: number) {
-    return this.internalNewsService.findAll(limit);
+  findAll(
+    @Query('limit', new DefaultValuePipe(12), ParseIntPipe) limit: number,
+    @Query('skip', new DefaultValuePipe(0), ParseIntPipe) skip: number,
+  ) {
+    return this.internalNewsService.findAll(limit, skip);
   }
 
   @Post()
