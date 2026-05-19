@@ -1,9 +1,15 @@
 import { Calendar, GraduationCap, ImageIcon, Palette, PenTool, Plus } from "lucide-react";
 
 const TEAM_MEMBERS = [
-  { name: "Alex Abalo", title: "Graphic Designer" },
   { name: "Ben Viette", title: "Art Director" },
+  { name: "Alex Abalo", title: "Graphic Designer" },
   { name: "Chauncey Hopewell", title: "Graphic Designer" },
+  { name: "Amy Lord", title: "Graphic Designer" },
+  { name: "Autumn Wieske", title: "Production Artist" },
+  { name: "Rebecca Pepe", title: "Creative Director" },
+  { name: "Nichole Beeler", title: "Marketing Designer" },
+  { name: "Andrew Turbiville", title: "Event Designer" },
+  { name: "George Wood", title: "Operations Support" },
 ];
 
 const QUICK_LINKS = [
@@ -21,14 +27,16 @@ const URGENT_EVENTS = [
 
 function TeamAvatar() {
   return (
-    <div className="relative h-[40px] w-[31px] overflow-hidden bg-neutral-100 shadow-sm" aria-hidden>
-      <div className="absolute left-1/2 top-[7px] h-[13px] w-[13px] -translate-x-1/2 rounded-full bg-[#111]" />
-      <div className="absolute bottom-0 left-1/2 h-[22px] w-[20px] -translate-x-1/2 rounded-t-[9px] bg-[#111]" />
-      <div className="absolute bottom-0 left-1/2 h-[19px] w-[8px] -translate-x-1/2 bg-white" />
-      <div className="absolute bottom-[3px] left-1/2 h-[13px] w-[4px] -translate-x-1/2 bg-[#b10f18]" />
-      <div className="absolute bottom-[15px] left-1/2 h-[4px] w-[8px] -translate-x-1/2 rotate-45 bg-[#b10f18]" />
-      <div className="absolute bottom-[15px] left-1/2 h-[4px] w-[8px] -translate-x-1/2 -rotate-45 bg-[#b10f18]" />
-    </div>
+    <svg width="31" height="40" viewBox="0 0 31 40" role="img" aria-label="Team member picture" className="block bg-[#f5f5f5] shadow-sm">
+      <rect width="31" height="40" fill="#f5f5f5" />
+      <ellipse cx="15.5" cy="11.2" rx="6.2" ry="7.1" fill="#171717" />
+      <path d="M4.2 39.8c.7-9.6 5-16 11.3-16s10.6 6.4 11.3 16H4.2Z" fill="#111" />
+      <path d="M12.2 24.4h6.6l-2.4 15.4h-1.8l-2.4-15.4Z" fill="#fff" />
+      <path d="M14 25.2h3l.9 2.8-2.4 2.5-2.4-2.5.9-2.8Z" fill="#bd101a" />
+      <path d="M14.2 30.2h2.6l1.1 9.6h-4.8l1.1-9.6Z" fill="#bd101a" />
+      <path d="M7.9 28.2 13 24.4l1.1 15.4H5.7c.2-4.9.9-8.7 2.2-11.6Z" fill="#070707" />
+      <path d="M23.1 28.2 18 24.4l-1.1 15.4h8.4c-.2-4.9-.9-8.7-2.2-11.6Z" fill="#070707" />
+    </svg>
   );
 }
 
@@ -74,24 +82,28 @@ export function ArtGraphicDesignPage() {
         <section>
           <h2 className="text-2xl font-semibold">Team Members</h2>
           <div className="mt-7 border-t border-neutral-600">
-            <table className="mt-5 w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-neutral-200 text-xs font-semibold text-neutral-900">
-                  <th className="w-[150px] px-4 py-3">Picture</th>
-                  <th className="px-4 py-3">Name</th>
-                  <th className="px-4 py-3">Title</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-neutral-100">
-                {TEAM_MEMBERS.map((member) => (
-                  <tr key={member.name}>
-                    <td className="px-4 py-4"><TeamAvatar /></td>
-                    <td className="px-4 py-4 text-sm text-neutral-700">{member.name}</td>
-                    <td className="px-4 py-4 text-sm font-semibold text-neutral-900">{member.title}</td>
+            <div className="mt-5 max-h-[248px] overflow-y-auto pr-2 [scrollbar-color:#9ca3af_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-neutral-400 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-1.5">
+              <table className="w-full text-left text-sm">
+                <thead className="sticky top-0 z-10 bg-white">
+                  <tr className="border-b border-neutral-200 text-xs font-semibold text-neutral-900">
+                    <th className="w-[150px] px-4 py-3">Picture</th>
+                    <th className="px-4 py-3">Name</th>
+                    <th className="px-4 py-3">Title</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-neutral-100">
+                  {TEAM_MEMBERS.map((member) => (
+                    <tr key={member.name} className="relative">
+                      <td className="relative px-4 py-4 before:absolute before:left-0 before:top-1/2 before:h-10 before:w-1 before:-translate-y-1/2 before:rounded-full before:bg-neutral-300">
+                        <TeamAvatar />
+                      </td>
+                      <td className="px-4 py-4 text-sm text-neutral-700">{member.name}</td>
+                      <td className="px-4 py-4 text-sm font-semibold text-neutral-900">{member.title}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
 
