@@ -1,6 +1,7 @@
 import { Route, Routes } from "react-router-dom";
 import { InternalLayout } from "@/modules/internal/layout/InternalLayout";
 import { ArtGraphicDesignPage } from "@/modules/internal/pages/ArtGraphicDesignPage";
+import { BookingPage } from "@/modules/internal/pages/BookingPage";
 import { CompanyNewsPage } from "@/modules/internal/pages/CompanyNewsPage";
 import { DepartmentsPage } from "@/modules/internal/pages/DepartmentsPage";
 import { EmployeeServicesPage } from "@/modules/internal/pages/EmployeeServicesPage";
@@ -24,6 +25,7 @@ export default function InternalApp() {
         <Route path="leadership" element={<LeadershipPage />} />
         <Route path="departments" element={<DepartmentsPage />} />
         <Route path="departments/art-graphic-design" element={<ArtGraphicDesignPage />} />
+        <Route path="departments/booking" element={<BookingPage />} />
         <Route path="departments/event-business" element={<EventBusinessPage />} />
       </Route>
     </Routes>
