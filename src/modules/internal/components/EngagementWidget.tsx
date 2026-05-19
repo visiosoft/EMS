@@ -1,4 +1,4 @@
-import { Calendar, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { SAMPLE_ENGAGEMENTS } from "../constants/quickLinks";
 
 type EngagementWidgetProps = {
@@ -13,32 +13,20 @@ export function EngagementWidget({ title }: EngagementWidgetProps) {
           {title}
         </h3>
         <a
-          href="#see-all"
+          href="/?view=engagements"
           className="shrink-0 text-xs font-semibold text-neutral-900 underline-offset-4 hover:underline"
         >
           See all
         </a>
       </div>
 
-      <button
-        type="button"
+      <a
+        href="/?view=engagements&createEngagement=1"
         className="mb-5 inline-flex items-center gap-2 text-sm font-medium text-neutral-900 hover:text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-4"
       >
         <Plus className="h-4 w-4" aria-hidden />
         Add event
-      </button>
-
-      <div className="mb-5 flex items-start gap-4">
-        <div className="flex h-[52px] w-[52px] shrink-0 items-center justify-center bg-black text-white shadow-sm transition-transform duration-300 group-hover:-translate-y-0.5">
-          <Calendar className="h-6 w-6" strokeWidth={1.5} aria-hidden />
-        </div>
-        <div className="pt-0.5">
-          <p className="text-sm font-semibold text-neutral-950">Create an event</p>
-          <p className="mt-1 max-w-[245px] text-[13px] leading-snug text-neutral-600">
-            When you add an event, it will show here where your readers can see it.
-          </p>
-        </div>
-      </div>
+      </a>
 
       <ul className="space-y-3">
         {SAMPLE_ENGAGEMENTS.map((event, index) => (
