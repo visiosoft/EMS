@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, type ReactNode } from "react";
+import { useRef, useEffect, useState, type ReactNode, type MouseEvent } from "react";
 import {
   BadgeDollarSign,
   BriefcaseBusiness,
@@ -9,6 +9,10 @@ import {
   Star,
 } from "lucide-react";
 import { HUB_ACTION_CARDS } from "../constants/quickLinks";
+
+const SALES_UPDATE_URL =
+  "https://innovationae.sharepoint.com/:x:/s/IAECloudServer/EZwsYuu0QX9PjJW6GzC8JtkB50cSo1vLBDSscx4pmSy0tg?e=9mVJip&wdLOR=c02714DFC-8E9B-A44E-B239-9078B0C8BD68&web=1";
+const EMS_OPEN_INTENT_KEY = "iae-ems-open-intent-v1";
 
 const CARD_ICONS: Record<(typeof HUB_ACTION_CARDS)[number]["key"], ReactNode> = {
   "sales-update": (
@@ -31,6 +35,42 @@ const CARD_ICONS: Record<(typeof HUB_ACTION_CARDS)[number]["key"], ReactNode> = 
     </span>
   ),
 };
+
+function primeEngagementsTab(timingFilter: "past" | "upcoming") {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.setItem(
+    EMS_OPEN_INTENT_KEY,
+    JSON.stringify({
+      view: "engagements",
+      timingFilter,
+      expiresAt: Date.now() + 120_000,
+    }),
+  );
+}
+
+function getCardHref(key: (typeof HUB_ACTION_CARDS)[number]["key"]) {
+  if (key === "sales-update") return SALES_UPDATE_URL;
+  if (key === "employee-services") return "/internal/employee-services";
+  if (key === "past-engagements" || key === "upcoming-engagements") return "/";
+  return `#${key}`;
+}
+
+function getCardTarget(key: (typeof HUB_ACTION_CARDS)[number]["key"]) {
+  if (key === "sales-update") return "_blank";
+  return undefined;
+}
+
+function handleCardClick(
+  event: MouseEvent<HTMLAnchorElement>,
+  key: (typeof HUB_ACTION_CARDS)[number]["key"],
+) {
+  if (key !== "past-engagements" && key !== "upcoming-engagements") return;
+
+  event.preventDefault();
+  primeEngagementsTab(key === "past-engagements" ? "past" : "upcoming");
+  window.open("/", "_blank", "noopener,noreferrer");
+}
 
 export function HubActionCards() {
   const ref = useRef<HTMLElement | null>(null);
@@ -63,7 +103,10 @@ export function HubActionCards() {
       {HUB_ACTION_CARDS.map((card, i) => (
         <a
           key={card.key}
-          href={`#${card.key}`}
+          href={getCardHref(card.key)}
+          target={getCardTarget(card.key)}
+          rel={getCardTarget(card.key) ? "noreferrer" : undefined}
+          onClick={(event) => handleCardClick(event, card.key)}
           className="group relative flex min-h-[190px] flex-col items-center justify-center overflow-hidden rounded-lg bg-[#101010] px-5 py-8 text-center text-white shadow-[0_4px_12px_rgba(0,0,0,0.22)] outline-none transition-all duration-300 hover:-translate-y-1 hover:bg-black hover:shadow-[0_18px_36px_rgba(0,0,0,0.28)] focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-4 active:scale-[0.985] sm:min-h-[198px]"
           style={{
             opacity: visible ? 1 : 0,

@@ -1,9 +1,17 @@
+import { useMemo } from "react";
+import { useMsal } from "@azure/msal-react";
+import { getAccountName, getActiveAccount } from "@/auth/entra";
 import { EngagementWidget } from "../components/EngagementWidget";
 import { HomeNewsSection } from "../components/HomeNewsSection";
 import { HubActionCards } from "../components/HubActionCards";
 import { TimeZonesWidget } from "../components/TimeZonesWidget";
 
 export function InternalHomePage() {
+  const { accounts } = useMsal();
+  const account = getActiveAccount() ?? accounts[0] ?? null;
+  const displayName = useMemo(() => getAccountName(account), [account]);
+  const heroName = displayName && displayName !== "Entra user" ? displayName : "iAE Team";
+
   return (
     <div className="bg-white text-black">
       <section
@@ -16,10 +24,21 @@ export function InternalHomePage() {
         }}
       >
         <div className="absolute inset-0 bg-black/8" aria-hidden />
+        <div className="pointer-events-none absolute left-1/2 top-1/2 h-44 w-44 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/[0.035] blur-2xl" aria-hidden />
         <div className="relative mx-auto flex max-w-[980px] flex-col items-center">
-          <p className="mb-5 inline-flex border border-white/35 bg-black/55 px-4 py-1.5 text-[11px] font-bold uppercase tracking-[0.24em] text-white shadow-sm backdrop-blur-sm">
-            Welcome
-          </p>
+          <div className="mb-5 flex flex-col items-center gap-3 sm:mb-6">
+            <p className="inline-flex border border-white/35 bg-black/55 px-4 py-1.5 text-[11px] font-bold uppercase tracking-[0.24em] text-white shadow-sm backdrop-blur-sm">
+              Welcome to your iAE hub
+            </p>
+
+            <div className="relative isolate overflow-hidden rounded-full border border-white/18 bg-white/[0.075] px-5 py-2.5 shadow-[0_18px_52px_rgba(0,0,0,0.25)] backdrop-blur-md transition duration-300 hover:border-white/35 hover:bg-white/[0.11] sm:px-7">
+              <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-white/60 to-transparent" aria-hidden />
+              <strong className="block max-w-[min(78vw,30rem)] truncate text-sm font-extrabold tracking-[0.1em] text-white sm:text-base">
+                {heroName}
+              </strong>
+            </div>
+          </div>
+
           <h1 className="text-[clamp(2rem,9vw,4rem)] font-bold tracking-[-0.035em] text-white leading-[1.08] lg:leading-[1.05]">
             Your Hub For All Things iAE
           </h1>
