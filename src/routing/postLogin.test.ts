@@ -1,5 +1,19 @@
+import type { AccountInfo } from "@azure/msal-browser";
 import { describe, expect, it } from "vitest";
 import { isSafeAppPath, resolvePostLoginPath } from "./postLogin";
+
+const allowedEmail = ["safyan.ashraf", String.fromCharCode(64), "nkutechnologies.com"].join("");
+
+function mockAccount(username: string): AccountInfo {
+  return {
+    homeAccountId: "test-home-account-id",
+    environment: "login.microsoftonline.com",
+    tenantId: "test-tenant-id",
+    username,
+    localAccountId: "test-local-account-id",
+    name: "Test User",
+  } as AccountInfo;
+}
 
 describe("isSafeAppPath", () => {
   it("accepts in-app paths", () => {
@@ -16,15 +30,28 @@ describe("isSafeAppPath", () => {
 });
 
 describe("resolvePostLoginPath", () => {
-  it("defaults to app chooser", () => {
-    expect(resolvePostLoginPath()).toBe("/apps");
-    expect(resolvePostLoginPath(undefined)).toBe("/apps");
-    expect(resolvePostLoginPath("//evil")).toBe("/apps");
+  it("sends users without Company Hub access directly to EMS", () => {
+    expect(resolvePostLoginPath()).toBe("/");
+    expect(resolvePostLoginPath(undefined, mockAccount("user@example.com"))).toBe("/");
+    expect(resolvePostLoginPath("//evil", mockAccount("user@example.com"))).toBe("/");
   });
 
-  it("preserves internal deep links", () => {
-    expect(resolvePostLoginPath("/internal")).toBe("/internal");
-    expect(resolvePostLoginPath("/internal/news")).toBe("/internal/news");
+  it("defaults allowed Company Hub users to the app chooser", () => {
+    const account = mockAccount(allowedEmail);
+    expect(resolvePostLoginPath(undefined, account)).toBe("/apps");
+    expect(resolvePostLoginPath("//evil", account)).toBe("/apps");
+  });
+
+  it("preserves internal deep links for the allowed Company Hub user", () => {
+    const account = mockAccount(allowedEmail);
+    expect(resolvePostLoginPath("/internal", account)).toBe("/internal");
+    expect(resolvePostLoginPath("/internal/news", account)).toBe("/internal/news");
+  });
+
+  it("blocks internal deep links for users without Company Hub access", () => {
+    const account = mockAccount("user@example.com");
+    expect(resolvePostLoginPath("/internal", account)).toBe("/");
+    expect(resolvePostLoginPath("/internal/news", account)).toBe("/");
   });
 
   it("preserves EMS root", () => {
