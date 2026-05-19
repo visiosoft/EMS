@@ -106,6 +106,16 @@ function sanitizeViewDataForView(view: string, raw: unknown): Record<string, unk
 function readRouteFromUrl(): { view: string; viewData: Record<string, unknown> } | null {
   if (typeof window === 'undefined') return null;
   try {
+    const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
+    if (pathname === '/engagements' || pathname === '/engagements/create') {
+      return {
+        view: 'engagements',
+        viewData: sanitizeViewDataForView('engagements', {
+          createEngagement: pathname === '/engagements/create',
+        }),
+      };
+    }
+
     const params = new URLSearchParams(window.location.search);
     const view = params.get('view')?.trim() ?? '';
     if (!view || !VALID_VIEWS.has(view)) return null;
@@ -211,13 +221,13 @@ const Index = () => {
           delete next.createEngagement;
           return next;
         });
-        if (window.location.search.includes('createEngagement=1')) {
-          window.history.replaceState({}, document.title, window.location.pathname);
+        if (window.location.pathname === '/engagements/create' || window.location.search.includes('createEngagement=1')) {
+          window.history.replaceState({}, document.title, '/engagements');
         }
         return;
       }
 
-      if (attempts < 60) {
+      if (attempts < 300) {
         timeoutId = window.setTimeout(openCreateEngagementModal, 100);
       }
     };
