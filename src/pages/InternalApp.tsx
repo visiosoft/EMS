@@ -9,8 +9,10 @@ import { EventBusinessPage } from "@/modules/internal/pages/EventBusinessPage";
 import { InternalHomePage } from "@/modules/internal/pages/HomePage";
 import { LeadershipPage } from "@/modules/internal/pages/LeadershipPage";
 import { MarketingPage } from "@/modules/internal/pages/MarketingPage";
+import { ProductionPage } from "@/modules/internal/pages/ProductionPage";
 import { ShippingRequestsPage } from "@/modules/internal/pages/ShippingRequestsPage";
 import { TechSupportPage } from "@/modules/internal/pages/TechSupportPage";
+import { TicketingSalesPage } from "@/modules/internal/pages/TicketingSalesPage";
 
 /** Route tree for the Company Hub module (`/internal/*`). */
 export default function InternalApp() {
@@ -29,6 +31,8 @@ export default function InternalApp() {
         <Route path="departments/booking" element={<BookingPage />} />
         <Route path="departments/event-business" element={<EventBusinessPage />} />
         <Route path="departments/marketing" element={<MarketingPage />} />
+        <Route path="departments/production" element={<ProductionPage />} />
+        <Route path="departments/ticketing-sales" element={<TicketingSalesPage />} />
       </Route>
     </Routes>
   );
