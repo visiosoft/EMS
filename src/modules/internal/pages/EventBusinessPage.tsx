@@ -3,15 +3,47 @@ import { Calendar, Megaphone, Plus } from "lucide-react";
 type IconProps = { className?: string };
 
 const BUSINESS_CARDS = [
-  { label: "SOP's", icon: SopIcon },
-  { label: "Resource Library", icon: ResourceLibraryIcon },
-  { label: "Forms & Templates", icon: DocumentsIcon },
-  { label: "Withholding Forms", icon: DocumentsIcon },
-  { label: "Event Business Chec...", icon: ChecklistIcon },
-  { label: "Event Business Cont...", icon: ContractIcon },
-  { label: "Ramp", icon: LinkIcon },
-  { label: "Withholding Payme...", icon: CardPaymentIcon },
-  { label: "Incoming Funds Not...", icon: IncomingFundsIcon },
+  {
+    label: "SOP's",
+    icon: SopIcon,
+    href: "https://innovationae.sharepoint.com/:f:/s/IAECloudServer/IgAbnBRs9Jk2R5tv6WegXBD3Ab3LkW8yAifIMkVe6Po06ys?e=a9adxo",
+  },
+  {
+    label: "Resource Library",
+    icon: ResourceLibraryIcon,
+    href: "https://innovationae.sharepoint.com/:f:/s/IAECloudServer/IgAoisq2Y6qSRKMfkxRJc9_gAXtU9myhZDr1e6b--4UMyj0?e=65wILd",
+  },
+  {
+    label: "Forms & Templates",
+    icon: DocumentsIcon,
+    href: "https://innovationae.sharepoint.com/:f:/s/IAECloudServer/IgAhWNwoTBl1RppQCYXQkDXhAQ8-LLW8HUmlSwYAhHTW0To?e=dUF4sn",
+  },
+  {
+    label: "Withholding Forms",
+    icon: DocumentsIcon,
+    href: "https://innovationae.sharepoint.com/:f:/s/IAECloudServer/IgARIxUxIA5DWbu0Fz7d-IxbAU1x3m8McOrcc6nMWNZkWzM?e=ofvTok",
+  },
+  {
+    label: "Event Business Chec...",
+    icon: ChecklistIcon,
+    href: "https://innovationae.sharepoint.com/:w:/s/IAECloudServer/IQCPOUj37SC7T7pySJdasYHBAa-O7ryMUTWUNjO5TtR2kUs?e=vvOy4t",
+  },
+  {
+    label: "Event Business Cont...",
+    icon: ContractIcon,
+    href: "https://airtable.com/login?continue=%2Fapps94oGAfjbSvf84%2Ftblia58QhLk7WylNK%2Fviw8miLgkSknJr9OF&redirectSource=liveapp",
+  },
+  { label: "Ramp", icon: LinkIcon, href: "https://app.ramp.com/" },
+  {
+    label: "Withholding Payme...",
+    icon: CardPaymentIcon,
+    href: "https://innovationae.formstack.com/forms/payment_request",
+  },
+  {
+    label: "Incoming Funds Not...",
+    icon: IncomingFundsIcon,
+    href: "https://innovationae.formstack.com/forms/incoming_funds_notification",
+  },
 ];
 
 const UPCOMING_EVENTS = [
@@ -135,7 +167,17 @@ function HeroIllustration() {
   );
 }
 
-function BusinessCard({ label, icon: Icon, index }: { label: string; icon: (props: IconProps) => JSX.Element; index: number }) {
+function BusinessCard({
+  label,
+  icon: Icon,
+  href,
+  index,
+}: {
+  label: string;
+  icon: (props: IconProps) => JSX.Element;
+  href: string;
+  index: number;
+}) {
   return (
     <article
       className="group flex h-[214px] w-[184px] flex-col items-center rounded-md bg-black px-6 pb-5 pt-5 text-white shadow-[0_4px_16px_rgba(0,0,0,0.24)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_36px_rgba(0,0,0,0.28)]"
@@ -146,7 +188,9 @@ function BusinessCard({ label, icon: Icon, index }: { label: string; icon: (prop
       </div>
       <h3 className="mb-3 max-w-full truncate text-center text-[13px] font-semibold leading-tight text-white">{label}</h3>
       <a
-        href="#details"
+        href={href}
+        target="_blank"
+        rel="noreferrer"
         className="inline-flex h-[28px] w-[130px] items-center justify-center rounded-[3px] bg-white text-[10px] font-bold uppercase tracking-[0.08em] text-black hover:bg-neutral-200"
       >
         View Details
@@ -231,7 +275,7 @@ export function EventBusinessPage() {
         <h2 className="mb-8 text-[17px] font-semibold text-neutral-900">Event &amp; Business List</h2>
         <section className="grid grid-cols-1 justify-items-center gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5" aria-label="Event and business list">
           {BUSINESS_CARDS.map((card, index) => (
-            <BusinessCard key={card.label} label={card.label} icon={card.icon} index={index} />
+            <BusinessCard key={card.label} label={card.label} icon={card.icon} href={card.href} index={index} />
           ))}
         </section>
       </main>
