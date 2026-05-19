@@ -34,6 +34,7 @@ type NewsColumnFlags = {
 };
 
 const MAX_BODY_LENGTH = 5000;
+const MAX_NEWS_LIMIT = 500;
 
 @Injectable()
 export class InternalNewsService {
@@ -44,7 +45,7 @@ export class InternalNewsService {
   ) {}
 
   async findAll(limit = 12): Promise<InternalNewsListItem[]> {
-    const safeLimit = Math.min(Math.max(Number(limit) || 12, 1), 50);
+    const safeLimit = Math.min(Math.max(Number(limit) || 12, 1), MAX_NEWS_LIMIT);
     const flags = await this.getColumnFlags();
     const rows = await this.dataSource.query<NewsRow[]>(`
       SELECT TOP (@0)
