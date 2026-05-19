@@ -58,10 +58,10 @@ function FacultyStaffIcon({ className }: QuickLinkIconProps) {
 }
 
 const QUICK_LINKS = [
-  { label: "Design Resources", icon: DesignResourcesIcon },
-  { label: "Student Gallery", icon: StudentGalleryIcon },
-  { label: "Courses & Curriculum", icon: CoursesIcon },
-  { label: "Faculty & Staff", icon: FacultyStaffIcon },
+  { label: "Design Resources", icon: DesignResourcesIcon, href: "https://abcd.com/" },
+  { label: "Student Gallery", icon: StudentGalleryIcon, href: "https://abcd.com/" },
+  { label: "Courses & Curriculum", icon: CoursesIcon, href: "https://abcd.com/" },
+  { label: "Faculty & Staff", icon: FacultyStaffIcon, href: "https://abcd.com/" },
 ];
 
 const URGENT_EVENTS = [
@@ -152,8 +152,14 @@ export function ArtGraphicDesignPage() {
           <h2 className="text-2xl font-semibold">Quick Links</h2>
           <div className="mt-7 border-t border-neutral-600 pt-5">
             <div className="grid gap-5 sm:grid-cols-2">
-              {QUICK_LINKS.map(({ label, icon: Icon }) => (
-                <a key={label} href="#" className="flex h-[58px] items-center gap-3 border border-neutral-700 px-4 text-sm font-semibold text-neutral-900 transition-colors hover:bg-black hover:text-white">
+              {QUICK_LINKS.map(({ label, icon: Icon, href }) => (
+                <a
+                  key={label}
+                  href={href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex h-[58px] items-center gap-3 border border-neutral-700 px-4 text-sm font-semibold text-neutral-900 transition-colors hover:bg-black hover:text-white"
+                >
                   <Icon className="h-5 w-5 shrink-0" />
                   {label}
                 </a>
