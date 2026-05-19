@@ -1,4 +1,4 @@
-import { Eye, FileSpreadsheet, Grid2X2, Link as LinkIcon, Plus, Share2, UserRound } from "lucide-react";
+import { UserRound } from "lucide-react";
 import { InternalPageHero } from "../components/InternalPageHero";
 import { EMPLOYEE_DIRECTORY_ROWS, EMPLOYEE_SERVICE_ITEMS } from "../constants/pageData";
 
@@ -55,35 +55,6 @@ export function EmployeeServicesPage() {
 
         <section className="mt-12">
           <h2 className="mb-5 text-2xl font-semibold tracking-[0.01em] text-neutral-950">IAE Employees</h2>
-
-          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-neutral-200 pb-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <button className="inline-flex items-center gap-2 bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-neutral-800">
-                <Plus className="h-4 w-4" aria-hidden />
-                Add new item
-              </button>
-              <button className="inline-flex items-center gap-2 text-sm font-medium text-neutral-800 hover:text-black">
-                <Grid2X2 className="h-4 w-4" aria-hidden />
-                Edit in grid view
-              </button>
-              <button className="inline-flex items-center gap-2 text-sm font-medium text-neutral-800 hover:text-black">
-                <Share2 className="h-4 w-4" aria-hidden />
-                Share
-              </button>
-              <button className="inline-flex items-center gap-2 text-sm font-medium text-neutral-800 hover:text-black">
-                <LinkIcon className="h-4 w-4" aria-hidden />
-                Copy link
-              </button>
-              <button className="inline-flex items-center gap-2 text-sm font-medium text-neutral-800 hover:text-black">
-                <FileSpreadsheet className="h-4 w-4" aria-hidden />
-                Export to Excel
-              </button>
-            </div>
-            <button className="inline-flex items-center gap-2 text-sm font-medium text-neutral-800 hover:text-black">
-              <Eye className="h-4 w-4" aria-hidden />
-              iAE Employees List
-            </button>
-          </div>
 
           <div className="overflow-x-auto">
             <table className="min-w-[960px] w-full border-collapse text-left text-sm">

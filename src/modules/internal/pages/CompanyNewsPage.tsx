@@ -1,22 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
-import { CirclePlus, Loader2, Newspaper, Plus, RefreshCw, UserRound, UsersRound, CalendarDays } from "lucide-react";
+import { CalendarDays, CirclePlus, Loader2, Plus, RefreshCw, UserRound, UsersRound } from "lucide-react";
 import {
   AddNewsModal,
   EmptyNewsState,
   createCompanyNews,
-  fetchCompanyNews,
   type NewsItem,
 } from "../components/HomeNewsSection";
-import { getActiveAccount, getAccountOid } from "@/auth/entra";
+import { apiFetch } from "@/api/config";
+
+const NEWS_PAGE_SIZE = 3;
+
+async function fetchNewsChunk(skip = 0): Promise<NewsItem[]> {
+  return apiFetch<NewsItem[]>(`/internal/news?limit=${NEWS_PAGE_SIZE}&skip=${skip}`);
+}
 
 function NewsThumb({ variant, large = false }: { variant: string; large?: boolean }) {
-  const sizeClass = large ? "h-[88px] w-full sm:w-[170px]" : "h-[76px] w-full sm:w-[118px]";
+  const sizeClass = large ? "h-[92px] w-full sm:w-[190px]" : "h-[76px] w-full sm:w-[118px]";
 
   if (variant === "yellow") {
     return (
       <div className={`${sizeClass} relative shrink-0 overflow-hidden bg-[#f2d600]`}>
         <div className="absolute -left-7 top-0 h-[120%] w-[55%] rotate-[-10deg] bg-white shadow-md" />
-        <div className="absolute left-1 top-1 grid h-[96px] w-[82px] rotate-[-10deg] grid-cols-3 gap-px bg-neutral-300 opacity-70">
+        <div className="absolute left-1 top-1 grid h-[104px] w-[92px] rotate-[-10deg] grid-cols-3 gap-px bg-neutral-300 opacity-70">
           {Array.from({ length: 18 }).map((_, i) => <span key={i} className="bg-white" />)}
         </div>
       </div>
@@ -37,12 +42,15 @@ function AuthorAvatar() {
 
 function NewsListRow({ item, image = "slate", large = true }: { item: NewsItem; image?: string; large?: boolean }) {
   return (
-    <article className="flex flex-col gap-4 py-4 first:pt-0 sm:flex-row sm:gap-5">
+    <article className="group grid gap-4 rounded-xl border border-neutral-200 bg-white p-4 shadow-[0_8px_24px_rgba(0,0,0,0.04)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_34px_rgba(0,0,0,0.08)] sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-5">
       <NewsThumb variant={image} large={large} />
-      <div className="min-w-0 flex-1">
-        <h3 className="text-base font-semibold">{item.title}</h3>
-        <p className="mt-2 line-clamp-1 text-sm text-neutral-600">{item.summary}</p>
-        <p className="mt-5 text-xs font-semibold text-neutral-800">{item.createdByName}</p>
+      <div className="flex min-w-0 flex-col justify-center">
+        <h3 className="text-lg font-semibold tracking-[-0.01em] text-neutral-950 group-hover:underline group-hover:underline-offset-4">{item.title}</h3>
+        <p className="mt-2 line-clamp-2 text-sm leading-6 text-neutral-600">{item.summary}</p>
+        <div className="mt-5 flex items-center gap-2 text-xs font-semibold text-neutral-800">
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-neutral-100 text-neutral-500"><UserRound className="h-4 w-4" aria-hidden /></span>
+          {item.createdByName}
+        </div>
       </div>
     </article>
   );
@@ -51,14 +59,11 @@ function NewsListRow({ item, image = "slate", large = true }: { item: NewsItem; 
 export function CompanyNewsPage() {
   const [newsItems, setNewsItems] = useState<NewsItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const currentUserOid = getAccountOid(getActiveAccount());
-  const authoredByMe = useMemo(
-    () => newsItems.filter((item) => currentUserOid && item.createdBy === currentUserOid),
-    [currentUserOid, newsItems],
-  );
   const authors = useMemo(() => {
     const unique = new Map<string, string>();
     newsItems.forEach((item) => {
@@ -70,17 +75,24 @@ export function CompanyNewsPage() {
     return Array.from(unique.values()).map((name) => ({ name, title: "Microsoft 365 author" }));
   }, [newsItems]);
 
-  const loadNews = async () => {
-    setIsLoading(true);
+  const loadNews = async (mode: "initial" | "more" = "initial") => {
+    const isMore = mode === "more";
+    if (isMore && (!hasMore || isLoadingMore)) return;
+
+    if (isMore) setIsLoadingMore(true);
+    else setIsLoading(true);
     setLoadError(null);
+
     try {
-      const rows = await fetchCompanyNews(24);
-      setNewsItems(rows);
+      const rows = await fetchNewsChunk(isMore ? newsItems.length : 0);
+      setNewsItems((previous) => (isMore ? [...previous, ...rows] : rows));
+      setHasMore(rows.length === NEWS_PAGE_SIZE);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "Could not load news.");
-      setNewsItems([]);
+      if (!isMore) setNewsItems([]);
     } finally {
-      setIsLoading(false);
+      if (isMore) setIsLoadingMore(false);
+      else setIsLoading(false);
     }
   };
 
@@ -91,11 +103,8 @@ export function CompanyNewsPage() {
   const handleAddNews = async (values: { title: string; summary: string; body: string }) => {
     const saved = await createCompanyNews(values);
     setNewsItems((previous) => [saved, ...previous.filter((item) => item.id !== saved.id)]);
+    setHasMore(true);
   };
-
-  const thirdNews = newsItems[2];
-  const pageNews = newsItems.slice(0, 4);
-  const latestNews = newsItems.slice(0, 4);
 
   return (
     <div className="bg-white text-black">
@@ -116,21 +125,29 @@ export function CompanyNewsPage() {
 
         <section className="grid gap-10 lg:grid-cols-[1.45fr_0.75fr]">
           <div>
-            <div className="mb-4 flex items-end justify-between">
+            <div className="mb-5 flex items-end justify-between">
               <div>
                 <h2 className="text-2xl font-semibold">News</h2>
                 <button type="button" onClick={() => setIsModalOpen(true)} className="mt-5 inline-flex items-center gap-2 text-sm text-neutral-900"><Plus className="h-4 w-4" /> Add</button>
               </div>
-              <a className="text-xs font-semibold" href="#see-all">See all</a>
             </div>
             {isLoading ? (
               <div className="flex min-h-[240px] items-center justify-center rounded-md border border-neutral-200 bg-neutral-50 text-sm font-semibold text-neutral-700"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading news...</div>
-            ) : pageNews.length === 0 ? (
+            ) : newsItems.length === 0 ? (
               <EmptyNewsState onAdd={() => setIsModalOpen(true)} />
             ) : (
-              <div className="divide-y divide-neutral-200">
-                {pageNews.map((item, index) => <NewsListRow key={item.id} item={item} image={index === 0 ? "yellow" : index === 2 ? "orange" : "slate"} />)}
-              </div>
+              <>
+                <div className="space-y-4">
+                  {newsItems.map((item, index) => <NewsListRow key={item.id} item={item} image={index % 3 === 0 ? "yellow" : index % 3 === 2 ? "orange" : "slate"} />)}
+                </div>
+                {hasMore ? (
+                  <div className="mt-6 flex justify-center">
+                    <button type="button" onClick={() => void loadNews("more")} disabled={isLoadingMore} className="inline-flex h-11 min-w-[160px] items-center justify-center rounded-md border border-neutral-300 bg-white px-5 text-sm font-semibold text-neutral-900 transition hover:border-black hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60">
+                      {isLoadingMore ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading...</> : "Load more news"}
+                    </button>
+                  </div>
+                ) : null}
+              </>
             )}
           </div>
 
@@ -164,30 +181,6 @@ export function CompanyNewsPage() {
               <Icon className="h-5 w-5" /> {label}
             </a>
           ))}
-        </div>
-      </section>
-
-      <section className="mx-auto grid max-w-[1080px] gap-10 px-5 py-8 sm:px-8 lg:grid-cols-3 lg:px-0">
-        <div>
-          <h2 className="mb-5 text-2xl font-semibold">Employee Updates</h2>
-          <button type="button" onClick={() => setIsModalOpen(true)} className="mb-6 inline-flex items-center gap-2 text-sm"><Plus className="h-4 w-4" /> Add</button>
-          {thirdNews ? <NewsListRow item={thirdNews} image="orange" large={false} /> : <EmptyNewsState onAdd={() => setIsModalOpen(true)} compact />}
-        </div>
-        <div>
-          <h2 className="mb-5 text-2xl font-semibold">Latest Updates</h2>
-          <button type="button" onClick={() => setIsModalOpen(true)} className="mb-6 inline-flex items-center gap-2 text-sm"><Plus className="h-4 w-4" /> Add</button>
-          <article className="flex flex-col gap-4 border-b border-neutral-200 pb-5 sm:flex-row">
-            <div className="flex h-[76px] w-[118px] shrink-0 flex-col items-center justify-center bg-black text-white"><Newspaper className="h-6 w-6" /><span className="mt-2 text-sm">Add News</span></div>
-            <div><h3 className="font-semibold">Create a news post</h3><p className="mt-2 text-sm text-neutral-600">Keep your audience engaged by adding a company update.</p></div>
-          </article>
-          {latestNews.slice(1, 4).map((item) => <article key={item.id} className="border-b border-neutral-200 py-5"><h3 className="font-semibold">{item.title}</h3><p className="mt-2 text-sm text-neutral-600">{item.summary}</p><p className="mt-2 text-xs font-semibold">{item.createdByName}</p></article>)}
-        </div>
-        <div>
-          <h2 className="mb-5 text-2xl font-semibold">News Authored by Me</h2>
-          <button type="button" onClick={() => setIsModalOpen(true)} className="mb-6 inline-flex items-center gap-2 text-sm"><Plus className="h-4 w-4" /> Add</button>
-          <div className="divide-y divide-neutral-200">
-            {authoredByMe.length > 0 ? authoredByMe.slice(0, 3).map((item, index) => <NewsListRow key={item.id} item={item} image={index === 0 ? "yellow" : "slate"} large={false} />) : <EmptyNewsState onAdd={() => setIsModalOpen(true)} compact />}
-          </div>
         </div>
       </section>
 
