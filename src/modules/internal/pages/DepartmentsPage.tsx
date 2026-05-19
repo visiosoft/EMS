@@ -2,6 +2,12 @@ import { InternalPageHero } from "../components/InternalPageHero";
 import { WeeklyRecapSection } from "../components/WeeklyRecapSection";
 import { DEPARTMENT_CARDS } from "../constants/pageData";
 
+function getDepartmentHref(title: string) {
+  if (title === "Art") return "/internal/departments/art-graphic-design";
+  if (title === "Events") return "/internal/departments/event-business";
+  return `#${title.toLowerCase().replace(/\s+/g, "-")}`;
+}
+
 export function DepartmentsPage() {
   return (
     <div className="bg-white text-black">
@@ -14,8 +20,8 @@ export function DepartmentsPage() {
         <section className="flex flex-wrap justify-center gap-[10px]" aria-label="Departments">
           {DEPARTMENT_CARDS.map((department, index) => {
             const Icon = department.icon;
-            const href = department.title === "Art" ? "/internal/departments/art-graphic-design" : `#${department.title.toLowerCase().replace(/\s+/g, "-")}`;
-            const isExternalRoute = department.title === "Art";
+            const href = getDepartmentHref(department.title);
+            const opensNewTab = department.title === "Art" || department.title === "Events";
 
             return (
               <article
@@ -29,8 +35,8 @@ export function DepartmentsPage() {
                 <h3 className="mb-2 min-h-[22px] text-[13px] font-semibold leading-tight text-white">{department.title}</h3>
                 <a
                   href={href}
-                  target={isExternalRoute ? "_blank" : undefined}
-                  rel={isExternalRoute ? "noreferrer" : undefined}
+                  target={opensNewTab ? "_blank" : undefined}
+                  rel={opensNewTab ? "noreferrer" : undefined}
                   className="inline-flex h-[25px] items-center justify-center rounded-sm bg-white px-4 text-[10px] font-bold uppercase tracking-[0.08em] text-black hover:bg-neutral-200"
                 >
                   See more
