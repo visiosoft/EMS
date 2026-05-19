@@ -15,7 +15,7 @@ export function InternalLayout({ showSidebar = true }: { showSidebar?: boolean }
     <div className="flex min-h-screen flex-col bg-white text-black">
       <InternalHeader />
 
-      <div className={shouldShowSidebar ? "mx-auto flex w-full max-w-[1600px] flex-1 flex-col pt-5 lg:flex-row" : "flex w-full flex-1 flex-col"}>
+      <div className={shouldShowSidebar ? "mx-auto flex w-full max-w-[1600px] flex-1 flex-col gap-5 pt-5 lg:flex-row lg:gap-6" : "flex w-full flex-1 flex-col"}>
         <main className="min-w-0 flex-1">
           <Outlet />
         </main>

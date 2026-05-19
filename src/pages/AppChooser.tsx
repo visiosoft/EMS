@@ -12,6 +12,7 @@ import {
 import { IaeLogoFull } from "@/components/ems/Layout";
 import { IaeBrandMark } from "@/components/brand/IaeBrandMark";
 import { APP_CHOOSER_PATH, EMS_ROOT, INTERNAL_HOME_PATH, LOGIN_PATH } from "@/routing/paths";
+import { rememberWorkspacePath } from "@/routing/workspacePreference";
 
 const AppChooser = () => {
   const isAuthenticated = useIsAuthenticated();
@@ -60,6 +61,7 @@ const AppChooser = () => {
             <div className="grid gap-4 sm:grid-cols-2">
               <Link
                 to={EMS_ROOT}
+                onClick={() => rememberWorkspacePath(EMS_ROOT)}
                 className="group flex flex-col rounded-xl border border-border bg-background/60 p-6 transition hover:border-emerald-500/40 hover:bg-emerald-500/5"
               >
                 <span className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-500">
@@ -73,6 +75,7 @@ const AppChooser = () => {
 
               <Link
                 to={INTERNAL_HOME_PATH}
+                onClick={() => rememberWorkspacePath(INTERNAL_HOME_PATH)}
                 className="group flex flex-col rounded-xl border border-border bg-background/60 p-6 transition hover:border-neutral-600/30 hover:bg-neutral-500/5"
               >
                 <span className="mb-4 inline-flex items-center justify-center rounded-lg bg-black px-3 py-2">

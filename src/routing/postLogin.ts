@@ -1,5 +1,6 @@
 import { isEmsEnabled, isInternalEnabled } from "./appSuite";
 import { APP_CHOOSER_PATH, EMS_ROOT, INTERNAL_ROOT } from "./paths";
+import { getRememberedWorkspacePath } from "./workspacePreference";
 
 /**
  * Only allow in-app relative paths (no protocol-relative or external URLs).
@@ -15,6 +16,16 @@ export function isSafeAppPath(path: string): boolean {
 }
 
 function defaultSignedInPath(): string {
+  const rememberedWorkspace = getRememberedWorkspacePath();
+
+  if (rememberedWorkspace === INTERNAL_ROOT && isInternalEnabled()) {
+    return INTERNAL_ROOT;
+  }
+
+  if (rememberedWorkspace === EMS_ROOT && isEmsEnabled()) {
+    return EMS_ROOT;
+  }
+
   if (isEmsEnabled() && isInternalEnabled()) {
     return APP_CHOOSER_PATH;
   }
@@ -26,7 +37,8 @@ function defaultSignedInPath(): string {
 
 /**
  * After Entra sign-in, send users to the app chooser unless they were
- * deep-linking into a specific app area.
+ * deep-linking into a specific app area. If they previously chose a workspace,
+ * open it directly in new tabs instead of making them choose again.
  */
 export function resolvePostLoginPath(from?: string | null): string {
   if (!from || !isSafeAppPath(from)) {

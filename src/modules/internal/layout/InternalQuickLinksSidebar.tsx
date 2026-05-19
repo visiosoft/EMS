@@ -5,7 +5,7 @@ import { DOCUMENT_ITEMS, QUICK_LINKS } from "../constants/quickLinks";
 export function InternalQuickLinksSidebar() {
   return (
     <aside className="w-full shrink-0 self-stretch bg-black text-white lg:w-[290px] xl:w-[324px]">
-      <div className="flex w-full flex-col overflow-y-auto px-6 pb-10 pt-7 lg:sticky lg:top-[56px] lg:max-h-[calc(100vh-56px)] xl:px-8">
+      <div className="flex w-full flex-col overflow-y-auto px-6 pb-10 pt-10 lg:sticky lg:top-[56px] lg:max-h-[calc(100vh-56px)] xl:px-8">
         <section className="animate-slide-up">
           <h2 className="mb-6 text-xl font-semibold tracking-[0.02em] text-white">Quick Links</h2>
           <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 lg:gap-4">
