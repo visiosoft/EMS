@@ -10,16 +10,16 @@ const AUTHORS = [
 ];
 
 const FEATURED_NEWS = [
-  { title: "Company News", summary: "Company News Stay updated with the latest announcements, achievements, and important...", createdBy: "Haider Khalil", date: "8 hours ago", image: "yellow" },
-  { title: "Highlights and plans", summary: "Highlights and plans from the AI Team January 1, 2025 The AI Team at Trey Research has ha...", createdBy: "Haider Khalil", date: "February 18", image: "slate" },
-  { title: "New Employee Benefit", summary: "New employee benefits at Lamna Healthcare Company We are excited to announce a range...", createdBy: "zulfiqar khan", date: "February 3", image: "orange" },
-  { title: "iAE new Version is ready for launch", summary: "Highlights and plans from the AI Team January 1, 2025...", createdBy: "zulfiqar khan", date: "February 3", image: "slate" },
+  { title: "Company News", summary: "Company News Stay updated with the latest announcements, achievements, and important...", createdBy: "Haider Khalil", image: "yellow" },
+  { title: "Highlights and plans", summary: "Highlights and plans from the AI Team January 1, 2025 The AI Team at Trey Research has ha...", createdBy: "Haider Khalil", image: "slate" },
+  { title: "New Employee Benefit", summary: "New employee benefits at Lamna Healthcare Company We are excited to announce a range...", createdBy: "zulfiqar khan", image: "orange" },
+  { title: "iAE new Version is ready for launch", summary: "Highlights and plans from the AI Team January 1, 2025...", createdBy: "zulfiqar khan", image: "slate" },
 ];
 
 const AUTHORED_BY_ME = [
-  { title: "Company News", summary: "Company News Stay updated with...", createdBy: "Haider Khalil", date: "8 hours ago", image: "yellow" },
-  { title: "Highlights and plans", summary: "Highlights and plans from the AI...", createdBy: "Haider Khalil", date: "February 18", image: "slate" },
-  { title: "SharePoint Platform Enhancements Now Live", summary: "We're pleased to share that several...", createdBy: "Haider Khalil", date: "February 2", image: "office" },
+  { title: "Company News", summary: "Company News Stay updated with...", createdBy: "Haider Khalil", image: "yellow" },
+  { title: "Highlights and plans", summary: "Highlights and plans from the AI...", createdBy: "Haider Khalil", image: "slate" },
+  { title: "SharePoint Platform Enhancements Now Live", summary: "We're pleased to share that several...", createdBy: "Haider Khalil", image: "office" },
 ];
 
 function NewsThumb({ variant, large = false }: { variant: string; large?: boolean }) {
@@ -75,7 +75,7 @@ export function CompanyNewsPage() {
                   <div className="min-w-0 flex-1">
                     <h3 className="text-base font-semibold">{item.title}</h3>
                     <p className="mt-2 line-clamp-1 text-sm text-neutral-600">{item.summary}</p>
-                    <p className="mt-5 text-xs font-semibold text-neutral-800">{item.createdBy} <span className="font-normal">{item.date}</span></p>
+                    <p className="mt-5 text-xs font-semibold text-neutral-800">{item.createdBy}</p>
                   </div>
                 </article>
               ))}
@@ -115,7 +115,7 @@ export function CompanyNewsPage() {
           <button className="mb-6 inline-flex items-center gap-2 text-sm"><Plus className="h-4 w-4" /> Add</button>
           <article className="flex flex-col gap-4 border-b border-neutral-200 pb-5 sm:flex-row">
             <NewsThumb variant="orange" />
-            <div><h3 className="font-semibold">New Employee Benefit</h3><p className="mt-2 line-clamp-1 text-sm text-neutral-600">New employee benefits at Lamna...</p><p className="mt-4 text-xs font-semibold">zulfiqar khan <span className="font-normal">February 3</span></p></div>
+            <div><h3 className="font-semibold">New Employee Benefit</h3><p className="mt-2 line-clamp-1 text-sm text-neutral-600">New employee benefits at Lamna...</p><p className="mt-4 text-xs font-semibold">zulfiqar khan</p></div>
           </article>
         </div>
         <div>
@@ -123,15 +123,15 @@ export function CompanyNewsPage() {
           <button className="mb-6 inline-flex items-center gap-2 text-sm"><Plus className="h-4 w-4" /> Add</button>
           <article className="flex flex-col gap-4 border-b border-neutral-200 pb-5 sm:flex-row">
             <div className="flex h-[76px] w-[118px] shrink-0 flex-col items-center justify-center bg-black text-white"><Newspaper className="h-6 w-6" /><span className="mt-2 text-sm">Add News</span></div>
-            <div><h3 className="font-semibold">Create a news post</h3><p className="mt-2 text-sm text-neutral-600">Keep your audience engaged by...</p><p className="mt-3 text-xs">now</p></div>
+            <div><h3 className="font-semibold">Create a news post</h3><p className="mt-2 text-sm text-neutral-600">Keep your audience engaged by...</p><p className="mt-3 text-xs">Created by user</p></div>
           </article>
-          {[1,2,3].map(i => <article key={i} className="border-b border-neutral-200 py-5"><h3 className="font-semibold">Title of news post</h3><p className="mt-2 text-sm text-neutral-600">Preview that shows the first few lines of the article.</p><p className="mt-2 text-xs font-semibold">Created by user <span className="font-normal">A few seconds ago</span></p></article>)}
+          {[1,2,3].map(i => <article key={i} className="border-b border-neutral-200 py-5"><h3 className="font-semibold">Title of news post</h3><p className="mt-2 text-sm text-neutral-600">Preview that shows the first few lines of the article.</p><p className="mt-2 text-xs font-semibold">Created by user</p></article>)}
         </div>
         <div>
           <h2 className="mb-5 text-2xl font-semibold">News Authored by Me</h2>
           <button className="mb-6 inline-flex items-center gap-2 text-sm"><Plus className="h-4 w-4" /> Add</button>
           <div className="divide-y divide-neutral-200">
-            {AUTHORED_BY_ME.map(item => <article key={item.title} className="flex flex-col gap-4 py-4 first:pt-0 sm:flex-row"><NewsThumb variant={item.image} /><div><h3 className="font-semibold">{item.title}</h3><p className="mt-2 line-clamp-1 text-sm text-neutral-600">{item.summary}</p><p className="mt-4 text-xs font-semibold">{item.createdBy} <span className="font-normal">{item.date}</span></p></div></article>)}
+            {AUTHORED_BY_ME.map(item => <article key={item.title} className="flex flex-col gap-4 py-4 first:pt-0 sm:flex-row"><NewsThumb variant={item.image} /><div><h3 className="font-semibold">{item.title}</h3><p className="mt-2 line-clamp-1 text-sm text-neutral-600">{item.summary}</p><p className="mt-4 text-xs font-semibold">{item.createdBy}</p></div></article>)}
           </div>
         </div>
       </section>
