@@ -40,6 +40,7 @@ const VALID_VIEWS = new Set([
 ]);
 
 const SALES_SUMMARY_RETURN_VIEWS = new Set(['daily-sales', 'projects', 'engagements', 'sales-summary']);
+const ENGAGEMENT_TIMING_FILTERS = new Set(['all', 'upcoming', 'past']);
 
 function readSidebarCollapsed(): boolean {
   if (typeof window === 'undefined') return false;
@@ -93,6 +94,9 @@ function sanitizeViewDataForView(view: string, raw: unknown): Record<string, unk
     if (typeof obj.statusFilter === 'string' && obj.statusFilter.trim()) {
       out.statusFilter = obj.statusFilter.trim().slice(0, 120);
     }
+    if (typeof obj.timingFilter === 'string' && ENGAGEMENT_TIMING_FILTERS.has(obj.timingFilter.trim())) {
+      out.timingFilter = obj.timingFilter.trim();
+    }
     if (obj.createEngagement === true || obj.createEngagement === '1') {
       out.createEngagement = true;
     }
@@ -113,6 +117,7 @@ function readRouteFromUrl(): { view: string; viewData: Record<string, unknown> }
 
     const viewData = sanitizeViewDataForView(view, {
       statusFilter: params.get('statusFilter') ?? undefined,
+      timingFilter: params.get('timingFilter') ?? undefined,
       createEngagement: params.get('createEngagement') === '1',
     });
 
@@ -129,7 +134,12 @@ function readAndConsumeOpenIntent(): { view: string; viewData: Record<string, un
     if (!raw) return null;
     window.localStorage.removeItem(EMS_OPEN_INTENT_KEY);
 
-    const parsed = JSON.parse(raw) as { view?: unknown; createEngagement?: unknown; expiresAt?: unknown };
+    const parsed = JSON.parse(raw) as {
+      view?: unknown;
+      createEngagement?: unknown;
+      timingFilter?: unknown;
+      expiresAt?: unknown;
+    };
     const expiresAt = typeof parsed.expiresAt === 'number' ? parsed.expiresAt : 0;
     const view = typeof parsed.view === 'string' ? parsed.view : '';
     if (Date.now() > expiresAt || view !== 'engagements') return null;
@@ -138,6 +148,7 @@ function readAndConsumeOpenIntent(): { view: string; viewData: Record<string, un
       view: 'engagements',
       viewData: sanitizeViewDataForView('engagements', {
         createEngagement: parsed.createEngagement === true,
+        timingFilter: parsed.timingFilter,
       }),
     };
   } catch {
@@ -196,6 +207,7 @@ const Index = () => {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
   const autoCreateEngagementHandledRef = useRef(false);
+  const autoTimingFilterHandledRef = useRef<string | null>(null);
 
   useEffect(() => {
     try {
@@ -255,6 +267,55 @@ const Index = () => {
       if (timeoutId) window.clearTimeout(timeoutId);
     };
   }, [currentView, viewData.createEngagement]);
+
+  useEffect(() => {
+    const timingFilter = typeof viewData.timingFilter === 'string' ? viewData.timingFilter : '';
+    if (currentView !== 'engagements' || !ENGAGEMENT_TIMING_FILTERS.has(timingFilter)) {
+      autoTimingFilterHandledRef.current = null;
+      return;
+    }
+    if (autoTimingFilterHandledRef.current === timingFilter) return;
+    autoTimingFilterHandledRef.current = timingFilter;
+
+    let attempts = 0;
+    let cancelled = false;
+    let timeoutId: number | undefined;
+    const label = timingFilter === 'past' ? 'past' : timingFilter === 'upcoming' ? 'upcoming' : 'all';
+
+    const applyTimingFilter = () => {
+      if (cancelled) return;
+      attempts += 1;
+
+      const button = Array.from(document.querySelectorAll('button')).find((candidate) => {
+        const text = candidate.textContent?.replace(/\s+/g, ' ').trim().toLowerCase() ?? '';
+        return text === label && !candidate.hasAttribute('disabled');
+      }) as HTMLButtonElement | undefined;
+
+      if (button) {
+        button.click();
+        setViewData((previous) => {
+          const next = { ...previous };
+          delete next.timingFilter;
+          return next;
+        });
+        if (window.location.pathname !== '/' || window.location.search) {
+          window.history.replaceState({}, document.title, '/');
+        }
+        return;
+      }
+
+      if (attempts < 120) {
+        timeoutId = window.setTimeout(applyTimingFilter, 100);
+      }
+    };
+
+    timeoutId = window.setTimeout(applyTimingFilter, 0);
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) window.clearTimeout(timeoutId);
+    };
+  }, [currentView, viewData.timingFilter]);
 
   const navigate = useCallback((view: string, data?: Record<string, unknown>) => {
     setCurrentView(view);
