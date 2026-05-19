@@ -31,17 +31,11 @@ export function InternalHomePage() {
               Welcome to your iAE hub
             </p>
 
-            <div className="relative isolate overflow-hidden rounded-full border border-white/18 bg-white/[0.075] px-5 py-2.5 shadow-[0_18px_52px_rgba(0,0,0,0.25)] backdrop-blur-md transition duration-300 hover:border-white/35 hover:bg-white/[0.11] sm:px-6">
+            <div className="relative isolate overflow-hidden rounded-full border border-white/18 bg-white/[0.075] px-5 py-2.5 shadow-[0_18px_52px_rgba(0,0,0,0.25)] backdrop-blur-md transition duration-300 hover:border-white/35 hover:bg-white/[0.11] sm:px-7">
               <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-white/60 to-transparent" aria-hidden />
-              <div className="flex flex-col items-center gap-0.5 sm:flex-row sm:gap-2.5">
-                <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/58 sm:text-[11px]">
-                  Signed in as
-                </span>
-                <span className="hidden h-1.5 w-1.5 rounded-full bg-white/35 sm:block" aria-hidden />
-                <strong className="max-w-[min(78vw,30rem)] truncate text-sm font-extrabold tracking-[0.08em] text-white sm:text-base">
-                  {heroName}
-                </strong>
-              </div>
+              <strong className="block max-w-[min(78vw,30rem)] truncate text-sm font-extrabold tracking-[0.1em] text-white sm:text-base">
+                {heroName}
+              </strong>
             </div>
           </div>
 
