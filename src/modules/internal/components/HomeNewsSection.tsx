@@ -2,17 +2,11 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Loader2, Plus, UserRound, X } from "lucide-react";
 import { HOME_NEWS_ITEMS } from "../constants/quickLinks";
 
-type NewsAccent = "slate" | "orange" | "charcoal" | "yellow";
-
 type NewsFormValues = {
   title: string;
   summary: string;
   body: string;
-  author: string;
   publishDate: string;
-  views: string;
-  accent: NewsAccent;
-  featured: boolean;
 };
 
 type NewsItem = {
@@ -20,36 +14,22 @@ type NewsItem = {
   title: string;
   summary: string;
   body?: string;
-  author: string;
+  createdBy: string;
   date: string;
-  views: string;
-  accent: NewsAccent;
 };
 
 type NewsFormErrors = Partial<Record<keyof NewsFormValues, string>>;
 
-const DEFAULT_FEATURED_NEWS: NewsItem = {
-  id: "featured-company-news",
-  title: "Company News",
-  summary: "Company News Stay updated with the latest announcements, achievements, and company-wide updates.",
-  author: "Haider Khalil",
-  date: "about an hour ago",
-  views: "45 views",
-  accent: "yellow",
-};
+const CURRENT_USER_ID = "current-user";
 
 const DEFAULT_FORM_VALUES: NewsFormValues = {
   title: "",
   summary: "",
   body: "",
-  author: "",
   publishDate: new Date().toISOString().slice(0, 10),
-  views: "0",
-  accent: "slate",
-  featured: false,
 };
 
-function NewsImage({ variant, featured = false }: { variant: string; featured?: boolean }) {
+function NewsImage({ featured = false }: { featured?: boolean }) {
   if (featured) {
     return (
       <div className="relative h-[220px] overflow-hidden bg-[#f2d400] md:h-[250px]">
@@ -66,14 +46,14 @@ function NewsImage({ variant, featured = false }: { variant: string; featured?: 
     );
   }
 
-  const variantClass =
-    variant === "orange"
-      ? "bg-[radial-gradient(circle_at_20%_40%,#ef8c4b_0,#ef8c4b_22%,#ff762d_23%,#ff762d_55%,#fff_56%)]"
-      : variant === "charcoal"
-        ? "bg-[linear-gradient(135deg,#efefef_0%,#efefef_40%,#565656_41%,#565656_100%)]"
-        : "bg-[linear-gradient(180deg,#f4f4f4_0%,#f4f4f4_45%,#545454_46%,#545454_100%)]";
-
-  return <div className={`h-[78px] w-full shrink-0 overflow-hidden ${variantClass} md:w-[166px]`} aria-hidden />;
+  return (
+    <div
+      className="relative h-[78px] w-full shrink-0 overflow-hidden bg-[linear-gradient(135deg,#f5f5f5_0%,#f5f5f5_40%,#5a5a5a_41%,#5a5a5a_100%)] md:w-[166px]"
+      aria-hidden
+    >
+      <div className="absolute left-0 top-0 h-full w-full bg-[radial-gradient(circle_at_22%_32%,rgba(255,255,255,0.7)_0,rgba(255,255,255,0.7)_18%,transparent_19%)]" />
+    </div>
+  );
 }
 
 function formatNewsDate(dateValue: string) {
@@ -88,8 +68,6 @@ function validateNewsForm(values: NewsFormValues): NewsFormErrors {
   const trimmedTitle = values.title.trim();
   const trimmedSummary = values.summary.trim();
   const trimmedBody = values.body.trim();
-  const trimmedAuthor = values.author.trim();
-  const viewCount = Number(values.views);
 
   if (!trimmedTitle) errors.title = "Title is required.";
   else if (trimmedTitle.length < 3) errors.title = "Title must be at least 3 characters.";
@@ -103,14 +81,7 @@ function validateNewsForm(values: NewsFormValues): NewsFormErrors {
   else if (trimmedBody.length < 20) errors.body = "News body must be at least 20 characters.";
   else if (trimmedBody.length > 5000) errors.body = "News body must be 5,000 characters or fewer.";
 
-  if (!trimmedAuthor) errors.author = "Author name is required.";
-  else if (trimmedAuthor.length > 80) errors.author = "Author name must be 80 characters or fewer.";
-
   if (!values.publishDate) errors.publishDate = "Publish date is required.";
-
-  if (values.views === "") errors.views = "Views are required.";
-  else if (!Number.isInteger(viewCount) || viewCount < 0) errors.views = "Views must be a whole number greater than or equal to 0.";
-  else if (viewCount > 999999) errors.views = "Views must be 999,999 or fewer.";
 
   return errors;
 }
@@ -195,16 +166,7 @@ function AddNewsModal({
     event.preventDefault();
     const validationErrors = validateNewsForm(values);
     setErrors(validationErrors);
-    setTouched({
-      title: true,
-      summary: true,
-      body: true,
-      author: true,
-      publishDate: true,
-      views: true,
-      accent: true,
-      featured: true,
-    });
+    setTouched({ title: true, summary: true, body: true, publishDate: true });
 
     if (Object.keys(validationErrors).length > 0) return;
 
@@ -237,7 +199,7 @@ function AddNewsModal({
               Add news
             </h3>
             <p className="mt-1 max-w-[560px] text-sm leading-relaxed text-neutral-600">
-              Create the news card content now. Backend persistence will plug into this same submit flow later.
+              The author will be taken from the logged-in user and saved through created_by when the backend is connected.
             </p>
           </div>
           <button
@@ -306,75 +268,17 @@ function AddNewsModal({
               </div>
             </label>
 
-            <label>
-              <span className="text-sm font-semibold text-neutral-900">Author *</span>
-              <input
-                value={values.author}
-                onChange={(event) => setField("author", event.target.value)}
-                onBlur={() => markTouched("author")}
-                maxLength={80}
-                className="mt-2 h-11 w-full rounded-md border border-neutral-300 px-3 text-sm outline-none transition focus:border-black focus:ring-2 focus:ring-black/10"
-                placeholder="Author name"
-                aria-invalid={Boolean(errors.author)}
-              />
-              <FieldError message={errors.author} />
-            </label>
-
-            <label>
+            <label className="sm:col-span-2">
               <span className="text-sm font-semibold text-neutral-900">Publish date *</span>
               <input
                 type="date"
                 value={values.publishDate}
                 onChange={(event) => setField("publishDate", event.target.value)}
                 onBlur={() => markTouched("publishDate")}
-                className="mt-2 h-11 w-full rounded-md border border-neutral-300 px-3 text-sm outline-none transition focus:border-black focus:ring-2 focus:ring-black/10"
+                className="mt-2 h-11 w-full rounded-md border border-neutral-300 px-3 text-sm outline-none transition focus:border-black focus:ring-2 focus:ring-black/10 sm:max-w-[260px]"
                 aria-invalid={Boolean(errors.publishDate)}
               />
               <FieldError message={errors.publishDate} />
-            </label>
-
-            <label>
-              <span className="text-sm font-semibold text-neutral-900">Initial views *</span>
-              <input
-                type="number"
-                min={0}
-                max={999999}
-                value={values.views}
-                onChange={(event) => setField("views", event.target.value)}
-                onBlur={() => markTouched("views")}
-                className="mt-2 h-11 w-full rounded-md border border-neutral-300 px-3 text-sm outline-none transition focus:border-black focus:ring-2 focus:ring-black/10"
-                aria-invalid={Boolean(errors.views)}
-              />
-              <FieldError message={errors.views} />
-            </label>
-
-            <label>
-              <span className="text-sm font-semibold text-neutral-900">Card artwork</span>
-              <select
-                value={values.accent}
-                onChange={(event) => setField("accent", event.target.value as NewsAccent)}
-                className="mt-2 h-11 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none transition focus:border-black focus:ring-2 focus:ring-black/10"
-              >
-                <option value="slate">Slate banner</option>
-                <option value="orange">Orange feature</option>
-                <option value="charcoal">Charcoal diagonal</option>
-                <option value="yellow">Calendar yellow</option>
-              </select>
-            </label>
-
-            <label className="flex items-start gap-3 rounded-md border border-neutral-200 bg-neutral-50 px-4 py-3 sm:col-span-2">
-              <input
-                type="checkbox"
-                checked={values.featured}
-                onChange={(event) => setField("featured", event.target.checked)}
-                className="mt-1 h-4 w-4 rounded border-neutral-300 text-black focus:ring-black"
-              />
-              <span>
-                <span className="block text-sm font-semibold text-neutral-900">Make this the featured news story</span>
-                <span className="mt-0.5 block text-xs leading-relaxed text-neutral-600">
-                  It will replace the large Company News card on this screen until the page refreshes or backend data is connected.
-                </span>
-              </span>
             </label>
           </div>
 
@@ -410,18 +314,17 @@ function AddNewsModal({
 
 export function HomeNewsSection() {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [featuredNews, setFeaturedNews] = useState<NewsItem>(DEFAULT_FEATURED_NEWS);
   const [newsItems, setNewsItems] = useState<NewsItem[]>(
     HOME_NEWS_ITEMS.map((item, index) => ({
       id: `sample-news-${index}`,
       title: item.title,
       summary: item.summary,
-      author: item.author,
+      createdBy: item.createdBy,
       date: item.date,
-      views: item.views,
-      accent: item.accent as NewsAccent,
     })),
   );
+
+  const [featuredNews, ...sideNewsItems] = newsItems;
 
   const handleAddNews = async (values: NewsFormValues) => {
     await new Promise((resolve) => window.setTimeout(resolve, 700));
@@ -431,18 +334,11 @@ export function HomeNewsSection() {
       title: values.title.trim(),
       summary: values.summary.trim(),
       body: values.body.trim(),
-      author: values.author.trim(),
+      createdBy: CURRENT_USER_ID,
       date: formatNewsDate(values.publishDate),
-      views: `${Number(values.views).toLocaleString()} views`,
-      accent: values.accent,
     };
 
-    if (values.featured) {
-      setFeaturedNews(nextNewsItem);
-      return;
-    }
-
-    setNewsItems((previous) => [nextNewsItem, ...previous].slice(0, 6));
+    setNewsItems((previous) => [nextNewsItem, ...previous].slice(0, 7));
   };
 
   return (
@@ -465,42 +361,41 @@ export function HomeNewsSection() {
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.08fr)_minmax(330px,0.92fr)]">
-        <article className="group min-w-0">
-          <NewsImage variant={featuredNews.accent} featured />
-          <div className="mt-4">
-            <h3 className="text-xl font-semibold text-neutral-950">{featuredNews.title}</h3>
-            <p className="mt-2 line-clamp-2 max-w-[560px] text-[15px] leading-relaxed text-neutral-600">
-              {featuredNews.summary}
-            </p>
-            <div className="mt-6 flex items-center gap-3 text-xs text-neutral-700">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-200 text-neutral-500">
-                <UserRound className="h-5 w-5" aria-hidden />
-              </span>
-              <span>
-                <strong className="font-semibold text-neutral-900">{featuredNews.author}</strong> {featuredNews.date}
-                <br />
-                <span className="text-neutral-500">{featuredNews.views}</span>
-              </span>
+        {featuredNews ? (
+          <article className="group min-w-0">
+            <NewsImage featured />
+            <div className="mt-4">
+              <h3 className="text-xl font-semibold text-neutral-950">{featuredNews.title}</h3>
+              <p className="mt-2 line-clamp-2 max-w-[560px] text-[15px] leading-relaxed text-neutral-600">
+                {featuredNews.summary}
+              </p>
+              <div className="mt-6 flex items-center gap-3 text-xs text-neutral-700">
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-200 text-neutral-500">
+                  <UserRound className="h-5 w-5" aria-hidden />
+                </span>
+                <span>
+                  <strong className="font-semibold text-neutral-900">{featuredNews.createdBy}</strong> {featuredNews.date}
+                </span>
+              </div>
             </div>
-          </div>
-        </article>
+          </article>
+        ) : null}
 
         <div className="space-y-0 divide-y divide-neutral-200">
-          {newsItems.map((item) => (
+          {sideNewsItems.map((item) => (
             <article
               key={item.id}
               className="group flex flex-col gap-4 py-3 transition-colors duration-200 first:pt-0 hover:bg-neutral-50 md:flex-row md:px-2"
             >
-              <NewsImage variant={item.accent} />
+              <NewsImage />
               <div className="min-w-0 flex-1">
                 <h3 className="truncate text-[16px] font-semibold text-neutral-950 group-hover:underline group-hover:underline-offset-4">
                   {item.title}
                 </h3>
                 <p className="mt-2 line-clamp-1 text-[13px] text-neutral-600">{item.summary}</p>
                 <p className="mt-5 text-xs text-neutral-700">
-                  <strong className="font-semibold text-neutral-900">{item.author}</strong> {item.date}
+                  <strong className="font-semibold text-neutral-900">{item.createdBy}</strong> {item.date}
                 </p>
-                <p className="text-xs text-neutral-500">{item.views}</p>
               </div>
             </article>
           ))}
