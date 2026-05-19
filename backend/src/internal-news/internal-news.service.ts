@@ -34,7 +34,7 @@ type NewsColumnFlags = {
 };
 
 const MAX_BODY_LENGTH = 5000;
-const MAX_NEWS_LIMIT = 500;
+const MAX_NEWS_LIMIT = 50;
 
 @Injectable()
 export class InternalNewsService {
@@ -44,11 +44,12 @@ export class InternalNewsService {
     private readonly adminUsersService: AdminUsersService,
   ) {}
 
-  async findAll(limit = 12): Promise<InternalNewsListItem[]> {
+  async findAll(limit = 12, skip = 0): Promise<InternalNewsListItem[]> {
     const safeLimit = Math.min(Math.max(Number(limit) || 12, 1), MAX_NEWS_LIMIT);
+    const safeSkip = Math.max(Number(skip) || 0, 0);
     const flags = await this.getColumnFlags();
     const rows = await this.dataSource.query<NewsRow[]>(`
-      SELECT TOP (@0)
+      SELECT
         id,
         title,
         summary,
@@ -59,7 +60,8 @@ export class InternalNewsService {
         ${flags.modifiedAt ? ', modified_at' : ', CAST(NULL AS datetime) AS modified_at'}
       FROM dbo.News
       ORDER BY created_at DESC
-    `, [safeLimit]);
+      OFFSET @1 ROWS FETCH NEXT @0 ROWS ONLY
+    `, [safeLimit, safeSkip]);
 
     return this.toListItems(rows);
   }
