@@ -27,16 +27,12 @@ const URGENT_EVENTS = [
 
 function TeamAvatar() {
   return (
-    <svg width="31" height="40" viewBox="0 0 31 40" role="img" aria-label="Team member picture" className="block bg-[#f5f5f5] shadow-sm">
-      <rect width="31" height="40" fill="#f5f5f5" />
-      <ellipse cx="15.5" cy="11.2" rx="6.2" ry="7.1" fill="#171717" />
-      <path d="M4.2 39.8c.7-9.6 5-16 11.3-16s10.6 6.4 11.3 16H4.2Z" fill="#111" />
-      <path d="M12.2 24.4h6.6l-2.4 15.4h-1.8l-2.4-15.4Z" fill="#fff" />
-      <path d="M14 25.2h3l.9 2.8-2.4 2.5-2.4-2.5.9-2.8Z" fill="#bd101a" />
-      <path d="M14.2 30.2h2.6l1.1 9.6h-4.8l1.1-9.6Z" fill="#bd101a" />
-      <path d="M7.9 28.2 13 24.4l1.1 15.4H5.7c.2-4.9.9-8.7 2.2-11.6Z" fill="#070707" />
-      <path d="M23.1 28.2 18 24.4l-1.1 15.4h8.4c-.2-4.9-.9-8.7-2.2-11.6Z" fill="#070707" />
-    </svg>
+    <img
+      src="/team-member-avatar.svg"
+      alt="Team member"
+      className="block h-10 w-[31px] object-contain shadow-sm"
+      loading="lazy"
+    />
   );
 }
 
