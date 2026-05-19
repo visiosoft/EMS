@@ -1,5 +1,7 @@
+import type { AccountInfo } from "@azure/msal-browser";
 import { isEmsEnabled, isInternalEnabled } from "./appSuite";
 import { APP_CHOOSER_PATH, EMS_ROOT, INTERNAL_ROOT } from "./paths";
+import { canAccessInternalHub } from "./internalHubAccess";
 import { getRememberedWorkspacePath } from "./workspacePreference";
 
 /**
@@ -15,7 +17,11 @@ export function isSafeAppPath(path: string): boolean {
   return true;
 }
 
-function defaultSignedInPath(): string {
+function defaultSignedInPath(canUseCompanyHub: boolean): string {
+  if (!canUseCompanyHub) {
+    return EMS_ROOT;
+  }
+
   const rememberedWorkspace = getRememberedWorkspacePath();
 
   if (rememberedWorkspace === INTERNAL_ROOT && isInternalEnabled()) {
@@ -37,26 +43,28 @@ function defaultSignedInPath(): string {
 
 /**
  * After Entra sign-in, send users to the app chooser unless they were
- * deep-linking into a specific app area. If they previously chose a workspace,
- * open it directly in new tabs instead of making them choose again.
+ * deep-linking into a specific app area. Company Hub is temporarily restricted
+ * to a tiny allow-list, so every other user goes directly to EMS.
  */
-export function resolvePostLoginPath(from?: string | null): string {
+export function resolvePostLoginPath(from?: string | null, account?: AccountInfo | null): string {
+  const canUseCompanyHub = canAccessInternalHub(account);
+
   if (!from || !isSafeAppPath(from)) {
-    return defaultSignedInPath();
+    return defaultSignedInPath(canUseCompanyHub);
   }
 
   if (from === INTERNAL_ROOT || from.startsWith(`${INTERNAL_ROOT}/`)) {
-    return isInternalEnabled() ? from : defaultSignedInPath();
+    return canUseCompanyHub && isInternalEnabled() ? from : EMS_ROOT;
   }
 
   if (from === EMS_ROOT || from.startsWith("/ems")) {
     const emsPath = from === "/ems" ? EMS_ROOT : from;
-    return isEmsEnabled() ? emsPath : defaultSignedInPath();
+    return isEmsEnabled() ? emsPath : defaultSignedInPath(canUseCompanyHub);
   }
 
   if (from === APP_CHOOSER_PATH || from.startsWith(`${APP_CHOOSER_PATH}/`)) {
-    return isEmsEnabled() && isInternalEnabled() ? from : defaultSignedInPath();
+    return canUseCompanyHub && isEmsEnabled() && isInternalEnabled() ? from : EMS_ROOT;
   }
 
-  return defaultSignedInPath();
+  return defaultSignedInPath(canUseCompanyHub);
 }
