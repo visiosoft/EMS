@@ -9,6 +9,7 @@ import {
   List,
   ListOrdered,
   Loader2,
+  Newspaper,
   Pilcrow,
   Plus,
   RefreshCw,
@@ -17,7 +18,6 @@ import {
   X,
 } from "lucide-react";
 import { apiFetch } from "@/api/config";
-import { HOME_NEWS_ITEMS } from "../constants/quickLinks";
 
 type NewsFormValues = {
   title: string;
@@ -48,16 +48,6 @@ type EditorCommand = {
 const MAX_BODY_TEXT_LENGTH = 5000;
 const DEFAULT_FORM_VALUES: NewsFormValues = { title: "", summary: "", body: "" };
 const ALLOWED_NEWS_HTML_TAGS = new Set(["a", "b", "blockquote", "br", "div", "em", "h2", "h3", "li", "ol", "p", "span", "strong", "u", "ul"]);
-
-export const SAMPLE_NEWS_ITEMS: NewsItem[] = HOME_NEWS_ITEMS.map((item, index) => ({
-  id: `sample-news-${index}`,
-  title: item.title,
-  summary: item.summary,
-  body: `<p>${item.summary}</p>`,
-  createdBy: null,
-  createdByName: item.createdBy,
-  createdAt: null,
-}));
 
 export async function fetchCompanyNews(limit = 12): Promise<NewsItem[]> {
   return apiFetch<NewsItem[]>(`/internal/news?limit=${Math.max(1, Math.min(50, Math.floor(limit)))}`);
@@ -144,6 +134,26 @@ export function NewsImage({ featured = false }: { featured?: boolean }) {
       aria-hidden
     >
       <div className="absolute left-0 top-0 h-full w-full bg-[radial-gradient(circle_at_22%_32%,rgba(255,255,255,0.7)_0,rgba(255,255,255,0.7)_18%,transparent_19%)]" />
+    </div>
+  );
+}
+
+export function EmptyNewsState({ onAdd, compact = false }: { onAdd?: () => void; compact?: boolean }) {
+  return (
+    <div className={`flex flex-col items-center justify-center rounded-md border border-dashed border-neutral-300 bg-neutral-50 px-5 text-center ${compact ? "min-h-[140px] py-6" : "min-h-[260px] py-10"}`}>
+      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-neutral-500 shadow-sm">
+        <Newspaper className="h-6 w-6" aria-hidden />
+      </span>
+      <h3 className="mt-4 text-base font-semibold text-neutral-950">No news yet</h3>
+      <p className="mt-2 max-w-[360px] text-sm leading-6 text-neutral-600">
+        News added in the company hub will appear here with the Microsoft 365 author name.
+      </p>
+      {onAdd ? (
+        <button type="button" onClick={onAdd} className="mt-5 inline-flex items-center gap-2 rounded-md bg-black px-4 py-2 text-sm font-semibold text-white transition hover:bg-neutral-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2">
+          <Plus className="h-4 w-4" aria-hidden />
+          Add news
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -366,7 +376,7 @@ export function AddNewsModal({ open, onClose, onSubmit }: { open: boolean; onClo
 
 export function HomeNewsSection() {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [newsItems, setNewsItems] = useState<NewsItem[]>(SAMPLE_NEWS_ITEMS);
+  const [newsItems, setNewsItems] = useState<NewsItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -375,10 +385,10 @@ export function HomeNewsSection() {
     setLoadError(null);
     try {
       const rows = await fetchCompanyNews(12);
-      setNewsItems(rows.length > 0 ? rows : SAMPLE_NEWS_ITEMS);
+      setNewsItems(rows);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "Could not load news.");
-      setNewsItems(SAMPLE_NEWS_ITEMS);
+      setNewsItems([]);
     } finally {
       setIsLoading(false);
     }
@@ -410,7 +420,7 @@ export function HomeNewsSection() {
 
       {loadError ? (
         <div className="mb-4 flex items-center justify-between gap-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <span>Showing sample news because live news could not be loaded.</span>
+          <span>Live news could not be loaded.</span>
           <button type="button" onClick={() => void loadNews()} className="inline-flex items-center gap-1 font-semibold hover:underline"><RefreshCw className="h-3.5 w-3.5" /> Retry</button>
         </div>
       ) : null}
@@ -419,6 +429,8 @@ export function HomeNewsSection() {
         <div className="flex min-h-[260px] items-center justify-center rounded-md border border-neutral-200 bg-neutral-50 text-sm font-semibold text-neutral-700">
           <Loader2 className="mr-2 h-5 w-5 animate-spin" aria-hidden /> Loading news...
         </div>
+      ) : newsItems.length === 0 ? (
+        <EmptyNewsState onAdd={() => setIsModalOpen(true)} />
       ) : (
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1.08fr)_minmax(330px,0.92fr)]">
           {featuredNews ? (
