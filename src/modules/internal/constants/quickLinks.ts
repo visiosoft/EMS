@@ -34,7 +34,7 @@ export const HUB_ACTION_CARDS = [
   { key: "sales-update", label: "Sales Update" },
   { key: "employee-services", label: "Employee Services" },
   { key: "past-engagements", label: "Past Engagements" },
-  { key: "upcoming-engagements", label: "Upcoming Engagementments" },
+  { key: "upcoming-engagements", label: "Upcoming Engagements" },
 ] as const;
 
 export const TIME_ZONE_LOCATIONS = [
