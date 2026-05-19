@@ -37,7 +37,13 @@ describe('applyAuditColumns', () => {
       modifiedAt: new Date('2026-05-02T12:00:00.000Z'),
     };
 
-    applyAuditColumns(row, allAuditColumns, 'update', 'modifier-oid', modifiedAt);
+    applyAuditColumns(
+      row,
+      allAuditColumns,
+      'update',
+      'modifier-oid',
+      modifiedAt,
+    );
 
     expect(row).toEqual({
       createdBy: 'creator-oid',

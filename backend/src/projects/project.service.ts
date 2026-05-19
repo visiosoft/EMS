@@ -6,7 +6,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, DataSource, EntityManager, In, QueryFailedError, Repository } from 'typeorm';
+import {
+  Brackets,
+  DataSource,
+  EntityManager,
+  In,
+  QueryFailedError,
+  Repository,
+} from 'typeorm';
 import { AdminUsersService } from '../admin-users/admin-users.service';
 import { EngagementProject } from '../entities/engagement-project.entity';
 import { EngagementProjectDma } from '../entities/engagement-project-dma.entity';
@@ -60,12 +67,10 @@ export class ProjectService {
   private agentContactColumnNameCache: string | null | undefined = undefined;
   private companyTypeLinkTableCache: string | null | undefined = undefined;
   private static readonly CREATED_BY_NAME_CACHE_TTL_MS = 5 * 60_000;
-  private createdByNameCache:
-    | {
-        at: number;
-        byOid: Map<string, string>;
-      }
-    | null = null;
+  private createdByNameCache: {
+    at: number;
+    byOid: Map<string, string>;
+  } | null = null;
 
   constructor(
     @InjectRepository(EngagementProject)
@@ -95,7 +100,9 @@ export class ProjectService {
     return `[${String(name).replace(/\]/g, ']]')}]`;
   }
 
-  private async canQueryCompanyTypeLinkTable(tableName: string): Promise<boolean> {
+  private async canQueryCompanyTypeLinkTable(
+    tableName: string,
+  ): Promise<boolean> {
     try {
       await this.dataSource.query(
         `SELECT TOP 1 1 AS [ok] FROM [dbo].${this.safeDbIdentifier(tableName)}`,
@@ -274,10 +281,7 @@ export class ProjectService {
   private async resolveCompanyTypeLinkTableName(): Promise<string | null> {
     if (this.companyTypeLinkTableCache !== undefined) {
       const cached = this.companyTypeLinkTableCache;
-      if (
-        cached &&
-        (await this.canQueryCompanyTypeLinkTable(cached))
-      ) {
+      if (cached && (await this.canQueryCompanyTypeLinkTable(cached))) {
         return cached;
       }
       if (cached) {
@@ -287,7 +291,7 @@ export class ProjectService {
       }
     }
     try {
-      const rows = (await this.dataSource.query(
+      const rows = await this.dataSource.query(
         `
         SELECT TOP 1 t.TABLE_NAME AS [tableName]
         FROM INFORMATION_SCHEMA.TABLES t
@@ -312,7 +316,7 @@ export class ProjectService {
           END,
           t.TABLE_NAME ASC
       `,
-      )) as Array<Record<string, unknown>>;
+      );
       const candidates = rows
         .map((row) => String(row.tableName ?? row.TABLENAME ?? '').trim())
         .filter((name) => name.length > 0);
@@ -342,7 +346,8 @@ export class ProjectService {
       throw new BadRequestException({ message: 'Company not found.' });
     }
     const expected = expectedTypeName.trim().toLowerCase();
-    const primaryType = co.companyType?.companyTypeName?.trim().toLowerCase() ?? '';
+    const primaryType =
+      co.companyType?.companyTypeName?.trim().toLowerCase() ?? '';
     if (primaryType === expected) {
       return true;
     }
@@ -352,7 +357,7 @@ export class ProjectService {
     }
     const safeTable = this.safeDbIdentifier(linkTable);
     try {
-      const rows = (await this.dataSource.query(
+      const rows = await this.dataSource.query(
         `
         SELECT TOP 1 1 AS [ok]
         FROM [dbo].${safeTable} ctm
@@ -361,7 +366,7 @@ export class ProjectService {
         WHERE ctm.CompanyID = ${Math.floor(companyId)}
           AND LOWER(LTRIM(RTRIM(ct.CompanyTypeName))) = LOWER(${`N'${expectedTypeName.replace(/'/g, "''")}'`})
       `,
-      )) as Array<Record<string, unknown>>;
+      );
       return rows.length > 0;
     } catch {
       this.companyTypeLinkTableCache = undefined;
@@ -558,7 +563,9 @@ export class ProjectService {
       const users = await this.adminUsersService.listUsers();
       const byOid = new Map<string, string>();
       for (const user of users) {
-        const id = String(user.id ?? '').trim().toLowerCase();
+        const id = String(user.id ?? '')
+          .trim()
+          .toLowerCase();
         const name = String(user.name ?? '').trim();
         if (!id || !name) continue;
         byOid.set(id, name);
@@ -839,19 +846,17 @@ export class ProjectService {
       }),
     );
 
-    const createdBy = await this.resolveCreatedByDisplayValue(project.createdBy);
+    const createdBy = await this.resolveCreatedByDisplayValue(
+      project.createdBy,
+    );
 
     return {
       engagementProjectId: project.engagementProjectId,
       tourId: project.tourId,
       attractionId: tour?.attractionId ?? null,
       tourName: tour?.tourName ?? null,
-      tourStartDate: this.normalizeDateOnly(
-        (tour?.tourStartDate as string | Date | null | undefined) ?? null,
-      ),
-      tourEndDate: this.normalizeDateOnly(
-        (tour?.tourEndDate as string | Date | null | undefined) ?? null,
-      ),
+      tourStartDate: this.normalizeDateOnly(tour?.tourStartDate ?? null),
+      tourEndDate: this.normalizeDateOnly(tour?.tourEndDate ?? null),
       attractionName: attraction?.attractionName ?? null,
       talentAgencyCompanyId: effectiveMgmtId,
       talentAgencyCompanyName: effectiveMgmtName,
@@ -887,8 +892,13 @@ export class ProjectService {
     this.assertValidProjectStage(dto.projectStage);
     const normalizedTourStartDate = this.normalizeDateOnly(dto.tourStartDate);
     const normalizedTourEndDate = this.normalizeDateOnly(dto.tourEndDate);
-    this.assertValidTourDateRange(normalizedTourStartDate, normalizedTourEndDate);
-    const normalizedAgentContactId = this.parseAgentContactId(dto.agentContactId);
+    this.assertValidTourDateRange(
+      normalizedTourStartDate,
+      normalizedTourEndDate,
+    );
+    const normalizedAgentContactId = this.parseAgentContactId(
+      dto.agentContactId,
+    );
 
     if (!dto.venues?.length) {
       throw new BadRequestException({
@@ -1201,7 +1211,10 @@ export class ProjectService {
     };
     const sortExpr = sortWhitelist[sortBy];
     if (sortExpr) {
-      qb.orderBy(sortExpr, sortDir).addOrderBy('ep.engagementProjectId', 'DESC');
+      qb.orderBy(sortExpr, sortDir).addOrderBy(
+        'ep.engagementProjectId',
+        'DESC',
+      );
     } else {
       qb.orderBy('ep.engagementProjectId', 'DESC');
     }
@@ -1227,33 +1240,36 @@ export class ProjectService {
     }
 
     return {
-      data: await Promise.all(rows.map(async (p) => ({
-        engagementProjectId: p.engagementProjectId,
-        tourId: p.tourId,
-        attractionId: p.tour?.attractionId ?? null,
-        tourName: p.tour?.tourName ?? null,
-        tourStartDate: this.normalizeDateOnly(
-          (p.tour?.tourStartDate as string | Date | null | undefined) ?? null,
-        ),
-        tourEndDate: this.normalizeDateOnly(
-          (p.tour?.tourEndDate as string | Date | null | undefined) ?? null,
-        ),
-        attractionName: p.tour?.attraction?.attractionName ?? null,
-        talentAgencyCompanyId: p.tour?.talentAgencyCompanyId ?? null,
-        talentAgencyCompanyName: p.tour?.talentAgencyCompany?.companyName ?? null,
-        projectStage: p.projectStage,
-        createdDate: p.createdDate,
-        createdBy: await this.resolveCreatedByDisplayValue(
-          p.createdBy,
-          createdByNameMap,
-        ),
-        name: null,
-        bookerId: null,
-        agentContactId: null,
-        dmaIds: dmaByProject.get(p.engagementProjectId) ?? [],
-        targetOnSale: null,
-        notes: null,
-      }))),
+      data: await Promise.all(
+        rows.map(async (p) => ({
+          engagementProjectId: p.engagementProjectId,
+          tourId: p.tourId,
+          attractionId: p.tour?.attractionId ?? null,
+          tourName: p.tour?.tourName ?? null,
+          tourStartDate: this.normalizeDateOnly(
+            (p.tour?.tourStartDate as string | Date | null | undefined) ?? null,
+          ),
+          tourEndDate: this.normalizeDateOnly(
+            (p.tour?.tourEndDate as string | Date | null | undefined) ?? null,
+          ),
+          attractionName: p.tour?.attraction?.attractionName ?? null,
+          talentAgencyCompanyId: p.tour?.talentAgencyCompanyId ?? null,
+          talentAgencyCompanyName:
+            p.tour?.talentAgencyCompany?.companyName ?? null,
+          projectStage: p.projectStage,
+          createdDate: p.createdDate,
+          createdBy: await this.resolveCreatedByDisplayValue(
+            p.createdBy,
+            createdByNameMap,
+          ),
+          name: null,
+          bookerId: null,
+          agentContactId: null,
+          dmaIds: dmaByProject.get(p.engagementProjectId) ?? [],
+          targetOnSale: null,
+          notes: null,
+        })),
+      ),
       total,
     };
   }

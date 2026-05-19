@@ -7,9 +7,9 @@ import { AdminUsersService } from './admin-users.service';
 import { EntraAuthGuard } from './entra-auth.guard';
 
 @Module({
-    imports: [ConfigModule, AuditModule],
-    controllers: [AdminUsersController],
-    providers: [AdminUsersService, EntraAuthGuard, AdminRoleGuard],
-    exports: [AdminUsersService],
+  imports: [ConfigModule, AuditModule],
+  controllers: [AdminUsersController],
+  providers: [AdminUsersService, EntraAuthGuard, AdminRoleGuard],
+  exports: [AdminUsersService],
 })
-export class AdminUsersModule { }
+export class AdminUsersModule {}

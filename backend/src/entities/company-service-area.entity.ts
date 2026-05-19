@@ -35,4 +35,3 @@ export class CompanyServiceArea {
   @JoinColumn({ name: 'ServiceProvidedID' })
   serviceProvided: ServiceProvided;
 }
-

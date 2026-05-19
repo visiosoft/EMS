@@ -26,4 +26,3 @@ export class VenueServiceProvider {
   @JoinColumn({ name: 'ProviderCompanyID' })
   providerCompany: Company;
 }
-

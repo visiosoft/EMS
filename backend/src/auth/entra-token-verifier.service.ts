@@ -1,11 +1,18 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createRemoteJWKSet, decodeJwt, jwtVerify, type JWTPayload } from 'jose';
+import {
+  createRemoteJWKSet,
+  decodeJwt,
+  jwtVerify,
+  type JWTPayload,
+} from 'jose';
 
 export type EntraRequestUser = JWTPayload & {
   name?: string;
   oid?: string;
+  email?: string;
   preferred_username?: string;
+  upn?: string;
   roles?: string[];
 };
 
@@ -26,7 +33,9 @@ export class EntraTokenVerifier {
     }
 
     const jwks = getJwks(tenantId);
-    const audiences = [audience, audience.replace(/^api:\/\//, '')].filter(Boolean);
+    const audiences = [audience, audience.replace(/^api:\/\//, '')].filter(
+      Boolean,
+    );
     const issuers = [
       `https://login.microsoftonline.com/${tenantId}/v2.0`,
       `https://sts.windows.net/${tenantId}/`,
@@ -56,12 +65,16 @@ export class EntraTokenVerifier {
       ...payload,
       name: typeof payload.name === 'string' ? payload.name : undefined,
       oid: typeof payload.oid === 'string' ? payload.oid : undefined,
+      email: typeof payload.email === 'string' ? payload.email : undefined,
       preferred_username:
         typeof payload.preferred_username === 'string'
           ? payload.preferred_username
           : undefined,
+      upn: typeof payload.upn === 'string' ? payload.upn : undefined,
       roles: Array.isArray(payload.roles)
-        ? payload.roles.filter((value): value is string => typeof value === 'string')
+        ? payload.roles.filter(
+            (value): value is string => typeof value === 'string',
+          )
         : [],
     };
   }
@@ -89,7 +102,8 @@ export class EntraTokenVerifier {
       const actualRoles = Array.isArray(decoded.roles)
         ? decoded.roles.join(', ')
         : '(none)';
-      const actualScopes = typeof decoded.scp === 'string' ? decoded.scp : '(none)';
+      const actualScopes =
+        typeof decoded.scp === 'string' ? decoded.scp : '(none)';
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown JWT validation error';
 
@@ -112,7 +126,9 @@ export class EntraTokenVerifier {
   }
 }
 
-export function getBearerToken(headerValue: string | string[] | undefined): string {
+export function getBearerToken(
+  headerValue: string | string[] | undefined,
+): string {
   const token = getOptionalBearerToken(headerValue);
   if (!token) {
     throw new Error('Missing or invalid bearer token.');
@@ -134,7 +150,9 @@ function getJwks(tenantId: string) {
   if (cached) return cached;
 
   const jwks = createRemoteJWKSet(
-    new URL(`https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`),
+    new URL(
+      `https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`,
+    ),
   );
   jwksCache.set(tenantId, jwks);
   return jwks;

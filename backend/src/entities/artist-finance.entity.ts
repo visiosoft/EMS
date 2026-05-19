@@ -9,7 +9,12 @@ export class ArtistFinance {
   @PrimaryGeneratedColumn({ name: 'ArtistFinanceID', type: 'int' })
   artistFinanceId: number;
 
-  @Column({ name: 'ArtistDealType', type: 'nvarchar', length: 100, nullable: true })
+  @Column({
+    name: 'ArtistDealType',
+    type: 'nvarchar',
+    length: 100,
+    nullable: true,
+  })
   artistDealType: string | null;
 
   @Column({

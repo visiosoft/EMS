@@ -291,7 +291,9 @@ export class EngagementService {
     return id;
   }
 
-  private async loadCompanyServices(companyId: number): Promise<ServiceProvided[]> {
+  private async loadCompanyServices(
+    companyId: number,
+  ): Promise<ServiceProvided[]> {
     const rows = await this.companyServiceRepo.find({
       where: { companyId },
       relations: { serviceProvided: true },
@@ -302,7 +304,9 @@ export class EngagementService {
     const deduped = new Map<number, ServiceProvided>();
     for (const s of list) deduped.set(s.serviceProvidedId, s);
     return [...deduped.values()].sort((a, b) =>
-      a.serviceName.localeCompare(b.serviceName, undefined, { sensitivity: 'base' }),
+      a.serviceName.localeCompare(b.serviceName, undefined, {
+        sensitivity: 'base',
+      }),
     );
   }
 
@@ -435,10 +439,7 @@ export class EngagementService {
       const row0 = (r as Record<string, unknown>[])?.[0];
       const rawOk = row0 ? pickRaw(row0, 'ok') : undefined;
       const ok =
-        rawOk === 1 ||
-        rawOk === true ||
-        rawOk === '1' ||
-        Number(rawOk) === 1;
+        rawOk === 1 || rawOk === true || rawOk === '1' || Number(rawOk) === 1;
       this.engagementFinanceSharePointLinkColsPresent = ok;
       return ok;
     } catch {
@@ -509,7 +510,8 @@ export class EngagementService {
           : null;
     const sets: string[] = [];
     if (wantF && fSql != null) sets.push(`[FinalAcceptedOfferLink] = ${fSql}`);
-    if (wantS && sSql != null) sets.push(`[SettlementFileSharePointLink] = ${sSql}`);
+    if (wantS && sSql != null)
+      sets.push(`[SettlementFileSharePointLink] = ${sSql}`);
     if (!sets.length) return;
     await this.dataSource.query(
       `UPDATE dbo.EngagementFinances SET ${sets.join(', ')} WHERE [FinanceID] = ${fid}`,
@@ -684,7 +686,8 @@ export class EngagementService {
     const artistMiddleMoney = artistRow
       ? this.mapFinanceNumber(artistRow.artistMiddleMoney)
       : null;
-    const artistRoyaltyVariableFee = artistRow?.artistRoyaltyVariableFee ?? null;
+    const artistRoyaltyVariableFee =
+      artistRow?.artistRoyaltyVariableFee ?? null;
     const artistBackEndTerms = artistRow?.artistBackEndTerms ?? null;
 
     if (!row) {
@@ -783,11 +786,7 @@ export class EngagementService {
       .leftJoin(Company, 'vc', 'vc.companyId = ev.venueCompanyId')
       .leftJoin(Address, 'addr', 'addr.addressId = vc.physicalAddressId')
       .leftJoin(Dma, 'dma', 'dma.dmaid = vc.dmaid')
-      .leftJoin(
-        EngagementFinances,
-        'ef',
-        'ef.engagementId = e.engagementId',
-      )
+      .leftJoin(EngagementFinances, 'ef', 'ef.engagementId = e.engagementId')
       .select([
         'e.engagementId         AS engagementId',
         'e.engagementStatus     AS engagementStatus',
@@ -891,7 +890,8 @@ export class EngagementService {
         String(g('engagementStatus') ?? ''),
       ),
       engagementScaling:
-        g('engagementScaling') != null && String(g('engagementScaling')).trim() !== ''
+        g('engagementScaling') != null &&
+        String(g('engagementScaling')).trim() !== ''
           ? String(g('engagementScaling')).trim()
           : null,
       sellableCapacity:
@@ -1060,7 +1060,10 @@ export class EngagementService {
       (sortDirRaw ?? '').trim().toLowerCase() === 'asc' ? 'ASC' : 'DESC';
 
     if (sortBy === 'attraction') {
-      qb.orderBy('a.attractionName', sortDir).addOrderBy('e.engagementId', 'DESC');
+      qb.orderBy('a.attractionName', sortDir).addOrderBy(
+        'e.engagementId',
+        'DESC',
+      );
     } else if (sortBy === 'tour') {
       qb.orderBy('t.tourName', sortDir).addOrderBy('e.engagementId', 'DESC');
     } else if (sortBy === 'venue') {
@@ -1068,7 +1071,10 @@ export class EngagementService {
         .addOrderBy('v.venueName', sortDir)
         .addOrderBy('e.engagementId', 'DESC');
     } else if (sortBy === 'market') {
-      qb.orderBy('dma.marketName', sortDir).addOrderBy('e.engagementId', 'DESC');
+      qb.orderBy('dma.marketName', sortDir).addOrderBy(
+        'e.engagementId',
+        'DESC',
+      );
     } else if (sortBy === 'date') {
       // Must use SELECT list aliases, not raw subqueries in ORDER BY: with skip/take and
       // joins, TypeORM builds a DISTINCT pagination wrapper and only preserves order keys
@@ -1220,7 +1226,9 @@ export class EngagementService {
             r.artistWaiverInstructionsId,
             r.iaeWaiverInstructionsId,
           ])
-          .filter((id): id is number => id != null && Number.isInteger(id) && id > 0),
+          .filter(
+            (id): id is number => id != null && Number.isInteger(id) && id > 0,
+          ),
       ),
     );
     const links =
@@ -1243,7 +1251,9 @@ export class EngagementService {
           : null,
       ),
       iaeWaiverInstructions: this.mapFinanceLink(
-        r.iaeWaiverInstructionsId ? linksById.get(r.iaeWaiverInstructionsId) : null,
+        r.iaeWaiverInstructionsId
+          ? linksById.get(r.iaeWaiverInstructionsId)
+          : null,
       ),
     }));
 
@@ -1392,7 +1402,8 @@ export class EngagementService {
         });
         if (venueWithholding) {
           const finance =
-            existingFinance ?? em.create(EngagementFinances, { engagementId: id });
+            existingFinance ??
+            em.create(EngagementFinances, { engagementId: id });
           finance.requiredNonResidentWithholdingId =
             venueWithholding.withholdingId;
           await em.save(EngagementFinances, finance);
@@ -1413,7 +1424,10 @@ export class EngagementService {
         artistWaiverInstructionsId: null,
         iaeWaiverInstructionsId: null,
       });
-      const savedWithholding = await em.save(NonResidentWithholding, withholding);
+      const savedWithholding = await em.save(
+        NonResidentWithholding,
+        withholding,
+      );
       const savedWithholdingId = savedWithholding.withholdingId;
       if (!Number.isInteger(savedWithholdingId) || savedWithholdingId < 1) {
         throw new BadRequestException({
@@ -1426,7 +1440,10 @@ export class EngagementService {
       finance.requiredNonResidentWithholdingId = savedWithholdingId;
       await em.save(EngagementFinances, finance);
 
-      if (venue && (venue.nonResidentWithholdingId == null || venueWithholdingMissing)) {
+      if (
+        venue &&
+        (venue.nonResidentWithholdingId == null || venueWithholdingMissing)
+      ) {
         venue.nonResidentWithholdingId = savedWithholdingId;
         await em.save(Venue, venue);
       }
@@ -1605,7 +1622,8 @@ export class EngagementService {
           artistBackEndTerms:
             dto.artistBackEndTerms === undefined
               ? null
-              : dto.artistBackEndTerms == null || dto.artistBackEndTerms.trim() === ''
+              : dto.artistBackEndTerms == null ||
+                  dto.artistBackEndTerms.trim() === ''
                 ? null
                 : dto.artistBackEndTerms.trim(),
         });
@@ -1748,7 +1766,8 @@ export class EngagementService {
             dto.checkNumberOrConfOfWithholdingPayment === undefined
               ? null
               : dto.checkNumberOrConfOfWithholdingPayment == null ||
-                  String(dto.checkNumberOrConfOfWithholdingPayment).trim() === ''
+                  String(dto.checkNumberOrConfOfWithholdingPayment).trim() ===
+                    ''
                 ? null
                 : String(dto.checkNumberOrConfOfWithholdingPayment)
                     .trim()
@@ -1788,7 +1807,9 @@ export class EngagementService {
         }
         if (dto.seasonTicketSalesByIae !== undefined) {
           sf.seasonTicketSalesByIae =
-            dto.seasonTicketSalesByIae == null ? null : dto.seasonTicketSalesByIae;
+            dto.seasonTicketSalesByIae == null
+              ? null
+              : dto.seasonTicketSalesByIae;
         }
         if (dto.seasonTicketFundsTransferred !== undefined) {
           sf.seasonTicketFundsTransferred =
@@ -1811,15 +1832,21 @@ export class EngagementService {
         }
         if (dto.hstPaidOnTourPayments !== undefined) {
           sf.hstPaidOnTourPayments =
-            dto.hstPaidOnTourPayments == null ? null : dto.hstPaidOnTourPayments;
+            dto.hstPaidOnTourPayments == null
+              ? null
+              : dto.hstPaidOnTourPayments;
         }
         if (dto.hstPaidOnShowExpenses !== undefined) {
           sf.hstPaidOnShowExpenses =
-            dto.hstPaidOnShowExpenses == null ? null : dto.hstPaidOnShowExpenses;
+            dto.hstPaidOnShowExpenses == null
+              ? null
+              : dto.hstPaidOnShowExpenses;
         }
         if (dto.hstPaidOnVenueExpenses !== undefined) {
           sf.hstPaidOnVenueExpenses =
-            dto.hstPaidOnVenueExpenses == null ? null : dto.hstPaidOnVenueExpenses;
+            dto.hstPaidOnVenueExpenses == null
+              ? null
+              : dto.hstPaidOnVenueExpenses;
         }
         if (dto.artistGrossTaxableCompensation !== undefined) {
           sf.artistGrossTaxableCompensation =
@@ -2200,11 +2227,13 @@ export class EngagementService {
 
   // ─── Service Providers (VenueServiceProvider) ─────────────────────────────
 
-  async listServiceProviders(
-    engagementId: number,
-  ): Promise<{ venueCompanyId: number; providers: EngagementServiceProviderRow[] }> {
+  async listServiceProviders(engagementId: number): Promise<{
+    venueCompanyId: number;
+    providers: EngagementServiceProviderRow[];
+  }> {
     await this.assertEngagementExists(engagementId);
-    const venueCompanyId = await this.getPrimaryVenueCompanyIdForEngagement(engagementId);
+    const venueCompanyId =
+      await this.getPrimaryVenueCompanyIdForEngagement(engagementId);
 
     const rawProviderIds = await this.venueServiceProviderRepo
       .createQueryBuilder('vsp')
@@ -2253,13 +2282,18 @@ export class EngagementService {
     providerCompanyId: number,
   ): Promise<{ added: boolean }> {
     await this.assertEngagementExists(engagementId);
-    const venueCompanyId = await this.getPrimaryVenueCompanyIdForEngagement(engagementId);
+    const venueCompanyId =
+      await this.getPrimaryVenueCompanyIdForEngagement(engagementId);
 
     const pid = Number(providerCompanyId);
     if (!Number.isInteger(pid) || pid < 1) {
-      throw new BadRequestException({ message: 'Invalid provider company id.' });
+      throw new BadRequestException({
+        message: 'Invalid provider company id.',
+      });
     }
-    const company = await this.companyRepo.findOne({ where: { companyId: pid } });
+    const company = await this.companyRepo.findOne({
+      where: { companyId: pid },
+    });
     if (!company) {
       throw new BadRequestException({ message: 'Provider company not found.' });
     }
@@ -2273,7 +2307,10 @@ export class EngagementService {
     }
 
     await this.dataSource.transaction(async (em) => {
-      await em.delete(VenueServiceProvider, { venueCompanyId, providerCompanyId: pid });
+      await em.delete(VenueServiceProvider, {
+        venueCompanyId,
+        providerCompanyId: pid,
+      });
       const rows = services.map((s) =>
         em.create(VenueServiceProvider, {
           venueCompanyId,
@@ -2292,10 +2329,13 @@ export class EngagementService {
     providerCompanyId: number,
   ): Promise<void> {
     await this.assertEngagementExists(engagementId);
-    const venueCompanyId = await this.getPrimaryVenueCompanyIdForEngagement(engagementId);
+    const venueCompanyId =
+      await this.getPrimaryVenueCompanyIdForEngagement(engagementId);
     const pid = Number(providerCompanyId);
     if (!Number.isInteger(pid) || pid < 1) {
-      throw new BadRequestException({ message: 'Invalid provider company id.' });
+      throw new BadRequestException({
+        message: 'Invalid provider company id.',
+      });
     }
     await this.venueServiceProviderRepo.delete({
       venueCompanyId,
@@ -2422,10 +2462,14 @@ export class EngagementService {
 
     const contactIds = [...new Set(rows.map((r) => r.contactId))];
     const roleIds = [
-      ...new Set(rows.map((r) => r.roleId).filter((x): x is number => x != null)),
+      ...new Set(
+        rows.map((r) => r.roleId).filter((x): x is number => x != null),
+      ),
     ];
     const deptIds = [
-      ...new Set(rows.map((r) => r.departmentId).filter((x): x is number => x != null)),
+      ...new Set(
+        rows.map((r) => r.departmentId).filter((x): x is number => x != null),
+      ),
     ];
 
     const [contacts, roles, depts] = await Promise.all([
@@ -2433,7 +2477,9 @@ export class EngagementService {
         where: { contactId: In(contactIds) },
         relations: { contactInfo: true },
       }),
-      roleIds.length ? this.roleRepo.find({ where: { roleId: In(roleIds) } }) : [],
+      roleIds.length
+        ? this.roleRepo.find({ where: { roleId: In(roleIds) } })
+        : [],
       deptIds.length
         ? this.departmentRepo.find({ where: { departmentId: In(deptIds) } })
         : [],
@@ -2463,7 +2509,9 @@ export class EngagementService {
         roleName: eic.roleId != null ? (rMap.get(eic.roleId) ?? null) : null,
         departmentId: eic.departmentId,
         departmentName:
-          eic.departmentId != null ? (dMap.get(eic.departmentId) ?? null) : null,
+          eic.departmentId != null
+            ? (dMap.get(eic.departmentId) ?? null)
+            : null,
         isPrimary: this.mapBit(eic.isPrimary as never) === true,
         notes: eic.notes,
         createdDate: this.mapIaeCreatedDate(eic.createdDate),
@@ -2487,7 +2535,9 @@ export class EngagementService {
     }
 
     if (dto.roleId != null && dto.roleId !== undefined) {
-      const role = await this.roleRepo.findOne({ where: { roleId: dto.roleId } });
+      const role = await this.roleRepo.findOne({
+        where: { roleId: dto.roleId },
+      });
       if (!role) {
         throw new BadRequestException({
           message: `Role #${dto.roleId} was not found.`,
@@ -2523,7 +2573,9 @@ export class EngagementService {
         dto.departmentId === undefined ? null : (dto.departmentId ?? null),
       isPrimary: wantPrimary,
       notes:
-        dto.notes === undefined || dto.notes == null || String(dto.notes).trim() === ''
+        dto.notes === undefined ||
+        dto.notes == null ||
+        String(dto.notes).trim() === ''
           ? null
           : String(dto.notes).trim().slice(0, 500),
       createdDate: new Date(),
@@ -2560,10 +2612,14 @@ export class EngagementService {
     const nextRoleId =
       dto.roleId !== undefined ? (dto.roleId ?? null) : row.roleId;
     const nextDeptId =
-      dto.departmentId !== undefined ? (dto.departmentId ?? null) : row.departmentId;
+      dto.departmentId !== undefined
+        ? (dto.departmentId ?? null)
+        : row.departmentId;
 
     if (dto.contactId !== undefined) {
-      const c = await this.contactRepo.findOne({ where: { contactId: dto.contactId } });
+      const c = await this.contactRepo.findOne({
+        where: { contactId: dto.contactId },
+      });
       if (!c) {
         throw new BadRequestException({
           message: `Contact #${dto.contactId} was not found.`,
@@ -2571,7 +2627,9 @@ export class EngagementService {
       }
     }
     if (dto.roleId !== undefined && dto.roleId != null) {
-      const role = await this.roleRepo.findOne({ where: { roleId: dto.roleId } });
+      const role = await this.roleRepo.findOne({
+        where: { roleId: dto.roleId },
+      });
       if (!role) {
         throw new BadRequestException({
           message: `Role #${dto.roleId} was not found.`,
@@ -2605,7 +2663,9 @@ export class EngagementService {
     if (dto.notes !== undefined) {
       const t = dto.notes;
       row.notes =
-        t == null || String(t).trim() === '' ? null : String(t).trim().slice(0, 500);
+        t == null || String(t).trim() === ''
+          ? null
+          : String(t).trim().slice(0, 500);
     }
 
     if (dto.isPrimary !== undefined) {
@@ -2697,7 +2757,9 @@ export class EngagementService {
     }
     const ticketingLink =
       row.ticketingLinkId != null
-        ? await this.linkRepo.findOne({ where: { linkId: row.ticketingLinkId } })
+        ? await this.linkRepo.findOne({
+            where: { linkId: row.ticketingLinkId },
+          })
         : null;
     return {
       ticketingId: row.ticketingId,

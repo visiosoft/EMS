@@ -1,6 +1,7 @@
 import {
   acquireApiAccessToken,
   getActiveAccount,
+  getAccountEmail,
   getAccountName,
   getAccountOid,
   isApiAccessTokenConfigured,
@@ -65,11 +66,15 @@ async function buildApiHeaders(
     if (account) {
       const oid = getAccountOid(account);
       const name = getAccountName(account).trim();
+      const email = getAccountEmail(account).trim().toLowerCase();
       if (oid && !headers.has('X-User-Oid')) {
         headers.set('X-User-Oid', oid);
       }
       if (name && !headers.has('X-User-Name')) {
         headers.set('X-User-Name', name);
+      }
+      if (email && email.includes('@') && !headers.has('X-User-Email')) {
+        headers.set('X-User-Email', email);
       }
       try {
         headers.set('Authorization', `Bearer ${await acquireApiAccessToken(account)}`);
@@ -81,11 +86,15 @@ async function buildApiHeaders(
     const account = getActiveAccount();
     const oid = getAccountOid(account);
     const name = getAccountName(account).trim();
+    const email = getAccountEmail(account).trim().toLowerCase();
     if (oid && !headers.has('X-User-Oid')) {
       headers.set('X-User-Oid', oid);
     }
     if (name && !headers.has('X-User-Name')) {
       headers.set('X-User-Name', name);
+    }
+    if (email && email.includes('@') && !headers.has('X-User-Email')) {
+      headers.set('X-User-Email', email);
     }
   }
 

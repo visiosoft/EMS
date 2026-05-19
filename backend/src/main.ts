@@ -15,7 +15,9 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const logger = new Logger('Bootstrap');
 
-  app.useStaticAssets(TOUR_BANNER_UPLOAD_DIR, { prefix: '/uploads/tour-banners/' });
+  app.useStaticAssets(TOUR_BANNER_UPLOAD_DIR, {
+    prefix: '/uploads/tour-banners/',
+  });
   app.enableCors();
   app.setGlobalPrefix('api');
   app.useGlobalFilters(new AllExceptionsFilter());
@@ -47,7 +49,9 @@ async function bootstrap() {
 
     logger.log(`Serving frontend from ${frontendDistDir}`);
   } else {
-    logger.warn(`Frontend build not found at ${frontendIndexPath}; serving API only.`);
+    logger.warn(
+      `Frontend build not found at ${frontendIndexPath}; serving API only.`,
+    );
     expressApp.get('/', (_req: Request, res: Response) => {
       res.status(200).json({
         message:

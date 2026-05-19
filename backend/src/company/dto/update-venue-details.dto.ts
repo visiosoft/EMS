@@ -246,4 +246,3 @@ export class UpdateVenueDetailsDto {
   @Type(() => NonResidentWithholdingDraftDto)
   nonResidentWithholding?: NonResidentWithholdingDraftDto;
 }
-

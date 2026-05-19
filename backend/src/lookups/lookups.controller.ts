@@ -13,7 +13,10 @@ import {
   Query,
 } from '@nestjs/common';
 import { LookupsService } from './lookups.service';
-import { CreateLookupRowDto, UpdateLookupRowDto } from './dto/manage-lookup-row.dto';
+import {
+  CreateLookupRowDto,
+  UpdateLookupRowDto,
+} from './dto/manage-lookup-row.dto';
 
 @Controller('lookups')
 export class LookupsController {
@@ -90,7 +93,9 @@ export class LookupsController {
     @Query('limit') limit?: string,
   ) {
     const raw = limit ? Number(limit) : 50;
-    const safeLimit = Number.isFinite(raw) ? Math.min(100, Math.max(1, Math.floor(raw))) : 50;
+    const safeLimit = Number.isFinite(raw)
+      ? Math.min(100, Math.max(1, Math.floor(raw)))
+      : 50;
     return this.lookupsService.searchDmaMarkets(query?.trim() ?? '', safeLimit);
   }
 
@@ -100,7 +105,9 @@ export class LookupsController {
     @Query('limit', new DefaultValuePipe(25), ParseIntPipe) limit: number,
     @Query('q') query?: string,
   ) {
-    const safeLimit = Number.isFinite(limit) ? Math.min(500, Math.max(1, Math.floor(limit))) : 25;
+    const safeLimit = Number.isFinite(limit)
+      ? Math.min(500, Math.max(1, Math.floor(limit)))
+      : 25;
     const safeOffset = Math.max(0, offset);
     return this.lookupsService.findDmaMarketsPaginated(
       safeOffset,
@@ -118,7 +125,9 @@ export class LookupsController {
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: string,
   ) {
-    const safeLimit = Number.isFinite(limit) ? Math.min(500, Math.max(1, Math.floor(limit))) : 25;
+    const safeLimit = Number.isFinite(limit)
+      ? Math.min(500, Math.max(1, Math.floor(limit)))
+      : 25;
     const safeOffset = Math.max(0, offset);
     return this.lookupsService.listManagedLookupRows(table, {
       offset: safeOffset,

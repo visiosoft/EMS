@@ -10,13 +10,7 @@ import { VenueDirectoryService } from './venue-directory.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([
-      Venue,
-      CompanyType,
-      Dma,
-      Address,
-      VenueType,
-    ]),
+    TypeOrmModule.forFeature([Venue, CompanyType, Dma, Address, VenueType]),
   ],
   controllers: [VenueDirectoryController],
   providers: [VenueDirectoryService],

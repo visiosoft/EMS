@@ -15,10 +15,18 @@ import { Type } from 'class-transformer';
 import { PROJECT_STAGE_VALUES } from '../project-stage.constants';
 
 /** Documented parity with `dbo.EngagementProjectVenue.VenueStatus` product allowlist. */
-export const VENUE_STATUS_VALUES = ['Confirmed', 'Pending', 'Inactive'] as const;
+export const VENUE_STATUS_VALUES = [
+  'Confirmed',
+  'Pending',
+  'Inactive',
+] as const;
 
 /** Documented parity with `dbo.EngagementProjectPerformanceOption.OptionStatus` product allowlist. */
-export const OPTION_STATUS_VALUES = ['Confirmed', 'Pending', 'Inactive'] as const;
+export const OPTION_STATUS_VALUES = [
+  'Confirmed',
+  'Pending',
+  'Inactive',
+] as const;
 
 export class CreatePerformanceOptionDto {
   @IsISO8601()

@@ -18,4 +18,3 @@ export class VenueBrand {
   @JoinColumn({ name: 'BrandID' })
   brand: Brand;
 }
-

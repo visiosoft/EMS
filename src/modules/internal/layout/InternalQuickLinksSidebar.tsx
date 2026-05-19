@@ -1,24 +1,35 @@
 import { ChevronDown, File, Folder } from "lucide-react";
+import { Link } from "react-router-dom";
 import { DOCUMENT_ITEMS, QUICK_LINKS } from "../constants/quickLinks";
 
 export function InternalQuickLinksSidebar() {
   return (
     <aside className="w-full shrink-0 self-stretch bg-black text-white lg:w-[290px] xl:w-[324px]">
-      <div className="flex w-full flex-col overflow-y-auto px-6 pb-10 pt-7 lg:sticky lg:top-[56px] lg:max-h-[calc(100vh-56px)] xl:px-8">
+      <div className="flex w-full flex-col overflow-y-auto px-6 pb-10 pt-10 lg:sticky lg:top-[56px] lg:max-h-[calc(100vh-56px)] xl:px-8">
         <section className="animate-slide-up">
           <h2 className="mb-6 text-xl font-semibold tracking-[0.02em] text-white">Quick Links</h2>
           <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 lg:gap-4">
             {QUICK_LINKS.map((link) => {
               const Icon = link.icon;
+              const className = "group flex min-h-[48px] items-center gap-3 rounded-sm bg-white px-4 py-3 text-[14px] font-semibold text-neutral-950 shadow-sm outline-none transition-all duration-200 hover:-translate-y-0.5 hover:bg-neutral-100 hover:shadow-lg focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black";
+              const content = (
+                <>
+                  <Icon className="h-5 w-5 shrink-0 text-neutral-500 transition-colors group-hover:text-black" strokeWidth={1.7} aria-hidden />
+                  {link.label}
+                </>
+              );
+
               return (
                 <li key={link.label}>
-                  <a
-                    href={link.href}
-                    className="group flex min-h-[48px] items-center gap-3 rounded-sm bg-white px-4 py-3 text-[14px] font-semibold text-neutral-950 shadow-sm outline-none transition-all duration-200 hover:-translate-y-0.5 hover:bg-neutral-100 hover:shadow-lg focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
-                  >
-                    <Icon className="h-5 w-5 shrink-0 text-neutral-500 transition-colors group-hover:text-black" strokeWidth={1.7} aria-hidden />
-                    {link.label}
-                  </a>
+                  {link.external ? (
+                    <a href={link.href} target="_blank" rel="noreferrer" className={className}>
+                      {content}
+                    </a>
+                  ) : (
+                    <Link to={link.href} className={className}>
+                      {content}
+                    </Link>
+                  )}
                 </li>
               );
             })}

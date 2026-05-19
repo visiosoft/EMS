@@ -17,4 +17,3 @@ export class Link {
   @Column({ name: 'LinkPath', type: 'nvarchar', length: 1024 })
   linkPath: string;
 }
-

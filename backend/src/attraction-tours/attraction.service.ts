@@ -155,9 +155,13 @@ export class AttractionService {
         'activeTourCount',
       );
     if (sortBy === 'tours' || sortBy === 'activetours') {
-      baseQb.orderBy('activeTourCount', sortDir).addOrderBy('a.attractionName', 'ASC');
+      baseQb
+        .orderBy('activeTourCount', sortDir)
+        .addOrderBy('a.attractionName', 'ASC');
     } else {
-      baseQb.orderBy('a.attractionName', sortDir).addOrderBy('a.attractionId', 'ASC');
+      baseQb
+        .orderBy('a.attractionName', sortDir)
+        .addOrderBy('a.attractionId', 'ASC');
     }
     if (trimmed) {
       baseQb.andWhere('LOWER(a.attractionName) LIKE LOWER(:like)', {
