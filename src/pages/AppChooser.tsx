@@ -12,6 +12,7 @@ import {
 import { IaeLogoFull } from "@/components/ems/Layout";
 import { IaeBrandMark } from "@/components/brand/IaeBrandMark";
 import { APP_CHOOSER_PATH, EMS_ROOT, INTERNAL_HOME_PATH, LOGIN_PATH } from "@/routing/paths";
+import { canAccessInternalHub } from "@/routing/internalHubAccess";
 import { rememberWorkspacePath } from "@/routing/workspacePreference";
 
 const AppChooser = () => {
@@ -20,9 +21,15 @@ const AppChooser = () => {
   const account = getActiveAccount() ?? accounts[0] ?? null;
   const displayName = getAccountName(account);
   const email = getAccountEmail(account);
+  const canUseCompanyHub = canAccessInternalHub(account);
 
   if (!isAuthenticated && !account) {
     return <Navigate to={LOGIN_PATH} replace state={{ from: APP_CHOOSER_PATH }} />;
+  }
+
+  if (!canUseCompanyHub) {
+    rememberWorkspacePath(EMS_ROOT);
+    return <Navigate to={EMS_ROOT} replace />;
   }
 
   return (
