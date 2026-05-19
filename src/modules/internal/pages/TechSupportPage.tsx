@@ -11,28 +11,28 @@ export function TechSupportPage() {
           <div className="absolute bottom-0 left-[28%] h-40 w-[40%] rounded-t-[80%] bg-[#0f3864]" />
         </div>
 
-        <nav className="relative mx-auto flex max-w-[1480px] items-center justify-between px-5 py-4">
-          <div className="flex items-center gap-3 text-lg font-semibold">
+        <nav className="relative mx-auto flex max-w-[1480px] flex-col items-start justify-between gap-4 px-4 py-4 sm:flex-row sm:items-center sm:px-5">
+          <div className="flex items-center gap-3 text-base font-semibold sm:text-lg">
             <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/95">
               <IaeLogoIcon surface="on-light" className="h-6 w-6" />
             </span>
-            <span>Innovation Arts and Entertainment</span>
-            <span className="text-white/70">| Help Center</span>
+            <span className="leading-tight">Innovation Arts and Entertainment</span>
+            <span className="hidden text-white/70 sm:inline">| Help Center</span>
           </div>
-          <div className="flex items-center gap-3">
-            <a href="#request" className="rounded-md bg-[#0f5fc6] px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#0c55b3]">Submit a Request</a>
-            <a href="#signin" className="rounded-md bg-white px-4 py-2 text-sm font-semibold text-neutral-700 shadow-sm hover:bg-neutral-100">Sign In</a>
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:gap-3">
+            <a href="#request" className="inline-flex h-10 items-center rounded-md bg-[#0f5fc6] px-4 text-sm font-medium text-white shadow-sm hover:bg-[#0c55b3]">Submit a Request</a>
+            <a href="#signin" className="inline-flex h-10 items-center rounded-md bg-white px-4 text-sm font-semibold text-neutral-700 shadow-sm hover:bg-neutral-100">Sign In</a>
           </div>
         </nav>
 
-        <div className="relative mx-auto flex min-h-[315px] max-w-[900px] flex-col items-center justify-center px-5 pb-24 pt-12 text-center">
-          <h1 className="text-5xl font-bold tracking-[0.08em] sm:text-[58px]">How can we help, today?</h1>
-          <div className="mt-8 flex w-full max-w-[535px] overflow-hidden rounded-sm shadow-sm">
+        <div className="relative mx-auto flex min-h-[315px] max-w-[900px] flex-col items-center justify-center px-4 pb-16 pt-10 text-center sm:px-5 sm:pb-24 sm:pt-12">
+          <h1 className="text-[clamp(2rem,10vw,3.625rem)] font-bold tracking-[0.03em] sm:tracking-[0.08em]">How can we help, today?</h1>
+          <div className="mt-8 flex w-full max-w-[535px] flex-col overflow-hidden rounded-sm shadow-sm sm:flex-row">
             <label className="flex h-11 flex-1 items-center gap-3 bg-white px-4 text-neutral-500">
               <Search className="h-4 w-4" aria-hidden />
               <input className="w-full border-0 bg-transparent text-sm outline-none placeholder:text-neutral-500" placeholder="Search our knowledge base articles and FAQs..." />
             </label>
-            <button className="flex h-11 items-center gap-2 bg-[#5f7fa2] px-4 text-sm font-semibold text-white">
+            <button className="flex h-11 items-center justify-center gap-2 bg-[#5f7fa2] px-4 text-sm font-semibold text-white sm:justify-start">
               Helpdesk <ChevronDown className="h-4 w-4" />
             </button>
           </div>
@@ -54,12 +54,12 @@ export function TechSupportPage() {
           ))}
         </section>
 
-        <section className="mt-36 space-y-12">
-          <div className="grid grid-cols-[190px_1fr] items-start gap-12 border-b border-neutral-200 pb-10">
+        <section className="mt-20 space-y-10 sm:mt-36 sm:space-y-12">
+          <div className="grid gap-4 border-b border-neutral-200 pb-8 sm:grid-cols-[190px_1fr] sm:gap-12 sm:pb-10">
             <h2 className="text-xl font-semibold leading-tight text-neutral-900">Recent Knowledge<br />Base Articles</h2>
             <p className="pt-1 text-sm font-medium text-neutral-900">No Articles to show.</p>
           </div>
-          <div className="grid grid-cols-[190px_1fr] items-start gap-12">
+          <div className="grid gap-4 sm:grid-cols-[190px_1fr] sm:gap-12">
             <h2 className="text-xl font-semibold text-neutral-900">Recent FAQs</h2>
             <p className="pt-1 text-sm font-medium text-neutral-900">No FAQs to show.</p>
           </div>

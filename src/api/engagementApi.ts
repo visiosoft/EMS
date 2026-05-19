@@ -298,6 +298,12 @@ export interface CreatePerformancePayload {
 /** Full list (legacy). Prefer {@link fetchEngagementsPaged} for the EMS list screen. */
 export const fetchEngagements = () => apiFetch<ApiEngagementListRow[]>('/engagements');
 
+/** Company Hub widgets — engagements created by the signed-in user (`created_by`) in the date range. */
+export function fetchHubEngagementSchedule(startDate: string, endDate: string) {
+  const params = new URLSearchParams({ startDate, endDate });
+  return apiFetch<ApiEngagementListRow[]>(`/engagements/hub-schedule?${params}`);
+}
+
 export interface ApiEngagementsPageResponse {
   data: ApiEngagementListRow[];
   total: number;
