@@ -40,6 +40,7 @@ import { CreateEngagementIaeContactDto } from './dto/create-engagement-iae-conta
 import { UpdateEngagementIaeContactDto } from './dto/update-engagement-iae-contact.dto';
 import { UpdateNonResidentWithholdingLinksDto } from './dto/update-non-resident-withholding-links.dto';
 import { AddEngagementVenueDto } from './dto/add-engagement-venue.dto';
+import { AuditRequestContext } from '../audit/audit-request-context.service';
 import { buildEngagementDisplayTitle } from './engagement-display.util';
 import { normalizeEngagementStatus } from './engagement-status.util';
 import { getIaeWaiverStatusAllowlist } from './iae-waiver-status.constants';
@@ -273,6 +274,7 @@ export class EngagementService {
     private readonly settlementFinanceRepo: Repository<SettlementFinance>,
     private readonly emsCreated: EmsAppCreatedStore,
     private readonly dataSource: DataSource,
+    private readonly auditContext: AuditRequestContext,
   ) {}
 
   private async getPrimaryVenueCompanyIdForEngagement(
@@ -956,7 +958,7 @@ export class EngagementService {
     return `(
           SELECT TOP 1 CONVERT(varchar(10), op.PerformanceDate, 23)
           FROM dbo.[Performance] op
-          WHERE op.EngagementID = e.EngagementID
+          WHERE op.EngagementID = e.engagementId
           ORDER BY op.PerformanceDate ASC, op.PerformanceTime ASC
         )`;
   }
@@ -966,7 +968,7 @@ export class EngagementService {
     return `(
           SELECT TOP 1 CONVERT(varchar(8), op.PerformanceTime, 108)
           FROM dbo.[Performance] op
-          WHERE op.EngagementID = e.EngagementID
+          WHERE op.EngagementID = e.engagementId
           ORDER BY op.PerformanceDate ASC, op.PerformanceTime ASC
         )`;
   }
@@ -1086,6 +1088,62 @@ export class EngagementService {
     } else {
       qb.orderBy('e.engagementId', 'DESC');
     }
+  }
+
+  /**
+   * Company Hub schedule: engagements created by the signed-in user (dbo.Engagement.created_by)
+   * with at least one performance in [startDate, endDate].
+   */
+  async listHubSchedule(
+    startDateRaw?: string,
+    endDateRaw?: string,
+  ): Promise<EngagementListRow[]> {
+    const userOid = this.auditContext.getUserOid()?.trim();
+    if (!userOid) {
+      throw new BadRequestException({
+        message: 'Sign in required to load your engagements.',
+      });
+    }
+
+    const startDate = this.normalizeHubScheduleYmd(startDateRaw);
+    const endDate = this.normalizeHubScheduleYmd(endDateRaw);
+    if (!startDate || !endDate) {
+      throw new BadRequestException({
+        message:
+          'Query parameters startDate and endDate are required (YYYY-MM-DD).',
+      });
+    }
+    if (endDate < startDate) {
+      throw new BadRequestException({
+        message: 'endDate cannot be before startDate.',
+      });
+    }
+
+    const openingSub = this.openingPerformanceDateSubquery();
+    const qb = this.buildEngagementQuery();
+    qb.andWhere(
+      `LOWER(LTRIM(RTRIM(ISNULL(e.createdBy, '')))) = LOWER(LTRIM(RTRIM(:userOid)))`,
+      { userOid },
+    );
+    qb.andWhere(
+      `EXISTS (
+        SELECT 1
+        FROM dbo.[Performance] hubPerf
+        WHERE hubPerf.EngagementID = e.engagementId
+          AND CAST(hubPerf.PerformanceDate AS DATE) >= CAST(:startDate AS DATE)
+          AND CAST(hubPerf.PerformanceDate AS DATE) <= CAST(:endDate AS DATE)
+      )`,
+      { startDate, endDate },
+    );
+    qb.orderBy(openingSub, 'ASC').addOrderBy('e.engagementId', 'ASC');
+
+    const raw = await qb.getRawMany();
+    return (raw as Record<string, unknown>[]).map((r) => this.mapRaw(r));
+  }
+
+  private normalizeHubScheduleYmd(raw?: string): string | null {
+    const s = (raw ?? '').trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
   }
 
   async listPaginated(

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AuditModule } from '../audit/audit.module';
 import { AttractionToursModule } from '../attraction-tours/attraction-tours.module';
 import { Attraction } from '../entities/attraction.entity';
 import { Company } from '../entities/company.entity';
@@ -28,6 +29,7 @@ import { EngagementService } from './engagement.service';
 
 @Module({
   imports: [
+    AuditModule,
     TypeOrmModule.forFeature([
       Engagement,
       Link,

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Sidebar, Header } from '@/components/ems/Layout';
 import { ToastContainer } from '@/components/ems/Primitives';
 import { CompaniesPage } from '@/components/ems/CompaniesPage';
@@ -21,6 +21,7 @@ const SIDEBAR_COLLAPSED_KEY = 'iae-ems-sidebar-collapsed-v1';
 
 /** Survives Ctrl+R in this tab; cleared when the tab closes — new visits start on Projects. */
 const EMS_SESSION_ROUTE_KEY = 'iae-ems-session-route-v1';
+const EMS_OPEN_INTENT_KEY = 'iae-ems-open-intent-v1';
 
 const VALID_VIEWS = new Set([
   'companies',
@@ -87,13 +88,61 @@ function sanitizeViewDataForView(view: string, raw: unknown): Record<string, unk
     if (/^\d{4}-\d{2}-\d{2}$/.test(asOf)) out.initialAsOf = asOf;
     return out;
   }
-  if (view === 'engagements' && typeof obj.statusFilter === 'string' && obj.statusFilter.trim()) {
-    return { statusFilter: obj.statusFilter.trim().slice(0, 120) };
+  if (view === 'engagements') {
+    const out: Record<string, unknown> = {};
+    if (typeof obj.statusFilter === 'string' && obj.statusFilter.trim()) {
+      out.statusFilter = obj.statusFilter.trim().slice(0, 120);
+    }
+    if (obj.createEngagement === true || obj.createEngagement === '1') {
+      out.createEngagement = true;
+    }
+    return out;
   }
   if (view === 'companies' && obj.selectedCompanyId != null) {
     return { selectedCompanyId: obj.selectedCompanyId };
   }
   return {};
+}
+
+function readRouteFromUrl(): { view: string; viewData: Record<string, unknown> } | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const view = params.get('view')?.trim() ?? '';
+    if (!view || !VALID_VIEWS.has(view)) return null;
+
+    const viewData = sanitizeViewDataForView(view, {
+      statusFilter: params.get('statusFilter') ?? undefined,
+      createEngagement: params.get('createEngagement') === '1',
+    });
+
+    return { view, viewData };
+  } catch {
+    return null;
+  }
+}
+
+function readAndConsumeOpenIntent(): { view: string; viewData: Record<string, unknown> } | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(EMS_OPEN_INTENT_KEY);
+    if (!raw) return null;
+    window.localStorage.removeItem(EMS_OPEN_INTENT_KEY);
+
+    const parsed = JSON.parse(raw) as { view?: unknown; createEngagement?: unknown; expiresAt?: unknown };
+    const expiresAt = typeof parsed.expiresAt === 'number' ? parsed.expiresAt : 0;
+    const view = typeof parsed.view === 'string' ? parsed.view : '';
+    if (Date.now() > expiresAt || view !== 'engagements') return null;
+
+    return {
+      view: 'engagements',
+      viewData: sanitizeViewDataForView('engagements', {
+        createEngagement: parsed.createEngagement === true,
+      }),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function readStoredSessionRoute(): { view: string; viewData: Record<string, unknown> } | null {
@@ -132,6 +181,10 @@ function writeStoredSessionRoute(view: string, viewData: Record<string, unknown>
 
 const Index = () => {
   const initialRoute = useMemo(() => {
+    const urlRoute = readRouteFromUrl();
+    if (urlRoute) return urlRoute;
+    const intentRoute = readAndConsumeOpenIntent();
+    if (intentRoute) return intentRoute;
     const r = readStoredSessionRoute();
     return { view: r?.view ?? 'projects', viewData: r?.viewData ?? {} };
   }, []);
@@ -142,6 +195,7 @@ const Index = () => {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
+  const autoCreateEngagementHandledRef = useRef(false);
 
   useEffect(() => {
     try {
@@ -155,6 +209,52 @@ const Index = () => {
     if (!VALID_VIEWS.has(currentView)) return;
     writeStoredSessionRoute(currentView, viewData);
   }, [currentView, viewData]);
+
+  useEffect(() => {
+    if (currentView !== 'engagements' || viewData.createEngagement !== true) {
+      autoCreateEngagementHandledRef.current = false;
+      return;
+    }
+    if (autoCreateEngagementHandledRef.current) return;
+    autoCreateEngagementHandledRef.current = true;
+
+    let attempts = 0;
+    let cancelled = false;
+    let timeoutId: number | undefined;
+
+    const openCreateEngagementModal = () => {
+      if (cancelled) return;
+      attempts += 1;
+      const addButton = Array.from(document.querySelectorAll('button')).find((button) => {
+        const text = button.textContent?.replace(/\s+/g, ' ').trim().toLowerCase() ?? '';
+        return text.includes('add engagement') && !button.hasAttribute('disabled');
+      }) as HTMLButtonElement | undefined;
+
+      if (addButton) {
+        addButton.click();
+        setViewData((previous) => {
+          const next = { ...previous };
+          delete next.createEngagement;
+          return next;
+        });
+        if (window.location.pathname !== '/' || window.location.search) {
+          window.history.replaceState({}, document.title, '/');
+        }
+        return;
+      }
+
+      if (attempts < 300) {
+        timeoutId = window.setTimeout(openCreateEngagementModal, 100);
+      }
+    };
+
+    timeoutId = window.setTimeout(openCreateEngagementModal, 0);
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) window.clearTimeout(timeoutId);
+    };
+  }, [currentView, viewData.createEngagement]);
 
   const navigate = useCallback((view: string, data?: Record<string, unknown>) => {
     setCurrentView(view);

@@ -100,14 +100,32 @@ const App = () => (
               ) : null}
 
               {isEmsEnabled() ? (
-                <Route
-                  path={EMS_ROOT}
-                  element={
-                    <ProtectedRoute>
-                      <Index />
-                    </ProtectedRoute>
-                  }
-                />
+                <>
+                  <Route
+                    path={EMS_ROOT}
+                    element={
+                      <ProtectedRoute>
+                        <Index />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/engagements"
+                    element={
+                      <ProtectedRoute>
+                        <Index />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/engagements/create"
+                    element={
+                      <ProtectedRoute>
+                        <Index />
+                      </ProtectedRoute>
+                    }
+                  />
+                </>
               ) : (
                 <Route path={EMS_ROOT} element={<Navigate to={INTERNAL_ROOT} replace />} />
               )}
