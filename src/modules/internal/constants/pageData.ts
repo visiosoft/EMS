@@ -84,9 +84,3 @@ export const DEPARTMENT_CARDS: DepartmentCard[] = [
   { title: "Ticketing & Sales", icon: Ticket },
   { title: "Production", icon: Settings2 },
 ];
-
-export const RECAP_EVENTS = [
-  { month: "Month", day: "01", title: "Title of event", time: "Tuesday 12:00 AM - 1:00 PM" },
-  { month: "Month", day: "01", title: "Title of event", time: "Tuesday 12:00 AM - 1:00 PM" },
-  { month: "Month", day: "01", title: "Title of event", time: "Tuesday 12:00 AM - 1:00 PM" },
-] as const;

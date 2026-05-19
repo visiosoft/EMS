@@ -364,9 +364,6 @@ function AddNewsModal({
             <h3 id="add-news-title" className="mt-1 text-2xl font-semibold tracking-[-0.02em] text-neutral-950">
               Add news
             </h3>
-            <p className="mt-1 max-w-[620px] text-sm leading-relaxed text-neutral-600">
-              The author will be taken from the logged-in user and saved through created_by. The body is stored as sanitized HTML.
-            </p>
           </div>
           <button
             type="button"
