@@ -41,6 +41,7 @@ const VALID_VIEWS = new Set([
 
 const SALES_SUMMARY_RETURN_VIEWS = new Set(['daily-sales', 'projects', 'engagements', 'sales-summary']);
 const ENGAGEMENT_TIMING_FILTERS = new Set(['all', 'upcoming', 'past']);
+type EngagementTimingFilter = 'all' | 'upcoming' | 'past';
 
 function readSidebarCollapsed(): boolean {
   if (typeof window === 'undefined') return false;
@@ -207,7 +208,6 @@ const Index = () => {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
   const autoCreateEngagementHandledRef = useRef(false);
-  const autoTimingFilterHandledRef = useRef<string | null>(null);
 
   useEffect(() => {
     try {
@@ -267,55 +267,6 @@ const Index = () => {
       if (timeoutId) window.clearTimeout(timeoutId);
     };
   }, [currentView, viewData.createEngagement]);
-
-  useEffect(() => {
-    const timingFilter = typeof viewData.timingFilter === 'string' ? viewData.timingFilter : '';
-    if (currentView !== 'engagements' || !ENGAGEMENT_TIMING_FILTERS.has(timingFilter)) {
-      autoTimingFilterHandledRef.current = null;
-      return;
-    }
-    if (autoTimingFilterHandledRef.current === timingFilter) return;
-    autoTimingFilterHandledRef.current = timingFilter;
-
-    let attempts = 0;
-    let cancelled = false;
-    let timeoutId: number | undefined;
-    const label = timingFilter === 'past' ? 'past' : timingFilter === 'upcoming' ? 'upcoming' : 'all';
-
-    const applyTimingFilter = () => {
-      if (cancelled) return;
-      attempts += 1;
-
-      const button = Array.from(document.querySelectorAll('button')).find((candidate) => {
-        const text = candidate.textContent?.replace(/\s+/g, ' ').trim().toLowerCase() ?? '';
-        return text === label && !candidate.hasAttribute('disabled');
-      }) as HTMLButtonElement | undefined;
-
-      if (button) {
-        button.click();
-        setViewData((previous) => {
-          const next = { ...previous };
-          delete next.timingFilter;
-          return next;
-        });
-        if (window.location.pathname !== '/' || window.location.search) {
-          window.history.replaceState({}, document.title, '/');
-        }
-        return;
-      }
-
-      if (attempts < 120) {
-        timeoutId = window.setTimeout(applyTimingFilter, 100);
-      }
-    };
-
-    timeoutId = window.setTimeout(applyTimingFilter, 0);
-
-    return () => {
-      cancelled = true;
-      if (timeoutId) window.clearTimeout(timeoutId);
-    };
-  }, [currentView, viewData.timingFilter]);
 
   const navigate = useCallback((view: string, data?: Record<string, unknown>) => {
     setCurrentView(view);
@@ -445,6 +396,7 @@ const Index = () => {
             <EngagementsPage
               onNavigate={navigate}
               statusFilter={viewData.statusFilter as string | undefined}
+              timingFilter={viewData.timingFilter as EngagementTimingFilter | undefined}
               addToast={addToast}
             />
           )}
