@@ -5,6 +5,7 @@ import { DEPARTMENT_CARDS } from "../constants/pageData";
 function getDepartmentHref(title: string) {
   if (title === "Art") return "/internal/departments/art-graphic-design";
   if (title === "Events") return "/internal/departments/event-business";
+  if (title === "Booking") return "/internal/departments/booking";
   return `#${title.toLowerCase().replace(/\s+/g, "-")}`;
 }
 
@@ -21,7 +22,7 @@ export function DepartmentsPage() {
           {DEPARTMENT_CARDS.map((department, index) => {
             const Icon = department.icon;
             const href = getDepartmentHref(department.title);
-            const opensNewTab = department.title === "Art" || department.title === "Events";
+            const opensNewTab = department.title === "Art" || department.title === "Events" || department.title === "Booking";
 
             return (
               <article
