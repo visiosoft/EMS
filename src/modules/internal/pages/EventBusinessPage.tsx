@@ -157,11 +157,11 @@ function BusinessCard({ label, icon: Icon, index }: { label: string; icon: (prop
 
 function UrgentUpcomingSection() {
   return (
-    <section className="bg-white px-5 pb-16 pt-[104px] text-black sm:px-8 lg:px-10">
-      <div className="mx-auto max-w-[1080px]">
-        <div className="grid gap-6 md:grid-cols-[1fr_220px]">
+    <section className="bg-white px-5 pb-16 pt-[72px] text-black sm:px-8 lg:px-10">
+      <div className="mx-auto max-w-[1120px]">
+        <div className="grid gap-6 md:grid-cols-[1fr_238px]">
           <h2 className="text-[34px] font-semibold leading-none tracking-[-0.02em] text-neutral-900">Urgent / Upcoming</h2>
-          <div className="flex flex-col items-start gap-[66px] pt-1">
+          <div className="flex flex-col items-start gap-[66px] pt-0.5">
             <a href="#calendar" className="text-base text-neutral-800 underline underline-offset-2 hover:text-black">
               View Full Calendar
             </a>
@@ -171,12 +171,12 @@ function UrgentUpcomingSection() {
           </div>
         </div>
 
-        <button type="button" className="mt-[72px] inline-flex items-center gap-3 text-sm font-medium text-neutral-950 hover:text-neutral-600">
+        <button type="button" className="mt-[24px] inline-flex items-center gap-3 text-sm font-medium text-neutral-950 hover:text-neutral-600">
           <Plus className="h-4 w-4" aria-hidden />
           Add event
         </button>
 
-        <div className="mt-7 grid gap-10 md:grid-cols-[minmax(245px,1.15fr)_repeat(3,minmax(160px,1fr))]">
+        <div className="mt-[24px] grid gap-8 md:grid-cols-[minmax(240px,0.92fr)_repeat(3,minmax(205px,1fr))]">
           <div className="flex items-center gap-4">
             <div className="flex h-[58px] w-[58px] shrink-0 items-center justify-center bg-black text-white">
               <Calendar className="h-7 w-7" strokeWidth={1.65} aria-hidden />
@@ -195,7 +195,7 @@ function UrgentUpcomingSection() {
               </div>
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-neutral-900">{event.title}</p>
-                <p className="mt-1 truncate text-xs font-medium text-neutral-800">{event.time}</p>
+                <p className="mt-1 whitespace-nowrap text-xs font-medium text-neutral-800">{event.time}</p>
               </div>
             </article>
           ))}
