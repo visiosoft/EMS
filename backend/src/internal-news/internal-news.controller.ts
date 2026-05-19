@@ -1,7 +1,9 @@
-import { Body, Controller, DefaultValuePipe, Get, ParseIntPipe, Post, Query } from '@nestjs/common';
+import { Body, Controller, DefaultValuePipe, Get, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { InternalAccessGuard } from '../internal-access/internal-access.guard';
 import { CreateNewsDto } from './dto/create-news.dto';
 import { InternalNewsService } from './internal-news.service';
 
+@UseGuards(InternalAccessGuard)
 @Controller('internal/news')
 export class InternalNewsController {
   constructor(private readonly internalNewsService: InternalNewsService) {}
