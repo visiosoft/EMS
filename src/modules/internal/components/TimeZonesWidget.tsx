@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { TIME_ZONE_LOCATIONS } from "../constants/quickLinks";
 
 type ClockSnapshot = {
@@ -24,21 +24,51 @@ function formatClock(timeZone: string, now: Date): ClockSnapshot {
   return { time, date };
 }
 
+function getNextMinuteDelay(now: Date) {
+  const millisecondsPastMinute = now.getSeconds() * 1000 + now.getMilliseconds();
+  return Math.max(250, 60_000 - millisecondsPastMinute);
+}
+
 export function TimeZonesWidget() {
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
-    const id = window.setInterval(() => setNow(new Date()), 30_000);
-    return () => window.clearInterval(id);
+    let timeoutId: number;
+
+    const scheduleNextTick = () => {
+      timeoutId = window.setTimeout(() => {
+        setNow(new Date());
+        scheduleNextTick();
+      }, getNextMinuteDelay(new Date()));
+    };
+
+    scheduleNextTick();
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        setNow(new Date());
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, []);
 
+  const clocks = useMemo(
+    () => TIME_ZONE_LOCATIONS.map((loc) => ({ ...loc, ...formatClock(loc.timeZone, now) })),
+    [now],
+  );
+
   return (
-    <section className="animate-slide-up bg-white">
+    <section className="animate-slide-up bg-white" aria-label="Live time zones">
       <h3 className="mb-4 text-[17px] font-semibold tracking-[0.02em] text-neutral-900">Time Zones</h3>
-      <ul className="space-y-2">
-        {TIME_ZONE_LOCATIONS.map((loc, index) => {
-          const { time, date } = formatClock(loc.timeZone, now);
-          const [clockTime, meridiem = ""] = time.split(" ");
+      <ul className="space-y-2" aria-live="polite">
+        {clocks.map((loc, index) => {
+          const [clockTime, meridiem = ""] = loc.time.split(" ");
           const isPrimary = index === 0;
 
           return (
@@ -64,7 +94,7 @@ export function TimeZonesWidget() {
                 </span>
                 <span className="text-xs font-semibold uppercase text-neutral-700">{meridiem}</span>
               </div>
-              <p className="mt-0.5 text-xs text-neutral-500">{date}</p>
+              <p className="mt-0.5 text-xs text-neutral-500">{loc.date}</p>
             </li>
           );
         })}
