@@ -8,6 +8,7 @@ import { EmployeeServicesPage } from "@/modules/internal/pages/EmployeeServicesP
 import { EventBusinessPage } from "@/modules/internal/pages/EventBusinessPage";
 import { InternalHomePage } from "@/modules/internal/pages/HomePage";
 import { LeadershipPage } from "@/modules/internal/pages/LeadershipPage";
+import { MarketingPage } from "@/modules/internal/pages/MarketingPage";
 import { ShippingRequestsPage } from "@/modules/internal/pages/ShippingRequestsPage";
 import { TechSupportPage } from "@/modules/internal/pages/TechSupportPage";
 
@@ -27,6 +28,7 @@ export default function InternalApp() {
         <Route path="departments/art-graphic-design" element={<ArtGraphicDesignPage />} />
         <Route path="departments/booking" element={<BookingPage />} />
         <Route path="departments/event-business" element={<EventBusinessPage />} />
+        <Route path="departments/marketing" element={<MarketingPage />} />
       </Route>
     </Routes>
   );
