@@ -374,6 +374,7 @@ export function AddNewsModal({ open, onClose, onSubmit }: { open: boolean; onClo
   );
 }
 
+
 export function HomeNewsSection() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newsItems, setNewsItems] = useState<NewsItem[]>([]);
