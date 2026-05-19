@@ -14,6 +14,7 @@ import { ProjectsModule } from './projects/projects.module';
 import { DailySalesModule } from './daily-sales/daily-sales.module';
 import { VenueDirectoryModule } from './venue-directory/venue-directory.module';
 import { AdminUsersModule } from './admin-users/admin-users.module';
+import { InternalNewsModule } from './internal-news/internal-news.module';
 
 const parseBoolean = (
   value: string | undefined,
@@ -98,6 +99,7 @@ const parseNumber = (value: string | undefined, fallback: number): number => {
     DailySalesModule,
     VenueDirectoryModule,
     AdminUsersModule,
+    InternalNewsModule,
   ],
   controllers: [AppController],
   providers: [AppService, AuditSubscriber],
