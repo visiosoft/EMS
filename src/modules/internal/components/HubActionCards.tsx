@@ -44,7 +44,7 @@ function primeEngagementsTab(timingFilter: "past" | "upcoming") {
     JSON.stringify({
       view: "engagements",
       timingFilter,
-      expiresAt: Date.now() + 30_000,
+      expiresAt: Date.now() + 120_000,
     }),
   );
 }
@@ -52,7 +52,8 @@ function primeEngagementsTab(timingFilter: "past" | "upcoming") {
 function getCardHref(key: (typeof HUB_ACTION_CARDS)[number]["key"]) {
   if (key === "sales-update") return SALES_UPDATE_URL;
   if (key === "employee-services") return "/internal/employee-services";
-  if (key === "past-engagements" || key === "upcoming-engagements") return "/";
+  if (key === "past-engagements") return "/?view=engagements&timingFilter=past";
+  if (key === "upcoming-engagements") return "/?view=engagements&timingFilter=upcoming";
   return `#${key}`;
 }
 
@@ -62,7 +63,7 @@ function getCardTarget(key: (typeof HUB_ACTION_CARDS)[number]["key"]) {
 }
 
 function handleCardClick(
-  event: MouseEvent<HTMLAnchorElement>,
+  _event: MouseEvent<HTMLAnchorElement>,
   key: (typeof HUB_ACTION_CARDS)[number]["key"],
 ) {
   if (key === "past-engagements") primeEngagementsTab("past");
