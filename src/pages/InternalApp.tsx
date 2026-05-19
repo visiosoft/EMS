@@ -13,6 +13,9 @@ import { TechSupportPage } from "@/modules/internal/pages/TechSupportPage";
 export default function InternalApp() {
   return (
     <Routes>
+      <Route path="tech-support" element={<TechSupportPage />} />
+      <Route path="shipping-requests" element={<ShippingRequestsPage />} />
+
       <Route element={<InternalLayout />}>
         <Route index element={<InternalHomePage />} />
         <Route path="company-news" element={<CompanyNewsPage />} />
@@ -20,8 +23,6 @@ export default function InternalApp() {
         <Route path="leadership" element={<LeadershipPage />} />
         <Route path="departments" element={<DepartmentsPage />} />
         <Route path="departments/art-graphic-design" element={<ArtGraphicDesignPage />} />
-        <Route path="tech-support" element={<TechSupportPage />} />
-        <Route path="shipping-requests" element={<ShippingRequestsPage />} />
       </Route>
     </Routes>
   );
