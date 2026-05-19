@@ -159,13 +159,13 @@ function UrgentUpcomingSection() {
   return (
     <section className="bg-white px-5 pb-16 pt-[72px] text-black sm:px-8 lg:px-10">
       <div className="mx-auto max-w-[1120px]">
-        <div className="grid gap-6 md:grid-cols-[1fr_238px]">
+        <div className="grid gap-6 md:grid-cols-[1fr_216px]">
           <h2 className="text-[34px] font-semibold leading-none tracking-[-0.02em] text-neutral-900">Urgent / Upcoming</h2>
-          <div className="relative h-[112px] w-[238px] pt-0.5">
-            <a href="#calendar" className="absolute left-0 top-0 text-base text-neutral-800 underline underline-offset-2 hover:text-black">
+          <div className="relative h-[112px] w-[216px]">
+            <a href="#calendar" className="absolute left-0 top-[6px] text-base text-neutral-800 underline underline-offset-2 hover:text-black">
               View Full Calendar
             </a>
-            <a href="#see-all" className="absolute left-[128px] top-[77px] text-sm font-semibold text-neutral-900 hover:underline">
+            <a href="#see-all" className="absolute left-[98px] top-[95px] text-sm font-semibold text-neutral-900 hover:underline">
               See all
             </a>
           </div>
