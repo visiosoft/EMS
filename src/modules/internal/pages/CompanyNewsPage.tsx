@@ -74,7 +74,7 @@ export function CompanyNewsPage() {
     setIsLoading(true);
     setLoadError(null);
     try {
-      const rows = await fetchCompanyNews(24);
+      const rows = await fetchCompanyNews(500);
       setNewsItems(rows);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "Could not load news.");
@@ -94,7 +94,6 @@ export function CompanyNewsPage() {
   };
 
   const thirdNews = newsItems[2];
-  const pageNews = newsItems.slice(0, 4);
   const latestNews = newsItems.slice(0, 4);
 
   return (
@@ -125,11 +124,11 @@ export function CompanyNewsPage() {
             </div>
             {isLoading ? (
               <div className="flex min-h-[240px] items-center justify-center rounded-md border border-neutral-200 bg-neutral-50 text-sm font-semibold text-neutral-700"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading news...</div>
-            ) : pageNews.length === 0 ? (
+            ) : newsItems.length === 0 ? (
               <EmptyNewsState onAdd={() => setIsModalOpen(true)} />
             ) : (
               <div className="divide-y divide-neutral-200">
-                {pageNews.map((item, index) => <NewsListRow key={item.id} item={item} image={index === 0 ? "yellow" : index === 2 ? "orange" : "slate"} />)}
+                {newsItems.map((item, index) => <NewsListRow key={item.id} item={item} image={index % 3 === 0 ? "yellow" : index % 3 === 2 ? "orange" : "slate"} />)}
               </div>
             )}
           </div>
