@@ -1,4 +1,5 @@
 import { Eye, FileSpreadsheet, Grid2X2, Link as LinkIcon, Plus, Share2, UserRound } from "lucide-react";
+import { InternalPageHero } from "../components/InternalPageHero";
 import { EMPLOYEE_DIRECTORY_ROWS, EMPLOYEE_SERVICE_ITEMS } from "../constants/pageData";
 
 const contactBadgeClass: Record<string, string> = {
@@ -13,12 +14,17 @@ export function EmployeeServicesPage() {
 
   return (
     <div className="bg-white text-black">
-      <main className="mx-auto w-full max-w-[1040px] px-5 pb-16 pt-[116px] sm:px-8 lg:px-0">
+      <InternalPageHero
+        title="Employee Services"
+        subtitle="A dedicated space to connect with employees, discover profiles, and access people-related resources in one place."
+      />
+
+      <main className="mx-auto w-full max-w-[1060px] px-5 pb-16 pt-16 sm:px-8 sm:pt-20 lg:px-0">
         <section className="space-y-3" aria-label="Employee services resources">
           {handbookCard ? (
             <a
               href={`#${handbookCard.title.toLowerCase().replace(/\s+/g, "-")}`}
-              className="group flex min-h-[112px] items-center justify-center gap-5 rounded-lg bg-[#0c0c0c] px-8 py-6 text-white shadow-[0_4px_16px_rgba(0,0,0,0.22)] transition-all duration-300 hover:-translate-y-1 hover:bg-black hover:shadow-[0_20px_40px_rgba(0,0,0,0.24)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-4"
+              className="group flex min-h-[126px] items-center justify-center gap-5 rounded-lg bg-[#0c0c0c] px-8 py-6 text-white shadow-[0_4px_16px_rgba(0,0,0,0.22)] transition-all duration-300 hover:-translate-y-1 hover:bg-black hover:shadow-[0_20px_40px_rgba(0,0,0,0.24)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-4 sm:gap-7"
             >
               <span className="rounded-xl bg-black/20 p-3 transition-transform duration-300 group-hover:scale-110" aria-hidden>
                 <handbookCard.icon className="h-[66px] w-[66px]" strokeWidth={1.55} />
@@ -34,7 +40,7 @@ export function EmployeeServicesPage() {
                 <a
                   key={item.title}
                   href={`#${item.title.toLowerCase().replace(/\s+/g, "-")}`}
-                  className="group flex min-h-[232px] flex-col items-center justify-center gap-5 rounded-lg bg-[#0c0c0c] px-6 py-9 text-center text-white shadow-[0_4px_16px_rgba(0,0,0,0.22)] transition-all duration-300 hover:-translate-y-1 hover:bg-black hover:shadow-[0_20px_40px_rgba(0,0,0,0.24)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-4"
+                  className="group flex min-h-[246px] flex-col items-center justify-center gap-5 rounded-lg bg-[#0c0c0c] px-6 py-9 text-center text-white shadow-[0_4px_16px_rgba(0,0,0,0.22)] transition-all duration-300 hover:-translate-y-1 hover:bg-black hover:shadow-[0_20px_40px_rgba(0,0,0,0.24)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-4"
                   style={{ animationDelay: `${index * 70}ms` }}
                 >
                   <span className="rounded-xl bg-black/20 p-3 transition-transform duration-300 group-hover:scale-110" aria-hidden>
@@ -47,7 +53,7 @@ export function EmployeeServicesPage() {
           </div>
         </section>
 
-        <section className="mt-10">
+        <section className="mt-12">
           <h2 className="mb-5 text-2xl font-semibold tracking-[0.01em] text-neutral-950">IAE Employees</h2>
 
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-neutral-200 pb-4">
