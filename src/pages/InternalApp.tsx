@@ -4,6 +4,7 @@ import { ArtGraphicDesignPage } from "@/modules/internal/pages/ArtGraphicDesignP
 import { CompanyNewsPage } from "@/modules/internal/pages/CompanyNewsPage";
 import { DepartmentsPage } from "@/modules/internal/pages/DepartmentsPage";
 import { EmployeeServicesPage } from "@/modules/internal/pages/EmployeeServicesPage";
+import { EventBusinessPage } from "@/modules/internal/pages/EventBusinessPage";
 import { InternalHomePage } from "@/modules/internal/pages/HomePage";
 import { LeadershipPage } from "@/modules/internal/pages/LeadershipPage";
 import { ShippingRequestsPage } from "@/modules/internal/pages/ShippingRequestsPage";
@@ -23,6 +24,7 @@ export default function InternalApp() {
         <Route path="leadership" element={<LeadershipPage />} />
         <Route path="departments" element={<DepartmentsPage />} />
         <Route path="departments/art-graphic-design" element={<ArtGraphicDesignPage />} />
+        <Route path="departments/event-business" element={<EventBusinessPage />} />
       </Route>
     </Routes>
   );
