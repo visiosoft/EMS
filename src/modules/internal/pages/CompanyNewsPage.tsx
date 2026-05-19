@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { CirclePlus, Loader2, Newspaper, Plus, RefreshCw, UserRound, UsersRound, CalendarDays } from "lucide-react";
+import { CalendarDays, CirclePlus, Loader2, Plus, RefreshCw, UserRound, UsersRound } from "lucide-react";
 import {
   AddNewsModal,
   EmptyNewsState,
   createCompanyNews,
   type NewsItem,
 } from "../components/HomeNewsSection";
-import { getActiveAccount, getAccountOid } from "@/auth/entra";
 import { apiFetch } from "@/api/config";
 
 const NEWS_PAGE_SIZE = 3;
@@ -65,11 +64,6 @@ export function CompanyNewsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const currentUserOid = getAccountOid(getActiveAccount());
-  const authoredByMe = useMemo(
-    () => newsItems.filter((item) => currentUserOid && item.createdBy === currentUserOid),
-    [currentUserOid, newsItems],
-  );
   const authors = useMemo(() => {
     const unique = new Map<string, string>();
     newsItems.forEach((item) => {
@@ -111,9 +105,6 @@ export function CompanyNewsPage() {
     setNewsItems((previous) => [saved, ...previous.filter((item) => item.id !== saved.id)]);
     setHasMore(true);
   };
-
-  const thirdNews = newsItems[2];
-  const latestNews = newsItems.slice(0, 4);
 
   return (
     <div className="bg-white text-black">
@@ -190,30 +181,6 @@ export function CompanyNewsPage() {
               <Icon className="h-5 w-5" /> {label}
             </a>
           ))}
-        </div>
-      </section>
-
-      <section className="mx-auto grid max-w-[1080px] gap-10 px-5 py-8 sm:px-8 lg:grid-cols-3 lg:px-0">
-        <div>
-          <h2 className="mb-5 text-2xl font-semibold">Employee Updates</h2>
-          <button type="button" onClick={() => setIsModalOpen(true)} className="mb-6 inline-flex items-center gap-2 text-sm"><Plus className="h-4 w-4" /> Add</button>
-          {thirdNews ? <NewsListRow item={thirdNews} image="orange" large={false} /> : <EmptyNewsState onAdd={() => setIsModalOpen(true)} compact />}
-        </div>
-        <div>
-          <h2 className="mb-5 text-2xl font-semibold">Latest Updates</h2>
-          <button type="button" onClick={() => setIsModalOpen(true)} className="mb-6 inline-flex items-center gap-2 text-sm"><Plus className="h-4 w-4" /> Add</button>
-          <article className="flex flex-col gap-4 border-b border-neutral-200 pb-5 sm:flex-row">
-            <div className="flex h-[76px] w-[118px] shrink-0 flex-col items-center justify-center bg-black text-white"><Newspaper className="h-6 w-6" /><span className="mt-2 text-sm">Add News</span></div>
-            <div><h3 className="font-semibold">Create a news post</h3><p className="mt-2 text-sm text-neutral-600">Keep your audience engaged by adding a company update.</p></div>
-          </article>
-          {latestNews.slice(1, 4).map((item) => <article key={item.id} className="border-b border-neutral-200 py-5"><h3 className="font-semibold">{item.title}</h3><p className="mt-2 text-sm text-neutral-600">{item.summary}</p><p className="mt-2 text-xs font-semibold">{item.createdByName}</p></article>)}
-        </div>
-        <div>
-          <h2 className="mb-5 text-2xl font-semibold">News Authored by Me</h2>
-          <button type="button" onClick={() => setIsModalOpen(true)} className="mb-6 inline-flex items-center gap-2 text-sm"><Plus className="h-4 w-4" /> Add</button>
-          <div className="divide-y divide-neutral-200">
-            {authoredByMe.length > 0 ? authoredByMe.slice(0, 3).map((item, index) => <NewsListRow key={item.id} item={item} image={index === 0 ? "yellow" : "slate"} large={false} />) : <EmptyNewsState onAdd={() => setIsModalOpen(true)} compact />}
-          </div>
         </div>
       </section>
 
