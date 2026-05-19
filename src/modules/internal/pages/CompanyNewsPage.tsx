@@ -1,4 +1,14 @@
-import { CirclePlus, Newspaper, Plus, RefreshCw, UserRound, UsersRound, CalendarDays } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { CirclePlus, Loader2, Newspaper, Plus, RefreshCw, UserRound, UsersRound, CalendarDays } from "lucide-react";
+import {
+  AddNewsModal,
+  NewsImage,
+  SAMPLE_NEWS_ITEMS,
+  createCompanyNews,
+  fetchCompanyNews,
+  type NewsItem,
+} from "../components/HomeNewsSection";
+import { getActiveAccount, getAccountOid } from "@/auth/entra";
 
 const AUTHORS = [
   { name: "Adam Epstein", title: "CEO", photo: true },
@@ -7,19 +17,6 @@ const AUTHORS = [
   { name: "Andrew Turbiville", title: "Event Business Manager", photo: true },
   { name: "Nichole Beeler", title: "Director of Marketing" },
   { name: "Rebecca Pepe", title: "Director of Marketing" },
-];
-
-const FEATURED_NEWS = [
-  { title: "Company News", summary: "Company News Stay updated with the latest announcements, achievements, and important...", createdBy: "Haider Khalil", image: "yellow" },
-  { title: "Highlights and plans", summary: "Highlights and plans from the AI Team January 1, 2025 The AI Team at Trey Research has ha...", createdBy: "Haider Khalil", image: "slate" },
-  { title: "New Employee Benefit", summary: "New employee benefits at Lamna Healthcare Company We are excited to announce a range...", createdBy: "zulfiqar khan", image: "orange" },
-  { title: "iAE new Version is ready for launch", summary: "Highlights and plans from the AI Team January 1, 2025...", createdBy: "zulfiqar khan", image: "slate" },
-];
-
-const AUTHORED_BY_ME = [
-  { title: "Company News", summary: "Company News Stay updated with...", createdBy: "Haider Khalil", image: "yellow" },
-  { title: "Highlights and plans", summary: "Highlights and plans from the AI...", createdBy: "Haider Khalil", image: "slate" },
-  { title: "SharePoint Platform Enhancements Now Live", summary: "We're pleased to share that several...", createdBy: "Haider Khalil", image: "office" },
 ];
 
 function NewsThumb({ variant, large = false }: { variant: string; large?: boolean }) {
@@ -48,7 +45,59 @@ function AuthorAvatar({ photo }: { photo?: boolean }) {
   );
 }
 
+function NewsListRow({ item, image = "slate", large = true }: { item: NewsItem; image?: string; large?: boolean }) {
+  return (
+    <article className="flex flex-col gap-4 py-4 first:pt-0 sm:flex-row sm:gap-5">
+      <NewsThumb variant={image} large={large} />
+      <div className="min-w-0 flex-1">
+        <h3 className="text-base font-semibold">{item.title}</h3>
+        <p className="mt-2 line-clamp-1 text-sm text-neutral-600">{item.summary}</p>
+        <p className="mt-5 text-xs font-semibold text-neutral-800">{item.createdByName}</p>
+      </div>
+    </article>
+  );
+}
+
 export function CompanyNewsPage() {
+  const [newsItems, setNewsItems] = useState<NewsItem[]>(SAMPLE_NEWS_ITEMS);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  const currentUserOid = getAccountOid(getActiveAccount());
+  const authoredByMe = useMemo(
+    () => newsItems.filter((item) => currentUserOid && item.createdBy === currentUserOid),
+    [currentUserOid, newsItems],
+  );
+
+  const loadNews = async () => {
+    setIsLoading(true);
+    setLoadError(null);
+    try {
+      const rows = await fetchCompanyNews(24);
+      setNewsItems(rows.length > 0 ? rows : SAMPLE_NEWS_ITEMS);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Could not load news.");
+      setNewsItems(SAMPLE_NEWS_ITEMS);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadNews();
+  }, []);
+
+  const handleAddNews = async (values: { title: string; summary: string; body: string }) => {
+    const saved = await createCompanyNews(values);
+    setNewsItems((previous) => [saved, ...previous.filter((item) => item.id !== saved.id)]);
+  };
+
+  const [firstNews, secondNews, thirdNews, fourthNews] = newsItems;
+  const pageNews = newsItems.slice(0, 4);
+  const latestNews = newsItems.slice(0, 4);
+  const myNews = authoredByMe.length > 0 ? authoredByMe.slice(0, 3) : newsItems.slice(0, 3);
+
   return (
     <div className="bg-white text-black">
       <section className="flex min-h-[240px] flex-col items-center justify-center bg-black px-4 py-10 text-center text-white sm:px-6 sm:py-14">
@@ -59,27 +108,29 @@ export function CompanyNewsPage() {
       </section>
 
       <main className="mx-auto max-w-[1080px] px-5 py-8 sm:px-8 lg:px-0">
+        {loadError ? (
+          <div className="mb-6 flex items-center justify-between gap-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <span>Showing sample news because live news could not be loaded.</span>
+            <button type="button" onClick={() => void loadNews()} className="inline-flex items-center gap-1 font-semibold hover:underline"><RefreshCw className="h-3.5 w-3.5" /> Retry</button>
+          </div>
+        ) : null}
+
         <section className="grid gap-10 lg:grid-cols-[1.45fr_0.75fr]">
           <div>
             <div className="mb-4 flex items-end justify-between">
               <div>
                 <h2 className="text-2xl font-semibold">News</h2>
-                <button className="mt-5 inline-flex items-center gap-2 text-sm text-neutral-900"><Plus className="h-4 w-4" /> Add</button>
+                <button type="button" onClick={() => setIsModalOpen(true)} className="mt-5 inline-flex items-center gap-2 text-sm text-neutral-900"><Plus className="h-4 w-4" /> Add</button>
               </div>
               <a className="text-xs font-semibold" href="#see-all">See all</a>
             </div>
-            <div className="divide-y divide-neutral-200">
-              {FEATURED_NEWS.map((item) => (
-                <article key={item.title} className="flex flex-col gap-4 py-4 first:pt-0 sm:flex-row sm:gap-5">
-                  <NewsThumb variant={item.image} large />
-                  <div className="min-w-0 flex-1">
-                    <h3 className="text-base font-semibold">{item.title}</h3>
-                    <p className="mt-2 line-clamp-1 text-sm text-neutral-600">{item.summary}</p>
-                    <p className="mt-5 text-xs font-semibold text-neutral-800">{item.createdBy}</p>
-                  </div>
-                </article>
-              ))}
-            </div>
+            {isLoading ? (
+              <div className="flex min-h-[240px] items-center justify-center rounded-md border border-neutral-200 bg-neutral-50 text-sm font-semibold text-neutral-700"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading news...</div>
+            ) : (
+              <div className="divide-y divide-neutral-200">
+                {pageNews.map((item, index) => <NewsListRow key={item.id} item={item} image={index === 0 ? "yellow" : index === 2 ? "orange" : "slate"} />)}
+              </div>
+            )}
           </div>
 
           <aside>
@@ -112,29 +163,28 @@ export function CompanyNewsPage() {
       <section className="mx-auto grid max-w-[1080px] gap-10 px-5 py-8 sm:px-8 lg:grid-cols-3 lg:px-0">
         <div>
           <h2 className="mb-5 text-2xl font-semibold">Employee Updates</h2>
-          <button className="mb-6 inline-flex items-center gap-2 text-sm"><Plus className="h-4 w-4" /> Add</button>
-          <article className="flex flex-col gap-4 border-b border-neutral-200 pb-5 sm:flex-row">
-            <NewsThumb variant="orange" />
-            <div><h3 className="font-semibold">New Employee Benefit</h3><p className="mt-2 line-clamp-1 text-sm text-neutral-600">New employee benefits at Lamna...</p><p className="mt-4 text-xs font-semibold">zulfiqar khan</p></div>
-          </article>
+          <button type="button" onClick={() => setIsModalOpen(true)} className="mb-6 inline-flex items-center gap-2 text-sm"><Plus className="h-4 w-4" /> Add</button>
+          {thirdNews ? <NewsListRow item={thirdNews} image="orange" large={false} /> : null}
         </div>
         <div>
           <h2 className="mb-5 text-2xl font-semibold">Latest Updates</h2>
-          <button className="mb-6 inline-flex items-center gap-2 text-sm"><Plus className="h-4 w-4" /> Add</button>
+          <button type="button" onClick={() => setIsModalOpen(true)} className="mb-6 inline-flex items-center gap-2 text-sm"><Plus className="h-4 w-4" /> Add</button>
           <article className="flex flex-col gap-4 border-b border-neutral-200 pb-5 sm:flex-row">
             <div className="flex h-[76px] w-[118px] shrink-0 flex-col items-center justify-center bg-black text-white"><Newspaper className="h-6 w-6" /><span className="mt-2 text-sm">Add News</span></div>
             <div><h3 className="font-semibold">Create a news post</h3><p className="mt-2 text-sm text-neutral-600">Keep your audience engaged by...</p><p className="mt-3 text-xs">Created by user</p></div>
           </article>
-          {[1,2,3].map(i => <article key={i} className="border-b border-neutral-200 py-5"><h3 className="font-semibold">Title of news post</h3><p className="mt-2 text-sm text-neutral-600">Preview that shows the first few lines of the article.</p><p className="mt-2 text-xs font-semibold">Created by user</p></article>)}
+          {latestNews.slice(1, 4).map((item) => <article key={item.id} className="border-b border-neutral-200 py-5"><h3 className="font-semibold">{item.title}</h3><p className="mt-2 text-sm text-neutral-600">{item.summary}</p><p className="mt-2 text-xs font-semibold">{item.createdByName}</p></article>)}
         </div>
         <div>
           <h2 className="mb-5 text-2xl font-semibold">News Authored by Me</h2>
-          <button className="mb-6 inline-flex items-center gap-2 text-sm"><Plus className="h-4 w-4" /> Add</button>
+          <button type="button" onClick={() => setIsModalOpen(true)} className="mb-6 inline-flex items-center gap-2 text-sm"><Plus className="h-4 w-4" /> Add</button>
           <div className="divide-y divide-neutral-200">
-            {AUTHORED_BY_ME.map(item => <article key={item.title} className="flex flex-col gap-4 py-4 first:pt-0 sm:flex-row"><NewsThumb variant={item.image} /><div><h3 className="font-semibold">{item.title}</h3><p className="mt-2 line-clamp-1 text-sm text-neutral-600">{item.summary}</p><p className="mt-4 text-xs font-semibold">{item.createdBy}</p></div></article>)}
+            {myNews.map((item, index) => <NewsListRow key={item.id} item={item} image={index === 0 ? "yellow" : "slate"} large={false} />)}
           </div>
         </div>
       </section>
+
+      <AddNewsModal open={isModalOpen} onClose={() => setIsModalOpen(false)} onSubmit={handleAddNews} />
     </div>
   );
 }
