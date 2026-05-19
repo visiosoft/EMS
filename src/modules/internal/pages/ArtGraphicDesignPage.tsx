@@ -1,4 +1,8 @@
-import { Calendar, GraduationCap, ImageIcon, Palette, PenTool, Plus } from "lucide-react";
+import { Calendar, PenTool, Plus } from "lucide-react";
+
+type QuickLinkIconProps = {
+  className?: string;
+};
 
 const TEAM_MEMBERS = [
   { name: "Ben Viette", title: "Art Director" },
@@ -12,11 +16,52 @@ const TEAM_MEMBERS = [
   { name: "George Wood", title: "Operations Support" },
 ];
 
+function DesignResourcesIcon({ className }: QuickLinkIconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M5 5.5h11.5v11.5H5z" />
+      <path d="M7.2 15.1 10 11.9l2.2 2.3 1.6-1.8 2.7 3.1" />
+      <path d="m14.4 4.2 5.4 5.4" />
+      <path d="m17.1 6.9-9.2 9.2" />
+    </svg>
+  );
+}
+
+function StudentGalleryIcon({ className }: QuickLinkIconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M4.2 16.6c.3-6.8 5.7-12.1 12.6-12.4" />
+      <path d="M16.8 4.2v12.4H4.2" />
+    </svg>
+  );
+}
+
+function CoursesIcon({ className }: QuickLinkIconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="m12 3.8 8 4.7v7L12 20.2l-8-4.7v-7l8-4.7Z" />
+      <path d="m4 8.5 8 4.7 8-4.7" />
+      <path d="M12 13.2v7" />
+      <path d="M8.1 6.1 16 17.8" />
+      <path d="m15.9 6.1-7.8 11.7" />
+    </svg>
+  );
+}
+
+function FacultyStaffIcon({ className }: QuickLinkIconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M8.3 16.8c-1.9 0-3.1-1.5-2.6-3.3l1.5-5.1" />
+      <path d="M12.2 7.1 9.7 16c-.6 2.1.7 3.8 2.8 3.8 1.7 0 3.4-1.2 3.9-2.9l2.2-7.8c.4-1.5-.5-2.8-2.1-2.8-1.3 0-2.5.9-2.9 2.1l-1.7 6.2" />
+    </svg>
+  );
+}
+
 const QUICK_LINKS = [
-  { label: "Design Resources", icon: ImageIcon },
-  { label: "Student Gallery", icon: Palette },
-  { label: "Courses & Curriculum", icon: GraduationCap },
-  { label: "Faculty & Staff", icon: PenTool },
+  { label: "Design Resources", icon: DesignResourcesIcon },
+  { label: "Student Gallery", icon: StudentGalleryIcon },
+  { label: "Courses & Curriculum", icon: CoursesIcon },
+  { label: "Faculty & Staff", icon: FacultyStaffIcon },
 ];
 
 const URGENT_EVENTS = [
@@ -109,7 +154,7 @@ export function ArtGraphicDesignPage() {
             <div className="grid gap-5 sm:grid-cols-2">
               {QUICK_LINKS.map(({ label, icon: Icon }) => (
                 <a key={label} href="#" className="flex h-[58px] items-center gap-3 border border-neutral-700 px-4 text-sm font-semibold text-neutral-900 transition-colors hover:bg-black hover:text-white">
-                  <Icon className="h-5 w-5" strokeWidth={1.45} aria-hidden />
+                  <Icon className="h-5 w-5 shrink-0" />
                   {label}
                 </a>
               ))}
