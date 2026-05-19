@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Loader2,
@@ -8,6 +8,7 @@ import {
   GripVertical,
   ArrowUp,
   ArrowDown,
+  RotateCcw,
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select2, Select2Multi } from './Select2';
@@ -86,15 +87,19 @@ function ymdAddDays(ymd: string, delta: number): string {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
 }
 
+const DEFAULT_DAILY_SALES_LEAD_SORT = { col: 'date' as const, dir: 'asc' as const };
+
 /** Sits on the top-right of the daily sales datatable card. */
 function ReportingAsOfBar({
   asOfDate,
   onAsOfDateChange,
+  onResetTableLayout,
   disabled,
   inputInvalid,
 }: {
   asOfDate: string;
   onAsOfDateChange: (next: string) => void;
+  onResetTableLayout?: () => void;
   disabled?: boolean;
   /** Highlights border when "Reporting as of" fails validation. */
   inputInvalid?: boolean;
@@ -105,20 +110,36 @@ function ReportingAsOfBar({
       ? 'border-ems-coral focus:ring-ems-coral/25 focus:border-ems-coral'
       : 'border-border focus:ring-ems-accent/30 focus:border-ems-accent');
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3 border-b border-border bg-surface/50 px-3 py-2.5 sm:px-4">
-      <label htmlFor="daily-sales-asof" className="text-xs font-medium text-text-secondary whitespace-nowrap">
-        Reporting as of
-      </label>
-      <input
-        id="daily-sales-asof"
-        type="date"
-        className={inputClass}
-        value={asOfDate}
-        onChange={(e) => onAsOfDateChange(e.target.value || todayLocalYmd())}
-        disabled={disabled}
-        aria-invalid={inputInvalid ? true : undefined}
-        aria-label="Select reporting date"
-      />
+    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-surface/50 px-3 py-2.5 sm:px-4">
+      {onResetTableLayout ? (
+        <button
+          type="button"
+          onClick={onResetTableLayout}
+          disabled={disabled}
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-text-muted shadow-sm transition-all hover:border-ems-accent/35 hover:bg-ems-accent-dim/60 hover:text-ems-accent active:scale-95 disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/30"
+          title="Reset column layout"
+          aria-label="Reset column layout to default"
+        >
+          <RotateCcw className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden />
+        </button>
+      ) : (
+        <span className="h-8 w-8 shrink-0" aria-hidden />
+      )}
+      <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
+        <label htmlFor="daily-sales-asof" className="text-xs font-medium text-text-secondary whitespace-nowrap">
+          Reporting as of
+        </label>
+        <input
+          id="daily-sales-asof"
+          type="date"
+          className={inputClass}
+          value={asOfDate}
+          onChange={(e) => onAsOfDateChange(e.target.value || todayLocalYmd())}
+          disabled={disabled}
+          aria-invalid={inputInvalid ? true : undefined}
+          aria-label="Select reporting date"
+        />
+      </div>
     </div>
   );
 }
@@ -176,6 +197,106 @@ function saveDailySalesLeadColumnOrder(order: DailySalesLeadColumnId[]) {
   } catch {
     /* ignore */
   }
+}
+
+// ─── Resizable column widths (persisted per browser) ─────────────────────────
+
+const DAILY_SALES_COLUMN_WIDTHS_KEY = 'iae-daily-sales-column-widths-v2';
+
+type DailySalesDataColumnId =
+  | DailySalesLeadColumnId
+  | 'yestTickets'
+  | 'yestRevenue'
+  | 'todayTickets'
+  | 'todayRevenue'
+  | 'actions';
+
+const DEFAULT_DAILY_SALES_COLUMN_WIDTHS: Record<DailySalesDataColumnId, number> = {
+  attraction: 200,
+  date: 148,
+  venue: 168,
+  city: 108,
+  yestTickets: 96,
+  yestRevenue: 112,
+  todayTickets: 96,
+  todayRevenue: 112,
+  actions: 88,
+};
+
+const DAILY_SALES_COL_MIN = 24;
+const DAILY_SALES_COL_MAX = 720;
+
+function loadDailySalesColumnWidths(): Record<DailySalesDataColumnId, number> {
+  if (typeof window === 'undefined') return { ...DEFAULT_DAILY_SALES_COLUMN_WIDTHS };
+  try {
+    const raw = localStorage.getItem(DAILY_SALES_COLUMN_WIDTHS_KEY);
+    if (!raw) return { ...DEFAULT_DAILY_SALES_COLUMN_WIDTHS };
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const out = { ...DEFAULT_DAILY_SALES_COLUMN_WIDTHS };
+    for (const key of Object.keys(DEFAULT_DAILY_SALES_COLUMN_WIDTHS) as DailySalesDataColumnId[]) {
+      const n = Number(parsed[key]);
+      if (Number.isFinite(n) && n >= DAILY_SALES_COL_MIN && n <= DAILY_SALES_COL_MAX) {
+        out[key] = Math.round(n);
+      }
+    }
+    return out;
+  } catch {
+    return { ...DEFAULT_DAILY_SALES_COLUMN_WIDTHS };
+  }
+}
+
+function saveDailySalesColumnWidths(widths: Record<DailySalesDataColumnId, number>) {
+  try {
+    localStorage.setItem(DAILY_SALES_COLUMN_WIDTHS_KEY, JSON.stringify(widths));
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearDailySalesTableLayoutPrefs(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem(DAILY_SALES_COLUMN_WIDTHS_KEY);
+    localStorage.removeItem(DAILY_SALES_LEAD_COLUMN_ORDER_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+function distributePairedColumnWidths(
+  startA: number,
+  startB: number,
+  newTotal: number,
+): { a: number; b: number } {
+  const startTotal = startA + startB;
+  const ratioA = startTotal > 0 ? startA / startTotal : 0.5;
+  let a = Math.round(newTotal * ratioA);
+  let b = newTotal - a;
+  a = Math.min(DAILY_SALES_COL_MAX, Math.max(DAILY_SALES_COL_MIN, a));
+  b = Math.min(DAILY_SALES_COL_MAX, Math.max(DAILY_SALES_COL_MIN, b));
+  return { a, b };
+}
+
+function DailySalesColResizeHandle({
+  onResizeStart,
+}: {
+  onResizeStart: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <span
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize column"
+      onMouseDown={onResizeStart}
+      onClick={(e) => e.stopPropagation()}
+      className="absolute right-0 top-0 z-20 h-full w-2 -mr-px cursor-col-resize touch-none select-none group/resize"
+    >
+      <span
+        className="pointer-events-none absolute inset-y-1 right-0 w-px bg-border transition-all group-hover/resize:bg-ems-accent group-active/resize:bg-ems-accent"
+        aria-hidden
+      />
+    </span>
+  );
 }
 
 const DAILY_SALES_LEAD_SORT_COLS = new Set<DailySalesLeadColumnId>([
@@ -268,17 +389,21 @@ function saveDailySalesFiltersSnapshot(s: DailySalesFiltersSnapshot): void {
   }
 }
 
+/** `table-fixed` + `max-w-0` lets col widths drive layout; ellipsis when narrow. */
+const dailySalesColCell = 'max-w-0 overflow-hidden border-r border-border/60 last:border-r-0';
+const dailySalesColCellTruncate = `${dailySalesColCell} text-ellipsis whitespace-nowrap`;
+
 function renderDailySalesLeadCell(col: DailySalesLeadColumnId, row: ApiPerformanceSalesRow) {
   switch (col) {
     case 'attraction':
       return (
-        <td key={col} className="py-2 px-3 align-top min-w-0">
+        <td key={col} className={`py-2 px-3 align-top ${dailySalesColCell}`}>
           <div className="space-y-0.5 min-w-0">
-            <div className="font-medium text-sm text-text-primary">
+            <div className="font-medium text-sm text-text-primary truncate" title={row.attractionName ?? undefined}>
               {row.attractionName ?? <span className="text-text-muted italic text-xs">Unknown</span>}
             </div>
             {row.tourName && (
-              <div className="text-xs text-text-muted leading-tight truncate max-w-[14rem]" title={row.tourName}>
+              <div className="text-xs text-text-muted leading-tight truncate" title={row.tourName}>
                 {row.tourName}
               </div>
             )}
@@ -287,21 +412,27 @@ function renderDailySalesLeadCell(col: DailySalesLeadColumnId, row: ApiPerforman
       );
     case 'date':
       return (
-        <td key={col} className="py-2 px-3 text-xs text-text-secondary whitespace-nowrap">
-          <div>{fmtDateFull(row.performanceDate)}</div>
-          <div className="text-text-muted">{fmt12(row.performanceTime)}</div>
+        <td key={col} className={`py-2 px-3 text-xs text-text-secondary ${dailySalesColCellTruncate}`}>
+          <div className="truncate" title={`${fmtDateFull(row.performanceDate)} ${fmt12(row.performanceTime)}`}>
+            <div>{fmtDateFull(row.performanceDate)}</div>
+            <div className="text-text-muted">{fmt12(row.performanceTime)}</div>
+          </div>
         </td>
       );
     case 'venue':
       return (
-        <td key={col} className="py-2 px-3 text-sm text-text-secondary">
-          <div className="truncate max-w-[14rem]">{row.venueName ?? row.venueCompanyName ?? '—'}</div>
+        <td key={col} className={`py-2 px-3 text-sm text-text-secondary ${dailySalesColCellTruncate}`}>
+          <div className="truncate" title={row.venueName ?? row.venueCompanyName ?? undefined}>
+            {row.venueName ?? row.venueCompanyName ?? '—'}
+          </div>
         </td>
       );
     case 'city':
       return (
-        <td key={col} className="py-2 px-3 text-xs text-text-secondary whitespace-nowrap">
-          {row.city ?? '—'}
+        <td key={col} className={`py-2 px-3 text-xs text-text-secondary ${dailySalesColCellTruncate}`}>
+          <span className="block truncate" title={row.city ?? undefined}>
+            {row.city ?? '—'}
+          </span>
         </td>
       );
     default:
@@ -434,14 +565,14 @@ function PerformanceRow({
 
       {/* Prior day (soft blue) */}
       <td
-        className="py-1.5 px-2 bg-ems-blue-dim/25 border-l border-ems-blue/10 align-middle"
+        className={`py-1.5 px-2 bg-ems-blue-dim/25 border-l border-ems-blue/10 align-middle ${dailySalesColCell}`}
         onClick={e => e.stopPropagation()}
       >
         <input type="number" min={0} step={1} className={inputCls}
           value={yestTickets} onChange={e => setYestTickets(e.target.value)} placeholder="—" />
       </td>
       <td
-        className="py-1.5 px-2 bg-ems-blue-dim/25 border-r border-ems-blue/10 align-middle"
+        className={`py-1.5 px-2 bg-ems-blue-dim/25 border-r border-ems-blue/10 align-middle ${dailySalesColCell}`}
         onClick={e => e.stopPropagation()}
       >
         <div className="relative">
@@ -453,13 +584,16 @@ function PerformanceRow({
 
       {/* Reporting day (soft teal) */}
       <td
-        className="py-1.5 px-2 bg-ems-accent-dim/30 border-l border-ems-accent/15 align-middle"
+        className={`py-1.5 px-2 bg-ems-accent-dim/30 border-l border-ems-accent/15 align-middle ${dailySalesColCell}`}
         onClick={e => e.stopPropagation()}
       >
         <input type="number" min={0} step={1} className={inputCls}
           value={todayTickets} onChange={e => setTodayTickets(e.target.value)} placeholder="—" />
       </td>
-      <td className="py-1.5 px-2 bg-ems-accent-dim/30 align-middle" onClick={e => e.stopPropagation()}>
+      <td
+        className={`py-1.5 px-2 bg-ems-accent-dim/30 align-middle ${dailySalesColCell}`}
+        onClick={e => e.stopPropagation()}
+      >
         <div className="relative">
           <span className="absolute left-1 top-1/2 -translate-y-1/2 text-ems-accent/60 text-xs pointer-events-none">$</span>
           <input type="number" min={0} step={0.01} className={inputCls + ' pl-4'}
@@ -468,7 +602,7 @@ function PerformanceRow({
       </td>
 
       {/* Save */}
-      <td className="py-1.5 px-3" onClick={e => e.stopPropagation()}>
+      <td className={`py-1.5 px-3 ${dailySalesColCell}`} onClick={e => e.stopPropagation()}>
         <button type="button" onClick={e => void handleSave(e)} disabled={saving}
           className={[
             'inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded font-medium transition-all disabled:opacity-60',
@@ -503,13 +637,17 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
     () => initialFilters?.pageSize ?? PAGE_SIZE,
   );
   const [leadColumnOrder, setLeadColumnOrder] = useState<DailySalesLeadColumnId[]>(loadDailySalesLeadColumnOrder);
+  const [columnWidths, setColumnWidths] = useState(loadDailySalesColumnWidths);
+  const columnResizeSnapshot = useRef<{ col: DailySalesDataColumnId; startX: number; startW: number } | null>(
+    null,
+  );
   const [filtersExpanded, setFiltersExpanded] = useState(
     () => initialFilters?.filtersExpanded ?? false,
   );
   const [leadSort, setLeadSort] = useState<{
     col: DailySalesLeadColumnId;
     dir: 'asc' | 'desc';
-  }>(() => initialFilters?.leadSort ?? { col: 'date', dir: 'asc' });
+  }>(() => initialFilters?.leadSort ?? DEFAULT_DAILY_SALES_LEAD_SORT);
   const reorderLeadColumns = useCallback((fromIndex: number, toIndex: number) => {
     if (fromIndex === toIndex) return;
     setLeadColumnOrder((prev) => {
@@ -528,6 +666,87 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
     });
     setPage(1);
   }, []);
+
+  const beginColumnResizeDrag = useCallback((onMove: (ev: MouseEvent) => void) => {
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      columnResizeSnapshot.current = null;
+      setColumnWidths((w) => {
+        saveDailySalesColumnWidths(w);
+        return w;
+      });
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, []);
+
+  const startColumnResize = useCallback((col: DailySalesDataColumnId, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = columnWidths[col];
+    columnResizeSnapshot.current = { col, startX, startW };
+
+    beginColumnResizeDrag((ev) => {
+      const snap = columnResizeSnapshot.current;
+      if (!snap) return;
+      const next = Math.min(
+        DAILY_SALES_COL_MAX,
+        Math.max(DAILY_SALES_COL_MIN, snap.startW + (ev.clientX - snap.startX)),
+      );
+      setColumnWidths((w) => ({ ...w, [snap.col]: next }));
+    });
+  }, [columnWidths, beginColumnResizeDrag]);
+
+  const startDateGroupResize = useCallback(
+    (ticketsCol: 'yestTickets' | 'todayTickets', revenueCol: 'yestRevenue' | 'todayRevenue', e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const startX = e.clientX;
+      const startTickets = columnWidths[ticketsCol];
+      const startRevenue = columnWidths[revenueCol];
+      const startTotal = startTickets + startRevenue;
+      columnResizeSnapshot.current = { col: ticketsCol, startX, startW: startTotal };
+
+      beginColumnResizeDrag((ev) => {
+        const snap = columnResizeSnapshot.current;
+        if (!snap) return;
+        const newTotal = Math.min(
+          DAILY_SALES_COL_MAX * 2,
+          Math.max(DAILY_SALES_COL_MIN * 2, startTotal + (ev.clientX - snap.startX)),
+        );
+        const { a, b } = distributePairedColumnWidths(startTickets, startRevenue, newTotal);
+        setColumnWidths((w) => ({ ...w, [ticketsCol]: a, [revenueCol]: b }));
+      });
+    },
+    [columnWidths, beginColumnResizeDrag],
+  );
+
+  const dailySalesTableMinWidth = useMemo(() => {
+    const leadSum = leadColumnOrder.reduce((sum, id) => sum + columnWidths[id], 0);
+    return (
+      leadSum +
+      columnWidths.yestTickets +
+      columnWidths.yestRevenue +
+      columnWidths.todayTickets +
+      columnWidths.todayRevenue +
+      columnWidths.actions
+    );
+  }, [leadColumnOrder, columnWidths]);
+
+  const resetTableLayout = useCallback(() => {
+    clearDailySalesTableLayoutPrefs();
+    setColumnWidths({ ...DEFAULT_DAILY_SALES_COLUMN_WIDTHS });
+    setLeadColumnOrder([...DEFAULT_DAILY_SALES_LEAD_COLUMNS]);
+    setLeadSort({ ...DEFAULT_DAILY_SALES_LEAD_SORT });
+    addToast('Column layout reset to default.', 'info');
+  }, [addToast]);
 
   useEffect(() => {
     saveDailySalesFiltersSnapshot({
@@ -887,10 +1106,25 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
             <ReportingAsOfBar
               asOfDate={asOfDate}
               onAsOfDateChange={setAsOfDate}
+              onResetTableLayout={resetTableLayout}
+              disabled={showTableOverlay}
               inputInvalid={perfDateValidation.highlightAsOf}
             />
             <div className="overflow-x-auto">
-              <table className="w-full text-sm" style={{ minWidth: '900px' }}>
+              <table
+                className="w-full table-fixed border-collapse text-sm"
+                style={{ minWidth: dailySalesTableMinWidth }}
+              >
+              <colgroup>
+                {leadColumnOrder.map((colId) => (
+                  <col key={colId} style={{ width: columnWidths[colId] }} />
+                ))}
+                <col style={{ width: columnWidths.yestTickets }} />
+                <col style={{ width: columnWidths.yestRevenue }} />
+                <col style={{ width: columnWidths.todayTickets }} />
+                <col style={{ width: columnWidths.todayRevenue }} />
+                <col style={{ width: columnWidths.actions }} />
+              </colgroup>
               <thead>
                 <tr className="text-xs border-b border-border">
                   {leadColumnOrder.map((colId, colIndex) => (
@@ -913,8 +1147,8 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
                         if (Number.isNaN(from)) return;
                         reorderLeadColumns(from, colIndex);
                       }}
-                      className="text-left py-2.5 px-3 text-text-muted align-bottom bg-surface/90 select-none cursor-grab active:cursor-grabbing min-w-0"
-                      title="Drag to move column"
+                      className="relative text-left py-2.5 px-3 text-text-muted align-bottom bg-surface/90 select-none cursor-grab active:cursor-grabbing min-w-0 border-r border-border/70"
+                      title="Drag to reorder column"
                     >
                       <span className="inline-flex items-center gap-1 min-w-0 max-w-full">
                         <GripVertical
@@ -938,41 +1172,72 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
                             ))}
                         </button>
                       </span>
+                      <DailySalesColResizeHandle
+                        onResizeStart={(e) => startColumnResize(colId, e)}
+                      />
                     </th>
                   ))}
                   <th
                     colSpan={2}
-                    className="text-center py-2.5 px-3 font-semibold bg-ems-blue-dim/80 border-l border-ems-blue/20"
+                    className="relative text-center py-2.5 px-3 font-semibold bg-ems-blue-dim/80 border-l border-ems-blue/20"
                   >
                     <span className="inline-flex items-center justify-center gap-2 rounded-lg px-2 py-0.5 text-ems-blue">
                       <span className="h-2 w-2 shrink-0 rounded-full bg-ems-blue shadow-sm shadow-ems-blue/30" />
                       <span className="tabular-nums">{yesterdayLabel}</span>
                     </span>
                     <div className="text-[10px] font-medium uppercase tracking-wide text-ems-blue/80 mt-1.5">Prior day</div>
+                    <DailySalesColResizeHandle
+                      onResizeStart={(e) => startDateGroupResize('yestTickets', 'yestRevenue', e)}
+                    />
                   </th>
                   <th
                     colSpan={2}
-                    className="text-center py-2.5 px-3 font-semibold bg-ems-accent-dim/80 border-l border-ems-accent/25"
+                    className="relative text-center py-2.5 px-3 font-semibold bg-ems-accent-dim/80 border-l border-ems-accent/25"
                   >
                     <span className="inline-flex items-center justify-center gap-2 rounded-lg px-2 py-0.5 text-ems-accent">
                       <span className="h-2 w-2 shrink-0 rounded-full bg-ems-accent shadow-sm shadow-ems-accent/30" />
                       <span className="tabular-nums">{todayLabel}</span>
                     </span>
                     <div className="text-[10px] font-medium uppercase tracking-wide text-ems-accent/80 mt-1.5">Reporting day</div>
+                    <DailySalesColResizeHandle
+                      onResizeStart={(e) => startDateGroupResize('todayTickets', 'todayRevenue', e)}
+                    />
                   </th>
-                  <th className="py-2 px-3 align-bottom bg-surface/90" rowSpan={2} />
+                  <th
+                    className="relative py-2 px-3 align-bottom bg-surface/90 border-l border-border/70"
+                    rowSpan={2}
+                  >
+                    <span className="sr-only">Save</span>
+                    <DailySalesColResizeHandle
+                      onResizeStart={(e) => startColumnResize('actions', e)}
+                    />
+                  </th>
                 </tr>
                 <tr className="text-xs border-b border-border">
-                  <th className="text-right py-2 px-2 font-medium text-text-secondary bg-ems-blue-dim/40 border-l border-ems-blue/15">
+                  <th className="relative text-right py-2 px-2 font-medium text-text-secondary bg-ems-blue-dim/40 border-l border-ems-blue/15">
                     Ticket Sold
+                    <DailySalesColResizeHandle
+                      onResizeStart={(e) => startColumnResize('yestTickets', e)}
+                    />
                   </th>
-                  <th className="text-right py-2 px-2 font-medium text-text-secondary bg-ems-blue-dim/40 border-r border-ems-blue/10">
+                  <th className="relative text-right py-2 px-2 font-medium text-text-secondary bg-ems-blue-dim/40 border-r border-ems-blue/10">
                     Total Revenue
+                    <DailySalesColResizeHandle
+                      onResizeStart={(e) => startColumnResize('yestRevenue', e)}
+                    />
                   </th>
-                  <th className="text-right py-2 px-2 font-medium text-text-secondary bg-ems-accent-dim/50 border-l border-ems-accent/20">
+                  <th className="relative text-right py-2 px-2 font-medium text-text-secondary bg-ems-accent-dim/50 border-l border-ems-accent/20">
                     Ticket Sold
+                    <DailySalesColResizeHandle
+                      onResizeStart={(e) => startColumnResize('todayTickets', e)}
+                    />
                   </th>
-                  <th className="text-right py-2 px-2 font-medium text-text-secondary bg-ems-accent-dim/50">Total Revenue</th>
+                  <th className="relative text-right py-2 px-2 font-medium text-text-secondary bg-ems-accent-dim/50">
+                    Total Revenue
+                    <DailySalesColResizeHandle
+                      onResizeStart={(e) => startColumnResize('todayRevenue', e)}
+                    />
+                  </th>
                 </tr>
               </thead>
               <tbody>
