@@ -1,9 +1,29 @@
+import { MouseEvent } from "react";
 import { Plus } from "lucide-react";
 import { SAMPLE_ENGAGEMENTS } from "../constants/quickLinks";
 
 type EngagementWidgetProps = {
   title: string;
 };
+
+const EMS_OPEN_INTENT_KEY = "iae-ems-open-intent-v1";
+
+function primeEngagementsTab(createEngagement = false) {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.setItem(
+    EMS_OPEN_INTENT_KEY,
+    JSON.stringify({
+      view: "engagements",
+      createEngagement,
+      expiresAt: Date.now() + 30_000,
+    }),
+  );
+}
+
+function handleOpenEngagements(_event: MouseEvent<HTMLAnchorElement>, createEngagement = false) {
+  primeEngagementsTab(createEngagement);
+}
 
 export function EngagementWidget({ title }: EngagementWidgetProps) {
   return (
@@ -13,9 +33,10 @@ export function EngagementWidget({ title }: EngagementWidgetProps) {
           {title}
         </h3>
         <a
-          href="/engagements"
+          href="/"
           target="_blank"
           rel="noreferrer"
+          onClick={(event) => handleOpenEngagements(event)}
           className="shrink-0 text-xs font-semibold text-neutral-900 underline-offset-4 hover:underline"
         >
           See all
@@ -23,9 +44,10 @@ export function EngagementWidget({ title }: EngagementWidgetProps) {
       </div>
 
       <a
-        href="/engagements/create"
+        href="/"
         target="_blank"
         rel="noreferrer"
+        onClick={(event) => handleOpenEngagements(event, true)}
         className="mb-5 inline-flex items-center gap-2 text-sm font-medium text-neutral-900 hover:text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-4"
       >
         <Plus className="h-4 w-4" aria-hidden />
