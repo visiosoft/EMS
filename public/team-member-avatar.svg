@@ -1,27 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="31" height="40" viewBox="0 0 31 40" preserveAspectRatio="xMidYMid meet">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#f7f7f7"/>
-      <stop offset="1" stop-color="#eeeeee"/>
-    </linearGradient>
-    <linearGradient id="suit" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#232323"/>
-      <stop offset="0.52" stop-color="#0b0b0b"/>
-      <stop offset="1" stop-color="#171717"/>
-    </linearGradient>
-    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="1" stdDeviation="0.45" flood-color="#d8d8d8" flood-opacity="0.8"/>
-    </filter>
-  </defs>
-  <rect width="31" height="40" fill="url(#bg)"/>
-  <g filter="url(#soft)">
-    <ellipse cx="15.5" cy="10.7" rx="4.45" ry="5.6" fill="#171717"/>
-    <path d="M11.35 19.2c1.55 1.04 2.78 1.46 4.15 1.46s2.6-.42 4.15-1.46l.28 4.2h-8.86l.28-4.2Z" fill="#151515"/>
-    <path d="M4.8 40c.34-8.45 2.7-14.35 7.08-17.7l3.62 4.48 3.62-4.48C23.5 25.65 25.86 31.55 26.2 40H4.8Z" fill="url(#suit)"/>
-    <path d="M12.52 22.7h5.96L16.9 40h-2.8l-1.58-17.3Z" fill="#ffffff"/>
-    <path d="M14.18 23.62h2.64l.72 2.9-2.04 2.38-2.04-2.38.72-2.9Z" fill="#b20d18"/>
-    <path d="M14.36 28.72h2.28L17.84 40h-4.68l1.2-11.28Z" fill="#b20d18"/>
-    <path d="M9.2 26.1l3.32-3.4 1.42 17.3H7.55c.12-5.3.67-9.93 1.65-13.9Z" fill="#090909" opacity="0.95"/>
-    <path d="M21.8 26.1l-3.32-3.4L17.06 40h6.39c-.12-5.3-.67-9.93-1.65-13.9Z" fill="#090909" opacity="0.95"/>
-  </g>
+  <rect width="31" height="40" fill="#f5f5f5"/>
+  <ellipse cx="15.5" cy="10.4" rx="4.15" ry="5.35" fill="#151515"/>
+  <path d="M12.15 17.4h6.7v4.65h-6.7z" fill="#151515"/>
+  <path d="M3.9 40c.58-9.7 3.58-15.92 8.98-18.64l2.62 7.75 2.62-7.75C23.52 24.08 26.52 30.3 27.1 40H3.9Z" fill="#0a0a0a"/>
+  <path d="M12.85 22.35 15.5 29.1l2.65-6.75-1.05 17.65h-3.2l-1.05-17.65Z" fill="#ffffff"/>
+  <path d="M14.23 23.25h2.54l.52 3.05-1.79 2.05-1.79-2.05.52-3.05Z" fill="#b20d18"/>
+  <path d="M14.35 28.3h2.3L17.78 40h-4.56l1.13-11.7Z" fill="#b20d18"/>
+  <path d="M5.7 40c.35-6.05 1.62-10.98 3.8-14.8l3.35-2.85L13.9 40H5.7Z" fill="#111111"/>
+  <path d="M25.3 40c-.35-6.05-1.62-10.98-3.8-14.8l-3.35-2.85L17.1 40h8.2Z" fill="#111111"/>
 </svg>
