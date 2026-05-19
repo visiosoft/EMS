@@ -34,7 +34,7 @@ export const HUB_ACTION_CARDS = [
   { key: "sales-update", label: "Sales Update" },
   { key: "employee-services", label: "Employee Services" },
   { key: "past-engagements", label: "Past Engagements" },
-  { key: "upcoming-engagements", label: "Upcoming Engagements" },
+  { key: "upcoming-engagements", label: "Upcoming Engagementments" },
 ] as const;
 
 export const TIME_ZONE_LOCATIONS = [
@@ -61,25 +61,21 @@ export const HOME_NEWS_ITEMS = [
     title: "Company News",
     summary: "Company News Stay updated with the latest announcements, achievements, and company-wide updates.",
     createdBy: "Haider Khalil",
-    date: "about an hour ago",
   },
   {
     title: "Highlights and plans",
     summary: "Highlights and plans from the AI Team January 1, 2025...",
     createdBy: "Haider Khalil",
-    date: "February 18",
   },
   {
     title: "New Employee Benefit",
     summary: "New employee benefits at Lamna Healthcare Company...",
     createdBy: "zulfiqar khan",
-    date: "February 3",
   },
   {
     title: "iAE new Version is ready for launch",
     summary: "Highlights and plans from the AI Team January 1, 2025...",
     createdBy: "zulfiqar khan",
-    date: "February 3",
   },
 ] as const;
 
