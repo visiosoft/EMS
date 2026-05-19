@@ -1,5 +1,25 @@
+import { MouseEvent } from "react";
 import { Plus } from "lucide-react";
 import { RECAP_EVENTS } from "../constants/pageData";
+
+const EMS_OPEN_INTENT_KEY = "iae-ems-open-intent-v1";
+
+function primeEngagementsTab(createEngagement = false) {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.setItem(
+    EMS_OPEN_INTENT_KEY,
+    JSON.stringify({
+      view: "engagements",
+      createEngagement,
+      expiresAt: Date.now() + 30_000,
+    }),
+  );
+}
+
+function handleOpenEngagements(_event: MouseEvent<HTMLAnchorElement>, createEngagement = false) {
+  primeEngagementsTab(createEngagement);
+}
 
 export function WeeklyRecapSection() {
   return (
@@ -8,9 +28,10 @@ export function WeeklyRecapSection() {
         <div className="flex items-end justify-between gap-4 border-b border-white/35 pb-4">
           <h2 className="text-2xl font-semibold tracking-[0.01em] sm:text-[30px]">Weekly Dept Head Meeting Recap</h2>
           <a
-            href="/engagements"
+            href="/"
             target="_blank"
             rel="noreferrer"
+            onClick={(event) => handleOpenEngagements(event)}
             className="text-sm font-semibold text-white/90 underline-offset-4 hover:underline"
           >
             See all
@@ -18,9 +39,10 @@ export function WeeklyRecapSection() {
         </div>
 
         <a
-          href="/engagements/create"
+          href="/"
           target="_blank"
           rel="noreferrer"
+          onClick={(event) => handleOpenEngagements(event, true)}
           className="mt-8 inline-flex items-center gap-3 text-sm font-semibold text-white hover:text-white/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-4 focus-visible:ring-offset-black"
         >
           <Plus className="h-4 w-4" aria-hidden />
