@@ -21,6 +21,7 @@ const SIDEBAR_COLLAPSED_KEY = 'iae-ems-sidebar-collapsed-v1';
 
 /** Survives Ctrl+R in this tab; cleared when the tab closes — new visits start on Projects. */
 const EMS_SESSION_ROUTE_KEY = 'iae-ems-session-route-v1';
+const EMS_OPEN_INTENT_KEY = 'iae-ems-open-intent-v1';
 
 const VALID_VIEWS = new Set([
   'companies',
@@ -106,16 +107,6 @@ function sanitizeViewDataForView(view: string, raw: unknown): Record<string, unk
 function readRouteFromUrl(): { view: string; viewData: Record<string, unknown> } | null {
   if (typeof window === 'undefined') return null;
   try {
-    const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
-    if (pathname === '/engagements' || pathname === '/engagements/create') {
-      return {
-        view: 'engagements',
-        viewData: sanitizeViewDataForView('engagements', {
-          createEngagement: pathname === '/engagements/create',
-        }),
-      };
-    }
-
     const params = new URLSearchParams(window.location.search);
     const view = params.get('view')?.trim() ?? '';
     if (!view || !VALID_VIEWS.has(view)) return null;
@@ -126,6 +117,29 @@ function readRouteFromUrl(): { view: string; viewData: Record<string, unknown> }
     });
 
     return { view, viewData };
+  } catch {
+    return null;
+  }
+}
+
+function readAndConsumeOpenIntent(): { view: string; viewData: Record<string, unknown> } | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(EMS_OPEN_INTENT_KEY);
+    if (!raw) return null;
+    window.localStorage.removeItem(EMS_OPEN_INTENT_KEY);
+
+    const parsed = JSON.parse(raw) as { view?: unknown; createEngagement?: unknown; expiresAt?: unknown };
+    const expiresAt = typeof parsed.expiresAt === 'number' ? parsed.expiresAt : 0;
+    const view = typeof parsed.view === 'string' ? parsed.view : '';
+    if (Date.now() > expiresAt || view !== 'engagements') return null;
+
+    return {
+      view: 'engagements',
+      viewData: sanitizeViewDataForView('engagements', {
+        createEngagement: parsed.createEngagement === true,
+      }),
+    };
   } catch {
     return null;
   }
@@ -169,6 +183,8 @@ const Index = () => {
   const initialRoute = useMemo(() => {
     const urlRoute = readRouteFromUrl();
     if (urlRoute) return urlRoute;
+    const intentRoute = readAndConsumeOpenIntent();
+    if (intentRoute) return intentRoute;
     const r = readStoredSessionRoute();
     return { view: r?.view ?? 'projects', viewData: r?.viewData ?? {} };
   }, []);
@@ -221,8 +237,8 @@ const Index = () => {
           delete next.createEngagement;
           return next;
         });
-        if (window.location.pathname === '/engagements/create' || window.location.search.includes('createEngagement=1')) {
-          window.history.replaceState({}, document.title, '/engagements');
+        if (window.location.pathname !== '/' || window.location.search) {
+          window.history.replaceState({}, document.title, '/');
         }
         return;
       }
