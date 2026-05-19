@@ -5,6 +5,7 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+import { AuditColumns } from '../audit/audit-columns';
 import { Tour } from './tour.entity';
 
 /**
@@ -15,7 +16,7 @@ import { Tour } from './tour.entity';
  * TourID is NOT NULL (required).
  */
 @Entity({ name: 'Engagement', schema: 'dbo' })
-export class Engagement {
+export class Engagement extends AuditColumns {
   @PrimaryGeneratedColumn({ name: 'EngagementID' })
   engagementId: number;
 

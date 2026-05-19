@@ -33,9 +33,9 @@ export function InternalHomePage() {
         <HubActionCards />
 
         <section className="mt-12 grid gap-x-8 gap-y-10 lg:grid-cols-[minmax(260px,1fr)_minmax(260px,0.92fr)_minmax(260px,1fr)] xl:gap-x-10">
-          <EngagementWidget title="Engagements This Week" />
+          <EngagementWidget title="Engagements This Week" scheduleWeek="this" />
           <TimeZonesWidget />
-          <EngagementWidget title="Engagements Next Week" />
+          <EngagementWidget title="Engagements Next Week" scheduleWeek="next" />
         </section>
 
         <HomeNewsSection />

@@ -51,6 +51,15 @@ export class EngagementController {
     return this.engagementService.getEngagementIaeContactLookups();
   }
 
+  /** Company Hub — engagements created by the signed-in user for a date range. */
+  @Get('hub-schedule')
+  listHubSchedule(
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return this.engagementService.listHubSchedule(startDate, endDate);
+  }
+
   @Patch('withholdings/:withholdingId/links')
   @HttpCode(HttpStatus.NO_CONTENT)
   updateWithholdingLinks(

@@ -1,9 +1,19 @@
-import { MouseEvent } from "react";
+import { MouseEvent, useMemo } from "react";
+import { useIsAuthenticated, useMsal } from "@azure/msal-react";
+import { useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
-import { SAMPLE_ENGAGEMENTS } from "../constants/quickLinks";
+import { fetchHubEngagementSchedule } from "@/api/engagementApi";
+import { getAccountOid } from "@/auth/entra";
+import {
+  getHubWeekDateRange,
+  mapEngagementRowsToHubEvents,
+  type HubScheduleWeek,
+} from "../lib/hubEngagementSchedule";
 
 type EngagementWidgetProps = {
   title: string;
+  /** When set, loads the signed-in user's engagements for that calendar week. */
+  scheduleWeek?: HubScheduleWeek;
 };
 
 const EMS_OPEN_INTENT_KEY = "iae-ems-open-intent-v1";
@@ -25,7 +35,39 @@ function handleOpenEngagements(_event: MouseEvent<HTMLAnchorElement>, createEnga
   primeEngagementsTab(createEngagement);
 }
 
-export function EngagementWidget({ title }: EngagementWidgetProps) {
+export function EngagementWidget({ title, scheduleWeek }: EngagementWidgetProps) {
+  const { accounts } = useMsal();
+  const isAuthenticated = useIsAuthenticated();
+  const userOid = getAccountOid() || getAccountOid(accounts[0]) || "";
+
+  const weekRange = useMemo(
+    () => (scheduleWeek ? getHubWeekDateRange(scheduleWeek) : null),
+    [scheduleWeek],
+  );
+
+  const scheduleQuery = useQuery({
+    queryKey: [
+      "internal-hub-engagements",
+      scheduleWeek,
+      weekRange?.startDate,
+      weekRange?.endDate,
+      userOid,
+    ],
+    queryFn: () => fetchHubEngagementSchedule(weekRange!.startDate, weekRange!.endDate),
+    enabled: Boolean(scheduleWeek && weekRange && isAuthenticated && userOid),
+    staleTime: 60_000,
+  });
+
+  const events = useMemo(() => {
+    if (!scheduleWeek) return [];
+    return mapEngagementRowsToHubEvents(scheduleQuery.data ?? []);
+  }, [scheduleWeek, scheduleQuery.data]);
+
+  const emptyMessage =
+    scheduleWeek === "next"
+      ? "No engagements scheduled for you next week."
+      : "No engagements scheduled for you this week.";
+
   return (
     <section className="group min-w-0 animate-slide-up bg-white">
       <div className="mb-4 flex items-center justify-between gap-3">
@@ -54,23 +96,45 @@ export function EngagementWidget({ title }: EngagementWidgetProps) {
         Add event
       </a>
 
-      <ul className="space-y-3">
-        {SAMPLE_ENGAGEMENTS.map((event, index) => (
-          <li
-            key={`${title}-${index}`}
-            className="flex items-center gap-4 rounded-sm transition-colors duration-200 hover:bg-neutral-50"
-          >
-            <div className="flex h-[64px] w-[64px] shrink-0 flex-col items-center justify-center border border-neutral-200 bg-white shadow-[0_1px_4px_rgba(0,0,0,0.12)]">
-              <span className="text-[11px] font-medium text-neutral-700">{event.month}</span>
-              <span className="text-[25px] font-semibold leading-none text-neutral-950">{event.day}</span>
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-[14px] font-semibold text-neutral-950">{event.title}</p>
-              <p className="mt-1 truncate text-[12px] font-medium text-neutral-800">{event.time}</p>
-            </div>
-          </li>
-        ))}
-      </ul>
+      {scheduleWeek && scheduleQuery.isLoading ? (
+        <p className="text-sm text-neutral-600">Loading your engagements…</p>
+      ) : null}
+
+      {scheduleWeek && scheduleQuery.isError ? (
+        <p className="text-sm text-neutral-600">Could not load engagements. Try again later.</p>
+      ) : null}
+
+      {scheduleWeek && isAuthenticated && !userOid ? (
+        <p className="text-sm text-neutral-600">Sign in to see your engagements for this week.</p>
+      ) : null}
+
+      {scheduleWeek &&
+      userOid &&
+      !scheduleQuery.isLoading &&
+      !scheduleQuery.isError &&
+      events.length === 0 ? (
+        <p className="text-sm text-neutral-600">{emptyMessage}</p>
+      ) : null}
+
+      {events.length > 0 ? (
+        <ul className="space-y-3">
+          {events.map((event) => (
+            <li
+              key={event.key}
+              className="flex items-center gap-4 rounded-sm transition-colors duration-200 hover:bg-neutral-50"
+            >
+              <div className="flex h-[64px] w-[64px] shrink-0 flex-col items-center justify-center border border-neutral-200 bg-white shadow-[0_1px_4px_rgba(0,0,0,0.12)]">
+                <span className="text-[11px] font-medium text-neutral-700">{event.month}</span>
+                <span className="text-[25px] font-semibold leading-none text-neutral-950">{event.day}</span>
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-[14px] font-semibold text-neutral-950">{event.title}</p>
+                <p className="mt-1 truncate text-[12px] font-medium text-neutral-800">{event.time}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </section>
   );
 }
