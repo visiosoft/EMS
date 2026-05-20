@@ -1,6 +1,8 @@
 import { UserRound } from "lucide-react";
+import { useLocation } from "react-router-dom";
 import { InternalPageHero } from "../components/InternalPageHero";
 import { EMPLOYEE_DIRECTORY_ROWS, EMPLOYEE_SERVICE_ITEMS } from "../constants/pageData";
+import { EmployeeHandbookPage } from "./EmployeeHandbookPage";
 
 const contactBadgeClass: Record<string, string> = {
   Email: "bg-amber-100 text-amber-800",
@@ -9,8 +11,13 @@ const contactBadgeClass: Record<string, string> = {
 };
 
 export function EmployeeServicesPage() {
+  const location = useLocation();
   const handbookCard = EMPLOYEE_SERVICE_ITEMS.find((item) => item.wide);
   const serviceCards = EMPLOYEE_SERVICE_ITEMS.filter((item) => !item.wide);
+
+  if (location.hash === "#handbook") {
+    return <EmployeeHandbookPage />;
+  }
 
   return (
     <div className="bg-white text-black">
@@ -23,7 +30,7 @@ export function EmployeeServicesPage() {
         <section className="space-y-3" aria-label="Employee services resources">
           {handbookCard ? (
             <a
-              href={`#${handbookCard.title.toLowerCase().replace(/\s+/g, "-")}`}
+              href="#handbook"
               className="group flex min-h-[126px] items-center justify-center gap-5 rounded-lg bg-[#0c0c0c] px-8 py-6 text-white shadow-[0_4px_16px_rgba(0,0,0,0.22)] transition-all duration-300 hover:-translate-y-1 hover:bg-black hover:shadow-[0_20px_40px_rgba(0,0,0,0.24)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-4 sm:gap-7"
             >
               <span className="rounded-xl bg-black/20 p-3 transition-transform duration-300 group-hover:scale-110" aria-hidden>
