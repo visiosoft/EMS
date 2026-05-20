@@ -201,3 +201,17 @@ textarea {
 .theme-toggle-thumb {
   transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
+
+article:has(a[href="#introduction"]) > div.absolute:first-child {
+  background: url('/images/internal/employee-handbook-stage.svg') center / cover no-repeat !important;
+}
+
+article:has(a[href="#introduction"]) > div.absolute:nth-child(2),
+article:has(a[href="#introduction"]) > div.absolute:nth-child(3),
+article:has(a[href="#introduction"]) > div.absolute:nth-child(4) {
+  display: none;
+}
+
+article:has(a[href="#introduction"]) > div.absolute:nth-child(5) {
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.44), rgba(0, 0, 0, 0.08) 55%, rgba(0, 0, 0, 0.2)) !important;
+}
