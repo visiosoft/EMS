@@ -19,12 +19,8 @@ const handbookSections: HandbookSection[] = [
 
 function HandbookIntroCard() {
   return (
-    <article className="group relative min-h-[305px] overflow-hidden rounded-md border border-neutral-800 bg-[#130606] text-white shadow-[0_2px_8px_rgba(0,0,0,0.18)] sm:min-h-[350px]">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_64%_50%,rgba(233,28,28,0.62)_0,rgba(187,17,17,0.42)_20%,transparent_42%),repeating-linear-gradient(90deg,#240707_0,#53110f_12px,#8a1712_20px,#2b0807_36px)]" />
-      <div className="absolute inset-x-0 bottom-0 h-[86px] bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,0.16),transparent_56%),linear-gradient(180deg,rgba(52,20,11,0.88),rgba(12,8,4,0.96))]" />
-      <div className="absolute bottom-[61px] left-[50%] h-[132px] w-[4px] -translate-x-1/2 rounded-full bg-black/45" />
-      <div className="absolute bottom-[52px] left-[calc(50%-74px)] h-[20px] w-[150px] rounded-[50%] border border-black/45" />
-      <div className="absolute left-0 top-0 h-full w-full bg-[linear-gradient(90deg,rgba(0,0,0,0.22),transparent_42%,rgba(0,0,0,0.38))]" />
+    <article className="group relative min-h-[305px] overflow-hidden rounded-md border border-neutral-800 bg-[#130606] bg-[url('/images/internal/employee-handbook-stage.svg')] bg-cover bg-center text-white shadow-[0_2px_8px_rgba(0,0,0,0.18)] sm:min-h-[350px]">
+      <div className="absolute inset-0 bg-black/20" />
 
       <div className="relative flex min-h-[305px] flex-col px-6 py-6 sm:min-h-[350px] sm:px-8 sm:py-7">
         <span className="w-max bg-black/70 px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-white">
