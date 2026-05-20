@@ -1,9 +1,10 @@
-import { MouseEvent, useMemo } from "react";
+import { useMemo } from "react";
 import { useIsAuthenticated, useMsal } from "@azure/msal-react";
 import { useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { fetchHubEngagementSchedule } from "@/api/engagementApi";
 import { getAccountOid } from "@/auth/entra";
+import { handleOpenEngagements } from "../lib/emsOpenIntent";
 import {
   getHubWeekDateRange,
   mapEngagementRowsToHubEvents,
@@ -15,25 +16,6 @@ type EngagementWidgetProps = {
   /** When set, loads the signed-in user's engagements for that calendar week. */
   scheduleWeek?: HubScheduleWeek;
 };
-
-const EMS_OPEN_INTENT_KEY = "iae-ems-open-intent-v1";
-
-function primeEngagementsTab(createEngagement = false) {
-  if (typeof window === "undefined") return;
-
-  window.localStorage.setItem(
-    EMS_OPEN_INTENT_KEY,
-    JSON.stringify({
-      view: "engagements",
-      createEngagement,
-      expiresAt: Date.now() + 30_000,
-    }),
-  );
-}
-
-function handleOpenEngagements(_event: MouseEvent<HTMLAnchorElement>, createEngagement = false) {
-  primeEngagementsTab(createEngagement);
-}
 
 export function EngagementWidget({ title, scheduleWeek }: EngagementWidgetProps) {
   const { accounts } = useMsal();

@@ -1,12 +1,13 @@
 import { Mail, Phone, Smartphone, UserRound } from "lucide-react";
 import { IaeLogoIcon } from "@/components/brand/IaeBrandMark";
 import { InternalPageHero } from "../components/InternalPageHero";
+import { InternalPageFrame } from "../layout/InternalPageFrame";
 import { WeeklyRecapSection } from "../components/WeeklyRecapSection";
 import { LEADERSHIP_CONTACTS } from "../constants/pageData";
 
 export function LeadershipPage() {
   return (
-    <div className="bg-white text-black">
+    <InternalPageFrame footer={<WeeklyRecapSection pinned />}>
       <InternalPageHero
         title="Leadership Hub"
         subtitle="A central space for leaders to share updates, align on strategy, and drive organizational success."
@@ -69,8 +70,6 @@ export function LeadershipPage() {
           ))}
         </section>
       </main>
-
-      <WeeklyRecapSection />
-    </div>
+    </InternalPageFrame>
   );
 }

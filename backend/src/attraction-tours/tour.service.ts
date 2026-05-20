@@ -282,6 +282,39 @@ export class TourService {
     };
   }
 
+  /** Company Hub — paginated tours for one attraction (lazy-loaded in hub UI). */
+  async listByAttractionPaginated(
+    attractionId: number,
+    offset: number,
+    limit: number,
+  ): Promise<{ data: TourListRow[]; total: number }> {
+    const aid = Math.floor(attractionId);
+    if (!Number.isFinite(aid) || aid < 1) {
+      return { data: [], total: 0 };
+    }
+
+    const qb = this.tourRepo
+      .createQueryBuilder('t')
+      .innerJoinAndSelect('t.attraction', 'a')
+      .innerJoinAndSelect('t.class', 'c')
+      .leftJoinAndSelect('t.venueTypePreference', 'v')
+      .leftJoinAndSelect('t.talentAgencyCompany', 'ta')
+      .where('t.attractionId = :aid', { aid })
+      .orderBy('t.tourName', 'ASC')
+      .addOrderBy('t.tourId', 'ASC');
+
+    const total = await qb.getCount();
+    const rows = await qb.skip(Math.max(0, offset)).take(Math.max(1, limit)).getMany();
+    const bannerMap = await this.tourBannerUrlsByTourIds(rows.map((t) => t.tourId));
+
+    return {
+      data: rows.map((t) =>
+        this.mapTourEntityToRow(t, bannerMap.get(t.tourId) ?? null),
+      ),
+      total,
+    };
+  }
+
   async create(
     dto: CreateTourDto,
     bannerFile?: Express.Multer.File,

@@ -165,22 +165,29 @@ export class LookupsService {
    * One row per MarketName: all postal variants for a market collapse to MIN(DMAID) and a sample postal.
    * Pickers show a single entry per market (e.g. one "ABILENE-SWEETWATER" row).
    */
-  private buildDmaMarketsGroupedSubquery(query: string) {
+  private buildDmaMarketsGroupedSubquery(query: string, includePostalCount = false) {
     const qb = this.dmaRepo
       .createQueryBuilder('d')
       .select('MIN(d.dmaid)', 'dmaid')
       .addSelect('d.marketName', 'marketName')
-      .addSelect('MIN(d.postalCode)', 'postalCode')
-      .groupBy('d.marketName');
+      .addSelect('MIN(d.postalCode)', 'postalCode');
+    if (includePostalCount) {
+      qb.addSelect('COUNT(*)', 'postalCount');
+    }
+    qb.groupBy('d.marketName');
 
+    this.applyDmaMarketSearchFilter(qb, query);
+    return qb;
+  }
+
+  private applyDmaMarketSearchFilter(
+    qb: ReturnType<Repository<Dma>['createQueryBuilder']>,
+    query: string,
+  ) {
     const trimmed = query.trim();
-    if (!trimmed) return qb;
+    if (!trimmed) return;
 
     const sq = `%${trimmed}%`;
-    /**
-     * DMAID matching must not use substring/prefix on CAST(dmaid): e.g. "76363" matched IDs 763630001,
-     * 176363, etc., surfacing unrelated postal/market rows after GROUP BY.
-     */
     const digitsOnly = /^\d+$/.test(trimmed);
 
     if (digitsOnly) {
@@ -208,8 +215,6 @@ export class LookupsService {
         { sq },
       );
     }
-
-    return qb;
   }
 
   private mapDmaMarketRows(rows: Record<string, unknown>[]) {
@@ -217,6 +222,15 @@ export class LookupsService {
       dmaid: Number(r.dmaid ?? r.DMAID),
       marketName: String(r.marketName ?? r.MarketName ?? ''),
       postalCode: String(r.postalCode ?? r.PostalCode ?? ''),
+    }));
+  }
+
+  private mapDmaHubMarketRows(rows: Record<string, unknown>[]) {
+    return rows.map((r) => ({
+      dmaid: Number(r.dmaid ?? r.DMAID),
+      marketName: String(r.marketName ?? r.MarketName ?? ''),
+      samplePostalCode: String(r.postalCode ?? r.PostalCode ?? ''),
+      postalCount: Number(r.postalCount ?? r.PostalCount ?? 0),
     }));
   }
 
@@ -295,6 +309,91 @@ export class LookupsService {
 
     return {
       data: this.mapDmaMarketRows(rows),
+      total,
+    };
+  }
+
+  /** Company Hub — paginated markets with postal counts per market name. */
+  async findDmaHubMarketsPaginated(
+    offset: number,
+    limit: number,
+    query = '',
+  ): Promise<{
+    data: {
+      dmaid: number;
+      marketName: string;
+      samplePostalCode: string;
+      postalCount: number;
+    }[];
+    total: number;
+  }> {
+    const inner = this.buildDmaMarketsGroupedSubquery(query, true);
+
+    const countRow = await this.dmaRepo.manager
+      .createQueryBuilder()
+      .select('COUNT(*)', 'cnt')
+      .from(`(${inner.getQuery()})`, 'dedup')
+      .setParameters(inner.getParameters())
+      .getRawOne<{ cnt: string | number }>();
+
+    const total = Number(countRow?.cnt ?? 0);
+
+    const rows = await this.dmaRepo.manager
+      .createQueryBuilder()
+      .select('t.dmaid', 'dmaid')
+      .addSelect('t.marketName', 'marketName')
+      .addSelect('t.postalCode', 'postalCode')
+      .addSelect('t.postalCount', 'postalCount')
+      .from(`(${inner.getQuery()})`, 't')
+      .setParameters(inner.getParameters())
+      .orderBy('t.marketName', 'ASC')
+      .addOrderBy('t.dmaid', 'ASC')
+      .offset(offset)
+      .limit(limit)
+      .getRawMany<Record<string, unknown>>();
+
+    return {
+      data: this.mapDmaHubMarketRows(rows),
+      total,
+    };
+  }
+
+  /** Company Hub — lightweight typeahead (does not replace full search until user confirms). */
+  async findDmaHubMarketSuggestions(query: string, limit = 8) {
+    const safeLimit = Math.min(20, Math.max(1, Math.floor(limit)));
+    const { data } = await this.findDmaHubMarketsPaginated(0, safeLimit, query);
+    return data;
+  }
+
+  /** All postal codes for a single market name (lazy-loaded in hub UI). */
+  async findPostalCodesByMarketName(
+    marketName: string,
+    offset: number,
+    limit: number,
+  ): Promise<{
+    data: { dmaid: number; postalCode: string }[];
+    total: number;
+  }> {
+    const name = marketName.trim();
+    if (!name) {
+      return { data: [], total: 0 };
+    }
+
+    const qb = this.dmaRepo
+      .createQueryBuilder('d')
+      .where('d.marketName = :marketName', { marketName: name })
+      .orderBy('d.postalCode', 'ASC')
+      .addOrderBy('d.dmaid', 'ASC');
+
+    const total = await qb.clone().getCount();
+
+    const rows = await qb.offset(Math.max(0, offset)).limit(Math.max(1, limit)).getMany();
+
+    return {
+      data: rows.map((r) => ({
+        dmaid: r.dmaid,
+        postalCode: r.postalCode,
+      })),
       total,
     };
   }

@@ -80,6 +80,10 @@ export default defineConfig(({ mode }) => {
        * that tree and can hit Linux ENOSPC (inotify watcher limit).
        */
       watch: {
+        /**
+         * Vite writes `vite.config.ts.timestamp-*.mjs` on config reload; watching those
+         * files can spawn more watchers in a loop until Linux returns ENOSPC.
+         */
         ignored: [
           "**/backend/**",
           "**/node_modules/**",
@@ -90,7 +94,15 @@ export default defineConfig(({ mode }) => {
           "**/playwright-report/**",
           "**/test-results/**",
           "**/.cache/**",
+          "**/vite.config.ts.timestamp-*.mjs",
+          "**/*.timestamp-*.mjs",
         ],
+        /**
+         * Polling avoids Linux ENOSPC when Cursor/IDEs exhaust inotify watchers.
+         * Set VITE_USE_NATIVE_WATCH=1 to prefer native watchers (lower CPU).
+         */
+        usePolling: process.env.VITE_USE_NATIVE_WATCH !== "1",
+        interval: 1000,
       },
       proxy: {
         "/api": {

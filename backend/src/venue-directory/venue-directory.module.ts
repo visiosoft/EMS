@@ -14,5 +14,6 @@ import { VenueDirectoryService } from './venue-directory.service';
   ],
   controllers: [VenueDirectoryController],
   providers: [VenueDirectoryService],
+  exports: [VenueDirectoryService],
 })
 export class VenueDirectoryModule {}
