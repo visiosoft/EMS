@@ -2,7 +2,21 @@ import { UserRound } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { InternalPageHero } from "../components/InternalPageHero";
 import { EMPLOYEE_DIRECTORY_ROWS, EMPLOYEE_SERVICE_ITEMS } from "../constants/pageData";
-import { EmployeeHandbookIntroductionPage, EmployeeHandbookPage } from "./EmployeeHandbookPage";
+import {
+  EmployeeHandbookIntroductionPage,
+  EmployeeHandbookPage,
+  EmployeeHandbookSectionPage,
+} from "./EmployeeHandbookPage";
+
+const HANDBOOK_INTRO_HASHES = new Set(["#handbook-introduction", "#message-from-ceo", "#the-company", "#change-in-policy"]);
+const HANDBOOK_SECTION_HASHES = new Set([
+  "#handbook-employment-policies",
+  "#handbook-company-policies",
+  "#handbook-compensation-benefits",
+  "#handbook-department-guides",
+  "#handbook-work-performance",
+  "#handbook-employee-acknowledgment",
+]);
 
 const contactBadgeClass: Record<string, string> = {
   Email: "bg-amber-100 text-amber-800",
@@ -15,8 +29,12 @@ export function EmployeeServicesPage() {
   const handbookCard = EMPLOYEE_SERVICE_ITEMS.find((item) => item.wide);
   const serviceCards = EMPLOYEE_SERVICE_ITEMS.filter((item) => !item.wide);
 
-  if (location.hash === "#handbook-introduction" || location.hash === "#message-from-ceo" || location.hash === "#the-company" || location.hash === "#change-in-policy") {
+  if (HANDBOOK_INTRO_HASHES.has(location.hash)) {
     return <EmployeeHandbookIntroductionPage />;
+  }
+
+  if (HANDBOOK_SECTION_HASHES.has(location.hash)) {
+    return <EmployeeHandbookSectionPage />;
   }
 
   if (location.hash === "#handbook") {
