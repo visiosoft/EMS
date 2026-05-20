@@ -16,10 +16,10 @@ export function InternalPageHero({ title, subtitle }: InternalPageHeroProps) {
     >
       <div className="absolute inset-0 bg-black/8" aria-hidden />
       <div className="relative mx-auto flex max-w-[980px] flex-col items-center">
-        <h1 className="text-[clamp(2rem,9vw,4.25rem)] font-bold tracking-[-0.035em] text-white leading-[1.08] lg:leading-[1.02]">
+        <h1 className="text-[clamp(2rem,5.2vw,3.25rem)] font-semibold leading-[1.08] text-white">
           {title}
         </h1>
-        <p className="mt-4 max-w-[610px] text-base font-semibold leading-relaxed text-white/90 sm:mt-6 sm:text-lg">
+        <p className="mt-5 max-w-[430px] text-[15px] font-normal leading-[1.45] text-white/90 sm:mt-6">
           {subtitle}
         </p>
       </div>
