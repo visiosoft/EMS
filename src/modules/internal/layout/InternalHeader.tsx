@@ -12,6 +12,9 @@ export function InternalHeader() {
   function isActive(itemKey: string) {
     if (itemKey === "employee-services") return currentView === "employee-services";
     if (itemKey === "leadership") return currentView === "leadership";
+    if (itemKey === "markets") return currentView === "markets";
+    if (itemKey === "venues") return currentView === "venues";
+    if (itemKey === "attractions") return currentView === "attractions";
     if (itemKey === "departments") {
       return currentView === "departments" || currentView.startsWith("department-");
     }

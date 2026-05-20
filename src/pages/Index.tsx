@@ -143,7 +143,13 @@ function readAndConsumeOpenIntent(): { view: string; viewData: Record<string, un
     };
     const expiresAt = typeof parsed.expiresAt === 'number' ? parsed.expiresAt : 0;
     const view = typeof parsed.view === 'string' ? parsed.view : '';
-    if (Date.now() > expiresAt || view !== 'engagements') return null;
+    if (Date.now() > expiresAt) return null;
+
+    if (view === 'calendar' && VALID_VIEWS.has('calendar')) {
+      return { view: 'calendar', viewData: {} };
+    }
+
+    if (view !== 'engagements') return null;
 
     return {
       view: 'engagements',

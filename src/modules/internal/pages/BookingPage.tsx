@@ -1,4 +1,7 @@
-import { Calendar, Landmark, Plus, TicketCheck } from "lucide-react";
+import { Landmark, TicketCheck } from "lucide-react";
+import { TeamMemberAvatar } from "../components/TeamMemberAvatar";
+import { UrgentUpcomingSection } from "../components/UrgentUpcomingSection";
+import { InternalPageFrame } from "../layout/InternalPageFrame";
 
 type QuickLinkIconProps = {
   className?: string;
@@ -32,23 +35,6 @@ const QUICK_LINKS = [
   { label: "Production", icon: Landmark, href: "https://abcd.com/" },
 ];
 
-const URGENT_EVENTS = [
-  { month: "Month", day: "01", title: "Title of event", time: "Tuesday 12:00 AM - 1:00 PM" },
-  { month: "Month", day: "01", title: "Title of event", time: "Tuesday 12:00 AM - 1:00 PM" },
-  { month: "Month", day: "01", title: "Title of event", time: "Tuesday 12:00 AM - 1:00 PM" },
-];
-
-function TeamAvatar() {
-  return (
-    <img
-      src="/team-member-avatar.svg"
-      alt="Team member"
-      className="block h-10 w-[31px] object-contain shadow-sm"
-      loading="lazy"
-    />
-  );
-}
-
 function YouTubeEmbed() {
   return (
     <div className="mt-10 w-full max-w-[520px] overflow-hidden bg-black shadow-sm">
@@ -65,7 +51,7 @@ function YouTubeEmbed() {
 
 export function BookingPage() {
   return (
-    <div className="bg-white text-black">
+    <InternalPageFrame footer={<UrgentUpcomingSection pinned />}>
       <section
         className="relative isolate overflow-hidden bg-[#0b080c] px-4 py-8 text-white sm:px-8 sm:py-10 lg:px-10"
         style={{ backgroundImage: "url('/internal-hub-bg.svg')", backgroundPosition: "center", backgroundRepeat: "no-repeat", backgroundSize: "cover" }}
@@ -104,7 +90,7 @@ export function BookingPage() {
                   {TEAM_MEMBERS.map((member) => (
                     <tr key={member.name} className="relative">
                       <td className="relative px-4 py-4 before:absolute before:left-0 before:top-1/2 before:h-10 before:w-1 before:-translate-y-1/2 before:rounded-full before:bg-neutral-300">
-                        <TeamAvatar />
+                        <TeamMemberAvatar />
                       </td>
                       <td className="px-4 py-4 text-sm text-neutral-700">{member.name}</td>
                       <td className="px-4 py-4 text-sm font-semibold text-neutral-900">{member.title}</td>
@@ -139,47 +125,6 @@ export function BookingPage() {
           <YouTubeEmbed />
         </section>
       </main>
-
-      <section className="mt-8 bg-black px-4 pb-14 pt-12 text-white sm:px-8 sm:pb-16 sm:pt-[84px] lg:px-10">
-        <div className="mx-auto max-w-[1104px]">
-          <div className="grid gap-4 sm:gap-7 md:grid-cols-[1fr_216px]">
-            <h2 className="text-[28px] font-semibold leading-none tracking-[-0.02em] sm:text-[34px]">Urgent / Upcoming</h2>
-            <div className="flex items-center justify-between gap-4 md:relative md:block md:h-[116px] md:w-[216px]">
-              <button type="button" className="text-sm font-medium underline underline-offset-2 sm:text-base md:absolute md:left-[10px] md:top-0">View Full Calendar</button>
-              <button type="button" className="text-sm font-semibold md:absolute md:left-[107px] md:top-[92px]">See all</button>
-            </div>
-          </div>
-
-          <button type="button" className="mt-[20px] inline-flex items-center gap-3 text-sm font-semibold text-white hover:text-white/75">
-            <Plus className="h-4 w-4" aria-hidden />
-            Add event
-          </button>
-
-          <div className="mt-8 grid gap-7 md:grid-cols-[minmax(230px,1.05fr)_repeat(3,minmax(150px,1fr))]">
-            <div className="flex items-center gap-4">
-              <div className="flex h-[64px] w-[64px] shrink-0 items-center justify-center bg-white/40 text-black">
-                <Calendar className="h-7 w-7" strokeWidth={1.7} aria-hidden />
-              </div>
-              <div>
-                <p className="text-sm font-semibold">Create an event</p>
-                <p className="mt-1 max-w-[230px] text-xs font-semibold leading-snug text-white/90">When you add an event, it will show here where your readers can see it.</p>
-              </div>
-            </div>
-            {URGENT_EVENTS.map((event, index) => (
-              <article key={index} className="flex items-center gap-4">
-                <div className="flex h-[58px] w-[66px] shrink-0 flex-col items-center justify-center border border-white/20 bg-black">
-                  <span className="text-xs font-semibold text-white/85">{event.month}</span>
-                  <span className="text-2xl font-semibold leading-none text-white">{event.day}</span>
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-white">{event.title}</p>
-                  <p className="mt-1 text-xs font-semibold text-white/90">{event.time}</p>
-                </div>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-    </div>
+    </InternalPageFrame>
   );
 }

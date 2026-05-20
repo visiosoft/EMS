@@ -1,4 +1,6 @@
-import { Calendar, Megaphone, Plus } from "lucide-react";
+import { Calendar, Megaphone } from "lucide-react";
+import { UrgentUpcomingSection } from "../components/UrgentUpcomingSection";
+import { InternalPageFrame } from "../layout/InternalPageFrame";
 
 type IconProps = { className?: string };
 
@@ -44,12 +46,6 @@ const BUSINESS_CARDS = [
     icon: IncomingFundsIcon,
     href: "https://innovationae.formstack.com/forms/incoming_funds_notification",
   },
-];
-
-const UPCOMING_EVENTS = [
-  { month: "Month", day: "01", title: "Title of event", time: "Tuesday 12:00 AM - 1:00 PM" },
-  { month: "Month", day: "01", title: "Title of event", time: "Tuesday 12:00 AM - 1:00 PM" },
-  { month: "Month", day: "01", title: "Title of event", time: "Tuesday 12:00 AM - 1:00 PM" },
 ];
 
 function SopIcon({ className }: IconProps) {
@@ -199,59 +195,9 @@ function BusinessCard({
   );
 }
 
-function UrgentUpcomingSection() {
-  return (
-    <section className="bg-white px-4 pb-14 pt-12 text-black sm:px-8 sm:pb-16 sm:pt-[72px] lg:px-10">
-      <div className="mx-auto max-w-[1120px]">
-        <div className="grid gap-4 sm:gap-6 md:grid-cols-[1fr_216px]">
-          <h2 className="text-[28px] font-semibold leading-none tracking-[-0.02em] text-neutral-900 sm:text-[34px]">Urgent / Upcoming</h2>
-          <div className="flex items-center justify-between gap-4 md:relative md:block md:h-[112px] md:w-[216px]">
-            <button type="button" className="text-sm text-neutral-800 underline underline-offset-2 hover:text-black sm:text-base md:absolute md:left-0 md:top-[6px]">
-              View Full Calendar
-            </button>
-            <button type="button" className="text-sm font-semibold text-neutral-900 hover:underline md:absolute md:left-[98px] md:top-[95px]">
-              See all
-            </button>
-          </div>
-        </div>
-
-        <button type="button" className="mt-[24px] inline-flex items-center gap-3 text-sm font-medium text-neutral-950 hover:text-neutral-600">
-          <Plus className="h-4 w-4" aria-hidden />
-          Add event
-        </button>
-
-        <div className="mt-[24px] grid gap-7 sm:gap-8 md:grid-cols-[minmax(240px,0.92fr)_repeat(3,minmax(170px,1fr))]">
-          <div className="flex items-center gap-4">
-            <div className="flex h-[58px] w-[58px] shrink-0 items-center justify-center bg-black text-white">
-              <Calendar className="h-7 w-7" strokeWidth={1.65} aria-hidden />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-neutral-950">Create an event</p>
-              <p className="mt-1 max-w-[190px] text-xs leading-snug text-neutral-700">When you add an event, it will show here where your readers can see it.</p>
-            </div>
-          </div>
-
-          {UPCOMING_EVENTS.map((event, index) => (
-            <article key={index} className="flex items-center gap-4">
-              <div className="flex h-[58px] w-[58px] shrink-0 flex-col items-center justify-center border border-neutral-200 bg-white shadow-sm">
-                <span className="text-xs text-neutral-700">{event.month}</span>
-                <span className="text-2xl font-semibold leading-none text-neutral-900">{event.day}</span>
-              </div>
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-neutral-900">{event.title}</p>
-                <p className="mt-1 text-xs font-medium text-neutral-800">{event.time}</p>
-              </div>
-            </article>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
 export function EventBusinessPage() {
   return (
-    <div className="bg-white text-black">
+    <InternalPageFrame footer={<UrgentUpcomingSection pinned />}>
       <section
         className="relative isolate overflow-hidden bg-[#0b080c] px-4 py-8 text-white sm:px-8 sm:py-9 lg:px-10"
         style={{ backgroundImage: "url('/internal-hub-bg.svg')", backgroundPosition: "center", backgroundRepeat: "no-repeat", backgroundSize: "cover" }}
@@ -271,7 +217,7 @@ export function EventBusinessPage() {
         </div>
       </section>
 
-      <main className="mx-auto max-w-[980px] px-4 pb-0 pt-8 sm:px-8 sm:pt-9 lg:px-0">
+      <main className="mx-auto max-w-[980px] px-4 pt-8 sm:px-8 sm:pt-9 lg:px-0">
         <h2 className="mb-8 text-[17px] font-semibold text-neutral-900">Event &amp; Business List</h2>
         <section className="grid grid-cols-1 justify-items-center gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5" aria-label="Event and business list">
           {BUSINESS_CARDS.map((card, index) => (
@@ -279,8 +225,6 @@ export function EventBusinessPage() {
           ))}
         </section>
       </main>
-
-      <UrgentUpcomingSection />
-    </div>
+    </InternalPageFrame>
   );
 }

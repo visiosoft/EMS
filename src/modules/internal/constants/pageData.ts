@@ -18,35 +18,21 @@ export type EmployeeServiceItem = {
   title: string;
   icon: LucideIcon;
   wide?: boolean;
+  /** Opens this handbook section/subsection (e.g. COBRA under Work Performance). */
+  handbookHash?: string;
+  /** Opens an external resource in a new browser tab. */
+  externalUrl?: string;
 };
+
+const PAYROLL_SCHEDULE_URL =
+  "https://innovationae.sharepoint.com/:b:/s/IAECloudServer/IQC1kP6XmMQORqdlqblGMz-fAVr7g5AdIhzRVzyzyXQH298?e=MLKNB4";
 
 export const EMPLOYEE_SERVICE_ITEMS: EmployeeServiceItem[] = [
   { title: "Employee Handbook", icon: FileBadge2, wide: true },
-  { title: "Health Insurance", icon: HeartPulse },
-  { title: "Payroll Schedule", icon: ReceiptText },
-  { title: "PTO Request", icon: ClipboardList },
-  { title: "Official Work Holiday", icon: Umbrella },
-];
-
-export type EmployeeDirectoryRow = {
-  name: string;
-  extension: string;
-  mobile: string;
-  email: string;
-  preferred: "Email" | "Phone" | "SMS" | "";
-  title?: string;
-};
-
-export const EMPLOYEE_DIRECTORY_ROWS: EmployeeDirectoryRow[] = [
-  { name: "Adam Epstein", extension: "226", mobile: "(773) 580-8930", email: "adam@innovationae.com", preferred: "Email", title: "CEO" },
-  { name: "Alex Abalo", extension: "225", mobile: "(989) 878-1412", email: "alex@innovationae.com", preferred: "Phone" },
-  { name: "Amari Singleton", extension: "238", mobile: "(331) 250-4202", email: "asingleton@innovationae.com", preferred: "SMS" },
-  { name: "Amy Lord", extension: "229", mobile: "(808) 205-7869", email: "amy@innovationae.com", preferred: "Email" },
-  { name: "Andrew Turbiville", extension: "245", mobile: "(320) 349-0717", email: "aturbiville@innovationae.com", preferred: "Email", title: "Event Business Manager" },
-  { name: "Andy Friedlander", extension: "265", mobile: "(561) 905-7262", email: "andy@innovationae.com", preferred: "", title: "Ticketing Manager" },
-  { name: "Autumn Wieske", extension: "230", mobile: "(586) 552-0153", email: "autumn@innovationae.com", preferred: "" },
-  { name: "Ben Viette", extension: "231", mobile: "(815) 501-1862", email: "bviette@innovationae.com", preferred: "", title: "Art Director" },
-  { name: "Brent Abens", extension: "227", mobile: "(708) 606-4075", email: "brent@innovationae.com", preferred: "" },
+  { title: "Health Insurance", icon: HeartPulse, handbookHash: "cobra-continuing-coverage" },
+  { title: "Payroll Schedule", icon: ReceiptText, externalUrl: PAYROLL_SCHEDULE_URL },
+  { title: "PTO Request", icon: ClipboardList, externalUrl: "https://signin.adp.com" },
+  { title: "Official Work Holiday", icon: Umbrella, handbookHash: "handbook-compensation-benefits" },
 ];
 
 export type LeadershipContact = {

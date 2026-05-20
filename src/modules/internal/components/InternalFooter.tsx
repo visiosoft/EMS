@@ -1,11 +1,13 @@
 import { IaeLogoIcon } from "@/components/brand/IaeBrandMark";
-import { FOOTER_LINK_GROUPS } from "../constants/quickLinks";
+import { FOOTER_LINK_GROUPS, GENUITY_HELP_CENTER_URL, SHIPPING_REQUESTS_URL } from "../constants/quickLinks";
 import { footerLabelToView } from "../routing/internalSessionRoute";
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
 
 const EXTERNAL_FOOTER_LINKS: Record<string, string> = {
   "pto requests": "https://signin.adp.com/",
   "payment requests": "https://ramp.com/",
+  "tech support": GENUITY_HELP_CENTER_URL,
+  "shipping requests": SHIPPING_REQUESTS_URL,
 };
 
 export function InternalFooter() {

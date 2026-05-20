@@ -15,6 +15,10 @@ import { DailySalesModule } from './daily-sales/daily-sales.module';
 import { VenueDirectoryModule } from './venue-directory/venue-directory.module';
 import { AdminUsersModule } from './admin-users/admin-users.module';
 import { InternalNewsModule } from './internal-news/internal-news.module';
+import { InternalEmployeesModule } from './internal-employees/internal-employees.module';
+import { InternalMarketsModule } from './internal-markets/internal-markets.module';
+import { InternalVenuesModule } from './internal-venues/internal-venues.module';
+import { InternalAttractionsModule } from './internal-attractions/internal-attractions.module';
 
 const parseBoolean = (
   value: string | undefined,
@@ -100,6 +104,10 @@ const parseNumber = (value: string | undefined, fallback: number): number => {
     VenueDirectoryModule,
     AdminUsersModule,
     InternalNewsModule,
+    InternalEmployeesModule,
+    InternalMarketsModule,
+    InternalVenuesModule,
+    InternalAttractionsModule,
   ],
   controllers: [AppController],
   providers: [AppService, AuditSubscriber],
