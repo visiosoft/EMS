@@ -1,8 +1,11 @@
 import { useEffect, type ReactNode } from "react";
 import { Banknote, BookOpen, ClipboardCheck, Home, Lectern, Star, UserRoundCog } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useLocation } from "react-router-dom";
 import { InternalPageHero } from "../components/InternalPageHero";
+import { useInternalNavigation } from "../routing/InternalNavigationContext";
+import type { EmployeeHandbookView } from "../routing/internalSessionRoute";
+
+export type { EmployeeHandbookView };
 
 type HandbookSectionId =
   | "introduction"
@@ -123,6 +126,8 @@ const departmentSummaries = [
 ];
 
 function HandbookIntroCard() {
+  const { navigateHandbook } = useInternalNavigation();
+
   return (
     <article
       className="relative h-[332px] overflow-hidden rounded-[5px] border border-neutral-800 bg-[#130606] bg-cover bg-center text-white shadow-[0_2px_8px_rgba(0,0,0,0.18)]"
@@ -141,19 +146,16 @@ function HandbookIntroCard() {
         <p className="mt-auto max-w-[390px] text-[14px] leading-[1.7] text-white/95">
           Introducing the Innovation Arts Entertainment Employee Handbook.
         </p>
-        <a
-          href="#handbook-introduction"
+        <button
+          type="button"
+          onClick={() => navigateHandbook("handbook-introduction")}
           className="mt-3 inline-flex h-[27px] w-[93px] items-center justify-center rounded-[3px] bg-white text-[13px] font-medium text-black transition duration-200 hover:bg-neutral-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
         >
           View Section
-        </a>
+        </button>
       </div>
     </article>
   );
-}
-
-function getHandbookSectionUrl(hash: string) {
-  return `/internal/employee-services#${hash}`;
 }
 
 function scrollToHandbookElement(id: string) {
@@ -161,6 +163,7 @@ function scrollToHandbookElement(id: string) {
 }
 
 function SectionNavButtons({ currentId, tone = "light" }: { currentId: HandbookSectionId; tone?: "light" | "dark" }) {
+  const { navigateHandbook } = useInternalNavigation();
   const buttonClass =
     tone === "dark"
       ? "bg-black text-white shadow-[0_2px_8px_rgba(0,0,0,0.28)] hover:bg-neutral-900 focus-visible:ring-black"
@@ -171,24 +174,27 @@ function SectionNavButtons({ currentId, tone = "light" }: { currentId: HandbookS
 
   return (
     <nav className="mx-auto flex w-full max-w-[496px] flex-col gap-2 sm:flex-row" aria-label="Handbook section navigation">
-      <a
-        href={getHandbookSectionUrl(previousHash)}
+      <button
+        type="button"
+        onClick={() => navigateHandbook(previousHash)}
         className={`${buttonClass} inline-flex h-[38px] flex-1 items-center justify-center rounded-[4px] px-4 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2`}
       >
         &larr; Previous Section
-      </a>
-      <a
-        href={getHandbookSectionUrl("handbook")}
+      </button>
+      <button
+        type="button"
+        onClick={() => navigateHandbook("handbook")}
         className={`${buttonClass} inline-flex h-[38px] flex-1 items-center justify-center rounded-[4px] px-4 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2`}
       >
         Home
-      </a>
-      <a
-        href={getHandbookSectionUrl(nextHash)}
+      </button>
+      <button
+        type="button"
+        onClick={() => navigateHandbook(nextHash)}
         className={`${buttonClass} inline-flex h-[38px] flex-1 items-center justify-center rounded-[4px] px-4 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2`}
       >
         Next Section &rarr;
-      </a>
+      </button>
     </nav>
   );
 }
@@ -1147,8 +1153,6 @@ function getDetailSectionForHash(hash: string) {
   return sectionId ? handbookDetailSections[sectionId] : null;
 }
 
-export type EmployeeHandbookView = "services" | "index" | "introduction" | "section";
-
 const introductionHashIds = new Set([
   "handbook-introduction",
   ...introductionSubsections.map((subsection) => subsection.id),
@@ -1246,6 +1250,8 @@ function HandbookSubsectionContent({ subsection }: { subsection: HandbookSubsect
 }
 
 export function EmployeeHandbookPage() {
+  const { navigateHandbook } = useInternalNavigation();
+
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }, []);
@@ -1273,14 +1279,15 @@ export function EmployeeHandbookPage() {
             {handbookSections.map((section) => {
               const Icon = section.icon;
               return (
-                <a
+                <button
                   key={section.title}
-                  href={`#${section.hash}`}
-                  className="group flex h-[53px] items-center gap-[14px] rounded-[4px] bg-black px-[14px] text-[12px] font-normal text-white transition duration-200 hover:-translate-y-0.5 hover:bg-[#111] hover:shadow-[0_10px_22px_rgba(0,0,0,0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2"
+                  type="button"
+                  onClick={() => navigateHandbook(section.hash)}
+                  className="group flex h-[53px] w-full items-center gap-[14px] rounded-[4px] bg-black px-[14px] text-left text-[12px] font-normal text-white transition duration-200 hover:-translate-y-0.5 hover:bg-[#111] hover:shadow-[0_10px_22px_rgba(0,0,0,0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2"
                 >
                   <Icon className="h-[22px] w-[22px] shrink-0 text-white/95 transition-transform duration-200 group-hover:scale-110" strokeWidth={1.5} aria-hidden />
                   <span className="leading-tight">{section.title}</span>
-                </a>
+                </button>
               );
             })}
           </nav>
@@ -1290,13 +1297,14 @@ export function EmployeeHandbookPage() {
   );
 }
 
-export function EmployeeHandbookSectionPage() {
-  const location = useLocation();
-  const section = getDetailSectionForHash(location.hash) ?? handbookDetailSections["employment-policies"];
+export function EmployeeHandbookSectionPage({ handbookHash }: { handbookHash?: string }) {
+  const { navigateHandbook } = useInternalNavigation();
+  const hash = handbookHash ? `#${normalizeHash(handbookHash)}` : "";
+  const section = getDetailSectionForHash(hash) ?? handbookDetailSections["employment-policies"];
   const sectionMeta = handbookSections.find((item) => item.id === section.id);
 
   useEffect(() => {
-    const targetId = normalizeHash(location.hash);
+    const targetId = normalizeHash(hash);
 
     window.requestAnimationFrame(() => {
       if (!targetId || targetId === sectionMeta?.hash) {
@@ -1309,7 +1317,7 @@ export function EmployeeHandbookSectionPage() {
         target.scrollIntoView({ block: "start", behavior: "auto" });
       }
     });
-  }, [location.hash, sectionMeta?.hash]);
+  }, [hash, sectionMeta?.hash]);
 
   return (
     <div className="min-h-screen bg-white text-black">
@@ -1331,21 +1339,22 @@ export function EmployeeHandbookSectionPage() {
         </article>
       </main>
 
-      <a
-        href={`#${sectionMeta?.hash ?? "handbook"}`}
+      <button
+        type="button"
+        onClick={() => navigateHandbook(sectionMeta?.hash ?? "handbook")}
         className="fixed bottom-6 right-6 z-40 hidden h-[42px] min-w-[64px] items-center justify-center rounded-full bg-black px-4 text-[12px] font-semibold text-white shadow-[0_3px_14px_rgba(0,0,0,0.35)] transition-colors hover:bg-neutral-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 sm:inline-flex"
       >
         &uarr; Top
-      </a>
+      </button>
     </div>
   );
 }
 
-export function EmployeeHandbookIntroductionPage() {
-  const location = useLocation();
+export function EmployeeHandbookIntroductionPage({ handbookHash }: { handbookHash?: string }) {
+  const { navigateHandbook } = useInternalNavigation();
 
   useEffect(() => {
-    const targetId = location.hash.replace("#", "");
+    const targetId = handbookHash?.replace(/^#/, "") ?? "";
 
     window.requestAnimationFrame(() => {
       if (!targetId || targetId === "handbook-introduction") {
@@ -1358,7 +1367,7 @@ export function EmployeeHandbookIntroductionPage() {
         target.scrollIntoView({ block: "start", behavior: "auto" });
       }
     });
-  }, [location.hash]);
+  }, [handbookHash]);
 
   return (
     <div className="min-h-screen bg-white text-black">
@@ -1380,12 +1389,13 @@ export function EmployeeHandbookIntroductionPage() {
         </article>
       </main>
 
-      <a
-        href="#handbook-introduction"
+      <button
+        type="button"
+        onClick={() => navigateHandbook("handbook-introduction")}
         className="fixed bottom-6 right-6 z-40 hidden h-[42px] min-w-[64px] items-center justify-center rounded-full bg-black px-4 text-[12px] font-semibold text-white shadow-[0_3px_14px_rgba(0,0,0,0.35)] transition-colors hover:bg-neutral-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 sm:inline-flex"
       >
         &uarr; Top
-      </a>
+      </button>
     </div>
   );
 }

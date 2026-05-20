@@ -20,8 +20,8 @@ export function TechSupportPage() {
             <span className="hidden text-white/70 sm:inline">| Help Center</span>
           </div>
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:gap-3">
-            <a href="#request" className="inline-flex h-10 items-center rounded-md bg-[#0f5fc6] px-4 text-sm font-medium text-white shadow-sm hover:bg-[#0c55b3]">Submit a Request</a>
-            <a href="#signin" className="inline-flex h-10 items-center rounded-md bg-white px-4 text-sm font-semibold text-neutral-700 shadow-sm hover:bg-neutral-100">Sign In</a>
+            <button type="button" className="inline-flex h-10 items-center rounded-md bg-[#0f5fc6] px-4 text-sm font-medium text-white shadow-sm hover:bg-[#0c55b3]">Submit a Request</button>
+            <button type="button" className="inline-flex h-10 items-center rounded-md bg-white px-4 text-sm font-semibold text-neutral-700 shadow-sm hover:bg-neutral-100">Sign In</button>
           </div>
         </nav>
 

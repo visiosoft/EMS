@@ -206,12 +206,12 @@ function UrgentUpcomingSection() {
         <div className="grid gap-4 sm:gap-6 md:grid-cols-[1fr_216px]">
           <h2 className="text-[28px] font-semibold leading-none tracking-[-0.02em] text-neutral-900 sm:text-[34px]">Urgent / Upcoming</h2>
           <div className="flex items-center justify-between gap-4 md:relative md:block md:h-[112px] md:w-[216px]">
-            <a href="#calendar" className="text-sm text-neutral-800 underline underline-offset-2 hover:text-black sm:text-base md:absolute md:left-0 md:top-[6px]">
+            <button type="button" className="text-sm text-neutral-800 underline underline-offset-2 hover:text-black sm:text-base md:absolute md:left-0 md:top-[6px]">
               View Full Calendar
-            </a>
-            <a href="#see-all" className="text-sm font-semibold text-neutral-900 hover:underline md:absolute md:left-[98px] md:top-[95px]">
+            </button>
+            <button type="button" className="text-sm font-semibold text-neutral-900 hover:underline md:absolute md:left-[98px] md:top-[95px]">
               See all
-            </a>
+            </button>
           </div>
         </div>
 

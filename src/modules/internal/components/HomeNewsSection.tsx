@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { apiFetch } from "@/api/config";
+import { useInternalNavigation } from "../routing/InternalNavigationContext";
 
 type NewsFormValues = {
   title: string;
@@ -376,6 +377,7 @@ export function AddNewsModal({ open, onClose, onSubmit }: { open: boolean; onClo
 
 
 export function HomeNewsSection() {
+  const { navigate } = useInternalNavigation();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newsItems, setNewsItems] = useState<NewsItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -416,7 +418,13 @@ export function HomeNewsSection() {
             Add
           </button>
         </div>
-        <a href="/internal/company-news" className="text-xs font-semibold text-neutral-900 underline-offset-4 hover:underline">See all</a>
+        <button
+          type="button"
+          onClick={() => navigate("company-news")}
+          className="text-xs font-semibold text-neutral-900 underline-offset-4 hover:underline"
+        >
+          See all
+        </button>
       </div>
 
       {loadError ? (
