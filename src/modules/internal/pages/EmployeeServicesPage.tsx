@@ -2,7 +2,7 @@ import { UserRound } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { InternalPageHero } from "../components/InternalPageHero";
 import { EMPLOYEE_DIRECTORY_ROWS, EMPLOYEE_SERVICE_ITEMS } from "../constants/pageData";
-import { EmployeeHandbookPage } from "./EmployeeHandbookPage";
+import { EmployeeHandbookIntroductionPage, EmployeeHandbookPage } from "./EmployeeHandbookPage";
 
 const contactBadgeClass: Record<string, string> = {
   Email: "bg-amber-100 text-amber-800",
@@ -14,6 +14,10 @@ export function EmployeeServicesPage() {
   const location = useLocation();
   const handbookCard = EMPLOYEE_SERVICE_ITEMS.find((item) => item.wide);
   const serviceCards = EMPLOYEE_SERVICE_ITEMS.filter((item) => !item.wide);
+
+  if (location.hash === "#handbook-introduction" || location.hash === "#message-from-ceo" || location.hash === "#the-company" || location.hash === "#change-in-policy") {
+    return <EmployeeHandbookIntroductionPage />;
+  }
 
   if (location.hash === "#handbook") {
     return <EmployeeHandbookPage />;
