@@ -54,7 +54,7 @@ export function resolvePostLoginPath(from?: string | null, account?: AccountInfo
   }
 
   if (from === INTERNAL_ROOT || from.startsWith(`${INTERNAL_ROOT}/`)) {
-    return canUseCompanyHub && isInternalEnabled() ? from : EMS_ROOT;
+    return canUseCompanyHub && isInternalEnabled() ? INTERNAL_ROOT : EMS_ROOT;
   }
 
   if (from === EMS_ROOT || from.startsWith("/ems")) {

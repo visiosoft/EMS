@@ -42,13 +42,14 @@ describe("resolvePostLoginPath", () => {
     expect(resolvePostLoginPath("//evil", account)).toBe("/apps");
   });
 
-  it("preserves internal deep links for the allowed Company Hub user", () => {
+  it("sends allowed Company Hub users to the hub root (no child paths in the URL)", () => {
     const account = mockAccount(allowedEmail);
     expect(resolvePostLoginPath("/internal", account)).toBe("/internal");
-    expect(resolvePostLoginPath("/internal/news", account)).toBe("/internal/news");
+    expect(resolvePostLoginPath("/internal/news", account)).toBe("/internal");
+    expect(resolvePostLoginPath("/internal/employee-services#handbook", account)).toBe("/internal");
   });
 
-  it("blocks internal deep links for users without Company Hub access", () => {
+  it("blocks internal routes for users without Company Hub access", () => {
     const account = mockAccount("user@example.com");
     expect(resolvePostLoginPath("/internal", account)).toBe("/");
     expect(resolvePostLoginPath("/internal/news", account)).toBe("/");

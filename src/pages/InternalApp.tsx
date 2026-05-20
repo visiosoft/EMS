@@ -1,5 +1,6 @@
-import { Route, Routes } from "react-router-dom";
 import { InternalLayout } from "@/modules/internal/layout/InternalLayout";
+import { InternalNavigationProvider, useInternalNavigation } from "@/modules/internal/routing/InternalNavigationContext";
+import { viewsWithLayout } from "@/modules/internal/routing/internalSessionRoute";
 import { ArtGraphicDesignPage } from "@/modules/internal/pages/ArtGraphicDesignPage";
 import { BookingPage } from "@/modules/internal/pages/BookingPage";
 import { CompanyNewsPage } from "@/modules/internal/pages/CompanyNewsPage";
@@ -14,26 +15,56 @@ import { ShippingRequestsPage } from "@/modules/internal/pages/ShippingRequestsP
 import { TechSupportPage } from "@/modules/internal/pages/TechSupportPage";
 import { TicketingSalesPage } from "@/modules/internal/pages/TicketingSalesPage";
 
-/** Route tree for the Company Hub module (`/internal/*`). */
+function InternalAppViews() {
+  const { currentView } = useInternalNavigation();
+
+  switch (currentView) {
+    case "company-news":
+      return <CompanyNewsPage />;
+    case "employee-services":
+      return <EmployeeServicesPage />;
+    case "leadership":
+      return <LeadershipPage />;
+    case "departments":
+      return <DepartmentsPage />;
+    case "department-art-graphic-design":
+      return <ArtGraphicDesignPage />;
+    case "department-booking":
+      return <BookingPage />;
+    case "department-event-business":
+      return <EventBusinessPage />;
+    case "department-marketing":
+      return <MarketingPage />;
+    case "department-production":
+      return <ProductionPage />;
+    case "department-ticketing-sales":
+      return <TicketingSalesPage />;
+    case "tech-support":
+      return <TechSupportPage />;
+    case "shipping-requests":
+      return <ShippingRequestsPage />;
+    case "home":
+    default:
+      return <InternalHomePage />;
+  }
+}
+
+/** Company Hub shell — in-app navigation only; the address bar stays on `/internal`. */
 export default function InternalApp() {
   return (
-    <Routes>
-      <Route path="tech-support" element={<TechSupportPage />} />
-      <Route path="shipping-requests" element={<ShippingRequestsPage />} />
-
-      <Route element={<InternalLayout />}>
-        <Route index element={<InternalHomePage />} />
-        <Route path="company-news" element={<CompanyNewsPage />} />
-        <Route path="employee-services" element={<EmployeeServicesPage />} />
-        <Route path="leadership" element={<LeadershipPage />} />
-        <Route path="departments" element={<DepartmentsPage />} />
-        <Route path="departments/art-graphic-design" element={<ArtGraphicDesignPage />} />
-        <Route path="departments/booking" element={<BookingPage />} />
-        <Route path="departments/event-business" element={<EventBusinessPage />} />
-        <Route path="departments/marketing" element={<MarketingPage />} />
-        <Route path="departments/production" element={<ProductionPage />} />
-        <Route path="departments/ticketing-sales" element={<TicketingSalesPage />} />
-      </Route>
-    </Routes>
+    <InternalNavigationProvider>
+      <InternalAppShell />
+    </InternalNavigationProvider>
   );
+}
+
+function InternalAppShell() {
+  const { currentView } = useInternalNavigation();
+  const content = <InternalAppViews />;
+
+  if (!viewsWithLayout(currentView)) {
+    return content;
+  }
+
+  return <InternalLayout>{content}</InternalLayout>;
 }

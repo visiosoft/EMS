@@ -1,22 +1,12 @@
 import { InternalPageHero } from "../components/InternalPageHero";
 import { WeeklyRecapSection } from "../components/WeeklyRecapSection";
 import { DEPARTMENT_CARDS } from "../constants/pageData";
-
-function getDepartmentHref(title: string) {
-  if (title === "Art") return "/internal/departments/art-graphic-design";
-  if (title === "Events") return "/internal/departments/event-business";
-  if (title === "Booking") return "/internal/departments/booking";
-  if (title === "Marketing") return "/internal/departments/marketing";
-  if (title === "Ticketing & Sales") return "/internal/departments/ticketing-sales";
-  if (title === "Production") return "/internal/departments/production";
-  return `#${title.toLowerCase().replace(/\s+/g, "-")}`;
-}
-
-function shouldOpenInNewTab(title: string) {
-  return ["Art", "Events", "Booking", "Marketing", "Ticketing & Sales", "Production"].includes(title);
-}
+import { departmentTitleToView } from "../routing/internalSessionRoute";
+import { useInternalNavigation } from "../routing/InternalNavigationContext";
 
 export function DepartmentsPage() {
+  const { navigate } = useInternalNavigation();
+
   return (
     <div className="bg-white text-black">
       <InternalPageHero
@@ -28,8 +18,7 @@ export function DepartmentsPage() {
         <section className="flex flex-wrap justify-center gap-[10px]" aria-label="Departments">
           {DEPARTMENT_CARDS.map((department, index) => {
             const Icon = department.icon;
-            const href = getDepartmentHref(department.title);
-            const opensNewTab = shouldOpenInNewTab(department.title);
+            const view = departmentTitleToView(department.title);
 
             return (
               <article
@@ -41,14 +30,15 @@ export function DepartmentsPage() {
                   <Icon className="h-[50px] w-[50px] transition-transform duration-300 group-hover:scale-110" strokeWidth={1.45} aria-hidden />
                 </div>
                 <h3 className="mb-2 min-h-[22px] text-[13px] font-semibold leading-tight text-white">{department.title}</h3>
-                <a
-                  href={href}
-                  target={opensNewTab ? "_blank" : undefined}
-                  rel={opensNewTab ? "noreferrer" : undefined}
-                  className="inline-flex h-[25px] items-center justify-center rounded-sm bg-white px-4 text-[10px] font-bold uppercase tracking-[0.08em] text-black hover:bg-neutral-200"
-                >
-                  See more
-                </a>
+                {view ? (
+                  <button
+                    type="button"
+                    onClick={() => navigate(view)}
+                    className="inline-flex h-[25px] items-center justify-center rounded-sm bg-white px-4 text-[10px] font-bold uppercase tracking-[0.08em] text-black hover:bg-neutral-200"
+                  >
+                    See more
+                  </button>
+                ) : null}
               </article>
             );
           })}

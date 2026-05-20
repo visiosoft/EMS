@@ -177,8 +177,8 @@ export function ArtGraphicDesignPage() {
           <div className="grid gap-4 sm:gap-7 md:grid-cols-[1fr_216px]">
             <h2 className="text-[28px] font-semibold leading-none tracking-[-0.02em] sm:text-[34px]">Urgent / Upcoming</h2>
             <div className="flex items-center justify-between gap-4 md:relative md:block md:h-[116px] md:w-[216px]">
-              <a href="#calendar" className="text-sm font-medium underline underline-offset-2 sm:text-base md:absolute md:left-[10px] md:top-0">View Full Calendar</a>
-              <a href="#see-all" className="text-sm font-semibold md:absolute md:left-[107px] md:top-[92px]">See all</a>
+              <button type="button" className="text-sm font-medium underline underline-offset-2 sm:text-base md:absolute md:left-[10px] md:top-0">View Full Calendar</button>
+              <button type="button" className="text-sm font-semibold md:absolute md:left-[107px] md:top-[92px]">See all</button>
             </div>
           </div>
 

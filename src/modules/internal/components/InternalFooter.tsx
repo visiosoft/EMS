@@ -1,7 +1,16 @@
 import { IaeLogoIcon } from "@/components/brand/IaeBrandMark";
 import { FOOTER_LINK_GROUPS } from "../constants/quickLinks";
+import { footerLabelToView } from "../routing/internalSessionRoute";
+import { useInternalNavigation } from "../routing/InternalNavigationContext";
+
+const EXTERNAL_FOOTER_LINKS: Record<string, string> = {
+  "pto requests": "https://signin.adp.com/",
+  "payment requests": "https://ramp.com/",
+};
 
 export function InternalFooter() {
+  const { navigate, openEmployeeHandbook } = useInternalNavigation();
+
   return (
     <footer className="mt-16 overflow-hidden bg-black text-white">
       <div className="relative px-6 py-10 sm:px-8 lg:px-10">
@@ -29,13 +38,59 @@ export function InternalFooter() {
               <div key={group.title}>
                 <h3 className="text-sm font-semibold tracking-[0.14em] uppercase text-white/90">{group.title}</h3>
                 <ul className="mt-4 space-y-2">
-                  {group.links.map((link) => (
-                    <li key={link}>
-                      <a href={`#${link.toLowerCase().replace(/\s+/g, "-")}`} className="text-sm text-white/62 hover:text-white">
-                        {link}
-                      </a>
-                    </li>
-                  ))}
+                  {group.links.map((link) => {
+                    const view = footerLabelToView(link);
+                    const externalHref = EXTERNAL_FOOTER_LINKS[link.toLowerCase()];
+
+                    if (externalHref) {
+                      return (
+                        <li key={link}>
+                          <a
+                            href={externalHref}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-sm text-white/62 hover:text-white"
+                          >
+                            {link}
+                          </a>
+                        </li>
+                      );
+                    }
+
+                    if (link === "Employee Handbook") {
+                      return (
+                        <li key={link}>
+                          <button
+                            type="button"
+                            onClick={() => openEmployeeHandbook("index")}
+                            className="text-sm text-white/62 hover:text-white"
+                          >
+                            {link}
+                          </button>
+                        </li>
+                      );
+                    }
+
+                    if (view) {
+                      return (
+                        <li key={link}>
+                          <button
+                            type="button"
+                            onClick={() => navigate(view)}
+                            className="text-sm text-white/62 hover:text-white"
+                          >
+                            {link}
+                          </button>
+                        </li>
+                      );
+                    }
+
+                    return (
+                      <li key={link}>
+                        <span className="text-sm text-white/40">{link}</span>
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             ))}
