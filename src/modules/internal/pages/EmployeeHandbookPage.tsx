@@ -255,7 +255,6 @@ function MessageFromCeoSection() {
           Our people are energetic, and our office life is fast paced. Be prepared to learn, grow, and perform important work, daily - and your days here will fly by.
         </HandbookParagraph>
         <p className="text-[16px] leading-[1.78] text-neutral-900">We wish you remarkable success!</p>
-        <p className="text-[16px] leading-[1.78] text-neutral-900">This is testing</p>
         <p className="text-[16px] font-semibold leading-[1.78] text-neutral-900">Adam Epstein</p>
       </div>
     </section>
@@ -1146,6 +1145,23 @@ function normalizeHash(hash: string) {
 function getDetailSectionForHash(hash: string) {
   const sectionId = detailSectionHashes.get(normalizeHash(hash));
   return sectionId ? handbookDetailSections[sectionId] : null;
+}
+
+export type EmployeeHandbookView = "services" | "index" | "introduction" | "section";
+
+const introductionHashIds = new Set([
+  "handbook-introduction",
+  ...introductionSubsections.map((subsection) => subsection.id),
+]);
+
+/** Routes Employee Services hash URLs to the correct handbook screen. */
+export function resolveEmployeeHandbookView(hash: string): EmployeeHandbookView {
+  const normalized = normalizeHash(hash);
+  if (!normalized) return "services";
+  if (normalized === "handbook") return "index";
+  if (introductionHashIds.has(normalized)) return "introduction";
+  if (detailSectionHashes.has(normalized)) return "section";
+  return "services";
 }
 
 function renderContentBlock(block: HandbookContentBlock, index: number) {

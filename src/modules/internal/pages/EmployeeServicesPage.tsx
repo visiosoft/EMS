@@ -6,17 +6,8 @@ import {
   EmployeeHandbookIntroductionPage,
   EmployeeHandbookPage,
   EmployeeHandbookSectionPage,
+  resolveEmployeeHandbookView,
 } from "./EmployeeHandbookPage";
-
-const HANDBOOK_INTRO_HASHES = new Set(["#handbook-introduction", "#message-from-ceo", "#the-company", "#change-in-policy"]);
-const HANDBOOK_SECTION_HASHES = new Set([
-  "#handbook-employment-policies",
-  "#handbook-company-policies",
-  "#handbook-compensation-benefits",
-  "#handbook-department-guides",
-  "#handbook-work-performance",
-  "#handbook-employee-acknowledgment",
-]);
 
 const contactBadgeClass: Record<string, string> = {
   Email: "bg-amber-100 text-amber-800",
@@ -26,18 +17,19 @@ const contactBadgeClass: Record<string, string> = {
 
 export function EmployeeServicesPage() {
   const location = useLocation();
+  const handbookView = resolveEmployeeHandbookView(location.hash);
   const handbookCard = EMPLOYEE_SERVICE_ITEMS.find((item) => item.wide);
   const serviceCards = EMPLOYEE_SERVICE_ITEMS.filter((item) => !item.wide);
 
-  if (HANDBOOK_INTRO_HASHES.has(location.hash)) {
+  if (handbookView === "introduction") {
     return <EmployeeHandbookIntroductionPage />;
   }
 
-  if (HANDBOOK_SECTION_HASHES.has(location.hash)) {
+  if (handbookView === "section") {
     return <EmployeeHandbookSectionPage />;
   }
 
-  if (location.hash === "#handbook") {
+  if (handbookView === "index") {
     return <EmployeeHandbookPage />;
   }
 
