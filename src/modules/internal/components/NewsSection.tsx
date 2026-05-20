@@ -1,5 +1,6 @@
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { Plus, ChevronDown } from "lucide-react";
+import { useInternalNavigation } from "../routing/InternalNavigationContext";
 
 /* ─────────────────────────────────────────────
    Mock news data matching the SharePoint screenshots
@@ -124,8 +125,7 @@ function SmallArticleCard({
   visible: boolean;
 }) {
   return (
-    <a
-      href="#news"
+    <article
       className="group flex gap-3 border-b border-neutral-100 pb-4 last:border-0 last:pb-0"
       style={{
         opacity: visible ? 1 : 0,
@@ -153,14 +153,41 @@ function SmallArticleCard({
         </div>
         <p className="text-xs text-neutral-400 mt-0.5">{article.views} views</p>
       </div>
-    </a>
+    </article>
   );
 }
 
 /* ─────────────────────────────────────────────
    Main NewsSection export
 ───────────────────────────────────────────────── */
+function NewsCard({
+  className,
+  style,
+  children,
+  onClick,
+}: {
+  className: string;
+  style?: CSSProperties;
+  children: ReactNode;
+  onClick?: () => void;
+}) {
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={`${className} text-left`} style={style}>
+        {children}
+      </button>
+    );
+  }
+
+  return (
+    <article className={className} style={style}>
+      {children}
+    </article>
+  );
+}
+
 export function NewsSection() {
+  const { navigate } = useInternalNavigation();
   const ref = useRef<HTMLElement | null>(null);
   const [visible, setVisible] = useState(false);
 
@@ -193,9 +220,13 @@ export function NewsSection() {
         }}
       >
         <h2 className="text-xl font-bold text-black">News</h2>
-        <a href="#news-all" className="text-sm font-medium text-neutral-600 hover:underline underline-offset-2">
+        <button
+          type="button"
+          onClick={() => navigate("company-news")}
+          className="text-sm font-medium text-neutral-600 hover:underline underline-offset-2"
+        >
           See all
-        </a>
+        </button>
       </div>
 
       {/* Add button */}
@@ -220,9 +251,8 @@ export function NewsSection() {
       {/* ── Primary grid: Featured (left) + 2 side articles (right) ── */}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
         {/* Featured / large card */}
-        <a
-          href="#news-featured"
-          className="group block overflow-hidden rounded-sm border border-neutral-100 hover:shadow-md transition-shadow"
+        <NewsCard
+          className="group block w-full overflow-hidden rounded-sm border border-neutral-100 hover:shadow-md transition-shadow"
           style={{
             opacity: visible ? 1 : 0,
             transform: visible ? "translateY(0)" : "translateY(20px)",
@@ -255,7 +285,7 @@ export function NewsSection() {
             </div>
             <p className="text-xs text-neutral-400 mt-0.5">{FEATURED_ARTICLE.views} views</p>
           </div>
-        </a>
+        </NewsCard>
 
         {/* Side articles stacked */}
         <div
@@ -280,9 +310,9 @@ export function NewsSection() {
       {/* ── Secondary row: Company News (left) + another article (right) ── */}
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         {/* Company News (large text card) */}
-        <a
-          href="#company-news"
-          className="group block overflow-hidden rounded-sm border border-neutral-100 p-4 hover:shadow-md transition-shadow"
+        <NewsCard
+          onClick={() => navigate("company-news")}
+          className="group block w-full overflow-hidden rounded-sm border border-neutral-100 p-4 hover:shadow-md transition-shadow"
           style={{
             opacity: visible ? 1 : 0,
             transform: visible ? "translateY(0)" : "translateY(20px)",
@@ -301,11 +331,10 @@ export function NewsSection() {
             <span className="text-xs text-neutral-400">about an hour ago</span>
           </div>
           <p className="text-xs text-neutral-400 mt-0.5">45 views</p>
-        </a>
+        </NewsCard>
 
         {/* Bottom right article with thumbnail */}
-        <a
-          href="#iae-launch"
+        <NewsCard
           className="group flex gap-3 overflow-hidden rounded-sm border border-neutral-100 p-4 hover:shadow-md transition-shadow items-start"
           style={{
             opacity: visible ? 1 : 0,
@@ -332,7 +361,7 @@ export function NewsSection() {
             </div>
             <p className="text-xs text-neutral-400 mt-0.5">{BOTTOM_ARTICLE.views} views</p>
           </div>
-        </a>
+        </NewsCard>
       </div>
     </section>
   );

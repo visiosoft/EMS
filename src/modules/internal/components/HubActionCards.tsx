@@ -9,6 +9,7 @@ import {
   Star,
 } from "lucide-react";
 import { HUB_ACTION_CARDS } from "../constants/quickLinks";
+import { useInternalNavigation } from "../routing/InternalNavigationContext";
 
 const SALES_UPDATE_URL =
   "https://innovationae.sharepoint.com/:x:/s/IAECloudServer/EZwsYuu0QX9PjJW6GzC8JtkB50cSo1vLBDSscx4pmSy0tg?e=9mVJip&wdLOR=c02714DFC-8E9B-A44E-B239-9078B0C8BD68&web=1";
@@ -49,30 +50,14 @@ function primeEngagementsTab(timingFilter: "past" | "upcoming") {
   );
 }
 
-function getCardHref(key: (typeof HUB_ACTION_CARDS)[number]["key"]) {
-  if (key === "sales-update") return SALES_UPDATE_URL;
-  if (key === "employee-services") return "/internal/employee-services";
-  if (key === "past-engagements" || key === "upcoming-engagements") return "/";
-  return `#${key}`;
-}
-
-function getCardTarget(key: (typeof HUB_ACTION_CARDS)[number]["key"]) {
-  if (key === "sales-update") return "_blank";
-  return undefined;
-}
-
-function handleCardClick(
-  event: MouseEvent<HTMLAnchorElement>,
-  key: (typeof HUB_ACTION_CARDS)[number]["key"],
-) {
-  if (key !== "past-engagements" && key !== "upcoming-engagements") return;
-
+function handleEngagementCardClick(event: MouseEvent<HTMLButtonElement>, key: "past-engagements" | "upcoming-engagements") {
   event.preventDefault();
   primeEngagementsTab(key === "past-engagements" ? "past" : "upcoming");
   window.open("/", "_blank", "noopener,noreferrer");
 }
 
 export function HubActionCards() {
+  const { navigate } = useInternalNavigation();
   const ref = useRef<HTMLElement | null>(null);
   const [visible, setVisible] = useState(false);
 
@@ -100,29 +85,68 @@ export function HubActionCards() {
       className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 xl:gap-4"
       aria-label="Hub actions"
     >
-      {HUB_ACTION_CARDS.map((card, i) => (
-        <a
-          key={card.key}
-          href={getCardHref(card.key)}
-          target={getCardTarget(card.key)}
-          rel={getCardTarget(card.key) ? "noreferrer" : undefined}
-          onClick={(event) => handleCardClick(event, card.key)}
-          className="group relative flex min-h-[190px] flex-col items-center justify-center overflow-hidden rounded-lg bg-[#101010] px-5 py-8 text-center text-white shadow-[0_4px_12px_rgba(0,0,0,0.22)] outline-none transition-all duration-300 hover:-translate-y-1 hover:bg-black hover:shadow-[0_18px_36px_rgba(0,0,0,0.28)] focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-4 active:scale-[0.985] sm:min-h-[198px]"
-          style={{
-            opacity: visible ? 1 : 0,
-            transform: visible ? "translateY(0) scale(1)" : "translateY(28px) scale(0.97)",
-            transitionDelay: `${i * 80}ms`,
-          }}
-        >
-          <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/20" aria-hidden />
-          <span className="mb-5 text-white transition-transform duration-300 group-hover:scale-110" aria-hidden>
-            {CARD_ICONS[card.key]}
-          </span>
-          <span className="text-[15px] font-semibold leading-tight tracking-[0.01em]">
-            {card.label}
-          </span>
-        </a>
-      ))}
+      {HUB_ACTION_CARDS.map((card, i) => {
+        const sharedClass =
+          "group relative flex min-h-[190px] w-full flex-col items-center justify-center overflow-hidden rounded-lg bg-[#101010] px-5 py-8 text-center text-white shadow-[0_4px_12px_rgba(0,0,0,0.22)] outline-none transition-all duration-300 hover:-translate-y-1 hover:bg-black hover:shadow-[0_18px_36px_rgba(0,0,0,0.28)] focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-4 active:scale-[0.985] sm:min-h-[198px]";
+        const sharedStyle = {
+          opacity: visible ? 1 : 0,
+          transform: visible ? "translateY(0) scale(1)" : "translateY(28px) scale(0.97)",
+          transitionDelay: `${i * 80}ms`,
+        };
+
+        if (card.key === "sales-update") {
+          return (
+            <a
+              key={card.key}
+              href={SALES_UPDATE_URL}
+              target="_blank"
+              rel="noreferrer"
+              className={sharedClass}
+              style={sharedStyle}
+            >
+              <CardContent card={card} />
+            </a>
+          );
+        }
+
+        if (card.key === "employee-services") {
+          return (
+            <button
+              key={card.key}
+              type="button"
+              onClick={() => navigate("employee-services")}
+              className={sharedClass}
+              style={sharedStyle}
+            >
+              <CardContent card={card} />
+            </button>
+          );
+        }
+
+        return (
+          <button
+            key={card.key}
+            type="button"
+            onClick={(event) => handleEngagementCardClick(event, card.key)}
+            className={sharedClass}
+            style={sharedStyle}
+          >
+            <CardContent card={card} />
+          </button>
+        );
+      })}
     </section>
+  );
+}
+
+function CardContent({ card }: { card: (typeof HUB_ACTION_CARDS)[number] }) {
+  return (
+    <>
+      <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/20" aria-hidden />
+      <span className="mb-5 text-white transition-transform duration-300 group-hover:scale-110" aria-hidden>
+        {CARD_ICONS[card.key]}
+      </span>
+      <span className="text-[15px] font-semibold leading-tight tracking-[0.01em]">{card.label}</span>
+    </>
   );
 }

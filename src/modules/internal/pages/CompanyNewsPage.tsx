@@ -177,9 +177,9 @@ export function CompanyNewsPage() {
       <section className="bg-black px-5 py-8 text-white sm:px-8">
         <div className="mx-auto grid max-w-[1080px] gap-4 md:grid-cols-4">
           {[{label:"Employee Recognition", icon:UsersRound},{label:"Events Calendar", icon:CalendarDays},{label:"Policy Updates", icon:RefreshCw},{label:"Add your own title", icon:CirclePlus}].map(({label, icon:Icon}) => (
-            <a key={label} href="#" className="flex h-[48px] items-center gap-3 border border-white/70 px-4 text-sm font-semibold hover:bg-white hover:text-black">
+            <button key={label} type="button" className="flex h-[48px] w-full items-center gap-3 border border-white/70 px-4 text-left text-sm font-semibold hover:bg-white hover:text-black">
               <Icon className="h-5 w-5" /> {label}
-            </a>
+            </button>
           ))}
         </div>
       </section>

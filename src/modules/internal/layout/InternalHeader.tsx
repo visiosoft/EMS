@@ -1,26 +1,31 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
 import { ChevronRight, Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { IaeLogoIcon } from "@/components/brand/IaeBrandMark";
 import { INTERNAL_NAV_ITEMS } from "../constants/navigation";
+import { useInternalNavigation } from "../routing/InternalNavigationContext";
 
 export function InternalHeader() {
-  const location = useLocation();
+  const { currentView, navigate } = useInternalNavigation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   function isActive(itemKey: string) {
-    return location.pathname.includes(itemKey);
+    if (itemKey === "employee-services") return currentView === "employee-services";
+    if (itemKey === "leadership") return currentView === "leadership";
+    if (itemKey === "departments") {
+      return currentView === "departments" || currentView.startsWith("department-");
+    }
+    return false;
   }
 
   const activeItemLabel = useMemo(() => {
-    const match = INTERNAL_NAV_ITEMS.find((item) => location.pathname.includes(item.key));
+    const match = INTERNAL_NAV_ITEMS.find((item) => isActive(item.key));
     return match?.label ?? "Company Hub";
-  }, [location.pathname]);
+  }, [currentView]);
 
   useEffect(() => {
     setMobileMenuOpen(false);
-  }, [location.pathname]);
+  }, [currentView]);
 
   useEffect(() => {
     if (!mobileMenuOpen) return;
@@ -36,31 +41,57 @@ export function InternalHeader() {
     };
   }, [mobileMenuOpen]);
 
+  const navButtonClass = (active: boolean) =>
+    cn(
+      "whitespace-nowrap border-b-2 border-transparent pb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/78 transition-colors hover:border-white/70 hover:text-white",
+      active && "border-white text-white",
+    );
+
+  const mobileButtonClass = (active: boolean) =>
+    cn(
+      "flex min-h-12 w-full items-center justify-between rounded-md border px-4 py-3 text-sm font-semibold transition-all",
+      active
+        ? "border-white bg-white text-black"
+        : "border-white/20 bg-white/5 text-white hover:border-white/45 hover:bg-white/10",
+    );
+
   return (
     <header className="sticky top-0 z-50 bg-black text-white shadow-[0_1px_0_rgba(255,255,255,0.08)]">
       <div className="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8">
         <div className="flex min-h-[56px] items-center justify-between gap-5">
-          <Link to="/internal" className="shrink-0" aria-label="iAE Company Hub home">
+          <button
+            type="button"
+            onClick={() => navigate("home")}
+            className="shrink-0"
+            aria-label="iAE Company Hub home"
+          >
             <IaeLogoIcon surface="on-dark" className="h-[31px] w-[70px]" />
-          </Link>
+          </button>
 
           <nav className="hidden flex-1 items-center justify-center gap-7 xl:flex" aria-label="Primary">
             {INTERNAL_NAV_ITEMS.map((item) => {
               const active = isActive(item.key);
-              const isRoute = item.href.startsWith("/");
-              const className = cn(
-                "whitespace-nowrap border-b-2 border-transparent pb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/78 transition-colors hover:border-white/70 hover:text-white",
-                active && "border-white text-white",
-              );
+              if (item.view) {
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => navigate(item.view!)}
+                    className={navButtonClass(active)}
+                  >
+                    {item.label}
+                  </button>
+                );
+              }
 
-              return isRoute ? (
-                <Link key={item.key} to={item.href} className={className}>
+              return (
+                <span
+                  key={item.key}
+                  className={cn(navButtonClass(false), "cursor-default opacity-55")}
+                  aria-disabled
+                >
                   {item.label}
-                </Link>
-              ) : (
-                <a key={item.key} href={item.href} className={className}>
-                  {item.label}
-                </a>
+                </span>
               );
             })}
           </nav>
@@ -104,14 +135,6 @@ export function InternalHeader() {
             <ul className="grid gap-2">
               {INTERNAL_NAV_ITEMS.map((item) => {
                 const active = isActive(item.key);
-                const isRoute = item.href.startsWith("/");
-                const className = cn(
-                  "flex min-h-12 items-center justify-between rounded-md border px-4 py-3 text-sm font-semibold transition-all",
-                  active
-                    ? "border-white bg-white text-black"
-                    : "border-white/20 bg-white/5 text-white hover:border-white/45 hover:bg-white/10",
-                );
-
                 const content = (
                   <>
                     <span>{item.label}</span>
@@ -121,14 +144,18 @@ export function InternalHeader() {
 
                 return (
                   <li key={item.key}>
-                    {isRoute ? (
-                      <Link to={item.href} className={className}>
+                    {item.view ? (
+                      <button
+                        type="button"
+                        onClick={() => navigate(item.view!)}
+                        className={mobileButtonClass(active)}
+                      >
                         {content}
-                      </Link>
+                      </button>
                     ) : (
-                      <a href={item.href} className={className}>
+                      <span className={cn(mobileButtonClass(false), "cursor-default opacity-55")} aria-disabled>
                         {content}
-                      </a>
+                      </span>
                     )}
                   </li>
                 );
