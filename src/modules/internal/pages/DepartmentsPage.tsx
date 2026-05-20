@@ -3,12 +3,13 @@ import { WeeklyRecapSection } from "../components/WeeklyRecapSection";
 import { DEPARTMENT_CARDS } from "../constants/pageData";
 import { departmentTitleToView } from "../routing/internalSessionRoute";
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
+import { InternalPageFrame } from "../layout/InternalPageFrame";
 
 export function DepartmentsPage() {
   const { navigate } = useInternalNavigation();
 
   return (
-    <div className="bg-white text-black">
+    <InternalPageFrame footer={<WeeklyRecapSection pinned />}>
       <InternalPageHero
         title="Departments"
         subtitle="A centralized view of all departments, making it easy to explore teams, roles, and responsibilities across the organization."
@@ -44,8 +45,6 @@ export function DepartmentsPage() {
           })}
         </section>
       </main>
-
-      <WeeklyRecapSection />
-    </div>
+    </InternalPageFrame>
   );
 }

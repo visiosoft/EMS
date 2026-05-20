@@ -5,6 +5,7 @@ import { EngagementWidget } from "../components/EngagementWidget";
 import { HomeNewsSection } from "../components/HomeNewsSection";
 import { HubActionCards } from "../components/HubActionCards";
 import { TimeZonesWidget } from "../components/TimeZonesWidget";
+import { InternalPageFrame } from "../layout/InternalPageFrame";
 
 export function InternalHomePage() {
   const { accounts } = useMsal();
@@ -13,7 +14,7 @@ export function InternalHomePage() {
   const heroName = displayName && displayName !== "Entra user" ? displayName : "iAE Team";
 
   return (
-    <div className="bg-white text-black">
+    <InternalPageFrame>
       <section
         className="relative isolate flex min-h-[320px] items-center justify-center overflow-hidden bg-[#0b080c] px-4 py-12 text-center text-white sm:px-8 sm:py-16 md:min-h-[360px] lg:px-10 xl:px-12"
         style={{
@@ -59,6 +60,6 @@ export function InternalHomePage() {
 
         <HomeNewsSection />
       </div>
-    </div>
+    </InternalPageFrame>
   );
 }

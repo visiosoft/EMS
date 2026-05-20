@@ -2,6 +2,7 @@ import { useEffect, type ReactNode } from "react";
 import { Banknote, BookOpen, ClipboardCheck, Home, Lectern, Star, UserRoundCog } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { InternalPageHero } from "../components/InternalPageHero";
+import { InternalPageFrame } from "../layout/InternalPageFrame";
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
 import type { EmployeeHandbookView } from "../routing/internalSessionRoute";
 
@@ -1257,7 +1258,7 @@ export function EmployeeHandbookPage() {
   }, []);
 
   return (
-    <div className="bg-white text-black">
+    <InternalPageFrame>
       <InternalPageHero
         title="iAE Employee Handbook"
         subtitle="This page is designed to help you familiarize yourself with essential information and provide a quick reference for when you need assistance."
@@ -1293,7 +1294,7 @@ export function EmployeeHandbookPage() {
           </nav>
         </aside>
       </main>
-    </div>
+    </InternalPageFrame>
   );
 }
 
@@ -1320,7 +1321,7 @@ export function EmployeeHandbookSectionPage({ handbookHash }: { handbookHash?: s
   }, [hash, sectionMeta?.hash]);
 
   return (
-    <div className="min-h-screen bg-white text-black">
+    <InternalPageFrame>
       <HandbookSectionHero section={section} />
 
       <main className="mx-auto grid w-full max-w-[966px] gap-9 px-5 pb-[38px] pt-[35px] sm:px-8 lg:grid-cols-[290px_minmax(0,620px)] lg:gap-10 lg:px-0">
@@ -1346,7 +1347,7 @@ export function EmployeeHandbookSectionPage({ handbookHash }: { handbookHash?: s
       >
         &uarr; Top
       </button>
-    </div>
+    </InternalPageFrame>
   );
 }
 
@@ -1370,7 +1371,7 @@ export function EmployeeHandbookIntroductionPage({ handbookHash }: { handbookHas
   }, [handbookHash]);
 
   return (
-    <div className="min-h-screen bg-white text-black">
+    <InternalPageFrame>
       <IntroductionHero />
 
       <main className="mx-auto grid w-full max-w-[966px] gap-9 px-5 pb-[38px] pt-[35px] sm:px-8 lg:grid-cols-[290px_minmax(0,620px)] lg:gap-10 lg:px-0">
@@ -1396,6 +1397,6 @@ export function EmployeeHandbookIntroductionPage({ handbookHash }: { handbookHas
       >
         &uarr; Top
       </button>
-    </div>
+    </InternalPageFrame>
   );
 }

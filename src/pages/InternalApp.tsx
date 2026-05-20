@@ -1,6 +1,5 @@
 import { InternalLayout } from "@/modules/internal/layout/InternalLayout";
 import { InternalNavigationProvider, useInternalNavigation } from "@/modules/internal/routing/InternalNavigationContext";
-import { viewsWithLayout } from "@/modules/internal/routing/internalSessionRoute";
 import { ArtGraphicDesignPage } from "@/modules/internal/pages/ArtGraphicDesignPage";
 import { BookingPage } from "@/modules/internal/pages/BookingPage";
 import { CompanyNewsPage } from "@/modules/internal/pages/CompanyNewsPage";
@@ -9,10 +8,11 @@ import { EmployeeServicesPage } from "@/modules/internal/pages/EmployeeServicesP
 import { EventBusinessPage } from "@/modules/internal/pages/EventBusinessPage";
 import { InternalHomePage } from "@/modules/internal/pages/HomePage";
 import { LeadershipPage } from "@/modules/internal/pages/LeadershipPage";
+import { MarketsPage } from "@/modules/internal/pages/MarketsPage";
+import { VenuesPage } from "@/modules/internal/pages/VenuesPage";
+import { AttractionsPage } from "@/modules/internal/pages/AttractionsPage";
 import { MarketingPage } from "@/modules/internal/pages/MarketingPage";
 import { ProductionPage } from "@/modules/internal/pages/ProductionPage";
-import { ShippingRequestsPage } from "@/modules/internal/pages/ShippingRequestsPage";
-import { TechSupportPage } from "@/modules/internal/pages/TechSupportPage";
 import { TicketingSalesPage } from "@/modules/internal/pages/TicketingSalesPage";
 
 function InternalAppViews() {
@@ -25,6 +25,12 @@ function InternalAppViews() {
       return <EmployeeServicesPage />;
     case "leadership":
       return <LeadershipPage />;
+    case "markets":
+      return <MarketsPage />;
+    case "venues":
+      return <VenuesPage />;
+    case "attractions":
+      return <AttractionsPage />;
     case "departments":
       return <DepartmentsPage />;
     case "department-art-graphic-design":
@@ -39,10 +45,6 @@ function InternalAppViews() {
       return <ProductionPage />;
     case "department-ticketing-sales":
       return <TicketingSalesPage />;
-    case "tech-support":
-      return <TechSupportPage />;
-    case "shipping-requests":
-      return <ShippingRequestsPage />;
     case "home":
     default:
       return <InternalHomePage />;
@@ -59,12 +61,9 @@ export default function InternalApp() {
 }
 
 function InternalAppShell() {
-  const { currentView } = useInternalNavigation();
-  const content = <InternalAppViews />;
-
-  if (!viewsWithLayout(currentView)) {
-    return content;
-  }
-
-  return <InternalLayout>{content}</InternalLayout>;
+  return (
+    <InternalLayout>
+      <InternalAppViews />
+    </InternalLayout>
+  );
 }

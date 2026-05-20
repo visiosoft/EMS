@@ -13,11 +13,17 @@ export function InternalLayout({ children, showSidebar = true }: { children: Rea
   const shouldShowSidebar = showSidebar && isHubLanding;
 
   return (
-    <div className="flex min-h-screen flex-col bg-white text-black">
+    <div className="flex min-h-[100dvh] flex-col bg-white text-black">
       <InternalHeader />
 
-      <div className={shouldShowSidebar ? "mx-auto flex w-full max-w-[1600px] flex-1 flex-col gap-5 pt-5 lg:flex-row lg:gap-6" : "flex w-full flex-1 flex-col"}>
-        <main className="min-w-0 flex-1">{children}</main>
+      <div
+        className={
+          shouldShowSidebar
+            ? "mx-auto flex w-full min-h-0 max-w-[1600px] flex-1 flex-col gap-5 pt-5 lg:flex-row lg:gap-6"
+            : "flex min-h-0 w-full flex-1 flex-col"
+        }
+      >
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</main>
 
         {shouldShowSidebar ? <InternalQuickLinksSidebar /> : null}
       </div>

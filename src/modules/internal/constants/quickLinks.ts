@@ -18,9 +18,13 @@ export type QuickLinkItem = {
   view?: InternalView;
 };
 
+export const GENUITY_HELP_CENTER_URL = "https://innovationarts.gogenuity.com/help_center";
+export const SHIPPING_REQUESTS_URL =
+  "https://innovationae.formstack.com/forms/iae_internal_shipping_requests";
+
 export const QUICK_LINKS: QuickLinkItem[] = [
   { label: "Company News", view: "company-news", icon: Newspaper },
-  { label: "Tech Support", view: "tech-support", icon: UsersRound },
+  { label: "Tech Support", href: GENUITY_HELP_CENTER_URL, icon: UsersRound, external: true },
   {
     label: "ADP Payroll Schedule",
     href: "https://innovationae.sharepoint.com/sites/IAECloudServer/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FIAECloudServer%2FShared%20Documents%2FMarketing%2FTO%20REVIEW%2FMandy%2FzMANDY%20PRINT%20REQUESTS%2FADAM%20REVIEW%2F2026%20Payroll%20Schedule%20%28Revised%29%20%281%29%2Epdf&parent=%2Fsites%2FIAECloudServer%2FShared%20Documents%2FMarketing%2FTO%20REVIEW%2FMandy%2FzMANDY%20PRINT%20REQUESTS%2FADAM%20REVIEW&p=true&ga=1",
@@ -29,7 +33,7 @@ export const QUICK_LINKS: QuickLinkItem[] = [
   },
   { label: "PTO Requests", href: "https://signin.adp.com/", icon: CalendarDays, external: true },
   { label: "Payment Requests", href: "https://ramp.com/", icon: CreditCard, external: true },
-  { label: "Shipping Requests", view: "shipping-requests", icon: Mail },
+  { label: "Shipping Requests", href: SHIPPING_REQUESTS_URL, icon: Mail, external: true },
 ];
 
 export const HUB_ACTION_CARDS = [

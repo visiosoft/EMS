@@ -9,15 +9,16 @@ export type InternalView =
   | "company-news"
   | "employee-services"
   | "leadership"
+  | "markets"
+  | "venues"
+  | "attractions"
   | "departments"
   | "department-art-graphic-design"
   | "department-booking"
   | "department-event-business"
   | "department-marketing"
   | "department-production"
-  | "department-ticketing-sales"
-  | "tech-support"
-  | "shipping-requests";
+  | "department-ticketing-sales";
 
 export type InternalViewData = {
   handbook?: EmployeeHandbookView;
@@ -29,6 +30,9 @@ const VALID_VIEWS = new Set<string>([
   "company-news",
   "employee-services",
   "leadership",
+  "markets",
+  "venues",
+  "attractions",
   "departments",
   "department-art-graphic-design",
   "department-booking",
@@ -36,8 +40,6 @@ const VALID_VIEWS = new Set<string>([
   "department-marketing",
   "department-production",
   "department-ticketing-sales",
-  "tech-support",
-  "shipping-requests",
 ]);
 
 const LEGACY_PATH_TO_VIEW: Record<string, InternalView> = {
@@ -47,6 +49,9 @@ const LEGACY_PATH_TO_VIEW: Record<string, InternalView> = {
   "/internal/news": "company-news",
   "/internal/employee-services": "employee-services",
   "/internal/leadership": "leadership",
+  "/internal/markets": "markets",
+  "/internal/venues": "venues",
+  "/internal/attractions": "attractions",
   "/internal/departments": "departments",
   "/internal/departments/art-graphic-design": "department-art-graphic-design",
   "/internal/departments/booking": "department-booking",
@@ -54,8 +59,6 @@ const LEGACY_PATH_TO_VIEW: Record<string, InternalView> = {
   "/internal/departments/marketing": "department-marketing",
   "/internal/departments/production": "department-production",
   "/internal/departments/ticketing-sales": "department-ticketing-sales",
-  "/internal/tech-support": "tech-support",
-  "/internal/shipping-requests": "shipping-requests",
 };
 
 const DEPARTMENT_TITLE_TO_VIEW: Record<string, InternalView> = {
@@ -71,9 +74,10 @@ const FOOTER_LABEL_TO_VIEW: Record<string, InternalView> = {
   "company news": "company-news",
   "employee services": "employee-services",
   leadership: "leadership",
+  markets: "markets",
+  venues: "venues",
+  attractions: "attractions",
   departments: "departments",
-  "shipping requests": "shipping-requests",
-  "tech support": "tech-support",
   "employee handbook": "employee-services",
 };
 
@@ -194,8 +198,4 @@ export function normalizeInternalBrowserUrl() {
   if (window.location.pathname !== target || window.location.search || window.location.hash) {
     window.history.replaceState({}, document.title, target);
   }
-}
-
-export function viewsWithLayout(view: InternalView): boolean {
-  return view !== "tech-support" && view !== "shipping-requests";
 }

@@ -89,6 +89,7 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <ErrorBoundary>
+            <div className="flex min-h-[100dvh] flex-1 flex-col">
             <Routes>
               <Route path={LOGIN_PATH} element={<Login />} />
 
@@ -147,6 +148,7 @@ const App = () => (
 
               <Route path="*" element={<NotFound />} />
             </Routes>
+            </div>
           </ErrorBoundary>
         </BrowserRouter>
       </TooltipProvider>
