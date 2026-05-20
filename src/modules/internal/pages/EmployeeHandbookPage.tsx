@@ -1,4 +1,4 @@
-import { BadgeDollarSign, BookOpen, ClipboardCheck, FileText, Home, Star, UserRound } from "lucide-react";
+import { BadgeDollarSign, BookOpen, ClipboardCheck, Home, Star, UserRound } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { InternalPageHero } from "../components/InternalPageHero";
 
@@ -84,25 +84,6 @@ export function EmployeeHandbookPage() {
           </nav>
         </aside>
       </main>
-
-      <section className="mx-auto w-full max-w-[1040px] px-5 pb-20 sm:px-8 lg:px-0" aria-label="Handbook sections preview">
-        <div className="grid gap-5 md:grid-cols-2">
-          {handbookSections.slice(1).map((section) => {
-            const Icon = section.icon;
-            return (
-              <article key={section.title} id={section.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")} className="rounded-md border border-neutral-200 bg-neutral-50 p-5">
-                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-sm bg-black text-white">
-                  <Icon className="h-5 w-5" strokeWidth={1.4} aria-hidden />
-                </div>
-                <h3 className="text-lg font-semibold text-neutral-950">{section.title}</h3>
-                <p className="mt-2 text-sm leading-6 text-neutral-600">
-                  Handbook details for this section will be maintained here as content is finalized.
-                </p>
-              </article>
-            );
-          })}
-        </div>
-      </section>
     </div>
   );
 }
