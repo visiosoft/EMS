@@ -94,3 +94,7 @@ export function EmployeeHandbookPage() {
     </div>
   );
 }
+
+export function EmployeeHandbookIntroductionPage() {
+  return <EmployeeHandbookPage />;
+}
