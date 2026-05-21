@@ -82,12 +82,12 @@ export function HubActionCards() {
   return (
     <section
       ref={ref as React.RefObject<HTMLElement>}
-      className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 xl:gap-4"
+      className="grid grid-cols-2 gap-3 xl:grid-cols-4 xl:gap-4"
       aria-label="Hub actions"
     >
       {HUB_ACTION_CARDS.map((card, i) => {
         const sharedClass =
-          "group relative flex min-h-[190px] w-full flex-col items-center justify-center overflow-hidden rounded-lg bg-[#101010] px-5 py-8 text-center text-white shadow-[0_4px_12px_rgba(0,0,0,0.22)] outline-none transition-all duration-300 hover:-translate-y-1 hover:bg-black hover:shadow-[0_18px_36px_rgba(0,0,0,0.28)] focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-4 active:scale-[0.985] sm:min-h-[198px]";
+          "group relative flex min-h-[148px] w-full flex-col items-center justify-center overflow-hidden rounded-lg bg-[#101010] px-3 py-5 text-center text-white shadow-[0_4px_12px_rgba(0,0,0,0.22)] outline-none transition-all duration-300 hover:-translate-y-1 hover:bg-black hover:shadow-[0_18px_36px_rgba(0,0,0,0.28)] focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-4 active:scale-[0.985] sm:min-h-[190px] sm:px-5 sm:py-8 xl:min-h-[198px]";
         const sharedStyle = {
           opacity: visible ? 1 : 0,
           transform: visible ? "translateY(0) scale(1)" : "translateY(28px) scale(0.97)",
@@ -143,10 +143,13 @@ function CardContent({ card }: { card: (typeof HUB_ACTION_CARDS)[number] }) {
   return (
     <>
       <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/20" aria-hidden />
-      <span className="mb-5 text-white transition-transform duration-300 group-hover:scale-110" aria-hidden>
+      <span
+        className="mb-3 scale-[0.78] text-white transition-transform duration-300 group-hover:scale-[0.86] sm:mb-5 sm:scale-100 sm:group-hover:scale-110"
+        aria-hidden
+      >
         {CARD_ICONS[card.key]}
       </span>
-      <span className="text-[15px] font-semibold leading-tight tracking-[0.01em]">{card.label}</span>
+      <span className="text-[13px] font-semibold leading-tight tracking-[0.01em] sm:text-[15px]">{card.label}</span>
     </>
   );
 }

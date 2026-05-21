@@ -23,6 +23,26 @@ function displayMobile(cellPhone: string | null, workPhone: string | null): stri
   return formatted || '—';
 }
 
+/** One row per person — guards against duplicate Contact rows or stale API responses. */
+function dedupeEmployees(employees: IaeEmployee[]): IaeEmployee[] {
+  const seenContactIds = new Set<number>();
+  const seenEmails = new Set<string>();
+  const unique: IaeEmployee[] = [];
+
+  for (const employee of employees) {
+    if (seenContactIds.has(employee.contactId)) continue;
+
+    const emailKey = employee.email.trim().toLowerCase();
+    if (emailKey && seenEmails.has(emailKey)) continue;
+
+    seenContactIds.add(employee.contactId);
+    if (emailKey) seenEmails.add(emailKey);
+    unique.push(employee);
+  }
+
+  return unique;
+}
+
 function EmployeeRow({ employee }: { employee: IaeEmployee }) {
   return (
     <tr className="transition-colors hover:bg-neutral-50">
@@ -43,7 +63,7 @@ export function IaeEmployeesTable() {
     queryFn: fetchIaeStaffEmployees,
   });
 
-  const employees = data ?? [];
+  const employees = dedupeEmployees(data ?? []);
 
   return (
     <section className="mt-12">

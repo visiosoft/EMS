@@ -16,7 +16,7 @@ export function DepartmentsPage() {
       />
 
       <main className="mx-auto w-full max-w-[920px] px-5 pb-[22px] pt-[70px] sm:px-8 lg:px-0">
-        <section className="flex flex-wrap justify-center gap-[10px]" aria-label="Departments">
+        <section className="grid grid-cols-2 gap-[10px] sm:grid-cols-3" aria-label="Departments">
           {DEPARTMENT_CARDS.map((department, index) => {
             const Icon = department.icon;
             const view = departmentTitleToView(department.title);
@@ -24,7 +24,7 @@ export function DepartmentsPage() {
             return (
               <article
                 key={department.title}
-                className="group flex h-[166px] w-[142px] flex-col rounded-md bg-black px-5 pb-5 pt-6 text-white shadow-[0_4px_16px_rgba(0,0,0,0.24)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_36px_rgba(0,0,0,0.28)]"
+                className="group flex h-[166px] w-full flex-col rounded-md bg-black px-5 pb-5 pt-6 text-white shadow-[0_4px_16px_rgba(0,0,0,0.24)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_36px_rgba(0,0,0,0.28)]"
                 style={{ animationDelay: `${index * 65}ms` }}
               >
                 <div className="flex flex-1 items-center justify-center pb-2">

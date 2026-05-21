@@ -176,18 +176,18 @@ function BusinessCard({
 }) {
   return (
     <article
-      className="group flex h-[214px] w-full max-w-[210px] flex-col items-center rounded-md bg-black px-6 pb-5 pt-5 text-white shadow-[0_4px_16px_rgba(0,0,0,0.24)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_36px_rgba(0,0,0,0.28)]"
+      className="group flex h-[188px] w-full flex-col items-center rounded-md bg-black px-4 pb-4 pt-4 text-white shadow-[0_4px_16px_rgba(0,0,0,0.24)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_36px_rgba(0,0,0,0.28)] sm:h-[214px] sm:px-6 sm:pb-5 sm:pt-5"
       style={{ animationDelay: `${index * 55}ms` }}
     >
       <div className="flex flex-1 items-center justify-center">
-        <Icon className="h-[82px] w-[82px] text-white transition-transform duration-300 group-hover:scale-105" />
+        <Icon className="h-16 w-16 text-white transition-transform duration-300 group-hover:scale-105 sm:h-[82px] sm:w-[82px]" />
       </div>
-      <h3 className="mb-3 max-w-full truncate text-center text-[13px] font-semibold leading-tight text-white">{label}</h3>
+      <h3 className="mb-2 max-w-full truncate text-center text-[12px] font-semibold leading-tight text-white sm:mb-3 sm:text-[13px]">{label}</h3>
       <a
         href={href}
         target="_blank"
         rel="noreferrer"
-        className="inline-flex h-[28px] w-[130px] items-center justify-center rounded-[3px] bg-white text-[10px] font-bold uppercase tracking-[0.08em] text-black hover:bg-neutral-200"
+        className="inline-flex h-[26px] w-full max-w-[130px] items-center justify-center rounded-[3px] bg-white text-[10px] font-bold uppercase tracking-[0.08em] text-black hover:bg-neutral-200 sm:h-[28px]"
       >
         View Details
       </a>
@@ -219,7 +219,7 @@ export function EventBusinessPage() {
 
       <main className="mx-auto max-w-[980px] px-4 pt-8 sm:px-8 sm:pt-9 lg:px-0">
         <h2 className="mb-8 text-[17px] font-semibold text-neutral-900">Event &amp; Business List</h2>
-        <section className="grid grid-cols-1 justify-items-center gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5" aria-label="Event and business list">
+        <section className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-5" aria-label="Event and business list">
           {BUSINESS_CARDS.map((card, index) => (
             <BusinessCard key={card.label} label={card.label} icon={card.icon} href={card.href} index={index} />
           ))}

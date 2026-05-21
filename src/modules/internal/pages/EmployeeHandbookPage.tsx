@@ -173,27 +173,20 @@ function SectionNavButtons({ currentId, tone = "light" }: { currentId: HandbookS
   const previousHash = currentIndex > 0 ? handbookSections[currentIndex - 1].hash : "handbook";
   const nextHash = currentIndex >= 0 && currentIndex < handbookSections.length - 1 ? handbookSections[currentIndex + 1].hash : "handbook";
 
+  const navButtonClass = `inline-flex h-[38px] w-full items-center justify-center rounded-[4px] px-4 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 lg:flex-1`;
+
   return (
-    <nav className="mx-auto flex w-full max-w-[496px] flex-col gap-2 sm:flex-row" aria-label="Handbook section navigation">
-      <button
-        type="button"
-        onClick={() => navigateHandbook(previousHash)}
-        className={`${buttonClass} inline-flex h-[38px] flex-1 items-center justify-center rounded-[4px] px-4 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2`}
-      >
+    <nav
+      className="mx-auto flex w-[88%] max-w-[400px] flex-col gap-2.5 lg:w-full lg:max-w-[496px] lg:flex-row lg:gap-2"
+      aria-label="Handbook section navigation"
+    >
+      <button type="button" onClick={() => navigateHandbook(previousHash)} className={`${buttonClass} ${navButtonClass}`}>
         &larr; Previous Section
       </button>
-      <button
-        type="button"
-        onClick={() => navigateHandbook("handbook")}
-        className={`${buttonClass} inline-flex h-[38px] flex-1 items-center justify-center rounded-[4px] px-4 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2`}
-      >
+      <button type="button" onClick={() => navigateHandbook("handbook")} className={`${buttonClass} ${navButtonClass}`}>
         Home
       </button>
-      <button
-        type="button"
-        onClick={() => navigateHandbook(nextHash)}
-        className={`${buttonClass} inline-flex h-[38px] flex-1 items-center justify-center rounded-[4px] px-4 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2`}
-      >
+      <button type="button" onClick={() => navigateHandbook(nextHash)} className={`${buttonClass} ${navButtonClass}`}>
         Next Section &rarr;
       </button>
     </nav>
@@ -1334,7 +1327,7 @@ export function EmployeeHandbookSectionPage({ handbookHash }: { handbookHash?: s
             <HandbookSubsectionContent key={subsection.id} subsection={subsection} />
           ))}
 
-          <div className="mx-auto mt-[84px] max-w-[498px]">
+          <div className="mt-[84px] w-full lg:mx-auto lg:max-w-[498px]">
             <SectionNavButtons currentId={section.id} tone="dark" />
           </div>
         </article>
@@ -1384,7 +1377,7 @@ export function EmployeeHandbookIntroductionPage({ handbookHash }: { handbookHas
           <CompanySection />
           <ChangePolicySection />
 
-          <div className="mx-auto mt-[84px] max-w-[498px]">
+          <div className="mt-[84px] w-full lg:mx-auto lg:max-w-[498px]">
             <SectionNavButtons currentId="introduction" tone="dark" />
           </div>
         </article>

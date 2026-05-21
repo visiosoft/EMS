@@ -17,22 +17,28 @@ import {
 export type EmployeeServiceItem = {
   title: string;
   icon: LucideIcon;
-  wide?: boolean;
+  /** Renders the IAE logo instead of the Lucide icon. */
+  companyMark?: boolean;
+  /** Opens the employee handbook index. */
+  handbookIndex?: boolean;
   /** Opens this handbook section/subsection (e.g. COBRA under Work Performance). */
   handbookHash?: string;
   /** Opens an external resource in a new browser tab. */
   externalUrl?: string;
+  /** Navigates to another internal hub view (e.g. Leadership). */
+  internalView?: "leadership";
 };
 
 const PAYROLL_SCHEDULE_URL =
   "https://innovationae.sharepoint.com/:b:/s/IAECloudServer/IQC1kP6XmMQORqdlqblGMz-fAVr7g5AdIhzRVzyzyXQH298?e=MLKNB4";
 
 export const EMPLOYEE_SERVICE_ITEMS: EmployeeServiceItem[] = [
-  { title: "Employee Handbook", icon: FileBadge2, wide: true },
+  { title: "Employee Handbook", icon: FileBadge2, handbookIndex: true },
   { title: "Health Insurance", icon: HeartPulse, handbookHash: "cobra-continuing-coverage" },
   { title: "Payroll Schedule", icon: ReceiptText, externalUrl: PAYROLL_SCHEDULE_URL },
   { title: "PTO Request", icon: ClipboardList, externalUrl: "https://signin.adp.com" },
   { title: "Official Work Holiday", icon: Umbrella, handbookHash: "handbook-compensation-benefits" },
+  { title: "Company", icon: FileBadge2, companyMark: true, internalView: "leadership" },
 ];
 
 export type LeadershipContact = {
