@@ -21,14 +21,7 @@ import {
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { Select2 } from './Select2';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
 interface Props {
-  /**
-   * Open the sales dashboard for the clicked row. Each row represents a single
-   * performance, so we forward both `engagementId` (parent) and `performanceId`
-   * (this specific show) — the detail page scopes KPIs to the chosen performance.
-   */
   onOpenEngagement: (engagementId: number, performanceId: number) => void;
 }
 
@@ -38,8 +31,6 @@ type SortColumn =
   | 'eventDate'
   | 'venue'
   | 'city'
-  | 'state'
-  | 'daysOnSale'
   | 'soldYesterday'
   | 'totalSold'
   | 'yesterdayRevenue'
@@ -49,8 +40,6 @@ interface SortState {
   col: SortColumn;
   dir: 'asc' | 'desc';
 }
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function todayLocalYmd(): string {
   const d = new Date();
@@ -80,7 +69,7 @@ function fmtCurrency(n: number | null | undefined, compact = false): string {
 
 function fmtEventDate(iso: string): { date: string; time: string } {
   if (!iso) return { date: '—', time: '' };
-  const dt = new Date(iso + 'T12:00:00');
+  const dt = new Date(`${iso}T12:00:00`);
   return {
     date: dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: '2-digit', year: 'numeric' }),
     time: '',
@@ -123,23 +112,14 @@ function sortRows(rows: ApiPerformanceSalesRow[], sort: SortState): ApiPerforman
       case 'tourName':
         n = compareStrings(a.tourName, b.tourName);
         break;
-      case 'eventDate': {
-        const da = `${a.performanceDate}T${a.performanceTime ?? '00:00:00'}`;
-        const db = `${b.performanceDate}T${b.performanceTime ?? '00:00:00'}`;
-        n = compareStrings(da, db);
+      case 'eventDate':
+        n = compareStrings(`${a.performanceDate}T${a.performanceTime ?? '00:00:00'}`, `${b.performanceDate}T${b.performanceTime ?? '00:00:00'}`);
         break;
-      }
       case 'venue':
         n = compareStrings(a.venueName ?? a.venueCompanyName, b.venueName ?? b.venueCompanyName);
         break;
       case 'city':
         n = compareStrings(a.city, b.city);
-        break;
-      case 'state':
-        n = compareStrings(a.stateProvince, b.stateProvince);
-        break;
-      case 'daysOnSale':
-        n = compareNumbers(a.daysOnSale, b.daysOnSale);
         break;
       case 'soldYesterday':
         n = compareNumbers(a.soldYesterday, b.soldYesterday);
@@ -159,8 +139,6 @@ function sortRows(rows: ApiPerformanceSalesRow[], sort: SortState): ApiPerforman
   return out;
 }
 
-// ─── KPI Card ─────────────────────────────────────────────────────────────────
-
 function KpiCard({
   icon: Icon,
   label,
@@ -176,14 +154,14 @@ function KpiCard({
 }) {
   const toneShell: Record<typeof tone, string> = {
     accent: 'border-ems-accent/25 bg-ems-accent-dim/40',
-    blue:   'border-ems-blue/25 bg-ems-blue-dim/40',
-    green:  'border-ems-green/25 bg-ems-green-dim/40',
+    blue: 'border-ems-blue/25 bg-ems-blue-dim/40',
+    green: 'border-ems-green/25 bg-ems-green-dim/40',
     purple: 'border-ems-purple/25 bg-ems-purple-dim/40',
   };
   const toneIcon: Record<typeof tone, string> = {
     accent: 'bg-ems-accent/15 text-ems-accent',
-    blue:   'bg-ems-blue/15 text-ems-blue',
-    green:  'bg-ems-green/15 text-ems-green',
+    blue: 'bg-ems-blue/15 text-ems-blue',
+    green: 'bg-ems-green/15 text-ems-green',
     purple: 'bg-ems-purple/15 text-ems-purple',
   };
   return (
@@ -201,8 +179,6 @@ function KpiCard({
     </div>
   );
 }
-
-// ─── Column header (sortable, not draggable) ─────────────────────────────────
 
 function SortHeader({
   col,
@@ -241,36 +217,20 @@ function SortHeader({
         title={`Sort by ${typeof label === 'string' ? label : col}`}
       >
         <span className="leading-tight normal-case">{label}</span>
-        {active ? (
-          <Arrow className="h-3.5 w-3.5 shrink-0 text-ems-accent" aria-hidden />
-        ) : (
-          <span className="inline-block h-3.5 w-3.5 shrink-0 opacity-0" aria-hidden />
-        )}
+        {active ? <Arrow className="h-3.5 w-3.5 shrink-0 text-ems-accent" aria-hidden /> : <span className="inline-block h-3.5 w-3.5 shrink-0 opacity-0" aria-hidden />}
       </button>
     </th>
   );
 }
 
-// ─── Sidebar filter group ─────────────────────────────────────────────────────
-
-function FilterField({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function FilterField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-text-secondary">
-        {label}
-      </label>
+      <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-text-secondary">{label}</label>
       {children}
     </div>
   );
 }
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function SalesSummaryPage({ onOpenEngagement }: Props) {
   const today = todayLocalYmd();
@@ -312,18 +272,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   };
 
   const query = useQuery({
-    queryKey: [
-      'sales-summary',
-      today,
-      startDate,
-      endDate,
-      attractionFilter,
-      genreFilter,
-      tourFilter,
-      companyFilter,
-      venueFilter,
-      contactFilter,
-    ],
+    queryKey: ['sales-summary', today, startDate, endDate, attractionFilter, genreFilter, tourFilter, companyFilter, venueFilter, contactFilter],
     queryFn: () =>
       fetchDailySalesByPerformance(today, {
         page: 1,
@@ -345,20 +294,11 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   const pageData = query.data;
   const rawRows = pageData?.items ?? [];
 
-  // Client-side free-text search across visible columns
   const searchedRows = useMemo(() => {
     const q = searchInput.trim().toLowerCase();
     if (!q) return rawRows;
     return rawRows.filter((r) => {
-      const hay = [
-        r.attractionName,
-        r.tourName,
-        r.venueName,
-        r.venueCompanyName,
-        r.city,
-        r.stateProvince,
-        r.performanceDate,
-      ]
+      const hay = [r.attractionName, r.tourName, r.venueName, r.venueCompanyName, r.city, r.performanceDate]
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
@@ -368,7 +308,6 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
 
   const rows = useMemo(() => sortRows(searchedRows, sort), [searchedRows, sort]);
 
-  // KPI roll-ups across the currently displayed rows
   const kpis = useMemo(() => {
     let totalSold = 0;
     let totalRevenue = 0;
@@ -378,68 +317,24 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
       totalRevenue += r.totalRevenue ?? 0;
       revenueYesterday += r.yesterdayRevenue ?? 0;
     }
-    return {
-      events: rows.length,
-      totalSold,
-      totalRevenue,
-      revenueYesterday,
-    };
+    return { events: rows.length, totalSold, totalRevenue, revenueYesterday };
   }, [rows]);
 
   const toggleSort = (col: SortColumn) => {
     setSort((s) => (s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' }));
   };
 
-  const attractionOptions = useMemo(() => {
-    const list = pageData?.attractions ?? [];
-    return [
-      { value: '', label: 'All attractions' },
-      ...list.map((a) => ({ value: a.attractionName, label: a.attractionName })),
-    ];
-  }, [pageData?.attractions]);
-  const genreOptions = useMemo(
-    () => [
-      { value: '', label: 'All genres' },
-      ...((pageData?.filterOptions.genres ?? []).map((n) => ({ value: n, label: n }))),
-    ],
-    [pageData?.filterOptions.genres],
-  );
-  const tourOptions = useMemo(
-    () => [
-      { value: '', label: 'All tours' },
-      ...((pageData?.filterOptions.tours ?? []).map((n) => ({ value: n, label: n }))),
-    ],
-    [pageData?.filterOptions.tours],
-  );
-  const companyOptions = useMemo(
-    () => [
-      { value: '', label: 'All companies' },
-      ...((pageData?.filterOptions.companies ?? []).map((n) => ({ value: n, label: n }))),
-    ],
-    [pageData?.filterOptions.companies],
-  );
-  const venueOptions = useMemo(
-    () => [
-      { value: '', label: 'All venues' },
-      ...((pageData?.filterOptions.venues ?? []).map((n) => ({ value: n, label: n }))),
-    ],
-    [pageData?.filterOptions.venues],
-  );
-  const contactOptions = useMemo(
-    () => [
-      { value: '', label: 'All contacts' },
-      ...((pageData?.filterOptions.contacts ?? []).map((n) => ({ value: n, label: n }))),
-    ],
-    [pageData?.filterOptions.contacts],
-  );
+  const attractionOptions = useMemo(() => [{ value: '', label: 'All attractions' }, ...((pageData?.attractions ?? []).map((a) => ({ value: a.attractionName, label: a.attractionName })))], [pageData?.attractions]);
+  const genreOptions = useMemo(() => [{ value: '', label: 'All genres' }, ...((pageData?.filterOptions.genres ?? []).map((n) => ({ value: n, label: n })))], [pageData?.filterOptions.genres]);
+  const tourOptions = useMemo(() => [{ value: '', label: 'All tours' }, ...((pageData?.filterOptions.tours ?? []).map((n) => ({ value: n, label: n })))], [pageData?.filterOptions.tours]);
+  const companyOptions = useMemo(() => [{ value: '', label: 'All companies' }, ...((pageData?.filterOptions.companies ?? []).map((n) => ({ value: n, label: n })))], [pageData?.filterOptions.companies]);
+  const venueOptions = useMemo(() => [{ value: '', label: 'All venues' }, ...((pageData?.filterOptions.venues ?? []).map((n) => ({ value: n, label: n })))], [pageData?.filterOptions.venues]);
+  const contactOptions = useMemo(() => [{ value: '', label: 'All contacts' }, ...((pageData?.filterOptions.contacts ?? []).map((n) => ({ value: n, label: n })))], [pageData?.filterOptions.contacts]);
 
   const isLoading = query.isPending;
   const isFetching = query.isFetching;
   const isRefreshing = isFetching && !isLoading;
-
-  const dateInputClass =
-    'h-9 w-full rounded-lg border border-border bg-background px-2.5 text-sm text-text-primary shadow-sm ' +
-    'focus:outline-none focus:ring-2 focus:ring-ems-accent/30 focus:border-ems-accent transition-colors';
+  const dateInputClass = 'h-9 w-full rounded-lg border border-border bg-background px-2.5 text-sm text-text-primary shadow-sm focus:outline-none focus:ring-2 focus:ring-ems-accent/30 focus:border-ems-accent transition-colors';
 
   return (
     <div className="space-y-4">
@@ -449,16 +344,11 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
         </div>
       )}
 
-      {/* ─── Title bar ─────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-3 rounded-xl border border-border bg-card px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold text-text-primary tracking-tight">Overview Report</h1>
-            {!isLoading && (
-              <span className="rounded-full bg-elevated px-2.5 py-0.5 text-[11px] font-semibold tabular-nums text-text-secondary">
-                {kpis.events.toLocaleString()} {kpis.events === 1 ? 'event' : 'events'}
-              </span>
-            )}
+            {!isLoading && <span className="rounded-full bg-elevated px-2.5 py-0.5 text-[11px] font-semibold tabular-nums text-text-secondary">{kpis.events.toLocaleString()} {kpis.events === 1 ? 'event' : 'events'}</span>}
           </div>
           <p className="mt-0.5 text-sm text-text-secondary">A detailed snapshot of upcoming events</p>
         </div>
@@ -468,203 +358,66 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
         </div>
       </div>
 
-      {/* ─── KPI summary ──────────────────────────────────────────────── */}
       {!isLoading && rows.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <KpiCard
-            icon={CalendarRange}
-            label="Events"
-            value={kpis.events.toLocaleString()}
-            sub="in the selected range"
-            tone="blue"
-          />
-          <KpiCard
-            icon={Ticket}
-            label="Total tickets sold"
-            value={kpis.totalSold.toLocaleString()}
-            sub="across all events"
-            tone="purple"
-          />
-          <KpiCard
-            icon={TrendingUp}
-            label="Revenue yesterday"
-            value={fmtCurrency(kpis.revenueYesterday) || '$0'}
-            sub="from prior day"
-            tone="accent"
-          />
-          <KpiCard
-            icon={DollarSign}
-            label="Total revenue"
-            value={fmtCurrency(kpis.totalRevenue) || '$0'}
-            sub="across all events"
-            tone="green"
-          />
+          <KpiCard icon={CalendarRange} label="Events" value={kpis.events.toLocaleString()} sub="in the selected range" tone="blue" />
+          <KpiCard icon={Ticket} label="Total tickets sold" value={kpis.totalSold.toLocaleString()} sub="across all events" tone="purple" />
+          <KpiCard icon={TrendingUp} label="Revenue yesterday" value={fmtCurrency(kpis.revenueYesterday) || '$0'} sub="from prior day" tone="accent" />
+          <KpiCard icon={DollarSign} label="Total revenue" value={fmtCurrency(kpis.totalRevenue) || '$0'} sub="across all events" tone="green" />
         </div>
       )}
 
-      {/* ─── Two-column body: sidebar + table ─────────────────────────── */}
       <div className="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
-        {/* Filters sidebar */}
         <aside className="lg:sticky lg:top-[4.5rem] lg:self-start">
           <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
             <div className="flex items-center justify-between gap-2 border-b border-border bg-surface/60 px-4 py-3">
               <div className="flex items-center gap-2 min-w-0">
                 <FilterIcon className="h-4 w-4 text-ems-accent shrink-0" aria-hidden />
                 <h2 className="text-sm font-semibold text-text-primary">Filters</h2>
-                {activeFilterCount > 0 && (
-                  <span className="rounded-full bg-ems-accent/15 text-ems-accent text-[10px] font-semibold tabular-nums ring-1 ring-ems-accent/20 px-2 py-0.5">
-                    {activeFilterCount}
-                  </span>
-                )}
+                {activeFilterCount > 0 && <span className="rounded-full bg-ems-accent/15 text-ems-accent text-[10px] font-semibold tabular-nums ring-1 ring-ems-accent/20 px-2 py-0.5">{activeFilterCount}</span>}
               </div>
               {(activeFilterCount > 0 || searchInput) && (
-                <button
-                  type="button"
-                  onClick={handleResetFilters}
-                  className="inline-flex items-center gap-1 rounded-md text-[11px] font-medium text-text-secondary hover:text-ems-accent transition-colors"
-                  title="Clear all filters"
-                >
+                <button type="button" onClick={handleResetFilters} className="inline-flex items-center gap-1 rounded-md text-[11px] font-medium text-text-secondary hover:text-ems-accent transition-colors" title="Clear all filters">
                   <RotateCcw className="h-3 w-3" aria-hidden />
                   Reset
                 </button>
               )}
             </div>
-
             <div className="p-3 space-y-3 max-h-[calc(100vh-12rem)] overflow-y-auto">
               <FilterField label="Event Date Range">
                 <div className="grid grid-cols-1 gap-2">
-                  <div>
-                    <span className="block text-[10px] font-medium text-text-muted mb-0.5">From</span>
-                    <input
-                      type="date"
-                      className={dateInputClass}
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      max={endDate || undefined}
-                      aria-label="Range start"
-                    />
-                  </div>
-                  <div>
-                    <span className="block text-[10px] font-medium text-text-muted mb-0.5">To</span>
-                    <input
-                      type="date"
-                      className={dateInputClass}
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
-                      min={startDate || undefined}
-                      aria-label="Range end"
-                    />
-                  </div>
+                  <div><span className="block text-[10px] font-medium text-text-muted mb-0.5">From</span><input type="date" className={dateInputClass} value={startDate} onChange={(e) => setStartDate(e.target.value)} max={endDate || undefined} aria-label="Range start" /></div>
+                  <div><span className="block text-[10px] font-medium text-text-muted mb-0.5">To</span><input type="date" className={dateInputClass} value={endDate} onChange={(e) => setEndDate(e.target.value)} min={startDate || undefined} aria-label="Range end" /></div>
                 </div>
-                {!rangeOk && (
-                  <p className="mt-1 text-[11px] text-ems-coral">
-                    End date must be on or after start date.
-                  </p>
-                )}
+                {!rangeOk && <p className="mt-1 text-[11px] text-ems-coral">End date must be on or after start date.</p>}
               </FilterField>
-
               <div className="h-px bg-border" />
-
-              <FilterField label="Attraction">
-                <Select2
-                  options={attractionOptions}
-                  value={attractionFilter}
-                  onChange={setAttractionFilter}
-                  placeholder="All attractions"
-                  allowClear={!!attractionFilter}
-                />
-              </FilterField>
-
-              <FilterField label="Genre">
-                <Select2
-                  options={genreOptions}
-                  value={genreFilter}
-                  onChange={setGenreFilter}
-                  placeholder="All genres"
-                  allowClear={!!genreFilter}
-                />
-              </FilterField>
-
-              <FilterField label="Tour Name">
-                <Select2
-                  options={tourOptions}
-                  value={tourFilter}
-                  onChange={setTourFilter}
-                  placeholder="All tours"
-                  allowClear={!!tourFilter}
-                />
-              </FilterField>
-
-              <FilterField label="Company">
-                <Select2
-                  options={companyOptions}
-                  value={companyFilter}
-                  onChange={setCompanyFilter}
-                  placeholder="All companies"
-                  allowClear={!!companyFilter}
-                />
-              </FilterField>
-
-              <FilterField label="Venue">
-                <Select2
-                  options={venueOptions}
-                  value={venueFilter}
-                  onChange={setVenueFilter}
-                  placeholder="All venues"
-                  allowClear={!!venueFilter}
-                />
-              </FilterField>
-
-              <FilterField label="Contact">
-                <Select2
-                  options={contactOptions}
-                  value={contactFilter}
-                  onChange={setContactFilter}
-                  placeholder="All contacts"
-                  allowClear={!!contactFilter}
-                />
-              </FilterField>
+              <FilterField label="Attraction"><Select2 options={attractionOptions} value={attractionFilter} onChange={setAttractionFilter} placeholder="All attractions" allowClear={!!attractionFilter} /></FilterField>
+              <FilterField label="Genre"><Select2 options={genreOptions} value={genreFilter} onChange={setGenreFilter} placeholder="All genres" allowClear={!!genreFilter} /></FilterField>
+              <FilterField label="Tour Name"><Select2 options={tourOptions} value={tourFilter} onChange={setTourFilter} placeholder="All tours" allowClear={!!tourFilter} /></FilterField>
+              <FilterField label="Company"><Select2 options={companyOptions} value={companyFilter} onChange={setCompanyFilter} placeholder="All companies" allowClear={!!companyFilter} /></FilterField>
+              <FilterField label="Venue"><Select2 options={venueOptions} value={venueFilter} onChange={setVenueFilter} placeholder="All venues" allowClear={!!venueFilter} /></FilterField>
+              <FilterField label="Contact"><Select2 options={contactOptions} value={contactFilter} onChange={setContactFilter} placeholder="All contacts" allowClear={!!contactFilter} /></FilterField>
             </div>
           </div>
         </aside>
 
-        {/* Table */}
         <section className="min-w-0 rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-          {/* Table toolbar */}
           <div className="flex flex-col gap-2 border-b border-border bg-surface/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="relative flex-1 max-w-md">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-muted" aria-hidden />
-              <input
-                type="text"
-                className="h-9 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-sm text-text-primary placeholder:text-text-muted shadow-sm focus:outline-none focus:ring-2 focus:ring-ems-accent/30 focus:border-ems-accent transition-colors"
-                placeholder="Search attractions, tours, venues, cities…"
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                aria-label="Search rows"
-              />
+              <input type="text" className="h-9 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-sm text-text-primary placeholder:text-text-muted shadow-sm focus:outline-none focus:ring-2 focus:ring-ems-accent/30 focus:border-ems-accent transition-colors" placeholder="Search attractions, tours, venues, cities…" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} aria-label="Search rows" />
             </div>
             <div className="flex items-center gap-3 text-xs text-text-muted">
-              {isRefreshing && (
-                <span className="inline-flex items-center gap-1.5">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-ems-accent" aria-hidden />
-                  Refreshing…
-                </span>
-              )}
-              <span className="tabular-nums">
-                <span className="font-medium text-text-primary">{rows.length.toLocaleString()}</span>{' '}
-                of <span className="tabular-nums">{rawRows.length.toLocaleString()}</span>
-              </span>
+              {isRefreshing && <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin text-ems-accent" aria-hidden />Refreshing…</span>}
+              <span className="tabular-nums"><span className="font-medium text-text-primary">{rows.length.toLocaleString()}</span> of <span className="tabular-nums">{rawRows.length.toLocaleString()}</span></span>
             </div>
           </div>
 
-          {query.isError ? (
-            <div className="m-4 rounded-md border border-ems-coral/30 bg-ems-coral-dim px-3 py-2 text-sm text-ems-coral">
-              {friendlyApiError(query.error)}
-            </div>
-          ) : null}
+          {query.isError ? <div className="m-4 rounded-md border border-ems-coral/30 bg-ems-coral-dim px-3 py-2 text-sm text-ems-coral">{friendlyApiError(query.error)}</div> : null}
 
           <div className="relative overflow-x-auto">
-            <table className="w-full text-sm" style={{ minWidth: '1100px' }}>
+            <table className="w-full text-sm" style={{ minWidth: '960px' }}>
               <thead className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm">
                 <tr className="border-b border-border">
                   <SortHeader col="attraction" label="Attraction" sort={sort} onToggle={toggleSort} />
@@ -672,8 +425,6 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                   <SortHeader col="eventDate" label="Event date" sort={sort} onToggle={toggleSort} />
                   <SortHeader col="venue" label="Venue" sort={sort} onToggle={toggleSort} />
                   <SortHeader col="city" label="City" sort={sort} onToggle={toggleSort} />
-                  <SortHeader col="state" label="State" sort={sort} onToggle={toggleSort} />
-                  <SortHeader col="daysOnSale" label="Days on sale" sort={sort} onToggle={toggleSort} align="right" />
                   <SortHeader col="soldYesterday" label="Sold yesterday" sort={sort} onToggle={toggleSort} align="right" />
                   <SortHeader col="totalSold" label="Total sold" sort={sort} onToggle={toggleSort} align="right" />
                   <SortHeader col="yesterdayRevenue" label="Revenue yesterday" sort={sort} onToggle={toggleSort} align="right" />
@@ -685,32 +436,17 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                 {isLoading ? (
                   Array.from({ length: 8 }).map((_, i) => (
                     <tr key={`skel-${i}`} className="border-b border-border/50">
-                      {Array.from({ length: 12 }).map((__, j) => (
-                        <td key={j} className="px-4 py-3.5">
-                          <div className="h-3 rounded bg-muted/70 animate-pulse" style={{ width: j === 0 ? '80%' : j < 6 ? '70%' : '50%' }} />
-                        </td>
-                      ))}
+                      {Array.from({ length: 10 }).map((__, j) => <td key={j} className="px-4 py-3.5"><div className="h-3 rounded bg-muted/70 animate-pulse" style={{ width: j === 0 ? '80%' : j < 5 ? '70%' : '50%' }} /></td>)}
                     </tr>
                   ))
                 ) : rows.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="py-16">
+                    <td colSpan={10} className="py-16">
                       <div className="flex flex-col items-center justify-center gap-2 text-text-muted">
-                        <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-elevated">
-                          <CalendarRange className="h-6 w-6 text-text-muted" aria-hidden />
-                        </div>
+                        <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-elevated"><CalendarRange className="h-6 w-6 text-text-muted" aria-hidden /></div>
                         <p className="text-sm font-medium text-text-secondary">No events match your filters</p>
                         <p className="text-xs">Try widening the date range or clearing filters.</p>
-                        {(activeFilterCount > 0 || searchInput) && (
-                          <button
-                            type="button"
-                            onClick={handleResetFilters}
-                            className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-border bg-elevated px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-hover transition-colors"
-                          >
-                            <RotateCcw className="h-3 w-3" aria-hidden />
-                            Reset filters
-                          </button>
-                        )}
+                        {(activeFilterCount > 0 || searchInput) && <button type="button" onClick={handleResetFilters} className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-border bg-elevated px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-hover transition-colors"><RotateCcw className="h-3 w-3" aria-hidden />Reset filters</button>}
                       </div>
                     </td>
                   </tr>
@@ -720,64 +456,17 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                     const tm = fmtTime12(r.performanceTime);
                     const zebra = idx % 2 === 1 ? 'bg-surface/30' : '';
                     return (
-                      <tr
-                        key={`${r.performanceId}-${r.engagementId}`}
-                        className={[
-                          'group border-b border-border/60 cursor-pointer transition-colors',
-                          zebra,
-                          'hover:bg-ems-accent-dim/30',
-                        ].join(' ')}
-                        onClick={() => onOpenEngagement(r.engagementId, r.performanceId)}
-                        title="Open sales trends"
-                      >
-                        <td className="px-4 py-3 align-top">
-                          <div className="text-sm font-semibold text-text-primary group-hover:text-ems-accent transition-colors">
-                            {r.attractionName ?? <span className="text-text-muted italic font-normal">Unknown</span>}
-                          </div>
-                          {r.genre && (
-                            <div className="text-[11px] text-text-muted mt-0.5">{r.genre}</div>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 align-top text-sm text-text-secondary">
-                          {r.tourName ?? <span className="text-text-muted">—</span>}
-                        </td>
-                        <td className="px-4 py-3 align-top whitespace-nowrap">
-                          <div className="text-sm text-text-primary tabular-nums">{ev.date}</div>
-                          {tm && <div className="text-[11px] text-text-muted tabular-nums mt-0.5">{tm}</div>}
-                        </td>
-                        <td className="px-4 py-3 align-top text-sm text-text-secondary">
-                          <div className="truncate max-w-[14rem]" title={r.venueName ?? r.venueCompanyName ?? ''}>
-                            {r.venueName ?? r.venueCompanyName ?? <span className="text-text-muted">—</span>}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 align-top text-sm text-text-secondary">
-                          {r.city ?? <span className="text-text-muted">—</span>}
-                        </td>
-                        <td className="px-4 py-3 align-top text-sm text-text-secondary">
-                          {r.stateProvince ?? <span className="text-text-muted">—</span>}
-                        </td>
-                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums text-text-secondary">
-                          {r.daysOnSale > 0 ? r.daysOnSale.toLocaleString() : <span className="text-text-muted">—</span>}
-                        </td>
-                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums text-text-secondary">
-                          {r.soldYesterday > 0 ? r.soldYesterday.toLocaleString() : <span className="text-text-muted">—</span>}
-                        </td>
-                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">
-                          {r.totalSold > 0 ? r.totalSold.toLocaleString() : <span className="text-text-muted font-normal">—</span>}
-                        </td>
-                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums text-text-secondary">
-                          {r.yesterdayRevenue != null && r.yesterdayRevenue > 0
-                            ? fmtCurrency(r.yesterdayRevenue)
-                            : <span className="text-text-muted">—</span>}
-                        </td>
-                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-semibold text-ems-green">
-                          {r.totalRevenue > 0
-                            ? fmtCurrency(r.totalRevenue)
-                            : <span className="text-text-muted font-normal">—</span>}
-                        </td>
-                        <td className="w-8 px-2 py-3 align-middle text-text-muted opacity-0 group-hover:opacity-100 transition-opacity">
-                          <ChevronRight className="h-4 w-4" aria-hidden />
-                        </td>
+                      <tr key={`${r.performanceId}-${r.engagementId}`} className={['group border-b border-border/60 cursor-pointer transition-colors', zebra, 'hover:bg-ems-accent-dim/30'].join(' ')} onClick={() => onOpenEngagement(r.engagementId, r.performanceId)} title="Open sales trends">
+                        <td className="px-4 py-3 align-top"><div className="text-sm font-semibold text-text-primary group-hover:text-ems-accent transition-colors">{r.attractionName ?? <span className="text-text-muted italic font-normal">Unknown</span>}</div>{r.genre && <div className="text-[11px] text-text-muted mt-0.5">{r.genre}</div>}</td>
+                        <td className="px-4 py-3 align-top text-sm text-text-secondary">{r.tourName ?? <span className="text-text-muted">—</span>}</td>
+                        <td className="px-4 py-3 align-top whitespace-nowrap"><div className="text-sm text-text-primary tabular-nums">{ev.date}</div>{tm && <div className="text-[11px] text-text-muted tabular-nums mt-0.5">{tm}</div>}</td>
+                        <td className="px-4 py-3 align-top text-sm text-text-secondary"><div className="truncate max-w-[14rem]" title={r.venueName ?? r.venueCompanyName ?? ''}>{r.venueName ?? r.venueCompanyName ?? <span className="text-text-muted">—</span>}</div></td>
+                        <td className="px-4 py-3 align-top text-sm text-text-secondary">{r.city ?? <span className="text-text-muted">—</span>}</td>
+                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums text-text-secondary">{(r.soldYesterday ?? 0) > 0 ? r.soldYesterday.toLocaleString() : <span className="text-text-muted">—</span>}</td>
+                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">{(r.totalSold ?? 0) > 0 ? r.totalSold.toLocaleString() : <span className="text-text-muted font-normal">—</span>}</td>
+                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums text-text-secondary">{r.yesterdayRevenue != null && r.yesterdayRevenue > 0 ? fmtCurrency(r.yesterdayRevenue) : <span className="text-text-muted">—</span>}</td>
+                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-semibold text-ems-green">{(r.totalRevenue ?? 0) > 0 ? fmtCurrency(r.totalRevenue) : <span className="text-text-muted font-normal">—</span>}</td>
+                        <td className="w-8 px-2 py-3 align-middle text-text-muted opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight className="h-4 w-4" aria-hidden /></td>
                       </tr>
                     );
                   })
@@ -788,14 +477,8 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
 
           {!isLoading && rows.length > 0 && (
             <div className="flex items-center justify-between gap-3 border-t border-border bg-surface/30 px-4 py-2.5 text-xs text-text-muted">
-              <span>
-                Showing <span className="font-medium text-text-primary tabular-nums">{rows.length.toLocaleString()}</span>{' '}
-                {rows.length === 1 ? 'event' : 'events'}
-              </span>
-              <span className="tabular-nums">
-                Total revenue:{' '}
-                <span className="font-semibold text-ems-green">{fmtCurrency(kpis.totalRevenue) || '$0'}</span>
-              </span>
+              <span>Showing <span className="font-medium text-text-primary tabular-nums">{rows.length.toLocaleString()}</span> {rows.length === 1 ? 'event' : 'events'}</span>
+              <span className="tabular-nums">Total revenue: <span className="font-semibold text-ems-green">{fmtCurrency(kpis.totalRevenue) || '$0'}</span></span>
             </div>
           )}
         </section>
