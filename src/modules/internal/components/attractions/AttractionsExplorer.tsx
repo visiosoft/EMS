@@ -163,7 +163,7 @@ function AttractionVisual({
   }
 
   return (
-    <div className="relative mb-4 overflow-hidden rounded-lg bg-neutral-100">
+    <div className="relative mb-3 overflow-hidden rounded-lg bg-neutral-100 sm:mb-4">
       <div className="flex aspect-[16/10] items-center justify-center bg-gradient-to-br from-neutral-900 via-neutral-800 to-neutral-700">
         {banner ? (
           <img
@@ -205,16 +205,24 @@ function AttractionCard({
       className="animate-slide-up group flex flex-col overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)] transition-all duration-300 hover:-translate-y-0.5 hover:border-neutral-300 hover:shadow-[0_14px_36px_rgba(0,0,0,0.1)]"
       style={{ animationDelay: `${Math.min(index, 12) * 45}ms`, animationFillMode: 'both' }}
     >
-      <div className="p-4 sm:p-5">
+      <div className={cn('p-3 sm:p-5', isList && 'p-4')}>
         {!isList ? <AttractionVisual attraction={attraction} isList={false} /> : null}
 
-        <div className="flex gap-3 sm:gap-4">
+        <div className={cn('flex gap-3 sm:gap-4', isList && 'flex-row')}>
           {isList ? <AttractionVisual attraction={attraction} isList /> : null}
 
           <div className="min-w-0 flex-1">
-            <div className="flex items-start justify-between gap-3">
+            <div
+              className={cn(
+                'flex gap-2',
+                isList ? 'items-start justify-between gap-3' : 'flex-col sm:flex-row sm:items-start sm:justify-between sm:gap-3',
+              )}
+            >
               <h3
-                className="line-clamp-3 min-w-0 flex-1 text-base font-bold leading-snug tracking-[-0.02em] text-neutral-950 sm:text-lg [overflow-wrap:anywhere]"
+                className={cn(
+                  'line-clamp-3 min-w-0 flex-1 font-bold leading-snug tracking-[-0.02em] text-neutral-950 [overflow-wrap:anywhere]',
+                  isList ? 'text-base sm:text-lg' : 'text-sm sm:text-base lg:text-lg',
+                )}
                 title={attraction.attractionName}
               >
                 {attraction.attractionName}
@@ -222,7 +230,10 @@ function AttractionCard({
               <button
                 type="button"
                 onClick={() => setExpanded((open) => !open)}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-neutral-300 bg-white px-3 py-1.5 text-xs font-semibold text-neutral-800 shadow-sm transition-colors hover:bg-neutral-100"
+                className={cn(
+                  'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-neutral-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-neutral-800 shadow-sm transition-colors hover:bg-neutral-100 sm:px-3 sm:text-xs',
+                  !isList && 'w-full sm:w-auto',
+                )}
                 aria-expanded={expanded}
               >
                 <span className="whitespace-nowrap">{expanded ? 'Hide' : 'View'} tours</span>
@@ -354,14 +365,14 @@ export function AttractionsExplorer() {
 
   return (
     <section className="animate-slide-up" aria-label="Attractions directory">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
           <h2 className="text-xl font-semibold tracking-[-0.02em] text-neutral-950 sm:text-2xl">
             Attraction Catalog
           </h2>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1 rounded-lg border border-neutral-200 bg-neutral-50 p-1">
+        <div className="flex w-fit shrink-0 items-center gap-1 rounded-lg border border-neutral-200 bg-neutral-50 p-1">
           <button
             type="button"
             onClick={() => setViewMode('tiles')}
@@ -552,7 +563,7 @@ export function AttractionsExplorer() {
           className={cn(
             'mt-8',
             viewMode === 'tiles'
-              ? 'grid items-start gap-4 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3'
+              ? 'grid grid-cols-2 items-start gap-3 sm:gap-4 xl:grid-cols-3'
               : 'flex flex-col gap-3',
           )}
         >

@@ -11,6 +11,6 @@ export class InternalAccessGuard implements CanActivate {
       return true;
     }
 
-    throw new ForbiddenException('Company Hub access is restricted.');
+    throw new ForbiddenException('Company Hub requires a signed-in Microsoft account.');
   }
 }

@@ -14,11 +14,11 @@ export function LeadershipPage() {
       />
 
       <main className="mx-auto w-full max-w-[1060px] px-5 pb-8 pt-16 sm:px-8 lg:px-0">
-        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <section className="grid grid-cols-2 gap-3 lg:grid-cols-5">
           {LEADERSHIP_CONTACTS.map((person, index) => (
             <article
               key={person.name}
-              className="group min-h-[258px] rounded-lg bg-[#050505] px-6 py-5 text-white shadow-[0_4px_16px_rgba(0,0,0,0.22)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_36px_rgba(0,0,0,0.28)]"
+              className="group min-h-[258px] w-full rounded-lg bg-[#050505] px-4 py-5 text-white shadow-[0_4px_16px_rgba(0,0,0,0.22)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_36px_rgba(0,0,0,0.28)] sm:px-6"
               style={{ animationDelay: `${index * 55}ms` }}
             >
               <div className="flex flex-col items-center text-center">

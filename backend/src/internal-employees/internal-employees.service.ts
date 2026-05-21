@@ -32,30 +32,55 @@ export class InternalEmployeesService {
     const rows = (await this.dataSource.query(
       `
       SELECT
-        c.ContactID AS contactId,
-        ci.FirstName AS firstName,
-        ci.LastName AS lastName,
-        ci.Email AS email,
-        ci.CellPhone AS cellPhone,
-        ci.WorkPhone AS workPhone,
-        rolePick.roleName AS roleName
-      FROM dbo.Contact c
-      INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
-      OUTER APPLY (
-        SELECT TOP 1 r.RoleName AS roleName
-        FROM dbo.ContactAssignment ca
-        INNER JOIN dbo.Role r ON r.RoleID = ca.RoleID
-        WHERE ca.ContactID = c.ContactID
-          AND ca.CompanyID = @0
-        ORDER BY ca.ContactAssignmentID
-      ) rolePick
-      WHERE c.is_staff = 1 OR c.is_staff = CAST(1 AS BIT)
-      ORDER BY ci.LastName ASC, ci.FirstName ASC
+        ranked.contactId,
+        ranked.firstName,
+        ranked.lastName,
+        ranked.email,
+        ranked.cellPhone,
+        ranked.workPhone,
+        ranked.roleName
+      FROM (
+        SELECT
+          c.ContactID AS contactId,
+          ci.FirstName AS firstName,
+          ci.LastName AS lastName,
+          ci.Email AS email,
+          ci.CellPhone AS cellPhone,
+          ci.WorkPhone AS workPhone,
+          rolePick.roleName AS roleName,
+          ROW_NUMBER() OVER (
+            PARTITION BY ci.ContactInfoID
+            ORDER BY c.ContactID ASC
+          ) AS rowNum
+        FROM dbo.Contact c
+        INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+        OUTER APPLY (
+          SELECT TOP 1 r.RoleName AS roleName
+          FROM dbo.ContactAssignment ca
+          INNER JOIN dbo.Role r ON r.RoleID = ca.RoleID
+          WHERE ca.ContactID = c.ContactID
+            AND ca.CompanyID = @0
+          ORDER BY ca.ContactAssignmentID
+        ) rolePick
+        WHERE c.is_staff = 1 OR c.is_staff = CAST(1 AS BIT)
+      ) ranked
+      WHERE ranked.rowNum = 1
+      ORDER BY ranked.lastName ASC, ranked.firstName ASC
       `,
       [companyId],
     )) as IaeEmployeeRow[];
 
-    return rows.map((row) => ({
+    const seenEmails = new Set<string>();
+    const deduped: IaeEmployeeRow[] = [];
+
+    for (const row of rows) {
+      const emailKey = String(row.email ?? '').trim().toLowerCase();
+      if (emailKey && seenEmails.has(emailKey)) continue;
+      if (emailKey) seenEmails.add(emailKey);
+      deduped.push(row);
+    }
+
+    return deduped.map((row) => ({
       contactId: Number(row.contactId),
       firstName: String(row.firstName ?? '').trim(),
       lastName: String(row.lastName ?? '').trim(),
