@@ -183,6 +183,7 @@ function SortHeader({
   onToggle,
   align,
   className,
+  title,
 }: {
   col: SortColumn;
   label: React.ReactNode;
@@ -190,6 +191,7 @@ function SortHeader({
   onToggle: (col: SortColumn) => void;
   align?: 'left' | 'right';
   className?: string;
+  title?: string;
 }) {
   const active = sort.col === col;
   const Arrow = sort.dir === 'asc' ? ArrowUp : ArrowDown;
@@ -210,7 +212,7 @@ function SortHeader({
           active ? 'text-ems-accent' : 'text-text-secondary hover:text-text-primary',
           align === 'right' ? 'justify-end w-full' : 'justify-start',
         ].join(' ')}
-        title={`Sort by ${typeof label === 'string' ? label : col}`}
+        title={`Sort by ${title ?? (typeof label === 'string' ? label : col)}`}
       >
         <span className="leading-tight normal-case">{label}</span>
         {active ? <Arrow className="h-3.5 w-3.5 shrink-0 text-ems-accent" aria-hidden /> : <span className="inline-block h-3.5 w-3.5 shrink-0 opacity-0" aria-hidden />}
@@ -417,7 +419,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
               <thead className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm">
                 <tr className="border-b border-border">
                   <SortHeader col="attraction" label="Attraction, Tour" sort={sort} onToggle={toggleSort} />
-                  <SortHeader col="eventDate" label="Event date" sort={sort} onToggle={toggleSort} />
+                  <SortHeader col="eventDate" label={<span className="italic">Opening Performance Date</span>} title="Opening Performance Date" sort={sort} onToggle={toggleSort} />
                   <SortHeader col="venue" label="Venue" sort={sort} onToggle={toggleSort} />
                   <SortHeader col="city" label="City" sort={sort} onToggle={toggleSort} />
                   <SortHeader col="soldYesterday" label="Sold yesterday" sort={sort} onToggle={toggleSort} align="right" />
@@ -456,7 +458,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                           <div className="text-sm font-semibold text-text-primary group-hover:text-ems-accent transition-colors">{r.attractionName ?? <span className="text-text-muted italic font-normal">Unknown</span>}</div>
                           <div className="mt-1 text-[12px] leading-snug text-text-secondary">{r.tourName ?? <span className="text-text-muted">—</span>}</div>
                         </td>
-                        <td className="px-4 py-3 align-top whitespace-nowrap"><div className="text-sm text-text-primary tabular-nums">{ev.date}</div>{tm && <div className="text-[11px] text-text-muted tabular-nums mt-0.5">{tm}</div>}</td>
+                        <td className="px-4 py-3 align-top whitespace-nowrap"><div className="text-sm font-semibold text-text-primary tabular-nums">{ev.date}</div>{tm && <div className="text-[11px] text-text-muted tabular-nums mt-0.5">{tm}</div>}</td>
                         <td className="px-4 py-3 align-top text-sm text-text-secondary"><div className="truncate max-w-[14rem]" title={r.venueName ?? r.venueCompanyName ?? ''}>{r.venueName ?? r.venueCompanyName ?? <span className="text-text-muted">—</span>}</div></td>
                         <td className="px-4 py-3 align-top text-sm text-text-secondary">{r.city ?? <span className="text-text-muted">—</span>}</td>
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums text-text-secondary">{(r.soldYesterday ?? 0) > 0 ? r.soldYesterday.toLocaleString() : <span className="text-text-muted">—</span>}</td>
