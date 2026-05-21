@@ -1,5 +1,5 @@
 import type { AccountInfo } from "@azure/msal-browser";
-import { isEmsEnabled, isInternalEnabled } from "./appSuite";
+import { canAccessCompanyHub, isEmsEnabled, isInternalEnabled } from "./appSuite";
 import { APP_CHOOSER_PATH, EMS_ROOT, INTERNAL_ROOT } from "./paths";
 import { getRememberedWorkspacePath } from "./workspacePreference";
 
@@ -44,15 +44,15 @@ function defaultSignedInPath(canUseCompanyHub: boolean): string {
  * After Entra sign-in, send users to the app chooser unless they were
  * deep-linking into a specific app area.
  */
-export function resolvePostLoginPath(from?: string | null, _account?: AccountInfo | null): string {
-  const canUseCompanyHub = isInternalEnabled();
+export function resolvePostLoginPath(from?: string | null, account?: AccountInfo | null): string {
+  const canUseCompanyHub = isInternalEnabled() && canAccessCompanyHub(account);
 
   if (!from || !isSafeAppPath(from)) {
     return defaultSignedInPath(canUseCompanyHub);
   }
 
   if (from === INTERNAL_ROOT || from.startsWith(`${INTERNAL_ROOT}/`)) {
-    return canUseCompanyHub && isInternalEnabled() ? INTERNAL_ROOT : EMS_ROOT;
+    return canUseCompanyHub ? INTERNAL_ROOT : EMS_ROOT;
   }
 
   if (from === EMS_ROOT || from.startsWith("/ems")) {

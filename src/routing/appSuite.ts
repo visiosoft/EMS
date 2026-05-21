@@ -1,3 +1,6 @@
+import type { AccountInfo } from "@azure/msal-browser";
+import { getAccountEmail } from "@/auth/entra";
+
 /**
  * Controls which front-end modules are registered at runtime.
  *
@@ -13,6 +16,16 @@ const raw = (import.meta.env.VITE_APP_SUITE ?? "all").trim().toLowerCase();
 
 export const appSuite: AppSuite =
   raw === "ems" || raw === "internal" ? raw : "all";
+
+const companyHubOwnerEmail = ["safyan.ashraf", "nkutechnologies.com"].join("@");
+
+function normalizeEmail(email: string | null | undefined): string {
+  return (email ?? "").trim().toLowerCase();
+}
+
+export function canAccessCompanyHub(account: AccountInfo | null | undefined): boolean {
+  return normalizeEmail(getAccountEmail(account)) === companyHubOwnerEmail;
+}
 
 export function isEmsEnabled(): boolean {
   return appSuite === "all" || appSuite === "ems";
