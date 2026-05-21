@@ -239,13 +239,19 @@ function HtmlEditor({ value, onChange, onBlur, hasError }: { value: string; onCh
         ))}
       </div>
 
-      <div className="relative">
-        {!getTextFromHtml(value) ? <p className="pointer-events-none absolute left-4 top-3 text-sm text-neutral-400">Write the full announcement or update here. Use the toolbar for formatting.</p> : null}
-        <div ref={editorRef} contentEditable suppressContentEditableWarning role="textbox" aria-multiline="true" aria-invalid={hasError} onInput={syncValue} onBlur={onBlur} className="min-h-[190px] w-full overflow-y-auto px-4 py-3 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-inset focus:ring-black/10 [&_a]:font-semibold [&_a]:text-black [&_a]:underline [&_blockquote]:border-l-4 [&_blockquote]:border-neutral-300 [&_blockquote]:pl-4 [&_h2]:mb-2 [&_h2]:mt-3 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:mt-3 [&_h3]:text-lg [&_h3]:font-semibold [&_li]:ml-5 [&_ol]:list-decimal [&_p]:mb-2 [&_ul]:list-disc" />
-      </div>
+      <div
+        ref={editorRef}
+        contentEditable
+        suppressContentEditableWarning
+        role="textbox"
+        aria-multiline="true"
+        aria-invalid={hasError}
+        onInput={syncValue}
+        onBlur={onBlur}
+        className="min-h-[190px] w-full overflow-y-auto px-4 py-3 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-inset focus:ring-black/10 [&_a]:font-semibold [&_a]:text-black [&_a]:underline [&_blockquote]:border-l-4 [&_blockquote]:border-neutral-300 [&_blockquote]:pl-4 [&_h2]:mb-2 [&_h2]:mt-3 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:mt-3 [&_h3]:text-lg [&_h3]:font-semibold [&_li]:ml-5 [&_ol]:list-decimal [&_p]:mb-2 [&_ul]:list-disc"
+      />
 
-      <div className="flex items-center justify-between border-t border-neutral-100 bg-white px-3 py-2 text-xs text-neutral-500">
-        <span>Supports headings, bold, italic, underline, lists, quotes, and links.</span>
+      <div className="flex justify-end border-t border-neutral-100 bg-white px-3 py-2 text-xs text-neutral-500">
         <span className={bodyTextLength > MAX_BODY_TEXT_LENGTH ? "font-semibold text-red-600" : ""}>{bodyTextLength}/{MAX_BODY_TEXT_LENGTH}</span>
       </div>
     </div>
@@ -327,8 +333,8 @@ export function AddNewsModal({ open, onClose, onSubmit }: { open: boolean; onClo
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6 sm:px-6" role="dialog" aria-modal="true" aria-labelledby="add-news-title">
       <button type="button" aria-label="Close add news modal" className="absolute inset-0 cursor-default bg-black/62 backdrop-blur-[2px]" onClick={() => (!isSubmitting ? onClose() : undefined)} />
-      <div className="relative flex max-h-[calc(100vh-48px)] w-full max-w-[820px] animate-slide-up flex-col overflow-hidden rounded-lg bg-white shadow-[0_24px_70px_rgba(0,0,0,0.34)]">
-        <div className="flex items-start justify-between gap-4 border-b border-neutral-200 px-5 py-4 sm:px-7 sm:py-5">
+      <div className="relative flex max-h-[calc(100vh-48px)] min-h-0 w-full max-w-[820px] animate-slide-up flex-col overflow-hidden rounded-lg bg-white shadow-[0_24px_70px_rgba(0,0,0,0.34)]">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-neutral-200 px-5 py-4 sm:px-7 sm:py-5">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-neutral-500">Company Hub</p>
             <h3 id="add-news-title" className="mt-1 text-2xl font-semibold tracking-[-0.02em] text-neutral-950">Add news</h3>
@@ -338,32 +344,34 @@ export function AddNewsModal({ open, onClose, onSubmit }: { open: boolean; onClo
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="overflow-y-auto px-5 py-5 sm:px-7">
-          {submitError ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{submitError}</div> : null}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="sm:col-span-2">
-              <span className="text-sm font-semibold text-neutral-900">Title *</span>
-              <input ref={titleInputRef} value={values.title} onChange={(event) => setField("title", event.target.value)} onBlur={() => markTouched("title")} maxLength={120} className="mt-2 h-11 w-full rounded-md border border-neutral-300 px-3 text-sm outline-none transition focus:border-black focus:ring-2 focus:ring-black/10" placeholder="Example: Company News" aria-invalid={Boolean(errors.title)} />
-              <FieldError message={errors.title} />
-            </label>
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7">
+            {submitError ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{submitError}</div> : null}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="sm:col-span-2">
+                <span className="text-sm font-semibold text-neutral-900">Title *</span>
+                <input ref={titleInputRef} value={values.title} onChange={(event) => setField("title", event.target.value)} onBlur={() => markTouched("title")} maxLength={120} className="mt-2 h-11 w-full rounded-md border border-neutral-300 px-3 text-sm outline-none transition focus:border-black focus:ring-2 focus:ring-black/10" placeholder="Example: Company News" aria-invalid={Boolean(errors.title)} />
+                <FieldError message={errors.title} />
+              </label>
 
-            <label className="sm:col-span-2">
-              <span className="text-sm font-semibold text-neutral-900">Short summary *</span>
-              <textarea value={values.summary} onChange={(event) => setField("summary", event.target.value)} onBlur={() => markTouched("summary")} maxLength={220} rows={3} className="mt-2 w-full resize-none rounded-md border border-neutral-300 px-3 py-2.5 text-sm outline-none transition focus:border-black focus:ring-2 focus:ring-black/10" placeholder="A short preview that appears on the news card." aria-invalid={Boolean(errors.summary)} />
-              <div className="mt-1 flex items-start justify-between gap-3">
-                <FieldError message={errors.summary} />
-                <span className="ml-auto text-xs text-neutral-500">{values.summary.length}/220</span>
+              <label className="sm:col-span-2">
+                <span className="text-sm font-semibold text-neutral-900">Short summary *</span>
+                <textarea value={values.summary} onChange={(event) => setField("summary", event.target.value)} onBlur={() => markTouched("summary")} maxLength={220} rows={3} className="mt-2 w-full resize-none rounded-md border border-neutral-300 px-3 py-2.5 text-sm outline-none transition focus:border-black focus:ring-2 focus:ring-black/10" placeholder="A short preview that appears on the news card." aria-invalid={Boolean(errors.summary)} />
+                <div className="mt-1 flex items-start justify-between gap-3">
+                  <FieldError message={errors.summary} />
+                  <span className="ml-auto text-xs text-neutral-500">{values.summary.length}/220</span>
+                </div>
+              </label>
+
+              <div className="sm:col-span-2">
+                <span className="text-sm font-semibold text-neutral-900">News body *</span>
+                <HtmlEditor value={values.body} onChange={(nextValue) => setField("body", nextValue)} onBlur={() => markTouched("body")} hasError={Boolean(errors.body)} />
+                <FieldError message={errors.body} />
               </div>
-            </label>
-
-            <div className="sm:col-span-2">
-              <span className="text-sm font-semibold text-neutral-900">News body *</span>
-              <HtmlEditor value={values.body} onChange={(nextValue) => setField("body", nextValue)} onBlur={() => markTouched("body")} hasError={Boolean(errors.body)} />
-              <FieldError message={errors.body} />
             </div>
           </div>
 
-          <div className="sticky bottom-0 -mx-5 mt-6 flex flex-col-reverse gap-3 border-t border-neutral-200 bg-white/96 px-5 py-4 backdrop-blur sm:-mx-7 sm:flex-row sm:items-center sm:justify-end sm:px-7">
+          <div className="flex shrink-0 flex-col-reverse gap-3 border-t border-neutral-200 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-end sm:px-7">
             <button type="button" onClick={onClose} disabled={isSubmitting} className="inline-flex h-11 items-center justify-center rounded-md border border-neutral-300 px-5 text-sm font-semibold text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50">Cancel</button>
             <button type="submit" disabled={isSubmitting || !isFormValid} className="inline-flex h-11 items-center justify-center rounded-md bg-black px-6 text-sm font-semibold text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-400">
               {isSubmitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />Saving...</> : "Submit news"}
