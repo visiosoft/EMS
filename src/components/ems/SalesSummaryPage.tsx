@@ -31,6 +31,7 @@ type SortColumn =
   | 'venue'
   | 'sellableCapacity'
   | 'grossPotential'
+  | 'grossSalesToDate'
   | 'soldYesterday'
   | 'totalSold'
   | 'yesterdayRevenue'
@@ -131,6 +132,9 @@ function sortRows(rows: ApiPerformanceSalesRow[], sort: SortState): ApiPerforman
         break;
       case 'grossPotential':
         n = compareNumbers(a.engagementGrossPotential, b.engagementGrossPotential);
+        break;
+      case 'grossSalesToDate':
+        n = compareNumbers(a.totalRevenue, b.totalRevenue);
         break;
       case 'soldYesterday':
         n = compareNumbers(a.soldYesterday, b.soldYesterday);
@@ -430,7 +434,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
           {query.isError ? <div className="m-4 rounded-md border border-ems-coral/30 bg-ems-coral-dim px-3 py-2 text-sm text-ems-coral">{friendlyApiError(query.error)}</div> : null}
 
           <div className="relative overflow-x-auto">
-            <table className="w-full text-sm" style={{ minWidth: '1080px' }}>
+            <table className="w-full text-sm" style={{ minWidth: '1180px' }}>
               <thead className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm">
                 <tr className="border-b border-border">
                   <SortHeader col="attraction" label="Attraction, Tour" sort={sort} onToggle={toggleSort} />
@@ -438,6 +442,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                   <SortHeader col="venue" label={<span className="italic">Venue, City</span>} title="Venue, City" sort={sort} onToggle={toggleSort} />
                   <SortHeader col="sellableCapacity" label={<span className="italic">Sellable Capacity</span>} title="Sellable Capacity" sort={sort} onToggle={toggleSort} align="right" />
                   <SortHeader col="grossPotential" label={<span className="italic">Gross Ticket Sales Potential</span>} title="Gross Ticket Sales Potential" sort={sort} onToggle={toggleSort} align="right" />
+                  <SortHeader col="grossSalesToDate" label={<span className="italic">Gross Sales To Date</span>} title="Gross Sales To Date" sort={sort} onToggle={toggleSort} align="right" />
                   <SortHeader col="soldYesterday" label="Sold yesterday" sort={sort} onToggle={toggleSort} align="right" />
                   <SortHeader col="totalSold" label="Total sold" sort={sort} onToggle={toggleSort} align="right" />
                   <SortHeader col="yesterdayRevenue" label="Revenue yesterday" sort={sort} onToggle={toggleSort} align="right" />
@@ -449,12 +454,12 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                 {isLoading ? (
                   Array.from({ length: 8 }).map((_, i) => (
                     <tr key={`skel-${i}`} className="border-b border-border/50">
-                      {Array.from({ length: 10 }).map((__, j) => <td key={j} className="px-4 py-3.5"><div className="h-3 rounded bg-muted/70 animate-pulse" style={{ width: j === 0 ? '82%' : j < 4 ? '70%' : '50%' }} /></td>)}
+                      {Array.from({ length: 11 }).map((__, j) => <td key={j} className="px-4 py-3.5"><div className="h-3 rounded bg-muted/70 animate-pulse" style={{ width: j === 0 ? '82%' : j < 4 ? '70%' : '50%' }} /></td>)}
                     </tr>
                   ))
                 ) : rows.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="py-16">
+                    <td colSpan={11} className="py-16">
                       <div className="flex flex-col items-center justify-center gap-2 text-text-muted">
                         <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-elevated"><CalendarRange className="h-6 w-6 text-text-muted" aria-hidden /></div>
                         <p className="text-sm font-medium text-text-secondary">No events match your filters</p>
@@ -480,6 +485,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                         <td className="px-4 py-3 align-top text-sm text-text-secondary"><div className="truncate max-w-[14rem] font-semibold text-text-primary" title={venueLabel ?? ''}>{venueLabel ?? <span className="text-text-muted font-normal">—</span>}</div><div className="mt-1 text-[12px] leading-snug text-text-secondary">{marketLabel ?? <span className="text-text-muted">—</span>}</div></td>
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">{r.engagementSellableCapacity != null && Number.isFinite(r.engagementSellableCapacity) ? r.engagementSellableCapacity.toLocaleString() : <span className="text-text-muted font-normal">—</span>}</td>
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">{r.engagementGrossPotential != null && Number.isFinite(r.engagementGrossPotential) ? fmtCurrency(r.engagementGrossPotential) : <span className="text-text-muted font-normal">—</span>}</td>
+                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">{r.totalRevenue != null && Number.isFinite(r.totalRevenue) ? fmtCurrency(r.totalRevenue) : <span className="text-text-muted font-normal">—</span>}</td>
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums text-text-secondary">{(r.soldYesterday ?? 0) > 0 ? r.soldYesterday.toLocaleString() : <span className="text-text-muted">—</span>}</td>
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">{(r.totalSold ?? 0) > 0 ? r.totalSold.toLocaleString() : <span className="text-text-muted font-normal">—</span>}</td>
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums text-text-secondary">{r.yesterdayRevenue != null && r.yesterdayRevenue > 0 ? fmtCurrency(r.yesterdayRevenue) : <span className="text-text-muted">—</span>}</td>
