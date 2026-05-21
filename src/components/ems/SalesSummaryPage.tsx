@@ -51,6 +51,16 @@ function rowMarketName(row: ApiPerformanceSalesRow): string | null {
   return withMarket.dmaMarketName ?? row.city ?? null;
 }
 
+function finiteNumberOrNull(value: number | null | undefined): number | null {
+  return value != null && Number.isFinite(value) ? value : null;
+}
+
+function grossSalesToDate(row: ApiPerformanceSalesRow): number | null {
+  // This column is the latest available dbo.TicketingSales.PerformanceSalesRevenue
+  // value shown in Daily Sales, not the cumulative/summed totalRevenue rollup.
+  return finiteNumberOrNull(row.todayRevenue) ?? finiteNumberOrNull(row.yesterdayRevenue);
+}
+
 function todayLocalYmd(): string {
   const d = new Date();
   const y = d.getFullYear();
@@ -134,7 +144,7 @@ function sortRows(rows: ApiPerformanceSalesRow[], sort: SortState): ApiPerforman
         n = compareNumbers(a.engagementGrossPotential, b.engagementGrossPotential);
         break;
       case 'grossSalesToDate':
-        n = compareNumbers(a.totalRevenue, b.totalRevenue);
+        n = compareNumbers(grossSalesToDate(a), grossSalesToDate(b));
         break;
       case 'soldYesterday':
         n = compareNumbers(a.soldYesterday, b.soldYesterday);
@@ -475,6 +485,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                     const zebra = idx % 2 === 1 ? 'bg-surface/30' : '';
                     const venueLabel = r.venueName ?? r.venueCompanyName;
                     const marketLabel = rowMarketName(r);
+                    const grossSalesValue = grossSalesToDate(r);
                     return (
                       <tr key={`${r.performanceId}-${r.engagementId}`} className={['group border-b border-border/60 cursor-pointer transition-colors', zebra, 'hover:bg-ems-accent-dim/30'].join(' ')} onClick={() => onOpenEngagement(r.engagementId, r.performanceId)} title="Open sales trends">
                         <td className="px-4 py-3 align-top">
@@ -485,7 +496,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                         <td className="px-4 py-3 align-top text-sm text-text-secondary"><div className="truncate max-w-[14rem] font-semibold text-text-primary" title={venueLabel ?? ''}>{venueLabel ?? <span className="text-text-muted font-normal">—</span>}</div><div className="mt-1 text-[12px] leading-snug text-text-secondary">{marketLabel ?? <span className="text-text-muted">—</span>}</div></td>
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">{r.engagementSellableCapacity != null && Number.isFinite(r.engagementSellableCapacity) ? r.engagementSellableCapacity.toLocaleString() : <span className="text-text-muted font-normal">—</span>}</td>
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">{r.engagementGrossPotential != null && Number.isFinite(r.engagementGrossPotential) ? fmtCurrency(r.engagementGrossPotential) : <span className="text-text-muted font-normal">—</span>}</td>
-                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">{r.totalRevenue != null && Number.isFinite(r.totalRevenue) ? fmtCurrency(r.totalRevenue) : <span className="text-text-muted font-normal">—</span>}</td>
+                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">{grossSalesValue != null ? fmtCurrency(grossSalesValue) : <span className="text-text-muted font-normal">—</span>}</td>
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums text-text-secondary">{(r.soldYesterday ?? 0) > 0 ? r.soldYesterday.toLocaleString() : <span className="text-text-muted">—</span>}</td>
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">{(r.totalSold ?? 0) > 0 ? r.totalSold.toLocaleString() : <span className="text-text-muted font-normal">—</span>}</td>
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums text-text-secondary">{r.yesterdayRevenue != null && r.yesterdayRevenue > 0 ? fmtCurrency(r.yesterdayRevenue) : <span className="text-text-muted">—</span>}</td>
