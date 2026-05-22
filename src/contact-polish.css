@@ -262,3 +262,44 @@
   text-align: right !important;
   white-space: nowrap !important;
 }
+
+/* Keep department assignments in the backend/edit flow, but do not show a
+   separate Departments column in the drawer contact list. */
+:is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:has(> :nth-child(6)) > :nth-child(3) {
+  display: none !important;
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+}
+
+:is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:has(> :nth-child(6)) > :nth-child(1) {
+  width: 240px !important;
+  min-width: 240px !important;
+  max-width: 240px !important;
+}
+
+:is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:has(> :nth-child(6)) > :nth-child(2) {
+  width: 280px !important;
+  min-width: 280px !important;
+  max-width: 280px !important;
+}
+
+:is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:has(> :nth-child(6)) > :nth-child(4) {
+  width: 360px !important;
+  min-width: 360px !important;
+  max-width: 360px !important;
+}
+
+:is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:has(> :nth-child(6)) > :nth-child(5) {
+  width: 140px !important;
+  min-width: 140px !important;
+  max-width: 140px !important;
+}
+
+:is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:has(> :nth-child(6)) > :nth-child(6) {
+  width: 40px !important;
+  min-width: 40px !important;
+  max-width: 40px !important;
+}
