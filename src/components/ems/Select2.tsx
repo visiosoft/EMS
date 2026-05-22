@@ -30,7 +30,29 @@ interface Select2Props {
 }
 
 type ContactMultiKind = 'role' | 'department' | null;
+type ContactRowLike = {
+  contactAssignmentId?: number;
+  contactId?: number;
+  contactInfoId?: number;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  cellPhone?: string | null;
+  workPhone?: string | null;
+  roleId?: number;
+  roleName?: string;
+  departmentId?: number;
+  departmentName?: string;
+};
+type ContactAggregate = { roles: string[]; departments: string[] };
+type PatchedWindow = Window & typeof globalThis & {
+  __iaeContactBridgeInstalled?: boolean;
+  __iaeContactDomPatchInstalled?: boolean;
+  __iaeContactByEmail?: Record<string, ContactAggregate>;
+  __iaeContactObserver?: MutationObserver;
+};
 
+const CONTACT_CELL_SEPARATOR = ' ⁞ ';
 const CONTACT_MULTI_STORAGE: Record<Exclude<ContactMultiKind, null>, string> = {
   role: 'iae.contactDraft.roleIds',
   department: 'iae.contactDraft.departmentIds',
@@ -41,6 +63,28 @@ function contactMultiKindFromOptions(options: Select2Option[]): ContactMultiKind
   if (firstLabel.includes('select role')) return 'role';
   if (firstLabel.includes('select department')) return 'department';
   return null;
+}
+
+function normalizeText(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
+function normalizeEmail(value: unknown): string {
+  return normalizeText(value).toLowerCase();
+}
+
+function uniquePush(list: string[], value: unknown) {
+  const text = normalizeText(value);
+  if (text && !list.some((x) => x.toLowerCase() === text.toLowerCase())) list.push(text);
+}
+
+function splitContactCellText(text: string): string[] {
+  return text
+    .split(CONTACT_CELL_SEPARATOR)
+    .flatMap((part) => part.split(/\s*,\s*/))
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .filter((part, idx, arr) => arr.findIndex((x) => x.toLowerCase() === part.toLowerCase()) === idx);
 }
 
 function readStoredIds(kind: Exclude<ContactMultiKind, null>): number[] {
@@ -77,66 +121,207 @@ function clearContactMultiDraft() {
   }
 }
 
-function installContactBulkFetchBridge() {
+function cacheContactAggregates(rows: ContactRowLike[]) {
   if (typeof window === 'undefined') return;
-  type PatchedWindow = Window & typeof globalThis & {
-    __iaeContactBulkFetchBridgeInstalled?: boolean;
-    __iaeContactBulkOriginalFetch?: typeof fetch;
-  };
   const w = window as PatchedWindow;
-  if (w.__iaeContactBulkFetchBridgeInstalled) return;
+  const cache = { ...(w.__iaeContactByEmail ?? {}) };
+  for (const row of rows) {
+    const email = normalizeEmail(row.email);
+    if (!email) continue;
+    const current = cache[email] ?? { roles: [], departments: [] };
+    for (const role of splitContactCellText(normalizeText(row.roleName))) uniquePush(current.roles, role);
+    for (const dept of splitContactCellText(normalizeText(row.departmentName))) uniquePush(current.departments, dept);
+    cache[email] = current;
+  }
+  w.__iaeContactByEmail = cache;
+}
+
+function groupContactRows(rows: ContactRowLike[]): ContactRowLike[] {
+  const groups = new Map<string, ContactRowLike & { _roles?: string[]; _departments?: string[] }>();
+  for (const row of rows) {
+    const key = row.contactId && row.contactId > 0
+      ? `id:${row.contactId}`
+      : `email:${normalizeEmail(row.email)}|name:${normalizeText(row.firstName).toLowerCase()} ${normalizeText(row.lastName).toLowerCase()}`;
+    const existing = groups.get(key);
+    if (!existing) {
+      const clone = { ...row, _roles: [], _departments: [] };
+      uniquePush(clone._roles!, row.roleName);
+      uniquePush(clone._departments!, row.departmentName);
+      groups.set(key, clone);
+    } else {
+      uniquePush(existing._roles!, row.roleName);
+      uniquePush(existing._departments!, row.departmentName);
+      if ((row.contactAssignmentId ?? 0) < (existing.contactAssignmentId ?? Number.MAX_SAFE_INTEGER)) {
+        existing.contactAssignmentId = row.contactAssignmentId;
+      }
+    }
+  }
+  const grouped = Array.from(groups.values()).map((row) => {
+    const { _roles, _departments, ...rest } = row;
+    return {
+      ...rest,
+      roleName: (_roles ?? []).join(CONTACT_CELL_SEPARATOR),
+      departmentName: (_departments ?? []).join(CONTACT_CELL_SEPARATOR),
+    };
+  });
+  cacheContactAggregates(grouped);
+  return grouped;
+}
+
+async function groupedJsonResponse(response: Response, rows: ContactRowLike[]) {
+  const grouped = groupContactRows(rows);
+  return new Response(JSON.stringify(grouped), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+function installContactBridge() {
+  if (typeof window === 'undefined') return;
+  const w = window as PatchedWindow;
+  if (w.__iaeContactBridgeInstalled) return;
+  w.__iaeContactBridgeInstalled = true;
   const original = w.fetch.bind(w);
-  w.__iaeContactBulkOriginalFetch = original;
-  w.__iaeContactBulkFetchBridgeInstalled = true;
   w.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    try {
-      const url = typeof input === 'string'
-        ? input
-        : input instanceof URL
-          ? input.toString()
-          : input.url;
-      const method = String(init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
+    const requestMethod = typeof Request !== 'undefined' && input instanceof Request ? input.method : 'GET';
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    const method = String(init?.method ?? requestMethod ?? 'GET').toUpperCase();
+
+    if (method === 'POST' && /\/companies\/\d+\/contacts(?:\?|$)/.test(url) && !/\/contacts\/bulk(?:\?|$)/.test(url)) {
       const roleIds = readStoredIds('role');
       const departmentIds = readStoredIds('department');
-      const shouldBulk =
-        method === 'POST' &&
-        /\/companies\/\d+\/contacts(?:\?|$)/.test(url) &&
-        !/\/contacts\/bulk(?:\?|$)/.test(url) &&
-        roleIds.length > 0 &&
-        departmentIds.length > 0 &&
-        (roleIds.length > 1 || departmentIds.length > 1);
-      if (!shouldBulk) return original(input, init);
-
-      let parsedBody: Record<string, unknown> = {};
-      if (typeof init?.body === 'string' && init.body.trim()) {
-        parsedBody = JSON.parse(init.body) as Record<string, unknown>;
+      const shouldBulk = roleIds.length > 0 && departmentIds.length > 0 && (roleIds.length > 1 || departmentIds.length > 1);
+      if (shouldBulk) {
+        try {
+          const parsedBody = typeof init?.body === 'string' && init.body.trim()
+            ? JSON.parse(init.body) as Record<string, unknown>
+            : {};
+          const bulkUrl = url.replace(/\/contacts(\?|$)/, '/contacts/bulk$1');
+          const response = await original(bulkUrl, {
+            ...init,
+            body: JSON.stringify({ ...parsedBody, roleIds, departmentIds }),
+          });
+          clearContactMultiDraft();
+          if (response.ok && (response.headers.get('content-type') ?? '').includes('application/json')) {
+            const data = await response.clone().json();
+            if (Array.isArray(data)) return groupedJsonResponse(response, data as ContactRowLike[]);
+          }
+          return response;
+        } catch {
+          /* fall through to the normal request */
+        }
       }
-      const bulkUrl = url.replace(/\/contacts(\?|$)/, '/contacts/bulk$1');
-      const response = await original(bulkUrl, {
-        ...init,
-        body: JSON.stringify({
-          ...parsedBody,
-          roleIds,
-          departmentIds,
-        }),
-      });
-      clearContactMultiDraft();
-      const contentType = response.headers.get('content-type') ?? '';
-      if (response.ok && contentType.includes('application/json')) {
-        const rows = await response.clone().json();
-        if (Array.isArray(rows)) {
-          return new Response(JSON.stringify(rows[0] ?? null), {
+    }
+
+    const response = await original(input, init);
+    if (method !== 'GET' || !response.ok || !(response.headers.get('content-type') ?? '').includes('application/json')) {
+      return response;
+    }
+    try {
+      if (/\/companies\/\d+\/contacts(?:\?|$)/.test(url) && !/\/contacts\/linked-venues(?:\?|$)/.test(url)) {
+        const data = await response.clone().json();
+        if (Array.isArray(data)) return groupedJsonResponse(response, data as ContactRowLike[]);
+      }
+      if (/\/companies\/\d+\/contacts\/linked-venues(?:\?|$)/.test(url)) {
+        const data = await response.clone().json();
+        if (Array.isArray(data)) {
+          const groupedSections = data.map((section: { contacts?: ContactRowLike[] }) => ({
+            ...section,
+            contacts: Array.isArray(section.contacts) ? groupContactRows(section.contacts) : [],
+          }));
+          return new Response(JSON.stringify(groupedSections), {
             status: response.status,
             statusText: response.statusText,
             headers: response.headers,
           });
         }
       }
-      return response;
     } catch {
-      return original(input, init);
+      return response;
     }
+    return response;
   }) as typeof fetch;
+}
+
+function renderContactBadges(cell: Element, values: string[]) {
+  const clean = values.map((v) => v.trim()).filter(Boolean);
+  cell.textContent = '';
+  if (clean.length === 0) {
+    const empty = document.createElement('span');
+    empty.className = 'text-text-muted';
+    empty.textContent = '—';
+    cell.appendChild(empty);
+    return;
+  }
+  for (const value of clean) {
+    const badge = document.createElement('span');
+    badge.className = 'text-xs bg-elevated px-1 py-0.5 rounded text-text-secondary mr-1 inline-block mb-0.5';
+    badge.textContent = value;
+    cell.appendChild(badge);
+  }
+}
+
+function patchContactTables() {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return;
+  const cache = (window as PatchedWindow).__iaeContactByEmail ?? {};
+  document.querySelectorAll('table').forEach((table) => {
+    const headRow = table.querySelector('thead tr');
+    const body = table.querySelector('tbody');
+    if (!headRow || !body) return;
+    let headers = Array.from(headRow.children).map((th) => (th.textContent ?? '').trim().toLowerCase());
+    const nameIdx = headers.findIndex((h) => h === 'name');
+    const roleIdx = headers.findIndex((h) => h === 'roles' || h === 'role');
+    let deptIdx = headers.findIndex((h) => h === 'departments' || h === 'department');
+    if (nameIdx < 0 || roleIdx < 0) return;
+    if (deptIdx < 0) {
+      const th = document.createElement('th');
+      th.className = (headRow.children[roleIdx] as HTMLElement | undefined)?.className || 'text-left py-2';
+      th.textContent = 'Departments';
+      headRow.insertBefore(th, headRow.children[roleIdx + 1] ?? null);
+      headers = Array.from(headRow.children).map((node) => (node.textContent ?? '').trim().toLowerCase());
+      deptIdx = roleIdx + 1;
+    }
+    const emailIdx = headers.findIndex((h) => h === 'email');
+    const oldEmailIdx = emailIdx > deptIdx ? emailIdx - 1 : emailIdx;
+
+    Array.from(body.children).forEach((tr) => {
+      if (!(tr instanceof HTMLTableRowElement)) return;
+      let cells = Array.from(tr.children);
+      if (cells.length <= deptIdx || (cells[deptIdx].textContent ?? '').trim().includes('@')) {
+        const td = document.createElement('td');
+        td.className = (cells[roleIdx] as HTMLElement | undefined)?.className || 'py-2';
+        tr.insertBefore(td, tr.children[roleIdx + 1] ?? null);
+        cells = Array.from(tr.children);
+      }
+      const emailCell = cells[emailIdx] ?? cells[oldEmailIdx];
+      const roleCell = cells[roleIdx];
+      const deptCell = cells[deptIdx];
+      if (!roleCell || !deptCell) return;
+      const email = normalizeEmail(emailCell?.textContent);
+      const cached = email ? cache[email] : undefined;
+      const roleValues = cached?.roles?.length ? cached.roles : splitContactCellText(roleCell.textContent ?? '');
+      const deptValues = cached?.departments?.length ? cached.departments : splitContactCellText(deptCell.textContent ?? '');
+      renderContactBadges(roleCell, roleValues);
+      renderContactBadges(deptCell, deptValues);
+    });
+  });
+}
+
+function installContactTableDomPatch() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  const w = window as PatchedWindow;
+  if (w.__iaeContactDomPatchInstalled) return;
+  w.__iaeContactDomPatchInstalled = true;
+  const run = () => window.requestAnimationFrame(patchContactTables);
+  w.__iaeContactObserver = new MutationObserver(run);
+  w.__iaeContactObserver.observe(document.body, { childList: true, subtree: true });
+  run();
+}
+
+function installContactEnhancements() {
+  installContactBridge();
+  installContactTableDomPatch();
 }
 
 function useMenuPosition(open: boolean, containerRef: React.RefObject<HTMLDivElement>) {
@@ -193,6 +378,7 @@ export function Select2({
   filterQuery,
   onFilterChange,
 }: Select2Props) {
+  useEffect(installContactEnhancements, []);
   const optionsSafe = options ?? [];
   const contactMultiKindRef = useRef<ContactMultiKind>(value ? null : contactMultiKindFromOptions(optionsSafe));
   const contactMultiKind = contactMultiKindRef.current;
@@ -215,10 +401,6 @@ export function Select2({
   const filtered = parentFiltersOptions
     ? visibleOptions
     : visibleOptions.filter((o) => String(o.label ?? '').toLowerCase().includes(String(search ?? '').toLowerCase()));
-
-  useEffect(() => {
-    if (contactMultiMode) installContactBulkFetchBridge();
-  }, [contactMultiMode]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -399,6 +581,7 @@ interface Select2MultiProps {
 }
 
 export function Select2Multi({ options, values, onChange, placeholder = 'Select...', className = '', disabled = false }: Select2MultiProps) {
+  useEffect(installContactEnhancements, []);
   const optionsSafe = options ?? [];
   const valuesSafe = values ?? [];
   const [open, setOpen] = useState(false);
