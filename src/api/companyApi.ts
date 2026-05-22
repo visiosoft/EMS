@@ -35,59 +35,16 @@ export interface ApiCompanyListRow {
   mailingAddress: ApiAddress;
 }
 
-export interface ApiCompanyType {
-  companyTypeId: number;
-  companyTypeName: string;
-}
-
-export interface ApiRole {
-  roleId: number;
-  roleName: string;
-}
-
-export interface ApiDepartment {
-  departmentId: number;
-  departmentName: string;
-}
-
-export interface ApiSeatingType {
-  seatingTypeId: number;
-  seatingName: string;
-}
-
-export interface ApiVenueType {
-  venueTypeId: number;
-  venueTypeName: string;
-}
-
-export interface ApiBrand {
-  brandId: number;
-  brandName: string;
-}
-
-export interface ApiTax {
-  taxId: number;
-  taxName: string;
-  taxRate: string;
-  taxJurisdictionType: string;
-}
-
-export interface ApiServiceProvided {
-  serviceProvidedId: number;
-  serviceName: string;
-}
-
-export interface ApiStagehandProviderCompany {
-  companyId: number;
-  companyName: string;
-}
-
-export interface ApiNonResidentWithholdingOption {
-  withholdingId: number;
-  withholdingTaxRate: string;
-  dmaid: number | null;
-  taxAgencyId: number | null;
-}
+export interface ApiCompanyType { companyTypeId: number; companyTypeName: string; }
+export interface ApiRole { roleId: number; roleName: string; }
+export interface ApiDepartment { departmentId: number; departmentName: string; }
+export interface ApiSeatingType { seatingTypeId: number; seatingName: string; }
+export interface ApiVenueType { venueTypeId: number; venueTypeName: string; }
+export interface ApiBrand { brandId: number; brandName: string; }
+export interface ApiTax { taxId: number; taxName: string; taxRate: string; taxJurisdictionType: string; }
+export interface ApiServiceProvided { serviceProvidedId: number; serviceName: string; }
+export interface ApiStagehandProviderCompany { companyId: number; companyName: string; }
+export interface ApiNonResidentWithholdingOption { withholdingId: number; withholdingTaxRate: string; dmaid: number | null; taxAgencyId: number | null; }
 
 export type ApiVenueProfileResponse =
   | { missing: true }
@@ -103,14 +60,12 @@ export type ApiVenueProfileResponse =
       venueRelationshipIae: string;
       venueTypeId: number | null;
       venueTypeName: string | null;
-      /** At most one id (one entertainment complex per venue). */
       entertainmentComplexCompanyIds: number[];
       entertainmentComplexes: { companyId: number; companyName: string }[];
       seatingTypeId: number | null;
       seatingTypeName: string | null;
       ticketingSystem: string | null;
       venueWebsite: string | null;
-      /** dbo.VenueBrand — BrandID values linked to this venue company. */
       brandIds: number[];
       loadDockAddress: ApiAddress | null;
     };
@@ -141,7 +96,6 @@ export interface ApiEngagementRow {
   engagementStatus: string;
   tourName: string | null;
   attractionName: string | null;
-  /** Same format as the main Engagements list. */
   displayTitle: string;
 }
 
@@ -152,7 +106,6 @@ export interface ApiVenueTicketing {
   venueWebsite: string | null;
 }
 
-/** One contact row for a venue role (UI may show several per role). */
 export type ApiVenueRoleContact = {
   contactInfoId: number;
   fullName: string;
@@ -187,27 +140,9 @@ export type ApiVenueDetailsResponse =
         withholdingTaxRate: string;
         dmaid: number | null;
         taxAgencyId: number | null;
-        withholdingLink: null | {
-          linkId: number;
-          linkType: string;
-          linkUrl: string;
-          linkName: string;
-          linkPath: string;
-        };
-        artistWaiverInstructions: null | {
-          linkId: number;
-          linkType: string;
-          linkUrl: string;
-          linkName: string;
-          linkPath: string;
-        };
-        iaeWaiverInstructions: null | {
-          linkId: number;
-          linkType: string;
-          linkUrl: string;
-          linkName: string;
-          linkPath: string;
-        };
+        withholdingLink: null | { linkId: number; linkType: string; linkUrl: string; linkName: string; linkPath: string };
+        artistWaiverInstructions: null | { linkId: number; linkType: string; linkUrl: string; linkName: string; linkPath: string };
+        iaeWaiverInstructions: null | { linkId: number; linkType: string; linkUrl: string; linkName: string; linkPath: string };
       };
     };
 
@@ -219,23 +154,9 @@ export interface CreateCompanyPayload {
   allDmas?: boolean;
   allDmasServiceProvidedId?: number;
   dmaId?: number;
-  physical: {
-    addressLine1: string;
-    addressLine2?: string | null;
-    city: string;
-    stateProvince: string;
-    postalCode: string;
-    country: string;
-  };
+  physical: { addressLine1: string; addressLine2?: string | null; city: string; stateProvince: string; postalCode: string; country: string };
   mailingSameAsPhysical?: boolean;
-  mailing?: {
-    addressLine1: string;
-    addressLine2?: string | null;
-    city: string;
-    stateProvince: string;
-    postalCode: string;
-    country: string;
-  };
+  mailing?: { addressLine1: string; addressLine2?: string | null; city: string; stateProvince: string; postalCode: string; country: string };
 }
 
 export interface UpdateCompanyPayload {
@@ -253,36 +174,22 @@ export interface UpdateCompanyPayload {
 
 export type ApiDmaMarket = { dmaid: number; marketName: string; postalCode: string };
 export type ApiDmaMarketsPage = { data: ApiDmaMarket[]; total: number };
-
-export interface ApiPaginatedResponse<T> {
-  data: T[];
-  total: number;
-}
+export interface ApiPaginatedResponse<T> { data: T[]; total: number; }
 
 export const companiesApiQueryKey = ['companies', 'api'] as const;
 export const companiesServerSearchQueryKeyPrefix = ['companies', 'api', 'serverSearch'] as const;
-
-export type CompanyListQueryOpts = {
-  q?: string;
-  companyType?: string;
-  sortBy?: string;
-  sortDir?: 'asc' | 'desc';
-};
+export type CompanyListQueryOpts = { q?: string; companyType?: string; sortBy?: string; sortDir?: 'asc' | 'desc'; };
 
 export function companiesListQueryKey(offset: number, limit: number, opts: CompanyListQueryOpts) {
   return ['companies', 'list', offset, limit, opts.q ?? '', opts.companyType ?? '', opts.sortBy ?? '', opts.sortDir ?? ''] as const;
 }
-
 export function fetchCompanies(offset = 0, limit = 25, opts?: CompanyListQueryOpts) {
   const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
   const trimmed = opts?.q?.trim();
   if (trimmed) params.set('q', trimmed);
   const ct = opts?.companyType?.trim();
   if (ct && ct !== 'All') params.set('companyType', ct);
-  if (opts?.sortBy?.trim()) {
-    params.set('sortBy', opts.sortBy.trim());
-    if (opts.sortDir) params.set('sortDir', opts.sortDir);
-  }
+  if (opts?.sortBy?.trim()) { params.set('sortBy', opts.sortBy.trim()); if (opts.sortDir) params.set('sortDir', opts.sortDir); }
   return apiFetch<ApiPaginatedResponse<ApiCompanyListRow>>(`/companies?${params}`);
 }
 
@@ -307,10 +214,7 @@ export function fetchCompanyContacts(companyId: number, opts?: { roleId?: number
   const qs = params.toString();
   return apiFetch<ApiCompanyContact[]>(qs ? `/companies/${companyId}/contacts?${qs}` : `/companies/${companyId}/contacts`).then((data) => (Array.isArray(data) ? data : []));
 }
-
-export function fetchCompanyLinkedVenueContacts(companyId: number) {
-  return apiFetch<ApiCompanyVenueLinkedContactsSection[]>(`/companies/${companyId}/contacts/linked-venues`).then((data) => (Array.isArray(data) ? data : []));
-}
+export function fetchCompanyLinkedVenueContacts(companyId: number) { return apiFetch<ApiCompanyVenueLinkedContactsSection[]>(`/companies/${companyId}/contacts/linked-venues`).then((data) => (Array.isArray(data) ? data : [])); }
 
 export type CompanyContactCreatePayload = {
   firstName: string;
@@ -323,39 +227,26 @@ export type CompanyContactCreatePayload = {
   roleIds?: number[];
   departmentIds?: number[];
 };
-
 export function createCompanyContact(companyId: number, body: CompanyContactCreatePayload) {
   const roleIds = body.roleIds?.filter((id) => Number.isInteger(id) && id > 0) ?? [];
   const departmentIds = body.departmentIds?.filter((id) => Number.isInteger(id) && id > 0) ?? [];
   if (roleIds.length > 0 || departmentIds.length > 0) {
-    return apiFetch<ApiCompanyContact[]>(`/companies/${companyId}/contacts/bulk`, {
-      method: 'POST',
-      body: JSON.stringify({ ...body, roleIds, departmentIds }),
-    });
+    return apiFetch<ApiCompanyContact[]>(`/companies/${companyId}/contacts/bulk`, { method: 'POST', body: JSON.stringify({ ...body, roleIds, departmentIds }) });
   }
   return apiFetch<ApiCompanyContact>(`/companies/${companyId}/contacts`, { method: 'POST', body: JSON.stringify(body) });
 }
-
-export function updateContactAssignment(
-  assignmentId: number,
-  body: Partial<{ firstName: string; lastName: string; email: string; cellPhone: string | null; workPhone: string | null; roleId: number; departmentId: number }>,
-) {
+export function updateContactAssignment(assignmentId: number, body: Partial<{ firstName: string; lastName: string; email: string; cellPhone: string | null; workPhone: string | null; roleId: number; departmentId: number }>) {
   return apiFetch<ApiCompanyContact>(`/contact-assignments/${assignmentId}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
-
 export function deleteContactAssignment(assignmentId: number) { return apiFetch<void>(`/contact-assignments/${assignmentId}`, { method: 'DELETE' }); }
 export function fetchCompanyEngagements(companyId: number) { return apiFetch<ApiEngagementRow[]>(`/companies/${companyId}/engagements`); }
 export function fetchVenueTicketing(companyId: number) { return apiFetch<ApiVenueTicketing | null>(`/companies/${companyId}/venue-ticketing`); }
 export function fetchVenueProfile(companyId: number) { return apiFetch<ApiVenueProfileResponse>(`/companies/${companyId}/venue-profile`); }
 export function provisionVenueProfile(companyId: number) { return apiFetch<{ created: boolean }>(`/companies/${companyId}/venue-profile/provision`, { method: 'POST' }); }
-
 export function updateVenueProfile(companyId: number, body: Partial<{ venueName: string; seatingCapacity: number; salesTaxRate: string | null; taxInCart: boolean; insuranceLanguage: string | null; insurancePolicyCopyRequirements: string | null; venueRelationshipIae: string; venueTypeId: number | null; entertainmentComplexCompanyIds: number[]; seatingTypeId: number | null; ticketingSystem: string | null; venueWebsite: string | null; loadDockAddress: { addressLine1: string; addressLine2?: string | null; city: string; stateProvince: string; postalCode: string; country: string } | null; brandIds?: number[] }>) {
   return apiFetch<void>(`/companies/${companyId}/venue-profile`, { method: 'PATCH', body: JSON.stringify(body) });
 }
-
-export function updateVenueTicketing(companyId: number, body: { seatingTypeId?: number | null; ticketingSystem?: string | null; venueWebsite?: string | null }) {
-  return apiFetch<{ updated: boolean }>(`/companies/${companyId}/venue-ticketing`, { method: 'PATCH', body: JSON.stringify(body) });
-}
+export function updateVenueTicketing(companyId: number, body: { seatingTypeId?: number | null; ticketingSystem?: string | null; venueWebsite?: string | null }) { return apiFetch<{ updated: boolean }>(`/companies/${companyId}/venue-ticketing`, { method: 'PATCH', body: JSON.stringify(body) }); }
 
 export function fetchLookups() {
   return Promise.all([
@@ -371,43 +262,21 @@ export function fetchLookups() {
     apiFetch<ApiNonResidentWithholdingOption[]>('/lookups/non-resident-withholdings'),
   ]).then(([companyTypes, roles, departments, seatingTypes, venueTypes, brands, taxes, servicesProvided, stagehandProviders, nonResidentWithholdings]) => ({ companyTypes, roles, departments, seatingTypes, venueTypes, brands, taxes, servicesProvided, stagehandProviders, nonResidentWithholdings }));
 }
-
 export function fetchStagehandProviderCompanies() { return apiFetch<ApiStagehandProviderCompany[]>('/lookups/stagehand-providers').then((data) => (Array.isArray(data) ? data : [])); }
 export function fetchVenueDetails(companyId: number) { return apiFetch<ApiVenueDetailsResponse>(`/companies/${companyId}/venue-details`); }
-
-export function updateVenueDetails(
-  companyId: number,
-  body: Partial<{
-    venueProfile: Parameters<typeof updateVenueProfile>[1];
-    brandIds: number[];
-    taxIds: number[];
-    stagehandProviderCompanyId: number | null;
-    nonResidentWithholdingId: number | null;
-    hasStateTaxOnTickets: 0 | 1;
-    hasCityTaxOnTickets: 0 | 1;
-    financeDirectors: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[];
-    settlementManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[];
-    marketingDirectors: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[];
-    technicalDirectors: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[];
-    ticketingManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[];
-    bookingDirectors: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[];
-    rentalManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[];
-    calendarManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[];
-    contractManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[];
-    stagehandProviderContacts: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[];
-    nonResidentWithholding: {
-      withholdingTaxRate?: string;
-      dmaid?: number | null;
-      taxAgencyId?: number | null;
-      withholdingLink?: { linkId?: number | null; linkType?: string; linkUrl?: string; linkName?: string; linkPath?: string } | null;
-      artistWaiverInstructions?: { linkId?: number | null; linkType?: string; linkUrl?: string; linkName?: string; linkPath?: string } | null;
-      iaeWaiverInstructions?: { linkId?: number | null; linkType?: string; linkUrl?: string; linkName?: string; linkPath?: string } | null;
-    } | null;
-  }>,
-) { return apiFetch<{ updated: boolean }>(`/companies/${companyId}/venue-details`, { method: 'PATCH', body: JSON.stringify(body) }); }
+export function updateVenueDetails(companyId: number, body: Partial<{ venueProfile: Parameters<typeof updateVenueProfile>[1]; brandIds: number[]; taxIds: number[]; stagehandProviderCompanyId: number | null; nonResidentWithholdingId: number | null; hasStateTaxOnTickets: 0 | 1; hasCityTaxOnTickets: 0 | 1; financeDirectors: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; settlementManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; marketingDirectors: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; technicalDirectors: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; ticketingManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; bookingDirectors: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; rentalManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; calendarManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; contractManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; stagehandProviderContacts: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; nonResidentWithholding: { withholdingTaxRate?: string; dmaid?: number | null; taxAgencyId?: number | null; withholdingLink?: { linkId?: number | null; linkType?: string; linkUrl?: string; linkName?: string; linkPath?: string } | null; artistWaiverInstructions?: { linkId?: number | null; linkType?: string; linkUrl?: string; linkName?: string; linkPath?: string } | null; iaeWaiverInstructions?: { linkId?: number | null; linkType?: string; linkUrl?: string; linkName?: string; linkPath?: string } | null } | null }>) {
+  return apiFetch<{ updated: boolean }>(`/companies/${companyId}/venue-details`, { method: 'PATCH', body: JSON.stringify(body) });
+}
 
 export function fetchDmaByPostal(postalCode: string) {
   const params = new URLSearchParams({ postalCode });
   return apiFetch<{ dmaid: number; marketName: string; postalCode: string } | null>(`/lookups/dma-by-postal?${params}`);
 }
-export function fetchDmaMarketsPage(offset = 0, limit = 500, q = '') { const params = new URLSearchParams({ offset: String(offset), limit: String(limit) }); if (q.trim()) params.set('q', q.trim()); return apiFetch<ApiDmaMarketsPage>(`/lookups/dma-markets?${params}`); }
+export function fetchDmaMarketsPage(offset = 0, limit = 500, q = '') {
+  const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+  if (q.trim()) params.set('q', q.trim());
+  return apiFetch<ApiDmaMarketsPage>(`/lookups/dma-markets?${params}`);
+}
+export function fetchDmaMarketsPaged(offset = 0, limit = 500, q = '') {
+  return fetchDmaMarketsPage(offset, limit, q);
+}
