@@ -14,10 +14,7 @@ import {
   Ticket,
   TrendingUp,
 } from 'lucide-react';
-import {
-  fetchDailySalesByPerformance,
-  type ApiPerformanceSalesRow,
-} from '@/api/dailySalesApi';
+import { fetchDailySalesByPerformance, type ApiPerformanceSalesRow } from '@/api/dailySalesApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { Select2 } from './Select2';
 
@@ -33,22 +30,17 @@ type SortColumn =
   | 'grossPotential'
   | 'grossSalesToDate'
   | 'soldYesterday'
-  | 'totalSold'
-  | 'yesterdayRevenue'
-  | 'totalRevenue';
+  | 'totalSold';
 
 interface SortState {
   col: SortColumn;
   dir: 'asc' | 'desc';
 }
 
-type PerformanceSalesRowWithMarket = ApiPerformanceSalesRow & {
-  dmaMarketName?: string | null;
-};
+type PerformanceSalesRowWithMarket = ApiPerformanceSalesRow & { dmaMarketName?: string | null };
 
 function rowMarketName(row: ApiPerformanceSalesRow): string | null {
-  const withMarket = row as PerformanceSalesRowWithMarket;
-  return withMarket.dmaMarketName ?? row.city ?? null;
+  return (row as PerformanceSalesRowWithMarket).dmaMarketName ?? row.city ?? null;
 }
 
 function finiteNumberOrNull(value: number | null | undefined): number | null {
@@ -56,28 +48,14 @@ function finiteNumberOrNull(value: number | null | undefined): number | null {
 }
 
 function grossSalesToDate(row: ApiPerformanceSalesRow): number | null {
-  // TicketingSales stores cumulative snapshots. For a selected report date,
-  // display the selected-date snapshot, falling back to the prior-day snapshot
-  // only when the selected date has no row yet.
-  return (
-    finiteNumberOrNull(row.todayRevenue) ??
-    finiteNumberOrNull(row.yesterdayRevenue) ??
-    finiteNumberOrNull(row.totalRevenue)
-  );
+  return finiteNumberOrNull(row.todayRevenue) ?? finiteNumberOrNull(row.yesterdayRevenue) ?? finiteNumberOrNull(row.totalRevenue);
 }
 
 function totalSoldToDate(row: ApiPerformanceSalesRow): number {
-  return (
-    finiteNumberOrNull(row.todayTicketsSold) ??
-    finiteNumberOrNull(row.yesterdayTicketsSold) ??
-    finiteNumberOrNull(row.totalSold) ??
-    0
-  );
+  return finiteNumberOrNull(row.todayTicketsSold) ?? finiteNumberOrNull(row.yesterdayTicketsSold) ?? finiteNumberOrNull(row.totalSold) ?? 0;
 }
 
 function soldYesterday(row: ApiPerformanceSalesRow): number {
-  // This column means the prior calendar day relative to the selected report date.
-  // If there is no prior-day snapshot, show zero instead of borrowing report-day delta.
   return finiteNumberOrNull(row.yesterdayTicketsSold) ?? 0;
 }
 
@@ -87,10 +65,7 @@ function revenueYesterday(row: ApiPerformanceSalesRow): number {
 
 function todayLocalYmd(): string {
   const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function ymdAddMonths(ymd: string, months: number): string {
@@ -124,8 +99,7 @@ function fmtTime12(hhmm: string): string {
   if (!hhmm) return '';
   const [h, m] = hhmm.split(':').map(Number);
   const hr = h % 12 || 12;
-  const mm = String(m).padStart(2, '0');
-  return `${String(hr).padStart(2, '0')}:${mm} ${h >= 12 ? 'PM' : 'AM'}`;
+  return `${String(hr).padStart(2, '0')}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
 }
 
 function compareStrings(a: string | null | undefined, b: string | null | undefined): number {
@@ -146,8 +120,7 @@ function compareNumbers(a: number | null | undefined, b: number | null | undefin
 
 function sortRows(rows: ApiPerformanceSalesRow[], sort: SortState): ApiPerformanceSalesRow[] {
   const sign = sort.dir === 'asc' ? 1 : -1;
-  const out = [...rows];
-  out.sort((a, b) => {
+  return [...rows].sort((a, b) => {
     let n = 0;
     switch (sort.col) {
       case 'attraction':
@@ -157,9 +130,7 @@ function sortRows(rows: ApiPerformanceSalesRow[], sort: SortState): ApiPerforman
         n = compareStrings(`${a.performanceDate}T${a.performanceTime ?? '00:00:00'}`, `${b.performanceDate}T${b.performanceTime ?? '00:00:00'}`);
         break;
       case 'venue':
-        n =
-          compareStrings(a.venueName ?? a.venueCompanyName, b.venueName ?? b.venueCompanyName) ||
-          compareStrings(rowMarketName(a), rowMarketName(b));
+        n = compareStrings(a.venueName ?? a.venueCompanyName, b.venueName ?? b.venueCompanyName) || compareStrings(rowMarketName(a), rowMarketName(b));
         break;
       case 'sellableCapacity':
         n = compareNumbers(a.engagementSellableCapacity, b.engagementSellableCapacity);
@@ -176,16 +147,9 @@ function sortRows(rows: ApiPerformanceSalesRow[], sort: SortState): ApiPerforman
       case 'totalSold':
         n = compareNumbers(totalSoldToDate(a), totalSoldToDate(b));
         break;
-      case 'yesterdayRevenue':
-        n = compareNumbers(revenueYesterday(a), revenueYesterday(b));
-        break;
-      case 'totalRevenue':
-        n = compareNumbers(grossSalesToDate(a), grossSalesToDate(b));
-        break;
     }
     return n * sign;
   });
-  return out;
 }
 
 function KpiCard({
@@ -249,14 +213,7 @@ function SortHeader({
   const active = sort.col === col;
   const Arrow = sort.dir === 'asc' ? ArrowUp : ArrowDown;
   return (
-    <th
-      scope="col"
-      className={[
-        'px-4 py-3 align-middle select-none whitespace-nowrap',
-        align === 'right' ? 'text-right' : 'text-left',
-        className ?? '',
-      ].join(' ')}
-    >
+    <th scope="col" className={['px-4 py-3 align-middle select-none whitespace-nowrap', align === 'right' ? 'text-right' : 'text-left', className ?? ''].join(' ')}>
       <button
         type="button"
         onClick={() => onToggle(col)}
@@ -303,13 +260,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   const rangeOk = isoYmd(startDate) && isoYmd(endDate) && startDate <= endDate;
   const reportAsOfDate = rangeOk ? startDate : today;
 
-  const activeFilterCount =
-    (attractionFilter ? 1 : 0) +
-    (genreFilter ? 1 : 0) +
-    (tourFilter ? 1 : 0) +
-    (companyFilter ? 1 : 0) +
-    (venueFilter ? 1 : 0) +
-    (contactFilter ? 1 : 0);
+  const activeFilterCount = (attractionFilter ? 1 : 0) + (genreFilter ? 1 : 0) + (tourFilter ? 1 : 0) + (companyFilter ? 1 : 0) + (venueFilter ? 1 : 0) + (contactFilter ? 1 : 0);
 
   const handleResetFilters = () => {
     setAttractionFilter('');
@@ -349,13 +300,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   const searchedRows = useMemo(() => {
     const q = searchInput.trim().toLowerCase();
     if (!q) return rawRows;
-    return rawRows.filter((r) => {
-      const hay = [r.attractionName, r.tourName, r.venueName, r.venueCompanyName, rowMarketName(r), r.performanceDate]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      return hay.includes(q);
-    });
+    return rawRows.filter((r) => [r.attractionName, r.tourName, r.venueName, r.venueCompanyName, rowMarketName(r), r.performanceDate].filter(Boolean).join(' ').toLowerCase().includes(q));
   }, [rawRows, searchInput]);
 
   const rows = useMemo(() => sortRows(searchedRows, sort), [searchedRows, sort]);
@@ -372,9 +317,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
     return { events: rows.length, totalSold, totalRevenue, revenueYesterday: revenuePriorDay };
   }, [rows]);
 
-  const toggleSort = (col: SortColumn) => {
-    setSort((s) => (s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' }));
-  };
+  const toggleSort = (col: SortColumn) => setSort((s) => (s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' }));
 
   const attractionOptions = useMemo(() => [{ value: '', label: 'All attractions' }, ...((pageData?.attractions ?? []).map((a) => ({ value: a.attractionName, label: a.attractionName })))], [pageData?.attractions]);
   const genreOptions = useMemo(() => [{ value: '', label: 'All genres' }, ...((pageData?.filterOptions.genres ?? []).map((n) => ({ value: n, label: n })))], [pageData?.filterOptions.genres]);
@@ -384,8 +327,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   const contactOptions = useMemo(() => [{ value: '', label: 'All contacts' }, ...((pageData?.filterOptions.contacts ?? []).map((n) => ({ value: n, label: n })))], [pageData?.filterOptions.contacts]);
 
   const isLoading = query.isPending;
-  const isFetching = query.isFetching;
-  const isRefreshing = isFetching && !isLoading;
+  const isRefreshing = query.isFetching && !isLoading;
   const dateInputClass = 'h-9 w-full rounded-lg border border-border bg-background px-2.5 text-sm text-text-primary shadow-sm focus:outline-none focus:ring-2 focus:ring-ems-accent/30 focus:border-ems-accent transition-colors';
 
   return (
@@ -469,7 +411,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
           {query.isError ? <div className="m-4 rounded-md border border-ems-coral/30 bg-ems-coral-dim px-3 py-2 text-sm text-ems-coral">{friendlyApiError(query.error)}</div> : null}
 
           <div className="relative overflow-x-auto">
-            <table className="w-full text-sm" style={{ minWidth: '1180px' }}>
+            <table className="w-full text-sm" style={{ minWidth: '980px' }}>
               <thead className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm">
                 <tr className="border-b border-border">
                   <SortHeader col="attraction" label="Attraction, Tour" sort={sort} onToggle={toggleSort} />
@@ -480,8 +422,6 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                   <SortHeader col="grossSalesToDate" label={<span className="italic">Gross Sales To Date</span>} title="Gross Sales To Date" sort={sort} onToggle={toggleSort} align="right" />
                   <SortHeader col="soldYesterday" label="Sold yesterday" sort={sort} onToggle={toggleSort} align="right" />
                   <SortHeader col="totalSold" label="Total sold" sort={sort} onToggle={toggleSort} align="right" />
-                  <SortHeader col="yesterdayRevenue" label="Revenue yesterday" sort={sort} onToggle={toggleSort} align="right" />
-                  <SortHeader col="totalRevenue" label="Total revenue" sort={sort} onToggle={toggleSort} align="right" />
                   <th className="w-8 px-2 py-3" aria-hidden />
                 </tr>
               </thead>
@@ -489,12 +429,12 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                 {isLoading ? (
                   Array.from({ length: 8 }).map((_, i) => (
                     <tr key={`skel-${i}`} className="border-b border-border/50">
-                      {Array.from({ length: 11 }).map((__, j) => <td key={j} className="px-4 py-3.5"><div className="h-3 rounded bg-muted/70 animate-pulse" style={{ width: j === 0 ? '82%' : j < 4 ? '70%' : '50%' }} /></td>)}
+                      {Array.from({ length: 9 }).map((__, j) => <td key={j} className="px-4 py-3.5"><div className="h-3 rounded bg-muted/70 animate-pulse" style={{ width: j === 0 ? '82%' : j < 4 ? '70%' : '50%' }} /></td>)}
                     </tr>
                   ))
                 ) : rows.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="py-16">
+                    <td colSpan={9} className="py-16">
                       <div className="flex flex-col items-center justify-center gap-2 text-text-muted">
                         <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-elevated"><CalendarRange className="h-6 w-6 text-text-muted" aria-hidden /></div>
                         <p className="text-sm font-medium text-text-secondary">No events match your filters</p>
@@ -513,7 +453,6 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                     const grossSalesValue = grossSalesToDate(r);
                     const soldYesterdayValue = soldYesterday(r);
                     const totalSoldValue = totalSoldToDate(r);
-                    const revenueYesterdayValue = revenueYesterday(r);
                     return (
                       <tr key={`${r.performanceId}-${r.engagementId}`} className={['group border-b border-border/60 cursor-pointer transition-colors', zebra, 'hover:bg-ems-accent-dim/30'].join(' ')} onClick={() => onOpenEngagement(r.engagementId, r.performanceId)} title="Open sales trends">
                         <td className="px-4 py-3 align-top">
@@ -527,8 +466,6 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">{grossSalesValue != null ? fmtCurrency(grossSalesValue) : <span className="text-text-muted font-normal">—</span>}</td>
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums text-text-secondary">{soldYesterdayValue > 0 ? soldYesterdayValue.toLocaleString() : <span className="text-text-muted">—</span>}</td>
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">{totalSoldValue > 0 ? totalSoldValue.toLocaleString() : <span className="text-text-muted font-normal">—</span>}</td>
-                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums text-text-secondary">{revenueYesterdayValue > 0 ? fmtCurrency(revenueYesterdayValue) : <span className="text-text-muted">—</span>}</td>
-                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-semibold text-ems-green">{grossSalesValue != null && grossSalesValue > 0 ? fmtCurrency(grossSalesValue) : <span className="text-text-muted font-normal">—</span>}</td>
                         <td className="w-8 px-2 py-3 align-middle text-text-muted opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight className="h-4 w-4" aria-hidden /></td>
                       </tr>
                     );
