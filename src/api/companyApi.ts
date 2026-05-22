@@ -260,23 +260,33 @@ function rememberContactDepartments(rows: ApiCompanyContact[]) {
 }
 
 function injectContactDepartmentColumnStyle() {
-  if (typeof document === 'undefined' || document.getElementById(CONTACT_DEPARTMENT_STYLE_ID)) return;
+  if (typeof document === 'undefined') return;
+  const existing = document.getElementById(CONTACT_DEPARTMENT_STYLE_ID);
+  if (existing) existing.remove();
   const style = document.createElement('style');
   style.id = CONTACT_DEPARTMENT_STYLE_ID;
   style.textContent = `
+    table.iae-contact-departments-visual {
+      table-layout: fixed;
+    }
+    table.iae-contact-departments-visual th:nth-child(1),
+    table.iae-contact-departments-visual td:nth-child(1) {
+      width: 23%;
+    }
     table.iae-contact-departments-visual th:nth-child(2),
     table.iae-contact-departments-visual td:nth-child(2) {
-      min-width: 19rem;
-      width: 19rem;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-      column-gap: 0.75rem;
-      align-items: center;
+      width: 28%;
+      min-width: 22rem;
+      position: relative;
+      padding-right: 14rem;
     }
     table.iae-contact-departments-visual th:nth-child(2)::after {
       content: 'Departments';
-      display: block;
-      min-width: 0;
+      position: absolute;
+      left: calc(50% + 0.35rem);
+      top: 50%;
+      transform: translateY(-50%);
+      width: calc(50% - 0.35rem);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -284,12 +294,15 @@ function injectContactDepartmentColumnStyle() {
       font: inherit;
       letter-spacing: inherit;
       text-transform: inherit;
+      pointer-events: none;
     }
     table.iae-contact-departments-visual td:nth-child(2)::after {
       content: attr(data-departments);
-      justify-self: start;
-      max-width: 100%;
-      min-width: 0;
+      position: absolute;
+      left: calc(50% + 0.35rem);
+      top: 50%;
+      transform: translateY(-50%);
+      max-width: calc(50% - 0.35rem);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -300,6 +313,7 @@ function injectContactDepartmentColumnStyle() {
       font-size: 0.75rem;
       line-height: 1rem;
       padding: 0.125rem 0.5rem;
+      pointer-events: none;
     }
     table.iae-contact-departments-visual td:nth-child(2)[data-departments='']::after {
       content: '—';
@@ -308,6 +322,25 @@ function injectContactDepartmentColumnStyle() {
       color: rgb(148 163 184);
       padding-left: 0;
       padding-right: 0;
+    }
+    table.iae-contact-departments-visual th:nth-child(3),
+    table.iae-contact-departments-visual td:nth-child(3) {
+      width: 30%;
+    }
+    table.iae-contact-departments-visual th:nth-child(4),
+    table.iae-contact-departments-visual td:nth-child(4) {
+      width: 14%;
+    }
+    table.iae-contact-departments-visual th:nth-child(5),
+    table.iae-contact-departments-visual td:nth-child(5) {
+      width: 5%;
+    }
+    @media (max-width: 900px) {
+      table.iae-contact-departments-visual th:nth-child(2),
+      table.iae-contact-departments-visual td:nth-child(2) {
+        min-width: 18rem;
+        padding-right: 10rem;
+      }
     }
   `;
   document.head.appendChild(style);
