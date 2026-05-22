@@ -30,7 +30,10 @@ type SortColumn =
   | 'grossPotential'
   | 'grossSalesToDate'
   | 'soldYesterday'
-  | 'totalSold';
+  | 'totalSold'
+  | 'venueCapacitySoldPct'
+  | 'grossPotentialSoldPct'
+  | 'yesterdayRevenue';
 
 interface SortState {
   col: SortColumn;
@@ -63,6 +66,21 @@ function revenueYesterday(row: ApiPerformanceSalesRow): number {
   return finiteNumberOrNull(row.yesterdayRevenue) ?? 0;
 }
 
+function percentage(numerator: number | null | undefined, denominator: number | null | undefined): number | null {
+  const n = finiteNumberOrNull(numerator);
+  const d = finiteNumberOrNull(denominator);
+  if (n == null || d == null || d <= 0) return null;
+  return (n / d) * 100;
+}
+
+function venueCapacitySoldPct(row: ApiPerformanceSalesRow): number | null {
+  return percentage(totalSoldToDate(row), row.engagementSellableCapacity);
+}
+
+function grossPotentialSoldPct(row: ApiPerformanceSalesRow): number | null {
+  return percentage(grossSalesToDate(row), row.engagementGrossPotential);
+}
+
 function todayLocalYmd(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -84,6 +102,13 @@ function fmtCurrency(n: number | null | undefined, compact = false): string {
     maximumFractionDigits: 0,
     notation: compact ? 'compact' : 'standard',
   }).format(n);
+}
+
+function fmtPercent(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return '';
+  return new Intl.NumberFormat('en-US', {
+    maximumFractionDigits: 1,
+  }).format(n) + '%';
 }
 
 function fmtEventDate(iso: string): { date: string; time: string } {
@@ -146,6 +171,15 @@ function sortRows(rows: ApiPerformanceSalesRow[], sort: SortState): ApiPerforman
         break;
       case 'totalSold':
         n = compareNumbers(totalSoldToDate(a), totalSoldToDate(b));
+        break;
+      case 'venueCapacitySoldPct':
+        n = compareNumbers(venueCapacitySoldPct(a), venueCapacitySoldPct(b));
+        break;
+      case 'grossPotentialSoldPct':
+        n = compareNumbers(grossPotentialSoldPct(a), grossPotentialSoldPct(b));
+        break;
+      case 'yesterdayRevenue':
+        n = compareNumbers(revenueYesterday(a), revenueYesterday(b));
         break;
     }
     return n * sign;
@@ -411,7 +445,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
           {query.isError ? <div className="m-4 rounded-md border border-ems-coral/30 bg-ems-coral-dim px-3 py-2 text-sm text-ems-coral">{friendlyApiError(query.error)}</div> : null}
 
           <div className="relative overflow-x-auto">
-            <table className="w-full text-sm" style={{ minWidth: '980px' }}>
+            <table className="w-full text-sm" style={{ minWidth: '1440px' }}>
               <thead className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm">
                 <tr className="border-b border-border">
                   <SortHeader col="attraction" label="Attraction, Tour" sort={sort} onToggle={toggleSort} />
@@ -421,7 +455,10 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                   <SortHeader col="grossPotential" label={<span className="italic">Gross Ticket Sales Potential</span>} title="Gross Ticket Sales Potential" sort={sort} onToggle={toggleSort} align="right" />
                   <SortHeader col="grossSalesToDate" label={<span className="italic">Gross Sales To Date</span>} title="Gross Sales To Date" sort={sort} onToggle={toggleSort} align="right" />
                   <SortHeader col="soldYesterday" label="Sold yesterday" sort={sort} onToggle={toggleSort} align="right" />
-                  <SortHeader col="totalSold" label="Total sold" sort={sort} onToggle={toggleSort} align="right" />
+                  <SortHeader col="totalSold" label={<span className="italic">Cumulative Tickets Sold To Date</span>} title="Cumulative Tickets Sold To Date" sort={sort} onToggle={toggleSort} align="right" />
+                  <SortHeader col="venueCapacitySoldPct" label={<span className="italic">Percentage of Venue Capacity Sold to Date</span>} title="Percentage of Venue Capacity Sold to Date" sort={sort} onToggle={toggleSort} align="right" />
+                  <SortHeader col="grossPotentialSoldPct" label={<span className="italic">Percentage of Gross Potential Sold to Date</span>} title="Percentage of Gross Potential Sold to Date" sort={sort} onToggle={toggleSort} align="right" />
+                  <SortHeader col="yesterdayRevenue" label={<span className="italic">Yesterday's Sales Revenue</span>} title="Yesterday's Sales Revenue" sort={sort} onToggle={toggleSort} align="right" />
                   <th className="w-8 px-2 py-3" aria-hidden />
                 </tr>
               </thead>
@@ -429,12 +466,12 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                 {isLoading ? (
                   Array.from({ length: 8 }).map((_, i) => (
                     <tr key={`skel-${i}`} className="border-b border-border/50">
-                      {Array.from({ length: 9 }).map((__, j) => <td key={j} className="px-4 py-3.5"><div className="h-3 rounded bg-muted/70 animate-pulse" style={{ width: j === 0 ? '82%' : j < 4 ? '70%' : '50%' }} /></td>)}
+                      {Array.from({ length: 12 }).map((__, j) => <td key={j} className="px-4 py-3.5"><div className="h-3 rounded bg-muted/70 animate-pulse" style={{ width: j === 0 ? '82%' : j < 4 ? '70%' : '50%' }} /></td>)}
                     </tr>
                   ))
                 ) : rows.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="py-16">
+                    <td colSpan={12} className="py-16">
                       <div className="flex flex-col items-center justify-center gap-2 text-text-muted">
                         <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-elevated"><CalendarRange className="h-6 w-6 text-text-muted" aria-hidden /></div>
                         <p className="text-sm font-medium text-text-secondary">No events match your filters</p>
@@ -453,6 +490,9 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                     const grossSalesValue = grossSalesToDate(r);
                     const soldYesterdayValue = soldYesterday(r);
                     const totalSoldValue = totalSoldToDate(r);
+                    const venueCapacityPctValue = venueCapacitySoldPct(r);
+                    const grossPotentialPctValue = grossPotentialSoldPct(r);
+                    const yesterdaySalesRevenueValue = revenueYesterday(r);
                     return (
                       <tr key={`${r.performanceId}-${r.engagementId}`} className={['group border-b border-border/60 cursor-pointer transition-colors', zebra, 'hover:bg-ems-accent-dim/30'].join(' ')} onClick={() => onOpenEngagement(r.engagementId, r.performanceId)} title="Open sales trends">
                         <td className="px-4 py-3 align-top">
@@ -466,6 +506,9 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">{grossSalesValue != null ? fmtCurrency(grossSalesValue) : <span className="text-text-muted font-normal">—</span>}</td>
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums text-text-secondary">{soldYesterdayValue > 0 ? soldYesterdayValue.toLocaleString() : <span className="text-text-muted">—</span>}</td>
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">{totalSoldValue > 0 ? totalSoldValue.toLocaleString() : <span className="text-text-muted font-normal">—</span>}</td>
+                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums text-text-secondary">{venueCapacityPctValue != null ? fmtPercent(venueCapacityPctValue) : <span className="text-text-muted">—</span>}</td>
+                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums text-text-secondary">{grossPotentialPctValue != null ? fmtPercent(grossPotentialPctValue) : <span className="text-text-muted">—</span>}</td>
+                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">{yesterdaySalesRevenueValue > 0 ? fmtCurrency(yesterdaySalesRevenueValue) : <span className="text-text-muted font-normal">—</span>}</td>
                         <td className="w-8 px-2 py-3 align-middle text-text-muted opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight className="h-4 w-4" aria-hidden /></td>
                       </tr>
                     );
