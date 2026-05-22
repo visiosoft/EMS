@@ -243,151 +243,36 @@ function clearStoredContactIds() {
   }
 }
 
-function rememberContactDepartments(rows: ApiCompanyContact[]) {
-  if (typeof window === 'undefined') return;
-  const w = window as ContactDepartmentWindow;
-  const cache = { ...(w.__iaeContactDepartmentsByEmail ?? {}) };
-  for (const row of rows) {
-    const email = normalizeContactEmail(row.email);
-    if (!email) continue;
-    const list = cache[email] ? [...cache[email]] : [];
-    for (const department of splitContactLabels(row.departmentName)) uniqueAdd(list, department);
-    cache[email] = list;
-  }
-  w.__iaeContactDepartmentsByEmail = cache;
-  installContactDepartmentColumnPatch();
-  requestContactDepartmentColumnPatch();
-}
-
-function injectContactDepartmentColumnStyle() {
+/** Clean up any leftover DOM artifacts from the old CSS-hack departments column. */
+function rememberContactDepartments(_rows: ApiCompanyContact[]) {
   if (typeof document === 'undefined') return;
-  const existing = document.getElementById(CONTACT_DEPARTMENT_STYLE_ID);
-  if (existing) existing.remove();
-  const style = document.createElement('style');
-  style.id = CONTACT_DEPARTMENT_STYLE_ID;
-  style.textContent = `
-    table.iae-contact-departments-visual {
-      table-layout: fixed;
-    }
-    table.iae-contact-departments-visual th:nth-child(1),
-    table.iae-contact-departments-visual td:nth-child(1) {
-      width: 23%;
-    }
-    table.iae-contact-departments-visual th:nth-child(2),
-    table.iae-contact-departments-visual td:nth-child(2) {
-      width: 28%;
-      min-width: 22rem;
-      position: relative;
-      padding-right: 14rem;
-    }
-    table.iae-contact-departments-visual th:nth-child(2)::after {
-      content: 'Departments';
-      position: absolute;
-      left: calc(50% + 0.35rem);
-      top: 50%;
-      transform: translateY(-50%);
-      width: calc(50% - 0.35rem);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      color: inherit;
-      font: inherit;
-      letter-spacing: inherit;
-      text-transform: inherit;
-      pointer-events: none;
-    }
-    table.iae-contact-departments-visual td:nth-child(2)::after {
-      content: attr(data-departments);
-      position: absolute;
-      left: calc(50% + 0.35rem);
-      top: 50%;
-      transform: translateY(-50%);
-      max-width: calc(50% - 0.35rem);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      border: 1px solid rgb(209 216 226);
-      border-radius: 9999px;
-      background: rgb(229 233 240);
-      color: rgb(84 96 115);
-      font-size: 0.75rem;
-      line-height: 1rem;
-      padding: 0.125rem 0.5rem;
-      pointer-events: none;
-    }
-    table.iae-contact-departments-visual td:nth-child(2)[data-departments='']::after {
-      content: '—';
-      border-color: transparent;
-      background: transparent;
-      color: rgb(148 163 184);
-      padding-left: 0;
-      padding-right: 0;
-    }
-    table.iae-contact-departments-visual th:nth-child(3),
-    table.iae-contact-departments-visual td:nth-child(3) {
-      width: 30%;
-    }
-    table.iae-contact-departments-visual th:nth-child(4),
-    table.iae-contact-departments-visual td:nth-child(4) {
-      width: 14%;
-    }
-    table.iae-contact-departments-visual th:nth-child(5),
-    table.iae-contact-departments-visual td:nth-child(5) {
-      width: 5%;
-    }
-    @media (max-width: 900px) {
-      table.iae-contact-departments-visual th:nth-child(2),
-      table.iae-contact-departments-visual td:nth-child(2) {
-        min-width: 18rem;
-        padding-right: 10rem;
-      }
-    }
-  `;
-  document.head.appendChild(style);
-}
-
-function requestContactDepartmentColumnPatch() {
-  if (typeof window === 'undefined') return;
-  window.requestAnimationFrame(() => patchContactDepartmentColumns());
-}
-
-function patchContactDepartmentColumns() {
-  if (typeof document === 'undefined' || typeof window === 'undefined') return;
-  const cache = (window as ContactDepartmentWindow).__iaeContactDepartmentsByEmail ?? {};
-  document.querySelectorAll('table').forEach((table) => {
-    const headRow = table.querySelector('thead tr');
-    const body = table.querySelector('tbody');
-    if (!headRow || !body) return;
-    const headers = Array.from(headRow.children).map((th) => normalizeContactText(th.textContent).toLowerCase());
-    const nameIdx = headers.findIndex((h) => h === 'name');
-    const rolesIdx = headers.findIndex((h) => h === 'roles' || h === 'role');
-    const emailIdx = headers.findIndex((h) => h === 'email');
-    const phoneIdx = headers.findIndex((h) => h === 'phone');
-    if (nameIdx < 0 || rolesIdx < 0 || emailIdx < 0 || phoneIdx < 0) return;
-    table.classList.add('iae-contact-departments-visual');
-    Array.from(body.children).forEach((row) => {
-      if (!(row instanceof HTMLTableRowElement)) return;
-      const cells = Array.from(row.children);
-      const email = normalizeContactEmail(cells[emailIdx]?.textContent);
-      const departments = email ? cache[email] ?? [] : [];
-      const roleCell = cells[rolesIdx] as HTMLElement | undefined;
-      if (!roleCell) return;
-      roleCell.setAttribute('data-departments', departments.join(CONTACT_VALUE_SEPARATOR));
-      roleCell.setAttribute('title', departments.length ? `Departments: ${departments.join(CONTACT_VALUE_SEPARATOR)}` : 'Departments: none');
+  // Remove the old injected <style> tag
+  const oldStyle = document.getElementById(CONTACT_DEPARTMENT_STYLE_ID);
+  if (oldStyle) oldStyle.remove();
+  // Remove class + data-attributes the old code sprinkled on tables
+  document.querySelectorAll('table.iae-contact-departments-visual').forEach((table) => {
+    table.classList.remove('iae-contact-departments-visual');
+    table.querySelectorAll('td[data-departments]').forEach((td) => {
+      td.removeAttribute('data-departments');
+      td.removeAttribute('title');
     });
   });
+  // Disconnect the old MutationObserver if it still exists
+  if (typeof window !== 'undefined') {
+    const w = window as ContactDepartmentWindow;
+    if (w.__iaeContactDepartmentColumnObserver) {
+      w.__iaeContactDepartmentColumnObserver.disconnect();
+      w.__iaeContactDepartmentColumnObserver = undefined;
+    }
+    w.__iaeContactDepartmentColumnInstalled = false;
+    w.__iaeContactDepartmentsByEmail = undefined;
+  }
 }
 
-function installContactDepartmentColumnPatch() {
-  if (typeof window === 'undefined' || typeof document === 'undefined') return;
-  const w = window as ContactDepartmentWindow;
-  injectContactDepartmentColumnStyle();
-  if (w.__iaeContactDepartmentColumnInstalled) return;
-  w.__iaeContactDepartmentColumnInstalled = true;
-  w.__iaeContactDepartmentColumnObserver = new MutationObserver(requestContactDepartmentColumnPatch);
-  w.__iaeContactDepartmentColumnObserver.observe(document.body, { childList: true, subtree: true });
-  requestContactDepartmentColumnPatch();
-}
+function injectContactDepartmentColumnStyle() {}
+function requestContactDepartmentColumnPatch() {}
+function patchContactDepartmentColumns() {}
+function installContactDepartmentColumnPatch() {}
 
 function groupApiCompanyContacts(rows: ApiCompanyContact[]): ApiCompanyContact[] {
   rememberContactDepartments(rows);
