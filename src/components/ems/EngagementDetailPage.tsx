@@ -6429,7 +6429,8 @@ function ContactsTable({
           <thead>
             <tr className="text-text-muted text-xs border-b border-border bg-surface">
               <th className="text-left py-2 px-3">Name</th>
-              <th className="text-left py-2 px-3">Role</th>
+              <th className="text-left py-2 px-3">Roles</th>
+              <th className="text-left py-2 px-3">Departments</th>
               <th className="text-left py-2 px-3">Email</th>
               <th className="text-left py-2 px-3">Phone</th>
             </tr>
@@ -6441,7 +6442,10 @@ function ContactsTable({
                   {c.firstName} {c.lastName}
                 </td>
                 <td className="py-2 px-3 text-text-secondary text-xs">
-                  {c.roleName} · {c.departmentName}
+                  {c.roleName || '—'}
+                </td>
+                <td className="py-2 px-3 text-text-secondary text-xs">
+                  {c.departmentName || '—'}
                 </td>
                 <td className="py-2 px-3 text-ems-blue text-xs">{c.email}</td>
                 <td className="py-2 px-3 text-text-secondary text-xs">

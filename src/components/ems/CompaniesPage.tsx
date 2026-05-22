@@ -3474,6 +3474,7 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                     <tr className="text-text-muted text-xs border-b border-border">
                       <th className="text-left py-2">Name</th>
                       <th className="text-left py-2">Roles</th>
+                      <th className="text-left py-2">Departments</th>
                       <th className="text-left py-2">Email</th>
                       <th className="text-left py-2">Phone</th>
                       <th />
@@ -3487,20 +3488,38 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                         </td>
                         <td className="py-2">
                           {(() => {
-                            const fromRoles = (ct.roles ?? []).map((s) => String(s).trim()).filter(Boolean);
-                            const labels =
-                              fromRoles.length > 0
-                                ? fromRoles
-                                : (ct.departmentName?.trim() ? [ct.departmentName.trim()] : []);
-                            if (labels.length === 0) {
+                            const fromRoles = (ct.roles ?? [])
+                              .flatMap((s) => String(s).split(','))
+                              .map((s) => s.trim())
+                              .filter(Boolean);
+                            if (fromRoles.length === 0) {
                               return <span className="text-text-muted">—</span>;
                             }
-                            return labels.map((r, i) => (
+                            return fromRoles.map((r, i) => (
                               <span
                                 key={`${r}-${i}`}
-                                className="text-xs bg-elevated px-1 py-0.5 rounded text-text-secondary mr-1"
+                                className="text-xs bg-elevated px-1 py-0.5 rounded text-text-secondary mr-1 inline-block mb-1"
                               >
                                 {r}
+                              </span>
+                            ));
+                          })()}
+                        </td>
+                        <td className="py-2">
+                          {(() => {
+                            const fromDepts = (ct.departmentName || '')
+                              .split(',')
+                              .map((s) => s.trim())
+                              .filter(Boolean);
+                            if (fromDepts.length === 0) {
+                              return <span className="text-text-muted">—</span>;
+                            }
+                            return fromDepts.map((d, i) => (
+                              <span
+                                key={`${d}-${i}`}
+                                className="text-xs bg-elevated px-1 py-0.5 rounded text-text-secondary mr-1 inline-block mb-1"
+                              >
+                                {d}
                               </span>
                             ));
                           })()}
@@ -3565,6 +3584,7 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                             <tr className="text-text-muted text-xs border-b border-border/60">
                               <th className="text-left py-2 px-3">Name</th>
                               <th className="text-left py-2 px-3">Roles</th>
+                              <th className="text-left py-2 px-3">Departments</th>
                               <th className="text-left py-2 px-3">Email</th>
                               <th className="text-left py-2 px-3">Phone</th>
                             </tr>
@@ -3577,18 +3597,34 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                                 </td>
                                 <td className="py-2 px-3">
                                   {(() => {
-                                    const fromRoles = (ct.roles ?? []).map((s) => String(s).trim()).filter(Boolean);
-                                    const labels =
-                                      fromRoles.length > 0
-                                        ? fromRoles
-                                        : (ct.departmentName?.trim() ? [ct.departmentName.trim()] : []);
-                                    if (labels.length === 0) return <span className="text-text-muted">—</span>;
-                                    return labels.map((r, i) => (
+                                    const fromRoles = (ct.roles ?? [])
+                                      .flatMap((s) => String(s).split(','))
+                                      .map((s) => s.trim())
+                                      .filter(Boolean);
+                                    if (fromRoles.length === 0) return <span className="text-text-muted">—</span>;
+                                    return fromRoles.map((r, i) => (
                                       <span
                                         key={`${r}-${i}`}
-                                        className="text-xs bg-elevated px-1 py-0.5 rounded text-text-secondary mr-1"
+                                        className="text-xs bg-elevated px-1 py-0.5 rounded text-text-secondary mr-1 inline-block mb-1"
                                       >
                                         {r}
+                                      </span>
+                                    ));
+                                  })()}
+                                </td>
+                                <td className="py-2 px-3">
+                                  {(() => {
+                                    const fromDepts = (ct.departmentName || '')
+                                      .split(',')
+                                      .map((s) => s.trim())
+                                      .filter(Boolean);
+                                    if (fromDepts.length === 0) return <span className="text-text-muted">—</span>;
+                                    return fromDepts.map((d, i) => (
+                                      <span
+                                        key={`${d}-${i}`}
+                                        className="text-xs bg-elevated px-1 py-0.5 rounded text-text-secondary mr-1 inline-block mb-1"
+                                      >
+                                        {d}
                                       </span>
                                     ));
                                   })()}
