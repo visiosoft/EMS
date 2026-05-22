@@ -239,6 +239,14 @@ function asFiniteNumber(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function ymdAddDays(ymd: string, delta: number): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  if (!y || !m || !d) return ymd;
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + delta);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
+
 function latestSalesPoint<T extends { date: string }>(rows: T[] | undefined, asOf?: string): T | null {
   const filtered = (rows ?? [])
     .filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.date))
@@ -247,29 +255,86 @@ function latestSalesPoint<T extends { date: string }>(rows: T[] | undefined, asO
   return filtered.length ? filtered[filtered.length - 1] : null;
 }
 
+type DashboardSummaryPoint = ApiSalesDashboardBody['summary'][number];
+type DashboardSeriesPoint = ApiSalesDashboardBody['series'][number];
+
+function summarySnapshotRevenue(row: DashboardSummaryPoint | null | undefined): number | null {
+  return asFiniteNumber(row?.dailyValueSold) ?? asFiniteNumber(row?.totalValueSold);
+}
+
+function summarySnapshotTickets(row: DashboardSummaryPoint | null | undefined): number | null {
+  return asFiniteNumber(row?.dailyTicketsSold) ?? asFiniteNumber(row?.totalTicketsSold);
+}
+
+function seriesSnapshotRevenue(row: DashboardSeriesPoint | null | undefined): number | null {
+  return asFiniteNumber(row?.dailyRevenue) ?? asFiniteNumber(row?.totalRevenue);
+}
+
+function seriesSnapshotTickets(row: DashboardSeriesPoint | null | undefined): number | null {
+  return asFiniteNumber(row?.dailyTickets) ?? asFiniteNumber(row?.totalTickets);
+}
+
+function hasEnteredSummarySnapshot(row: DashboardSummaryPoint): boolean {
+  return (summarySnapshotRevenue(row) ?? 0) !== 0 || (summarySnapshotTickets(row) ?? 0) !== 0;
+}
+
+function hasEnteredSeriesSnapshot(row: DashboardSeriesPoint): boolean {
+  return (seriesSnapshotRevenue(row) ?? 0) !== 0 || (seriesSnapshotTickets(row) ?? 0) !== 0;
+}
+
+function latestEnteredSummaryPoint(
+  rows: DashboardSummaryPoint[] | undefined,
+  asOf?: string,
+): DashboardSummaryPoint | null {
+  return latestSalesPoint((rows ?? []).filter(hasEnteredSummarySnapshot), asOf);
+}
+
+function latestEnteredSeriesPoint(
+  rows: DashboardSeriesPoint[] | undefined,
+  asOf?: string,
+): DashboardSeriesPoint | null {
+  return latestSalesPoint((rows ?? []).filter(hasEnteredSeriesSnapshot), asOf);
+}
+
 function normalizeSinglePerformanceDashboard<T extends ApiSalesDashboardBody>(dashboard: T): T {
   if (dashboard.performanceId == null) return dashboard;
 
-  const latestSummary = latestSalesPoint(dashboard.summary, dashboard.asOfDate);
-  const latestSeries = latestSalesPoint(dashboard.series, dashboard.asOfDate);
+  const latestSummary =
+    latestEnteredSummaryPoint(dashboard.summary, dashboard.asOfDate) ??
+    latestSalesPoint(dashboard.summary, dashboard.asOfDate);
+  const latestSeries =
+    latestEnteredSeriesPoint(dashboard.series, dashboard.asOfDate) ??
+    latestSalesPoint(dashboard.series, dashboard.asOfDate);
+  const sevenDaysPrior = ymdAddDays(dashboard.asOfDate, -7);
+  const sevenDaysPriorSummary = latestEnteredSummaryPoint(
+    dashboard.summary,
+    sevenDaysPrior,
+  );
+  const sevenDaysPriorSeries = latestEnteredSeriesPoint(
+    dashboard.series,
+    sevenDaysPrior,
+  );
 
   // Daily Sales stores user-entered running totals. For a single performance trend,
-  // Total Revenue must be the latest PerformanceSalesRevenue snapshot, not a sum of
-  // all previous snapshots. The current API still exposes that latest snapshot as
-  // the daily value on the latest row, so prefer it here until the service payload is
-  // fully migrated to cumulative naming.
+  // KPI values must use the latest PerformanceSalesQuantity / PerformanceSalesRevenue
+  // snapshot. Last-7-day KPIs are the latest snapshot minus the snapshot as of seven
+  // days prior, not a sum of cumulative snapshots.
   const latestRevenue =
-    asFiniteNumber(latestSummary?.dailyValueSold) ??
-    asFiniteNumber(latestSeries?.dailyRevenue) ??
-    asFiniteNumber(latestSummary?.totalValueSold) ??
-    asFiniteNumber(latestSeries?.totalRevenue) ??
+    summarySnapshotRevenue(latestSummary) ??
+    seriesSnapshotRevenue(latestSeries) ??
     dashboard.kpis.totalRevenue;
   const latestTickets =
-    asFiniteNumber(latestSummary?.dailyTicketsSold) ??
-    asFiniteNumber(latestSeries?.dailyTickets) ??
-    asFiniteNumber(latestSummary?.totalTicketsSold) ??
-    asFiniteNumber(latestSeries?.totalTickets) ??
+    summarySnapshotTickets(latestSummary) ??
+    seriesSnapshotTickets(latestSeries) ??
     dashboard.kpis.ticketsDistributed;
+  const priorRevenue =
+    summarySnapshotRevenue(sevenDaysPriorSummary) ??
+    seriesSnapshotRevenue(sevenDaysPriorSeries) ??
+    0;
+  const priorTickets =
+    summarySnapshotTickets(sevenDaysPriorSummary) ??
+    seriesSnapshotTickets(sevenDaysPriorSeries) ??
+    0;
 
   const pctSold =
     dashboard.sellableCapacity != null && dashboard.sellableCapacity > 0
@@ -287,6 +352,8 @@ function normalizeSinglePerformanceDashboard<T extends ApiSalesDashboardBody>(da
       totalRevenue: latestRevenue,
       ticketsDistributed: latestTickets,
       pctSold,
+      revenueLast7Days: Math.max(0, latestRevenue - priorRevenue),
+      ticketsLast7Days: Math.max(0, latestTickets - priorTickets),
       pctRevenueVsPotential,
     },
   };
