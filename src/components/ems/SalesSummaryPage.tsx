@@ -56,9 +56,40 @@ function finiteNumberOrNull(value: number | null | undefined): number | null {
 }
 
 function grossSalesToDate(row: ApiPerformanceSalesRow): number | null {
-  // This column is the latest available dbo.TicketingSales.PerformanceSalesRevenue
-  // value shown in Daily Sales, not the cumulative/summed totalRevenue rollup.
-  return finiteNumberOrNull(row.todayRevenue) ?? finiteNumberOrNull(row.yesterdayRevenue);
+  // TicketingSales stores cumulative snapshots. For a selected report date,
+  // the value to display is the snapshot on that date, falling back to the
+  // prior-day snapshot only when the selected date has no row yet.
+  return (
+    finiteNumberOrNull(row.todayRevenue) ??
+    finiteNumberOrNull(row.yesterdayRevenue) ??
+    finiteNumberOrNull(row.totalRevenue)
+  );
+}
+
+function totalSoldToDate(row: ApiPerformanceSalesRow): number {
+  // Same cumulative-snapshot rule as grossSalesToDate, but for quantity.
+  return (
+    finiteNumberOrNull(row.todayTicketsSold) ??
+    finiteNumberOrNull(row.yesterdayTicketsSold) ??
+    finiteNumberOrNull(row.totalSold) ??
+    0
+  );
+}
+
+function soldOnReportDate(row: ApiPerformanceSalesRow): number {
+  // Daily sold = selected report-day cumulative snapshot - previous-day snapshot.
+  // If there is no row for the selected report date, the show sold 0 on that date.
+  const current = finiteNumberOrNull(row.todayTicketsSold);
+  if (current == null) return 0;
+  const previous = finiteNumberOrNull(row.yesterdayTicketsSold) ?? 0;
+  return Math.max(0, current - previous);
+}
+
+function revenueOnReportDate(row: ApiPerformanceSalesRow): number {
+  const current = finiteNumberOrNull(row.todayRevenue);
+  if (current == null) return 0;
+  const previous = finiteNumberOrNull(row.yesterdayRevenue) ?? 0;
+  return Math.max(0, current - previous);
 }
 
 function todayLocalYmd(): string {
@@ -147,16 +178,16 @@ function sortRows(rows: ApiPerformanceSalesRow[], sort: SortState): ApiPerforman
         n = compareNumbers(grossSalesToDate(a), grossSalesToDate(b));
         break;
       case 'soldYesterday':
-        n = compareNumbers(a.soldYesterday, b.soldYesterday);
+        n = compareNumbers(soldOnReportDate(a), soldOnReportDate(b));
         break;
       case 'totalSold':
-        n = compareNumbers(a.totalSold, b.totalSold);
+        n = compareNumbers(totalSoldToDate(a), totalSoldToDate(b));
         break;
       case 'yesterdayRevenue':
-        n = compareNumbers(a.yesterdayRevenue, b.yesterdayRevenue);
+        n = compareNumbers(revenueOnReportDate(a), revenueOnReportDate(b));
         break;
       case 'totalRevenue':
-        n = compareNumbers(a.totalRevenue, b.totalRevenue);
+        n = compareNumbers(grossSalesToDate(a), grossSalesToDate(b));
         break;
     }
     return n * sign;
@@ -277,6 +308,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
 
   const isoYmd = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s.trim());
   const rangeOk = isoYmd(startDate) && isoYmd(endDate) && startDate <= endDate;
+  const reportAsOfDate = rangeOk ? startDate : today;
 
   const activeFilterCount =
     (attractionFilter ? 1 : 0) +
@@ -299,9 +331,9 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   };
 
   const query = useQuery({
-    queryKey: ['sales-summary', today, startDate, endDate, attractionFilter, genreFilter, tourFilter, companyFilter, venueFilter, contactFilter],
+    queryKey: ['sales-summary', reportAsOfDate, startDate, endDate, attractionFilter, genreFilter, tourFilter, companyFilter, venueFilter, contactFilter],
     queryFn: () =>
-      fetchDailySalesByPerformance(today, {
+      fetchDailySalesByPerformance(reportAsOfDate, {
         page: 1,
         pageSize: 1000,
         startDate: rangeOk ? startDate : undefined,
@@ -340,9 +372,9 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
     let totalRevenue = 0;
     let revenueYesterday = 0;
     for (const r of rows) {
-      totalSold += r.totalSold ?? 0;
+      totalSold += totalSoldToDate(r);
       totalRevenue += grossSalesToDate(r) ?? 0;
-      revenueYesterday += r.yesterdayRevenue ?? 0;
+      revenueYesterday += revenueOnReportDate(r);
     }
     return { events: rows.length, totalSold, totalRevenue, revenueYesterday };
   }, [rows]);
@@ -486,6 +518,9 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                     const venueLabel = r.venueName ?? r.venueCompanyName;
                     const marketLabel = rowMarketName(r);
                     const grossSalesValue = grossSalesToDate(r);
+                    const soldOnDateValue = soldOnReportDate(r);
+                    const totalSoldValue = totalSoldToDate(r);
+                    const revenueOnDateValue = revenueOnReportDate(r);
                     return (
                       <tr key={`${r.performanceId}-${r.engagementId}`} className={['group border-b border-border/60 cursor-pointer transition-colors', zebra, 'hover:bg-ems-accent-dim/30'].join(' ')} onClick={() => onOpenEngagement(r.engagementId, r.performanceId)} title="Open sales trends">
                         <td className="px-4 py-3 align-top">
@@ -497,10 +532,10 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">{r.engagementSellableCapacity != null && Number.isFinite(r.engagementSellableCapacity) ? r.engagementSellableCapacity.toLocaleString() : <span className="text-text-muted font-normal">—</span>}</td>
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">{r.engagementGrossPotential != null && Number.isFinite(r.engagementGrossPotential) ? fmtCurrency(r.engagementGrossPotential) : <span className="text-text-muted font-normal">—</span>}</td>
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">{grossSalesValue != null ? fmtCurrency(grossSalesValue) : <span className="text-text-muted font-normal">—</span>}</td>
-                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums text-text-secondary">{(r.soldYesterday ?? 0) > 0 ? r.soldYesterday.toLocaleString() : <span className="text-text-muted">—</span>}</td>
-                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">{(r.totalSold ?? 0) > 0 ? r.totalSold.toLocaleString() : <span className="text-text-muted font-normal">—</span>}</td>
-                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums text-text-secondary">{r.yesterdayRevenue != null && r.yesterdayRevenue > 0 ? fmtCurrency(r.yesterdayRevenue) : <span className="text-text-muted">—</span>}</td>
-                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-semibold text-ems-green">{(r.totalRevenue ?? 0) > 0 ? fmtCurrency(r.totalRevenue) : <span className="text-text-muted font-normal">—</span>}</td>
+                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums text-text-secondary">{soldOnDateValue > 0 ? soldOnDateValue.toLocaleString() : <span className="text-text-muted">—</span>}</td>
+                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">{totalSoldValue > 0 ? totalSoldValue.toLocaleString() : <span className="text-text-muted font-normal">—</span>}</td>
+                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums text-text-secondary">{revenueOnDateValue > 0 ? fmtCurrency(revenueOnDateValue) : <span className="text-text-muted">—</span>}</td>
+                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-semibold text-ems-green">{grossSalesValue != null && grossSalesValue > 0 ? fmtCurrency(grossSalesValue) : <span className="text-text-muted font-normal">—</span>}</td>
                         <td className="w-8 px-2 py-3 align-middle text-text-muted opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight className="h-4 w-4" aria-hidden /></td>
                       </tr>
                     );
