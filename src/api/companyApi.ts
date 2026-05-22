@@ -180,6 +180,79 @@ export const companiesApiQueryKey = ['companies', 'api'] as const;
 export const companiesServerSearchQueryKeyPrefix = ['companies', 'api', 'serverSearch'] as const;
 export type CompanyListQueryOpts = { q?: string; companyType?: string; sortBy?: string; sortDir?: 'asc' | 'desc'; };
 
+const CONTACT_MULTI_STORAGE = {
+  role: 'iae.contactDraft.roleIds',
+  department: 'iae.contactDraft.departmentIds',
+} as const;
+const CONTACT_VALUE_SEPARATOR = ', ';
+
+function normalizeContactText(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
+function normalizeContactEmail(value: unknown): string {
+  return normalizeContactText(value).toLowerCase();
+}
+
+function uniqueAdd(list: string[], value: unknown) {
+  const text = normalizeContactText(value);
+  if (!text) return;
+  if (!list.some((item) => item.toLowerCase() === text.toLowerCase())) list.push(text);
+}
+
+function readStoredContactIds(key: string): number[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return Array.from(new Set(parsed.map(Number).filter((n) => Number.isInteger(n) && n > 0)));
+  } catch {
+    return [];
+  }
+}
+
+function clearStoredContactIds() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(CONTACT_MULTI_STORAGE.role);
+    window.localStorage.removeItem(CONTACT_MULTI_STORAGE.department);
+  } catch {
+    /* ignore browser storage failures */
+  }
+}
+
+function groupApiCompanyContacts(rows: ApiCompanyContact[]): ApiCompanyContact[] {
+  const groups = new Map<string, ApiCompanyContact & { roleNames?: string[]; departmentNames?: string[] }>();
+  for (const row of rows) {
+    const key = row.contactId && row.contactId > 0
+      ? `contact:${row.contactId}`
+      : `email:${normalizeContactEmail(row.email)}|name:${normalizeContactText(row.firstName).toLowerCase()} ${normalizeContactText(row.lastName).toLowerCase()}`;
+    const existing = groups.get(key);
+    if (!existing) {
+      const copy = { ...row, roleNames: [], departmentNames: [] };
+      uniqueAdd(copy.roleNames!, row.roleName);
+      uniqueAdd(copy.departmentNames!, row.departmentName);
+      groups.set(key, copy);
+      continue;
+    }
+    uniqueAdd(existing.roleNames!, row.roleName);
+    uniqueAdd(existing.departmentNames!, row.departmentName);
+    if ((row.contactAssignmentId ?? 0) < (existing.contactAssignmentId ?? Number.MAX_SAFE_INTEGER)) {
+      existing.contactAssignmentId = row.contactAssignmentId;
+    }
+  }
+  return Array.from(groups.values()).map((row) => {
+    const { roleNames, departmentNames, ...rest } = row;
+    return {
+      ...rest,
+      roleName: (roleNames ?? []).join(CONTACT_VALUE_SEPARATOR),
+      departmentName: (departmentNames ?? []).join(CONTACT_VALUE_SEPARATOR),
+    };
+  });
+}
+
 export function companiesListQueryKey(offset: number, limit: number, opts: CompanyListQueryOpts) {
   return ['companies', 'list', offset, limit, opts.q ?? '', opts.companyType ?? '', opts.sortBy ?? '', opts.sortDir ?? ''] as const;
 }
@@ -212,9 +285,17 @@ export function fetchCompanyContacts(companyId: number, opts?: { roleId?: number
   if (opts?.roleId != null && opts.roleId > 0) params.set('roleId', String(opts.roleId));
   else if (opts?.roleName?.trim()) params.set('roleName', opts.roleName.trim());
   const qs = params.toString();
-  return apiFetch<ApiCompanyContact[]>(qs ? `/companies/${companyId}/contacts?${qs}` : `/companies/${companyId}/contacts`).then((data) => (Array.isArray(data) ? data : []));
+  return apiFetch<ApiCompanyContact[]>(qs ? `/companies/${companyId}/contacts?${qs}` : `/companies/${companyId}/contacts`)
+    .then((data) => groupApiCompanyContacts(Array.isArray(data) ? data : []));
 }
-export function fetchCompanyLinkedVenueContacts(companyId: number) { return apiFetch<ApiCompanyVenueLinkedContactsSection[]>(`/companies/${companyId}/contacts/linked-venues`).then((data) => (Array.isArray(data) ? data : [])); }
+export function fetchCompanyLinkedVenueContacts(companyId: number) {
+  return apiFetch<ApiCompanyVenueLinkedContactsSection[]>(`/companies/${companyId}/contacts/linked-venues`).then((data) =>
+    (Array.isArray(data) ? data : []).map((section) => ({
+      ...section,
+      contacts: groupApiCompanyContacts(Array.isArray(section.contacts) ? section.contacts : []),
+    })),
+  );
+}
 
 export type CompanyContactCreatePayload = {
   firstName: string;
@@ -228,12 +309,25 @@ export type CompanyContactCreatePayload = {
   departmentIds?: number[];
 };
 export function createCompanyContact(companyId: number, body: CompanyContactCreatePayload) {
-  const roleIds = body.roleIds?.filter((id) => Number.isInteger(id) && id > 0) ?? [];
-  const departmentIds = body.departmentIds?.filter((id) => Number.isInteger(id) && id > 0) ?? [];
-  if (roleIds.length > 0 || departmentIds.length > 0) {
-    return apiFetch<ApiCompanyContact[]>(`/companies/${companyId}/contacts/bulk`, { method: 'POST', body: JSON.stringify({ ...body, roleIds, departmentIds }) });
+  const storedRoleIds = readStoredContactIds(CONTACT_MULTI_STORAGE.role);
+  const storedDepartmentIds = readStoredContactIds(CONTACT_MULTI_STORAGE.department);
+  const roleIds = (body.roleIds?.length ? body.roleIds : storedRoleIds.length ? storedRoleIds : body.roleId ? [body.roleId] : [])
+    .filter((id) => Number.isInteger(id) && id > 0);
+  const departmentIds = (body.departmentIds?.length ? body.departmentIds : storedDepartmentIds.length ? storedDepartmentIds : body.departmentId ? [body.departmentId] : [])
+    .filter((id) => Number.isInteger(id) && id > 0);
+  if (roleIds.length > 1 || departmentIds.length > 1) {
+    return apiFetch<ApiCompanyContact[]>(`/companies/${companyId}/contacts/bulk`, {
+      method: 'POST',
+      body: JSON.stringify({ ...body, roleIds, departmentIds }),
+    }).then((rows) => {
+      clearStoredContactIds();
+      return groupApiCompanyContacts(Array.isArray(rows) ? rows : [])[0];
+    });
   }
-  return apiFetch<ApiCompanyContact>(`/companies/${companyId}/contacts`, { method: 'POST', body: JSON.stringify(body) });
+  return apiFetch<ApiCompanyContact>(`/companies/${companyId}/contacts`, {
+    method: 'POST',
+    body: JSON.stringify({ ...body, roleId: roleIds[0], departmentId: departmentIds[0] }),
+  }).finally(clearStoredContactIds);
 }
 export function updateContactAssignment(assignmentId: number, body: Partial<{ firstName: string; lastName: string; email: string; cellPhone: string | null; workPhone: string | null; roleId: number; departmentId: number }>) {
   return apiFetch<ApiCompanyContact>(`/contact-assignments/${assignmentId}`, { method: 'PATCH', body: JSON.stringify(body) });
