@@ -259,37 +259,18 @@ export interface ApiPaginatedResponse<T> {
   total: number;
 }
 
-/**
- * React Query key for the companies list cache (full list, client-side filter/pagination on Companies page).
- */
 export const companiesApiQueryKey = ['companies', 'api'] as const;
-
-/** Prefix for targeted search queries when the in-memory list has no matches. */
 export const companiesServerSearchQueryKeyPrefix = ['companies', 'api', 'serverSearch'] as const;
 
 export type CompanyListQueryOpts = {
   q?: string;
   companyType?: string;
-  /** name | type | city | state | dma */
   sortBy?: string;
   sortDir?: 'asc' | 'desc';
 };
 
-export function companiesListQueryKey(
-  offset: number,
-  limit: number,
-  opts: CompanyListQueryOpts,
-) {
-  return [
-    'companies',
-    'list',
-    offset,
-    limit,
-    opts.q ?? '',
-    opts.companyType ?? '',
-    opts.sortBy ?? '',
-    opts.sortDir ?? '',
-  ] as const;
+export function companiesListQueryKey(offset: number, limit: number, opts: CompanyListQueryOpts) {
+  return ['companies', 'list', offset, limit, opts.q ?? '', opts.companyType ?? '', opts.sortBy ?? '', opts.sortDir ?? ''] as const;
 }
 
 export function fetchCompanies(offset = 0, limit = 25, opts?: CompanyListQueryOpts) {
@@ -305,212 +286,75 @@ export function fetchCompanies(offset = 0, limit = 25, opts?: CompanyListQueryOp
   return apiFetch<ApiPaginatedResponse<ApiCompanyListRow>>(`/companies?${params}`);
 }
 
-/** One-shot cap for venue/company pickers (avoids loading unbounded rows). */
 export const COMPANIES_PICKER_LIMIT = 5000;
-
-/** Must match dbo.CompanyType.CompanyName for entertainment-complex companies (Companies screen filter). */
 export const ENTERTAINMENT_COMPLEX_COMPANY_TYPE = 'Entertainment Complex';
-
-/** Must match dbo.CompanyType.CompanyName for talent-agency pickers (tours, projects). */
 export const TALENT_AGENCY_COMPANY_TYPE = 'Talent Agency';
+export function companiesPickerQueryKey() { return ['companies', 'picker', 0, COMPANIES_PICKER_LIMIT] as const; }
+export async function fetchCompaniesPickerRows(): Promise<ApiCompanyListRow[]> { const res = await fetchCompanies(0, COMPANIES_PICKER_LIMIT); return res.data ?? []; }
+export function entertainmentComplexCompaniesQueryKey() { return ['companies', 'picker', 'entertainment-complex', 0, COMPANIES_PICKER_LIMIT] as const; }
+export async function fetchEntertainmentComplexCompanyRows(): Promise<ApiCompanyListRow[]> { const res = await fetchCompanies(0, COMPANIES_PICKER_LIMIT, { companyType: ENTERTAINMENT_COMPLEX_COMPANY_TYPE }); return res.data ?? []; }
+export function talentAgencyCompaniesQueryKey() { return ['companies', 'picker', 'talent-agency', 0, COMPANIES_PICKER_LIMIT] as const; }
+export async function fetchTalentAgencyCompanyRows(): Promise<ApiCompanyListRow[]> { const res = await fetchCompanies(0, COMPANIES_PICKER_LIMIT, { companyType: TALENT_AGENCY_COMPANY_TYPE }); return res.data ?? []; }
+export function fetchCompany(id: number) { return apiFetch<ApiCompanyListRow>(`/companies/${id}`); }
+export function createCompany(body: CreateCompanyPayload) { return apiFetch<ApiCompanyListRow>('/companies', { method: 'POST', body: JSON.stringify(body) }); }
+export function updateCompany(id: number, body: UpdateCompanyPayload) { return apiFetch<ApiCompanyListRow>(`/companies/${id}`, { method: 'PATCH', body: JSON.stringify(body) }); }
+export function deleteCompany(id: number) { return apiFetch<void>(`/companies/${id}`, { method: 'DELETE' }); }
 
-export function companiesPickerQueryKey() {
-  return ['companies', 'picker', 0, COMPANIES_PICKER_LIMIT] as const;
-}
-
-export async function fetchCompaniesPickerRows(): Promise<ApiCompanyListRow[]> {
-  const res = await fetchCompanies(0, COMPANIES_PICKER_LIMIT);
-  return res.data ?? [];
-}
-
-/** Server-filtered list: only companies of type Entertainment Complex (for venue complex pickers). */
-export function entertainmentComplexCompaniesQueryKey() {
-  return [
-    'companies',
-    'picker',
-    'entertainment-complex',
-    0,
-    COMPANIES_PICKER_LIMIT,
-  ] as const;
-}
-
-export async function fetchEntertainmentComplexCompanyRows(): Promise<
-  ApiCompanyListRow[]
-> {
-  const res = await fetchCompanies(0, COMPANIES_PICKER_LIMIT, {
-    companyType: ENTERTAINMENT_COMPLEX_COMPANY_TYPE,
-  });
-  return res.data ?? [];
-}
-
-export function talentAgencyCompaniesQueryKey() {
-  return ['companies', 'picker', 'talent-agency', 0, COMPANIES_PICKER_LIMIT] as const;
-}
-
-/** Server-filtered list: only companies of type Talent Agency (tour / project management pickers). */
-export async function fetchTalentAgencyCompanyRows(): Promise<ApiCompanyListRow[]> {
-  const res = await fetchCompanies(0, COMPANIES_PICKER_LIMIT, {
-    companyType: TALENT_AGENCY_COMPANY_TYPE,
-  });
-  return res.data ?? [];
-}
-
-export function fetchCompany(id: number) {
-  return apiFetch<ApiCompanyListRow>(`/companies/${id}`);
-}
-
-export function createCompany(body: CreateCompanyPayload) {
-  return apiFetch<ApiCompanyListRow>('/companies', {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
-}
-
-export function updateCompany(id: number, body: UpdateCompanyPayload) {
-  return apiFetch<ApiCompanyListRow>(`/companies/${id}`, {
-    method: 'PATCH',
-    body: JSON.stringify(body),
-  });
-}
-
-export function deleteCompany(id: number) {
-  return apiFetch<void>(`/companies/${id}`, { method: 'DELETE' });
-}
-
-export function fetchCompanyContacts(
-  companyId: number,
-  opts?: { roleId?: number; roleName?: string },
-) {
+export function fetchCompanyContacts(companyId: number, opts?: { roleId?: number; roleName?: string }) {
   const params = new URLSearchParams();
-  if (opts?.roleId != null && opts.roleId > 0) {
-    params.set('roleId', String(opts.roleId));
-  } else if (opts?.roleName?.trim()) {
-    params.set('roleName', opts.roleName.trim());
-  }
+  if (opts?.roleId != null && opts.roleId > 0) params.set('roleId', String(opts.roleId));
+  else if (opts?.roleName?.trim()) params.set('roleName', opts.roleName.trim());
   const qs = params.toString();
-  const path = qs
-    ? `/companies/${companyId}/contacts?${qs}`
-    : `/companies/${companyId}/contacts`;
-  return apiFetch<ApiCompanyContact[]>(path).then(
-    (data) => (Array.isArray(data) ? data : []),
-  );
+  return apiFetch<ApiCompanyContact[]>(qs ? `/companies/${companyId}/contacts?${qs}` : `/companies/${companyId}/contacts`).then((data) => (Array.isArray(data) ? data : []));
 }
 
 export function fetchCompanyLinkedVenueContacts(companyId: number) {
-  return apiFetch<ApiCompanyVenueLinkedContactsSection[]>(
-    `/companies/${companyId}/contacts/linked-venues`,
-  ).then((data) => (Array.isArray(data) ? data : []));
+  return apiFetch<ApiCompanyVenueLinkedContactsSection[]>(`/companies/${companyId}/contacts/linked-venues`).then((data) => (Array.isArray(data) ? data : []));
 }
 
-export function createCompanyContact(
-  companyId: number,
-  body: {
-    firstName: string;
-    lastName: string;
-    email: string;
-    cellPhone?: string | null;
-    workPhone?: string | null;
-    roleId: number;
-    departmentId: number;
-  },
-) {
-  return apiFetch<ApiCompanyContact>(`/companies/${companyId}/contacts`, {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
+export type CompanyContactCreatePayload = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  cellPhone?: string | null;
+  workPhone?: string | null;
+  roleId?: number;
+  departmentId?: number;
+  roleIds?: number[];
+  departmentIds?: number[];
+};
+
+export function createCompanyContact(companyId: number, body: CompanyContactCreatePayload) {
+  const roleIds = body.roleIds?.filter((id) => Number.isInteger(id) && id > 0) ?? [];
+  const departmentIds = body.departmentIds?.filter((id) => Number.isInteger(id) && id > 0) ?? [];
+  if (roleIds.length > 0 || departmentIds.length > 0) {
+    return apiFetch<ApiCompanyContact[]>(`/companies/${companyId}/contacts/bulk`, {
+      method: 'POST',
+      body: JSON.stringify({ ...body, roleIds, departmentIds }),
+    });
+  }
+  return apiFetch<ApiCompanyContact>(`/companies/${companyId}/contacts`, { method: 'POST', body: JSON.stringify(body) });
 }
 
 export function updateContactAssignment(
   assignmentId: number,
-  body: Partial<{
-    firstName: string;
-    lastName: string;
-    email: string;
-    cellPhone: string | null;
-    workPhone: string | null;
-    roleId: number;
-    departmentId: number;
-  }>,
+  body: Partial<{ firstName: string; lastName: string; email: string; cellPhone: string | null; workPhone: string | null; roleId: number; departmentId: number }>,
 ) {
-  return apiFetch<ApiCompanyContact>(`/contact-assignments/${assignmentId}`, {
-    method: 'PATCH',
-    body: JSON.stringify(body),
-  });
+  return apiFetch<ApiCompanyContact>(`/contact-assignments/${assignmentId}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
-export function deleteContactAssignment(assignmentId: number) {
-  return apiFetch<void>(`/contact-assignments/${assignmentId}`, {
-    method: 'DELETE',
-  });
+export function deleteContactAssignment(assignmentId: number) { return apiFetch<void>(`/contact-assignments/${assignmentId}`, { method: 'DELETE' }); }
+export function fetchCompanyEngagements(companyId: number) { return apiFetch<ApiEngagementRow[]>(`/companies/${companyId}/engagements`); }
+export function fetchVenueTicketing(companyId: number) { return apiFetch<ApiVenueTicketing | null>(`/companies/${companyId}/venue-ticketing`); }
+export function fetchVenueProfile(companyId: number) { return apiFetch<ApiVenueProfileResponse>(`/companies/${companyId}/venue-profile`); }
+export function provisionVenueProfile(companyId: number) { return apiFetch<{ created: boolean }>(`/companies/${companyId}/venue-profile/provision`, { method: 'POST' }); }
+
+export function updateVenueProfile(companyId: number, body: Partial<{ venueName: string; seatingCapacity: number; salesTaxRate: string | null; taxInCart: boolean; insuranceLanguage: string | null; insurancePolicyCopyRequirements: string | null; venueRelationshipIae: string; venueTypeId: number | null; entertainmentComplexCompanyIds: number[]; seatingTypeId: number | null; ticketingSystem: string | null; venueWebsite: string | null; loadDockAddress: { addressLine1: string; addressLine2?: string | null; city: string; stateProvince: string; postalCode: string; country: string } | null; brandIds?: number[] }>) {
+  return apiFetch<void>(`/companies/${companyId}/venue-profile`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
-export function fetchCompanyEngagements(companyId: number) {
-  return apiFetch<ApiEngagementRow[]>(`/companies/${companyId}/engagements`);
-}
-
-export function fetchVenueTicketing(companyId: number) {
-  return apiFetch<ApiVenueTicketing | null>(
-    `/companies/${companyId}/venue-ticketing`,
-  );
-}
-
-export function fetchVenueProfile(companyId: number) {
-  return apiFetch<ApiVenueProfileResponse>(
-    `/companies/${companyId}/venue-profile`,
-  );
-}
-
-export function provisionVenueProfile(companyId: number) {
-  return apiFetch<{ created: boolean }>(
-    `/companies/${companyId}/venue-profile/provision`,
-    { method: 'POST' },
-  );
-}
-
-export function updateVenueProfile(
-  companyId: number,
-  body: Partial<{
-    venueName: string;
-    seatingCapacity: number;
-    salesTaxRate: string | null;
-    taxInCart: boolean;
-    insuranceLanguage: string | null;
-    insurancePolicyCopyRequirements: string | null;
-    venueRelationshipIae: string;
-    venueTypeId: number | null;
-    entertainmentComplexCompanyIds: number[];
-    seatingTypeId: number | null;
-    ticketingSystem: string | null;
-    venueWebsite: string | null;
-    loadDockAddress: {
-      addressLine1: string;
-      addressLine2?: string | null;
-      city: string;
-      stateProvince: string;
-      postalCode: string;
-      country: string;
-    } | null;
-    brandIds?: number[];
-  }>,
-) {
-  return apiFetch<void>(`/companies/${companyId}/venue-profile`, {
-    method: 'PATCH',
-    body: JSON.stringify(body),
-  });
-}
-
-export function updateVenueTicketing(
-  companyId: number,
-  body: {
-    seatingTypeId?: number | null;
-    ticketingSystem?: string | null;
-    venueWebsite?: string | null;
-  },
-) {
-  return apiFetch<{ updated: boolean }>(`/companies/${companyId}/venue-ticketing`, {
-    method: 'PATCH',
-    body: JSON.stringify(body),
-  });
+export function updateVenueTicketing(companyId: number, body: { seatingTypeId?: number | null; ticketingSystem?: string | null; venueWebsite?: string | null }) {
+  return apiFetch<{ updated: boolean }>(`/companies/${companyId}/venue-ticketing`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
 export function fetchLookups() {
@@ -525,42 +369,11 @@ export function fetchLookups() {
     apiFetch<ApiServiceProvided[]>('/lookups/services-provided'),
     apiFetch<ApiStagehandProviderCompany[]>('/lookups/stagehand-providers'),
     apiFetch<ApiNonResidentWithholdingOption[]>('/lookups/non-resident-withholdings'),
-  ]).then(
-    ([
-      companyTypes,
-      roles,
-      departments,
-      seatingTypes,
-      venueTypes,
-      brands,
-      taxes,
-      servicesProvided,
-      stagehandProviders,
-      nonResidentWithholdings,
-    ]) => ({
-      companyTypes,
-      roles,
-      departments,
-      seatingTypes,
-      venueTypes,
-      brands,
-      taxes,
-      servicesProvided,
-      stagehandProviders,
-      nonResidentWithholdings,
-    }),
-  );
+  ]).then(([companyTypes, roles, departments, seatingTypes, venueTypes, brands, taxes, servicesProvided, stagehandProviders, nonResidentWithholdings]) => ({ companyTypes, roles, departments, seatingTypes, venueTypes, brands, taxes, servicesProvided, stagehandProviders, nonResidentWithholdings }));
 }
 
-export function fetchStagehandProviderCompanies() {
-  return apiFetch<ApiStagehandProviderCompany[]>('/lookups/stagehand-providers').then(
-    (data) => (Array.isArray(data) ? data : []),
-  );
-}
-
-export function fetchVenueDetails(companyId: number) {
-  return apiFetch<ApiVenueDetailsResponse>(`/companies/${companyId}/venue-details`);
-}
+export function fetchStagehandProviderCompanies() { return apiFetch<ApiStagehandProviderCompany[]>('/lookups/stagehand-providers').then((data) => (Array.isArray(data) ? data : [])); }
+export function fetchVenueDetails(companyId: number) { return apiFetch<ApiVenueDetailsResponse>(`/companies/${companyId}/venue-details`); }
 
 export function updateVenueDetails(
   companyId: number,
@@ -572,159 +385,29 @@ export function updateVenueDetails(
     nonResidentWithholdingId: number | null;
     hasStateTaxOnTickets: 0 | 1;
     hasCityTaxOnTickets: 0 | 1;
-    financeDirectors: {
-      fullName?: string;
-      email?: string;
-      phone?: string;
-      cellPhone?: string;
-    }[];
-    settlementManagers: {
-      fullName?: string;
-      email?: string;
-      phone?: string;
-      cellPhone?: string;
-    }[];
-    marketingDirectors: {
-      fullName?: string;
-      email?: string;
-      phone?: string;
-      cellPhone?: string;
-    }[];
-    technicalDirectors: {
-      fullName?: string;
-      email?: string;
-      phone?: string;
-      cellPhone?: string;
-    }[];
-    ticketingManagers: {
-      fullName?: string;
-      email?: string;
-      phone?: string;
-      cellPhone?: string;
-    }[];
-    bookingDirectors: {
-      fullName?: string;
-      email?: string;
-      phone?: string;
-      cellPhone?: string;
-    }[];
-    rentalManagers: {
-      fullName?: string;
-      email?: string;
-      phone?: string;
-      cellPhone?: string;
-    }[];
-    calendarManagers: {
-      fullName?: string;
-      email?: string;
-      phone?: string;
-      cellPhone?: string;
-    }[];
-    contractManagers: {
-      fullName?: string;
-      email?: string;
-      phone?: string;
-      cellPhone?: string;
-    }[];
-    stagehandProviderContacts: {
-      fullName?: string;
-      email?: string;
-      phone?: string;
-      cellPhone?: string;
-    }[];
-    financeDirector: { fullName?: string; email?: string; phone?: string; cellPhone?: string };
-    settlementManager: { fullName?: string; email?: string; phone?: string; cellPhone?: string };
-    marketingDirector: { fullName?: string; email?: string; phone?: string; cellPhone?: string };
-    technicalDirector: { fullName?: string; email?: string; phone?: string; cellPhone?: string };
-    ticketingManager: { fullName?: string; email?: string; phone?: string; cellPhone?: string };
-    bookingDirector: { fullName?: string; email?: string; phone?: string; cellPhone?: string };
-    rentalManager: { fullName?: string; email?: string; phone?: string; cellPhone?: string };
-    calendarManager: { fullName?: string; email?: string; phone?: string; cellPhone?: string };
-    contractManager: { fullName?: string; email?: string; phone?: string; cellPhone?: string };
-    stagehandProviderContact: { fullName?: string; email?: string; phone?: string; cellPhone?: string };
-    nonResidentWithholding: Partial<{
-      withholdingTaxRate: string;
-      dmaid: number | null;
-      taxAgencyId: number | null;
-      withholdingLink: {
-        linkId?: number | null;
-        linkType?: string;
-        linkUrl?: string;
-        linkName?: string;
-        linkPath?: string;
-      } | null;
-      artistWaiverInstructions: {
-        linkId?: number | null;
-        linkType?: string;
-        linkUrl?: string;
-        linkName?: string;
-        linkPath?: string;
-      } | null;
-      iaeWaiverInstructions: {
-        linkId?: number | null;
-        linkType?: string;
-        linkUrl?: string;
-        linkName?: string;
-        linkPath?: string;
-      } | null;
-    }>;
+    financeDirectors: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[];
+    settlementManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[];
+    marketingDirectors: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[];
+    technicalDirectors: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[];
+    ticketingManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[];
+    bookingDirectors: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[];
+    rentalManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[];
+    calendarManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[];
+    contractManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[];
+    stagehandProviderContacts: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[];
+    nonResidentWithholding: {
+      withholdingTaxRate?: string;
+      dmaid?: number | null;
+      taxAgencyId?: number | null;
+      withholdingLink?: { linkId?: number | null; linkType?: string; linkUrl?: string; linkName?: string; linkPath?: string } | null;
+      artistWaiverInstructions?: { linkId?: number | null; linkType?: string; linkUrl?: string; linkName?: string; linkPath?: string } | null;
+      iaeWaiverInstructions?: { linkId?: number | null; linkType?: string; linkUrl?: string; linkName?: string; linkPath?: string } | null;
+    } | null;
   }>,
-) {
-  return apiFetch<{ updated: boolean }>(`/companies/${companyId}/venue-details`, {
-    method: 'PATCH',
-    body: JSON.stringify(body),
-  });
-}
+) { return apiFetch<{ updated: boolean }>(`/companies/${companyId}/venue-details`, { method: 'PATCH', body: JSON.stringify(body) }); }
 
 export function fetchDmaByPostal(postalCode: string) {
-  const enc = encodeURIComponent(postalCode);
-  return apiFetch<{ dmaid: number; marketName: string; postalCode: string } | null>(
-    `/lookups/dma-by-postal/${enc}`,
-  );
+  const params = new URLSearchParams({ postalCode });
+  return apiFetch<{ dmaid: number; marketName: string; postalCode: string } | null>(`/lookups/dma-by-postal?${params}`);
 }
-
-export function fetchDmaMarketsPage(offset = 0, limit = 500, q = '') {
-  const params = new URLSearchParams({
-    offset: String(Math.max(0, offset)),
-    limit: String(Math.max(1, Math.min(500, limit))),
-  });
-  if (q.trim()) params.set('q', q.trim());
-  return apiFetch<ApiDmaMarketsPage>(`/lookups/dma-markets?${params}`);
-}
-
-export interface ApiDmaMarket {
-  dmaid: number;
-  marketName: string;
-  /** From dbo.DMA.PostalCode — one row per postal in this schema. */
-  postalCode: string;
-}
-
-export function searchDmaMarkets(query?: string, limit = 50) {
-  const params = new URLSearchParams();
-  if (query) params.set('q', query);
-  if (limit) params.set('limit', String(limit));
-  return apiFetch<ApiDmaMarket[]>(`/lookups/dma-markets/search?${params.toString()}`);
-}
-
-/**
- * First chunk of DMA rows for small pickers (e.g. venue filters). Large lists should use
- * {@link fetchDmaMarketsPaged} (dbo.DMA, `{ data, total }`).
- */
-export function fetchDmaMarkets() {
-  return searchDmaMarkets('', 100);
-}
-
-export interface ApiDmaMarketsPageResponse {
-  data: ApiDmaMarket[];
-  total: number;
-}
-
-export function fetchDmaMarketsPaged(offset: number, limit: number, q?: string) {
-  const params = new URLSearchParams({
-    offset: String(offset),
-    limit: String(limit),
-  });
-  const trimmed = q?.trim();
-  if (trimmed) params.set('q', trimmed);
-  return apiFetch<ApiDmaMarketsPageResponse>(`/lookups/dma-markets?${params.toString()}`);
-}
+export function fetchDmaMarketsPage(offset = 0, limit = 500, q = '') { const params = new URLSearchParams({ offset: String(offset), limit: String(limit) }); if (q.trim()) params.set('q', q.trim()); return apiFetch<ApiDmaMarketsPage>(`/lookups/dma-markets?${params}`); }
