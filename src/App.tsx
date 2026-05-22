@@ -14,6 +14,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
 import { getActiveAccount, isMsalBusy } from "./auth/entra.ts";
 import { canAccessCompanyHub, isEmsEnabled, isInternalEnabled } from "./routing/appSuite.ts";
 import { APP_CHOOSER_PATH, EMS_ROOT, INTERNAL_ROOT, LOGIN_PATH } from "./routing/paths.ts";
+import "./contact-polish.css";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -34,7 +35,7 @@ const queryClient = new QueryClient({
 function LoadingAuthState() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background text-sm text-text-muted">
-      Checking sign-in…
+      Checking sign-in...
     </div>
   );
 }
