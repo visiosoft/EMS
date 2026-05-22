@@ -341,7 +341,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
     let revenueYesterday = 0;
     for (const r of rows) {
       totalSold += r.totalSold ?? 0;
-      totalRevenue += r.totalRevenue ?? 0;
+      totalRevenue += grossSalesToDate(r) ?? 0;
       revenueYesterday += r.yesterdayRevenue ?? 0;
     }
     return { events: rows.length, totalSold, totalRevenue, revenueYesterday };
