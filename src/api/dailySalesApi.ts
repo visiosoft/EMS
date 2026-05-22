@@ -234,6 +234,64 @@ export interface ApiAttractionSalesDashboard extends ApiSalesDashboardBody {
   engagementBaselines: NonNullable<ApiSalesDashboardBody['engagementBaselines']>;
 }
 
+function asFiniteNumber(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function latestSalesPoint<T extends { date: string }>(rows: T[] | undefined, asOf?: string): T | null {
+  const filtered = (rows ?? [])
+    .filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.date))
+    .filter((row) => !asOf || row.date <= asOf)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  return filtered.length ? filtered[filtered.length - 1] : null;
+}
+
+function normalizeSinglePerformanceDashboard<T extends ApiSalesDashboardBody>(dashboard: T): T {
+  if (dashboard.performanceId == null) return dashboard;
+
+  const latestSummary = latestSalesPoint(dashboard.summary, dashboard.asOfDate);
+  const latestSeries = latestSalesPoint(dashboard.series, dashboard.asOfDate);
+
+  // Daily Sales stores user-entered running totals. For a single performance trend,
+  // Total Revenue must be the latest PerformanceSalesRevenue snapshot, not a sum of
+  // all previous snapshots. The current API still exposes that latest snapshot as
+  // the daily value on the latest row, so prefer it here until the service payload is
+  // fully migrated to cumulative naming.
+  const latestRevenue =
+    asFiniteNumber(latestSummary?.dailyValueSold) ??
+    asFiniteNumber(latestSeries?.dailyRevenue) ??
+    asFiniteNumber(latestSummary?.totalValueSold) ??
+    asFiniteNumber(latestSeries?.totalRevenue) ??
+    dashboard.kpis.totalRevenue;
+  const latestTickets =
+    asFiniteNumber(latestSummary?.dailyTicketsSold) ??
+    asFiniteNumber(latestSeries?.dailyTickets) ??
+    asFiniteNumber(latestSummary?.totalTicketsSold) ??
+    asFiniteNumber(latestSeries?.totalTickets) ??
+    dashboard.kpis.ticketsDistributed;
+
+  const pctSold =
+    dashboard.sellableCapacity != null && dashboard.sellableCapacity > 0
+      ? (latestTickets / dashboard.sellableCapacity) * 100
+      : dashboard.kpis.pctSold;
+  const pctRevenueVsPotential =
+    dashboard.grossPotential != null && dashboard.grossPotential > 0
+      ? (latestRevenue / dashboard.grossPotential) * 100
+      : dashboard.kpis.pctRevenueVsPotential;
+
+  return {
+    ...dashboard,
+    kpis: {
+      ...dashboard.kpis,
+      totalRevenue: latestRevenue,
+      ticketsDistributed: latestTickets,
+      pctSold,
+      pctRevenueVsPotential,
+    },
+  };
+}
+
 /**
  * KPIs + daily series for one engagement.
  * When `performanceId` is provided, the dashboard is scoped to just that single show;
@@ -252,7 +310,7 @@ export function fetchEngagementSalesDashboard(
   }
   return apiFetch<ApiEngagementSalesDashboard>(
     `/daily-sales/engagement-dashboard?${p.toString()}`,
-  );
+  ).then(normalizeSinglePerformanceDashboard);
 }
 
 export function fetchAttractionSalesDashboard(
