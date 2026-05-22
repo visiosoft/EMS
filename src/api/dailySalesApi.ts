@@ -234,6 +234,260 @@ export interface ApiAttractionSalesDashboard extends ApiSalesDashboardBody {
   engagementBaselines: NonNullable<ApiSalesDashboardBody['engagementBaselines']>;
 }
 
+function asFiniteNumber(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function ymdAddDays(ymd: string, delta: number): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  if (!y || !m || !d) return ymd;
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + delta);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
+
+function latestSalesPoint<T extends { date: string }>(rows: T[] | undefined, asOf?: string): T | null {
+  const filtered = (rows ?? [])
+    .filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.date))
+    .filter((row) => !asOf || row.date <= asOf)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  return filtered.length ? filtered[filtered.length - 1] : null;
+}
+
+type DashboardSummaryPoint = ApiSalesDashboardBody['summary'][number];
+type DashboardSeriesPoint = ApiSalesDashboardBody['series'][number];
+
+function summarySnapshotRevenue(row: DashboardSummaryPoint | null | undefined): number | null {
+  return asFiniteNumber(row?.dailyValueSold) ?? asFiniteNumber(row?.totalValueSold);
+}
+
+function summarySnapshotTickets(row: DashboardSummaryPoint | null | undefined): number | null {
+  return asFiniteNumber(row?.dailyTicketsSold) ?? asFiniteNumber(row?.totalTicketsSold);
+}
+
+function seriesSnapshotRevenue(row: DashboardSeriesPoint | null | undefined): number | null {
+  return asFiniteNumber(row?.dailyRevenue) ?? asFiniteNumber(row?.totalRevenue);
+}
+
+function seriesSnapshotTickets(row: DashboardSeriesPoint | null | undefined): number | null {
+  return asFiniteNumber(row?.dailyTickets) ?? asFiniteNumber(row?.totalTickets);
+}
+
+function hasEnteredSummarySnapshot(row: DashboardSummaryPoint): boolean {
+  return (summarySnapshotRevenue(row) ?? 0) !== 0 || (summarySnapshotTickets(row) ?? 0) !== 0;
+}
+
+function hasEnteredSeriesSnapshot(row: DashboardSeriesPoint): boolean {
+  return (seriesSnapshotRevenue(row) ?? 0) !== 0 || (seriesSnapshotTickets(row) ?? 0) !== 0;
+}
+
+function latestEnteredSummaryPoint(
+  rows: DashboardSummaryPoint[] | undefined,
+  asOf?: string,
+): DashboardSummaryPoint | null {
+  return latestSalesPoint((rows ?? []).filter(hasEnteredSummarySnapshot), asOf);
+}
+
+function latestEnteredSeriesPoint(
+  rows: DashboardSeriesPoint[] | undefined,
+  asOf?: string,
+): DashboardSeriesPoint | null {
+  return latestSalesPoint((rows ?? []).filter(hasEnteredSeriesSnapshot), asOf);
+}
+
+type SalesTrendSummaryRemainingWindow = Window & typeof globalThis & {
+  __iaeSalesTrendSummaryRemainingByDate?: Record<string, { seats: string; revenue: string }>;
+  __iaeSalesTrendSummaryRemainingInstalled?: boolean;
+  __iaeSalesTrendSummaryRemainingObserver?: MutationObserver;
+};
+
+function formatSummaryDateLabel(ymd: string): string {
+  const [year, month, day] = ymd.split('-').map(Number);
+  if (!year || !month || !day) return ymd;
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(new Date(year, month - 1, day));
+}
+
+function moneyNoFractions(value: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function formatCountOrDash(value: number | null | undefined): string {
+  return value == null || !Number.isFinite(value) ? '—' : value.toLocaleString();
+}
+
+function formatMoneyOrDash(value: number | null | undefined): string {
+  return value == null || !Number.isFinite(value) ? '—' : moneyNoFractions(value);
+}
+
+function applySalesTrendSummaryRemainingPatch() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  const cache = (window as SalesTrendSummaryRemainingWindow).__iaeSalesTrendSummaryRemainingByDate ?? {};
+  if (Object.keys(cache).length === 0) return;
+
+  document.querySelectorAll('table').forEach((table) => {
+    const headRow = table.querySelector('thead tr');
+    const body = table.querySelector('tbody');
+    if (!headRow || !body) return;
+
+    const headers = Array.from(headRow.children).map((th) => String(th.textContent ?? '').trim().toLowerCase());
+    const dateIdx = headers.findIndex((h) => h === 'date');
+    const seatsIdx = headers.findIndex((h) => h === 'seats remaining');
+    const revenueIdx = headers.findIndex((h) => h === 'revenue remaining');
+    const ticketsIdx = headers.findIndex((h) => h === 'total tickets sold');
+    const valueIdx = headers.findIndex((h) => h === 'total value sold');
+    if (dateIdx < 0 || seatsIdx < 0 || revenueIdx < 0 || ticketsIdx < 0 || valueIdx < 0) return;
+
+    Array.from(body.children).forEach((row) => {
+      if (!(row instanceof HTMLTableRowElement)) return;
+      const cells = Array.from(row.children) as HTMLElement[];
+      const dateLabel = String(cells[dateIdx]?.textContent ?? '').trim();
+      const remaining = cache[dateLabel];
+      if (!remaining) return;
+
+      if (cells[seatsIdx] && cells[seatsIdx].textContent?.trim() !== remaining.seats) {
+        cells[seatsIdx].textContent = remaining.seats;
+        cells[seatsIdx].classList.remove('text-text-muted');
+        cells[seatsIdx].classList.add('text-text-primary');
+      }
+      if (cells[revenueIdx] && cells[revenueIdx].textContent?.trim() !== remaining.revenue) {
+        cells[revenueIdx].textContent = remaining.revenue;
+        cells[revenueIdx].classList.remove('text-text-muted');
+        cells[revenueIdx].classList.add('text-text-primary');
+      }
+    });
+  });
+}
+
+function installSalesTrendSummaryRemainingPatch() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  const w = window as SalesTrendSummaryRemainingWindow;
+  if (!w.__iaeSalesTrendSummaryRemainingInstalled) {
+    w.__iaeSalesTrendSummaryRemainingInstalled = true;
+    w.__iaeSalesTrendSummaryRemainingObserver = new MutationObserver(() => {
+      window.requestAnimationFrame(applySalesTrendSummaryRemainingPatch);
+    });
+    w.__iaeSalesTrendSummaryRemainingObserver.observe(document.body, { childList: true, subtree: true });
+  }
+  window.requestAnimationFrame(applySalesTrendSummaryRemainingPatch);
+}
+
+function rememberSalesTrendSummaryRemaining(rows: DashboardSummaryPoint[]) {
+  if (typeof window === 'undefined') return;
+  const cache: Record<string, { seats: string; revenue: string }> = {};
+  for (const row of rows) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(row.date)) continue;
+    cache[formatSummaryDateLabel(row.date)] = {
+      seats: formatCountOrDash(row.seatsRemaining),
+      revenue: formatMoneyOrDash(row.revenueRemaining),
+    };
+  }
+  (window as SalesTrendSummaryRemainingWindow).__iaeSalesTrendSummaryRemainingByDate = cache;
+  installSalesTrendSummaryRemainingPatch();
+}
+
+function normalizeDashboardSummaryRemaining<T extends ApiSalesDashboardBody>(dashboard: T): T {
+  rememberSalesTrendSummaryRemaining(dashboard.summary ?? []);
+  return dashboard;
+}
+
+function normalizeSinglePerformanceDashboard<T extends ApiSalesDashboardBody>(dashboard: T): T {
+  if (dashboard.performanceId == null) return dashboard;
+
+  const latestSummary =
+    latestEnteredSummaryPoint(dashboard.summary, dashboard.asOfDate) ??
+    latestSalesPoint(dashboard.summary, dashboard.asOfDate);
+  const latestSeries =
+    latestEnteredSeriesPoint(dashboard.series, dashboard.asOfDate) ??
+    latestSalesPoint(dashboard.series, dashboard.asOfDate);
+  const sevenDaysPrior = ymdAddDays(dashboard.asOfDate, -7);
+  const sevenDaysPriorSummary = latestEnteredSummaryPoint(
+    dashboard.summary,
+    sevenDaysPrior,
+  );
+  const sevenDaysPriorSeries = latestEnteredSeriesPoint(
+    dashboard.series,
+    sevenDaysPrior,
+  );
+
+  // Daily Sales stores user-entered running totals. For a single performance trend,
+  // KPI values must use the latest PerformanceSalesQuantity / PerformanceSalesRevenue
+  // snapshot. Last-7-day KPIs are the latest snapshot minus the snapshot as of seven
+  // days prior, not a sum of cumulative snapshots.
+  const latestRevenue =
+    summarySnapshotRevenue(latestSummary) ??
+    seriesSnapshotRevenue(latestSeries) ??
+    dashboard.kpis.totalRevenue;
+  const latestTickets =
+    summarySnapshotTickets(latestSummary) ??
+    seriesSnapshotTickets(latestSeries) ??
+    dashboard.kpis.ticketsDistributed;
+  const priorRevenue =
+    summarySnapshotRevenue(sevenDaysPriorSummary) ??
+    seriesSnapshotRevenue(sevenDaysPriorSeries) ??
+    0;
+  const priorTickets =
+    summarySnapshotTickets(sevenDaysPriorSummary) ??
+    seriesSnapshotTickets(sevenDaysPriorSeries) ??
+    0;
+
+  const pctSold =
+    dashboard.sellableCapacity != null && dashboard.sellableCapacity > 0
+      ? (latestTickets / dashboard.sellableCapacity) * 100
+      : dashboard.kpis.pctSold;
+  const pctRevenueVsPotential =
+    dashboard.grossPotential != null && dashboard.grossPotential > 0
+      ? (latestRevenue / dashboard.grossPotential) * 100
+      : dashboard.kpis.pctRevenueVsPotential;
+
+  const normalizedSummary = dashboard.summary.map((row) => {
+    const rowTickets = summarySnapshotTickets(row) ?? row.totalTicketsSold ?? 0;
+    const rowRevenue = summarySnapshotRevenue(row) ?? row.totalValueSold ?? 0;
+    return {
+      ...row,
+      totalTicketsSold: rowTickets,
+      totalValueSold: rowRevenue,
+      dailyTicketsSold: rowTickets,
+      dailyValueSold: rowRevenue,
+      seatsSoldPct:
+        dashboard.sellableCapacity != null && dashboard.sellableCapacity > 0
+          ? (rowTickets / dashboard.sellableCapacity) * 100
+          : row.seatsSoldPct,
+      seatsRemaining:
+        dashboard.sellableCapacity != null
+          ? Math.max(0, dashboard.sellableCapacity - rowTickets)
+          : row.seatsRemaining,
+      revenueRemaining:
+        dashboard.grossPotential != null
+          ? Math.max(0, dashboard.grossPotential - rowRevenue)
+          : row.revenueRemaining,
+    };
+  });
+
+  return normalizeDashboardSummaryRemaining({
+    ...dashboard,
+    summary: normalizedSummary,
+    kpis: {
+      ...dashboard.kpis,
+      totalRevenue: latestRevenue,
+      ticketsDistributed: latestTickets,
+      pctSold,
+      revenueLast7Days: Math.max(0, latestRevenue - priorRevenue),
+      ticketsLast7Days: Math.max(0, latestTickets - priorTickets),
+      pctRevenueVsPotential,
+    },
+  });
+}
+
 /**
  * KPIs + daily series for one engagement.
  * When `performanceId` is provided, the dashboard is scoped to just that single show;
@@ -252,7 +506,7 @@ export function fetchEngagementSalesDashboard(
   }
   return apiFetch<ApiEngagementSalesDashboard>(
     `/daily-sales/engagement-dashboard?${p.toString()}`,
-  );
+  ).then(normalizeSinglePerformanceDashboard).then(normalizeDashboardSummaryRemaining);
 }
 
 export function fetchAttractionSalesDashboard(
@@ -264,5 +518,5 @@ export function fetchAttractionSalesDashboard(
   if (asOfDate) p.set('asOfDate', asOfDate);
   return apiFetch<ApiAttractionSalesDashboard>(
     `/daily-sales/attraction-sales-summary?${p.toString()}`,
-  );
+  ).then(normalizeDashboardSummaryRemaining);
 }
