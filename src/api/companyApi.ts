@@ -329,8 +329,26 @@ export function createCompanyContact(companyId: number, body: CompanyContactCrea
     body: JSON.stringify({ ...body, roleId: roleIds[0], departmentId: departmentIds[0] }),
   }).finally(clearStoredContactIds);
 }
-export function updateContactAssignment(assignmentId: number, body: Partial<{ firstName: string; lastName: string; email: string; cellPhone: string | null; workPhone: string | null; roleId: number; departmentId: number }>) {
-  return apiFetch<ApiCompanyContact>(`/contact-assignments/${assignmentId}`, { method: 'PATCH', body: JSON.stringify(body) });
+export function updateContactAssignment(assignmentId: number, body: Partial<{ firstName: string; lastName: string; email: string; cellPhone: string | null; workPhone: string | null; roleId: number; departmentId: number; roleIds: number[]; departmentIds: number[] }>) {
+  const storedRoleIds = readStoredContactIds(CONTACT_MULTI_STORAGE.role);
+  const storedDepartmentIds = readStoredContactIds(CONTACT_MULTI_STORAGE.department);
+  const roleIds = (body.roleIds?.length ? body.roleIds : storedRoleIds.length ? storedRoleIds : body.roleId ? [body.roleId] : [])
+    .filter((id) => Number.isInteger(id) && id > 0);
+  const departmentIds = (body.departmentIds?.length ? body.departmentIds : storedDepartmentIds.length ? storedDepartmentIds : body.departmentId ? [body.departmentId] : [])
+    .filter((id) => Number.isInteger(id) && id > 0);
+  if (roleIds.length > 0 && departmentIds.length > 0 && (roleIds.length > 1 || departmentIds.length > 1)) {
+    return apiFetch<ApiCompanyContact[]>(`/contact-assignments/${assignmentId}/bulk`, {
+      method: 'PATCH',
+      body: JSON.stringify({ ...body, roleIds, departmentIds }),
+    }).then((rows) => {
+      clearStoredContactIds();
+      return groupApiCompanyContacts(Array.isArray(rows) ? rows : [])[0];
+    });
+  }
+  return apiFetch<ApiCompanyContact>(`/contact-assignments/${assignmentId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ ...body, roleId: roleIds[0], departmentId: departmentIds[0] }),
+  }).finally(clearStoredContactIds);
 }
 export function deleteContactAssignment(assignmentId: number) { return apiFetch<void>(`/contact-assignments/${assignmentId}`, { method: 'DELETE' }); }
 export function fetchCompanyEngagements(companyId: number) { return apiFetch<ApiEngagementRow[]>(`/companies/${companyId}/engagements`); }
