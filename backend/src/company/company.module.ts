@@ -37,6 +37,7 @@ import {
   ContactAssignmentsController,
 } from './company.controller';
 import { CompanyContactBulkController } from './company-contact-bulk.controller';
+import { ContactAssignmentBulkUpdateController } from './contact-assignment-bulk-update.controller';
 import { CompanyService } from './company.service';
 
 const entities = [
@@ -78,6 +79,7 @@ const entities = [
     CompanyController,
     ContactAssignmentsController,
     CompanyContactBulkController,
+    ContactAssignmentBulkUpdateController,
     LookupsController,
   ],
   providers: [CompanyService, LookupsService],
