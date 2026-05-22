@@ -44,7 +44,12 @@ type ContactRowLike = {
   departmentId?: number;
   departmentName?: string;
 };
-type ContactAggregate = { roles: string[]; departments: string[] };
+type ContactAggregate = {
+  roles: string[];
+  departments: string[];
+  roleIds: number[];
+  departmentIds: number[];
+};
 type PatchedWindow = Window & typeof globalThis & {
   __iaeContactBridgeInstalled?: boolean;
   __iaeContactDomPatchInstalled?: boolean;
@@ -76,6 +81,11 @@ function normalizeEmail(value: unknown): string {
 function uniquePush(list: string[], value: unknown) {
   const text = normalizeText(value);
   if (text && !list.some((x) => x.toLowerCase() === text.toLowerCase())) list.push(text);
+}
+
+function uniquePushNumber(list: number[], value: unknown) {
+  const n = Number(value);
+  if (Number.isInteger(n) && n > 0 && !list.includes(n)) list.push(n);
 }
 
 function splitContactCellText(text: string): string[] {
@@ -121,6 +131,16 @@ function clearContactMultiDraft() {
   }
 }
 
+function getContactEmailInputValue(): string {
+  if (typeof document === 'undefined') return '';
+  const inputs = Array.from(document.querySelectorAll('input[type="email"]')) as HTMLInputElement[];
+  for (const input of inputs.reverse()) {
+    const v = normalizeEmail(input.value);
+    if (v) return v;
+  }
+  return '';
+}
+
 function cacheContactAggregates(rows: ContactRowLike[]) {
   if (typeof window === 'undefined') return;
   const w = window as PatchedWindow;
@@ -128,38 +148,47 @@ function cacheContactAggregates(rows: ContactRowLike[]) {
   for (const row of rows) {
     const email = normalizeEmail(row.email);
     if (!email) continue;
-    const current = cache[email] ?? { roles: [], departments: [] };
+    const current = cache[email] ?? { roles: [], departments: [], roleIds: [], departmentIds: [] };
     for (const role of splitContactCellText(normalizeText(row.roleName))) uniquePush(current.roles, role);
     for (const dept of splitContactCellText(normalizeText(row.departmentName))) uniquePush(current.departments, dept);
+    uniquePushNumber(current.roleIds, row.roleId);
+    uniquePushNumber(current.departmentIds, row.departmentId);
     cache[email] = current;
   }
   w.__iaeContactByEmail = cache;
 }
 
 function groupContactRows(rows: ContactRowLike[]): ContactRowLike[] {
-  const groups = new Map<string, ContactRowLike & { _roles?: string[]; _departments?: string[] }>();
+  cacheContactAggregates(rows);
+  const groups = new Map<string, ContactRowLike & { _roles?: string[]; _departments?: string[]; _roleIds?: number[]; _departmentIds?: number[] }>();
   for (const row of rows) {
     const key = row.contactId && row.contactId > 0
       ? `id:${row.contactId}`
       : `email:${normalizeEmail(row.email)}|name:${normalizeText(row.firstName).toLowerCase()} ${normalizeText(row.lastName).toLowerCase()}`;
     const existing = groups.get(key);
     if (!existing) {
-      const clone = { ...row, _roles: [], _departments: [] };
+      const clone = { ...row, _roles: [], _departments: [], _roleIds: [], _departmentIds: [] };
       uniquePush(clone._roles!, row.roleName);
       uniquePush(clone._departments!, row.departmentName);
+      uniquePushNumber(clone._roleIds!, row.roleId);
+      uniquePushNumber(clone._departmentIds!, row.departmentId);
       groups.set(key, clone);
     } else {
       uniquePush(existing._roles!, row.roleName);
       uniquePush(existing._departments!, row.departmentName);
+      uniquePushNumber(existing._roleIds!, row.roleId);
+      uniquePushNumber(existing._departmentIds!, row.departmentId);
       if ((row.contactAssignmentId ?? 0) < (existing.contactAssignmentId ?? Number.MAX_SAFE_INTEGER)) {
         existing.contactAssignmentId = row.contactAssignmentId;
       }
     }
   }
   const grouped = Array.from(groups.values()).map((row) => {
-    const { _roles, _departments, ...rest } = row;
+    const { _roles, _departments, _roleIds, _departmentIds, ...rest } = row;
     return {
       ...rest,
+      roleId: (_roleIds ?? [row.roleId]).find((n) => Number.isInteger(n) && n > 0) ?? row.roleId,
+      departmentId: (_departmentIds ?? [row.departmentId]).find((n) => Number.isInteger(n) && n > 0) ?? row.departmentId,
       roleName: (_roles ?? []).join(CONTACT_CELL_SEPARATOR),
       departmentName: (_departments ?? []).join(CONTACT_CELL_SEPARATOR),
     };
@@ -274,6 +303,7 @@ function patchContactTables() {
     const roleIdx = headers.findIndex((h) => h === 'roles' || h === 'role');
     let deptIdx = headers.findIndex((h) => h === 'departments' || h === 'department');
     if (nameIdx < 0 || roleIdx < 0) return;
+    table.classList.add('iae-contact-table');
     if (deptIdx < 0) {
       const th = document.createElement('th');
       th.className = (headRow.children[roleIdx] as HTMLElement | undefined)?.className || 'text-left py-2';
@@ -380,14 +410,14 @@ export function Select2({
 }: Select2Props) {
   useEffect(installContactEnhancements, []);
   const optionsSafe = options ?? [];
-  const contactMultiKindRef = useRef<ContactMultiKind>(value ? null : contactMultiKindFromOptions(optionsSafe));
-  const contactMultiKind = contactMultiKindRef.current;
+  const contactMultiKind = contactMultiKindFromOptions(optionsSafe);
   const contactMultiMode = contactMultiKind != null;
   const visibleOptions = contactMultiMode ? optionsSafe.filter((o) => o.value !== '') : optionsSafe;
 
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [selectedValues, setSelectedValues] = useState<string[]>(() => (contactMultiMode && value ? [value] : []));
+  const initializedContactMultiKeyRef = useRef('');
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -401,6 +431,25 @@ export function Select2({
   const filtered = parentFiltersOptions
     ? visibleOptions
     : visibleOptions.filter((o) => String(o.label ?? '').toLowerCase().includes(String(search ?? '').toLowerCase()));
+
+  useEffect(() => {
+    if (!contactMultiMode || !contactMultiKind) return;
+    const email = getContactEmailInputValue();
+    const cache = typeof window !== 'undefined' ? (window as PatchedWindow).__iaeContactByEmail ?? {} : {};
+    const cached = email ? cache[email] : undefined;
+    const cachedIds = contactMultiKind === 'role' ? cached?.roleIds : cached?.departmentIds;
+    const fromCache = (cachedIds ?? [])
+      .map((n) => String(n))
+      .filter((id) => visibleOptions.some((o) => o.value === id));
+    const fallback = value ? [value] : [];
+    const next = fromCache.length > 0 ? fromCache : fallback;
+    const initKey = `${contactMultiKind}:${email}:${value}:${next.join('|')}:${visibleOptions.map((o) => o.value).join(',')}`;
+    if (initializedContactMultiKeyRef.current === initKey) return;
+    initializedContactMultiKeyRef.current = initKey;
+    setSelectedValues(next);
+    writeContactMulti(contactMultiKind, next);
+    if (next[0] && next[0] !== value) onChange(next[0]);
+  }, [contactMultiKind, contactMultiMode, onChange, value, visibleOptions]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
