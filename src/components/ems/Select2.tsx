@@ -43,20 +43,100 @@ function contactMultiKindFromOptions(options: Select2Option[]): ContactMultiKind
   return null;
 }
 
+function readStoredIds(kind: Exclude<ContactMultiKind, null>): number[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(CONTACT_MULTI_STORAGE[kind]);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    return Array.from(new Set(parsed.map(Number).filter((n) => Number.isInteger(n) && n > 0)));
+  } catch {
+    return [];
+  }
+}
+
 function writeContactMulti(kind: Exclude<ContactMultiKind, null>, values: string[]) {
   if (typeof window === 'undefined') return;
   try {
     window.localStorage.setItem(
       CONTACT_MULTI_STORAGE[kind],
-      JSON.stringify(
-        values
-          .map((v) => Number(v))
-          .filter((n) => Number.isInteger(n) && n > 0),
-      ),
+      JSON.stringify(values.map((v) => Number(v)).filter((n) => Number.isInteger(n) && n > 0)),
     );
   } catch {
     /* ignore localStorage failures */
   }
+}
+
+function clearContactMultiDraft() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(CONTACT_MULTI_STORAGE.role);
+    window.localStorage.removeItem(CONTACT_MULTI_STORAGE.department);
+  } catch {
+    /* ignore */
+  }
+}
+
+function installContactBulkFetchBridge() {
+  if (typeof window === 'undefined') return;
+  type PatchedWindow = Window & typeof globalThis & {
+    __iaeContactBulkFetchBridgeInstalled?: boolean;
+    __iaeContactBulkOriginalFetch?: typeof fetch;
+  };
+  const w = window as PatchedWindow;
+  if (w.__iaeContactBulkFetchBridgeInstalled) return;
+  const original = w.fetch.bind(w);
+  w.__iaeContactBulkOriginalFetch = original;
+  w.__iaeContactBulkFetchBridgeInstalled = true;
+  w.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    try {
+      const url = typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+      const method = String(init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
+      const roleIds = readStoredIds('role');
+      const departmentIds = readStoredIds('department');
+      const shouldBulk =
+        method === 'POST' &&
+        /\/companies\/\d+\/contacts(?:\?|$)/.test(url) &&
+        !/\/contacts\/bulk(?:\?|$)/.test(url) &&
+        roleIds.length > 0 &&
+        departmentIds.length > 0 &&
+        (roleIds.length > 1 || departmentIds.length > 1);
+      if (!shouldBulk) return original(input, init);
+
+      let parsedBody: Record<string, unknown> = {};
+      if (typeof init?.body === 'string' && init.body.trim()) {
+        parsedBody = JSON.parse(init.body) as Record<string, unknown>;
+      }
+      const bulkUrl = url.replace(/\/contacts(\?|$)/, '/contacts/bulk$1');
+      const response = await original(bulkUrl, {
+        ...init,
+        body: JSON.stringify({
+          ...parsedBody,
+          roleIds,
+          departmentIds,
+        }),
+      });
+      clearContactMultiDraft();
+      const contentType = response.headers.get('content-type') ?? '';
+      if (response.ok && contentType.includes('application/json')) {
+        const rows = await response.clone().json();
+        if (Array.isArray(rows)) {
+          return new Response(JSON.stringify(rows[0] ?? null), {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers,
+          });
+        }
+      }
+      return response;
+    } catch {
+      return original(input, init);
+    }
+  }) as typeof fetch;
 }
 
 function useMenuPosition(open: boolean, containerRef: React.RefObject<HTMLDivElement>) {
@@ -76,9 +156,7 @@ function useMenuPosition(open: boolean, containerRef: React.RefObject<HTMLDivEle
       minWidth: r.width,
       zIndex: 2000,
       maxHeight: 'min(360px, 80dvh)',
-      ...(openUp
-        ? { bottom: window.innerHeight - r.top + 4 }
-        : { top: r.bottom + 4 }),
+      ...(openUp ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }),
     });
   }, [containerRef, open]);
 
@@ -116,20 +194,14 @@ export function Select2({
   onFilterChange,
 }: Select2Props) {
   const optionsSafe = options ?? [];
-  const contactMultiKindRef = useRef<ContactMultiKind>(
-    value ? null : contactMultiKindFromOptions(optionsSafe),
-  );
+  const contactMultiKindRef = useRef<ContactMultiKind>(value ? null : contactMultiKindFromOptions(optionsSafe));
   const contactMultiKind = contactMultiKindRef.current;
   const contactMultiMode = contactMultiKind != null;
-  const visibleOptions = contactMultiMode
-    ? optionsSafe.filter((o) => o.value !== '')
-    : optionsSafe;
+  const visibleOptions = contactMultiMode ? optionsSafe.filter((o) => o.value !== '') : optionsSafe;
 
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const [selectedValues, setSelectedValues] = useState<string[]>(() =>
-    contactMultiMode && value ? [value] : [],
-  );
+  const [selectedValues, setSelectedValues] = useState<string[]>(() => (contactMultiMode && value ? [value] : []));
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -142,9 +214,11 @@ export function Select2({
   const selected = visibleOptions.find((o) => o.value === value);
   const filtered = parentFiltersOptions
     ? visibleOptions
-    : visibleOptions.filter((o) =>
-        String(o.label ?? '').toLowerCase().includes(String(search ?? '').toLowerCase()),
-      );
+    : visibleOptions.filter((o) => String(o.label ?? '').toLowerCase().includes(String(search ?? '').toLowerCase()));
+
+  useEffect(() => {
+    if (contactMultiMode) installContactBulkFetchBridge();
+  }, [contactMultiMode]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -188,11 +262,7 @@ export function Select2({
 
   const handleSelect = useCallback((optValue: string) => {
     if (contactMultiMode) {
-      setContactMulti(
-        selectedValues.includes(optValue)
-          ? selectedValues.filter((v) => v !== optValue)
-          : [...selectedValues, optValue],
-      );
+      setContactMulti(selectedValues.includes(optValue) ? selectedValues.filter((v) => v !== optValue) : [...selectedValues, optValue]);
       return;
     }
     onChange(optValue);
@@ -219,33 +289,23 @@ export function Select2({
       setHighlightedIndex((i) => Math.max(i - 1, 0));
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (highlightedIndex >= 0 && filtered[highlightedIndex]) {
-        handleSelect(filtered[highlightedIndex].value);
-      }
+      if (highlightedIndex >= 0 && filtered[highlightedIndex]) handleSelect(filtered[highlightedIndex].value);
     }
   }, [filtered, handleSelect, highlightedIndex, open, parentFiltersOptions]);
 
   const summary = contactMultiMode
     ? selectedValues.length === 0
       ? placeholder
-      : selectedValues
-          .map((v) => visibleOptions.find((o) => o.value === v)?.label || v)
-          .join(', ')
+      : selectedValues.map((v) => visibleOptions.find((o) => o.value === v)?.label || v).join(', ')
     : selected
       ? selected.label
       : placeholder;
 
   const dropdown = open && menuStyle && (
-    <div
-      ref={menuRef}
-      className="select2-dropdown bg-elevated border border-border rounded-md shadow-xl overflow-hidden w-full"
-      style={menuStyle}
-    >
+    <div ref={menuRef} className="select2-dropdown bg-elevated border border-border rounded-md shadow-xl overflow-hidden w-full" style={menuStyle}>
       <div className="select2-search p-2 border-b border-border">
         <div className="relative min-w-0 cursor-text">
-          <span className="pointer-events-none absolute left-2.5 top-1/2 z-[1] -translate-y-1/2 text-text-muted text-xs select-none">
-            ⌕
-          </span>
+          <span className="pointer-events-none absolute left-2.5 top-1/2 z-[1] -translate-y-1/2 text-text-muted text-xs select-none">⌕</span>
           <input
             ref={searchRef}
             type="text"
@@ -265,23 +325,12 @@ export function Select2({
       </div>
       <ul ref={listRef} role="listbox" className="select2-results max-h-[min(280px,50vh)] overflow-y-auto py-1">
         {allowClear && !contactMultiMode && (
-          <li
-            role="option"
-            aria-selected={value === ''}
-            onClick={() => handleSelect('')}
-            className={`select2-results__option px-3 py-2 text-sm cursor-pointer transition-colors text-text-muted italic ${value === '' ? 'bg-ems-accent-dim text-ems-accent' : 'hover:bg-hover'}`}
-          >
-            {placeholder}
-          </li>
+          <li role="option" aria-selected={value === ''} onClick={() => handleSelect('')} className={`select2-results__option px-3 py-2 text-sm cursor-pointer transition-colors text-text-muted italic ${value === '' ? 'bg-ems-accent-dim text-ems-accent' : 'hover:bg-hover'}`}>{placeholder}</li>
         )}
         {filtered.length === 0 ? (
-          <li className="select2-results__option px-3 py-2 text-sm text-text-muted text-center">
-            {visibleOptions.length > 0 ? 'No results found' : 'No options available'}
-          </li>
+          <li className="select2-results__option px-3 py-2 text-sm text-text-muted text-center">{visibleOptions.length > 0 ? 'No results found' : 'No options available'}</li>
         ) : filtered.map((opt, idx) => {
-          const isSelected = contactMultiMode
-            ? selectedValues.includes(opt.value)
-            : opt.value === value;
+          const isSelected = contactMultiMode ? selectedValues.includes(opt.value) : opt.value === value;
           return (
             <li
               key={opt.value}
@@ -293,11 +342,7 @@ export function Select2({
               className={[
                 'select2-results__option px-3 py-2 text-sm transition-colors select-none',
                 opt.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer',
-                isSelected
-                  ? 'select2-results__option--selected bg-ems-accent-dim text-ems-accent font-medium'
-                  : idx === highlightedIndex
-                    ? 'select2-results__option--highlighted bg-hover text-text-primary'
-                    : 'text-text-primary hover:bg-hover',
+                isSelected ? 'select2-results__option--selected bg-ems-accent-dim text-ems-accent font-medium' : idx === highlightedIndex ? 'select2-results__option--highlighted bg-hover text-text-primary' : 'text-text-primary hover:bg-hover',
               ].filter(Boolean).join(' ')}
             >
               {isSelected && <span className="mr-1.5 text-ems-accent text-xs">✓</span>}
@@ -328,12 +373,8 @@ export function Select2({
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span className={`min-w-0 flex-1 truncate ${contactMultiMode ? (selectedValues.length ? 'text-text-primary' : 'text-text-muted') : (selected ? 'text-text-primary' : 'text-text-muted')}`}>
-          {summary}
-        </span>
-        <span className="select2-arrow ml-2 flex-shrink-0 text-text-muted transition-transform duration-150" style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)', fontSize: 10 }}>
-          ▼
-        </span>
+        <span className={`min-w-0 flex-1 truncate ${contactMultiMode ? (selectedValues.length ? 'text-text-primary' : 'text-text-muted') : (selected ? 'text-text-primary' : 'text-text-muted')}`}>{summary}</span>
+        <span className="select2-arrow ml-2 flex-shrink-0 text-text-muted transition-transform duration-150" style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)', fontSize: 10 }}>▼</span>
       </button>
       {open && menuStyle && typeof document !== 'undefined' && createPortal(dropdown, document.body)}
     </div>
@@ -344,10 +385,7 @@ export function toOptions(items: string[]): Select2Option[] {
   return items.map((v) => ({ value: v, label: v }));
 }
 
-export function toObjOptions<T extends { id: string }>(
-  items: T[],
-  labelFn: (item: T) => string,
-): Select2Option[] {
+export function toObjOptions<T extends { id: string }>(items: T[], labelFn: (item: T) => string): Select2Option[] {
   return items.map((item) => ({ value: item.id, label: labelFn(item) }));
 }
 
@@ -360,14 +398,7 @@ interface Select2MultiProps {
   disabled?: boolean;
 }
 
-export function Select2Multi({
-  options,
-  values,
-  onChange,
-  placeholder = 'Select...',
-  className = '',
-  disabled = false,
-}: Select2MultiProps) {
+export function Select2Multi({ options, values, onChange, placeholder = 'Select...', className = '', disabled = false }: Select2MultiProps) {
   const optionsSafe = options ?? [];
   const valuesSafe = values ?? [];
   const [open, setOpen] = useState(false);
@@ -376,14 +407,8 @@ export function Select2Multi({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const menuStyle = useMenuPosition(open, containerRef);
-
-  const filtered = useMemo(
-    () => optionsSafe.filter((o) => String(o.label ?? '').toLowerCase().includes(search.toLowerCase())),
-    [optionsSafe, search],
-  );
-  const summary = valuesSafe.length === 0
-    ? placeholder
-    : valuesSafe.map((v) => optionsSafe.find((o) => o.value === v)?.label || v).join(', ');
+  const filtered = useMemo(() => optionsSafe.filter((o) => String(o.label ?? '').toLowerCase().includes(search.toLowerCase())), [optionsSafe, search]);
+  const summary = valuesSafe.length === 0 ? placeholder : valuesSafe.map((v) => optionsSafe.find((o) => o.value === v)?.label || v).join(', ');
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -395,10 +420,7 @@ export function Select2Multi({
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
-
-  useEffect(() => {
-    if (open && searchRef.current) searchRef.current.focus();
-  }, [open]);
+  useEffect(() => { if (open && searchRef.current) searchRef.current.focus(); }, [open]);
 
   const toggle = (v: string) => {
     if (disabled) return;
@@ -411,36 +433,14 @@ export function Select2Multi({
       <div className="select2-search p-2 border-b border-border">
         <div className="relative min-w-0 cursor-text">
           <span className="pointer-events-none absolute left-2.5 top-1/2 z-[1] -translate-y-1/2 text-text-muted text-xs select-none">⌕</span>
-          <input
-            ref={searchRef}
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search..."
-            autoComplete="off"
-            spellCheck={false}
-            className="select2-search__field w-full min-w-0 cursor-text pl-7 pr-3 py-1.5 bg-surface border border-border rounded text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-ems-accent focus:ring-1 focus:ring-ems-accent/30"
-          />
+          <input ref={searchRef} type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..." autoComplete="off" spellCheck={false} className="select2-search__field w-full min-w-0 cursor-text pl-7 pr-3 py-1.5 bg-surface border border-border rounded text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-ems-accent focus:ring-1 focus:ring-ems-accent/30" />
         </div>
       </div>
       <ul role="listbox" className="select2-results max-h-[min(280px,50vh)] overflow-y-auto py-1">
-        {filtered.length === 0 ? (
-          <li className="select2-results__option px-3 py-2 text-sm text-text-muted text-center">No results found</li>
-        ) : filtered.map((opt) => {
+        {filtered.length === 0 ? <li className="select2-results__option px-3 py-2 text-sm text-text-muted text-center">No results found</li> : filtered.map((opt) => {
           const selected = valuesSafe.includes(opt.value);
           return (
-            <li
-              key={opt.value}
-              role="option"
-              aria-selected={selected}
-              aria-disabled={opt.disabled}
-              onClick={() => !opt.disabled && toggle(opt.value)}
-              className={[
-                'select2-results__option px-3 py-2 text-sm transition-colors select-none',
-                opt.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer',
-                selected ? 'bg-ems-accent-dim text-ems-accent font-medium' : 'text-text-primary hover:bg-hover',
-              ].filter(Boolean).join(' ')}
-            >
+            <li key={opt.value} role="option" aria-selected={selected} aria-disabled={opt.disabled} onClick={() => !opt.disabled && toggle(opt.value)} className={['select2-results__option px-3 py-2 text-sm transition-colors select-none', opt.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer', selected ? 'bg-ems-accent-dim text-ems-accent font-medium' : 'text-text-primary hover:bg-hover'].filter(Boolean).join(' ')}>
               <span className="mr-2 text-xs w-4 inline-block text-center">{selected ? '✓' : ''}</span>
               {opt.label}
             </li>
@@ -452,24 +452,9 @@ export function Select2Multi({
 
   return (
     <div ref={containerRef} className={`select2 relative ${className}`}>
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => { if (!disabled) setOpen((o) => !o); }}
-        className={[
-          'select2-selection w-full flex items-center justify-between gap-2 bg-surface border border-border rounded px-3 py-1.5 text-sm text-left transition-colors',
-          disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-ems-accent/60',
-          open ? 'border-ems-accent ring-1 ring-ems-accent/30' : '',
-        ].filter(Boolean).join(' ')}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-      >
-        <span className={`min-w-0 flex-1 truncate ${valuesSafe.length === 0 ? 'text-text-muted' : 'text-text-primary'}`}>
-          {summary}
-        </span>
-        <span className="select2-arrow ml-2 flex-shrink-0 text-text-muted transition-transform duration-150" style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)', fontSize: 10 }}>
-          ▼
-        </span>
+      <button type="button" disabled={disabled} onClick={() => { if (!disabled) setOpen((o) => !o); }} className={['select2-selection w-full flex items-center justify-between gap-2 bg-surface border border-border rounded px-3 py-1.5 text-sm text-left transition-colors', disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-ems-accent/60', open ? 'border-ems-accent ring-1 ring-ems-accent/30' : ''].filter(Boolean).join(' ')} aria-haspopup="listbox" aria-expanded={open}>
+        <span className={`min-w-0 flex-1 truncate ${valuesSafe.length === 0 ? 'text-text-muted' : 'text-text-primary'}`}>{summary}</span>
+        <span className="select2-arrow ml-2 flex-shrink-0 text-text-muted transition-transform duration-150" style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)', fontSize: 10 }}>▼</span>
       </button>
       {open && menuStyle && typeof document !== 'undefined' && createPortal(dropdown, document.body)}
     </div>
