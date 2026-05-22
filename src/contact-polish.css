@@ -1,0 +1,194 @@
+/* Company/Venue contact list polish.
+   The contacts table gets the .iae-contact-table class from the contact bridge in Select2.tsx. */
+
+.iae-contact-table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: separate !important;
+  border-spacing: 0 10px !important;
+}
+
+.iae-contact-table thead tr {
+  border: 0 !important;
+}
+
+.iae-contact-table thead th {
+  padding: 0 14px 4px !important;
+  color: hsl(var(--text-muted)) !important;
+  font-size: 10px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  white-space: nowrap !important;
+}
+
+.iae-contact-table tbody tr {
+  border: 0 !important;
+  transform: translateZ(0);
+}
+
+.iae-contact-table tbody td {
+  padding: 14px !important;
+  vertical-align: top !important;
+  background: hsl(var(--card)) !important;
+  border-top: 1px solid hsl(var(--border)) !important;
+  border-bottom: 1px solid hsl(var(--border)) !important;
+  transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.iae-contact-table tbody td:first-child {
+  border-left: 1px solid hsl(var(--border)) !important;
+  border-radius: 16px 0 0 16px !important;
+  color: hsl(var(--text-primary)) !important;
+  font-weight: 800;
+  line-height: 1.25;
+  min-width: 180px;
+}
+
+.iae-contact-table tbody td:first-child::before {
+  content: '👤';
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  margin-right: 10px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: hsl(var(--ems-amber-dim));
+  color: hsl(var(--ems-amber));
+  border: 1px solid hsl(var(--ems-amber) / 0.24);
+  font-size: 15px;
+  vertical-align: middle;
+  box-shadow: inset 0 0 0 1px hsl(var(--background) / 0.45);
+}
+
+.iae-contact-table tbody td:last-child {
+  border-right: 1px solid hsl(var(--border)) !important;
+  border-radius: 0 16px 16px 0 !important;
+  width: 40px;
+}
+
+.iae-contact-table tbody tr:hover td {
+  background: hsl(var(--bg-hover) / 0.55) !important;
+  border-color: hsl(var(--ems-accent) / 0.35) !important;
+  box-shadow: 0 12px 28px hsl(var(--background) / 0.18);
+}
+
+.iae-contact-table tbody td:nth-child(2),
+.iae-contact-table tbody td:nth-child(3) {
+  max-width: 340px;
+}
+
+.iae-contact-table tbody td:nth-child(4) {
+  color: hsl(var(--ems-blue)) !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  overflow-wrap: anywhere;
+}
+
+.iae-contact-table tbody td:nth-child(5) {
+  color: hsl(var(--text-secondary)) !important;
+  font-size: 12px !important;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.iae-contact-table tbody td:nth-child(2) span,
+.iae-contact-table tbody td:nth-child(3) span {
+  display: inline-flex !important;
+  align-items: center;
+  min-height: 24px;
+  max-width: 100%;
+  margin: 0 6px 6px 0 !important;
+  padding: 4px 9px !important;
+  border-radius: 999px !important;
+  background: hsl(var(--bg-elevated)) !important;
+  color: hsl(var(--text-secondary)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  font-size: 11px !important;
+  font-weight: 750 !important;
+  line-height: 1.2 !important;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.iae-contact-table tbody td:nth-child(3) span {
+  background: hsl(var(--ems-accent-dim)) !important;
+  color: hsl(var(--ems-accent)) !important;
+  border-color: hsl(var(--ems-accent) / 0.22) !important;
+}
+
+.iae-contact-table tbody td:nth-child(2) span.text-text-muted,
+.iae-contact-table tbody td:nth-child(3) span.text-text-muted {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: hsl(var(--text-muted)) !important;
+  padding-left: 0 !important;
+}
+
+@media (max-width: 760px) {
+  .iae-contact-table {
+    min-width: 0 !important;
+    border-spacing: 0 12px !important;
+  }
+
+  .iae-contact-table thead {
+    display: none !important;
+  }
+
+  .iae-contact-table,
+  .iae-contact-table tbody,
+  .iae-contact-table tr,
+  .iae-contact-table td {
+    display: block !important;
+    width: 100% !important;
+  }
+
+  .iae-contact-table tbody tr {
+    border: 1px solid hsl(var(--border)) !important;
+    border-radius: 18px !important;
+    background: hsl(var(--card)) !important;
+    box-shadow: 0 10px 30px hsl(var(--background) / 0.16);
+    overflow: hidden;
+  }
+
+  .iae-contact-table tbody td {
+    border: 0 !important;
+    border-radius: 0 !important;
+    padding: 8px 14px !important;
+    background: transparent !important;
+  }
+
+  .iae-contact-table tbody td:first-child {
+    border: 0 !important;
+    padding-top: 14px !important;
+    min-width: 0;
+  }
+
+  .iae-contact-table tbody td:last-child {
+    border: 0 !important;
+    padding-bottom: 14px !important;
+    text-align: left !important;
+  }
+
+  .iae-contact-table tbody td:nth-child(n+2)::before {
+    display: block;
+    margin-bottom: 5px;
+    color: hsl(var(--text-muted));
+    font-size: 10px;
+    font-weight: 850;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .iae-contact-table tbody td:nth-child(2)::before { content: 'Roles'; }
+  .iae-contact-table tbody td:nth-child(3)::before { content: 'Departments'; }
+  .iae-contact-table tbody td:nth-child(4)::before { content: 'Email'; }
+  .iae-contact-table tbody td:nth-child(5)::before { content: 'Phone'; }
+
+  .iae-contact-table tbody td:nth-child(4),
+  .iae-contact-table tbody td:nth-child(5) {
+    white-space: normal !important;
+  }
+}
