@@ -57,8 +57,8 @@ function finiteNumberOrNull(value: number | null | undefined): number | null {
 
 function grossSalesToDate(row: ApiPerformanceSalesRow): number | null {
   // TicketingSales stores cumulative snapshots. For a selected report date,
-  // the value to display is the snapshot on that date, falling back to the
-  // prior-day snapshot only when the selected date has no row yet.
+  // display the selected-date snapshot, falling back to the prior-day snapshot
+  // only when the selected date has no row yet.
   return (
     finiteNumberOrNull(row.todayRevenue) ??
     finiteNumberOrNull(row.yesterdayRevenue) ??
@@ -67,7 +67,6 @@ function grossSalesToDate(row: ApiPerformanceSalesRow): number | null {
 }
 
 function totalSoldToDate(row: ApiPerformanceSalesRow): number {
-  // Same cumulative-snapshot rule as grossSalesToDate, but for quantity.
   return (
     finiteNumberOrNull(row.todayTicketsSold) ??
     finiteNumberOrNull(row.yesterdayTicketsSold) ??
@@ -76,20 +75,14 @@ function totalSoldToDate(row: ApiPerformanceSalesRow): number {
   );
 }
 
-function soldOnReportDate(row: ApiPerformanceSalesRow): number {
-  // Daily sold = selected report-day cumulative snapshot - previous-day snapshot.
-  // If there is no row for the selected report date, the show sold 0 on that date.
-  const current = finiteNumberOrNull(row.todayTicketsSold);
-  if (current == null) return 0;
-  const previous = finiteNumberOrNull(row.yesterdayTicketsSold) ?? 0;
-  return Math.max(0, current - previous);
+function soldYesterday(row: ApiPerformanceSalesRow): number {
+  // This column means the prior calendar day relative to the selected report date.
+  // If there is no prior-day snapshot, show zero instead of borrowing report-day delta.
+  return finiteNumberOrNull(row.yesterdayTicketsSold) ?? 0;
 }
 
-function revenueOnReportDate(row: ApiPerformanceSalesRow): number {
-  const current = finiteNumberOrNull(row.todayRevenue);
-  if (current == null) return 0;
-  const previous = finiteNumberOrNull(row.yesterdayRevenue) ?? 0;
-  return Math.max(0, current - previous);
+function revenueYesterday(row: ApiPerformanceSalesRow): number {
+  return finiteNumberOrNull(row.yesterdayRevenue) ?? 0;
 }
 
 function todayLocalYmd(): string {
@@ -178,13 +171,13 @@ function sortRows(rows: ApiPerformanceSalesRow[], sort: SortState): ApiPerforman
         n = compareNumbers(grossSalesToDate(a), grossSalesToDate(b));
         break;
       case 'soldYesterday':
-        n = compareNumbers(soldOnReportDate(a), soldOnReportDate(b));
+        n = compareNumbers(soldYesterday(a), soldYesterday(b));
         break;
       case 'totalSold':
         n = compareNumbers(totalSoldToDate(a), totalSoldToDate(b));
         break;
       case 'yesterdayRevenue':
-        n = compareNumbers(revenueOnReportDate(a), revenueOnReportDate(b));
+        n = compareNumbers(revenueYesterday(a), revenueYesterday(b));
         break;
       case 'totalRevenue':
         n = compareNumbers(grossSalesToDate(a), grossSalesToDate(b));
@@ -370,13 +363,13 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   const kpis = useMemo(() => {
     let totalSold = 0;
     let totalRevenue = 0;
-    let revenueYesterday = 0;
+    let revenuePriorDay = 0;
     for (const r of rows) {
       totalSold += totalSoldToDate(r);
       totalRevenue += grossSalesToDate(r) ?? 0;
-      revenueYesterday += revenueOnReportDate(r);
+      revenuePriorDay += revenueYesterday(r);
     }
-    return { events: rows.length, totalSold, totalRevenue, revenueYesterday };
+    return { events: rows.length, totalSold, totalRevenue, revenueYesterday: revenuePriorDay };
   }, [rows]);
 
   const toggleSort = (col: SortColumn) => {
@@ -518,9 +511,9 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                     const venueLabel = r.venueName ?? r.venueCompanyName;
                     const marketLabel = rowMarketName(r);
                     const grossSalesValue = grossSalesToDate(r);
-                    const soldOnDateValue = soldOnReportDate(r);
+                    const soldYesterdayValue = soldYesterday(r);
                     const totalSoldValue = totalSoldToDate(r);
-                    const revenueOnDateValue = revenueOnReportDate(r);
+                    const revenueYesterdayValue = revenueYesterday(r);
                     return (
                       <tr key={`${r.performanceId}-${r.engagementId}`} className={['group border-b border-border/60 cursor-pointer transition-colors', zebra, 'hover:bg-ems-accent-dim/30'].join(' ')} onClick={() => onOpenEngagement(r.engagementId, r.performanceId)} title="Open sales trends">
                         <td className="px-4 py-3 align-top">
@@ -532,9 +525,9 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">{r.engagementSellableCapacity != null && Number.isFinite(r.engagementSellableCapacity) ? r.engagementSellableCapacity.toLocaleString() : <span className="text-text-muted font-normal">—</span>}</td>
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">{r.engagementGrossPotential != null && Number.isFinite(r.engagementGrossPotential) ? fmtCurrency(r.engagementGrossPotential) : <span className="text-text-muted font-normal">—</span>}</td>
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">{grossSalesValue != null ? fmtCurrency(grossSalesValue) : <span className="text-text-muted font-normal">—</span>}</td>
-                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums text-text-secondary">{soldOnDateValue > 0 ? soldOnDateValue.toLocaleString() : <span className="text-text-muted">—</span>}</td>
+                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums text-text-secondary">{soldYesterdayValue > 0 ? soldYesterdayValue.toLocaleString() : <span className="text-text-muted">—</span>}</td>
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-medium text-text-primary">{totalSoldValue > 0 ? totalSoldValue.toLocaleString() : <span className="text-text-muted font-normal">—</span>}</td>
-                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums text-text-secondary">{revenueOnDateValue > 0 ? fmtCurrency(revenueOnDateValue) : <span className="text-text-muted">—</span>}</td>
+                        <td className="px-4 py-3 align-top text-sm text-right tabular-nums text-text-secondary">{revenueYesterdayValue > 0 ? fmtCurrency(revenueYesterdayValue) : <span className="text-text-muted">—</span>}</td>
                         <td className="px-4 py-3 align-top text-sm text-right tabular-nums font-semibold text-ems-green">{grossSalesValue != null && grossSalesValue > 0 ? fmtCurrency(grossSalesValue) : <span className="text-text-muted font-normal">—</span>}</td>
                         <td className="w-8 px-2 py-3 align-middle text-text-muted opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight className="h-4 w-4" aria-hidden /></td>
                       </tr>
