@@ -30,33 +30,25 @@ interface Select2Props {
 }
 
 type ContactMultiKind = 'role' | 'department' | null;
-type ContactRowLike = {
-  contactAssignmentId?: number;
-  contactId?: number;
-  contactInfoId?: number;
-  firstName?: string;
-  lastName?: string;
-  email?: string;
-  cellPhone?: string | null;
-  workPhone?: string | null;
-  roleId?: number;
-  roleName?: string;
-  departmentId?: number;
-  departmentName?: string;
+type ContactAggregate = {
+  roleIds: number[];
+  departmentIds: number[];
 };
-type ContactAggregate = { roles: string[]; departments: string[] };
+type ContactRowLike = {
+  contactId?: number;
+  email?: string;
+  roleId?: number;
+  departmentId?: number;
+};
 type PatchedWindow = Window & typeof globalThis & {
   __iaeContactBridgeInstalled?: boolean;
-  __iaeContactDomPatchInstalled?: boolean;
   __iaeContactByEmail?: Record<string, ContactAggregate>;
-  __iaeContactObserver?: MutationObserver;
 };
 
-const CONTACT_CELL_SEPARATOR = ' ⁞ ';
-const CONTACT_MULTI_STORAGE: Record<Exclude<ContactMultiKind, null>, string> = {
+const CONTACT_MULTI_STORAGE = {
   role: 'iae.contactDraft.roleIds',
   department: 'iae.contactDraft.departmentIds',
-};
+} as const;
 
 function contactMultiKindFromOptions(options: Select2Option[]): ContactMultiKind {
   const firstLabel = String(options?.[0]?.label ?? '').trim().toLowerCase();
@@ -65,53 +57,34 @@ function contactMultiKindFromOptions(options: Select2Option[]): ContactMultiKind
   return null;
 }
 
-function normalizeText(value: unknown): string {
-  return String(value ?? '').trim();
-}
-
 function normalizeEmail(value: unknown): string {
-  return normalizeText(value).toLowerCase();
+  return String(value ?? '').trim().toLowerCase();
 }
 
-function uniquePush(list: string[], value: unknown) {
-  const text = normalizeText(value);
-  if (text && !list.some((x) => x.toLowerCase() === text.toLowerCase())) list.push(text);
-}
-
-function splitContactCellText(text: string): string[] {
-  return text
-    .split(CONTACT_CELL_SEPARATOR)
-    .flatMap((part) => part.split(/\s*,\s*/))
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .filter((part, idx, arr) => arr.findIndex((x) => x.toLowerCase() === part.toLowerCase()) === idx);
+function uniquePositiveInts(values: unknown[]): number[] {
+  return Array.from(new Set(values.map(Number).filter((n) => Number.isInteger(n) && n > 0)));
 }
 
 function readStoredIds(kind: Exclude<ContactMultiKind, null>): number[] {
   if (typeof window === 'undefined') return [];
   try {
-    const raw = window.localStorage.getItem(CONTACT_MULTI_STORAGE[kind]);
-    const parsed = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(parsed)) return [];
-    return Array.from(new Set(parsed.map(Number).filter((n) => Number.isInteger(n) && n > 0)));
+    const parsed = JSON.parse(window.localStorage.getItem(CONTACT_MULTI_STORAGE[kind]) || '[]') as unknown;
+    return Array.isArray(parsed) ? uniquePositiveInts(parsed) : [];
   } catch {
     return [];
   }
 }
 
-function writeContactMulti(kind: Exclude<ContactMultiKind, null>, values: string[]) {
+function writeStoredIds(kind: Exclude<ContactMultiKind, null>, values: string[]) {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(
-      CONTACT_MULTI_STORAGE[kind],
-      JSON.stringify(values.map((v) => Number(v)).filter((n) => Number.isInteger(n) && n > 0)),
-    );
+    window.localStorage.setItem(CONTACT_MULTI_STORAGE[kind], JSON.stringify(uniquePositiveInts(values)));
   } catch {
-    /* ignore localStorage failures */
+    /* ignore browser storage errors */
   }
 }
 
-function clearContactMultiDraft() {
+function clearStoredIds() {
   if (typeof window === 'undefined') return;
   try {
     window.localStorage.removeItem(CONTACT_MULTI_STORAGE.role);
@@ -121,60 +94,29 @@ function clearContactMultiDraft() {
   }
 }
 
-function cacheContactAggregates(rows: ContactRowLike[]) {
+function getContactEmailInputValue(): string {
+  if (typeof document === 'undefined') return '';
+  const inputs = Array.from(document.querySelectorAll('input[type="email"]')) as HTMLInputElement[];
+  for (const input of inputs.reverse()) {
+    const email = normalizeEmail(input.value);
+    if (email) return email;
+  }
+  return '';
+}
+
+function rememberContactRows(rows: ContactRowLike[]) {
   if (typeof window === 'undefined') return;
   const w = window as PatchedWindow;
   const cache = { ...(w.__iaeContactByEmail ?? {}) };
   for (const row of rows) {
     const email = normalizeEmail(row.email);
     if (!email) continue;
-    const current = cache[email] ?? { roles: [], departments: [] };
-    for (const role of splitContactCellText(normalizeText(row.roleName))) uniquePush(current.roles, role);
-    for (const dept of splitContactCellText(normalizeText(row.departmentName))) uniquePush(current.departments, dept);
+    const current = cache[email] ?? { roleIds: [], departmentIds: [] };
+    current.roleIds = uniquePositiveInts([...current.roleIds, row.roleId]);
+    current.departmentIds = uniquePositiveInts([...current.departmentIds, row.departmentId]);
     cache[email] = current;
   }
   w.__iaeContactByEmail = cache;
-}
-
-function groupContactRows(rows: ContactRowLike[]): ContactRowLike[] {
-  const groups = new Map<string, ContactRowLike & { _roles?: string[]; _departments?: string[] }>();
-  for (const row of rows) {
-    const key = row.contactId && row.contactId > 0
-      ? `id:${row.contactId}`
-      : `email:${normalizeEmail(row.email)}|name:${normalizeText(row.firstName).toLowerCase()} ${normalizeText(row.lastName).toLowerCase()}`;
-    const existing = groups.get(key);
-    if (!existing) {
-      const clone = { ...row, _roles: [], _departments: [] };
-      uniquePush(clone._roles!, row.roleName);
-      uniquePush(clone._departments!, row.departmentName);
-      groups.set(key, clone);
-    } else {
-      uniquePush(existing._roles!, row.roleName);
-      uniquePush(existing._departments!, row.departmentName);
-      if ((row.contactAssignmentId ?? 0) < (existing.contactAssignmentId ?? Number.MAX_SAFE_INTEGER)) {
-        existing.contactAssignmentId = row.contactAssignmentId;
-      }
-    }
-  }
-  const grouped = Array.from(groups.values()).map((row) => {
-    const { _roles, _departments, ...rest } = row;
-    return {
-      ...rest,
-      roleName: (_roles ?? []).join(CONTACT_CELL_SEPARATOR),
-      departmentName: (_departments ?? []).join(CONTACT_CELL_SEPARATOR),
-    };
-  });
-  cacheContactAggregates(grouped);
-  return grouped;
-}
-
-async function groupedJsonResponse(response: Response, rows: ContactRowLike[]) {
-  const grouped = groupContactRows(rows);
-  return new Response(JSON.stringify(grouped), {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers,
-  });
 }
 
 function installContactBridge() {
@@ -182,7 +124,8 @@ function installContactBridge() {
   const w = window as PatchedWindow;
   if (w.__iaeContactBridgeInstalled) return;
   w.__iaeContactBridgeInstalled = true;
-  const original = w.fetch.bind(w);
+  const originalFetch = w.fetch.bind(w);
+
   w.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const requestMethod = typeof Request !== 'undefined' && input instanceof Request ? input.method : 'GET';
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
@@ -191,137 +134,40 @@ function installContactBridge() {
     if (method === 'POST' && /\/companies\/\d+\/contacts(?:\?|$)/.test(url) && !/\/contacts\/bulk(?:\?|$)/.test(url)) {
       const roleIds = readStoredIds('role');
       const departmentIds = readStoredIds('department');
-      const shouldBulk = roleIds.length > 0 && departmentIds.length > 0 && (roleIds.length > 1 || departmentIds.length > 1);
-      if (shouldBulk) {
+      if (roleIds.length > 1 || departmentIds.length > 1) {
         try {
-          const parsedBody = typeof init?.body === 'string' && init.body.trim()
-            ? JSON.parse(init.body) as Record<string, unknown>
-            : {};
+          const body = typeof init?.body === 'string' && init.body.trim() ? JSON.parse(init.body) as Record<string, unknown> : {};
           const bulkUrl = url.replace(/\/contacts(\?|$)/, '/contacts/bulk$1');
-          const response = await original(bulkUrl, {
+          const response = await originalFetch(bulkUrl, {
             ...init,
-            body: JSON.stringify({ ...parsedBody, roleIds, departmentIds }),
+            body: JSON.stringify({ ...body, roleIds, departmentIds }),
           });
-          clearContactMultiDraft();
-          if (response.ok && (response.headers.get('content-type') ?? '').includes('application/json')) {
-            const data = await response.clone().json();
-            if (Array.isArray(data)) return groupedJsonResponse(response, data as ContactRowLike[]);
-          }
+          clearStoredIds();
           return response;
         } catch {
-          /* fall through to the normal request */
+          /* fall back to the original request */
         }
       }
     }
 
-    const response = await original(input, init);
-    if (method !== 'GET' || !response.ok || !(response.headers.get('content-type') ?? '').includes('application/json')) {
-      return response;
-    }
-    try {
-      if (/\/companies\/\d+\/contacts(?:\?|$)/.test(url) && !/\/contacts\/linked-venues(?:\?|$)/.test(url)) {
+    const response = await originalFetch(input, init);
+    if (method === 'GET' && response.ok && (response.headers.get('content-type') ?? '').includes('application/json')) {
+      try {
         const data = await response.clone().json();
-        if (Array.isArray(data)) return groupedJsonResponse(response, data as ContactRowLike[]);
-      }
-      if (/\/companies\/\d+\/contacts\/linked-venues(?:\?|$)/.test(url)) {
-        const data = await response.clone().json();
-        if (Array.isArray(data)) {
-          const groupedSections = data.map((section: { contacts?: ContactRowLike[] }) => ({
-            ...section,
-            contacts: Array.isArray(section.contacts) ? groupContactRows(section.contacts) : [],
-          }));
-          return new Response(JSON.stringify(groupedSections), {
-            status: response.status,
-            statusText: response.statusText,
-            headers: response.headers,
-          });
+        if (/\/companies\/\d+\/contacts(?:\?|$)/.test(url) && Array.isArray(data)) {
+          rememberContactRows(data as ContactRowLike[]);
         }
+        if (/\/companies\/\d+\/contacts\/linked-venues(?:\?|$)/.test(url) && Array.isArray(data)) {
+          for (const section of data as { contacts?: ContactRowLike[] }[]) {
+            rememberContactRows(Array.isArray(section.contacts) ? section.contacts : []);
+          }
+        }
+      } catch {
+        /* keep the original response */
       }
-    } catch {
-      return response;
     }
     return response;
   }) as typeof fetch;
-}
-
-function renderContactBadges(cell: Element, values: string[]) {
-  const clean = values.map((v) => v.trim()).filter(Boolean);
-  cell.textContent = '';
-  if (clean.length === 0) {
-    const empty = document.createElement('span');
-    empty.className = 'text-text-muted';
-    empty.textContent = '—';
-    cell.appendChild(empty);
-    return;
-  }
-  for (const value of clean) {
-    const badge = document.createElement('span');
-    badge.className = 'text-xs bg-elevated px-1 py-0.5 rounded text-text-secondary mr-1 inline-block mb-0.5';
-    badge.textContent = value;
-    cell.appendChild(badge);
-  }
-}
-
-function patchContactTables() {
-  if (typeof document === 'undefined' || typeof window === 'undefined') return;
-  const cache = (window as PatchedWindow).__iaeContactByEmail ?? {};
-  document.querySelectorAll('table').forEach((table) => {
-    const headRow = table.querySelector('thead tr');
-    const body = table.querySelector('tbody');
-    if (!headRow || !body) return;
-    let headers = Array.from(headRow.children).map((th) => (th.textContent ?? '').trim().toLowerCase());
-    const nameIdx = headers.findIndex((h) => h === 'name');
-    const roleIdx = headers.findIndex((h) => h === 'roles' || h === 'role');
-    let deptIdx = headers.findIndex((h) => h === 'departments' || h === 'department');
-    if (nameIdx < 0 || roleIdx < 0) return;
-    if (deptIdx < 0) {
-      const th = document.createElement('th');
-      th.className = (headRow.children[roleIdx] as HTMLElement | undefined)?.className || 'text-left py-2';
-      th.textContent = 'Departments';
-      headRow.insertBefore(th, headRow.children[roleIdx + 1] ?? null);
-      headers = Array.from(headRow.children).map((node) => (node.textContent ?? '').trim().toLowerCase());
-      deptIdx = roleIdx + 1;
-    }
-    const emailIdx = headers.findIndex((h) => h === 'email');
-    const oldEmailIdx = emailIdx > deptIdx ? emailIdx - 1 : emailIdx;
-
-    Array.from(body.children).forEach((tr) => {
-      if (!(tr instanceof HTMLTableRowElement)) return;
-      let cells = Array.from(tr.children);
-      if (cells.length <= deptIdx || (cells[deptIdx].textContent ?? '').trim().includes('@')) {
-        const td = document.createElement('td');
-        td.className = (cells[roleIdx] as HTMLElement | undefined)?.className || 'py-2';
-        tr.insertBefore(td, tr.children[roleIdx + 1] ?? null);
-        cells = Array.from(tr.children);
-      }
-      const emailCell = cells[emailIdx] ?? cells[oldEmailIdx];
-      const roleCell = cells[roleIdx];
-      const deptCell = cells[deptIdx];
-      if (!roleCell || !deptCell) return;
-      const email = normalizeEmail(emailCell?.textContent);
-      const cached = email ? cache[email] : undefined;
-      const roleValues = cached?.roles?.length ? cached.roles : splitContactCellText(roleCell.textContent ?? '');
-      const deptValues = cached?.departments?.length ? cached.departments : splitContactCellText(deptCell.textContent ?? '');
-      renderContactBadges(roleCell, roleValues);
-      renderContactBadges(deptCell, deptValues);
-    });
-  });
-}
-
-function installContactTableDomPatch() {
-  if (typeof window === 'undefined' || typeof document === 'undefined') return;
-  const w = window as PatchedWindow;
-  if (w.__iaeContactDomPatchInstalled) return;
-  w.__iaeContactDomPatchInstalled = true;
-  const run = () => window.requestAnimationFrame(patchContactTables);
-  w.__iaeContactObserver = new MutationObserver(run);
-  w.__iaeContactObserver.observe(document.body, { childList: true, subtree: true });
-  run();
-}
-
-function installContactEnhancements() {
-  installContactBridge();
-  installContactTableDomPatch();
 }
 
 function useMenuPosition(open: boolean, containerRef: React.RefObject<HTMLDivElement>) {
@@ -378,16 +224,18 @@ export function Select2({
   filterQuery,
   onFilterChange,
 }: Select2Props) {
-  useEffect(installContactEnhancements, []);
+  useEffect(installContactBridge, []);
   const optionsSafe = options ?? [];
-  const contactMultiKindRef = useRef<ContactMultiKind>(value ? null : contactMultiKindFromOptions(optionsSafe));
-  const contactMultiKind = contactMultiKindRef.current;
+  const contactMultiKind = contactMultiKindFromOptions(optionsSafe);
   const contactMultiMode = contactMultiKind != null;
   const visibleOptions = contactMultiMode ? optionsSafe.filter((o) => o.value !== '') : optionsSafe;
+  const parentFiltersOptions = onFilterChange != null;
 
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const [selectedValues, setSelectedValues] = useState<string[]>(() => (contactMultiMode && value ? [value] : []));
+  const [selectedValues, setSelectedValues] = useState<string[]>(() => contactMultiMode && value ? [value] : []);
+  const initializedContactMultiKeyRef = useRef('');
+  const userEditedContactMultiRef = useRef(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -395,12 +243,28 @@ export function Select2({
   const listRef = useRef<HTMLUListElement>(null);
   const menuStyle = useMenuPosition(open, containerRef);
 
-  const parentFiltersOptions = onFilterChange != null;
   const displayFilter = parentFiltersOptions ? (filterQuery ?? '') : search;
   const selected = visibleOptions.find((o) => o.value === value);
   const filtered = parentFiltersOptions
     ? visibleOptions
     : visibleOptions.filter((o) => String(o.label ?? '').toLowerCase().includes(String(search ?? '').toLowerCase()));
+
+  useEffect(() => {
+    if (!contactMultiMode || !contactMultiKind) return;
+    if (userEditedContactMultiRef.current) return;
+    const email = getContactEmailInputValue();
+    const cache = typeof window !== 'undefined' ? (window as PatchedWindow).__iaeContactByEmail ?? {} : {};
+    const cached = email ? cache[email] : undefined;
+    const cachedIds = contactMultiKind === 'role' ? cached?.roleIds : cached?.departmentIds;
+    const fromCache = (cachedIds ?? []).map((n) => String(n)).filter((id) => visibleOptions.some((o) => o.value === id));
+    const next = fromCache.length > 0 ? fromCache : value ? [value] : [];
+    const initKey = `${contactMultiKind}:${email}:${fromCache.join('|')}:${visibleOptions.map((o) => o.value).join(',')}`;
+    if (initializedContactMultiKeyRef.current === initKey) return;
+    initializedContactMultiKeyRef.current = initKey;
+    setSelectedValues(next);
+    writeStoredIds(contactMultiKind, next);
+    if (next[0] && next[0] !== value) onChange(next[0]);
+  }, [contactMultiKind, contactMultiMode, onChange, value, visibleOptions]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -418,7 +282,7 @@ export function Select2({
       searchRef.current.focus();
       setHighlightedIndex(filtered.findIndex((o) => o.value === value));
     }
-  }, [open, filtered, value]);
+  }, [filtered, open, value]);
 
   useEffect(() => {
     const list = listRef.current;
@@ -432,12 +296,12 @@ export function Select2({
   }, [highlightedIndex]);
 
   useEffect(() => {
-    if (!contactMultiKind) return;
-    writeContactMulti(contactMultiKind, selectedValues);
+    if (contactMultiKind) writeStoredIds(contactMultiKind, selectedValues);
   }, [contactMultiKind, selectedValues]);
 
   const setContactMulti = useCallback((next: string[]) => {
     const clean = Array.from(new Set(next.filter(Boolean)));
+    userEditedContactMultiRef.current = true;
     setSelectedValues(clean);
     onChange(clean[0] ?? '');
   }, [onChange]);
@@ -476,12 +340,8 @@ export function Select2({
   }, [filtered, handleSelect, highlightedIndex, open, parentFiltersOptions]);
 
   const summary = contactMultiMode
-    ? selectedValues.length === 0
-      ? placeholder
-      : selectedValues.map((v) => visibleOptions.find((o) => o.value === v)?.label || v).join(', ')
-    : selected
-      ? selected.label
-      : placeholder;
+    ? selectedValues.length === 0 ? placeholder : selectedValues.map((v) => visibleOptions.find((o) => o.value === v)?.label || v).join(', ')
+    : selected ? selected.label : placeholder;
 
   const dropdown = open && menuStyle && (
     <div ref={menuRef} className="select2-dropdown bg-elevated border border-border rounded-md shadow-xl overflow-hidden w-full" style={menuStyle}>
@@ -581,7 +441,6 @@ interface Select2MultiProps {
 }
 
 export function Select2Multi({ options, values, onChange, placeholder = 'Select...', className = '', disabled = false }: Select2MultiProps) {
-  useEffect(installContactEnhancements, []);
   const optionsSafe = options ?? [];
   const valuesSafe = values ?? [];
   const [open, setOpen] = useState(false);

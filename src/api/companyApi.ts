@@ -185,6 +185,13 @@ const CONTACT_MULTI_STORAGE = {
   department: 'iae.contactDraft.departmentIds',
 } as const;
 const CONTACT_VALUE_SEPARATOR = ', ';
+const CONTACT_DEPARTMENT_STYLE_ID = 'iae-contact-department-column-style';
+
+type ContactDepartmentWindow = Window & typeof globalThis & {
+  __iaeContactDepartmentsByEmail?: Record<string, string[]>;
+  __iaeContactDepartmentColumnInstalled?: boolean;
+  __iaeContactDepartmentColumnObserver?: MutationObserver;
+};
 
 function normalizeContactText(value: unknown): string {
   return String(value ?? '').trim();
@@ -200,6 +207,19 @@ function uniqueAdd(list: string[], value: unknown) {
   if (!list.some((item) => item.toLowerCase() === text.toLowerCase())) list.push(text);
 }
 
+function splitContactLabels(value: unknown): string[] {
+  return String(value ?? '')
+    .split(CONTACT_VALUE_SEPARATOR)
+    .flatMap((part) => part.split(/\s*⁞\s*/))
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .filter((part, index, all) => all.findIndex((candidate) => candidate.toLowerCase() === part.toLowerCase()) === index);
+}
+
+function uniquePositiveIds(values: unknown[]): number[] {
+  return Array.from(new Set(values.map(Number).filter((n) => Number.isInteger(n) && n > 0)));
+}
+
 function readStoredContactIds(key: string): number[] {
   if (typeof window === 'undefined') return [];
   try {
@@ -207,7 +227,7 @@ function readStoredContactIds(key: string): number[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
-    return Array.from(new Set(parsed.map(Number).filter((n) => Number.isInteger(n) && n > 0)));
+    return uniquePositiveIds(parsed);
   } catch {
     return [];
   }
@@ -223,7 +243,154 @@ function clearStoredContactIds() {
   }
 }
 
+function rememberContactDepartments(rows: ApiCompanyContact[]) {
+  if (typeof window === 'undefined') return;
+  const w = window as ContactDepartmentWindow;
+  const cache = { ...(w.__iaeContactDepartmentsByEmail ?? {}) };
+  for (const row of rows) {
+    const email = normalizeContactEmail(row.email);
+    if (!email) continue;
+    const list = cache[email] ? [...cache[email]] : [];
+    for (const department of splitContactLabels(row.departmentName)) uniqueAdd(list, department);
+    cache[email] = list;
+  }
+  w.__iaeContactDepartmentsByEmail = cache;
+  installContactDepartmentColumnPatch();
+  requestContactDepartmentColumnPatch();
+}
+
+function injectContactDepartmentColumnStyle() {
+  if (typeof document === 'undefined') return;
+  const existing = document.getElementById(CONTACT_DEPARTMENT_STYLE_ID);
+  if (existing) existing.remove();
+  const style = document.createElement('style');
+  style.id = CONTACT_DEPARTMENT_STYLE_ID;
+  style.textContent = `
+    table.iae-contact-departments-visual {
+      table-layout: fixed;
+    }
+    table.iae-contact-departments-visual th:nth-child(1),
+    table.iae-contact-departments-visual td:nth-child(1) {
+      width: 23%;
+    }
+    table.iae-contact-departments-visual th:nth-child(2),
+    table.iae-contact-departments-visual td:nth-child(2) {
+      width: 28%;
+      min-width: 22rem;
+      position: relative;
+      padding-right: 14rem;
+    }
+    table.iae-contact-departments-visual th:nth-child(2)::after {
+      content: 'Departments';
+      position: absolute;
+      left: calc(50% + 0.35rem);
+      top: 50%;
+      transform: translateY(-50%);
+      width: calc(50% - 0.35rem);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: inherit;
+      font: inherit;
+      letter-spacing: inherit;
+      text-transform: inherit;
+      pointer-events: none;
+    }
+    table.iae-contact-departments-visual td:nth-child(2)::after {
+      content: attr(data-departments);
+      position: absolute;
+      left: calc(50% + 0.35rem);
+      top: 50%;
+      transform: translateY(-50%);
+      max-width: calc(50% - 0.35rem);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      border: 1px solid rgb(209 216 226);
+      border-radius: 9999px;
+      background: rgb(229 233 240);
+      color: rgb(84 96 115);
+      font-size: 0.75rem;
+      line-height: 1rem;
+      padding: 0.125rem 0.5rem;
+      pointer-events: none;
+    }
+    table.iae-contact-departments-visual td:nth-child(2)[data-departments='']::after {
+      content: '—';
+      border-color: transparent;
+      background: transparent;
+      color: rgb(148 163 184);
+      padding-left: 0;
+      padding-right: 0;
+    }
+    table.iae-contact-departments-visual th:nth-child(3),
+    table.iae-contact-departments-visual td:nth-child(3) {
+      width: 30%;
+    }
+    table.iae-contact-departments-visual th:nth-child(4),
+    table.iae-contact-departments-visual td:nth-child(4) {
+      width: 14%;
+    }
+    table.iae-contact-departments-visual th:nth-child(5),
+    table.iae-contact-departments-visual td:nth-child(5) {
+      width: 5%;
+    }
+    @media (max-width: 900px) {
+      table.iae-contact-departments-visual th:nth-child(2),
+      table.iae-contact-departments-visual td:nth-child(2) {
+        min-width: 18rem;
+        padding-right: 10rem;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function requestContactDepartmentColumnPatch() {
+  if (typeof window === 'undefined') return;
+  window.requestAnimationFrame(() => patchContactDepartmentColumns());
+}
+
+function patchContactDepartmentColumns() {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return;
+  const cache = (window as ContactDepartmentWindow).__iaeContactDepartmentsByEmail ?? {};
+  document.querySelectorAll('table').forEach((table) => {
+    const headRow = table.querySelector('thead tr');
+    const body = table.querySelector('tbody');
+    if (!headRow || !body) return;
+    const headers = Array.from(headRow.children).map((th) => normalizeContactText(th.textContent).toLowerCase());
+    const nameIdx = headers.findIndex((h) => h === 'name');
+    const rolesIdx = headers.findIndex((h) => h === 'roles' || h === 'role');
+    const emailIdx = headers.findIndex((h) => h === 'email');
+    const phoneIdx = headers.findIndex((h) => h === 'phone');
+    if (nameIdx < 0 || rolesIdx < 0 || emailIdx < 0 || phoneIdx < 0) return;
+    table.classList.add('iae-contact-departments-visual');
+    Array.from(body.children).forEach((row) => {
+      if (!(row instanceof HTMLTableRowElement)) return;
+      const cells = Array.from(row.children);
+      const email = normalizeContactEmail(cells[emailIdx]?.textContent);
+      const departments = email ? cache[email] ?? [] : [];
+      const roleCell = cells[rolesIdx] as HTMLElement | undefined;
+      if (!roleCell) return;
+      roleCell.setAttribute('data-departments', departments.join(CONTACT_VALUE_SEPARATOR));
+      roleCell.setAttribute('title', departments.length ? `Departments: ${departments.join(CONTACT_VALUE_SEPARATOR)}` : 'Departments: none');
+    });
+  });
+}
+
+function installContactDepartmentColumnPatch() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  const w = window as ContactDepartmentWindow;
+  injectContactDepartmentColumnStyle();
+  if (w.__iaeContactDepartmentColumnInstalled) return;
+  w.__iaeContactDepartmentColumnInstalled = true;
+  w.__iaeContactDepartmentColumnObserver = new MutationObserver(requestContactDepartmentColumnPatch);
+  w.__iaeContactDepartmentColumnObserver.observe(document.body, { childList: true, subtree: true });
+  requestContactDepartmentColumnPatch();
+}
+
 function groupApiCompanyContacts(rows: ApiCompanyContact[]): ApiCompanyContact[] {
+  rememberContactDepartments(rows);
   const groups = new Map<string, ApiCompanyContact & { roleNames?: string[]; departmentNames?: string[] }>();
   for (const row of rows) {
     const key = row.contactId && row.contactId > 0
@@ -243,7 +410,7 @@ function groupApiCompanyContacts(rows: ApiCompanyContact[]): ApiCompanyContact[]
       existing.contactAssignmentId = row.contactAssignmentId;
     }
   }
-  return Array.from(groups.values()).map((row) => {
+  const grouped = Array.from(groups.values()).map((row) => {
     const { roleNames, departmentNames, ...rest } = row;
     return {
       ...rest,
@@ -251,6 +418,8 @@ function groupApiCompanyContacts(rows: ApiCompanyContact[]): ApiCompanyContact[]
       departmentName: (departmentNames ?? []).join(CONTACT_VALUE_SEPARATOR),
     };
   });
+  rememberContactDepartments(grouped);
+  return grouped;
 }
 
 export function companiesListQueryKey(offset: number, limit: number, opts: CompanyListQueryOpts) {
@@ -311,26 +480,35 @@ export type CompanyContactCreatePayload = {
 export function createCompanyContact(companyId: number, body: CompanyContactCreatePayload) {
   const storedRoleIds = readStoredContactIds(CONTACT_MULTI_STORAGE.role);
   const storedDepartmentIds = readStoredContactIds(CONTACT_MULTI_STORAGE.department);
-  const roleIds = (body.roleIds?.length ? body.roleIds : storedRoleIds.length ? storedRoleIds : body.roleId ? [body.roleId] : [])
-    .filter((id) => Number.isInteger(id) && id > 0);
-  const departmentIds = (body.departmentIds?.length ? body.departmentIds : storedDepartmentIds.length ? storedDepartmentIds : body.departmentId ? [body.departmentId] : [])
-    .filter((id) => Number.isInteger(id) && id > 0);
+  const roleIds = uniquePositiveIds(body.roleIds?.length ? body.roleIds : storedRoleIds.length ? storedRoleIds : body.roleId ? [body.roleId] : []);
+  const departmentIds = uniquePositiveIds(body.departmentIds?.length ? body.departmentIds : storedDepartmentIds.length ? storedDepartmentIds : body.departmentId ? [body.departmentId] : []);
   if (roleIds.length > 1 || departmentIds.length > 1) {
     return apiFetch<ApiCompanyContact[]>(`/companies/${companyId}/contacts/bulk`, {
       method: 'POST',
       body: JSON.stringify({ ...body, roleIds, departmentIds }),
-    }).then((rows) => {
-      clearStoredContactIds();
-      return groupApiCompanyContacts(Array.isArray(rows) ? rows : [])[0];
-    });
+    }).then((rows) => groupApiCompanyContacts(Array.isArray(rows) ? rows : [])[0]).finally(clearStoredContactIds);
   }
   return apiFetch<ApiCompanyContact>(`/companies/${companyId}/contacts`, {
     method: 'POST',
     body: JSON.stringify({ ...body, roleId: roleIds[0], departmentId: departmentIds[0] }),
   }).finally(clearStoredContactIds);
 }
-export function updateContactAssignment(assignmentId: number, body: Partial<{ firstName: string; lastName: string; email: string; cellPhone: string | null; workPhone: string | null; roleId: number; departmentId: number }>) {
-  return apiFetch<ApiCompanyContact>(`/contact-assignments/${assignmentId}`, { method: 'PATCH', body: JSON.stringify(body) });
+export function updateContactAssignment(assignmentId: number, body: Partial<{ firstName: string; lastName: string; email: string; cellPhone: string | null; workPhone: string | null; roleId: number; departmentId: number; roleIds: number[]; departmentIds: number[] }>) {
+  const storedRoleIds = readStoredContactIds(CONTACT_MULTI_STORAGE.role);
+  const storedDepartmentIds = readStoredContactIds(CONTACT_MULTI_STORAGE.department);
+  const roleIds = uniquePositiveIds(body.roleIds?.length ? body.roleIds : storedRoleIds.length ? storedRoleIds : body.roleId ? [body.roleId] : []);
+  const departmentIds = uniquePositiveIds(body.departmentIds?.length ? body.departmentIds : storedDepartmentIds.length ? storedDepartmentIds : body.departmentId ? [body.departmentId] : []);
+  const hasExplicitSelection = roleIds.length > 0 && departmentIds.length > 0;
+  if (hasExplicitSelection) {
+    return apiFetch<ApiCompanyContact[]>(`/contact-assignments/${assignmentId}/bulk`, {
+      method: 'PATCH',
+      body: JSON.stringify({ ...body, roleIds, departmentIds }),
+    }).then((rows) => groupApiCompanyContacts(Array.isArray(rows) ? rows : [])[0]).finally(clearStoredContactIds);
+  }
+  return apiFetch<ApiCompanyContact>(`/contact-assignments/${assignmentId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ ...body, roleId: roleIds[0], departmentId: departmentIds[0] }),
+  }).finally(clearStoredContactIds);
 }
 export function deleteContactAssignment(assignmentId: number) { return apiFetch<void>(`/contact-assignments/${assignmentId}`, { method: 'DELETE' }); }
 export function fetchCompanyEngagements(companyId: number) { return apiFetch<ApiEngagementRow[]>(`/companies/${companyId}/engagements`); }
