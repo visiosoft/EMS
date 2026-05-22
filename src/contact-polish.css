@@ -1,10 +1,11 @@
 /* Company/Venue contact list polish.
-   Contact rows can have long role and department labels. Keep columns stable,
-   let chips wrap inside their own cells, and fall back to horizontal scrolling
-   instead of clipping or overlapping on narrow screens. */
+   Contact chips must never cross cell borders. Fixed pixel columns plus block
+   chip rows make roles and departments stay in their own lanes on every width. */
 
 .p-4 > .space-y-3 {
   min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
 }
 
 .p-4 > .space-y-3 > button:first-child {
@@ -63,8 +64,7 @@
   display: table-cell !important;
   box-sizing: border-box !important;
   min-width: 0 !important;
-  max-width: none !important;
-  overflow: visible !important;
+  overflow: hidden !important;
 }
 
 :is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) th {
@@ -92,65 +92,95 @@
 
 /* Six cells: Name, Roles, Departments, Email, Phone, menu. */
 :is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:has(> :nth-child(6)) > :nth-child(1) {
-  width: 19% !important;
+  width: 230px !important;
+  min-width: 230px !important;
+  max-width: 230px !important;
 }
 
 :is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:has(> :nth-child(6)) > :nth-child(2) {
-  width: 23% !important;
+  width: 210px !important;
+  min-width: 210px !important;
+  max-width: 210px !important;
 }
 
 :is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:has(> :nth-child(6)) > :nth-child(3) {
-  width: 18% !important;
+  width: 160px !important;
+  min-width: 160px !important;
+  max-width: 160px !important;
 }
 
 :is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:has(> :nth-child(6)) > :nth-child(4) {
-  width: 24% !important;
+  width: 320px !important;
+  min-width: 320px !important;
+  max-width: 320px !important;
 }
 
 :is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:has(> :nth-child(6)) > :nth-child(5) {
-  width: 12% !important;
+  width: 120px !important;
+  min-width: 120px !important;
+  max-width: 120px !important;
 }
 
 :is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:has(> :nth-child(6)) > :nth-child(6) {
-  width: 4% !important;
+  width: 40px !important;
+  min-width: 40px !important;
+  max-width: 40px !important;
 }
 
 /* Five cells: Name, Roles, Email, Phone, menu. */
 :is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:has(> :nth-child(5)):not(:has(> :nth-child(6))) > :nth-child(1) {
-  width: 22% !important;
+  width: 240px !important;
+  min-width: 240px !important;
+  max-width: 240px !important;
 }
 
 :is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:has(> :nth-child(5)):not(:has(> :nth-child(6))) > :nth-child(2) {
-  width: 25% !important;
+  width: 280px !important;
+  min-width: 280px !important;
+  max-width: 280px !important;
 }
 
 :is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:has(> :nth-child(5)):not(:has(> :nth-child(6))) > :nth-child(3) {
-  width: 31% !important;
+  width: 360px !important;
+  min-width: 360px !important;
+  max-width: 360px !important;
 }
 
 :is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:has(> :nth-child(5)):not(:has(> :nth-child(6))) > :nth-child(4) {
-  width: 16% !important;
+  width: 140px !important;
+  min-width: 140px !important;
+  max-width: 140px !important;
 }
 
 :is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:has(> :nth-child(5)):not(:has(> :nth-child(6))) > :nth-child(5) {
-  width: 6% !important;
+  width: 40px !important;
+  min-width: 40px !important;
+  max-width: 40px !important;
 }
 
 /* Four cells: Name, Roles, Email, Phone. */
 :is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:not(:has(> :nth-child(5))) > :nth-child(1) {
-  width: 24% !important;
+  width: 240px !important;
+  min-width: 240px !important;
+  max-width: 240px !important;
 }
 
 :is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:not(:has(> :nth-child(5))) > :nth-child(2) {
-  width: 28% !important;
+  width: 320px !important;
+  min-width: 320px !important;
+  max-width: 320px !important;
 }
 
 :is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:not(:has(> :nth-child(5))) > :nth-child(3) {
-  width: 32% !important;
+  width: 360px !important;
+  min-width: 360px !important;
+  max-width: 360px !important;
 }
 
 :is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:not(:has(> :nth-child(5))) > :nth-child(4) {
-  width: 16% !important;
+  width: 140px !important;
+  min-width: 140px !important;
+  max-width: 140px !important;
 }
 
 :is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) td:first-child {
@@ -175,12 +205,13 @@
 
 :is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) td:nth-child(2) span,
 :is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:has(> :nth-child(6)) td:nth-child(3) span {
-  display: inline-block !important;
+  display: block !important;
   box-sizing: border-box !important;
+  width: 100% !important;
   max-width: 100% !important;
   min-width: 0 !important;
   min-height: 22px;
-  margin: 0 5px 5px 0 !important;
+  margin: 0 0 5px 0 !important;
   padding: 3px 8px !important;
   border-radius: 999px !important;
   border: 1px solid hsl(var(--border)) !important;
@@ -190,10 +221,15 @@
   font-weight: 700 !important;
   line-height: 1.25 !important;
   white-space: normal !important;
-  overflow: visible !important;
+  overflow: hidden !important;
   overflow-wrap: anywhere !important;
   word-break: break-word !important;
   vertical-align: top !important;
+}
+
+:is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) td:nth-child(2) span + span,
+:is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:has(> :nth-child(6)) td:nth-child(3) span + span {
+  margin-top: 4px !important;
 }
 
 :is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:has(> :nth-child(6)) td:nth-child(3) span {
@@ -225,15 +261,4 @@
 :is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) tr:has(> :nth-child(5)):not(:has(> :nth-child(6))) td:nth-child(5) {
   text-align: right !important;
   white-space: nowrap !important;
-}
-
-@media (max-width: 1140px) {
-  .p-4 > .space-y-3 {
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-  }
-
-  :is(.iae-contact-table, .p-4 > .space-y-3 > table, .p-4 > .space-y-3 .rounded-md > table) {
-    width: 1040px !important;
-  }
 }
