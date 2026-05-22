@@ -200,6 +200,10 @@ function uniqueAdd(list: string[], value: unknown) {
   if (!list.some((item) => item.toLowerCase() === text.toLowerCase())) list.push(text);
 }
 
+function uniquePositiveIds(values: unknown[]): number[] {
+  return Array.from(new Set(values.map(Number).filter((n) => Number.isInteger(n) && n > 0)));
+}
+
 function readStoredContactIds(key: string): number[] {
   if (typeof window === 'undefined') return [];
   try {
@@ -207,7 +211,7 @@ function readStoredContactIds(key: string): number[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
-    return Array.from(new Set(parsed.map(Number).filter((n) => Number.isInteger(n) && n > 0)));
+    return uniquePositiveIds(parsed);
   } catch {
     return [];
   }
@@ -311,18 +315,13 @@ export type CompanyContactCreatePayload = {
 export function createCompanyContact(companyId: number, body: CompanyContactCreatePayload) {
   const storedRoleIds = readStoredContactIds(CONTACT_MULTI_STORAGE.role);
   const storedDepartmentIds = readStoredContactIds(CONTACT_MULTI_STORAGE.department);
-  const roleIds = (body.roleIds?.length ? body.roleIds : storedRoleIds.length ? storedRoleIds : body.roleId ? [body.roleId] : [])
-    .filter((id) => Number.isInteger(id) && id > 0);
-  const departmentIds = (body.departmentIds?.length ? body.departmentIds : storedDepartmentIds.length ? storedDepartmentIds : body.departmentId ? [body.departmentId] : [])
-    .filter((id) => Number.isInteger(id) && id > 0);
+  const roleIds = uniquePositiveIds(body.roleIds?.length ? body.roleIds : storedRoleIds.length ? storedRoleIds : body.roleId ? [body.roleId] : []);
+  const departmentIds = uniquePositiveIds(body.departmentIds?.length ? body.departmentIds : storedDepartmentIds.length ? storedDepartmentIds : body.departmentId ? [body.departmentId] : []);
   if (roleIds.length > 1 || departmentIds.length > 1) {
     return apiFetch<ApiCompanyContact[]>(`/companies/${companyId}/contacts/bulk`, {
       method: 'POST',
       body: JSON.stringify({ ...body, roleIds, departmentIds }),
-    }).then((rows) => {
-      clearStoredContactIds();
-      return groupApiCompanyContacts(Array.isArray(rows) ? rows : [])[0];
-    });
+    }).then((rows) => groupApiCompanyContacts(Array.isArray(rows) ? rows : [])[0]).finally(clearStoredContactIds);
   }
   return apiFetch<ApiCompanyContact>(`/companies/${companyId}/contacts`, {
     method: 'POST',
@@ -332,18 +331,14 @@ export function createCompanyContact(companyId: number, body: CompanyContactCrea
 export function updateContactAssignment(assignmentId: number, body: Partial<{ firstName: string; lastName: string; email: string; cellPhone: string | null; workPhone: string | null; roleId: number; departmentId: number; roleIds: number[]; departmentIds: number[] }>) {
   const storedRoleIds = readStoredContactIds(CONTACT_MULTI_STORAGE.role);
   const storedDepartmentIds = readStoredContactIds(CONTACT_MULTI_STORAGE.department);
-  const roleIds = (body.roleIds?.length ? body.roleIds : storedRoleIds.length ? storedRoleIds : body.roleId ? [body.roleId] : [])
-    .filter((id) => Number.isInteger(id) && id > 0);
-  const departmentIds = (body.departmentIds?.length ? body.departmentIds : storedDepartmentIds.length ? storedDepartmentIds : body.departmentId ? [body.departmentId] : [])
-    .filter((id) => Number.isInteger(id) && id > 0);
-  if (roleIds.length > 0 && departmentIds.length > 0 && (roleIds.length > 1 || departmentIds.length > 1)) {
+  const roleIds = uniquePositiveIds(body.roleIds?.length ? body.roleIds : storedRoleIds.length ? storedRoleIds : body.roleId ? [body.roleId] : []);
+  const departmentIds = uniquePositiveIds(body.departmentIds?.length ? body.departmentIds : storedDepartmentIds.length ? storedDepartmentIds : body.departmentId ? [body.departmentId] : []);
+  const hasExplicitSelection = roleIds.length > 0 && departmentIds.length > 0;
+  if (hasExplicitSelection) {
     return apiFetch<ApiCompanyContact[]>(`/contact-assignments/${assignmentId}/bulk`, {
       method: 'PATCH',
       body: JSON.stringify({ ...body, roleIds, departmentIds }),
-    }).then((rows) => {
-      clearStoredContactIds();
-      return groupApiCompanyContacts(Array.isArray(rows) ? rows : [])[0];
-    });
+    }).then((rows) => groupApiCompanyContacts(Array.isArray(rows) ? rows : [])[0]).finally(clearStoredContactIds);
   }
   return apiFetch<ApiCompanyContact>(`/contact-assignments/${assignmentId}`, {
     method: 'PATCH',
