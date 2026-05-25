@@ -3049,7 +3049,7 @@ function CreateProjectForm({
             <div className="border-t border-border pt-3 space-y-3">
               <p className="text-xs text-text-muted">
                 Choose{' '}
-                <span className="font-medium">Under Construction</span>, <span className="font-medium">Pending</span>, or{' '}
+                <span className="font-medium">Under Construction</span>, <span className="font-medium">Confirmed</span>, <span className="font-medium">Pending</span>, or{' '}
                 <span className="font-medium">Inactive</span>, then click Create Project.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
