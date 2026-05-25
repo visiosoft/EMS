@@ -16,6 +16,19 @@ export interface Select2Option {
   disabled?: boolean;
 }
 
+function dedupeSelectOptions(options: Select2Option[]): Select2Option[] {
+  const seen = new Set<string>();
+  const out: Select2Option[] = [];
+  for (const opt of options) {
+    const valueKey = String(opt.value ?? '').trim().toLowerCase();
+    const key = valueKey || String(opt.label ?? '').trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(opt);
+  }
+  return out;
+}
+
 interface Select2Props {
   options: Select2Option[];
   value: string;
@@ -225,7 +238,10 @@ export function Select2({
   onFilterChange,
 }: Select2Props) {
   useEffect(installContactBridge, []);
-  const optionsSafe = options ?? [];
+  const optionsSafe = useMemo(
+    () => dedupeSelectOptions(options ?? []),
+    [options],
+  );
   const contactMultiKind = contactMultiKindFromOptions(optionsSafe);
   const contactMultiMode = contactMultiKind != null;
   const visibleOptions = contactMultiMode ? optionsSafe.filter((o) => o.value !== '') : optionsSafe;
@@ -441,7 +457,10 @@ interface Select2MultiProps {
 }
 
 export function Select2Multi({ options, values, onChange, placeholder = 'Select...', className = '', disabled = false }: Select2MultiProps) {
-  const optionsSafe = options ?? [];
+  const optionsSafe = useMemo(
+    () => dedupeSelectOptions(options ?? []),
+    [options],
+  );
   const valuesSafe = values ?? [];
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');

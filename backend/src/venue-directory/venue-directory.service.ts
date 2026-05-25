@@ -64,11 +64,24 @@ export class VenueDirectoryService {
         { ccid: v.complexCompanyId },
       );
     } else {
-      const cName = (v.complexName ?? '').trim();
+      const cName = (v.complexName ?? '')
+        .trim()
+        .replace(/[\s.,:;]+$/g, '')
+        .replace(/\s+/g, ' ');
       if (cName) {
         const likeC = `%${cName.toLowerCase()}%`;
         qb.andWhere(
-          `EXISTS (SELECT 1 FROM dbo.VenueComplexMember vcmf2 INNER JOIN dbo.Company ccnf ON ccnf.CompanyID = vcmf2.ComplexCompanyID WHERE vcmf2.VenueCompanyID = v.companyId AND LOWER(LTRIM(RTRIM(ccnf.CompanyName))) LIKE :qC)`,
+          `EXISTS (
+            SELECT 1
+            FROM dbo.VenueComplexMember vcmf2
+            INNER JOIN dbo.Company ccnf ON ccnf.CompanyID = vcmf2.ComplexCompanyID
+            WHERE vcmf2.VenueCompanyID = v.companyId
+              AND LOWER(LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(REPLACE(
+                CASE WHEN RIGHT(RTRIM(ccnf.CompanyName),1) IN ('.', ',', ':', ';')
+                     THEN LEFT(RTRIM(ccnf.CompanyName), LEN(RTRIM(ccnf.CompanyName))-1)
+                     ELSE RTRIM(ccnf.CompanyName) END
+              , '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')))) LIKE :qC
+          )`,
           { qC: likeC },
         );
       }
