@@ -328,7 +328,23 @@ export const TALENT_AGENCY_COMPANY_TYPE = 'Talent Agency';
 export function companiesPickerQueryKey() { return ['companies', 'picker', 0, COMPANIES_PICKER_LIMIT] as const; }
 export async function fetchCompaniesPickerRows(): Promise<ApiCompanyListRow[]> { const res = await fetchCompanies(0, COMPANIES_PICKER_LIMIT); return res.data ?? []; }
 export function entertainmentComplexCompaniesQueryKey() { return ['companies', 'picker', 'entertainment-complex', 0, COMPANIES_PICKER_LIMIT] as const; }
-export async function fetchEntertainmentComplexCompanyRows(): Promise<ApiCompanyListRow[]> { const res = await fetchCompanies(0, COMPANIES_PICKER_LIMIT, { companyType: ENTERTAINMENT_COMPLEX_COMPANY_TYPE }); return res.data ?? []; }
+export async function fetchEntertainmentComplexCompanyRows(): Promise<ApiCompanyListRow[]> {
+  const pageSize = COMPANIES_PICKER_LIMIT;
+  const out: ApiCompanyListRow[] = [];
+  let offset = 0;
+  let total = Infinity;
+  while (offset < total && out.length < 100_000) {
+    const res = await fetchCompanies(offset, pageSize, {
+      companyType: ENTERTAINMENT_COMPLEX_COMPANY_TYPE,
+    });
+    const rows = res.data ?? [];
+    out.push(...rows);
+    total = Number.isFinite(res.total) ? Number(res.total) : out.length;
+    offset += rows.length;
+    if (rows.length === 0) break;
+  }
+  return out;
+}
 export function talentAgencyCompaniesQueryKey() { return ['companies', 'picker', 'talent-agency', 0, COMPANIES_PICKER_LIMIT] as const; }
 export async function fetchTalentAgencyCompanyRows(): Promise<ApiCompanyListRow[]> { const res = await fetchCompanies(0, COMPANIES_PICKER_LIMIT, { companyType: TALENT_AGENCY_COMPANY_TYPE }); return res.data ?? []; }
 export function fetchCompany(id: number) { return apiFetch<ApiCompanyListRow>(`/companies/${id}`); }
