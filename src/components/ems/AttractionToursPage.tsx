@@ -59,8 +59,12 @@ import {
   fetchCompanies,
   COMPANIES_PICKER_LIMIT,
   fetchCompanyContacts,
+  createCompanyContact,
+  fetchLookups,
   type ApiCompanyContact,
   type ApiCompanyListRow,
+  type ApiRole,
+  type ApiDepartment,
 } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { clearFormFieldError } from '@/lib/clearFormFieldError';
@@ -73,7 +77,15 @@ import {
   isAllPageSize,
 } from '@/lib/serverPagination';
 import { PageSizeSelect } from './PageSizeSelect';
-import { formatE164ForDisplay } from '@/lib/contactPhoneField';
+import {
+  formatE164ForDisplay,
+  type PhoneCountrySelection,
+  parsePhoneFieldValue,
+  tryE164FromDisplay,
+  PHONE_INVALID_MESSAGE,
+} from '@/lib/contactPhoneField';
+import { DEFAULT_PHONE_COUNTRY } from '@/lib/contactPhoneOptions';
+import { ContactPhoneRow } from './ContactPhoneRow';
 import { type ApiPaginatedResponse } from '@/api/attractionToursApi';
 import { TOUR_STATUS_OPTIONS } from './tourFormLegacy';
 import { AddTourForm } from './AddTourForm';
@@ -688,6 +700,192 @@ function AttractionSidePanel({
   );
 }
 
+function TourContactForm({
+  roles,
+  departments,
+  onSave,
+  onCancel,
+}: {
+  roles: ApiRole[];
+  departments: ApiDepartment[];
+  onSave: (payload: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    cellPhone?: string | null;
+    workPhone?: string | null;
+    roleId: number;
+    departmentId: number;
+  }) => void | Promise<void>;
+  onCancel: () => void;
+}) {
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
+  const [workPhoneCountry, setWorkPhoneCountry] = useState<PhoneCountrySelection>(DEFAULT_PHONE_COUNTRY);
+  const [workPhoneDisplay, setWorkPhoneDisplay] = useState('');
+  const [cellPhoneCountry, setCellPhoneCountry] = useState<PhoneCountrySelection>(DEFAULT_PHONE_COUNTRY);
+  const [cellPhoneDisplay, setCellPhoneDisplay] = useState('');
+  const [workPhoneError, setWorkPhoneError] = useState<string | undefined>();
+  const [cellPhoneError, setCellPhoneError] = useState<string | undefined>();
+  const [roleId, setRoleId] = useState('');
+  const [departmentId, setDepartmentId] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<{
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+    role?: string;
+    department?: string;
+  }>({});
+  const [saving, setSaving] = useState(false);
+
+  const inputCls =
+    'w-full min-w-0 cursor-text bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
+
+  const roleOpts = useMemo(
+    () => (roles ?? []).map((r) => ({ value: String(r.roleId), label: r.roleName })),
+    [roles],
+  );
+  const deptOpts = useMemo(
+    () => (departments ?? []).map((d) => ({ value: String(d.departmentId), label: d.departmentName })),
+    [departments],
+  );
+
+  return (
+    <div className="bg-elevated border border-border rounded-lg p-4 space-y-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+        <FormField label="First Name" required error={fieldErrors.firstName}>
+          <input
+            className={inputCls}
+            maxLength={100}
+            value={firstName}
+            onChange={(e) => {
+              setFirstName(e.target.value);
+              setFieldErrors((prev) => ({ ...prev, firstName: undefined }));
+            }}
+          />
+        </FormField>
+        <FormField label="Last Name" required error={fieldErrors.lastName}>
+          <input
+            className={inputCls}
+            maxLength={100}
+            value={lastName}
+            onChange={(e) => {
+              setLastName(e.target.value);
+              setFieldErrors((prev) => ({ ...prev, lastName: undefined }));
+            }}
+          />
+        </FormField>
+        <FormField label="Email" required error={fieldErrors.email}>
+          <input
+            type="email"
+            className={inputCls}
+            maxLength={254}
+            value={email}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              setFieldErrors((prev) => ({ ...prev, email: undefined }));
+            }}
+          />
+        </FormField>
+        <ContactPhoneRow
+          label="Work Phone"
+          country={workPhoneCountry}
+          display={workPhoneDisplay}
+          onCountry={(c) => { setWorkPhoneCountry(c); setWorkPhoneError(undefined); }}
+          onDisplay={(d) => { setWorkPhoneDisplay(d); setWorkPhoneError(undefined); }}
+          error={workPhoneError}
+        />
+        <ContactPhoneRow
+          label="Cell Phone"
+          country={cellPhoneCountry}
+          display={cellPhoneDisplay}
+          onCountry={(c) => { setCellPhoneCountry(c); setCellPhoneError(undefined); }}
+          onDisplay={(d) => { setCellPhoneDisplay(d); setCellPhoneError(undefined); }}
+          error={cellPhoneError}
+        />
+        <FormField label="Role" required error={fieldErrors.role}>
+          <Select2
+            options={[{ value: '', label: 'Select role…' }, ...roleOpts]}
+            value={roleId}
+            onChange={(v) => { setRoleId(v); setFieldErrors((prev) => ({ ...prev, role: undefined })); }}
+          />
+        </FormField>
+        <div className="sm:col-span-2">
+          <FormField label="Department" required error={fieldErrors.department}>
+            <Select2
+              options={[{ value: '', label: 'Select department…' }, ...deptOpts]}
+              value={departmentId}
+              onChange={(v) => { setDepartmentId(v); setFieldErrors((prev) => ({ ...prev, department: undefined })); }}
+            />
+          </FormField>
+        </div>
+      </div>
+      <div className="flex gap-2 justify-end pt-2 border-t border-border">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={saving}
+          className="text-text-secondary text-sm px-3 py-1.5 hover:text-text-primary disabled:opacity-50 disabled:pointer-events-none"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={saving}
+          onClick={async () => {
+            const next: typeof fieldErrors = {};
+            if (!firstName.trim()) next.firstName = 'First name is required.';
+            if (!lastName.trim()) next.lastName = 'Last name is required.';
+            if (!email.trim()) next.email = 'Email is required.';
+            if (!roleId) next.role = 'Select a role.';
+            if (!departmentId) next.department = 'Select a department.';
+            if (Object.keys(next).length > 0) { setFieldErrors(next); return; }
+            setFieldErrors({});
+            let wErr: string | undefined;
+            let cErr: string | undefined;
+            if (workPhoneDisplay.trim() && !workPhoneCountry) {
+              wErr = 'Select a country for work phone, or clear the number.';
+            }
+            if (cellPhoneDisplay.trim() && !cellPhoneCountry) {
+              cErr = 'Select a country for cell phone, or clear the number.';
+            }
+            if (wErr || cErr) { setWorkPhoneError(wErr); setCellPhoneError(cErr); return; }
+            const wE = tryE164FromDisplay(workPhoneDisplay, workPhoneCountry);
+            const cE = tryE164FromDisplay(cellPhoneDisplay, cellPhoneCountry);
+            if (workPhoneDisplay.trim() && !wE) wErr = PHONE_INVALID_MESSAGE;
+            if (cellPhoneDisplay.trim() && !cE) cErr = PHONE_INVALID_MESSAGE;
+            setWorkPhoneError(wErr);
+            setCellPhoneError(cErr);
+            if (wErr || cErr) return;
+            setSaving(true);
+            try {
+              await onSave({
+                firstName: firstName.trim(),
+                lastName: lastName.trim(),
+                email: email.trim(),
+                workPhone: workPhoneDisplay.trim() ? wE! : undefined,
+                cellPhone: cellPhoneDisplay.trim() ? cE! : undefined,
+                roleId: Number(roleId),
+                departmentId: Number(departmentId),
+              });
+            } finally {
+              setSaving(false);
+            }
+          }}
+          className="inline-flex items-center justify-center gap-2 min-w-[7.5rem] bg-ems-accent text-background text-sm px-4 py-1.5 rounded-md font-medium disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          {saving ? (
+            <><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />Saving…</>
+          ) : (
+            'Save Contact'
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function TourDrawer({
   tour,
   attractions,
@@ -716,11 +914,22 @@ function TourDrawer({
   activeTab: string;
   onTabChange: (tab: string) => void;
 }) {
+  const qc = useQueryClient();
   const contactsQuery = useQuery({
     queryKey: ['tour-management-company-contacts', tour.talentAgencyCompanyId],
     queryFn: () => fetchCompanyContacts(tour.talentAgencyCompanyId!),
     enabled: !!tour.talentAgencyCompanyId,
   });
+
+  const contactLookupsQuery = useQuery({
+    queryKey: ['contact-form-lookups'],
+    queryFn: () => fetchLookups().then(({ roles, departments }) => ({ roles, departments })),
+    staleTime: 30 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  const [showAddContact, setShowAddContact] = useState(false);
 
   // Editable state
   const [tourName, setTourName] = useState(tour.tourName);
@@ -1158,26 +1367,57 @@ function TourDrawer({
         )}
 
         {activeTab === 'Contacts' && (
-          <div>
+          <div className="space-y-3">
             {!tour.talentAgencyCompanyId ? (
               <p className="text-text-secondary">No talent agency assigned to this tour.</p>
-            ) : contactsQuery.isLoading ? (
-              <div className="flex items-center gap-2 text-text-muted"><Loader2 className="h-4 w-4 animate-spin" />Loading contacts…</div>
-            ) : contacts.length === 0 ? (
-              <p className="text-text-secondary">No contacts listed for this talent agency.</p>
             ) : (
-              <div className="space-y-3">
-                {contacts.map(c => (
-                  <div key={c.contactAssignmentId} className="bg-elevated border border-border rounded-lg p-3">
-                    <div className="font-medium text-text-primary">{c.firstName} {c.lastName}</div>
-                    <div className="text-xs text-text-secondary">{c.roleName} • {c.departmentName}</div>
-                    <div className="mt-2 text-xs text-text-secondary space-y-1">
-                      <div>{c.email}</div>
-                      {c.workPhone && <div>{formatE164ForDisplay(c.workPhone)}</div>}
-                    </div>
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowAddContact(!showAddContact)}
+                  className="text-ems-accent text-sm hover:underline"
+                >
+                  + Add Contact
+                </button>
+                {showAddContact && contactLookupsQuery.data && (
+                  <TourContactForm
+                    roles={contactLookupsQuery.data.roles}
+                    departments={contactLookupsQuery.data.departments}
+                    onCancel={() => setShowAddContact(false)}
+                    onSave={async (payload) => {
+                      try {
+                        await createCompanyContact(tour.talentAgencyCompanyId!, payload);
+                        await qc.invalidateQueries({
+                          queryKey: ['tour-management-company-contacts', tour.talentAgencyCompanyId],
+                          exact: true,
+                        });
+                        setShowAddContact(false);
+                        addToast('Contact added to this talent agency.', 'success');
+                      } catch (e) {
+                        addToast(friendlyApiError(e, 'Could not add the contact.'), 'error');
+                      }
+                    }}
+                  />
+                )}
+                {contactsQuery.isLoading ? (
+                  <div className="flex items-center gap-2 text-text-muted"><Loader2 className="h-4 w-4 animate-spin" />Loading contacts…</div>
+                ) : contacts.length === 0 ? (
+                  <p className="text-text-secondary">No contacts listed for this talent agency.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {contacts.map(c => (
+                      <div key={c.contactAssignmentId} className="bg-elevated border border-border rounded-lg p-3">
+                        <div className="font-medium text-text-primary">{c.firstName} {c.lastName}</div>
+                        <div className="text-xs text-text-secondary">{c.roleName} • {c.departmentName}</div>
+                        <div className="mt-2 text-xs text-text-secondary space-y-1">
+                          <div>{c.email}</div>
+                          {c.workPhone && <div>{formatE164ForDisplay(c.workPhone)}</div>}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                )}
+              </>
             )}
           </div>
         )}
