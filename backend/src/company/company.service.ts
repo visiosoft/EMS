@@ -2003,6 +2003,7 @@ export class CompanyService {
     sortDirRaw?: string,
   ): Promise<{ data: CompanyDetail[]; total: number }> {
     const typeName = (companyType ?? '').trim();
+    const normalizedTypeName = typeName.toLowerCase();
     const qb = this.companyRepo
       .createQueryBuilder('c')
       .leftJoinAndSelect('c.companyType', 'ct')
@@ -2045,7 +2046,6 @@ export class CompanyService {
       );
     }
     if (typeName && typeName !== 'All') {
-      const normalizedTypeName = typeName.trim().toLowerCase();
       if (normalizedTypeName === 'venue') {
         /**
          * Keep "Companies filtered to Venue" aligned with "All Venues":
@@ -2064,20 +2064,22 @@ export class CompanyService {
           const safeTable = this.safeDbIdentifier(linkTable);
           qb.andWhere(
             `(
-              ct.companyTypeName = :typeName
+              LOWER(LTRIM(RTRIM(ct.companyTypeName))) = :typeNameNormalized
               OR EXISTS (
                 SELECT 1
                 FROM [dbo].${safeTable} ctm
                 INNER JOIN [dbo].[CompanyType] ctt
                   ON ctt.CompanyTypeID = ctm.CompanyTypeID
                 WHERE ctm.CompanyID = c.CompanyID
-                  AND ctt.CompanyTypeName = :typeName
+                  AND LOWER(LTRIM(RTRIM(ctt.CompanyTypeName))) = :typeNameNormalized
               )
             )`,
-            { typeName },
+            { typeNameNormalized: normalizedTypeName },
           );
         } else {
-          qb.andWhere('ct.companyTypeName = :typeName', { typeName });
+          qb.andWhere('LOWER(LTRIM(RTRIM(ct.companyTypeName))) = :typeNameNormalized', {
+            typeNameNormalized: normalizedTypeName,
+          });
         }
       }
     }

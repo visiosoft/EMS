@@ -20,6 +20,8 @@ import {
   type ApiAllVenueRow,
 } from '@/api/venueDirectoryApi';
 import {
+  companiesPickerQueryKey,
+  fetchCompaniesPickerRows,
   entertainmentComplexCompaniesQueryKey,
   fetchEntertainmentComplexCompanyRows,
   fetchDmaMarketsPage,
@@ -68,7 +70,7 @@ export function AllVenuesPage({ onNavigate }: Props) {
   const [venueSearchCommitted, setVenueSearchCommitted] = useState('');
   const [showVenueSuggestions, setShowVenueSuggestions] = useState(false);
   const venueSearchRef = useRef<HTMLDivElement>(null);
-  const [complexId, setComplexId] = useState('');
+  const [complexNameFilter, setComplexNameFilter] = useState('');
   const [venueTypeId, setVenueTypeId] = useState('');
   const [dmaId, setDmaId] = useState('');
   type VenueSortCol = 'venue' | 'complex' | 'type' | 'capacity' | 'dma';
@@ -134,6 +136,14 @@ export function AllVenuesPage({ onNavigate }: Props) {
     staleTime: 30 * 60_000,
   });
 
+  const companiesPickerQ = useQuery({
+    queryKey: companiesPickerQueryKey(),
+    queryFn: fetchCompaniesPickerRows,
+    staleTime: 30 * 60_000,
+    gcTime: 60 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+
   const dmasQ = useQuery({
     queryKey: ['dmas', 'all-venues', 'paginated-all'],
     queryFn: async () => {
@@ -154,10 +164,21 @@ export function AllVenuesPage({ onNavigate }: Props) {
   });
 
   const complexOpts = useMemo(
-    () =>
-      (entertainmentComplexCompaniesQ.data ?? [])
-        .map((c) => ({ value: String(c.companyId), label: c.companyName }))
-        .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })),
+    () => {
+      const map = new Map<string, { value: string; label: string }>();
+      const normalize = (s: string) =>
+        s.trim().replace(/[\s.,:;]+$/g, '').replace(/\s+/g, ' ').toLowerCase();
+      for (const c of entertainmentComplexCompaniesQ.data ?? []) {
+        const label = String(c.companyName ?? '').trim();
+        if (!label) continue;
+        const key = normalize(label);
+        if (map.has(key)) continue;
+        map.set(key, { value: label, label });
+      }
+      return [...map.values()].sort((a, b) =>
+        a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }),
+      );
+    },
     [entertainmentComplexCompaniesQ.data],
   );
   const venueTypeOpts = useMemo(() => {
@@ -171,10 +192,7 @@ export function AllVenuesPage({ onNavigate }: Props) {
   const filterParams = useMemo(
     () => ({
       q: venueSearchCommitted.trim() || undefined,
-      complexCompanyId:
-        complexId !== '' && Number.isFinite(Number(complexId))
-          ? Number(complexId)
-          : undefined,
+      complexName: complexNameFilter.trim() || undefined,
       venueTypeId:
         venueTypeId !== '' && Number.isFinite(Number(venueTypeId))
           ? Number(venueTypeId)
@@ -184,15 +202,12 @@ export function AllVenuesPage({ onNavigate }: Props) {
       sortBy: SORT_API[sortState.col],
       sortDir: sortState.dir,
     }),
-    [venueSearchCommitted, complexId, venueTypeId, dmaId, sortState.col, sortState.dir],
+    [venueSearchCommitted, complexNameFilter, venueTypeId, dmaId, sortState.col, sortState.dir],
   );
 
   const venueSuggestionSourceOpts = useMemo(
     () => ({
-      complexCompanyId:
-        complexId !== '' && Number.isFinite(Number(complexId))
-          ? Number(complexId)
-          : undefined,
+      complexName: complexNameFilter.trim() || undefined,
       venueTypeId:
         venueTypeId !== '' && Number.isFinite(Number(venueTypeId))
           ? Number(venueTypeId)
@@ -202,13 +217,13 @@ export function AllVenuesPage({ onNavigate }: Props) {
       sortBy: SORT_API[sortState.col],
       sortDir: sortState.dir,
     }),
-    [complexId, venueTypeId, dmaId, sortState.col, sortState.dir],
+    [complexNameFilter, venueTypeId, dmaId, sortState.col, sortState.dir],
   );
 
   const venueSuggestionRowsQuery = useQuery({
     queryKey: [
       ...allVenuesSuggestionRowsQueryKey(SORT_API[sortState.col], sortState.dir),
-      complexId,
+      complexNameFilter,
       venueTypeId,
       dmaId,
     ] as const,
@@ -219,18 +234,64 @@ export function AllVenuesPage({ onNavigate }: Props) {
     refetchOnWindowFocus: false,
   });
 
+  const companyCityStateById = useMemo(() => {
+    const out = new Map<number, string>();
+    for (const row of companiesPickerQ.data ?? []) {
+      const city = String(row.physicalCity ?? '').trim();
+      const state = String(row.physicalStateProvince ?? '').trim();
+      const cityState = [city, state].filter(Boolean).join(', ');
+      if (cityState) out.set(row.companyId, cityState);
+    }
+    return out;
+  }, [companiesPickerQ.data]);
+
   const venueSearchSuggestions = useMemo(() => {
     const q = venueInput.trim().toLowerCase();
     if (!q) return [];
-    const names = (venueSuggestionRowsQuery.data?.data ?? [])
-      .map((r) => (r.venueName ?? '').trim())
-      .filter(Boolean);
-    const dedup: string[] = [];
-    for (const n of names) {
-      if (!dedup.some((d) => d.toLowerCase() === n.toLowerCase())) dedup.push(n);
+    const raw = (venueSuggestionRowsQuery.data?.data ?? []).map((r) => {
+      const name = (r.venueName ?? '').trim();
+      const typeText = (r.venueTypeName ?? '').trim() || 'Not set';
+      const cityState = companyCityStateById.get(r.companyId) || 'City / State not set';
+      const searchableText = [name, typeText, cityState].join(' ').toLowerCase();
+      const startsWithName = name.toLowerCase().startsWith(q);
+      return {
+        key: `${name.toLowerCase()}|${typeText.toLowerCase()}|${cityState.toLowerCase()}`,
+        name,
+        typeText,
+        cityState,
+        searchableText,
+        startsWithName,
+      };
+    });
+
+    const dedup = new Map<string, (typeof raw)[number]>();
+    for (const item of raw) {
+      if (!item.name || dedup.has(item.key)) continue;
+      dedup.set(item.key, item);
     }
-    return dedup.filter((n) => n.toLowerCase().includes(q)).slice(0, 8);
-  }, [venueInput, venueSuggestionRowsQuery.data]);
+
+    return [...dedup.values()]
+      .filter((row) => row.searchableText.includes(q))
+      .sort((a, b) => {
+        if (a.startsWithName !== b.startsWithName) return a.startsWithName ? -1 : 1;
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+      })
+      .slice(0, 8);
+  }, [venueInput, venueSuggestionRowsQuery.data, companyCityStateById]);
+
+  /**
+   * Avoid flashing a false "No matching venues" while async sources are still
+   * hydrating (especially city/state metadata used in suggestion search text).
+   */
+  const venueSuggestionsLoading =
+    venueSuggestionRowsQuery.isPending ||
+    venueSuggestionRowsQuery.isFetching ||
+    (companiesPickerQ.isPending && venueSearchSuggestions.length === 0);
+  const showVenueNoResults =
+    !venueSuggestionRowsQuery.isError &&
+    !venueSuggestionsLoading &&
+    venueSuggestionRowsQuery.isFetched &&
+    venueSearchSuggestions.length === 0;
 
   const commitVenueSearch = useCallback(() => {
     setVenueSearchCommitted(venueInput.trim());
@@ -240,7 +301,7 @@ export function AllVenuesPage({ onNavigate }: Props) {
   const hasActiveVenueFilters =
     venueInput.trim().length > 0 ||
     venueSearchCommitted.trim().length > 0 ||
-    complexId !== '' ||
+    complexNameFilter !== '' ||
     venueTypeId !== '' ||
     dmaId !== '';
 
@@ -248,7 +309,7 @@ export function AllVenuesPage({ onNavigate }: Props) {
     setVenueInput('');
     setVenueSearchCommitted('');
     setShowVenueSuggestions(false);
-    setComplexId('');
+    setComplexNameFilter('');
     setVenueTypeId('');
     setDmaId('');
     setPage(1);
@@ -316,10 +377,13 @@ export function AllVenuesPage({ onNavigate }: Props) {
   const pageCount = getTotalPages(total, pageSize);
   const { rangeStart, rangeEnd } = getPageRange(page, total, pageSize);
   const loading = listQ.isPending || listQ.isFetching;
+  const entertainmentComplexLoading = entertainmentComplexCompaniesQ.isPending;
+  const venueTypeLoading = lookupsQ.isPending;
+  const venueDmaLoading = dmasQ.isPending;
   const filtersLoading =
-    lookupsQ.isPending ||
-    entertainmentComplexCompaniesQ.isPending ||
-    dmasQ.isPending;
+    entertainmentComplexLoading ||
+    venueTypeLoading ||
+    venueDmaLoading;
 
   return (
     <div className="space-y-4">
@@ -347,7 +411,7 @@ export function AllVenuesPage({ onNavigate }: Props) {
                   if (e.key === 'Enter') commitVenueSearch();
                   if (e.key === 'Escape') setShowVenueSuggestions(false);
                 }}
-                placeholder="Search by venue name"
+                placeholder="Search by venue, type, city, state..."
                 autoComplete="off"
                 spellCheck={false}
                 className="min-w-0 flex-1 cursor-text bg-transparent px-3 py-1.5 text-sm text-text-primary focus:outline-none placeholder:text-text-muted"
@@ -366,9 +430,9 @@ export function AllVenuesPage({ onNavigate }: Props) {
             </div>
             {showVenueSuggestions &&
             venueInput.trim().length >= 1 &&
-            (venueSuggestionRowsQuery.isFetching ||
+            (venueSuggestionsLoading ||
               venueSearchSuggestions.length > 0 ||
-              venueSuggestionRowsQuery.isFetched) ? (
+              showVenueNoResults) ? (
               <div
                 className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden"
                 onMouseDown={(e) => e.preventDefault()}
@@ -378,35 +442,45 @@ export function AllVenuesPage({ onNavigate }: Props) {
                     Could not load venue suggestions.
                   </div>
                 ) : null}
-                {!venueSuggestionRowsQuery.isError && venueSuggestionRowsQuery.isFetching ? (
+                {!venueSuggestionRowsQuery.isError && venueSuggestionsLoading ? (
                   <div className="flex items-center gap-2 px-3 py-2.5 text-sm text-text-muted" role="status">
                     <Loader2 className="h-4 w-4 shrink-0 animate-spin text-ems-accent" aria-hidden />
-                    <span>Loading suggestions…</span>
+                    <span>Searching venues…</span>
                   </div>
                 ) : null}
                 {!venueSuggestionRowsQuery.isError &&
-                !venueSuggestionRowsQuery.isFetching &&
+                !venueSuggestionsLoading &&
                 venueSearchSuggestions.length > 0
                   ? venueSearchSuggestions.map((suggestion, i) => (
                       <button
-                        key={`${i}-${suggestion}`}
+                        key={`${i}-${suggestion.name}-${suggestion.typeText}-${suggestion.cityState}`}
                         type="button"
-                        className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                        className="w-full text-left px-3 py-2.5 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
                         onMouseDown={(e) => {
                           e.preventDefault();
-                          setVenueInput(suggestion);
-                          setVenueSearchCommitted(suggestion);
+                          setVenueInput(suggestion.name);
+                          setVenueSearchCommitted(suggestion.name);
                           setShowVenueSuggestions(false);
                         }}
                       >
-                        {suggestion}
+                        <div className="flex min-w-0 items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate font-medium text-text-primary">
+                              {suggestion.name}
+                            </div>
+                            <div className="truncate text-xs text-text-muted mt-0.5">
+                              {suggestion.typeText}
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-xs text-text-muted text-right max-w-[45%] truncate">
+                            {suggestion.cityState}
+                          </div>
+                        </div>
                       </button>
                     ))
                   : null}
                 {!venueSuggestionRowsQuery.isError &&
-                !venueSuggestionRowsQuery.isFetching &&
-                venueSuggestionRowsQuery.isFetched &&
-                venueSearchSuggestions.length === 0 ? (
+                showVenueNoResults ? (
                   <div className="px-3 py-2.5 text-sm text-text-muted">No matching venues</div>
                 ) : null}
               </div>
@@ -414,20 +488,25 @@ export function AllVenuesPage({ onNavigate }: Props) {
           </div>
           <div>
             <label className="text-text-muted text-xs block mb-1">Entertainment Complex</label>
-            <div className={filtersLoading ? 'opacity-60 pointer-events-none' : ''}>
+            <div className={`relative ${entertainmentComplexLoading ? 'opacity-60 pointer-events-none' : ''}`}>
               <Select2
                 options={complexOpts}
-                value={complexId}
-                onChange={setComplexId}
+                value={complexNameFilter}
+                onChange={setComplexNameFilter}
                 allowClear
                 placeholder="Choose an option"
                 searchPlaceholder="Search entertainment complexes..."
               />
+              {entertainmentComplexLoading ? (
+                <div className="pointer-events-none absolute right-8 top-1/2 -translate-y-1/2 text-text-muted" aria-hidden>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-ems-accent" />
+                </div>
+              ) : null}
             </div>
           </div>
           <div>
             <label className="text-text-muted text-xs block mb-1">Venue Type</label>
-            <div className={filtersLoading ? 'opacity-60 pointer-events-none' : ''}>
+            <div className={`relative ${venueTypeLoading ? 'opacity-60 pointer-events-none' : ''}`}>
               <Select2
                 options={venueTypeOpts}
                 value={venueTypeId}
@@ -436,11 +515,16 @@ export function AllVenuesPage({ onNavigate }: Props) {
                 placeholder="Choose an option"
                 searchPlaceholder="Search types..."
               />
+              {venueTypeLoading ? (
+                <div className="pointer-events-none absolute right-8 top-1/2 -translate-y-1/2 text-text-muted" aria-hidden>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-ems-accent" />
+                </div>
+              ) : null}
             </div>
           </div>
           <div>
             <label className="text-text-muted text-xs block mb-1">Venue DMA</label>
-            <div className={filtersLoading ? 'opacity-60 pointer-events-none' : ''}>
+            <div className={`relative ${venueDmaLoading ? 'opacity-60 pointer-events-none' : ''}`}>
               <Select2
                 options={dmaOpts}
                 value={dmaId}
@@ -449,6 +533,11 @@ export function AllVenuesPage({ onNavigate }: Props) {
                 placeholder="Choose an option"
                 searchPlaceholder="Search markets..."
               />
+              {venueDmaLoading ? (
+                <div className="pointer-events-none absolute right-8 top-1/2 -translate-y-1/2 text-text-muted" aria-hidden>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-ems-accent" />
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
