@@ -80,11 +80,20 @@ export class VenueDirectoryService {
       qb.andWhere('c.dmaid = :dmaF', { dmaF: v.dmaId });
     }
     if (Array.isArray(v.dmaIds) && v.dmaIds.length > 0) {
+      // Strip trailing punctuation (.,:;) from MarketName before comparing so that
+      // near-duplicate entries like "ABILENE-SWEETWATER" / "ABILENE-SWEETWATER." are
+      // treated as the same DMA family.
+      const normExpr = (alias: string) =>
+        `LOWER(LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(REPLACE(
+          CASE WHEN RIGHT(RTRIM(${alias}.MarketName),1) IN ('.', ',', ':', ';')
+               THEN LEFT(RTRIM(${alias}.MarketName), LEN(RTRIM(${alias}.MarketName))-1)
+               ELSE RTRIM(${alias}.MarketName) END
+        , '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '))))`;
       qb.andWhere(
         `EXISTS (
           SELECT 1
           FROM dbo.DMA ds
-          INNER JOIN dbo.DMA dv ON LOWER(LTRIM(RTRIM(dv.MarketName))) = LOWER(LTRIM(RTRIM(ds.MarketName)))
+          INNER JOIN dbo.DMA dv ON ${normExpr('dv')} = ${normExpr('ds')}
           WHERE ds.DMAID IN (:...dmaIds)
             AND dv.DMAID = c.dmaid
         )`,
