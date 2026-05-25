@@ -582,6 +582,25 @@ export class ProjectService {
     }
   }
 
+  private rememberCreatedByName(oid: string, name: string): void {
+    const key = String(oid ?? '').trim().toLowerCase();
+    const value = String(name ?? '').trim();
+    if (!key || !value) return;
+    const now = Date.now();
+    if (
+      this.createdByNameCache &&
+      now - this.createdByNameCache.at <
+        ProjectService.CREATED_BY_NAME_CACHE_TTL_MS
+    ) {
+      this.createdByNameCache.byOid.set(key, value);
+      return;
+    }
+    this.createdByNameCache = {
+      at: now,
+      byOid: new Map<string, string>([[key, value]]),
+    };
+  }
+
   private async resolveCreatedByDisplayValue(
     value: string | null,
     createdByNameMap?: Map<string, string>,
@@ -596,12 +615,28 @@ export class ProjectService {
     const mappedName = byOid.get(oid);
     if (mappedName) return mappedName;
 
+    try {
+      const user = await this.adminUsersService.findUserById(trimmed);
+      const foundName = user?.name?.trim();
+      if (foundName) {
+        this.rememberCreatedByName(oid, foundName);
+        if (createdByNameMap) createdByNameMap.set(oid, foundName);
+        return foundName;
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Could not resolve CreatedBy name for OID ${trimmed}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+
     const requestOid = this.auditContext.getUserOid()?.trim().toLowerCase();
     if (requestOid && requestOid === oid) {
       const requestName = this.auditContext.getUserDisplayName()?.trim();
       if (requestName) return requestName.slice(0, 200);
     }
-    return null;
+    return 'Unknown user';
   }
 
   private async resolveCreatedByDisplayValuesForRows(

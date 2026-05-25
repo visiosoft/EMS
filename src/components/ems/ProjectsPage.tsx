@@ -14,7 +14,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, Check, GripVertical, Loader2, Pencil, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, GripVertical, Loader2, Pencil, RotateCcw, Trash2, X } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import {
@@ -966,6 +966,8 @@ interface Props {
 // ─── Projects list: movable columns (Stage fixed) + server-side sort ─────────
 
 const PROJECTS_LIST_MOVABLE_ORDER_KEY = 'iae-projects-list-movable-column-order-v1';
+const PROJECTS_SORT_STATE_STORAGE_KEY = 'iae-projects-sort-state-v1';
+const EMS_SAVED_VIEWS_ENABLED_KEY = 'iae-ems-saved-views-enabled-v1';
 
 type ProjectMovableColumnId =
   | 'attraction'
@@ -1030,6 +1032,42 @@ function loadProjectMovableColumnOrder(): ProjectMovableColumnId[] {
 function saveProjectMovableColumnOrder(order: ProjectMovableColumnId[]) {
   try {
     localStorage.setItem(PROJECTS_LIST_MOVABLE_ORDER_KEY, JSON.stringify(order));
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadProjectsSortState(): {
+  col: ProjectMovableColumnId | null;
+  dir: 'asc' | 'desc';
+} {
+  if (typeof window === 'undefined') return { col: null, dir: 'asc' };
+  try {
+    if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') {
+      return { col: null, dir: 'asc' };
+    }
+    const raw = localStorage.getItem(PROJECTS_SORT_STATE_STORAGE_KEY);
+    if (!raw) return { col: null, dir: 'asc' };
+    const parsed = JSON.parse(raw) as { col?: unknown; dir?: unknown };
+    const validCols = new Set<ProjectMovableColumnId>(DEFAULT_PROJECT_MOVABLE_COLUMNS);
+    const col =
+      typeof parsed.col === 'string' && validCols.has(parsed.col as ProjectMovableColumnId)
+        ? (parsed.col as ProjectMovableColumnId)
+        : null;
+    const dir = parsed.dir === 'desc' ? 'desc' : 'asc';
+    return { col, dir };
+  } catch {
+    return { col: null, dir: 'asc' };
+  }
+}
+
+function saveProjectsSortState(state: {
+  col: ProjectMovableColumnId | null;
+  dir: 'asc' | 'desc';
+}) {
+  try {
+    if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') return;
+    localStorage.setItem(PROJECTS_SORT_STATE_STORAGE_KEY, JSON.stringify(state));
   } catch {
     /* ignore */
   }
@@ -3127,7 +3165,7 @@ export function ProjectsPage({ addToast }: Props) {
   const [sortState, setSortState] = useState<{
     col: ProjectMovableColumnId | null;
     dir: 'asc' | 'desc';
-  }>({ col: null, dir: 'asc' });
+  }>(loadProjectsSortState);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
@@ -3169,6 +3207,10 @@ export function ProjectsPage({ addToast }: Props) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    saveProjectsSortState(sortState);
+  }, [sortState]);
 
   const sortByParam = sortState.col ? SORT_API_BY_COLUMN[sortState.col] : '';
   const sortDirParam = sortState.col ? sortState.dir : '';
@@ -3229,6 +3271,19 @@ export function ProjectsPage({ addToast }: Props) {
     setSearchCommitted(searchInput.trim());
     setShowSearchSuggestions(false);
   }, [searchInput]);
+
+  const hasActiveProjectFilters =
+    searchInput.trim().length > 0 ||
+    searchCommitted.trim().length > 0 ||
+    stageFilter !== 'All';
+
+  const resetProjectFilters = useCallback(() => {
+    setSearchInput('');
+    setSearchCommitted('');
+    setStageFilter('All');
+    setShowSearchSuggestions(false);
+    setPage(1);
+  }, []);
 
   const projectsQuery = useQuery({
     queryKey: projectsApiQueryKey(offset, limit, searchCommitted, stageFilter, sortByParam, sortDirParam),
@@ -3452,6 +3507,18 @@ export function ProjectsPage({ addToast }: Props) {
             placeholder="Filter by stage"
           />
         </div>
+        {hasActiveProjectFilters ? (
+          <button
+            type="button"
+            onClick={resetProjectFilters}
+            disabled={isLoading}
+            className="inline-flex h-[34px] shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Reset search and filters"
+          >
+            <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+            Reset
+          </button>
+        ) : null}
       </div>
 
       {/* Table */}

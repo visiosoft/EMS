@@ -25,12 +25,24 @@ export async function apiFetch<T>(
     { 'Content-Type': 'application/json' },
     init?.headers,
   );
-  const res = await fetch(url, {
+  const requestInit: RequestInit = {
     ...init,
     /** Avoid stale 304 cached JSON for GETs after PATCH (venue profile, lists, etc.). */
     cache: init?.cache ?? 'no-store',
     headers,
-  });
+  };
+  const method = (requestInit.method ?? 'GET').toUpperCase();
+  let res = await fetch(url, requestInit);
+  /**
+   * Global guard: if a server-side sorted list query fails with a 5xx,
+   * retry once without sortBy/sortDir so screens do not hard-fail.
+   */
+  if (!res.ok && method === 'GET' && res.status >= 500) {
+    const fallbackUrl = stripSortParams(url);
+    if (fallbackUrl && fallbackUrl !== url) {
+      res = await fetch(fallbackUrl, requestInit);
+    }
+  }
   return handleApiResponse<T>(res);
 }
 
@@ -119,7 +131,8 @@ async function handleApiResponse<T>(res: Response): Promise<T> {
     }
     const err = new Error(
       userMessage || `Request failed (${res.status})`,
-    ) as Error & { detail?: string };
+    ) as Error & { detail?: string; status?: number };
+    err.status = res.status;
     if (devDetail) err.detail = devDetail;
     throw err;
   }
@@ -130,5 +143,22 @@ async function handleApiResponse<T>(res: Response): Promise<T> {
     return JSON.parse(bodyText) as T;
   } catch {
     throw new Error('Received an invalid response from the server.');
+  }
+}
+
+function stripSortParams(url: string): string | null {
+  try {
+    const parsed = new URL(url, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+    const hadSortBy = parsed.searchParams.has('sortBy');
+    const hadSortDir = parsed.searchParams.has('sortDir');
+    if (!hadSortBy && !hadSortDir) return null;
+    parsed.searchParams.delete('sortBy');
+    parsed.searchParams.delete('sortDir');
+    if (typeof window !== 'undefined') {
+      return `${parsed.pathname}${parsed.search}`;
+    }
+    return parsed.toString();
+  } catch {
+    return null;
   }
 }

@@ -148,7 +148,8 @@ export type ApiVenueDetailsResponse =
 
 export interface CreateCompanyPayload {
   companyName: string;
-  companyTypeId: number;
+  companyTypeIds: number[];
+  companyTypeId?: number;
   serviceProvidedIds?: number[];
   serviceAreas?: { dmaid: number; serviceProvidedId: number }[];
   allDmas?: boolean;
@@ -161,6 +162,7 @@ export interface CreateCompanyPayload {
 
 export interface UpdateCompanyPayload {
   companyName?: string;
+  companyTypeIds?: number[];
   companyTypeId?: number;
   serviceProvidedIds?: number[];
   serviceAreas?: { dmaid: number; serviceProvidedId: number }[];
@@ -426,8 +428,10 @@ export function updateVenueDetails(companyId: number, body: Partial<{ venueProfi
 }
 
 export function fetchDmaByPostal(postalCode: string) {
-  const params = new URLSearchParams({ postalCode });
-  return apiFetch<{ dmaid: number; marketName: string; postalCode: string } | null>(`/lookups/dma-by-postal?${params}`);
+  const value = encodeURIComponent(postalCode.trim());
+  return apiFetch<{ dmaid: number; marketName: string; postalCode: string } | null>(
+    `/lookups/dma-by-postal/${value}`,
+  );
 }
 export function fetchDmaMarketsPage(offset = 0, limit = 500, q = '') {
   const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
