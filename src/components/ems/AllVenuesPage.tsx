@@ -33,13 +33,10 @@ interface Props {
   onNavigate?: (view: string, data?: Record<string, unknown>) => void;
 }
 
-/** Label used in Venue DMA filter — includes postal so Select2 search matches short codes. */
+/** Label used in Venue DMA filter — one entry per DMA market name. */
 function dmaFilterOptionLabel(x: ApiDmaMarket): string {
   const name = (x.marketName ?? '').trim();
-  const pc = (x.postalCode ?? '').trim();
-  if (name && pc) return `${name} (${pc})`;
   if (name) return name;
-  if (pc) return pc;
   return `DMA #${x.dmaid}`;
 }
 
@@ -136,6 +133,7 @@ export function AllVenuesPage({ onNavigate }: Props) {
   const venueTypeOpts = useMemo(() => {
     const vt = lookupsQ.data?.venueTypes ?? [];
     return vt
+      .filter((x) => !/^qa[-\s]?type/i.test(x.venueTypeName))
       .map((x) => ({ value: String(x.venueTypeId), label: x.venueTypeName }))
       .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
   }, [lookupsQ.data?.venueTypes]);
@@ -151,7 +149,8 @@ export function AllVenuesPage({ onNavigate }: Props) {
         venueTypeId !== '' && Number.isFinite(Number(venueTypeId))
           ? Number(venueTypeId)
           : undefined,
-      dmaId: dmaId !== '' && Number.isFinite(Number(dmaId)) ? Number(dmaId) : undefined,
+      dmaIds:
+        dmaId !== '' && Number.isFinite(Number(dmaId)) ? [Number(dmaId)] : undefined,
       sortBy: SORT_API[sortState.col],
       sortDir: sortState.dir,
     }),
@@ -168,7 +167,8 @@ export function AllVenuesPage({ onNavigate }: Props) {
         venueTypeId !== '' && Number.isFinite(Number(venueTypeId))
           ? Number(venueTypeId)
           : undefined,
-      dmaId: dmaId !== '' && Number.isFinite(Number(dmaId)) ? Number(dmaId) : undefined,
+      dmaIds:
+        dmaId !== '' && Number.isFinite(Number(dmaId)) ? [Number(dmaId)] : undefined,
       sortBy: SORT_API[sortState.col],
       sortDir: sortState.dir,
     }),
@@ -235,20 +235,31 @@ export function AllVenuesPage({ onNavigate }: Props) {
   });
 
   const dmaOpts = useMemo(() => {
-    const map = new Map<string, { value: string; label: string }>();
-    for (const x of dmasQ.data ?? []) {
-      map.set(String(x.dmaid), { value: String(x.dmaid), label: dmaFilterOptionLabel(x) });
-    }
-    const mergeVenueRow = (r: ApiAllVenueRow) => {
-      if (r.dmaId == null || !Number.isFinite(r.dmaId) || r.dmaId <= 0) return;
-      const k = String(r.dmaId);
-      if (map.has(k)) return;
-      const nm = (r.dmaMarketName ?? '').trim();
-      map.set(k, { value: k, label: nm || `DMA #${r.dmaId}` });
+    // Deduplicate by market name — one entry per DMA area.
+    // Normalize trailing punctuation and whitespace so near-duplicates like
+    // "ABILENE-SWEETWATER" and "ABILENE-SWEETWATER." collapse into one entry.
+    const byName = new Map<string, { value: string; label: string }>();
+    const normalize = (s: string) =>
+      s.trim().replace(/[\s.,:;]+$/g, '').replace(/\s+/g, ' ').toLowerCase();
+    const addEntry = (dmaid: number, rawName: string | null) => {
+      const name = (rawName ?? '').trim().replace(/[\s.,:;]+$/g, '');
+      const key = normalize(name);
+      if (!key) return;
+      if (byName.has(key)) return;
+      byName.set(key, { value: String(dmaid), label: name });
     };
-    for (const r of venueSuggestionRowsQuery.data?.data ?? []) mergeVenueRow(r);
-    for (const r of listQ.data?.data ?? []) mergeVenueRow(r);
-    return [...map.values()].sort((a, b) =>
+    for (const x of dmasQ.data ?? []) addEntry(x.dmaid, x.marketName);
+    for (const r of venueSuggestionRowsQuery.data?.data ?? []) {
+      if (r.dmaId != null && Number.isFinite(r.dmaId) && r.dmaId > 0) {
+        addEntry(r.dmaId, r.dmaMarketName);
+      }
+    }
+    for (const r of listQ.data?.data ?? []) {
+      if (r.dmaId != null && Number.isFinite(r.dmaId) && r.dmaId > 0) {
+        addEntry(r.dmaId, r.dmaMarketName);
+      }
+    }
+    return [...byName.values()].sort((a, b) =>
       a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }),
     );
   }, [dmasQ.data, venueSuggestionRowsQuery.data, listQ.data]);
