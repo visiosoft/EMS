@@ -12,6 +12,7 @@ import { Link } from '../entities/link.entity';
 import { EngagementFinances } from '../entities/engagement-finance.entity';
 import { EngagementProduction } from '../entities/engagement-production.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
+import { EngagementXref } from '../entities/engagement-xref.entity';
 import { NonResidentWithholding } from '../entities/non-resident-withholding.entity';
 import { ArtistFinance } from '../entities/artist-finance.entity';
 import { SettlementFinance } from '../entities/settlement-finance.entity';
@@ -35,6 +36,7 @@ import { EngagementService } from './engagement.service';
       Link,
       EngagementFinances,
       EngagementVenue,
+      EngagementXref,
       EngagementProduction,
       Performance,
       PerformanceTicketing,

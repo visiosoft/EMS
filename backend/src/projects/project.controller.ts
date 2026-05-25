@@ -74,7 +74,6 @@ export class ProjectController {
   }
 
   @Patch(':id')
-  @HttpCode(HttpStatus.NO_CONTENT)
   update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateProjectDto) {
     return this.projectService.update(id, dto);
   }
