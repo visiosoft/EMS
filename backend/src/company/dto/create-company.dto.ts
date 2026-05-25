@@ -20,7 +20,14 @@ export class CreateCompanyDto {
 
   @IsInt()
   @Min(1)
-  companyTypeId: number;
+  @IsOptional()
+  companyTypeId?: number;
+
+  @IsArray()
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  @IsOptional()
+  companyTypeIds?: number[];
 
   @IsArray()
   @IsInt({ each: true })

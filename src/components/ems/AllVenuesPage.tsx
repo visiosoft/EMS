@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, LayoutGrid, LayoutList, Loader2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, LayoutGrid, LayoutList, Loader2, RotateCcw } from 'lucide-react';
 import { Select2 } from './Select2';
 import {
   getPageParams,
@@ -28,6 +28,8 @@ import {
 } from '@/api/companyApi';
 
 type ViewMode = 'list' | 'board';
+const ALL_VENUES_SORT_STATE_STORAGE_KEY = 'iae-all-venues-sort-state-v1';
+const EMS_SAVED_VIEWS_ENABLED_KEY = 'iae-ems-saved-views-enabled-v1';
 
 interface Props {
   onNavigate?: (view: string, data?: Record<string, unknown>) => void;
@@ -83,7 +85,26 @@ export function AllVenuesPage({ onNavigate }: Props) {
   const [sortState, setSortState] = useState<{
     col: VenueSortCol;
     dir: 'asc' | 'desc';
-  }>({ col: 'venue', dir: 'asc' });
+  }>(() => {
+    if (typeof window === 'undefined') return { col: 'venue', dir: 'asc' };
+    try {
+      if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') {
+        return { col: 'venue', dir: 'asc' };
+      }
+      const raw = localStorage.getItem(ALL_VENUES_SORT_STATE_STORAGE_KEY);
+      if (!raw) return { col: 'venue', dir: 'asc' };
+      const parsed = JSON.parse(raw) as { col?: unknown; dir?: unknown };
+      const validCols = new Set<VenueSortCol>(['venue', 'complex', 'type', 'capacity', 'dma']);
+      const col =
+        typeof parsed.col === 'string' && validCols.has(parsed.col as VenueSortCol)
+          ? (parsed.col as VenueSortCol)
+          : 'venue';
+      const dir = parsed.dir === 'desc' ? 'desc' : 'asc';
+      return { col, dir };
+    } catch {
+      return { col: 'venue', dir: 'asc' };
+    }
+  });
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -94,6 +115,15 @@ export function AllVenuesPage({ onNavigate }: Props) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') return;
+      localStorage.setItem(ALL_VENUES_SORT_STATE_STORAGE_KEY, JSON.stringify(sortState));
+    } catch {
+      /* ignore */
+    }
+  }, [sortState]);
 
   const lookupsQ = useQuery({
     queryKey: ['lookups', 'all-venues'],
@@ -206,6 +236,23 @@ export function AllVenuesPage({ onNavigate }: Props) {
     setVenueSearchCommitted(venueInput.trim());
     setShowVenueSuggestions(false);
   }, [venueInput]);
+
+  const hasActiveVenueFilters =
+    venueInput.trim().length > 0 ||
+    venueSearchCommitted.trim().length > 0 ||
+    complexId !== '' ||
+    venueTypeId !== '' ||
+    dmaId !== '';
+
+  const resetVenueFilters = useCallback(() => {
+    setVenueInput('');
+    setVenueSearchCommitted('');
+    setShowVenueSuggestions(false);
+    setComplexId('');
+    setVenueTypeId('');
+    setDmaId('');
+    setPage(1);
+  }, []);
 
   useEffect(() => {
     setPage(1);
@@ -395,7 +442,19 @@ export function AllVenuesPage({ onNavigate }: Props) {
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-0.5 shrink-0 self-end">
+        <div className="flex items-center justify-end gap-1.5 shrink-0 self-end">
+          {hasActiveVenueFilters ? (
+            <button
+              type="button"
+              onClick={resetVenueFilters}
+              disabled={loading || filtersLoading}
+              className="inline-flex h-[34px] items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Reset search and filters"
+            >
+              <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+              Reset
+            </button>
+          ) : null}
           <button
             type="button"
             title="List view"

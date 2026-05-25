@@ -152,13 +152,39 @@ export class LookupsService {
 
   /** First DMA row matching postal code (dbo.DMA is postal-level). */
   async findDmaByPostal(postalCode: string) {
-    const pc = postalCode.trim();
-    const row = await this.dmaRepo
+    const raw = postalCode.trim();
+    if (!raw) return null;
+
+    const direct = await this.dmaRepo
       .createQueryBuilder('d')
-      .where('d.postalCode = :pc', { pc })
+      .where('d.postalCode = :pc', { pc: raw })
       .orderBy('d.dmaid', 'ASC')
       .getOne();
-    return row;
+    if (direct) return direct;
+
+    const normalized = raw.toUpperCase().replace(/\s+/g, ' ');
+    if (normalized !== raw) {
+      const normalizedRow = await this.dmaRepo
+        .createQueryBuilder('d')
+        .where('d.postalCode = :pc', { pc: normalized })
+        .orderBy('d.dmaid', 'ASC')
+        .getOne();
+      if (normalizedRow) return normalizedRow;
+    }
+
+    const likeZip = raw.replace(/\D/g, '').slice(0, 5);
+    if (likeZip.length === 5) {
+      const fuzzy = await this.dmaRepo
+        .createQueryBuilder('d')
+        .where("REPLACE(REPLACE(d.postalCode, ' ', ''), '-', '') LIKE :z", {
+          z: `${likeZip}%`,
+        })
+        .orderBy('d.dmaid', 'ASC')
+        .getOne();
+      if (fuzzy) return fuzzy;
+    }
+
+    return null;
   }
 
   /**

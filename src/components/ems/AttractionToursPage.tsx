@@ -14,6 +14,7 @@ import {
   ImageIcon,
   ArrowUp,
   ArrowDown,
+  RotateCcw,
 } from 'lucide-react';
 import {
   TabBar,
@@ -174,6 +175,9 @@ interface Props {
 
 type AttractionsViewMode = 'list' | 'tiles';
 const ATTRACTIONS_VIEW_MODE_STORAGE_KEY = 'iae-attractions-view-mode-v1';
+const ATTRACTIONS_SORT_STATE_STORAGE_KEY = 'iae-attractions-sort-state-v1';
+const TOURS_SORT_STATE_STORAGE_KEY = 'iae-tours-sort-state-v1';
+const EMS_SAVED_VIEWS_ENABLED_KEY = 'iae-ems-saved-views-enabled-v1';
 
 /**
  * Tile view only. Large = original 1 / 2 / 3-column grid, full-width cards.
@@ -222,6 +226,71 @@ function loadAttractionsTileSize(): AttractionsTileSize {
 function saveAttractionsTileSize(size: AttractionsTileSize) {
   try {
     localStorage.setItem(ATTRACTIONS_TILE_SIZE_STORAGE_KEY, size);
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadAttractionsSortState(): {
+  col: 'name' | 'tours';
+  dir: 'asc' | 'desc';
+} {
+  if (typeof window === 'undefined') return { col: 'name', dir: 'asc' };
+  try {
+    if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') {
+      return { col: 'name', dir: 'asc' };
+    }
+    const raw = localStorage.getItem(ATTRACTIONS_SORT_STATE_STORAGE_KEY);
+    if (!raw) return { col: 'name', dir: 'asc' };
+    const parsed = JSON.parse(raw) as { col?: unknown; dir?: unknown };
+    const col = parsed.col === 'tours' ? 'tours' : 'name';
+    const dir = parsed.dir === 'desc' ? 'desc' : 'asc';
+    return { col, dir };
+  } catch {
+    return { col: 'name', dir: 'asc' };
+  }
+}
+
+function saveAttractionsSortState(state: { col: 'name' | 'tours'; dir: 'asc' | 'desc' }) {
+  try {
+    if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') return;
+    localStorage.setItem(ATTRACTIONS_SORT_STATE_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadToursSortState(): {
+  col: 'tour' | 'attraction' | 'class' | 'management';
+  dir: 'asc' | 'desc';
+} {
+  if (typeof window === 'undefined') return { col: 'tour', dir: 'asc' };
+  try {
+    if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') {
+      return { col: 'tour', dir: 'asc' };
+    }
+    const raw = localStorage.getItem(TOURS_SORT_STATE_STORAGE_KEY);
+    if (!raw) return { col: 'tour', dir: 'asc' };
+    const parsed = JSON.parse(raw) as { col?: unknown; dir?: unknown };
+    const validCols = new Set(['tour', 'attraction', 'class', 'management']);
+    const col =
+      typeof parsed.col === 'string' && validCols.has(parsed.col)
+        ? (parsed.col as 'tour' | 'attraction' | 'class' | 'management')
+        : 'tour';
+    const dir = parsed.dir === 'desc' ? 'desc' : 'asc';
+    return { col, dir };
+  } catch {
+    return { col: 'tour', dir: 'asc' };
+  }
+}
+
+function saveToursSortState(state: {
+  col: 'tour' | 'attraction' | 'class' | 'management';
+  dir: 'asc' | 'desc';
+}) {
+  try {
+    if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') return;
+    localStorage.setItem(TOURS_SORT_STATE_STORAGE_KEY, JSON.stringify(state));
   } catch {
     /* ignore */
   }
@@ -1147,11 +1216,11 @@ export function AttractionToursPage({ addToast }: Props) {
   const [attractionSort, setAttractionSort] = useState<{
     col: 'name' | 'tours';
     dir: 'asc' | 'desc';
-  }>({ col: 'name', dir: 'asc' });
+  }>(loadAttractionsSortState);
   const [tourSort, setTourSort] = useState<{
     col: 'tour' | 'attraction' | 'class' | 'management';
     dir: 'asc' | 'desc';
-  }>({ col: 'tour', dir: 'asc' });
+  }>(loadToursSortState);
   const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE);
   const [attractionsViewMode, setAttractionsViewMode] = useState<AttractionsViewMode>(loadAttractionsViewMode);
   const [attractionsTileSize, setAttractionsTileSize] = useState<AttractionsTileSize>(loadAttractionsTileSize);
@@ -1199,6 +1268,24 @@ export function AttractionToursPage({ addToast }: Props) {
     if (pageTab !== 'Attractions') {
       setExpandedAttractionTileId(null);
     }
+  }, [pageTab]);
+
+  const hasActiveTabFilters =
+    pageTab === 'Attractions'
+      ? attractionInput.trim().length > 0 || attractionSearch.trim().length > 0
+      : tourInput.trim().length > 0 || tourSearch.trim().length > 0;
+
+  const resetTabFilters = useCallback(() => {
+    if (pageTab === 'Attractions') {
+      setAttractionInput('');
+      setAttractionSearch('');
+      setShowAttractionSuggestions(false);
+    } else {
+      setTourInput('');
+      setTourSearch('');
+      setShowTourSuggestions(false);
+    }
+    setPage(1);
   }, [pageTab]);
 
   const attractionsQuery = useQuery({
@@ -1514,6 +1601,14 @@ export function AttractionToursPage({ addToast }: Props) {
   useEffect(() => {
     setPage(1);
   }, [pageSize]);
+
+  useEffect(() => {
+    saveAttractionsSortState(attractionSort);
+  }, [attractionSort]);
+
+  useEffect(() => {
+    saveToursSortState(tourSort);
+  }, [tourSort]);
 
   const selectedAttraction = selectedAttractionId
     ? attractions.find((a) => a.attractionId === selectedAttractionId) ??
@@ -1877,8 +1972,22 @@ export function AttractionToursPage({ addToast }: Props) {
             )}
           </div>
         )}
-        {pageTab === 'Attractions' && (
+        {(hasActiveTabFilters || pageTab === 'Attractions') && (
           <div className="sm:ml-auto flex flex-wrap items-center gap-2 justify-end">
+            {hasActiveTabFilters ? (
+              <button
+                type="button"
+                onClick={resetTabFilters}
+                disabled={loading}
+                className="inline-flex h-[34px] items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Reset search filters"
+              >
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+                Reset
+              </button>
+            ) : null}
+            {pageTab === 'Attractions' ? (
+            <>
             <div className="inline-flex items-center rounded-md border border-border bg-surface p-0.5">
               <button
                 type="button"
@@ -1951,6 +2060,8 @@ export function AttractionToursPage({ addToast }: Props) {
                 ))}
               </div>
             )}
+            </>
+            ) : null}
           </div>
         )}
       </div>
