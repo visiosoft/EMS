@@ -18,6 +18,11 @@ type GraphUsersResponse = {
   '@odata.nextLink'?: string;
 };
 
+type GraphDirectoryObject = {
+  id?: string;
+  displayName?: string | null;
+};
+
 export type AdminDirectoryUser = {
   id: string;
   name: string;
@@ -30,6 +35,40 @@ export type AdminDirectoryUser = {
 @Injectable()
 export class AdminUsersService {
   constructor(private readonly configService: ConfigService) {}
+
+  private async graphGetJson<T>(
+    accessToken: string,
+    url: string,
+    notFoundAsNull = false,
+  ): Promise<T | null> {
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+    if (notFoundAsNull && response.status === 404) return null;
+    if (!response.ok) {
+      throw new BadGatewayException(
+        `Microsoft Graph request failed with status ${response.status}.`,
+      );
+    }
+    return (await response.json()) as T;
+  }
+
+  private buildUserDisplay(user: GraphUser): AdminDirectoryUser {
+    return {
+      id: user.id,
+      name:
+        user.displayName?.trim() ||
+        user.mail?.trim() ||
+        user.userPrincipalName?.trim() ||
+        'Entra user',
+      email: user.mail?.trim() || user.userPrincipalName?.trim() || '',
+      role: 'Entra user',
+      lastLogin: '—',
+      status: user.accountEnabled === false ? 'Disabled' : 'Active',
+    };
+  }
 
   async listUsers(): Promise<AdminDirectoryUser[]> {
     const accessToken = await this.getGraphAccessToken();
@@ -53,24 +92,70 @@ export class AdminUsersService {
 
       const payload = (await response.json()) as GraphUsersResponse;
       for (const user of payload.value ?? []) {
-        users.push({
-          id: user.id,
-          name:
-            user.displayName?.trim() ||
-            user.mail?.trim() ||
-            user.userPrincipalName?.trim() ||
-            'Entra user',
-          email: user.mail?.trim() || user.userPrincipalName?.trim() || '',
-          role: 'Entra user',
-          lastLogin: '—',
-          status: user.accountEnabled === false ? 'Disabled' : 'Active',
-        });
+        users.push(this.buildUserDisplay(user));
       }
 
       nextUrl = payload['@odata.nextLink'] ?? null;
     }
 
     return users.sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  async findUserById(id: string): Promise<AdminDirectoryUser | null> {
+    const userId = String(id ?? '').trim();
+    if (!userId) return null;
+
+    const accessToken = await this.getGraphAccessToken();
+    const encodedId = encodeURIComponent(userId);
+
+    // 1) Direct users/{id}
+    try {
+      const directUser = await this.graphGetJson<GraphUser>(
+        accessToken,
+        `https://graph.microsoft.com/v1.0/users/${encodedId}?$select=id,displayName,mail,userPrincipalName,accountEnabled`,
+        true,
+      );
+      if (directUser?.id) return this.buildUserDisplay(directUser);
+    } catch {
+      // continue with alternate strategies below
+    }
+
+    // 2) Filtered users query by id
+    try {
+      const escaped = userId.replace(/'/g, "''");
+      const filteredUsers = await this.graphGetJson<GraphUsersResponse>(
+        accessToken,
+        `https://graph.microsoft.com/v1.0/users?$filter=id eq '${escaped}'&$select=id,displayName,mail,userPrincipalName,accountEnabled&$top=1`,
+      );
+      const filteredUser = filteredUsers?.value?.[0];
+      if (filteredUser?.id) return this.buildUserDisplay(filteredUser);
+    } catch {
+      // continue
+    }
+
+    // 3) Directory object fallback (useful for some tenants/guest representations)
+    try {
+      const directoryObj = await this.graphGetJson<GraphDirectoryObject>(
+        accessToken,
+        `https://graph.microsoft.com/v1.0/directoryObjects/${encodedId}?$select=id,displayName`,
+        true,
+      );
+      const objectId = String(directoryObj?.id ?? '').trim();
+      const displayName = String(directoryObj?.displayName ?? '').trim();
+      if (objectId && displayName) {
+        return {
+          id: objectId,
+          name: displayName,
+          email: '',
+          role: 'Entra user',
+          lastLogin: '—',
+          status: 'Active',
+        };
+      }
+    } catch {
+      // no-op
+    }
+    return null;
   }
 
   private async getGraphAccessToken(): Promise<string> {

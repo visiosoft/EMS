@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp } from 'lucide-react';
+import { ArrowDown, ArrowUp, RotateCcw } from 'lucide-react';
 import {
   Avatar,
   TabBar,
@@ -110,6 +110,8 @@ interface Props {
 
 const overviewLabelCls = 'text-text-muted text-xs';
 const overviewValueCls = 'text-text-primary mt-0.5';
+const COMPANIES_SORT_STATE_STORAGE_KEY = 'iae-companies-sort-state-v1';
+const EMS_SAVED_VIEWS_ENABLED_KEY = 'iae-ems-saved-views-enabled-v1';
 
 function renderPhysicalAddressValue(c: Company) {
   const hasPhysical = !!(
@@ -336,8 +338,13 @@ function InlineEditableOverview({
   onSaved: (row: ApiCompanyListRow) => void | Promise<void>;
 }) {
   const [name, setName]             = useState(company.name);
-  const [typeId, setTypeId]         = useState<string>(
-    company.companyTypeId != null ? String(company.companyTypeId) : '',
+  const [typeIds, setTypeIds]       = useState<string[]>(
+    (company.companyTypeIds?.length
+      ? company.companyTypeIds
+      : company.companyTypeId != null
+        ? [company.companyTypeId]
+        : []
+    ).map((id) => String(id)),
   );
   const [serviceProvidedIds, setServiceProvidedIds] = useState<string[]>(
     (company.serviceProvidedIds ?? [])
@@ -533,14 +540,23 @@ function InlineEditableOverview({
     );
   }, [company.companyTypeIds, company.companyTypeNames, venueTypeIds]);
   const hasVenueTypeAfter = useMemo(() => {
-    const id = Number(typeId);
-    return Number.isInteger(id) && id > 0 && venueTypeIds.has(id);
-  }, [typeId, venueTypeIds]);
+    const ids = typeIds
+      .map((id) => Number(id))
+      .filter((id) => Number.isInteger(id) && id > 0);
+    return ids.some((id) => venueTypeIds.has(id));
+  }, [typeIds, venueTypeIds]);
   const removingVenueType = hadVenueTypeBefore && !hasVenueTypeAfter;
 
   const discard = () => {
     setName(company.name);
-    setTypeId(company.companyTypeId != null ? String(company.companyTypeId) : '');
+    setTypeIds(
+      (company.companyTypeIds?.length
+        ? company.companyTypeIds
+        : company.companyTypeId != null
+          ? [company.companyTypeId]
+          : []
+      ).map((id) => String(id)),
+    );
     setServiceProvidedIds(
       (company.serviceProvidedIds ?? [])
         .map((id) => String(id))
@@ -574,7 +590,13 @@ function InlineEditableOverview({
     const n = name.trim();
     if (!n) e.push('Company name is required.');
     else if (n.length > M.companyName) e.push(`Company name must be ${M.companyName} characters or fewer.`);
-    if (!typeId.trim()) e.push('Company type is required.');
+    if (
+      typeIds
+        .map((id) => Number(id))
+        .filter((id) => Number.isInteger(id) && id > 0).length === 0
+    ) {
+      e.push('Company type is required.');
+    }
     if (!physStreet.trim()) e.push('Physical street is required.');
     else if (physStreet.trim().length > M.addressLine1) e.push(`Physical street must be ${M.addressLine1} characters or fewer.`);
     if (!physCity.trim()) e.push('Physical city is required.');
@@ -635,7 +657,7 @@ function InlineEditableOverview({
     }
     return e;
   }, [
-    name, typeId, physStreet, physCity, physState, physPostal, physCountry,
+    name, typeIds, physStreet, physCity, physState, physPostal, physCountry,
     separateMailing, mailStreet, mailCity, mailState, mailPostal, mailCountry,
     company.dmaId, company.physicalPostalCode, resolvedDma, dmaLookupBusy,
   ]);
@@ -679,10 +701,13 @@ function InlineEditableOverview({
       );
       const updated = await updateCompany(Number(company.id), {
         companyName: name.trim().slice(0, M.companyName),
+        companyTypeIds: typeIds
+          .map((id) => Number(id))
+          .filter((id) => Number.isInteger(id) && id > 0),
         companyTypeId:
-          Number(typeId) > 0 && Number.isInteger(Number(typeId))
-            ? Number(typeId)
-            : undefined,
+          typeIds
+            .map((id) => Number(id))
+            .find((id) => Number.isInteger(id) && id > 0) ?? undefined,
         serviceProvidedIds: serviceProvidedIds
           .map((id) => Number(id))
           .filter((id) => Number.isInteger(id) && id > 0),
@@ -925,11 +950,11 @@ function InlineEditableOverview({
               Company Type
               <span className="text-ems-coral ml-0.5">*</span>
             </label>
-            <Select2
+            <Select2Multi
               options={typeOptions}
-              value={typeId}
-              onChange={mark(setTypeId)}
-              placeholder="Select company type…"
+              values={typeIds}
+              onChange={mark(setTypeIds)}
+              placeholder="Select one or more company types…"
             />
             {removingVenueType && (
               <p className="text-[11px] text-amber-600 mt-1.5">
@@ -1647,8 +1672,13 @@ function CompanyFormDb({
   onCancel: () => void;
 }) {
   const [companyName, setCompanyName] = useState(initial?.name || '');
-  const [companyTypeId, setCompanyTypeId] = useState<string>(
-    initial?.companyTypeId != null ? String(initial.companyTypeId) : '',
+  const [companyTypeIds, setCompanyTypeIds] = useState<string[]>(
+    (initial?.companyTypeIds?.length
+      ? initial.companyTypeIds
+      : initial?.companyTypeId != null
+        ? [initial.companyTypeId]
+        : []
+    ).map((id) => String(id)),
   );
   const [serviceProvidedIds, setServiceProvidedIds] = useState<string[]>(
     (initial?.serviceProvidedIds ?? []).map((id) => String(id)),
@@ -1717,8 +1747,13 @@ function CompanyFormDb({
   useEffect(() => {
     if (!initial) return;
     setCompanyName(initial.name);
-    setCompanyTypeId(
-      initial.companyTypeId != null ? String(initial.companyTypeId) : '',
+    setCompanyTypeIds(
+      (initial.companyTypeIds?.length
+        ? initial.companyTypeIds
+        : initial.companyTypeId != null
+          ? [initial.companyTypeId]
+          : []
+      ).map((id) => String(id)),
     );
     setServiceProvidedIds((initial.serviceProvidedIds ?? []).map((id) => String(id)));
     setAllDmas(Boolean(initial.allDmas));
@@ -1958,7 +1993,13 @@ function CompanyFormDb({
     else if (n.length > M.companyName) {
       next.companyName = `Company name must be ${M.companyName} characters or fewer.`;
     }
-    if (!companyTypeId.trim()) next.companyType = 'Select company type.';
+    if (
+      companyTypeIds
+        .map((id) => Number(id))
+        .filter((id) => Number.isInteger(id) && id > 0).length === 0
+    ) {
+      next.companyType = 'Select at least one company type.';
+    }
 
     if (!physicalStreet.trim()) next.physicalStreet = 'Physical street is required.';
     else if (physicalStreet.trim().length > M.addressLine1) {
@@ -2066,7 +2107,13 @@ function CompanyFormDb({
 
     const base: CreateCompanyPayload = {
       companyName: companyName.trim().slice(0, M.companyName),
-      companyTypeId: Number(companyTypeId),
+      companyTypeIds: companyTypeIds
+        .map((id) => Number(id))
+        .filter((id) => Number.isInteger(id) && id > 0),
+      companyTypeId:
+        companyTypeIds
+          .map((id) => Number(id))
+          .find((id) => Number.isInteger(id) && id > 0) ?? undefined,
       serviceProvidedIds: serviceProvidedIds
         .map((id) => Number(id))
         .filter((id) => Number.isInteger(id) && id > 0),
@@ -2104,14 +2151,14 @@ function CompanyFormDb({
     <div className="space-y-5">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <FormField label="Company Type" required error={fieldErrors.companyType}>
-          <Select2
+          <Select2Multi
             options={typeOpts}
-            value={companyTypeId}
-            onChange={(value) => {
-              setCompanyTypeId(value);
+            values={companyTypeIds}
+            onChange={(values) => {
+              setCompanyTypeIds(values);
               clearError('companyType');
             }}
-            placeholder="Select company type…"
+            placeholder="Select one or more company types…"
           />
         </FormField>
         <FormField label="Company Services">
@@ -2122,102 +2169,6 @@ function CompanyFormDb({
             placeholder="Select one or more services…"
           />
         </FormField>
-      </div>
-
-      <div className="bg-elevated border border-border rounded-lg p-4 space-y-3">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-sm font-semibold text-text-primary">Service Area</div>
-            <div className="text-xs text-text-muted mt-0.5">
-              Select which DMAs this company provides services in, and which service is provided in each DMA.
-            </div>
-          </div>
-          <label className="text-xs text-text-secondary flex items-center gap-2 select-none">
-            <input
-              type="checkbox"
-              checked={allDmas}
-              onChange={(e) => setAllDmas(e.target.checked)}
-            />
-            All DMAs (Nationwide)
-          </label>
-        </div>
-
-        {allDmas ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
-            <div>
-              <label className="text-xs text-text-muted block mb-0.5">
-                Service (Nationwide)
-                <span className="text-ems-coral ml-0.5">*</span>
-              </label>
-              <Select2
-                options={serviceOpts}
-                value={allDmasServiceProvidedId}
-                onChange={setAllDmasServiceProvidedId}
-                placeholder="Select service…"
-                disabled={saving}
-              />
-            </div>
-            <div className="text-[11px] text-text-muted">
-              Selected Area: All
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {serviceAreas.length === 0 ? (
-              <div className="text-sm text-text-muted">No service areas added yet.</div>
-            ) : null}
-            {serviceAreas.map((row, idx) => (
-              <div key={`sa-create-${idx}`} className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
-                <div>
-                  <label className="text-xs text-text-muted block mb-0.5">DMA</label>
-                  <Select2
-                    options={dmaMarketOpts}
-                    value={row.dmaid}
-                    onChange={(v) => {
-                      const next = [...serviceAreas];
-                      next[idx] = { ...next[idx], dmaid: v };
-                      setServiceAreas(next);
-                    }}
-                    placeholder="Select DMA…"
-                    disabled={saving}
-                  />
-                </div>
-                <div className="flex items-end gap-2">
-                  <div className="flex-1">
-                    <label className="text-xs text-text-muted block mb-0.5">Service</label>
-                    <Select2
-                      options={serviceOpts}
-                      value={row.serviceProvidedId}
-                      onChange={(v) => {
-                        const next = [...serviceAreas];
-                        next[idx] = { ...next[idx], serviceProvidedId: v };
-                        setServiceAreas(next);
-                      }}
-                      placeholder="Select service…"
-                      disabled={saving}
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    className="text-xs text-text-muted hover:text-ems-coral hover:underline pb-2"
-                    onClick={() => setServiceAreas(serviceAreas.filter((_, i) => i !== idx))}
-                    disabled={saving}
-                  >
-                    Remove
-                  </button>
-                </div>
-              </div>
-            ))}
-            <button
-              type="button"
-              className="text-sm text-ems-accent hover:underline"
-              onClick={() => setServiceAreas([...serviceAreas, { dmaid: '', serviceProvidedId: '' }])}
-              disabled={saving}
-            >
-              + Add DMA Service Area
-            </button>
-          </div>
-        )}
       </div>
 
       <FormField label="Company Name" required error={fieldErrors.companyName}>
@@ -2515,7 +2466,7 @@ function CompanyFormDb({
 
       <div>
         <label className="text-xs font-medium text-text-secondary block mb-2">
-          DMA (from postal code)
+          {`Primary DMA for ${companyName.trim() || 'Company'}`}
           <span className="text-ems-coral ml-0.5">*</span>
         </label>
         <div
@@ -2544,6 +2495,102 @@ function CompanyFormDb({
           <p className="text-xs text-ems-coral mt-1" role="alert">
             {fieldErrors.dma}
           </p>
+        )}
+      </div>
+
+      <div className="bg-elevated border border-border rounded-lg p-4 space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-text-primary">Service Area</div>
+            <div className="mt-0.5 text-xs font-medium text-ems-accent">
+              additional service areas outside of the primary DMA
+            </div>
+          </div>
+          <label className="text-xs text-text-secondary flex items-center gap-2 select-none">
+            <input
+              type="checkbox"
+              checked={allDmas}
+              onChange={(e) => setAllDmas(e.target.checked)}
+            />
+            All DMAs (Nationwide)
+          </label>
+        </div>
+
+        {allDmas ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+            <div>
+              <label className="text-xs text-text-muted block mb-0.5">
+                Service (Nationwide)
+                <span className="text-ems-coral ml-0.5">*</span>
+              </label>
+              <Select2
+                options={serviceOpts}
+                value={allDmasServiceProvidedId}
+                onChange={setAllDmasServiceProvidedId}
+                placeholder="Select service…"
+                disabled={saving}
+              />
+            </div>
+            <div className="text-[11px] text-text-muted">
+              Selected Area: All
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {serviceAreas.length === 0 ? (
+              <div className="text-sm text-text-muted">No service areas added yet.</div>
+            ) : null}
+            {serviceAreas.map((row, idx) => (
+              <div key={`sa-create-${idx}`} className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+                <div>
+                  <label className="text-xs text-text-muted block mb-0.5">DMA</label>
+                  <Select2
+                    options={dmaMarketOpts}
+                    value={row.dmaid}
+                    onChange={(v) => {
+                      const next = [...serviceAreas];
+                      next[idx] = { ...next[idx], dmaid: v };
+                      setServiceAreas(next);
+                    }}
+                    placeholder="Select DMA…"
+                    disabled={saving}
+                  />
+                </div>
+                <div className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <label className="text-xs text-text-muted block mb-0.5">Service</label>
+                    <Select2
+                      options={serviceOpts}
+                      value={row.serviceProvidedId}
+                      onChange={(v) => {
+                        const next = [...serviceAreas];
+                        next[idx] = { ...next[idx], serviceProvidedId: v };
+                        setServiceAreas(next);
+                      }}
+                      placeholder="Select service…"
+                      disabled={saving}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="text-xs text-text-muted hover:text-ems-coral hover:underline pb-2"
+                    onClick={() => setServiceAreas(serviceAreas.filter((_, i) => i !== idx))}
+                    disabled={saving}
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="text-sm text-ems-accent hover:underline"
+              onClick={() => setServiceAreas([...serviceAreas, { dmaid: '', serviceProvidedId: '' }])}
+              disabled={saving}
+            >
+              + Add DMA Service Area
+            </button>
+          </div>
         )}
       </div>
 
@@ -2637,6 +2684,7 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
   const [searchInput, setSearchInput] = useState('');
   const [activeSearch, setActiveSearch] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
   const searchWrapperRef = useRef<HTMLDivElement>(null);
   const [typeFilter, setTypeFilter] = useState('All');
   const [page, setPage] = useState(1);
@@ -2661,7 +2709,26 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
   const [sortState, setSortState] = useState<{
     col: CompanySortCol | null;
     dir: 'asc' | 'desc';
-  }>({ col: 'name', dir: 'asc' });
+  }>(() => {
+    if (typeof window === 'undefined') return { col: 'name', dir: 'asc' };
+    try {
+      if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') {
+        return { col: 'name', dir: 'asc' };
+      }
+      const raw = localStorage.getItem(COMPANIES_SORT_STATE_STORAGE_KEY);
+      if (!raw) return { col: 'name', dir: 'asc' };
+      const parsed = JSON.parse(raw) as { col?: unknown; dir?: unknown };
+      const validCols = new Set<CompanySortCol>(['name', 'type', 'city', 'dma']);
+      const col =
+        typeof parsed.col === 'string' && validCols.has(parsed.col as CompanySortCol)
+          ? (parsed.col as CompanySortCol)
+          : 'name';
+      const dir = parsed.dir === 'desc' ? 'desc' : 'asc';
+      return { col, dir };
+    } catch {
+      return { col: 'name', dir: 'asc' };
+    }
+  });
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -2672,6 +2739,15 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') return;
+      localStorage.setItem(COMPANIES_SORT_STATE_STORAGE_KEY, JSON.stringify(sortState));
+    } catch {
+      /* ignore */
+    }
+  }, [sortState]);
 
   useEffect(() => {
     if (initialSelectedCompanyId == null) return;
@@ -2711,7 +2787,7 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
     refetchOnWindowFocus: false,
   });
 
-  const pickerCompanyNames = useMemo(() => {
+  const pickerCompanies = useMemo(() => {
     const rows = companiesPickerQuery.data ?? [];
     const matchesType = (row: ApiCompanyListRow) => {
       if (!companyTypeParam) return true;
@@ -2721,16 +2797,44 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
           : [row.companyTypeName].filter(Boolean);
       return names.some((n) => String(n).trim() === companyTypeParam);
     };
-    return rows.filter(matchesType).map((c) => c.companyName.trim()).filter(Boolean);
+    return rows.filter(matchesType);
   }, [companiesPickerQuery.data, companyTypeParam]);
 
   const searchSuggestions = useMemo(() => {
     const q = searchInput.trim().toLowerCase();
     if (!q) return [];
-    return pickerCompanyNames
-      .filter((name) => name.toLowerCase().includes(q))
-      .slice(0, 8);
-  }, [searchInput, pickerCompanyNames]);
+    const normalized = pickerCompanies
+      .map((row) => {
+        const name = row.companyName.trim();
+        const typeText = (
+          row.companyTypeNames?.length ? row.companyTypeNames : [row.companyTypeName]
+        )
+          .filter(Boolean)
+          .join(', ');
+        const city = String(row.physicalCity ?? '').trim();
+        const state = String(row.physicalStateProvince ?? '').trim();
+        const cityState = [city, state].filter(Boolean).join(', ');
+        const searchableText = [name, typeText, cityState]
+          .join(' ')
+          .toLowerCase();
+        const startsWithName = name.toLowerCase().startsWith(q);
+        return {
+          id: row.companyId,
+          name,
+          typeText: typeText || 'Not set',
+          cityState: cityState || 'City / State not set',
+          searchableText,
+          startsWithName,
+        };
+      })
+      .filter((row) => row.name && row.searchableText.includes(q))
+      .sort((a, b) => {
+        if (a.startsWithName !== b.startsWithName) return a.startsWithName ? -1 : 1;
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+      })
+      .slice(0, 10);
+    return normalized;
+  }, [searchInput, pickerCompanies]);
 
   const searchSuggestPanelOpen =
     showSuggestions &&
@@ -2739,10 +2843,47 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
       searchSuggestions.length > 0 ||
       companiesPickerQuery.isFetched);
 
+  useEffect(() => {
+    if (!searchSuggestPanelOpen) {
+      setActiveSuggestionIndex(-1);
+      return;
+    }
+    setActiveSuggestionIndex((prev) => {
+      if (searchSuggestions.length === 0) return -1;
+      if (prev < 0) return 0;
+      return Math.min(prev, searchSuggestions.length - 1);
+    });
+  }, [searchSuggestPanelOpen, searchSuggestions.length]);
+
+  const applySearchSuggestion = useCallback(
+    (suggestion: (typeof searchSuggestions)[number]) => {
+      setSearchInput(suggestion.name);
+      setActiveSearch(suggestion.name);
+      setShowSuggestions(false);
+      setActiveSuggestionIndex(-1);
+    },
+    [],
+  );
+
   const commitSearch = useCallback(() => {
     setActiveSearch(searchInput.trim());
     setShowSuggestions(false);
+    setActiveSuggestionIndex(-1);
   }, [searchInput]);
+
+  const hasActiveCompanyFilters =
+    searchInput.trim().length > 0 ||
+    activeSearch.trim().length > 0 ||
+    typeFilter !== 'All';
+
+  const resetCompanyFilters = useCallback(() => {
+    setSearchInput('');
+    setActiveSearch('');
+    setTypeFilter('All');
+    setShowSuggestions(false);
+    setActiveSuggestionIndex(-1);
+    setPage(1);
+  }, []);
 
   const displayList = useMemo(
     () => (companiesListQuery.data?.data ?? []).map(mapApiCompanyToCompany),
@@ -3090,12 +3231,12 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        <div className="relative w-full min-w-0 sm:w-64" ref={searchWrapperRef}>
+        <div className="relative w-full min-w-0 sm:w-80 lg:w-[28rem]" ref={searchWrapperRef}>
           <div className="flex min-w-0 items-center border border-border rounded-md bg-surface overflow-hidden focus-within:border-ems-accent transition-colors">
             <input
               type="text"
               className="min-w-0 flex-1 cursor-text bg-transparent px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none disabled:cursor-not-allowed"
-              placeholder="Search companies..."
+              placeholder="Search by company, type, city, state..."
               value={searchInput}
               disabled={isLoadingCompanies}
               autoComplete="off"
@@ -3104,6 +3245,7 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                 const v = e.target.value;
                 setSearchInput(v);
                 setShowSuggestions(true);
+                setActiveSuggestionIndex(-1);
                 // If the user clears the box, drop the committed filter so the list shows
                 // everything again; otherwise the table stayed stuck on the old search.
                 if (!v.trim()) {
@@ -3115,8 +3257,37 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
               }}
               onBlur={() => setShowSuggestions(false)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') commitSearch();
-                if (e.key === 'Escape') setShowSuggestions(false);
+                if (e.key === 'ArrowDown') {
+                  if (!searchSuggestPanelOpen || searchSuggestions.length === 0) return;
+                  e.preventDefault();
+                  setActiveSuggestionIndex((prev) =>
+                    prev < 0 ? 0 : Math.min(prev + 1, searchSuggestions.length - 1),
+                  );
+                  return;
+                }
+                if (e.key === 'ArrowUp') {
+                  if (!searchSuggestPanelOpen || searchSuggestions.length === 0) return;
+                  e.preventDefault();
+                  setActiveSuggestionIndex((prev) => Math.max(prev - 1, 0));
+                  return;
+                }
+                if (e.key === 'Enter') {
+                  if (
+                    searchSuggestPanelOpen &&
+                    activeSuggestionIndex >= 0 &&
+                    activeSuggestionIndex < searchSuggestions.length
+                  ) {
+                    e.preventDefault();
+                    applySearchSuggestion(searchSuggestions[activeSuggestionIndex]);
+                    return;
+                  }
+                  commitSearch();
+                  return;
+                }
+                if (e.key === 'Escape') {
+                  setShowSuggestions(false);
+                  setActiveSuggestionIndex(-1);
+                }
               }}
             />
             <button
@@ -3133,7 +3304,7 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
           </div>
           {searchSuggestPanelOpen ? (
             <div
-              className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden"
+              className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden max-h-80 overflow-y-auto"
               onMouseDown={(e) => e.preventDefault()}
               aria-busy={companiesPickerQuery.isFetching}
             >
@@ -3160,17 +3331,31 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
               searchSuggestions.length > 0
                 ? searchSuggestions.map((suggestion, i) => (
                     <button
-                      key={`${i}-${suggestion}`}
+                      key={`${suggestion.id}-${i}`}
                       type="button"
-                      className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                      className={`w-full text-left px-3 py-2.5 text-sm transition-colors ${
+                        i === activeSuggestionIndex
+                          ? 'bg-hover text-text-primary'
+                          : 'text-text-secondary hover:bg-hover hover:text-text-primary'
+                      }`}
                       onMouseDown={(e) => {
                         e.preventDefault();
-                        setSearchInput(suggestion);
-                        setActiveSearch(suggestion);
-                        setShowSuggestions(false);
+                        applySearchSuggestion(suggestion);
                       }}
                     >
-                      {suggestion}
+                      <div className="flex min-w-0 items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate font-medium text-text-primary">
+                            {suggestion.name}
+                          </div>
+                          <div className="truncate text-xs text-text-muted mt-0.5">
+                            {suggestion.typeText}
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-xs text-text-muted text-right max-w-[45%] truncate">
+                          {suggestion.cityState}
+                        </div>
+                      </div>
                     </button>
                   ))
                 : null}
@@ -3192,6 +3377,18 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
             placeholder="Filter by company type"
           />
         </div>
+        {hasActiveCompanyFilters ? (
+          <button
+            type="button"
+            onClick={resetCompanyFilters}
+            disabled={isLoadingCompanies}
+            className="inline-flex h-[34px] shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Reset search and filters"
+          >
+            <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+            Reset
+          </button>
+        ) : null}
       </div>
 
       {isLoadingCompanies ? (

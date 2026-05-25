@@ -335,7 +335,6 @@ export class TourService {
     if (!tourName) {
       throw new BadRequestException('Tour name is required.');
     }
-    await this.assertUniqueTourName(tourName);
 
     if (dto.talentAgencyCompanyId == null || dto.talentAgencyCompanyId < 1) {
       throw new BadRequestException(
@@ -447,7 +446,6 @@ export class TourService {
       throw new BadRequestException('Tour name is required.');
     }
     existing.tourName = finalName;
-    await this.assertUniqueTourName(finalName, id);
     try {
       await this.tourRepo.save(existing);
     } catch (e: unknown) {

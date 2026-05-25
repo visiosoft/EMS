@@ -14,6 +14,8 @@ import {
   Settings,
   Users,
   FolderKanban,
+  Save,
+  RotateCcw,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Avatar } from './Primitives';
@@ -322,6 +324,9 @@ interface HeaderProps {
   breadcrumb: string[];
   onSearch?: (q: string) => void;
   onMenuToggle?: () => void;
+  viewPersistenceEnabled?: boolean;
+  onEnableViewPersistence?: () => void;
+  onResetViewPersistence?: () => void;
 }
 
 function getGreeting(): string {
@@ -331,7 +336,13 @@ function getGreeting(): string {
   return 'Good evening';
 }
 
-export function Header({ breadcrumb, onMenuToggle }: HeaderProps) {
+export function Header({
+  breadcrumb,
+  onMenuToggle,
+  viewPersistenceEnabled = false,
+  onEnableViewPersistence,
+  onResetViewPersistence,
+}: HeaderProps) {
   const { accounts } = useMsal();
   const account = getActiveAccount() ?? accounts[0] ?? null;
   const displayName = getAccountName(account);
@@ -363,6 +374,29 @@ export function Header({ breadcrumb, onMenuToggle }: HeaderProps) {
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        <button
+          type="button"
+          onClick={onEnableViewPersistence}
+          className={cn(
+            'h-8 w-8 rounded-md border flex items-center justify-center transition-colors',
+            viewPersistenceEnabled
+              ? 'border-ems-accent bg-ems-accent-dim text-ems-accent'
+              : 'border-border bg-elevated text-text-secondary hover:bg-hover hover:text-text-primary',
+          )}
+          title="Save current views"
+          aria-label="Save current views"
+        >
+          <Save className="h-4 w-4" aria-hidden />
+        </button>
+        <button
+          type="button"
+          onClick={onResetViewPersistence}
+          className="h-8 w-8 rounded-md border border-border bg-elevated text-text-secondary hover:bg-hover hover:text-text-primary flex items-center justify-center transition-colors"
+          title="Reset saved views"
+          aria-label="Reset saved views"
+        >
+          <RotateCcw className="h-4 w-4" aria-hidden />
+        </button>
         <div className="text-right hidden md:block">
           <div className="flex items-center gap-1.5">
             <span className="text-sm text-text-secondary">{greeting},</span>

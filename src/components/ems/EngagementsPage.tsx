@@ -4,6 +4,7 @@ import {
   Loader2,
   AlertCircle,
   RefreshCw,
+  RotateCcw,
   GripVertical,
   ArrowUp,
   ArrowDown,
@@ -55,6 +56,8 @@ interface Props {
 
 type EngagementsViewMode = 'list' | 'tiles';
 const ENGAGEMENTS_VIEW_MODE_STORAGE_KEY = 'iae-engagements-view-mode-v1';
+const ENGAGEMENTS_SORT_STATE_STORAGE_KEY = 'iae-engagements-sort-state-v1';
+const EMS_SAVED_VIEWS_ENABLED_KEY = 'iae-ems-saved-views-enabled-v1';
 
 const ENGAGEMENT_MOVABLE_COLUMN_ORDER_KEY = 'iae-engagements-movable-column-order-v1';
 const LEGACY_ENGAGEMENT_TABLE_COLUMN_ORDER_KEY = 'iae-engagements-table-column-order-v2';
@@ -170,6 +173,42 @@ function loadEngagementsViewMode(): EngagementsViewMode {
 function saveEngagementsViewMode(mode: EngagementsViewMode) {
   try {
     localStorage.setItem(ENGAGEMENTS_VIEW_MODE_STORAGE_KEY, mode);
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadEngagementsSortState(): {
+  col: EngagementMovableColumnId | null;
+  dir: 'asc' | 'desc';
+} {
+  if (typeof window === 'undefined') return { col: null, dir: 'asc' };
+  try {
+    if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') {
+      return { col: null, dir: 'asc' };
+    }
+    const raw = localStorage.getItem(ENGAGEMENTS_SORT_STATE_STORAGE_KEY);
+    if (!raw) return { col: null, dir: 'asc' };
+    const parsed = JSON.parse(raw) as { col?: unknown; dir?: unknown };
+    const validCols = new Set<EngagementMovableColumnId>(DEFAULT_ENGAGEMENT_MOVABLE_COLUMNS);
+    const col =
+      typeof parsed.col === 'string' && validCols.has(parsed.col as EngagementMovableColumnId)
+        ? (parsed.col as EngagementMovableColumnId)
+        : null;
+    const dir = parsed.dir === 'desc' ? 'desc' : 'asc';
+    return { col, dir };
+  } catch {
+    return { col: null, dir: 'asc' };
+  }
+}
+
+function saveEngagementsSortState(state: {
+  col: EngagementMovableColumnId | null;
+  dir: 'asc' | 'desc';
+}) {
+  try {
+    if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') return;
+    localStorage.setItem(ENGAGEMENTS_SORT_STATE_STORAGE_KEY, JSON.stringify(state));
   } catch {
     /* ignore */
   }
@@ -357,7 +396,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
   const [sortState, setSortState] = useState<{
     col: EngagementMovableColumnId | null;
     dir: 'asc' | 'desc';
-  }>({ col: null, dir: 'asc' });
+  }>(loadEngagementsSortState);
   const [viewMode, setViewMode] = useState<EngagementsViewMode>(loadEngagementsViewMode);
 
   const visualSlots = useMemo(
@@ -391,6 +430,10 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
   useEffect(() => {
     if (initTimingFilter) setTimingFilter(initTimingFilter);
   }, [initTimingFilter]);
+
+  useEffect(() => {
+    saveEngagementsSortState(sortState);
+  }, [sortState]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -558,6 +601,20 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
     !!dmaFilter ||
     !!venueFilter ||
     timingFilter !== DEFAULT_ENGAGEMENT_TIMING_FILTER;
+
+  const hasResettableFilters = hasActiveFilters || !!searchInput.trim();
+
+  const resetEngagementFilters = useCallback(() => {
+    setSearchInput('');
+    setSearchCommitted('');
+    setShowSearchSuggestions(false);
+    setStatusFilter('All');
+    setAttractionFilter('');
+    setDmaFilter('');
+    setVenueFilter('');
+    setTimingFilter(DEFAULT_ENGAGEMENT_TIMING_FILTER);
+    setPage(1);
+  }, []);
 
   useEffect(() => {
     setPage(1);
@@ -812,6 +869,18 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
               </button>
             ))}
           </div>
+          {hasResettableFilters ? (
+            <button
+              type="button"
+              onClick={resetEngagementFilters}
+              disabled={loading}
+              className="inline-flex h-[34px] shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Reset search and filters"
+            >
+              <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+              Reset
+            </button>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-1.5">
           <FilterChips

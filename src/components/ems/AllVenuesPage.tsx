@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, LayoutGrid, LayoutList, Loader2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, LayoutGrid, LayoutList, Loader2, RotateCcw } from 'lucide-react';
 import { Select2 } from './Select2';
 import {
   getPageParams,
@@ -28,18 +28,17 @@ import {
 } from '@/api/companyApi';
 
 type ViewMode = 'list' | 'board';
+const ALL_VENUES_SORT_STATE_STORAGE_KEY = 'iae-all-venues-sort-state-v1';
+const EMS_SAVED_VIEWS_ENABLED_KEY = 'iae-ems-saved-views-enabled-v1';
 
 interface Props {
   onNavigate?: (view: string, data?: Record<string, unknown>) => void;
 }
 
-/** Label used in Venue DMA filter — includes postal so Select2 search matches short codes. */
+/** Label used in Venue DMA filter — one entry per DMA market name. */
 function dmaFilterOptionLabel(x: ApiDmaMarket): string {
   const name = (x.marketName ?? '').trim();
-  const pc = (x.postalCode ?? '').trim();
-  if (name && pc) return `${name} (${pc})`;
   if (name) return name;
-  if (pc) return pc;
   return `DMA #${x.dmaid}`;
 }
 
@@ -83,7 +82,26 @@ export function AllVenuesPage({ onNavigate }: Props) {
   const [sortState, setSortState] = useState<{
     col: VenueSortCol;
     dir: 'asc' | 'desc';
-  }>({ col: 'venue', dir: 'asc' });
+  }>(() => {
+    if (typeof window === 'undefined') return { col: 'venue', dir: 'asc' };
+    try {
+      if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') {
+        return { col: 'venue', dir: 'asc' };
+      }
+      const raw = localStorage.getItem(ALL_VENUES_SORT_STATE_STORAGE_KEY);
+      if (!raw) return { col: 'venue', dir: 'asc' };
+      const parsed = JSON.parse(raw) as { col?: unknown; dir?: unknown };
+      const validCols = new Set<VenueSortCol>(['venue', 'complex', 'type', 'capacity', 'dma']);
+      const col =
+        typeof parsed.col === 'string' && validCols.has(parsed.col as VenueSortCol)
+          ? (parsed.col as VenueSortCol)
+          : 'venue';
+      const dir = parsed.dir === 'desc' ? 'desc' : 'asc';
+      return { col, dir };
+    } catch {
+      return { col: 'venue', dir: 'asc' };
+    }
+  });
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -94,6 +112,15 @@ export function AllVenuesPage({ onNavigate }: Props) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') return;
+      localStorage.setItem(ALL_VENUES_SORT_STATE_STORAGE_KEY, JSON.stringify(sortState));
+    } catch {
+      /* ignore */
+    }
+  }, [sortState]);
 
   const lookupsQ = useQuery({
     queryKey: ['lookups', 'all-venues'],
@@ -136,6 +163,7 @@ export function AllVenuesPage({ onNavigate }: Props) {
   const venueTypeOpts = useMemo(() => {
     const vt = lookupsQ.data?.venueTypes ?? [];
     return vt
+      .filter((x) => !/^qa[-\s]?type/i.test(x.venueTypeName))
       .map((x) => ({ value: String(x.venueTypeId), label: x.venueTypeName }))
       .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
   }, [lookupsQ.data?.venueTypes]);
@@ -151,7 +179,8 @@ export function AllVenuesPage({ onNavigate }: Props) {
         venueTypeId !== '' && Number.isFinite(Number(venueTypeId))
           ? Number(venueTypeId)
           : undefined,
-      dmaId: dmaId !== '' && Number.isFinite(Number(dmaId)) ? Number(dmaId) : undefined,
+      dmaIds:
+        dmaId !== '' && Number.isFinite(Number(dmaId)) ? [Number(dmaId)] : undefined,
       sortBy: SORT_API[sortState.col],
       sortDir: sortState.dir,
     }),
@@ -168,7 +197,8 @@ export function AllVenuesPage({ onNavigate }: Props) {
         venueTypeId !== '' && Number.isFinite(Number(venueTypeId))
           ? Number(venueTypeId)
           : undefined,
-      dmaId: dmaId !== '' && Number.isFinite(Number(dmaId)) ? Number(dmaId) : undefined,
+      dmaIds:
+        dmaId !== '' && Number.isFinite(Number(dmaId)) ? [Number(dmaId)] : undefined,
       sortBy: SORT_API[sortState.col],
       sortDir: sortState.dir,
     }),
@@ -207,6 +237,23 @@ export function AllVenuesPage({ onNavigate }: Props) {
     setShowVenueSuggestions(false);
   }, [venueInput]);
 
+  const hasActiveVenueFilters =
+    venueInput.trim().length > 0 ||
+    venueSearchCommitted.trim().length > 0 ||
+    complexId !== '' ||
+    venueTypeId !== '' ||
+    dmaId !== '';
+
+  const resetVenueFilters = useCallback(() => {
+    setVenueInput('');
+    setVenueSearchCommitted('');
+    setShowVenueSuggestions(false);
+    setComplexId('');
+    setVenueTypeId('');
+    setDmaId('');
+    setPage(1);
+  }, []);
+
   useEffect(() => {
     setPage(1);
   }, [filterParams]);
@@ -235,20 +282,31 @@ export function AllVenuesPage({ onNavigate }: Props) {
   });
 
   const dmaOpts = useMemo(() => {
-    const map = new Map<string, { value: string; label: string }>();
-    for (const x of dmasQ.data ?? []) {
-      map.set(String(x.dmaid), { value: String(x.dmaid), label: dmaFilterOptionLabel(x) });
-    }
-    const mergeVenueRow = (r: ApiAllVenueRow) => {
-      if (r.dmaId == null || !Number.isFinite(r.dmaId) || r.dmaId <= 0) return;
-      const k = String(r.dmaId);
-      if (map.has(k)) return;
-      const nm = (r.dmaMarketName ?? '').trim();
-      map.set(k, { value: k, label: nm || `DMA #${r.dmaId}` });
+    // Deduplicate by market name — one entry per DMA area.
+    // Normalize trailing punctuation and whitespace so near-duplicates like
+    // "ABILENE-SWEETWATER" and "ABILENE-SWEETWATER." collapse into one entry.
+    const byName = new Map<string, { value: string; label: string }>();
+    const normalize = (s: string) =>
+      s.trim().replace(/[\s.,:;]+$/g, '').replace(/\s+/g, ' ').toLowerCase();
+    const addEntry = (dmaid: number, rawName: string | null) => {
+      const name = (rawName ?? '').trim().replace(/[\s.,:;]+$/g, '');
+      const key = normalize(name);
+      if (!key) return;
+      if (byName.has(key)) return;
+      byName.set(key, { value: String(dmaid), label: name });
     };
-    for (const r of venueSuggestionRowsQuery.data?.data ?? []) mergeVenueRow(r);
-    for (const r of listQ.data?.data ?? []) mergeVenueRow(r);
-    return [...map.values()].sort((a, b) =>
+    for (const x of dmasQ.data ?? []) addEntry(x.dmaid, x.marketName);
+    for (const r of venueSuggestionRowsQuery.data?.data ?? []) {
+      if (r.dmaId != null && Number.isFinite(r.dmaId) && r.dmaId > 0) {
+        addEntry(r.dmaId, r.dmaMarketName);
+      }
+    }
+    for (const r of listQ.data?.data ?? []) {
+      if (r.dmaId != null && Number.isFinite(r.dmaId) && r.dmaId > 0) {
+        addEntry(r.dmaId, r.dmaMarketName);
+      }
+    }
+    return [...byName.values()].sort((a, b) =>
       a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }),
     );
   }, [dmasQ.data, venueSuggestionRowsQuery.data, listQ.data]);
@@ -395,7 +453,19 @@ export function AllVenuesPage({ onNavigate }: Props) {
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-0.5 shrink-0 self-end">
+        <div className="flex items-center justify-end gap-1.5 shrink-0 self-end">
+          {hasActiveVenueFilters ? (
+            <button
+              type="button"
+              onClick={resetVenueFilters}
+              disabled={loading || filtersLoading}
+              className="inline-flex h-[34px] items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Reset search and filters"
+            >
+              <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+              Reset
+            </button>
+          ) : null}
           <button
             type="button"
             title="List view"

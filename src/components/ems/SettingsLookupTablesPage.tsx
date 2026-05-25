@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Trash2 } from 'lucide-react';
+import { Loader2, RotateCcw, Trash2 } from 'lucide-react';
 import {
   ActionMenu,
   Avatar,
@@ -198,6 +198,50 @@ function getLookupRowElementKey(row: LookupManageRow, config: LookupTableConfig,
   return `${config.key}-r${index}-${fingerprint}`;
 }
 
+const SETTINGS_LOOKUP_SORT_STORAGE_KEY = 'iae-settings-lookup-sort-state-v1';
+const EMS_SAVED_VIEWS_ENABLED_KEY = 'iae-ems-saved-views-enabled-v1';
+
+function defaultLookupSortBy(lookupKey: string): string {
+  return lookupKey === 'company-services' ? 'serviceName' : 'name';
+}
+
+function loadLookupSortStateForKey(lookupKey: string): { sortBy: string; sortDir: 'asc' | 'desc' } {
+  const fallback = { sortBy: defaultLookupSortBy(lookupKey), sortDir: 'asc' as const };
+  if (typeof window === 'undefined') return fallback;
+  try {
+    if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') return fallback;
+    const raw = localStorage.getItem(SETTINGS_LOOKUP_SORT_STORAGE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Record<string, { sortBy?: unknown; sortDir?: unknown }>;
+    const entry = parsed?.[lookupKey];
+    if (!entry) return fallback;
+    const sortBy = typeof entry.sortBy === 'string' && entry.sortBy.trim() ? entry.sortBy.trim() : fallback.sortBy;
+    const sortDir = entry.sortDir === 'desc' ? 'desc' : 'asc';
+    return { sortBy, sortDir };
+  } catch {
+    return fallback;
+  }
+}
+
+function saveLookupSortStateForKey(
+  lookupKey: string,
+  state: { sortBy: string; sortDir: 'asc' | 'desc' },
+) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') return;
+    const raw = localStorage.getItem(SETTINGS_LOOKUP_SORT_STORAGE_KEY);
+    const parsed =
+      raw && raw.trim()
+        ? (JSON.parse(raw) as Record<string, { sortBy?: string; sortDir?: 'asc' | 'desc' }>)
+        : {};
+    parsed[lookupKey] = state;
+    localStorage.setItem(SETTINGS_LOOKUP_SORT_STORAGE_KEY, JSON.stringify(parsed));
+  } catch {
+    /* ignore */
+  }
+}
+
 export function SettingsPage({
   addToast,
   users,
@@ -278,11 +322,12 @@ export function SettingsPage({
     setLookupSearchInput('');
     setLookupSearch('');
     setShowLookupSuggestions(false);
-    setLookupSort({
-      sortBy: activeLookupKey === 'company-services' ? 'serviceName' : 'name',
-      sortDir: 'asc',
-    });
+    setLookupSort(loadLookupSortStateForKey(activeLookupKey));
   }, [activeLookupKey]);
+
+  useEffect(() => {
+    saveLookupSortStateForKey(activeLookupKey, lookupSort);
+  }, [activeLookupKey, lookupSort]);
 
   const { offset, limit } = getPageParams(lookupPage, lookupPageSize);
 
@@ -417,6 +462,16 @@ export function SettingsPage({
     setLookupSearch(lookupSearchInput.trim());
     setShowLookupSuggestions(false);
   }, [lookupSearchInput]);
+
+  const hasActiveLookupFilters =
+    lookupSearchInput.trim().length > 0 || lookupSearch.trim().length > 0;
+
+  const resetLookupFilters = useCallback(() => {
+    setLookupSearchInput('');
+    setLookupSearch('');
+    setShowLookupSuggestions(false);
+    setLookupPage(1);
+  }, []);
 
   const lookupDepsQuery = useQuery({
     queryKey: ['lookup-manage', 'dependencies'],
@@ -652,98 +707,112 @@ export function SettingsPage({
             </button>
           </div>
 
-          <div className="w-full sm:w-80">
-            <div className="relative w-full min-w-0" ref={lookupSearchWrapperRef}>
-              <div className="flex min-w-0 items-center border border-border rounded-md bg-surface overflow-hidden focus-within:border-ems-accent transition-colors">
-                <input
-                  type="text"
-                  className="min-w-0 flex-1 cursor-text bg-transparent px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none disabled:cursor-not-allowed"
-                  placeholder={`Search ${activeLookupConfig.label}...`}
-                  value={lookupSearchInput}
-                  disabled={lookupIsLoading}
-                  autoComplete="off"
-                  spellCheck={false}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setLookupSearchInput(v);
-                    setShowLookupSuggestions(true);
-                    if (!v.trim()) {
-                      setLookupSearch('');
-                    }
-                  }}
-                  onFocus={() => {
-                    if (lookupSearchInput.trim()) setShowLookupSuggestions(true);
-                  }}
-                  onBlur={commitLookupSearch}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') commitLookupSearch();
-                    if (e.key === 'Escape') setShowLookupSuggestions(false);
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={commitLookupSearch}
-                  className="shrink-0 cursor-pointer px-2.5 py-1.5 text-text-muted hover:text-ems-accent transition-colors"
-                  title="Search"
-                >
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <circle cx="11" cy="11" r="8" strokeWidth="2" />
-                    <path d="m21 21-4.35-4.35" strokeWidth="2" strokeLinecap="round" />
-                  </svg>
-                </button>
-              </div>
-              {lookupSuggestPanelOpen ? (
-                <div
-                  className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden"
-                  onMouseDown={(e) => e.preventDefault()}
-                  aria-busy={lookupSuggestionsQuery.isFetching}
-                >
-                  {lookupSuggestionsQuery.isError ? (
-                    <div className="px-3 py-2 text-sm text-ems-coral" role="alert">
-                      Could not load suggestions. Try again in a moment.
-                    </div>
-                  ) : null}
-                  {!lookupSuggestionsQuery.isError && lookupSuggestionsQuery.isFetching ? (
-                    <div
-                      className="flex items-center gap-2 px-3 py-2.5 text-sm text-text-muted"
-                      role="status"
-                      aria-live="polite"
-                    >
-                      <Loader2
-                        className="h-4 w-4 shrink-0 animate-spin text-ems-accent"
-                        aria-hidden
-                      />
-                      <span>Searching…</span>
-                    </div>
-                  ) : null}
-                  {!lookupSuggestionsQuery.isError &&
-                    !lookupSuggestionsQuery.isFetching &&
-                    lookupSuggestions.length > 0
-                    ? lookupSuggestions.map((suggestion, i) => (
-                      <button
-                        key={`${i}-${suggestion}`}
-                        type="button"
-                        className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          setLookupSearchInput(suggestion);
-                          setLookupSearch(suggestion);
-                          setShowLookupSuggestions(false);
-                        }}
-                      >
-                        {suggestion}
-                      </button>
-                    ))
-                    : null}
-                  {!lookupSuggestionsQuery.isError &&
-                    !lookupSuggestionsQuery.isFetching &&
-                    lookupSuggestionsQuery.isFetched &&
-                    lookupSuggestions.length === 0 ? (
-                    <div className="px-3 py-2.5 text-sm text-text-muted">No matching results</div>
-                  ) : null}
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+            <div className="w-full sm:w-80">
+              <div className="relative w-full min-w-0" ref={lookupSearchWrapperRef}>
+                <div className="flex min-w-0 items-center border border-border rounded-md bg-surface overflow-hidden focus-within:border-ems-accent transition-colors">
+                  <input
+                    type="text"
+                    className="min-w-0 flex-1 cursor-text bg-transparent px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none disabled:cursor-not-allowed"
+                    placeholder={`Search ${activeLookupConfig.label}...`}
+                    value={lookupSearchInput}
+                    disabled={lookupIsLoading}
+                    autoComplete="off"
+                    spellCheck={false}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setLookupSearchInput(v);
+                      setShowLookupSuggestions(true);
+                      if (!v.trim()) {
+                        setLookupSearch('');
+                      }
+                    }}
+                    onFocus={() => {
+                      if (lookupSearchInput.trim()) setShowLookupSuggestions(true);
+                    }}
+                    onBlur={commitLookupSearch}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') commitLookupSearch();
+                      if (e.key === 'Escape') setShowLookupSuggestions(false);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={commitLookupSearch}
+                    className="shrink-0 cursor-pointer px-2.5 py-1.5 text-text-muted hover:text-ems-accent transition-colors"
+                    title="Search"
+                  >
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <circle cx="11" cy="11" r="8" strokeWidth="2" />
+                      <path d="m21 21-4.35-4.35" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                  </button>
                 </div>
-              ) : null}
+                {lookupSuggestPanelOpen ? (
+                  <div
+                    className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden"
+                    onMouseDown={(e) => e.preventDefault()}
+                    aria-busy={lookupSuggestionsQuery.isFetching}
+                  >
+                    {lookupSuggestionsQuery.isError ? (
+                      <div className="px-3 py-2 text-sm text-ems-coral" role="alert">
+                        Could not load suggestions. Try again in a moment.
+                      </div>
+                    ) : null}
+                    {!lookupSuggestionsQuery.isError && lookupSuggestionsQuery.isFetching ? (
+                      <div
+                        className="flex items-center gap-2 px-3 py-2.5 text-sm text-text-muted"
+                        role="status"
+                        aria-live="polite"
+                      >
+                        <Loader2
+                          className="h-4 w-4 shrink-0 animate-spin text-ems-accent"
+                          aria-hidden
+                        />
+                        <span>Searching…</span>
+                      </div>
+                    ) : null}
+                    {!lookupSuggestionsQuery.isError &&
+                      !lookupSuggestionsQuery.isFetching &&
+                      lookupSuggestions.length > 0
+                      ? lookupSuggestions.map((suggestion, i) => (
+                        <button
+                          key={`${i}-${suggestion}`}
+                          type="button"
+                          className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setLookupSearchInput(suggestion);
+                            setLookupSearch(suggestion);
+                            setShowLookupSuggestions(false);
+                          }}
+                        >
+                          {suggestion}
+                        </button>
+                      ))
+                      : null}
+                    {!lookupSuggestionsQuery.isError &&
+                      !lookupSuggestionsQuery.isFetching &&
+                      lookupSuggestionsQuery.isFetched &&
+                      lookupSuggestions.length === 0 ? (
+                      <div className="px-3 py-2.5 text-sm text-text-muted">No matching results</div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
             </div>
+            {hasActiveLookupFilters ? (
+              <button
+                type="button"
+                onClick={resetLookupFilters}
+                disabled={lookupIsLoading}
+                className="inline-flex h-[34px] shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Reset lookup search"
+              >
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+                Reset
+              </button>
+            ) : null}
           </div>
 
           {lookupTableBusyOverlay ? (

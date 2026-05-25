@@ -83,6 +83,13 @@ export class LookupsController {
     return row ?? null;
   }
 
+  /** Backward-compatible query-string form: /lookups/dma-by-postal?postalCode=12345 */
+  @Get('dma-by-postal')
+  async dmaByPostalQuery(@Query('postalCode') postalCode?: string) {
+    const row = await this.lookupsService.findDmaByPostal(postalCode ?? '');
+    return row ?? null;
+  }
+
   /**
    * IMPORTANT: dma-markets/search MUST come before dma-markets
    * so NestJS doesn't treat 'search' as the :id param of a parameterized route.

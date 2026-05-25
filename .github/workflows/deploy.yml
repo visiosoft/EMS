@@ -1,0 +1,51 @@
+name: Deploy to Lightsail
+
+on:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  deploy-lightsail:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Deploy to Lightsail
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.LIGHTSAIL_HOST }}
+        username: ${{ secrets.LIGHTSAIL_USER }}
+        key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
+        port: 22
+        script: |
+          cd /var/www/iae-event-flow
+          
+          echo "📦 Pulling latest code..."
+          git pull origin main
+          
+          echo "📥 Installing dependencies..."
+          export BUN_INSTALL="$HOME/.bun"
+          export PATH="$BUN_INSTALL/bin:$PATH"
+          
+          bun install
+          cd backend && bun install && cd ..
+          
+          echo "🔨 Building..."
+          bun run build
+          cd backend && bun run build && cd ..
+          
+          echo "🔄 Restarting Backend..."
+          export PATH="$PATH:$(npm config get prefix)/bin"
+          pm2 restart iae-event-flow-backend-lightsail --update-env || \
+          pm2 start backend/dist/main.js --name iae-event-flow-backend-lightsail --interpreter $(which bun) --update-env
+          pm2 save
+          
+          echo "📊 PM2 Status:"
+          pm2 status
+          
+          echo "📜 Backend Logs (last 50 lines):"
+          pm2 logs iae-event-flow-backend-lightsail --lines 100 --nostream
+          
+          echo "✅ Lightsail deployment finished!"
