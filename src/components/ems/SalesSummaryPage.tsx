@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowDown,
@@ -27,6 +27,8 @@ type SortColumn =
   | 'grossSales14Days' | 'ticketsSoldPrevious14Days' | 'grossUnsoldRevenue' | 'unsoldTickets';
 
 type SortState = { col: SortColumn; dir: 'asc' | 'desc' };
+const SALES_SUMMARY_SORT_STATE_STORAGE_KEY = 'iae-sales-summary-sort-state-v1';
+const EMS_SAVED_VIEWS_ENABLED_KEY = 'iae-ems-saved-views-enabled-v1';
 type Snapshot = { tickets: number; revenue: number };
 type LedgerRow = Snapshot & { salesDate: string };
 type Ledger = Map<number, LedgerRow[]>;
@@ -38,6 +40,54 @@ type Metrics = {
 type SummaryRow = { row: ApiPerformanceSalesRow; metrics: Metrics };
 
 type RowWithMarket = ApiPerformanceSalesRow & { dmaMarketName?: string | null };
+function loadSalesSummarySortState(): SortState {
+  if (typeof window === 'undefined') return { col: 'eventDate', dir: 'asc' };
+  try {
+    if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') {
+      return { col: 'eventDate', dir: 'asc' };
+    }
+    const raw = localStorage.getItem(SALES_SUMMARY_SORT_STATE_STORAGE_KEY);
+    if (!raw) return { col: 'eventDate', dir: 'asc' };
+    const parsed = JSON.parse(raw) as { col?: unknown; dir?: unknown };
+    const validCols = new Set<SortColumn>([
+      'attraction',
+      'eventDate',
+      'venue',
+      'sellableCapacity',
+      'grossPotential',
+      'grossSalesToDate',
+      'totalSold',
+      'venueCapacitySoldPct',
+      'grossPotentialSoldPct',
+      'yesterdayRevenue',
+      'ticketsSoldYesterday',
+      'grossSales7Days',
+      'ticketsSoldPrevious7Days',
+      'grossSales14Days',
+      'ticketsSoldPrevious14Days',
+      'grossUnsoldRevenue',
+      'unsoldTickets',
+    ]);
+    const col =
+      typeof parsed.col === 'string' && validCols.has(parsed.col as SortColumn)
+        ? (parsed.col as SortColumn)
+        : 'eventDate';
+    const dir = parsed.dir === 'desc' ? 'desc' : 'asc';
+    return { col, dir };
+  } catch {
+    return { col: 'eventDate', dir: 'asc' };
+  }
+}
+
+function saveSalesSummarySortState(state: SortState) {
+  try {
+    if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') return;
+    localStorage.setItem(SALES_SUMMARY_SORT_STATE_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    /* ignore */
+  }
+}
+
 const num = (v: number | null | undefined) => (v != null && Number.isFinite(v) ? v : null);
 const rowMarketName = (r: ApiPerformanceSalesRow) => (r as RowWithMarket).dmaMarketName ?? r.city ?? null;
 const pct = (a: number | null | undefined, b: number | null | undefined) => {
@@ -146,10 +196,13 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   const today = ymd(); const defaultStart = today; const defaultEnd = ymdAddMonths(today, 4);
   const [startDate, setStartDate] = useState(defaultStart), [endDate, setEndDate] = useState(defaultEnd);
   const [attractionFilter, setAttractionFilter] = useState(''), [genreFilter, setGenreFilter] = useState(''), [tourFilter, setTourFilter] = useState(''), [companyFilter, setCompanyFilter] = useState(''), [venueFilter, setVenueFilter] = useState(''), [contactFilter, setContactFilter] = useState(''), [searchInput, setSearchInput] = useState('');
-  const [sort, setSort] = useState<SortState>({ col: 'eventDate', dir: 'asc' });
+  const [sort, setSort] = useState<SortState>(loadSalesSummarySortState);
   const iso = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s.trim()); const rangeOk = iso(startDate) && iso(endDate) && startDate <= endDate; const reportAsOfDate = rangeOk ? startDate : today;
   const activeFilterCount = [attractionFilter, genreFilter, tourFilter, companyFilter, venueFilter, contactFilter].filter(Boolean).length;
   const reset = () => { setAttractionFilter(''); setGenreFilter(''); setTourFilter(''); setCompanyFilter(''); setVenueFilter(''); setContactFilter(''); setSearchInput(''); setStartDate(defaultStart); setEndDate(defaultEnd); };
+  useEffect(() => {
+    saveSalesSummarySortState(sort);
+  }, [sort]);
 
   const query = useQuery({ queryKey: ['sales-summary', reportAsOfDate, startDate, endDate, attractionFilter, genreFilter, tourFilter, companyFilter, venueFilter, contactFilter], queryFn: () => fetchDailySalesByPerformance(reportAsOfDate, { page: 1, pageSize: 1000, startDate: rangeOk ? startDate : undefined, endDate: rangeOk ? endDate : undefined, attraction: attractionFilter || undefined, genre: genreFilter || undefined, tour: tourFilter || undefined, company: companyFilter || undefined, venue: venueFilter || undefined, contact: contactFilter || undefined }), staleTime: 2 * 60 * 1000, placeholderData: (prev) => prev, enabled: rangeOk });
   const ledgerQuery = useQuery({ queryKey: ['sales-summary-daily-sales-ledger'], queryFn: () => fetchDailySales(), staleTime: 2 * 60 * 1000, placeholderData: (prev) => prev });

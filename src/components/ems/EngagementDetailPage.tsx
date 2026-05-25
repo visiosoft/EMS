@@ -18,6 +18,8 @@ import {
   CalendarDays,
   MapPin,
   Tag,
+  Plus,
+  Trash2,
 } from 'lucide-react';
 import { Modal, FormField, TabBar } from './Primitives';
 import { Select2, type Select2Option } from './Select2';
@@ -109,6 +111,7 @@ const TICKETING_STATUS_OPTIONS = [
 ];
 const SETTLEMENT_STATUS_OPTIONS = [
   { value: 'Settled', label: 'Settled' },
+  { value: 'Pre-Settled', label: 'Pre-Settled' },
   { value: 'Open', label: 'Open' },
 ];
 
@@ -147,6 +150,13 @@ function normalizePerformanceTimeInput(value: string): string {
   }
   return value.trim();
 }
+
+type PerformanceDraftRow = {
+  id: string;
+  performanceDate: string;
+  performanceTime: string;
+  performanceStatus: string;
+};
 
 const inputCls =
   'w-full bg-surface border border-border rounded-md px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-ems-accent focus:ring-1 focus:ring-ems-accent/20 placeholder:text-text-muted disabled:opacity-60 disabled:cursor-not-allowed transition-colors';
@@ -190,10 +200,12 @@ function VenuesTab({
   engagementId,
   addToast,
   onNavigate,
+  onDirtyChange,
 }: {
   engagementId: number;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
   onNavigate: (view: string, data?: Record<string, unknown>) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
@@ -234,6 +246,11 @@ function VenuesTab({
   });
 
   const venues = venuesQuery.data ?? [];
+  const venuesTabDirty = showAdd && selectedVenueId.trim() !== '';
+  useEffect(() => {
+    onDirtyChange?.(venuesTabDirty);
+    return () => onDirtyChange?.(false);
+  }, [onDirtyChange, venuesTabDirty]);
 
   const availableVenueOptions = useMemo(() => {
     const existingIds = new Set(venues.map((v) => v.venueCompanyId));
@@ -448,9 +465,11 @@ function VenuesTab({
 function ServiceProvidersTab({
   engagementId,
   addToast,
+  onDirtyChange,
 }: {
   engagementId: number;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
@@ -493,6 +512,11 @@ function ServiceProvidersTab({
 
   const providers: ApiEngagementServiceProviderRow[] =
     (providersQuery.data as ApiEngagementServiceProvidersResponse | undefined)?.providers ?? [];
+  const serviceProvidersTabDirty = showAdd && selectedCompanyId.trim() !== '';
+  useEffect(() => {
+    onDirtyChange?.(serviceProvidersTabDirty);
+    return () => onDirtyChange?.(false);
+  }, [onDirtyChange, serviceProvidersTabDirty]);
 
   const availableCompanyOptions = useMemo(() => {
     const existingIds = new Set(providers.map((p) => p.providerCompanyId));
@@ -713,11 +737,13 @@ function EngagementProductionPanel({
   venueCompanyId,
   venueLabel,
   addToast,
+  onDirtyChange,
 }: {
   engagementId: number;
   venueCompanyId: number | null;
   venueLabel: string | null;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const qc = useQueryClient();
   const [stagehandProviderId, setStagehandProviderId] = useState('');
@@ -819,6 +845,10 @@ function EngagementProductionPanel({
   const currentStagehandValue =
     currentStagehandProviderId == null ? '' : String(currentStagehandProviderId);
   const stagehandDirty = stagehandProviderId !== currentStagehandValue;
+  useEffect(() => {
+    onDirtyChange?.(stagehandDirty);
+    return () => onDirtyChange?.(false);
+  }, [onDirtyChange, stagehandDirty]);
   const stagehandSaveDisabled =
     !stagehandDirty ||
     loading ||
@@ -1028,11 +1058,13 @@ function EngagementTaxationPanel({
   venueCompanyId,
   venueLabel,
   addToast,
+  onDirtyChange,
 }: {
   engagementId: number;
   venueCompanyId: number | null;
   venueLabel: string | null;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const qc = useQueryClient();
   const [withholdingFk, setWithholdingFk] = useState('');
@@ -1224,6 +1256,11 @@ function EngagementTaxationPanel({
     artistWaiverLink,
     selectedWithholding,
   ]);
+
+  useEffect(() => {
+    onDirtyChange?.(taxationDirty);
+    return () => onDirtyChange?.(false);
+  }, [onDirtyChange, taxationDirty]);
 
   const handleSave = () => {
     const financeBody = buildTaxationBody();
@@ -1862,12 +1899,14 @@ function EngagementMainInformationPanel({
   lookups,
   lookupsLoading,
   addToast,
+  onDirtyChange,
 }: {
   engagementId: number;
   row: ApiEngagementListRow;
   lookups: EngagementDetailLookups | undefined;
   lookupsLoading: boolean;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const qc = useQueryClient();
   const [attractionId, setAttractionId] = useState('');
@@ -2349,6 +2388,11 @@ function EngagementMainInformationPanel({
     () => JSON.stringify(currentSnapshot) !== JSON.stringify(baseSnapshot),
     [baseSnapshot, currentSnapshot],
   );
+
+  useEffect(() => {
+    onDirtyChange?.(mainInfoDirty);
+    return () => onDirtyChange?.(false);
+  }, [mainInfoDirty, onDirtyChange]);
 
   const loading =
     lookupsLoading ||
@@ -2932,9 +2976,11 @@ function EngagementMainInformationPanel({
 function EngagementArtistTermsPanel({
   engagementId,
   addToast,
+  onDirtyChange,
 }: {
   engagementId: number;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const qc = useQueryClient();
   const financeQuery = useQuery({
@@ -3051,6 +3097,11 @@ function EngagementArtistTermsPanel({
     finalOfferLink,
     settlementFileLink,
   ]);
+
+  useEffect(() => {
+    onDirtyChange?.(artistTermsDirty);
+    return () => onDirtyChange?.(false);
+  }, [artistTermsDirty, onDirtyChange]);
 
   const disabled = saveMut.isPending;
   const saveDisabled = disabled || !artistTermsDirty;
@@ -3229,9 +3280,11 @@ function EngagementArtistTermsPanel({
 function EngagementEventBusinessPanel({
   engagementId,
   addToast,
+  onDirtyChange,
 }: {
   engagementId: number;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const qc = useQueryClient();
   const financeQuery = useQuery({
@@ -3445,6 +3498,11 @@ function EngagementEventBusinessPanel({
     amountDueToDeptOfRevenue,
     checkNumberOrConfOfWithholdingPayment,
   ]);
+
+  useEffect(() => {
+    onDirtyChange?.(eventBusinessDirty);
+    return () => onDirtyChange?.(false);
+  }, [eventBusinessDirty, onDirtyChange]);
 
   const disabled = saveMut.isPending;
   const saveDisabled = disabled || !eventBusinessDirty;
@@ -3671,9 +3729,11 @@ function EngagementEventBusinessPanel({
 function EngagementMarketingPanel({
   engagementId,
   addToast,
+  onDirtyChange,
 }: {
   engagementId: number;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const qc = useQueryClient();
   const performancesQuery = useQuery({
@@ -3873,6 +3933,11 @@ function EngagementMarketingPanel({
     totalTickets,
     totalAdmissions,
   ]);
+
+  useEffect(() => {
+    onDirtyChange?.(marketingFormDirty);
+    return () => onDirtyChange?.(false);
+  }, [marketingFormDirty, onDirtyChange]);
 
   const saveDisabled = saveMut.isPending || ticketingQuery.isLoading;
   const marketingSaveDisabled = saveDisabled || !marketingFormDirty;
@@ -4155,9 +4220,11 @@ function EngagementMarketingPanel({
 function EngagementTicketingPanel({
   engagementId,
   addToast,
+  onDirtyChange,
 }: {
   engagementId: number;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const qc = useQueryClient();
   const detailQuery = useQuery({
@@ -4247,6 +4314,11 @@ function EngagementTicketingPanel({
     ticketingQuery.data,
     vipPackagedOffer,
   ]);
+
+  useEffect(() => {
+    onDirtyChange?.(ticketingDirty);
+    return () => onDirtyChange?.(false);
+  }, [onDirtyChange, ticketingDirty]);
 
   const saveMut = useMutation({
     mutationFn: async () => {
@@ -4426,10 +4498,12 @@ function EngagementOverviewIaeStaffSection({
   engagementId,
   enabled,
   addToast,
+  onDirtyChange,
 }: {
   engagementId: number;
   enabled: boolean;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const qc = useQueryClient();
   const lookupsQuery = useQuery({
@@ -4603,6 +4677,12 @@ function EngagementOverviewIaeStaffSection({
       bodyNotes !== rowNotes
     );
   }, [editRow, edContactId, edRoleId, edDeptId, edNotes, edPrimary]);
+
+  const overviewIaeStaffDirty = addFormDirty || editModalDirty;
+  useEffect(() => {
+    onDirtyChange?.(enabled ? overviewIaeStaffDirty : false);
+    return () => onDirtyChange?.(false);
+  }, [enabled, onDirtyChange, overviewIaeStaffDirty]);
 
   if (!enabled) return null;
 
@@ -4944,9 +5024,11 @@ function EngagementOverviewIaeStaffSection({
 function EngagementFinancePanel({
   engagementId,
   addToast,
+  onDirtyChange,
 }: {
   engagementId: number;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const qc = useQueryClient();
   const [estimatedBreakeven, setEstimatedBreakeven] = useState('');
@@ -5174,6 +5256,11 @@ function EngagementFinancePanel({
     artistFinanceFk,
     settlementFinanceFk,
   ]);
+
+  useEffect(() => {
+    onDirtyChange?.(financeFormDirty);
+    return () => onDirtyChange?.(false);
+  }, [financeFormDirty, onDirtyChange]);
 
   if (financeQuery.isLoading && !financeQuery.data) {
     return (
@@ -5419,6 +5506,9 @@ export function EngagementDetailPage({
 }: Props) {
   const qc = useQueryClient();
   const [tab, setTab] = useState('Overview');
+  const [tabDirtyState, setTabDirtyState] = useState<Record<string, boolean>>({});
+  const [pendingTab, setPendingTab] = useState<string | null>(null);
+  const [showUnsavedTabAlert, setShowUnsavedTabAlert] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(false);
   const [sellableCapacityInput, setSellableCapacityInput] = useState('');
@@ -5435,6 +5525,9 @@ export function EngagementDetailPage({
 
   useEffect(() => {
     setTab('Overview');
+    setTabDirtyState({});
+    setPendingTab(null);
+    setShowUnsavedTabAlert(false);
   }, [engagementId]);
 
   const lookupsQuery = useQuery({
@@ -5642,53 +5735,200 @@ export function EngagementDetailPage({
   const canDeleteIndividualShow = performanceCount > 1;
 
   const [showAddPerformance, setShowAddPerformance] = useState(false);
-  const [pfDate, setPfDate] = useState('');
-  const [pfTime, setPfTime] = useState('20:00');
-  const [pfStatus, setPfStatus] = useState('Public');
-  const [pfErrors, setPfErrors] = useState<{ date?: string; time?: string }>({});
-
-  const createPerformanceMut = useMutation({
-    mutationFn: (body: { performanceDate: string; performanceTime: string; performanceStatus: string }) =>
-      createEngagementPerformance(engagementId, body),
-    onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performances'] });
-      addToast('Show date saved.', 'success');
-      setShowAddPerformance(false);
-      setPfDate('');
-      setPfTime('20:00');
-      setPfStatus('Public');
-      setPfErrors({});
-    },
-    onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
+  const pfRowIdRef = useRef(0);
+  const makePerformanceDraftRow = (): PerformanceDraftRow => ({
+    id: `pf-${Date.now()}-${pfRowIdRef.current++}`,
+    performanceDate: '',
+    performanceTime: '20:00',
+    performanceStatus: 'Public',
   });
+  const [pfRows, setPfRows] = useState<PerformanceDraftRow[]>([
+    makePerformanceDraftRow(),
+  ]);
+  const [pfErrors, setPfErrors] = useState<
+    Record<string, { date?: string; time?: string; duplicate?: string }>
+  >({});
+  const setTabDirty = (tabName: string, dirty: boolean) => {
+    setTabDirtyState((prev) => {
+      if ((prev[tabName] ?? false) === dirty) return prev;
+      return { ...prev, [tabName]: dirty };
+    });
+  };
+  const performancesDraftDirty = useMemo(
+    () =>
+      showAddPerformance &&
+      pfRows.some(
+        (rowDraft) =>
+          rowDraft.performanceDate.trim() !== '' ||
+          rowDraft.performanceTime.trim() !== '20:00' ||
+          (rowDraft.performanceStatus || '').trim() !== 'Public',
+      ),
+    [pfRows, showAddPerformance],
+  );
+  const overviewDirty =
+    canSaveCapacityFields || canSaveProductionDates || (tabDirtyState.Overview ?? false);
+  const currentTabHasUnsavedChanges =
+    tab === 'Overview'
+      ? overviewDirty
+      : tab === 'Performances'
+        ? performancesDraftDirty
+        : (tabDirtyState[tab] ?? false);
 
-  const handleAddPerformance = () => {
-    const errs: { date?: string; time?: string } = {};
-    if (!pfDate.trim()) errs.date = 'Date is required.';
-    if (!pfTime.trim()) errs.time = 'Show time is required.';
-    if (Object.keys(errs).length) {
-      setPfErrors(errs);
+  const handleTabChange = (nextTab: string) => {
+    if (nextTab === tab) return;
+    if (currentTabHasUnsavedChanges) {
+      setPendingTab(nextTab);
+      setShowUnsavedTabAlert(true);
       return;
     }
-    const normalizedNewTime = normalizePerformanceTimeInput(pfTime);
-    const duplicate = (performancesQuery.data ?? []).some(
-      (p) =>
-        p.performanceDate === pfDate &&
-        normalizePerformanceTimeInput(p.performanceTime) === normalizedNewTime,
-    );
-    if (duplicate) {
+    setTab(nextTab);
+  };
+
+  const createPerformanceMut = useMutation({
+    mutationFn: async (rows: PerformanceDraftRow[]) => {
+      let createdCount = 0;
+      for (const rowDraft of rows) {
+        try {
+          await createEngagementPerformance(engagementId, {
+            performanceDate: rowDraft.performanceDate,
+            performanceTime: rowDraft.performanceTime,
+            performanceStatus: rowDraft.performanceStatus || 'Public',
+          });
+          createdCount += 1;
+        } catch (cause) {
+          const err = new Error('Failed to create all show dates.');
+          (err as Error & { createdCount?: number; cause?: unknown }).createdCount =
+            createdCount;
+          (err as Error & { createdCount?: number; cause?: unknown }).cause = cause;
+          throw err;
+        }
+      }
+      return createdCount;
+    },
+    onSuccess: async (createdCount) => {
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performances'] });
       addToast(
-        'A show already exists for this engagement at the exact same date and time.',
+        `${createdCount} show date${createdCount === 1 ? '' : 's'} saved.`,
+        'success',
+      );
+      setShowAddPerformance(false);
+      setPfRows([makePerformanceDraftRow()]);
+      setPfErrors({});
+    },
+    onError: (e: unknown) => {
+      const wrapped = e as { createdCount?: number; cause?: unknown };
+      if (wrapped.createdCount && wrapped.createdCount > 0) {
+        addToast(
+          `${wrapped.createdCount} show date${wrapped.createdCount === 1 ? '' : 's'} saved before the error.`,
+          'warning',
+        );
+      }
+      addToast(friendlyApiError(wrapped.cause ?? e), 'error');
+    },
+  });
+
+  const resetAddPerformanceDraftRows = () => {
+    setPfRows([makePerformanceDraftRow()]);
+    setPfErrors({});
+  };
+
+  const updatePerformanceDraftRow = (
+    id: string,
+    patch: Partial<Pick<PerformanceDraftRow, 'performanceDate' | 'performanceTime' | 'performanceStatus'>>,
+  ) => {
+    setPfRows((prev) =>
+      prev.map((rowDraft) =>
+        rowDraft.id === id ? { ...rowDraft, ...patch } : rowDraft,
+      ),
+    );
+    setPfErrors((prev) => {
+      if (!prev[id]) return prev;
+      const next = { ...prev };
+      const rowErr = { ...next[id] };
+      if (patch.performanceDate !== undefined) rowErr.date = undefined;
+      if (patch.performanceTime !== undefined) rowErr.time = undefined;
+      if (
+        patch.performanceDate !== undefined ||
+        patch.performanceTime !== undefined
+      ) {
+        rowErr.duplicate = undefined;
+      }
+      next[id] = rowErr;
+      if (!next[id].date && !next[id].time && !next[id].duplicate) {
+        delete next[id];
+      }
+      return next;
+    });
+  };
+
+  const addPerformanceDraftRow = () => {
+    setPfRows((prev) => [...prev, makePerformanceDraftRow()]);
+  };
+
+  const removePerformanceDraftRow = (id: string) => {
+    setPfRows((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((rowDraft) => rowDraft.id !== id);
+    });
+    setPfErrors((prev) => {
+      if (!prev[id]) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  };
+
+  const handleAddPerformance = () => {
+    if (pfRows.length === 0) {
+      addToast('Add at least one performance row.', 'warning');
+      return;
+    }
+
+    const nextErrors: Record<
+      string,
+      { date?: string; time?: string; duplicate?: string }
+    > = {};
+    const existingKeys = new Set(
+      (performancesQuery.data ?? []).map(
+        (p) =>
+          `${p.performanceDate}|${normalizePerformanceTimeInput(p.performanceTime)}`,
+      ),
+    );
+    const draftKeys = new Set<string>();
+
+    for (const rowDraft of pfRows) {
+      const errs: { date?: string; time?: string; duplicate?: string } = {};
+      const date = rowDraft.performanceDate.trim();
+      const time = rowDraft.performanceTime.trim();
+      if (!date) errs.date = 'Date is required.';
+      if (!time) errs.time = 'Show time is required.';
+
+      if (!errs.date && !errs.time) {
+        const key = `${date}|${normalizePerformanceTimeInput(time)}`;
+        if (existingKeys.has(key) || draftKeys.has(key)) {
+          errs.duplicate =
+            'Another performance already uses this exact date and time.';
+        } else {
+          draftKeys.add(key);
+        }
+      }
+
+      if (errs.date || errs.time || errs.duplicate) {
+        nextErrors[rowDraft.id] = errs;
+      }
+    }
+
+    if (Object.keys(nextErrors).length > 0) {
+      setPfErrors(nextErrors);
+      addToast(
+        'Please fix the highlighted performance rows before saving.',
         'warning',
       );
       return;
     }
+
     setPfErrors({});
-    createPerformanceMut.mutate({
-      performanceDate: pfDate,
-      performanceTime: pfTime,
-      performanceStatus: pfStatus || 'Public',
-    });
+    createPerformanceMut.mutate(pfRows);
   };
 
   // ── Loading / Error states ──────────────────────────────────────────────
@@ -5889,7 +6129,7 @@ export function EngagementDetailPage({
           'Finance',
         ]}
         active={tab}
-        onChange={setTab}
+        onChange={handleTabChange}
       />
 
       {/* ── Overview ─────────────────────────────────────────────────────── */}
@@ -6020,6 +6260,7 @@ export function EngagementDetailPage({
             engagementId={engagementId}
             enabled={tab === 'Overview'}
             addToast={addToast}
+            onDirtyChange={(dirty) => setTabDirty('Overview', dirty)}
           />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-sm">
@@ -6053,20 +6294,30 @@ export function EngagementDetailPage({
           lookups={lookupsQuery.data}
           lookupsLoading={lookupsQuery.isPending}
           addToast={addToast}
+          onDirtyChange={(dirty) => setTabDirty('Main Information', dirty)}
         />
       )}
 
       {/* ── Venues ───────────────────────────────────────────────────────── */}
       {tab === 'Venues' && (
         <div className="bg-card border border-border rounded-lg p-5">
-          <VenuesTab engagementId={engagementId} addToast={addToast} onNavigate={onNavigate} />
+          <VenuesTab
+            engagementId={engagementId}
+            addToast={addToast}
+            onNavigate={onNavigate}
+            onDirtyChange={(dirty) => setTabDirty('Venues', dirty)}
+          />
         </div>
       )}
 
       {/* ── Service Providers ────────────────────────────────────────────── */}
       {tab === 'Service Providers' && (
         <div className="bg-card border border-border rounded-lg p-5">
-          <ServiceProvidersTab engagementId={engagementId} addToast={addToast} />
+          <ServiceProvidersTab
+            engagementId={engagementId}
+            addToast={addToast}
+            onDirtyChange={(dirty) => setTabDirty('Service Providers', dirty)}
+          />
         </div>
       )}
 
@@ -6131,7 +6382,10 @@ export function EngagementDetailPage({
             </div>
             <button
               type="button"
-              onClick={() => { setShowAddPerformance(true); setPfErrors({}); }}
+              onClick={() => {
+                resetAddPerformanceDraftRows();
+                setShowAddPerformance(true);
+              }}
               className="inline-flex items-center justify-center shrink-0 bg-ems-accent text-background text-sm px-4 py-2 rounded-md font-medium hover:bg-ems-accent/90 transition-colors"
             >
               + Add date
@@ -6186,7 +6440,11 @@ export function EngagementDetailPage({
 
       {/* ── Marketing (dbo.PerformanceTicketing) ─────────────────────────── */}
       {tab === 'Marketing' && (
-        <EngagementMarketingPanel engagementId={engagementId} addToast={addToast} />
+        <EngagementMarketingPanel
+          engagementId={engagementId}
+          addToast={addToast}
+          onDirtyChange={(dirty) => setTabDirty('Marketing', dirty)}
+        />
       )}
 
       {/* ── Production (venue-backed) ────────────────────────────────────── */}
@@ -6196,6 +6454,7 @@ export function EngagementDetailPage({
           venueCompanyId={row.primaryVenueCompanyId}
           venueLabel={row.venueCompanyName ?? row.venueName}
           addToast={addToast}
+          onDirtyChange={(dirty) => setTabDirty('Production', dirty)}
         />
       )}
 
@@ -6206,21 +6465,34 @@ export function EngagementDetailPage({
           venueCompanyId={row.primaryVenueCompanyId}
           venueLabel={row.venueCompanyName ?? row.venueName}
           addToast={addToast}
+          onDirtyChange={(dirty) => setTabDirty('Taxation', dirty)}
         />
       )}
 
       {/* ── Ticketing (Engagement + PerformanceTicketing) ───────────────── */}
       {tab === 'Ticketing' && (
-        <EngagementTicketingPanel engagementId={engagementId} addToast={addToast} />
+        <EngagementTicketingPanel
+          engagementId={engagementId}
+          addToast={addToast}
+          onDirtyChange={(dirty) => setTabDirty('Ticketing', dirty)}
+        />
       )}
 
       {/* ── Artist terms (dbo.ArtistFinance + links on EngagementFinances) ─ */}
       {tab === 'Artist terms' && (
-        <EngagementArtistTermsPanel engagementId={engagementId} addToast={addToast} />
+        <EngagementArtistTermsPanel
+          engagementId={engagementId}
+          addToast={addToast}
+          onDirtyChange={(dirty) => setTabDirty('Artist terms', dirty)}
+        />
       )}
 
       {tab === 'Event business' && (
-        <EngagementEventBusinessPanel engagementId={engagementId} addToast={addToast} />
+        <EngagementEventBusinessPanel
+          engagementId={engagementId}
+          addToast={addToast}
+          onDirtyChange={(dirty) => setTabDirty('Event business', dirty)}
+        />
       )}
 
       {/* ── Finance & logistics ─────────────────────────────────────────── */}
@@ -6229,63 +6501,193 @@ export function EngagementDetailPage({
           key={engagementId}
           engagementId={engagementId}
           addToast={addToast}
+          onDirtyChange={(dirty) => setTabDirty('Finance', dirty)}
         />
       )}
+
+      <AlertDialog
+        open={showUnsavedTabAlert}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowUnsavedTabAlert(false);
+            setPendingTab(null);
+          }
+        }}
+      >
+        <AlertDialogContent className="z-[340] border-border bg-card text-text-primary shadow-xl sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-text-primary font-semibold text-lg">
+              Discard unsaved changes?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-text-secondary text-sm leading-relaxed">
+              You have unsaved changes in this tab. If you switch tabs now, those changes will be discarded.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:gap-2">
+            <AlertDialogCancel
+              className="border-border bg-elevated text-text-primary hover:bg-hover mt-0"
+              onClick={() => {
+                setShowUnsavedTabAlert(false);
+                setPendingTab(null);
+              }}
+            >
+              Stay on this tab
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              variant="destructive"
+              className="bg-ems-coral text-white hover:bg-ems-coral/90 sm:ml-0"
+              onClick={() => {
+                if (tab === 'Overview' && row) {
+                  setSellableCapacityInput(
+                    row.sellableCapacity == null ? '' : String(row.sellableCapacity),
+                  );
+                  setGrossPotentialInput(
+                    row.grossPotential == null ? '' : String(row.grossPotential),
+                  );
+                  setRehearsalDateInput(row.rehearsalDate ?? '');
+                  setLoadInDateInput(row.loadInDate ?? '');
+                }
+                if (tab === 'Performances') {
+                  setShowAddPerformance(false);
+                  resetAddPerformanceDraftRows();
+                }
+                setTabDirty(tab, false);
+                if (pendingTab) {
+                  setTab(pendingTab);
+                }
+                setShowUnsavedTabAlert(false);
+                setPendingTab(null);
+              }}
+            >
+              Discard and switch
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* ── Add performance modal ─────────────────────────────────────────── */}
       {showAddPerformance && (
         <Modal
-          title="Add show date"
-          onClose={() => !createPerformanceMut.isPending && setShowAddPerformance(false)}
-          width={520}
+          title="Add show dates"
+          onClose={() => {
+            if (createPerformanceMut.isPending) return;
+            setShowAddPerformance(false);
+            resetAddPerformanceDraftRows();
+          }}
+          width={900}
           allowContentOverflow
         >
-          <div className="space-y-0">
-            {/* Row 1: Date + Show Time */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4 pb-5">
-              <FormField label="Show date" required>
-                <input
-                  type="date"
-                  className={inputCls}
-                  value={pfDate}
-                  onChange={(e) => { setPfDate(e.target.value); setPfErrors((p) => ({ ...p, date: undefined })); }}
-                />
-                {pfErrors.date && (
-                  <p className="mt-1 text-xs text-ems-coral">{pfErrors.date}</p>
-                )}
-              </FormField>
+          <div className="space-y-4">
+            <p className="text-xs text-text-muted">
+              Add one or more performances. Each row must have a unique date and time.
+            </p>
 
-              <FormField label="Show / curtain time" required>
-                <input
-                  type="time"
-                  className={inputCls}
-                  value={pfTime}
-                  onChange={(e) => { setPfTime(e.target.value); setPfErrors((p) => ({ ...p, time: undefined })); }}
-                />
-                {pfErrors.time && (
-                  <p className="mt-1 text-xs text-ems-coral">{pfErrors.time}</p>
-                )}
-              </FormField>
+            <div className="space-y-3 max-h-[55vh] overflow-auto pr-1">
+              {pfRows.map((rowDraft, idx) => {
+                const rowErr = pfErrors[rowDraft.id] ?? {};
+                return (
+                  <div
+                    key={rowDraft.id}
+                    className="rounded-lg border border-border bg-surface/60 p-3 sm:p-4"
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-3">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+                        Performance {idx + 1}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removePerformanceDraftRow(rowDraft.id)}
+                        disabled={createPerformanceMut.isPending || pfRows.length <= 1}
+                        className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md border border-border text-text-secondary hover:text-ems-coral hover:border-ems-coral/40 hover:bg-ems-coral-dim disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        title={
+                          pfRows.length <= 1
+                            ? 'At least one performance row is required.'
+                            : 'Remove this row'
+                        }
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Remove
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <FormField label="Show date" required>
+                        <input
+                          type="date"
+                          className={inputCls}
+                          value={rowDraft.performanceDate}
+                          onChange={(e) =>
+                            updatePerformanceDraftRow(rowDraft.id, {
+                              performanceDate: e.target.value,
+                            })
+                          }
+                          disabled={createPerformanceMut.isPending}
+                        />
+                        {rowErr.date && (
+                          <p className="mt-1 text-xs text-ems-coral">{rowErr.date}</p>
+                        )}
+                      </FormField>
+
+                      <FormField label="Show / curtain time" required>
+                        <input
+                          type="time"
+                          className={inputCls}
+                          value={rowDraft.performanceTime}
+                          onChange={(e) =>
+                            updatePerformanceDraftRow(rowDraft.id, {
+                              performanceTime: e.target.value,
+                            })
+                          }
+                          disabled={createPerformanceMut.isPending}
+                        />
+                        {rowErr.time && (
+                          <p className="mt-1 text-xs text-ems-coral">{rowErr.time}</p>
+                        )}
+                      </FormField>
+
+                      <FormField label="Status">
+                        <Select2
+                          options={PERFORMANCE_STATUS_OPTIONS}
+                          value={rowDraft.performanceStatus}
+                          onChange={(value) =>
+                            updatePerformanceDraftRow(rowDraft.id, {
+                              performanceStatus: value,
+                            })
+                          }
+                          placeholder="Select status…"
+                          disabled={createPerformanceMut.isPending}
+                        />
+                      </FormField>
+                    </div>
+
+                    {rowErr.duplicate && (
+                      <p className="mt-2 text-xs text-ems-coral">{rowErr.duplicate}</p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
-            <div className="border-t border-border/60 pb-5" />
-
-            {/* Row 2: Status */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4 pb-5">
-              <FormField label="Status">
-                <Select2
-                  options={PERFORMANCE_STATUS_OPTIONS}
-                  value={pfStatus}
-                  onChange={setPfStatus}
-                  placeholder="Select status…"
-                />
-              </FormField>
+            <div className="flex items-center justify-start">
+              <button
+                type="button"
+                onClick={addPerformanceDraftRow}
+                disabled={createPerformanceMut.isPending}
+                className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border border-border text-text-primary bg-elevated hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <Plus className="h-4 w-4" />
+                Add another row
+              </button>
             </div>
 
             <div className="flex gap-2 justify-end pt-4 border-t border-border">
               <button
                 type="button"
-                onClick={() => setShowAddPerformance(false)}
+                onClick={() => {
+                  setShowAddPerformance(false);
+                  resetAddPerformanceDraftRows();
+                }}
                 disabled={createPerformanceMut.isPending}
                 className="text-text-secondary text-sm px-4 py-2 rounded-md hover:text-text-primary hover:bg-hover disabled:opacity-50 transition-colors"
               >
@@ -6303,7 +6705,7 @@ export function EngagementDetailPage({
                     Saving…
                   </>
                 ) : (
-                  'Add date'
+                  'Save performances'
                 )}
               </button>
             </div>

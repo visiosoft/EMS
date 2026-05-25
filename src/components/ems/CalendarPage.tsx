@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, Loader2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Loader2, RotateCcw } from 'lucide-react';
 import { StatusBadge } from './Primitives';
 import {
   fetchPerformances,
@@ -25,6 +25,8 @@ interface Props {
   onNavigate: (view: string, data?: Record<string, unknown>) => void;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 }
+const CALENDAR_LIST_SORT_STATE_STORAGE_KEY = 'iae-calendar-list-sort-state-v1';
+const EMS_SAVED_VIEWS_ENABLED_KEY = 'iae-ems-saved-views-enabled-v1';
 
 // ─── Status colour map ────────────────────────────────────────────────────────
 
@@ -151,7 +153,33 @@ export function CalendarPage({ onNavigate }: Props) {
   const [listSort, setListSort] = useState<{
     col: CalendarListSortCol;
     dir: 'asc' | 'desc';
-  }>({ col: 'date', dir: 'asc' });
+  }>(() => {
+    if (typeof window === 'undefined') return { col: 'date', dir: 'asc' };
+    try {
+      if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') {
+        return { col: 'date', dir: 'asc' };
+      }
+      const raw = localStorage.getItem(CALENDAR_LIST_SORT_STATE_STORAGE_KEY);
+      if (!raw) return { col: 'date', dir: 'asc' };
+      const parsed = JSON.parse(raw) as { col?: unknown; dir?: unknown };
+      const validCols = new Set<CalendarListSortCol>([
+        'date',
+        'attraction',
+        'tour',
+        'venue',
+        'city',
+        'status',
+      ]);
+      const col =
+        typeof parsed.col === 'string' && validCols.has(parsed.col as CalendarListSortCol)
+          ? (parsed.col as CalendarListSortCol)
+          : 'date';
+      const dir = parsed.dir === 'desc' ? 'desc' : 'asc';
+      return { col, dir };
+    } catch {
+      return { col: 'date', dir: 'asc' };
+    }
+  });
 
   const visibilityKey = useMemo(
     () => [...activeStatuses].sort().join(','),
@@ -226,6 +254,15 @@ export function CalendarPage({ onNavigate }: Props) {
   }, [listPageSize]);
 
   useEffect(() => {
+    try {
+      if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') return;
+      localStorage.setItem(CALENDAR_LIST_SORT_STATE_STORAGE_KEY, JSON.stringify(listSort));
+    } catch {
+      /* ignore */
+    }
+  }, [listSort]);
+
+  useEffect(() => {
     if (listPage > listPageCount) setListPage(listPageCount);
   }, [listPage, listPageCount]);
 
@@ -252,6 +289,14 @@ export function CalendarPage({ onNavigate }: Props) {
       else next.add(s);
       return next;
     });
+  };
+
+  const hasActiveStatusFilters =
+    activeStatuses.size !== ENGAGEMENT_VISIBILITY_STATUSES.length;
+
+  const resetStatusFilters = () => {
+    setActiveStatuses(new Set(ENGAGEMENT_VISIBILITY_STATUSES));
+    setSelectedDay(null);
   };
 
   const performances = gridQuery.data ?? [];
@@ -322,7 +367,18 @@ export function CalendarPage({ onNavigate }: Props) {
       </div>
 
       {/* Status filter pills */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {hasActiveStatusFilters ? (
+          <button
+            type="button"
+            onClick={resetStatusFilters}
+            className="inline-flex h-[30px] items-center justify-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary"
+            title="Reset status filters"
+          >
+            <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+            Reset
+          </button>
+        ) : null}
         {ENGAGEMENT_VISIBILITY_STATUSES.map((s) => {
           const cfg = cfgFor(s);
           const on = activeStatuses.has(s);

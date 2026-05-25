@@ -282,6 +282,24 @@ export class CompanyService {
     return [...new Set(cleaned)];
   }
 
+  private normalizeCompanyTypeIds(
+    companyTypeIds?: number[] | null,
+    legacyCompanyTypeId?: number | null,
+  ): number[] {
+    const list = Array.isArray(companyTypeIds) ? companyTypeIds : [];
+    const cleaned = list
+      .map((id) => Number(id))
+      .filter((id) => Number.isInteger(id) && id > 0);
+    if (
+      legacyCompanyTypeId != null &&
+      Number.isInteger(legacyCompanyTypeId) &&
+      legacyCompanyTypeId > 0
+    ) {
+      cleaned.push(Number(legacyCompanyTypeId));
+    }
+    return [...new Set(cleaned)];
+  }
+
   private async resolveCompanyTypeLinkTableName(
     em?: EntityManager,
   ): Promise<string | null> {
@@ -493,6 +511,16 @@ export class CompanyService {
       allTypes[0];
     const primaryTypeId = primary?.companyTypeId ?? company.companyTypeId;
     const primaryTypeName = primary?.companyTypeName ?? '';
+    const companyTypeIds = allTypes.length
+      ? allTypes.map((type) => type.companyTypeId)
+      : primaryTypeId > 0
+        ? [primaryTypeId]
+        : [];
+    const companyTypeNames = allTypes.length
+      ? allTypes.map((type) => type.companyTypeName)
+      : primaryTypeName
+        ? [primaryTypeName]
+        : [];
     const allMeta = allDmasMetaMap?.get(company.companyId);
     const allDmas = allMeta?.allDmas ?? false;
     const allDmasServiceProvidedId = allMeta?.allDmasServiceProvidedId ?? null;
@@ -507,8 +535,8 @@ export class CompanyService {
       companyName: company.companyName,
       companyTypeId: primaryTypeId,
       companyTypeName: primaryTypeName,
-      companyTypeIds: primaryTypeId > 0 ? [primaryTypeId] : [],
-      companyTypeNames: primaryTypeName ? [primaryTypeName] : [],
+      companyTypeIds,
+      companyTypeNames,
       serviceProvidedIds: allServices.map(
         (service) => service.serviceProvidedId,
       ),
@@ -1985,15 +2013,25 @@ export class CompanyService {
     const sortBy = (sortByRaw ?? '').trim().toLowerCase();
     const sortDir =
       (sortDirRaw ?? '').trim().toLowerCase() === 'desc' ? 'DESC' : 'ASC';
-    const tie = 'c.companyName ASC';
+    const addStableTieBreak = () =>
+      qb.addOrderBy('c.companyName', 'ASC').addOrderBy('c.companyId', 'ASC');
+
     if (sortBy === 'type') {
-      qb.orderBy('ct.companyTypeName', sortDir).addOrderBy(tie);
+      qb.addSelect('ISNULL(ct.companyTypeName, \'\')', 'sort_company_type');
+      qb.orderBy('sort_company_type', sortDir);
+      addStableTieBreak();
     } else if (sortBy === 'city') {
-      qb.orderBy('pa.city', sortDir).addOrderBy(tie);
+      qb.addSelect('ISNULL(pa.city, \'\')', 'sort_physical_city');
+      qb.orderBy('sort_physical_city', sortDir);
+      addStableTieBreak();
     } else if (sortBy === 'state' || sortBy === 'stateprovince') {
-      qb.orderBy('pa.stateProvince', sortDir).addOrderBy(tie);
+      qb.addSelect('ISNULL(pa.stateProvince, \'\')', 'sort_state_province');
+      qb.orderBy('sort_state_province', sortDir);
+      addStableTieBreak();
     } else if (sortBy === 'dma' || sortBy === 'market') {
-      qb.orderBy('d.marketName', sortDir).addOrderBy(tie);
+      qb.addSelect('ISNULL(d.marketName, \'\')', 'sort_dma_market');
+      qb.orderBy('sort_dma_market', sortDir);
+      addStableTieBreak();
     } else {
       qb.orderBy('c.companyName', sortDir).addOrderBy('c.companyId', 'ASC');
     }
@@ -2021,12 +2059,53 @@ export class CompanyService {
           )`,
         );
       } else {
-        qb.andWhere('ct.companyTypeName = :typeName', { typeName });
+        const linkTable = await this.resolveCompanyTypeLinkTableName();
+        if (linkTable) {
+          const safeTable = this.safeDbIdentifier(linkTable);
+          qb.andWhere(
+            `(
+              ct.companyTypeName = :typeName
+              OR EXISTS (
+                SELECT 1
+                FROM [dbo].${safeTable} ctm
+                INNER JOIN [dbo].[CompanyType] ctt
+                  ON ctt.CompanyTypeID = ctm.CompanyTypeID
+                WHERE ctm.CompanyID = c.CompanyID
+                  AND ctt.CompanyTypeName = :typeName
+              )
+            )`,
+            { typeName },
+          );
+        } else {
+          qb.andWhere('ct.companyTypeName = :typeName', { typeName });
+        }
       }
     }
 
-    const total = await qb.getCount();
-    const rows = await qb.skip(offset).take(limit).getMany();
+    let total = 0;
+    let rows: Company[] = [];
+    try {
+      total = await qb.getCount();
+      rows = await qb.skip(offset).take(limit).getMany();
+    } catch (error) {
+      const shouldFallbackToDefaultSort =
+        error instanceof QueryFailedError && sortBy.length > 0;
+      if (!shouldFallbackToDefaultSort) throw error;
+
+      this.logger.warn(
+        `Company list sort failed for sortBy="${sortBy}" sortDir="${sortDir}". Falling back to default sort. ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return this.findAllPaginated(
+        offset,
+        limit,
+        search,
+        companyType,
+        undefined,
+        undefined,
+      );
+    }
     const companyIds = rows.map((row) => row.companyId);
     const typeMap = await this.collectCompanyTypesByCompanyId(companyIds);
     const serviceMap = await this.collectCompanyServicesByCompanyId(companyIds);
@@ -2081,21 +2160,25 @@ export class CompanyService {
   }
 
   async create(dto: CreateCompanyDto): Promise<CompanyDetail> {
-    const companyTypeId = Number(dto.companyTypeId);
-    if (!Number.isInteger(companyTypeId) || companyTypeId < 1) {
+    const companyTypeIds = this.normalizeCompanyTypeIds(
+      dto.companyTypeIds,
+      dto.companyTypeId,
+    );
+    if (companyTypeIds.length === 0) {
       throw new BadRequestException({
-        message: 'Pick a company type.',
+        message: 'Pick at least one company type.',
       });
     }
-    const knownType = await this.companyTypeRepo.findOne({
-      where: { companyTypeId },
+    const knownTypes = await this.companyTypeRepo.find({
+      where: { companyTypeId: In(companyTypeIds) },
     });
-    if (!knownType) {
+    if (knownTypes.length !== companyTypeIds.length) {
       throw new BadRequestException({
         message:
           'Selected company type is not valid. Pick from the company type list.',
       });
     }
+    const primaryCompanyTypeId = companyTypeIds[0];
     const serviceProvidedIds = this.normalizeServiceProvidedIds(
       dto.serviceProvidedIds,
     );
@@ -2140,12 +2223,13 @@ export class CompanyService {
 
       const company = em.create(Company, {
         companyName: dto.companyName.trim(),
-        companyTypeId,
+        companyTypeId: primaryCompanyTypeId,
         physicalAddressId: savedPhysical.addressId,
         mailingAddressId: mailingId,
         dmaid: dmaId,
       });
       const row = await em.save(Company, company);
+      await this.syncCompanyTypes(em, row.companyId, companyTypeIds);
       await this.syncCompanyServices(em, row.companyId, serviceProvidedIds);
       await this.syncCompanyServiceAreas(em, row.companyId, {
         allDmas: (dto as any).allDmas,
@@ -2156,7 +2240,7 @@ export class CompanyService {
         em,
         row.companyId,
         row.companyName,
-        [companyTypeId],
+        companyTypeIds,
       );
       return row;
     });
@@ -2802,7 +2886,10 @@ export class CompanyService {
     });
     if (!existing)
       throw new NotFoundException(`Company ${companyId} not found`);
-    const existingCompanyTypeIds = [existing.companyTypeId];
+    const existingCompanyTypeIds = await this.loadEffectiveCompanyTypeIds(
+      companyId,
+      existing.companyTypeId,
+    );
 
     const oldPhysicalId = existing.physicalAddressId;
     const oldMailingId = existing.mailingAddressId;
@@ -2835,24 +2922,14 @@ export class CompanyService {
     if (dto.companyName !== undefined) {
       existing.companyName = dto.companyName.trim();
     }
-    const nextCompanyTypeId =
-      dto.companyTypeId != null &&
-      Number.isInteger(dto.companyTypeId) &&
-      dto.companyTypeId > 0
-        ? Number(dto.companyTypeId)
-        : existing.companyTypeId;
-    if (dto.companyTypeId != null) {
-      const knownType = await this.companyTypeRepo.findOne({
-        where: { companyTypeId: nextCompanyTypeId },
-      });
-      if (!knownType) {
-        throw new BadRequestException({
-          message:
-            'Selected company type is not valid. Pick from the company type list.',
-        });
-      }
-    }
-    const nextCompanyTypeIds = [nextCompanyTypeId];
+    const nextCompanyTypeIds =
+      dto.companyTypeIds !== undefined
+        ? this.normalizeCompanyTypeIds(dto.companyTypeIds, dto.companyTypeId)
+        : dto.companyTypeId != null
+          ? this.normalizeCompanyTypeIds([dto.companyTypeId], dto.companyTypeId)
+          : existingCompanyTypeIds;
+    const nextPrimaryCompanyTypeId =
+      nextCompanyTypeIds[0] ?? existing.companyTypeId;
     const hadVenueTypeBefore = await this.typeIdsIncludeVenue(
       existingCompanyTypeIds,
     );
@@ -2861,9 +2938,11 @@ export class CompanyService {
     const companyTypesChanged =
       nextCompanyTypeIds.length !== existingCompanyTypeIds.length ||
       nextCompanyTypeIds.some((id) => !existingCompanyTypeIds.includes(id));
-    if (companyTypesChanged) {
+    const primaryCompanyTypeChanged =
+      nextPrimaryCompanyTypeId !== existing.companyTypeId;
+    if (companyTypesChanged || primaryCompanyTypeChanged) {
       await this.assertCompanyTypeChangeAllowed(companyId, nextCompanyTypeIds);
-      existing.companyTypeId = nextCompanyTypeId;
+      existing.companyTypeId = nextPrimaryCompanyTypeId;
     }
 
     const requestedServiceProvidedIds = dto.serviceProvidedIds;
@@ -2925,8 +3004,15 @@ export class CompanyService {
     }
 
     await this.companyRepo.save(existing);
-    if (companyTypesChanged || nextServiceProvidedIds != null) {
+    if (
+      companyTypesChanged ||
+      primaryCompanyTypeChanged ||
+      nextServiceProvidedIds != null
+    ) {
       await this.dataSource.transaction(async (em) => {
+        if (companyTypesChanged || primaryCompanyTypeChanged) {
+          await this.syncCompanyTypes(em, companyId, nextCompanyTypeIds);
+        }
         await this.ensureVenueRowForCompanyTypes(
           em,
           companyId,

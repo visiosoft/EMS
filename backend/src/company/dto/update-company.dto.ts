@@ -28,6 +28,12 @@ export class UpdateCompanyDto {
   @IsArray()
   @IsInt({ each: true })
   @Min(1, { each: true })
+  companyTypeIds?: number[];
+
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  @Min(1, { each: true })
   serviceProvidedIds?: number[];
 
   /** Service Areas: dbo.CompanyServiceArea (CompanyID, DMAID, ServiceProvidedID) */
