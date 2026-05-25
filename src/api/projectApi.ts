@@ -23,11 +23,16 @@ import type { ApiPaginatedResponse } from './companyApi';
 /** Client-defined allowed values for `dbo.EngagementProject.ProjectStage`. */
 export const PROJECT_STAGE_VALUES = [
   'Under Construction',
-  'Confirmed',
   'Pending',
   'Inactive',
 ] as const;
 export type ProjectStage = (typeof PROJECT_STAGE_VALUES)[number];
+
+/**
+ * Temporary conversion trigger until the database accepts `Confirmed`.
+ * Keep synchronized with backend/src/projects/project-stage.constants.ts.
+ */
+export const PROJECT_CONVERSION_STAGE: ProjectStage = 'Inactive';
 
 export interface ProjectStageMeta {
   projectStages: string[];
@@ -189,6 +194,9 @@ export interface ApiProjectListRow {
   agentContactId?: string | null;
   targetOnSale?: string | null;
   notes?: string | null;
+  /** Set once this project has generated its engagement and becomes view-only. */
+  convertedEngagementId?: number | null;
+  isReadOnly?: boolean;
 }
 
 export interface ApiProjectDetail extends ApiProjectListRow {
@@ -245,11 +253,20 @@ export interface UpdateProjectPayload {
   notes?: string | null;
 }
 
+export interface ProjectConversionResult {
+  engagementId: number | null;
+  converted: boolean;
+}
+
+export interface CreateProjectResult extends ProjectConversionResult {
+  engagementProjectId: number;
+}
+
 // ---------------------------------------------------------------------------
 // API functions
 // ---------------------------------------------------------------------------
 
-/** Fixed list: `Under Construction`, `Confirmed`, `Pending`, `Inactive` (see `PROJECT_STAGE_VALUES`). */
+/** Fixed list accepted for project writes (see `PROJECT_STAGE_VALUES`). */
 export function fetchProjectStageMeta() {
   return apiFetch<ProjectStageMeta>('/projects/meta/project-stages');
 }
@@ -306,14 +323,14 @@ export function fetchProject(id: number) {
 }
 
 export function createProject(body: CreateProjectPayload) {
-  return apiFetch<{ engagementProjectId: number }>('/projects', {
+  return apiFetch<CreateProjectResult>('/projects', {
     method: 'POST',
     body: JSON.stringify(body),
   });
 }
 
 export function updateProject(id: number, body: UpdateProjectPayload) {
-  return apiFetch<void>(`/projects/${id}`, {
+  return apiFetch<ProjectConversionResult>(`/projects/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(body),
   });
