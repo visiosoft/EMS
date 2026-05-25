@@ -18,6 +18,7 @@ import { EngagementIAEContact } from '../entities/engagement-iae-contact.entity'
 import { EngagementFinances } from '../entities/engagement-finance.entity';
 import { EngagementProduction } from '../entities/engagement-production.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
+import { EngagementXref } from '../entities/engagement-xref.entity';
 import { VenueServiceProvider } from '../entities/venue-service-provider.entity';
 import { CompanyService as CompanyServiceEntity } from '../entities/company-service.entity';
 import { ServiceProvided } from '../entities/service-provided.entity';
@@ -2115,6 +2116,17 @@ export class EngagementService {
     engagementId: number,
   ): Promise<void> {
     await this.assertEngagementExists(engagementId);
+
+    const sourceLink = await this.dataSource.manager.findOne(EngagementXref, {
+      where: { engagementId },
+    });
+    if (sourceLink) {
+      throw new BadRequestException({
+        message: sourceLink.sourceEngagementId.startsWith('EngagementProject:')
+          ? 'This engagement was created from a finalized project and cannot be deleted because its source project is view-only.'
+          : 'This engagement is linked to an originating record and cannot be deleted.',
+      });
+    }
 
     const performanceCount = await this.performanceRepo.count({
       where: { engagementId },

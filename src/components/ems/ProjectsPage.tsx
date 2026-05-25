@@ -14,7 +14,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, Check, GripVertical, Loader2, Pencil, RotateCcw, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, ExternalLink, GripVertical, Loader2, Lock, Pencil, RotateCcw, Trash2, X } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import {
@@ -70,6 +70,7 @@ import {
   fetchProjects,
   fetchOptionStatusMeta,
   fetchVenueStatusMeta,
+  PROJECT_CONVERSION_STAGE,
   PROJECT_STAGE_VALUES,
   projectStageDisplayLabel,
   updatePerformanceOption,
@@ -86,6 +87,7 @@ import type {
   OptionStatus,
   ProjectStage,
   VenueStatus,
+  CreateProjectResult,
 } from '@/api/projectApi';
 import type { ApiPaginatedResponse } from '@/api/companyApi';
 import {
@@ -355,6 +357,7 @@ function ProjectInlineOverview({
   dmaMarkets,
   onUpdated,
   onGoToVenues,
+  onOpenEngagement,
   addToast,
 }: {
   project: ApiProjectDetail;
@@ -362,10 +365,12 @@ function ProjectInlineOverview({
   dmaMarkets: ApiDmaMarket[];
   onUpdated: () => void | Promise<void>;
   onGoToVenues: () => void;
+  onOpenEngagement: (engagementId: number) => void;
   addToast: Props['addToast'];
 }) {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [confirmConversion, setConfirmConversion] = useState(false);
   const [tourId, setTourId] = useState(project.tourId);
   const [projectStage, setProjectStage] = useState(project.projectStage);
   const [tourStartDate, setTourStartDate] = useState(project.tourStartDate ?? '');
@@ -553,7 +558,7 @@ function ProjectInlineOverview({
     setSaving(true);
     let savedOk = false;
     try {
-      await updateProject(project.engagementProjectId, {
+      const result = await updateProject(project.engagementProjectId, {
         tourId,
         talentAgencyCompanyId: effectiveTalentAgencyId,
         tourStartDate: tourStartDate.trim(),
@@ -562,6 +567,12 @@ function ProjectInlineOverview({
         dmaIds: selectedDmaIds,
       });
       setDirty(false);
+      if (result.converted && result.engagementId != null) {
+        await onUpdated();
+        addToast('Project converted to an engagement.', 'success');
+        onOpenEngagement(result.engagementId);
+        return;
+      }
       if (scopeChanged) {
         onGoToVenues();
       }
@@ -580,6 +591,164 @@ function ProjectInlineOverview({
       }
     }
   };
+
+  const requestSave = () => {
+    if (projectStage === PROJECT_CONVERSION_STAGE) {
+      setConfirmConversion(true);
+      return;
+    }
+    void handleSave();
+  };
+
+  if (project.isReadOnly && project.convertedEngagementId != null) {
+    const readOnlyDmaLabels = (project.dmaIds ?? []).map((id) => {
+      const market = dmaMarkets.find((row) => row.dmaid === id);
+      return market ? formatDmaPickerLabel(market) : `DMA #${id}`;
+    });
+    const hasLockedTourDates =
+      Boolean(project.tourStartDate?.trim()) && Boolean(project.tourEndDate?.trim());
+
+    return (
+      <div className="space-y-5">
+        <div className="flex flex-col gap-3 rounded-lg border border-ems-accent/30 bg-ems-accent/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-start gap-2.5">
+            <Lock className="mt-0.5 h-4 w-4 shrink-0 text-ems-accent" aria-hidden />
+            <div>
+              <p className="text-sm font-medium text-text-primary">View-only project</p>
+              <p className="text-xs text-text-secondary">
+                This project has created an engagement and can no longer be edited.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onOpenEngagement(project.convertedEngagementId as number)}
+            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md bg-ems-accent px-3 py-2 text-xs font-medium text-background hover:bg-ems-accent/85"
+          >
+            Open engagement <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        </div>
+        <div className="text-sm space-y-6 pb-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
+            <div>
+              <span className="text-xs text-text-muted">Attraction</span>
+              <div className="text-sm text-text-primary mt-0.5 font-medium">
+                {project.attractionName ?? '—'}
+              </div>
+            </div>
+            <div>
+              <span className="text-xs text-text-muted">Tour</span>
+              <div className="text-sm text-text-primary mt-0.5 font-medium">
+                {project.tourName ?? '—'}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
+            <FormField label="Talent Agency">
+              <div className="w-full min-w-0 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary">
+                {project.talentAgencyCompanyName ?? '—'}
+              </div>
+            </FormField>
+            <FormField label="Talent Agents (info only)">
+              <div className="w-full min-w-0 bg-surface border border-border rounded px-3 py-2 text-sm text-text-primary">
+                {effectiveTalentAgencyId == null
+                  ? 'No talent agency assigned.'
+                  : talentAgentContactsQuery.isPending
+                    ? 'Loading contacts…'
+                    : talentAgentOptions.length > 0
+                      ? (
+                        <div className="flex flex-wrap gap-2">
+                          {talentAgentOptions.map((o) => (
+                            <span
+                              key={o.value}
+                              className="inline-flex items-center rounded-md border border-border bg-background px-2 py-1 text-xs text-text-primary"
+                            >
+                              {o.label}
+                            </span>
+                          ))}
+                        </div>
+                      )
+                      : 'No talent agents found for this agency'}
+              </div>
+            </FormField>
+            <FormField label="Tour Start Date">
+              <div className="w-full min-w-0 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary">
+                {project.tourStartDate ?? '—'}
+              </div>
+            </FormField>
+            <FormField label="Tour End Date">
+              <div className="w-full min-w-0 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary">
+                {project.tourEndDate ?? '—'}
+              </div>
+            </FormField>
+            {hasLockedTourDates && (
+              <p className="sm:col-span-2 text-[11px] text-text-muted">
+                Dates already exist on this tour, so they are locked.
+              </p>
+            )}
+            <div className="sm:col-span-2 min-w-0">
+              <span className="text-xs text-text-muted">Markets (DMA)</span>
+              <div className="mt-1.5 rounded-lg border border-border bg-surface px-3 py-3">
+                {readOnlyDmaLabels.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {readOnlyDmaLabels.map((label) => (
+                      <span
+                        key={label}
+                        className="inline-flex items-center rounded-full border border-ems-accent/40 bg-ems-accent/10 px-2.5 py-1 text-xs text-text-primary"
+                      >
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-text-muted">No markets selected.</p>
+                )}
+                <div className="mt-2 flex items-center justify-between">
+                  <p className="text-[11px] text-text-muted tabular-nums">
+                    {readOnlyDmaLabels.length} market{readOnlyDmaLabels.length === 1 ? '' : 's'} selected
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
+            <div>
+              <span className="text-xs text-text-muted">Project stage</span>
+              <div className="mt-0.5 text-sm text-text-primary">
+                {project.projectStage || '—'}
+              </div>
+            </div>
+            <div>
+              <span className="text-xs text-text-muted">Created by</span>
+              <div className="mt-0.5 w-full min-w-0 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary">
+                {project.createdBy ?? '—'}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-4">
+            <div>
+              <span className="text-xs text-text-muted">Created date</span>
+              <div className="text-sm text-text-primary mt-0.5">
+                {project.createdDate ? new Date(project.createdDate).toLocaleDateString() : '—'}
+              </div>
+            </div>
+            <div>
+              <span className="text-xs text-text-muted">Venue proposals</span>
+              <div className="text-sm text-text-primary mt-0.5 flex items-center gap-2">
+                <span className="font-mono tabular-nums">{project.venues.length}</span>
+                <button type="button" onClick={onGoToVenues} className="text-ems-accent text-xs hover:underline">
+                  Open Venues tab
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative">
@@ -861,13 +1030,59 @@ function ProjectInlineOverview({
             </button>
             <button
               type="button"
-              onClick={() => void handleSave()}
+              onClick={requestSave}
               disabled={saving}
               className="inline-flex items-center gap-1.5 bg-ems-accent hover:bg-ems-accent/80 text-background text-xs px-4 py-1.5 rounded-md font-medium disabled:opacity-60 transition-colors"
             >
               {saving && <Loader2 className="h-3 w-3 animate-spin" />}
               Save changes
             </button>
+          </div>
+        </div>
+      )}
+
+      <AlertDialog
+        open={confirmConversion}
+        onOpenChange={(open) => {
+          if (!saving) setConfirmConversion(open);
+        }}
+      >
+        <AlertDialogContent className="z-[360] border-border bg-card text-text-primary shadow-xl sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-text-primary font-semibold text-lg">
+              Create engagement and lock this project?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-text-secondary text-sm leading-relaxed">
+              Setting the project stage to <span className="font-medium text-text-primary">Inactive</span> will
+              automatically create an engagement. After it is created, this project is view-only and its
+              details cannot be updated.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:gap-2">
+            <AlertDialogCancel disabled={saving} className="border-border bg-elevated text-text-primary hover:bg-hover mt-0">
+              Keep editing
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              disabled={saving}
+              className="bg-ems-accent text-background hover:bg-ems-accent/90 sm:ml-0"
+              onClick={() => {
+                setConfirmConversion(false);
+                void handleSave();
+              }}
+            >
+              Create engagement
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {saving && projectStage === PROJECT_CONVERSION_STAGE && (
+        <div className="absolute inset-0 z-[350] flex flex-col items-center justify-center gap-3 rounded-md bg-card/90 backdrop-blur-[2px]" role="status" aria-live="polite">
+          <Loader2 className="h-8 w-8 animate-spin text-ems-accent" aria-hidden />
+          <div className="text-center">
+            <p className="text-sm font-medium text-text-primary">Creating engagement...</p>
+            <p className="text-xs text-text-secondary">Your project will become view-only when this completes.</p>
           </div>
         </div>
       )}
@@ -1397,12 +1612,14 @@ function VenueProposalRow({
   onRefresh,
   addToast,
   scopeMismatchReason,
+  readOnly = false,
 }: {
   venue: ApiProjectVenue;
   projectId: number;
   onRefresh: () => void | Promise<void>;
   addToast: Props['addToast'];
   scopeMismatchReason?: string;
+  readOnly?: boolean;
 }) {
   const [showAddOpt, setShowAddOpt] = useState(false);
   const [editingStatus, setEditingStatus] = useState(false);
@@ -1469,7 +1686,7 @@ function VenueProposalRow({
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {editingStatus ? (
+            {!readOnly && editingStatus ? (
               <div className="flex items-center gap-1">
                 <div className="w-36">
                   <Select2
@@ -1495,7 +1712,7 @@ function VenueProposalRow({
                   ✕
                 </button>
               </div>
-            ) : (
+            ) : !readOnly ? (
               <button
                 type="button"
                 onClick={() => {
@@ -1506,32 +1723,46 @@ function VenueProposalRow({
               >
                 <StatusBadge status={venue.venueStatus} />
               </button>
+            ) : (
+              <StatusBadge status={venue.venueStatus} />
             )}
-            <button type="button" onClick={() => void handleDelete()} disabled={deleting}
-              className="text-text-muted hover:text-ems-coral text-xs disabled:opacity-50 px-1">
-              {deleting ? <Loader2 className="h-3 w-3 animate-spin" /> : '✕'}
-            </button>
+            {!readOnly && (
+              <button type="button" onClick={() => void handleDelete()} disabled={deleting}
+                className="text-text-muted hover:text-ems-coral text-xs disabled:opacity-50 px-1">
+                {deleting ? <Loader2 className="h-3 w-3 animate-spin" /> : '✕'}
+              </button>
+            )}
           </div>
         </div>
 
         <div className="border-t border-border/60 pt-2 space-y-1">
           <div className="flex items-center justify-between mb-1.5">
             <p className="text-[11px] text-text-muted font-medium">Proposed Dates</p>
-            <button type="button" onClick={() => setShowAddOpt(!showAddOpt)} className="text-ems-accent text-[11px] hover:underline">+ Add date</button>
+            {!readOnly && (
+              <button type="button" onClick={() => setShowAddOpt(!showAddOpt)} className="text-ems-accent text-[11px] hover:underline">+ Add date</button>
+            )}
           </div>
           {venue.performanceOptions.length === 0 && !showAddOpt && (
             <p className="text-xs text-text-muted">No date options yet.</p>
           )}
-          {venue.performanceOptions.map((opt) => (
-            <PerformanceOptionRow
-              key={opt.performanceOptionId}
-              opt={opt}
-              projectId={projectId}
-              onRefresh={onRefresh}
-              addToast={addToast}
-            />
-          ))}
-          {showAddOpt && (
+          {venue.performanceOptions.map((opt) =>
+            readOnly ? (
+              <div key={opt.performanceOptionId} className="flex items-center gap-3 rounded bg-elevated/50 px-2 py-1.5 text-xs">
+                <span className="font-medium text-text-primary">{opt.proposedDate}</span>
+                {opt.proposedTime && <span className="text-text-muted">· {opt.proposedTime}</span>}
+                <span className="ml-auto"><StatusBadge status={opt.optionStatus} /></span>
+              </div>
+            ) : (
+              <PerformanceOptionRow
+                key={opt.performanceOptionId}
+                opt={opt}
+                projectId={projectId}
+                onRefresh={onRefresh}
+                addToast={addToast}
+              />
+            ),
+          )}
+          {!readOnly && showAddOpt && (
             <AddPerformanceOptionForm
               projectId={projectId}
               engagementProjectVenueId={venue.engagementProjectVenueId}
@@ -1667,11 +1898,13 @@ function ProjectDetailDrawer({
   projectId,
   onClose,
   onRequestDelete,
+  onOpenEngagement,
   addToast,
 }: {
   projectId: number;
   onClose: () => void;
   onRequestDelete: (row: ApiProjectListRow) => void;
+  onOpenEngagement: (engagementId: number) => void;
   addToast: Props['addToast'];
 }) {
   const qc = useQueryClient();
@@ -1761,7 +1994,7 @@ function ProjectDetailDrawer({
             </>
           )}
         </div>
-        {project && !detailQuery.isLoading && (
+        {project && !project.isReadOnly && !detailQuery.isLoading && (
           <button
             type="button"
             onClick={() => onRequestDelete(projectDetailToListRow(project))}
@@ -1804,6 +2037,7 @@ function ProjectDetailDrawer({
               await qc.invalidateQueries({ queryKey: ['projects', 'suggestion-cache'], exact: false });
             }}
             onGoToVenues={() => setActiveTab('Venues')}
+            onOpenEngagement={onOpenEngagement}
             addToast={addToast}
           />
         )}
@@ -1812,10 +2046,28 @@ function ProjectDetailDrawer({
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium text-text-primary">Venue Proposals</h3>
-              <button type="button" onClick={() => setShowAddVenue(!showAddVenue)} className="text-ems-accent text-sm hover:underline">
-                + Add Venue
-              </button>
+              {!project.isReadOnly && (
+                <button type="button" onClick={() => setShowAddVenue(!showAddVenue)} className="text-ems-accent text-sm hover:underline">
+                  + Add Venue
+                </button>
+              )}
             </div>
+
+            {project.isReadOnly && project.convertedEngagementId != null && (
+              <div className="flex flex-col gap-2 rounded-md border border-ems-accent/30 bg-ems-accent/5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="inline-flex items-center gap-2 text-xs text-text-secondary">
+                  <Lock className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
+                  Venue proposals are view-only after engagement creation.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => onOpenEngagement(project.convertedEngagementId as number)}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-ems-accent hover:underline"
+                >
+                  Open engagement <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                </button>
+              </div>
+            )}
 
             <div className="rounded-md border border-border bg-surface px-3 py-2">
               <p className="text-[11px] text-text-muted leading-relaxed">
@@ -1837,7 +2089,7 @@ function ProjectDetailDrawer({
                 {outOfScopeVenueCount} venue{outOfScopeVenueCount === 1 ? '' : 's'} out of scope — update/remove to avoid discard.
               </p>
             )}
-            {showAddVenue && (
+            {!project.isReadOnly && showAddVenue && (
               <AddVenueForm
                 projectId={projectId}
                 existingIds={existingVenueIds}
@@ -1867,6 +2119,7 @@ function ProjectDetailDrawer({
                 }
                 onRefresh={() => refresh()}
                 addToast={addToast}
+                readOnly={Boolean(project.isReadOnly)}
               />
             ))}
           </div>
@@ -1952,7 +2205,9 @@ function WizardStepIndicator({ currentStep }: { currentStep: number }) {
 function CreateProjectForm({
   onSaved, onCancel, addToast,
 }: {
-  onSaved: (id: number) => void; onCancel: () => void; addToast: Props['addToast'];
+  onSaved: (result: CreateProjectResult) => void;
+  onCancel: () => void;
+  addToast: Props['addToast'];
 }) {
   const qc = useQueryClient();
   const projectWizardLookupLimit = 8000;
@@ -2042,6 +2297,7 @@ function CreateProjectForm({
 
   const [showAddTourModal, setShowAddTourModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [confirmConversion, setConfirmConversion] = useState(false);
   const talentAgentContactsQuery = useQuery({
     queryKey: ['company', projectTourMgmtCompanyId ?? 0, 'contacts', 'talent-agent-role'],
     queryFn: () =>
@@ -2383,7 +2639,7 @@ function CreateProjectForm({
     onError: (e: unknown) => addToast(friendlyApiError(e, 'Could not create tour.'), 'error'),
   });
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (conversionConfirmed = false) => {
     if (!selectedTourId) return;
     if (projectTourMgmtCompanyId == null || projectTourMgmtCompanyId < 1) {
       addToast('Select a tour that has a Talent Agency.', 'error');
@@ -2406,6 +2662,10 @@ function CreateProjectForm({
       addToast('Select a venue proposal status on the Venues step.', 'error');
       return;
     }
+    if (stage === PROJECT_CONVERSION_STAGE && !conversionConfirmed) {
+      setConfirmConversion(true);
+      return;
+    }
     const venuesPayload = selectedVenueCompanyIds.map((venueCompanyId) => {
       return {
         venueCompanyId,
@@ -2424,7 +2684,7 @@ function CreateProjectForm({
         dmaIds: validSelectedDmaIds,
         venues: venuesPayload,
       });
-      onSaved(res.engagementProjectId);
+      onSaved(res);
     } catch (e) {
       addToast(friendlyApiError(e, 'Could not create project.'), 'error');
     } finally {
@@ -3049,8 +3309,8 @@ function CreateProjectForm({
             <div className="border-t border-border pt-3 space-y-3">
               <p className="text-xs text-text-muted">
                 Choose{' '}
-                <span className="font-medium">Under Construction</span>, <span className="font-medium">Confirmed</span>, <span className="font-medium">Pending</span>, or{' '}
-                <span className="font-medium">Inactive</span>, then click Create Project.
+                <span className="font-medium">Under Construction</span>, <span className="font-medium">Pending</span>, or{' '}
+                <span className="font-medium">Inactive</span>. Inactive creates the engagement and makes the project view-only after confirmation.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField label="Project Stage">
@@ -3115,8 +3375,58 @@ function CreateProjectForm({
           )}
         </div>
       </div>
+
+      {saving && projectStage === PROJECT_CONVERSION_STAGE && (
+        <div
+          className="absolute inset-0 z-[350] flex flex-col items-center justify-center gap-3 rounded-lg bg-card/95 backdrop-blur-[2px]"
+          role="status"
+          aria-live="polite"
+        >
+          <Loader2 className="h-9 w-9 animate-spin text-ems-accent" aria-hidden />
+          <div className="text-center">
+            <p className="text-sm font-medium text-text-primary">Creating project and engagement...</p>
+            <p className="text-xs text-text-secondary">The project will be view-only after completion.</p>
+          </div>
+        </div>
+      )}
     </div>
     </CreateProjectWizardErrorBoundary>
+
+    <AlertDialog
+      open={confirmConversion}
+      onOpenChange={(open) => {
+        if (!saving) setConfirmConversion(open);
+      }}
+    >
+      <AlertDialogContent className="z-[360] border-border bg-card text-text-primary shadow-xl sm:max-w-md">
+        <AlertDialogHeader>
+          <AlertDialogTitle className="text-text-primary font-semibold text-lg">
+            Create engagement and lock this project?
+          </AlertDialogTitle>
+          <AlertDialogDescription className="text-text-secondary text-sm leading-relaxed">
+            Setting the project stage to <span className="font-medium text-text-primary">Inactive</span> will
+            automatically create an engagement. After it is created, this project is view-only and its
+            details cannot be updated.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter className="gap-2 sm:gap-2">
+          <AlertDialogCancel disabled={saving} className="border-border bg-elevated text-text-primary hover:bg-hover mt-0">
+            Keep editing
+          </AlertDialogCancel>
+          <Button
+            type="button"
+            disabled={saving}
+            className="bg-ems-accent text-background hover:bg-ems-accent/90 sm:ml-0"
+            onClick={() => {
+              setConfirmConversion(false);
+              void handleSubmit(true);
+            }}
+          >
+            Create engagement
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
 
     {showAddTourModal && selectedAttractionId != null && classes.length > 0 && (
       <Modal
@@ -3152,7 +3462,7 @@ function projectListSuggestionLabel(row: ApiProjectListRow): string {
   return a || t || `Project #${row.engagementProjectId}`;
 }
 
-export function ProjectsPage({ addToast }: Props) {
+export function ProjectsPage({ addToast, onNavigate }: Props) {
   const qc = useQueryClient();
   const [searchInput, setSearchInput] = useState('');
   const [searchCommitted, setSearchCommitted] = useState('');
@@ -3667,6 +3977,10 @@ export function ProjectsPage({ addToast }: Props) {
             setSelectedProjectId(null);
             setPendingDelete(row);
           }}
+          onOpenEngagement={(engagementId) => {
+            setSelectedProjectId(null);
+            onNavigate?.('engagement-detail', { engagementId });
+          }}
           addToast={addToast}
         />
       )}
@@ -3676,11 +3990,16 @@ export function ProjectsPage({ addToast }: Props) {
         <Modal title="Create Project" onClose={() => setShowCreateModal(false)} width={700} allowContentOverflow>
           <CreateProjectForm
             key="create-project"
-            onSaved={async (id) => {
+            onSaved={async (result) => {
               await refetchProjectList();
               setShowCreateModal(false);
-              addToast('Project created successfully.', 'success');
-              setSelectedProjectId(id);
+              if (result.converted && result.engagementId != null) {
+                addToast('Project and engagement created successfully.', 'success');
+                onNavigate?.('engagement-detail', { engagementId: result.engagementId });
+              } else {
+                addToast('Project created successfully.', 'success');
+                setSelectedProjectId(result.engagementProjectId);
+              }
             }}
             onCancel={() => setShowCreateModal(false)}
             addToast={addToast}
