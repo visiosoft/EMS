@@ -23,6 +23,7 @@ import type { ApiPaginatedResponse } from './companyApi';
 /** Client-defined allowed values for `dbo.EngagementProject.ProjectStage`. */
 export const PROJECT_STAGE_VALUES = [
   'Under Construction',
+  'Confirmed',
   'Pending',
   'Inactive',
 ] as const;
@@ -248,7 +249,7 @@ export interface UpdateProjectPayload {
 // API functions
 // ---------------------------------------------------------------------------
 
-/** Fixed list: `Under Construction`, `Pending`, `Inactive` (see `PROJECT_STAGE_VALUES`). */
+/** Fixed list: `Under Construction`, `Confirmed`, `Pending`, `Inactive` (see `PROJECT_STAGE_VALUES`). */
 export function fetchProjectStageMeta() {
   return apiFetch<ProjectStageMeta>('/projects/meta/project-stages');
 }

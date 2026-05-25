@@ -49,6 +49,12 @@ export function friendlyApiError(
   ) {
     return "We couldn’t reach the server. Make sure it’s running and try again.";
   }
+  if (
+    /Invalid project stage/i.test(raw) ||
+    /project stage isn.t accepted by the database/i.test(raw)
+  ) {
+    return 'That project stage is not available in this environment yet. Please refresh and try again. If the issue continues, ask your administrator to enable that stage in the database.';
+  }
   /** Company delete — explicit API copy from `CompanyService.remove` only. */
   if (
     /This company can.t be removed because it.s still linked to other records/i.test(
