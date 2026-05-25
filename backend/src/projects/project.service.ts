@@ -135,7 +135,7 @@ export class ProjectService {
   }
 
   /**
-   * Project stages are fixed in this application: Under Construction, Pending, Inactive
+   * Project stages are fixed in this application: Under Construction, Confirmed, Pending, Inactive
    * (aligned with dbo.EngagementProject.ProjectStage CHECK; DTOs validate with @IsIn).
    */
   async getProjectStageMeta(): Promise<{
@@ -1125,9 +1125,12 @@ export class ProjectService {
       if (e instanceof QueryFailedError) {
         const d = String((e as QueryFailedError).driverError ?? e.message);
         this.logger.warn(`Update project failed (id=${id}): ${d}`);
+        const isStageCheck =
+          /CHECK constraint/i.test(d) && /ProjectStage/i.test(d);
         throw new BadRequestException({
-          message:
-            'Could not update the project. Check the information you entered, or ask your administrator if something is blocked by your system’s rules.',
+          message: isStageCheck
+            ? `This project stage isn’t accepted by the database. Use one of: ${PROJECT_STAGE_VALUES.join(', ')}.`
+            : 'Could not update the project. Check the information you entered, or ask your administrator if something is blocked by your system’s rules.',
           detail: d,
         });
       }
