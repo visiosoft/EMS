@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Sidebar, Header } from '@/components/ems/Layout';
 import { ToastContainer } from '@/components/ems/Primitives';
 import { CompaniesPage } from '@/components/ems/CompaniesPage';
+import { ContactsPage } from '@/components/ems/ContactsPage';
 import { AttractionToursPage } from '@/components/ems/AttractionToursPage';
 import { AttractionSalesDashboardPage } from '@/components/ems/AttractionSalesDashboardPage';
 import { CalendarPage } from '@/components/ems/CalendarPage';
@@ -35,6 +36,7 @@ const EMS_OPEN_INTENT_KEY = 'iae-ems-open-intent-v1';
 
 const VALID_VIEWS = new Set([
   'companies',
+  'contacts',
   'all-venues',
   'attraction-tours',
   'attraction-sales-summary',
@@ -398,6 +400,8 @@ const Index = () => {
           />
         )}
 
+        {view === 'contacts' && <ContactsPage addToast={addToast} />}
+
         {view === 'all-venues' && <AllVenuesPage onNavigate={navigate} />}
 
         {view === 'attraction-tours' && (
@@ -545,6 +549,7 @@ const Index = () => {
   const getBreadcrumb = (): string[] => {
     const map: Record<string, string[]> = {
       companies:          ['Companies'],
+      contacts:           ['Contacts'],
       'all-venues':        ['All Venues'],
       'attraction-tours': ['Attraction Tours'],
       'attraction-sales-summary': ['Daily Sales', 'Attraction sales summary'],

@@ -9,6 +9,7 @@ import {
   IsString,
   MaxLength,
   Min,
+  IsIn,
 } from 'class-validator';
 
 function parseOptionalPositiveId(value: unknown): unknown {
@@ -123,4 +124,37 @@ export class CreateTourDto {
   @IsOptional()
   @IsISO8601()
   tourEndDate?: string;
+
+  @IsOptional()
+  @IsIn(['All', 'Male', 'Female'])
+  audienceGender?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => parsePositiveIdArray(value))
+  @IsArray()
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  audienceAgeRangeIds?: number[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  jobName?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  tourInsuranceLanguage?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => parseOptionalPositiveId(value))
+  @IsInt()
+  @Min(1)
+  venueTypePreferenceId?: number | null;
+
+  @IsOptional()
+  @Transform(({ value }) => parseOptionalPositiveId(value))
+  @IsInt()
+  @Min(1)
+  techRiderLinkId?: number | null;
 }

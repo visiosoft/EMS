@@ -85,6 +85,23 @@ export interface ApiCompanyContact {
   departmentName: string;
 }
 
+export interface ApiManagedContact {
+  contactId: number;
+  contactInfoId: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  cellPhone: string | null;
+  workPhone: string | null;
+  isStaff: boolean;
+  companyIds: number[];
+  companyNames: string[];
+  roleIds: number[];
+  roleNames: string[];
+  departmentIds: number[];
+  departmentNames: string[];
+}
+
 export interface ApiCompanyVenueLinkedContactsSection {
   venueCompanyId: number;
   venueCompanyName: string;
@@ -414,6 +431,36 @@ export function updateContactAssignment(assignmentId: number, body: Partial<{ fi
   }).finally(clearStoredContactIds);
 }
 export function deleteContactAssignment(assignmentId: number) { return apiFetch<void>(`/contact-assignments/${assignmentId}`, { method: 'DELETE' }); }
+
+export type ManagedContactsQueryOpts = { q?: string; companyId?: number };
+export type ManagedContactPayload = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  cellPhone?: string | null;
+  workPhone?: string | null;
+  companyId?: number | null;
+  roleIds?: number[];
+  departmentIds?: number[];
+};
+export function managedContactsQueryKey(offset: number, limit: number, opts?: ManagedContactsQueryOpts) {
+  return ['contacts', 'managed', offset, limit, opts?.q ?? '', opts?.companyId ?? ''] as const;
+}
+export function fetchManagedContacts(offset = 0, limit = 25, opts?: ManagedContactsQueryOpts) {
+  const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+  if (opts?.q?.trim()) params.set('q', opts.q.trim());
+  if (opts?.companyId != null && opts.companyId > 0) params.set('companyId', String(opts.companyId));
+  return apiFetch<ApiPaginatedResponse<ApiManagedContact>>(`/contacts?${params}`);
+}
+export function createManagedContact(body: ManagedContactPayload) {
+  return apiFetch<ApiManagedContact>('/contacts', { method: 'POST', body: JSON.stringify(body) });
+}
+export function updateManagedContact(contactId: number, body: Partial<ManagedContactPayload>) {
+  return apiFetch<ApiManagedContact>(`/contacts/${contactId}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+export function deleteManagedContact(contactId: number) {
+  return apiFetch<void>(`/contacts/${contactId}`, { method: 'DELETE' });
+}
 export function fetchCompanyEngagements(companyId: number) { return apiFetch<ApiEngagementRow[]>(`/companies/${companyId}/engagements`); }
 export function fetchVenueTicketing(companyId: number) { return apiFetch<ApiVenueTicketing | null>(`/companies/${companyId}/venue-ticketing`); }
 export function fetchVenueProfile(companyId: number) { return apiFetch<ApiVenueProfileResponse>(`/companies/${companyId}/venue-profile`); }

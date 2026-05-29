@@ -67,6 +67,7 @@ export type LookupManageCreatePayload = {
   companyId?: number;
   companyTypeId?: number;
   serviceProvidedId?: number;
+  serviceProvidedIds?: number[];
   postalCode?: string;
 };
 
@@ -85,6 +86,7 @@ export type LookupManageUpdatePayload = {
   companyId?: number;
   companyTypeId?: number;
   serviceProvidedId?: number;
+  serviceProvidedIds?: number[];
   postalCode?: string;
 };
 

@@ -33,6 +33,11 @@ export class TourController {
     return this.tourService.listPaginated(offset, limit, q, sortBy, sortDir);
   }
 
+  @Get('age-ranges')
+  listAgeRanges() {
+    return this.tourService.listAgeRanges();
+  }
+
   @Post()
   @UseInterceptors(FileInterceptor('bannerImage', tourBannerMulterOptions()))
   create(

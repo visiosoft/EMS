@@ -6,6 +6,7 @@ import {
   IsISO8601,
   IsOptional,
   IsString,
+  IsIn,
   MaxLength,
   Min,
   ValidateIf,
@@ -128,14 +129,26 @@ export class UpdateTourDto {
   talentAgentContactIds?: number[];
 
   @IsOptional()
-  @IsString()
-  @MaxLength(100)
+  @ValidateIf((_, v) => v != null && v !== '')
+  @IsIn(['All', 'Male', 'Female'])
   audienceGender?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => parsePositiveIdArray(value))
+  @IsArray()
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  audienceAgeRangeIds?: number[];
 
   @IsOptional()
   @IsString()
   @MaxLength(100)
   audienceAgeRange?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  jobName?: string | null;
 
   @IsOptional()
   @IsString()

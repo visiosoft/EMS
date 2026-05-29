@@ -319,6 +319,7 @@ export interface ApiEngagementFilterOptions {
 
 export type EngagementPagedQueryOpts = {
   q?: string;
+  engagementId?: number;
   status?: string;
   attraction?: string;
   dma?: string;
@@ -340,6 +341,7 @@ export function engagementsPagedQueryKey(
     offset,
     limit,
     opts.q ?? '',
+    opts.engagementId ?? '',
     opts.status ?? 'All',
     opts.attraction ?? '',
     opts.dma ?? '',
@@ -374,6 +376,9 @@ export function fetchEngagementsPaged(
 ) {
   const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
   if (opts?.q?.trim()) params.set('q', opts.q.trim());
+  if (opts?.engagementId && Number.isInteger(opts.engagementId) && opts.engagementId > 0) {
+    params.set('engagementId', String(opts.engagementId));
+  }
   if (opts?.status && opts.status !== 'All') params.set('status', opts.status);
   if (opts?.attraction?.trim()) params.set('attraction', opts.attraction.trim());
   if (opts?.dma?.trim()) params.set('dma', opts.dma.trim());

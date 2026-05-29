@@ -97,6 +97,7 @@ export class EngagementController {
     @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
     @Query('limit', new DefaultValuePipe(25), ParseIntPipe) limit: number,
     @Query('q') q?: string,
+    @Query('engagementId') engagementId?: string,
     @Query('status') status?: string,
     @Query('attraction') attraction?: string,
     @Query('dma') dma?: string,
@@ -109,6 +110,7 @@ export class EngagementController {
       timing === 'upcoming' || timing === 'past' ? timing : ('all' as const);
     return this.engagementService.listPaginated(offset, limit, {
       q,
+      engagementId: Number(engagementId),
       status,
       attractionName: attraction,
       dmaMarketName: dma,

@@ -42,6 +42,21 @@ export class CreatePerformanceOptionDto {
   optionStatus: string;
 }
 
+export class ProjectOpeningPerformanceDto {
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  performanceDate: string;
+
+  @IsString()
+  @Matches(/^\d{2}:\d{2}(:\d{2})?$/)
+  performanceTime: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  performanceStatus?: string | null;
+}
+
 export class CreateProjectVenueDto {
   @IsInt()
   @Min(1)
@@ -109,6 +124,16 @@ export class CreateProjectDto {
   @IsInt({ each: true })
   @Min(1, { each: true })
   dmaIds: number[];
+
+  /**
+   * Actual opening/show rows to create when ProjectStage = Confirmed.
+   * These become dbo.Performance rows for the generated engagement.
+   */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProjectOpeningPerformanceDto)
+  openingPerformances?: ProjectOpeningPerformanceDto[];
 
   // Frontend-only fields — accepted and silently ignored (Option A per §5.8)
   @IsOptional() name?: string | null;

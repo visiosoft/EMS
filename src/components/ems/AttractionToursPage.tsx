@@ -46,12 +46,14 @@ import {
   toursServerSearchKeyPrefix,
   fetchAttractions,
   fetchClasses,
+  fetchTourAgeRanges,
   fetchTours,
   fetchVenueTypesLookup,
   updateAttraction,
   updateTour,
   type ApiAttractionListRow,
   type ApiClass,
+  type ApiAgeRange,
   type ApiTourListRow,
   type ApiVenueType,
 } from '@/api/attractionToursApi';
@@ -90,6 +92,12 @@ import { type ApiPaginatedResponse } from '@/api/attractionToursApi';
 import { TOUR_STATUS_OPTIONS } from './tourFormLegacy';
 import { AddTourForm } from './AddTourForm';
 
+const AUDIENCE_GENDER_OPTIONS = [
+  { value: '', label: '—' },
+  { value: 'All', label: 'All' },
+  { value: 'Male', label: 'Male' },
+  { value: 'Female', label: 'Female' },
+] as const;
 
 /**
  * Talent-agency picklist plus the tour's current management company when that
@@ -891,6 +899,7 @@ function TourDrawer({
   attractions,
   classes,
   venueTypes,
+  ageRanges,
   companies,
   managementCompanyOptions,
   addToast,
@@ -904,6 +913,7 @@ function TourDrawer({
   attractions: ApiAttractionListRow[];
   classes: ApiClass[];
   venueTypes: ApiVenueType[];
+  ageRanges: ApiAgeRange[];
   companies: ApiCompanyListRow[];
   managementCompanyOptions: { value: string; label: string }[];
   addToast: (msg: string, type: 'success'|'error'|'warning'|'info') => void;
@@ -946,7 +956,10 @@ function TourDrawer({
     tour.venueTypePreferenceId != null ? String(tour.venueTypePreferenceId) : '',
   );
   const [audienceGender, setAudienceGender] = useState(tour.audienceGender ?? '');
-  const [audienceAgeRange, setAudienceAgeRange] = useState(tour.audienceAgeRange ?? '');
+  const [audienceAgeRangeIds, setAudienceAgeRangeIds] = useState<string[]>(
+    () => (tour.audienceAgeRangeIds ?? []).map(String),
+  );
+  const [jobName, setJobName] = useState(tour.jobName ?? '');
   const [insuranceLanguage, setInsuranceLanguage] = useState(tour.tourInsuranceLanguage ?? '');
   const [ascap, setAscap] = useState(tour.ascap);
   const [bmi, setBmi] = useState(tour.bmi);
@@ -959,7 +972,7 @@ function TourDrawer({
     attractionId?: string;
     classId?: string;
     audienceGender?: string;
-    audienceAgeRange?: string;
+    jobName?: string;
     insurance?: string;
   }>({});
   const [bannerFile, setBannerFile] = useState<File | null>(null);
@@ -989,7 +1002,8 @@ function TourDrawer({
       tour.venueTypePreferenceId != null ? String(tour.venueTypePreferenceId) : '',
     );
     setAudienceGender(tour.audienceGender ?? '');
-    setAudienceAgeRange(tour.audienceAgeRange ?? '');
+    setAudienceAgeRangeIds((tour.audienceAgeRangeIds ?? []).map(String));
+    setJobName(tour.jobName ?? '');
     setInsuranceLanguage(tour.tourInsuranceLanguage ?? '');
     setAscap(tour.ascap);
     setBmi(tour.bmi);
@@ -1074,6 +1088,10 @@ function TourDrawer({
       label: v.venueTypeName,
     })),
   ];
+  const ageRangeOptions = ageRanges.map((range) => ({
+    value: String(range.ageRangeId),
+    label: range.ageRangeLabel,
+  }));
 
   const headerAttractionName =
     attractions.find((a) => a.attractionId === Number(attractionId))?.attractionName ??
@@ -1088,10 +1106,12 @@ function TourDrawer({
     else if (tn.length > 200) next.tourName = 'Tour name must be 200 characters or fewer.';
     if (!attractionId) next.attractionId = 'Attraction is required.';
     if (!classId) next.classId = 'Genre / Class is required.';
-    const ag = audienceGender.trim();
-    if (ag.length > 100) next.audienceGender = 'Audience gender must be 100 characters or fewer.';
-    const ar = audienceAgeRange.trim();
-    if (ar.length > 100) next.audienceAgeRange = 'Audience age range must be 100 characters or fewer.';
+    if (audienceGender && !AUDIENCE_GENDER_OPTIONS.some((option) => option.value === audienceGender)) {
+      next.audienceGender = 'Choose All, Male, or Female.';
+    }
+    if (jobName.trim().length > 255) {
+      next.jobName = 'Tour job must be 255 characters or fewer.';
+    }
     const ins = insuranceLanguage.trim();
     if (ins.length > 2000) next.insurance = 'Tour insurance language must be 2000 characters or fewer.';
     if (Object.keys(next).length) {
@@ -1118,7 +1138,8 @@ function TourDrawer({
             ? Number(venueTypePreferenceId)
             : null,
           audienceGender: audienceGender.trim() || null,
-          audienceAgeRange: audienceAgeRange.trim() || null,
+          audienceAgeRangeIds: audienceAgeRangeIds.map(Number),
+          jobName: jobName.trim() || null,
           tourInsuranceLanguage: insuranceLanguage.trim() || null,
           ascap,
           bmi,
@@ -1157,7 +1178,8 @@ function TourDrawer({
       tour.venueTypePreferenceId != null ? String(tour.venueTypePreferenceId) : '',
     );
     setAudienceGender(tour.audienceGender ?? '');
-    setAudienceAgeRange(tour.audienceAgeRange ?? '');
+    setAudienceAgeRangeIds((tour.audienceAgeRangeIds ?? []).map(String));
+    setJobName(tour.jobName ?? '');
     setInsuranceLanguage(tour.tourInsuranceLanguage ?? '');
     setAscap(tour.ascap);
     setBmi(tour.bmi);
@@ -1307,24 +1329,42 @@ function TourDrawer({
                 </div>
               )}
             </FormField>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <InlineField
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <InlineSelectField
                 label="Audience Gender"
                 value={audienceGender}
                 onChange={mark(setAudienceGender)}
-                placeholder="Not set"
-                maxLength={100}
+                options={[...AUDIENCE_GENDER_OPTIONS]}
+                allowClear
                 error={tourFieldErrors.audienceGender}
               />
+              <FormField label="Audience Age Range">
+                <Select2Multi
+                  options={ageRangeOptions}
+                  values={audienceAgeRangeIds}
+                  onChange={(values) => {
+                    setAudienceAgeRangeIds(values);
+                    setTourFieldErrors({});
+                    setDirty(true);
+                  }}
+                  placeholder="Select one or more age ranges…"
+                  disabled={saving}
+                />
+              </FormField>
               <InlineField
-                label="Audience Age Range"
-                value={audienceAgeRange}
-                onChange={mark(setAudienceAgeRange)}
-                placeholder="Not set"
-                maxLength={100}
-                error={tourFieldErrors.audienceAgeRange}
+                label="Tour Job"
+                value={jobName}
+                onChange={mark(setJobName)}
+                placeholder="QuickBooks job classification"
+                maxLength={255}
+                error={tourFieldErrors.jobName}
               />
             </div>
+            {ageRangeOptions.length === 0 && (
+              <p className="text-[11px] text-text-muted -mt-2">
+                Age range options are not available yet.
+              </p>
+            )}
             <div className="space-y-2">
               <div>
                 <span className="text-xs text-text-muted">Licensing</span>
@@ -1666,12 +1706,13 @@ export function AttractionToursPage({ addToast }: Props) {
   const lookupsQuery = useQuery({
     queryKey: ['attraction-tours-lookups'],
     queryFn: async () => {
-      const [classes, companies, venueTypes] = await Promise.all([
+      const [classes, companies, venueTypes, ageRanges] = await Promise.all([
         fetchClasses(),
         fetchCompanies(0, COMPANIES_PICKER_LIMIT, {}),
         fetchVenueTypesLookup(),
+        fetchTourAgeRanges(),
       ]);
-      return { classes, companies: companies.data, venueTypes };
+      return { classes, companies: companies.data, venueTypes, ageRanges };
     },
     staleTime: 30 * 60 * 1000,
     gcTime: 60 * 60 * 1000,
@@ -1984,6 +2025,7 @@ export function AttractionToursPage({ addToast }: Props) {
   const lkp = lookupsQuery.data;
   const classes = lkp?.classes ?? [];
   const venueTypes = lkp?.venueTypes ?? [];
+  const ageRanges = lkp?.ageRanges ?? [];
   const companies = lkp?.companies ?? [];
 
   const managementCompanyOptions = useMemo(() => {
@@ -2787,6 +2829,7 @@ export function AttractionToursPage({ addToast }: Props) {
           venueTypes={venueTypes}
           companies={companies}
           managementCompanyOptions={managementCompanyOptions}
+          ageRanges={ageRanges}
           addToast={addToast}
           onClose={() => setSelectedTourId(null)}
           onDelete={(t) => setPendingDeleteTour(t)}
@@ -2839,6 +2882,7 @@ export function AttractionToursPage({ addToast }: Props) {
             companies={companies}
             managementCompanyOptions={managementCompanyOptions}
             venueTypes={venueTypes}
+            ageRanges={ageRanges}
             initial={editTour}
             submitting={updateTourMut.isPending}
             onCancel={() => setEditTour(null)}
@@ -2924,6 +2968,7 @@ function TourFormDb({
   companies,
   managementCompanyOptions,
   venueTypes,
+  ageRanges,
   initial,
   submitting,
   onSave,
@@ -2934,6 +2979,7 @@ function TourFormDb({
   companies: ApiCompanyListRow[];
   managementCompanyOptions: { value: string; label: string }[];
   venueTypes: ApiVenueType[];
+  ageRanges: ApiAgeRange[];
   initial?: ApiTourListRow;
   submitting: boolean;
   onSave: (
@@ -2961,7 +3007,10 @@ function TourFormDb({
   const [sesac, setSesac] = useState(initial?.sesac ?? false);
   const [gmr, setGmr] = useState(initial?.gmr ?? false);
   const [audienceGender, setAudienceGender] = useState(initial?.audienceGender ?? '');
-  const [audienceAgeRange, setAudienceAgeRange] = useState(initial?.audienceAgeRange ?? '');
+  const [audienceAgeRangeIds, setAudienceAgeRangeIds] = useState<string[]>(
+    () => (initial?.audienceAgeRangeIds ?? []).map(String),
+  );
+  const [jobName, setJobName] = useState(initial?.jobName ?? '');
   const [tourInsuranceLanguage, setTourInsuranceLanguage] = useState(initial?.tourInsuranceLanguage ?? '');
   const [venueTypePreferenceId, setVenueTypePreferenceId] = useState(
     initial?.venueTypePreferenceId != null ? String(initial.venueTypePreferenceId) : '',
@@ -3014,6 +3063,9 @@ function TourFormDb({
     setStripBanner(false);
     setBannerInputKey((k) => k + 1);
     setTalentAgentContactIds((initial?.talentAgentContactIds ?? []).map(String));
+    setAudienceGender(initial?.audienceGender ?? '');
+    setAudienceAgeRangeIds((initial?.audienceAgeRangeIds ?? []).map(String));
+    setJobName(initial?.jobName ?? '');
     setShowAddContact(false);
   }, [initial?.tourId]);
 
@@ -3070,6 +3122,10 @@ function TourFormDb({
   }, [talentAgentOptions, talentAgentContactIds.length]);
   const statusOptions = [{ value: '', label: '—' }, ...TOUR_STATUS_OPTIONS];
   const venueTypeOptions = [{ value: '', label: '—' }, ...venueTypes.map((v) => ({ value: String(v.venueTypeId), label: v.venueTypeName }))];
+  const ageRangeOptions = ageRanges.map((range) => ({
+    value: String(range.ageRangeId),
+    label: range.ageRangeLabel,
+  }));
 
   const buildPayload = (): import('@/api/attractionToursApi').CreateTourPayload => ({
     tourName: name.trim(),
@@ -3083,7 +3139,8 @@ function TourFormDb({
     tourManagementCompanyId: talentAgentCompanyId ? Number(talentAgentCompanyId) : null,
     talentAgentContactIds: talentAgentContactIds.map(Number),
     audienceGender: audienceGender.trim() || null,
-    audienceAgeRange: audienceAgeRange.trim() || null,
+    audienceAgeRangeIds: audienceAgeRangeIds.map(Number),
+    jobName: jobName.trim() || null,
     tourInsuranceLanguage: tourInsuranceLanguage.trim() || null,
     venueTypePreferenceId: venueTypePreferenceId ? Number(venueTypePreferenceId) : null,
   });
@@ -3101,11 +3158,11 @@ function TourFormDb({
     if (!classId || !Number.isFinite(cId) || cId < 1) {
       next.class = 'Class (genre) is required.';
     }
-    if (audienceGender.trim().length > 100) {
-      next.audienceGender = 'Audience gender must be 100 characters or fewer.';
+    if (audienceGender && !AUDIENCE_GENDER_OPTIONS.some((option) => option.value === audienceGender)) {
+      next.audienceGender = 'Choose All, Male, or Female.';
     }
-    if (audienceAgeRange.trim().length > 100) {
-      next.audienceAge = 'Audience age range must be 100 characters or fewer.';
+    if (jobName.trim().length > 255) {
+      next.jobName = 'Tour job must be 255 characters or fewer.';
     }
     if (tourInsuranceLanguage.trim().length > 2000) {
       next.insurance = 'Tour insurance language must be 2000 characters or fewer.';
@@ -3469,29 +3526,43 @@ function TourFormDb({
       </FormField>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <FormField label="Audience Gender" error={fieldErrors.audienceGender}>
-          <input
-            className={inputCls}
+          <Select2
+            options={[...AUDIENCE_GENDER_OPTIONS]}
             value={audienceGender}
-            onChange={(e) => {
-              setAudienceGender(e.target.value);
+            onChange={(value) => {
+              setAudienceGender(value);
               clearError('audienceGender');
             }}
-            maxLength={100}
-            placeholder="e.g. All, Female, Male"
+            placeholder="Select gender…"
+            allowClear
           />
         </FormField>
-        <FormField label="Audience Age Range" error={fieldErrors.audienceAge}>
-          <input
-            className={inputCls}
-            value={audienceAgeRange}
-            onChange={(e) => {
-              setAudienceAgeRange(e.target.value);
+        <FormField label="Audience Age Range">
+          <Select2Multi
+            options={ageRangeOptions}
+            values={audienceAgeRangeIds}
+            onChange={(values) => {
+              setAudienceAgeRangeIds(values);
               clearError('audienceAge');
             }}
-            maxLength={100}
-            placeholder="e.g. 18-35, All Ages"
+            placeholder="Select one or more age ranges…"
+            disabled={submitting}
           />
         </FormField>
+        <FormField label="Tour Job" error={fieldErrors.jobName}>
+          <input
+            className={inputCls}
+            value={jobName}
+            onChange={(e) => {
+              setJobName(e.target.value);
+              clearError('jobName');
+            }}
+            maxLength={255}
+            placeholder="QuickBooks job classification"
+          />
+        </FormField>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <FormField label="Preferred Venue Type">
           <Select2
             options={venueTypeOptions}
