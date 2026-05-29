@@ -29,7 +29,7 @@ export class InternalEmployeesService {
       this.configService.get<string>('IAE_COMPANY_ID', '35025'),
     );
 
-    const rows = (await this.dataSource.query(
+    const rows = await this.dataSource.query(
       `
       SELECT
         ranked.contactId,
@@ -68,13 +68,15 @@ export class InternalEmployeesService {
       ORDER BY ranked.lastName ASC, ranked.firstName ASC
       `,
       [companyId],
-    )) as IaeEmployeeRow[];
+    );
 
     const seenEmails = new Set<string>();
     const deduped: IaeEmployeeRow[] = [];
 
     for (const row of rows) {
-      const emailKey = String(row.email ?? '').trim().toLowerCase();
+      const emailKey = String(row.email ?? '')
+        .trim()
+        .toLowerCase();
       if (emailKey && seenEmails.has(emailKey)) continue;
       if (emailKey) seenEmails.add(emailKey);
       deduped.push(row);

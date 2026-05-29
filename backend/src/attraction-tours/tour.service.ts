@@ -96,7 +96,7 @@ export class TourService {
 
     let linkedTalentAgency = false;
     try {
-      const rows = (await this.companyRepo.manager.query(
+      const rows = await this.companyRepo.manager.query(
         `
           SELECT TOP 1 1 AS ok
           FROM dbo.CompanyCompanyType cct
@@ -104,7 +104,7 @@ export class TourService {
           WHERE cct.CompanyID = ${Number(companyId)}
             AND LOWER(LTRIM(RTRIM(ct.CompanyTypeName))) = 'talent agency'
         `,
-      )) as { ok?: number }[];
+      );
       linkedTalentAgency = rows.length > 0;
     } catch (e) {
       this.logger.warn(
@@ -469,9 +469,16 @@ export class TourService {
       .addOrderBy('t.tourId', 'ASC');
 
     const total = await qb.getCount();
-    const rows = await qb.skip(Math.max(0, offset)).take(Math.max(1, limit)).getMany();
-    const bannerMap = await this.tourBannerUrlsByTourIds(rows.map((t) => t.tourId));
-    const agentMap = await this.tourTalentAgentsByTourIds(rows.map((t) => t.tourId));
+    const rows = await qb
+      .skip(Math.max(0, offset))
+      .take(Math.max(1, limit))
+      .getMany();
+    const bannerMap = await this.tourBannerUrlsByTourIds(
+      rows.map((t) => t.tourId),
+    );
+    const agentMap = await this.tourTalentAgentsByTourIds(
+      rows.map((t) => t.tourId),
+    );
 
     return {
       data: rows.map((t) =>

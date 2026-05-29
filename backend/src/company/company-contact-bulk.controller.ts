@@ -19,7 +19,10 @@ import { Role } from '../entities/role.entity';
 import { Department } from '../entities/department.entity';
 import { CreateCompanyContactBulkDto } from './dto/create-company-contact-bulk.dto';
 
-function assertOptionalE164Phone(value: string | null | undefined, field: 'work phone' | 'cell phone') {
+function assertOptionalE164Phone(
+  value: string | null | undefined,
+  field: 'work phone' | 'cell phone',
+) {
   if (value == null) return;
   const t = value.trim();
   if (!t) return;
@@ -33,13 +36,18 @@ function assertOptionalE164Phone(value: string | null | undefined, field: 'work 
 }
 
 function uniquePositiveInts(values: number[]): number[] {
-  return Array.from(new Set((values ?? []).map(Number).filter((n) => Number.isInteger(n) && n > 0)));
+  return Array.from(
+    new Set(
+      (values ?? []).map(Number).filter((n) => Number.isInteger(n) && n > 0),
+    ),
+  );
 }
 
 function getRaw(row: Record<string, unknown>, key: string): unknown {
   if (row[key] !== undefined && row[key] !== null) return row[key];
   const lower = key.toLowerCase();
-  for (const k of Object.keys(row)) if (k.toLowerCase() === lower) return row[k];
+  for (const k of Object.keys(row))
+    if (k.toLowerCase() === lower) return row[k];
   return undefined;
 }
 
@@ -54,21 +62,34 @@ export class CompanyContactBulkController {
   ) {
     const roleIds = uniquePositiveInts(dto.roleIds);
     const departmentIds = uniquePositiveInts(dto.departmentIds);
-    if (roleIds.length === 0) throw new BadRequestException({ message: 'Select at least one role.' });
-    if (departmentIds.length === 0) throw new BadRequestException({ message: 'Select at least one department.' });
+    if (roleIds.length === 0)
+      throw new BadRequestException({ message: 'Select at least one role.' });
+    if (departmentIds.length === 0)
+      throw new BadRequestException({
+        message: 'Select at least one department.',
+      });
     assertOptionalE164Phone(dto.workPhone ?? null, 'work phone');
     assertOptionalE164Phone(dto.cellPhone ?? null, 'cell phone');
 
     return this.dataSource.transaction(async (em) => {
       const company = await em.findOne(Company, { where: { companyId } });
-      if (!company) throw new BadRequestException({ message: `Company #${companyId} does not exist.` });
+      if (!company)
+        throw new BadRequestException({
+          message: `Company #${companyId} does not exist.`,
+        });
 
       const [roles, departments] = await Promise.all([
         em.find(Role, { where: { roleId: In(roleIds) } }),
         em.find(Department, { where: { departmentId: In(departmentIds) } }),
       ]);
-      if (roles.length !== roleIds.length) throw new BadRequestException({ message: 'One or more selected roles are invalid.' });
-      if (departments.length !== departmentIds.length) throw new BadRequestException({ message: 'One or more selected departments are invalid.' });
+      if (roles.length !== roleIds.length)
+        throw new BadRequestException({
+          message: 'One or more selected roles are invalid.',
+        });
+      if (departments.length !== departmentIds.length)
+        throw new BadRequestException({
+          message: 'One or more selected departments are invalid.',
+        });
 
       const savedContact = await this.getOrCreateContact(em, dto);
       const createdIds: number[] = [];
@@ -77,7 +98,12 @@ export class CompanyContactBulkController {
       for (const roleId of roleIds) {
         for (const departmentId of departmentIds) {
           const existing = await em.findOne(ContactAssignment, {
-            where: { companyId, contactId: savedContact.contactId, roleId, departmentId },
+            where: {
+              companyId,
+              contactId: savedContact.contactId,
+              roleId,
+              departmentId,
+            },
           });
           if (existing) {
             skipped.push(`${roleId}:${departmentId}`);
@@ -100,7 +126,8 @@ export class CompanyContactBulkController {
         throw new ConflictException({
           statusCode: HttpStatus.CONFLICT,
           error: 'Conflict',
-          message: 'This contact is already linked to this company for all selected role and department combinations.',
+          message:
+            'This contact is already linked to this company for all selected role and department combinations.',
           detail: skipped.join(', '),
         });
       }
@@ -109,7 +136,10 @@ export class CompanyContactBulkController {
     });
   }
 
-  private async getOrCreateContact(em: EntityManager, dto: CreateCompanyContactBulkDto): Promise<Contact> {
+  private async getOrCreateContact(
+    em: EntityManager,
+    dto: CreateCompanyContactBulkDto,
+  ): Promise<Contact> {
     const email = dto.email.trim();
     const existingInfo = await em
       .createQueryBuilder(ContactInfo, 'ci')
@@ -117,23 +147,43 @@ export class CompanyContactBulkController {
       .getOne();
 
     const info = existingInfo
-      ? await em.save(ContactInfo, Object.assign(existingInfo, {
-          firstName: dto.firstName.trim(),
-          lastName: dto.lastName.trim(),
-          email,
-          cellPhone: dto.cellPhone !== undefined ? dto.cellPhone?.trim() || null : existingInfo.cellPhone,
-          workPhone: dto.workPhone !== undefined ? dto.workPhone?.trim() || null : existingInfo.workPhone,
-        }))
-      : await em.save(ContactInfo, em.create(ContactInfo, {
-          firstName: dto.firstName.trim(),
-          lastName: dto.lastName.trim(),
-          email,
-          cellPhone: dto.cellPhone?.trim() || null,
-          workPhone: dto.workPhone?.trim() || null,
-        }));
+      ? await em.save(
+          ContactInfo,
+          Object.assign(existingInfo, {
+            firstName: dto.firstName.trim(),
+            lastName: dto.lastName.trim(),
+            email,
+            cellPhone:
+              dto.cellPhone !== undefined
+                ? dto.cellPhone?.trim() || null
+                : existingInfo.cellPhone,
+            workPhone:
+              dto.workPhone !== undefined
+                ? dto.workPhone?.trim() || null
+                : existingInfo.workPhone,
+          }),
+        )
+      : await em.save(
+          ContactInfo,
+          em.create(ContactInfo, {
+            firstName: dto.firstName.trim(),
+            lastName: dto.lastName.trim(),
+            email,
+            cellPhone: dto.cellPhone?.trim() || null,
+            workPhone: dto.workPhone?.trim() || null,
+          }),
+        );
 
-    const existingContact = await em.findOne(Contact, { where: { contactInfoId: info.contactInfoId } });
-    return existingContact ?? em.save(Contact, em.create(Contact, { contactInfoId: info.contactInfoId }));
+    const existingContact = await em.findOne(Contact, {
+      where: { contactInfoId: info.contactInfoId },
+    });
+    return (
+      existingContact ??
+      em.save(
+        Contact,
+        em.create(Contact, { contactInfoId: info.contactInfoId }),
+      )
+    );
   }
 
   private async getRowsByAssignmentIds(em: EntityManager, ids: number[]) {
@@ -169,8 +219,14 @@ export class CompanyContactBulkController {
       firstName: String(getRaw(row, 'firstName') ?? ''),
       lastName: String(getRaw(row, 'lastName') ?? ''),
       email: String(getRaw(row, 'email') ?? ''),
-      cellPhone: getRaw(row, 'cellPhone') == null ? null : String(getRaw(row, 'cellPhone')),
-      workPhone: getRaw(row, 'workPhone') == null ? null : String(getRaw(row, 'workPhone')),
+      cellPhone:
+        getRaw(row, 'cellPhone') == null
+          ? null
+          : String(getRaw(row, 'cellPhone')),
+      workPhone:
+        getRaw(row, 'workPhone') == null
+          ? null
+          : String(getRaw(row, 'workPhone')),
       roleId: Number(getRaw(row, 'roleId')),
       roleName: String(getRaw(row, 'roleName') ?? ''),
       departmentId: Number(getRaw(row, 'departmentId')),

@@ -529,6 +529,14 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
     setShowSearchSuggestions(false);
   }, [searchInput]);
 
+  useEffect(() => {
+    const next = searchInput.trim();
+    const t = window.setTimeout(() => {
+      setSearchCommitted(next);
+    }, 220);
+    return () => window.clearTimeout(t);
+  }, [searchInput]);
+
   const engagementsPagedQuery = useQuery({
     queryKey: engagementsPagedQueryKey(offset, limit, pagedOpts),
     queryFn: () => fetchEngagementsPaged(offset, limit, pagedOpts),
@@ -752,7 +760,6 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
                   const v = e.target.value;
                   setSearchInput(v);
                   setShowSearchSuggestions(true);
-                  if (!v.trim()) setSearchCommitted('');
                 }}
                 onFocus={() => {
                   if (searchInput.trim()) setShowSearchSuggestions(true);
