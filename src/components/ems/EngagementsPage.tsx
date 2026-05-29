@@ -55,7 +55,9 @@ interface Props {
 }
 
 type EngagementsViewMode = 'list' | 'tiles';
+type EngagementTileSize = 'small' | 'medium' | 'large';
 const ENGAGEMENTS_VIEW_MODE_STORAGE_KEY = 'iae-engagements-view-mode-v1';
+const ENGAGEMENTS_TILE_SIZE_STORAGE_KEY = 'iae-engagements-tile-size-v1';
 const ENGAGEMENTS_SORT_STATE_STORAGE_KEY = 'iae-engagements-sort-state-v1';
 const EMS_SAVED_VIEWS_ENABLED_KEY = 'iae-ems-saved-views-enabled-v1';
 
@@ -170,6 +172,24 @@ function loadEngagementsViewMode(): EngagementsViewMode {
   }
 }
 
+function loadEngagementsTileSize(): EngagementTileSize {
+  if (typeof window === 'undefined') return 'large';
+  try {
+    const raw = localStorage.getItem(ENGAGEMENTS_TILE_SIZE_STORAGE_KEY);
+    return raw === 'small' || raw === 'medium' || raw === 'large' ? raw : 'large';
+  } catch {
+    return 'large';
+  }
+}
+
+function saveEngagementsTileSize(size: EngagementTileSize) {
+  try {
+    localStorage.setItem(ENGAGEMENTS_TILE_SIZE_STORAGE_KEY, size);
+  } catch {
+    /* ignore */
+  }
+}
+
 function saveEngagementsViewMode(mode: EngagementsViewMode) {
   try {
     localStorage.setItem(ENGAGEMENTS_VIEW_MODE_STORAGE_KEY, mode);
@@ -182,13 +202,14 @@ function loadEngagementsSortState(): {
   col: EngagementMovableColumnId | null;
   dir: 'asc' | 'desc';
 } {
-  if (typeof window === 'undefined') return { col: null, dir: 'asc' };
+  const defaultSort = { col: 'date' as EngagementMovableColumnId, dir: 'asc' as const };
+  if (typeof window === 'undefined') return defaultSort;
   try {
     if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') {
-      return { col: null, dir: 'asc' };
+      return defaultSort;
     }
     const raw = localStorage.getItem(ENGAGEMENTS_SORT_STATE_STORAGE_KEY);
-    if (!raw) return { col: null, dir: 'asc' };
+    if (!raw) return defaultSort;
     const parsed = JSON.parse(raw) as { col?: unknown; dir?: unknown };
     const validCols = new Set<EngagementMovableColumnId>(DEFAULT_ENGAGEMENT_MOVABLE_COLUMNS);
     const col =
@@ -196,9 +217,9 @@ function loadEngagementsSortState(): {
         ? (parsed.col as EngagementMovableColumnId)
         : null;
     const dir = parsed.dir === 'desc' ? 'desc' : 'asc';
-    return { col, dir };
+    return col ? { col, dir } : defaultSort;
   } catch {
-    return { col: null, dir: 'asc' };
+    return defaultSort;
   }
 }
 
@@ -378,6 +399,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
   const qc = useQueryClient();
   const [searchInput, setSearchInput] = useState('');
   const [searchCommitted, setSearchCommitted] = useState('');
+  const [selectedSearchEngagementId, setSelectedSearchEngagementId] = useState<number | null>(null);
   const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
   const engagementSearchRef = useRef<HTMLDivElement>(null);
   const [statusFilter, setStatusFilter] = useState(initFilter || 'All');
@@ -398,6 +420,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
     dir: 'asc' | 'desc';
   }>(loadEngagementsSortState);
   const [viewMode, setViewMode] = useState<EngagementsViewMode>(loadEngagementsViewMode);
+  const [tileSize, setTileSize] = useState<EngagementTileSize>(loadEngagementsTileSize);
 
   const visualSlots = useMemo(
     () => [...movableColumnOrder, 'status'] as const satisfies readonly EngagementTableColumnId[],
@@ -448,7 +471,8 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
   const { offset, limit } = getPageParams(page, pageSize);
 
   const pagedOpts: EngagementPagedQueryOpts = {
-    q: searchCommitted || undefined,
+    q: selectedSearchEngagementId == null ? searchCommitted || undefined : undefined,
+    engagementId: selectedSearchEngagementId ?? undefined,
     status: statusFilter !== 'All' ? statusFilter : undefined,
     attraction: attractionFilter || undefined,
     dma: dmaFilter || undefined,
@@ -483,9 +507,9 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
 
   const engagementSearchSuggestions = useMemo(() => {
     const q = searchInput.trim().toLowerCase();
-    if (!q) return [] as Array<{ label: string; query: string }>;
+    if (!q) return [] as Array<{ key: string; label: string; query: string; engagementId: number }>;
     const list = engagementsSuggestionQuery.data?.data ?? [];
-    const out: Array<{ label: string; query: string }> = [];
+    const out: Array<{ key: string; label: string; query: string; engagementId: number }> = [];
     for (const row of list) {
       const candidates = [
         row.tourName,
@@ -511,13 +535,15 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
         candidates[0] ??
         String(row.displayTitle ?? '').trim() ??
         `Engagement #${row.engagementId}`;
-      const label =
-        String(row.displayTitle ?? '').trim() ||
-        query ||
-        `Engagement #${row.engagementId}`;
+      const venue = String(row.venueCompanyName ?? row.venueName ?? '').trim();
+      const date = formatFirstShowLine(row.openingPerformanceDate, row.openingPerformanceTime);
+      const title = String(row.displayTitle ?? '').trim() || query || `Engagement #${row.engagementId}`;
+      const label = [title, venue ? `@ ${venue}` : '', date !== '—' ? date : '']
+        .filter(Boolean)
+        .join(' · ');
       if (!query) continue;
-      if (!out.some((t) => t.query.toLowerCase() === query.toLowerCase())) {
-        out.push({ label, query });
+      if (!out.some((t) => t.engagementId === row.engagementId)) {
+        out.push({ key: String(row.engagementId), label, query: label, engagementId: row.engagementId });
       }
       if (out.length >= 8) break;
     }
@@ -525,17 +551,11 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
   }, [searchInput, engagementsSuggestionQuery.data]);
 
   const commitEngagementSearch = useCallback(() => {
-    setSearchCommitted(searchInput.trim());
+    if (selectedSearchEngagementId == null) {
+      setSearchCommitted(searchInput.trim());
+    }
     setShowSearchSuggestions(false);
-  }, [searchInput]);
-
-  useEffect(() => {
-    const next = searchInput.trim();
-    const t = window.setTimeout(() => {
-      setSearchCommitted(next);
-    }, 220);
-    return () => window.clearTimeout(t);
-  }, [searchInput]);
+  }, [searchInput, selectedSearchEngagementId]);
 
   const engagementsPagedQuery = useQuery({
     queryKey: engagementsPagedQueryKey(offset, limit, pagedOpts),
@@ -571,6 +591,12 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
 
   const rows = engagementsPagedQuery.data?.data ?? [];
   const serverTotal = engagementsPagedQuery.data?.total ?? 0;
+  const tileGridClass =
+    tileSize === 'large'
+      ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3'
+      : tileSize === 'medium'
+        ? 'grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-3'
+        : 'grid grid-cols-1 md:grid-cols-4 xl:grid-cols-6 gap-3';
 
   const filterOpts = filterOptsQuery.data;
 
@@ -603,6 +629,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
   const { rangeStart, rangeEnd } = getPageRange(pageClamped, serverTotal, pageSize);
 
   const hasActiveFilters =
+    selectedSearchEngagementId != null ||
     !!searchCommitted ||
     statusFilter !== 'All' ||
     !!attractionFilter ||
@@ -615,6 +642,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
   const resetEngagementFilters = useCallback(() => {
     setSearchInput('');
     setSearchCommitted('');
+    setSelectedSearchEngagementId(null);
     setShowSearchSuggestions(false);
     setStatusFilter('All');
     setAttractionFilter('');
@@ -626,7 +654,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
 
   useEffect(() => {
     setPage(1);
-  }, [searchCommitted, statusFilter, attractionFilter, dmaFilter, venueFilter, timingFilter]);
+  }, [searchCommitted, selectedSearchEngagementId, statusFilter, attractionFilter, dmaFilter, venueFilter, timingFilter]);
 
   useEffect(() => {
     setPage(1);
@@ -732,6 +760,41 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
               Tiles
             </button>
           </div>
+          {viewMode === 'tiles' && (
+            <div
+              className="inline-flex items-center rounded-md border border-border bg-surface p-0.5"
+              role="group"
+              aria-label="Engagement tile size"
+            >
+              {(
+                [
+                  { id: 'large' as const, label: 'L', title: 'Large tiles' },
+                  { id: 'medium' as const, label: 'M', title: 'Medium tiles' },
+                  { id: 'small' as const, label: 'S', title: 'Small tiles' },
+                ] as const
+              ).map(({ id, label, title }) => (
+                <button
+                  key={id}
+                  type="button"
+                  title={title}
+                  aria-label={title}
+                  aria-pressed={tileSize === id}
+                  onClick={() => {
+                    setTileSize(id);
+                    saveEngagementsTileSize(id);
+                  }}
+                  className={[
+                    'min-w-[1.75rem] rounded px-2 py-1 text-xs font-semibold transition-colors',
+                    tileSize === id
+                      ? 'bg-elevated text-text-primary'
+                      : 'text-text-secondary hover:text-text-primary',
+                  ].join(' ')}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
           <button
             type="button"
             onClick={() => setShowCreate(true)}
@@ -759,6 +822,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
                 onChange={(e) => {
                   const v = e.target.value;
                   setSearchInput(v);
+                  setSelectedSearchEngagementId(null);
                   setShowSearchSuggestions(true);
                 }}
                 onFocus={() => {
@@ -808,13 +872,14 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
                 engagementSearchSuggestions.length > 0
                   ? engagementSearchSuggestions.map((suggestion, i) => (
                       <button
-                        key={`${i}-${suggestion.label}-${suggestion.query}`}
+                        key={`${suggestion.key}-${i}`}
                         type="button"
                         className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
                         onMouseDown={(e) => {
                           e.preventDefault();
                           setSearchInput(suggestion.query);
-                          setSearchCommitted(suggestion.query);
+                          setSearchCommitted('');
+                          setSelectedSearchEngagementId(suggestion.engagementId);
                           setShowSearchSuggestions(false);
                         }}
                       >
@@ -1016,7 +1081,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
                     : 'No engagements match your search or filters.'}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                <div className={tileGridClass}>
                   {rows.map((r) => {
                     const thumb = engagementTileImageUrl(r);
                     const venueLine = r.venueCompanyName ?? r.venueName ?? '—';
@@ -1053,7 +1118,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
                             <StatusBadge status={r.engagementStatus} />
                           </span>
                         </div>
-                        <div className="p-3 space-y-2.5">
+                        <div className={tileSize === 'small' ? 'p-2.5 space-y-1.5' : 'p-3 space-y-2.5'}>
                           <EngagementTileRow label="Attraction" value={r.attractionName ?? '—'} />
                           <div className="min-w-0">
                             <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">Tour</p>

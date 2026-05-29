@@ -35,6 +35,7 @@ import { LookupsController } from '../lookups/lookups.controller';
 import { LookupsService } from '../lookups/lookups.service';
 import {
   CompanyController,
+  ContactsController,
   ContactAssignmentsController,
 } from './company.controller';
 import { CompanyContactBulkController } from './company-contact-bulk.controller';
@@ -79,6 +80,7 @@ const entities = [
   imports: [TypeOrmModule.forFeature(entities)],
   controllers: [
     CompanyController,
+    ContactsController,
     ContactAssignmentsController,
     CompanyContactBulkController,
     ContactAssignmentBulkUpdateController,

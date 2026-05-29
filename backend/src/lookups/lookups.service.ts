@@ -593,6 +593,78 @@ export class LookupsService {
     return n;
   }
 
+  private normalizeServiceProvidedIds(
+    dto: Pick<CreateLookupRowDto | UpdateLookupRowDto, 'serviceProvidedId' | 'serviceProvidedIds'>,
+  ): number[] {
+    const rawValues =
+      Array.isArray(dto.serviceProvidedIds) && dto.serviceProvidedIds.length > 0
+        ? dto.serviceProvidedIds
+        : dto.serviceProvidedId != null
+          ? [dto.serviceProvidedId]
+          : [];
+    const ids = [
+      ...new Set(
+        rawValues
+          .map((value) => Number(value))
+          .filter((value) => Number.isInteger(value) && value > 0),
+      ),
+    ];
+    if (ids.length === 0) {
+      throw new BadRequestException({
+        message: 'Select at least one service.',
+      });
+    }
+    return ids;
+  }
+
+  private async assertServicesExist(serviceProvidedIds: number[]) {
+    const services = await this.serviceProvidedRepo.find({
+      where: { serviceProvidedId: In(serviceProvidedIds) },
+      order: { serviceName: 'ASC' },
+    });
+    if (services.length !== serviceProvidedIds.length) {
+      throw new BadRequestException({
+        message: 'One or more selected services do not exist.',
+      });
+    }
+    return services;
+  }
+
+  private async companyTypeServiceGroup(companyTypeId: number) {
+    const companyType = await this.companyTypeRepo.findOne({
+      where: { companyTypeId },
+    });
+    if (!companyType) {
+      throw new NotFoundException(`CompanyType ${companyTypeId} was not found.`);
+    }
+    const rows = await this.companyTypeServiceRepo
+      .createQueryBuilder('cts')
+      .leftJoin(ServiceProvided, 'sp', 'sp.serviceProvidedId = cts.serviceProvidedId')
+      .select([
+        'cts.companyTypeId AS companyTypeId',
+        'cts.serviceProvidedId AS serviceProvidedId',
+        'sp.serviceName AS serviceName',
+      ])
+      .where('cts.companyTypeId = :companyTypeId', { companyTypeId })
+      .orderBy('sp.serviceName', 'ASC')
+      .getRawMany<Record<string, unknown>>();
+    const services = rows
+      .map((row) => ({
+        serviceProvidedId: Number(row.serviceProvidedId),
+        serviceName: String(row.serviceName ?? ''),
+      }))
+      .filter((row) => Number.isInteger(row.serviceProvidedId) && row.serviceProvidedId > 0);
+    return {
+      companyTypeServiceId: companyTypeId,
+      companyTypeId,
+      companyTypeName: companyType.companyTypeName,
+      serviceProvidedIds: services.map((row) => row.serviceProvidedId),
+      serviceNames: services.map((row) => row.serviceName),
+      serviceName: services.map((row) => row.serviceName).join(', '),
+      services,
+    };
+  }
+
   private parseSortDirection(raw?: string): 'ASC' | 'DESC' {
     return String(raw ?? '')
       .trim()
@@ -735,46 +807,69 @@ export class LookupsService {
         );
       }
 
-      if (sortBy === 'companytypeid') {
-        qb.orderBy('cts.companyTypeId', sortDir).addOrderBy(
-          'sp.serviceName',
-          'ASC',
-        );
-      } else if (sortBy === 'serviceprovidedid') {
-        qb.orderBy('cts.serviceProvidedId', sortDir).addOrderBy(
-          'ct.companyTypeName',
-          'ASC',
-        );
-      } else if (sortBy === 'companytypename') {
-        qb.orderBy('ct.companyTypeName', sortDir).addOrderBy(
-          'sp.serviceName',
-          'ASC',
-        );
-      } else if (sortBy === 'servicename') {
-        qb.orderBy('sp.serviceName', sortDir).addOrderBy(
-          'ct.companyTypeName',
-          'ASC',
-        );
-      } else {
-        qb.orderBy('ct.companyTypeName', sortDir).addOrderBy(
-          'sp.serviceName',
-          'ASC',
-        );
-      }
+      qb.orderBy('ct.companyTypeName', 'ASC').addOrderBy('sp.serviceName', 'ASC');
 
-      const total = await qb.getCount();
-      const rows = await qb
-        .offset(opts.offset)
-        .limit(opts.limit)
-        .getRawMany<Record<string, unknown>>();
+      const rows = await qb.getRawMany<Record<string, unknown>>();
+      const grouped = new Map<
+        number,
+        {
+          companyTypeServiceId: number;
+          companyTypeId: number;
+          companyTypeName: string;
+          serviceProvidedIds: number[];
+          serviceNames: string[];
+          services: { serviceProvidedId: number; serviceName: string }[];
+        }
+      >();
+      for (const r of rows) {
+        const companyTypeId = Number(r.companyTypeId);
+        const serviceProvidedId = Number(r.serviceProvidedId);
+        if (!Number.isInteger(companyTypeId) || companyTypeId < 1) continue;
+        const current =
+          grouped.get(companyTypeId) ??
+          {
+            companyTypeServiceId: companyTypeId,
+            companyTypeId,
+            companyTypeName: String(r.companyTypeName ?? ''),
+            serviceProvidedIds: [],
+            serviceNames: [],
+            services: [],
+          };
+        if (
+          Number.isInteger(serviceProvidedId) &&
+          serviceProvidedId > 0 &&
+          !current.serviceProvidedIds.includes(serviceProvidedId)
+        ) {
+          const serviceName = String(r.serviceName ?? '');
+          current.serviceProvidedIds.push(serviceProvidedId);
+          current.serviceNames.push(serviceName);
+          current.services.push({ serviceProvidedId, serviceName });
+        }
+        grouped.set(companyTypeId, current);
+      }
+      const data = [...grouped.values()].map((row) => ({
+        ...row,
+        serviceName: row.serviceNames.join(', '),
+      }));
+      const dir = sortDir === 'DESC' ? -1 : 1;
+      data.sort((a, b) => {
+        const av =
+          sortBy === 'servicename'
+            ? String(a.serviceName ?? '')
+            : sortBy === 'companytypeid'
+              ? String(a.companyTypeId).padStart(10, '0')
+              : String(a.companyTypeName ?? '');
+        const bv =
+          sortBy === 'servicename'
+            ? String(b.serviceName ?? '')
+            : sortBy === 'companytypeid'
+              ? String(b.companyTypeId).padStart(10, '0')
+              : String(b.companyTypeName ?? '');
+        return av.localeCompare(bv, undefined, { sensitivity: 'base' }) * dir;
+      });
+      const total = data.length;
       return {
-        data: rows.map((r) => ({
-          companyTypeServiceId: Number(r.companyTypeServiceId),
-          companyTypeId: Number(r.companyTypeId),
-          serviceProvidedId: Number(r.serviceProvidedId),
-          companyTypeName: String(r.companyTypeName ?? ''),
-          serviceName: String(r.serviceName ?? ''),
-        })),
+        data: data.slice(opts.offset, opts.offset + opts.limit),
         total,
       };
     }
@@ -956,45 +1051,34 @@ export class LookupsService {
         dto.companyTypeId,
         'companyTypeId',
       );
-      const serviceProvidedId = this.toPositiveInt(
-        dto.serviceProvidedId,
-        'serviceProvidedId',
-      );
-      const [companyType, service] = await Promise.all([
+      const serviceProvidedIds = this.normalizeServiceProvidedIds(dto);
+      const [companyType, services] = await Promise.all([
         this.companyTypeRepo.findOne({ where: { companyTypeId } }),
-        this.serviceProvidedRepo.findOne({ where: { serviceProvidedId } }),
+        this.assertServicesExist(serviceProvidedIds),
       ]);
       if (!companyType) {
         throw new BadRequestException({
           message: 'Selected company type does not exist.',
         });
       }
-      if (!service) {
-        throw new BadRequestException({
-          message: 'Selected service does not exist.',
-        });
-      }
-      const existing = await this.companyTypeServiceRepo.findOne({
-        where: { companyTypeId, serviceProvidedId },
+      const existing = await this.companyTypeServiceRepo.count({
+        where: { companyTypeId },
       });
-      if (existing) {
+      if (existing > 0) {
         throw new BadRequestException({
-          message: 'This company type-service mapping already exists.',
+          message:
+            'This company type already has service mappings. Open it and edit the services instead.',
         });
       }
-      const saved = await this.companyTypeServiceRepo.save(
-        this.companyTypeServiceRepo.create({
-          companyTypeId,
-          serviceProvidedId,
-        }),
+      await this.companyTypeServiceRepo.save(
+        services.map((service) =>
+          this.companyTypeServiceRepo.create({
+            companyTypeId,
+            serviceProvidedId: service.serviceProvidedId,
+          }),
+        ),
       );
-      return {
-        companyTypeServiceId: saved.companyTypeServiceId,
-        companyTypeId,
-        serviceProvidedId,
-        companyTypeName: companyType.companyTypeName,
-        serviceName: service.serviceName,
-      };
+      return this.companyTypeServiceGroup(companyTypeId);
     }
 
     if (table === 'brands') {
@@ -1145,63 +1229,52 @@ export class LookupsService {
     }
 
     if (table === 'company-type-services') {
-      const row = await this.companyTypeServiceRepo.findOne({
-        where: { companyTypeServiceId: id },
-      });
-      if (!row) {
-        throw new NotFoundException(`CompanyTypeService ${id} was not found.`);
-      }
       const nextCompanyTypeId =
         dto.companyTypeId != null
           ? this.toPositiveInt(dto.companyTypeId, 'companyTypeId')
-          : row.companyTypeId;
-      const nextServiceProvidedId =
-        dto.serviceProvidedId != null
-          ? this.toPositiveInt(dto.serviceProvidedId, 'serviceProvidedId')
-          : row.serviceProvidedId;
-      const [companyType, service] = await Promise.all([
+          : id;
+      const serviceProvidedIds = this.normalizeServiceProvidedIds(dto);
+      const existingCount = await this.companyTypeServiceRepo.count({
+        where: { companyTypeId: id },
+      });
+      if (existingCount < 1) {
+        throw new NotFoundException(`CompanyTypeService ${id} was not found.`);
+      }
+      const [companyType, services] = await Promise.all([
         this.companyTypeRepo.findOne({
           where: { companyTypeId: nextCompanyTypeId },
         }),
-        this.serviceProvidedRepo.findOne({
-          where: { serviceProvidedId: nextServiceProvidedId },
-        }),
+        this.assertServicesExist(serviceProvidedIds),
       ]);
       if (!companyType)
         throw new BadRequestException({
           message: 'Selected company type does not exist.',
         });
-      if (!service)
-        throw new BadRequestException({
-          message: 'Selected service does not exist.',
+      if (nextCompanyTypeId !== id) {
+        const duplicateCompanyType = await this.companyTypeServiceRepo.count({
+          where: { companyTypeId: nextCompanyTypeId },
         });
-
-      const duplicate = await this.companyTypeServiceRepo
-        .createQueryBuilder('cts')
-        .where('cts.companyTypeServiceId <> :id', { id })
-        .andWhere('cts.companyTypeId = :companyTypeId', {
-          companyTypeId: nextCompanyTypeId,
-        })
-        .andWhere('cts.serviceProvidedId = :serviceProvidedId', {
-          serviceProvidedId: nextServiceProvidedId,
-        })
-        .getOne();
-      if (duplicate) {
-        throw new BadRequestException({
-          message: 'This company type-service mapping already exists.',
-        });
+        if (duplicateCompanyType > 0) {
+          throw new BadRequestException({
+            message:
+              'This company type already has service mappings. Edit that row instead.',
+          });
+        }
       }
 
-      row.companyTypeId = nextCompanyTypeId;
-      row.serviceProvidedId = nextServiceProvidedId;
-      const saved = await this.companyTypeServiceRepo.save(row);
-      return {
-        companyTypeServiceId: saved.companyTypeServiceId,
-        companyTypeId: saved.companyTypeId,
-        serviceProvidedId: saved.serviceProvidedId,
-        companyTypeName: companyType.companyTypeName,
-        serviceName: service.serviceName,
-      };
+      await this.companyTypeServiceRepo.manager.transaction(async (em) => {
+        await em.delete(CompanyTypeService, { companyTypeId: id });
+        await em.save(
+          CompanyTypeService,
+          services.map((service) =>
+            em.create(CompanyTypeService, {
+              companyTypeId: nextCompanyTypeId,
+              serviceProvidedId: service.serviceProvidedId,
+            }),
+          ),
+        );
+      });
+      return this.companyTypeServiceGroup(nextCompanyTypeId);
     }
 
     const name = this.normalizeRequiredName(dto.name);
@@ -1357,7 +1430,7 @@ export class LookupsService {
       }
       if (table === 'company-type-services') {
         const res = await this.companyTypeServiceRepo.delete({
-          companyTypeServiceId: id,
+          companyTypeId: id,
         });
         if (!res.affected)
           throw new NotFoundException(

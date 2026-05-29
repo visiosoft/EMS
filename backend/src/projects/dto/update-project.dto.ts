@@ -2,14 +2,16 @@ import {
   IsArray,
   IsIn,
   IsInt,
-  IsISO8601,
   IsOptional,
+  IsISO8601,
   IsString,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PROJECT_STAGE_VALUES } from '../project-stage.constants';
+import { ProjectOpeningPerformanceDto } from './create-project.dto';
 
 export class UpdateProjectDto {
   @IsOptional()
@@ -53,6 +55,17 @@ export class UpdateProjectDto {
   @IsInt({ each: true })
   @Min(1, { each: true })
   dmaIds?: number[];
+
+  /**
+   * Actual opening/show rows to create when ProjectStage = Confirmed.
+   * Accepted on update because conversion can be triggered from the project drawer.
+   */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProjectOpeningPerformanceDto)
+  openingPerformances?: ProjectOpeningPerformanceDto[];
+
   @IsOptional() targetOnSale?: string | null;
   @IsOptional()
   @IsString()

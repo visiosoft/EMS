@@ -79,6 +79,7 @@ export function Modal({
   title,
   children,
   onClose,
+  footer,
   width = 600,
   /**
    * Kept for backward compatibility. Scroll + layout are the same for all modals: the
@@ -93,6 +94,7 @@ export function Modal({
   title: string;
   children: React.ReactNode;
   onClose: () => void;
+  footer?: React.ReactNode;
   width?: number;
   allowContentOverflow?: boolean;
 }) {
@@ -133,6 +135,11 @@ export function Modal({
             {children}
           </div>
         </EmsModalBodyScrollElementRef.Provider>
+        {footer && (
+          <div className="shrink-0 border-t border-border bg-elevated px-4 py-3 sm:px-5">
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   );

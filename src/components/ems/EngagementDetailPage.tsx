@@ -2796,19 +2796,6 @@ function EngagementMainInformationPanel({
           )}
 
           {fieldRow(
-            'Talent Buyer',
-            <Select2
-              options={contactOptions}
-              value={staffSelections.talentBuyer}
-              onChange={(value) => setStaffSelections((prev) => ({ ...prev, talentBuyer: value }))}
-              placeholder="---"
-              allowClear
-              disabled={disabled || roleIdsByStaffKey.talentBuyer == null}
-            />,
-            roleIdsByStaffKey.talentBuyer == null ? 'No matching Role row exists for this field.' : null,
-          )}
-
-          {fieldRow(
             'Link to Folder on Sharepoint Server',
             <input
               className={inputCls}
@@ -2898,19 +2885,6 @@ function EngagementMainInformationPanel({
           )}
 
           {fieldRow(
-            'Booking Manager',
-            <Select2
-              options={contactOptions}
-              value={staffSelections.bookingManager}
-              onChange={(value) => setStaffSelections((prev) => ({ ...prev, bookingManager: value }))}
-              placeholder="---"
-              allowClear
-              disabled={disabled || roleIdsByStaffKey.bookingManager == null}
-            />,
-            roleIdsByStaffKey.bookingManager == null ? 'No matching Role row exists for this field.' : null,
-          )}
-
-          {fieldRow(
             'Confirmation Packet Approved',
             <Select2
               options={CONFIRMATION_PACKET_SELECT_OPTIONS}
@@ -2922,22 +2896,31 @@ function EngagementMainInformationPanel({
             />,
           )}
 
-          {MAIN_INFO_STAFF_FIELDS.slice(2).map((field) => (
-            <React.Fragment key={field.key}>
-              {fieldRow(
-                field.label,
-                <Select2
-                  options={contactOptions}
-                  value={staffSelections[field.key]}
-                  onChange={(value) => setStaffSelections((prev) => ({ ...prev, [field.key]: value }))}
-                  placeholder="---"
-                  allowClear
-                  disabled={disabled || roleIdsByStaffKey[field.key] == null}
-                />,
-                roleIdsByStaffKey[field.key] == null ? 'No matching Role row exists for this field.' : null,
-              )}
-            </React.Fragment>
-          ))}
+          <div className="rounded-lg border border-border bg-surface/40 p-4">
+            <h4 className="text-sm font-semibold text-text-primary">
+              Innovation Arts Staff Assignments
+            </h4>
+            <div className="mt-4 space-y-4">
+              {MAIN_INFO_STAFF_FIELDS.map((field) => (
+                <React.Fragment key={field.key}>
+                  {fieldRow(
+                    field.label,
+                    <Select2
+                      options={contactOptions}
+                      value={staffSelections[field.key]}
+                      onChange={(value) =>
+                        setStaffSelections((prev) => ({ ...prev, [field.key]: value }))
+                      }
+                      placeholder="---"
+                      allowClear
+                      disabled={disabled || roleIdsByStaffKey[field.key] == null}
+                    />,
+                    roleIdsByStaffKey[field.key] == null ? 'No matching Role row exists for this field.' : null,
+                  )}
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
 
           {fieldRow(
             'Scaling',
@@ -5556,6 +5539,12 @@ export function EngagementDetailPage({
 
   const venueId = detailQuery.data?.primaryVenueCompanyId;
 
+  const serviceProvidersQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'service-providers'],
+    queryFn: () => fetchEngagementServiceProviders(engagementId),
+    staleTime: 30_000,
+  });
+
   const tourMgmtCompanyId = useMemo(() => {
     const r = detailQuery.data;
     if (r?.tourId == null) return null as number | null;
@@ -5564,6 +5553,54 @@ export function EngagementDetailPage({
     const t = tours.find((x) => x.tourId === r.tourId);
     return t?.talentAgencyCompanyId ?? null;
   }, [detailQuery.data?.tourId, lookupsQuery.data?.tours]);
+
+  const selectedTourForContacts = useMemo(() => {
+    const r = detailQuery.data;
+    if (r?.tourId == null) return null;
+    return (lookupsQuery.data?.tours ?? []).find((tour) => tour.tourId === r.tourId) ?? null;
+  }, [detailQuery.data?.tourId, lookupsQuery.data?.tours]);
+
+  const tourSelectedTalentAgentIds = useMemo(
+    () => new Set((selectedTourForContacts?.talentAgentContactIds ?? []).map(Number)),
+    [selectedTourForContacts?.talentAgentContactIds],
+  );
+
+  const venueCompanyTypeNames = useMemo(() => {
+    const company = (lookupsQuery.data?.companies ?? []).find((c) => c.companyId === venueId);
+    const names = company?.companyTypeNames?.filter(Boolean) ?? [];
+    return names.length > 0 ? names : ['Venue'];
+  }, [lookupsQuery.data?.companies, venueId]);
+
+  const serviceProviderContactGroups = useMemo(() => {
+    const providers = serviceProvidersQuery.data?.providers ?? [];
+    const companyById = new Map(
+      (lookupsQuery.data?.companies ?? []).map((company) => [company.companyId, company]),
+    );
+    const groups = new Map<string, Set<number>>();
+    for (const provider of providers) {
+      const providerId = Number(provider.providerCompanyId);
+      if (!Number.isInteger(providerId) || providerId < 1) continue;
+      const company = companyById.get(providerId);
+      const typeNames =
+        company?.companyTypeNames?.filter(Boolean) ??
+        (company?.companyTypeName ? [company.companyTypeName] : []);
+      const fallbackNames =
+        provider.serviceProvidedNames.length > 0
+          ? provider.serviceProvidedNames.map((name) => `${name} Provider`)
+          : ['Service Provider'];
+      const headings = typeNames.length > 0 ? typeNames : fallbackNames;
+      for (const heading of headings) {
+        const title = `${heading} contacts`;
+        const set = groups.get(title) ?? new Set<number>();
+        set.add(providerId);
+        groups.set(title, set);
+      }
+    }
+    return Array.from(groups.entries()).map(([title, companyIds]) => ({
+      title,
+      companyIds: Array.from(companyIds),
+    }));
+  }, [lookupsQuery.data?.companies, serviceProvidersQuery.data?.providers]);
 
   const venueContactsQuery = useQuery({
     queryKey: ['company-contacts', 'venue', venueId],
@@ -5579,6 +5616,13 @@ export function EngagementDetailPage({
       typeof tourMgmtCompanyId === 'number' &&
       tourMgmtCompanyId > 0,
   });
+
+  const tourSelectedTalentAgentContacts = useMemo(() => {
+    if (tourSelectedTalentAgentIds.size === 0) return [] as ApiCompanyContact[];
+    return (tourContactsQuery.data ?? []).filter((contact) =>
+      tourSelectedTalentAgentIds.has(contact.contactId),
+    );
+  }, [tourContactsQuery.data, tourSelectedTalentAgentIds]);
 
   // ── Engagement PATCH (split mutations so each Overview card gets a real isPending + loader) ──
   const engagementPatchError = (e: unknown) => addToast(friendlyApiError(e), 'error');
@@ -6330,28 +6374,31 @@ export function EngagementDetailPage({
       {/* ── Contacts ─────────────────────────────────────────────────────── */}
       {tab === 'Contacts' && (
         <div className="space-y-6">
-          {/* Venue contacts */}
-          <div className="bg-card border border-border rounded-lg p-5">
-            <h3 className="text-sm font-semibold text-text-primary mb-3">Venue contacts</h3>
-            {!venueId ? (
-              <p className="text-sm text-text-muted">No venue is linked.</p>
-            ) : venueContactsQuery.isLoading ? (
-              <div className="flex items-center gap-2 text-text-muted text-sm">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading contacts…
-              </div>
-            ) : venueContactsQuery.error ? (
-              <p className="text-sm text-ems-coral">{friendlyApiError(venueContactsQuery.error)}</p>
-            ) : (
-              <ContactsTable contacts={venueContactsQuery.data ?? []} />
-            )}
-          </div>
+          {venueCompanyTypeNames.map((companyTypeName) => (
+            <div key={`venue-${companyTypeName}`} className="bg-card border border-border rounded-lg p-5">
+              <h3 className="text-sm font-semibold text-text-primary mb-1">{companyTypeName} contacts</h3>
+              <p className="text-xs text-text-muted mb-3">
+                Contacts for the venue company linked to this engagement.
+              </p>
+              {!venueId ? (
+                <p className="text-sm text-text-muted">No venue is linked.</p>
+              ) : venueContactsQuery.isLoading ? (
+                <div className="flex items-center gap-2 text-text-muted text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading contacts…
+                </div>
+              ) : venueContactsQuery.error ? (
+                <p className="text-sm text-ems-coral">{friendlyApiError(venueContactsQuery.error)}</p>
+              ) : (
+                <ContactsTable contacts={venueContactsQuery.data ?? []} />
+              )}
+            </div>
+          ))}
 
-          {/* Tour management contacts */}
           <div className="bg-card border border-border rounded-lg p-5">
-            <h3 className="text-sm font-semibold text-text-primary mb-1">Tour management contacts</h3>
+            <h3 className="text-sm font-semibold text-text-primary mb-1">Talent Agency contacts</h3>
             <p className="text-xs text-text-muted mb-3">
-              Contacts for the Tour Management Company assigned to this tour.
+              Only talent agents selected on the linked tour are shown here.
             </p>
             {row.tourId == null ? (
               <p className="text-sm text-text-muted">No tour linked.</p>
@@ -6371,10 +6418,21 @@ export function EngagementDetailPage({
               </div>
             ) : tourContactsQuery.error ? (
               <p className="text-sm text-ems-coral">{friendlyApiError(tourContactsQuery.error)}</p>
+            ) : tourSelectedTalentAgentContacts.length === 0 ? (
+              <p className="text-sm text-text-muted">No talent agents are selected for this tour.</p>
             ) : (
-              <ContactsTable contacts={tourContactsQuery.data ?? []} />
+              <ContactsTable contacts={tourSelectedTalentAgentContacts} />
             )}
           </div>
+
+          {serviceProviderContactGroups.map((group) => (
+            <RelatedCompanyContactsBox
+              key={`${group.title}-${group.companyIds.join('-')}`}
+              title={group.title}
+              description="Contacts for service provider companies linked to this engagement."
+              companyIds={group.companyIds}
+            />
+          ))}
         </div>
       )}
 
@@ -6811,6 +6869,61 @@ export function EngagementDetailPage({
 // ---------------------------------------------------------------------------
 // Contacts table (shared)
 // ---------------------------------------------------------------------------
+function RelatedCompanyContactsBox({
+  title,
+  description,
+  companyIds,
+}: {
+  title: string;
+  description: string;
+  companyIds: number[];
+}) {
+  const uniqueCompanyIds = useMemo(
+    () => Array.from(new Set(companyIds.filter((id) => Number.isInteger(id) && id > 0))).sort((a, b) => a - b),
+    [companyIds],
+  );
+  const contactsQuery = useQuery({
+    queryKey: ['engagement-related-company-contacts', title, uniqueCompanyIds],
+    queryFn: async () => {
+      const lists = await Promise.all(uniqueCompanyIds.map((id) => fetchCompanyContacts(id)));
+      const seen = new Set<string>();
+      const out: ApiCompanyContact[] = [];
+      for (const contact of lists.flat()) {
+        const key = `${contact.contactAssignmentId}:${contact.contactId}:${contact.roleId}:${contact.departmentId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(contact);
+      }
+      return out.sort((a, b) => {
+        const an = `${a.firstName} ${a.lastName}`.trim();
+        const bn = `${b.firstName} ${b.lastName}`.trim();
+        return an.localeCompare(bn, undefined, { sensitivity: 'base' });
+      });
+    },
+    enabled: uniqueCompanyIds.length > 0,
+    staleTime: 60_000,
+  });
+
+  return (
+    <div className="bg-card border border-border rounded-lg p-5">
+      <h3 className="text-sm font-semibold text-text-primary mb-1">{title}</h3>
+      <p className="text-xs text-text-muted mb-3">{description}</p>
+      {uniqueCompanyIds.length === 0 ? (
+        <p className="text-sm text-text-muted">No related companies are linked.</p>
+      ) : contactsQuery.isLoading ? (
+        <div className="flex items-center gap-2 text-text-muted text-sm">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading contacts…
+        </div>
+      ) : contactsQuery.error ? (
+        <p className="text-sm text-ems-coral">{friendlyApiError(contactsQuery.error)}</p>
+      ) : (
+        <ContactsTable contacts={contactsQuery.data ?? []} />
+      )}
+    </div>
+  );
+}
+
 function ContactsTable({
   contacts,
 }: {
