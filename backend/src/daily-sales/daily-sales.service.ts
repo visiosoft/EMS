@@ -85,7 +85,7 @@ export interface DailySalesRow {
   dmaMarketName: string | null;
 }
 
-/** Row returned by GET /daily-sales/by-performance — one row per Performance */
+/** Row returned by GET /daily-sales/by-performance — one row per Engagement */
 export interface PerformanceSalesRow {
   performanceId: number;
   engagementId: number;
@@ -484,53 +484,9 @@ export class DailySalesService {
 
   // ─── GET /daily-sales/by-performance (paged) ────────────────────────────
   /**
-   * One page of performances for Daily Sales. Sales columns still respect asOf;
-   * show timing filters which performance rows appear (default: upcoming).
+   * One page of engagements for Daily Sales. Sales columns still respect asOf;
+   * show timing filters still determine which performances make an engagement eligible (default: upcoming).
    */
-  private applyByPerformanceSort(
-    qb: SelectQueryBuilder<Performance>,
-    sortByRaw?: string,
-    sortDirRaw?: string,
-  ): void {
-    const sortBy = (sortByRaw ?? '').trim().toLowerCase();
-    const sortDir =
-      (sortDirRaw ?? '').trim().toLowerCase() === 'desc' ? 'DESC' : 'ASC';
-    const addChronoTie = () => {
-      qb.addOrderBy('p.performanceDate', 'ASC')
-        .addOrderBy('p.performanceTime', 'ASC')
-        .addOrderBy('p.performanceId', 'ASC');
-    };
-    if (sortBy === 'attraction') {
-      qb.orderBy('a.attractionName', sortDir);
-      addChronoTie();
-    } else if (sortBy === 'tour') {
-      qb.orderBy('t.tourName', sortDir);
-      addChronoTie();
-    } else if (sortBy === 'venue') {
-      qb.orderBy('vc.companyName', sortDir).addOrderBy('v.venueName', sortDir);
-      addChronoTie();
-    } else if (sortBy === 'city') {
-      qb.orderBy('addr.city', sortDir);
-      addChronoTie();
-    } else if (sortBy === 'state') {
-      qb.orderBy('addr.stateProvince', sortDir);
-      addChronoTie();
-    } else if (sortBy === 'status' || sortBy === 'engagement') {
-      qb.orderBy('e.engagementStatus', sortDir);
-      addChronoTie();
-    } else if (sortBy === 'todaytickets') {
-      qb.orderBy('ts_today.performanceSalesQuantity', sortDir);
-      addChronoTie();
-    } else if (sortBy === 'todayrevenue') {
-      qb.orderBy('ts_today.performanceSalesRevenue', sortDir);
-      addChronoTie();
-    } else {
-      qb.orderBy('p.performanceDate', sortDir)
-        .addOrderBy('p.performanceTime', sortDir)
-        .addOrderBy('p.performanceId', 'ASC');
-    }
-  }
-
   async findByPerformancePage(
     asOfDateParam: string | undefined,
     pageIn: number,
@@ -632,84 +588,102 @@ export class DailySalesService {
         explicitIaeContactIds.length > 0 ? explicitIaeContactIds : undefined,
     });
 
-    // Run in parallel: previously (attraction list → count) were sequential, doubling wait time
-    // on large dbo.Performance sets. Count + rollups + page each scan the same join pattern.
-    const [attractions, total, agg, rawItems, filterOptions] =
+    const sortBy = (sortByRaw ?? '').trim().toLowerCase();
+    const sortDir: 'ASC' | 'DESC' =
+      (sortDirRaw ?? '').trim().toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+    const engagementSortQb = baseQb
+      .clone()
+      .select('e.engagementId', 'engagementId')
+      .addSelect('MIN(a.attractionName)', 'sortAttractionName')
+      .addSelect('MIN(t.tourName)', 'sortTourName')
+      .addSelect('MIN(vc.companyName)', 'sortVenueCompanyName')
+      .addSelect('MIN(v.venueName)', 'sortVenueName')
+      .addSelect('MIN(addr.city)', 'sortCity')
+      .addSelect('MIN(addr.stateProvince)', 'sortStateProvince')
+      .addSelect('MIN(e.engagementStatus)', 'sortEngagementStatus')
+      .addSelect(
+        'COALESCE(SUM(CAST(ts_today.performanceSalesQuantity AS BIGINT)), 0)',
+        'sortTodayTickets',
+      )
+      .addSelect(
+        'COALESCE(SUM(CAST(ts_today.performanceSalesRevenue AS decimal(18,2))), 0)',
+        'sortTodayRevenue',
+      )
+      .addSelect('MIN(CONVERT(date, p.performanceDate))', 'sortPerformanceDate')
+      .addSelect('MIN(CONVERT(time, p.performanceTime))', 'sortPerformanceTime')
+      .addSelect('MIN(p.performanceId)', 'sortPerformanceId')
+      .groupBy('e.engagementId');
+
+    if (sortBy === 'attraction') {
+      engagementSortQb
+        .orderBy('sortAttractionName', sortDir)
+        .addOrderBy('sortPerformanceDate', 'ASC')
+        .addOrderBy('sortPerformanceTime', 'ASC')
+        .addOrderBy('sortPerformanceId', 'ASC');
+    } else if (sortBy === 'tour') {
+      engagementSortQb
+        .orderBy('sortTourName', sortDir)
+        .addOrderBy('sortPerformanceDate', 'ASC')
+        .addOrderBy('sortPerformanceTime', 'ASC')
+        .addOrderBy('sortPerformanceId', 'ASC');
+    } else if (sortBy === 'venue') {
+      engagementSortQb
+        .orderBy('sortVenueCompanyName', sortDir)
+        .addOrderBy('sortVenueName', sortDir)
+        .addOrderBy('sortPerformanceDate', 'ASC')
+        .addOrderBy('sortPerformanceTime', 'ASC')
+        .addOrderBy('sortPerformanceId', 'ASC');
+    } else if (sortBy === 'city') {
+      engagementSortQb
+        .orderBy('sortCity', sortDir)
+        .addOrderBy('sortPerformanceDate', 'ASC')
+        .addOrderBy('sortPerformanceTime', 'ASC')
+        .addOrderBy('sortPerformanceId', 'ASC');
+    } else if (sortBy === 'state') {
+      engagementSortQb
+        .orderBy('sortStateProvince', sortDir)
+        .addOrderBy('sortPerformanceDate', 'ASC')
+        .addOrderBy('sortPerformanceTime', 'ASC')
+        .addOrderBy('sortPerformanceId', 'ASC');
+    } else if (sortBy === 'status' || sortBy === 'engagement') {
+      engagementSortQb
+        .orderBy('sortEngagementStatus', sortDir)
+        .addOrderBy('sortPerformanceDate', 'ASC')
+        .addOrderBy('sortPerformanceTime', 'ASC')
+        .addOrderBy('sortPerformanceId', 'ASC');
+    } else if (sortBy === 'todaytickets') {
+      engagementSortQb
+        .orderBy('sortTodayTickets', sortDir)
+        .addOrderBy('sortPerformanceDate', 'ASC')
+        .addOrderBy('sortPerformanceTime', 'ASC')
+        .addOrderBy('sortPerformanceId', 'ASC');
+    } else if (sortBy === 'todayrevenue') {
+      engagementSortQb
+        .orderBy('sortTodayRevenue', sortDir)
+        .addOrderBy('sortPerformanceDate', 'ASC')
+        .addOrderBy('sortPerformanceTime', 'ASC')
+        .addOrderBy('sortPerformanceId', 'ASC');
+    } else {
+      engagementSortQb
+        .orderBy('sortPerformanceDate', sortDir)
+        .addOrderBy('sortPerformanceTime', sortDir)
+        .addOrderBy('sortPerformanceId', 'ASC');
+    }
+
+    // Run in parallel: count + rollups + page each scan the same join pattern.
+    const [attractions, totalRaw, agg, pagedEngagementRows, filterOptions] =
       await Promise.all([
         this.getDistinctAttractionsFromBase(baseQb),
-        baseQb.clone().getCount(),
+        baseQb
+          .clone()
+          .select('COUNT(DISTINCT e.engagementId)', 'total')
+          .getRawOne<{ total: string | number }>(),
         this.sumSalesForByPerformanceQuery(baseQb.clone(), asOf),
-        (async () => {
-          const pageQb = baseQb
-            .clone()
-            .select([
-              'p.performanceId                                         AS performanceId',
-              'p.engagementId                                         AS engagementId',
-              'CONVERT(varchar(10), p.performanceDate, 120)           AS performanceDate',
-              'CONVERT(varchar(8),  p.performanceTime, 108)          AS performanceTime',
-              'p.performanceStatus                                    AS performanceStatus',
-              'e.engagementStatus                                     AS engagementStatus',
-              'e.sellableCapacity                                     AS engagementSellableCapacity',
-              'e.grossPotential                                       AS engagementGrossPotential',
-              'a.attractionId                                         AS attractionId',
-              'a.attractionName                                       AS attractionName',
-              'cls.className                                          AS genre',
-              't.tourName                                             AS tourName',
-              'vc.companyName                                         AS venueCompanyName',
-              'v.venueName                                            AS venueName',
-              'addr.city                                              AS city',
-              'addr.stateProvince                                   AS stateProvince',
-              `(
-              SELECT TOP 1 CONCAT(ci.FirstName, N' ', ci.LastName)
-              FROM dbo.ContactAssignment ca
-              INNER JOIN dbo.Contact c ON c.ContactID = ca.ContactID
-              INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
-              WHERE ca.CompanyID = ev.venueCompanyId
-              ORDER BY ci.FirstName, ci.LastName
-            )                                                       AS contactName`,
-              `(
-              SELECT CONVERT(varchar(10), MIN(CONVERT(date, ts0.SalesDate)), 120)
-              FROM dbo.TicketingSales ts0
-              WHERE ts0.PerformanceID = p.performanceId
-            )                                                       AS firstSalesDate`,
-              'CONVERT(varchar(10), CAST(:asOf AS date), 120)         AS todayDate',
-              'ts_today.performanceSalesQuantity                      AS todayTicketsSold',
-              'ts_today.performanceSalesRevenue                        AS todayRevenue',
-              'CONVERT(varchar(10), DATEADD(day, -1, CAST(:asOf AS date)), 120) AS yesterdayDate',
-              'ts_yesterday.performanceSalesQuantity                  AS yesterdayTicketsSold',
-              'ts_yesterday.performanceSalesRevenue                    AS yesterdayRevenue',
-              `(
-              SELECT COALESCE(SUM(CAST(ts_ca.performanceSalesQuantity AS BIGINT)), 0)
-              FROM dbo.TicketingSales ts_ca
-              WHERE ts_ca.performanceId = p.performanceId
-                AND CONVERT(date, ts_ca.salesDate) <= CAST(:asOf AS date)
-            )                                                       AS cumTicketsThruAsOf`,
-              `(
-              SELECT COALESCE(SUM(ts_cr.performanceSalesRevenue), 0)
-              FROM dbo.TicketingSales ts_cr
-              WHERE ts_cr.performanceId = p.performanceId
-                AND CONVERT(date, ts_cr.salesDate) <= CAST(:asOf AS date)
-            )                                                       AS cumRevenueThruAsOf`,
-              `(
-              SELECT COALESCE(SUM(CAST(ts_cy.performanceSalesQuantity AS BIGINT)), 0)
-              FROM dbo.TicketingSales ts_cy
-              WHERE ts_cy.performanceId = p.performanceId
-                AND CONVERT(date, ts_cy.salesDate) <= DATEADD(day, -1, CAST(:asOf AS date))
-            )                                                       AS cumTicketsThruPrior`,
-              `(
-              SELECT COALESCE(SUM(ts_cy2.performanceSalesRevenue), 0)
-              FROM dbo.TicketingSales ts_cy2
-              WHERE ts_cy2.performanceId = p.performanceId
-                AND CONVERT(date, ts_cy2.salesDate) <= DATEADD(day, -1, CAST(:asOf AS date))
-            )                                                       AS cumRevenueThruPrior`,
-            ])
-            .setParameter('asOf', asOf);
-          this.applyByPerformanceSort(pageQb, sortByRaw, sortDirRaw);
-          return pageQb
-            .skip((page - 1) * pageSize)
-            .take(pageSize)
-            .getRawMany<Record<string, unknown>>();
-        })(),
+        engagementSortQb
+          .clone()
+          .skip((page - 1) * pageSize)
+          .take(pageSize)
+          .getRawMany<Record<string, unknown>>(),
         this.getByPerformanceFilterOptions(asOf, {
           performanceDate,
           startDate,
@@ -717,7 +691,99 @@ export class DailySalesService {
         }),
       ]);
 
-    const items: PerformanceSalesRow[] = rawItems.map((r) => {
+    const total = Number(totalRaw?.total ?? 0);
+    const pagedEngagementIds = pagedEngagementRows
+      .map((r) => Number(r['engagementId']))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    if (pagedEngagementIds.length === 0) {
+      return {
+        items: [],
+        total,
+        page,
+        pageSize,
+        todayDate: asOf,
+        yesterdayDate,
+        summary: {
+          todayTickets: numOrZero(pickRow(agg, 'sumTixT')),
+          todayRevenue: numOrZero(pickRow(agg, 'sumRevT')),
+          yesterdayTickets: numOrZero(pickRow(agg, 'sumTixY')),
+          yesterdayRevenue: numOrZero(pickRow(agg, 'sumRevY')),
+        },
+        attractions,
+        filterOptions,
+      };
+    }
+
+    const rawItems = await baseQb
+      .clone()
+      .select([
+        'p.performanceId                                         AS performanceId',
+        'p.engagementId                                         AS engagementId',
+        'CONVERT(varchar(10), p.performanceDate, 120)           AS performanceDate',
+        'CONVERT(varchar(8),  p.performanceTime, 108)          AS performanceTime',
+        'p.performanceStatus                                    AS performanceStatus',
+        'e.engagementStatus                                     AS engagementStatus',
+        'e.sellableCapacity                                     AS engagementSellableCapacity',
+        'e.grossPotential                                       AS engagementGrossPotential',
+        'a.attractionId                                         AS attractionId',
+        'a.attractionName                                       AS attractionName',
+        'cls.className                                          AS genre',
+        't.tourName                                             AS tourName',
+        'vc.companyName                                         AS venueCompanyName',
+        'v.venueName                                            AS venueName',
+        'addr.city                                              AS city',
+        'addr.stateProvince                                   AS stateProvince',
+        `(
+        SELECT TOP 1 CONCAT(ci.FirstName, N' ', ci.LastName)
+        FROM dbo.ContactAssignment ca
+        INNER JOIN dbo.Contact c ON c.ContactID = ca.ContactID
+        INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+        WHERE ca.CompanyID = ev.venueCompanyId
+        ORDER BY ci.FirstName, ci.LastName
+      )                                                       AS contactName`,
+        `(
+        SELECT CONVERT(varchar(10), MIN(CONVERT(date, ts0.SalesDate)), 120)
+        FROM dbo.TicketingSales ts0
+        WHERE ts0.PerformanceID = p.performanceId
+      )                                                       AS firstSalesDate`,
+        'CONVERT(varchar(10), CAST(:asOf AS date), 120)         AS todayDate',
+        'ts_today.performanceSalesQuantity                      AS todayTicketsSold',
+        'ts_today.performanceSalesRevenue                        AS todayRevenue',
+        'CONVERT(varchar(10), DATEADD(day, -1, CAST(:asOf AS date)), 120) AS yesterdayDate',
+        'ts_yesterday.performanceSalesQuantity                  AS yesterdayTicketsSold',
+        'ts_yesterday.performanceSalesRevenue                    AS yesterdayRevenue',
+        `(
+        SELECT COALESCE(SUM(CAST(ts_ca.performanceSalesQuantity AS BIGINT)), 0)
+        FROM dbo.TicketingSales ts_ca
+        WHERE ts_ca.performanceId = p.performanceId
+          AND CONVERT(date, ts_ca.salesDate) <= CAST(:asOf AS date)
+      )                                                       AS cumTicketsThruAsOf`,
+        `(
+        SELECT COALESCE(SUM(ts_cr.performanceSalesRevenue), 0)
+        FROM dbo.TicketingSales ts_cr
+        WHERE ts_cr.performanceId = p.performanceId
+          AND CONVERT(date, ts_cr.salesDate) <= CAST(:asOf AS date)
+      )                                                       AS cumRevenueThruAsOf`,
+        `(
+        SELECT COALESCE(SUM(CAST(ts_cy.performanceSalesQuantity AS BIGINT)), 0)
+        FROM dbo.TicketingSales ts_cy
+        WHERE ts_cy.performanceId = p.performanceId
+          AND CONVERT(date, ts_cy.salesDate) <= DATEADD(day, -1, CAST(:asOf AS date))
+      )                                                       AS cumTicketsThruPrior`,
+        `(
+        SELECT COALESCE(SUM(ts_cy2.performanceSalesRevenue), 0)
+        FROM dbo.TicketingSales ts_cy2
+        WHERE ts_cy2.performanceId = p.performanceId
+          AND CONVERT(date, ts_cy2.salesDate) <= DATEADD(day, -1, CAST(:asOf AS date))
+      )                                                       AS cumRevenueThruPrior`,
+      ])
+      .andWhere('e.engagementId IN (:...engagementIds)', {
+        engagementIds: pagedEngagementIds,
+      })
+      .setParameter('asOf', asOf)
+      .getRawMany<Record<string, unknown>>();
+
+    const mappedItems: PerformanceSalesRow[] = rawItems.map((r) => {
       const todayTickets =
         r['todayTicketsSold'] != null ? Number(r['todayTicketsSold']) : null;
       const ydayTickets =
@@ -789,6 +855,36 @@ export class DailySalesService {
           return Number.isFinite(n) ? n : null;
         })(),
       };
+    });
+    const engagementOrder = new Map<number, number>(
+      pagedEngagementIds.map((engagementId, idx) => [engagementId, idx]),
+    );
+    const byEngagement = new Map<number, PerformanceSalesRow>();
+    const timeOrMax = (s: string): string =>
+      s && /^\d{2}:\d{2}:\d{2}$/.test(s) ? s : '99:99:99';
+    for (const item of mappedItems) {
+      const existing = byEngagement.get(item.engagementId);
+      if (!existing) {
+        byEngagement.set(item.engagementId, item);
+        continue;
+      }
+      const shouldReplace =
+        item.performanceDate < existing.performanceDate ||
+        (item.performanceDate === existing.performanceDate &&
+          timeOrMax(item.performanceTime) <
+            timeOrMax(existing.performanceTime)) ||
+        (item.performanceDate === existing.performanceDate &&
+          timeOrMax(item.performanceTime) ===
+            timeOrMax(existing.performanceTime) &&
+          item.performanceId < existing.performanceId);
+      if (shouldReplace) {
+        byEngagement.set(item.engagementId, item);
+      }
+    }
+    const items = [...byEngagement.values()].sort((a, b) => {
+      const ai = engagementOrder.get(a.engagementId) ?? Number.MAX_SAFE_INTEGER;
+      const bi = engagementOrder.get(b.engagementId) ?? Number.MAX_SAFE_INTEGER;
+      return ai - bi;
     });
 
     return {

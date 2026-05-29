@@ -336,9 +336,8 @@ export class CompanyService {
     const blocked = requested.filter((id) => !allowed.has(id));
     if (blocked.length === 0) return;
 
-    const services = await (em
-      ? em.getRepository(ServiceProvided)
-      : this.serviceProvidedRepo
+    const services = await (
+      em ? em.getRepository(ServiceProvided) : this.serviceProvidedRepo
     ).find({ where: { serviceProvidedId: In(blocked) } });
     const names = services
       .map((service) => service.serviceName)
@@ -2084,19 +2083,19 @@ export class CompanyService {
       qb.addOrderBy('c.companyName', 'ASC').addOrderBy('c.companyId', 'ASC');
 
     if (sortBy === 'type') {
-      qb.addSelect('ISNULL(ct.companyTypeName, \'\')', 'sort_company_type');
+      qb.addSelect("ISNULL(ct.companyTypeName, '')", 'sort_company_type');
       qb.orderBy('sort_company_type', sortDir);
       addStableTieBreak();
     } else if (sortBy === 'city') {
-      qb.addSelect('ISNULL(pa.city, \'\')', 'sort_physical_city');
+      qb.addSelect("ISNULL(pa.city, '')", 'sort_physical_city');
       qb.orderBy('sort_physical_city', sortDir);
       addStableTieBreak();
     } else if (sortBy === 'state' || sortBy === 'stateprovince') {
-      qb.addSelect('ISNULL(pa.stateProvince, \'\')', 'sort_state_province');
+      qb.addSelect("ISNULL(pa.stateProvince, '')", 'sort_state_province');
       qb.orderBy('sort_state_province', sortDir);
       addStableTieBreak();
     } else if (sortBy === 'dma' || sortBy === 'market') {
-      qb.addSelect('ISNULL(d.marketName, \'\')', 'sort_dma_market');
+      qb.addSelect("ISNULL(d.marketName, '')", 'sort_dma_market');
       qb.orderBy('sort_dma_market', sortDir);
       addStableTieBreak();
     } else {
@@ -2143,9 +2142,12 @@ export class CompanyService {
             { typeNameNormalized: normalizedTypeName },
           );
         } else {
-          qb.andWhere('LOWER(LTRIM(RTRIM(ct.companyTypeName))) = :typeNameNormalized', {
-            typeNameNormalized: normalizedTypeName,
-          });
+          qb.andWhere(
+            'LOWER(LTRIM(RTRIM(ct.companyTypeName))) = :typeNameNormalized',
+            {
+              typeNameNormalized: normalizedTypeName,
+            },
+          );
         }
       }
     }
@@ -2258,7 +2260,7 @@ export class CompanyService {
         throw new BadRequestException({
           message:
             'One or more selected company services are not valid. Pick from the company services list.',
-          });
+        });
       }
     }
     await this.assertCompanyServicesAllowedForTypes(
@@ -2318,11 +2320,16 @@ export class CompanyService {
       const row = await em.save(Company, company);
       await this.syncCompanyTypes(em, row.companyId, companyTypeIds);
       await this.syncCompanyServices(em, row.companyId, serviceProvidedIds);
-      await this.syncCompanyServiceAreas(em, row.companyId, {
-        allDmas: (dto as any).allDmas,
-        allDmasServiceProvidedId: (dto as any).allDmasServiceProvidedId,
-        serviceAreas: (dto as any).serviceAreas,
-      }, companyTypeIds);
+      await this.syncCompanyServiceAreas(
+        em,
+        row.companyId,
+        {
+          allDmas: (dto as any).allDmas,
+          allDmasServiceProvidedId: (dto as any).allDmasServiceProvidedId,
+          serviceAreas: (dto as any).serviceAreas,
+        },
+        companyTypeIds,
+      );
       await this.ensureVenueRowForCompanyTypes(
         em,
         row.companyId,
@@ -3045,7 +3052,7 @@ export class CompanyService {
         throw new BadRequestException({
           message:
             'One or more selected company services are not valid. Pick from the company services list.',
-          });
+        });
       }
     }
     if (nextServiceProvidedIds != null) {
@@ -3162,11 +3169,16 @@ export class CompanyService {
       (dto as any).allDmasServiceProvidedId !== undefined
     ) {
       await this.dataSource.transaction(async (em) => {
-        await this.syncCompanyServiceAreas(em, companyId, {
-          allDmas: (dto as any).allDmas,
-          allDmasServiceProvidedId: (dto as any).allDmasServiceProvidedId,
-          serviceAreas: (dto as any).serviceAreas,
-        }, nextCompanyTypeIds);
+        await this.syncCompanyServiceAreas(
+          em,
+          companyId,
+          {
+            allDmas: (dto as any).allDmas,
+            allDmasServiceProvidedId: (dto as any).allDmasServiceProvidedId,
+            serviceAreas: (dto as any).serviceAreas,
+          },
+          nextCompanyTypeIds,
+        );
       });
     }
 

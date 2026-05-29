@@ -426,6 +426,19 @@ export class EngagementService {
     return `N'${String(value).replace(/'/g, "''")}'`;
   }
 
+  /**
+   * Escapes SQL Server LIKE wildcards so user-entered search text is treated literally.
+   * Uses backslash as the ESCAPE character.
+   */
+  private escapeLikePattern(value: string): string {
+    return String(value)
+      .replace(/\\/g, '\\\\')
+      .replace(/%/g, '\\%')
+      .replace(/_/g, '\\_')
+      .replace(/\[/g, '\\[')
+      .replace(/\]/g, '\\]');
+  }
+
   private async engagementFinancesHasSharePointLinkColumns(): Promise<boolean> {
     if (this.engagementFinanceSharePointLinkColsPresent !== null) {
       return this.engagementFinanceSharePointLinkColsPresent;
@@ -556,7 +569,7 @@ export class EngagementService {
     columnName: string,
   ): Promise<boolean> {
     try {
-      const rows = (await this.dataSource.query(
+      const rows = await this.dataSource.query(
         `
           SELECT TOP 1 1 AS ok
           FROM INFORMATION_SCHEMA.COLUMNS
@@ -565,7 +578,7 @@ export class EngagementService {
             AND COLUMN_NAME = @1
         `,
         [tableName, columnName],
-      )) as Array<{ ok?: number }>;
+      );
       return rows.length > 0;
     } catch {
       return false;
@@ -584,9 +597,7 @@ export class EngagementService {
     return hasColumn;
   }
 
-  private async listNonResidentWithholdingRowsSafe(
-    em?: EntityManager,
-  ): Promise<
+  private async listNonResidentWithholdingRowsSafe(em?: EntityManager): Promise<
     Array<{
       withholdingId: number;
       withholdingTaxRate: string;
@@ -600,9 +611,10 @@ export class EngagementService {
     const manager = em ?? this.dataSource.manager;
     const hasDmaId = await this.nonResidentWithholdingHasDmaId();
     if (hasDmaId) {
-      const rows = await (em
-        ? em.getRepository(NonResidentWithholding)
-        : this.nonResidentWithholdingRepo
+      const rows = await (
+        em
+          ? em.getRepository(NonResidentWithholding)
+          : this.nonResidentWithholdingRepo
       ).find({
         order: { withholdingId: 'ASC' },
       });
@@ -617,7 +629,7 @@ export class EngagementService {
       }));
     }
 
-    const rows = (await manager.query(
+    const rows = await manager.query(
       `
         SELECT
           w.WithholdingID AS withholdingId,
@@ -630,15 +642,7 @@ export class EngagementService {
         FROM [dbo].[NonResidentWithholding] w
         ORDER BY w.WithholdingID ASC
       `,
-    )) as Array<{
-      withholdingId?: number;
-      withholdingTaxRate?: string | number | null;
-      dmaid?: number | null;
-      taxAgencyId?: number | null;
-      withholdingLinkId?: number | null;
-      artistWaiverInstructionsId?: number | null;
-      iaeWaiverInstructionsId?: number | null;
-    }>;
+    );
 
     return rows
       .map((row) => {
@@ -648,10 +652,11 @@ export class EngagementService {
           withholdingId,
           withholdingTaxRate: String(row.withholdingTaxRate ?? ''),
           dmaid: row.dmaid == null ? null : Number(row.dmaid),
-          taxAgencyId:
-            row.taxAgencyId == null ? null : Number(row.taxAgencyId),
+          taxAgencyId: row.taxAgencyId == null ? null : Number(row.taxAgencyId),
           withholdingLinkId:
-            row.withholdingLinkId == null ? null : Number(row.withholdingLinkId),
+            row.withholdingLinkId == null
+              ? null
+              : Number(row.withholdingLinkId),
           artistWaiverInstructionsId:
             row.artistWaiverInstructionsId == null
               ? null
@@ -693,7 +698,7 @@ export class EngagementService {
     if (!Number.isInteger(id) || id < 1) return null;
     const manager = em ?? this.dataSource.manager;
     const hasDmaId = await this.nonResidentWithholdingHasDmaId();
-    const rows = (await manager.query(
+    const rows = await manager.query(
       hasDmaId
         ? `
           SELECT TOP 1
@@ -720,15 +725,7 @@ export class EngagementService {
           WHERE w.WithholdingID = @0
         `,
       [id],
-    )) as Array<{
-      withholdingId?: number;
-      withholdingTaxRate?: string | number | null;
-      dmaid?: number | null;
-      taxAgencyId?: number | null;
-      withholdingLinkId?: number | null;
-      artistWaiverInstructionsId?: number | null;
-      iaeWaiverInstructionsId?: number | null;
-    }>;
+    );
     const row = rows[0];
     if (!row) return null;
     const parsedId = Number(row.withholdingId ?? NaN);
@@ -1223,15 +1220,15 @@ export class EngagementService {
   ): void {
     const q = (f.q ?? '').trim();
     if (q) {
-      const like = `%${q}%`;
+      const like = `%${this.escapeLikePattern(q)}%`;
       qb.andWhere(
-        `(LOWER(CAST(e.engagementId AS VARCHAR(20))) LIKE LOWER(:like) OR LOWER(ISNULL(a.attractionName, '')) LIKE LOWER(:like) OR LOWER(t.tourName) LIKE LOWER(:like) OR LOWER(ISNULL(vc.companyName, '')) LIKE LOWER(:like) OR LOWER(ISNULL(v.venueName, '')) LIKE LOWER(:like) OR LOWER(ISNULL(dma.marketName, '')) LIKE LOWER(:like) OR LOWER(ISNULL(e.engagementStatus, '')) LIKE LOWER(:like) OR LOWER(ISNULL(addr.city, '')) LIKE LOWER(:like) OR LOWER(ISNULL(addr.stateProvince, '')) LIKE LOWER(:like) OR LOWER(ISNULL(tourBanner.linkUrl, '')) LIKE LOWER(:like) OR LOWER(ISNULL((
+        `(LOWER(CAST(e.engagementId AS VARCHAR(20))) LIKE LOWER(:like) ESCAPE '\\' OR LOWER(ISNULL(a.attractionName, '')) LIKE LOWER(:like) ESCAPE '\\' OR LOWER(t.tourName) LIKE LOWER(:like) ESCAPE '\\' OR LOWER(ISNULL(vc.companyName, '')) LIKE LOWER(:like) ESCAPE '\\' OR LOWER(ISNULL(v.venueName, '')) LIKE LOWER(:like) ESCAPE '\\' OR LOWER(ISNULL(dma.marketName, '')) LIKE LOWER(:like) ESCAPE '\\' OR LOWER(ISNULL(e.engagementStatus, '')) LIKE LOWER(:like) ESCAPE '\\' OR LOWER(ISNULL(addr.city, '')) LIKE LOWER(:like) ESCAPE '\\' OR LOWER(ISNULL(addr.stateProvince, '')) LIKE LOWER(:like) ESCAPE '\\' OR LOWER(ISNULL(tourBanner.linkUrl, '')) LIKE LOWER(:like) ESCAPE '\\' OR LOWER(ISNULL((
           SELECT STRING_AGG(LTRIM(RTRIM(ccq.CompanyName)), N', ') WITHIN GROUP (ORDER BY LTRIM(RTRIM(ccq.CompanyName)))
           FROM dbo.EngagementVenue evq
           INNER JOIN dbo.VenueComplexMember vcmq ON vcmq.VenueCompanyID = evq.VenueCompanyID
           INNER JOIN dbo.Company ccq ON ccq.CompanyID = vcmq.ComplexCompanyID
           WHERE evq.EngagementID = e.engagementId AND evq.IsPrimary = 1
-        ), '')) LIKE LOWER(:like))`,
+        ), '')) LIKE LOWER(:like) ESCAPE '\\')`,
         { like },
       );
     }
@@ -1251,17 +1248,30 @@ export class EngagementService {
 
     const an = (f.attractionName ?? '').trim();
     if (an) {
-      qb.andWhere('a.attractionName = :an', { an });
+      qb.andWhere(
+        "LOWER(LTRIM(RTRIM(ISNULL(a.attractionName, '')))) = LOWER(:an)",
+        {
+          an,
+        },
+      );
     }
 
     const dma = (f.dmaMarketName ?? '').trim();
     if (dma) {
-      qb.andWhere('dma.marketName = :dma', { dma });
+      qb.andWhere(
+        "LOWER(LTRIM(RTRIM(ISNULL(dma.marketName, '')))) = LOWER(:dma)",
+        {
+          dma,
+        },
+      );
     }
 
     const vl = (f.venueLabel ?? '').trim();
     if (vl) {
-      qb.andWhere('(vc.companyName = :vl OR v.venueName = :vl)', { vl });
+      qb.andWhere(
+        `(LOWER(LTRIM(RTRIM(ISNULL(vc.companyName, '')))) = LOWER(:vl) OR LOWER(LTRIM(RTRIM(ISNULL(v.venueName, '')))) = LOWER(:vl))`,
+        { vl },
+      );
     }
 
     const openingSub = this.openingPerformanceDateSubquery();
@@ -1687,10 +1697,11 @@ export class EngagementService {
           : null;
 
       if (existingFinanceWithholdingId != null) {
-        const existingWithholding = await this.findNonResidentWithholdingByIdSafe(
-          existingFinanceWithholdingId,
-          em,
-        );
+        const existingWithholding =
+          await this.findNonResidentWithholdingByIdSafe(
+            existingFinanceWithholdingId,
+            em,
+          );
         if (existingWithholding) {
           if (venue && venue.nonResidentWithholdingId == null) {
             venue.nonResidentWithholdingId = existingWithholding.withholdingId;
@@ -1740,7 +1751,7 @@ export class EngagementService {
         );
         savedWithholdingId = savedWithholding.withholdingId;
       } else {
-        const inserted = (await em.query(
+        const inserted = await em.query(
           `
             INSERT INTO [dbo].[NonResidentWithholding]
               ([WithholdingTaxRate], [TaxAgencyID], [WithholdingLinkID], [ArtistWaiverInstructionsID], [IAEWaiverInstructionsID])
@@ -1748,7 +1759,7 @@ export class EngagementService {
             SELECT CAST(SCOPE_IDENTITY() AS int) AS withholdingId;
           `,
           ['0', null, null, null, null],
-        )) as Array<{ withholdingId?: number }>;
+        );
         savedWithholdingId = Number(inserted?.[0]?.withholdingId ?? NaN);
       }
       if (!Number.isInteger(savedWithholdingId) || savedWithholdingId < 1) {

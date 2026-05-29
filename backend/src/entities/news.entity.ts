@@ -20,7 +20,12 @@ export class News {
   @Column({ name: 'created_at', type: 'datetime', nullable: true })
   createdAt: Date | null;
 
-  @Column({ name: 'modified_by', type: 'nvarchar', length: 150, nullable: true })
+  @Column({
+    name: 'modified_by',
+    type: 'nvarchar',
+    length: 150,
+    nullable: true,
+  })
   modifiedBy: string | null;
 
   @Column({ name: 'modified_at', type: 'datetime', nullable: true })
