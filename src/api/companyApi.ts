@@ -437,6 +437,21 @@ export function fetchLookups() {
     apiFetch<ApiNonResidentWithholdingOption[]>('/lookups/non-resident-withholdings'),
   ]).then(([companyTypes, roles, departments, seatingTypes, venueTypes, brands, taxes, servicesProvided, stagehandProviders, nonResidentWithholdings]) => ({ companyTypes, roles, departments, seatingTypes, venueTypes, brands, taxes, servicesProvided, stagehandProviders, nonResidentWithholdings }));
 }
+
+export function fetchServicesAllowedForCompanyTypes(companyTypeIds: number[]) {
+  const ids = Array.from(
+    new Set(
+      companyTypeIds
+        .map(Number)
+        .filter((id) => Number.isInteger(id) && id > 0),
+    ),
+  );
+  if (ids.length === 0) return Promise.resolve<ApiServiceProvided[]>([]);
+  const params = new URLSearchParams({ companyTypeIds: ids.join(',') });
+  return apiFetch<ApiServiceProvided[]>(
+    `/lookups/company-type-services/allowed?${params.toString()}`,
+  );
+}
 export function fetchStagehandProviderCompanies() { return apiFetch<ApiStagehandProviderCompany[]>('/lookups/stagehand-providers').then((data) => (Array.isArray(data) ? data : [])); }
 export function fetchVenueDetails(companyId: number) { return apiFetch<ApiVenueDetailsResponse>(`/companies/${companyId}/venue-details`); }
 export function updateVenueDetails(companyId: number, body: Partial<{ venueProfile: Parameters<typeof updateVenueProfile>[1]; brandIds: number[]; taxIds: number[]; stagehandProviderCompanyId: number | null; nonResidentWithholdingId: number | null; hasStateTaxOnTickets: 0 | 1; hasCityTaxOnTickets: 0 | 1; financeDirectors: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; settlementManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; marketingDirectors: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; technicalDirectors: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; ticketingManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; bookingDirectors: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; rentalManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; calendarManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; contractManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; stagehandProviderContacts: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; nonResidentWithholding: { withholdingTaxRate?: string; dmaid?: number | null; taxAgencyId?: number | null; withholdingLink?: { linkId?: number | null; linkType?: string; linkUrl?: string; linkName?: string; linkPath?: string } | null; artistWaiverInstructions?: { linkId?: number | null; linkType?: string; linkUrl?: string; linkName?: string; linkPath?: string } | null; iaeWaiverInstructions?: { linkId?: number | null; linkType?: string; linkUrl?: string; linkName?: string; linkPath?: string } | null } | null }>) {

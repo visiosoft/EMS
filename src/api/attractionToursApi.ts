@@ -35,6 +35,10 @@ export interface ApiTourListRow {
   tourInsuranceLanguage: string | null;
   talentAgencyCompanyId: number | null;
   talentAgencyCompanyName: string | null;
+  tourManagementCompanyId: number | null;
+  tourManagementCompanyName: string | null;
+  talentAgentContactIds: number[];
+  talentAgentNames: string[];
   techRiderLinkId: number | null;
   venueTypePreferenceId: number | null;
   venueTypePreferenceName: string | null;
@@ -62,6 +66,8 @@ export interface CreateTourPayload {
   sesac?: boolean;
   gmr?: boolean;
   talentAgencyCompanyId?: number | null;
+  tourManagementCompanyId?: number | null;
+  talentAgentContactIds?: number[];
   audienceGender?: string | null;
   audienceAgeRange?: string | null;
   tourInsuranceLanguage?: string | null;
@@ -144,6 +150,12 @@ function buildCreateTourFormData(body: CreateTourPayload): FormData {
   if (body.talentAgencyCompanyId != null && body.talentAgencyCompanyId >= 1) {
     fd.append('talentAgencyCompanyId', String(body.talentAgencyCompanyId));
   }
+  if (body.tourManagementCompanyId != null && body.tourManagementCompanyId >= 1) {
+    fd.append('tourManagementCompanyId', String(body.tourManagementCompanyId));
+  }
+  if (Array.isArray(body.talentAgentContactIds)) {
+    fd.append('talentAgentContactIds', JSON.stringify(body.talentAgentContactIds));
+  }
   if (body.audienceGender != null && body.audienceGender !== '') {
     fd.append('audienceGender', body.audienceGender);
   }
@@ -179,6 +191,8 @@ function buildUpdateTourFormData(body: UpdateTourPayload): FormData {
     'sesac',
     'gmr',
     'talentAgencyCompanyId',
+    'tourManagementCompanyId',
+    'talentAgentContactIds',
     'audienceGender',
     'audienceAgeRange',
     'tourInsuranceLanguage',
@@ -192,6 +206,10 @@ function buildUpdateTourFormData(body: UpdateTourPayload): FormData {
     if (v === undefined) continue;
     if (v === null) {
       fd.append(k, '');
+      continue;
+    }
+    if (Array.isArray(v)) {
+      fd.append(k, JSON.stringify(v));
       continue;
     }
     if (typeof v === 'boolean') {

@@ -5,7 +5,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository, SelectQueryBuilder } from 'typeorm';
+import {
+  DataSource,
+  EntityManager,
+  In,
+  Repository,
+  SelectQueryBuilder,
+} from 'typeorm';
 import { Address } from '../entities/address.entity';
 import { Attraction } from '../entities/attraction.entity';
 import { Company } from '../entities/company.entity';
@@ -98,6 +104,8 @@ export interface EngagementServiceProviderRow {
 export interface EngagementFinanceRow {
   financeId: number | null;
   engagementId: number;
+  payableEntityCompanyId: number | null;
+  payableEntityCompanyName: string | null;
   estimatedBreakeven: number | null;
   grossPotential: number | null;
   sellableCapacity: number | null;
@@ -231,6 +239,7 @@ export class EngagementService {
    * `null` = not yet probed; avoids repeated metadata queries once resolved.
    */
   private engagementFinanceSharePointLinkColsPresent: boolean | null = null;
+  private nonResidentWithholdingHasDmaIdColumn: boolean | null = null;
 
   constructor(
     @InjectRepository(Engagement)
@@ -542,6 +551,215 @@ export class EngagementService {
     };
   }
 
+  private async dboTableHasColumn(
+    tableName: string,
+    columnName: string,
+  ): Promise<boolean> {
+    try {
+      const rows = (await this.dataSource.query(
+        `
+          SELECT TOP 1 1 AS ok
+          FROM INFORMATION_SCHEMA.COLUMNS
+          WHERE TABLE_SCHEMA = 'dbo'
+            AND TABLE_NAME = @0
+            AND COLUMN_NAME = @1
+        `,
+        [tableName, columnName],
+      )) as Array<{ ok?: number }>;
+      return rows.length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  private async nonResidentWithholdingHasDmaId(): Promise<boolean> {
+    if (this.nonResidentWithholdingHasDmaIdColumn != null) {
+      return this.nonResidentWithholdingHasDmaIdColumn;
+    }
+    const hasColumn = await this.dboTableHasColumn(
+      'NonResidentWithholding',
+      'DMAID',
+    );
+    this.nonResidentWithholdingHasDmaIdColumn = hasColumn;
+    return hasColumn;
+  }
+
+  private async listNonResidentWithholdingRowsSafe(
+    em?: EntityManager,
+  ): Promise<
+    Array<{
+      withholdingId: number;
+      withholdingTaxRate: string;
+      dmaid: number | null;
+      taxAgencyId: number | null;
+      withholdingLinkId: number | null;
+      artistWaiverInstructionsId: number | null;
+      iaeWaiverInstructionsId: number | null;
+    }>
+  > {
+    const manager = em ?? this.dataSource.manager;
+    const hasDmaId = await this.nonResidentWithholdingHasDmaId();
+    if (hasDmaId) {
+      const rows = await (em
+        ? em.getRepository(NonResidentWithholding)
+        : this.nonResidentWithholdingRepo
+      ).find({
+        order: { withholdingId: 'ASC' },
+      });
+      return rows.map((row) => ({
+        withholdingId: row.withholdingId,
+        withholdingTaxRate: String(row.withholdingTaxRate ?? ''),
+        dmaid: row.dmaid ?? null,
+        taxAgencyId: row.taxAgencyId ?? null,
+        withholdingLinkId: row.withholdingLinkId ?? null,
+        artistWaiverInstructionsId: row.artistWaiverInstructionsId ?? null,
+        iaeWaiverInstructionsId: row.iaeWaiverInstructionsId ?? null,
+      }));
+    }
+
+    const rows = (await manager.query(
+      `
+        SELECT
+          w.WithholdingID AS withholdingId,
+          w.WithholdingTaxRate AS withholdingTaxRate,
+          CAST(NULL AS int) AS dmaid,
+          w.TaxAgencyID AS taxAgencyId,
+          w.WithholdingLinkID AS withholdingLinkId,
+          w.ArtistWaiverInstructionsID AS artistWaiverInstructionsId,
+          w.IAEWaiverInstructionsID AS iaeWaiverInstructionsId
+        FROM [dbo].[NonResidentWithholding] w
+        ORDER BY w.WithholdingID ASC
+      `,
+    )) as Array<{
+      withholdingId?: number;
+      withholdingTaxRate?: string | number | null;
+      dmaid?: number | null;
+      taxAgencyId?: number | null;
+      withholdingLinkId?: number | null;
+      artistWaiverInstructionsId?: number | null;
+      iaeWaiverInstructionsId?: number | null;
+    }>;
+
+    return rows
+      .map((row) => {
+        const withholdingId = Number(row.withholdingId ?? 0);
+        if (!Number.isInteger(withholdingId) || withholdingId < 1) return null;
+        return {
+          withholdingId,
+          withholdingTaxRate: String(row.withholdingTaxRate ?? ''),
+          dmaid: row.dmaid == null ? null : Number(row.dmaid),
+          taxAgencyId:
+            row.taxAgencyId == null ? null : Number(row.taxAgencyId),
+          withholdingLinkId:
+            row.withholdingLinkId == null ? null : Number(row.withholdingLinkId),
+          artistWaiverInstructionsId:
+            row.artistWaiverInstructionsId == null
+              ? null
+              : Number(row.artistWaiverInstructionsId),
+          iaeWaiverInstructionsId:
+            row.iaeWaiverInstructionsId == null
+              ? null
+              : Number(row.iaeWaiverInstructionsId),
+        };
+      })
+      .filter(
+        (
+          row,
+        ): row is {
+          withholdingId: number;
+          withholdingTaxRate: string;
+          dmaid: number | null;
+          taxAgencyId: number | null;
+          withholdingLinkId: number | null;
+          artistWaiverInstructionsId: number | null;
+          iaeWaiverInstructionsId: number | null;
+        } => row != null,
+      );
+  }
+
+  private async findNonResidentWithholdingByIdSafe(
+    withholdingId: number,
+    em?: EntityManager,
+  ): Promise<{
+    withholdingId: number;
+    withholdingTaxRate: string;
+    dmaid: number | null;
+    taxAgencyId: number | null;
+    withholdingLinkId: number | null;
+    artistWaiverInstructionsId: number | null;
+    iaeWaiverInstructionsId: number | null;
+  } | null> {
+    const id = Math.floor(Number(withholdingId));
+    if (!Number.isInteger(id) || id < 1) return null;
+    const manager = em ?? this.dataSource.manager;
+    const hasDmaId = await this.nonResidentWithholdingHasDmaId();
+    const rows = (await manager.query(
+      hasDmaId
+        ? `
+          SELECT TOP 1
+            w.WithholdingID AS withholdingId,
+            w.WithholdingTaxRate AS withholdingTaxRate,
+            w.DMAID AS dmaid,
+            w.TaxAgencyID AS taxAgencyId,
+            w.WithholdingLinkID AS withholdingLinkId,
+            w.ArtistWaiverInstructionsID AS artistWaiverInstructionsId,
+            w.IAEWaiverInstructionsID AS iaeWaiverInstructionsId
+          FROM [dbo].[NonResidentWithholding] w
+          WHERE w.WithholdingID = @0
+        `
+        : `
+          SELECT TOP 1
+            w.WithholdingID AS withholdingId,
+            w.WithholdingTaxRate AS withholdingTaxRate,
+            CAST(NULL AS int) AS dmaid,
+            w.TaxAgencyID AS taxAgencyId,
+            w.WithholdingLinkID AS withholdingLinkId,
+            w.ArtistWaiverInstructionsID AS artistWaiverInstructionsId,
+            w.IAEWaiverInstructionsID AS iaeWaiverInstructionsId
+          FROM [dbo].[NonResidentWithholding] w
+          WHERE w.WithholdingID = @0
+        `,
+      [id],
+    )) as Array<{
+      withholdingId?: number;
+      withholdingTaxRate?: string | number | null;
+      dmaid?: number | null;
+      taxAgencyId?: number | null;
+      withholdingLinkId?: number | null;
+      artistWaiverInstructionsId?: number | null;
+      iaeWaiverInstructionsId?: number | null;
+    }>;
+    const row = rows[0];
+    if (!row) return null;
+    const parsedId = Number(row.withholdingId ?? NaN);
+    if (!Number.isInteger(parsedId) || parsedId < 1) return null;
+    return {
+      withholdingId: parsedId,
+      withholdingTaxRate: String(row.withholdingTaxRate ?? ''),
+      dmaid: row.dmaid == null ? null : Number(row.dmaid),
+      taxAgencyId: row.taxAgencyId == null ? null : Number(row.taxAgencyId),
+      withholdingLinkId:
+        row.withholdingLinkId == null ? null : Number(row.withholdingLinkId),
+      artistWaiverInstructionsId:
+        row.artistWaiverInstructionsId == null
+          ? null
+          : Number(row.artistWaiverInstructionsId),
+      iaeWaiverInstructionsId:
+        row.iaeWaiverInstructionsId == null
+          ? null
+          : Number(row.iaeWaiverInstructionsId),
+    };
+  }
+
+  private async assertNonResidentWithholdingExists(id: number): Promise<void> {
+    const found = await this.findNonResidentWithholdingByIdSafe(id);
+    if (!found) {
+      throw new BadRequestException({
+        message: `Non-resident withholding #${id} was not found.`,
+      });
+    }
+  }
+
   private normalizeHttpOrHttpsUrl(
     raw: string | null | undefined,
     label: string,
@@ -675,6 +893,7 @@ export class EngagementService {
     engagement: Engagement,
     artistRow: ArtistFinance | null,
     settlementRow: SettlementFinance | null,
+    payableEntity: { companyId: number; companyName: string } | null,
   ): EngagementFinanceRow {
     const grossPotential = this.mapFinanceNumber(engagement.grossPotential);
     const sellableCapacity =
@@ -697,6 +916,8 @@ export class EngagementService {
       return {
         financeId: null,
         engagementId,
+        payableEntityCompanyId: payableEntity?.companyId ?? null,
+        payableEntityCompanyName: payableEntity?.companyName ?? null,
         estimatedBreakeven: null,
         grossPotential,
         sellableCapacity,
@@ -727,6 +948,8 @@ export class EngagementService {
     return {
       financeId: row.financeId,
       engagementId: row.engagementId,
+      payableEntityCompanyId: payableEntity?.companyId ?? null,
+      payableEntityCompanyName: payableEntity?.companyName ?? null,
       estimatedBreakeven: this.mapFinanceNumber(row.estimatedBreakeven),
       grossPotential,
       sellableCapacity,
@@ -1236,6 +1459,20 @@ export class EngagementService {
 
   async getFinance(engagementId: number): Promise<EngagementFinanceRow> {
     const engagement = await this.assertEngagementExists(engagementId);
+    const payableEntity = await this.tourRepo
+      .createQueryBuilder('t')
+      .leftJoin(Company, 'pmc', 'pmc.companyId = t.tourManagementCompanyId')
+      .select('pmc.companyId', 'companyId')
+      .addSelect('pmc.companyName', 'companyName')
+      .where('t.tourId = :tourId', { tourId: engagement.tourId })
+      .getRawOne<{ companyId: number | null; companyName: string | null }>()
+      .then((raw) => {
+        const id = Number(raw?.companyId);
+        const name = String(raw?.companyName ?? '').trim();
+        return Number.isInteger(id) && id > 0 && name
+          ? { companyId: id, companyName: name }
+          : null;
+      });
     const row = await this.engagementFinancesRepo.findOne({
       where: { engagementId },
     });
@@ -1259,6 +1496,7 @@ export class EngagementService {
       engagement,
       artistRow,
       settlementRow,
+      payableEntity,
     );
     if (!row?.financeId) return base;
     return this.mergeFinanceSharePointLinksFromDb(row.financeId, base);
@@ -1274,16 +1512,14 @@ export class EngagementService {
       label: v,
     }));
 
-    const nrRows = await this.nonResidentWithholdingRepo.find({
-      order: { withholdingId: 'ASC' },
-    });
+    const nrRows = await this.listNonResidentWithholdingRowsSafe();
     const linkIds = Array.from(
       new Set(
         nrRows
           .flatMap((r) => [
-            r.withholdingLinkId,
-            r.artistWaiverInstructionsId,
-            r.iaeWaiverInstructionsId,
+            r.withholdingLinkId ?? null,
+            r.artistWaiverInstructionsId ?? null,
+            r.iaeWaiverInstructionsId ?? null,
           ])
           .filter(
             (id): id is number => id != null && Number.isInteger(id) && id > 0,
@@ -1389,31 +1625,41 @@ export class EngagementService {
       throw new BadRequestException({ message: 'Invalid withholding id.' });
     }
 
-    const row = await this.nonResidentWithholdingRepo.findOne({
-      where: { withholdingId: id },
-    });
+    const row = await this.findNonResidentWithholdingByIdSafe(id);
     if (!row) {
       throw new NotFoundException({
         message: `Non-resident withholding #${id} was not found.`,
       });
     }
 
+    let nextIaeWaiverInstructionsId = row.iaeWaiverInstructionsId;
+    let nextArtistWaiverInstructionsId = row.artistWaiverInstructionsId;
+
     if (dto.iaeWaiverInstructionsUrl !== undefined) {
-      row.iaeWaiverInstructionsId = await this.upsertUrlLink(
+      nextIaeWaiverInstructionsId = await this.upsertUrlLink(
         dto.iaeWaiverInstructionsUrl,
         row.iaeWaiverInstructionsId,
         'IAE waiver instructions',
       );
     }
     if (dto.artistWaiverInstructionsUrl !== undefined) {
-      row.artistWaiverInstructionsId = await this.upsertUrlLink(
+      nextArtistWaiverInstructionsId = await this.upsertUrlLink(
         dto.artistWaiverInstructionsUrl,
         row.artistWaiverInstructionsId,
         'Artist waiver instructions',
       );
     }
 
-    await this.nonResidentWithholdingRepo.save(row);
+    await this.dataSource.query(
+      `
+        UPDATE [dbo].[NonResidentWithholding]
+        SET
+          [IAEWaiverInstructionsID] = @0,
+          [ArtistWaiverInstructionsID] = @1
+        WHERE [WithholdingID] = @2
+      `,
+      [nextIaeWaiverInstructionsId, nextArtistWaiverInstructionsId, id],
+    );
   }
 
   async createWithholdingForEngagement(
@@ -1441,9 +1687,10 @@ export class EngagementService {
           : null;
 
       if (existingFinanceWithholdingId != null) {
-        const existingWithholding = await em.findOne(NonResidentWithholding, {
-          where: { withholdingId: existingFinanceWithholdingId },
-        });
+        const existingWithholding = await this.findNonResidentWithholdingByIdSafe(
+          existingFinanceWithholdingId,
+          em,
+        );
         if (existingWithholding) {
           if (venue && venue.nonResidentWithholdingId == null) {
             venue.nonResidentWithholdingId = existingWithholding.withholdingId;
@@ -1456,9 +1703,10 @@ export class EngagementService {
       const venueWithholdingId = venue?.nonResidentWithholdingId ?? null;
       let venueWithholdingMissing = false;
       if (venueWithholdingId != null) {
-        const venueWithholding = await em.findOne(NonResidentWithholding, {
-          where: { withholdingId: venueWithholdingId },
-        });
+        const venueWithholding = await this.findNonResidentWithholdingByIdSafe(
+          venueWithholdingId,
+          em,
+        );
         if (venueWithholding) {
           const finance =
             existingFinance ??
@@ -1475,19 +1723,34 @@ export class EngagementService {
         venueCompanyId != null
           ? await em.findOne(Company, { where: { companyId: venueCompanyId } })
           : null;
-      const withholding = em.create(NonResidentWithholding, {
-        withholdingTaxRate: '0',
-        dmaid: venueCompany?.dmaid ?? null,
-        taxAgencyId: null,
-        withholdingLinkId: null,
-        artistWaiverInstructionsId: null,
-        iaeWaiverInstructionsId: null,
-      });
-      const savedWithholding = await em.save(
-        NonResidentWithholding,
-        withholding,
-      );
-      const savedWithholdingId = savedWithholding.withholdingId;
+      const hasDmaId = await this.nonResidentWithholdingHasDmaId();
+      let savedWithholdingId: number | null = null;
+      if (hasDmaId) {
+        const withholding = em.create(NonResidentWithholding, {
+          withholdingTaxRate: '0',
+          dmaid: venueCompany?.dmaid ?? null,
+          taxAgencyId: null,
+          withholdingLinkId: null,
+          artistWaiverInstructionsId: null,
+          iaeWaiverInstructionsId: null,
+        });
+        const savedWithholding = await em.save(
+          NonResidentWithholding,
+          withholding,
+        );
+        savedWithholdingId = savedWithholding.withholdingId;
+      } else {
+        const inserted = (await em.query(
+          `
+            INSERT INTO [dbo].[NonResidentWithholding]
+              ([WithholdingTaxRate], [TaxAgencyID], [WithholdingLinkID], [ArtistWaiverInstructionsID], [IAEWaiverInstructionsID])
+            VALUES (@0, @1, @2, @3, @4);
+            SELECT CAST(SCOPE_IDENTITY() AS int) AS withholdingId;
+          `,
+          ['0', null, null, null, null],
+        )) as Array<{ withholdingId?: number }>;
+        savedWithholdingId = Number(inserted?.[0]?.withholdingId ?? NaN);
+      }
       if (!Number.isInteger(savedWithholdingId) || savedWithholdingId < 1) {
         throw new BadRequestException({
           message: 'Could not create a withholding record.',
@@ -1517,14 +1780,7 @@ export class EngagementService {
     if (dto.requiredNonResidentWithholdingId !== undefined) {
       const id = dto.requiredNonResidentWithholdingId;
       if (id != null) {
-        const row = await this.nonResidentWithholdingRepo.findOne({
-          where: { withholdingId: id },
-        });
-        if (!row) {
-          throw new BadRequestException({
-            message: `Non-resident withholding #${id} was not found.`,
-          });
-        }
+        await this.assertNonResidentWithholdingExists(id);
       }
     }
     if (dto.artistFinanceId !== undefined) {

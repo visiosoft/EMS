@@ -1,8 +1,23 @@
-import React, { useEffect, useState } from 'react';
-import { ImageIcon } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ImageIcon, Loader2 } from 'lucide-react';
 import { FormField } from './Primitives';
-import { Select2 } from './Select2';
+import { Select2, Select2Multi } from './Select2';
 import type { ApiAttractionListRow, ApiClass, CreateTourPayload } from '@/api/attractionToursApi';
+import {
+  createCompanyContact,
+  fetchCompanyContacts,
+  fetchLookups,
+  type ApiCompanyContact,
+} from '@/api/companyApi';
+import { friendlyApiError } from '@/lib/friendlyApiError';
+import { ContactPhoneRow } from './ContactPhoneRow';
+import { DEFAULT_PHONE_COUNTRY } from '@/lib/contactPhoneOptions';
+import {
+  type PhoneCountrySelection,
+  PHONE_INVALID_MESSAGE,
+  tryE164FromDisplay,
+} from '@/lib/contactPhoneField';
 
 /** Where the form is embedded — controls which optional blocks are shown. */
 export type AddTourFormVariant = 'project-wizard' | 'attraction-tours';
@@ -16,6 +31,7 @@ export function AddTourForm({
   submitting,
   onSave,
   onCancel,
+  addToast,
   lockAttractionId,
 }: {
   variant: AddTourFormVariant;
@@ -26,15 +42,18 @@ export function AddTourForm({
   submitting: boolean;
   onSave: (body: CreateTourPayload, bannerFile?: File | null) => void;
   onCancel: () => void;
+  addToast?: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
   /** When set, attraction is fixed (e.g. project wizard) and the attraction picker is hidden. */
   lockAttractionId?: number;
 }) {
+  const qc = useQueryClient();
   const [name, setName] = useState('');
   const [attractionId, setAttractionId] = useState(
     () => (lockAttractionId != null ? String(lockAttractionId) : ''),
   );
   const [classId, setClassId] = useState('');
   const [talentAgencyCompanyId, setTalentAgencyCompanyId] = useState('');
+  const [talentAgentContactIds, setTalentAgentContactIds] = useState<string[]>([]);
   const [ascap, setAscap] = useState(false);
   const [bmi, setBmi] = useState(false);
   const [sesac, setSesac] = useState(false);
@@ -48,6 +67,24 @@ export function AddTourForm({
     classId?: string;
     talentAgencyCompanyId?: string;
   }>({});
+  const [showAddContact, setShowAddContact] = useState(false);
+  const [contactFirstName, setContactFirstName] = useState('');
+  const [contactLastName, setContactLastName] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [workPhoneCountry, setWorkPhoneCountry] = useState<PhoneCountrySelection>(
+    DEFAULT_PHONE_COUNTRY,
+  );
+  const [workPhoneDisplay, setWorkPhoneDisplay] = useState('');
+  const [cellPhoneCountry, setCellPhoneCountry] = useState<PhoneCountrySelection>(
+    DEFAULT_PHONE_COUNTRY,
+  );
+  const [cellPhoneDisplay, setCellPhoneDisplay] = useState('');
+  const [workPhoneError, setWorkPhoneError] = useState<string | undefined>();
+  const [cellPhoneError, setCellPhoneError] = useState<string | undefined>();
+  const [contactRoleIds, setContactRoleIds] = useState<string[]>([]);
+  const [contactDepartmentIds, setContactDepartmentIds] = useState<string[]>([]);
+  const [contactSaving, setContactSaving] = useState(false);
+  const [contactError, setContactError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!bannerFile) {
@@ -76,8 +113,138 @@ export function AddTourForm({
 
   const showBannerUpload = variant === 'attraction-tours';
   const talentAgencyOptions = managementCompanyOptions ?? [];
-  const talentAgencyFieldLabel = 'Talent Agency';
+  const talentAgencyFieldLabel = 'Talent Agency / Payable Entity';
   const talentAgencyPlaceholder = 'Select talent agency…';
+  const selectedTalentAgencyId = Number(talentAgencyCompanyId);
+  const talentAgentsQuery = useQuery({
+    queryKey: ['add-tour-talent-agents', selectedTalentAgencyId],
+    queryFn: () => fetchCompanyContacts(selectedTalentAgencyId),
+    enabled: Number.isInteger(selectedTalentAgencyId) && selectedTalentAgencyId > 0,
+    staleTime: 60_000,
+  });
+  const contactLookupsQuery = useQuery({
+    queryKey: ['contact-form-lookups'],
+    queryFn: () => fetchLookups().then(({ roles, departments }) => ({ roles, departments })),
+    enabled: showAddContact,
+    staleTime: 30 * 60 * 1000,
+  });
+
+  const talentAgentOptions = useMemo(
+    () =>
+      (talentAgentsQuery.data ?? [])
+        .map((contact: ApiCompanyContact) => ({
+          value: String(contact.contactId),
+          label:
+            `${contact.firstName ?? ''} ${contact.lastName ?? ''}`.trim() ||
+            contact.email ||
+            `Contact #${contact.contactId}`,
+        }))
+        .filter((opt, index, all) => all.findIndex((x) => x.value === opt.value) === index)
+        .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })),
+    [talentAgentsQuery.data],
+  );
+  const selectedTalentAgentLabels = useMemo(() => {
+    if (!talentAgentContactIds.length) return [];
+    const optionById = new Map(talentAgentOptions.map((opt) => [opt.value, opt.label]));
+    return talentAgentContactIds.map((id) => optionById.get(id) ?? `Contact #${id}`);
+  }, [talentAgentContactIds, talentAgentOptions]);
+
+  useEffect(() => {
+    setTalentAgentContactIds([]);
+    setShowAddContact(false);
+  }, [talentAgencyCompanyId]);
+
+  useEffect(() => {
+    if (!talentAgentOptions.length || !talentAgentContactIds.length) return;
+    const allowed = new Set(talentAgentOptions.map((opt) => opt.value));
+    setTalentAgentContactIds((prev) => prev.filter((id) => allowed.has(id)));
+  }, [talentAgentOptions, talentAgentContactIds.length]);
+
+  const resetContactDraft = () => {
+    setContactFirstName('');
+    setContactLastName('');
+    setContactEmail('');
+    setWorkPhoneCountry(DEFAULT_PHONE_COUNTRY);
+    setWorkPhoneDisplay('');
+    setCellPhoneCountry(DEFAULT_PHONE_COUNTRY);
+    setCellPhoneDisplay('');
+    setWorkPhoneError(undefined);
+    setCellPhoneError(undefined);
+    setContactRoleIds([]);
+    setContactDepartmentIds([]);
+    setContactError(null);
+  };
+
+  const handleCreateContact = async () => {
+    const companyId = Number(talentAgencyCompanyId);
+    if (!Number.isInteger(companyId) || companyId < 1) {
+      setContactError('Select a talent agency first.');
+      return;
+    }
+    if (!contactFirstName.trim() || !contactLastName.trim() || !contactEmail.trim()) {
+      setContactError('First name, last name, and email are required.');
+      return;
+    }
+    const roleIds = Array.from(
+      new Set(contactRoleIds.map(Number).filter((id) => Number.isInteger(id) && id > 0)),
+    );
+    const departmentIds = Array.from(
+      new Set(
+        contactDepartmentIds
+          .map(Number)
+          .filter((id) => Number.isInteger(id) && id > 0),
+      ),
+    );
+    if (roleIds.length === 0 || departmentIds.length === 0) {
+      setContactError('Select at least one role and one department for the new contact.');
+      return;
+    }
+    let wErr: string | undefined;
+    let cErr: string | undefined;
+    if (workPhoneDisplay.trim() && !workPhoneCountry) {
+      wErr = 'Select a country for work phone, or clear the number.';
+    }
+    if (cellPhoneDisplay.trim() && !cellPhoneCountry) {
+      cErr = 'Select a country for cell phone, or clear the number.';
+    }
+    if (wErr || cErr) {
+      setWorkPhoneError(wErr);
+      setCellPhoneError(cErr);
+      return;
+    }
+    const workPhoneE164 = tryE164FromDisplay(workPhoneDisplay, workPhoneCountry);
+    const cellPhoneE164 = tryE164FromDisplay(cellPhoneDisplay, cellPhoneCountry);
+    if (workPhoneDisplay.trim() && !workPhoneE164) wErr = PHONE_INVALID_MESSAGE;
+    if (cellPhoneDisplay.trim() && !cellPhoneE164) cErr = PHONE_INVALID_MESSAGE;
+    setWorkPhoneError(wErr);
+    setCellPhoneError(cErr);
+    if (wErr || cErr) return;
+    setContactSaving(true);
+    setContactError(null);
+    try {
+      const created = await createCompanyContact(companyId, {
+        firstName: contactFirstName.trim(),
+        lastName: contactLastName.trim(),
+        email: contactEmail.trim(),
+        workPhone: workPhoneDisplay.trim() ? workPhoneE164 : undefined,
+        cellPhone: cellPhoneDisplay.trim() ? cellPhoneE164 : undefined,
+        roleIds,
+        departmentIds,
+      });
+      await qc.invalidateQueries({ queryKey: ['add-tour-talent-agents', companyId] });
+      const newId = String(created.contactId);
+      setTalentAgentContactIds((prev) => (prev.includes(newId) ? prev : [...prev, newId]));
+      setShowAddContact(false);
+      resetContactDraft();
+      addToast?.('Talent agent contact added.', 'success');
+    } catch (e) {
+      const message = friendlyApiError(e, 'Could not add the contact.');
+      setContactError(message);
+      addToast?.(message, 'error');
+    } finally {
+      setContactSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -142,6 +309,198 @@ export function AddTourForm({
             No companies with type{' '}
             <span className="font-medium text-text-secondary">Talent Agency</span> are loaded yet.
           </p>
+        )}
+      </FormField>
+      <FormField label="Talent Agents" optional>
+        <Select2Multi
+          options={talentAgentOptions}
+          values={talentAgentContactIds}
+          onChange={setTalentAgentContactIds}
+          placeholder={
+            !talentAgencyCompanyId
+              ? 'Select a talent agency first'
+              : talentAgentsQuery.isLoading
+                ? 'Loading talent agents…'
+                : talentAgentOptions.length
+                  ? 'Select one or more talent agents…'
+                  : 'No contacts found for this agency'
+          }
+          disabled={!talentAgencyCompanyId || talentAgentsQuery.isLoading || submitting}
+        />
+        {talentAgencyCompanyId && (
+          <div className="mt-2 space-y-2">
+            <div className="rounded-md border border-border bg-surface px-2.5 py-2">
+              {talentAgentsQuery.isLoading ? (
+                <p className="inline-flex items-center gap-1.5 text-[11px] text-text-muted">
+                  <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                  Loading agency contacts…
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  <p className="text-[11px] text-text-secondary">
+                    Selected for this tour:{' '}
+                    <span className="font-medium text-text-primary">
+                      {selectedTalentAgentLabels.length}
+                    </span>{' '}
+                    of{' '}
+                    <span className="font-medium text-text-primary">
+                      {talentAgentOptions.length}
+                    </span>{' '}
+                    company contact{talentAgentOptions.length === 1 ? '' : 's'}.
+                  </p>
+                  {selectedTalentAgentLabels.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedTalentAgentLabels.map((label, index) => (
+                        <span
+                          key={`${label}-${index}`}
+                          className="inline-flex items-center rounded-md border border-border bg-background px-2 py-0.5 text-[11px] text-text-primary"
+                        >
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-text-muted">
+                      No specific talent agents selected for this tour yet.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => {
+                setShowAddContact((open) => !open);
+                setContactError(null);
+              }}
+              className="text-xs font-medium text-ems-accent hover:underline disabled:opacity-50"
+            >
+              + Add New Contact
+            </button>
+            {showAddContact && (
+              <div className="rounded-md border border-border bg-elevated/70 p-3 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <FormField label="First Name" required>
+                    <input
+                      className={inputCls}
+                      value={contactFirstName}
+                      onChange={(e) => setContactFirstName(e.target.value)}
+                      placeholder="First name"
+                      maxLength={100}
+                      disabled={contactSaving}
+                    />
+                  </FormField>
+                  <FormField label="Last Name" required>
+                    <input
+                      className={inputCls}
+                      value={contactLastName}
+                      onChange={(e) => setContactLastName(e.target.value)}
+                      placeholder="Last name"
+                      maxLength={100}
+                      disabled={contactSaving}
+                    />
+                  </FormField>
+                  <FormField label="Email" required>
+                    <input
+                      className={inputCls}
+                      type="email"
+                      value={contactEmail}
+                      onChange={(e) => setContactEmail(e.target.value)}
+                      placeholder="Email"
+                      maxLength={254}
+                      disabled={contactSaving}
+                    />
+                  </FormField>
+                  <ContactPhoneRow
+                    label="Work Phone"
+                    country={workPhoneCountry}
+                    display={workPhoneDisplay}
+                    onCountry={(value) => {
+                      setWorkPhoneCountry(value);
+                      setWorkPhoneError(undefined);
+                    }}
+                    onDisplay={(value) => {
+                      setWorkPhoneDisplay(value);
+                      setWorkPhoneError(undefined);
+                    }}
+                    error={workPhoneError}
+                  />
+                  <ContactPhoneRow
+                    label="Cell Phone"
+                    country={cellPhoneCountry}
+                    display={cellPhoneDisplay}
+                    onCountry={(value) => {
+                      setCellPhoneCountry(value);
+                      setCellPhoneError(undefined);
+                    }}
+                    onDisplay={(value) => {
+                      setCellPhoneDisplay(value);
+                      setCellPhoneError(undefined);
+                    }}
+                    error={cellPhoneError}
+                  />
+                  <FormField label="Role" required>
+                    <Select2Multi
+                      options={(contactLookupsQuery.data?.roles ?? []).map((r) => ({
+                        value: String(r.roleId),
+                        label: r.roleName,
+                      }))}
+                      values={contactRoleIds}
+                      onChange={setContactRoleIds}
+                      placeholder={
+                        contactLookupsQuery.isLoading
+                          ? 'Loading roles…'
+                          : 'Select one or more roles…'
+                      }
+                      disabled={contactSaving || contactLookupsQuery.isLoading}
+                    />
+                  </FormField>
+                  <div className="sm:col-span-2">
+                    <FormField label="Department" required>
+                      <Select2Multi
+                        options={(contactLookupsQuery.data?.departments ?? []).map((d) => ({
+                          value: String(d.departmentId),
+                          label: d.departmentName,
+                        }))}
+                        values={contactDepartmentIds}
+                        onChange={setContactDepartmentIds}
+                        placeholder={
+                          contactLookupsQuery.isLoading
+                            ? 'Loading departments…'
+                            : 'Select one or more departments…'
+                        }
+                        disabled={contactSaving || contactLookupsQuery.isLoading}
+                      />
+                    </FormField>
+                  </div>
+                </div>
+                {contactError && <p className="text-xs text-ems-coral">{contactError}</p>}
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    disabled={contactSaving}
+                    onClick={() => {
+                      setShowAddContact(false);
+                      resetContactDraft();
+                    }}
+                    className="px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={contactSaving || contactLookupsQuery.isLoading}
+                    onClick={() => void handleCreateContact()}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-ems-accent px-3 py-1.5 text-xs font-medium text-background disabled:opacity-60"
+                  >
+                    {contactSaving && <Loader2 className="h-3 w-3 animate-spin" aria-hidden />}
+                    Save contact
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </FormField>
       <FormField label="Tour Name" required error={fieldErrors.name}>
@@ -304,6 +663,8 @@ export function AddTourForm({
                 sesac,
                 gmr,
                 talentAgencyCompanyId: Number(talentAgencyCompanyId),
+                tourManagementCompanyId: Number(talentAgencyCompanyId),
+                talentAgentContactIds: talentAgentContactIds.map(Number),
                 audienceGender: null,
                 audienceAgeRange: null,
                 tourInsuranceLanguage: null,

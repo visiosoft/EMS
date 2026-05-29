@@ -70,6 +70,13 @@ export class Tour extends AuditColumns {
   @JoinColumn({ name: 'TalentAgencyCompanyID' })
   talentAgencyCompany: Company | null;
 
+  @Column({ name: 'TourManagementCompanyID', type: 'int', nullable: true })
+  tourManagementCompanyId: number | null;
+
+  @ManyToOne(() => Company, { nullable: true })
+  @JoinColumn({ name: 'TourManagementCompanyID' })
+  tourManagementCompany: Company | null;
+
   @Column({ name: 'ClassID', type: 'int' })
   classId: number;
 

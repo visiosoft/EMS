@@ -23,6 +23,12 @@ export class CreateLookupRowDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  companyTypeId?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   serviceProvidedId?: number;
 
   @IsOptional()
@@ -42,6 +48,12 @@ export class UpdateLookupRowDto {
   @IsInt()
   @Min(1)
   companyId?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  companyTypeId?: number;
 
   @IsOptional()
   @Type(() => Number)

@@ -5305,6 +5305,12 @@ function EngagementFinancePanel({
       <div>
         <h3 className="text-sm font-semibold text-text-primary mb-1">Estimates &amp; venue</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Payable entity">
+            <div className="min-h-[34px] rounded border border-border bg-elevated px-3 py-1.5 text-sm text-text-primary">
+              {rec?.payableEntityCompanyName?.trim() || 'Not set'}
+            </div>
+          </FormField>
+          <div className="hidden sm:block" aria-hidden />
           <FormField label="Estimated breakeven">
             <input
               className={inputCls}
