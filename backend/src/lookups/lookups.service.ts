@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { QueryFailedError, Repository } from 'typeorm';
+import { In, QueryFailedError, Repository } from 'typeorm';
 import { Class } from '../entities/class.entity';
 import { CompanyType } from '../entities/company-type.entity';
 import { Department } from '../entities/department.entity';
@@ -16,6 +16,7 @@ import { Brand } from '../entities/brand.entity';
 import { ServiceProvided } from '../entities/service-provided.entity';
 import { Tax } from '../entities/tax.entity';
 import { CompanyService as CompanyServiceEntity } from '../entities/company-service.entity';
+import { CompanyTypeService } from '../entities/company-type-service.entity';
 import { Company } from '../entities/company.entity';
 import { NonResidentWithholding } from '../entities/non-resident-withholding.entity';
 import {
@@ -32,6 +33,7 @@ type ManagedLookupTable =
   | 'roles'
   | 'brands'
   | 'company-services'
+  | 'company-type-services'
   | 'services-provided'
   | 'dmas';
 
@@ -60,11 +62,81 @@ export class LookupsService {
     private readonly serviceProvidedRepo: Repository<ServiceProvided>,
     @InjectRepository(CompanyServiceEntity)
     private readonly companyServiceRepo: Repository<CompanyServiceEntity>,
+    @InjectRepository(CompanyTypeService)
+    private readonly companyTypeServiceRepo: Repository<CompanyTypeService>,
     @InjectRepository(Company)
     private readonly companyRepo: Repository<Company>,
     @InjectRepository(NonResidentWithholding)
     private readonly nonResidentWithholdingRepo: Repository<NonResidentWithholding>,
   ) {}
+
+  private async hasDboColumn(
+    tableName: string,
+    columnName: string,
+  ): Promise<boolean> {
+    const rows = (await this.companyRepo.manager.query(
+      `
+        SELECT TOP 1 1 AS ok
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = 'dbo'
+          AND TABLE_NAME = @0
+          AND COLUMN_NAME = @1
+      `,
+      [tableName, columnName],
+    )) as Array<{ ok?: number }>;
+    return rows.length > 0;
+  }
+
+  private async companyTypeIdsForCompany(companyId: number): Promise<number[]> {
+    const company = await this.companyRepo.findOne({ where: { companyId } });
+    if (!company) return [];
+    const ids = new Set<number>();
+    if (Number.isInteger(company.companyTypeId) && company.companyTypeId > 0) {
+      ids.add(company.companyTypeId);
+    }
+    try {
+      const rows = (await this.companyRepo.manager.query(
+        `
+          SELECT cct.CompanyTypeID AS companyTypeId
+          FROM dbo.CompanyCompanyType cct
+          WHERE cct.CompanyID = @0
+        `,
+        [companyId],
+      )) as Array<{ companyTypeId?: number; COMPANYTYPEID?: number }>;
+      for (const row of rows) {
+        const id = Number(row.companyTypeId ?? row.COMPANYTYPEID);
+        if (Number.isInteger(id) && id > 0) ids.add(id);
+      }
+    } catch {
+      // Legacy databases may not expose dbo.CompanyCompanyType; Company.CompanyTypeID is enough there.
+    }
+    return [...ids];
+  }
+
+  private async assertCompanyServiceAllowed(
+    companyId: number,
+    serviceProvidedId: number,
+  ): Promise<void> {
+    const companyTypeIds = await this.companyTypeIdsForCompany(companyId);
+    if (companyTypeIds.length === 0) {
+      throw new BadRequestException({
+        message:
+          'Selected company does not have a company type, so services cannot be assigned.',
+      });
+    }
+    const allowed = await this.companyTypeServiceRepo.count({
+      where: {
+        companyTypeId: In(companyTypeIds),
+        serviceProvidedId,
+      },
+    });
+    if (allowed < 1) {
+      throw new BadRequestException({
+        message:
+          'Selected service is not allowed for this company type. Update dbo.CompanyTypeService or choose an allowed service.',
+      });
+    }
+  }
 
   findCompanyTypes() {
     return this.companyTypeRepo.find({
@@ -106,6 +178,30 @@ export class LookupsService {
     return this.serviceProvidedRepo.find({ order: { serviceName: 'ASC' } });
   }
 
+  async findServicesAllowedForCompanyTypes(
+    companyTypeIdsRaw?: string,
+  ): Promise<ServiceProvided[]> {
+    const ids = String(companyTypeIdsRaw ?? '')
+      .split(',')
+      .map((part) => Number(part.trim()))
+      .filter((id) => Number.isInteger(id) && id > 0);
+    const companyTypeIds = [...new Set(ids)];
+    if (companyTypeIds.length === 0) return [];
+
+    return this.serviceProvidedRepo
+      .createQueryBuilder('sp')
+      .innerJoin(
+        CompanyTypeService,
+        'cts',
+        'cts.serviceProvidedId = sp.serviceProvidedId',
+      )
+      .where('cts.companyTypeId IN (:...companyTypeIds)', { companyTypeIds })
+      .orderBy('sp.serviceName', 'ASC')
+      .addOrderBy('sp.serviceProvidedId', 'ASC')
+      .distinct(true)
+      .getMany();
+  }
+
   async findStagehandProviders(): Promise<
     { companyId: number; companyName: string }[]
   > {
@@ -139,14 +235,46 @@ export class LookupsService {
       taxAgencyId: number | null;
     }[]
   > {
-    const rows = await this.nonResidentWithholdingRepo.find({
-      order: { withholdingId: 'ASC' as const },
-    });
+    const hasDmaId = await this.hasDboColumn(
+      'NonResidentWithholding',
+      'DMAID',
+    );
+
+    if (hasDmaId) {
+      const rows = await this.nonResidentWithholdingRepo.find({
+        order: { withholdingId: 'ASC' as const },
+      });
+      return rows.map((r) => ({
+        withholdingId: r.withholdingId,
+        withholdingTaxRate: r.withholdingTaxRate,
+        dmaid: r.dmaid ?? null,
+        taxAgencyId: r.taxAgencyId ?? null,
+      }));
+    }
+
+    const rows = (await this.companyRepo.manager.query(
+      `
+        SELECT
+          w.WithholdingID AS withholdingId,
+          w.WithholdingTaxRate AS withholdingTaxRate,
+          CAST(NULL AS int) AS dmaid,
+          w.TaxAgencyID AS taxAgencyId
+        FROM [dbo].[NonResidentWithholding] w
+        ORDER BY w.WithholdingID ASC
+      `,
+    )) as Array<{
+      withholdingId?: number;
+      withholdingTaxRate?: string | number | null;
+      dmaid?: number | null;
+      taxAgencyId?: number | null;
+    }>;
+
     return rows.map((r) => ({
-      withholdingId: r.withholdingId,
-      withholdingTaxRate: r.withholdingTaxRate,
-      dmaid: r.dmaid ?? null,
-      taxAgencyId: r.taxAgencyId ?? null,
+      withholdingId: Number(r.withholdingId ?? 0),
+      withholdingTaxRate: String(r.withholdingTaxRate ?? ''),
+      dmaid: null,
+      taxAgencyId:
+        r.taxAgencyId == null ? null : Number(r.taxAgencyId),
     }));
   }
 
@@ -437,6 +565,7 @@ export class LookupsService {
       'roles',
       'brands',
       'company-services',
+      'company-type-services',
       'services-provided',
       'dmas',
     ];
@@ -445,7 +574,7 @@ export class LookupsService {
     }
     throw new BadRequestException({
       message:
-        'Unknown lookup table. Supported values: company-types, venue-types, seating-types, departments, classes, roles, brands, company-services, services-provided, dmas.',
+        'Unknown lookup table. Supported values: company-types, venue-types, seating-types, departments, classes, roles, brands, company-services, company-type-services, services-provided, dmas.',
     });
   }
 
@@ -573,6 +702,80 @@ export class LookupsService {
           companyId: Number(r.companyId),
           serviceProvidedId: Number(r.serviceProvidedId),
           companyName: String(r.companyName ?? ''),
+          serviceName: String(r.serviceName ?? ''),
+        })),
+        total,
+      };
+    }
+
+    if (table === 'company-type-services') {
+      const qb = this.companyTypeServiceRepo
+        .createQueryBuilder('cts')
+        .leftJoin(CompanyType, 'ct', 'ct.companyTypeId = cts.companyTypeId')
+        .leftJoin(
+          ServiceProvided,
+          'sp',
+          'sp.serviceProvidedId = cts.serviceProvidedId',
+        )
+        .select([
+          'cts.companyTypeServiceId AS companyTypeServiceId',
+          'cts.companyTypeId AS companyTypeId',
+          'cts.serviceProvidedId AS serviceProvidedId',
+          'ct.companyTypeName AS companyTypeName',
+          'sp.serviceName AS serviceName',
+        ]);
+
+      if (like) {
+        qb.where(
+          `(
+            LOWER(ISNULL(ct.companyTypeName, '')) LIKE LOWER(:like)
+            OR LOWER(ISNULL(sp.serviceName, '')) LIKE LOWER(:like)
+            OR CAST(cts.companyTypeServiceId AS nvarchar(30)) LIKE :like
+            OR CAST(cts.companyTypeId AS nvarchar(30)) LIKE :like
+            OR CAST(cts.serviceProvidedId AS nvarchar(30)) LIKE :like
+          )`,
+          { like },
+        );
+      }
+
+      if (sortBy === 'companytypeid') {
+        qb.orderBy('cts.companyTypeId', sortDir).addOrderBy(
+          'sp.serviceName',
+          'ASC',
+        );
+      } else if (sortBy === 'serviceprovidedid') {
+        qb.orderBy('cts.serviceProvidedId', sortDir).addOrderBy(
+          'ct.companyTypeName',
+          'ASC',
+        );
+      } else if (sortBy === 'companytypename') {
+        qb.orderBy('ct.companyTypeName', sortDir).addOrderBy(
+          'sp.serviceName',
+          'ASC',
+        );
+      } else if (sortBy === 'servicename') {
+        qb.orderBy('sp.serviceName', sortDir).addOrderBy(
+          'ct.companyTypeName',
+          'ASC',
+        );
+      } else {
+        qb.orderBy('ct.companyTypeName', sortDir).addOrderBy(
+          'sp.serviceName',
+          'ASC',
+        );
+      }
+
+      const total = await qb.getCount();
+      const rows = await qb
+        .offset(opts.offset)
+        .limit(opts.limit)
+        .getRawMany<Record<string, unknown>>();
+      return {
+        data: rows.map((r) => ({
+          companyTypeServiceId: Number(r.companyTypeServiceId),
+          companyTypeId: Number(r.companyTypeId),
+          serviceProvidedId: Number(r.serviceProvidedId),
+          companyTypeName: String(r.companyTypeName ?? ''),
           serviceName: String(r.serviceName ?? ''),
         })),
         total,
@@ -730,6 +933,7 @@ export class LookupsService {
           message: 'Selected service does not exist.',
         });
       }
+      await this.assertCompanyServiceAllowed(companyId, serviceProvidedId);
       const existing = await this.companyServiceRepo.findOne({
         where: { companyId, serviceProvidedId },
       });
@@ -746,6 +950,49 @@ export class LookupsService {
         companyId,
         serviceProvidedId,
         companyName: company.companyName,
+        serviceName: service.serviceName,
+      };
+    }
+
+    if (table === 'company-type-services') {
+      const companyTypeId = this.toPositiveInt(
+        dto.companyTypeId,
+        'companyTypeId',
+      );
+      const serviceProvidedId = this.toPositiveInt(
+        dto.serviceProvidedId,
+        'serviceProvidedId',
+      );
+      const [companyType, service] = await Promise.all([
+        this.companyTypeRepo.findOne({ where: { companyTypeId } }),
+        this.serviceProvidedRepo.findOne({ where: { serviceProvidedId } }),
+      ]);
+      if (!companyType) {
+        throw new BadRequestException({
+          message: 'Selected company type does not exist.',
+        });
+      }
+      if (!service) {
+        throw new BadRequestException({
+          message: 'Selected service does not exist.',
+        });
+      }
+      const existing = await this.companyTypeServiceRepo.findOne({
+        where: { companyTypeId, serviceProvidedId },
+      });
+      if (existing) {
+        throw new BadRequestException({
+          message: 'This company type-service mapping already exists.',
+        });
+      }
+      const saved = await this.companyTypeServiceRepo.save(
+        this.companyTypeServiceRepo.create({ companyTypeId, serviceProvidedId }),
+      );
+      return {
+        companyTypeServiceId: saved.companyTypeServiceId,
+        companyTypeId,
+        serviceProvidedId,
+        companyTypeName: companyType.companyTypeName,
         serviceName: service.serviceName,
       };
     }
@@ -866,6 +1113,10 @@ export class LookupsService {
         throw new BadRequestException({
           message: 'Selected service does not exist.',
         });
+      await this.assertCompanyServiceAllowed(
+        nextCompanyId,
+        nextServiceProvidedId,
+      );
 
       const duplicate = await this.companyServiceRepo
         .createQueryBuilder('cs')
@@ -889,6 +1140,68 @@ export class LookupsService {
         companyId: saved.companyId,
         serviceProvidedId: saved.serviceProvidedId,
         companyName: company.companyName,
+        serviceName: service.serviceName,
+      };
+    }
+
+    if (table === 'company-type-services') {
+      const row = await this.companyTypeServiceRepo.findOne({
+        where: { companyTypeServiceId: id },
+      });
+      if (!row) {
+        throw new NotFoundException(
+          `CompanyTypeService ${id} was not found.`,
+        );
+      }
+      const nextCompanyTypeId =
+        dto.companyTypeId != null
+          ? this.toPositiveInt(dto.companyTypeId, 'companyTypeId')
+          : row.companyTypeId;
+      const nextServiceProvidedId =
+        dto.serviceProvidedId != null
+          ? this.toPositiveInt(dto.serviceProvidedId, 'serviceProvidedId')
+          : row.serviceProvidedId;
+      const [companyType, service] = await Promise.all([
+        this.companyTypeRepo.findOne({
+          where: { companyTypeId: nextCompanyTypeId },
+        }),
+        this.serviceProvidedRepo.findOne({
+          where: { serviceProvidedId: nextServiceProvidedId },
+        }),
+      ]);
+      if (!companyType)
+        throw new BadRequestException({
+          message: 'Selected company type does not exist.',
+        });
+      if (!service)
+        throw new BadRequestException({
+          message: 'Selected service does not exist.',
+        });
+
+      const duplicate = await this.companyTypeServiceRepo
+        .createQueryBuilder('cts')
+        .where('cts.companyTypeServiceId <> :id', { id })
+        .andWhere('cts.companyTypeId = :companyTypeId', {
+          companyTypeId: nextCompanyTypeId,
+        })
+        .andWhere('cts.serviceProvidedId = :serviceProvidedId', {
+          serviceProvidedId: nextServiceProvidedId,
+        })
+        .getOne();
+      if (duplicate) {
+        throw new BadRequestException({
+          message: 'This company type-service mapping already exists.',
+        });
+      }
+
+      row.companyTypeId = nextCompanyTypeId;
+      row.serviceProvidedId = nextServiceProvidedId;
+      const saved = await this.companyTypeServiceRepo.save(row);
+      return {
+        companyTypeServiceId: saved.companyTypeServiceId,
+        companyTypeId: saved.companyTypeId,
+        serviceProvidedId: saved.serviceProvidedId,
+        companyTypeName: companyType.companyTypeName,
         serviceName: service.serviceName,
       };
     }
@@ -1042,6 +1355,16 @@ export class LookupsService {
         });
         if (!res.affected)
           throw new NotFoundException(`CompanyService ${id} was not found.`);
+        return;
+      }
+      if (table === 'company-type-services') {
+        const res = await this.companyTypeServiceRepo.delete({
+          companyTypeServiceId: id,
+        });
+        if (!res.affected)
+          throw new NotFoundException(
+            `CompanyTypeService ${id} was not found.`,
+          );
         return;
       }
       if (table === 'dmas') {

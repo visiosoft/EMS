@@ -39,6 +39,7 @@ import { Tax } from '../entities/tax.entity';
 import { ServiceProvided } from '../entities/service-provided.entity';
 import { CompanyService as CompanyServiceEntity } from '../entities/company-service.entity';
 import { CompanyServiceArea } from '../entities/company-service-area.entity';
+import { CompanyTypeService } from '../entities/company-type-service.entity';
 import { VenueServiceProvider } from '../entities/venue-service-provider.entity';
 import { NonResidentWithholding } from '../entities/non-resident-withholding.entity';
 import { Link } from '../entities/link.entity';
@@ -232,6 +233,8 @@ export class CompanyService {
     private readonly serviceProvidedRepo: Repository<ServiceProvided>,
     @InjectRepository(CompanyServiceEntity)
     private readonly companyServiceRepo: Repository<CompanyServiceEntity>,
+    @InjectRepository(CompanyTypeService)
+    private readonly companyTypeServiceRepo: Repository<CompanyTypeService>,
     @InjectRepository(CompanyServiceArea)
     private readonly companyServiceAreaRepo: Repository<CompanyServiceArea>,
     @InjectRepository(VenueServiceProvider)
@@ -298,6 +301,52 @@ export class CompanyService {
       cleaned.push(Number(legacyCompanyTypeId));
     }
     return [...new Set(cleaned)];
+  }
+
+  private async allowedServiceIdsForCompanyTypes(
+    companyTypeIds: number[],
+    em?: EntityManager,
+  ): Promise<Set<number>> {
+    const ids = [...new Set(companyTypeIds)].filter(
+      (id) => Number.isInteger(id) && id > 0,
+    );
+    if (ids.length === 0) return new Set();
+    const repo = em
+      ? em.getRepository(CompanyTypeService)
+      : this.companyTypeServiceRepo;
+    const rows = await repo.find({ where: { companyTypeId: In(ids) } });
+    return new Set(rows.map((row) => row.serviceProvidedId));
+  }
+
+  private async assertCompanyServicesAllowedForTypes(
+    companyTypeIds: number[],
+    serviceProvidedIds: number[],
+    context = 'company services',
+    em?: EntityManager,
+  ): Promise<void> {
+    const requested = [...new Set(serviceProvidedIds)].filter(
+      (id) => Number.isInteger(id) && id > 0,
+    );
+    if (requested.length === 0) return;
+
+    const allowed = await this.allowedServiceIdsForCompanyTypes(
+      companyTypeIds,
+      em,
+    );
+    const blocked = requested.filter((id) => !allowed.has(id));
+    if (blocked.length === 0) return;
+
+    const services = await (em
+      ? em.getRepository(ServiceProvided)
+      : this.serviceProvidedRepo
+    ).find({ where: { serviceProvidedId: In(blocked) } });
+    const names = services
+      .map((service) => service.serviceName)
+      .filter(Boolean)
+      .join(', ');
+    throw new BadRequestException({
+      message: `One or more ${context} are not allowed for the selected company type. Remove ${names || blocked.join(', ')} or update dbo.CompanyTypeService.`,
+    });
   }
 
   private async resolveCompanyTypeLinkTableName(
@@ -673,6 +722,7 @@ export class CompanyService {
       allDmasServiceProvidedId?: number | null;
       serviceAreas?: { dmaid: number; serviceProvidedId: number }[] | null;
     },
+    companyTypeIds?: number[],
   ): Promise<{ allDmas: boolean; allDmasServiceProvidedId: number | null }> {
     const allDmas = Boolean(input.allDmas);
     const allDmasServiceProvidedId =
@@ -693,6 +743,14 @@ export class CompanyService {
         });
       }
       const sid = allDmasServiceProvidedId;
+      if (companyTypeIds) {
+        await this.assertCompanyServicesAllowedForTypes(
+          companyTypeIds,
+          [sid],
+          'service area services',
+          em,
+        );
+      }
       const known = await em.getRepository(ServiceProvided).findOne({
         where: { serviceProvidedId: sid },
       });
@@ -724,6 +782,14 @@ export class CompanyService {
     const serviceAreas = this.normalizeServiceAreas(input.serviceAreas);
     if (serviceAreas.length === 0) {
       return { allDmas: false, allDmasServiceProvidedId: null };
+    }
+    if (companyTypeIds) {
+      await this.assertCompanyServicesAllowedForTypes(
+        companyTypeIds,
+        serviceAreas.map((row) => row.serviceProvidedId),
+        'service area services',
+        em,
+      );
     }
 
     const uniqueDmaids = [...new Set(serviceAreas.map((r) => r.dmaid))];
@@ -2192,9 +2258,28 @@ export class CompanyService {
         throw new BadRequestException({
           message:
             'One or more selected company services are not valid. Pick from the company services list.',
-        });
+          });
       }
     }
+    await this.assertCompanyServicesAllowedForTypes(
+      companyTypeIds,
+      serviceProvidedIds,
+      'company services',
+    );
+    const requestedServiceAreas = this.normalizeServiceAreas(
+      (dto as any).serviceAreas,
+    );
+    const serviceAreaServiceIds = [
+      ...requestedServiceAreas.map((row) => row.serviceProvidedId),
+      ...((dto as any).allDmasServiceProvidedId
+        ? [Number((dto as any).allDmasServiceProvidedId)]
+        : []),
+    ];
+    await this.assertCompanyServicesAllowedForTypes(
+      companyTypeIds,
+      serviceAreaServiceIds,
+      'service area services',
+    );
 
     const dmaId =
       dto.dmaId ??
@@ -2237,7 +2322,7 @@ export class CompanyService {
         allDmas: (dto as any).allDmas,
         allDmasServiceProvidedId: (dto as any).allDmasServiceProvidedId,
         serviceAreas: (dto as any).serviceAreas,
-      });
+      }, companyTypeIds);
       await this.ensureVenueRowForCompanyTypes(
         em,
         row.companyId,
@@ -2960,8 +3045,35 @@ export class CompanyService {
         throw new BadRequestException({
           message:
             'One or more selected company services are not valid. Pick from the company services list.',
-        });
+          });
       }
+    }
+    if (nextServiceProvidedIds != null) {
+      await this.assertCompanyServicesAllowedForTypes(
+        nextCompanyTypeIds,
+        nextServiceProvidedIds,
+        'company services',
+      );
+    }
+    if (
+      (dto as any).serviceAreas !== undefined ||
+      (dto as any).allDmas !== undefined ||
+      (dto as any).allDmasServiceProvidedId !== undefined
+    ) {
+      const requestedServiceAreas = this.normalizeServiceAreas(
+        (dto as any).serviceAreas,
+      );
+      const serviceAreaServiceIds = [
+        ...requestedServiceAreas.map((row) => row.serviceProvidedId),
+        ...((dto as any).allDmasServiceProvidedId
+          ? [Number((dto as any).allDmasServiceProvidedId)]
+          : []),
+      ];
+      await this.assertCompanyServicesAllowedForTypes(
+        nextCompanyTypeIds,
+        serviceAreaServiceIds,
+        'service area services',
+      );
     }
 
     /** Do not clear DMA: ignore null/0 from client; keep existing when re-resolution fails. */
@@ -3026,6 +3138,20 @@ export class CompanyService {
         }
         if (nextServiceProvidedIds != null) {
           await this.syncCompanyServices(em, companyId, nextServiceProvidedIds);
+        } else if (companyTypesChanged || primaryCompanyTypeChanged) {
+          const allowed = await this.allowedServiceIdsForCompanyTypes(
+            nextCompanyTypeIds,
+            em,
+          );
+          const existingServices = await em
+            .getRepository(CompanyServiceEntity)
+            .find({ where: { companyId } });
+          const filteredServiceIds = existingServices
+            .map((row) => row.serviceProvidedId)
+            .filter((serviceProvidedId) => allowed.has(serviceProvidedId));
+          if (filteredServiceIds.length !== existingServices.length) {
+            await this.syncCompanyServices(em, companyId, filteredServiceIds);
+          }
         }
       });
     }
@@ -3040,7 +3166,7 @@ export class CompanyService {
           allDmas: (dto as any).allDmas,
           allDmasServiceProvidedId: (dto as any).allDmasServiceProvidedId,
           serviceAreas: (dto as any).serviceAreas,
-        });
+        }, nextCompanyTypeIds);
       });
     }
 

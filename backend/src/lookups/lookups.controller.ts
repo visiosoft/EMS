@@ -67,6 +67,13 @@ export class LookupsController {
     return this.lookupsService.findServicesProvided();
   }
 
+  @Get('company-type-services/allowed')
+  companyTypeServicesAllowed(@Query('companyTypeIds') companyTypeIds?: string) {
+    return this.lookupsService.findServicesAllowedForCompanyTypes(
+      companyTypeIds,
+    );
+  }
+
   @Get('stagehand-providers')
   stagehandProviders() {
     return this.lookupsService.findStagehandProviders();

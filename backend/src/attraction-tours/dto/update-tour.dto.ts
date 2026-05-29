@@ -1,5 +1,6 @@
 import { Transform } from 'class-transformer';
 import {
+  IsArray,
   IsBoolean,
   IsInt,
   IsISO8601,
@@ -9,6 +10,23 @@ import {
   Min,
   ValidateIf,
 } from 'class-validator';
+
+function parsePositiveIdArray(value: unknown): number[] | unknown {
+  if (value === undefined || value === null || value === '') return undefined;
+  const raw =
+    typeof value === 'string'
+      ? (() => {
+          try {
+            const parsed = JSON.parse(value) as unknown;
+            return Array.isArray(parsed) ? parsed : value.split(',');
+          } catch {
+            return value.split(',');
+          }
+        })()
+      : value;
+  if (!Array.isArray(raw)) return raw;
+  return [...new Set(raw.map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+}
 
 export class UpdateTourDto {
   @IsOptional()
@@ -87,6 +105,25 @@ export class UpdateTourDto {
   @IsInt()
   @Min(1)
   talentAgencyCompanyId?: number | null;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined) return undefined;
+    if (value === '' || value === null) return null;
+    const n = Number(value);
+    return Number.isFinite(n) && n >= 1 ? n : null;
+  })
+  @ValidateIf((_, v) => v != null)
+  @IsInt()
+  @Min(1)
+  tourManagementCompanyId?: number | null;
+
+  @IsOptional()
+  @Transform(({ value }) => parsePositiveIdArray(value))
+  @IsArray()
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  talentAgentContactIds?: number[];
 
   @IsOptional()
   @IsString()

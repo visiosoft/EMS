@@ -6,14 +6,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { QueryFailedError, Repository } from 'typeorm';
+import { In, QueryFailedError, Repository } from 'typeorm';
 import { Attraction } from '../entities/attraction.entity';
 import { Class } from '../entities/class.entity';
 import { Company } from '../entities/company.entity';
+import { Contact } from '../entities/contact.entity';
+import { ContactAssignment } from '../entities/contact-assignment.entity';
 import { Engagement } from '../entities/engagement.entity';
 import { EngagementProject } from '../entities/engagement-project.entity';
 import { Link } from '../entities/link.entity';
 import { Tour } from '../entities/tour.entity';
+import { TourTalentAgent } from '../entities/tour-talent-agent.entity';
 import { VenueType } from '../entities/venue-type.entity';
 import { CreateTourDto } from './dto/create-tour.dto';
 import { UpdateTourDto } from './dto/update-tour.dto';
@@ -35,6 +38,10 @@ export interface TourListRow {
   tourInsuranceLanguage: string | null;
   talentAgencyCompanyId: number | null;
   talentAgencyCompanyName: string | null;
+  tourManagementCompanyId: number | null;
+  tourManagementCompanyName: string | null;
+  talentAgentContactIds: number[];
+  talentAgentNames: string[];
   techRiderLinkId: number | null;
   venueTypePreferenceId: number | null;
   venueTypePreferenceName: string | null;
@@ -66,6 +73,12 @@ export class TourService {
     private readonly linkRepo: Repository<Link>,
     @InjectRepository(Company)
     private readonly companyRepo: Repository<Company>,
+    @InjectRepository(Contact)
+    private readonly contactRepo: Repository<Contact>,
+    @InjectRepository(ContactAssignment)
+    private readonly contactAssignmentRepo: Repository<ContactAssignment>,
+    @InjectRepository(TourTalentAgent)
+    private readonly tourTalentAgentRepo: Repository<TourTalentAgent>,
     private readonly emsCreated: EmsAppCreatedStore,
   ) {}
 
@@ -79,11 +92,138 @@ export class TourService {
     }
     const typeName =
       co.companyType?.companyTypeName?.trim().toLowerCase() ?? '';
-    if (typeName !== 'talent agency') {
+    if (typeName === 'talent agency') return;
+
+    let linkedTalentAgency = false;
+    try {
+      const rows = (await this.companyRepo.manager.query(
+        `
+          SELECT TOP 1 1 AS ok
+          FROM dbo.CompanyCompanyType cct
+          INNER JOIN dbo.CompanyType ct ON ct.CompanyTypeID = cct.CompanyTypeID
+          WHERE cct.CompanyID = ${Number(companyId)}
+            AND LOWER(LTRIM(RTRIM(ct.CompanyTypeName))) = 'talent agency'
+        `,
+      )) as { ok?: number }[];
+      linkedTalentAgency = rows.length > 0;
+    } catch (e) {
+      this.logger.warn(
+        `Could not verify dbo.CompanyCompanyType for talent agency ${companyId}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+
+    if (!linkedTalentAgency) {
       throw new BadRequestException({
         message: 'Talent agency must be a company of type Talent Agency.',
       });
     }
+  }
+
+  private async assertCompanyExists(
+    companyId: number,
+    label = 'Company',
+  ): Promise<void> {
+    const co = await this.companyRepo.findOne({ where: { companyId } });
+    if (!co) {
+      throw new NotFoundException({ message: `${label} not found.` });
+    }
+  }
+
+  private normalizeContactIds(ids?: number[] | null): number[] {
+    return [
+      ...new Set(
+        (Array.isArray(ids) ? ids : [])
+          .map(Number)
+          .filter((id) => Number.isInteger(id) && id > 0),
+      ),
+    ];
+  }
+
+  private async assertTalentAgentContactsBelongToAgency(
+    contactIds: number[],
+    talentAgencyCompanyId: number | null | undefined,
+  ): Promise<number[]> {
+    const ids = this.normalizeContactIds(contactIds);
+    if (ids.length === 0) return ids;
+    if (
+      talentAgencyCompanyId == null ||
+      !Number.isInteger(Number(talentAgencyCompanyId)) ||
+      Number(talentAgencyCompanyId) < 1
+    ) {
+      throw new BadRequestException({
+        message: 'Select a talent agency before assigning talent agents.',
+      });
+    }
+    const contactCount = await this.contactRepo.count({
+      where: { contactId: In(ids) },
+    });
+    if (contactCount !== ids.length) {
+      throw new BadRequestException({
+        message: 'One or more selected talent agents no longer exist.',
+      });
+    }
+    const rows = await this.contactAssignmentRepo
+      .createQueryBuilder('ca')
+      .select('ca.contactId', 'contactId')
+      .where('ca.companyId = :companyId', {
+        companyId: Number(talentAgencyCompanyId),
+      })
+      .andWhere('ca.contactId IN (:...ids)', { ids })
+      .groupBy('ca.contactId')
+      .getRawMany<{ contactId: number }>();
+    const assigned = new Set(rows.map((row) => Number(row.contactId)));
+    const missing = ids.filter((id) => !assigned.has(id));
+    if (missing.length > 0) {
+      throw new BadRequestException({
+        message:
+          'One or more selected talent agents are not assigned to this talent agency.',
+      });
+    }
+    return ids;
+  }
+
+  private async syncTourTalentAgents(
+    tourId: number,
+    contactIds: number[],
+    talentAgencyCompanyId: number | null | undefined,
+  ): Promise<void> {
+    const ids = await this.assertTalentAgentContactsBelongToAgency(
+      contactIds,
+      talentAgencyCompanyId,
+    );
+    await this.tourTalentAgentRepo.delete({ tourId });
+    if (ids.length === 0) return;
+    await this.tourTalentAgentRepo.save(
+      ids.map((contactId) =>
+        this.tourTalentAgentRepo.create({ tourId, contactId }),
+      ),
+    );
+  }
+
+  private async tourTalentAgentsByTourIds(
+    tourIds: number[],
+  ): Promise<Map<number, { ids: number[]; names: string[] }>> {
+    const uniq = [...new Set(tourIds)].filter(
+      (id) => Number.isInteger(id) && id > 0,
+    );
+    const map = new Map<number, { ids: number[]; names: string[] }>();
+    for (const id of uniq) map.set(id, { ids: [], names: [] });
+    if (!uniq.length) return map;
+
+    const rows = await this.tourTalentAgentRepo.find({
+      where: { tourId: In(uniq) },
+      relations: { contact: { contactInfo: true } },
+      order: { tourTalentAgentId: 'ASC' },
+    });
+    for (const row of rows) {
+      const bucket = map.get(row.tourId) ?? { ids: [], names: [] };
+      if (!bucket.ids.includes(row.contactId)) bucket.ids.push(row.contactId);
+      const info = row.contact?.contactInfo;
+      const name = `${info?.firstName ?? ''} ${info?.lastName ?? ''}`.trim();
+      if (name && !bucket.names.includes(name)) bucket.names.push(name);
+      map.set(row.tourId, bucket);
+    }
+    return map;
   }
 
   private dateOnlyString(v: Date | string | null | undefined): string | null {
@@ -166,6 +306,7 @@ export class TourService {
   private mapTourEntityToRow(
     t: Tour,
     tourBannerImageUrl: string | null,
+    talentAgents?: { ids: number[]; names: string[] },
   ): TourListRow {
     return {
       tourId: t.tourId,
@@ -184,6 +325,11 @@ export class TourService {
       talentAgencyCompanyId:
         t.talentAgencyCompanyId ?? t.talentAgencyCompany?.companyId ?? null,
       talentAgencyCompanyName: t.talentAgencyCompany?.companyName ?? null,
+      tourManagementCompanyId:
+        t.tourManagementCompanyId ?? t.tourManagementCompany?.companyId ?? null,
+      tourManagementCompanyName: t.tourManagementCompany?.companyName ?? null,
+      talentAgentContactIds: talentAgents?.ids ?? [],
+      talentAgentNames: talentAgents?.names ?? [],
       techRiderLinkId: t.techRiderLinkId,
       venueTypePreferenceId: t.venueTypePreferenceId,
       venueTypePreferenceName: t.venueTypePreference?.venueTypeName ?? null,
@@ -222,14 +368,22 @@ export class TourService {
       .innerJoinAndSelect('t.class', 'c')
       .leftJoinAndSelect('t.venueTypePreference', 'v')
       .leftJoinAndSelect('t.talentAgencyCompany', 'ta')
+      .leftJoinAndSelect('t.tourManagementCompany', 'tm')
       .orderBy('t.tourName', 'ASC')
       .getMany();
 
     const bannerMap = await this.tourBannerUrlsByTourIds(
       rows.map((t) => t.tourId),
     );
+    const agentMap = await this.tourTalentAgentsByTourIds(
+      rows.map((t) => t.tourId),
+    );
     return rows.map((t) =>
-      this.mapTourEntityToRow(t, bannerMap.get(t.tourId) ?? null),
+      this.mapTourEntityToRow(
+        t,
+        bannerMap.get(t.tourId) ?? null,
+        agentMap.get(t.tourId),
+      ),
     );
   }
 
@@ -245,7 +399,8 @@ export class TourService {
       .innerJoinAndSelect('t.attraction', 'a')
       .innerJoinAndSelect('t.class', 'c')
       .leftJoinAndSelect('t.venueTypePreference', 'v')
-      .leftJoinAndSelect('t.talentAgencyCompany', 'ta');
+      .leftJoinAndSelect('t.talentAgencyCompany', 'ta')
+      .leftJoinAndSelect('t.tourManagementCompany', 'tm');
 
     const sortBy = (sortByRaw ?? '').trim().toLowerCase();
     const sortDir =
@@ -256,6 +411,8 @@ export class TourService {
       qb.orderBy('c.className', sortDir).addOrderBy('t.tourName', 'ASC');
     } else if (sortBy === 'management' || sortBy === 'tourmgmt') {
       qb.orderBy('ta.companyName', sortDir).addOrderBy('t.tourName', 'ASC');
+    } else if (sortBy === 'payable' || sortBy === 'payableentity') {
+      qb.orderBy('tm.companyName', sortDir).addOrderBy('t.tourName', 'ASC');
     } else {
       qb.orderBy('t.tourName', sortDir).addOrderBy('t.tourId', 'ASC');
     }
@@ -274,9 +431,16 @@ export class TourService {
     const bannerMap = await this.tourBannerUrlsByTourIds(
       rows.map((t) => t.tourId),
     );
+    const agentMap = await this.tourTalentAgentsByTourIds(
+      rows.map((t) => t.tourId),
+    );
     return {
       data: rows.map((t) =>
-        this.mapTourEntityToRow(t, bannerMap.get(t.tourId) ?? null),
+        this.mapTourEntityToRow(
+          t,
+          bannerMap.get(t.tourId) ?? null,
+          agentMap.get(t.tourId),
+        ),
       ),
       total,
     };
@@ -299,6 +463,7 @@ export class TourService {
       .innerJoinAndSelect('t.class', 'c')
       .leftJoinAndSelect('t.venueTypePreference', 'v')
       .leftJoinAndSelect('t.talentAgencyCompany', 'ta')
+      .leftJoinAndSelect('t.tourManagementCompany', 'tm')
       .where('t.attractionId = :aid', { aid })
       .orderBy('t.tourName', 'ASC')
       .addOrderBy('t.tourId', 'ASC');
@@ -306,10 +471,15 @@ export class TourService {
     const total = await qb.getCount();
     const rows = await qb.skip(Math.max(0, offset)).take(Math.max(1, limit)).getMany();
     const bannerMap = await this.tourBannerUrlsByTourIds(rows.map((t) => t.tourId));
+    const agentMap = await this.tourTalentAgentsByTourIds(rows.map((t) => t.tourId));
 
     return {
       data: rows.map((t) =>
-        this.mapTourEntityToRow(t, bannerMap.get(t.tourId) ?? null),
+        this.mapTourEntityToRow(
+          t,
+          bannerMap.get(t.tourId) ?? null,
+          agentMap.get(t.tourId),
+        ),
       ),
       total,
     };
@@ -342,6 +512,20 @@ export class TourService {
       );
     }
     await this.assertTalentAgencyCompany(dto.talentAgencyCompanyId);
+    const effectivePayableEntityCompanyId = dto.talentAgencyCompanyId;
+    if (
+      dto.tourManagementCompanyId != null &&
+      dto.tourManagementCompanyId !== effectivePayableEntityCompanyId
+    ) {
+      this.logger.log(
+        `Ignoring explicit TourManagementCompanyID=${dto.tourManagementCompanyId} on create; using TalentAgencyCompanyID=${effectivePayableEntityCompanyId} as payable entity.`,
+      );
+    }
+    const talentAgentContactIds =
+      await this.assertTalentAgentContactsBelongToAgency(
+        dto.talentAgentContactIds ?? [],
+        dto.talentAgencyCompanyId,
+      );
     const tourStartDate = this.normalizeTourDateInput(dto.tourStartDate);
     const tourEndDate = this.normalizeTourDateInput(dto.tourEndDate);
     this.assertTourDateRange(tourStartDate, tourEndDate);
@@ -361,10 +545,16 @@ export class TourService {
       venueTypePreferenceId: null,
       bannerLinkId: null,
       talentAgencyCompanyId: dto.talentAgencyCompanyId,
+      tourManagementCompanyId: effectivePayableEntityCompanyId,
       tourStartDate,
       tourEndDate,
     });
     const saved = await this.tourRepo.save(row);
+    await this.syncTourTalentAgents(
+      saved.tourId,
+      talentAgentContactIds,
+      dto.talentAgencyCompanyId,
+    );
     this.emsCreated.recordTour(saved.tourId);
     if (bannerFile) {
       await this.attachBannerFromUpload(saved, bannerFile);
@@ -431,6 +621,12 @@ export class TourService {
       }
       existing.talentAgencyCompanyId = dto.talentAgencyCompanyId;
     }
+    if (dto.tourManagementCompanyId !== undefined) {
+      this.logger.log(
+        `Ignoring explicit TourManagementCompanyID update for TourID=${id}; payable entity is derived from TalentAgencyCompanyID.`,
+      );
+    }
+    existing.tourManagementCompanyId = existing.talentAgencyCompanyId ?? null;
     if (dto.tourStartDate !== undefined) {
       existing.tourStartDate = this.normalizeTourDateInput(dto.tourStartDate);
     }
@@ -446,8 +642,26 @@ export class TourService {
       throw new BadRequestException('Tour name is required.');
     }
     existing.tourName = finalName;
+    const nextTalentAgencyCompanyId = existing.talentAgencyCompanyId ?? null;
+    const agencyChanged = dto.talentAgencyCompanyId !== undefined;
+    const nextTalentAgentContactIds =
+      dto.talentAgentContactIds !== undefined
+        ? await this.assertTalentAgentContactsBelongToAgency(
+            dto.talentAgentContactIds,
+            nextTalentAgencyCompanyId,
+          )
+        : null;
     try {
       await this.tourRepo.save(existing);
+      if (nextTalentAgentContactIds !== null) {
+        await this.syncTourTalentAgents(
+          id,
+          nextTalentAgentContactIds,
+          nextTalentAgencyCompanyId,
+        );
+      } else if (agencyChanged) {
+        await this.syncTourTalentAgents(id, [], nextTalentAgencyCompanyId);
+      }
     } catch (e: unknown) {
       if (e instanceof QueryFailedError) {
         const d = String((e as QueryFailedError).driverError ?? e.message);
@@ -483,13 +697,19 @@ export class TourService {
       .innerJoinAndSelect('t.class', 'c')
       .leftJoinAndSelect('t.venueTypePreference', 'v')
       .leftJoinAndSelect('t.talentAgencyCompany', 'ta')
+      .leftJoinAndSelect('t.tourManagementCompany', 'tm')
       .where('t.tourId = :tourId', { tourId })
       .getOne();
     if (!t) {
       throw new NotFoundException({ message: 'Tour not found.' });
     }
     const bannerMap = await this.tourBannerUrlsByTourIds([tourId]);
-    return this.mapTourEntityToRow(t, bannerMap.get(tourId) ?? null);
+    const agentMap = await this.tourTalentAgentsByTourIds([tourId]);
+    return this.mapTourEntityToRow(
+      t,
+      bannerMap.get(tourId) ?? null,
+      agentMap.get(tourId),
+    );
   }
 
   async remove(id: number): Promise<void> {
@@ -515,6 +735,7 @@ export class TourService {
           'This tour can’t be removed because it is linked to one or more projects. Remove or reassign the project so it no longer uses this tour, then try again.',
       });
     }
+    await this.tourTalentAgentRepo.delete({ tourId: id });
     await this.tourRepo.delete({ tourId: id });
     this.emsCreated.removeTour(id);
   }

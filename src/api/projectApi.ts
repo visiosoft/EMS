@@ -24,15 +24,12 @@ import type { ApiPaginatedResponse } from './companyApi';
 export const PROJECT_STAGE_VALUES = [
   'Under Construction',
   'Pending',
+  'Confirmed',
   'Inactive',
 ] as const;
 export type ProjectStage = (typeof PROJECT_STAGE_VALUES)[number];
 
-/**
- * Temporary conversion trigger until the database accepts `Confirmed`.
- * Keep synchronized with backend/src/projects/project-stage.constants.ts.
- */
-export const PROJECT_CONVERSION_STAGE: ProjectStage = 'Inactive';
+export const PROJECT_CONVERSION_STAGE: ProjectStage = 'Confirmed';
 
 export interface ProjectStageMeta {
   projectStages: string[];
