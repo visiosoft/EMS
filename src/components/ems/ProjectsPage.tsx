@@ -104,10 +104,12 @@ import type {
   ApiVenueType,
 } from '@/api/attractionToursApi';
 import {
+  fetchCompaniesPickerRows,
   fetchCompanyContacts,
   fetchDmaMarketsPaged,
   fetchTalentAgencyCompanyRows,
   talentAgencyCompaniesQueryKey,
+  type ApiCompanyListRow,
   type ApiCompanyContact,
   type ApiDmaMarket,
 } from '@/api/companyApi';
@@ -444,9 +446,8 @@ function ProjectInlineOverview({
       .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
   }, [talentAgencyPickerQuery.data]);
   const talentAgentContactsQuery = useQuery({
-    queryKey: ['company', talentAgencyCompanyId ?? 0, 'contacts', 'talent-agent-role'],
-    queryFn: () =>
-      fetchCompanyContacts(talentAgencyCompanyId as number, { roleName: 'Talent Agent' }),
+    queryKey: ['company', talentAgencyCompanyId ?? 0, 'contacts'],
+    queryFn: () => fetchCompanyContacts(talentAgencyCompanyId as number),
     enabled: talentAgencyCompanyId != null && talentAgencyCompanyId >= 1,
     staleTime: 60_000,
   });
@@ -489,6 +490,29 @@ function ProjectInlineOverview({
     selectedTour?.talentAgencyCompanyName?.trim()
     || talentAgencyOptions.find((o) => o.value === String(effectiveTalentAgencyId))?.label
     || '—';
+  const selectedTourTalentAgentIds = useMemo(
+    () =>
+      [...new Set((selectedTour?.talentAgentContactIds ?? []).map((id) => String(id).trim()))].filter(
+        (id) => id.length > 0,
+      ),
+    [selectedTour?.talentAgentContactIds],
+  );
+  const selectedTourTalentAgentLabels = useMemo(() => {
+    const labels: string[] = [];
+    const seen = new Set<string>();
+    const push = (value: string) => {
+      const label = value.trim();
+      if (!label) return;
+      const key = label.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      labels.push(label);
+    };
+    const optionById = new Map(talentAgentOptions.map((opt) => [opt.value, opt.label]));
+    selectedTourTalentAgentIds.forEach((id) => push(optionById.get(id) ?? `Contact #${id}`));
+    (selectedTour?.talentAgentNames ?? []).forEach((name) => push(name));
+    return labels;
+  }, [talentAgentOptions, selectedTour?.talentAgentNames, selectedTourTalentAgentIds]);
 
   const stageOptions = useMemo(() => editProjectStageSelectOptions(project.projectStage), [project.projectStage]);
 
@@ -656,20 +680,42 @@ function ProjectInlineOverview({
                   ? 'No talent agency assigned.'
                   : talentAgentContactsQuery.isPending
                     ? 'Loading contacts…'
-                    : talentAgentOptions.length > 0
-                      ? (
-                        <div className="flex flex-wrap gap-2">
-                          {talentAgentOptions.map((o) => (
-                            <span
-                              key={o.value}
-                              className="inline-flex items-center rounded-md border border-border bg-background px-2 py-1 text-xs text-text-primary"
-                            >
-                              {o.label}
-                            </span>
-                          ))}
+                    : (
+                      <div className="space-y-2">
+                        <p className="text-[11px] text-text-secondary">
+                          Selected for this tour:{' '}
+                          <span className="font-medium text-text-primary">
+                            {selectedTourTalentAgentLabels.length}
+                          </span>{' '}
+                          of{' '}
+                          <span className="font-medium text-text-primary">
+                            {talentAgentOptions.length}
+                          </span>{' '}
+                          agency contact{talentAgentOptions.length === 1 ? '' : 's'}.
+                        </p>
+                        <div>
+                          <p className="text-[11px] font-medium text-text-secondary mb-1">
+                            Tour-selected talent agents
+                          </p>
+                          {selectedTourTalentAgentLabels.length > 0 ? (
+                            <div className="flex max-h-28 flex-wrap gap-2 overflow-y-auto pr-1">
+                              {selectedTourTalentAgentLabels.map((label, index) => (
+                                <span
+                                  key={`tour-agent-${index}-${label}`}
+                                  className="inline-flex items-center rounded-md border border-ems-accent/35 bg-ems-accent/10 px-2 py-1 text-xs text-text-primary"
+                                >
+                                  {label}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-text-muted">
+                              No specific talent agents are selected on this tour.
+                            </p>
+                          )}
                         </div>
-                      )
-                      : 'No talent agents found for this agency'}
+                      </div>
+                    )}
               </div>
             </FormField>
             <FormField label="Tour Start Date">
@@ -798,20 +844,42 @@ function ProjectInlineOverview({
                 ? 'Choose talent agency first'
                 : talentAgentContactsQuery.isPending
                   ? 'Loading contacts…'
-                  : talentAgentOptions.length > 0
-                    ? (
-                      <div className="flex flex-wrap gap-2">
-                        {talentAgentOptions.map((o) => (
-                          <span
-                            key={o.value}
-                            className="inline-flex items-center rounded-md border border-border bg-background px-2 py-1 text-xs text-text-primary"
-                          >
-                            {o.label}
-                          </span>
-                        ))}
+                  : (
+                    <div className="space-y-2">
+                      <p className="text-[11px] text-text-secondary">
+                        Selected for this tour:{' '}
+                        <span className="font-medium text-text-primary">
+                          {selectedTourTalentAgentLabels.length}
+                        </span>{' '}
+                        of{' '}
+                        <span className="font-medium text-text-primary">
+                          {talentAgentOptions.length}
+                        </span>{' '}
+                        agency contact{talentAgentOptions.length === 1 ? '' : 's'}.
+                      </p>
+                      <div>
+                        <p className="text-[11px] font-medium text-text-secondary mb-1">
+                          Tour-selected talent agents
+                        </p>
+                        {selectedTourTalentAgentLabels.length > 0 ? (
+                          <div className="flex max-h-28 flex-wrap gap-2 overflow-y-auto pr-1">
+                            {selectedTourTalentAgentLabels.map((label, index) => (
+                              <span
+                                key={`tour-agent-edit-${index}-${label}`}
+                                className="inline-flex items-center rounded-md border border-ems-accent/35 bg-ems-accent/10 px-2 py-1 text-xs text-text-primary"
+                              >
+                                {label}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-text-muted">
+                            No specific talent agents are selected on this tour.
+                          </p>
+                        )}
                       </div>
-                    )
-                    : 'No talent agents found for this agency'}
+                    </div>
+                  )}
             </div>
           </FormField>
           <FormField label="Tour Start Date" required>
@@ -1053,7 +1121,7 @@ function ProjectInlineOverview({
               Create engagement and lock this project?
             </AlertDialogTitle>
             <AlertDialogDescription className="text-text-secondary text-sm leading-relaxed">
-              Setting the project stage to <span className="font-medium text-text-primary">Inactive</span> will
+              Setting the project stage to <span className="font-medium text-text-primary">Confirmed</span> will
               automatically create an engagement. After it is created, this project is view-only and its
               details cannot be updated.
             </AlertDialogDescription>
@@ -2229,6 +2297,11 @@ function CreateProjectForm({
     queryFn: fetchTalentAgencyCompanyRows,
     staleTime: 60_000,
   });
+  const companyPickerQuery = useQuery({
+    queryKey: ['companies', 'picker', 'project-add-tour', 0, 5000],
+    queryFn: fetchCompaniesPickerRows,
+    staleTime: 60_000,
+  });
   const venueTypesQuery = useQuery({
     queryKey: ['lookups', 'venue-types'],
     queryFn: fetchVenueTypesLookup,
@@ -2299,9 +2372,8 @@ function CreateProjectForm({
   const [saving, setSaving] = useState(false);
   const [confirmConversion, setConfirmConversion] = useState(false);
   const talentAgentContactsQuery = useQuery({
-    queryKey: ['company', projectTourMgmtCompanyId ?? 0, 'contacts', 'talent-agent-role'],
-    queryFn: () =>
-      fetchCompanyContacts(projectTourMgmtCompanyId as number, { roleName: 'Talent Agent' }),
+    queryKey: ['company', projectTourMgmtCompanyId ?? 0, 'contacts'],
+    queryFn: () => fetchCompanyContacts(projectTourMgmtCompanyId as number),
     enabled: projectTourMgmtCompanyId != null && projectTourMgmtCompanyId >= 1 && step >= 2,
     staleTime: 60_000,
   });
@@ -2319,6 +2391,13 @@ function CreateProjectForm({
       .map((c) => ({ value: String(c.companyId), label: c.companyName }))
       .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
   }, [talentAgencyPickerQuery.data]);
+  const companyOptions = useMemo(
+    () =>
+      ((companyPickerQuery.data ?? []) as ApiCompanyListRow[])
+        .map((c) => ({ value: String(c.companyId), label: c.companyName }))
+        .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })),
+    [companyPickerQuery.data],
+  );
   const venueTypes = useMemo(
     () => venueTypesQuery.data ?? EMPTY_VENUE_TYPES,
     [venueTypesQuery.data],
@@ -2531,9 +2610,33 @@ function CreateProjectForm({
     toursQuery.isPending ||
     classesQuery.isPending ||
     talentAgencyPickerQuery.isPending ||
+    companyPickerQuery.isPending ||
     venueTypesQuery.isPending;
 
   const selectedTour = selectedTourId ? tours.find((t) => t.tourId === selectedTourId) : null;
+  const selectedTourTalentAgentIds = useMemo(
+    () =>
+      [...new Set((selectedTour?.talentAgentContactIds ?? []).map((id) => String(id).trim()))].filter(
+        (id) => id.length > 0,
+      ),
+    [selectedTour?.talentAgentContactIds],
+  );
+  const selectedTourTalentAgentLabels = useMemo(() => {
+    const labels: string[] = [];
+    const seen = new Set<string>();
+    const push = (value: string) => {
+      const label = value.trim();
+      if (!label) return;
+      const key = label.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      labels.push(label);
+    };
+    const optionById = new Map(talentAgentOptions.map((opt) => [opt.value, opt.label]));
+    selectedTourTalentAgentIds.forEach((id) => push(optionById.get(id) ?? `Contact #${id}`));
+    (selectedTour?.talentAgentNames ?? []).forEach((name) => push(name));
+    return labels;
+  }, [selectedTour?.talentAgentNames, selectedTourTalentAgentIds, talentAgentOptions]);
   const tourDatesLockedReason = 'Dates already exist on this tour, so they are locked.';
   const tourDatesLockedInCreate = Boolean(
     selectedTour?.tourStartDate?.trim() && selectedTour?.tourEndDate?.trim(),
@@ -2853,20 +2956,42 @@ function CreateProjectForm({
                   <div className="w-full min-w-0 bg-surface border border-border rounded px-3 py-2 text-sm text-text-primary">
                     {talentAgentContactsQuery.isPending
                       ? 'Loading contacts…'
-                      : talentAgentOptions.length > 0
-                        ? (
-                          <div className="flex flex-wrap gap-2">
-                            {talentAgentOptions.map((o) => (
-                              <span
-                                key={o.value}
-                                className="inline-flex items-center rounded-md border border-border bg-background px-2 py-1 text-xs text-text-primary"
-                              >
-                                {o.label}
-                              </span>
-                            ))}
+                      : (
+                        <div className="space-y-2">
+                          <p className="text-[11px] text-text-secondary">
+                            Selected for this tour:{' '}
+                            <span className="font-medium text-text-primary">
+                              {selectedTourTalentAgentLabels.length}
+                            </span>{' '}
+                            of{' '}
+                            <span className="font-medium text-text-primary">
+                              {talentAgentOptions.length}
+                            </span>{' '}
+                            agency contact{talentAgentOptions.length === 1 ? '' : 's'}.
+                          </p>
+                          <div>
+                            <p className="text-[11px] font-medium text-text-secondary mb-1">
+                              Tour-selected talent agents
+                            </p>
+                            {selectedTourTalentAgentLabels.length > 0 ? (
+                              <div className="flex flex-wrap gap-2">
+                                {selectedTourTalentAgentLabels.map((label, index) => (
+                                  <span
+                                    key={`wizard-tour-agent-${index}-${label}`}
+                                    className="inline-flex items-center rounded-md border border-ems-accent/35 bg-ems-accent/10 px-2 py-1 text-xs text-text-primary"
+                                  >
+                                    {label}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-[11px] text-text-muted">
+                                No specific talent agents are selected on this tour.
+                              </p>
+                            )}
                           </div>
-                        )
-                        : 'No talent agents found for this agency'}
+                        </div>
+                      )}
                   </div>
                 </FormField>
               </>
@@ -3249,20 +3374,37 @@ function CreateProjectForm({
                   ? '—'
                   : talentAgentContactsQuery.isPending
                     ? 'Loading contacts…'
-                    : talentAgentOptions.length > 0
-                      ? (
-                        <div className="flex flex-wrap gap-2">
-                          {talentAgentOptions.map((o) => (
-                            <span
-                              key={o.value}
-                              className="inline-flex items-center rounded-md border border-border bg-background px-2 py-1 text-xs text-text-primary"
-                            >
-                              {o.label}
-                            </span>
-                          ))}
-                        </div>
-                      )
-                      : 'No talent agents found for this agency'}
+                    : (
+                      <div className="space-y-2">
+                        <p className="text-[11px] text-text-secondary">
+                          Selected for this tour:{' '}
+                          <span className="font-medium text-text-primary">
+                            {selectedTourTalentAgentLabels.length}
+                          </span>{' '}
+                          of{' '}
+                          <span className="font-medium text-text-primary">
+                            {talentAgentOptions.length}
+                          </span>{' '}
+                          agency contact{talentAgentOptions.length === 1 ? '' : 's'}.
+                        </p>
+                        {selectedTourTalentAgentLabels.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {selectedTourTalentAgentLabels.map((label, index) => (
+                              <span
+                                key={`summary-tour-agent-${index}-${label}`}
+                                className="inline-flex items-center rounded-md border border-ems-accent/35 bg-ems-accent/10 px-2 py-1 text-xs text-text-primary"
+                              >
+                                {label}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-text-muted">
+                            No specific talent agents are selected on this tour.
+                          </p>
+                        )}
+                      </div>
+                    )}
               </div>
             </FormField>
             <FormField label="Markets (DMAs)">
@@ -3310,7 +3452,7 @@ function CreateProjectForm({
               <p className="text-xs text-text-muted">
                 Choose{' '}
                 <span className="font-medium">Under Construction</span>, <span className="font-medium">Pending</span>, or{' '}
-                <span className="font-medium">Inactive</span>. Inactive creates the engagement and makes the project view-only after confirmation.
+                <span className="font-medium">Confirmed</span>. Confirmed creates the engagement and makes the project view-only after confirmation.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField label="Project Stage">
@@ -3404,7 +3546,7 @@ function CreateProjectForm({
             Create engagement and lock this project?
           </AlertDialogTitle>
           <AlertDialogDescription className="text-text-secondary text-sm leading-relaxed">
-            Setting the project stage to <span className="font-medium text-text-primary">Inactive</span> will
+            Setting the project stage to <span className="font-medium text-text-primary">Confirmed</span> will
             automatically create an engagement. After it is created, this project is view-only and its
             details cannot be updated.
           </AlertDialogDescription>
@@ -3432,7 +3574,7 @@ function CreateProjectForm({
       <Modal
         title="Add Tour"
         onClose={() => !createTourMut.isPending && setShowAddTourModal(false)}
-        width={600}
+        width={760}
         allowContentOverflow
       >
         <AddTourForm
@@ -3440,6 +3582,7 @@ function CreateProjectForm({
           attractions={attractions}
           classes={classes}
           managementCompanyOptions={managementCompanyOptions}
+          addToast={addToast}
           lockAttractionId={selectedAttractionId}
           submitting={createTourMut.isPending}
           onCancel={() => setShowAddTourModal(false)}

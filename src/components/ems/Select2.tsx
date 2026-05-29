@@ -356,8 +356,15 @@ export function Select2({
   }, [filtered, handleSelect, highlightedIndex, open, parentFiltersOptions]);
 
   const summary = contactMultiMode
-    ? selectedValues.length === 0 ? placeholder : selectedValues.map((v) => visibleOptions.find((o) => o.value === v)?.label || v).join(', ')
-    : selected ? selected.label : placeholder;
+    ? (() => {
+        const labels = selectedValues
+          .map((v) => visibleOptions.find((o) => o.value === v)?.label ?? '')
+          .filter((label) => label.trim().length > 0);
+        return labels.length === 0 ? placeholder : labels.join(', ');
+      })()
+    : selected
+      ? selected.label
+      : placeholder;
 
   const dropdown = open && menuStyle && (
     <div ref={menuRef} className="select2-dropdown bg-elevated border border-border rounded-md shadow-xl overflow-hidden w-full" style={menuStyle}>
@@ -469,7 +476,12 @@ export function Select2Multi({ options, values, onChange, placeholder = 'Select.
   const searchRef = useRef<HTMLInputElement>(null);
   const menuStyle = useMenuPosition(open, containerRef);
   const filtered = useMemo(() => optionsSafe.filter((o) => String(o.label ?? '').toLowerCase().includes(search.toLowerCase())), [optionsSafe, search]);
-  const summary = valuesSafe.length === 0 ? placeholder : valuesSafe.map((v) => optionsSafe.find((o) => o.value === v)?.label || v).join(', ');
+  const summary = (() => {
+    const labels = valuesSafe
+      .map((v) => optionsSafe.find((o) => o.value === v)?.label ?? '')
+      .filter((label) => label.trim().length > 0);
+    return labels.length === 0 ? placeholder : labels.join(', ');
+  })();
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {

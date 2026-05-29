@@ -41,6 +41,7 @@ import {
   fetchDmaByPostal,
   fetchDmaMarketsPage,
   fetchLookups,
+  fetchServicesAllowedForCompanyTypes,
   updateCompany,
   updateContactAssignment,
   type ApiCompanyListRow,
@@ -368,6 +369,35 @@ function InlineEditableOverview({
         serviceProvidedId: String(r.serviceProvidedId),
       })),
   );
+  const [serviceAreaEditorOpen, setServiceAreaEditorOpen] = useState(false);
+  const [serviceAreaDraftAllDmas, setServiceAreaDraftAllDmas] = useState<boolean>(
+    Boolean(company.allDmas),
+  );
+  const [serviceAreaDraftAllDmasServiceProvidedId, setServiceAreaDraftAllDmasServiceProvidedId] =
+    useState<string>(
+      company.allDmasServiceProvidedId != null
+        ? String(company.allDmasServiceProvidedId)
+        : '',
+    );
+  const [serviceAreaDraftRows, setServiceAreaDraftRows] = useState<
+    { dmaid: string; serviceProvidedId: string }[]
+  >(
+    (company.serviceAreas ?? [])
+      .filter((r) => {
+        const n = (r.dmaMarketName ?? '').trim().toLowerCase();
+        return !(
+          n === 'all' ||
+          n === 'all dmas' ||
+          n === 'nationwide' ||
+          n === 'national' ||
+          n === 'all markets'
+        );
+      })
+      .map((r) => ({
+        dmaid: String(r.dmaid),
+        serviceProvidedId: String(r.serviceProvidedId),
+      })),
+  );
   const [physStreet, setPhysStreet] = useState(company.physicalStreet ?? '');
   const [physCity, setPhysCity]     = useState(company.physicalCity ?? company.city ?? '');
   const [physState, setPhysState]   = useState(company.physicalState ?? company.state ?? '');
@@ -507,10 +537,46 @@ function InlineEditableOverview({
   }, [physPostal, physCountry]);
 
   const typeOptions = companyTypes.map(t => ({ value: String(t.companyTypeId), label: t.companyTypeName }));
-  const serviceOptions = servicesProvided.map((service) => ({
+  const selectedCompanyTypeIds = useMemo(
+    () =>
+      typeIds
+        .map(Number)
+        .filter((id) => Number.isInteger(id) && id > 0),
+    [typeIds],
+  );
+  const allowedServicesQuery = useQuery({
+    queryKey: ['lookups', 'company-type-services', 'allowed', selectedCompanyTypeIds.join(',')],
+    queryFn: () => fetchServicesAllowedForCompanyTypes(selectedCompanyTypeIds),
+    enabled: selectedCompanyTypeIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+  });
+  const allowedServices = selectedCompanyTypeIds.length > 0
+    ? allowedServicesQuery.data ?? []
+    : [];
+  const serviceOptions = allowedServices.map((service) => ({
     value: String(service.serviceProvidedId),
     label: service.serviceName,
   }));
+  const allowedServiceIdSet = useMemo(
+    () => new Set(serviceOptions.map((option) => option.value)),
+    [serviceOptions],
+  );
+  useEffect(() => {
+    if (selectedCompanyTypeIds.length === 0 || allowedServicesQuery.isFetching) return;
+    setServiceProvidedIds((ids) => ids.filter((id) => allowedServiceIdSet.has(id)));
+    setServiceAreas((rows) =>
+      rows.map((row) =>
+        row.serviceProvidedId && !allowedServiceIdSet.has(row.serviceProvidedId)
+          ? { ...row, serviceProvidedId: '' }
+          : row,
+      ),
+    );
+    setAllDmasServiceProvidedId((id) => (id && !allowedServiceIdSet.has(id) ? '' : id));
+  }, [
+    allowedServiceIdSet,
+    allowedServicesQuery.isFetching,
+    selectedCompanyTypeIds.length,
+  ]);
   const dmaMarketOptions = useMemo(
     () =>
       (dmaMarkets ?? [])
@@ -521,6 +587,16 @@ function InlineEditableOverview({
         .map((d) => ({ value: String(d.dmaid), label: d.marketName })),
     [dmaMarkets],
   );
+  const serviceLabelById = useMemo(
+    () => new Map(serviceOptions.map((option) => [option.value, option.label])),
+    [serviceOptions],
+  );
+  const dmaLabelById = useMemo(
+    () => new Map(dmaMarketOptions.map((option) => [option.value, option.label])),
+    [dmaMarketOptions],
+  );
+  const serviceAreaPreviewRows = useMemo(() => serviceAreas.slice(0, 3), [serviceAreas]);
+  const hasMoreServiceAreaRows = serviceAreas.length > serviceAreaPreviewRows.length;
   const venueTypeIds = useMemo(
     () =>
       new Set(
@@ -580,8 +656,60 @@ function InlineEditableOverview({
     setMailCity(company.mailingCity ?? ''); setMailState(company.mailingState ?? '');
     setMailPostal(company.mailingPostalCode ?? ''); setMailCountry(company.mailingCountry ?? company.physicalCountry ?? 'US');
     setResolvedDma(company.dmaMarketName ?? null);
+    setServiceAreaEditorOpen(false);
+    setServiceAreaDraftAllDmas(Boolean(company.allDmas));
+    setServiceAreaDraftAllDmasServiceProvidedId(
+      company.allDmasServiceProvidedId != null
+        ? String(company.allDmasServiceProvidedId)
+        : '',
+    );
+    setServiceAreaDraftRows(
+      (company.serviceAreas ?? [])
+        .filter((r) => {
+          const n = (r.dmaMarketName ?? '').trim().toLowerCase();
+          return !(
+            n === 'all' ||
+            n === 'all dmas' ||
+            n === 'nationwide' ||
+            n === 'national' ||
+            n === 'all markets'
+          );
+        })
+        .map((r) => ({
+          dmaid: String(r.dmaid),
+          serviceProvidedId: String(r.serviceProvidedId),
+        })),
+    );
     setDirty(false);
     setInlineSaveErrors([]);
+  };
+
+  const openServiceAreaEditor = () => {
+    setServiceAreaDraftAllDmas(allDmas);
+    setServiceAreaDraftAllDmasServiceProvidedId(allDmasServiceProvidedId);
+    setServiceAreaDraftRows(serviceAreas.map((row) => ({ ...row })));
+    setServiceAreaEditorOpen(true);
+  };
+
+  const applyServiceAreaEditorChanges = () => {
+    const normalizedAllDmasServiceId =
+      serviceAreaDraftAllDmasServiceProvidedId &&
+      allowedServiceIdSet.has(serviceAreaDraftAllDmasServiceProvidedId)
+        ? serviceAreaDraftAllDmasServiceProvidedId
+        : '';
+    const normalizedRows = serviceAreaDraftRows.map((row) =>
+      row.serviceProvidedId && !allowedServiceIdSet.has(row.serviceProvidedId)
+        ? { ...row, serviceProvidedId: '' }
+        : row,
+    );
+    mark(setAllDmas)(serviceAreaDraftAllDmas);
+    mark(setAllDmasServiceProvidedId)(
+      serviceAreaDraftAllDmas ? normalizedAllDmasServiceId : '',
+    );
+    mark(setServiceAreas)(
+      serviceAreaDraftAllDmas ? [] : normalizedRows.map((row) => ({ ...row })),
+    );
+    setServiceAreaEditorOpen(false);
   };
 
   const collectEditCompanyErrors = useCallback((): string[] => {
@@ -821,6 +949,150 @@ function InlineEditableOverview({
         </AlertDialogContent>
       </AlertDialog>
 
+      {serviceAreaEditorOpen && (
+        <Modal
+          title="Manage Service Areas"
+          onClose={() => setServiceAreaEditorOpen(false)}
+          width={980}
+          allowContentOverflow
+        >
+          <div className="space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+                  Service Area
+                </h4>
+                <p className="text-[11px] text-text-muted mt-1">
+                  Configure all DMA coverage and service mappings for this company.
+                </p>
+              </div>
+              <label className="text-xs text-text-secondary flex items-center gap-2 select-none">
+                <input
+                  type="checkbox"
+                  checked={serviceAreaDraftAllDmas}
+                  onChange={(e) => setServiceAreaDraftAllDmas(e.target.checked)}
+                />
+                All DMAs (Nationwide)
+              </label>
+            </div>
+
+            {serviceAreaDraftAllDmas ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+                <div>
+                  <label className="text-xs text-text-muted block mb-0.5">
+                    Service (Nationwide)
+                    <span className="text-ems-coral ml-0.5">*</span>
+                  </label>
+                  <Select2
+                    options={serviceOptions}
+                    value={serviceAreaDraftAllDmasServiceProvidedId}
+                    onChange={setServiceAreaDraftAllDmasServiceProvidedId}
+                    placeholder={
+                      selectedCompanyTypeIds.length === 0
+                        ? 'Select company type first…'
+                        : allowedServicesQuery.isFetching
+                          ? 'Loading services…'
+                          : 'Select service…'
+                    }
+                    disabled={selectedCompanyTypeIds.length === 0 || allowedServicesQuery.isFetching}
+                  />
+                </div>
+                <div className="text-[11px] text-text-muted">Selected Area: All</div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {serviceAreaDraftRows.length === 0 ? (
+                  <div className="text-sm text-text-muted">No service areas added yet.</div>
+                ) : null}
+                {serviceAreaDraftRows.map((row, idx) => (
+                  <div
+                    key={`sa-editor-${idx}`}
+                    className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end"
+                  >
+                    <div>
+                      <label className="text-xs text-text-muted block mb-0.5">DMA</label>
+                      <Select2
+                        options={dmaMarketOptions}
+                        value={row.dmaid}
+                        onChange={(v) => {
+                          const next = [...serviceAreaDraftRows];
+                          next[idx] = { ...next[idx], dmaid: v };
+                          setServiceAreaDraftRows(next);
+                        }}
+                        placeholder="Select DMA…"
+                      />
+                    </div>
+                    <div className="flex items-end gap-2">
+                      <div className="flex-1">
+                        <label className="text-xs text-text-muted block mb-0.5">Service</label>
+                        <Select2
+                          options={serviceOptions}
+                          value={row.serviceProvidedId}
+                          onChange={(v) => {
+                            const next = [...serviceAreaDraftRows];
+                            next[idx] = { ...next[idx], serviceProvidedId: v };
+                            setServiceAreaDraftRows(next);
+                          }}
+                          placeholder={
+                            selectedCompanyTypeIds.length === 0
+                              ? 'Select company type first…'
+                              : allowedServicesQuery.isFetching
+                                ? 'Loading services…'
+                                : 'Select service…'
+                          }
+                          disabled={selectedCompanyTypeIds.length === 0 || allowedServicesQuery.isFetching}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="text-xs text-text-muted hover:text-ems-coral hover:underline pb-2"
+                        onClick={() =>
+                          setServiceAreaDraftRows(serviceAreaDraftRows.filter((_, i) => i !== idx))
+                        }
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <div>
+                  <button
+                    type="button"
+                    className="text-sm text-ems-accent hover:underline"
+                    onClick={() =>
+                      setServiceAreaDraftRows([
+                        ...serviceAreaDraftRows,
+                        { dmaid: '', serviceProvidedId: '' },
+                      ])
+                    }
+                  >
+                    + Add DMA Service Area
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 border-t border-border/80 pt-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 px-4"
+                onClick={() => setServiceAreaEditorOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                className="h-9 px-4"
+                onClick={applyServiceAreaEditorChanges}
+              >
+                Apply changes
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {/* Edit hint */}
       <p className="flex items-center gap-1.5 text-[11px] text-text-muted mb-4 select-none">
         <Pencil className="h-3 w-3 shrink-0" />
@@ -970,8 +1242,28 @@ function InlineEditableOverview({
               options={serviceOptions}
               values={serviceProvidedIds}
               onChange={mark(setServiceProvidedIds)}
-              placeholder="Select one or more services…"
+              placeholder={
+                selectedCompanyTypeIds.length === 0
+                  ? 'Select company type first…'
+                  : allowedServicesQuery.isFetching
+                    ? 'Loading allowed services…'
+                    : serviceOptions.length === 0
+                      ? 'No services mapped for this type'
+                      : 'Select one or more services…'
+              }
+              disabled={selectedCompanyTypeIds.length === 0 || allowedServicesQuery.isFetching}
             />
+            {selectedCompanyTypeIds.length > 0 && allowedServicesQuery.isFetching ? (
+              <p className="mt-1 flex items-center gap-1.5 text-[11px] text-text-muted">
+                <Loader2 className="h-3 w-3 animate-spin text-ems-accent" />
+                Loading allowed services…
+              </p>
+            ) : null}
+            {selectedCompanyTypeIds.length > 0 && !allowedServicesQuery.isFetching && serviceOptions.length === 0 ? (
+              <p className="mt-1 text-[11px] text-amber-600">
+                No services are mapped for the selected company type. Add mappings in Settings → Lookup Tables → CompanyTypeService.
+              </p>
+            ) : null}
           </div>
           <div>
             <span className="text-xs text-text-muted">
@@ -997,97 +1289,78 @@ function InlineEditableOverview({
                 Select DMAs where this company provides services, and which service is provided in each DMA.
               </p>
             </div>
-            <label className="text-xs text-text-secondary flex items-center gap-2 select-none">
-              <input
-                type="checkbox"
-                checked={allDmas}
-                onChange={(e) => mark(setAllDmas)(e.target.checked)}
-              />
-              All DMAs (Nationwide)
-            </label>
+            <div className="text-xs text-text-secondary">
+              {allDmas ? 'All DMAs (Nationwide)' : 'Selected DMAs'}
+            </div>
           </div>
 
           {allDmas ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
-              <div>
-                <label className="text-xs text-text-muted block mb-0.5">
-                  Service (Nationwide)
-                  <span className="text-ems-coral ml-0.5">*</span>
-                </label>
-                <Select2
-                  options={serviceOptions}
-                  value={allDmasServiceProvidedId}
-                  onChange={mark(setAllDmasServiceProvidedId)}
-                  placeholder="Select service…"
-                />
-              </div>
-              <div className="text-[11px] text-text-muted">
-                Selected Area: All
-              </div>
+            <div className="rounded-md border border-border bg-surface px-3 py-2.5">
+              <p className="text-xs text-text-muted">Coverage</p>
+              <p className="text-sm text-text-primary mt-1">
+                All DMAs (Nationwide)
+              </p>
+              <p className="text-xs text-text-muted mt-2">Service</p>
+              <p className="text-sm text-text-primary mt-1">
+                {serviceLabelById.get(allDmasServiceProvidedId) || 'Not set'}
+              </p>
             </div>
           ) : (
             <div className="space-y-2">
               {serviceAreas.length === 0 ? (
                 <div className="text-sm text-text-muted">No service areas added yet.</div>
               ) : null}
-              {serviceAreas.map((row, idx) => (
-                <div key={`sa-${idx}`} className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+              {serviceAreaPreviewRows.map((row, idx) => (
+                <div
+                  key={`sa-preview-${idx}`}
+                  className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-md border border-border bg-surface px-3 py-2.5"
+                >
                   <div>
-                    <label className="text-xs text-text-muted block mb-0.5">DMA</label>
-                    <Select2
-                      options={dmaMarketOptions}
-                      value={row.dmaid}
-                      onChange={(v) => {
-                        const next = [...serviceAreas];
-                        next[idx] = { ...next[idx], dmaid: v };
-                        mark(setServiceAreas)(next);
-                      }}
-                      placeholder="Select DMA…"
-                    />
+                    <p className="text-[11px] text-text-muted">DMA</p>
+                    <p className="text-sm text-text-primary mt-1">
+                      {dmaLabelById.get(row.dmaid) || 'Not set'}
+                    </p>
                   </div>
-                  <div className="flex items-end gap-2">
-                    <div className="flex-1">
-                      <label className="text-xs text-text-muted block mb-0.5">Service</label>
-                      <Select2
-                        options={serviceOptions}
-                        value={row.serviceProvidedId}
-                        onChange={(v) => {
-                          const next = [...serviceAreas];
-                          next[idx] = { ...next[idx], serviceProvidedId: v };
-                          mark(setServiceAreas)(next);
-                        }}
-                        placeholder="Select service…"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      className="text-xs text-text-muted hover:text-ems-coral hover:underline pb-2"
-                      onClick={() => {
-                        const next = serviceAreas.filter((_, i) => i !== idx);
-                        mark(setServiceAreas)(next);
-                      }}
-                    >
-                      Remove
-                    </button>
+                  <div>
+                    <p className="text-[11px] text-text-muted">Service</p>
+                    <p className="text-sm text-text-primary mt-1">
+                      {serviceLabelById.get(row.serviceProvidedId) || 'Not set'}
+                    </p>
                   </div>
                 </div>
               ))}
+              {hasMoreServiceAreaRows ? (
+                <p className="text-[11px] text-text-muted">
+                  Showing 3 of {serviceAreas.length} service areas.
+                </p>
+              ) : null}
               <div>
-                <button
+                <Button
                   type="button"
-                  className="text-sm text-ems-accent hover:underline"
-                  onClick={() => {
-                    mark(setServiceAreas)([
-                      ...serviceAreas,
-                      { dmaid: '', serviceProvidedId: '' },
-                    ]);
-                  }}
+                  variant="outline"
+                  className="h-9 px-4"
+                  onClick={openServiceAreaEditor}
                 >
-                  + Add DMA Service Area
-                </button>
+                  <Pencil className="h-3.5 w-3.5" aria-hidden />
+                  Manage service areas
+                </Button>
               </div>
             </div>
           )}
+
+          {allDmas ? (
+            <div className="pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 px-4"
+                onClick={openServiceAreaEditor}
+              >
+                <Pencil className="h-3.5 w-3.5" aria-hidden />
+                Manage service areas
+              </Button>
+            </div>
+          ) : null}
         </div>
 
         {/* Physical Address */}
@@ -1965,14 +2238,47 @@ function CompanyFormDb({
       })),
     [companyTypes],
   );
+  const selectedCompanyTypeIds = useMemo(
+    () =>
+      companyTypeIds
+        .map(Number)
+        .filter((id) => Number.isInteger(id) && id > 0),
+    [companyTypeIds],
+  );
+  const allowedServicesQuery = useQuery({
+    queryKey: ['lookups', 'company-type-services', 'allowed', selectedCompanyTypeIds.join(',')],
+    queryFn: () => fetchServicesAllowedForCompanyTypes(selectedCompanyTypeIds),
+    enabled: selectedCompanyTypeIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+  });
   const serviceOpts = useMemo(
     () =>
-      servicesProvided.map((service) => ({
+      (selectedCompanyTypeIds.length > 0 ? allowedServicesQuery.data ?? [] : []).map((service) => ({
         value: String(service.serviceProvidedId),
         label: service.serviceName,
       })),
-    [servicesProvided],
+    [allowedServicesQuery.data, selectedCompanyTypeIds.length],
   );
+  const allowedServiceIdSet = useMemo(
+    () => new Set(serviceOpts.map((option) => option.value)),
+    [serviceOpts],
+  );
+  useEffect(() => {
+    if (selectedCompanyTypeIds.length === 0 || allowedServicesQuery.isFetching) return;
+    setServiceProvidedIds((ids) => ids.filter((id) => allowedServiceIdSet.has(id)));
+    setServiceAreas((rows) =>
+      rows.map((row) =>
+        row.serviceProvidedId && !allowedServiceIdSet.has(row.serviceProvidedId)
+          ? { ...row, serviceProvidedId: '' }
+          : row,
+      ),
+    );
+    setAllDmasServiceProvidedId((id) => (id && !allowedServiceIdSet.has(id) ? '' : id));
+  }, [
+    allowedServiceIdSet,
+    allowedServicesQuery.isFetching,
+    selectedCompanyTypeIds.length,
+  ]);
 
   const dmaMarketOpts = useMemo(
     () =>
@@ -2166,8 +2472,28 @@ function CompanyFormDb({
             options={serviceOpts}
             values={serviceProvidedIds}
             onChange={setServiceProvidedIds}
-            placeholder="Select one or more services…"
+            placeholder={
+              selectedCompanyTypeIds.length === 0
+                ? 'Select company type first…'
+                : allowedServicesQuery.isFetching
+                  ? 'Loading allowed services…'
+                  : serviceOpts.length === 0
+                    ? 'No services mapped for this type'
+                    : 'Select one or more services…'
+            }
+            disabled={selectedCompanyTypeIds.length === 0 || allowedServicesQuery.isFetching}
           />
+          {selectedCompanyTypeIds.length > 0 && allowedServicesQuery.isFetching ? (
+            <p className="mt-1 flex items-center gap-1.5 text-[11px] text-text-muted">
+              <Loader2 className="h-3 w-3 animate-spin text-ems-accent" />
+              Loading allowed services…
+            </p>
+          ) : null}
+          {selectedCompanyTypeIds.length > 0 && !allowedServicesQuery.isFetching && serviceOpts.length === 0 ? (
+            <p className="mt-1 text-[11px] text-amber-600">
+              No services are mapped for the selected company type. Add mappings in Settings → Lookup Tables → CompanyTypeService.
+            </p>
+          ) : null}
         </FormField>
       </div>
 
@@ -2527,8 +2853,14 @@ function CompanyFormDb({
                 options={serviceOpts}
                 value={allDmasServiceProvidedId}
                 onChange={setAllDmasServiceProvidedId}
-                placeholder="Select service…"
-                disabled={saving}
+                placeholder={
+                  selectedCompanyTypeIds.length === 0
+                    ? 'Select company type first…'
+                    : allowedServicesQuery.isFetching
+                      ? 'Loading services…'
+                      : 'Select service…'
+                }
+                disabled={saving || selectedCompanyTypeIds.length === 0 || allowedServicesQuery.isFetching}
               />
             </div>
             <div className="text-[11px] text-text-muted">
@@ -2567,8 +2899,14 @@ function CompanyFormDb({
                         next[idx] = { ...next[idx], serviceProvidedId: v };
                         setServiceAreas(next);
                       }}
-                      placeholder="Select service…"
-                      disabled={saving}
+                      placeholder={
+                        selectedCompanyTypeIds.length === 0
+                          ? 'Select company type first…'
+                          : allowedServicesQuery.isFetching
+                            ? 'Loading services…'
+                            : 'Select service…'
+                      }
+                      disabled={saving || selectedCompanyTypeIds.length === 0 || allowedServicesQuery.isFetching}
                     />
                   </div>
                   <button

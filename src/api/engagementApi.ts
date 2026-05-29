@@ -99,6 +99,8 @@ export interface UpdateEngagementPayload {
 export interface ApiEngagementFinanceRow {
   financeId: number | null;
   engagementId: number;
+  payableEntityCompanyId: number | null;
+  payableEntityCompanyName: string | null;
   estimatedBreakeven: number | null;
   grossPotential: number | null;
   sellableCapacity: number | null;
