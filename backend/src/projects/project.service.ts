@@ -29,7 +29,10 @@ import { Dma } from '../entities/dma.entity';
 import { Performance } from '../entities/performance.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
-import { CreateProjectDto } from './dto/create-project.dto';
+import {
+  CreateProjectDto,
+  type ProjectOpeningPerformanceDto,
+} from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { AddProjectVenueDto } from './dto/add-project-venue.dto';
 import { UpdateProjectVenueDto } from './dto/update-project-venue.dto';
@@ -585,6 +588,7 @@ export class ProjectService {
   private async convertProjectToEngagement(
     manager: EntityManager,
     project: EngagementProject,
+    openingPerformances: ProjectOpeningPerformanceDto[] = [],
   ): Promise<number> {
     const existing = await this.getConvertedEngagementId(
       project.engagementProjectId,
@@ -613,19 +617,24 @@ export class ProjectService {
       venueCompanyIds.add(venue.venueCompanyId);
     }
 
-    const options = await manager.find(EngagementProjectPerformanceOption, {
-      where: { engagementProjectId: project.engagementProjectId },
-      order: { proposedDate: 'ASC', performanceOptionId: 'ASC' },
-    });
-    const performanceRows: Array<{ date: string; time: string }> = [];
+    const performanceRows: Array<{
+      date: string;
+      time: string;
+      status: string;
+    }> = [];
     const showDateTimes = new Set<string>();
-    for (const option of options) {
-      const date = this.normalizeDateOnly(option.proposedDate);
-      const time = this.normalizeTime(option.proposedTime);
+
+    const addPerformanceRow = (
+      dateRaw: string | Date | null | undefined,
+      timeRaw: string | null | undefined,
+      statusRaw: string | null | undefined,
+      missingMessage: string,
+    ) => {
+      const date = this.normalizeDateOnly(dateRaw);
+      const time = this.normalizeTime(timeRaw);
       if (!date || !time) {
         throw new BadRequestException({
-          message:
-            'Every proposed performance needs both a date and time before this project can be converted into an engagement.',
+          message: missingMessage,
         });
       }
       const key = `${date}T${time}`;
@@ -636,7 +645,42 @@ export class ProjectService {
         });
       }
       showDateTimes.add(key);
-      performanceRows.push({ date, time });
+      performanceRows.push({
+        date,
+        time,
+        status: (statusRaw ?? '').trim() || 'Public',
+      });
+    };
+
+    for (const opening of openingPerformances ?? []) {
+      addPerformanceRow(
+        opening.performanceDate,
+        opening.performanceTime,
+        opening.performanceStatus,
+        'Every opening show needs both a date and time before this project can be converted into an engagement.',
+      );
+    }
+
+    if (performanceRows.length === 0) {
+      const options = await manager.find(EngagementProjectPerformanceOption, {
+        where: { engagementProjectId: project.engagementProjectId },
+        order: { proposedDate: 'ASC', performanceOptionId: 'ASC' },
+      });
+      for (const option of options) {
+        addPerformanceRow(
+          option.proposedDate,
+          option.proposedTime,
+          'Private',
+          'Every proposed performance needs both a date and time before this project can be converted into an engagement.',
+        );
+      }
+    }
+
+    if (performanceRows.length === 0) {
+      throw new BadRequestException({
+        message:
+          'Add at least one opening show before converting this project into an engagement.',
+      });
     }
 
     const savedEngagement = await manager.save(
@@ -666,7 +710,7 @@ export class ProjectService {
         Performance,
         manager.create(Performance, {
           engagementId: savedEngagement.engagementId,
-          performanceStatus: 'Private',
+          performanceStatus: row.status,
           performanceDate: row.date,
           performanceTime: row.time,
         }),
@@ -1150,7 +1194,11 @@ export class ProjectService {
         );
 
         const engagementId = isProjectConversionStage(dto.projectStage)
-          ? await this.convertProjectToEngagement(manager, savedProject)
+          ? await this.convertProjectToEngagement(
+              manager,
+              savedProject,
+              dto.openingPerformances,
+            )
           : null;
         return {
           engagementProjectId: savedProject.engagementProjectId,
@@ -1287,7 +1335,11 @@ export class ProjectService {
           }
           await manager.save(EngagementProject, project);
           return shouldConvert
-            ? await this.convertProjectToEngagement(manager, project)
+            ? await this.convertProjectToEngagement(
+                manager,
+                project,
+                dto.openingPerformances,
+              )
             : null;
         },
       );

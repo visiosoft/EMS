@@ -9,6 +9,7 @@ import { AuditColumns } from '../audit/audit-columns';
 import { Attraction } from './attraction.entity';
 import { Class } from './class.entity';
 import { Company } from './company.entity';
+import { Job } from './job.entity';
 import { VenueType } from './venue-type.entity';
 
 @Entity({ name: 'Tour', schema: 'dbo' })
@@ -76,6 +77,13 @@ export class Tour extends AuditColumns {
   @ManyToOne(() => Company, { nullable: true })
   @JoinColumn({ name: 'TourManagementCompanyID' })
   tourManagementCompany: Company | null;
+
+  @Column({ name: 'JobID', type: 'int', nullable: true })
+  jobId: number | null;
+
+  @ManyToOne(() => Job, { nullable: true })
+  @JoinColumn({ name: 'JobID' })
+  job: Job | null;
 
   @Column({ name: 'ClassID', type: 'int' })
   classId: number;

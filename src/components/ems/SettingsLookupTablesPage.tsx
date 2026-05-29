@@ -11,7 +11,7 @@ import {
   StatusBadge,
   TabBar,
 } from './Primitives';
-import { Select2, type Select2Option } from './Select2';
+import { Select2, Select2Multi, type Select2Option } from './Select2';
 import { PageSizeSelect } from './PageSizeSelect';
 import { invalidateDmaMarketsQueries } from '@/api/cacheHelpers';
 import { normalizeDmaMarketRows, patchWizardDmaMarketsCache } from '@/lib/projectWizardDma';
@@ -151,22 +151,14 @@ const LOOKUP_TABLES: LookupTableConfig[] = [
     ],
   },
   {
-    key: 'company-services',
-    label: 'CompanyService',
-    idField: 'companyServiceId',
-    nameField: 'serviceName',
-    manualIdOnCreate: false,
-    columns: [{ label: 'Service Name', field: 'serviceName', sortBy: 'serviceName' }],
-  },
-  {
     key: 'company-type-services',
     label: 'CompanyTypeService',
-    idField: 'companyTypeServiceId',
-    nameField: 'serviceName',
+    idField: 'companyTypeId',
+    nameField: 'companyTypeName',
     manualIdOnCreate: false,
     columns: [
       { label: 'Company Type', field: 'companyTypeName', sortBy: 'companyTypeName' },
-      { label: 'Service', field: 'serviceName', sortBy: 'serviceName' },
+      { label: 'Services', field: 'serviceNames', sortBy: 'serviceName' },
     ],
   },
   {
@@ -214,12 +206,37 @@ function getLookupRowElementKey(row: LookupManageRow, config: LookupTableConfig,
   return `${config.key}-r${index}-${fingerprint}`;
 }
 
+function renderLookupCell(row: LookupManageRow, field: string) {
+  if (field === 'serviceNames') {
+    const names = Array.isArray(row.serviceNames)
+      ? row.serviceNames.map((v) => String(v ?? '').trim()).filter(Boolean)
+      : String(row.serviceName ?? '')
+          .split(',')
+          .map((v) => v.trim())
+          .filter(Boolean);
+    if (names.length === 0) return <span className="text-text-muted">—</span>;
+    return (
+      <div className="flex flex-wrap gap-1.5">
+        {names.map((name) => (
+          <span
+            key={name}
+            className="inline-flex max-w-full items-center rounded border border-border bg-elevated px-2 py-0.5 text-xs text-text-secondary"
+          >
+            <span className="truncate">{name}</span>
+          </span>
+        ))}
+      </div>
+    );
+  }
+  return toDisplay(row[field]);
+}
+
 const SETTINGS_LOOKUP_SORT_STORAGE_KEY = 'iae-settings-lookup-sort-state-v1';
 const EMS_SAVED_VIEWS_ENABLED_KEY = 'iae-ems-saved-views-enabled-v1';
 
 function defaultLookupSortBy(lookupKey: string): string {
-  return lookupKey === 'company-services' || lookupKey === 'company-type-services'
-    ? 'serviceName'
+  return lookupKey === 'company-type-services'
+    ? 'companyTypeName'
     : 'name';
 }
 
@@ -414,8 +431,8 @@ export function SettingsPage({
   ]);
 
   const suggestionSortBy =
-    activeLookupKey === 'company-services' || activeLookupKey === 'company-type-services'
-      ? 'serviceName'
+    activeLookupKey === 'company-type-services'
+      ? 'companyTypeName'
       : activeLookupKey === 'dmas'
         ? 'name'
         : 'name';
@@ -445,16 +462,16 @@ export function SettingsPage({
     if (!q) return [];
     const rows = lookupSuggestionsQuery.data?.data ?? [];
     const values =
-      activeLookupKey === 'company-services'
-        ? rows.flatMap((row) => {
-            const serviceName = String(row.serviceName ?? '').trim();
-            return serviceName ? [serviceName] : [];
-          })
-        : activeLookupKey === 'company-type-services'
+      activeLookupKey === 'company-type-services'
           ? rows.flatMap((row) => {
               const typeName = String(row.companyTypeName ?? '').trim();
-              const serviceName = String(row.serviceName ?? '').trim();
-              return [typeName, serviceName].filter(Boolean);
+              const serviceNames = Array.isArray(row.serviceNames)
+                ? row.serviceNames.map((value) => String(value ?? '').trim()).filter(Boolean)
+                : String(row.serviceName ?? '')
+                    .split(',')
+                    .map((value) => value.trim())
+                    .filter(Boolean);
+              return [typeName, ...serviceNames].filter(Boolean);
             })
         : rows.map((row) => String(row[activeLookupConfig.nameField ?? activeLookupConfig.idField] ?? '').trim());
     const deduped: string[] = [];
@@ -527,7 +544,7 @@ export function SettingsPage({
     () =>
       (lookupDepsQuery.data?.services ?? []).map((service) => ({
         value: String(service.serviceProvidedId),
-        label: `${service.serviceName} (#${service.serviceProvidedId})`,
+        label: service.serviceName,
       })),
     [lookupDepsQuery.data?.services],
   );
@@ -536,7 +553,7 @@ export function SettingsPage({
     () =>
       (lookupDepsQuery.data?.companyTypes ?? []).map((companyType) => ({
         value: String(companyType.companyTypeId),
-        label: `${companyType.companyTypeName} (#${companyType.companyTypeId})`,
+        label: companyType.companyTypeName,
       })),
     [lookupDepsQuery.data?.companyTypes],
   );
@@ -645,12 +662,8 @@ export function SettingsPage({
   const selectedLookupTitle =
     selectedLookupRow == null
       ? ''
-      : activeLookupKey === 'company-services'
-        ? String(selectedLookupRow.serviceName ?? '').trim() || 'Service'
-        : activeLookupKey === 'company-type-services'
-          ? `${String(selectedLookupRow.companyTypeName ?? '').trim() || 'Company type'} / ${
-              String(selectedLookupRow.serviceName ?? '').trim() || 'Service'
-            }`
+      : activeLookupKey === 'company-type-services'
+        ? String(selectedLookupRow.companyTypeName ?? '').trim() || 'Company type'
         : String(
           selectedLookupRow[activeLookupConfig.nameField ?? activeLookupConfig.idField] ?? '',
         ).trim() || `${activeLookupConfig.label} #${selectedLookupId ?? ''}`;
@@ -908,7 +921,7 @@ export function SettingsPage({
                   >
                     {activeLookupConfig.columns.map((col) => (
                       <td key={col.field} className="py-2.5 px-3 text-text-primary">
-                        {toDisplay(row[col.field])}
+                        {renderLookupCell(row, col.field)}
                       </td>
                     ))}
                   </tr>
@@ -1202,7 +1215,7 @@ function useCompanyServiceLookupOptions({
     () =>
       (allowedServicesQuery.data ?? []).map((service) => ({
         value: String(service.serviceProvidedId),
-        label: `${service.serviceName} (#${service.serviceProvidedId})`,
+        label: service.serviceName,
       })),
     [allowedServicesQuery.data],
   );
@@ -1263,6 +1276,15 @@ function LookupRowForm({
   const [serviceProvidedId, setServiceProvidedId] = useState(
     String(initial?.serviceProvidedId ?? ''),
   );
+  const [serviceProvidedIds, setServiceProvidedIds] = useState<string[]>(() =>
+    Array.isArray(initial?.serviceProvidedIds)
+      ? initial.serviceProvidedIds
+          .map((value) => String(value))
+          .filter((value) => Number.isInteger(Number(value)) && Number(value) > 0)
+      : initial?.serviceProvidedId != null
+        ? [String(initial.serviceProvidedId)]
+        : [],
+  );
   const [postalCode, setPostalCode] = useState(String(initial?.postalCode ?? ''));
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -1300,7 +1322,6 @@ function LookupRowForm({
     if (isCompanyService || isCompanyTypeService) {
       const cId = Number(companyId);
       const ctId = Number(companyTypeId);
-      const sId = Number(serviceProvidedId);
       if (isCompanyService && (!Number.isInteger(cId) || cId < 1)) {
         setError('Company is required.');
         return;
@@ -1309,17 +1330,30 @@ function LookupRowForm({
         setError('Company type is required.');
         return;
       }
+      if (isCompanyTypeService) {
+        const ids = serviceProvidedIds
+          .map(Number)
+          .filter((value) => Number.isInteger(value) && value > 0);
+        if (ids.length === 0) {
+          setError('Select at least one service.');
+          return;
+        }
+        setSubmitting(true);
+        try {
+          await onSave({ companyTypeId: ctId, serviceProvidedIds: [...new Set(ids)] });
+        } finally {
+          setSubmitting(false);
+        }
+        return;
+      }
+      const sId = Number(serviceProvidedId);
       if (!Number.isInteger(sId) || sId < 1) {
         setError('Service is required.');
         return;
       }
       setSubmitting(true);
       try {
-        await onSave(
-          isCompanyService
-            ? { companyId: cId, serviceProvidedId: sId }
-            : { companyTypeId: ctId, serviceProvidedId: sId },
-        );
+        await onSave({ companyId: cId, serviceProvidedId: sId });
       } finally {
         setSubmitting(false);
       }
@@ -1407,31 +1441,41 @@ function LookupRowForm({
             </FormField>
           )}
           <FormField label="Service Provided" required>
-            <Select2
-              options={companyServiceOptionsState.options}
-              value={serviceProvidedId}
-              onChange={setServiceProvidedId}
-              placeholder={
-                loadingDependencies
-                  ? 'Loading services...'
-                  : isCompanyService && !companyServiceOptionsState.hasCompany
-                    ? 'Select company first'
-                    : companyServiceOptionsState.loading
-                      ? 'Loading allowed services...'
-                      : companyServiceOptionsState.empty
-                        ? 'No allowed services'
-                        : 'Select service'
-              }
-              disabled={
-                loadingDependencies ||
-                saving ||
-                submitting ||
-                (isCompanyService &&
-                  (!companyServiceOptionsState.hasCompany ||
-                    companyServiceOptionsState.loading ||
-                    companyServiceOptionsState.empty))
-              }
-            />
+            {isCompanyTypeService ? (
+              <Select2Multi
+                options={serviceOptions}
+                values={serviceProvidedIds}
+                onChange={setServiceProvidedIds}
+                placeholder={loadingDependencies ? 'Loading services...' : 'Select one or more services'}
+                disabled={loadingDependencies || saving || submitting}
+              />
+            ) : (
+              <Select2
+                options={companyServiceOptionsState.options}
+                value={serviceProvidedId}
+                onChange={setServiceProvidedId}
+                placeholder={
+                  loadingDependencies
+                    ? 'Loading services...'
+                    : isCompanyService && !companyServiceOptionsState.hasCompany
+                      ? 'Select company first'
+                      : companyServiceOptionsState.loading
+                        ? 'Loading allowed services...'
+                        : companyServiceOptionsState.empty
+                          ? 'No allowed services'
+                          : 'Select service'
+                }
+                disabled={
+                  loadingDependencies ||
+                  saving ||
+                  submitting ||
+                  (isCompanyService &&
+                    (!companyServiceOptionsState.hasCompany ||
+                      companyServiceOptionsState.loading ||
+                      companyServiceOptionsState.empty))
+                }
+              />
+            )}
             {isCompanyService && companyServiceOptionsState.empty ? (
               <p className="mt-1 text-xs text-text-muted">
                 {companyServiceOptionsState.hasCompanyTypes
@@ -1441,7 +1485,7 @@ function LookupRowForm({
             ) : null}
           </FormField>
           {isEdit && (
-            <FormField label={isCompanyService ? 'Company Service ID' : 'Company Type Service ID'}>
+            <FormField label={isCompanyService ? 'Company Service ID' : 'Company Type ID'}>
               <input
                 className={inputCls}
                 value={String(initial?.[config.idField] ?? '')}
@@ -1540,6 +1584,15 @@ function LookupDetailsEditor({
   const [companyId, setCompanyId] = useState(String(row.companyId ?? ''));
   const [companyTypeId, setCompanyTypeId] = useState(String(row.companyTypeId ?? ''));
   const [serviceProvidedId, setServiceProvidedId] = useState(String(row.serviceProvidedId ?? ''));
+  const [serviceProvidedIds, setServiceProvidedIds] = useState<string[]>(() =>
+    Array.isArray(row.serviceProvidedIds)
+      ? row.serviceProvidedIds
+          .map((value) => String(value))
+          .filter((value) => Number.isInteger(Number(value)) && Number(value) > 0)
+      : row.serviceProvidedId != null
+        ? [String(row.serviceProvidedId)]
+        : [],
+  );
   const [error, setError] = useState('');
   const companyServiceOptionsState = useCompanyServiceLookupOptions({
     isCompanyService,
@@ -1574,7 +1627,6 @@ function LookupDetailsEditor({
     if (isCompanyService || isCompanyTypeService) {
       const cId = Number(companyId);
       const ctId = Number(companyTypeId);
-      const sId = Number(serviceProvidedId);
       if (isCompanyService && (!Number.isInteger(cId) || cId < 1)) {
         setError('Company is required.');
         return;
@@ -1583,15 +1635,23 @@ function LookupDetailsEditor({
         setError('Company type is required.');
         return;
       }
+      if (isCompanyTypeService) {
+        const ids = serviceProvidedIds
+          .map(Number)
+          .filter((value) => Number.isInteger(value) && value > 0);
+        if (ids.length === 0) {
+          setError('Select at least one service.');
+          return;
+        }
+        await onSave({ companyTypeId: ctId, serviceProvidedIds: [...new Set(ids)] });
+        return;
+      }
+      const sId = Number(serviceProvidedId);
       if (!Number.isInteger(sId) || sId < 1) {
         setError('Service is required.');
         return;
       }
-      await onSave(
-        isCompanyService
-          ? { companyId: cId, serviceProvidedId: sId }
-          : { companyTypeId: ctId, serviceProvidedId: sId },
-      );
+      await onSave({ companyId: cId, serviceProvidedId: sId });
       return;
     }
 
@@ -1639,30 +1699,40 @@ function LookupDetailsEditor({
               </FormField>
             )}
             <FormField label="Service Provided" required>
-              <Select2
-                options={companyServiceOptionsState.options}
-                value={serviceProvidedId}
-                onChange={setServiceProvidedId}
-                placeholder={
-                  loadingDependencies
-                    ? 'Loading services...'
-                    : isCompanyService && !companyServiceOptionsState.hasCompany
-                      ? 'Select company first'
-                      : companyServiceOptionsState.loading
-                        ? 'Loading allowed services...'
-                        : companyServiceOptionsState.empty
-                          ? 'No allowed services'
-                          : 'Select service'
-                }
-                disabled={
-                  loadingDependencies ||
-                  saving ||
-                  (isCompanyService &&
-                    (!companyServiceOptionsState.hasCompany ||
-                      companyServiceOptionsState.loading ||
-                      companyServiceOptionsState.empty))
-                }
-              />
+              {isCompanyTypeService ? (
+                <Select2Multi
+                  options={serviceOptions}
+                  values={serviceProvidedIds}
+                  onChange={setServiceProvidedIds}
+                  placeholder={loadingDependencies ? 'Loading services...' : 'Select one or more services'}
+                  disabled={loadingDependencies || saving}
+                />
+              ) : (
+                <Select2
+                  options={companyServiceOptionsState.options}
+                  value={serviceProvidedId}
+                  onChange={setServiceProvidedId}
+                  placeholder={
+                    loadingDependencies
+                      ? 'Loading services...'
+                      : isCompanyService && !companyServiceOptionsState.hasCompany
+                        ? 'Select company first'
+                        : companyServiceOptionsState.loading
+                          ? 'Loading allowed services...'
+                          : companyServiceOptionsState.empty
+                            ? 'No allowed services'
+                            : 'Select service'
+                  }
+                  disabled={
+                    loadingDependencies ||
+                    saving ||
+                    (isCompanyService &&
+                      (!companyServiceOptionsState.hasCompany ||
+                        companyServiceOptionsState.loading ||
+                        companyServiceOptionsState.empty))
+                  }
+                />
+              )}
               {isCompanyService && companyServiceOptionsState.empty ? (
                 <p className="mt-1 text-xs text-text-muted">
                   {companyServiceOptionsState.hasCompanyTypes

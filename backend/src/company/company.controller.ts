@@ -15,6 +15,10 @@ import {
   CreateCompanyContactDto,
   UpdateCompanyContactDto,
 } from './dto/create-company-contact.dto';
+import {
+  ManageContactDto,
+  UpdateManagedContactDto,
+} from './dto/manage-contact.dto';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { UpdateVenueTicketingDto } from './dto/update-venue-ticketing.dto';
@@ -162,5 +166,49 @@ export class ContactAssignmentsController {
   @Delete(':assignmentId')
   removeContact(@Param('assignmentId', ParseIntPipe) assignmentId: number) {
     return this.companyService.removeContact(assignmentId);
+  }
+}
+
+@Controller('contacts')
+export class ContactsController {
+  constructor(private readonly companyService: CompanyService) {}
+
+  @Get()
+  list(
+    @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
+    @Query('limit', new DefaultValuePipe(25), ParseIntPipe) limit: number,
+    @Query('q') q?: string,
+    @Query('companyId') companyIdRaw?: string,
+  ) {
+    const companyId =
+      companyIdRaw != null && String(companyIdRaw).trim()
+        ? Number(companyIdRaw)
+        : undefined;
+    return this.companyService.listManagedContacts(
+      offset,
+      limit,
+      q,
+      companyId != null && Number.isInteger(companyId) && companyId > 0
+        ? companyId
+        : undefined,
+    );
+  }
+
+  @Post()
+  create(@Body() dto: ManageContactDto) {
+    return this.companyService.createManagedContact(dto);
+  }
+
+  @Patch(':id')
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateManagedContactDto,
+  ) {
+    return this.companyService.updateManagedContact(id, dto);
+  }
+
+  @Delete(':id')
+  remove(@Param('id', ParseIntPipe) id: number) {
+    return this.companyService.removeManagedContact(id);
   }
 }

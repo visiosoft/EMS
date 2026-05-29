@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  ContactRound,
   Landmark,
   LineChart,
   LogOut,
@@ -41,6 +42,7 @@ const NAV_ITEM_ICONS: Record<string, LucideIcon> = {
   'daily-sales': LineChart,
   'sales-summary': ClipboardList,
   companies: Building2,
+  contacts: ContactRound,
   'all-venues': Landmark,
   'attraction-tours': Map,
   calendar: CalendarDays,
@@ -61,6 +63,7 @@ const NAV_SECTIONS = [
     label: 'Primary Data Library',
     items: [
       { key: 'companies', label: 'Companies', icon: '⬡' },
+      { key: 'contacts', label: 'Contacts', icon: '⬡' },
       { key: 'all-venues', label: 'All Venues', icon: '⬡' },
       { key: 'attraction-tours', label: 'Attraction Tours', icon: '⬡' },
       { key: 'calendar', label: 'Calendar', icon: '⬡' },

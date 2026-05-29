@@ -13,8 +13,12 @@ export class NonResidentWithholding {
   })
   withholdingTaxRate: string;
 
-  @Column({ name: 'DMAID', type: 'int', nullable: true })
-  dmaid: number | null;
+  /**
+   * Some deployed databases no longer have dbo.NonResidentWithholding.DMAID.
+   * Keep this as an undecorated convenience property and access the physical
+   * column through guarded raw SQL only.
+   */
+  dmaid?: number | null;
 
   @Column({ name: 'TaxAgencyID', type: 'int', nullable: true })
   taxAgencyId: number | null;

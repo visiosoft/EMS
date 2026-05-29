@@ -8,13 +8,16 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, QueryFailedError, Repository } from 'typeorm';
 import { Attraction } from '../entities/attraction.entity';
+import { AgeRange } from '../entities/age-range.entity';
 import { Class } from '../entities/class.entity';
 import { Company } from '../entities/company.entity';
 import { Contact } from '../entities/contact.entity';
 import { ContactAssignment } from '../entities/contact-assignment.entity';
 import { Engagement } from '../entities/engagement.entity';
 import { EngagementProject } from '../entities/engagement-project.entity';
+import { Job } from '../entities/job.entity';
 import { Link } from '../entities/link.entity';
+import { TourAudienceAgeRange } from '../entities/tour-audience-age-range.entity';
 import { Tour } from '../entities/tour.entity';
 import { TourTalentAgent } from '../entities/tour-talent-agent.entity';
 import { VenueType } from '../entities/venue-type.entity';
@@ -31,6 +34,8 @@ export interface TourListRow {
   className: string;
   audienceGender: string | null;
   audienceAgeRange: string | null;
+  audienceAgeRangeIds: number[];
+  audienceAgeRangeLabels: string[];
   ascap: boolean;
   bmi: boolean;
   sesac: boolean;
@@ -40,6 +45,8 @@ export interface TourListRow {
   talentAgencyCompanyName: string | null;
   tourManagementCompanyId: number | null;
   tourManagementCompanyName: string | null;
+  jobId: number | null;
+  jobName: string | null;
   talentAgentContactIds: number[];
   talentAgentNames: string[];
   techRiderLinkId: number | null;
@@ -63,6 +70,12 @@ export class TourService {
     private readonly attractionRepo: Repository<Attraction>,
     @InjectRepository(Class)
     private readonly classRepo: Repository<Class>,
+    @InjectRepository(AgeRange)
+    private readonly ageRangeRepo: Repository<AgeRange>,
+    @InjectRepository(TourAudienceAgeRange)
+    private readonly tourAudienceAgeRangeRepo: Repository<TourAudienceAgeRange>,
+    @InjectRepository(Job)
+    private readonly jobRepo: Repository<Job>,
     @InjectRepository(VenueType)
     private readonly venueTypeRepo: Repository<VenueType>,
     @InjectRepository(Engagement)
@@ -137,6 +150,105 @@ export class TourService {
           .filter((id) => Number.isInteger(id) && id > 0),
       ),
     ];
+  }
+
+  private normalizeAgeRangeIds(ids?: number[] | null): number[] {
+    return [
+      ...new Set(
+        (Array.isArray(ids) ? ids : [])
+          .map(Number)
+          .filter((id) => Number.isInteger(id) && id > 0),
+      ),
+    ];
+  }
+
+  private normalizeAudienceGender(value: string | null | undefined): string | null {
+    const t = String(value ?? '').trim();
+    if (!t) return null;
+    const allowed = new Set(['All', 'Male', 'Female']);
+    if (!allowed.has(t)) {
+      throw new BadRequestException({
+        message: 'Audience gender must be All, Male, or Female.',
+      });
+    }
+    return t;
+  }
+
+  private async labelsForAgeRangeIds(ids: number[]): Promise<string[]> {
+    const normalized = this.normalizeAgeRangeIds(ids);
+    if (!normalized.length) return [];
+    const rows = await this.ageRangeRepo.find({
+      where: { ageRangeId: In(normalized) },
+      order: { sortOrder: 'ASC', ageRangeLabel: 'ASC' },
+    });
+    if (rows.length !== normalized.length) {
+      throw new BadRequestException({
+        message: 'One or more audience age ranges are not valid.',
+      });
+    }
+    return rows.map((row) => row.ageRangeLabel);
+  }
+
+  private async syncTourAudienceAgeRanges(
+    tourId: number,
+    ids: number[] | null | undefined,
+  ): Promise<string[]> {
+    const normalized = this.normalizeAgeRangeIds(ids);
+    const labels = await this.labelsForAgeRangeIds(normalized);
+    await this.tourAudienceAgeRangeRepo.delete({ tourId });
+    if (normalized.length) {
+      await this.tourAudienceAgeRangeRepo.save(
+        normalized.map((ageRangeId) =>
+          this.tourAudienceAgeRangeRepo.create({ tourId, ageRangeId }),
+        ),
+      );
+    }
+    await this.tourRepo.update(
+      { tourId },
+      { audienceAgeRange: labels.length ? labels.join(', ') : null },
+    );
+    return labels;
+  }
+
+  private async tourAgeRangesByTourIds(
+    tourIds: number[],
+  ): Promise<Map<number, { ids: number[]; labels: string[] }>> {
+    const uniq = [...new Set(tourIds)].filter(
+      (id) => Number.isInteger(id) && id > 0,
+    );
+    const map = new Map<number, { ids: number[]; labels: string[] }>();
+    for (const id of uniq) map.set(id, { ids: [], labels: [] });
+    if (!uniq.length) return map;
+
+    const rows = await this.tourAudienceAgeRangeRepo.find({
+      where: { tourId: In(uniq) },
+      relations: { ageRange: true },
+      order: { ageRange: { sortOrder: 'ASC' } },
+    });
+    for (const row of rows) {
+      const bucket = map.get(row.tourId) ?? { ids: [], labels: [] };
+      if (!bucket.ids.includes(row.ageRangeId)) bucket.ids.push(row.ageRangeId);
+      const label = row.ageRange?.ageRangeLabel?.trim();
+      if (label && !bucket.labels.includes(label)) bucket.labels.push(label);
+      map.set(row.tourId, bucket);
+    }
+    return map;
+  }
+
+  private async resolveJobId(jobName: string | null | undefined): Promise<number | null> {
+    const name = String(jobName ?? '').trim();
+    if (!name) return null;
+    const existing = await this.jobRepo
+      .createQueryBuilder('j')
+      .where('LOWER(LTRIM(RTRIM(j.jobName))) = LOWER(LTRIM(RTRIM(:name)))', {
+        name,
+      })
+      .getOne();
+    if (existing) return existing.jobId;
+    const created = await this.jobRepo.save(
+      this.jobRepo.create({ jobName: name.slice(0, 255), jobCode: null, isActive: true }),
+    );
+    return created.jobId;
   }
 
   private async assertTalentAgentContactsBelongToAgency(
@@ -307,7 +419,9 @@ export class TourService {
     t: Tour,
     tourBannerImageUrl: string | null,
     talentAgents?: { ids: number[]; names: string[] },
+    ageRanges?: { ids: number[]; labels: string[] },
   ): TourListRow {
+    const ageLabels = ageRanges?.labels ?? [];
     return {
       tourId: t.tourId,
       tourName: t.tourName,
@@ -316,7 +430,9 @@ export class TourService {
       classId: t.classId,
       className: t.class?.className ?? '',
       audienceGender: t.audienceGender,
-      audienceAgeRange: t.audienceAgeRange,
+      audienceAgeRange: ageLabels.length ? ageLabels.join(', ') : t.audienceAgeRange,
+      audienceAgeRangeIds: ageRanges?.ids ?? [],
+      audienceAgeRangeLabels: ageLabels,
       ascap: t.ascap,
       bmi: t.bmi,
       sesac: t.sesac,
@@ -328,6 +444,8 @@ export class TourService {
       tourManagementCompanyId:
         t.tourManagementCompanyId ?? t.tourManagementCompany?.companyId ?? null,
       tourManagementCompanyName: t.tourManagementCompany?.companyName ?? null,
+      jobId: t.jobId ?? t.job?.jobId ?? null,
+      jobName: t.job?.jobName ?? null,
       talentAgentContactIds: talentAgents?.ids ?? [],
       talentAgentNames: talentAgents?.names ?? [],
       techRiderLinkId: t.techRiderLinkId,
@@ -369,6 +487,7 @@ export class TourService {
       .leftJoinAndSelect('t.venueTypePreference', 'v')
       .leftJoinAndSelect('t.talentAgencyCompany', 'ta')
       .leftJoinAndSelect('t.tourManagementCompany', 'tm')
+      .leftJoinAndSelect('t.job', 'job')
       .orderBy('t.tourName', 'ASC')
       .getMany();
 
@@ -378,11 +497,15 @@ export class TourService {
     const agentMap = await this.tourTalentAgentsByTourIds(
       rows.map((t) => t.tourId),
     );
+    const ageMap = await this.tourAgeRangesByTourIds(
+      rows.map((t) => t.tourId),
+    );
     return rows.map((t) =>
       this.mapTourEntityToRow(
         t,
         bannerMap.get(t.tourId) ?? null,
         agentMap.get(t.tourId),
+        ageMap.get(t.tourId),
       ),
     );
   }
@@ -400,7 +523,8 @@ export class TourService {
       .innerJoinAndSelect('t.class', 'c')
       .leftJoinAndSelect('t.venueTypePreference', 'v')
       .leftJoinAndSelect('t.talentAgencyCompany', 'ta')
-      .leftJoinAndSelect('t.tourManagementCompany', 'tm');
+      .leftJoinAndSelect('t.tourManagementCompany', 'tm')
+      .leftJoinAndSelect('t.job', 'job');
 
     const sortBy = (sortByRaw ?? '').trim().toLowerCase();
     const sortDir =
@@ -434,12 +558,16 @@ export class TourService {
     const agentMap = await this.tourTalentAgentsByTourIds(
       rows.map((t) => t.tourId),
     );
+    const ageMap = await this.tourAgeRangesByTourIds(
+      rows.map((t) => t.tourId),
+    );
     return {
       data: rows.map((t) =>
         this.mapTourEntityToRow(
           t,
           bannerMap.get(t.tourId) ?? null,
           agentMap.get(t.tourId),
+          ageMap.get(t.tourId),
         ),
       ),
       total,
@@ -464,6 +592,7 @@ export class TourService {
       .leftJoinAndSelect('t.venueTypePreference', 'v')
       .leftJoinAndSelect('t.talentAgencyCompany', 'ta')
       .leftJoinAndSelect('t.tourManagementCompany', 'tm')
+      .leftJoinAndSelect('t.job', 'job')
       .where('t.attractionId = :aid', { aid })
       .orderBy('t.tourName', 'ASC')
       .addOrderBy('t.tourId', 'ASC');
@@ -479,6 +608,9 @@ export class TourService {
     const agentMap = await this.tourTalentAgentsByTourIds(
       rows.map((t) => t.tourId),
     );
+    const ageMap = await this.tourAgeRangesByTourIds(
+      rows.map((t) => t.tourId),
+    );
 
     return {
       data: rows.map((t) =>
@@ -486,10 +618,17 @@ export class TourService {
           t,
           bannerMap.get(t.tourId) ?? null,
           agentMap.get(t.tourId),
+          ageMap.get(t.tourId),
         ),
       ),
       total,
     };
+  }
+
+  async listAgeRanges(): Promise<AgeRange[]> {
+    return this.ageRangeRepo.find({
+      order: { sortOrder: 'ASC', ageRangeLabel: 'ASC' },
+    });
   }
 
   async create(
@@ -536,13 +675,18 @@ export class TourService {
     const tourStartDate = this.normalizeTourDateInput(dto.tourStartDate);
     const tourEndDate = this.normalizeTourDateInput(dto.tourEndDate);
     this.assertTourDateRange(tourStartDate, tourEndDate);
+    const audienceGender = this.normalizeAudienceGender(dto.audienceGender);
+    const jobId = await this.resolveJobId(dto.jobName);
+    const ageRangeLabels = await this.labelsForAgeRangeIds(
+      this.normalizeAgeRangeIds(dto.audienceAgeRangeIds),
+    );
 
     const row = this.tourRepo.create({
       tourName,
       attractionId: dto.attractionId,
       classId: dto.classId,
-      audienceGender: null,
-      audienceAgeRange: null,
+      audienceGender,
+      audienceAgeRange: ageRangeLabels.length ? ageRangeLabels.join(', ') : null,
       ascap: dto.ascap ?? false,
       bmi: dto.bmi ?? false,
       sesac: dto.sesac ?? false,
@@ -553,10 +697,15 @@ export class TourService {
       bannerLinkId: null,
       talentAgencyCompanyId: dto.talentAgencyCompanyId,
       tourManagementCompanyId: effectivePayableEntityCompanyId,
+      jobId,
       tourStartDate,
       tourEndDate,
     });
     const saved = await this.tourRepo.save(row);
+    await this.syncTourAudienceAgeRanges(
+      saved.tourId,
+      dto.audienceAgeRangeIds ?? [],
+    );
     await this.syncTourTalentAgents(
       saved.tourId,
       talentAgentContactIds,
@@ -601,10 +750,13 @@ export class TourService {
     if (dto.sesac !== undefined) existing.sesac = dto.sesac;
     if (dto.gmr !== undefined) existing.gmr = dto.gmr;
     if (dto.audienceGender !== undefined) {
-      existing.audienceGender = dto.audienceGender?.trim() || null;
+      existing.audienceGender = this.normalizeAudienceGender(dto.audienceGender);
     }
     if (dto.audienceAgeRange !== undefined) {
       existing.audienceAgeRange = dto.audienceAgeRange?.trim() || null;
+    }
+    if (dto.jobName !== undefined) {
+      existing.jobId = await this.resolveJobId(dto.jobName);
     }
     if (dto.tourInsuranceLanguage !== undefined) {
       existing.tourInsuranceLanguage =
@@ -660,6 +812,9 @@ export class TourService {
         : null;
     try {
       await this.tourRepo.save(existing);
+      if (dto.audienceAgeRangeIds !== undefined) {
+        await this.syncTourAudienceAgeRanges(id, dto.audienceAgeRangeIds);
+      }
       if (nextTalentAgentContactIds !== null) {
         await this.syncTourTalentAgents(
           id,
@@ -705,6 +860,7 @@ export class TourService {
       .leftJoinAndSelect('t.venueTypePreference', 'v')
       .leftJoinAndSelect('t.talentAgencyCompany', 'ta')
       .leftJoinAndSelect('t.tourManagementCompany', 'tm')
+      .leftJoinAndSelect('t.job', 'job')
       .where('t.tourId = :tourId', { tourId })
       .getOne();
     if (!t) {
@@ -712,10 +868,12 @@ export class TourService {
     }
     const bannerMap = await this.tourBannerUrlsByTourIds([tourId]);
     const agentMap = await this.tourTalentAgentsByTourIds([tourId]);
+    const ageMap = await this.tourAgeRangesByTourIds([tourId]);
     return this.mapTourEntityToRow(
       t,
       bannerMap.get(tourId) ?? null,
       agentMap.get(tourId),
+      ageMap.get(tourId),
     );
   }
 
@@ -743,6 +901,7 @@ export class TourService {
       });
     }
     await this.tourTalentAgentRepo.delete({ tourId: id });
+    await this.tourAudienceAgeRangeRepo.delete({ tourId: id });
     await this.tourRepo.delete({ tourId: id });
     this.emsCreated.removeTour(id);
   }

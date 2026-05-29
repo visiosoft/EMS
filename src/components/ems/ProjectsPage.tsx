@@ -14,7 +14,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, Check, ExternalLink, GripVertical, Loader2, Lock, Pencil, RotateCcw, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, ExternalLink, GripVertical, Loader2, Lock, Pencil, Plus, RotateCcw, Trash2, X } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import {
@@ -85,6 +85,7 @@ import type {
   ApiProjectListRow,
   ApiProjectVenue,
   OptionStatus,
+  ProjectOpeningPerformancePayload,
   ProjectStage,
   VenueStatus,
   CreateProjectResult,
@@ -115,6 +116,7 @@ import {
 } from '@/api/companyApi';
 import { fetchAllVenues, type ApiAllVenueRow } from '@/api/venueDirectoryApi';
 import { AddTourForm } from './AddTourForm';
+import { ENGAGEMENT_STATUS_ENUM } from './engagementFormConstants';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -147,6 +149,23 @@ const EMPTY_TOURS: ApiTourListRow[] = [];
 const EMPTY_CLASSES: ApiClass[] = [];
 const EMPTY_VENUE_TYPES: ApiVenueType[] = [];
 const EMPTY_TOUR_LIST: ApiTourListRow[] = [];
+const PROJECT_PERFORMANCE_STATUS_OPTIONS = ENGAGEMENT_STATUS_ENUM.map((status) => ({
+  value: status,
+  label: status,
+}));
+
+type ProjectOpeningPerformanceDraftRow = ProjectOpeningPerformancePayload & {
+  id: string;
+};
+
+function makeProjectOpeningPerformanceDraftRow(): ProjectOpeningPerformanceDraftRow {
+  return {
+    id: `opening-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    performanceDate: '',
+    performanceTime: '20:00',
+    performanceStatus: 'Public',
+  };
+}
 
 /** API returns one row per market name; label is market name only (no postal in UI). */
 function formatDmaPickerLabel(r: { dmaid?: number; marketName?: string | null }): string {
@@ -159,6 +178,184 @@ function formatVenueCapacity(cap: unknown): string {
   const n = typeof cap === 'number' ? cap : Number(cap);
   if (!Number.isFinite(n) || n < 0) return '—';
   return n.toLocaleString();
+}
+
+function ProjectOpeningPerformancesModal({
+  saving,
+  onCancel,
+  onSave,
+}: {
+  saving: boolean;
+  onCancel: () => void;
+  onSave: (rows: ProjectOpeningPerformancePayload[]) => void;
+}) {
+  const [rows, setRows] = useState<ProjectOpeningPerformanceDraftRow[]>([
+    makeProjectOpeningPerformanceDraftRow(),
+  ]);
+  const [errors, setErrors] = useState<
+    Record<string, { date?: string; time?: string; duplicate?: string }>
+  >({});
+
+  const updateRow = (id: string, patch: Partial<ProjectOpeningPerformanceDraftRow>) => {
+    setRows((prev) => prev.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+    setErrors((prev) => {
+      if (!prev[id]) return prev;
+      const next = { ...prev };
+      const rowErrors = { ...next[id] };
+      if (patch.performanceDate !== undefined) rowErrors.date = undefined;
+      if (patch.performanceTime !== undefined) rowErrors.time = undefined;
+      if (patch.performanceDate !== undefined || patch.performanceTime !== undefined) {
+        rowErrors.duplicate = undefined;
+      }
+      next[id] = rowErrors;
+      if (!rowErrors.date && !rowErrors.time && !rowErrors.duplicate) delete next[id];
+      return next;
+    });
+  };
+
+  const removeRow = (id: string) => {
+    setRows((prev) => (prev.length <= 1 ? prev : prev.filter((row) => row.id !== id)));
+    setErrors((prev) => {
+      if (!prev[id]) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  };
+
+  const submit = () => {
+    const nextErrors: Record<string, { date?: string; time?: string; duplicate?: string }> = {};
+    const seen = new Set<string>();
+    for (const row of rows) {
+      const rowErrors: { date?: string; time?: string; duplicate?: string } = {};
+      const date = row.performanceDate.trim();
+      const time = row.performanceTime.trim();
+      if (!date) rowErrors.date = 'Date is required.';
+      if (!time) rowErrors.time = 'Show time is required.';
+      if (date && time) {
+        const key = `${date}|${time}`;
+        if (seen.has(key)) {
+          rowErrors.duplicate = 'Another show already uses this exact date and time.';
+        }
+        seen.add(key);
+      }
+      if (rowErrors.date || rowErrors.time || rowErrors.duplicate) {
+        nextErrors[row.id] = rowErrors;
+      }
+    }
+    if (Object.keys(nextErrors).length > 0) {
+      setErrors(nextErrors);
+      return;
+    }
+    setErrors({});
+    onSave(
+      rows.map((row) => ({
+        performanceDate: row.performanceDate.trim(),
+        performanceTime: row.performanceTime.trim(),
+        performanceStatus: row.performanceStatus?.trim() || 'Public',
+      })),
+    );
+  };
+
+  return (
+    <Modal title="Opening show dates" onClose={() => !saving && onCancel()} width={900} allowContentOverflow>
+      <div className="space-y-4">
+        <p className="text-xs text-text-muted">
+          Add the opening show, or add multiple shows now. Each row needs a unique date and time.
+        </p>
+        <div className="max-h-[55vh] space-y-3 overflow-auto pr-1">
+          {rows.map((row, idx) => {
+            const rowErrors = errors[row.id] ?? {};
+            return (
+              <div key={row.id} className="rounded-lg border border-border bg-surface/60 p-3 sm:p-4">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+                    Performance {idx + 1}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeRow(row.id)}
+                    disabled={saving || rows.length <= 1}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-text-secondary transition-colors hover:border-ems-coral/40 hover:bg-ems-coral-dim hover:text-ems-coral disabled:cursor-not-allowed disabled:opacity-40"
+                    title={rows.length <= 1 ? 'At least one performance row is required.' : 'Remove this row'}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                    Remove
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <FormField label="Show date" required>
+                    <input
+                      type="date"
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-text-primary shadow-sm outline-none transition-colors focus:border-ems-accent disabled:cursor-not-allowed disabled:opacity-60"
+                      value={row.performanceDate}
+                      onChange={(e) => updateRow(row.id, { performanceDate: e.target.value })}
+                      disabled={saving}
+                    />
+                    {rowErrors.date && <p className="mt-1 text-xs text-ems-coral">{rowErrors.date}</p>}
+                  </FormField>
+                  <FormField label="Show / curtain time" required>
+                    <input
+                      type="time"
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-text-primary shadow-sm outline-none transition-colors focus:border-ems-accent disabled:cursor-not-allowed disabled:opacity-60"
+                      value={row.performanceTime}
+                      onChange={(e) => updateRow(row.id, { performanceTime: e.target.value })}
+                      disabled={saving}
+                    />
+                    {rowErrors.time && <p className="mt-1 text-xs text-ems-coral">{rowErrors.time}</p>}
+                  </FormField>
+                  <FormField label="Status">
+                    <Select2
+                      options={PROJECT_PERFORMANCE_STATUS_OPTIONS}
+                      value={row.performanceStatus ?? 'Public'}
+                      onChange={(value) => updateRow(row.id, { performanceStatus: value })}
+                      placeholder="Select status..."
+                      disabled={saving}
+                    />
+                  </FormField>
+                </div>
+                {rowErrors.duplicate && <p className="mt-2 text-xs text-ems-coral">{rowErrors.duplicate}</p>}
+              </div>
+            );
+          })}
+        </div>
+        <button
+          type="button"
+          onClick={() => setRows((prev) => [...prev, makeProjectOpeningPerformanceDraftRow()])}
+          disabled={saving}
+          className="inline-flex items-center gap-2 rounded-md border border-border bg-elevated px-3 py-1.5 text-sm text-text-primary transition-colors hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Plus className="h-4 w-4" aria-hidden />
+          Add another row
+        </button>
+        <div className="flex justify-end gap-2 border-t border-border pt-4">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={saving}
+            className="rounded-md px-4 py-2 text-sm text-text-secondary transition-colors hover:bg-hover hover:text-text-primary disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={saving}
+            className="inline-flex min-w-[9rem] items-center justify-center gap-2 rounded-md bg-ems-accent px-5 py-2 text-sm font-medium text-background transition-colors hover:bg-ems-accent/90 disabled:opacity-60"
+          >
+            {saving ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                Creating...
+              </>
+            ) : (
+              'Create engagement'
+            )}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
 }
 
 class CreateProjectWizardErrorBoundary extends React.Component<
@@ -373,6 +570,7 @@ function ProjectInlineOverview({
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [confirmConversion, setConfirmConversion] = useState(false);
+  const [showOpeningShowsModal, setShowOpeningShowsModal] = useState(false);
   const [tourId, setTourId] = useState(project.tourId);
   const [projectStage, setProjectStage] = useState(project.projectStage);
   const [tourStartDate, setTourStartDate] = useState(project.tourStartDate ?? '');
@@ -556,7 +754,7 @@ function ProjectInlineOverview({
     if (changed) setDirty(true);
   };
 
-  const handleSave = async () => {
+  const handleSave = async (openingPerformances?: ProjectOpeningPerformancePayload[]) => {
     if (!tourId || !tourBelongsToAttraction) {
       addToast('Select a tour that belongs to the selected attraction before saving.', 'warning');
       return;
@@ -589,6 +787,7 @@ function ProjectInlineOverview({
         tourEndDate: tourEndDate.trim(),
         projectStage: projectStage as ProjectStage,
         dmaIds: selectedDmaIds,
+        openingPerformances,
       });
       setDirty(false);
       if (result.converted && result.engagementId != null) {
@@ -1134,16 +1333,27 @@ function ProjectInlineOverview({
               type="button"
               disabled={saving}
               className="bg-ems-accent text-background hover:bg-ems-accent/90 sm:ml-0"
-              onClick={() => {
-                setConfirmConversion(false);
-                void handleSave();
-              }}
-            >
-              Create engagement
+            onClick={() => {
+              setConfirmConversion(false);
+              setShowOpeningShowsModal(true);
+            }}
+          >
+              Continue
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {showOpeningShowsModal && (
+        <ProjectOpeningPerformancesModal
+          saving={saving}
+          onCancel={() => setShowOpeningShowsModal(false)}
+          onSave={(rows) => {
+            setShowOpeningShowsModal(false);
+            void handleSave(rows);
+          }}
+        />
+      )}
 
       {saving && projectStage === PROJECT_CONVERSION_STAGE && (
         <div className="absolute inset-0 z-[350] flex flex-col items-center justify-center gap-3 rounded-md bg-card/90 backdrop-blur-[2px]" role="status" aria-live="polite">
@@ -2371,6 +2581,7 @@ function CreateProjectForm({
   const [showAddTourModal, setShowAddTourModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmConversion, setConfirmConversion] = useState(false);
+  const [showOpeningShowsModal, setShowOpeningShowsModal] = useState(false);
   const talentAgentContactsQuery = useQuery({
     queryKey: ['company', projectTourMgmtCompanyId ?? 0, 'contacts'],
     queryFn: () => fetchCompanyContacts(projectTourMgmtCompanyId as number),
@@ -2742,7 +2953,10 @@ function CreateProjectForm({
     onError: (e: unknown) => addToast(friendlyApiError(e, 'Could not create tour.'), 'error'),
   });
 
-  const handleSubmit = async (conversionConfirmed = false) => {
+  const handleSubmit = async (
+    conversionConfirmed = false,
+    openingPerformances?: ProjectOpeningPerformancePayload[],
+  ) => {
     if (!selectedTourId) return;
     if (projectTourMgmtCompanyId == null || projectTourMgmtCompanyId < 1) {
       addToast('Select a tour that has a Talent Agency.', 'error');
@@ -2786,6 +3000,7 @@ function CreateProjectForm({
         tourEndDate: dateRangeEnd.trim(),
         dmaIds: validSelectedDmaIds,
         venues: venuesPayload,
+        openingPerformances,
       });
       onSaved(res);
     } catch (e) {
@@ -3561,14 +3776,25 @@ function CreateProjectForm({
             className="bg-ems-accent text-background hover:bg-ems-accent/90 sm:ml-0"
             onClick={() => {
               setConfirmConversion(false);
-              void handleSubmit(true);
+              setShowOpeningShowsModal(true);
             }}
           >
-            Create engagement
+            Continue
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+
+    {showOpeningShowsModal && (
+      <ProjectOpeningPerformancesModal
+        saving={saving}
+        onCancel={() => setShowOpeningShowsModal(false)}
+        onSave={(rows) => {
+          setShowOpeningShowsModal(false);
+          void handleSubmit(true, rows);
+        }}
+      />
+    )}
 
     {showAddTourModal && selectedAttractionId != null && classes.length > 0 && (
       <Modal

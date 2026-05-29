@@ -50,6 +50,10 @@ import { normalizeEngagementStatus } from '../engagements/engagement-status.util
 import { CreateCompanyContactDto } from './dto/create-company-contact.dto';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyContactDto } from './dto/create-company-contact.dto';
+import {
+  ManageContactDto,
+  UpdateManagedContactDto,
+} from './dto/manage-contact.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { UpdateVenueTicketingDto } from './dto/update-venue-ticketing.dto';
 import { UpdateVenueProfileDto } from './dto/update-venue-profile.dto';
@@ -173,6 +177,23 @@ export interface CompanyContactRow {
   roleName: string;
   departmentId: number;
   departmentName: string;
+}
+
+export interface ManagedContactRow {
+  contactId: number;
+  contactInfoId: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  cellPhone: string | null;
+  workPhone: string | null;
+  isStaff: boolean;
+  companyIds: number[];
+  companyNames: string[];
+  roleIds: number[];
+  roleNames: string[];
+  departmentIds: number[];
+  departmentNames: string[];
 }
 
 export interface CompanyVenueLinkedContactsSection {
@@ -3440,6 +3461,464 @@ export class CompanyService {
     };
   }
 
+  private uniquePositiveInts(values: unknown[] | undefined | null): number[] {
+    if (!Array.isArray(values)) return [];
+    return [
+      ...new Set(
+        values
+          .map(Number)
+          .filter((value) => Number.isInteger(value) && value > 0),
+      ),
+    ];
+  }
+
+  private async ensureManagedContactAssignments(
+    em: EntityManager,
+    contactId: number,
+    companyId: number | null | undefined,
+    roleIds: number[] | undefined,
+    departmentIds: number[] | undefined,
+  ): Promise<boolean> {
+    const companyIdNum = Number(companyId ?? 0);
+    const hasCompany = Number.isInteger(companyIdNum) && companyIdNum > 0;
+    await em.delete(ContactAssignment, { contactId });
+    if (!hasCompany) return true;
+
+    const company = await em.getRepository(Company).findOne({
+      where: { companyId: companyIdNum },
+    });
+    if (!company) {
+      throw new NotFoundException(`Company ${companyIdNum} was not found.`);
+    }
+    const roleIdList = this.uniquePositiveInts(roleIds);
+    const departmentIdList = this.uniquePositiveInts(departmentIds);
+    if (roleIdList.length === 0 || departmentIdList.length === 0) {
+      throw new BadRequestException({
+        statusCode: HttpStatus.BAD_REQUEST,
+        error: 'Bad Request',
+        message:
+          'Select at least one role and one department when linking a contact to a company.',
+      });
+    }
+    for (const roleId of roleIdList) await this.ensureRole(roleId, em);
+    for (const departmentId of departmentIdList) {
+      await this.ensureDepartment(departmentId, em);
+    }
+
+    const assignments: ContactAssignment[] = [];
+    for (const roleId of roleIdList) {
+      for (const departmentId of departmentIdList) {
+        assignments.push(
+          em.create(ContactAssignment, {
+            contactId,
+            companyId: companyIdNum,
+            roleId,
+            departmentId,
+          }),
+        );
+      }
+    }
+    await em.save(ContactAssignment, assignments);
+    return false;
+  }
+
+  private async getOrCreateManagedContact(
+    em: EntityManager,
+    dto: ManageContactDto | UpdateManagedContactDto,
+    existingContactId?: number,
+  ): Promise<Contact> {
+    if (dto.workPhone !== undefined) {
+      assertOptionalE164Phone(dto.workPhone, 'work phone');
+    }
+    if (dto.cellPhone !== undefined) {
+      assertOptionalE164Phone(dto.cellPhone, 'cell phone');
+    }
+
+    const infoRepo = em.getRepository(ContactInfo);
+    const contactRepo = em.getRepository(Contact);
+
+    const existingContact =
+      existingContactId != null
+        ? await contactRepo.findOne({
+            where: { contactId: existingContactId },
+            relations: { contactInfo: true },
+          })
+        : null;
+    if (existingContactId != null && !existingContact) {
+      throw new NotFoundException(`Contact ${existingContactId} was not found.`);
+    }
+
+    const email = dto.email?.trim();
+    let info = existingContact?.contactInfo ?? null;
+    if (email) {
+      const infoForEmail = await infoRepo
+        .createQueryBuilder('ci')
+        .where('LOWER(ci.email) = LOWER(:email)', { email })
+        .getOne();
+      if (
+        infoForEmail &&
+        info &&
+        infoForEmail.contactInfoId !== info.contactInfoId
+      ) {
+        const contactForEmail = await contactRepo.findOne({
+          where: { contactInfoId: infoForEmail.contactInfoId },
+        });
+        if (contactForEmail && contactForEmail.contactId !== existingContactId) {
+          throw new ConflictException({
+            statusCode: HttpStatus.CONFLICT,
+            error: 'Conflict',
+            message: 'A contact already exists for this email address.',
+          });
+        }
+        info = infoForEmail;
+      } else if (infoForEmail) {
+        info = infoForEmail;
+      }
+    }
+
+    if (!info) {
+      info = infoRepo.create({
+        firstName: dto.firstName?.trim() ?? '',
+        lastName: dto.lastName?.trim() ?? '',
+        email: email ?? '',
+        cellPhone: dto.cellPhone?.trim() || null,
+        workPhone: dto.workPhone?.trim() || null,
+      });
+    } else {
+      if (dto.firstName !== undefined) info.firstName = dto.firstName.trim();
+      if (dto.lastName !== undefined) info.lastName = dto.lastName.trim();
+      if (email !== undefined) info.email = email;
+      if (dto.cellPhone !== undefined) {
+        info.cellPhone = dto.cellPhone?.trim() || null;
+      }
+      if (dto.workPhone !== undefined) {
+        info.workPhone = dto.workPhone?.trim() || null;
+      }
+    }
+    const savedInfo = await infoRepo.save(info);
+
+    if (existingContact) {
+      existingContact.contactInfoId = savedInfo.contactInfoId;
+      return contactRepo.save(existingContact);
+    }
+
+    let contact = await contactRepo.findOne({
+      where: { contactInfoId: savedInfo.contactInfoId },
+    });
+    if (!contact) {
+      contact = contactRepo.create({
+        contactInfoId: savedInfo.contactInfoId,
+        isStaff: false,
+      });
+    }
+    return contactRepo.save(contact);
+  }
+
+  async listManagedContacts(
+    offset = 0,
+    limit = 25,
+    q?: string,
+    companyId?: number,
+  ): Promise<{ data: ManagedContactRow[]; total: number }> {
+    const safeOffset = Math.max(0, Number(offset) || 0);
+    const safeLimit = Math.min(200, Math.max(1, Number(limit) || 25));
+
+    const baseQb = this.contactRepo
+      .createQueryBuilder('ct')
+      .innerJoin('ct.contactInfo', 'ci')
+      .leftJoin(ContactAssignment, 'ca', 'ca.contactId = ct.contactId')
+      .leftJoin(Company, 'c', 'c.companyId = ca.companyId');
+
+    if (companyId != null && Number.isInteger(companyId) && companyId > 0) {
+      baseQb.andWhere('ca.companyId = :companyId', { companyId });
+    }
+    const trimmed = q?.trim();
+    if (trimmed) {
+      baseQb.andWhere(
+        `(
+          ci.firstName LIKE :like OR
+          ci.lastName LIKE :like OR
+          ci.email LIKE :like OR
+          c.companyName LIKE :like
+        )`,
+        { like: `%${trimmed}%` },
+      );
+    }
+
+    const totalRows = await baseQb
+      .clone()
+      .select('COUNT(DISTINCT ct.contactId)', 'count')
+      .getRawOne<{ count: number | string }>();
+    const total = Number(totalRows?.count ?? 0);
+
+    const idsRaw = await baseQb
+      .clone()
+      .select('ct.contactId', 'contactId')
+      .addSelect('MIN(ci.lastName)', 'lastName')
+      .addSelect('MIN(ci.firstName)', 'firstName')
+      .groupBy('ct.contactId')
+      .orderBy('MIN(ci.lastName)', 'ASC')
+      .addOrderBy('MIN(ci.firstName)', 'ASC')
+      .offset(safeOffset)
+      .limit(safeLimit)
+      .getRawMany<Record<string, unknown>>();
+    const ids = idsRaw
+      .map((row) => Number(pickRawRowValue(row, 'contactId')))
+      .filter((id) => Number.isInteger(id) && id > 0);
+    if (ids.length === 0) return { data: [], total };
+
+    const raw = await this.contactRepo
+      .createQueryBuilder('ct')
+      .innerJoin('ct.contactInfo', 'ci')
+      .leftJoin(ContactAssignment, 'ca', 'ca.contactId = ct.contactId')
+      .leftJoin(Company, 'c', 'c.companyId = ca.companyId')
+      .leftJoin(Role, 'r', 'r.roleId = ca.roleId')
+      .leftJoin(Department, 'd', 'd.departmentId = ca.departmentId')
+      .where('ct.contactId IN (:...ids)', { ids })
+      .select([
+        'ct.contactId AS contactId',
+        'ci.contactInfoId AS contactInfoId',
+        'ci.firstName AS firstName',
+        'ci.lastName AS lastName',
+        'ci.email AS email',
+        'ci.cellPhone AS cellPhone',
+        'ci.workPhone AS workPhone',
+        'ct.isStaff AS isStaff',
+        'c.companyId AS companyId',
+        'c.companyName AS companyName',
+        'r.roleId AS roleId',
+        'r.roleName AS roleName',
+        'd.departmentId AS departmentId',
+        'd.departmentName AS departmentName',
+      ])
+      .orderBy('ci.lastName', 'ASC')
+      .addOrderBy('ci.firstName', 'ASC')
+      .getRawMany<Record<string, unknown>>();
+
+    const byContact = new Map<number, ManagedContactRow>();
+    const pushUnique = <T>(list: T[], value: T | null | undefined) => {
+      if (value == null) return;
+      if (!list.includes(value)) list.push(value);
+    };
+    for (const row of raw) {
+      const contactId = Number(pickRawRowValue(row, 'contactId'));
+      if (!Number.isInteger(contactId) || contactId < 1) continue;
+      let item = byContact.get(contactId);
+      if (!item) {
+        item = {
+          contactId,
+          contactInfoId: Number(pickRawRowValue(row, 'contactInfoId')),
+          firstName: String(pickRawRowValue(row, 'firstName') ?? ''),
+          lastName: String(pickRawRowValue(row, 'lastName') ?? ''),
+          email: String(pickRawRowValue(row, 'email') ?? ''),
+          cellPhone:
+            pickRawRowValue(row, 'cellPhone') == null
+              ? null
+              : String(pickRawRowValue(row, 'cellPhone')),
+          workPhone:
+            pickRawRowValue(row, 'workPhone') == null
+              ? null
+              : String(pickRawRowValue(row, 'workPhone')),
+          isStaff:
+            pickRawRowValue(row, 'isStaff') === true ||
+            pickRawRowValue(row, 'isStaff') === 1,
+          companyIds: [],
+          companyNames: [],
+          roleIds: [],
+          roleNames: [],
+          departmentIds: [],
+          departmentNames: [],
+        };
+        byContact.set(contactId, item);
+      }
+      const companyIdValue = Number(pickRawRowValue(row, 'companyId'));
+      if (Number.isInteger(companyIdValue) && companyIdValue > 0) {
+        pushUnique(item.companyIds, companyIdValue);
+        pushUnique(
+          item.companyNames,
+          String(pickRawRowValue(row, 'companyName') ?? '').trim(),
+        );
+      }
+      const roleIdValue = Number(pickRawRowValue(row, 'roleId'));
+      if (Number.isInteger(roleIdValue) && roleIdValue > 0) {
+        pushUnique(item.roleIds, roleIdValue);
+        pushUnique(
+          item.roleNames,
+          String(pickRawRowValue(row, 'roleName') ?? '').trim(),
+        );
+      }
+      const departmentIdValue = Number(pickRawRowValue(row, 'departmentId'));
+      if (Number.isInteger(departmentIdValue) && departmentIdValue > 0) {
+        pushUnique(item.departmentIds, departmentIdValue);
+        pushUnique(
+          item.departmentNames,
+          String(pickRawRowValue(row, 'departmentName') ?? '').trim(),
+        );
+      }
+    }
+
+    return {
+      data: ids
+        .map((id) => byContact.get(id))
+        .filter((row): row is ManagedContactRow => Boolean(row)),
+      total,
+    };
+  }
+
+  private async getManagedContactRowById(
+    contactId: number,
+    em?: EntityManager,
+  ): Promise<ManagedContactRow | null> {
+    const raw = await (em?.getRepository(Contact) ?? this.contactRepo)
+      .createQueryBuilder('ct')
+      .innerJoin('ct.contactInfo', 'ci')
+      .leftJoin(ContactAssignment, 'ca', 'ca.contactId = ct.contactId')
+      .leftJoin(Company, 'c', 'c.companyId = ca.companyId')
+      .leftJoin(Role, 'r', 'r.roleId = ca.roleId')
+      .leftJoin(Department, 'd', 'd.departmentId = ca.departmentId')
+      .where('ct.contactId = :contactId', { contactId })
+      .select([
+        'ct.contactId AS contactId',
+        'ci.contactInfoId AS contactInfoId',
+        'ci.firstName AS firstName',
+        'ci.lastName AS lastName',
+        'ci.email AS email',
+        'ci.cellPhone AS cellPhone',
+        'ci.workPhone AS workPhone',
+        'ct.isStaff AS isStaff',
+        'c.companyId AS companyId',
+        'c.companyName AS companyName',
+        'r.roleId AS roleId',
+        'r.roleName AS roleName',
+        'd.departmentId AS departmentId',
+        'd.departmentName AS departmentName',
+      ])
+      .getRawMany<Record<string, unknown>>();
+    if (raw.length === 0) return null;
+    const first = raw[0];
+    const out: ManagedContactRow = {
+      contactId: Number(pickRawRowValue(first, 'contactId')),
+      contactInfoId: Number(pickRawRowValue(first, 'contactInfoId')),
+      firstName: String(pickRawRowValue(first, 'firstName') ?? ''),
+      lastName: String(pickRawRowValue(first, 'lastName') ?? ''),
+      email: String(pickRawRowValue(first, 'email') ?? ''),
+      cellPhone:
+        pickRawRowValue(first, 'cellPhone') == null
+          ? null
+          : String(pickRawRowValue(first, 'cellPhone')),
+      workPhone:
+        pickRawRowValue(first, 'workPhone') == null
+          ? null
+          : String(pickRawRowValue(first, 'workPhone')),
+      isStaff:
+        pickRawRowValue(first, 'isStaff') === true ||
+        pickRawRowValue(first, 'isStaff') === 1,
+      companyIds: [],
+      companyNames: [],
+      roleIds: [],
+      roleNames: [],
+      departmentIds: [],
+      departmentNames: [],
+    };
+    const pushUnique = <T>(list: T[], value: T | null | undefined) => {
+      if (value == null) return;
+      if (!list.includes(value)) list.push(value);
+    };
+    for (const row of raw) {
+      const companyIdValue = Number(pickRawRowValue(row, 'companyId'));
+      if (Number.isInteger(companyIdValue) && companyIdValue > 0) {
+        pushUnique(out.companyIds, companyIdValue);
+        pushUnique(
+          out.companyNames,
+          String(pickRawRowValue(row, 'companyName') ?? '').trim(),
+        );
+      }
+      const roleIdValue = Number(pickRawRowValue(row, 'roleId'));
+      if (Number.isInteger(roleIdValue) && roleIdValue > 0) {
+        pushUnique(out.roleIds, roleIdValue);
+        pushUnique(
+          out.roleNames,
+          String(pickRawRowValue(row, 'roleName') ?? '').trim(),
+        );
+      }
+      const departmentIdValue = Number(pickRawRowValue(row, 'departmentId'));
+      if (Number.isInteger(departmentIdValue) && departmentIdValue > 0) {
+        pushUnique(out.departmentIds, departmentIdValue);
+        pushUnique(
+          out.departmentNames,
+          String(pickRawRowValue(row, 'departmentName') ?? '').trim(),
+        );
+      }
+    }
+    return out;
+  }
+
+  async createManagedContact(dto: ManageContactDto): Promise<ManagedContactRow> {
+    return this.dataSource.transaction(async (em) => {
+      const contact = await this.getOrCreateManagedContact(em, dto);
+      const isStaff = await this.ensureManagedContactAssignments(
+        em,
+        contact.contactId,
+        dto.companyId,
+        dto.roleIds,
+        dto.departmentIds,
+      );
+      contact.isStaff = isStaff;
+      await em.save(Contact, contact);
+      const row = await this.getManagedContactRowById(contact.contactId, em);
+      if (!row) {
+        throw new BadRequestException('Contact was saved but could not be loaded.');
+      }
+      return row;
+    });
+  }
+
+  async updateManagedContact(
+    contactId: number,
+    dto: UpdateManagedContactDto,
+  ): Promise<ManagedContactRow> {
+    return this.dataSource.transaction(async (em) => {
+      const contact = await this.getOrCreateManagedContact(em, dto, contactId);
+      const nextCompany =
+        dto.companyId !== undefined
+          ? dto.companyId
+          : (await em.getRepository(ContactAssignment).findOne({
+              where: { contactId },
+            }))?.companyId ?? null;
+      const isStaff = await this.ensureManagedContactAssignments(
+        em,
+        contact.contactId,
+        nextCompany,
+        dto.roleIds,
+        dto.departmentIds,
+      );
+      contact.isStaff = isStaff;
+      await em.save(Contact, contact);
+      const row = await this.getManagedContactRowById(contact.contactId, em);
+      if (!row) {
+        throw new BadRequestException('Contact was updated but could not be loaded.');
+      }
+      return row;
+    });
+  }
+
+  async removeManagedContact(contactId: number): Promise<void> {
+    await this.dataSource.transaction(async (em) => {
+      const contact = await em.getRepository(Contact).findOne({
+        where: { contactId },
+      });
+      if (!contact) throw new NotFoundException(`Contact ${contactId} was not found.`);
+      await em.delete(ContactAssignment, { contactId });
+      await em.delete(Contact, { contactId });
+      const stillUsed = await em.getRepository(Contact).count({
+        where: { contactInfoId: contact.contactInfoId },
+      });
+      if (stillUsed === 0) {
+        await em.delete(ContactInfo, { contactInfoId: contact.contactInfoId });
+      }
+    });
+  }
+
   async addContact(
     companyId: number,
     dto: CreateCompanyContactDto,
@@ -3490,8 +3969,15 @@ export class CompanyService {
         existingContact ??
         (await em.save(
           Contact,
-          em.create(Contact, { contactInfoId: savedInfo.contactInfoId }),
+          em.create(Contact, {
+            contactInfoId: savedInfo.contactInfoId,
+            isStaff: false,
+          }),
         ));
+      if (savedContact.isStaff !== false) {
+        savedContact.isStaff = false;
+        await em.save(Contact, savedContact);
+      }
 
       const existingAssignment = await em.findOne(ContactAssignment, {
         where: { companyId, contactId: savedContact.contactId },

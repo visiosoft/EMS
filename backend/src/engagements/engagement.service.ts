@@ -215,6 +215,7 @@ export interface EngagementIaeContactLookups {
 /** Query params for {@link EngagementService.listPaginated}. */
 export interface EngagementListFilters {
   q?: string;
+  engagementId?: number;
   status?: string;
   attractionName?: string;
   dmaMarketName?: string;
@@ -610,39 +611,39 @@ export class EngagementService {
   > {
     const manager = em ?? this.dataSource.manager;
     const hasDmaId = await this.nonResidentWithholdingHasDmaId();
-    if (hasDmaId) {
-      const rows = await (
-        em
-          ? em.getRepository(NonResidentWithholding)
-          : this.nonResidentWithholdingRepo
-      ).find({
-        order: { withholdingId: 'ASC' },
-      });
-      return rows.map((row) => ({
-        withholdingId: row.withholdingId,
-        withholdingTaxRate: String(row.withholdingTaxRate ?? ''),
-        dmaid: row.dmaid ?? null,
-        taxAgencyId: row.taxAgencyId ?? null,
-        withholdingLinkId: row.withholdingLinkId ?? null,
-        artistWaiverInstructionsId: row.artistWaiverInstructionsId ?? null,
-        iaeWaiverInstructionsId: row.iaeWaiverInstructionsId ?? null,
-      }));
+    let rows: Record<string, unknown>[] = [];
+    try {
+      rows = await manager.query(
+        `
+          SELECT
+            w.WithholdingID AS withholdingId,
+            w.WithholdingTaxRate AS withholdingTaxRate,
+            ${hasDmaId ? 'w.DMAID' : 'CAST(NULL AS int)'} AS dmaid,
+            w.TaxAgencyID AS taxAgencyId,
+            w.WithholdingLinkID AS withholdingLinkId,
+            w.ArtistWaiverInstructionsID AS artistWaiverInstructionsId,
+            w.IAEWaiverInstructionsID AS iaeWaiverInstructionsId
+          FROM [dbo].[NonResidentWithholding] w
+          ORDER BY w.WithholdingID ASC
+        `,
+      );
+    } catch (error) {
+      this.nonResidentWithholdingHasDmaIdColumn = false;
+      rows = await manager.query(
+        `
+          SELECT
+            w.WithholdingID AS withholdingId,
+            w.WithholdingTaxRate AS withholdingTaxRate,
+            CAST(NULL AS int) AS dmaid,
+            w.TaxAgencyID AS taxAgencyId,
+            w.WithholdingLinkID AS withholdingLinkId,
+            w.ArtistWaiverInstructionsID AS artistWaiverInstructionsId,
+            w.IAEWaiverInstructionsID AS iaeWaiverInstructionsId
+          FROM [dbo].[NonResidentWithholding] w
+          ORDER BY w.WithholdingID ASC
+        `,
+      );
     }
-
-    const rows = await manager.query(
-      `
-        SELECT
-          w.WithholdingID AS withholdingId,
-          w.WithholdingTaxRate AS withholdingTaxRate,
-          CAST(NULL AS int) AS dmaid,
-          w.TaxAgencyID AS taxAgencyId,
-          w.WithholdingLinkID AS withholdingLinkId,
-          w.ArtistWaiverInstructionsID AS artistWaiverInstructionsId,
-          w.IAEWaiverInstructionsID AS iaeWaiverInstructionsId
-        FROM [dbo].[NonResidentWithholding] w
-        ORDER BY w.WithholdingID ASC
-      `,
-    );
 
     return rows
       .map((row) => {
@@ -698,21 +699,27 @@ export class EngagementService {
     if (!Number.isInteger(id) || id < 1) return null;
     const manager = em ?? this.dataSource.manager;
     const hasDmaId = await this.nonResidentWithholdingHasDmaId();
-    const rows = await manager.query(
-      hasDmaId
-        ? `
+    let rows: Record<string, unknown>[] = [];
+    try {
+      rows = await manager.query(
+        `
           SELECT TOP 1
             w.WithholdingID AS withholdingId,
             w.WithholdingTaxRate AS withholdingTaxRate,
-            w.DMAID AS dmaid,
+            ${hasDmaId ? 'w.DMAID' : 'CAST(NULL AS int)'} AS dmaid,
             w.TaxAgencyID AS taxAgencyId,
             w.WithholdingLinkID AS withholdingLinkId,
             w.ArtistWaiverInstructionsID AS artistWaiverInstructionsId,
             w.IAEWaiverInstructionsID AS iaeWaiverInstructionsId
           FROM [dbo].[NonResidentWithholding] w
           WHERE w.WithholdingID = @0
+        `,
+        [id],
+      );
+    } catch (error) {
+      this.nonResidentWithholdingHasDmaIdColumn = false;
+      rows = await manager.query(
         `
-        : `
           SELECT TOP 1
             w.WithholdingID AS withholdingId,
             w.WithholdingTaxRate AS withholdingTaxRate,
@@ -724,8 +731,9 @@ export class EngagementService {
           FROM [dbo].[NonResidentWithholding] w
           WHERE w.WithholdingID = @0
         `,
-      [id],
-    );
+        [id],
+      );
+    }
     const row = rows[0];
     if (!row) return null;
     const parsedId = Number(row.withholdingId ?? NaN);
@@ -1037,6 +1045,10 @@ export class EngagementService {
         this.openingPerformanceTimeSubquery(),
         'openingPerformanceTime',
       )
+      .addSelect(
+        `CASE WHEN ${this.openingPerformanceDateSubquery()} IS NULL THEN 1 ELSE 0 END`,
+        'openingPerformanceSortNull',
+      )
       .addSelect(this.engagementRehearsalDateSubquery(), 'rehearsalDate')
       .addSelect(this.engagementLoadInDateSubquery(), 'loadInDate');
 
@@ -1218,6 +1230,13 @@ export class EngagementService {
     qb: SelectQueryBuilder<Engagement>,
     f: EngagementListFilters,
   ): void {
+    const engagementId = Math.floor(Number(f.engagementId));
+    if (Number.isInteger(engagementId) && engagementId > 0) {
+      qb.andWhere('e.engagementId = :searchEngagementId', {
+        searchEngagementId: engagementId,
+      });
+    }
+
     const q = (f.q ?? '').trim();
     if (q) {
       const like = `%${this.escapeLikePattern(q)}%`;
@@ -1316,7 +1335,8 @@ export class EngagementService {
       // joins, TypeORM builds a DISTINCT pagination wrapper and only preserves order keys
       // that resolve to selected columns. Expressions containing "." were misparsed as
       // alias.property (see createOrderByCombinedWithSelectExpression).
-      qb.orderBy('openingPerformanceDate', sortDir)
+      qb.orderBy('openingPerformanceSortNull', 'ASC')
+        .addOrderBy('openingPerformanceDate', sortDir)
         .addOrderBy('openingPerformanceTime', sortDir)
         .addOrderBy('e.engagementId', 'DESC');
     } else {
@@ -2760,6 +2780,7 @@ export class EngagementService {
         take: 5000,
       }),
       this.contactRepo.find({
+        where: { isStaff: true },
         relations: { contactInfo: true },
         order: { contactId: 'ASC' },
         take: 8000,

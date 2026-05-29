@@ -10,6 +10,12 @@ export interface ApiVenueType {
   venueTypeName: string;
 }
 
+export interface ApiAgeRange {
+  ageRangeId: number;
+  ageRangeLabel: string;
+  sortOrder: number;
+}
+
 export interface ApiAttractionListRow {
   attractionId: number;
   attractionName: string;
@@ -28,6 +34,8 @@ export interface ApiTourListRow {
   className: string;
   audienceGender: string | null;
   audienceAgeRange: string | null;
+  audienceAgeRangeIds: number[];
+  audienceAgeRangeLabels: string[];
   ascap: boolean;
   bmi: boolean;
   sesac: boolean;
@@ -37,6 +45,8 @@ export interface ApiTourListRow {
   talentAgencyCompanyName: string | null;
   tourManagementCompanyId: number | null;
   tourManagementCompanyName: string | null;
+  jobId: number | null;
+  jobName: string | null;
   talentAgentContactIds: number[];
   talentAgentNames: string[];
   techRiderLinkId: number | null;
@@ -70,6 +80,8 @@ export interface CreateTourPayload {
   talentAgentContactIds?: number[];
   audienceGender?: string | null;
   audienceAgeRange?: string | null;
+  audienceAgeRangeIds?: number[];
+  jobName?: string | null;
   tourInsuranceLanguage?: string | null;
   venueTypePreferenceId?: number | null;
   techRiderLinkId?: number | null;
@@ -162,6 +174,12 @@ function buildCreateTourFormData(body: CreateTourPayload): FormData {
   if (body.audienceAgeRange != null && body.audienceAgeRange !== '') {
     fd.append('audienceAgeRange', body.audienceAgeRange);
   }
+  if (Array.isArray(body.audienceAgeRangeIds)) {
+    fd.append('audienceAgeRangeIds', JSON.stringify(body.audienceAgeRangeIds));
+  }
+  if (body.jobName != null && body.jobName !== '') {
+    fd.append('jobName', body.jobName);
+  }
   if (body.tourInsuranceLanguage != null && body.tourInsuranceLanguage !== '') {
     fd.append('tourInsuranceLanguage', body.tourInsuranceLanguage);
   }
@@ -195,6 +213,8 @@ function buildUpdateTourFormData(body: UpdateTourPayload): FormData {
     'talentAgentContactIds',
     'audienceGender',
     'audienceAgeRange',
+    'audienceAgeRangeIds',
+    'jobName',
     'tourInsuranceLanguage',
     'venueTypePreferenceId',
     'techRiderLinkId',
@@ -244,6 +264,10 @@ export function updateTour(
 
 export function deleteTour(id: number) {
   return apiFetch<void>(`/tours/${id}`, { method: 'DELETE' });
+}
+
+export function fetchTourAgeRanges() {
+  return apiFetch<ApiAgeRange[]>('/tours/age-ranges');
 }
 
 export function fetchClasses() {
