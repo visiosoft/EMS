@@ -31,7 +31,9 @@ function parsePositiveIdArray(value: unknown): number[] | unknown {
         })()
       : value;
   if (!Array.isArray(raw)) return raw;
-  return [...new Set(raw.map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+  return [
+    ...new Set(raw.map(Number).filter((n) => Number.isInteger(n) && n > 0)),
+  ];
 }
 
 export class CreateTourDto {

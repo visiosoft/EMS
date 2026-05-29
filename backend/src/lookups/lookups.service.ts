@@ -74,7 +74,7 @@ export class LookupsService {
     tableName: string,
     columnName: string,
   ): Promise<boolean> {
-    const rows = (await this.companyRepo.manager.query(
+    const rows = await this.companyRepo.manager.query(
       `
         SELECT TOP 1 1 AS ok
         FROM INFORMATION_SCHEMA.COLUMNS
@@ -83,7 +83,7 @@ export class LookupsService {
           AND COLUMN_NAME = @1
       `,
       [tableName, columnName],
-    )) as Array<{ ok?: number }>;
+    );
     return rows.length > 0;
   }
 
@@ -95,14 +95,14 @@ export class LookupsService {
       ids.add(company.companyTypeId);
     }
     try {
-      const rows = (await this.companyRepo.manager.query(
+      const rows = await this.companyRepo.manager.query(
         `
           SELECT cct.CompanyTypeID AS companyTypeId
           FROM dbo.CompanyCompanyType cct
           WHERE cct.CompanyID = @0
         `,
         [companyId],
-      )) as Array<{ companyTypeId?: number; COMPANYTYPEID?: number }>;
+      );
       for (const row of rows) {
         const id = Number(row.companyTypeId ?? row.COMPANYTYPEID);
         if (Number.isInteger(id) && id > 0) ids.add(id);
@@ -235,10 +235,7 @@ export class LookupsService {
       taxAgencyId: number | null;
     }[]
   > {
-    const hasDmaId = await this.hasDboColumn(
-      'NonResidentWithholding',
-      'DMAID',
-    );
+    const hasDmaId = await this.hasDboColumn('NonResidentWithholding', 'DMAID');
 
     if (hasDmaId) {
       const rows = await this.nonResidentWithholdingRepo.find({
@@ -252,7 +249,7 @@ export class LookupsService {
       }));
     }
 
-    const rows = (await this.companyRepo.manager.query(
+    const rows = await this.companyRepo.manager.query(
       `
         SELECT
           w.WithholdingID AS withholdingId,
@@ -262,19 +259,13 @@ export class LookupsService {
         FROM [dbo].[NonResidentWithholding] w
         ORDER BY w.WithholdingID ASC
       `,
-    )) as Array<{
-      withholdingId?: number;
-      withholdingTaxRate?: string | number | null;
-      dmaid?: number | null;
-      taxAgencyId?: number | null;
-    }>;
+    );
 
     return rows.map((r) => ({
       withholdingId: Number(r.withholdingId ?? 0),
       withholdingTaxRate: String(r.withholdingTaxRate ?? ''),
       dmaid: null,
-      taxAgencyId:
-        r.taxAgencyId == null ? null : Number(r.taxAgencyId),
+      taxAgencyId: r.taxAgencyId == null ? null : Number(r.taxAgencyId),
     }));
   }
 
@@ -319,7 +310,10 @@ export class LookupsService {
    * One row per MarketName: all postal variants for a market collapse to MIN(DMAID) and a sample postal.
    * Pickers show a single entry per market (e.g. one "ABILENE-SWEETWATER" row).
    */
-  private buildDmaMarketsGroupedSubquery(query: string, includePostalCount = false) {
+  private buildDmaMarketsGroupedSubquery(
+    query: string,
+    includePostalCount = false,
+  ) {
     const qb = this.dmaRepo
       .createQueryBuilder('d')
       .select('MIN(d.dmaid)', 'dmaid')
@@ -541,7 +535,10 @@ export class LookupsService {
 
     const total = await qb.clone().getCount();
 
-    const rows = await qb.offset(Math.max(0, offset)).limit(Math.max(1, limit)).getMany();
+    const rows = await qb
+      .offset(Math.max(0, offset))
+      .limit(Math.max(1, limit))
+      .getMany();
 
     return {
       data: rows.map((r) => ({
@@ -986,7 +983,10 @@ export class LookupsService {
         });
       }
       const saved = await this.companyTypeServiceRepo.save(
-        this.companyTypeServiceRepo.create({ companyTypeId, serviceProvidedId }),
+        this.companyTypeServiceRepo.create({
+          companyTypeId,
+          serviceProvidedId,
+        }),
       );
       return {
         companyTypeServiceId: saved.companyTypeServiceId,
@@ -1149,9 +1149,7 @@ export class LookupsService {
         where: { companyTypeServiceId: id },
       });
       if (!row) {
-        throw new NotFoundException(
-          `CompanyTypeService ${id} was not found.`,
-        );
+        throw new NotFoundException(`CompanyTypeService ${id} was not found.`);
       }
       const nextCompanyTypeId =
         dto.companyTypeId != null

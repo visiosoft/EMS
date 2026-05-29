@@ -30,6 +30,10 @@ export class InternalVenuesController {
     @Query('q') query?: string,
   ) {
     const safeLimit = Math.min(50, Math.max(1, limit));
-    return this.internalVenuesService.listVenues(Math.max(0, offset), safeLimit, query);
+    return this.internalVenuesService.listVenues(
+      Math.max(0, offset),
+      safeLimit,
+      query,
+    );
   }
 }

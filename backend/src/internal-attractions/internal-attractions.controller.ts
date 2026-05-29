@@ -13,7 +13,9 @@ import { InternalAttractionsService } from './internal-attractions.service';
 @UseGuards(InternalAccessGuard)
 @Controller('internal/attractions')
 export class InternalAttractionsController {
-  constructor(private readonly internalAttractionsService: InternalAttractionsService) {}
+  constructor(
+    private readonly internalAttractionsService: InternalAttractionsService,
+  ) {}
 
   @Get('suggestions')
   suggest(
