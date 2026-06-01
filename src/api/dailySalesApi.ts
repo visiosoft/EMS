@@ -259,19 +259,19 @@ type DashboardSummaryPoint = ApiSalesDashboardBody['summary'][number];
 type DashboardSeriesPoint = ApiSalesDashboardBody['series'][number];
 
 function summarySnapshotRevenue(row: DashboardSummaryPoint | null | undefined): number | null {
-  return asFiniteNumber(row?.dailyValueSold) ?? asFiniteNumber(row?.totalValueSold);
+  return asFiniteNumber(row?.totalValueSold) ?? asFiniteNumber(row?.dailyValueSold);
 }
 
 function summarySnapshotTickets(row: DashboardSummaryPoint | null | undefined): number | null {
-  return asFiniteNumber(row?.dailyTicketsSold) ?? asFiniteNumber(row?.totalTicketsSold);
+  return asFiniteNumber(row?.totalTicketsSold) ?? asFiniteNumber(row?.dailyTicketsSold);
 }
 
 function seriesSnapshotRevenue(row: DashboardSeriesPoint | null | undefined): number | null {
-  return asFiniteNumber(row?.dailyRevenue) ?? asFiniteNumber(row?.totalRevenue);
+  return asFiniteNumber(row?.totalRevenue) ?? asFiniteNumber(row?.dailyRevenue);
 }
 
 function seriesSnapshotTickets(row: DashboardSeriesPoint | null | undefined): number | null {
-  return asFiniteNumber(row?.dailyTickets) ?? asFiniteNumber(row?.totalTickets);
+  return asFiniteNumber(row?.totalTickets) ?? asFiniteNumber(row?.dailyTickets);
 }
 
 function hasEnteredSummarySnapshot(row: DashboardSummaryPoint): boolean {
@@ -450,25 +450,35 @@ function normalizeSinglePerformanceDashboard<T extends ApiSalesDashboardBody>(da
       : dashboard.kpis.pctRevenueVsPotential;
 
   const normalizedSummary = dashboard.summary.map((row) => {
-    const rowTickets = summarySnapshotTickets(row) ?? row.totalTicketsSold ?? 0;
-    const rowRevenue = summarySnapshotRevenue(row) ?? row.totalValueSold ?? 0;
+    const rowTotalTickets =
+      summarySnapshotTickets(row) ?? asFiniteNumber(row.totalTicketsSold) ?? 0;
+    const rowTotalRevenue =
+      summarySnapshotRevenue(row) ?? asFiniteNumber(row.totalValueSold) ?? 0;
+    const rowDailyTickets =
+      asFiniteNumber(row.dailyTicketsSold) ??
+      asFiniteNumber(row.totalTicketsSold) ??
+      0;
+    const rowDailyRevenue =
+      asFiniteNumber(row.dailyValueSold) ??
+      asFiniteNumber(row.totalValueSold) ??
+      0;
     return {
       ...row,
-      totalTicketsSold: rowTickets,
-      totalValueSold: rowRevenue,
-      dailyTicketsSold: rowTickets,
-      dailyValueSold: rowRevenue,
+      totalTicketsSold: rowTotalTickets,
+      totalValueSold: rowTotalRevenue,
+      dailyTicketsSold: rowDailyTickets,
+      dailyValueSold: rowDailyRevenue,
       seatsSoldPct:
         dashboard.sellableCapacity != null && dashboard.sellableCapacity > 0
-          ? (rowTickets / dashboard.sellableCapacity) * 100
+          ? (rowTotalTickets / dashboard.sellableCapacity) * 100
           : row.seatsSoldPct,
       seatsRemaining:
         dashboard.sellableCapacity != null
-          ? Math.max(0, dashboard.sellableCapacity - rowTickets)
+          ? Math.max(0, dashboard.sellableCapacity - rowTotalTickets)
           : row.seatsRemaining,
       revenueRemaining:
         dashboard.grossPotential != null
-          ? Math.max(0, dashboard.grossPotential - rowRevenue)
+          ? Math.max(0, dashboard.grossPotential - rowTotalRevenue)
           : row.revenueRemaining,
     };
   });

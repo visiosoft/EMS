@@ -1790,6 +1790,93 @@ export class DailySalesService {
           ? Number(Number(row.performanceSalesRevenue).toFixed(2))
           : 0;
 
+    const engagement = await this.engagementRepo.findOne({
+      where: { engagementId: perf.engagementId },
+      select: {
+        engagementId: true,
+        sellableCapacity: true,
+        grossPotential: true,
+      },
+    });
+
+    const engagementSellableCapacity =
+      engagement?.sellableCapacity != null &&
+      Number.isFinite(engagement.sellableCapacity)
+        ? engagement.sellableCapacity
+        : null;
+    const engagementGrossPotential = (() => {
+      const raw = engagement?.grossPotential;
+      if (raw == null || raw === '') return null;
+      const n = Number(raw);
+      return Number.isFinite(n) ? Number(n.toFixed(2)) : null;
+    })();
+
+    if (
+      (engagementSellableCapacity != null && engagementSellableCapacity >= 0) ||
+      (engagementGrossPotential != null && engagementGrossPotential >= 0)
+    ) {
+      const engagementPerformanceRows = await this.performanceRepo.find({
+        where: { engagementId: perf.engagementId },
+        select: { performanceId: true },
+      });
+      const engagementPerformanceIds = engagementPerformanceRows
+        .map((p) => p.performanceId)
+        .filter((id) => Number.isInteger(id) && id > 0);
+
+      if (engagementPerformanceIds.length > 0) {
+        const rawTotals = await this.salesRepo
+          .createQueryBuilder('ts')
+          .select(
+            'COALESCE(SUM(CAST(ts.performanceSalesQuantity AS BIGINT)), 0)',
+            'ticketsTotal',
+          )
+          .addSelect(
+            'COALESCE(SUM(CAST(ts.performanceSalesRevenue AS decimal(18,2))), 0)',
+            'revenueTotal',
+          )
+          .where('ts.performanceId IN (:...ids)', { ids: engagementPerformanceIds })
+          .getRawOne<Record<string, unknown>>();
+
+        const currentTickets = row.performanceSalesQuantity ?? 0;
+        const currentRevenue =
+          row.performanceSalesRevenue != null
+            ? Number(Number(row.performanceSalesRevenue).toFixed(2))
+            : 0;
+        const currentTicketsTotal = Number(rawTotals?.ticketsTotal ?? 0);
+        const currentRevenueTotal = Number(rawTotals?.revenueTotal ?? 0);
+
+        const projectedTicketsTotal =
+          currentTicketsTotal - currentTickets + mergedTickets;
+        const projectedRevenueTotal = Number(
+          (currentRevenueTotal - currentRevenue + mergedRevenue).toFixed(2),
+        );
+
+        const violations: string[] = [];
+        if (
+          engagementSellableCapacity != null &&
+          projectedTicketsTotal > engagementSellableCapacity
+        ) {
+          violations.push(
+            `tickets sold (${projectedTicketsTotal.toLocaleString()}) exceed engagement sellable capacity (${engagementSellableCapacity.toLocaleString()})`,
+          );
+        }
+        if (
+          engagementGrossPotential != null &&
+          projectedRevenueTotal > engagementGrossPotential
+        ) {
+          violations.push(
+            `revenue (${projectedRevenueTotal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}) exceeds engagement gross potential (${engagementGrossPotential.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })})`,
+          );
+        }
+
+        if (violations.length > 0) {
+          throw new BadRequestException({
+            message: `Could not save daily sales: ${violations.join(' and ')}.`,
+          });
+        }
+      }
+    }
+
     if (body.ticketsSold !== undefined) {
       row.performanceSalesQuantity = body.ticketsSold;
     }
