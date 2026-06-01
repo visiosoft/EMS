@@ -259,19 +259,19 @@ type DashboardSummaryPoint = ApiSalesDashboardBody['summary'][number];
 type DashboardSeriesPoint = ApiSalesDashboardBody['series'][number];
 
 function summarySnapshotRevenue(row: DashboardSummaryPoint | null | undefined): number | null {
-  return asFiniteNumber(row?.totalValueSold) ?? asFiniteNumber(row?.dailyValueSold);
+  return asFiniteNumber(row?.dailyValueSold) ?? asFiniteNumber(row?.totalValueSold);
 }
 
 function summarySnapshotTickets(row: DashboardSummaryPoint | null | undefined): number | null {
-  return asFiniteNumber(row?.totalTicketsSold) ?? asFiniteNumber(row?.dailyTicketsSold);
+  return asFiniteNumber(row?.dailyTicketsSold) ?? asFiniteNumber(row?.totalTicketsSold);
 }
 
 function seriesSnapshotRevenue(row: DashboardSeriesPoint | null | undefined): number | null {
-  return asFiniteNumber(row?.totalRevenue) ?? asFiniteNumber(row?.dailyRevenue);
+  return asFiniteNumber(row?.dailyRevenue) ?? asFiniteNumber(row?.totalRevenue);
 }
 
 function seriesSnapshotTickets(row: DashboardSeriesPoint | null | undefined): number | null {
-  return asFiniteNumber(row?.totalTickets) ?? asFiniteNumber(row?.dailyTickets);
+  return asFiniteNumber(row?.dailyTickets) ?? asFiniteNumber(row?.totalTickets);
 }
 
 function hasEnteredSummarySnapshot(row: DashboardSummaryPoint): boolean {
@@ -450,10 +450,8 @@ function normalizeSinglePerformanceDashboard<T extends ApiSalesDashboardBody>(da
       : dashboard.kpis.pctRevenueVsPotential;
 
   const normalizedSummary = dashboard.summary.map((row) => {
-    const rowTotalTickets =
-      summarySnapshotTickets(row) ?? asFiniteNumber(row.totalTicketsSold) ?? 0;
-    const rowTotalRevenue =
-      summarySnapshotRevenue(row) ?? asFiniteNumber(row.totalValueSold) ?? 0;
+    const rowTotalTickets = asFiniteNumber(row.totalTicketsSold) ?? 0;
+    const rowTotalRevenue = asFiniteNumber(row.totalValueSold) ?? 0;
     const rowDailyTickets =
       asFiniteNumber(row.dailyTicketsSold) ??
       asFiniteNumber(row.totalTicketsSold) ??
