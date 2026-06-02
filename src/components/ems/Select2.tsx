@@ -14,6 +14,48 @@ export interface Select2Option {
   value: string;
   label: string;
   disabled?: boolean;
+  description?: string;
+  rightText?: string;
+  searchText?: string;
+}
+
+function optionSearchText(option: Select2Option): string {
+  return [
+    option.label,
+    option.description,
+    option.rightText,
+    option.searchText,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+function Select2OptionContent({
+  option,
+  selected,
+}: {
+  option: Select2Option;
+  selected: boolean;
+}) {
+  const secondaryClass = selected ? 'text-ems-accent/75' : 'text-text-muted';
+  return (
+    <>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">{option.label}</span>
+        {option.description && (
+          <span className={`mt-0.5 block truncate text-xs font-normal ${secondaryClass}`}>
+            {option.description}
+          </span>
+        )}
+      </span>
+      {option.rightText && (
+        <span className={`ml-3 shrink-0 text-xs font-normal ${secondaryClass}`}>
+          {option.rightText}
+        </span>
+      )}
+    </>
+  );
 }
 
 function dedupeSelectOptions(options: Select2Option[]): Select2Option[] {
@@ -263,7 +305,7 @@ export function Select2({
   const selected = visibleOptions.find((o) => o.value === value);
   const filtered = parentFiltersOptions
     ? visibleOptions
-    : visibleOptions.filter((o) => String(o.label ?? '').toLowerCase().includes(String(search ?? '').toLowerCase()));
+    : visibleOptions.filter((o) => optionSearchText(o).includes(String(search ?? '').toLowerCase()));
 
   useEffect(() => {
     if (!contactMultiMode || !contactMultiKind) return;
@@ -405,13 +447,15 @@ export function Select2({
               onClick={() => !opt.disabled && handleSelect(opt.value)}
               onMouseEnter={() => setHighlightedIndex(idx)}
               className={[
-                'select2-results__option px-3 py-2 text-sm transition-colors select-none',
+                'select2-results__option flex items-start gap-1.5 px-3 py-2 text-sm transition-colors select-none',
                 opt.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer',
                 isSelected ? 'select2-results__option--selected bg-ems-accent-dim text-ems-accent font-medium' : idx === highlightedIndex ? 'select2-results__option--highlighted bg-hover text-text-primary' : 'text-text-primary hover:bg-hover',
               ].filter(Boolean).join(' ')}
             >
-              {isSelected && <span className="mr-1.5 text-ems-accent text-xs">✓</span>}
-              {opt.label}
+              <span className="mt-0.5 inline-block w-3 shrink-0 text-center text-xs text-ems-accent">
+                {isSelected ? '✓' : ''}
+              </span>
+              <Select2OptionContent option={opt} selected={isSelected} />
             </li>
           );
         })}
@@ -475,7 +519,7 @@ export function Select2Multi({ options, values, onChange, placeholder = 'Select.
   const menuRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const menuStyle = useMenuPosition(open, containerRef);
-  const filtered = useMemo(() => optionsSafe.filter((o) => String(o.label ?? '').toLowerCase().includes(search.toLowerCase())), [optionsSafe, search]);
+  const filtered = useMemo(() => optionsSafe.filter((o) => optionSearchText(o).includes(search.toLowerCase())), [optionsSafe, search]);
   const summary = (() => {
     const labels = valuesSafe
       .map((v) => optionsSafe.find((o) => o.value === v)?.label ?? '')
@@ -513,9 +557,9 @@ export function Select2Multi({ options, values, onChange, placeholder = 'Select.
         {filtered.length === 0 ? <li className="select2-results__option px-3 py-2 text-sm text-text-muted text-center">No results found</li> : filtered.map((opt) => {
           const selected = valuesSafe.includes(opt.value);
           return (
-            <li key={opt.value} role="option" aria-selected={selected} aria-disabled={opt.disabled} onClick={() => !opt.disabled && toggle(opt.value)} className={['select2-results__option px-3 py-2 text-sm transition-colors select-none', opt.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer', selected ? 'bg-ems-accent-dim text-ems-accent font-medium' : 'text-text-primary hover:bg-hover'].filter(Boolean).join(' ')}>
-              <span className="mr-2 text-xs w-4 inline-block text-center">{selected ? '✓' : ''}</span>
-              {opt.label}
+            <li key={opt.value} role="option" aria-selected={selected} aria-disabled={opt.disabled} onClick={() => !opt.disabled && toggle(opt.value)} className={['select2-results__option flex items-start gap-1.5 px-3 py-2 text-sm transition-colors select-none', opt.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer', selected ? 'bg-ems-accent-dim text-ems-accent font-medium' : 'text-text-primary hover:bg-hover'].filter(Boolean).join(' ')}>
+              <span className="mt-0.5 inline-block w-3 shrink-0 text-center text-xs text-ems-accent">{selected ? '✓' : ''}</span>
+              <Select2OptionContent option={opt} selected={selected} />
             </li>
           );
         })}
