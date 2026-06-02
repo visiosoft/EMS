@@ -3802,6 +3802,7 @@ function CreateProjectForm({
           attractions={attractions}
           classes={classes}
           managementCompanyOptions={managementCompanyOptions}
+          payableEntityCompanyOptions={companyOptions}
           addToast={addToast}
           lockAttractionId={selectedAttractionId}
           submitting={createTourMut.isPending}
