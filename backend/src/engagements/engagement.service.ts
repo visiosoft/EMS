@@ -1183,6 +1183,24 @@ export class EngagementService {
     return (raw as Record<string, unknown>[]).map((r) => this.mapRaw(r));
   }
 
+  async listByTour(tourId: number): Promise<EngagementListRow[]> {
+    const safeTourId = Math.floor(Number(tourId));
+    if (!Number.isInteger(safeTourId) || safeTourId < 1) {
+      throw new BadRequestException({
+        message: 'Tour ID must be a positive integer.',
+      });
+    }
+
+    const raw = await this.buildEngagementQuery()
+      .where('e.tourId = :tourId', { tourId: safeTourId })
+      .orderBy('openingPerformanceSortNull', 'ASC')
+      .addOrderBy('openingPerformanceDate', 'ASC')
+      .addOrderBy('openingPerformanceTime', 'ASC')
+      .addOrderBy('e.engagementId', 'DESC')
+      .getRawMany();
+    return (raw as Record<string, unknown>[]).map((r) => this.mapRaw(r));
+  }
+
   /**
    * Earliest performance date as `yyyy-MM-dd` string (avoids driver `Date` objects
    * serializing to long GMT strings in the API).

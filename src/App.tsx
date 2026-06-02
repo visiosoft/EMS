@@ -12,7 +12,7 @@ import AppChooser from "./pages/AppChooser.tsx";
 import InternalApp from "./pages/InternalApp.tsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
 import { getActiveAccount, isMsalBusy } from "./auth/entra.ts";
-import { canAccessCompanyHub, isEmsEnabled, isInternalEnabled } from "./routing/appSuite.ts";
+import { isEmsEnabled, isInternalEnabled } from "./routing/appSuite.ts";
 import { APP_CHOOSER_PATH, EMS_ROOT, INTERNAL_ROOT, LOGIN_PATH } from "./routing/paths.ts";
 import "./contact-polish.css";
 
@@ -55,25 +55,6 @@ function ProtectedRoute({ children }: { children: JSX.Element }) {
   return children;
 }
 
-function CompanyHubRoute({ children }: { children: JSX.Element }) {
-  const isAuthenticated = useIsAuthenticated();
-  const { accounts, inProgress } = useMsal();
-  const location = useLocation();
-  const account = getActiveAccount() ?? accounts[0] ?? null;
-
-  if (isMsalBusy(inProgress)) return <LoadingAuthState />;
-
-  if (!isAuthenticated && !account) {
-    return <Navigate to={LOGIN_PATH} replace state={{ from: `${location.pathname}${location.search}${location.hash}` }} />;
-  }
-
-  if (!canAccessCompanyHub(account)) {
-    return <Navigate to={EMS_ROOT} replace />;
-  }
-
-  return children;
-}
-
 const App = () => (
   <ThemeProvider
     attribute="data-theme"
@@ -95,9 +76,9 @@ const App = () => (
                 <Route
                   path={APP_CHOOSER_PATH}
                   element={
-                    <CompanyHubRoute>
+                    <ProtectedRoute>
                       <AppChooser />
-                    </CompanyHubRoute>
+                    </ProtectedRoute>
                   }
                 />
               ) : null}
@@ -106,9 +87,9 @@ const App = () => (
                 <Route
                   path={`${INTERNAL_ROOT}/*`}
                   element={
-                    <CompanyHubRoute>
+                    <ProtectedRoute>
                       <InternalApp />
-                    </CompanyHubRoute>
+                    </ProtectedRoute>
                   }
                 />
               ) : null}

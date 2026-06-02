@@ -46,6 +46,7 @@ import {
 } from '@/lib/serverPagination';
 import { PageSizeSelect } from './PageSizeSelect';
 import { ENGAGEMENT_STATUS_ENUM } from './engagementFormConstants';
+import { companyToSelect2Options } from './companySelectOptions';
 
 interface Props {
   onNavigate: (view: string, data?: Record<string, unknown>) => void;
@@ -1279,7 +1280,7 @@ function CreateEngagementModal({
   );
 
   const venueOptions = useMemo(
-    () => venueCompanies.map((v) => ({ value: String(v.companyId), label: v.companyName })),
+    () => companyToSelect2Options(venueCompanies),
     [venueCompanies],
   );
 
@@ -1564,7 +1565,7 @@ export function EditEngagementModal({
   );
 
   const venueOptions = useMemo(
-    () => venueCompanies.map((v) => ({ value: String(v.companyId), label: v.companyName })),
+    () => companyToSelect2Options(venueCompanies),
     [venueCompanies],
   );
 

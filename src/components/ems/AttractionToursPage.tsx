@@ -22,8 +22,10 @@ import {
   Modal,
   FormField,
   ActionMenu,
+  StatusBadge,
 } from './Primitives';
 import { Select2, Select2Multi } from './Select2';
+import { companyToSelect2Options } from './companySelectOptions';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -46,6 +48,7 @@ import {
   toursServerSearchKeyPrefix,
   fetchAttractions,
   fetchClasses,
+  fetchTourEngagements,
   fetchTourAgeRanges,
   fetchTours,
   fetchVenueTypesLookup,
@@ -54,6 +57,7 @@ import {
   type ApiAttractionListRow,
   type ApiClass,
   type ApiAgeRange,
+  type ApiTourEngagementRow,
   type ApiTourListRow,
   type ApiVenueType,
 } from '@/api/attractionToursApi';
@@ -191,6 +195,7 @@ function AttractionToursTableSkeleton({
 
 interface Props {
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  onNavigate?: (view: string, data?: Record<string, unknown>) => void;
 }
 
 type AttractionsViewMode = 'list' | 'tiles';
@@ -343,6 +348,61 @@ function getThumbnailUrl(entity: Record<string, unknown>): string | null {
   return null;
 }
 
+const moneyNoCents = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  maximumFractionDigits: 0,
+});
+
+function formatEngagementDate(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const date = match
+    ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+    : new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw;
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date);
+}
+
+function formatEngagementTime(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const match = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return raw;
+  const hour = Math.min(23, Math.max(0, Number(match[1])));
+  const minute = match[2];
+  const period = hour >= 12 ? 'PM' : 'AM';
+  const displayHour = hour % 12 || 12;
+  return `${displayHour}:${minute} ${period}`;
+}
+
+function formatEngagementOpening(e: ApiTourEngagementRow): string {
+  const date = formatEngagementDate(e.openingPerformanceDate);
+  const time = formatEngagementTime(e.openingPerformanceTime);
+  return [date, time].filter(Boolean).join(' · ') || 'Opening show not set';
+}
+
+function formatNumber(value: number | null | undefined): string {
+  return value == null ? '—' : value.toLocaleString();
+}
+
+function formatMoney(value: number | null | undefined): string {
+  return value == null ? '—' : moneyNoCents.format(value);
+}
+
+function engagementVenueLabel(e: ApiTourEngagementRow): string {
+  return e.venueCompanyName?.trim() || e.venueName?.trim() || 'Venue not set';
+}
+
+function engagementLocationLabel(e: ApiTourEngagementRow): string {
+  const location = [e.city, e.stateProvince].filter(Boolean).join(', ');
+  return location || e.dmaMarketName || 'Location not set';
+}
+
 /** Read-only tour summary when viewing an attraction, with quick-open to Tours tab. */
 function TourCardReadOnly({
   t,
@@ -375,6 +435,65 @@ function TourCardReadOnly({
       <div className="text-[11px] text-text-secondary">
         <span className="text-text-muted">Talent Agency </span>
         {t.talentAgencyCompanyName ?? '—'}
+      </div>
+    </button>
+  );
+}
+
+function EngagementCardReadOnly({
+  engagement,
+  onOpen,
+}: {
+  engagement: ApiTourEngagementRow;
+  onOpen: (engagementId: number) => void;
+}) {
+  const title =
+    engagement.displayTitle ||
+    engagement.attractionName ||
+    `Engagement #${engagement.engagementId}`;
+  const status = engagement.engagementStatus || 'Unknown';
+
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(engagement.engagementId)}
+      className="w-full text-left bg-elevated border border-border rounded-lg p-3 hover:bg-hover/60 transition-colors"
+      title="Open this engagement"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-text-primary leading-snug break-words" title={title}>
+            {title}
+          </div>
+          <div className="mt-1 text-xs text-text-secondary">
+            {engagement.attractionName ?? 'Attraction not set'}
+          </div>
+          <div className="mt-2 space-y-1 text-xs text-text-secondary">
+            <div className="break-words">
+              <span className="text-text-muted">Opening:</span>{' '}
+              <span className="text-text-primary">{formatEngagementOpening(engagement)}</span>
+            </div>
+            <div className="break-words">
+              <span className="text-text-muted">Venue:</span>{' '}
+              <span className="text-text-primary">{engagementVenueLabel(engagement)}</span>
+            </div>
+            <div className="break-words">
+              <span className="text-text-muted">Market:</span>{' '}
+              <span className="text-text-primary">{engagement.dmaMarketName || '—'}</span>
+            </div>
+            <div className="break-words">
+              <span className="text-text-muted">Location:</span>{' '}
+              <span className="text-text-primary">{engagementLocationLabel(engagement)}</span>
+            </div>
+            <div className="break-words">
+              <span className="text-text-muted">Capacity:</span>{' '}
+              <span className="text-text-primary">{formatNumber(engagement.sellableCapacity)}</span>
+              <span className="text-text-muted"> · Gross potential:</span>{' '}
+              <span className="text-text-primary">{formatMoney(engagement.grossPotential)}</span>
+            </div>
+          </div>
+        </div>
+        <StatusBadge status={status} />
       </div>
     </button>
   );
@@ -908,6 +1027,7 @@ function TourDrawer({
   onSaved,
   activeTab,
   onTabChange,
+  onOpenEngagement,
 }: {
   tour: ApiTourListRow;
   attractions: ApiAttractionListRow[];
@@ -923,6 +1043,7 @@ function TourDrawer({
   onSaved: (row: ApiTourListRow, prevAttractionId: number) => void;
   activeTab: string;
   onTabChange: (tab: string) => void;
+  onOpenEngagement: (engagementId: number) => void;
 }) {
   const qc = useQueryClient();
 
@@ -948,6 +1069,12 @@ function TourDrawer({
     queryKey: ['tour-management-company-contacts', selectedTalentAgencyId],
     queryFn: () => fetchCompanyContacts(selectedTalentAgencyId),
     enabled: Number.isInteger(selectedTalentAgencyId) && selectedTalentAgencyId > 0,
+  });
+  const engagementsQuery = useQuery({
+    queryKey: ['tour-engagements', tour.tourId],
+    queryFn: () => fetchTourEngagements(tour.tourId),
+    enabled: activeTab === 'Engagements' && Number.isInteger(tour.tourId) && tour.tourId > 0,
+    staleTime: 60_000,
   });
   const [talentAgentContactIds, setTalentAgentContactIds] = useState<string[]>(
     () => (tour.talentAgentContactIds ?? []).map(String),
@@ -1217,7 +1344,7 @@ function TourDrawer({
         </div>
       </div>
 
-      <TabBar tabs={['Details', 'Contacts']} active={activeTab} onChange={onTabChange} />
+      <TabBar tabs={['Details', 'Contacts', 'Engagements']} active={activeTab} onChange={onTabChange} />
 
       <div className="p-4 text-sm relative">
         {activeTab === 'Details' && (
@@ -1561,6 +1688,48 @@ function TourDrawer({
             )}
           </div>
         )}
+
+        {activeTab === 'Engagements' && (
+          <div className="space-y-3">
+            {engagementsQuery.isLoading ? (
+              <div
+                className="rounded-lg border border-border bg-elevated px-4 py-8 text-center"
+                role="status"
+                aria-live="polite"
+              >
+                <Loader2 className="mx-auto h-7 w-7 animate-spin text-ems-accent" aria-hidden />
+                <p className="mt-2 text-sm text-text-secondary">Loading engagements…</p>
+              </div>
+            ) : engagementsQuery.isError ? (
+              <div className="rounded-lg border border-ems-coral/40 bg-ems-coral-dim px-4 py-3">
+                <p className="text-sm text-ems-coral">
+                  {friendlyApiError(engagementsQuery.error, 'Could not load engagements for this tour.')}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void engagementsQuery.refetch()}
+                  className="mt-2 text-xs font-medium text-ems-coral hover:underline"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : (engagementsQuery.data ?? []).length === 0 ? (
+              <div className="rounded-lg border border-border bg-elevated px-4 py-8 text-center text-sm text-text-muted">
+                No engagements are attached to this tour yet.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {(engagementsQuery.data ?? []).map((engagement) => (
+                  <EngagementCardReadOnly
+                    key={engagement.engagementId}
+                    engagement={engagement}
+                    onOpen={onOpenEngagement}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </Drawer>
   );
@@ -1581,7 +1750,7 @@ function clearAttractionToursServerSearchCaches(qc: QueryClient) {
 const compareTours = (a: ApiTourListRow, b: ApiTourListRow) =>
   a.tourName.localeCompare(b.tourName, undefined, { sensitivity: 'base' });
 
-export function AttractionToursPage({ addToast }: Props) {
+export function AttractionToursPage({ addToast, onNavigate }: Props) {
   const qc = useQueryClient();
   const [pageTab, setPageTab] = useState('Attractions');
   const [attractionInput, setAttractionInput] = useState('');
@@ -2036,9 +2205,7 @@ export function AttractionToursPage({ addToast }: Props) {
         ) ||
         (c.companyTypeName ?? '').trim().toLowerCase() === 'talent agency',
     );
-    return talentAgencies
-      .map((c) => ({ value: String(c.companyId), label: c.companyName }))
-      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+    return companyToSelect2Options(talentAgencies);
   }, [companies]);
 
   return (
@@ -2836,6 +3003,9 @@ export function AttractionToursPage({ addToast }: Props) {
           onSaved={(row, prevAttractionId) => upsertTourInCache(row, prevAttractionId)}
           activeTab={tourDrawerTab}
           onTabChange={setTourDrawerTab}
+          onOpenEngagement={(engagementId) => {
+            onNavigate?.('engagement-detail', { engagementId });
+          }}
         />
       )}
 

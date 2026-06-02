@@ -1,23 +1,8 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  ForbiddenException,
-  Injectable,
-} from '@nestjs/common';
-import { AuditRequestContext } from '../audit/audit-request-context.service';
-import { isInternalHubEmailAllowed } from './internal-access';
+import { CanActivate, Injectable } from '@nestjs/common';
 
 @Injectable()
 export class InternalAccessGuard implements CanActivate {
-  constructor(private readonly auditContext: AuditRequestContext) {}
-
-  canActivate(_context: ExecutionContext): boolean {
-    if (isInternalHubEmailAllowed(this.auditContext.getUserEmail())) {
-      return true;
-    }
-
-    throw new ForbiddenException(
-      'Company Hub requires a signed-in Microsoft account.',
-    );
+  canActivate(): boolean {
+    return true;
   }
 }

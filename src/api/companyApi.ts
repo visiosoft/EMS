@@ -43,7 +43,15 @@ export interface ApiVenueType { venueTypeId: number; venueTypeName: string; }
 export interface ApiBrand { brandId: number; brandName: string; }
 export interface ApiTax { taxId: number; taxName: string; taxRate: string; taxJurisdictionType: string; }
 export interface ApiServiceProvided { serviceProvidedId: number; serviceName: string; }
-export interface ApiStagehandProviderCompany { companyId: number; companyName: string; }
+export interface ApiStagehandProviderCompany {
+  companyId: number;
+  companyName: string;
+  companyTypeName?: string | null;
+  companyTypeNames?: string[];
+  physicalCity?: string | null;
+  physicalStateProvince?: string | null;
+  dmaMarketName?: string | null;
+}
 export interface ApiNonResidentWithholdingOption { withholdingId: number; withholdingTaxRate: string; dmaid: number | null; taxAgencyId: number | null; }
 
 export type ApiVenueProfileResponse =

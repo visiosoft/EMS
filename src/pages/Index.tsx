@@ -405,7 +405,7 @@ const Index = () => {
         {view === 'all-venues' && <AllVenuesPage onNavigate={navigate} />}
 
         {view === 'attraction-tours' && (
-          <AttractionToursPage addToast={addToast} />
+          <AttractionToursPage addToast={addToast} onNavigate={navigate} />
         )}
 
         {view === 'attraction-sales-summary' && (() => {

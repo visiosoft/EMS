@@ -64,6 +64,15 @@ export interface ApiPerformanceSalesRow {
   engagementGrossPotential: number | null;
 }
 
+export interface ApiPerformanceCompanyFilterOption {
+  companyId: number;
+  companyName: string;
+  companyTypeNames: string[];
+  physicalCity: string | null;
+  physicalStateProvince: string | null;
+  dmaMarketName: string | null;
+}
+
 /** Row cap when prefetching Daily Sales rows for local search suggestions. */
 export const DAILY_SALES_SUGGESTION_PAGE_SIZE = 2500;
 
@@ -86,7 +95,7 @@ export interface ApiPerformanceSalesPage {
   filterOptions: {
     genres: string[];
     tours: string[];
-    companies: string[];
+    companies: ApiPerformanceCompanyFilterOption[];
     venues: string[];
     contacts: string[];
   };

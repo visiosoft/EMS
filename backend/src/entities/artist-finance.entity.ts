@@ -46,7 +46,7 @@ export class ArtistFinance {
   @Column({
     name: 'ArtistBackEndTerms',
     type: 'nvarchar',
-    length: 'max' as any,
+    length: 'max' as string,
     nullable: true,
   })
   artistBackEndTerms: string | null;

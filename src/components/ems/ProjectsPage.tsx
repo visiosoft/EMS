@@ -35,6 +35,7 @@ import {
   TabBar,
 } from './Primitives';
 import { Select2 } from './Select2';
+import { companyToSelect2Options } from './companySelectOptions';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import {
   deriveValidSelectedDmaIds,
@@ -639,9 +640,7 @@ function ProjectInlineOverview({
   });
   const talentAgencyOptions = useMemo(() => {
     const rows = talentAgencyPickerQuery.data ?? [];
-    return rows
-      .map((c) => ({ value: String(c.companyId), label: c.companyName }))
-      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+    return companyToSelect2Options(rows);
   }, [talentAgencyPickerQuery.data]);
   const talentAgentContactsQuery = useQuery({
     queryKey: ['company', talentAgencyCompanyId ?? 0, 'contacts'],
@@ -2598,15 +2597,10 @@ function CreateProjectForm({
   const managementCompanyOptions = useMemo(() => {
     const rows = talentAgencyPickerQuery.data;
     if (!rows?.length) return [];
-    return rows
-      .map((c) => ({ value: String(c.companyId), label: c.companyName }))
-      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+    return companyToSelect2Options(rows);
   }, [talentAgencyPickerQuery.data]);
   const companyOptions = useMemo(
-    () =>
-      ((companyPickerQuery.data ?? []) as ApiCompanyListRow[])
-        .map((c) => ({ value: String(c.companyId), label: c.companyName }))
-        .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })),
+    () => companyToSelect2Options((companyPickerQuery.data ?? []) as ApiCompanyListRow[]),
     [companyPickerQuery.data],
   );
   const venueTypes = useMemo(

@@ -248,7 +248,7 @@ export function FilterChips({
   onChange: (v: string) => void;
   disabled?: boolean;
 }) {
-  const normalized = (options as any[]).map(o =>
+  const normalized = (options as Array<string | { value: string; label: string }>).map(o =>
     typeof o === 'string' ? { value: o, label: o } : o
   );
   return (

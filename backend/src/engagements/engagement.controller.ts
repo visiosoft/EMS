@@ -46,6 +46,11 @@ export class EngagementController {
     return this.engagementService.getFinanceLookups();
   }
 
+  @Get('by-tour/:tourId')
+  listByTour(@Param('tourId', ParseIntPipe) tourId: number) {
+    return this.engagementService.listByTour(tourId);
+  }
+
   @Get('iae-contact-lookups')
   iaeContactLookups() {
     return this.engagementService.getEngagementIaeContactLookups();
