@@ -1,15 +1,16 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
-import { AdminRoleGuard } from './admin-role.guard';
+import { Controller, Get, Headers, UseGuards } from '@nestjs/common';
 import { AdminUsersService } from './admin-users.service';
 import { EntraAuthGuard } from './entra-auth.guard';
 
 @Controller('admin')
-@UseGuards(EntraAuthGuard, AdminRoleGuard)
+@UseGuards(EntraAuthGuard)
 export class AdminUsersController {
   constructor(private readonly adminUsersService: AdminUsersService) {}
 
   @Get('users')
-  async listUsers() {
-    return this.adminUsersService.listUsers();
+  async listUsers(
+    @Headers('x-entra-graph-access-token') graphAccessToken?: string,
+  ) {
+    return this.adminUsersService.listUsers(graphAccessToken);
   }
 }
