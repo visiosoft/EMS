@@ -11,10 +11,16 @@ export interface AdminDirectoryUserRow {
 
 export async function fetchAdminUsers(
     accessToken: string,
+    graphAccessToken?: string | null,
 ): Promise<AdminDirectoryUserRow[]> {
+    const headers: Record<string, string> = {
+        Authorization: `Bearer ${accessToken}`,
+    };
+    if (graphAccessToken) {
+        headers['X-Entra-Graph-Access-Token'] = graphAccessToken;
+    }
+
     return apiFetch<AdminDirectoryUserRow[]>('/admin/users', {
-        headers: {
-            Authorization: `Bearer ${accessToken}`,
-        },
+        headers,
     });
 }

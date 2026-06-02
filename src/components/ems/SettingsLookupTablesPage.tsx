@@ -52,7 +52,12 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { fetchAdminUsers } from '@/api/adminUsersApi';
-import { acquireApiAccessToken, getActiveAccount } from '@/auth/entra';
+import {
+  acquireApiAccessToken,
+  acquireGraphAccessToken,
+  getActiveAccount,
+  requestGraphAccessToken,
+} from '@/auth/entra';
 
 interface UserRow {
   id: string;
@@ -308,22 +313,55 @@ export function SettingsPage({
   const [deleteLookupRow, setDeleteLookupRow] = useState<LookupManageRow | null>(null);
   const [selectedLookupRow, setSelectedLookupRow] = useState<LookupManageRow | null>(null);
   const [detailsTab, setDetailsTab] = useState('Overview');
+  const [directoryGraphToken, setDirectoryGraphToken] = useState<string | null>(null);
+  const [directoryPermissionBusy, setDirectoryPermissionBusy] = useState(false);
+  const [directoryPermissionError, setDirectoryPermissionError] = useState<string | null>(null);
 
   const inputCls =
     'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
 
   const adminUsersQuery = useQuery({
-    queryKey: ['admin-users', account?.homeAccountId ?? null],
+    queryKey: ['admin-users', account?.homeAccountId ?? null, Boolean(directoryGraphToken)],
     enabled: tab === 'Users' && account != null,
+    retry: false,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       if (!account) {
-        throw new Error('Sign in with Microsoft Entra ID to load the admin user directory.');
+        throw new Error('Sign in with Microsoft Entra ID to load the user directory.');
       }
       const accessToken = await acquireApiAccessToken(account);
-      return fetchAdminUsers(accessToken);
+      const graphAccessToken = directoryGraphToken ?? (await acquireGraphAccessToken(account));
+      return fetchAdminUsers(accessToken, graphAccessToken);
     },
   });
+
+  useEffect(() => {
+    setDirectoryGraphToken(null);
+    setDirectoryPermissionError(null);
+  }, [account?.homeAccountId]);
+
+  async function handleConnectDirectory() {
+    if (!account) return;
+
+    setDirectoryPermissionBusy(true);
+    setDirectoryPermissionError(null);
+    try {
+      const graphAccessToken = await requestGraphAccessToken(account);
+      setDirectoryGraphToken(graphAccessToken);
+      await qc.invalidateQueries({
+        queryKey: ['admin-users', account.homeAccountId ?? null],
+      });
+    } catch (error) {
+      setDirectoryPermissionError(
+        friendlyApiError(
+          error,
+          'Could not connect to Microsoft Graph. Please accept the directory permission prompt and try again.',
+        ),
+      );
+    } finally {
+      setDirectoryPermissionBusy(false);
+    }
+  }
 
   useEffect(() => {
     setTab(initialMainTab);
@@ -679,7 +717,7 @@ export function SettingsPage({
             <div>
               <h3 className="text-base font-semibold text-text-primary">Microsoft Entra user directory</h3>
               <p className="mt-1 text-sm text-text-secondary">
-                This table is loaded from the protected backend admin API. The backend decides who can see the full directory.
+                This table is loaded from Microsoft Entra through the backend user directory API.
               </p>
             </div>
 
@@ -691,11 +729,37 @@ export function SettingsPage({
             ) : null}
 
             {adminUsersQuery.isError ? (
-              <div className="rounded-md border border-ems-coral/30 bg-ems-coral-dim px-3 py-2 text-sm text-ems-coral">
-                {friendlyApiError(
-                  adminUsersQuery.error,
-                  'Could not load the Entra user directory. Check VITE_ENTRA_API_SCOPE on the frontend and the ENTRA_* backend settings.',
-                )}
+              <div className="space-y-2">
+                <div className="rounded-md border border-ems-coral/30 bg-ems-coral-dim px-3 py-2 text-sm text-ems-coral">
+                  {friendlyApiError(
+                    adminUsersQuery.error,
+                    'Could not load the Entra user directory. Check the Entra tenant/API scope settings and Microsoft Graph directory permission.',
+                  )}
+                </div>
+                {account ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface px-3 py-2">
+                    <p className="text-sm text-text-secondary">
+                      Connect Microsoft Graph once to load directory users from your signed-in account.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleConnectDirectory}
+                      disabled={directoryPermissionBusy}
+                    >
+                      {directoryPermissionBusy ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : null}
+                      Connect directory
+                    </Button>
+                  </div>
+                ) : null}
+                {directoryPermissionError ? (
+                  <div className="rounded-md border border-ems-coral/30 bg-ems-coral-dim px-3 py-2 text-sm text-ems-coral">
+                    {directoryPermissionError}
+                  </div>
+                ) : null}
               </div>
             ) : null}
 

@@ -70,32 +70,12 @@ export class AdminUsersService {
     };
   }
 
-  async listUsers(): Promise<AdminDirectoryUser[]> {
-    const accessToken = await this.getGraphAccessToken();
+  async listUsers(graphAccessToken?: string): Promise<AdminDirectoryUser[]> {
+    const accessToken = await this.getGraphAccessToken(graphAccessToken);
     const users: AdminDirectoryUser[] = [];
 
-    let nextUrl: string | null =
-      'https://graph.microsoft.com/v1.0/users?$select=id,displayName,mail,userPrincipalName,accountEnabled&$top=999';
-
-    while (nextUrl) {
-      const response = await fetch(nextUrl, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new BadGatewayException(
-          `Microsoft Graph user lookup failed with status ${response.status}.`,
-        );
-      }
-
-      const payload = (await response.json()) as GraphUsersResponse;
-      for (const user of payload.value ?? []) {
-        users.push(this.buildUserDisplay(user));
-      }
-
-      nextUrl = payload['@odata.nextLink'] ?? null;
+    for (const user of await this.fetchGraphUsers(accessToken)) {
+      users.push(this.buildUserDisplay(user));
     }
 
     return users.sort((left, right) => left.name.localeCompare(right.name));
@@ -158,21 +138,82 @@ export class AdminUsersService {
     return null;
   }
 
-  private async getGraphAccessToken(): Promise<string> {
-    const tenantId = this.configService.get<string>('ENTRA_TENANT_ID')?.trim();
-    const clientId = this.configService
-      .get<string>('ENTRA_GRAPH_CLIENT_ID')
-      ?.trim();
-    const clientSecret = this.configService
-      .get<string>('ENTRA_GRAPH_CLIENT_SECRET')
-      ?.trim();
+  private async fetchGraphUsers(accessToken: string): Promise<GraphUser[]> {
+    const primarySelect =
+      'id,displayName,mail,userPrincipalName,accountEnabled';
+    try {
+      return await this.fetchGraphUsersWithSelect(accessToken, primarySelect);
+    } catch (error) {
+      if (
+        error instanceof BadGatewayException &&
+        String(error.message).includes('status 403')
+      ) {
+        return this.fetchGraphUsersWithSelect(
+          accessToken,
+          'id,displayName,mail,userPrincipalName',
+        );
+      }
+      throw error;
+    }
+  }
+
+  private async fetchGraphUsersWithSelect(
+    accessToken: string,
+    select: string,
+  ): Promise<GraphUser[]> {
+    const users: GraphUser[] = [];
+    let nextUrl: string | null = `https://graph.microsoft.com/v1.0/users?$select=${select}&$top=999`;
+
+    while (nextUrl) {
+      const response = await fetch(nextUrl, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        const graphError = await readGraphErrorDetail(response);
+        const permissionHint =
+          response.status === 403
+            ? ' Grant Microsoft Graph directory consent (User.ReadBasic.All or Directory.Read.All), or configure backend ENTRA_GRAPH_CLIENT_ID and ENTRA_GRAPH_CLIENT_SECRET with Graph application permission.'
+            : '';
+        throw new BadGatewayException(
+          `Microsoft Graph user lookup failed with status ${response.status}.${graphError}${permissionHint}`,
+        );
+      }
+
+      const payload = (await response.json()) as GraphUsersResponse;
+      users.push(...(payload.value ?? []));
+      nextUrl = payload['@odata.nextLink'] ?? null;
+    }
+
+    return users;
+  }
+
+  private async getGraphAccessToken(graphAccessToken?: string): Promise<string> {
+    const delegatedGraphToken = String(graphAccessToken ?? '').trim();
+    const tenantId = this.getConfigValue(
+      'ENTRA_TENANT_ID',
+      'VITE_ENTRA_TENANT_ID',
+    );
+    const clientId = this.getConfigValue(
+      'ENTRA_GRAPH_CLIENT_ID',
+      'ENTRA_CLIENT_ID',
+      'VITE_ENTRA_CLIENT_ID',
+    );
+    const clientSecret = this.getConfigValue(
+      'ENTRA_GRAPH_CLIENT_SECRET',
+      'ENTRA_CLIENT_SECRET',
+      'ENTRA_API_CLIENT_SECRET',
+    );
     const scope =
       this.configService.get<string>('ENTRA_GRAPH_SCOPE')?.trim() ||
       'https://graph.microsoft.com/.default';
 
     if (!tenantId || !clientId || !clientSecret) {
+      if (delegatedGraphToken) return delegatedGraphToken;
       throw new ServiceUnavailableException(
-        'Microsoft Graph integration is not configured. Set ENTRA_TENANT_ID, ENTRA_GRAPH_CLIENT_ID, and ENTRA_GRAPH_CLIENT_SECRET on the backend.',
+        'Microsoft Graph integration is not configured. Set ENTRA_TENANT_ID or VITE_ENTRA_TENANT_ID plus ENTRA_GRAPH_CLIENT_ID and ENTRA_GRAPH_CLIENT_SECRET, or allow the frontend delegated Graph scope.',
       );
     }
 
@@ -206,5 +247,27 @@ export class AdminUsersService {
     }
 
     return payload.access_token;
+  }
+
+  private getConfigValue(...keys: string[]): string {
+    for (const key of keys) {
+      const value = this.configService.get<string>(key)?.trim();
+      if (value) return value;
+    }
+    return '';
+  }
+}
+
+async function readGraphErrorDetail(response: Response): Promise<string> {
+  try {
+    const body = (await response.json()) as {
+      error?: { code?: string; message?: string };
+    };
+    const code = String(body.error?.code ?? '').trim();
+    const message = String(body.error?.message ?? '').trim();
+    if (!code && !message) return '';
+    return ` ${[code, message].filter(Boolean).join(': ')}`;
+  } catch {
+    return '';
   }
 }
