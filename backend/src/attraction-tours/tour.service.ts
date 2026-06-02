@@ -659,14 +659,9 @@ export class TourService {
       );
     }
     await this.assertTalentAgencyCompany(dto.talentAgencyCompanyId);
-    const effectivePayableEntityCompanyId = dto.talentAgencyCompanyId;
-    if (
-      dto.tourManagementCompanyId != null &&
-      dto.tourManagementCompanyId !== effectivePayableEntityCompanyId
-    ) {
-      this.logger.log(
-        `Ignoring explicit TourManagementCompanyID=${dto.tourManagementCompanyId} on create; using TalentAgencyCompanyID=${effectivePayableEntityCompanyId} as payable entity.`,
-      );
+    const payableEntityCompanyId = dto.tourManagementCompanyId ?? null;
+    if (payableEntityCompanyId != null) {
+      await this.assertCompanyExists(payableEntityCompanyId, 'Payable entity');
     }
     const talentAgentContactIds =
       await this.assertTalentAgentContactsBelongToAgency(
@@ -697,7 +692,7 @@ export class TourService {
       venueTypePreferenceId: null,
       bannerLinkId: null,
       talentAgencyCompanyId: dto.talentAgencyCompanyId,
-      tourManagementCompanyId: effectivePayableEntityCompanyId,
+      tourManagementCompanyId: payableEntityCompanyId,
       jobId,
       tourStartDate,
       tourEndDate,
@@ -782,11 +777,14 @@ export class TourService {
       existing.talentAgencyCompanyId = dto.talentAgencyCompanyId;
     }
     if (dto.tourManagementCompanyId !== undefined) {
-      this.logger.log(
-        `Ignoring explicit TourManagementCompanyID update for TourID=${id}; payable entity is derived from TalentAgencyCompanyID.`,
-      );
+      if (dto.tourManagementCompanyId != null) {
+        await this.assertCompanyExists(
+          dto.tourManagementCompanyId,
+          'Payable entity',
+        );
+      }
+      existing.tourManagementCompanyId = dto.tourManagementCompanyId;
     }
-    existing.tourManagementCompanyId = existing.talentAgencyCompanyId ?? null;
     if (dto.tourStartDate !== undefined) {
       existing.tourStartDate = this.normalizeTourDateInput(dto.tourStartDate);
     }

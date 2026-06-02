@@ -103,8 +103,7 @@ export class CreateTourDto {
   @Transform(({ value }) => {
     if (value === undefined || value === '') return undefined;
     if (value === null) return null;
-    const n = Number(value);
-    return Number.isFinite(n) && n >= 1 ? n : null;
+    return Number(value);
   })
   @IsInt()
   @Min(1)

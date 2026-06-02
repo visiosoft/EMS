@@ -101,8 +101,7 @@ export class UpdateTourDto {
   @Transform(({ value }) => {
     if (value === undefined) return undefined;
     if (value === '' || value === null) return null;
-    const n = Number(value);
-    return Number.isFinite(n) && n >= 1 ? n : null;
+    return Number(value);
   })
   @ValidateIf((_, v) => v != null)
   @IsInt()
@@ -113,8 +112,7 @@ export class UpdateTourDto {
   @Transform(({ value }) => {
     if (value === undefined) return undefined;
     if (value === '' || value === null) return null;
-    const n = Number(value);
-    return Number.isFinite(n) && n >= 1 ? n : null;
+    return Number(value);
   })
   @ValidateIf((_, v) => v != null)
   @IsInt()
