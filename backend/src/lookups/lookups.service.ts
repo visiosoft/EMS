@@ -203,7 +203,15 @@ export class LookupsService {
   }
 
   async findStagehandProviders(): Promise<
-    { companyId: number; companyName: string }[]
+    {
+      companyId: number;
+      companyName: string;
+      companyTypeName: string | null;
+      companyTypeNames: string[];
+      physicalCity: string | null;
+      physicalStateProvince: string | null;
+      dmaMarketName: string | null;
+    }[]
   > {
     const stagehands = await this.serviceProvidedRepo
       .createQueryBuilder('sp')
@@ -211,20 +219,77 @@ export class LookupsService {
       .getOne();
     if (!stagehands) return [];
 
-    const rows = await this.companyServiceRepo
-      .createQueryBuilder('cs')
-      .innerJoin(Company, 'c', 'c.companyId = cs.companyId')
-      .where('cs.serviceProvidedId = :sid', {
-        sid: stagehands.serviceProvidedId,
-      })
-      .select(['c.companyId AS companyId', 'c.companyName AS companyName'])
-      .orderBy('c.companyName', 'ASC')
-      .getRawMany<Record<string, unknown>>();
+    const rows = await this.companyServiceRepo.manager.query(
+      `
+        SELECT
+          c.CompanyID AS companyId,
+          c.CompanyName AS companyName,
+          ct.CompanyTypeName AS companyTypeName,
+          pa.City AS physicalCity,
+          pa.StateProvince AS physicalStateProvince,
+          dma.MarketName AS dmaMarketName
+        FROM dbo.CompanyService cs
+        INNER JOIN dbo.Company c
+          ON c.CompanyID = cs.CompanyID
+        LEFT JOIN dbo.CompanyCompanyType cct
+          ON cct.CompanyID = c.CompanyID
+        LEFT JOIN dbo.CompanyType ct
+          ON ct.CompanyTypeID = COALESCE(cct.CompanyTypeID, c.CompanyTypeID)
+        LEFT JOIN dbo.Address pa
+          ON pa.AddressID = c.PhysicalAddressID
+        LEFT JOIN dbo.DMA dma
+          ON dma.PostalCode = pa.PostalCode
+        WHERE cs.ServiceProvidedID = @0
+        ORDER BY c.CompanyName ASC, ct.CompanyTypeName ASC
+      `,
+      [stagehands.serviceProvidedId],
+    );
 
-    return rows.map((r) => ({
-      companyId: Number(r.companyId ?? r.CompanyID),
-      companyName: String(r.companyName ?? r.CompanyName ?? ''),
-    }));
+    const providers = new Map<
+      number,
+      {
+        companyId: number;
+        companyName: string;
+        companyTypeName: string | null;
+        companyTypeNames: string[];
+        physicalCity: string | null;
+        physicalStateProvince: string | null;
+        dmaMarketName: string | null;
+      }
+    >();
+
+    for (const row of rows) {
+      const companyId = Number(row.companyId ?? row.CompanyID);
+      if (!Number.isInteger(companyId) || companyId <= 0) continue;
+      const companyTypeName = String(
+        row.companyTypeName ?? row.CompanyTypeName ?? '',
+      ).trim();
+      const current = providers.get(companyId) ?? {
+        companyId,
+        companyName: String(row.companyName ?? row.CompanyName ?? ''),
+        companyTypeName: companyTypeName || null,
+        companyTypeNames: [],
+        physicalCity:
+          row.physicalCity == null ? null : String(row.physicalCity),
+        physicalStateProvince:
+          row.physicalStateProvince == null
+            ? null
+            : String(row.physicalStateProvince),
+        dmaMarketName:
+          row.dmaMarketName == null ? null : String(row.dmaMarketName),
+      };
+      if (
+        companyTypeName &&
+        !current.companyTypeNames.some(
+          (name) => name.toLowerCase() === companyTypeName.toLowerCase(),
+        )
+      ) {
+        current.companyTypeNames.push(companyTypeName);
+      }
+      providers.set(companyId, current);
+    }
+
+    return [...providers.values()];
   }
 
   async findNonResidentWithholdings(): Promise<

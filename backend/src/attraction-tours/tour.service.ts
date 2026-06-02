@@ -373,6 +373,7 @@ export class TourService {
     }
     const publicPath = `/uploads/tour-banners/${fileName}`.slice(0, 2048);
     const safeName = (file.originalname || 'Tour banner')
+      // eslint-disable-next-line no-control-regex
       .replace(/[\x00-\x1f]/g, '')
       .slice(0, 255);
     const link = this.linkRepo.create({

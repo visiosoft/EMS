@@ -1,4 +1,5 @@
 import { apiFetch, apiFetchMultipart } from './config';
+import type { ApiEngagementListRow } from './engagementApi';
 
 export interface ApiClass {
   classId: number;
@@ -90,6 +91,7 @@ export interface CreateTourPayload {
 }
 
 export type UpdateTourPayload = Partial<CreateTourPayload>;
+export type ApiTourEngagementRow = ApiEngagementListRow;
 
 export interface ApiPaginatedResponse<T> {
   data: T[];
@@ -264,6 +266,10 @@ export function updateTour(
 
 export function deleteTour(id: number) {
   return apiFetch<void>(`/tours/${id}`, { method: 'DELETE' });
+}
+
+export function fetchTourEngagements(tourId: number) {
+  return apiFetch<ApiTourEngagementRow[]>(`/engagements/by-tour/${tourId}`);
 }
 
 export function fetchTourAgeRanges() {

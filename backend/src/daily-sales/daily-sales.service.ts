@@ -119,6 +119,15 @@ export interface PerformanceSalesRow {
   engagementGrossPotential: number | null;
 }
 
+export interface PerformanceCompanyFilterOption {
+  companyId: number;
+  companyName: string;
+  companyTypeNames: string[];
+  physicalCity: string | null;
+  physicalStateProvince: string | null;
+  dmaMarketName: string | null;
+}
+
 /** Paged by-performance list + global totals (same filter as the table). */
 export interface PerformanceSalesPageResult {
   items: PerformanceSalesRow[];
@@ -138,7 +147,7 @@ export interface PerformanceSalesPageResult {
   filterOptions: {
     genres: string[];
     tours: string[];
-    companies: string[];
+    companies: PerformanceCompanyFilterOption[];
     venues: string[];
     contacts: string[];
   };
@@ -516,6 +525,14 @@ export class DailySalesService {
     const performanceDate = this.normalizeOptionalYmd(performanceDateRaw);
     const startDate = this.normalizeOptionalYmd(startDateRaw);
     const endDate = this.normalizeOptionalYmd(endDateRaw);
+    const companyToken = companyRaw?.trim() || undefined;
+    const parsedCompanyId = Number(companyToken);
+    const companyId =
+      companyToken &&
+      Number.isInteger(parsedCompanyId) &&
+      parsedCompanyId > 0
+        ? parsedCompanyId
+        : undefined;
 
     if (startDate && endDate && endDate < startDate) {
       throw new BadRequestException({
@@ -580,7 +597,9 @@ export class DailySalesService {
       endDate,
       genre: genreRaw?.trim() || undefined,
       tourName: tourRaw?.trim() || undefined,
-      companyName: companyRaw?.trim() || undefined,
+      companyId,
+      // Keep old bookmarked report URLs working while the UI moves to IDs.
+      companyName: companyId == null ? companyToken : undefined,
       venueName: venueRaw?.trim() || undefined,
       contactName: contactRaw?.trim() || undefined,
       myIaeContactId: myIaeContactId ?? undefined,
@@ -915,6 +934,7 @@ export class DailySalesService {
       endDate?: string;
       genre?: string;
       tourName?: string;
+      companyId?: number;
       companyName?: string;
       venueName?: string;
       contactName?: string;
@@ -993,7 +1013,11 @@ export class DailySalesService {
     if (options.tourName) {
       qb.andWhere('t.tourName = :tourName', { tourName: options.tourName });
     }
-    if (options.companyName) {
+    if (options.companyId != null) {
+      qb.andWhere('vc.companyId = :companyId', {
+        companyId: options.companyId,
+      });
+    } else if (options.companyName) {
       qb.andWhere('vc.companyName = :companyName', {
         companyName: options.companyName,
       });
@@ -1083,7 +1107,7 @@ export class DailySalesService {
   ): Promise<{
     genres: string[];
     tours: string[];
-    companies: string[];
+    companies: PerformanceCompanyFilterOption[];
     venues: string[];
     contacts: string[];
   }> {
@@ -1149,11 +1173,45 @@ export class DailySalesService {
         .getRawMany<{ value: string }>(),
       base
         .clone()
-        .select('vc.companyName', 'value')
+        .leftJoin(
+          Address,
+          'companyAddr',
+          'companyAddr.addressId = vc.physicalAddressId',
+        )
+        .leftJoin('vc.companyType', 'legacyCompanyType')
+        .select('vc.companyId', 'companyId')
+        .addSelect('vc.companyName', 'companyName')
+        .addSelect('companyAddr.city', 'physicalCity')
+        .addSelect('companyAddr.stateProvince', 'physicalStateProvince')
+        .addSelect(
+          `COALESCE(
+            NULLIF(
+              STUFF((
+                SELECT DISTINCT N', ' + ct.CompanyTypeName
+                FROM dbo.CompanyCompanyType cct
+                INNER JOIN dbo.CompanyType ct
+                  ON ct.CompanyTypeID = cct.CompanyTypeID
+                WHERE cct.CompanyID = vc.companyId
+                FOR XML PATH(''), TYPE
+              ).value('.', 'nvarchar(max)'), 1, 2, N''),
+              N''
+            ),
+            legacyCompanyType.companyTypeName
+          )`,
+          'companyTypeNames',
+        )
+        .andWhere('vc.companyId IS NOT NULL')
         .andWhere('vc.companyName IS NOT NULL')
         .distinct(true)
         .orderBy('vc.companyName', 'ASC')
-        .getRawMany<{ value: string }>(),
+        .addOrderBy('companyAddr.city', 'ASC')
+        .getRawMany<{
+          companyId: number | string;
+          companyName: string;
+          companyTypeNames: string | null;
+          physicalCity: string | null;
+          physicalStateProvince: string | null;
+        }>(),
       base
         .clone()
         .select('v.venueName', 'value')
@@ -1187,7 +1245,35 @@ export class DailySalesService {
     return {
       genres: mapValues(genres),
       tours: mapValues(tours),
-      companies: mapValues(companies),
+      companies: companies
+        .map((row) => ({
+          companyId: Number(row.companyId),
+          companyName: String(row.companyName ?? '').trim(),
+          companyTypeNames: String(row.companyTypeNames ?? '')
+            .split(',')
+            .map((name) => name.trim())
+            .filter((name, index, list) => {
+              if (!name) return false;
+              const key = name.toLowerCase();
+              return (
+                list.findIndex((candidate) => candidate.toLowerCase() === key) ===
+                index
+              );
+            }),
+          physicalCity:
+            row.physicalCity == null ? null : String(row.physicalCity).trim(),
+          physicalStateProvince:
+            row.physicalStateProvince == null
+              ? null
+              : String(row.physicalStateProvince).trim(),
+          dmaMarketName: null,
+        }))
+        .filter(
+          (company) =>
+            Number.isInteger(company.companyId) &&
+            company.companyId > 0 &&
+            company.companyName.length > 0,
+        ),
       venues: mapValues(venues),
       contacts: mapValues(contacts),
     };

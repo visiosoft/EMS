@@ -12,6 +12,7 @@ import {
   TabBar,
 } from './Primitives';
 import { Select2, Select2Multi, type Select2Option } from './Select2';
+import { companyToSelect2Options } from './companySelectOptions';
 import { PageSizeSelect } from './PageSizeSelect';
 import { invalidateDmaMarketsQueries } from '@/api/cacheHelpers';
 import { normalizeDmaMarketRows, patchWizardDmaMarketsCache } from '@/lib/projectWizardDma';
@@ -570,11 +571,7 @@ export function SettingsPage({
   });
 
   const companyOptions = useMemo<Select2Option[]>(
-    () =>
-      (lookupDepsQuery.data?.companies ?? []).map((company) => ({
-        value: String(company.companyId),
-        label: `${company.companyName} (#${company.companyId})`,
-      })),
+    () => companyToSelect2Options(lookupDepsQuery.data?.companies ?? []),
     [lookupDepsQuery.data?.companies],
   );
 

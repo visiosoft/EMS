@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { Modal, FormField, TabBar } from './Primitives';
 import { Select2, type Select2Option } from './Select2';
+import { companyToSelect2Option, companyToSelect2Options } from './companySelectOptions';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -254,14 +255,12 @@ function VenuesTab({
 
   const availableVenueOptions = useMemo(() => {
     const existingIds = new Set(venues.map((v) => v.venueCompanyId));
-    return (companiesQuery.data ?? [])
+    return companyToSelect2Options((companiesQuery.data ?? [])
       .filter(
         (c) =>
           (c.companyTypeName === 'Venue' || (c.companyTypeNames ?? []).includes('Venue')) &&
           !existingIds.has(c.companyId),
-      )
-      .sort((a, b) => a.companyName.localeCompare(b.companyName, undefined, { sensitivity: 'base' }))
-      .map((c) => ({ value: String(c.companyId), label: c.companyName }));
+      ));
   }, [companiesQuery.data, venues]);
 
   if (venuesQuery.isLoading) {
@@ -520,10 +519,8 @@ function ServiceProvidersTab({
 
   const availableCompanyOptions = useMemo(() => {
     const existingIds = new Set(providers.map((p) => p.providerCompanyId));
-    return (companiesQuery.data ?? [])
-      .filter((c) => !existingIds.has(c.companyId))
-      .sort((a, b) => a.companyName.localeCompare(b.companyName, undefined, { sensitivity: 'base' }))
-      .map((c) => ({ value: String(c.companyId), label: c.companyName }));
+    return companyToSelect2Options((companiesQuery.data ?? [])
+      .filter((c) => !existingIds.has(c.companyId)));
   }, [companiesQuery.data, providers]);
 
   if (providersQuery.isLoading) {
@@ -785,15 +782,7 @@ function EngagementProductionPanel({
   );
 
   const stagehandProviderOptions = useMemo((): Select2Option[] => {
-    const base = (stagehandProvidersQuery.data ?? [])
-      .slice()
-      .sort((a, b) =>
-        a.companyName.localeCompare(b.companyName, undefined, { sensitivity: 'base' }),
-      )
-      .map((company) => ({
-        value: String(company.companyId),
-        label: company.companyName,
-      }));
+    const base = companyToSelect2Options(stagehandProvidersQuery.data ?? []);
 
     const current = currentStagehandProviderId == null ? '' : String(currentStagehandProviderId);
     if (current && !base.some((option) => option.value === current)) {
@@ -822,17 +811,6 @@ function EngagementProductionPanel({
     onError: (e) => addToast(friendlyApiError(e, 'Could not save production details.'), 'error'),
   });
 
-  if (venueCompanyId == null || venueCompanyId < 1) {
-    return (
-      <div className="bg-card border border-border rounded-lg p-5">
-        <h3 className="text-sm font-semibold text-text-primary">Production</h3>
-        <p className="text-sm text-text-muted mt-3">
-          No venue is linked to this engagement.
-        </p>
-      </div>
-    );
-  }
-
   const venueDetailsMissing = venueDetailsQuery.data?.missing === true;
   const loading =
     venueDetailsQuery.isLoading ||
@@ -849,6 +827,18 @@ function EngagementProductionPanel({
     onDirtyChange?.(stagehandDirty);
     return () => onDirtyChange?.(false);
   }, [onDirtyChange, stagehandDirty]);
+
+  if (venueCompanyId == null || venueCompanyId < 1) {
+    return (
+      <div className="bg-card border border-border rounded-lg p-5">
+        <h3 className="text-sm font-semibold text-text-primary">Production</h3>
+        <p className="text-sm text-text-muted mt-3">
+          No venue is linked to this engagement.
+        </p>
+      </div>
+    );
+  }
+
   const stagehandSaveDisabled =
     !stagehandDirty ||
     loading ||
@@ -2121,10 +2111,7 @@ function EngagementMainInformationPanel({
 
   const venueOptions = useMemo(
     () =>
-      (lookups?.companies ?? [])
-        .filter(companyIsVenue)
-        .sort((a, b) => a.companyName.localeCompare(b.companyName, undefined, { sensitivity: 'base' }))
-        .map((company) => ({ value: String(company.companyId), label: company.companyName })),
+      companyToSelect2Options((lookups?.companies ?? []).filter(companyIsVenue)),
     [lookups?.companies],
   );
 
@@ -2140,20 +2127,23 @@ function EngagementMainInformationPanel({
   }, [currentPromoterProviderId]);
 
   const promoterPartnerOptions = useMemo((): Select2Option[] => {
-    const optionMap = new Map<string, string>();
+    const optionMap = new Map<string, Select2Option>();
     for (const company of (lookups?.companies ?? []).filter(companyIsPromoter)) {
-      optionMap.set(String(company.companyId), company.companyName);
+      const option = companyToSelect2Option(company);
+      optionMap.set(option.value, option);
     }
     for (const provider of currentPromoterProviders) {
-      optionMap.set(
-        String(provider.providerCompanyId),
-        provider.providerCompanyName ?? `Company #${provider.providerCompanyId}`,
-      );
+      const value = String(provider.providerCompanyId);
+      if (!optionMap.has(value)) {
+        optionMap.set(value, {
+          value,
+          label: provider.providerCompanyName ?? `Company #${provider.providerCompanyId}`,
+        });
+      }
     }
     return [
       { value: '', label: '---' },
-      ...Array.from(optionMap.entries())
-        .map(([value, label]) => ({ value, label }))
+      ...Array.from(optionMap.values())
         .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })),
     ];
   }, [currentPromoterProviders, lookups?.companies]);
@@ -2161,9 +2151,7 @@ function EngagementMainInformationPanel({
   const complexOptions = useMemo(
     () => [
       { value: '', label: '---' },
-      ...(complexesQuery.data ?? [])
-        .sort((a, b) => a.companyName.localeCompare(b.companyName, undefined, { sensitivity: 'base' }))
-        .map((company) => ({ value: String(company.companyId), label: company.companyName })),
+      ...companyToSelect2Options(complexesQuery.data ?? []),
     ],
     [complexesQuery.data],
   );
@@ -7035,7 +7023,7 @@ function EditEngagementModal({
   );
 
   const venueOptions = useMemo(
-    () => venueCompanies.map((v) => ({ value: String(v.companyId), label: v.companyName })),
+    () => companyToSelect2Options(venueCompanies),
     [venueCompanies],
   );
 
