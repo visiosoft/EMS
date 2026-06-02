@@ -23,19 +23,19 @@ export class EntraTokenVerifier {
   constructor(private readonly configService: ConfigService) {}
 
   async verify(token: string): Promise<EntraRequestUser> {
-    const tenantId = this.configService.get<string>('ENTRA_TENANT_ID');
-    const audience = this.configService.get<string>('ENTRA_API_AUDIENCE');
+    const tenantId = this.getConfigValue(
+      'ENTRA_TENANT_ID',
+      'VITE_ENTRA_TENANT_ID',
+    );
+    const audiences = this.getAudienceCandidates();
 
-    if (!tenantId || !audience) {
+    if (!tenantId || audiences.length === 0) {
       throw new ServiceUnavailableException(
-        'Admin user directory is not configured. Set ENTRA_TENANT_ID and ENTRA_API_AUDIENCE on the backend.',
+        'Entra user directory is not configured. Set ENTRA_TENANT_ID or VITE_ENTRA_TENANT_ID, and ENTRA_API_AUDIENCE or VITE_ENTRA_API_SCOPE on the backend.',
       );
     }
 
     const jwks = getJwks(tenantId);
-    const audiences = [audience, audience.replace(/^api:\/\//, '')].filter(
-      Boolean,
-    );
     const issuers = [
       `https://login.microsoftonline.com/${tenantId}/v2.0`,
       `https://sts.windows.net/${tenantId}/`,
@@ -80,13 +80,15 @@ export class EntraTokenVerifier {
   }
 
   buildTokenValidationDetail(token: string, error: unknown): string {
-    const tenantId = this.configService.get<string>('ENTRA_TENANT_ID', '');
-    const audience = this.configService.get<string>('ENTRA_API_AUDIENCE', '');
+    const tenantId = this.getConfigValue(
+      'ENTRA_TENANT_ID',
+      'VITE_ENTRA_TENANT_ID',
+    );
+    const expectedAudiences = this.getAudienceCandidates();
     const expectedIssuers = [
       `https://login.microsoftonline.com/${tenantId}/v2.0`,
       `https://sts.windows.net/${tenantId}/`,
     ];
-    const expectedAudiences = [audience, audience.replace(/^api:\/\//, '')];
 
     try {
       const decoded = decodeJwt(token) as JWTPayload & {
@@ -124,6 +126,38 @@ export class EntraTokenVerifier {
       ].join(' | ');
     }
   }
+
+  private getConfigValue(...keys: string[]): string {
+    for (const key of keys) {
+      const value = this.configService.get<string>(key)?.trim();
+      if (value) return value;
+    }
+    return '';
+  }
+
+  private getAudienceCandidates(): string[] {
+    const values = new Set<string>();
+    const add = (value: string) => {
+      const trimmed = value.trim();
+      if (!trimmed) return;
+      values.add(trimmed);
+      values.add(trimmed.replace(/^api:\/\//, ''));
+    };
+
+    add(this.getConfigValue('ENTRA_API_AUDIENCE', 'ENTRA_API_CLIENT_ID'));
+
+    const apiScope = this.getConfigValue(
+      'ENTRA_API_SCOPE',
+      'VITE_ENTRA_API_SCOPE',
+    );
+    add(apiScope);
+    const scopeAudience = apiScopeToAudience(apiScope);
+    if (scopeAudience) add(scopeAudience);
+
+    add(this.getConfigValue('VITE_ENTRA_CLIENT_ID'));
+
+    return [...values];
+  }
 }
 
 export function getBearerToken(
@@ -156,4 +190,13 @@ function getJwks(tenantId: string) {
   );
   jwksCache.set(tenantId, jwks);
   return jwks;
+}
+
+function apiScopeToAudience(scope: string): string {
+  const trimmed = scope.trim();
+  if (!trimmed.startsWith('api://')) return '';
+
+  const parts = trimmed.split('/');
+  if (parts.length <= 3) return trimmed;
+  return parts.slice(0, -1).join('/');
 }

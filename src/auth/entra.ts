@@ -1,6 +1,7 @@
 import {
     EventType,
     InteractionStatus,
+    InteractionRequiredAuthError,
     type AccountInfo,
     type AuthenticationResult,
     type Configuration,
@@ -10,6 +11,7 @@ import {
 const clientId = import.meta.env.VITE_ENTRA_CLIENT_ID;
 const tenantId = import.meta.env.VITE_ENTRA_TENANT_ID;
 const apiScope = import.meta.env.VITE_ENTRA_API_SCOPE?.trim();
+const graphScope = import.meta.env.VITE_ENTRA_GRAPH_SCOPE?.trim() || "User.ReadBasic.All";
 const redirectUriOverride = import.meta.env.VITE_ENTRA_REDIRECT_URI;
 const redirectPath = import.meta.env.VITE_ENTRA_REDIRECT_PATH ?? "/login";
 
@@ -32,7 +34,7 @@ const msalConfig: Configuration = {
 };
 
 export const loginRequest = {
-    scopes: ["openid", "profile", "email", "User.Read"],
+    scopes: Array.from(new Set(["openid", "profile", "email", "User.Read", graphScope])),
 };
 
 export const msalInstance = new PublicClientApplication(msalConfig);
@@ -114,6 +116,45 @@ export async function acquireApiAccessToken(account: AccountInfo): Promise<strin
         scopes: [apiScope],
     });
     return response.accessToken;
+}
+
+export async function acquireGraphAccessToken(account: AccountInfo): Promise<string | null> {
+    try {
+        const response = await msalInstance.acquireTokenSilent({
+            account,
+            scopes: [graphScope],
+        });
+        return response.accessToken;
+    } catch {
+        return null;
+    }
+}
+
+export async function requestGraphAccessToken(account: AccountInfo): Promise<string> {
+    const request = {
+        account,
+        scopes: [graphScope],
+        loginHint: account.username,
+    };
+
+    try {
+        const response = await msalInstance.acquireTokenSilent(request);
+        return response.accessToken;
+    } catch (error) {
+        if (!requiresInteractiveGraphConsent(error)) throw error;
+    }
+
+    const response = await msalInstance.acquireTokenPopup(request);
+    return response.accessToken;
+}
+
+function requiresInteractiveGraphConsent(error: unknown): boolean {
+    if (error instanceof InteractionRequiredAuthError) return true;
+    if (!(error instanceof Error)) return false;
+
+    return /interaction_required|consent_required|login_required|no_account|invalid_grant/i.test(
+        error.message,
+    );
 }
 
 export function isApiAccessTokenConfigured(): boolean {
