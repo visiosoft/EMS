@@ -1,53 +1,52 @@
-const CREATE_PROJECT_TITLE = 'create project';
-const VENUE_STATUS_LABEL = 'venue proposal status';
 const PENDING_STATUS = 'Pending';
+const CREATE_PROJECT_TITLE = 'Create Project';
+const VENUES_STEP_TEXT = 'STEP 6 OF 7';
+const VENUE_STATUS_LABEL = 'Venue proposal status';
 const PATCH_FLAG = '__iaeProjectVenuePendingDefaultInstalled';
+const HIDE_TIMER_FLAG = '__iaeProjectVenueStatusHideTimer';
 
 type ProjectVenuePendingWindow = Window & typeof globalThis & {
   [PATCH_FLAG]?: boolean;
+  [HIDE_TIMER_FLAG]?: number;
 };
 
-function normalizedText(node: Element | null | undefined): string {
-  return String(node?.textContent ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+function textOf(node: Element | null | undefined): string {
+  return String(node?.textContent ?? '').replace(/\s+/g, ' ').trim();
 }
 
-function findCreateProjectDialog(): HTMLElement | null {
-  const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'));
-  return dialogs.find((dialog) => normalizedText(dialog).includes(CREATE_PROJECT_TITLE)) ?? null;
+function lowerTextOf(node: Element | null | undefined): string {
+  return textOf(node).toLowerCase();
 }
 
-function findVenueStatusField(dialog: HTMLElement): HTMLElement | null {
-  const labels = Array.from(dialog.querySelectorAll<HTMLElement>('label'));
-  const label = labels.find((node) => normalizedText(node).includes(VENUE_STATUS_LABEL));
+function findVisibleCreateProjectDialog(): HTMLElement | null {
+  return (
+    Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]')).find((dialog) =>
+      lowerTextOf(dialog.querySelector('h1,h2,h3,[data-dialog-title],.dialog-title')).includes(
+        CREATE_PROJECT_TITLE.toLowerCase(),
+      ) || lowerTextOf(dialog).startsWith(CREATE_PROJECT_TITLE.toLowerCase()),
+    ) ?? null
+  );
+}
+
+function isVenuesStep(dialog: HTMLElement): boolean {
+  const stepText = textOf(dialog);
+  return stepText.includes(VENUES_STEP_TEXT) || /\bVenues\b/.test(stepText);
+}
+
+function findVenueProposalField(dialog: HTMLElement): HTMLElement | null {
+  const label = Array.from(dialog.querySelectorAll<HTMLElement>('label')).find((node) =>
+    textOf(node).toLowerCase().includes(VENUE_STATUS_LABEL.toLowerCase()),
+  );
   return label?.parentElement ?? null;
 }
 
-function visuallyRemoveField(field: HTMLElement) {
-  field.style.setProperty('display', 'none', 'important');
-}
-
-function clickPendingOption() {
-  const options = Array.from(document.querySelectorAll<HTMLElement>('.select2-results__option'));
-  const pending = options.find((option) => normalizedText(option) === PENDING_STATUS.toLowerCase());
-  pending?.click();
-}
-
-function syncProjectVenueStatus() {
-  const dialog = findCreateProjectDialog();
-  if (!dialog) return;
-
-  const field = findVenueStatusField(dialog);
+function hideVenueProposalFieldIfPresent() {
+  if (typeof document === 'undefined') return;
+  const dialog = findVisibleCreateProjectDialog();
+  if (!dialog || !isVenuesStep(dialog)) return;
+  const field = findVenueProposalField(dialog);
   if (!field) return;
-
-  visuallyRemoveField(field);
-
-  const trigger = field.querySelector<HTMLButtonElement>('.select2-selection');
-  if (trigger && !normalizedText(trigger).includes(PENDING_STATUS.toLowerCase()) && !trigger.disabled) {
-    trigger.click();
-    window.setTimeout(clickPendingOption, 0);
-    window.setTimeout(clickPendingOption, 25);
-    window.setTimeout(clickPendingOption, 100);
-  }
+  field.style.setProperty('display', 'none', 'important');
 }
 
 function pendingVenuePayload(body: unknown): unknown {
@@ -95,10 +94,16 @@ function installProjectCreatePayloadDefault() {
 function installProjectVenueStatusDefault() {
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
   installProjectCreatePayloadDefault();
-  const run = () => syncProjectVenueStatus();
-  run();
-  const observer = new MutationObserver(() => run());
-  observer.observe(document.body, { childList: true, subtree: true });
+
+  const patchedWindow = window as ProjectVenuePendingWindow;
+  if (patchedWindow[HIDE_TIMER_FLAG]) return;
+
+  // Do not use a body-wide MutationObserver here. The project wizard can render
+  // hundreds of DMA/venue nodes, and scanning the whole dialog on every mutation
+  // burns CPU while moving from Markets to Venues. A light timer is enough and
+  // only does work when the Create Project modal is actually on the Venues step.
+  hideVenueProposalFieldIfPresent();
+  patchedWindow[HIDE_TIMER_FLAG] = window.setInterval(hideVenueProposalFieldIfPresent, 500);
 }
 
 installProjectVenueStatusDefault();
