@@ -19,6 +19,7 @@ import {
   type ApiPerformanceSalesRow,
   type UpdateDailySalesPayload,
 } from '@/api/dailySalesApi';
+import { fetchAttractions } from '@/api/attractionToursApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { validateDailySalesPerformanceDates } from '@/lib/dailySalesPerformanceDateValidation';
 import { invalidateSalesCapacityRelatedQueries } from '@/api/cacheHelpers';
@@ -88,6 +89,9 @@ function ymdAddDays(ymd: string, delta: number): string {
 }
 
 const DEFAULT_DAILY_SALES_LEAD_SORT = { col: 'date' as const, dir: 'asc' as const };
+const DAILY_SALES_ATTRACTION_FILTER_LIMIT = 10_000;
+const EMPTY_DAILY_SALES_ROWS: ApiPerformanceSalesRow[] = [];
+const EMPTY_DAILY_SALES_ATTRACTIONS: Array<{ attractionId: number; attractionName: string }> = [];
 
 /** Sits on the top-right of the daily sales datatable card. */
 function ReportingAsOfBar({
@@ -801,7 +805,7 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
       iaeContactIds
         .map((v) => Number(v))
         .filter((n) => Number.isInteger(n) && n > 0),
-    [iaeContactIdsKey],
+    [iaeContactIds],
   );
 
   const salesQuery = useQuery({
@@ -834,13 +838,21 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
     enabled: perfDatesOk,
   });
 
+  const attractionFilterOptionsQuery = useQuery({
+    queryKey: ['daily-sales', 'attraction-filter-options'],
+    queryFn: () => fetchAttractions(0, DAILY_SALES_ATTRACTION_FILTER_LIMIT),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    placeholderData: (prev) => prev,
+  });
+
   const refetch = useCallback(async () => {
     await qc.invalidateQueries({ queryKey: ['daily-sales-by-perf'] });
     await invalidateSalesCapacityRelatedQueries(qc);
   }, [qc]);
 
   const pageData = salesQuery.data;
-  const rowsSource = pageData?.items ?? [];
+  const rowsSource = pageData?.items ?? EMPTY_DAILY_SALES_ROWS;
   const serverTotalSource = pageData?.total ?? 0;
   // Client-side city filter (no server param available).
   const rows = useMemo(() => {
@@ -854,12 +866,27 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
   const todayLabel = fmtDateHeader(todayDateStr);
   const yesterdayLabel = fmtDateHeader(yesterdayDateStr);
   const attractionOptions = useMemo(() => {
-    const list = pageData?.attractions ?? [];
+    const allAttractions = attractionFilterOptionsQuery.data?.data ?? [];
+    const fallbackAttractions = pageData?.attractions ?? EMPTY_DAILY_SALES_ATTRACTIONS;
+    const names = allAttractions.length > 0
+      ? allAttractions.map((a) => a.attractionName)
+      : fallbackAttractions.map((a) => a.attractionName);
+    const seen = new Set<string>();
+    const list = names
+      .map((name) => String(name ?? '').trim())
+      .filter((name) => {
+        if (!name) return false;
+        const key = name.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
     return [
       { value: '', label: 'All attractions' },
-      ...list.map((a) => ({ value: a.attractionName, label: a.attractionName })),
+      ...list.map((name) => ({ value: name, label: name })),
     ];
-  }, [pageData?.attractions]);
+  }, [attractionFilterOptionsQuery.data?.data, pageData?.attractions]);
   const iaeLookupsQuery = useQuery({
     queryKey: ['engagements', 'iae-contact-lookups', 'daily-sales-filter'],
     queryFn: fetchEngagementIaeContactLookups,

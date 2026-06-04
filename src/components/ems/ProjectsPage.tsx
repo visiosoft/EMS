@@ -72,7 +72,7 @@ import {
   fetchProjects,
   fetchOptionStatusMeta,
   fetchVenueStatusMeta,
-  PROJECT_CONVERSION_STAGE,
+
   PROJECT_STAGE_VALUES,
   projectStageDisplayLabel,
   updatePerformanceOption,
@@ -87,7 +87,7 @@ import type {
   ApiProjectListRow,
   ApiProjectVenue,
   OptionStatus,
-  ProjectOpeningPerformancePayload,
+
   ProjectStage,
   VenueStatus,
   CreateProjectResult,
@@ -119,8 +119,17 @@ import {
 import { fetchAllVenues, type ApiAllVenueRow } from '@/api/venueDirectoryApi';
 import { AddTourForm } from './AddTourForm';
 import { ENGAGEMENT_STATUS_ENUM } from './engagementFormConstants';
+import { createEngagement } from '@/api/engagementApi';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
+
+const getTodayDateString = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 function projectDetailToListRow(p: ApiProjectDetail): ApiProjectListRow {
   return {
@@ -151,23 +160,8 @@ const EMPTY_TOURS: ApiTourListRow[] = [];
 const EMPTY_CLASSES: ApiClass[] = [];
 const EMPTY_VENUE_TYPES: ApiVenueType[] = [];
 const EMPTY_TOUR_LIST: ApiTourListRow[] = [];
-const PROJECT_PERFORMANCE_STATUS_OPTIONS = ENGAGEMENT_STATUS_ENUM.map((status) => ({
-  value: status,
-  label: status,
-}));
+const ENGAGEMENT_STATUS_OPTIONS = ENGAGEMENT_STATUS_ENUM.map((s) => ({ value: s, label: s }));
 
-type ProjectOpeningPerformanceDraftRow = ProjectOpeningPerformancePayload & {
-  id: string;
-};
-
-function makeProjectOpeningPerformanceDraftRow(): ProjectOpeningPerformanceDraftRow {
-  return {
-    id: `opening-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    performanceDate: '',
-    performanceTime: '20:00',
-    performanceStatus: 'Public',
-  };
-}
 
 /** API returns one row per market name; label is market name only (no postal in UI). */
 function formatDmaPickerLabel(r: { dmaid?: number; marketName?: string | null }): string {
@@ -182,183 +176,7 @@ function formatVenueCapacity(cap: unknown): string {
   return n.toLocaleString();
 }
 
-function ProjectOpeningPerformancesModal({
-  saving,
-  onCancel,
-  onSave,
-}: {
-  saving: boolean;
-  onCancel: () => void;
-  onSave: (rows: ProjectOpeningPerformancePayload[]) => void;
-}) {
-  const [rows, setRows] = useState<ProjectOpeningPerformanceDraftRow[]>([
-    makeProjectOpeningPerformanceDraftRow(),
-  ]);
-  const [errors, setErrors] = useState<
-    Record<string, { date?: string; time?: string; duplicate?: string }>
-  >({});
 
-  const updateRow = (id: string, patch: Partial<ProjectOpeningPerformanceDraftRow>) => {
-    setRows((prev) => prev.map((row) => (row.id === id ? { ...row, ...patch } : row)));
-    setErrors((prev) => {
-      if (!prev[id]) return prev;
-      const next = { ...prev };
-      const rowErrors = { ...next[id] };
-      if (patch.performanceDate !== undefined) rowErrors.date = undefined;
-      if (patch.performanceTime !== undefined) rowErrors.time = undefined;
-      if (patch.performanceDate !== undefined || patch.performanceTime !== undefined) {
-        rowErrors.duplicate = undefined;
-      }
-      next[id] = rowErrors;
-      if (!rowErrors.date && !rowErrors.time && !rowErrors.duplicate) delete next[id];
-      return next;
-    });
-  };
-
-  const removeRow = (id: string) => {
-    setRows((prev) => (prev.length <= 1 ? prev : prev.filter((row) => row.id !== id)));
-    setErrors((prev) => {
-      if (!prev[id]) return prev;
-      const next = { ...prev };
-      delete next[id];
-      return next;
-    });
-  };
-
-  const submit = () => {
-    const nextErrors: Record<string, { date?: string; time?: string; duplicate?: string }> = {};
-    const seen = new Set<string>();
-    for (const row of rows) {
-      const rowErrors: { date?: string; time?: string; duplicate?: string } = {};
-      const date = row.performanceDate.trim();
-      const time = row.performanceTime.trim();
-      if (!date) rowErrors.date = 'Date is required.';
-      if (!time) rowErrors.time = 'Show time is required.';
-      if (date && time) {
-        const key = `${date}|${time}`;
-        if (seen.has(key)) {
-          rowErrors.duplicate = 'Another show already uses this exact date and time.';
-        }
-        seen.add(key);
-      }
-      if (rowErrors.date || rowErrors.time || rowErrors.duplicate) {
-        nextErrors[row.id] = rowErrors;
-      }
-    }
-    if (Object.keys(nextErrors).length > 0) {
-      setErrors(nextErrors);
-      return;
-    }
-    setErrors({});
-    onSave(
-      rows.map((row) => ({
-        performanceDate: row.performanceDate.trim(),
-        performanceTime: row.performanceTime.trim(),
-        performanceStatus: row.performanceStatus?.trim() || 'Public',
-      })),
-    );
-  };
-
-  return (
-    <Modal title="Opening show dates" onClose={() => !saving && onCancel()} width={900} allowContentOverflow>
-      <div className="space-y-4">
-        <p className="text-xs text-text-muted">
-          Add the opening show, or add multiple shows now. Each row needs a unique date and time.
-        </p>
-        <div className="max-h-[55vh] space-y-3 overflow-auto pr-1">
-          {rows.map((row, idx) => {
-            const rowErrors = errors[row.id] ?? {};
-            return (
-              <div key={row.id} className="rounded-lg border border-border bg-surface/60 p-3 sm:p-4">
-                <div className="mb-3 flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-                    Performance {idx + 1}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => removeRow(row.id)}
-                    disabled={saving || rows.length <= 1}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-text-secondary transition-colors hover:border-ems-coral/40 hover:bg-ems-coral-dim hover:text-ems-coral disabled:cursor-not-allowed disabled:opacity-40"
-                    title={rows.length <= 1 ? 'At least one performance row is required.' : 'Remove this row'}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" aria-hidden />
-                    Remove
-                  </button>
-                </div>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                  <FormField label="Show date" required>
-                    <input
-                      type="date"
-                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-text-primary shadow-sm outline-none transition-colors focus:border-ems-accent disabled:cursor-not-allowed disabled:opacity-60"
-                      value={row.performanceDate}
-                      onChange={(e) => updateRow(row.id, { performanceDate: e.target.value })}
-                      disabled={saving}
-                    />
-                    {rowErrors.date && <p className="mt-1 text-xs text-ems-coral">{rowErrors.date}</p>}
-                  </FormField>
-                  <FormField label="Show / curtain time" required>
-                    <input
-                      type="time"
-                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-text-primary shadow-sm outline-none transition-colors focus:border-ems-accent disabled:cursor-not-allowed disabled:opacity-60"
-                      value={row.performanceTime}
-                      onChange={(e) => updateRow(row.id, { performanceTime: e.target.value })}
-                      disabled={saving}
-                    />
-                    {rowErrors.time && <p className="mt-1 text-xs text-ems-coral">{rowErrors.time}</p>}
-                  </FormField>
-                  <FormField label="Status">
-                    <Select2
-                      options={PROJECT_PERFORMANCE_STATUS_OPTIONS}
-                      value={row.performanceStatus ?? 'Public'}
-                      onChange={(value) => updateRow(row.id, { performanceStatus: value })}
-                      placeholder="Select status..."
-                      disabled={saving}
-                    />
-                  </FormField>
-                </div>
-                {rowErrors.duplicate && <p className="mt-2 text-xs text-ems-coral">{rowErrors.duplicate}</p>}
-              </div>
-            );
-          })}
-        </div>
-        <button
-          type="button"
-          onClick={() => setRows((prev) => [...prev, makeProjectOpeningPerformanceDraftRow()])}
-          disabled={saving}
-          className="inline-flex items-center gap-2 rounded-md border border-border bg-elevated px-3 py-1.5 text-sm text-text-primary transition-colors hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <Plus className="h-4 w-4" aria-hidden />
-          Add another row
-        </button>
-        <div className="flex justify-end gap-2 border-t border-border pt-4">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={saving}
-            className="rounded-md px-4 py-2 text-sm text-text-secondary transition-colors hover:bg-hover hover:text-text-primary disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={saving}
-            className="inline-flex min-w-[9rem] items-center justify-center gap-2 rounded-md bg-ems-accent px-5 py-2 text-sm font-medium text-background transition-colors hover:bg-ems-accent/90 disabled:opacity-60"
-          >
-            {saving ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                Creating...
-              </>
-            ) : (
-              'Create engagement'
-            )}
-          </button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
 
 class CreateProjectWizardErrorBoundary extends React.Component<
   { children: React.ReactNode; step: number; onRecover: () => void; onClose?: () => void },
@@ -571,12 +389,11 @@ function ProjectInlineOverview({
 }) {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
-  const [confirmConversion, setConfirmConversion] = useState(false);
-  const [showOpeningShowsModal, setShowOpeningShowsModal] = useState(false);
+
   const [tourId, setTourId] = useState(project.tourId);
   const [projectStage, setProjectStage] = useState(project.projectStage);
-  const [tourStartDate, setTourStartDate] = useState(project.tourStartDate ?? '');
-  const [tourEndDate, setTourEndDate] = useState(project.tourEndDate ?? '');
+  const [tourStartDate, setTourStartDate] = useState(project.tourStartDate ?? getTodayDateString());
+  const [tourEndDate, setTourEndDate] = useState(project.tourEndDate ?? getTodayDateString());
   const [talentAgencyCompanyId, setTalentAgencyCompanyId] = useState<number | null>(
     project.talentAgencyCompanyId ?? null,
   );
@@ -594,8 +411,8 @@ function ProjectInlineOverview({
   useEffect(() => {
     setTourId(project.tourId);
     setProjectStage(project.projectStage);
-    setTourStartDate(project.tourStartDate ?? '');
-    setTourEndDate(project.tourEndDate ?? '');
+    setTourStartDate(project.tourStartDate ?? getTodayDateString());
+    setTourEndDate(project.tourEndDate ?? getTodayDateString());
     setTalentAgencyCompanyId(project.talentAgencyCompanyId ?? null);
     setSelectedDmaIds(project.dmaIds ?? []);
     setDmaDraftIds(project.dmaIds ?? []);
@@ -662,8 +479,8 @@ function ProjectInlineOverview({
     const nextTourId = v ? Number(v) : 0;
     setTourId(nextTourId);
     const nextTour = tours.find((t) => t.tourId === nextTourId);
-    setTourStartDate(nextTour?.tourStartDate ?? '');
-    setTourEndDate(nextTour?.tourEndDate ?? '');
+    setTourStartDate(nextTour?.tourStartDate ?? getTodayDateString());
+    setTourEndDate(nextTour?.tourEndDate ?? getTodayDateString());
     setTalentAgencyCompanyId(
       nextTour?.talentAgencyCompanyId != null && nextTour.talentAgencyCompanyId >= 1
         ? nextTour.talentAgencyCompanyId
@@ -717,8 +534,8 @@ function ProjectInlineOverview({
   const discard = () => {
     setTourId(project.tourId);
     setProjectStage(project.projectStage);
-    setTourStartDate(project.tourStartDate ?? '');
-    setTourEndDate(project.tourEndDate ?? '');
+    setTourStartDate(project.tourStartDate ?? getTodayDateString());
+    setTourEndDate(project.tourEndDate ?? getTodayDateString());
     setTalentAgencyCompanyId(project.talentAgencyCompanyId ?? null);
     setSelectedDmaIds(project.dmaIds ?? []);
     setDmaDraftIds(project.dmaIds ?? []);
@@ -789,15 +606,8 @@ function ProjectInlineOverview({
         tourEndDate: tourEndDate.trim(),
         projectStage: projectStage as ProjectStage,
         dmaIds: selectedDmaIds,
-        openingPerformances,
       });
-      setDirty(false);
-      if (result.converted && result.engagementId != null) {
-        await onUpdated();
-        addToast('Project converted to an engagement.', 'success');
-        onOpenEngagement(result.engagementId);
-        return;
-      }
+
       if (scopeChanged) {
         onGoToVenues();
       }
@@ -818,184 +628,9 @@ function ProjectInlineOverview({
   };
 
   const requestSave = () => {
-    if (projectStage === PROJECT_CONVERSION_STAGE) {
-      setConfirmConversion(true);
-      return;
-    }
     void handleSave();
   };
 
-  if (project.isReadOnly && project.convertedEngagementId != null) {
-    const readOnlyDmaLabels = (project.dmaIds ?? []).map((id) => {
-      const market = dmaMarkets.find((row) => row.dmaid === id);
-      return market ? formatDmaPickerLabel(market) : `DMA #${id}`;
-    });
-    const hasLockedTourDates =
-      Boolean(project.tourStartDate?.trim()) && Boolean(project.tourEndDate?.trim());
-
-    return (
-      <div className="space-y-5">
-        <div className="flex flex-col gap-3 rounded-lg border border-ems-accent/30 bg-ems-accent/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-start gap-2.5">
-            <Lock className="mt-0.5 h-4 w-4 shrink-0 text-ems-accent" aria-hidden />
-            <div>
-              <p className="text-sm font-medium text-text-primary">View-only project</p>
-              <p className="text-xs text-text-secondary">
-                This project has created an engagement and can no longer be edited.
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => onOpenEngagement(project.convertedEngagementId as number)}
-            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md bg-ems-accent px-3 py-2 text-xs font-medium text-background hover:bg-ems-accent/85"
-          >
-            Open engagement <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-          </button>
-        </div>
-        <div className="text-sm space-y-6 pb-2">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
-            <div>
-              <span className="text-xs text-text-muted">Attraction</span>
-              <div className="text-sm text-text-primary mt-0.5 font-medium">
-                {project.attractionName ?? '—'}
-              </div>
-            </div>
-            <div>
-              <span className="text-xs text-text-muted">Tour</span>
-              <div className="text-sm text-text-primary mt-0.5 font-medium">
-                {project.tourName ?? '—'}
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
-            <FormField label="Talent Agency">
-              <div className="w-full min-w-0 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary">
-                {project.talentAgencyCompanyName ?? '—'}
-              </div>
-            </FormField>
-            <FormField label="Talent Agents (info only)">
-              <div className="w-full min-w-0 bg-surface border border-border rounded px-3 py-2 text-sm text-text-primary">
-                {effectiveTalentAgencyId == null
-                  ? 'No talent agency assigned.'
-                  : talentAgentContactsQuery.isPending
-                    ? 'Loading contacts…'
-                    : (
-                      <div className="space-y-2">
-                        <p className="text-[11px] text-text-secondary">
-                          Selected for this tour:{' '}
-                          <span className="font-medium text-text-primary">
-                            {selectedTourTalentAgentLabels.length}
-                          </span>{' '}
-                          of{' '}
-                          <span className="font-medium text-text-primary">
-                            {talentAgentOptions.length}
-                          </span>{' '}
-                          agency contact{talentAgentOptions.length === 1 ? '' : 's'}.
-                        </p>
-                        <div>
-                          <p className="text-[11px] font-medium text-text-secondary mb-1">
-                            Tour-selected talent agents
-                          </p>
-                          {selectedTourTalentAgentLabels.length > 0 ? (
-                            <div className="flex max-h-28 flex-wrap gap-2 overflow-y-auto pr-1">
-                              {selectedTourTalentAgentLabels.map((label, index) => (
-                                <span
-                                  key={`tour-agent-${index}-${label}`}
-                                  className="inline-flex items-center rounded-md border border-ems-accent/35 bg-ems-accent/10 px-2 py-1 text-xs text-text-primary"
-                                >
-                                  {label}
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="text-[11px] text-text-muted">
-                              No specific talent agents are selected on this tour.
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    )}
-              </div>
-            </FormField>
-            <FormField label="Tour Start Date">
-              <div className="w-full min-w-0 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary">
-                {project.tourStartDate ?? '—'}
-              </div>
-            </FormField>
-            <FormField label="Tour End Date">
-              <div className="w-full min-w-0 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary">
-                {project.tourEndDate ?? '—'}
-              </div>
-            </FormField>
-            {hasLockedTourDates && (
-              <p className="sm:col-span-2 text-[11px] text-text-muted">
-                Dates already exist on this tour, so they are locked.
-              </p>
-            )}
-            <div className="sm:col-span-2 min-w-0">
-              <span className="text-xs text-text-muted">Markets (DMA)</span>
-              <div className="mt-1.5 rounded-lg border border-border bg-surface px-3 py-3">
-                {readOnlyDmaLabels.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {readOnlyDmaLabels.map((label) => (
-                      <span
-                        key={label}
-                        className="inline-flex items-center rounded-full border border-ems-accent/40 bg-ems-accent/10 px-2.5 py-1 text-xs text-text-primary"
-                      >
-                        {label}
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-text-muted">No markets selected.</p>
-                )}
-                <div className="mt-2 flex items-center justify-between">
-                  <p className="text-[11px] text-text-muted tabular-nums">
-                    {readOnlyDmaLabels.length} market{readOnlyDmaLabels.length === 1 ? '' : 's'} selected
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
-            <div>
-              <span className="text-xs text-text-muted">Project stage</span>
-              <div className="mt-0.5 text-sm text-text-primary">
-                {project.projectStage || '—'}
-              </div>
-            </div>
-            <div>
-              <span className="text-xs text-text-muted">Created by</span>
-              <div className="mt-0.5 w-full min-w-0 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary">
-                {project.createdBy ?? '—'}
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-4">
-            <div>
-              <span className="text-xs text-text-muted">Created date</span>
-              <div className="text-sm text-text-primary mt-0.5">
-                {project.createdDate ? new Date(project.createdDate).toLocaleDateString() : '—'}
-              </div>
-            </div>
-            <div>
-              <span className="text-xs text-text-muted">Venue proposals</span>
-              <div className="text-sm text-text-primary mt-0.5 flex items-center gap-2">
-                <span className="font-mono tabular-nums">{project.venues.length}</span>
-                <button type="button" onClick={onGoToVenues} className="text-ems-accent text-xs hover:underline">
-                  Open Venues tab
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="relative">
@@ -1310,62 +945,6 @@ function ProjectInlineOverview({
         </div>
       )}
 
-      <AlertDialog
-        open={confirmConversion}
-        onOpenChange={(open) => {
-          if (!saving) setConfirmConversion(open);
-        }}
-      >
-        <AlertDialogContent className="z-[360] border-border bg-card text-text-primary shadow-xl sm:max-w-md">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-text-primary font-semibold text-lg">
-              Create engagement and lock this project?
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-text-secondary text-sm leading-relaxed">
-              Setting the project stage to <span className="font-medium text-text-primary">Confirmed</span> will
-              automatically create an engagement. After it is created, this project is view-only and its
-              details cannot be updated.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="gap-2 sm:gap-2">
-            <AlertDialogCancel disabled={saving} className="border-border bg-elevated text-text-primary hover:bg-hover mt-0">
-              Keep editing
-            </AlertDialogCancel>
-            <Button
-              type="button"
-              disabled={saving}
-              className="bg-ems-accent text-background hover:bg-ems-accent/90 sm:ml-0"
-            onClick={() => {
-              setConfirmConversion(false);
-              setShowOpeningShowsModal(true);
-            }}
-          >
-              Continue
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {showOpeningShowsModal && (
-        <ProjectOpeningPerformancesModal
-          saving={saving}
-          onCancel={() => setShowOpeningShowsModal(false)}
-          onSave={(rows) => {
-            setShowOpeningShowsModal(false);
-            void handleSave(rows);
-          }}
-        />
-      )}
-
-      {saving && projectStage === PROJECT_CONVERSION_STAGE && (
-        <div className="absolute inset-0 z-[350] flex flex-col items-center justify-center gap-3 rounded-md bg-card/90 backdrop-blur-[2px]" role="status" aria-live="polite">
-          <Loader2 className="h-8 w-8 animate-spin text-ems-accent" aria-hidden />
-          <div className="text-center">
-            <p className="text-sm font-medium text-text-primary">Creating engagement...</p>
-            <p className="text-xs text-text-secondary">Your project will become view-only when this completes.</p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1886,6 +1465,267 @@ function AddPerformanceOptionForm({
 
 // ─── Venue Proposal Row ───────────────────────────────────────────────────────
 
+// ─── Venue → Engagement confirmation modal ───────────────────────────────────
+
+// ─── Venue → Engagement confirmation modal ───────────────────────────────────
+
+function VenueConfirmEngagementModal({
+  venue,
+  projectId,
+  attractionId,
+  attractionName,
+  tourId,
+  tourName,
+  onCreated,
+  onCancel,
+  addToast,
+}: {
+  venue: ApiProjectVenue;
+  projectId: number;
+  attractionId?: number | null;
+  attractionName: string | null;
+  tourId: number;
+  tourName: string | null;
+  onCreated: (engagementId: number) => void;
+  onCancel: () => void;
+  addToast: Props['addToast'];
+}) {
+  const [engagementStatus, setEngagementStatus] = useState('Unknown');
+  const [openingDate, setOpeningDate] = useState(getTodayDateString());
+  const [openingTime, setOpeningTime] = useState('20:00');
+  const [submitting, setSubmitting] = useState(false);
+
+  const [selectedAttractionId, setSelectedAttractionId] = useState<string>(
+    attractionId ? String(attractionId) : '',
+  );
+  const [selectedTourId, setSelectedTourId] = useState<string>(
+    tourId ? String(tourId) : '',
+  );
+  const [attractionChanged, setAttractionChanged] = useState(false);
+
+  const lookupLimit = 8000;
+  const attractionsQuery = useQuery({
+    queryKey: ['attractions', 'picker', 0, lookupLimit],
+    queryFn: async () => (await fetchAttractions(0, lookupLimit)).data,
+    staleTime: 60_000,
+  });
+
+  const toursQuery = useQuery({
+    queryKey: ['tours', 'picker', 0, lookupLimit],
+    queryFn: async () => (await fetchTours(0, lookupLimit)).data,
+    staleTime: 60_000,
+  });
+
+  const attractionOptions = useMemo(() => {
+    const list = attractionsQuery.data ?? [];
+    return list.map((a) => ({
+      value: String(a.attractionId),
+      label: a.attractionName ?? `Attraction #${a.attractionId}`,
+    }));
+  }, [attractionsQuery.data]);
+
+  const toursOptions = useMemo(() => {
+    const list = toursQuery.data ?? [];
+    const filtered = selectedAttractionId
+      ? list.filter((t) => String(t.attractionId) === selectedAttractionId)
+      : list;
+    return filtered.map((t) => ({
+      value: String(t.tourId),
+      label: t.tourName ?? `Tour #${t.tourId}`,
+    }));
+  }, [toursQuery.data, selectedAttractionId]);
+
+  const handleAttractionChange = (newAttractionId: string) => {
+    setSelectedAttractionId(newAttractionId);
+    setAttractionChanged(true);
+    const toursList = toursQuery.data ?? [];
+    const tourObj = toursList.find((t) => String(t.tourId) === selectedTourId);
+    if (!tourObj || String(tourObj.attractionId) !== newAttractionId) {
+      const firstTour = toursList.find((t) => String(t.attractionId) === newAttractionId);
+      setSelectedTourId(firstTour ? String(firstTour.tourId) : '');
+    }
+  };
+
+  const venueDisplayName = venue.venueCompanyName ?? venue.venueName ?? 'Unknown venue';
+  const venueDmaLabel = venue.venueDmaMarketName?.trim() || 'Not set';
+
+  const canSubmit =
+    !attractionsQuery.isPending &&
+    !toursQuery.isPending &&
+    openingDate.trim().length > 0 &&
+    openingTime.trim().length > 0 &&
+    engagementStatus.trim().length > 0 &&
+    selectedTourId.trim().length > 0;
+
+  const handleSubmit = async () => {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    try {
+      // 1. Create engagement
+      const { engagementId } = await createEngagement({
+        engagementStatus,
+        openingShowDate: openingDate.trim(),
+        openingShowTime: openingTime.trim(),
+        tourId: Number(selectedTourId),
+        primaryVenueCompanyId: venue.venueCompanyId,
+      });
+
+      // 2. Confirm venue status
+      try {
+        await updateProjectVenue(projectId, venue.engagementProjectVenueId, {
+          venueStatus: 'Confirmed' as VenueStatus,
+        });
+      } catch (statusErr) {
+        // Engagement was created but venue status update failed — still report success for engagement
+        addToast(
+          'Engagement created but venue status could not be updated. Please update manually.',
+          'warning',
+        );
+      }
+
+      addToast('Engagement created and venue confirmed successfully.', 'success');
+      onCreated(engagementId);
+    } catch (e) {
+      addToast(friendlyApiError(e, 'Could not create engagement.'), 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const inputCls =
+    'w-full min-w-0 rounded-md border border-border bg-background px-3 py-2 text-sm text-text-primary shadow-sm outline-none transition-colors focus:border-ems-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+  return (
+    <Modal
+      title="Create Engagement"
+      onClose={() => !submitting && onCancel()}
+      width={640}
+      allowContentOverflow
+    >
+      <div className="space-y-5">
+        <p className="text-xs text-text-secondary leading-relaxed">
+          Confirming this venue will create a new engagement. Please fill in the opening show details below.
+        </p>
+
+        {/* Pre-populated venue & DMA */}
+        <div className="rounded-lg border border-ems-accent/20 bg-ems-accent/5 px-4 py-3 space-y-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">Venue</span>
+              <p className="text-sm font-medium text-text-primary mt-0.5">{venueDisplayName}</p>
+            </div>
+            <div>
+              <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">DMA Market</span>
+              <p className="text-sm font-medium text-text-primary mt-0.5">{venueDmaLabel}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Attraction & Tour Selection (editable) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Attraction" required>
+            <Select2
+              options={attractionOptions}
+              value={selectedAttractionId}
+              onChange={handleAttractionChange}
+              placeholder="Select attraction…"
+              disabled={submitting}
+              loading={attractionsQuery.isPending}
+            />
+          </FormField>
+          <FormField label="Tour" required>
+            <Select2
+              options={toursOptions}
+              value={selectedTourId}
+              onChange={setSelectedTourId}
+              placeholder="Select tour…"
+              disabled={submitting || !attractionChanged}
+              loading={toursQuery.isPending}
+            />
+          </FormField>
+        </div>
+
+        {/* Opening show date & time */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Opening Show Date" required>
+            <input
+              type="date"
+              className={inputCls}
+              value={openingDate}
+              onChange={(e) => setOpeningDate(e.target.value)}
+              disabled={submitting}
+            />
+          </FormField>
+          <FormField label="Opening Show Time" required>
+            <input
+              type="time"
+              className={inputCls}
+              value={openingTime}
+              onChange={(e) => setOpeningTime(e.target.value)}
+              disabled={submitting}
+            />
+          </FormField>
+        </div>
+
+        {/* Engagement status */}
+        <FormField label="Engagement Status" required>
+          <Select2
+            options={ENGAGEMENT_STATUS_OPTIONS}
+            value={engagementStatus}
+            onChange={setEngagementStatus}
+            placeholder="Select status…"
+            disabled={submitting}
+          />
+        </FormField>
+
+        {/* Actions */}
+        <div className="flex justify-end gap-3 border-t border-border pt-4">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={submitting}
+            className="rounded-md px-4 py-2 text-sm text-text-secondary transition-colors hover:bg-hover hover:text-text-primary disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSubmit()}
+            disabled={!canSubmit || submitting}
+            className="inline-flex min-w-[10rem] items-center justify-center gap-2 rounded-md bg-ems-accent px-5 py-2 text-sm font-medium text-background transition-colors hover:bg-ems-accent/90 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {submitting ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                Creating…
+              </>
+            ) : (
+              'Create Engagement'
+            )}
+          </button>
+        </div>
+
+        {/* Full overlay loader */}
+        {submitting && (
+          <div
+            className="absolute inset-0 z-[1] flex flex-col items-center justify-center gap-3 rounded-lg bg-card/95 backdrop-blur-[2px]"
+            role="status"
+            aria-live="polite"
+          >
+            <Loader2 className="h-8 w-8 animate-spin text-ems-accent" aria-hidden />
+            <div className="text-center">
+              <p className="text-sm font-medium text-text-primary">Creating engagement…</p>
+              <p className="text-xs text-text-secondary">Confirming venue and setting up the engagement.</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+// ─── Venue Proposal Row ───────────────────────────────────────────────────────
+
 function VenueProposalRow({
   venue,
   projectId,
@@ -1893,6 +1733,11 @@ function VenueProposalRow({
   addToast,
   scopeMismatchReason,
   readOnly = false,
+  attractionId,
+  attractionName,
+  tourId,
+  tourName,
+  onOpenEngagement,
 }: {
   venue: ApiProjectVenue;
   projectId: number;
@@ -1900,6 +1745,11 @@ function VenueProposalRow({
   addToast: Props['addToast'];
   scopeMismatchReason?: string;
   readOnly?: boolean;
+  attractionId?: number | null;
+  attractionName?: string | null;
+  tourId?: number;
+  tourName?: string | null;
+  onOpenEngagement?: (engagementId: number) => void;
 }) {
   const [showAddOpt, setShowAddOpt] = useState(false);
   const [editingStatus, setEditingStatus] = useState(false);
@@ -1907,6 +1757,7 @@ function VenueProposalRow({
   const [statusSaving, setStatusSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
+  const [showEngagementModal, setShowEngagementModal] = useState(false);
 
   const venueStatusStrings = useResolvedVenueStatusStrings(venueStatus);
   const venueStatusOptions = useMemo(
@@ -1921,6 +1772,19 @@ function VenueProposalRow({
   }, [venue.venueStatus]);
 
   const handleStatusSave = async () => {
+    if (venue.venueStatus === 'Confirmed' && venueStatus !== 'Confirmed') {
+      addToast("Once confirmed, a venue's status cannot be changed.", 'error');
+      setVenueStatus('Confirmed');
+      setEditingStatus(false);
+      return;
+    }
+
+    // Intercept "Confirmed" status → open engagement creation modal
+    if (venueStatus === 'Confirmed' && venue.venueStatus !== 'Confirmed' && tourId != null) {
+      setShowEngagementModal(true);
+      return;
+    }
+
     setStatusSaving(true);
     let ok = false;
     try {
@@ -2003,18 +1867,28 @@ function VenueProposalRow({
                   </button>
                 </div>
               ) : !readOnly ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setVenueStatus(venue.venueStatus);
-                    setEditingStatus(true);
-                  }}
-                  title="Click to change status"
-                >
-                  <StatusBadge status={venue.venueStatus} />
-                </button>
+                <div className="flex items-center gap-1.5">
+                  {(statusSaving || showEngagementModal) && (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-ems-accent" />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVenueStatus(venue.venueStatus);
+                      setEditingStatus(true);
+                    }}
+                    title="Click to change status"
+                  >
+                    <StatusBadge status={venue.venueStatus} />
+                  </button>
+                </div>
               ) : (
-                <StatusBadge status={venue.venueStatus} />
+                <div className="flex items-center gap-1.5">
+                  {(statusSaving || showEngagementModal) && (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-ems-accent" />
+                  )}
+                  <StatusBadge status={venue.venueStatus} />
+                </div>
               )}
               {!readOnly && (
                 <button type="button" onClick={() => setConfirmRemoveOpen(true)} disabled={deleting}
@@ -2100,16 +1974,54 @@ function VenueProposalRow({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {showEngagementModal && tourId != null && (
+        <VenueConfirmEngagementModal
+          venue={venue}
+          projectId={projectId}
+          attractionId={attractionId}
+          attractionName={attractionName ?? null}
+          tourId={tourId}
+          tourName={tourName ?? null}
+          onCreated={(engagementId) => {
+            setShowEngagementModal(false);
+            setEditingStatus(false);
+            onOpenEngagement?.(engagementId);
+            void onRefresh();
+          }}
+          onCancel={() => {
+            setShowEngagementModal(false);
+            setVenueStatus(venue.venueStatus);
+          }}
+          addToast={addToast}
+        />
+      )}
     </>
   );
 }
 
 // ─── Add Venue form ───────────────────────────────────────────────────────────
 
+function cleanDmaMarketLabel(value: string | null | undefined): string {
+  return String(value ?? '')
+    .trim()
+    .replace(/[.,:;]+$/g, '')
+    .trim();
+}
+
+function dmaMarketFamilyKey(value: string | null | undefined): string {
+  return cleanDmaMarketLabel(value)
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
 function AddVenueForm({
   projectId,
   existingIds,
   availableVenueRows,
+  dmaMarketRows,
+  loadingMarkets = false,
+  loadingVenues = false,
   onSaved,
   onCancel,
   addToast,
@@ -2117,52 +2029,66 @@ function AddVenueForm({
   projectId: number;
   existingIds: Set<number>;
   availableVenueRows: ApiAllVenueRow[];
+  dmaMarketRows: ApiDmaMarket[];
+  loadingMarkets?: boolean;
+  loadingVenues?: boolean;
   onSaved: () => void | Promise<void>;
   onCancel: () => void;
   addToast: Props['addToast'];
 }) {
+  const [selectedMarket, setSelectedMarket] = useState('');
   const [venueId, setVenueId] = useState('');
-  const [venueStatus, setVenueStatus] = useState<string>('');
   const [saving, setSaving] = useState(false);
 
-  const venueStatusStrings = useResolvedVenueStatusStrings(venueStatus);
-  const venueStatusOptions = useMemo(
-    () => toSelectOptionsFromStrings(venueStatusStrings),
-    [venueStatusStrings],
-  );
-
-  useEffect(() => {
-    if (venueStatus) return;
-    const first = venueStatusOptions[0]?.value;
-    if (first) setVenueStatus(first);
-  }, [venueStatus, venueStatusOptions]);
+  const marketOptions = useMemo(() => {
+    const byKey = new Map<string, string>();
+    for (const row of dmaMarketRows) {
+      const label = cleanDmaMarketLabel(row.marketName);
+      const key = dmaMarketFamilyKey(row.marketName);
+      if (!key || !label) continue;
+      const existing = byKey.get(key);
+      if (!existing || label.localeCompare(existing, undefined, { sensitivity: 'base' }) < 0) {
+        byKey.set(key, label);
+      }
+    }
+    return [...byKey.entries()]
+      .sort(([, a], [, b]) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+      .map(([key, label]) => ({
+        value: key,
+        label,
+        searchText: label,
+      }));
+  }, [dmaMarketRows]);
 
   const venueOptions = useMemo(() => {
+    if (!selectedMarket) return [];
     return availableVenueRows
-      .filter((v) => !existingIds.has(v.companyId))
+      .filter((v) => !existingIds.has(v.companyId) && dmaMarketFamilyKey(v.dmaMarketName) === selectedMarket)
       .sort((a, b) => (a.venueName ?? '').localeCompare(b.venueName ?? '', undefined, { sensitivity: 'base' }))
       .map((v) => {
         const complex = (v.entertainmentComplexNames ?? '').trim();
-        const market = (v.dmaMarketName ?? '').trim();
+        const market = cleanDmaMarketLabel(v.dmaMarketName);
         const details = [
-          market ? `DMA: ${market}` : null,
           complex ? `Complex: ${complex}` : null,
           Number.isFinite(v.seatingCapacity) ? `Capacity: ${v.seatingCapacity.toLocaleString()}` : null,
         ].filter(Boolean).join(' · ');
         return {
           value: String(v.companyId),
-          label: details ? `${v.venueName} (${details})` : v.venueName,
+          label: v.venueName,
+          description: details || undefined,
+          rightText: market ? `DMA: ${market}` : undefined,
+          searchText: [v.venueName, complex, market, v.venueTypeName].filter(Boolean).join(' '),
         };
       });
-  }, [availableVenueRows, existingIds]);
+  }, [availableVenueRows, existingIds, selectedMarket]);
 
   const handleSave = async () => {
+    if (!selectedMarket) { addToast('Select a market.', 'warning'); return; }
     if (!venueId) { addToast('Select a venue.', 'warning'); return; }
-    if (!venueStatus) { addToast('Select a venue status.', 'warning'); return; }
     setSaving(true);
     let ok = false;
     try {
-      await createProjectVenue(projectId, { venueCompanyId: Number(venueId), venueStatus: venueStatus as VenueStatus });
+      await createProjectVenue(projectId, { venueCompanyId: Number(venueId), venueStatus: 'Pending' as VenueStatus });
       await onSaved();
       ok = true;
     } catch (e) {
@@ -2176,22 +2102,33 @@ function AddVenueForm({
   return (
     <div className="relative bg-elevated border border-border rounded-lg p-4 space-y-3">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <FormField label="Venue" required>
+        <FormField label="Market (DMA)" required>
           <Select2
-            options={[{ value: '', label: 'Select venue…' }, ...venueOptions]}
-            value={venueId}
-            onChange={setVenueId}
-            placeholder={venueOptions.length ? 'Select venue…' : 'No eligible venues in current filters'}
-            disabled={venueOptions.length === 0 || saving}
+            options={marketOptions}
+            value={selectedMarket}
+            onChange={(val) => {
+              setSelectedMarket(val);
+              setVenueId('');
+            }}
+            placeholder={loadingMarkets ? 'Loading markets…' : 'Select market…'}
+            disabled={saving || loadingMarkets}
           />
         </FormField>
-        <FormField label="Venue Status" required>
+        <FormField label="Venue" required>
           <Select2
-            options={venueStatusOptions}
-            value={venueStatus}
-            onChange={setVenueStatus}
-            disabled={venueStatusOptions.length === 0 || saving}
-            placeholder={venueStatusOptions.length ? 'Select status' : 'Loading…'}
+            options={venueOptions}
+            value={venueId}
+            onChange={setVenueId}
+            placeholder={
+              !selectedMarket
+                ? 'Select a market first…'
+                : loadingVenues
+                  ? 'Loading venues…'
+                : venueOptions.length
+                  ? 'Select venue…'
+                  : 'No venues found in this market'
+            }
+            disabled={!selectedMarket || loadingVenues || saving}
           />
         </FormField>
       </div>
@@ -2256,7 +2193,7 @@ function ProjectDetailDrawer({
   }, [qc, projectId]);
 
   const project = detailQuery.data;
-  const venues = project?.venues ?? [];
+  const venues = useMemo(() => project?.venues ?? [], [project?.venues]);
   const existingVenueIds = useMemo(() => new Set(venues.map((v) => v.venueCompanyId)), [venues]);
   const selectedTourForProject = useMemo(
     () => (project ? (toursQuery.data ?? []).find((t) => t.tourId === project.tourId) : undefined),
@@ -2264,7 +2201,7 @@ function ProjectDetailDrawer({
   );
   const preferredVenueTypeId = selectedTourForProject?.venueTypePreferenceId ?? null;
   const preferredVenueTypeName = selectedTourForProject?.venueTypePreferenceName ?? null;
-  const projectDmaIds = project?.dmaIds ?? [];
+  const projectDmaIds = useMemo(() => project?.dmaIds ?? [], [project?.dmaIds]);
   const projectDmaKey = useMemo(
     () => [...projectDmaIds].sort((a, b) => a - b).join(','),
     [projectDmaIds],
@@ -2279,6 +2216,24 @@ function ProjectDetailDrawer({
         })
       ).data,
     enabled: Boolean(project) && (activeTab === 'Venues' || showAddVenue) && projectDmaIds.length > 0,
+    staleTime: 30_000,
+  });
+  const addVenueMarketsQuery = useQuery({
+    queryKey: PROJECT_WIZARD_DMA_QUERY_KEY,
+    queryFn: fetchAllDmaMarketsForWizard,
+    enabled: Boolean(project) && activeTab === 'Venues' && showAddVenue && !project?.isReadOnly,
+    staleTime: 60_000,
+  });
+  const addVenueDirectoryQuery = useQuery({
+    queryKey: ['project-detail', 'add-venue', 'all-venues'],
+    queryFn: async () =>
+      (
+        await fetchAllVenues(0, PROJECT_LOOKUP_LIMIT, {
+          sortBy: 'venue',
+          sortDir: 'asc',
+        })
+      ).data,
+    enabled: Boolean(project) && activeTab === 'Venues' && showAddVenue && !project?.isReadOnly,
     staleTime: 30_000,
   });
   const eligibleVenueRows = useMemo(() => {
@@ -2404,7 +2359,7 @@ function ProjectDetailDrawer({
                 <p className="text-[11px] text-text-muted mt-1">Loading eligible venues…</p>
               ) : (
                 <p className="text-[11px] text-text-muted mt-1">
-                  Eligible venues for Add Venue: {eligibleVenueRows.length.toLocaleString()}.
+                  Project-scoped venue matches: {eligibleVenueRows.length.toLocaleString()}.
                 </p>
               )}
             </div>
@@ -2417,7 +2372,10 @@ function ProjectDetailDrawer({
               <AddVenueForm
                 projectId={projectId}
                 existingIds={existingVenueIds}
-                availableVenueRows={eligibleVenueRows}
+                availableVenueRows={addVenueDirectoryQuery.data ?? []}
+                dmaMarketRows={addVenueMarketsQuery.data ?? []}
+                loadingMarkets={addVenueMarketsQuery.isPending}
+                loadingVenues={addVenueDirectoryQuery.isPending}
                 onSaved={async () => {
                   await refresh();
                   setShowAddVenue(false);
@@ -2444,6 +2402,11 @@ function ProjectDetailDrawer({
                 onRefresh={() => refresh()}
                 addToast={addToast}
                 readOnly={Boolean(project.isReadOnly)}
+                attractionId={project.attractionId}
+                attractionName={project.attractionName}
+                tourId={project.tourId}
+                tourName={project.tourName}
+                onOpenEngagement={onOpenEngagement}
               />
             ))}
           </div>
@@ -2576,8 +2539,8 @@ function CreateProjectForm({
   const [selectedAttractionId, setSelectedAttractionId] = useState<number | null>(null);
   const [selectedTourId, setSelectedTourId] = useState<number | null>(null);
   const [tourSearch, setTourSearch] = useState('');
-  const [dateRangeStart, setDateRangeStart] = useState('');
-  const [dateRangeEnd, setDateRangeEnd] = useState('');
+  const [dateRangeStart, setDateRangeStart] = useState(getTodayDateString());
+  const [dateRangeEnd, setDateRangeEnd] = useState(getTodayDateString());
   const [selectedPreferredVenueTypeIds, setSelectedPreferredVenueTypeIds] = useState<number[]>([]);
   const [preferredVenueTypeSearch, setPreferredVenueTypeSearch] = useState('');
 
@@ -2626,8 +2589,6 @@ function CreateProjectForm({
 
   const [showAddTourModal, setShowAddTourModal] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [confirmConversion, setConfirmConversion] = useState(false);
-  const [showOpeningShowsModal, setShowOpeningShowsModal] = useState(false);
   const talentAgentContactsQuery = useQuery({
     queryKey: ['company', projectTourMgmtCompanyId ?? 0, 'contacts'],
     queryFn: () => fetchCompanyContacts(projectTourMgmtCompanyId as number),
@@ -2791,16 +2752,16 @@ function CreateProjectForm({
 
   const clearTourDerivedFields = useCallback(() => {
     setProjectTourMgmtCompanyId(null);
-    setDateRangeStart('');
-    setDateRangeEnd('');
+    setDateRangeStart(getTodayDateString());
+    setDateRangeEnd(getTodayDateString());
     setSelectedPreferredVenueTypeIds(EMPTY_PREFERRED_VENUE_TYPE_IDS);
     lastSyncedTourRef.current = null;
   }, []);
 
   const applyTourFields = useCallback((t: ApiTourListRow) => {
     setProjectTourMgmtCompanyId(t.talentAgencyCompanyId ?? null);
-    setDateRangeStart(t.tourStartDate ?? '');
-    setDateRangeEnd(t.tourEndDate ?? '');
+    setDateRangeStart(t.tourStartDate ?? getTodayDateString());
+    setDateRangeEnd(t.tourEndDate ?? getTodayDateString());
     setSelectedPreferredVenueTypeIds(
       t.venueTypePreferenceId != null && t.venueTypePreferenceId >= 1
         ? [t.venueTypePreferenceId]
@@ -3003,10 +2964,7 @@ function CreateProjectForm({
     onError: (e: unknown) => addToast(friendlyApiError(e, 'Could not create tour.'), 'error'),
   });
 
-  const handleSubmit = async (
-    conversionConfirmed = false,
-    openingPerformances?: ProjectOpeningPerformancePayload[],
-  ) => {
+  const handleSubmit = async () => {
     if (!selectedTourId) return;
     if (projectTourMgmtCompanyId == null || projectTourMgmtCompanyId < 1) {
       addToast('Select a tour that has a Talent Agency.', 'error');
@@ -3029,10 +2987,6 @@ function CreateProjectForm({
       addToast('Select a venue proposal status on the Venues step.', 'error');
       return;
     }
-    if (stage === PROJECT_CONVERSION_STAGE && !conversionConfirmed) {
-      setConfirmConversion(true);
-      return;
-    }
     const venuesPayload = selectedVenueCompanyIds.map((venueCompanyId) => {
       return {
         venueCompanyId,
@@ -3050,7 +3004,6 @@ function CreateProjectForm({
         tourEndDate: dateRangeEnd.trim(),
         dmaIds: validSelectedDmaIds,
         venues: venuesPayload,
-        openingPerformances,
       });
       onSaved(res);
     } catch (e) {
@@ -3717,7 +3670,7 @@ function CreateProjectForm({
               <p className="text-xs text-text-muted">
                 Choose{' '}
                 <span className="font-medium">Under Construction</span>, <span className="font-medium">Pending</span>, or{' '}
-                <span className="font-medium">Confirmed</span>. Confirmed creates the engagement and makes the project view-only after confirmation.
+                <span className="font-medium">Confirmed</span>.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField label="Project Stage">
@@ -3783,68 +3736,8 @@ function CreateProjectForm({
         </div>
       </div>
 
-      {saving && projectStage === PROJECT_CONVERSION_STAGE && (
-        <div
-          className="absolute inset-0 z-[350] flex flex-col items-center justify-center gap-3 rounded-lg bg-card/95 backdrop-blur-[2px]"
-          role="status"
-          aria-live="polite"
-        >
-          <Loader2 className="h-9 w-9 animate-spin text-ems-accent" aria-hidden />
-          <div className="text-center">
-            <p className="text-sm font-medium text-text-primary">Creating project and engagement...</p>
-            <p className="text-xs text-text-secondary">The project will be view-only after completion.</p>
-          </div>
-        </div>
-      )}
     </div>
     </CreateProjectWizardErrorBoundary>
-
-    <AlertDialog
-      open={confirmConversion}
-      onOpenChange={(open) => {
-        if (!saving) setConfirmConversion(open);
-      }}
-    >
-      <AlertDialogContent className="z-[360] border-border bg-card text-text-primary shadow-xl sm:max-w-md">
-        <AlertDialogHeader>
-          <AlertDialogTitle className="text-text-primary font-semibold text-lg">
-            Create engagement and lock this project?
-          </AlertDialogTitle>
-          <AlertDialogDescription className="text-text-secondary text-sm leading-relaxed">
-            Setting the project stage to <span className="font-medium text-text-primary">Confirmed</span> will
-            automatically create an engagement. After it is created, this project is view-only and its
-            details cannot be updated.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter className="gap-2 sm:gap-2">
-          <AlertDialogCancel disabled={saving} className="border-border bg-elevated text-text-primary hover:bg-hover mt-0">
-            Keep editing
-          </AlertDialogCancel>
-          <Button
-            type="button"
-            disabled={saving}
-            className="bg-ems-accent text-background hover:bg-ems-accent/90 sm:ml-0"
-            onClick={() => {
-              setConfirmConversion(false);
-              setShowOpeningShowsModal(true);
-            }}
-          >
-            Continue
-          </Button>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-
-    {showOpeningShowsModal && (
-      <ProjectOpeningPerformancesModal
-        saving={saving}
-        onCancel={() => setShowOpeningShowsModal(false)}
-        onSave={(rows) => {
-          setShowOpeningShowsModal(false);
-          void handleSubmit(true, rows);
-        }}
-      />
-    )}
 
     {showAddTourModal && selectedAttractionId != null && classes.length > 0 && (
       <Modal

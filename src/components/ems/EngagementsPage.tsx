@@ -49,6 +49,14 @@ import { ENGAGEMENT_STATUS_ENUM } from './engagementFormConstants';
 import { companyToSelect2Options } from './companySelectOptions';
 import { normalizeSearchText, richTextMatches } from './searchUtils';
 
+const getTodayDateTimeLocalString = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}T20:00`;
+};
+
 interface Props {
   onNavigate: (view: string, data?: Record<string, unknown>) => void;
   statusFilter?: string;
@@ -1296,7 +1304,7 @@ function CreateEngagementModal({
 
   // Form state
   const [recordStatus, setRecordStatus] = useState<string>('Unknown');
-  const [openingShowDateTime, setOpeningShowDateTime] = useState('');
+  const [openingShowDateTime, setOpeningShowDateTime] = useState(getTodayDateTimeLocalString());
   const [attractionId, setAttractionId] = useState<string>('');
   const [tourId, setTourId] = useState<string>('');
   const [primaryVenueId, setPrimaryVenueId] = useState<string>('');

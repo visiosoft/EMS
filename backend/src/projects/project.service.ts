@@ -41,7 +41,6 @@ import { UpdatePerformanceOptionDto } from './dto/update-performance-option.dto'
 import { AuditRequestContext } from '../audit/audit-request-context.service';
 import {
   isAllowedProjectStage,
-  isProjectConversionStage,
   PROJECT_STAGE_VALUES,
 } from './project-stage.constants';
 
@@ -1059,6 +1058,26 @@ export class ProjectService {
       venueRows.map((venue) => [venue.companyId, venue]),
     );
 
+    const venueRowIds = dbVenues.map((v) => v.engagementProjectVenueId);
+    const venueXrefs =
+      venueRowIds.length > 0
+        ? await this.dataSource.manager.find(EngagementXref, {
+            where: {
+              sourceEngagementId: In(
+                venueRowIds.map((id) => `EngagementProjectVenue:${id}`),
+              ),
+            },
+          })
+        : [];
+
+    const engagementIdByVenueRowId = new Map<number, number>(
+      venueXrefs.map((xref) => {
+        const parts = xref.sourceEngagementId.split(':');
+        const rowId = Number(parts[1]);
+        return [rowId, xref.engagementId];
+      }),
+    );
+
     const venuesWithDetails = dbVenues.map((v) => {
         const company = venueCompanyById.get(v.venueCompanyId);
         const venue = venueByCompanyId.get(v.venueCompanyId);
@@ -1078,7 +1097,9 @@ export class ProjectService {
           splitPct: null,
           breakeven: null,
           marketingCoOp: null,
-          engagementId: convertedEngagementId,
+          engagementId:
+            engagementIdByVenueRowId.get(v.engagementProjectVenueId) ??
+            (v.venueStatus === 'Confirmed' ? convertedEngagementId : null),
           performanceOptions: optionsForVenue(v.engagementProjectVenueId).map(
             (o) => ({
               performanceOptionId: o.performanceOptionId,
@@ -1116,7 +1137,7 @@ export class ProjectService {
       targetOnSale: null,
       notes: null,
       convertedEngagementId,
-      isReadOnly: convertedEngagementId != null,
+      isReadOnly: false,
       venues: venuesWithDetails,
     };
   }
@@ -1215,17 +1236,10 @@ export class ProjectService {
           normalizedAgentContactId,
         );
 
-        const engagementId = isProjectConversionStage(dto.projectStage)
-          ? await this.convertProjectToEngagement(
-              manager,
-              savedProject,
-              dto.openingPerformances,
-            )
-          : null;
         return {
           engagementProjectId: savedProject.engagementProjectId,
-          engagementId,
-          converted: engagementId != null,
+          engagementId: null,
+          converted: false,
         };
       });
     } catch (err) {
@@ -1254,10 +1268,7 @@ export class ProjectService {
     dto: UpdateProjectDto,
   ): Promise<{ engagementId: number | null; converted: boolean }> {
     const project = await this.assertProjectExists(id);
-    await this.assertProjectEditable(id);
-    const shouldConvert =
-      dto.projectStage !== undefined &&
-      isProjectConversionStage(dto.projectStage);
+
     if (dto.projectStage !== undefined) {
       this.assertValidProjectStage(dto.projectStage);
       project.projectStage = dto.projectStage;
@@ -1356,16 +1367,10 @@ export class ProjectService {
             );
           }
           await manager.save(EngagementProject, project);
-          return shouldConvert
-            ? await this.convertProjectToEngagement(
-                manager,
-                project,
-                dto.openingPerformances,
-              )
-            : null;
+          return null;
         },
       );
-      return { engagementId, converted: engagementId != null };
+      return { engagementId, converted: false };
     } catch (e: unknown) {
       if (e instanceof BadRequestException) throw e;
       if (e instanceof QueryFailedError) {
@@ -1386,7 +1391,7 @@ export class ProjectService {
 
   async remove(id: number): Promise<void> {
     await this.assertProjectExists(id);
-    await this.assertProjectEditable(id);
+
     try {
       await this.dataSource.transaction(async (manager) => {
         await manager.delete(EngagementProjectPerformanceOption, {
@@ -1591,7 +1596,7 @@ export class ProjectService {
     dto: AddProjectVenueDto,
   ): Promise<{ engagementProjectVenueId: number }> {
     await this.assertProjectExists(projectId);
-    await this.assertProjectEditable(projectId);
+
     await this.assertVenueCompany(dto.venueCompanyId);
     await this.assertValidVenueStatus(dto.venueStatus);
 
@@ -1658,17 +1663,32 @@ export class ProjectService {
     venueId: number,
     dto: UpdateProjectVenueDto,
   ): Promise<void> {
-    await this.assertProjectEditable(projectId);
+
     const pv = await this.assertVenueInProject(projectId, venueId);
     if (dto.venueStatus !== undefined) {
       await this.assertValidVenueStatus(dto.venueStatus);
       pv.venueStatus = dto.venueStatus;
     }
     await this.projectVenueRepo.save(pv);
+
+    if (dto.engagementId) {
+      const xrefKey = `EngagementProjectVenue:${venueId}`;
+      const xrefRepo = this.dataSource.manager.getRepository(EngagementXref);
+      let xref = await xrefRepo.findOne({ where: { sourceEngagementId: xrefKey } });
+      if (!xref) {
+        xref = xrefRepo.create({
+          sourceEngagementId: xrefKey,
+          engagementId: dto.engagementId,
+        });
+      } else {
+        xref.engagementId = dto.engagementId;
+      }
+      await xrefRepo.save(xref);
+    }
   }
 
   async removeVenue(projectId: number, venueId: number): Promise<void> {
-    await this.assertProjectEditable(projectId);
+
     await this.assertVenueInProject(projectId, venueId);
     await this.optionRepo.delete({
       engagementProjectVenueId: venueId,
@@ -1686,7 +1706,7 @@ export class ProjectService {
     dto: AddPerformanceOptionDto,
   ): Promise<{ performanceOptionId: number }> {
     await this.assertProjectExists(projectId);
-    await this.assertProjectEditable(projectId);
+
     await this.assertValidOptionStatus(dto.optionStatus);
     await this.assertVenueInProject(projectId, dto.engagementProjectVenueId);
     const opt = this.optionRepo.create({
@@ -1705,7 +1725,7 @@ export class ProjectService {
     optionId: number,
     dto: UpdatePerformanceOptionDto,
   ): Promise<void> {
-    await this.assertProjectEditable(projectId);
+
     const opt = await this.assertOptionInProject(projectId, optionId);
     if (dto.proposedDate !== undefined) opt.proposedDate = dto.proposedDate;
     if (dto.proposedTime !== undefined)
@@ -1721,7 +1741,7 @@ export class ProjectService {
     projectId: number,
     optionId: number,
   ): Promise<void> {
-    await this.assertProjectEditable(projectId);
+
     await this.assertOptionInProject(projectId, optionId);
     await this.optionRepo.delete({
       engagementProjectId: projectId,
