@@ -2019,7 +2019,7 @@ function AddVenueForm({
   projectId,
   existingIds,
   availableVenueRows,
-  dmaMarketRows,
+  marketNames,
   loadingMarkets = false,
   loadingVenues = false,
   onSaved,
@@ -2029,7 +2029,7 @@ function AddVenueForm({
   projectId: number;
   existingIds: Set<number>;
   availableVenueRows: ApiAllVenueRow[];
-  dmaMarketRows: ApiDmaMarket[];
+  marketNames: string[];
   loadingMarkets?: boolean;
   loadingVenues?: boolean;
   onSaved: () => void | Promise<void>;
@@ -2042,9 +2042,9 @@ function AddVenueForm({
 
   const marketOptions = useMemo(() => {
     const byKey = new Map<string, string>();
-    for (const row of dmaMarketRows) {
-      const label = cleanDmaMarketLabel(row.marketName);
-      const key = dmaMarketFamilyKey(row.marketName);
+    for (const marketName of marketNames) {
+      const label = cleanDmaMarketLabel(marketName);
+      const key = dmaMarketFamilyKey(marketName);
       if (!key || !label) continue;
       const existing = byKey.get(key);
       if (!existing || label.localeCompare(existing, undefined, { sensitivity: 'base' }) < 0) {
@@ -2058,7 +2058,7 @@ function AddVenueForm({
         label,
         searchText: label,
       }));
-  }, [dmaMarketRows]);
+  }, [marketNames]);
 
   const venueOptions = useMemo(() => {
     if (!selectedMarket) return [];
@@ -2081,6 +2081,21 @@ function AddVenueForm({
         };
       });
   }, [availableVenueRows, existingIds, selectedMarket]);
+
+  useEffect(() => {
+    if (!selectedMarket) return;
+    if (!marketOptions.some((option) => option.value === selectedMarket)) {
+      setSelectedMarket('');
+      setVenueId('');
+    }
+  }, [marketOptions, selectedMarket]);
+
+  useEffect(() => {
+    if (!venueId) return;
+    if (!venueOptions.some((option) => option.value === venueId)) {
+      setVenueId('');
+    }
+  }, [venueId, venueOptions]);
 
   const handleSave = async () => {
     if (!selectedMarket) { addToast('Select a market.', 'warning'); return; }
@@ -2116,6 +2131,7 @@ function AddVenueForm({
         </FormField>
         <FormField label="Venue" required>
           <Select2
+            key={selectedMarket || 'no-market-selected'}
             options={venueOptions}
             value={venueId}
             onChange={setVenueId}
@@ -2224,23 +2240,36 @@ function ProjectDetailDrawer({
     enabled: Boolean(project) && activeTab === 'Venues' && showAddVenue && !project?.isReadOnly,
     staleTime: 60_000,
   });
-  const addVenueDirectoryQuery = useQuery({
-    queryKey: ['project-detail', 'add-venue', 'all-venues'],
-    queryFn: async () =>
-      (
-        await fetchAllVenues(0, PROJECT_LOOKUP_LIMIT, {
-          sortBy: 'venue',
-          sortDir: 'asc',
-        })
-      ).data,
-    enabled: Boolean(project) && activeTab === 'Venues' && showAddVenue && !project?.isReadOnly,
-    staleTime: 30_000,
-  });
   const eligibleVenueRows = useMemo(() => {
     const all = scopedVenuesQuery.data ?? [];
     if (preferredVenueTypeId == null || preferredVenueTypeId < 1) return all;
     return all.filter((v) => v.venueTypeId != null && v.venueTypeId === preferredVenueTypeId);
   }, [scopedVenuesQuery.data, preferredVenueTypeId]);
+  const addVenueMarketNames = useMemo(() => {
+    const byKey = new Map<string, string>();
+    const registerMarket = (marketName: string | null | undefined) => {
+      const label = cleanDmaMarketLabel(marketName);
+      const key = dmaMarketFamilyKey(marketName);
+      if (!key || !label) return;
+      const existing = byKey.get(key);
+      if (!existing || label.localeCompare(existing, undefined, { sensitivity: 'base' }) < 0) {
+        byKey.set(key, label);
+      }
+    };
+
+    const marketCatalog = addVenueMarketsQuery.data ?? [];
+    const selectedCanonicalIds = new Set(mapSelectionToCanonicalDmaIds(projectDmaIds, marketCatalog));
+    for (const market of marketCatalog) {
+      if (selectedCanonicalIds.has(market.dmaid)) registerMarket(market.marketName);
+    }
+
+    // If the market lookup is still loading or unavailable, keep the Add Venue form usable from the scoped venues.
+    if (byKey.size === 0) {
+      for (const venue of eligibleVenueRows) registerMarket(venue.dmaMarketName);
+    }
+
+    return [...byKey.values()].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  }, [addVenueMarketsQuery.data, eligibleVenueRows, projectDmaIds]);
   const eligibleVenueIdSet = useMemo(
     () => new Set(eligibleVenueRows.map((v) => v.companyId)),
     [eligibleVenueRows],
@@ -2372,10 +2401,10 @@ function ProjectDetailDrawer({
               <AddVenueForm
                 projectId={projectId}
                 existingIds={existingVenueIds}
-                availableVenueRows={addVenueDirectoryQuery.data ?? []}
-                dmaMarketRows={addVenueMarketsQuery.data ?? []}
+                availableVenueRows={eligibleVenueRows}
+                marketNames={addVenueMarketNames}
                 loadingMarkets={addVenueMarketsQuery.isPending}
-                loadingVenues={addVenueDirectoryQuery.isPending}
+                loadingVenues={scopedVenuesQuery.isPending}
                 onSaved={async () => {
                   await refresh();
                   setShowAddVenue(false);
