@@ -24,7 +24,7 @@ import {
   ActionMenu,
   StatusBadge,
 } from './Primitives';
-import { Select2, Select2Multi } from './Select2';
+import { Select2, Select2Multi, type Select2Option } from './Select2';
 import { companyToSelect2Options } from './companySelectOptions';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -95,6 +95,7 @@ import { ContactPhoneRow } from './ContactPhoneRow';
 import { type ApiPaginatedResponse } from '@/api/attractionToursApi';
 import { TOUR_STATUS_OPTIONS } from './tourFormLegacy';
 import { AddTourForm } from './AddTourForm';
+import { richTextMatches } from './searchUtils';
 
 const AUDIENCE_GENDER_OPTIONS = [
   { value: '', label: '—' },
@@ -104,16 +105,16 @@ const AUDIENCE_GENDER_OPTIONS = [
 ] as const;
 
 /**
- * Talent-agency picklist plus the tour's current management company when that
- * company is not in the list (e.g. different company type), so the UI shows a name not a raw ID.
+ * Company picklist plus the tour's current company when that company is not in
+ * the loaded list, so the UI shows a name instead of a raw ID.
  */
 function buildTourManagementSelectOptions(
-  talentAgencyOptions: { value: string; label: string }[],
+  companyOptions: Select2Option[],
   allCompanies: { companyId: number; companyName: string }[],
   currentCompanyId: number | null | undefined,
   currentCompanyName: string | null | undefined,
-): { value: string; label: string }[] {
-  const opts = [...talentAgencyOptions];
+): Select2Option[] {
+  const opts = [...companyOptions];
   const idStr =
     currentCompanyId != null && Number.isFinite(Number(currentCompanyId))
       ? String(currentCompanyId)
@@ -1021,6 +1022,7 @@ function TourDrawer({
   ageRanges,
   companies,
   managementCompanyOptions,
+  companyOptions,
   addToast,
   onClose,
   onDelete,
@@ -1035,7 +1037,8 @@ function TourDrawer({
   venueTypes: ApiVenueType[];
   ageRanges: ApiAgeRange[];
   companies: ApiCompanyListRow[];
-  managementCompanyOptions: { value: string; label: string }[];
+  managementCompanyOptions: Select2Option[];
+  companyOptions: Select2Option[];
   addToast: (msg: string, type: 'success'|'error'|'warning'|'info') => void;
   onClose: () => void;
   onDelete: (t: ApiTourListRow) => void;
@@ -1063,6 +1066,9 @@ function TourDrawer({
   const [classId, setClassId] = useState(String(tour.classId));
   const [talentAgencyCompanyId, setTalentAgencyCompanyId] = useState(
     tour.talentAgencyCompanyId != null ? String(tour.talentAgencyCompanyId) : '',
+  );
+  const [payableEntityCompanyId, setPayableEntityCompanyId] = useState(
+    tour.tourManagementCompanyId != null ? String(tour.tourManagementCompanyId) : '',
   );
   const selectedTalentAgencyId = Number(talentAgencyCompanyId);
   const contactsQuery = useQuery({
@@ -1124,6 +1130,9 @@ function TourDrawer({
     setTalentAgencyCompanyId(
       tour.talentAgencyCompanyId != null ? String(tour.talentAgencyCompanyId) : '',
     );
+    setPayableEntityCompanyId(
+      tour.tourManagementCompanyId != null ? String(tour.tourManagementCompanyId) : '',
+    );
     setTalentAgentContactIds((tour.talentAgentContactIds ?? []).map(String));
     setVenueTypePreferenceId(
       tour.venueTypePreferenceId != null ? String(tour.venueTypePreferenceId) : '',
@@ -1181,6 +1190,21 @@ function TourDrawer({
       companies,
       tour.talentAgencyCompanyId,
       tour.talentAgencyCompanyName,
+    ],
+  );
+  const payableEntityOptions = useMemo(
+    () =>
+      buildTourManagementSelectOptions(
+        companyOptions,
+        companies,
+        tour.tourManagementCompanyId,
+        tour.tourManagementCompanyName,
+      ),
+    [
+      companyOptions,
+      companies,
+      tour.tourManagementCompanyId,
+      tour.tourManagementCompanyName,
     ],
   );
   const contacts = contactsQuery.data ?? [];
@@ -1257,8 +1281,8 @@ function TourDrawer({
           talentAgencyCompanyId: talentAgencyCompanyId
             ? Number(talentAgencyCompanyId)
             : null,
-          tourManagementCompanyId: talentAgencyCompanyId
-            ? Number(talentAgencyCompanyId)
+          tourManagementCompanyId: payableEntityCompanyId
+            ? Number(payableEntityCompanyId)
             : null,
           talentAgentContactIds: talentAgentContactIds.map(Number),
           venueTypePreferenceId: venueTypePreferenceId
@@ -1299,6 +1323,9 @@ function TourDrawer({
     setClassId(String(tour.classId));
     setTalentAgencyCompanyId(
       tour.talentAgencyCompanyId != null ? String(tour.talentAgencyCompanyId) : '',
+    );
+    setPayableEntityCompanyId(
+      tour.tourManagementCompanyId != null ? String(tour.tourManagementCompanyId) : '',
     );
     setTalentAgentContactIds((tour.talentAgentContactIds ?? []).map(String));
     setVenueTypePreferenceId(
@@ -1378,7 +1405,7 @@ function TourDrawer({
                 error={tourFieldErrors.classId}
               />
               <InlineSelectField
-                label="Talent Agency / Payable Entity"
+                label="Talent Agency"
                 value={talentAgencyCompanyId}
                 onChange={(v) => {
                   mark(setTalentAgencyCompanyId)(v);
@@ -1456,6 +1483,13 @@ function TourDrawer({
                 </div>
               )}
             </FormField>
+            <InlineSelectField
+              label="Payable Entity"
+              value={payableEntityCompanyId}
+              onChange={mark(setPayableEntityCompanyId)}
+              options={payableEntityOptions}
+              allowClear
+            />
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <InlineSelectField
                 label="Audience Gender"
@@ -1899,23 +1933,23 @@ export function AttractionToursPage({ addToast, onNavigate }: Props) {
   const attractionsForPicker = attractions;
 
   const attractionSuggestions = useMemo(() => {
-    const q = attractionInput.trim().toLowerCase();
+    const q = attractionInput.trim();
     if (!q) return [];
     return attractions
       .map((a) => a.attractionName)
-      .filter((name) => name.toLowerCase().includes(q))
+      .filter((name) => richTextMatches([name], q))
       .slice(0, 8);
   }, [attractionInput, attractions]);
 
   const tourSuggestions = useMemo(() => {
-    const q = tourInput.trim().toLowerCase();
+    const q = tourInput.trim();
     if (!q) return [];
     const matches = tours.filter(
       (t) =>
-        t.tourName.toLowerCase().includes(q) ||
-        t.attractionName.toLowerCase().includes(q) ||
-        t.className.toLowerCase().includes(q) ||
-        (t.talentAgencyCompanyName && t.talentAgencyCompanyName.toLowerCase().includes(q)),
+        richTextMatches(
+          [t.tourName, t.attractionName, t.className, t.talentAgencyCompanyName],
+          q,
+        ),
     );
     return [...new Set(matches.map((t) => t.tourName))].slice(0, 8);
   }, [tourInput, tours]);
@@ -2207,6 +2241,7 @@ export function AttractionToursPage({ addToast, onNavigate }: Props) {
     );
     return companyToSelect2Options(talentAgencies);
   }, [companies]);
+  const companyOptions = useMemo(() => companyToSelect2Options(companies), [companies]);
 
   return (
     <div className="space-y-4">
@@ -2996,6 +3031,7 @@ export function AttractionToursPage({ addToast, onNavigate }: Props) {
           venueTypes={venueTypes}
           companies={companies}
           managementCompanyOptions={managementCompanyOptions}
+          companyOptions={companyOptions}
           ageRanges={ageRanges}
           addToast={addToast}
           onClose={() => setSelectedTourId(null)}
@@ -3029,7 +3065,12 @@ export function AttractionToursPage({ addToast, onNavigate }: Props) {
         </Modal>
       )}
       {showAddTour && classes.length > 0 && attractionsForPicker.length > 0 && (
-        <Modal title="Add Tour" onClose={() => setShowAddTour(false)} width={760} allowContentOverflow>
+        <Modal
+          title="Add Tour"
+          onClose={() => !createTourMut.isPending && setShowAddTour(false)}
+          width={760}
+          allowContentOverflow
+        >
           <AddTourForm
             variant="attraction-tours"
             attractions={attractionsForPicker}
@@ -3051,6 +3092,7 @@ export function AttractionToursPage({ addToast, onNavigate }: Props) {
             classes={classes}
             companies={companies}
             managementCompanyOptions={managementCompanyOptions}
+            companyOptions={companyOptions}
             venueTypes={venueTypes}
             ageRanges={ageRanges}
             initial={editTour}
@@ -3137,6 +3179,7 @@ function TourFormDb({
   classes,
   companies,
   managementCompanyOptions,
+  companyOptions,
   venueTypes,
   ageRanges,
   initial,
@@ -3147,7 +3190,8 @@ function TourFormDb({
   attractions: ApiAttractionListRow[];
   classes: ApiClass[];
   companies: ApiCompanyListRow[];
-  managementCompanyOptions: { value: string; label: string }[];
+  managementCompanyOptions: Select2Option[];
+  companyOptions: Select2Option[];
   venueTypes: ApiVenueType[];
   ageRanges: ApiAgeRange[];
   initial?: ApiTourListRow;
@@ -3166,6 +3210,9 @@ function TourFormDb({
   const [classId, setClassId] = useState(String(initial?.classId ?? classes[0]?.classId ?? ''));
   const [talentAgentCompanyId, setTalentAgentCompanyId] = useState(
     initial?.talentAgencyCompanyId != null ? String(initial.talentAgencyCompanyId) : '',
+  );
+  const [payableEntityCompanyId, setPayableEntityCompanyId] = useState(
+    initial?.tourManagementCompanyId != null ? String(initial.tourManagementCompanyId) : '',
   );
   const [talentAgentContactIds, setTalentAgentContactIds] = useState<string[]>(
     () => (initial?.talentAgentContactIds ?? []).map(String),
@@ -3232,6 +3279,12 @@ function TourFormDb({
     setBannerFile(null);
     setStripBanner(false);
     setBannerInputKey((k) => k + 1);
+    setTalentAgentCompanyId(
+      initial?.talentAgencyCompanyId != null ? String(initial.talentAgencyCompanyId) : '',
+    );
+    setPayableEntityCompanyId(
+      initial?.tourManagementCompanyId != null ? String(initial.tourManagementCompanyId) : '',
+    );
     setTalentAgentContactIds((initial?.talentAgentContactIds ?? []).map(String));
     setAudienceGender(initial?.audienceGender ?? '');
     setAudienceAgeRangeIds((initial?.audienceAgeRangeIds ?? []).map(String));
@@ -3264,6 +3317,21 @@ function TourFormDb({
       companies,
       initial?.talentAgencyCompanyId,
       initial?.talentAgencyCompanyName,
+    ],
+  );
+  const payableEntityOptions = useMemo(
+    () =>
+      buildTourManagementSelectOptions(
+        companyOptions,
+        companies,
+        initial?.tourManagementCompanyId,
+        initial?.tourManagementCompanyName,
+      ),
+    [
+      companyOptions,
+      companies,
+      initial?.tourManagementCompanyId,
+      initial?.tourManagementCompanyName,
     ],
   );
   const talentAgentOptions = useMemo(
@@ -3306,7 +3374,7 @@ function TourFormDb({
     sesac,
     gmr,
     talentAgencyCompanyId: talentAgentCompanyId ? Number(talentAgentCompanyId) : null,
-    tourManagementCompanyId: talentAgentCompanyId ? Number(talentAgentCompanyId) : null,
+    tourManagementCompanyId: payableEntityCompanyId ? Number(payableEntityCompanyId) : null,
     talentAgentContactIds: talentAgentContactIds.map(Number),
     audienceGender: audienceGender.trim() || null,
     audienceAgeRangeIds: audienceAgeRangeIds.map(Number),
@@ -3535,7 +3603,7 @@ function TourFormDb({
           />
         </FormField>
       </div>
-      <FormField label="Talent Agency / Payable Entity">
+      <FormField label="Talent Agency">
         <Select2
           options={mgmtOptions}
           value={talentAgentCompanyId}
@@ -3690,6 +3758,16 @@ function TourFormDb({
             )}
           </div>
         )}
+      </FormField>
+      <FormField label="Payable Entity" optional>
+        <Select2
+          options={payableEntityOptions}
+          value={payableEntityCompanyId}
+          onChange={setPayableEntityCompanyId}
+          placeholder="Select payable entity…"
+          allowClear
+          disabled={submitting}
+        />
       </FormField>
       <FormField label="Status (optional)">
         <Select2 options={statusOptions} value={uiStatus} onChange={setUiStatus} placeholder="—" allowClear />

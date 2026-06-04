@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ImageIcon, Loader2 } from 'lucide-react';
 import { FormField } from './Primitives';
-import { Select2, Select2Multi } from './Select2';
+import { Select2, Select2Multi, type Select2Option } from './Select2';
 import type { ApiAttractionListRow, ApiClass, CreateTourPayload } from '@/api/attractionToursApi';
 import {
   createCompanyContact,
@@ -38,7 +38,7 @@ export function AddTourForm({
   attractions: ApiAttractionListRow[];
   classes: ApiClass[];
   /** Talent agencies only — required for creating a tour. */
-  managementCompanyOptions?: { value: string; label: string }[];
+  managementCompanyOptions?: Select2Option[];
   submitting: boolean;
   onSave: (body: CreateTourPayload, bannerFile?: File | null) => void;
   onCancel: () => void;
@@ -111,9 +111,9 @@ export function AddTourForm({
   const lockedAttraction =
     lockAttractionId != null ? attractions.find((a) => a.attractionId === lockAttractionId) : null;
 
-  const showBannerUpload = variant === 'attraction-tours';
+  const showBannerUpload = variant === 'attraction-tours' || variant === 'project-wizard';
   const talentAgencyOptions = managementCompanyOptions ?? [];
-  const talentAgencyFieldLabel = 'Talent Agency / Payable Entity';
+  const talentAgencyFieldLabel = 'Talent Agency';
   const talentAgencyPlaceholder = 'Select talent agency…';
   const selectedTalentAgencyId = Number(talentAgencyCompanyId);
   const talentAgentsQuery = useQuery({
@@ -663,7 +663,6 @@ export function AddTourForm({
                 sesac,
                 gmr,
                 talentAgencyCompanyId: Number(talentAgencyCompanyId),
-                tourManagementCompanyId: Number(talentAgencyCompanyId),
                 talentAgentContactIds: talentAgentContactIds.map(Number),
                 audienceGender: null,
                 audienceAgeRange: null,

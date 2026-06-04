@@ -55,8 +55,24 @@ export class VenueDirectoryService {
 
     const qVen = (v.q ?? '').trim();
     if (qVen) {
-      const likeV = `%${qVen.toLowerCase()}%`;
-      qb.andWhere('LOWER(v.venueName) LIKE :qVenue', { qVenue: likeV });
+      const tokens = this.searchTokens(qVen);
+      tokens.forEach((token, index) => {
+        const param = `qVenue${index}`;
+        qb.andWhere(
+          `(
+            LOWER(ISNULL(v.venueName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR LOWER(ISNULL(c.companyName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR LOWER(ISNULL(vt.venueTypeName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR LOWER(ISNULL(pa.city, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR LOWER(ISNULL(pa.stateProvince, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR LOWER(ISNULL(pa.country, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR LOWER(ISNULL(pa.postalCode, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR LOWER(ISNULL(d.marketName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR LOWER(ISNULL(${ALL_VENUES_ENTERTAINMENT_COMPLEX_NAMES_SQL}, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+          )`,
+          { [param]: `%${this.escapeLikePattern(token)}%` },
+        );
+      });
     }
     if (v.complexCompanyId != null && Number.isFinite(v.complexCompanyId)) {
       qb.andWhere(
@@ -202,5 +218,26 @@ export class VenueDirectoryService {
     if (v == null) return null;
     const t = String(v).trim();
     return t || null;
+  }
+
+  private searchTokens(raw: string): string[] {
+    return [
+      ...new Set(
+        String(raw ?? '')
+          .trim()
+          .split(/[^a-zA-Z0-9]+/)
+          .map((token) => token.trim())
+          .filter(Boolean),
+      ),
+    ].slice(0, 8);
+  }
+
+  private escapeLikePattern(raw: string): string {
+    return String(raw)
+      .replace(/\\/g, '\\\\')
+      .replace(/%/g, '\\%')
+      .replace(/_/g, '\\_')
+      .replace(/\[/g, '\\[')
+      .replace(/\]/g, '\\]');
   }
 }

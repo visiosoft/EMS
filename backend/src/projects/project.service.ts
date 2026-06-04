@@ -1033,20 +1033,43 @@ export class ProjectService {
       return [];
     };
 
-    const venuesWithDetails = await Promise.all(
-      dbVenues.map(async (v) => {
-        const company = await this.companyRepo.findOne({
-          where: { companyId: v.venueCompanyId },
-        });
-        const venue = await this.venueRepo.findOne({
-          where: { companyId: v.venueCompanyId },
-        });
+    const venueCompanyIds = [
+      ...new Set(
+        dbVenues
+          .map((v) => Number(v.venueCompanyId))
+          .filter((id) => Number.isInteger(id) && id > 0),
+      ),
+    ];
+    const [venueCompanies, venueRows] =
+      venueCompanyIds.length > 0
+        ? await Promise.all([
+            this.companyRepo.find({
+              where: { companyId: In(venueCompanyIds) },
+              relations: { dma: true },
+            }),
+            this.venueRepo.find({
+              where: { companyId: In(venueCompanyIds) },
+            }),
+          ])
+        : [[], []];
+    const venueCompanyById = new Map(
+      venueCompanies.map((company) => [company.companyId, company]),
+    );
+    const venueByCompanyId = new Map(
+      venueRows.map((venue) => [venue.companyId, venue]),
+    );
+
+    const venuesWithDetails = dbVenues.map((v) => {
+        const company = venueCompanyById.get(v.venueCompanyId);
+        const venue = venueByCompanyId.get(v.venueCompanyId);
         return {
           engagementProjectVenueId: v.engagementProjectVenueId,
           engagementProjectId: v.engagementProjectId,
           venueCompanyId: v.venueCompanyId,
           venueCompanyName: company?.companyName ?? null,
           venueName: venue?.venueName ?? null,
+          venueDmaId: company?.dmaid ?? null,
+          venueDmaMarketName: company?.dma?.marketName ?? null,
           venueStatus: v.venueStatus,
           // Frontend-only fields returned as null (Option A — we never persisted them)
           configName: null,
@@ -1067,8 +1090,7 @@ export class ProjectService {
             }),
           ),
         };
-      }),
-    );
+      });
 
     const createdBy = await this.resolveCreatedByDisplayValue(
       project.createdBy,
@@ -1434,32 +1456,42 @@ export class ProjectService {
 
     const q = (search ?? '').trim();
     if (q) {
-      const like = `%${q}%`;
-      qb.andWhere(
-        new Brackets((w) => {
-          w.where('CAST(ep.engagementProjectId AS VARCHAR(20)) LIKE :like', {
-            like,
-          })
-            .orWhere("LOWER(ISNULL(t.tourName, '')) LIKE LOWER(:like)", {
-              like,
-            })
-            .orWhere("LOWER(ISNULL(a.attractionName, '')) LIKE LOWER(:like)", {
-              like,
-            })
-            .orWhere("LOWER(ISNULL(tmg.companyName, '')) LIKE LOWER(:like)", {
-              like,
-            })
-            .orWhere("LOWER(ISNULL(ep.projectStage, '')) LIKE LOWER(:like)", {
-              like,
-            })
-            .orWhere("LOWER(ISNULL(ep.createdBy, '')) LIKE LOWER(:like)", {
-              like,
-            })
-            .orWhere('CONVERT(VARCHAR(30), ep.createdDate, 126) LIKE :like', {
-              like,
-            });
-        }),
-      );
+      this.searchTokens(q).forEach((token, index) => {
+        const param = `projectSearch${index}`;
+        const like = `%${this.escapeLikePattern(token)}%`;
+        qb.andWhere(
+          new Brackets((w) => {
+            w.where(
+              `CAST(ep.engagementProjectId AS VARCHAR(20)) LIKE :${param} ESCAPE '\\'`,
+              { [param]: like },
+            )
+              .orWhere(
+                `LOWER(ISNULL(t.tourName, '')) LIKE LOWER(:${param}) ESCAPE '\\'`,
+                { [param]: like },
+              )
+              .orWhere(
+                `LOWER(ISNULL(a.attractionName, '')) LIKE LOWER(:${param}) ESCAPE '\\'`,
+                { [param]: like },
+              )
+              .orWhere(
+                `LOWER(ISNULL(tmg.companyName, '')) LIKE LOWER(:${param}) ESCAPE '\\'`,
+                { [param]: like },
+              )
+              .orWhere(
+                `LOWER(ISNULL(ep.projectStage, '')) LIKE LOWER(:${param}) ESCAPE '\\'`,
+                { [param]: like },
+              )
+              .orWhere(
+                `LOWER(ISNULL(ep.createdBy, '')) LIKE LOWER(:${param}) ESCAPE '\\'`,
+                { [param]: like },
+              )
+              .orWhere(
+                `CONVERT(VARCHAR(30), ep.createdDate, 126) LIKE :${param} ESCAPE '\\'`,
+                { [param]: like },
+              );
+          }),
+        );
+      });
     }
 
     const sortBy = (sortByRaw ?? '').trim().toLowerCase();
@@ -1695,5 +1727,26 @@ export class ProjectService {
       engagementProjectId: projectId,
       performanceOptionId: optionId,
     });
+  }
+
+  private searchTokens(raw: string): string[] {
+    return [
+      ...new Set(
+        String(raw ?? '')
+          .trim()
+          .split(/[^a-zA-Z0-9]+/)
+          .map((token) => token.trim())
+          .filter(Boolean),
+      ),
+    ].slice(0, 8);
+  }
+
+  private escapeLikePattern(raw: string): string {
+    return String(raw)
+      .replace(/\\/g, '\\\\')
+      .replace(/%/g, '\\%')
+      .replace(/_/g, '\\_')
+      .replace(/\[/g, '\\[')
+      .replace(/\]/g, '\\]');
   }
 }

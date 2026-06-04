@@ -394,6 +394,19 @@ export class DailySalesService {
     private readonly auditContext: AuditRequestContext,
   ) {}
 
+  private searchTokens(value: string | null | undefined): string[] {
+    return [
+      ...new Set(
+        String(value ?? '')
+          .trim()
+          .toLowerCase()
+          .split(/[^a-z0-9]+/)
+          .map((token) => token.trim())
+          .filter(Boolean),
+      ),
+    ].slice(0, 8);
+  }
+
   /**
    * Map the signed-in Entra user to dbo.Contact via dbo.ContactInfo.Email.
    * IAE staff on engagements are stored as ContactID in dbo.EngagementIAEContact.
@@ -1063,11 +1076,11 @@ export class DailySalesService {
       );
     }
 
-    if (options.search) {
-      // Single :searchT bind — repeating the same named param breaks some mssql/TypeORM drivers.
-      const s = options.search.toLowerCase();
+    this.searchTokens(options.search).forEach((token, index) => {
+      // Unique bind names avoid the mssql/TypeORM issue with repeated parameters.
+      const param = `dailySalesSearch${index}`;
       qb.andWhere(
-        `CHARINDEX(:searchT, LOWER(CONCAT(
+        `CHARINDEX(:${param}, LOWER(CONCAT(
           N' ',
           a.attractionName,
           N' ',
@@ -1094,9 +1107,9 @@ export class DailySalesService {
           N' ',
           CONVERT(varchar(10), p.performanceDate, 120)
         ))) > 0`,
-        { searchT: s },
+        { [param]: token },
       );
-    }
+    });
 
     return qb;
   }

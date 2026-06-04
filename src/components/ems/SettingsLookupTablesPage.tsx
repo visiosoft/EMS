@@ -59,6 +59,7 @@ import {
   getActiveAccount,
   requestGraphAccessToken,
 } from '@/auth/entra';
+import { richTextMatches } from './searchUtils';
 
 interface UserRow {
   id: string;
@@ -497,7 +498,7 @@ export function SettingsPage({
   });
 
   const lookupSuggestions = useMemo(() => {
-    const q = lookupSearchInput.trim().toLowerCase();
+    const q = lookupSearchInput.trim();
     if (!q) return [];
     const rows = lookupSuggestionsQuery.data?.data ?? [];
     const values =
@@ -521,7 +522,7 @@ export function SettingsPage({
       }
     }
     return deduped
-      .filter((value) => value.toLowerCase().includes(q))
+      .filter((value) => richTextMatches([value], q))
       .slice(0, 8);
   }, [
     lookupSearchInput,

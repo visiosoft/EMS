@@ -440,6 +440,18 @@ export class EngagementService {
       .replace(/\]/g, '\\]');
   }
 
+  private searchTokens(value: string): string[] {
+    return [
+      ...new Set(
+        String(value ?? '')
+          .trim()
+          .split(/[^a-zA-Z0-9]+/)
+          .map((token) => token.trim())
+          .filter(Boolean),
+      ),
+    ].slice(0, 8);
+  }
+
   private async engagementFinancesHasSharePointLinkColumns(): Promise<boolean> {
     if (this.engagementFinanceSharePointLinkColsPresent !== null) {
       return this.engagementFinanceSharePointLinkColsPresent;
@@ -1257,17 +1269,20 @@ export class EngagementService {
 
     const q = (f.q ?? '').trim();
     if (q) {
-      const like = `%${this.escapeLikePattern(q)}%`;
-      qb.andWhere(
-        `(LOWER(CAST(e.engagementId AS VARCHAR(20))) LIKE LOWER(:like) ESCAPE '\\' OR LOWER(ISNULL(a.attractionName, '')) LIKE LOWER(:like) ESCAPE '\\' OR LOWER(t.tourName) LIKE LOWER(:like) ESCAPE '\\' OR LOWER(ISNULL(vc.companyName, '')) LIKE LOWER(:like) ESCAPE '\\' OR LOWER(ISNULL(v.venueName, '')) LIKE LOWER(:like) ESCAPE '\\' OR LOWER(ISNULL(dma.marketName, '')) LIKE LOWER(:like) ESCAPE '\\' OR LOWER(ISNULL(e.engagementStatus, '')) LIKE LOWER(:like) ESCAPE '\\' OR LOWER(ISNULL(addr.city, '')) LIKE LOWER(:like) ESCAPE '\\' OR LOWER(ISNULL(addr.stateProvince, '')) LIKE LOWER(:like) ESCAPE '\\' OR LOWER(ISNULL(tourBanner.linkUrl, '')) LIKE LOWER(:like) ESCAPE '\\' OR LOWER(ISNULL((
+      this.searchTokens(q).forEach((token, index) => {
+        const param = `engagementSearch${index}`;
+        const like = `%${this.escapeLikePattern(token)}%`;
+        qb.andWhere(
+          `(LOWER(CAST(e.engagementId AS VARCHAR(20))) LIKE LOWER(:${param}) ESCAPE '\\' OR LOWER(ISNULL(a.attractionName, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR LOWER(t.tourName) LIKE LOWER(:${param}) ESCAPE '\\' OR LOWER(ISNULL(vc.companyName, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR LOWER(ISNULL(v.venueName, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR LOWER(ISNULL(dma.marketName, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR LOWER(ISNULL(e.engagementStatus, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR LOWER(ISNULL(addr.city, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR LOWER(ISNULL(addr.stateProvince, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR LOWER(ISNULL(tourBanner.linkUrl, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR LOWER(ISNULL((
           SELECT STRING_AGG(LTRIM(RTRIM(ccq.CompanyName)), N', ') WITHIN GROUP (ORDER BY LTRIM(RTRIM(ccq.CompanyName)))
           FROM dbo.EngagementVenue evq
           INNER JOIN dbo.VenueComplexMember vcmq ON vcmq.VenueCompanyID = evq.VenueCompanyID
           INNER JOIN dbo.Company ccq ON ccq.CompanyID = vcmq.ComplexCompanyID
           WHERE evq.EngagementID = e.engagementId AND evq.IsPrimary = 1
-        ), '')) LIKE LOWER(:like) ESCAPE '\\')`,
-        { like },
-      );
+        ), '')) LIKE LOWER(:${param}) ESCAPE '\\')`,
+          { [param]: like },
+        );
+      });
     }
 
     const st = (f.status ?? '').trim();

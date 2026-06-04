@@ -114,6 +114,9 @@ export interface ApiProjectVenue {
   /** Display name (denormalised from Company/Venue for convenience) */
   venueCompanyName: string | null;
   venueName: string | null;
+  /** Venue company DMA display data */
+  venueDmaId?: number | null;
+  venueDmaMarketName?: string | null;
   /** NOT NULL in DB */
   venueStatus: VenueStatus;
 

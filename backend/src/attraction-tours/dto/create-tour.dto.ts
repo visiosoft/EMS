@@ -100,17 +100,6 @@ export class CreateTourDto {
   talentAgencyCompanyId: number;
 
   @IsOptional()
-  @Transform(({ value }) => {
-    if (value === undefined || value === '') return undefined;
-    if (value === null) return null;
-    const n = Number(value);
-    return Number.isFinite(n) && n >= 1 ? n : null;
-  })
-  @IsInt()
-  @Min(1)
-  tourManagementCompanyId?: number | null;
-
-  @IsOptional()
   @Transform(({ value }) => parsePositiveIdArray(value))
   @IsArray()
   @IsInt({ each: true })
