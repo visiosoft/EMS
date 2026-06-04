@@ -1,6 +1,7 @@
 import {
   Injectable,
   BadRequestException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -379,6 +380,9 @@ function buildDailySeries(
 
 @Injectable()
 export class DailySalesService {
+  private readonly logger = new Logger(DailySalesService.name);
+  private lastConvertedProjectPerformanceRepairAt = 0;
+
   constructor(
     @InjectRepository(TicketingSales)
     private readonly salesRepo: Repository<TicketingSales>,
@@ -393,6 +397,94 @@ export class DailySalesService {
     private readonly engagementService: EngagementService,
     private readonly auditContext: AuditRequestContext,
   ) {}
+
+  /**
+   * Older project conversions can leave Engagement rows without dbo.Performance rows.
+   * Daily Sales and Sales Summary are performance-date driven, so those engagements
+   * are invisible until their saved project show dates are copied into Performance.
+   */
+  private async ensureConvertedProjectPerformancesFromOptions(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastConvertedProjectPerformanceRepairAt < 30_000) return;
+    this.lastConvertedProjectPerformanceRepairAt = now;
+
+    try {
+      const rows = await this.performanceRepo.manager.query(`
+        ;WITH ConvertedProject AS (
+          SELECT
+            e.EngagementID,
+            ep.EngagementProjectID
+          FROM dbo.Engagement e
+          INNER JOIN dbo.EngagementXref x
+            ON x.EngagementID = e.EngagementID
+          INNER JOIN dbo.EngagementProject ep
+            ON x.SourceEngagementID = CONCAT(N'EngagementProject:', CONVERT(nvarchar(30), ep.EngagementProjectID))
+        ),
+        Candidate AS (
+          SELECT DISTINCT
+            cp.EngagementID,
+            CONVERT(date, po.ProposedDate) AS PerformanceDate,
+            COALESCE(CONVERT(time, po.ProposedTime), CONVERT(time, '20:00:00')) AS PerformanceTime,
+            CASE
+              WHEN po.OptionStatus IN (N'Public', N'Private') THEN po.OptionStatus
+              ELSE N'Public'
+            END AS PerformanceStatus
+          FROM ConvertedProject cp
+          INNER JOIN dbo.EngagementProjectPerformanceOption po
+            ON po.EngagementProjectID = cp.EngagementProjectID
+          WHERE po.ProposedDate IS NOT NULL
+            AND (
+              po.EngagementProjectVenueID IS NULL
+              OR EXISTS (
+                SELECT 1
+                FROM dbo.EngagementProjectVenue epv
+                INNER JOIN dbo.EngagementVenue ev
+                  ON ev.EngagementID = cp.EngagementID
+                 AND ev.VenueCompanyID = epv.VenueCompanyID
+                WHERE epv.EngagementProjectVenueID = po.EngagementProjectVenueID
+              )
+            )
+        )
+        INSERT INTO dbo.Performance (
+          EngagementID,
+          PerformanceStatus,
+          PerformanceDate,
+          PerformanceTime,
+          created_by,
+          created_at
+        )
+        SELECT
+          c.EngagementID,
+          c.PerformanceStatus,
+          c.PerformanceDate,
+          c.PerformanceTime,
+          N'system',
+          GETUTCDATE()
+        FROM Candidate c
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM dbo.Performance p
+          WHERE p.EngagementID = c.EngagementID
+            AND CONVERT(date, p.PerformanceDate) = c.PerformanceDate
+            AND CONVERT(time, p.PerformanceTime) = c.PerformanceTime
+        );
+
+        SELECT @@ROWCOUNT AS insertedCount;
+      `);
+      const inserted = Number(rows?.[0]?.insertedCount ?? 0);
+      if (inserted > 0) {
+        this.logger.log(
+          `Backfilled ${inserted} missing performance row(s) for converted project engagement(s).`,
+        );
+      }
+    } catch (error) {
+      this.lastConvertedProjectPerformanceRepairAt = 0;
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Could not repair converted-project performance rows for Daily Sales: ${message}`,
+      );
+    }
+  }
 
   private searchTokens(value: string | null | undefined): string[] {
     return [
@@ -428,6 +520,8 @@ export class DailySalesService {
   // ─── GET /daily-sales (legacy flat list) ──────────────────────────────────
 
   async findAll(engagementId?: number): Promise<DailySalesRow[]> {
+    await this.ensureConvertedProjectPerformancesFromOptions();
+
     const qb = this.salesRepo
       .createQueryBuilder('ts')
       .innerJoin(Performance, 'p', 'p.performanceId = ts.performanceId')
@@ -563,6 +657,8 @@ export class DailySalesService {
           'Single performance day must fall within the selected start and end range.',
       });
     }
+
+    await this.ensureConvertedProjectPerformancesFromOptions();
 
     const yesterdayDate = ymdAddDays(asOf, -1);
     const eventsScope = (eventsScopeRaw ?? '').trim().toLowerCase();
@@ -1016,27 +1112,42 @@ export class DailySalesService {
     }
 
     if (options.attractionName) {
-      qb.andWhere('a.attractionName = :attName', {
-        attName: options.attractionName,
-      });
+      qb.andWhere(
+        'LOWER(LTRIM(RTRIM(a.attractionName))) = LOWER(LTRIM(RTRIM(:attName)))',
+        {
+          attName: options.attractionName,
+        },
+      );
     }
     if (options.genre) {
-      qb.andWhere('cls.className = :genreName', { genreName: options.genre });
+      qb.andWhere(
+        'LOWER(LTRIM(RTRIM(cls.className))) = LOWER(LTRIM(RTRIM(:genreName)))',
+        { genreName: options.genre },
+      );
     }
     if (options.tourName) {
-      qb.andWhere('t.tourName = :tourName', { tourName: options.tourName });
+      qb.andWhere(
+        'LOWER(LTRIM(RTRIM(t.tourName))) = LOWER(LTRIM(RTRIM(:tourName)))',
+        { tourName: options.tourName },
+      );
     }
     if (options.companyId != null) {
       qb.andWhere('vc.companyId = :companyId', {
         companyId: options.companyId,
       });
     } else if (options.companyName) {
-      qb.andWhere('vc.companyName = :companyName', {
-        companyName: options.companyName,
-      });
+      qb.andWhere(
+        'LOWER(LTRIM(RTRIM(vc.companyName))) = LOWER(LTRIM(RTRIM(:companyName)))',
+        {
+          companyName: options.companyName,
+        },
+      );
     }
     if (options.venueName) {
-      qb.andWhere('v.venueName = :venueName', { venueName: options.venueName });
+      qb.andWhere(
+        'LOWER(LTRIM(RTRIM(v.venueName))) = LOWER(LTRIM(RTRIM(:venueName)))',
+        { venueName: options.venueName },
+      );
     }
     if (options.contactName) {
       qb.andWhere(
@@ -1046,7 +1157,7 @@ export class DailySalesService {
           INNER JOIN dbo.Contact c ON c.ContactID = ca.ContactID
           INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
           WHERE ca.CompanyID = ev.venueCompanyId
-            AND LOWER(CONCAT(ci.FirstName, N' ', ci.LastName)) = LOWER(:contactName)
+            AND LOWER(LTRIM(RTRIM(CONCAT(ci.FirstName, N' ', ci.LastName)))) = LOWER(LTRIM(RTRIM(:contactName)))
         )`,
         { contactName: options.contactName },
       );
@@ -1404,6 +1515,8 @@ export class DailySalesService {
     performanceIdFilter?: number,
   ): Promise<EngagementSalesDashboardDto> {
     const asOf = await this.resolveAsOfDateString(asOfDateParam);
+    await this.ensureConvertedProjectPerformancesFromOptions();
+
     let engagement: Awaited<ReturnType<EngagementService['getOne']>>;
     try {
       engagement = await this.engagementService.getOne(engagementId);
@@ -1587,6 +1700,8 @@ export class DailySalesService {
     asOfDateParam?: string,
   ): Promise<AttractionSalesDashboardDto> {
     const asOf = await this.resolveAsOfDateString(asOfDateParam);
+    await this.ensureConvertedProjectPerformancesFromOptions();
+
     const att = await this.attractionRepo.findOne({ where: { attractionId } });
     if (!att) {
       throw new NotFoundException({
