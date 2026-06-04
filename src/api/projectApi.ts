@@ -152,6 +152,7 @@ export interface CreateProjectVenuePayload {
   splitPct?: number | null;
   breakeven?: number | null;
   marketingCoOp?: number | null;
+  engagementId?: number;
 }
 
 export type UpdateProjectVenuePayload = Partial<Omit<CreateProjectVenuePayload, 'venueCompanyId'>>;
@@ -236,8 +237,6 @@ export interface CreateProjectPayload {
   /** Venues and per-venue proposed dates (required for create-project wizard). */
   venues: CreateProjectVenuePayload[];
 
-  /** Actual show rows created when ProjectStage = Confirmed. */
-  openingPerformances?: ProjectOpeningPerformancePayload[];
 }
 
 export interface UpdateProjectPayload {
@@ -254,8 +253,7 @@ export interface UpdateProjectPayload {
   /** Replaces all project–DMA rows when provided (empty array clears). */
   dmaIds?: number[];
 
-  /** Actual show rows created when ProjectStage = Confirmed. */
-  openingPerformances?: ProjectOpeningPerformancePayload[];
+
 
   // FRONTEND-ONLY
   name?: string | null;

@@ -102,6 +102,14 @@ import { invalidateSalesCapacityRelatedQueries } from '@/api/cacheHelpers';
 import { formatOpeningDateSafe, formatSqlTimeDisplay } from '@/lib/engagementDisplay';
 import { formatE164ForDisplay } from '@/lib/contactPhoneField';
 import { ENGAGEMENT_STATUS_ENUM } from './engagementFormConstants';
+const getTodayDateString = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const PERFORMANCE_STATUS_OPTIONS = ENGAGEMENT_STATUS_ENUM.map((s) => ({
   value: s,
   label: s,
@@ -1059,7 +1067,7 @@ function EngagementTaxationPanel({
   const qc = useQueryClient();
   const [withholdingFk, setWithholdingFk] = useState('');
   const [iaeConfNum, setIaeConfNum] = useState('');
-  const [iaeSubmitDate, setIaeSubmitDate] = useState('');
+  const [iaeSubmitDate, setIaeSubmitDate] = useState(getTodayDateString());
   const [iaeStatus, setIaeStatus] = useState('');
   const [iaeWaiverLink, setIaeWaiverLink] = useState('');
   const [artistWaiverLink, setArtistWaiverLink] = useState('');
@@ -1090,7 +1098,7 @@ function EngagementTaxationPanel({
     if (!d) return;
     setWithholdingFk(intFieldToString(d.requiredNonResidentWithholdingId));
     setIaeConfNum(d.iaeWaiverApplicationConfirmationNumber ?? '');
-    setIaeSubmitDate(d.iaeWaiverApplicationSubmissionDate ?? '');
+    setIaeSubmitDate(d.iaeWaiverApplicationSubmissionDate ?? getTodayDateString());
     setIaeStatus(d.iaeApplicationWaiverStatus ?? '');
   }, [financeQuery.data]);
 
@@ -1908,7 +1916,7 @@ function EngagementMainInformationPanel({
   const [addressState, setAddressState] = useState('');
   const [addressPostal, setAddressPostal] = useState('');
   const [addressCountry, setAddressCountry] = useState('USA');
-  const [openingDate, setOpeningDate] = useState('');
+  const [openingDate, setOpeningDate] = useState(getTodayDateString());
   const [openingHour, setOpeningHour] = useState('07');
   const [openingMinute, setOpeningMinute] = useState('30');
   const [openingPeriod, setOpeningPeriod] = useState('PM');
@@ -2054,7 +2062,7 @@ function EngagementMainInformationPanel({
 
   useEffect(() => {
     const parts = mainInfoClockParts(openingPerformance?.performanceTime);
-    setOpeningDate(openingPerformance?.performanceDate ?? '');
+    setOpeningDate(openingPerformance?.performanceDate ?? getTodayDateString());
     setOpeningHour(parts.hour);
     setOpeningMinute(parts.minute);
     setOpeningPeriod(parts.period);
@@ -3736,8 +3744,8 @@ function EngagementMarketingPanel({
   });
 
   const [ticketingStatus, setTicketingStatus] = useState('');
-  const [onSaleDate, setOnSaleDate] = useState('');
-  const [preSaleDate, setPreSaleDate] = useState('');
+  const [onSaleDate, setOnSaleDate] = useState(getTodayDateString());
+  const [preSaleDate, setPreSaleDate] = useState(getTodayDateString());
   const [vipPackagedOffer, setVipPackagedOffer] = useState('');
   const [preSaleSpecialPrices, setPreSaleSpecialPrices] = useState('');
   const [kidsTicketsPrices, setKidsTicketsPrices] = useState('');
@@ -3762,8 +3770,8 @@ function EngagementMarketingPanel({
     const d = ticketingQuery.data;
     if (!d || selectedPid == null || d.performanceId !== selectedPid) return;
     setTicketingStatus(d.ticketingStatus ?? '');
-    setOnSaleDate(d.onSaleDate ?? '');
-    setPreSaleDate(d.preSaleDate ?? '');
+    setOnSaleDate(d.onSaleDate ?? getTodayDateString());
+    setPreSaleDate(d.preSaleDate ?? getTodayDateString());
     setVipPackagedOffer(d.vipPackagedOffer ?? '');
     setPreSaleSpecialPrices(d.preSaleSpecialPrices ?? '');
     setKidsTicketsPrices(d.kidsTicketsPrices ?? '');
@@ -5007,9 +5015,9 @@ function EngagementFinancePanel({
   const [venueTerms, setVenueTerms] = useState('');
   const [confPacket, setConfPacket] = useState('');
   const [iaeConfNum, setIaeConfNum] = useState('');
-  const [iaeSubmitDate, setIaeSubmitDate] = useState('');
+  const [iaeSubmitDate, setIaeSubmitDate] = useState(getTodayDateString());
   const [iaeStatus, setIaeStatus] = useState('');
-  const [dateFundsReceived, setDateFundsReceived] = useState('');
+  const [dateFundsReceived, setDateFundsReceived] = useState(getTodayDateString());
   const [fundsDue, setFundsDue] = useState('');
   const [fundsWithheld, setFundsWithheld] = useState('');
   const [fundsOwed, setFundsOwed] = useState('');
@@ -5093,9 +5101,9 @@ function EngagementFinancePanel({
     setVenueTerms(d.venueTerms ?? '');
     setConfPacket(boolToConfPacket(d.confirmationPacketApproved));
     setIaeConfNum(d.iaeWaiverApplicationConfirmationNumber ?? '');
-    setIaeSubmitDate(d.iaeWaiverApplicationSubmissionDate ?? '');
+    setIaeSubmitDate(d.iaeWaiverApplicationSubmissionDate ?? getTodayDateString());
     setIaeStatus(d.iaeApplicationWaiverStatus ?? '');
-    setDateFundsReceived(d.dateFundsReceived ?? '');
+    setDateFundsReceived(d.dateFundsReceived ?? getTodayDateString());
     setFundsDue(numFieldToString(d.fundsDue));
     setFundsWithheld(numFieldToString(d.fundsWithheld));
     setFundsOwed(numFieldToString(d.fundsOwed));
@@ -5490,8 +5498,8 @@ export function EngagementDetailPage({
   const [pendingDelete, setPendingDelete] = useState(false);
   const [sellableCapacityInput, setSellableCapacityInput] = useState('');
   const [grossPotentialInput, setGrossPotentialInput] = useState('');
-  const [rehearsalDateInput, setRehearsalDateInput] = useState('');
-  const [loadInDateInput, setLoadInDateInput] = useState('');
+  const [rehearsalDateInput, setRehearsalDateInput] = useState(getTodayDateString());
+  const [loadInDateInput, setLoadInDateInput] = useState(getTodayDateString());
 
   // ── Data ────────────────────────────────────────────────────────────────
   const detailQuery = useQuery({
@@ -5682,8 +5690,8 @@ export function EngagementDetailPage({
       row.sellableCapacity == null ? '' : String(row.sellableCapacity),
     );
     setGrossPotentialInput(row.grossPotential == null ? '' : String(row.grossPotential));
-    setRehearsalDateInput(row.rehearsalDate ?? '');
-    setLoadInDateInput(row.loadInDate ?? '');
+    setRehearsalDateInput(row.rehearsalDate ?? getTodayDateString());
+    setLoadInDateInput(row.loadInDate ?? getTodayDateString());
   }, [row]);
 
   const handleStatusChange = (next: string) => {
@@ -5776,7 +5784,7 @@ export function EngagementDetailPage({
   const pfRowIdRef = useRef(0);
   const makePerformanceDraftRow = (): PerformanceDraftRow => ({
     id: `pf-${Date.now()}-${pfRowIdRef.current++}`,
-    performanceDate: '',
+    performanceDate: getTodayDateString(),
     performanceTime: '20:00',
     performanceStatus: 'Public',
   });
@@ -6597,8 +6605,8 @@ export function EngagementDetailPage({
                   setGrossPotentialInput(
                     row.grossPotential == null ? '' : String(row.grossPotential),
                   );
-                  setRehearsalDateInput(row.rehearsalDate ?? '');
-                  setLoadInDateInput(row.loadInDate ?? '');
+                  setRehearsalDateInput(row.rehearsalDate ?? getTodayDateString());
+                  setLoadInDateInput(row.loadInDate ?? getTodayDateString());
                 }
                 if (tab === 'Performances') {
                   setShowAddPerformance(false);

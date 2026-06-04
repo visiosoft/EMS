@@ -8,6 +8,7 @@ import React, {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { Loader2 } from 'lucide-react';
 import { EmsModalBodyScrollElementRef } from './Primitives';
 import { richSearchText, richTextMatches } from './searchUtils';
 
@@ -94,6 +95,7 @@ interface Select2Props {
   searchPlaceholder?: string;
   filterQuery?: string;
   onFilterChange?: (q: string) => void;
+  loading?: boolean;
 }
 
 type ContactMultiKind = 'role' | 'department' | null;
@@ -290,6 +292,7 @@ export function Select2({
   searchPlaceholder = 'Search...',
   filterQuery,
   onFilterChange,
+  loading = false,
 }: Select2Props) {
   useEffect(installContactBridge, []);
   const optionsSafe = useMemo(
@@ -500,17 +503,20 @@ export function Select2({
     <div ref={containerRef} className={`select2 relative ${className}`} onKeyDown={handleKeyDown}>
       <button
         type="button"
-        disabled={disabled}
-        onClick={() => { if (!disabled) setOpen((o) => !o); }}
+        disabled={disabled || loading}
+        onClick={() => { if (!disabled && !loading) setOpen((o) => !o); }}
         className={[
           'select2-selection w-full flex items-center justify-between gap-2 bg-surface border border-border rounded px-3 py-1.5 text-sm text-left transition-colors',
-          disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-ems-accent/60',
+          (disabled || loading) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-ems-accent/60',
           open ? 'border-ems-accent ring-1 ring-ems-accent/30' : '',
         ].filter(Boolean).join(' ')}
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span className={`min-w-0 flex-1 truncate ${contactMultiMode ? (selectedValues.length ? 'text-text-primary' : 'text-text-muted') : (selected ? 'text-text-primary' : 'text-text-muted')}`}>{summary}</span>
+        <span className={`min-w-0 flex-1 truncate flex items-center gap-2 ${contactMultiMode ? (selectedValues.length ? 'text-text-primary' : 'text-text-muted') : (selected ? 'text-text-primary' : 'text-text-muted')}`}>
+          {loading && <Loader2 className="h-3.5 w-3.5 animate-spin text-ems-accent shrink-0" />}
+          {loading ? 'Loading...' : summary}
+        </span>
         <span className="select2-arrow ml-2 flex-shrink-0 text-text-muted transition-transform duration-150" style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)', fontSize: 10 }}>▼</span>
       </button>
       {open && menuStyle && typeof document !== 'undefined' && createPortal(dropdown, document.body)}
