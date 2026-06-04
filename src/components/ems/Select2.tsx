@@ -69,6 +69,20 @@ function dedupeSelectOptions(options: Select2Option[]): Select2Option[] {
   return out;
 }
 
+function sameMenuStyle(a: React.CSSProperties | null, b: React.CSSProperties) {
+  if (!a) return false;
+  return (
+    a.position === b.position &&
+    a.left === b.left &&
+    a.top === b.top &&
+    a.bottom === b.bottom &&
+    a.width === b.width &&
+    a.minWidth === b.minWidth &&
+    a.maxHeight === b.maxHeight &&
+    a.zIndex === b.zIndex
+  );
+}
+
 interface Select2Props {
   options: Select2Option[];
   value: string;
@@ -233,7 +247,7 @@ function useMenuPosition(open: boolean, containerRef: React.RefObject<HTMLDivEle
     const needHeight = 300;
     const spaceBelow = window.innerHeight - r.bottom;
     const openUp = spaceBelow < needHeight && r.top > needHeight;
-    setMenuStyle({
+    const nextStyle: React.CSSProperties = {
       position: 'fixed',
       left: r.left,
       width: r.width,
@@ -241,7 +255,8 @@ function useMenuPosition(open: boolean, containerRef: React.RefObject<HTMLDivEle
       zIndex: 2000,
       maxHeight: 'min(360px, 80dvh)',
       ...(openUp ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }),
-    });
+    };
+    setMenuStyle((prev) => (sameMenuStyle(prev, nextStyle) ? prev : nextStyle));
   }, [containerRef, open]);
 
   useLayoutEffect(() => {
@@ -254,11 +269,9 @@ function useMenuPosition(open: boolean, containerRef: React.RefObject<HTMLDivEle
     window.addEventListener('resize', onReposition);
     const scrollHost = modalBodyScrollElementRef?.current;
     scrollHost?.addEventListener('scroll', onReposition, { passive: true });
-    const tick = window.setInterval(onReposition, 100);
     return () => {
       window.removeEventListener('resize', onReposition);
       scrollHost?.removeEventListener('scroll', onReposition);
-      window.clearInterval(tick);
     };
   }, [modalBodyScrollElementRef, open, updateMenuPosition]);
 
@@ -284,7 +297,10 @@ export function Select2({
   );
   const contactMultiKind = contactMultiKindFromOptions(optionsSafe);
   const contactMultiMode = contactMultiKind != null;
-  const visibleOptions = contactMultiMode ? optionsSafe.filter((o) => o.value !== '') : optionsSafe;
+  const visibleOptions = useMemo(
+    () => contactMultiMode ? optionsSafe.filter((o) => o.value !== '') : optionsSafe,
+    [contactMultiMode, optionsSafe],
+  );
   const parentFiltersOptions = onFilterChange != null;
 
   const [open, setOpen] = useState(false);
@@ -301,9 +317,12 @@ export function Select2({
 
   const displayFilter = parentFiltersOptions ? (filterQuery ?? '') : search;
   const selected = visibleOptions.find((o) => o.value === value);
-  const filtered = parentFiltersOptions
-    ? visibleOptions
-    : visibleOptions.filter((o) => richTextMatches([optionSearchText(o)], search));
+  const filtered = useMemo(
+    () => parentFiltersOptions
+      ? visibleOptions
+      : visibleOptions.filter((o) => richTextMatches([optionSearchText(o)], search)),
+    [parentFiltersOptions, search, visibleOptions],
+  );
 
   useEffect(() => {
     if (!contactMultiMode || !contactMultiKind) return;

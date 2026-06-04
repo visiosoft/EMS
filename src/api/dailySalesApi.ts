@@ -141,8 +141,8 @@ export function fetchDailySalesByPerformance(
   if (options?.contact) p.set('contact', options.contact);
   if (options?.sortBy?.trim()) {
     p.set('sortBy', options.sortBy.trim());
-    if (options.sortDir) p.set('sortDir', options.sortDir);
   }
+  if (options?.sortDir) p.set('sortDir', options.sortDir);
   if (options?.eventsScope === 'mine') p.set('eventsScope', 'mine');
   if (options?.iaeContactIds?.length) {
     const ids = options.iaeContactIds
