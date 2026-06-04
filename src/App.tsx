@@ -15,6 +15,7 @@ import { getActiveAccount, isMsalBusy } from "./auth/entra.ts";
 import { isEmsEnabled, isInternalEnabled } from "./routing/appSuite.ts";
 import { APP_CHOOSER_PATH, EMS_ROOT, INTERNAL_ROOT, LOGIN_PATH } from "./routing/paths.ts";
 import "./contact-polish.css";
+import "./project-venue-status-default.ts";
 
 const queryClient = new QueryClient({
   defaultOptions: {
