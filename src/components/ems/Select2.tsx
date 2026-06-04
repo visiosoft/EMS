@@ -116,6 +116,7 @@ const CONTACT_MULTI_STORAGE = {
   role: 'iae.contactDraft.roleIds',
   department: 'iae.contactDraft.departmentIds',
 } as const;
+const PROJECT_WIZARD_DEFAULT_VENUE_STATUS = 'Pending';
 
 function contactMultiKindFromOptions(options: Select2Option[]): ContactMultiKind {
   const firstLabel = String(options?.[0]?.label ?? '').trim().toLowerCase();
@@ -302,6 +303,8 @@ export function Select2({
     [contactMultiMode, optionsSafe],
   );
   const parentFiltersOptions = onFilterChange != null;
+  const shouldDefaultProjectVenueStatus =
+    !contactMultiMode && String(placeholder ?? '').toLowerCase().includes('selected venues');
 
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -323,6 +326,14 @@ export function Select2({
       : visibleOptions.filter((o) => richTextMatches([optionSearchText(o)], search)),
     [parentFiltersOptions, search, visibleOptions],
   );
+
+  useEffect(() => {
+    if (!shouldDefaultProjectVenueStatus || value.trim().length > 0) return;
+    const pending = visibleOptions.find(
+      (option) => option.value.trim().toLowerCase() === PROJECT_WIZARD_DEFAULT_VENUE_STATUS.toLowerCase(),
+    );
+    if (pending && !pending.disabled) onChange(pending.value);
+  }, [onChange, shouldDefaultProjectVenueStatus, value, visibleOptions]);
 
   useEffect(() => {
     if (!contactMultiMode || !contactMultiKind) return;
