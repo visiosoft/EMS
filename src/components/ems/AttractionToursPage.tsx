@@ -95,6 +95,7 @@ import { ContactPhoneRow } from './ContactPhoneRow';
 import { type ApiPaginatedResponse } from '@/api/attractionToursApi';
 import { TOUR_STATUS_OPTIONS } from './tourFormLegacy';
 import { AddTourForm } from './AddTourForm';
+import { richTextMatches } from './searchUtils';
 
 const AUDIENCE_GENDER_OPTIONS = [
   { value: '', label: '—' },
@@ -1932,23 +1933,23 @@ export function AttractionToursPage({ addToast, onNavigate }: Props) {
   const attractionsForPicker = attractions;
 
   const attractionSuggestions = useMemo(() => {
-    const q = attractionInput.trim().toLowerCase();
+    const q = attractionInput.trim();
     if (!q) return [];
     return attractions
       .map((a) => a.attractionName)
-      .filter((name) => name.toLowerCase().includes(q))
+      .filter((name) => richTextMatches([name], q))
       .slice(0, 8);
   }, [attractionInput, attractions]);
 
   const tourSuggestions = useMemo(() => {
-    const q = tourInput.trim().toLowerCase();
+    const q = tourInput.trim();
     if (!q) return [];
     const matches = tours.filter(
       (t) =>
-        t.tourName.toLowerCase().includes(q) ||
-        t.attractionName.toLowerCase().includes(q) ||
-        t.className.toLowerCase().includes(q) ||
-        (t.talentAgencyCompanyName && t.talentAgencyCompanyName.toLowerCase().includes(q)),
+        richTextMatches(
+          [t.tourName, t.attractionName, t.className, t.talentAgencyCompanyName],
+          q,
+        ),
     );
     return [...new Set(matches.map((t) => t.tourName))].slice(0, 8);
   }, [tourInput, tours]);
@@ -3075,7 +3076,6 @@ export function AttractionToursPage({ addToast, onNavigate }: Props) {
             attractions={attractionsForPicker}
             classes={classes}
             managementCompanyOptions={managementCompanyOptions}
-            payableEntityCompanyOptions={companyOptions}
             addToast={addToast}
             submitting={createTourMut.isPending}
             onCancel={() => setShowAddTour(false)}

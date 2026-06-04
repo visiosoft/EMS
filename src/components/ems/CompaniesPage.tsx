@@ -99,6 +99,7 @@ import {
   toCountryAlpha2FromDisplayString,
   toStateProvinceAbbrevForDisplay,
 } from '@/lib/addressAbbrev';
+import { normalizeSearchText, richTextMatches } from './searchUtils';
 
 interface Props {
   onNavigate?: (view: string, data?: unknown) => void;
@@ -3139,7 +3140,7 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
   }, [companiesPickerQuery.data, companyTypeParam]);
 
   const searchSuggestions = useMemo(() => {
-    const q = searchInput.trim().toLowerCase();
+    const q = normalizeSearchText(searchInput);
     if (!q) return [];
     const normalized = pickerCompanies
       .map((row) => {
@@ -3152,20 +3153,18 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
         const city = String(row.physicalCity ?? '').trim();
         const state = String(row.physicalStateProvince ?? '').trim();
         const cityState = [city, state].filter(Boolean).join(', ');
-        const searchableText = [name, typeText, cityState]
-          .join(' ')
-          .toLowerCase();
-        const startsWithName = name.toLowerCase().startsWith(q);
+        const searchableParts = [name, typeText, cityState, row.dmaMarketName];
+        const startsWithName = normalizeSearchText(name).startsWith(q);
         return {
           id: row.companyId,
           name,
           typeText: typeText || 'Not set',
           cityState: cityState || 'City / State not set',
-          searchableText,
+          searchableParts,
           startsWithName,
         };
       })
-      .filter((row) => row.name && row.searchableText.includes(q))
+      .filter((row) => row.name && richTextMatches(row.searchableParts, q))
       .sort((a, b) => {
         if (a.startsWithName !== b.startsWithName) return a.startsWithName ? -1 : 1;
         return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });

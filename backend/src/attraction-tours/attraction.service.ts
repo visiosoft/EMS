@@ -113,6 +113,27 @@ export class AttractionService {
     }
   }
 
+  private searchTokens(value: string | null | undefined): string[] {
+    return [
+      ...new Set(
+        String(value ?? '')
+          .trim()
+          .split(/[^a-zA-Z0-9]+/)
+          .map((token) => token.trim())
+          .filter(Boolean),
+      ),
+    ].slice(0, 8);
+  }
+
+  private escapeLikePattern(value: string): string {
+    return String(value)
+      .replace(/\\/g, '\\\\')
+      .replace(/%/g, '\\%')
+      .replace(/_/g, '\\_')
+      .replace(/\[/g, '\\[')
+      .replace(/\]/g, '\\]');
+  }
+
   async list(): Promise<AttractionListRow[]> {
     const attractions = await this.attractionRepo.find({
       order: { attractionName: 'ASC' },
@@ -144,7 +165,6 @@ export class AttractionService {
     sortByRaw?: string,
     sortDirRaw?: string,
   ): Promise<{ data: AttractionListRow[]; total: number }> {
-    const trimmed = (q ?? '').trim();
     const sortBy = (sortByRaw ?? '').trim().toLowerCase();
     const sortDir =
       (sortDirRaw ?? '').trim().toLowerCase() === 'desc' ? 'DESC' : 'ASC';
@@ -163,11 +183,16 @@ export class AttractionService {
         .orderBy('a.attractionName', sortDir)
         .addOrderBy('a.attractionId', 'ASC');
     }
-    if (trimmed) {
-      baseQb.andWhere('LOWER(a.attractionName) LIKE LOWER(:like)', {
-        like: `%${trimmed}%`,
-      });
-    }
+    this.searchTokens(q).forEach((token, index) => {
+      const param = `attractionSearch${index}`;
+      baseQb.andWhere(
+        `(
+          LOWER(ISNULL(a.attractionName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+          OR CAST(a.attractionId AS nvarchar(30)) LIKE :${param} ESCAPE '\\'
+        )`,
+        { [param]: `%${this.escapeLikePattern(token)}%` },
+      );
+    });
     const total = await baseQb.getCount();
     const attractions = await baseQb.skip(offset).take(limit).getMany();
     const ids = attractions.map((a) => a.attractionId);

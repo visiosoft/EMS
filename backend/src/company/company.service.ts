@@ -2126,11 +2126,26 @@ export class CompanyService {
 
     const q = (search ?? '').trim();
     if (q) {
-      const like = `%${q}%`;
-      qb.andWhere(
-        `(LOWER(c.companyName) LIKE LOWER(:like) OR LOWER(ISNULL(pa.city, '')) LIKE LOWER(:like) OR LOWER(ISNULL(pa.stateProvince, '')) LIKE LOWER(:like) OR LOWER(ISNULL(d.marketName, '')) LIKE LOWER(:like))`,
-        { like },
-      );
+      this.searchTokens(q).forEach((token, index) => {
+        const param = `companySearch${index}`;
+        qb.andWhere(
+          `(
+            LOWER(c.companyName) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR LOWER(ISNULL(pa.city, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR LOWER(ISNULL(pa.stateProvince, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR LOWER(ISNULL(d.marketName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR LOWER(ISNULL(ct.companyTypeName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR EXISTS (
+              SELECT 1
+              FROM dbo.CompanyCompanyType cctSearch
+              INNER JOIN dbo.CompanyType ctSearch ON ctSearch.CompanyTypeID = cctSearch.CompanyTypeID
+              WHERE cctSearch.CompanyID = c.CompanyID
+                AND LOWER(ISNULL(ctSearch.CompanyTypeName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            )
+          )`,
+          { [param]: `%${this.escapeLikePattern(token)}%` },
+        );
+      });
     }
     if (typeName && typeName !== 'All') {
       if (normalizedTypeName === 'venue') {
@@ -3628,22 +3643,46 @@ export class CompanyService {
       .createQueryBuilder('ct')
       .innerJoin('ct.contactInfo', 'ci')
       .leftJoin(ContactAssignment, 'ca', 'ca.contactId = ct.contactId')
-      .leftJoin(Company, 'c', 'c.companyId = ca.companyId');
+      .leftJoin(Company, 'c', 'c.companyId = ca.companyId')
+      .leftJoin(Role, 'rSearch', 'rSearch.roleId = ca.roleId')
+      .leftJoin(Department, 'dSearch', 'dSearch.departmentId = ca.departmentId')
+      .leftJoin('c.physicalAddress', 'paSearch')
+      .leftJoin('c.dma', 'dmaSearch')
+      .leftJoin('c.companyType', 'ctSearch');
 
     if (companyId != null && Number.isInteger(companyId) && companyId > 0) {
       baseQb.andWhere('ca.companyId = :companyId', { companyId });
     }
     const trimmed = q?.trim();
     if (trimmed) {
-      baseQb.andWhere(
-        `(
-          ci.firstName LIKE :like OR
-          ci.lastName LIKE :like OR
-          ci.email LIKE :like OR
-          c.companyName LIKE :like
-        )`,
-        { like: `%${trimmed}%` },
-      );
+      this.searchTokens(trimmed).forEach((token, index) => {
+        const param = `contactSearch${index}`;
+        baseQb.andWhere(
+          `(
+            LOWER(ISNULL(ci.firstName, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            LOWER(ISNULL(ci.lastName, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            LOWER(ISNULL(CONCAT(ci.firstName, ' ', ci.lastName), '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            LOWER(ISNULL(ci.email, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            LOWER(ISNULL(ci.workPhone, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            LOWER(ISNULL(ci.cellPhone, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            LOWER(ISNULL(c.companyName, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            LOWER(ISNULL(rSearch.roleName, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            LOWER(ISNULL(dSearch.departmentName, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            LOWER(ISNULL(paSearch.city, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            LOWER(ISNULL(paSearch.stateProvince, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            LOWER(ISNULL(dmaSearch.marketName, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            LOWER(ISNULL(ctSearch.companyTypeName, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            EXISTS (
+              SELECT 1
+              FROM dbo.CompanyCompanyType cctContactSearch
+              INNER JOIN dbo.CompanyType ctContactSearch ON ctContactSearch.CompanyTypeID = cctContactSearch.CompanyTypeID
+              WHERE cctContactSearch.CompanyID = c.CompanyID
+                AND LOWER(ISNULL(ctContactSearch.CompanyTypeName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            )
+          )`,
+          { [param]: `%${this.escapeLikePattern(token)}%` },
+        );
+      });
     }
 
     const totalRows = await baseQb
@@ -4416,6 +4455,27 @@ export class CompanyService {
       ticketingSystem: tw.ticketingSystem,
       venueWebsite: tw.venueWebsite,
     };
+  }
+
+  private searchTokens(value: string): string[] {
+    return [
+      ...new Set(
+        String(value ?? '')
+          .trim()
+          .split(/[^a-zA-Z0-9]+/)
+          .map((token) => token.trim())
+          .filter(Boolean),
+      ),
+    ].slice(0, 8);
+  }
+
+  private escapeLikePattern(value: string): string {
+    return String(value)
+      .replace(/\\/g, '\\\\')
+      .replace(/%/g, '\\%')
+      .replace(/_/g, '\\_')
+      .replace(/\[/g, '\\[')
+      .replace(/\]/g, '\\]');
   }
 
   private async ensureCompany(companyId: number): Promise<void> {
