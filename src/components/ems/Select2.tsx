@@ -8,6 +8,7 @@ import React, {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { Loader2 } from 'lucide-react';
 import { EmsModalBodyScrollElementRef } from './Primitives';
 import { richSearchText, richTextMatches } from './searchUtils';
 
@@ -69,6 +70,20 @@ function dedupeSelectOptions(options: Select2Option[]): Select2Option[] {
   return out;
 }
 
+function sameMenuStyle(a: React.CSSProperties | null, b: React.CSSProperties) {
+  if (!a) return false;
+  return (
+    a.position === b.position &&
+    a.left === b.left &&
+    a.top === b.top &&
+    a.bottom === b.bottom &&
+    a.width === b.width &&
+    a.minWidth === b.minWidth &&
+    a.maxHeight === b.maxHeight &&
+    a.zIndex === b.zIndex
+  );
+}
+
 interface Select2Props {
   options: Select2Option[];
   value: string;
@@ -80,6 +95,7 @@ interface Select2Props {
   searchPlaceholder?: string;
   filterQuery?: string;
   onFilterChange?: (q: string) => void;
+  loading?: boolean;
 }
 
 type ContactMultiKind = 'role' | 'department' | null;
@@ -102,6 +118,7 @@ const CONTACT_MULTI_STORAGE = {
   role: 'iae.contactDraft.roleIds',
   department: 'iae.contactDraft.departmentIds',
 } as const;
+const PROJECT_WIZARD_DEFAULT_VENUE_STATUS = 'Pending';
 
 function contactMultiKindFromOptions(options: Select2Option[]): ContactMultiKind {
   const firstLabel = String(options?.[0]?.label ?? '').trim().toLowerCase();
@@ -233,7 +250,7 @@ function useMenuPosition(open: boolean, containerRef: React.RefObject<HTMLDivEle
     const needHeight = 300;
     const spaceBelow = window.innerHeight - r.bottom;
     const openUp = spaceBelow < needHeight && r.top > needHeight;
-    setMenuStyle({
+    const nextStyle: React.CSSProperties = {
       position: 'fixed',
       left: r.left,
       width: r.width,
@@ -241,7 +258,8 @@ function useMenuPosition(open: boolean, containerRef: React.RefObject<HTMLDivEle
       zIndex: 2000,
       maxHeight: 'min(360px, 80dvh)',
       ...(openUp ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }),
-    });
+    };
+    setMenuStyle((prev) => (sameMenuStyle(prev, nextStyle) ? prev : nextStyle));
   }, [containerRef, open]);
 
   useLayoutEffect(() => {
@@ -254,11 +272,9 @@ function useMenuPosition(open: boolean, containerRef: React.RefObject<HTMLDivEle
     window.addEventListener('resize', onReposition);
     const scrollHost = modalBodyScrollElementRef?.current;
     scrollHost?.addEventListener('scroll', onReposition, { passive: true });
-    const tick = window.setInterval(onReposition, 100);
     return () => {
       window.removeEventListener('resize', onReposition);
       scrollHost?.removeEventListener('scroll', onReposition);
-      window.clearInterval(tick);
     };
   }, [modalBodyScrollElementRef, open, updateMenuPosition]);
 
@@ -276,6 +292,7 @@ export function Select2({
   searchPlaceholder = 'Search...',
   filterQuery,
   onFilterChange,
+  loading = false,
 }: Select2Props) {
   useEffect(installContactBridge, []);
   const optionsSafe = useMemo(
@@ -284,8 +301,13 @@ export function Select2({
   );
   const contactMultiKind = contactMultiKindFromOptions(optionsSafe);
   const contactMultiMode = contactMultiKind != null;
-  const visibleOptions = contactMultiMode ? optionsSafe.filter((o) => o.value !== '') : optionsSafe;
+  const visibleOptions = useMemo(
+    () => contactMultiMode ? optionsSafe.filter((o) => o.value !== '') : optionsSafe,
+    [contactMultiMode, optionsSafe],
+  );
   const parentFiltersOptions = onFilterChange != null;
+  const shouldDefaultProjectVenueStatus =
+    !contactMultiMode && String(placeholder ?? '').toLowerCase().includes('selected venues');
 
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -301,9 +323,20 @@ export function Select2({
 
   const displayFilter = parentFiltersOptions ? (filterQuery ?? '') : search;
   const selected = visibleOptions.find((o) => o.value === value);
-  const filtered = parentFiltersOptions
-    ? visibleOptions
-    : visibleOptions.filter((o) => richTextMatches([optionSearchText(o)], search));
+  const filtered = useMemo(
+    () => parentFiltersOptions
+      ? visibleOptions
+      : visibleOptions.filter((o) => richTextMatches([optionSearchText(o)], search)),
+    [parentFiltersOptions, search, visibleOptions],
+  );
+
+  useEffect(() => {
+    if (!shouldDefaultProjectVenueStatus || value.trim().length > 0) return;
+    const pending = visibleOptions.find(
+      (option) => option.value.trim().toLowerCase() === PROJECT_WIZARD_DEFAULT_VENUE_STATUS.toLowerCase(),
+    );
+    if (pending && !pending.disabled) onChange(pending.value);
+  }, [onChange, shouldDefaultProjectVenueStatus, value, visibleOptions]);
 
   useEffect(() => {
     if (!contactMultiMode || !contactMultiKind) return;
@@ -470,17 +503,20 @@ export function Select2({
     <div ref={containerRef} className={`select2 relative ${className}`} onKeyDown={handleKeyDown}>
       <button
         type="button"
-        disabled={disabled}
-        onClick={() => { if (!disabled) setOpen((o) => !o); }}
+        disabled={disabled || loading}
+        onClick={() => { if (!disabled && !loading) setOpen((o) => !o); }}
         className={[
           'select2-selection w-full flex items-center justify-between gap-2 bg-surface border border-border rounded px-3 py-1.5 text-sm text-left transition-colors',
-          disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-ems-accent/60',
+          (disabled || loading) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-ems-accent/60',
           open ? 'border-ems-accent ring-1 ring-ems-accent/30' : '',
         ].filter(Boolean).join(' ')}
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span className={`min-w-0 flex-1 truncate ${contactMultiMode ? (selectedValues.length ? 'text-text-primary' : 'text-text-muted') : (selected ? 'text-text-primary' : 'text-text-muted')}`}>{summary}</span>
+        <span className={`min-w-0 flex-1 truncate flex items-center gap-2 ${contactMultiMode ? (selectedValues.length ? 'text-text-primary' : 'text-text-muted') : (selected ? 'text-text-primary' : 'text-text-muted')}`}>
+          {loading && <Loader2 className="h-3.5 w-3.5 animate-spin text-ems-accent shrink-0" />}
+          {loading ? 'Loading...' : summary}
+        </span>
         <span className="select2-arrow ml-2 flex-shrink-0 text-text-muted transition-transform duration-150" style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)', fontSize: 10 }}>▼</span>
       </button>
       {open && menuStyle && typeof document !== 'undefined' && createPortal(dropdown, document.body)}
