@@ -47,6 +47,7 @@ import {
 import { PageSizeSelect } from './PageSizeSelect';
 import { ENGAGEMENT_STATUS_ENUM } from './engagementFormConstants';
 import { companyToSelect2Options } from './companySelectOptions';
+import { normalizeSearchText, richTextMatches } from './searchUtils';
 
 interface Props {
   onNavigate: (view: string, data?: Record<string, unknown>) => void;
@@ -507,7 +508,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
   });
 
   const engagementSearchSuggestions = useMemo(() => {
-    const q = searchInput.trim().toLowerCase();
+    const q = normalizeSearchText(searchInput);
     if (!q) return [] as Array<{ key: string; label: string; query: string; engagementId: number }>;
     const list = engagementsSuggestionQuery.data?.data ?? [];
     const out: Array<{ key: string; label: string; query: string; engagementId: number }> = [];
@@ -526,13 +527,10 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
       const hay = [
         row.displayTitle,
         ...candidates,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      if (!hay.includes(q)) continue;
+      ];
+      if (!richTextMatches(hay, q)) continue;
       const query =
-        candidates.find((c) => c.toLowerCase().includes(q)) ??
+        candidates.find((c) => richTextMatches([c], q)) ??
         candidates[0] ??
         String(row.displayTitle ?? '').trim() ??
         `Engagement #${row.engagementId}`;

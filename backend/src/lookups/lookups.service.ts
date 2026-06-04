@@ -397,37 +397,17 @@ export class LookupsService {
     qb: ReturnType<Repository<Dma>['createQueryBuilder']>,
     query: string,
   ) {
-    const trimmed = query.trim();
-    if (!trimmed) return;
-
-    const sq = `%${trimmed}%`;
-    const digitsOnly = /^\d+$/.test(trimmed);
-
-    if (digitsOnly) {
-      const dmaIdExact = Number.parseInt(trimmed, 10);
-      const idExactUsable =
-        Number.isFinite(dmaIdExact) &&
-        dmaIdExact >= 0 &&
-        dmaIdExact <= 2147483647 &&
-        String(dmaIdExact) === trimmed;
-
-      if (idExactUsable) {
-        qb.where(
-          "(LOWER(d.marketName) LIKE LOWER(:sq) OR LOWER(ISNULL(d.postalCode, '')) LIKE LOWER(:sq) OR d.dmaid = :dmaIdExact)",
-          { sq, dmaIdExact },
-        );
-      } else {
-        qb.where(
-          "(LOWER(d.marketName) LIKE LOWER(:sq) OR LOWER(ISNULL(d.postalCode, '')) LIKE LOWER(:sq))",
-          { sq },
-        );
-      }
-    } else {
-      qb.where(
-        "(LOWER(d.marketName) LIKE LOWER(:sq) OR LOWER(ISNULL(d.postalCode, '')) LIKE LOWER(:sq))",
-        { sq },
+    this.searchTokens(query).forEach((token, index) => {
+      const param = `dmaMarketSearch${index}`;
+      qb.andWhere(
+        `(
+          LOWER(ISNULL(d.marketName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+          OR LOWER(ISNULL(d.postalCode, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+          OR CAST(d.dmaid AS nvarchar(30)) LIKE :${param} ESCAPE '\\'
+        )`,
+        { [param]: `%${this.escapeLikePattern(token)}%` },
       );
-    }
+    });
   }
 
   private mapDmaMarketRows(rows: Record<string, unknown>[]) {
@@ -738,9 +718,25 @@ export class LookupsService {
       : 'ASC';
   }
 
-  private toContainsPattern(raw?: string): string | null {
-    const q = String(raw ?? '').trim();
-    return q ? `%${q}%` : null;
+  private searchTokens(raw?: string): string[] {
+    return [
+      ...new Set(
+        String(raw ?? '')
+          .trim()
+          .split(/[^a-zA-Z0-9]+/)
+          .map((token) => token.trim())
+          .filter(Boolean),
+      ),
+    ].slice(0, 8);
+  }
+
+  private escapeLikePattern(raw: string): string {
+    return String(raw)
+      .replace(/\\/g, '\\\\')
+      .replace(/%/g, '\\%')
+      .replace(/_/g, '\\_')
+      .replace(/\[/g, '\\[')
+      .replace(/\]/g, '\\]');
   }
 
   private normalizeRequiredPostal(postalCode: unknown) {
@@ -766,7 +762,7 @@ export class LookupsService {
       .trim()
       .toLowerCase();
     const sortDir = this.parseSortDirection(opts.sortDir);
-    const like = this.toContainsPattern(opts.q);
+    const searchTokens = this.searchTokens(opts.q);
 
     if (table === 'company-services') {
       const qb = this.companyServiceRepo
@@ -785,18 +781,19 @@ export class LookupsService {
           'sp.serviceName AS serviceName',
         ]);
 
-      if (like) {
-        qb.where(
+      searchTokens.forEach((token, index) => {
+        const param = `companyServiceSearch${index}`;
+        qb.andWhere(
           `(
-            LOWER(ISNULL(c.companyName, '')) LIKE LOWER(:like)
-            OR LOWER(ISNULL(sp.serviceName, '')) LIKE LOWER(:like)
-            OR CAST(cs.companyServiceId AS nvarchar(30)) LIKE :like
-            OR CAST(cs.companyId AS nvarchar(30)) LIKE :like
-            OR CAST(cs.serviceProvidedId AS nvarchar(30)) LIKE :like
+            LOWER(ISNULL(c.companyName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR LOWER(ISNULL(sp.serviceName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR CAST(cs.companyServiceId AS nvarchar(30)) LIKE :${param} ESCAPE '\\'
+            OR CAST(cs.companyId AS nvarchar(30)) LIKE :${param} ESCAPE '\\'
+            OR CAST(cs.serviceProvidedId AS nvarchar(30)) LIKE :${param} ESCAPE '\\'
           )`,
-          { like },
+          { [param]: `%${this.escapeLikePattern(token)}%` },
         );
-      }
+      });
 
       if (sortBy === 'companyid') {
         qb.orderBy('cs.companyId', sortDir).addOrderBy(
@@ -859,18 +856,19 @@ export class LookupsService {
           'sp.serviceName AS serviceName',
         ]);
 
-      if (like) {
-        qb.where(
+      searchTokens.forEach((token, index) => {
+        const param = `companyTypeServiceSearch${index}`;
+        qb.andWhere(
           `(
-            LOWER(ISNULL(ct.companyTypeName, '')) LIKE LOWER(:like)
-            OR LOWER(ISNULL(sp.serviceName, '')) LIKE LOWER(:like)
-            OR CAST(cts.companyTypeServiceId AS nvarchar(30)) LIKE :like
-            OR CAST(cts.companyTypeId AS nvarchar(30)) LIKE :like
-            OR CAST(cts.serviceProvidedId AS nvarchar(30)) LIKE :like
+            LOWER(ISNULL(ct.companyTypeName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR LOWER(ISNULL(sp.serviceName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR CAST(cts.companyTypeServiceId AS nvarchar(30)) LIKE :${param} ESCAPE '\\'
+            OR CAST(cts.companyTypeId AS nvarchar(30)) LIKE :${param} ESCAPE '\\'
+            OR CAST(cts.serviceProvidedId AS nvarchar(30)) LIKE :${param} ESCAPE '\\'
           )`,
-          { like },
+          { [param]: `%${this.escapeLikePattern(token)}%` },
         );
-      }
+      });
 
       qb.orderBy('ct.companyTypeName', 'ASC').addOrderBy('sp.serviceName', 'ASC');
 
@@ -948,16 +946,17 @@ export class LookupsService {
           'd.postalCode AS postalCode',
         ]);
 
-      if (like) {
-        qb.where(
+      searchTokens.forEach((token, index) => {
+        const param = `dmaSearch${index}`;
+        qb.andWhere(
           `(
-            LOWER(ISNULL(d.marketName, '')) LIKE LOWER(:like)
-            OR LOWER(ISNULL(d.postalCode, '')) LIKE LOWER(:like)
-            OR CAST(d.dmaid AS nvarchar(30)) LIKE :like
+            LOWER(ISNULL(d.marketName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR LOWER(ISNULL(d.postalCode, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR CAST(d.dmaid AS nvarchar(30)) LIKE :${param} ESCAPE '\\'
           )`,
-          { like },
+          { [param]: `%${this.escapeLikePattern(token)}%` },
         );
-      }
+      });
 
       if (sortBy === 'id') {
         qb.orderBy('d.dmaid', sortDir).addOrderBy('d.marketName', 'ASC');
@@ -1044,12 +1043,13 @@ export class LookupsService {
     const config = map[table];
     const qb = config.repo.createQueryBuilder('t');
 
-    if (like) {
-      qb.where(
-        `(LOWER(ISNULL(${config.nameSql}, '')) LIKE LOWER(:like) OR CAST(${config.idSql} AS nvarchar(30)) LIKE :like)`,
-        { like },
+    searchTokens.forEach((token, index) => {
+      const param = `lookupSearch${index}`;
+      qb.andWhere(
+        `(LOWER(ISNULL(${config.nameSql}, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR CAST(${config.idSql} AS nvarchar(30)) LIKE :${param} ESCAPE '\\')`,
+        { [param]: `%${this.escapeLikePattern(token)}%` },
       );
-    }
+    });
 
     if (sortBy === 'id') {
       qb.orderBy(config.idSql, sortDir).addOrderBy(config.nameSql, 'ASC');

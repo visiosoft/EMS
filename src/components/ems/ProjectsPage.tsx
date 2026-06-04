@@ -36,6 +36,7 @@ import {
 } from './Primitives';
 import { Select2 } from './Select2';
 import { companyToSelect2Options } from './companySelectOptions';
+import { normalizeSearchText, richTextMatches } from './searchUtils';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import {
   deriveValidSelectedDmaIds,
@@ -727,9 +728,11 @@ function ProjectInlineOverview({
   };
 
   const filteredDmaMarkets = useMemo(() => {
-    const q = dmaModalSearch.trim().toLowerCase();
+    const q = dmaModalSearch.trim();
     if (!q) return dmaMarkets;
-    return dmaMarkets.filter((row) => formatDmaPickerLabel(row).toLowerCase().includes(q));
+    return dmaMarkets.filter((row) =>
+      richTextMatches([formatDmaPickerLabel(row), row.marketName, row.dmaid], q),
+    );
   }, [dmaMarkets, dmaModalSearch]);
 
   const toggleDmaDraft = (dmaid: number) => {
@@ -1903,12 +1906,15 @@ function VenueProposalRow({
   const [venueStatus, setVenueStatus] = useState<string>(venue.venueStatus);
   const [statusSaving, setStatusSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
 
   const venueStatusStrings = useResolvedVenueStatusStrings(venueStatus);
   const venueStatusOptions = useMemo(
     () => toSelectOptionsFromStrings(venueStatusStrings),
     [venueStatusStrings],
   );
+  const venueDisplayName = venue.venueCompanyName ?? venue.venueName ?? 'Unknown venue';
+  const venueDmaLabel = venue.venueDmaMarketName?.trim() || 'Not set';
 
   useEffect(() => {
     setVenueStatus(venue.venueStatus);
@@ -1941,119 +1947,160 @@ function VenueProposalRow({
       addToast(friendlyApiError(e, 'Could not remove venue.'), 'error');
     } finally {
       setDeleting(false);
+      setConfirmRemoveOpen(false);
     }
     if (ok) addToast('Venue proposal removed.', 'warning');
   };
 
   return (
-    <div className="bg-card border border-border rounded-lg overflow-hidden">
-      <div className="p-4 space-y-3">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <span className="text-text-primary font-medium text-sm">
-              {venue.venueCompanyName ?? venue.venueName ?? 'Unknown venue'}
-            </span>
-            {venue.venueName && venue.venueName !== venue.venueCompanyName && (
-              <div className="text-xs text-text-secondary">{venue.venueName}</div>
-            )}
-            {scopeMismatchReason && (
-              <div className="mt-1 text-[11px] text-amber-500">
-                Out of current filters: {scopeMismatchReason}
+    <>
+      <div className="bg-card border border-border rounded-lg overflow-hidden">
+        <div className="p-4 space-y-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="text-text-primary font-medium text-sm">
+                  {venueDisplayName}
+                </span>
+                <span className="inline-flex max-w-full items-center rounded border border-border bg-elevated px-2 py-0.5 text-[11px] font-medium text-text-secondary">
+                  DMA: {venueDmaLabel}
+                </span>
               </div>
-            )}
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {!readOnly && editingStatus ? (
-              <div className="flex items-center gap-1">
-                <div className="w-36">
-                  <Select2
-                    options={venueStatusOptions}
-                    value={venueStatus}
-                    onChange={setVenueStatus}
-                    disabled={venueStatusOptions.length === 0}
-                    placeholder={venueStatusOptions.length ? 'Select…' : 'Loading…'}
-                  />
+              {venue.venueName && venue.venueName !== venue.venueCompanyName && (
+                <div className="text-xs text-text-secondary">{venue.venueName}</div>
+              )}
+              {scopeMismatchReason && (
+                <div className="mt-1 text-[11px] text-amber-500">
+                  Out of current filters: {scopeMismatchReason}
                 </div>
-                <button type="button" onClick={() => void handleStatusSave()} disabled={statusSaving}
-                  className="inline-flex items-center gap-1 bg-ems-accent text-background text-xs px-2 py-1 rounded disabled:opacity-60">
-                  {statusSaving && <Loader2 className="h-3 w-3 animate-spin" />}Save
-                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {!readOnly && editingStatus ? (
+                <div className="flex items-center gap-1">
+                  <div className="w-36">
+                    <Select2
+                      options={venueStatusOptions}
+                      value={venueStatus}
+                      onChange={setVenueStatus}
+                      disabled={venueStatusOptions.length === 0}
+                      placeholder={venueStatusOptions.length ? 'Select…' : 'Loading…'}
+                    />
+                  </div>
+                  <button type="button" onClick={() => void handleStatusSave()} disabled={statusSaving}
+                    className="inline-flex items-center gap-1 bg-ems-accent text-background text-xs px-2 py-1 rounded disabled:opacity-60">
+                    {statusSaving && <Loader2 className="h-3 w-3 animate-spin" />}Save
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVenueStatus(venue.venueStatus);
+                      setEditingStatus(false);
+                    }}
+                    className="text-text-muted text-xs px-1 hover:text-text-primary"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : !readOnly ? (
                 <button
                   type="button"
                   onClick={() => {
                     setVenueStatus(venue.venueStatus);
-                    setEditingStatus(false);
+                    setEditingStatus(true);
                   }}
-                  className="text-text-muted text-xs px-1 hover:text-text-primary"
+                  title="Click to change status"
                 >
-                  ✕
+                  <StatusBadge status={venue.venueStatus} />
                 </button>
-              </div>
-            ) : !readOnly ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setVenueStatus(venue.venueStatus);
-                  setEditingStatus(true);
-                }}
-                title="Click to change status"
-              >
+              ) : (
                 <StatusBadge status={venue.venueStatus} />
-              </button>
-            ) : (
-              <StatusBadge status={venue.venueStatus} />
-            )}
-            {!readOnly && (
-              <button type="button" onClick={() => void handleDelete()} disabled={deleting}
-                className="text-text-muted hover:text-ems-coral text-xs disabled:opacity-50 px-1">
-                {deleting ? <Loader2 className="h-3 w-3 animate-spin" /> : '✕'}
-              </button>
-            )}
+              )}
+              {!readOnly && (
+                <button type="button" onClick={() => setConfirmRemoveOpen(true)} disabled={deleting}
+                  className="text-text-muted hover:text-ems-coral text-xs disabled:opacity-50 px-1"
+                  aria-label={`Remove ${venueDisplayName}`}
+                >
+                  {deleting ? <Loader2 className="h-3 w-3 animate-spin" /> : '✕'}
+                </button>
+              )}
+            </div>
           </div>
-        </div>
 
-        <div className="border-t border-border/60 pt-2 space-y-1">
-          <div className="flex items-center justify-between mb-1.5">
-            <p className="text-[11px] text-text-muted font-medium">Proposed Dates</p>
-            {!readOnly && (
-              <button type="button" onClick={() => setShowAddOpt(!showAddOpt)} className="text-ems-accent text-[11px] hover:underline">+ Add date</button>
+          <div className="border-t border-border/60 pt-2 space-y-1">
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-[11px] text-text-muted font-medium">Proposed Dates</p>
+              {!readOnly && (
+                <button type="button" onClick={() => setShowAddOpt(!showAddOpt)} className="text-ems-accent text-[11px] hover:underline">+ Add date</button>
+              )}
+            </div>
+            {venue.performanceOptions.length === 0 && !showAddOpt && (
+              <p className="text-xs text-text-muted">No date options yet.</p>
             )}
-          </div>
-          {venue.performanceOptions.length === 0 && !showAddOpt && (
-            <p className="text-xs text-text-muted">No date options yet.</p>
-          )}
-          {venue.performanceOptions.map((opt) =>
-            readOnly ? (
-              <div key={opt.performanceOptionId} className="flex items-center gap-3 rounded bg-elevated/50 px-2 py-1.5 text-xs">
-                <span className="font-medium text-text-primary">{opt.proposedDate}</span>
-                {opt.proposedTime && <span className="text-text-muted">· {opt.proposedTime}</span>}
-                <span className="ml-auto"><StatusBadge status={opt.optionStatus} /></span>
-              </div>
-            ) : (
-              <PerformanceOptionRow
-                key={opt.performanceOptionId}
-                opt={opt}
+            {venue.performanceOptions.map((opt) =>
+              readOnly ? (
+                <div key={opt.performanceOptionId} className="flex items-center gap-3 rounded bg-elevated/50 px-2 py-1.5 text-xs">
+                  <span className="font-medium text-text-primary">{opt.proposedDate}</span>
+                  {opt.proposedTime && <span className="text-text-muted">· {opt.proposedTime}</span>}
+                  <span className="ml-auto"><StatusBadge status={opt.optionStatus} /></span>
+                </div>
+              ) : (
+                <PerformanceOptionRow
+                  key={opt.performanceOptionId}
+                  opt={opt}
+                  projectId={projectId}
+                  onRefresh={onRefresh}
+                  addToast={addToast}
+                />
+              ),
+            )}
+            {!readOnly && showAddOpt && (
+              <AddPerformanceOptionForm
                 projectId={projectId}
-                onRefresh={onRefresh}
+                engagementProjectVenueId={venue.engagementProjectVenueId}
+                onAdded={async () => {
+                  await onRefresh();
+                  setShowAddOpt(false);
+                }}
+                onCancel={() => setShowAddOpt(false)}
                 addToast={addToast}
               />
-            ),
-          )}
-          {!readOnly && showAddOpt && (
-            <AddPerformanceOptionForm
-              projectId={projectId}
-              engagementProjectVenueId={venue.engagementProjectVenueId}
-              onAdded={async () => {
-                await onRefresh();
-                setShowAddOpt(false);
-              }}
-              onCancel={() => setShowAddOpt(false)}
-              addToast={addToast}
-            />
-          )}
+            )}
+          </div>
         </div>
       </div>
-    </div>
+      <AlertDialog
+        open={confirmRemoveOpen}
+        onOpenChange={(open) => {
+          if (!deleting) setConfirmRemoveOpen(open);
+        }}
+      >
+        <AlertDialogContent className="z-[360] border-border bg-card text-text-primary shadow-xl sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-text-primary font-semibold text-lg">
+              Remove this venue?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-text-secondary text-sm leading-relaxed">
+              {venueDisplayName} will be removed from this project, including any proposed dates for this venue.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:gap-2">
+            <AlertDialogCancel disabled={deleting} className="border-border bg-elevated text-text-primary hover:bg-hover mt-0">
+              Cancel
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              disabled={deleting}
+              className="bg-ems-coral text-white hover:bg-ems-coral/90 sm:ml-0"
+              onClick={() => void handleDelete()}
+            >
+              {deleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Remove venue
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
@@ -2623,11 +2670,9 @@ function CreateProjectForm({
     [venueTypes],
   );
   const filteredPreferredVenueTypeOptions = useMemo(() => {
-    const q = preferredVenueTypeSearch.trim().toLowerCase();
+    const q = preferredVenueTypeSearch.trim();
     if (!q) return preferredVenueTypeOptions;
-    return preferredVenueTypeOptions.filter((opt) =>
-      opt.label.toLowerCase().includes(q),
-    );
+    return preferredVenueTypeOptions.filter((opt) => richTextMatches([opt.label], q));
   }, [preferredVenueTypeOptions, preferredVenueTypeSearch]);
   const dmaFlatRows = useMemo(
     () => dmaMarketsQuery.data ?? EMPTY_DMA_MARKETS,
@@ -2661,19 +2706,23 @@ function CreateProjectForm({
     [venuesWizardQuery.data],
   );
   const venueRowsFiltered = useMemo(() => {
-    const q = venueSearch.trim().toLowerCase();
+    const q = venueSearch.trim();
     return venueRowsAll.filter((r) => {
-      const blob = [
-        r.venueName,
-        r.entertainmentComplexNames,
-        r.dmaMarketName,
-        String(r.companyId),
-        r.venueTypeName,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      if (q && !blob.includes(q)) return false;
+      if (
+        q &&
+        !richTextMatches(
+          [
+            r.venueName,
+            r.entertainmentComplexNames,
+            r.dmaMarketName,
+            String(r.companyId),
+            r.venueTypeName,
+          ],
+          q,
+        )
+      ) {
+        return false;
+      }
       if (selectedPreferredVenueTypeIds.length === 0) return true;
       return (
         r.venueTypeId != null &&
@@ -2702,9 +2751,9 @@ function CreateProjectForm({
   }, [tours]);
 
   const filteredAttractions = useMemo(() => {
-    const q = attractionSearch.trim().toLowerCase();
+    const q = attractionSearch.trim();
     return attractions
-      .filter((a) => !q || (a.attractionName ?? '').toLowerCase().includes(q))
+      .filter((a) => !q || richTextMatches([a.attractionName, a.attractionId], q))
       .sort((a, b) =>
         (a.attractionName ?? '').localeCompare(b.attractionName ?? '', undefined, { sensitivity: 'base' }),
       );
@@ -2720,12 +2769,19 @@ function CreateProjectForm({
   }, [selectedAttractionId, toursByAttraction]);
 
   const filteredToursForAttraction = useMemo(() => {
-    const q = tourSearch.trim().toLowerCase();
+    const q = tourSearch.trim();
     if (!q) return toursForSelectedAttraction;
-    return toursForSelectedAttraction.filter(
-      (t) =>
-        (t.tourName ?? '').toLowerCase().includes(q) ||
-        String(t.tourId).includes(q),
+    return toursForSelectedAttraction.filter((t) =>
+      richTextMatches(
+        [
+          t.tourName,
+          t.tourId,
+          t.attractionName,
+          t.className,
+          t.talentAgencyCompanyName,
+        ],
+        q,
+      ),
     );
   }, [toursForSelectedAttraction, tourSearch]);
 
@@ -3802,7 +3858,6 @@ function CreateProjectForm({
           attractions={attractions}
           classes={classes}
           managementCompanyOptions={managementCompanyOptions}
-          payableEntityCompanyOptions={companyOptions}
           addToast={addToast}
           lockAttractionId={selectedAttractionId}
           submitting={createTourMut.isPending}
@@ -3905,7 +3960,7 @@ export function ProjectsPage({ addToast, onNavigate }: Props) {
   });
 
   const projectSearchSuggestions = useMemo(() => {
-    const q = searchInput.trim().toLowerCase();
+    const q = normalizeSearchText(searchInput);
     if (!q) return [] as Array<{ label: string; query: string }>;
     const rows = projectsSuggestionQuery.data ?? [];
     const labels: Array<{ label: string; query: string }> = [];
@@ -3920,16 +3975,9 @@ export function ProjectsPage({ addToast, onNavigate }: Props) {
       ]
         .map((v) => String(v ?? '').trim())
         .filter(Boolean);
-      const hay = [
-        primary,
-        ...candidates,
-      ]
-        .filter(Boolean)
-        .map((s) => String(s).toLowerCase())
-        .some((s) => s.includes(q));
-      if (!hay) continue;
+      if (!richTextMatches([primary, ...candidates], q)) continue;
       const query =
-        candidates.find((c) => c.toLowerCase().includes(q)) ??
+        candidates.find((c) => richTextMatches([c], q)) ??
         candidates[0] ??
         '';
       if (!query) continue;

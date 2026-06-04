@@ -9,6 +9,7 @@ import React, {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { EmsModalBodyScrollElementRef } from './Primitives';
+import { richSearchText, richTextMatches } from './searchUtils';
 
 export interface Select2Option {
   value: string;
@@ -20,15 +21,12 @@ export interface Select2Option {
 }
 
 function optionSearchText(option: Select2Option): string {
-  return [
+  return richSearchText([
     option.label,
     option.description,
     option.rightText,
     option.searchText,
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
+  ]);
 }
 
 function Select2OptionContent({
@@ -305,7 +303,7 @@ export function Select2({
   const selected = visibleOptions.find((o) => o.value === value);
   const filtered = parentFiltersOptions
     ? visibleOptions
-    : visibleOptions.filter((o) => optionSearchText(o).includes(String(search ?? '').toLowerCase()));
+    : visibleOptions.filter((o) => richTextMatches([optionSearchText(o)], search));
 
   useEffect(() => {
     if (!contactMultiMode || !contactMultiKind) return;
@@ -519,7 +517,10 @@ export function Select2Multi({ options, values, onChange, placeholder = 'Select.
   const menuRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const menuStyle = useMenuPosition(open, containerRef);
-  const filtered = useMemo(() => optionsSafe.filter((o) => optionSearchText(o).includes(search.toLowerCase())), [optionsSafe, search]);
+  const filtered = useMemo(
+    () => optionsSafe.filter((o) => richTextMatches([optionSearchText(o)], search)),
+    [optionsSafe, search],
+  );
   const summary = (() => {
     const labels = valuesSafe
       .map((v) => optionsSafe.find((o) => o.value === v)?.label ?? '')

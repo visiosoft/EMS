@@ -28,6 +28,7 @@ import {
   fetchLookups,
   type ApiDmaMarket,
 } from '@/api/companyApi';
+import { normalizeSearchText, richTextMatches } from './searchUtils';
 
 type ViewMode = 'list' | 'board';
 const ALL_VENUES_SORT_STATE_STORAGE_KEY = 'iae-all-venues-sort-state-v1';
@@ -246,20 +247,26 @@ export function AllVenuesPage({ onNavigate }: Props) {
   }, [companiesPickerQ.data]);
 
   const venueSearchSuggestions = useMemo(() => {
-    const q = venueInput.trim().toLowerCase();
+    const q = normalizeSearchText(venueInput);
     if (!q) return [];
     const raw = (venueSuggestionRowsQuery.data?.data ?? []).map((r) => {
       const name = (r.venueName ?? '').trim();
       const typeText = (r.venueTypeName ?? '').trim() || 'Not set';
       const cityState = companyCityStateById.get(r.companyId) || 'City / State not set';
-      const searchableText = [name, typeText, cityState].join(' ').toLowerCase();
-      const startsWithName = name.toLowerCase().startsWith(q);
+      const searchableParts = [
+        name,
+        typeText,
+        cityState,
+        r.dmaMarketName,
+        r.entertainmentComplexNames,
+      ];
+      const startsWithName = normalizeSearchText(name).startsWith(q);
       return {
         key: `${name.toLowerCase()}|${typeText.toLowerCase()}|${cityState.toLowerCase()}`,
         name,
         typeText,
         cityState,
-        searchableText,
+        searchableParts,
         startsWithName,
       };
     });
@@ -271,7 +278,7 @@ export function AllVenuesPage({ onNavigate }: Props) {
     }
 
     return [...dedup.values()]
-      .filter((row) => row.searchableText.includes(q))
+      .filter((row) => richTextMatches(row.searchableParts, q))
       .sort((a, b) => {
         if (a.startsWithName !== b.startsWithName) return a.startsWithName ? -1 : 1;
         return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });

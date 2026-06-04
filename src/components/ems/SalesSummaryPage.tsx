@@ -18,6 +18,7 @@ import { fetchDailySales, fetchDailySalesByPerformance, type ApiDailySalesRow, t
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { companyToSelect2Options } from './companySelectOptions';
 import { Select2 } from './Select2';
+import { richTextMatches } from './searchUtils';
 
 interface Props { onOpenEngagement: (engagementId: number, performanceId: number) => void }
 
@@ -208,7 +209,25 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   const query = useQuery({ queryKey: ['sales-summary', reportAsOfDate, startDate, endDate, attractionFilter, genreFilter, tourFilter, companyFilter, venueFilter, contactFilter], queryFn: () => fetchDailySalesByPerformance(reportAsOfDate, { page: 1, pageSize: 1000, startDate: rangeOk ? startDate : undefined, endDate: rangeOk ? endDate : undefined, attraction: attractionFilter || undefined, genre: genreFilter || undefined, tour: tourFilter || undefined, company: companyFilter || undefined, venue: venueFilter || undefined, contact: contactFilter || undefined }), staleTime: 2 * 60 * 1000, placeholderData: (prev) => prev, enabled: rangeOk });
   const ledgerQuery = useQuery({ queryKey: ['sales-summary-daily-sales-ledger'], queryFn: () => fetchDailySales(), staleTime: 2 * 60 * 1000, placeholderData: (prev) => prev });
   const pageData = query.data; const rawRows = pageData?.items ?? []; const ledger = useMemo(() => buildLedger(ledgerQuery.data ?? []), [ledgerQuery.data]); const ledgerReady = Array.isArray(ledgerQuery.data);
-  const searchedRows = useMemo(() => { const q = searchInput.trim().toLowerCase(); if (!q) return rawRows; return rawRows.filter((r) => [r.attractionName, r.tourName, r.venueName, r.venueCompanyName, rowMarketName(r), r.performanceDate].filter(Boolean).join(' ').toLowerCase().includes(q)); }, [rawRows, searchInput]);
+  const searchedRows = useMemo(() => {
+    const q = searchInput.trim();
+    if (!q) return rawRows;
+    return rawRows.filter((r) =>
+      richTextMatches(
+        [
+          r.attractionName,
+          r.tourName,
+          r.venueName,
+          r.venueCompanyName,
+          rowMarketName(r),
+          r.city,
+          r.performanceDate,
+          r.performanceTime,
+        ],
+        q,
+      ),
+    );
+  }, [rawRows, searchInput]);
   const rowsWithMetrics = useMemo(() => searchedRows.map((row) => ({ row, metrics: metricsFor(row, ledger, reportAsOfDate, ledgerReady) })), [ledger, ledgerReady, reportAsOfDate, searchedRows]);
   const rows = useMemo(() => sortRows(rowsWithMetrics, sort), [rowsWithMetrics, sort]);
   const kpis = useMemo(() => rows.reduce((a, x) => ({ events: a.events + 1, totalSold: a.totalSold + x.metrics.currentTickets, totalRevenue: a.totalRevenue + x.metrics.currentRevenue, revenueYesterday: a.revenueYesterday + x.metrics.yesterdayRevenue }), { events: 0, totalSold: 0, totalRevenue: 0, revenueYesterday: 0 }), [rows]);

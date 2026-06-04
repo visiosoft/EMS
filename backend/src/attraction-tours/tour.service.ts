@@ -142,6 +142,27 @@ export class TourService {
     }
   }
 
+  private searchTokens(value: string | null | undefined): string[] {
+    return [
+      ...new Set(
+        String(value ?? '')
+          .trim()
+          .split(/[^a-zA-Z0-9]+/)
+          .map((token) => token.trim())
+          .filter(Boolean),
+      ),
+    ].slice(0, 8);
+  }
+
+  private escapeLikePattern(value: string): string {
+    return String(value)
+      .replace(/\\/g, '\\\\')
+      .replace(/%/g, '\\%')
+      .replace(/_/g, '\\_')
+      .replace(/\[/g, '\\[')
+      .replace(/\]/g, '\\]');
+  }
+
   private normalizeContactIds(ids?: number[] | null): number[] {
     return [
       ...new Set(
@@ -542,13 +563,21 @@ export class TourService {
       qb.orderBy('t.tourName', sortDir).addOrderBy('t.tourId', 'ASC');
     }
 
-    const trimmed = (q ?? '').trim();
-    if (trimmed) {
+    this.searchTokens(q).forEach((token, index) => {
+      const param = `tourSearch${index}`;
       qb.andWhere(
-        `(LOWER(t.tourName) LIKE LOWER(:like) OR LOWER(a.attractionName) LIKE LOWER(:like) OR LOWER(c.className) LIKE LOWER(:like) OR LOWER(ISNULL(ta.companyName, '')) LIKE LOWER(:like))`,
-        { like: `%${trimmed}%` },
+        `(
+          LOWER(ISNULL(t.tourName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+          OR LOWER(ISNULL(a.attractionName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+          OR LOWER(ISNULL(c.className, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+          OR LOWER(ISNULL(v.venueTypeName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+          OR LOWER(ISNULL(ta.companyName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+          OR LOWER(ISNULL(tm.companyName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+          OR LOWER(ISNULL(job.jobName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+        )`,
+        { [param]: `%${this.escapeLikePattern(token)}%` },
       );
-    }
+    });
 
     const total = await qb.getCount();
     const rows = await qb.skip(offset).take(limit).getMany();
@@ -659,10 +688,6 @@ export class TourService {
       );
     }
     await this.assertTalentAgencyCompany(dto.talentAgencyCompanyId);
-    const payableEntityCompanyId = dto.tourManagementCompanyId ?? null;
-    if (payableEntityCompanyId != null) {
-      await this.assertCompanyExists(payableEntityCompanyId, 'Payable entity');
-    }
     const talentAgentContactIds =
       await this.assertTalentAgentContactsBelongToAgency(
         dto.talentAgentContactIds ?? [],
@@ -692,7 +717,7 @@ export class TourService {
       venueTypePreferenceId: null,
       bannerLinkId: null,
       talentAgencyCompanyId: dto.talentAgencyCompanyId,
-      tourManagementCompanyId: payableEntityCompanyId,
+      tourManagementCompanyId: null,
       jobId,
       tourStartDate,
       tourEndDate,
