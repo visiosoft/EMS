@@ -131,6 +131,13 @@ const getTodayDateString = () => {
   return `${year}-${month}-${day}`;
 };
 
+const getCurrentTimeString = () => {
+  const d = new Date();
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+};
+
 function projectDetailToListRow(p: ApiProjectDetail): ApiProjectListRow {
   return {
     engagementProjectId: p.engagementProjectId,
@@ -174,6 +181,55 @@ function formatVenueCapacity(cap: unknown): string {
   const n = typeof cap === 'number' ? cap : Number(cap);
   if (!Number.isFinite(n) || n < 0) return '—';
   return n.toLocaleString();
+}
+
+function formatEmsShortWeekdayDateTime(value: string | null | undefined): string {
+  if (!value) return '—';
+  const raw = String(value).trim();
+  if (!raw) return '—';
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00` : raw;
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return '—';
+  const datePart = new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date);
+  const timePart = new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(date);
+  return `${datePart} · ${timePart}`;
+}
+
+function formatEmsShortWeekdayDate(value: string | null | undefined): string {
+  if (!value) return '—';
+  const raw = String(value).trim();
+  if (!raw) return '—';
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00` : raw;
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date);
+}
+
+function formatProjectOptionDateTime(dateValue: string | null | undefined, timeValue?: string | null): string {
+  if (!dateValue) return '—';
+  const cleanDate = String(dateValue).trim();
+  const cleanTime = String(timeValue ?? '').trim();
+  if (!cleanDate) return '—';
+  return formatEmsShortWeekdayDateTime(cleanTime ? `${cleanDate}T${cleanTime}` : cleanDate);
+}
+
+function formatProjectDateRange(startDate: string | null | undefined, endDate: string | null | undefined): string {
+  if (!startDate || !endDate) return '—';
+  return `${formatEmsShortWeekdayDate(startDate)} to ${formatEmsShortWeekdayDate(endDate)}`;
 }
 
 
@@ -807,7 +863,7 @@ function ProjectInlineOverview({
           <div>
             <span className="text-xs text-text-muted">Created date</span>
             <div className="text-sm text-text-primary mt-0.5">
-              {project.createdDate ? new Date(project.createdDate).toLocaleDateString() : '—'}
+              {formatEmsShortWeekdayDateTime(project.createdDate)}
             </div>
           </div>
           <div>
@@ -1200,7 +1256,7 @@ function renderProjectListCell(slot: ProjectMovableColumnId | 'stage', p: ApiPro
     case 'created':
       return (
         <td key="created" className="py-2.5 px-3 text-xs text-text-muted tabular-nums">
-          {p.createdDate ? new Date(p.createdDate).toLocaleDateString() : '—'}
+          {formatEmsShortWeekdayDateTime(p.createdDate)}
         </td>
       );
     default:
@@ -1337,8 +1393,7 @@ function PerformanceOptionRow({
 
   return (
     <div className="relative flex items-center gap-3 bg-elevated/50 rounded px-2 py-1.5 text-xs group min-h-[2.25rem]">
-      <span className="text-text-primary font-medium">{opt.proposedDate}</span>
-      {opt.proposedTime && <span className="text-text-muted">· {opt.proposedTime}</span>}
+      <span className="text-text-primary font-medium">{formatProjectOptionDateTime(opt.proposedDate, opt.proposedTime)}</span>
       <span className="ml-auto"><StatusBadge status={opt.optionStatus} /></span>
       <button
         type="button"
@@ -1387,8 +1442,8 @@ function AddPerformanceOptionForm({
   onCancel: () => void;
   addToast: Props['addToast'];
 }) {
-  const [date, setDate] = useState('');
-  const [time, setTime] = useState('');
+  const [date, setDate] = useState(getTodayDateString);
+  const [time, setTime] = useState(getCurrentTimeString);
   const [status, setStatus] = useState<OptionStatus>('Pending');
   const [saving, setSaving] = useState(false);
   const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
@@ -1405,6 +1460,12 @@ function AddPerformanceOptionForm({
       setStatus(optionStatusOptions[0].value as OptionStatus);
     }
   }, [optionStatusOptions, status]);
+
+  useEffect(() => {
+    setDate(getTodayDateString());
+    setTime(getCurrentTimeString());
+    setStatus('Pending');
+  }, [engagementProjectVenueId]);
 
   const handleSave = async () => {
     if (!date) { addToast('Date is required.', 'warning'); return; }
@@ -1914,8 +1975,7 @@ function VenueProposalRow({
             {venue.performanceOptions.map((opt) =>
               readOnly ? (
                 <div key={opt.performanceOptionId} className="flex items-center gap-3 rounded bg-elevated/50 px-2 py-1.5 text-xs">
-                  <span className="font-medium text-text-primary">{opt.proposedDate}</span>
-                  {opt.proposedTime && <span className="text-text-muted">· {opt.proposedTime}</span>}
+                  <span className="font-medium text-text-primary">{formatProjectOptionDateTime(opt.proposedDate, opt.proposedTime)}</span>
                   <span className="ml-auto"><StatusBadge status={opt.optionStatus} /></span>
                 </div>
               ) : (
@@ -3587,7 +3647,7 @@ function CreateProjectForm({
             </div>
             <FormField label="Date Range">
               <div className="text-sm text-text-primary bg-surface px-3 py-1.5 rounded border border-border">
-                {dateRangeStart && dateRangeEnd ? `${dateRangeStart} to ${dateRangeEnd}` : '—'}
+                {formatProjectDateRange(dateRangeStart, dateRangeEnd)}
               </div>
             </FormField>
             <FormField label="Preferred Venue Type">

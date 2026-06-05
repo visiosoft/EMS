@@ -1,4 +1,5 @@
 import { apiFetch } from './config';
+import type { ApiEngagementListRow } from './engagementApi';
 
 export interface ApiAddress {
   addressId: number;
@@ -116,13 +117,7 @@ export interface ApiCompanyVenueLinkedContactsSection {
   contacts: ApiCompanyContact[];
 }
 
-export interface ApiEngagementRow {
-  engagementId: number;
-  engagementStatus: string;
-  tourName: string | null;
-  attractionName: string | null;
-  displayTitle: string;
-}
+export type { ApiEngagementListRow as ApiEngagementRow };
 
 export interface ApiVenueTicketing {
   seatingTypeId: number | null;

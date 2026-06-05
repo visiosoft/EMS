@@ -165,7 +165,7 @@ export class ContactAssignmentsController {
 
   @Delete(':assignmentId')
   removeContact(@Param('assignmentId', ParseIntPipe) assignmentId: number) {
-    return this.companyService.removeContact(assignmentId);
+    return this.companyService.removeContactCompletely(assignmentId);
   }
 }
 

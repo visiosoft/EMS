@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { EngagementsModule } from '../engagements/engagements.module';
 import { Address } from '../entities/address.entity';
 import { Attraction } from '../entities/attraction.entity';
 import { CompanyType } from '../entities/company-type.entity';
@@ -77,7 +78,7 @@ const entities = [
 ];
 
 @Module({
-  imports: [TypeOrmModule.forFeature(entities)],
+  imports: [TypeOrmModule.forFeature(entities), EngagementsModule],
   controllers: [
     CompanyController,
     ContactsController,

@@ -43,11 +43,10 @@ import { CompanyServiceArea } from '../entities/company-service-area.entity';
 import { CompanyTypeService } from '../entities/company-type-service.entity';
 import { VenueServiceProvider } from '../entities/venue-service-provider.entity';
 import { NonResidentWithholding } from '../entities/non-resident-withholding.entity';
+import { EngagementService, EngagementListRow } from '../engagements/engagement.service';
 import { Link } from '../entities/link.entity';
 import { VenueComplex } from '../entities/venue-complex.entity';
 import { VenueComplexMember } from '../entities/venue-complex-member.entity';
-import { buildEngagementDisplayTitle } from '../engagements/engagement-display.util';
-import { normalizeEngagementStatus } from '../engagements/engagement-status.util';
 import { CreateCompanyContactDto } from './dto/create-company-contact.dto';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyContactDto } from './dto/create-company-contact.dto';
@@ -203,15 +202,6 @@ export interface CompanyVenueLinkedContactsSection {
   contacts: CompanyContactRow[];
 }
 
-export interface CompanyEngagementRow {
-  engagementId: number;
-  engagementStatus: string;
-  tourName: string | null;
-  attractionName: string | null;
-  /** Same format as the main Engagements list (`attraction — tour @ venue`). */
-  displayTitle: string;
-}
-
 @Injectable()
 export class CompanyService {
   private readonly logger = new Logger(CompanyService.name);
@@ -275,6 +265,7 @@ export class CompanyService {
     private readonly roleRepo: Repository<Role>,
     @InjectRepository(Department)
     private readonly departmentRepo: Repository<Department>,
+    private readonly engagementService: EngagementService,
   ) {}
 
   private safeDbIdentifier(name: string): string {
@@ -4310,6 +4301,34 @@ export class CompanyService {
     }
   }
 
+  async removeContactCompletely(contactAssignmentId: number): Promise<void> {
+    const asg = await this.assignmentRepo.findOne({
+      where: { contactAssignmentId },
+      relations: { contact: true },
+    });
+    if (!asg) {
+      throw new NotFoundException(
+        `Contact assignment ${contactAssignmentId} not found`,
+      );
+    }
+
+    const contactId = asg.contactId;
+    const contactInfoId = asg.contact.contactInfoId;
+    const allAsgs = await this.assignmentRepo.find({
+      where: { contactId },
+      select: { contactAssignmentId: true },
+    });
+
+    if (allAsgs.length > 1) {
+      await this.assignmentRepo.delete({ contactId });
+    } else {
+      await this.assignmentRepo.delete({ contactAssignmentId });
+    }
+
+    await this.contactRepo.delete({ contactId });
+    await this.contactInfoRepo.delete({ contactInfoId });
+  }
+
   /**
    * When called inside a transaction, pass `em` so the query sees uncommitted rows.
    */
@@ -4368,52 +4387,9 @@ export class CompanyService {
     };
   }
 
-  async listEngagements(companyId: number): Promise<CompanyEngagementRow[]> {
+  async listEngagements(companyId: number): Promise<EngagementListRow[]> {
     await this.ensureCompany(companyId);
-    const raw = await this.engagementVenueRepo
-      .createQueryBuilder('ev')
-      .innerJoin(Engagement, 'e', 'e.engagementId = ev.engagementId')
-      .leftJoin(Tour, 't', 't.tourId = e.tourId')
-      .leftJoin(Attraction, 'a', 'a.attractionId = t.attractionId')
-      .leftJoin(Company, 'vc', 'vc.companyId = ev.venueCompanyId')
-      .leftJoin(Venue, 'v', 'v.companyId = ev.venueCompanyId')
-      .where('ev.venueCompanyId = :cid', { cid: companyId })
-      .select([
-        'e.engagementId AS engagementId',
-        'e.engagementStatus AS engagementStatus',
-        't.tourName AS tourName',
-        'a.attractionName AS attractionName',
-        'vc.companyName AS venueCompanyName',
-        'v.venueName AS venueName',
-      ])
-      .orderBy('e.engagementId', 'DESC')
-      .getRawMany();
-
-    return raw.map((r) => {
-      const g = (k: string) =>
-        (r as Record<string, unknown>)[k] ??
-        (r as Record<string, unknown>)[k.toLowerCase()];
-      const tourName = g('tourName') != null ? String(g('tourName')) : null;
-      const attractionName =
-        g('attractionName') != null ? String(g('attractionName')) : null;
-      const venueCompanyName =
-        g('venueCompanyName') != null ? String(g('venueCompanyName')) : null;
-      const venueName = g('venueName') != null ? String(g('venueName')) : null;
-      const venueLabel = venueCompanyName ?? venueName ?? 'TBD';
-      return {
-        engagementId: Number(g('engagementId')),
-        engagementStatus: normalizeEngagementStatus(
-          String(g('engagementStatus')),
-        ),
-        tourName,
-        attractionName,
-        displayTitle: buildEngagementDisplayTitle(
-          attractionName,
-          tourName ?? '',
-          venueLabel,
-        ),
-      };
-    });
+    return this.engagementService.listByCompany(companyId);
   }
 
   async updateVenueTicketing(
