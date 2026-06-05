@@ -1195,6 +1195,21 @@ export class EngagementService {
     return (raw as Record<string, unknown>[]).map((r) => this.mapRaw(r));
   }
 
+  async listByCompany(companyId: number): Promise<EngagementListRow[]> {
+    const safe = Math.floor(Number(companyId));
+    if (!Number.isInteger(safe) || safe < 1) {
+      throw new BadRequestException({
+        message: 'Company ID must be a positive integer.',
+      });
+    }
+
+    const raw = await this.buildEngagementQuery()
+      .innerJoin(EngagementVenue, 'ev2', 'ev2.engagementId = e.engagementId AND ev2.venueCompanyId = :cid', { cid: safe })
+      .distinct(true)
+      .getRawMany();
+    return (raw as Record<string, unknown>[]).map((r) => this.mapRaw(r));
+  }
+
   async listByTour(tourId: number): Promise<EngagementListRow[]> {
     const safeTourId = Math.floor(Number(tourId));
     if (!Number.isInteger(safeTourId) || safeTourId < 1) {

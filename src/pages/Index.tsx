@@ -394,6 +394,7 @@ const Index = () => {
         {view === 'companies' && (
           <CompaniesPage
             addToast={addToast}
+            onNavigate={navigate}
             initialSelectedCompanyId={
               (data.selectedCompanyId as string | number | undefined) ?? null
             }

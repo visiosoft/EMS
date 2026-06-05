@@ -1934,8 +1934,7 @@ export class DailySalesService {
   // ─── PATCH — upsert sales for a specific performance + date ──────────────
   /**
    * Creates or updates the single dbo.TicketingSales row for (PerformanceID, SalesDate).
-   * Each row holds tickets/revenue for that calendar SalesDate only (daily amounts). Dashboards
-   * sum rows through a date to get cumulative totals.
+   * Each row stores the cumulative ticket/revenue snapshot as of that sales date.
    */
   async updateSales(
     performanceId: number,
@@ -2013,82 +2012,44 @@ export class DailySalesService {
       },
     });
 
+    const rawSellableCapacity = Number(engagement?.sellableCapacity ?? 0);
     const engagementSellableCapacity =
-      engagement?.sellableCapacity != null &&
-      Number.isFinite(engagement.sellableCapacity)
-        ? engagement.sellableCapacity
-        : null;
+      Number.isFinite(rawSellableCapacity) && rawSellableCapacity > 0
+        ? Math.floor(rawSellableCapacity)
+        : 0;
     const engagementGrossPotential = (() => {
-      const raw = engagement?.grossPotential;
-      if (raw == null || raw === '') return null;
-      const n = Number(raw);
-      return Number.isFinite(n) ? Number(n.toFixed(2)) : null;
+      const n = Number(engagement?.grossPotential ?? 0);
+      return Number.isFinite(n) && n > 0 ? Number(n.toFixed(2)) : 0;
     })();
 
-    if (
-      (engagementSellableCapacity != null && engagementSellableCapacity >= 0) ||
-      (engagementGrossPotential != null && engagementGrossPotential >= 0)
-    ) {
-      const engagementPerformanceRows = await this.performanceRepo.find({
-        where: { engagementId: perf.engagementId },
-        select: { performanceId: true },
+    const formatMoney = (value: number) =>
+      value.toLocaleString(undefined, {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
       });
-      const engagementPerformanceIds = engagementPerformanceRows
-        .map((p) => p.performanceId)
-        .filter((id) => Number.isInteger(id) && id > 0);
 
-      if (engagementPerformanceIds.length > 0) {
-        const rawTotals = await this.salesRepo
-          .createQueryBuilder('ts')
-          .select(
-            'COALESCE(SUM(CAST(ts.performanceSalesQuantity AS BIGINT)), 0)',
-            'ticketsTotal',
-          )
-          .addSelect(
-            'COALESCE(SUM(CAST(ts.performanceSalesRevenue AS decimal(18,2))), 0)',
-            'revenueTotal',
-          )
-          .where('ts.performanceId IN (:...ids)', { ids: engagementPerformanceIds })
-          .getRawOne<Record<string, unknown>>();
+    const violations: string[] = [];
+    if (mergedTickets > engagementSellableCapacity) {
+      violations.push(
+        engagementSellableCapacity > 0
+          ? `Tickets sold exceed the engagement sellable capacity (${mergedTickets.toLocaleString()} of ${engagementSellableCapacity.toLocaleString()}).`
+          : 'Set engagement sellable capacity before saving tickets sold.',
+      );
+    }
+    if (mergedRevenue > engagementGrossPotential) {
+      violations.push(
+        engagementGrossPotential > 0
+          ? `Revenue exceeds the engagement gross potential (${formatMoney(mergedRevenue)} of ${formatMoney(engagementGrossPotential)}).`
+          : 'Set engagement gross potential before saving revenue.',
+      );
+    }
 
-        const currentTickets = row.performanceSalesQuantity ?? 0;
-        const currentRevenue =
-          row.performanceSalesRevenue != null
-            ? Number(Number(row.performanceSalesRevenue).toFixed(2))
-            : 0;
-        const currentTicketsTotal = Number(rawTotals?.ticketsTotal ?? 0);
-        const currentRevenueTotal = Number(rawTotals?.revenueTotal ?? 0);
-
-        const projectedTicketsTotal =
-          currentTicketsTotal - currentTickets + mergedTickets;
-        const projectedRevenueTotal = Number(
-          (currentRevenueTotal - currentRevenue + mergedRevenue).toFixed(2),
-        );
-
-        const violations: string[] = [];
-        if (
-          engagementSellableCapacity != null &&
-          projectedTicketsTotal > engagementSellableCapacity
-        ) {
-          violations.push(
-            `tickets sold (${projectedTicketsTotal.toLocaleString()}) exceed engagement sellable capacity (${engagementSellableCapacity.toLocaleString()})`,
-          );
-        }
-        if (
-          engagementGrossPotential != null &&
-          projectedRevenueTotal > engagementGrossPotential
-        ) {
-          violations.push(
-            `revenue (${projectedRevenueTotal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}) exceeds engagement gross potential (${engagementGrossPotential.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })})`,
-          );
-        }
-
-        if (violations.length > 0) {
-          throw new BadRequestException({
-            message: `Could not save daily sales: ${violations.join(' and ')}.`,
-          });
-        }
-      }
+    if (violations.length > 0) {
+      throw new BadRequestException({
+        message: `Daily sales cannot be saved. ${violations.join(' ')}`,
+      });
     }
 
     if (body.ticketsSold !== undefined) {

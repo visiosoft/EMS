@@ -726,6 +726,7 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
   const [editing, setEditing] = useState<ApiManagedContact | null | undefined>(undefined);
   const [selectedContact, setSelectedContact] = useState<ApiManagedContact | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ApiManagedContact | null>(null);
+  const [isDeleteWorkflowPending, setIsDeleteWorkflowPending] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const searchWrapRef = useRef<HTMLDivElement>(null);
   const { offset, limit } = getPageParams(page, pageSize);
@@ -807,13 +808,6 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
   });
   const deleteMutation = useMutation({
     mutationFn: (row: ApiManagedContact) => deleteManagedContact(row.contactId),
-    onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ['contacts', 'managed'] });
-      setPendingDelete(null);
-      setSelectedContact(null);
-      addToast('Contact deleted.', 'success');
-    },
-    onError: (error) => addToast(friendlyApiError(error, 'Could not delete contact.'), 'error'),
   });
 
   const companyOptions = useMemo(
@@ -835,6 +829,37 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
     setPage(1);
     setShowSuggestions(false);
   }, [search]);
+
+  const closeDeleteDialogBeforeFeedback = () =>
+    new Promise<void>((resolve) => {
+      setPendingDelete(null);
+      window.setTimeout(resolve, 260);
+    });
+
+  const isDeletePending = deleteMutation.isPending || isDeleteWorkflowPending;
+
+  const confirmDeleteContact = async () => {
+    const contactToDelete = pendingDelete;
+    if (!contactToDelete || isDeletePending) {
+      return;
+    }
+    setIsDeleteWorkflowPending(true);
+    try {
+      await deleteMutation.mutateAsync(contactToDelete);
+      await qc.invalidateQueries({ queryKey: ['contacts', 'managed'] });
+      setSelectedContact((current) =>
+        current?.contactId === contactToDelete.contactId ? null : current,
+      );
+      await closeDeleteDialogBeforeFeedback();
+      setIsDeleteWorkflowPending(false);
+      addToast('Contact deleted.', 'success');
+    } catch (error) {
+      const message = friendlyApiError(error, 'Could not delete contact.');
+      await closeDeleteDialogBeforeFeedback();
+      setIsDeleteWorkflowPending(false);
+      addToast(message, 'error');
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -1028,7 +1053,7 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
       )}
 
       {/* Delete confirmation dialog — styled to match Companies page */}
-      <AlertDialog open={pendingDelete !== null} onOpenChange={(open) => !open && !deleteMutation.isPending && setPendingDelete(null)}>
+      <AlertDialog open={pendingDelete !== null} onOpenChange={(open) => !open && !isDeletePending && setPendingDelete(null)}>
         <AlertDialogContent className="z-[360] border-border bg-card text-text-primary shadow-xl sm:max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-text-primary font-semibold text-lg">Delete this contact?</AlertDialogTitle>
@@ -1038,9 +1063,22 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
                 : 'This contact will be removed.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {isDeletePending && (
+            <div
+              className="flex items-center gap-2.5 rounded-lg border border-border border-dashed bg-surface/60 px-3 py-2.5 text-sm text-text-secondary"
+              role="status"
+              aria-live="polite"
+            >
+              <Loader2
+                className="h-4 w-4 shrink-0 animate-spin text-ems-accent"
+                aria-hidden
+              />
+              <span>Deleting contact…</span>
+            </div>
+          )}
           <AlertDialogFooter className="gap-2 sm:gap-2">
             <AlertDialogCancel
-              disabled={deleteMutation.isPending}
+              disabled={isDeletePending}
               className="border-border bg-elevated text-text-primary hover:bg-hover mt-0"
             >
               Cancel
@@ -1048,11 +1086,11 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
             <Button
               type="button"
               variant="destructive"
-              disabled={deleteMutation.isPending || !pendingDelete}
+              disabled={isDeletePending || !pendingDelete}
               className="bg-ems-coral text-white hover:bg-ems-coral/90 sm:ml-0"
-              onClick={() => pendingDelete && deleteMutation.mutate(pendingDelete)}
+              onClick={() => void confirmDeleteContact()}
             >
-              {deleteMutation.isPending ? (
+              {isDeletePending ? (
                 <>
                   <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
                   Deleting…
