@@ -574,6 +574,7 @@ function ContactModal({
     <Modal
       title={row ? 'Edit Contact' : 'Add Contact'}
       onClose={onClose}
+      width={900}
       footer={
         <div className="flex items-center justify-end gap-2">
           <button
@@ -596,74 +597,100 @@ function ContactModal({
         </div>
       }
     >
-      <div className="space-y-4">
-        <div className="rounded-md border border-ems-accent/30 bg-ems-accent-dim px-3 py-2 text-xs text-text-secondary">
-          Pick a company for an external company contact. Leave it as internal staff for an IAE staff contact.
+      <div className="space-y-6">
+        <div className="rounded-md border border-ems-accent/30 bg-ems-accent-dim px-3 py-2 text-xs text-text-secondary flex items-start gap-2">
+          <span className="mt-0.5 shrink-0 text-ems-accent">ⓘ</span>
+          <span>Pick a company for an external company contact. Leave it as internal staff for an IAE staff contact.</span>
         </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <FormField label="First Name" required>
-            <input className={inputCls} value={draft.firstName} maxLength={100} onChange={(e) => setDraft((d) => ({ ...d, firstName: e.target.value }))} />
-          </FormField>
-          <FormField label="Last Name" required>
-            <input className={inputCls} value={draft.lastName} maxLength={100} onChange={(e) => setDraft((d) => ({ ...d, lastName: e.target.value }))} />
-          </FormField>
-          <FormField label="Email" required>
-            <input className={inputCls} value={draft.email} maxLength={254} type="email" onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))} />
-          </FormField>
-          <FormField label="Company">
-            <Select2
-              options={companyOptions}
-              value={draft.companyId}
-              onChange={(companyId) =>
-                setDraft((d) => ({
-                  ...d,
-                  companyId,
-                  roleIds: companyId ? d.roleIds : [],
-                  departmentIds: companyId ? d.departmentIds : [],
-                }))
-              }
-              placeholder="Internal IAE staff"
-              allowClear
+
+        <section className="space-y-4">
+          <div className="border-b border-border pb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
+            Contact details
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <FormField label="First Name" required>
+              <input className={inputCls} value={draft.firstName} maxLength={100} onChange={(e) => setDraft((d) => ({ ...d, firstName: e.target.value }))} />
+            </FormField>
+            <FormField label="Last Name" required>
+              <input className={inputCls} value={draft.lastName} maxLength={100} onChange={(e) => setDraft((d) => ({ ...d, lastName: e.target.value }))} />
+            </FormField>
+            <FormField label="Email" required>
+              <input className={inputCls} value={draft.email} maxLength={254} type="email" onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))} />
+            </FormField>
+            <FormField label="Company">
+              <Select2
+                options={companyOptions}
+                value={draft.companyId}
+                onChange={(companyId) =>
+                  setDraft((d) => ({
+                    ...d,
+                    companyId,
+                    roleIds: companyId ? d.roleIds : [],
+                    departmentIds: companyId ? d.departmentIds : [],
+                  }))
+                }
+                placeholder="Internal IAE staff"
+                allowClear
+              />
+            </FormField>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="border-b border-border pb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
+            Phone numbers
+            <span className="ml-2 font-normal text-text-muted lowercase">(optional)</span>
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <ContactPhoneRow
+              label="Work Phone"
+              country={draft.workPhoneCountry}
+              display={draft.workPhoneDisplay}
+              onCountry={(c) => setDraft((d) => ({ ...d, workPhoneCountry: c }))}
+              onDisplay={(v) => setDraft((d) => ({ ...d, workPhoneDisplay: v }))}
             />
-          </FormField>
-        </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <ContactPhoneRow
-            label="Work Phone"
-            country={draft.workPhoneCountry}
-            display={draft.workPhoneDisplay}
-            onCountry={(c) => setDraft((d) => ({ ...d, workPhoneCountry: c }))}
-            onDisplay={(v) => setDraft((d) => ({ ...d, workPhoneDisplay: v }))}
-          />
-          <ContactPhoneRow
-            label="Cell Phone"
-            country={draft.cellPhoneCountry}
-            display={draft.cellPhoneDisplay}
-            onCountry={(c) => setDraft((d) => ({ ...d, cellPhoneCountry: c }))}
-            onDisplay={(v) => setDraft((d) => ({ ...d, cellPhoneDisplay: v }))}
-          />
-        </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <FormField label="Roles" required={hasCompany}>
-            <Select2Multi
-              options={roleOptions}
-              values={draft.roleIds}
-              onChange={(roleIds) => setDraft((d) => ({ ...d, roleIds }))}
-              placeholder={hasCompany ? 'Select one or more roles…' : 'Only used for company contacts'}
-              disabled={!hasCompany}
+            <ContactPhoneRow
+              label="Cell Phone"
+              country={draft.cellPhoneCountry}
+              display={draft.cellPhoneDisplay}
+              onCountry={(c) => setDraft((d) => ({ ...d, cellPhoneCountry: c }))}
+              onDisplay={(v) => setDraft((d) => ({ ...d, cellPhoneDisplay: v }))}
             />
-          </FormField>
-          <FormField label="Departments" required={hasCompany}>
-            <Select2Multi
-              options={departmentOptions}
-              values={draft.departmentIds}
-              onChange={(departmentIds) => setDraft((d) => ({ ...d, departmentIds }))}
-              placeholder={hasCompany ? 'Select one or more departments…' : 'Only used for company contacts'}
-              disabled={!hasCompany}
-            />
-          </FormField>
-        </div>
-        {error && <p className="text-xs text-ems-coral">{error}</p>}
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="border-b border-border pb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
+            Company details
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <FormField label="Roles" required={hasCompany}>
+              <Select2Multi
+                options={roleOptions}
+                values={draft.roleIds}
+                onChange={(roleIds) => setDraft((d) => ({ ...d, roleIds }))}
+                placeholder={hasCompany ? 'Select one or more roles…' : 'Only used for company contacts'}
+                disabled={!hasCompany}
+              />
+            </FormField>
+            <FormField label="Departments" required={hasCompany}>
+              <Select2Multi
+                options={departmentOptions}
+                values={draft.departmentIds}
+                onChange={(departmentIds) => setDraft((d) => ({ ...d, departmentIds }))}
+                placeholder={hasCompany ? 'Select one or more departments…' : 'Only used for company contacts'}
+                disabled={!hasCompany}
+              />
+            </FormField>
+          </div>
+        </section>
+
+        {error && (
+          <div className="rounded-md border border-ems-coral/40 bg-ems-coral/10 px-3 py-2 text-sm text-ems-coral flex items-start gap-2">
+            <span className="mt-0.5 shrink-0">⚠</span>
+            <span>{error}</span>
+          </div>
+        )}
       </div>
     </Modal>
   );
