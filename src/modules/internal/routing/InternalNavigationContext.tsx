@@ -24,7 +24,7 @@ type InternalNavigationContextValue = {
   viewData: InternalViewData;
   navigate: (view: InternalView, data?: InternalViewData) => void;
   navigateHandbook: (hash: string) => void;
-  openEmployeeHandbook: (handbook?: EmployeeHandbookView, handbookHash?: string) => void;
+  openEmployeeHandbook: (handbook?: EmployeeHandbookView, handbookHash?: string, handbookSubsection?: string) => void;
 };
 
 const InternalNavigationContext = createContext<InternalNavigationContextValue | null>(null);
@@ -73,9 +73,10 @@ export function InternalNavigationProvider({ children }: { children: ReactNode }
   }, []);
 
   const openEmployeeHandbook = useCallback(
-    (handbook: EmployeeHandbookView = "index", handbookHash?: string) => {
+    (handbook: EmployeeHandbookView = "index", handbookHash?: string, handbookSubsection?: string) => {
       const data: InternalViewData = { handbook };
       if (handbookHash) data.handbookHash = handbookHash.replace(/^#/, "");
+      if (handbookSubsection) data.handbookSubsection = handbookSubsection;
       navigate("employee-services", data);
     },
     [navigate],
