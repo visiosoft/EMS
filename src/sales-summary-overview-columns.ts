@@ -112,7 +112,9 @@ function overviewColumnKey(node: Element): OverviewColumnKey | null {
 }
 
 function setOverviewColumnKey(node: Element, key: OverviewColumnKey) {
-  node.setAttribute(OVERVIEW_COLUMN_KEY_ATTR, key);
+  if (node.getAttribute(OVERVIEW_COLUMN_KEY_ATTR) !== key) {
+    node.setAttribute(OVERVIEW_COLUMN_KEY_ATTR, key);
+  }
 }
 
 function assignOverviewKeysByPosition(nodes: Element[], keys: OverviewColumnKey[]) {
@@ -132,7 +134,18 @@ function keyedOverviewChildren<T extends Element>(parent: ParentNode): Map<Overv
   return byKey;
 }
 
+function overviewChildKeys(parent: ParentNode): Array<OverviewColumnKey | null> {
+  return Array.from(parent.children).map((child) => overviewColumnKey(child));
+}
+
+function overviewOrderMatches(parent: ParentNode, order: OverviewColumnKey[]) {
+  const keys = overviewChildKeys(parent).filter((key): key is OverviewColumnKey => key != null);
+  if (keys.length !== order.length) return false;
+  return order.every((key, index) => keys[index] === key);
+}
+
 function reorderOverviewChildren(parent: Element, order: OverviewColumnKey[]) {
+  if (overviewOrderMatches(parent, order)) return;
   const byKey = keyedOverviewChildren<Element>(parent);
   order.forEach((key) => {
     const child = byKey.get(key);
@@ -160,14 +173,16 @@ function applyOverviewHeaderLabel(th: HTMLTableCellElement) {
 
   const button = th.querySelector('button');
   const labelSpan = button?.querySelector('span');
-  if (labelSpan) {
+  if (labelSpan && labelSpan.textContent !== label) {
     labelSpan.textContent = label;
-  } else if (button) {
+  } else if (!labelSpan && button && button.textContent !== label) {
     button.textContent = label;
-  } else {
+  } else if (!button && th.textContent !== label) {
     th.textContent = label;
   }
-  if (button) button.setAttribute('title', `Sort by ${label}`);
+  if (button && button.getAttribute('title') !== `Sort by ${label}`) {
+    button.setAttribute('title', `Sort by ${label}`);
+  }
 }
 
 function makeOverviewGroupCell(label: string, colSpan: number): HTMLTableCellElement {
