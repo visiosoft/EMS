@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowDown,
@@ -14,11 +14,12 @@ import {
   Ticket,
   TrendingUp,
 } from 'lucide-react';
-import { fetchDailySales, fetchDailySalesByPerformance, type ApiDailySalesRow, type ApiPerformanceSalesRow } from '@/api/dailySalesApi';
+import { fetchDailySales, fetchDailySalesByPerformance, fetchDailySalesByPerformanceSuggestions, type ApiDailySalesRow, type ApiPerformanceSalesRow, type SuggestionItem } from '@/api/dailySalesApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { companyToSelect2Options } from './companySelectOptions';
 import { Select2 } from './Select2';
-import { richTextMatches } from './searchUtils';
+import { PAGE_SIZE, PAGE_SIZE_ALL, type PageSizeOption, isAllPageSize, toPageSize } from '@/lib/serverPagination';
+import { PageSizeSelect } from './PageSizeSelect';
 
 interface Props { onOpenEngagement: (engagementId: number, performanceId: number) => void }
 
@@ -29,8 +30,6 @@ type SortColumn =
   | 'grossSales14Days' | 'ticketsSoldPrevious14Days' | 'grossUnsoldRevenue' | 'unsoldTickets';
 
 type SortState = { col: SortColumn; dir: 'asc' | 'desc' };
-const SALES_SUMMARY_SORT_STATE_STORAGE_KEY = 'iae-sales-summary-sort-state-v1';
-const EMS_SAVED_VIEWS_ENABLED_KEY = 'iae-ems-saved-views-enabled-v1';
 type Snapshot = { tickets: number; revenue: number };
 type LedgerRow = Snapshot & { salesDate: string };
 type Ledger = Map<number, LedgerRow[]>;
@@ -43,53 +42,6 @@ type SummaryRow = { row: ApiPerformanceSalesRow; metrics: Metrics };
 const EMPTY_PERFORMANCE_ROWS: ApiPerformanceSalesRow[] = [];
 
 type RowWithMarket = ApiPerformanceSalesRow & { dmaMarketName?: string | null };
-function loadSalesSummarySortState(): SortState {
-  if (typeof window === 'undefined') return { col: 'eventDate', dir: 'asc' };
-  try {
-    if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') {
-      return { col: 'eventDate', dir: 'asc' };
-    }
-    const raw = localStorage.getItem(SALES_SUMMARY_SORT_STATE_STORAGE_KEY);
-    if (!raw) return { col: 'eventDate', dir: 'asc' };
-    const parsed = JSON.parse(raw) as { col?: unknown; dir?: unknown };
-    const validCols = new Set<SortColumn>([
-      'attraction',
-      'eventDate',
-      'venue',
-      'sellableCapacity',
-      'grossPotential',
-      'grossSalesToDate',
-      'totalSold',
-      'venueCapacitySoldPct',
-      'grossPotentialSoldPct',
-      'yesterdayRevenue',
-      'ticketsSoldYesterday',
-      'grossSales7Days',
-      'ticketsSoldPrevious7Days',
-      'grossSales14Days',
-      'ticketsSoldPrevious14Days',
-      'grossUnsoldRevenue',
-      'unsoldTickets',
-    ]);
-    const col =
-      typeof parsed.col === 'string' && validCols.has(parsed.col as SortColumn)
-        ? (parsed.col as SortColumn)
-        : 'eventDate';
-    const dir = parsed.dir === 'desc' ? 'desc' : 'asc';
-    return { col, dir };
-  } catch {
-    return { col: 'eventDate', dir: 'asc' };
-  }
-}
-
-function saveSalesSummarySortState(state: SortState) {
-  try {
-    if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') return;
-    localStorage.setItem(SALES_SUMMARY_SORT_STATE_STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    /* ignore */
-  }
-}
 
 const num = (v: number | null | undefined) => (v != null && Number.isFinite(v) ? v : null);
 const rowMarketName = (r: ApiPerformanceSalesRow) => (r as RowWithMarket).dmaMarketName ?? r.city ?? null;
@@ -187,52 +139,349 @@ function KpiCard({ icon: Icon, label, value, sub, tone }: { icon: React.Componen
   const icon = { accent: 'bg-ems-accent/15 text-ems-accent', blue: 'bg-ems-blue/15 text-ems-blue', green: 'bg-ems-green/15 text-ems-green', purple: 'bg-ems-purple/15 text-ems-purple' }[tone];
   return <div className={`rounded-xl border p-3.5 transition-colors shadow-sm ${shell}`}><div className="flex items-center gap-2.5"><span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg shrink-0 ${icon}`}><Icon className="h-4 w-4" aria-hidden /></span><div className="min-w-0"><div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">{label}</div><div className="text-lg font-semibold text-text-primary tabular-nums leading-tight mt-0.5">{value}</div></div></div>{sub && <div className="mt-1.5 text-[11px] text-text-secondary">{sub}</div>}</div>;
 }
-function SortHeader({ col, label, sort, onToggle, align, title }: { col: SortColumn; label: React.ReactNode; sort: SortState; onToggle: (col: SortColumn) => void; align?: 'left' | 'right'; title?: string }) {
-  const active = sort.col === col; const Arrow = sort.dir === 'asc' ? ArrowUp : ArrowDown;
-  return <th scope="col" className={`px-4 py-3 align-middle select-none whitespace-nowrap ${align === 'right' ? 'text-right' : 'text-left'}`}><button type="button" onClick={() => onToggle(col)} className={`inline-flex items-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-wide transition-colors ${active ? 'text-ems-accent' : 'text-text-secondary hover:text-text-primary'} ${align === 'right' ? 'justify-end w-full' : 'justify-start'}`} title={`Sort by ${title ?? (typeof label === 'string' ? label : col)}`}><span className="leading-tight normal-case">{label}</span>{active ? <Arrow className="h-3.5 w-3.5 shrink-0 text-ems-accent" aria-hidden /> : <span className="inline-block h-3.5 w-3.5 shrink-0 opacity-0" aria-hidden />}</button></th>;
+function SortHeader({ col, label, sort, onToggle, align, title, onResizeStart }: { col: SortColumn; label: React.ReactNode; sort: SortState; onToggle: (col: SortColumn) => void; align?: 'left' | 'right'; title?: string; onResizeStart?: (e: React.MouseEvent) => void }) {
+   const active = sort.col === col; const Arrow = sort.dir === 'asc' ? ArrowUp : ArrowDown;
+  return <th scope="col" className={`relative min-w-0 overflow-hidden px-3 py-3 align-middle select-none ${align === 'right' ? 'text-right' : 'text-left'}`}><button type="button" onClick={() => onToggle(col)} className={`inline-flex items-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-wide transition-colors max-w-full ${active ? 'text-ems-accent' : 'text-text-secondary hover:text-text-primary'} ${align === 'right' ? 'justify-end w-full' : 'justify-start'}`} title={`Sort by ${title ?? (typeof label === 'string' ? label : col)}`}><span className="min-w-0 whitespace-normal break-words leading-snug normal-case">{label}</span>{active ? <Arrow className="h-3.5 w-3.5 shrink-0 text-ems-accent" aria-hidden /> : <span className="inline-block h-3.5 w-3.5 shrink-0 opacity-0" aria-hidden />}</button>{onResizeStart && <ColResizeHandle onResizeStart={onResizeStart} />}</th>;
 }
 function FilterField({ label, children }: { label: string; children: React.ReactNode }) { return <div><label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-text-secondary">{label}</label>{children}</div>; }
 const empty = <span className="text-text-muted font-normal">—</span>;
+
+// ─── Resizable column widths (persisted per browser) ─────────────────────────
+
+const SALES_SUMMARY_COLUMN_WIDTHS_KEY = 'iae-sales-summary-column-widths-v1';
+const SALES_SUMMARY_COL_MAX = 600;
+
+const DEFAULT_SALES_SUMMARY_COLUMN_WIDTHS: Record<SortColumn, number> = {
+  attraction: 160,
+  eventDate: 120,
+  venue: 140,
+  sellableCapacity: 80,
+  grossPotential: 100,
+  grossSalesToDate: 100,
+  totalSold: 85,
+  venueCapacitySoldPct: 85,
+  grossPotentialSoldPct: 90,
+  yesterdayRevenue: 95,
+  ticketsSoldYesterday: 85,
+  grossSales7Days: 85,
+  ticketsSoldPrevious7Days: 90,
+  grossSales14Days: 85,
+  ticketsSoldPrevious14Days: 90,
+  grossUnsoldRevenue: 95,
+  unsoldTickets: 85,
+};
+
+const SALES_SUMMARY_COLUMN_MIN_WIDTHS: Record<SortColumn, number> = {
+  attraction: 120,
+  eventDate: 140,
+  venue: 115,
+  sellableCapacity: 105,
+  grossPotential: 125,
+  grossSalesToDate: 115,
+  totalSold: 135,
+  venueCapacitySoldPct: 130,
+  grossPotentialSoldPct: 140,
+  yesterdayRevenue: 125,
+  ticketsSoldYesterday: 120,
+  grossSales7Days: 110,
+  ticketsSoldPrevious7Days: 115,
+  grossSales14Days: 110,
+  ticketsSoldPrevious14Days: 120,
+  grossUnsoldRevenue: 115,
+  unsoldTickets: 115,
+};
+
+function clampSalesSummaryColumnWidth(col: SortColumn, width: number) {
+  const min = SALES_SUMMARY_COLUMN_MIN_WIDTHS[col];
+  return Math.min(SALES_SUMMARY_COL_MAX, Math.max(min, Math.round(width)));
+}
+
+function sanitizeSalesSummaryColumnWidths(widths: Record<SortColumn, number>) {
+  const out = { ...widths };
+  for (const key of Object.keys(DEFAULT_SALES_SUMMARY_COLUMN_WIDTHS) as SortColumn[]) {
+    out[key] = clampSalesSummaryColumnWidth(key, out[key]);
+  }
+  return out;
+}
+
+function loadSalesSummaryColumnWidths(): Record<SortColumn, number> {
+  const defaults = sanitizeSalesSummaryColumnWidths(DEFAULT_SALES_SUMMARY_COLUMN_WIDTHS);
+  if (typeof window === 'undefined') return defaults;
+  try {
+    const raw = localStorage.getItem(SALES_SUMMARY_COLUMN_WIDTHS_KEY);
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const out = { ...defaults };
+    for (const key of Object.keys(DEFAULT_SALES_SUMMARY_COLUMN_WIDTHS) as SortColumn[]) {
+      const n = Number(parsed[key]);
+      if (Number.isFinite(n)) {
+        out[key] = clampSalesSummaryColumnWidth(key, n);
+      }
+    }
+    return out;
+  } catch {
+    return defaults;
+  }
+}
+
+function saveSalesSummaryColumnWidths(widths: Record<SortColumn, number>) {
+  try {
+    localStorage.setItem(SALES_SUMMARY_COLUMN_WIDTHS_KEY, JSON.stringify(sanitizeSalesSummaryColumnWidths(widths)));
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearSalesSummaryTableLayoutPrefs(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem(SALES_SUMMARY_COLUMN_WIDTHS_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+function ColResizeHandle({
+  onResizeStart,
+}: {
+  onResizeStart: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <span
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize column"
+      onMouseDown={onResizeStart}
+      onClick={(e) => e.stopPropagation()}
+      className="absolute right-0 top-0 z-20 h-full w-3 cursor-col-resize touch-none select-none group/resize"
+    >
+      <span
+        className="pointer-events-none absolute inset-y-1.5 right-[3px] w-0.5 rounded-sm bg-ems-accent/40 transition-all group-hover/resize:bg-ems-accent group-active/resize:bg-ems-accent"
+        aria-hidden
+      />
+    </span>
+  );
+}
 
 export function SalesSummaryPage({ onOpenEngagement }: Props) {
   const today = ymd();
   const [reportDate, setReportDate] = useState(today);
   const [attractionFilter, setAttractionFilter] = useState(''), [genreFilter, setGenreFilter] = useState(''), [tourFilter, setTourFilter] = useState(''), [companyFilter, setCompanyFilter] = useState(''), [venueFilter, setVenueFilter] = useState(''), [contactFilter, setContactFilter] = useState(''), [searchInput, setSearchInput] = useState('');
-  const [sort, setSort] = useState<SortState>(loadSalesSummarySortState);
+  const [activeSearch, setActiveSearch] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
+  const searchWrapperRef = useRef<HTMLDivElement>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE);
+  const [sort, setSort] = useState<SortState>({ col: 'eventDate', dir: 'asc' });
   const iso = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s.trim()); const dateOk = iso(reportDate); const reportAsOfDate = dateOk ? reportDate : today; const dateChanged = reportDate !== today;
-  const activeFilterCount = [attractionFilter, genreFilter, tourFilter, companyFilter, venueFilter, contactFilter].filter(Boolean).length;
-  const reset = () => { setAttractionFilter(''); setGenreFilter(''); setTourFilter(''); setCompanyFilter(''); setVenueFilter(''); setContactFilter(''); setSearchInput(''); setReportDate(today); };
-  useEffect(() => {
-    saveSalesSummarySortState(sort);
-  }, [sort]);
+  const activeFilterCount = [attractionFilter, genreFilter, tourFilter, companyFilter, venueFilter, contactFilter, activeSearch.trim()].filter(Boolean).length;
+  const reset = () => { setAttractionFilter(''); setGenreFilter(''); setTourFilter(''); setCompanyFilter(''); setVenueFilter(''); setContactFilter(''); setSearchInput(''); setActiveSearch(''); setReportDate(today); setPage(1); };
 
-  const query = useQuery({ queryKey: ['sales-summary', reportAsOfDate, attractionFilter, genreFilter, tourFilter, companyFilter, venueFilter, contactFilter], queryFn: () => fetchDailySalesByPerformance(reportAsOfDate, { page: 1, pageSize: 1000, startDate: reportAsOfDate, attraction: attractionFilter || undefined, genre: genreFilter || undefined, tour: tourFilter || undefined, company: companyFilter || undefined, venue: venueFilter || undefined, contact: contactFilter || undefined }), staleTime: 2 * 60 * 1000, placeholderData: (prev) => prev, enabled: dateOk });
-  const ledgerQuery = useQuery({ queryKey: ['sales-summary-daily-sales-ledger'], queryFn: () => fetchDailySales(), staleTime: 2 * 60 * 1000, placeholderData: (prev) => prev });
-  const pageData = query.data; const rawRows = pageData?.items ?? EMPTY_PERFORMANCE_ROWS; const ledger = useMemo(() => buildLedger(ledgerQuery.data ?? []), [ledgerQuery.data]); const ledgerReady = Array.isArray(ledgerQuery.data);
-  const searchedRows = useMemo(() => {
-    const q = searchInput.trim();
-    if (!q) return rawRows;
-    return rawRows.filter((r) =>
-      richTextMatches(
-        [
-          r.attractionName,
-          r.tourName,
-          r.venueName,
-          r.venueCompanyName,
-          rowMarketName(r),
-          r.city,
-          r.performanceDate,
-          r.performanceTime,
-        ],
-        q,
-      ),
-    );
-  }, [rawRows, searchInput]);
-  const rowsWithMetrics = useMemo(() => searchedRows.map((row) => ({ row, metrics: metricsFor(row, ledger, reportAsOfDate, ledgerReady) })), [ledger, ledgerReady, reportAsOfDate, searchedRows]);
+  const searchParam = activeSearch.trim() || undefined;
+
+  const queryKey = [
+    'sales-summary',
+    reportAsOfDate,
+    page,
+    pageSize,
+    searchParam,
+    attractionFilter,
+    genreFilter,
+    tourFilter,
+    companyFilter,
+    venueFilter,
+    contactFilter,
+  ];
+  const query = useQuery({
+    queryKey,
+    queryFn: () =>
+      fetchDailySalesByPerformance(reportAsOfDate, {
+        page,
+        pageSize: isAllPageSize(pageSize) ? undefined : pageSize,
+        search: searchParam,
+        startDate: reportAsOfDate,
+        attraction: attractionFilter || undefined,
+        genre: genreFilter || undefined,
+        tour: tourFilter || undefined,
+        company: companyFilter || undefined,
+        venue: venueFilter || undefined,
+        contact: contactFilter || undefined,
+      }),
+    staleTime: 2 * 60 * 1000,
+    enabled: dateOk,
+    placeholderData: (prev) => prev,
+  });
+
+  const ledgerQuery = useQuery({
+    queryKey: ['sales-summary-daily-sales-ledger'],
+    queryFn: () => fetchDailySales(),
+    staleTime: 2 * 60 * 1000,
+    placeholderData: (prev) => prev,
+  });
+
+  const pageData = query.data;
+  const rawRows = pageData?.items ?? EMPTY_PERFORMANCE_ROWS;
+  const serverTotal = pageData?.total ?? 0;
+  const summary = pageData?.summary;
+  const ledger = useMemo(() => buildLedger(ledgerQuery.data ?? []), [ledgerQuery.data]);
+  const ledgerReady = Array.isArray(ledgerQuery.data);
+
+  const rowsWithMetrics = useMemo(
+    () => rawRows.map((row) => ({ row, metrics: metricsFor(row, ledger, reportAsOfDate, ledgerReady) })),
+    [ledger, ledgerReady, reportAsOfDate, rawRows],
+  );
   const rows = useMemo(() => sortRows(rowsWithMetrics, sort), [rowsWithMetrics, sort]);
-  const kpis = useMemo(() => rows.reduce((a, x) => ({ events: a.events + 1, totalSold: a.totalSold + x.metrics.currentTickets, totalRevenue: a.totalRevenue + x.metrics.currentRevenue, revenueYesterday: a.revenueYesterday + x.metrics.yesterdayRevenue }), { events: 0, totalSold: 0, totalRevenue: 0, revenueYesterday: 0 }), [rows]);
+
+  const kpis = useMemo(() => {
+    if (!summary) return { events: 0, totalSold: 0, totalRevenue: 0, revenueYesterday: 0 };
+    return {
+      events: serverTotal,
+      totalSold: summary.totalTickets,
+      totalRevenue: summary.totalRevenue,
+      revenueYesterday: summary.yesterdayRevenue,
+    };
+  }, [summary, serverTotal]);
+
+  const suggestionSearch = searchInput.trim();
+  const suggestionsQuery = useQuery({
+    queryKey: ['sales-summary-suggestions', reportAsOfDate, suggestionSearch],
+    queryFn: () => fetchDailySalesByPerformanceSuggestions(suggestionSearch, reportAsOfDate),
+    staleTime: 30_000,
+    enabled: dateOk && suggestionSearch.length >= 1,
+  });
+
+  const searchSuggestions: SuggestionItem[] = suggestionsQuery.data ?? [];
+  const searchSuggestPanelOpen =
+    showSuggestions &&
+    suggestionSearch.length >= 1 &&
+    (suggestionsQuery.isFetching ||
+      searchSuggestions.length > 0 ||
+      suggestionsQuery.isFetched ||
+      suggestionsQuery.isError);
+
+  useEffect(() => {
+    if (!searchSuggestPanelOpen) {
+      setActiveSuggestionIndex(-1);
+      return;
+    }
+    setActiveSuggestionIndex((prev) => {
+      if (searchSuggestions.length === 0) return -1;
+      if (prev < 0) return 0;
+      return Math.min(prev, searchSuggestions.length - 1);
+    });
+  }, [searchSuggestPanelOpen, searchSuggestions.length]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (searchWrapperRef.current && !searchWrapperRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+        setActiveSuggestionIndex(-1);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const applySearchSuggestion = useCallback((suggestion: SuggestionItem) => {
+    setSearchInput(suggestion.label);
+    setActiveSearch(suggestion.label);
+    setShowSuggestions(false);
+    setActiveSuggestionIndex(-1);
+    setPage(1);
+  }, []);
+
+  const commitSearch = useCallback(() => {
+    setActiveSearch(searchInput.trim());
+    setShowSuggestions(false);
+    setActiveSuggestionIndex(-1);
+    setPage(1);
+  }, [searchInput]);
+
   const toggleSort = (col: SortColumn) => setSort((s) => s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' });
-  const opt = (label: string, values?: string[]) => [{ value: '', label }, ...((values ?? []).map((v) => ({ value: v, label: v })))] ;
+
+  const columns: Array<{ key: SortColumn; label: React.ReactNode; title?: string; align?: 'right' }> = [
+    { key: 'attraction', label: <><span className="italic block leading-tight">Attraction,</span><span className="italic block leading-tight">Tour</span></> },
+    { key: 'eventDate', label: <><span className="italic block leading-tight">Opening</span><span className="italic block leading-tight">Performance Date</span></>, title: 'Opening Performance Date' },
+    { key: 'venue', label: <><span className="italic block leading-tight">Venue,</span><span className="italic block leading-tight">City</span></>, title: 'Venue, City' },
+    { key: 'sellableCapacity', label: <><span className="italic block leading-tight">Sellable</span><span className="italic block leading-tight">Capacity</span></>, align: 'right' },
+    { key: 'grossPotential', label: <><span className="italic block leading-tight">Gross Ticket</span><span className="italic block leading-tight">Sales Potential</span></>, align: 'right' },
+    { key: 'grossSalesToDate', label: <><span className="italic block leading-tight">Gross Sales</span><span className="italic block leading-tight">To Date</span></>, align: 'right' },
+    { key: 'totalSold', label: <><span className="italic block leading-tight">Cumulative Tickets</span><span className="italic block leading-tight">Sold to Date</span></>, align: 'right' },
+    { key: 'venueCapacitySoldPct', label: <><span className="italic block leading-tight">% Venue Capacity</span><span className="italic block leading-tight">Sold to Date</span></>, align: 'right' },
+    { key: 'grossPotentialSoldPct', label: <><span className="italic block leading-tight">% Gross Potential</span><span className="italic block leading-tight">Sold to Date</span></>, align: 'right' },
+    { key: 'yesterdayRevenue', label: <><span className="italic block leading-tight">Yesterday's</span><span className="italic block leading-tight">Sales Revenue</span></>, align: 'right' },
+    { key: 'ticketsSoldYesterday', label: <><span className="italic block leading-tight">Tickets Sold</span><span className="italic block leading-tight">Yesterday</span></>, align: 'right' },
+    { key: 'grossSales7Days', label: <><span className="italic block leading-tight">7 Day</span><span className="italic block leading-tight">Gross Sales</span></>, align: 'right' },
+    { key: 'ticketsSoldPrevious7Days', label: <><span className="italic block leading-tight"># Tix Sold</span><span className="italic block leading-tight">Prev 7 Days</span></>, align: 'right' },
+    { key: 'grossSales14Days', label: <><span className="italic block leading-tight">14 Day</span><span className="italic block leading-tight">Gross Sales</span></>, align: 'right' },
+    { key: 'ticketsSoldPrevious14Days', label: <><span className="italic block leading-tight"># Tix Sold</span><span className="italic block leading-tight">Prev 14 Days</span></>, align: 'right' },
+    { key: 'grossUnsoldRevenue', label: <><span className="italic block leading-tight">Gross Unsold</span><span className="italic block leading-tight">Revenue</span></>, align: 'right' },
+    { key: 'unsoldTickets', label: <><span className="italic block leading-tight">Unsold</span><span className="italic block leading-tight"># of Tickets</span></>, align: 'right' },
+  ];
+
+  const [columnWidths, setColumnWidths] = useState<Record<SortColumn, number>>(loadSalesSummaryColumnWidths);
+  const columnResizeSnapshot = useRef<{ col: SortColumn; startX: number; startW: number } | null>(null);
+
+  const beginColumnResizeDrag = useCallback((onMove: (ev: MouseEvent) => void) => {
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      columnResizeSnapshot.current = null;
+      setColumnWidths((w) => {
+        saveSalesSummaryColumnWidths(w);
+        return w;
+      });
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, []);
+
+  const startColumnResize = useCallback((col: SortColumn, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = columnWidths[col];
+    columnResizeSnapshot.current = { col, startX, startW };
+    beginColumnResizeDrag((ev) => {
+      const snap = columnResizeSnapshot.current;
+      if (!snap) return;
+      const next = clampSalesSummaryColumnWidth(snap.col, snap.startW + (ev.clientX - snap.startX));
+      setColumnWidths((w) => ({ ...w, [snap.col]: next }));
+    });
+  }, [columnWidths, beginColumnResizeDrag]);
+
+  const salesSummaryTableMinWidth = useMemo(() => {
+    return columns.reduce((sum, c) => sum + columnWidths[c.key], 0) + 32;
+  }, [columnWidths]);
+
+  const resetTableLayout = useCallback(() => {
+    clearSalesSummaryTableLayoutPrefs();
+    setColumnWidths(sanitizeSalesSummaryColumnWidths(DEFAULT_SALES_SUMMARY_COLUMN_WIDTHS));
+  }, []);
+
+  useEffect(() => {
+    setPage(1);
+  }, [reportAsOfDate, attractionFilter, genreFilter, tourFilter, companyFilter, venueFilter, contactFilter, activeSearch]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize]);
+
+  const pageCount = isAllPageSize(pageSize)
+    ? 1
+    : Math.max(1, Math.ceil(serverTotal / pageSize));
+  const pageClamped = Math.min(page, pageCount);
+
+  useEffect(() => {
+    if (serverTotal > 0 && page > pageCount) setPage(pageCount);
+  }, [serverTotal, page, pageCount]);
+
+  const opt = (label: string, values?: string[]) => [{ value: '', label }, ...((values ?? []).map((v) => ({ value: v, label: v })))];
   const attractionOptions = useMemo(() => [{ value: '', label: 'All attractions' }, ...((pageData?.attractions ?? []).map((a) => ({ value: a.attractionName, label: a.attractionName })))], [pageData?.attractions]);
   const companyOptions = useMemo(
     () => [
@@ -241,31 +490,15 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
     ],
     [pageData?.filterOptions.companies],
   );
-  const isLoading = query.isPending || ledgerQuery.isPending; const isRefreshing = (query.isFetching || ledgerQuery.isFetching) && !isLoading; const dateInputClass = 'h-9 w-full rounded-lg border border-border bg-background px-2.5 text-sm text-text-primary shadow-sm focus:outline-none focus:ring-2 focus:ring-ems-accent/30 focus:border-ems-accent transition-colors';
-  const columns: Array<{ key: SortColumn; label: React.ReactNode; title?: string; align?: 'right' }> = [
-    { key: 'attraction', label: 'Attraction, Tour' },
-    { key: 'eventDate', label: <span className="italic">Opening Performance Date</span>, title: 'Opening Performance Date' },
-    { key: 'venue', label: <span className="italic">Venue, City</span>, title: 'Venue, City' },
-    { key: 'sellableCapacity', label: <span className="italic">Sellable Capacity</span>, align: 'right' },
-    { key: 'grossPotential', label: <span className="italic">Gross Ticket Sales Potential</span>, align: 'right' },
-    { key: 'grossSalesToDate', label: <span className="italic">Gross Sales To Date</span>, align: 'right' },
-    { key: 'totalSold', label: <span className="italic">Cumulative Tickets Sold To Date</span>, align: 'right' },
-    { key: 'venueCapacitySoldPct', label: <span className="italic">Percentage of Venue Capacity Sold to Date</span>, align: 'right' },
-    { key: 'grossPotentialSoldPct', label: <span className="italic">Percentage of Gross Potential Sold to Date</span>, align: 'right' },
-    { key: 'yesterdayRevenue', label: <span className="italic">Yesterday's Sales Revenue</span>, align: 'right' },
-    { key: 'ticketsSoldYesterday', label: <span className="italic">Tickets Sold Yesterday</span>, align: 'right' },
-    { key: 'grossSales7Days', label: <span className="italic">7 Day Gross Sales</span>, align: 'right' },
-    { key: 'ticketsSoldPrevious7Days', label: <span className="italic"># Tix Sold Previous 7 Days</span>, align: 'right' },
-    { key: 'grossSales14Days', label: <span className="italic">14 Day Gross Sales</span>, align: 'right' },
-    { key: 'ticketsSoldPrevious14Days', label: <span className="italic"># Tix Sold Previous 14 Days</span>, align: 'right' },
-    { key: 'grossUnsoldRevenue', label: <span className="italic">Gross Unsold Revenue</span>, align: 'right' },
-    { key: 'unsoldTickets', label: <span className="italic">Unsold # of Tickets</span>, align: 'right' },
-  ];
+  const isLoading = query.isPending || ledgerQuery.isPending;
+  const isRefreshing = (query.isFetching || ledgerQuery.isFetching) && !isLoading;
+  const dateInputClass = 'h-9 w-full rounded-lg border border-border bg-background px-2.5 text-sm text-text-primary shadow-sm focus:outline-none focus:ring-2 focus:ring-ems-accent/30 focus:border-ems-accent transition-colors';
+
   const cell = ({ row: r, metrics: m }: SummaryRow, key: SortColumn) => {
     const ev = fmtEventDate(r.performanceDate), tm = fmtTime12(r.performanceTime), venueLabel = r.venueName ?? r.venueCompanyName, marketLabel = rowMarketName(r);
     if (key === 'attraction') return <><div className="text-sm font-semibold text-text-primary group-hover:text-ems-accent transition-colors">{r.attractionName ?? empty}</div><div className="mt-1 text-[12px] leading-snug text-text-secondary">{r.tourName ?? <span className="text-text-muted">—</span>}</div></>;
     if (key === 'eventDate') return <><div className="text-sm font-semibold text-text-primary tabular-nums">{ev.date}</div>{tm && <div className="text-[11px] text-text-muted tabular-nums mt-0.5">{tm}</div>}</>;
-    if (key === 'venue') return <><div className="truncate max-w-[14rem] font-semibold text-text-primary" title={venueLabel ?? ''}>{venueLabel ?? empty}</div><div className="mt-1 text-[12px] leading-snug text-text-secondary">{marketLabel ?? <span className="text-text-muted">—</span>}</div></>;
+    if (key === 'venue') return <><div className="truncate max-w-[14rem] font-semibold text-text-primary" title={venueLabel ?? ''}>{venueLabel ?? empty}</div>{r.entertainmentComplexNames ? <div className="truncate mt-0.5 text-[11px] leading-snug text-ems-accent/80" title={r.entertainmentComplexNames}>{r.entertainmentComplexNames}</div> : null}<div className="mt-0.5 text-[12px] leading-snug text-text-secondary">{marketLabel ?? <span className="text-text-muted">—</span>}</div></>;
     const values: Record<SortColumn, React.ReactNode> = {
       attraction: null, eventDate: null, venue: null,
       sellableCapacity: r.engagementSellableCapacity != null ? intText(r.engagementSellableCapacity) : empty,
@@ -286,14 +519,192 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
     return values[key];
   };
 
+  const showFullSkeleton = query.isPending && !query.data;
+  const showTableOverlay = query.isFetching && !!query.data;
+  const totalColSpan = columns.length + 1;
+
   return <div className="space-y-4">
     {isRefreshing && <div className="pointer-events-none fixed top-0 left-0 right-0 z-[200] h-0.5 overflow-hidden" aria-hidden><div className="h-full w-1/3 animate-pulse bg-ems-accent/90" /></div>}
     <div className="flex flex-col gap-3 rounded-xl border border-border bg-card px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="flex items-center gap-2"><h1 className="text-2xl font-bold text-text-primary tracking-tight">Overview Report</h1>{!isLoading && <span className="rounded-full bg-elevated px-2.5 py-0.5 text-[11px] font-semibold tabular-nums text-text-secondary">{kpis.events.toLocaleString()} {kpis.events === 1 ? 'event' : 'events'}</span>}</div><p className="mt-0.5 text-sm text-text-secondary">A detailed snapshot of upcoming events</p></div><div className="inline-flex items-center gap-2 rounded-lg border border-border bg-elevated/60 px-3 py-2 text-xs text-text-secondary"><Info className="h-4 w-4 text-ems-accent shrink-0" aria-hidden /><span>Click a row to view <span className="font-medium text-text-primary">Sales Trends</span> for that event</span></div></div>
-    {!isLoading && rows.length > 0 && <div className="grid grid-cols-2 md:grid-cols-4 gap-3"><KpiCard icon={CalendarRange} label="Events" value={kpis.events.toLocaleString()} sub="from selected date" tone="blue" /><KpiCard icon={Ticket} label="Total tickets sold" value={kpis.totalSold.toLocaleString()} sub="across all events" tone="purple" /><KpiCard icon={TrendingUp} label="Revenue yesterday" value={money(kpis.revenueYesterday) || '$0'} sub="from prior day" tone="accent" /><KpiCard icon={DollarSign} label="Total revenue" value={money(kpis.totalRevenue) || '$0'} sub="across all events" tone="green" /></div>}
-    <div className="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]"><aside className="lg:sticky lg:top-[4.5rem] lg:self-start"><div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden"><div className="flex items-center justify-between gap-2 border-b border-border bg-surface/60 px-4 py-3"><div className="flex items-center gap-2 min-w-0"><FilterIcon className="h-4 w-4 text-ems-accent shrink-0" aria-hidden /><h2 className="text-sm font-semibold text-text-primary">Filters</h2>{activeFilterCount > 0 && <span className="rounded-full bg-ems-accent/15 text-ems-accent text-[10px] font-semibold tabular-nums ring-1 ring-ems-accent/20 px-2 py-0.5">{activeFilterCount}</span>}</div>{(activeFilterCount > 0 || searchInput || dateChanged) && <button type="button" onClick={reset} className="inline-flex items-center gap-1 rounded-md text-[11px] font-medium text-text-secondary hover:text-ems-accent transition-colors" title="Clear all filters"><RotateCcw className="h-3 w-3" aria-hidden />Reset</button>}</div><div className="p-3 space-y-3 max-h-[calc(100vh-12rem)] overflow-y-auto"><FilterField label="Reporting as of"><input type="date" className={dateInputClass} value={reportDate} onChange={(e) => setReportDate(e.target.value)} aria-label="Reporting as of" />{!dateOk && <p className="mt-1 text-[11px] text-ems-coral">Enter a valid reporting date.</p>}</FilterField><div className="h-px bg-border" /><FilterField label="Attraction"><Select2 options={attractionOptions} value={attractionFilter} onChange={setAttractionFilter} placeholder="All attractions" allowClear={!!attractionFilter} /></FilterField><FilterField label="Genre"><Select2 options={opt('All genres', pageData?.filterOptions.genres)} value={genreFilter} onChange={setGenreFilter} placeholder="All genres" allowClear={!!genreFilter} /></FilterField><FilterField label="Tour Name"><Select2 options={opt('All tours', pageData?.filterOptions.tours)} value={tourFilter} onChange={setTourFilter} placeholder="All tours" allowClear={!!tourFilter} /></FilterField><FilterField label="Company"><Select2 options={companyOptions} value={companyFilter} onChange={setCompanyFilter} placeholder="All companies" allowClear={!!companyFilter} /></FilterField><FilterField label="Venue"><Select2 options={opt('All venues', pageData?.filterOptions.venues)} value={venueFilter} onChange={setVenueFilter} placeholder="All venues" allowClear={!!venueFilter} /></FilterField><FilterField label="Contact"><Select2 options={opt('All contacts', pageData?.filterOptions.contacts)} value={contactFilter} onChange={setContactFilter} placeholder="All contacts" allowClear={!!contactFilter} /></FilterField></div></div></aside>
-      <section className="min-w-0 rounded-xl border border-border bg-card shadow-sm overflow-hidden"><div className="flex flex-col gap-2 border-b border-border bg-surface/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"><div className="relative flex-1 max-w-md"><Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-muted" aria-hidden /><input type="text" className="h-9 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-sm text-text-primary placeholder:text-text-muted shadow-sm focus:outline-none focus:ring-2 focus:ring-ems-accent/30 focus:border-ems-accent transition-colors" placeholder="Search attractions, tours, venues, markets…" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} aria-label="Search rows" /></div><div className="flex items-center gap-3 text-xs text-text-muted">{isRefreshing && <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin text-ems-accent" aria-hidden />Refreshing…</span>}<span className="tabular-nums"><span className="font-medium text-text-primary">{rows.length.toLocaleString()}</span> of <span className="tabular-nums">{rawRows.length.toLocaleString()}</span></span></div></div>{query.isError && <div className="m-4 rounded-md border border-ems-coral/30 bg-ems-coral-dim px-3 py-2 text-sm text-ems-coral">{friendlyApiError(query.error)}</div>}{ledgerQuery.isError && <div className="m-4 rounded-md border border-ems-coral/30 bg-ems-coral-dim px-3 py-2 text-sm text-ems-coral">{friendlyApiError(ledgerQuery.error)}</div>}
-        <div className="relative overflow-x-auto"><table className="w-full text-sm" style={{ minWidth: '2220px' }}><thead className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm"><tr className="border-b border-border">{columns.map((c) => <SortHeader key={c.key} col={c.key} label={c.label} title={c.title} sort={sort} onToggle={toggleSort} align={c.align} />)}<th className="w-8 px-2 py-3" aria-hidden /></tr></thead><tbody>{isLoading ? Array.from({ length: 8 }).map((_, i) => <tr key={`skel-${i}`} className="border-b border-border/50">{Array.from({ length: 18 }).map((__, j) => <td key={j} className="px-4 py-3.5"><div className="h-3 rounded bg-muted/70 animate-pulse" style={{ width: j === 0 ? '82%' : j < 4 ? '70%' : '50%' }} /></td>)}</tr>) : rows.length === 0 ? <tr><td colSpan={18} className="py-16"><div className="flex flex-col items-center justify-center gap-2 text-text-muted"><div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-elevated"><CalendarRange className="h-6 w-6 text-text-muted" aria-hidden /></div><p className="text-sm font-medium text-text-secondary">No events match your filters</p><p className="text-xs">Try changing the reporting date or clearing filters.</p>{(activeFilterCount > 0 || searchInput || dateChanged) && <button type="button" onClick={reset} className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-border bg-elevated px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-hover transition-colors"><RotateCcw className="h-3 w-3" aria-hidden />Reset filters</button>}</div></td></tr> : rows.map((item, idx) => <tr key={`${item.row.performanceId}-${item.row.engagementId}`} className={`group border-b border-border/60 cursor-pointer transition-colors ${idx % 2 === 1 ? 'bg-surface/30' : ''} hover:bg-ems-accent-dim/30`} onClick={() => onOpenEngagement(item.row.engagementId, item.row.performanceId)} title="Open sales trends">{columns.map((c) => <td key={c.key} className={`px-4 py-3 align-top text-sm ${c.align === 'right' ? 'text-right tabular-nums' : 'text-text-secondary'}`}>{cell(item, c.key)}</td>)}<td className="w-8 px-2 py-3 align-middle text-text-muted opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight className="h-4 w-4" aria-hidden /></td></tr>)}</tbody></table></div>
-        {!isLoading && rows.length > 0 && <div className="flex items-center justify-between gap-3 border-t border-border bg-surface/30 px-4 py-2.5 text-xs text-text-muted"><span>Showing <span className="font-medium text-text-primary tabular-nums">{rows.length.toLocaleString()}</span> {rows.length === 1 ? 'event' : 'events'}</span><span className="tabular-nums">Total revenue: <span className="font-semibold text-ems-green">{money(kpis.totalRevenue) || '$0'}</span></span></div>}
-      </section></div>
+    {!isLoading && rows.length > 0 && !!summary && <div className="grid grid-cols-2 md:grid-cols-4 gap-3"><KpiCard icon={CalendarRange} label="Events" value={kpis.events.toLocaleString()} sub="from selected date" tone="blue" /><KpiCard icon={Ticket} label="Total tickets sold" value={kpis.totalSold.toLocaleString()} sub="across all events" tone="purple" /><KpiCard icon={TrendingUp} label="Revenue yesterday" value={money(kpis.revenueYesterday) || '$0'} sub="from prior day" tone="accent" /><KpiCard icon={DollarSign} label="Total revenue" value={money(kpis.totalRevenue) || '$0'} sub="across all events" tone="green" /></div>}
+    <div className="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]"><aside className="lg:sticky lg:top-[4.5rem] lg:self-start"><div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden"><div className="flex items-center justify-between gap-2 border-b border-border bg-surface/60 px-4 py-3"><div className="flex items-center gap-2 min-w-0"><FilterIcon className="h-4 w-4 text-ems-accent shrink-0" aria-hidden /><h2 className="text-sm font-semibold text-text-primary">Filters</h2>{activeFilterCount > 0 && <span className="rounded-full bg-ems-accent/15 text-ems-accent text-[10px] font-semibold tabular-nums ring-1 ring-ems-accent/20 px-2 py-0.5">{activeFilterCount}</span>}</div>{(activeFilterCount > 0 || dateChanged) && <button type="button" onClick={reset} className="inline-flex items-center gap-1 rounded-md text-[11px] font-medium text-text-secondary hover:text-ems-accent transition-colors" title="Clear all filters"><RotateCcw className="h-3 w-3" aria-hidden />Reset</button>}</div><div className="p-3 space-y-3 max-h-[calc(100vh-12rem)] overflow-y-auto"><FilterField label="Reporting as of"><input type="date" className={dateInputClass} value={reportDate} onChange={(e) => setReportDate(e.target.value)} aria-label="Reporting as of" />{!dateOk && <p className="mt-1 text-[11px] text-ems-coral">Enter a valid reporting date.</p>}</FilterField><div className="h-px bg-border" /><FilterField label="Attraction"><Select2 options={attractionOptions} value={attractionFilter} onChange={setAttractionFilter} placeholder="All attractions" allowClear={!!attractionFilter} /></FilterField><FilterField label="Genre"><Select2 options={opt('All genres', pageData?.filterOptions.genres)} value={genreFilter} onChange={setGenreFilter} placeholder="All genres" allowClear={!!genreFilter} /></FilterField><FilterField label="Tour Name"><Select2 options={opt('All tours', pageData?.filterOptions.tours)} value={tourFilter} onChange={setTourFilter} placeholder="All tours" allowClear={!!tourFilter} /></FilterField>{companyOptions.length > 1 && <FilterField label="Company"><Select2 options={companyOptions} value={companyFilter} onChange={setCompanyFilter} placeholder="All companies" allowClear={!!companyFilter} /></FilterField>}<FilterField label="Venue"><Select2 options={opt('All venues', pageData?.filterOptions.venues)} value={venueFilter} onChange={setVenueFilter} placeholder="All venues" allowClear={!!venueFilter} /></FilterField><FilterField label="Contact"><Select2 options={opt('All contacts', pageData?.filterOptions.contacts)} value={contactFilter} onChange={setContactFilter} placeholder="All contacts" allowClear={!!contactFilter} /></FilterField></div></div></aside>
+      <section className="min-w-0 rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+        {showFullSkeleton ? (
+          <div className="p-8 flex items-center justify-center"><Loader2 className="h-8 w-8 text-ems-accent animate-spin" /></div>
+        ) : (
+          <>
+            <div className="relative overflow-hidden">
+              <div className="flex flex-col gap-2 border-b border-border bg-surface/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="relative flex-1 max-w-md" ref={searchWrapperRef}>
+                  <div className="flex min-w-0 items-center border border-border rounded-lg bg-background overflow-hidden focus-within:border-ems-accent shadow-sm transition-colors">
+                    <input
+                      type="text"
+                      className="min-w-0 flex-1 bg-transparent px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none"
+                      placeholder="Search attractions, tours, venues, markets…"
+                      value={searchInput}
+                      autoComplete="off"
+                      spellCheck={false}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setSearchInput(v);
+                        setShowSuggestions(true);
+                        setActiveSuggestionIndex(-1);
+                      }}
+                      onFocus={() => { if (searchInput.trim()) setShowSuggestions(true); }}
+                      onBlur={() => setShowSuggestions(false)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'ArrowDown') {
+                          if (!searchSuggestPanelOpen || searchSuggestions.length === 0) return;
+                          e.preventDefault();
+                          setActiveSuggestionIndex((prev) =>
+                            prev < 0 ? 0 : Math.min(prev + 1, searchSuggestions.length - 1),
+                          );
+                          return;
+                        }
+                        if (e.key === 'ArrowUp') {
+                          if (!searchSuggestPanelOpen || searchSuggestions.length === 0) return;
+                          e.preventDefault();
+                          setActiveSuggestionIndex((prev) => Math.max(prev - 1, 0));
+                          return;
+                        }
+                        if (e.key === 'Enter') {
+                          if (searchSuggestPanelOpen && activeSuggestionIndex >= 0 && activeSuggestionIndex < searchSuggestions.length) {
+                            e.preventDefault();
+                            applySearchSuggestion(searchSuggestions[activeSuggestionIndex]);
+                            return;
+                          }
+                          e.preventDefault();
+                          commitSearch();
+                          return;
+                        }
+                        if (e.key === 'Escape') { setShowSuggestions(false); setActiveSuggestionIndex(-1); }
+                      }}
+                    />
+                    {(searchInput || activeSearch) && (
+                      <button type="button" onClick={() => { setSearchInput(''); setActiveSearch(''); }}
+                        className="shrink-0 cursor-pointer px-1 py-1.5 text-text-muted hover:text-text-primary transition-colors" title="Clear search">
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                      </button>
+                    )}
+                    <button type="button" onClick={commitSearch}
+                      className="shrink-0 flex items-center justify-center w-9 h-9 text-text-muted hover:text-ems-accent transition-colors" title="Search">
+                      {query.isFetching && activeSearch ? <Loader2 className="h-4 w-4 animate-spin text-ems-accent" aria-hidden /> : <Search className="h-4 w-4" aria-hidden />}
+                    </button>
+                  </div>
+                  {searchSuggestPanelOpen ? (
+                    <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden max-h-80 overflow-y-auto" onMouseDown={(e) => e.preventDefault()} aria-busy={suggestionsQuery.isFetching}>
+                      {suggestionsQuery.isError ? (
+                        <div className="px-3 py-2 text-sm text-ems-coral" role="alert">
+                          Could not load suggestions.
+                        </div>
+                      ) : null}
+                      {!suggestionsQuery.isError && suggestionsQuery.isFetching ? (
+                        <div className="flex items-center gap-2 px-3 py-2.5 text-sm text-text-muted" role="status" aria-live="polite">
+                          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-ems-accent" aria-hidden />
+                          <span>Loading suggestions…</span>
+                        </div>
+                      ) : null}
+                      {!suggestionsQuery.isError && !suggestionsQuery.isFetching && searchSuggestions.length > 0
+                        ? searchSuggestions.map((s, i) => (
+                          <button key={`${s.label}-${s.sublabel}-${i}`} type="button"
+                            className={`w-full text-left px-3 py-2.5 text-sm transition-colors ${i === activeSuggestionIndex ? 'bg-hover text-text-primary' : 'text-text-secondary hover:bg-hover hover:text-text-primary'}`}
+                            onMouseDown={(e) => { e.preventDefault(); applySearchSuggestion(s); }}>
+                            <div className="min-w-0">
+                              <div className="truncate font-medium text-text-primary">{s.label}</div>
+                              {s.sublabel && <div className="truncate text-xs text-text-muted mt-0.5">{s.sublabel}</div>}
+                            </div>
+                          </button>
+                        ))
+                        : null}
+                      {!suggestionsQuery.isError && !suggestionsQuery.isFetching && suggestionsQuery.isFetched && searchSuggestions.length === 0 ? (
+                        <div className="px-3 py-2.5 text-sm text-text-muted">No matching suggestions</div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="flex items-center gap-3 text-xs text-text-muted">
+                  {isRefreshing && <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin text-ems-accent" aria-hidden />Refreshing…</span>}
+                  <span className="tabular-nums">
+                    <span className="font-medium text-text-primary">{rows.length.toLocaleString()}</span> of{' '}
+                    <span className="tabular-nums">{serverTotal.toLocaleString()}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={resetTableLayout}
+                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-background text-text-muted shadow-sm transition-all hover:border-ems-accent/35 hover:bg-ems-accent-dim/60 hover:text-ems-accent active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/30"
+                    title="Reset column widths"
+                    aria-label="Reset column widths to default"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden />
+                  </button>
+                </div>
+              </div>
+              {query.isError && <div className="m-4 rounded-md border border-ems-coral/30 bg-ems-coral-dim px-3 py-2 text-sm text-ems-coral">{friendlyApiError(query.error)}</div>}
+              {ledgerQuery.isError && <div className="m-4 rounded-md border border-ems-coral/30 bg-ems-coral-dim px-3 py-2 text-sm text-ems-coral">{friendlyApiError(ledgerQuery.error)}</div>}
+              <div className="relative overflow-x-auto">
+                {showTableOverlay && (
+                  <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/55 backdrop-blur-[1px]" aria-live="polite" aria-busy>
+                    <div className="inline-flex items-center gap-2 rounded-xl border border-border bg-card/95 px-4 py-3 text-sm font-semibold text-text-primary shadow-xl">
+                      <Loader2 className="h-5 w-5 animate-spin text-ems-accent" aria-hidden />
+                      <span>Loading filtered results...</span>
+                    </div>
+                  </div>
+                )}
+                <table className="w-full table-fixed text-sm" style={{ minWidth: salesSummaryTableMinWidth }}>
+                  <colgroup>
+                    {columns.map((c) => <col key={c.key} style={{ width: columnWidths[c.key] }} />)}
+                    <col style={{ width: 32 }} />
+                  </colgroup>
+                  <thead className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm">
+                    <tr className="border-b border-border">
+                      {columns.map((c) => <SortHeader key={c.key} col={c.key} label={c.label} title={c.title} sort={sort} onToggle={toggleSort} align={c.align} onResizeStart={(e) => startColumnResize(c.key, e)} />)}
+                      <th className="w-8 px-2 py-3" aria-hidden />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {query.isPending && !query.data ? (
+                      Array.from({ length: 8 }).map((_, i) => <tr key={`skel-${i}`} className="border-b border-border/50">{Array.from({ length: 18 }).map((__, j) => <td key={j} className="px-4 py-3.5"><div className="h-3 rounded bg-muted/70 animate-pulse" style={{ width: j === 0 ? '82%' : j < 4 ? '70%' : '50%' }} /></td>)}</tr>)
+                    ) : rows.length === 0 ? (
+                      <tr><td colSpan={totalColSpan} className="py-16"><div className="flex flex-col items-center justify-center gap-2 text-text-muted"><div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-elevated"><CalendarRange className="h-6 w-6 text-text-muted" aria-hidden /></div><p className="text-sm font-medium text-text-secondary">No events match your filters</p><p className="text-xs">Try changing the reporting date or clearing filters.</p>{(activeFilterCount > 0 || activeSearch || dateChanged) && <button type="button" onClick={reset} className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-border bg-elevated px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-hover transition-colors"><RotateCcw className="h-3 w-3" aria-hidden />Reset filters</button>}</div></td></tr>
+                    ) : (
+                      rows.map((item, idx) => <tr key={`${item.row.performanceId}-${item.row.engagementId}`} className={`group border-b border-border/60 cursor-pointer transition-colors ${idx % 2 === 1 ? 'bg-surface/30' : ''} hover:bg-ems-accent-dim/30`} onClick={() => onOpenEngagement(item.row.engagementId, item.row.performanceId)} title="Open sales trends">{columns.map((c) => <td key={c.key} className={`max-w-0 overflow-hidden px-3 py-3 align-top text-sm ${c.align === 'right' ? 'text-right tabular-nums' : 'text-text-secondary'}`}>{cell(item, c.key)}</td>)}<td className="w-8 px-2 py-3 align-middle text-text-muted opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight className="h-4 w-4" aria-hidden /></td></tr>)
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            {serverTotal > 0 && (
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-text-secondary px-1 py-2.5">
+                <p className="tabular-nums">
+                  <span>
+                    Showing{' '}
+                    <span className="text-text-primary font-medium">
+                      {isAllPageSize(pageSize)
+                        ? `1–${serverTotal}`
+                        : `${(pageClamped - 1) * Number(pageSize) + 1}–${Math.min(pageClamped * Number(pageSize), serverTotal)}`}
+                    </span>{' '}
+                    of <span className="text-text-primary font-medium">{serverTotal.toLocaleString()}</span> events
+                  </span>
+                  {!isAllPageSize(pageSize) && (
+                    <span className="inline-flex flex-wrap items-center gap-x-1.5 text-text-secondary ml-2">
+                      <span aria-hidden>·</span>
+                      <PageSizeSelect value={pageSize} onChange={setPageSize} disabled={query.isFetching} />
+                      <span>per page</span>
+                    </span>
+                  )}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button disabled={pageClamped <= 1} onClick={() => setPage((p) => p - 1)}
+                    className="px-3 py-1.5 rounded border border-border bg-elevated hover:bg-hover disabled:opacity-40 text-xs font-medium">Previous</button>
+                  <span className="tabular-nums text-text-muted">Page {pageClamped}{!isAllPageSize(pageSize) && pageCount > 0 ? ` / ${pageCount}` : ''}</span>
+                  <button disabled={pageClamped >= pageCount} onClick={() => setPage((p) => p + 1)}
+                    className="px-3 py-1.5 rounded border border-border bg-elevated hover:bg-hover disabled:opacity-40 text-xs font-medium">Next</button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </section>
+    </div>
   </div>;
 }
