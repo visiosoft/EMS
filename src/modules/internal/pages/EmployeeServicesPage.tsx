@@ -143,7 +143,12 @@ export function EmployeeServicesPage() {
   );
 
   if (handbookView === "section" || handbookView === "index") {
-    return <EmployeeHandbookSectionPage handbookHash={handbookView === "index" ? "" : viewData.handbookHash} />;
+    return (
+      <EmployeeHandbookSectionPage
+        handbookHash={handbookView === "index" ? "" : viewData.handbookHash}
+        handbookSubsection={viewData.handbookSubsection}
+      />
+    );
   }
 
   const handleTileClick = (item: EmployeeServiceItem) => {
@@ -152,7 +157,7 @@ export function EmployeeServicesPage() {
       return;
     }
     if (item.handbookHash) {
-      openEmployeeHandbook("section", item.handbookHash);
+      openEmployeeHandbook("section", item.handbookHash, item.handbookSubsection);
       return;
     }
     if (item.internalView) {

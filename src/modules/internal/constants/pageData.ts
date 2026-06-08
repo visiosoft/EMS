@@ -23,6 +23,8 @@ export type EmployeeServiceItem = {
   handbookIndex?: boolean;
   /** Opens this handbook section/subsection (e.g. COBRA under Work Performance). */
   handbookHash?: string;
+  /** Jumps to a specific subsection number within the handbook section (e.g. "4.11", "5.5"). */
+  handbookSubsection?: string;
   /** Opens an external resource in a new browser tab. */
   externalUrl?: string;
   /** Navigates to another internal hub view (e.g. Leadership). */
@@ -34,10 +36,10 @@ const PAYROLL_SCHEDULE_URL =
 
 export const EMPLOYEE_SERVICE_ITEMS: EmployeeServiceItem[] = [
   { title: "Employee Handbook", icon: FileBadge2, handbookIndex: true },
-  { title: "Health Insurance", icon: HeartPulse, handbookHash: "cobra-continuing-coverage" },
+  { title: "Health Insurance", icon: HeartPulse, handbookHash: "handbook-work-performance", handbookSubsection: "5.4" },
   { title: "Payroll Schedule", icon: ReceiptText, externalUrl: PAYROLL_SCHEDULE_URL },
   { title: "PTO Request", icon: ClipboardList, externalUrl: "https://signin.adp.com" },
-  { title: "Official Work Holiday", icon: Umbrella, handbookHash: "handbook-compensation-benefits" },
+  { title: "Official Work Holiday", icon: Umbrella, handbookHash: "handbook-compensation-benefits", handbookSubsection: "4.11" },
   { title: "Company", icon: FileBadge2, companyMark: true, internalView: "leadership" },
 ];
 
