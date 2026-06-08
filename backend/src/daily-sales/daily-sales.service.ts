@@ -118,6 +118,7 @@ export interface PerformanceSalesRow {
   /** Engagement baseline (same for every row in this engagement); used for UI hints. */
   engagementSellableCapacity: number | null;
   engagementGrossPotential: number | null;
+  entertainmentComplexNames: string | null;
 }
 
 export interface PerformanceCompanyFilterOption {
@@ -142,6 +143,8 @@ export interface PerformanceSalesPageResult {
     todayRevenue: number;
     yesterdayTickets: number;
     yesterdayRevenue: number;
+    totalTickets: number;
+    totalRevenue: number;
   };
   /** Distinct attractions in the current report (same filters as the table); used for sales summary links. */
   attractions: Array<{ attractionId: number; attractionName: string }>;
@@ -687,6 +690,8 @@ export class DailySalesService {
             todayRevenue: 0,
             yesterdayTickets: 0,
             yesterdayRevenue: 0,
+            totalTickets: 0,
+            totalRevenue: 0,
           },
           attractions: [],
           filterOptions: await this.getByPerformanceFilterOptions(asOf, {
@@ -809,8 +814,8 @@ export class DailySalesService {
         this.sumSalesForByPerformanceQuery(baseQb.clone(), asOf),
         engagementSortQb
           .clone()
-          .skip((page - 1) * pageSize)
-          .take(pageSize)
+          .offset((page - 1) * pageSize)
+          .limit(pageSize)
           .getRawMany<Record<string, unknown>>(),
         this.getByPerformanceFilterOptions(asOf, {
           performanceDate,
@@ -836,6 +841,8 @@ export class DailySalesService {
           todayRevenue: numOrZero(pickRow(agg, 'sumRevT')),
           yesterdayTickets: numOrZero(pickRow(agg, 'sumTixY')),
           yesterdayRevenue: numOrZero(pickRow(agg, 'sumRevY')),
+          totalTickets: numOrZero(pickRow(agg, 'sumTotalTickets')),
+          totalRevenue: numOrZero(pickRow(agg, 'sumTotalRevenue')),
         },
         attractions,
         filterOptions,
@@ -861,6 +868,12 @@ export class DailySalesService {
         'v.venueName                                            AS venueName',
         'addr.city                                              AS city',
         'addr.stateProvince                                   AS stateProvince',
+        `(
+        SELECT STRING_AGG(LTRIM(RTRIM(ccx.CompanyName)), N', ') WITHIN GROUP (ORDER BY LTRIM(RTRIM(ccx.CompanyName)))
+        FROM dbo.VenueComplexMember vcmx
+        INNER JOIN dbo.Company ccx ON ccx.CompanyID = vcmx.ComplexCompanyID
+        WHERE vcmx.VenueCompanyID = ev.venueCompanyId
+      )                                                       AS entertainmentComplexNames`,
         `(
         SELECT TOP 1 CONCAT(ci.FirstName, N' ', ci.LastName)
         FROM dbo.ContactAssignment ca
@@ -948,6 +961,10 @@ export class DailySalesService {
         city: r['city'] != null ? String(r['city']) : null,
         stateProvince:
           r['stateProvince'] != null ? String(r['stateProvince']) : null,
+        entertainmentComplexNames:
+          r['entertainmentComplexNames'] != null
+            ? String(r['entertainmentComplexNames'])
+            : null,
         todayDate: String(r['todayDate'] ?? ''),
         todayTicketsSold: todayTickets,
         todayRevenue: todayRev,
@@ -1027,6 +1044,8 @@ export class DailySalesService {
         todayRevenue: numOrZero(pickRow(agg, 'sumRevT')),
         yesterdayTickets: numOrZero(pickRow(agg, 'sumTixY')),
         yesterdayRevenue: numOrZero(pickRow(agg, 'sumRevY')),
+        totalTickets: numOrZero(pickRow(agg, 'sumTotalTickets')),
+        totalRevenue: numOrZero(pickRow(agg, 'sumTotalRevenue')),
       },
       attractions,
       filterOptions,
@@ -1447,6 +1466,14 @@ export class DailySalesService {
         'COALESCE(SUM(CASE WHEN CONVERT(date, ts.salesDate) = CAST(:yestDay AS date) THEN CAST(ts.performanceSalesRevenue AS decimal(18,2)) ELSE 0 END), 0)',
         'sumRevY',
       )
+      .addSelect(
+        'COALESCE(SUM(CAST(ts.performanceSalesQuantity AS BIGINT)), 0)',
+        'sumTotalTickets',
+      )
+      .addSelect(
+        'COALESCE(SUM(CAST(ts.performanceSalesRevenue AS decimal(18,2))), 0)',
+        'sumTotalRevenue',
+      )
       .where('ts.performanceId IN (:...ids)', { ids })
       .setParameter('asOf', asOf)
       .setParameter('yestDay', yest)
@@ -1476,6 +1503,84 @@ export class DailySalesService {
           x.attractionId > 0 &&
           x.attractionName.length > 0,
       );
+  }
+
+  async getByPerformanceSuggestions(
+    asOfDateParam: string | undefined,
+    query: string | undefined,
+  ): Promise<Array<{ label: string; sublabel: string }>> {
+    const q = (query ?? '').trim().toLowerCase();
+    if (!q) return [];
+    const asOf = await this.resolveAsOfDateString(asOfDateParam);
+    const like = `%${q}%`;
+
+    const baseQb = this.performanceRepo
+      .createQueryBuilder('p')
+      .innerJoin(Engagement, 'e', 'e.engagementId = p.engagementId')
+      .leftJoin(Tour, 't', 't.tourId = e.tourId')
+      .leftJoin(Attraction, 'a', 'a.attractionId = t.attractionId')
+      .leftJoin(EngagementVenue, 'ev', 'ev.engagementId = e.engagementId AND ev.isPrimary = :prim', { prim: true })
+      .leftJoin(Venue, 'v', 'v.companyId = ev.venueCompanyId')
+      .leftJoin(Company, 'vc', 'vc.companyId = ev.venueCompanyId')
+      .leftJoin(Address, 'addr', 'addr.addressId = vc.physicalAddressId')
+      .andWhere('CONVERT(date, p.performanceDate) >= CAST(:asOf AS date)')
+      .setParameter('asOf', asOf);
+
+    const limitQb = (qb: SelectQueryBuilder<Performance>) => qb.addOrderBy('1').limit(6);
+
+    const [attractions, tours, venues, companies, cities] = await Promise.all([
+      limitQb(baseQb.clone()
+        .select('a.attractionName', 'label')
+        .addSelect('t.tourName', 'sublabel')
+        .distinct(true)
+        .andWhere('LOWER(a.attractionName) LIKE :q', { q: like }))
+        .getRawMany() as Promise<Array<{ label: string; sublabel: string }>>,
+      limitQb(baseQb.clone()
+        .select('t.tourName', 'label')
+        .addSelect('vc.companyName', 'sublabel')
+        .distinct(true)
+        .andWhere('LOWER(t.tourName) LIKE :q', { q: like }))
+        .getRawMany() as Promise<Array<{ label: string; sublabel: string }>>,
+      limitQb(baseQb.clone()
+        .select('v.venueName', 'label')
+        .addSelect('addr.city', 'sublabel')
+        .distinct(true)
+        .andWhere('LOWER(v.venueName) LIKE :q', { q: like }))
+        .getRawMany() as Promise<Array<{ label: string; sublabel: string }>>,
+      limitQb(baseQb.clone()
+        .select('vc.companyName', 'label')
+        .addSelect('addr.city', 'sublabel')
+        .distinct(true)
+        .andWhere('LOWER(vc.companyName) LIKE :q', { q: like }))
+        .getRawMany() as Promise<Array<{ label: string; sublabel: string }>>,
+      limitQb(baseQb.clone()
+        .select('addr.city', 'label')
+        .addSelect('addr.stateProvince', 'sublabel')
+        .distinct(true)
+        .andWhere('LOWER(addr.city) LIKE :q', { q: like }))
+        .getRawMany() as Promise<Array<{ label: string; sublabel: string }>>,
+    ]);
+
+    const clean = (rows: Array<{ label?: unknown; sublabel?: unknown }>) =>
+      rows.map((r) => ({
+        label: String(r.label ?? '').trim(),
+        sublabel: String(r.sublabel ?? '').trim(),
+      })).filter((r) => r.label.length > 0);
+
+    const all = [
+      ...clean(attractions),
+      ...clean(tours),
+      ...clean(venues),
+      ...clean(companies),
+      ...clean(cities),
+    ];
+    const seen = new Set<string>();
+    return all.filter((r) => {
+      const key = r.label.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 10);
   }
 
   /** Optional performance calendar day filter (YYYY-MM-DD); invalid values ignored. */
