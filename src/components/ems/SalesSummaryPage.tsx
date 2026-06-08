@@ -5,6 +5,7 @@ import {
   ArrowUp,
   CalendarRange,
   ChevronRight,
+  Columns3,
   DollarSign,
   Filter as FilterIcon,
   Info,
@@ -20,6 +21,15 @@ import { companyToSelect2Options } from './companySelectOptions';
 import { Select2 } from './Select2';
 import { PAGE_SIZE, PAGE_SIZE_ALL, type PageSizeOption, isAllPageSize, toPageSize } from '@/lib/serverPagination';
 import { PageSizeSelect } from './PageSizeSelect';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 interface Props { onOpenEngagement: (engagementId: number, performanceId: number) => void }
 
@@ -30,6 +40,13 @@ type SortColumn =
   | 'grossSales14Days' | 'ticketsSoldPrevious14Days' | 'grossUnsoldRevenue' | 'unsoldTickets';
 
 type EventDateScope = 'past' | 'upcoming' | 'custom';
+type SalesSummaryMetricColumnGroupId =
+  | 'totalInventory'
+  | 'lifetimeSales'
+  | 'yesterdayWrap'
+  | 'sevenDayWrap'
+  | 'fourteenDayWrap'
+  | 'unsoldInventoryValue';
 type SortState = { col: SortColumn; dir: 'asc' | 'desc' };
 type Snapshot = { tickets: number; revenue: number };
 type LedgerRow = Snapshot & { salesDate: string };
@@ -190,19 +207,42 @@ const SALES_SUMMARY_COLUMNS: SalesSummaryColumnDefinition[] = [
   { key: 'grossUnsoldRevenue', label: <HeaderLabel lines={['Total', 'Unsold $']} />, title: 'Total Unsold $', align: 'right' },
 ];
 
-const SALES_SUMMARY_METRIC_COLUMN_GROUPS: Array<{ label: string; keys: SortColumn[] }> = [
-  { label: 'Total Inventory', keys: ['sellableCapacity', 'grossPotential'] },
-  { label: 'Lifetime', keys: ['totalSold', 'grossSalesToDate', 'venueCapacitySoldPct', 'grossPotentialSoldPct'] },
-  { label: "Yesterday's Wrap", keys: ['ticketsSoldYesterday', 'yesterdayRevenue'] },
-  { label: 'Seven-Day Wrap', keys: ['ticketsSoldPrevious7Days', 'grossSales7Days'] },
-  { label: 'Fourteen-Day Wrap', keys: ['ticketsSoldPrevious14Days', 'grossSales14Days'] },
-  { label: 'Unsold Inventory & Value', keys: ['unsoldTickets', 'grossUnsoldRevenue'] },
+type SalesSummaryMetricColumnGroup = {
+  id: SalesSummaryMetricColumnGroupId;
+  label: string;
+  pickerLabel?: string;
+  keys: SortColumn[];
+};
+
+const SALES_SUMMARY_METRIC_COLUMN_GROUPS: SalesSummaryMetricColumnGroup[] = [
+  { id: 'totalInventory', label: 'Total Inventory', keys: ['sellableCapacity', 'grossPotential'] },
+  { id: 'lifetimeSales', label: 'Lifetime', pickerLabel: 'Lifetime Sales', keys: ['totalSold', 'grossSalesToDate', 'venueCapacitySoldPct', 'grossPotentialSoldPct'] },
+  { id: 'yesterdayWrap', label: "Yesterday's Wrap", keys: ['ticketsSoldYesterday', 'yesterdayRevenue'] },
+  { id: 'sevenDayWrap', label: 'Seven-Day Wrap', keys: ['ticketsSoldPrevious7Days', 'grossSales7Days'] },
+  { id: 'fourteenDayWrap', label: 'Fourteen-Day Wrap', keys: ['ticketsSoldPrevious14Days', 'grossSales14Days'] },
+  { id: 'unsoldInventoryValue', label: 'Unsold Inventory & Value', keys: ['unsoldTickets', 'grossUnsoldRevenue'] },
 ];
+
+const SALES_SUMMARY_DEFAULT_VISIBLE_GROUP_IDS = SALES_SUMMARY_METRIC_COLUMN_GROUPS.map((group) => group.id);
+const SALES_SUMMARY_VISIBLE_GROUPS_KEY = 'iae-sales-summary-visible-column-groups-v1';
+const SALES_SUMMARY_DEFAULT_VISIBLE_METRIC_COLUMNS = SALES_SUMMARY_METRIC_COLUMN_GROUPS.flatMap((group) => group.keys);
+const SALES_SUMMARY_VISIBLE_METRIC_COLUMNS_KEY = 'iae-sales-summary-visible-metric-columns-v1';
+const SALES_SUMMARY_COLUMN_BY_KEY = new Map(SALES_SUMMARY_COLUMNS.map((column) => [column.key, column]));
 
 const SALES_SUMMARY_GROUP_BY_COLUMN = new Map<
   SortColumn,
-  { groupIndex: number; isFirst: boolean; isLast: boolean; shaded: boolean }
+  { groupIndex: number; isFirst: boolean; isLast: boolean }
 >();
+
+type SalesSummaryVisibleColumnGroupMeta = {
+  groupIndex: number;
+  isFirst: boolean;
+  isLast: boolean;
+};
+
+type SalesSummaryVisibleMetricGroup = SalesSummaryMetricColumnGroup & {
+  visibleKeys: SortColumn[];
+};
 
 SALES_SUMMARY_METRIC_COLUMN_GROUPS.forEach((group, groupIndex) => {
   group.keys.forEach((key, columnIndex) => {
@@ -210,35 +250,160 @@ SALES_SUMMARY_METRIC_COLUMN_GROUPS.forEach((group, groupIndex) => {
       groupIndex,
       isFirst: columnIndex === 0,
       isLast: columnIndex === group.keys.length - 1,
-      shaded: groupIndex % 2 === 0,
     });
   });
 });
 
 function salesSummaryGroupHeaderClass(groupIndex: number) {
-  const fill = groupIndex % 2 === 0 ? 'bg-slate-200/90' : 'bg-white';
-  return `${fill} border-l-[3px] border-r-[3px] border-t-2 border-b-0 border-slate-700/80 shadow-[inset_0_-1px_0_rgba(15,23,42,0.18)]`;
+  const fill = groupIndex % 2 === 0 ? 'bg-slate-100/85' : 'bg-slate-50/35';
+  return `${fill} border-l-2 border-r-2 border-t border-slate-300/70`;
 }
 
-function salesSummaryColumnChromeClass(col: SortColumn, area: 'header' | 'body') {
+function salesSummaryColumnChromeClass(col: SortColumn, area: 'header' | 'body', visibleColumnGroupMetaByColumn?: Map<SortColumn, SalesSummaryVisibleColumnGroupMeta>) {
   const group = SALES_SUMMARY_GROUP_BY_COLUMN.get(col);
-  if (!group) return area === 'header' ? 'bg-white border-r border-slate-200' : 'bg-white border-r border-slate-100';
+  if (!group) return area === 'header' ? 'bg-white border-r border-slate-200' : 'bg-white group-hover:bg-hover/40 border-r border-slate-100';
 
+  const visible = visibleColumnGroupMetaByColumn?.get(col);
+  const shaded = (visible?.groupIndex ?? group.groupIndex) % 2 === 0;
   const fill =
-    group.shaded
+    shaded
       ? area === 'header'
-        ? 'bg-slate-100'
-        : 'bg-slate-50/90 group-hover:bg-ems-accent-dim/45'
+        ? 'bg-slate-100/80'
+        : 'bg-slate-100/55 group-hover:bg-slate-100/85'
       : area === 'header'
-        ? 'bg-white'
-        : 'bg-white group-hover:bg-ems-accent-dim/30';
-  const left = group.isFirst ? 'border-l-[3px] border-l-slate-700/80' : 'border-l border-l-slate-300/70';
-  const right = group.isLast ? 'border-r-[3px] border-r-slate-700/80' : 'border-r border-r-slate-300/70';
+        ? 'bg-slate-50/30'
+        : 'bg-white group-hover:bg-slate-50/75';
+  const left = (visible?.isFirst ?? group.isFirst) ? 'border-l-2 border-l-slate-300/80' : 'border-l border-l-slate-200/65';
+  const right = (visible?.isLast ?? group.isLast) ? 'border-r-2 border-r-slate-300/80' : 'border-r border-r-slate-200/65';
   return `${fill} ${left} ${right}`;
+}
+
+function sanitizeSalesSummaryVisibleGroupIds(value: unknown): SalesSummaryMetricColumnGroupId[] {
+  if (!Array.isArray(value)) return SALES_SUMMARY_DEFAULT_VISIBLE_GROUP_IDS;
+  const incoming = new Set(value.filter((id): id is SalesSummaryMetricColumnGroupId => typeof id === 'string' && SALES_SUMMARY_DEFAULT_VISIBLE_GROUP_IDS.includes(id as SalesSummaryMetricColumnGroupId)));
+  return SALES_SUMMARY_METRIC_COLUMN_GROUPS.filter((group) => incoming.has(group.id)).map((group) => group.id);
+}
+
+function sanitizeSalesSummaryVisibleMetricColumns(value: unknown): SortColumn[] {
+  if (!Array.isArray(value)) return SALES_SUMMARY_DEFAULT_VISIBLE_METRIC_COLUMNS;
+  const incoming = new Set(value.filter((key): key is SortColumn => typeof key === 'string' && SALES_SUMMARY_DEFAULT_VISIBLE_METRIC_COLUMNS.includes(key as SortColumn)));
+  return SALES_SUMMARY_DEFAULT_VISIBLE_METRIC_COLUMNS.filter((key) => incoming.has(key));
+}
+
+function loadSalesSummaryVisibleMetricColumns(): SortColumn[] {
+  if (typeof window === 'undefined') return SALES_SUMMARY_DEFAULT_VISIBLE_METRIC_COLUMNS;
+  try {
+    const rawColumns = localStorage.getItem(SALES_SUMMARY_VISIBLE_METRIC_COLUMNS_KEY);
+    if (rawColumns) return sanitizeSalesSummaryVisibleMetricColumns(JSON.parse(rawColumns));
+
+    const rawGroups = localStorage.getItem(SALES_SUMMARY_VISIBLE_GROUPS_KEY);
+    if (rawGroups) {
+      const groupIds = new Set(sanitizeSalesSummaryVisibleGroupIds(JSON.parse(rawGroups)));
+      return SALES_SUMMARY_METRIC_COLUMN_GROUPS.filter((group) => groupIds.has(group.id)).flatMap((group) => group.keys);
+    }
+  } catch {
+    return SALES_SUMMARY_DEFAULT_VISIBLE_METRIC_COLUMNS;
+  }
+  return SALES_SUMMARY_DEFAULT_VISIBLE_METRIC_COLUMNS;
+}
+
+function saveSalesSummaryVisibleMetricColumns(keys: SortColumn[]) {
+  try {
+    localStorage.setItem(SALES_SUMMARY_VISIBLE_METRIC_COLUMNS_KEY, JSON.stringify(keys));
+  } catch {
+    /* ignore */
+  }
+}
+
+function salesSummaryColumnPickerLabel(key: SortColumn) {
+  return SALES_SUMMARY_COLUMN_BY_KEY.get(key)?.title ?? key;
 }
 
 function FilterField({ label, children }: { label: string; children: React.ReactNode }) { return <div><label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-text-secondary">{label}</label>{children}</div>; }
 const empty = <span className="text-text-muted font-normal">—</span>;
+
+function SalesSummaryColumnGroupChooser({
+  visibleColumnKeys,
+  onToggleGroup,
+  onToggleColumn,
+  onShowAll,
+}: {
+  visibleColumnKeys: Set<SortColumn>;
+  onToggleGroup: (id: SalesSummaryMetricColumnGroupId, visible: boolean) => void;
+  onToggleColumn: (key: SortColumn, visible: boolean) => void;
+  onShowAll: () => void;
+}) {
+  const hiddenCount = SALES_SUMMARY_DEFAULT_VISIBLE_METRIC_COLUMNS.length - visibleColumnKeys.size;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-semibold text-text-secondary shadow-sm transition-all hover:border-ems-accent/35 hover:bg-hover hover:text-text-primary active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/30"
+          title="Choose visible column bundles"
+          aria-label="Choose visible column bundles"
+        >
+          <Columns3 className="h-4 w-4 text-ems-accent" aria-hidden />
+          <span className="hidden sm:inline">Columns</span>
+          {hiddenCount > 0 ? (
+            <span className="rounded-full bg-elevated px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-text-secondary">
+              {visibleColumnKeys.size}/{SALES_SUMMARY_DEFAULT_VISIBLE_METRIC_COLUMNS.length}
+            </span>
+          ) : null}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="max-h-[min(34rem,calc(100vh-7rem))] w-80 overflow-y-auto p-1.5">
+        <DropdownMenuLabel className="px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-text-muted">
+          Metric bundles & columns
+        </DropdownMenuLabel>
+        {SALES_SUMMARY_METRIC_COLUMN_GROUPS.map((group) => {
+          const visibleCount = group.keys.filter((key) => visibleColumnKeys.has(key)).length;
+          const checked = visibleCount === group.keys.length ? true : visibleCount > 0 ? 'indeterminate' : false;
+          return (
+            <div key={group.id} className="py-0.5">
+              <DropdownMenuCheckboxItem
+                checked={checked}
+                onCheckedChange={(nextChecked) => onToggleGroup(group.id, nextChecked === true)}
+                onSelect={(event) => event.preventDefault()}
+                className="min-h-9 cursor-pointer rounded-md text-sm font-semibold text-text-primary focus:bg-hover focus:text-text-primary"
+              >
+                <span className="truncate">{group.pickerLabel ?? group.label}</span>
+                {visibleCount > 0 && visibleCount < group.keys.length ? (
+                  <span className="ml-auto rounded-full bg-elevated px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-text-muted">
+                    {visibleCount}/{group.keys.length}
+                  </span>
+                ) : null}
+              </DropdownMenuCheckboxItem>
+              <div className="space-y-0.5 pl-5">
+                {group.keys.map((key) => (
+                  <DropdownMenuCheckboxItem
+                    key={key}
+                    checked={visibleColumnKeys.has(key)}
+                    onCheckedChange={(nextChecked) => onToggleColumn(key, nextChecked === true)}
+                    onSelect={(event) => event.preventDefault()}
+                    className="min-h-8 cursor-pointer rounded-md py-1.5 pl-8 pr-2 text-xs font-medium text-text-secondary focus:bg-hover focus:text-text-primary"
+                  >
+                    <span className="truncate">{salesSummaryColumnPickerLabel(key)}</span>
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          disabled={hiddenCount === 0}
+          onClick={onShowAll}
+          className="cursor-pointer rounded-md text-sm font-medium text-text-secondary focus:bg-hover focus:text-text-primary"
+        >
+          <RotateCcw className="mr-2 h-3.5 w-3.5" aria-hidden />
+          Show all columns
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 // ─── Resizable column widths (persisted per browser) ─────────────────────────
 
@@ -373,6 +538,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE);
   const [sort, setSort] = useState<SortState>({ col: 'eventDate', dir: 'asc' });
+  const [visibleMetricColumnKeys, setVisibleMetricColumnKeys] = useState<SortColumn[]>(loadSalesSummaryVisibleMetricColumns);
   const iso = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s.trim());
   const reportAsOfDate = today;
   const customDatesAreValid = iso(customStartDate) && iso(customEndDate);
@@ -544,6 +710,65 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   }, [searchInput]);
 
   const toggleSort = (col: SortColumn) => setSort((s) => s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' });
+  const visibleMetricColumnKeySet = useMemo(() => new Set(visibleMetricColumnKeys), [visibleMetricColumnKeys]);
+  const visibleMetricGroups = useMemo<SalesSummaryVisibleMetricGroup[]>(
+    () =>
+      SALES_SUMMARY_METRIC_COLUMN_GROUPS.map((group) => ({
+        ...group,
+        visibleKeys: group.keys.filter((key) => visibleMetricColumnKeySet.has(key)),
+      })).filter((group) => group.visibleKeys.length > 0),
+    [visibleMetricColumnKeySet],
+  );
+  const visibleSalesSummaryColumns = useMemo(
+    () =>
+      SALES_SUMMARY_COLUMNS.filter((column) => {
+        const group = SALES_SUMMARY_GROUP_BY_COLUMN.get(column.key);
+        return !group || visibleMetricColumnKeySet.has(column.key);
+      }),
+    [visibleMetricColumnKeySet],
+  );
+  const visibleColumnGroupMetaByColumn = useMemo(() => {
+    const map = new Map<SortColumn, SalesSummaryVisibleColumnGroupMeta>();
+    visibleMetricGroups.forEach((group, groupIndex) => {
+      group.visibleKeys.forEach((key, columnIndex) => {
+        map.set(key, {
+          groupIndex,
+          isFirst: columnIndex === 0,
+          isLast: columnIndex === group.visibleKeys.length - 1,
+        });
+      });
+    });
+    return map;
+  }, [visibleMetricGroups]);
+  const toggleMetricGroupVisibility = useCallback((id: SalesSummaryMetricColumnGroupId, visible: boolean) => {
+    setVisibleMetricColumnKeys((prev) => {
+      const selected = new Set(prev);
+      const group = SALES_SUMMARY_METRIC_COLUMN_GROUPS.find((item) => item.id === id);
+      if (group) {
+        group.keys.forEach((key) => {
+          if (visible) selected.add(key);
+          else selected.delete(key);
+        });
+      }
+      const next = SALES_SUMMARY_DEFAULT_VISIBLE_METRIC_COLUMNS.filter((key) => selected.has(key));
+      saveSalesSummaryVisibleMetricColumns(next);
+      return next;
+    });
+  }, []);
+  const toggleMetricColumnVisibility = useCallback((key: SortColumn, visible: boolean) => {
+    setVisibleMetricColumnKeys((prev) => {
+      const selected = new Set(prev);
+      if (visible) selected.add(key);
+      else selected.delete(key);
+      const next = SALES_SUMMARY_DEFAULT_VISIBLE_METRIC_COLUMNS.filter((columnKey) => selected.has(columnKey));
+      saveSalesSummaryVisibleMetricColumns(next);
+      return next;
+    });
+  }, []);
+  const showAllMetricGroups = useCallback(() => {
+    saveSalesSummaryVisibleMetricColumns(SALES_SUMMARY_DEFAULT_VISIBLE_METRIC_COLUMNS);
+    setVisibleMetricColumnKeys(SALES_SUMMARY_DEFAULT_VISIBLE_METRIC_COLUMNS);
+  }, []);
 
   const [columnWidths, setColumnWidths] = useState<Record<SortColumn, number>>(loadSalesSummaryColumnWidths);
   const columnResizeSnapshot = useRef<{ col: SortColumn; startX: number; startW: number } | null>(null);
@@ -581,8 +806,8 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   }, [columnWidths, beginColumnResizeDrag]);
 
   const salesSummaryTableMinWidth = useMemo(() => {
-    return SALES_SUMMARY_COLUMNS.reduce((sum, c) => sum + columnWidths[c.key], 0) + 32;
-  }, [columnWidths]);
+    return visibleSalesSummaryColumns.reduce((sum, c) => sum + columnWidths[c.key], 0) + 32;
+  }, [columnWidths, visibleSalesSummaryColumns]);
 
   const resetTableLayout = useCallback(() => {
     clearSalesSummaryTableLayoutPrefs();
@@ -596,6 +821,12 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   useEffect(() => {
     setPage(1);
   }, [pageSize]);
+
+  useEffect(() => {
+    if (!visibleSalesSummaryColumns.some((column) => column.key === sort.col)) {
+      setSort({ col: 'eventDate', dir: 'asc' });
+    }
+  }, [sort.col, visibleSalesSummaryColumns]);
 
   const pageCount = isAllPageSize(pageSize)
     ? 1
@@ -646,7 +877,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
 
   const showFullSkeleton = dateOk && query.isPending && !query.data;
   const showTableOverlay = dateOk && query.isFetching && !!query.data;
-  const totalColSpan = SALES_SUMMARY_COLUMNS.length + 1;
+  const totalColSpan = visibleSalesSummaryColumns.length + 1;
 
   return <div className="space-y-4">
     {isRefreshing && <div className="pointer-events-none fixed top-0 left-0 right-0 z-[200] h-0.5 overflow-hidden" aria-hidden><div className="h-full w-1/3 animate-pulse bg-ems-accent/90" /></div>}
@@ -749,6 +980,12 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                 </div>
                 <div className="flex items-center gap-3 text-xs text-text-muted">
                   {isRefreshing && <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin text-ems-accent" aria-hidden />Refreshing…</span>}
+                  <SalesSummaryColumnGroupChooser
+                    visibleColumnKeys={visibleMetricColumnKeySet}
+                    onToggleGroup={toggleMetricGroupVisibility}
+                    onToggleColumn={toggleMetricColumnVisibility}
+                    onShowAll={showAllMetricGroups}
+                  />
                   <span className="tabular-nums">
                     <span className="font-medium text-text-primary">{rows.length.toLocaleString()}</span> of{' '}
                     <span className="tabular-nums">{serverTotal.toLocaleString()}</span>
@@ -777,36 +1014,36 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                 )}
                 <table className="w-full table-fixed text-sm" style={{ minWidth: salesSummaryTableMinWidth }}>
                   <colgroup>
-                    {SALES_SUMMARY_COLUMNS.map((c) => <col key={c.key} style={{ width: columnWidths[c.key] }} />)}
+                    {visibleSalesSummaryColumns.map((c) => <col key={c.key} style={{ width: columnWidths[c.key] }} />)}
                     <col style={{ width: 32 }} />
                   </colgroup>
                   <thead className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm">
                     <tr className="border-b-0">
-                      <th colSpan={3} className="border-b-[3px] border-slate-700/80 bg-white px-3 py-1.5" aria-hidden />
-                      {SALES_SUMMARY_METRIC_COLUMN_GROUPS.map((group, groupIndex) => (
+                      <th colSpan={3} className="border-b border-slate-300/70 bg-white px-3 py-1.5" aria-hidden />
+                      {visibleMetricGroups.map((group, groupIndex) => (
                         <th
-                          key={group.label}
+                          key={group.id}
                           scope="colgroup"
-                          colSpan={group.keys.length}
-                          className={`px-2 py-1.5 text-center text-[11px] font-bold leading-tight text-slate-950 ${salesSummaryGroupHeaderClass(groupIndex)}`}
+                          colSpan={group.visibleKeys.length}
+                          className={`px-2 py-1.5 text-center text-[11px] font-bold leading-tight text-slate-800 ${salesSummaryGroupHeaderClass(groupIndex)}`}
                         >
                           {group.label}
                         </th>
                       ))}
-                      <th className="w-8 border-b-[3px] border-slate-700/80 bg-white px-2 py-1.5" aria-hidden />
+                      <th className="w-8 border-b border-slate-300/70 bg-white px-2 py-1.5" aria-hidden />
                     </tr>
-                    <tr className="border-b-[3px] border-slate-700/80">
-                      {SALES_SUMMARY_COLUMNS.map((c) => <SortHeader key={c.key} col={c.key} label={c.label} title={c.title} sort={sort} onToggle={toggleSort} align={c.align} onResizeStart={(e) => startColumnResize(c.key, e)} className={salesSummaryColumnChromeClass(c.key, 'header')} />)}
+                    <tr className="border-b border-slate-300/70">
+                      {visibleSalesSummaryColumns.map((c) => <SortHeader key={c.key} col={c.key} label={c.label} title={c.title} sort={sort} onToggle={toggleSort} align={c.align} onResizeStart={(e) => startColumnResize(c.key, e)} className={salesSummaryColumnChromeClass(c.key, 'header', visibleColumnGroupMetaByColumn)} />)}
                       <th className="w-8 border-l border-slate-200 bg-white px-2 py-3" aria-hidden />
                     </tr>
                   </thead>
                   <tbody>
                     {query.isPending && !query.data ? (
-                      Array.from({ length: 8 }).map((_, i) => <tr key={`skel-${i}`} className="border-b border-border/50">{SALES_SUMMARY_COLUMNS.map((c, j) => <td key={c.key} className={`px-4 py-3.5 ${salesSummaryColumnChromeClass(c.key, 'body')}`}><div className="h-3 rounded bg-muted/70 animate-pulse" style={{ width: j === 0 ? '82%' : j < 4 ? '70%' : '50%' }} /></td>)}<td className="w-8 bg-white px-2 py-3.5" aria-hidden /></tr>)
+                      Array.from({ length: 8 }).map((_, i) => <tr key={`skel-${i}`} className="border-b border-border/50">{visibleSalesSummaryColumns.map((c, j) => <td key={c.key} className={`px-4 py-3.5 ${salesSummaryColumnChromeClass(c.key, 'body', visibleColumnGroupMetaByColumn)}`}><div className="h-3 rounded bg-muted/70 animate-pulse" style={{ width: j === 0 ? '82%' : j < 4 ? '70%' : '50%' }} /></td>)}<td className="w-8 bg-white px-2 py-3.5" aria-hidden /></tr>)
                     ) : rows.length === 0 ? (
                       <tr><td colSpan={totalColSpan} className="py-16"><div className="flex flex-col items-center justify-center gap-2 text-text-muted"><div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-elevated"><CalendarRange className="h-6 w-6 text-text-muted" aria-hidden /></div><p className="text-sm font-medium text-text-secondary">No events match your filters</p><p className="text-xs">Try changing the date scope or clearing filters.</p>{activeFilterCount > 0 && <button type="button" onClick={reset} className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-border bg-elevated px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-hover transition-colors"><RotateCcw className="h-3 w-3" aria-hidden />Reset filters</button>}</div></td></tr>
                     ) : (
-                      rows.map((item, idx) => <tr key={`${item.row.performanceId}-${item.row.engagementId}`} className={`group border-b border-border/60 cursor-pointer transition-colors ${idx % 2 === 1 ? 'bg-surface/30' : ''} hover:bg-ems-accent-dim/30`} onClick={() => onOpenEngagement(item.row.engagementId, item.row.performanceId)} title="Open sales trends">{SALES_SUMMARY_COLUMNS.map((c) => <td key={c.key} className={`max-w-0 overflow-hidden px-3 py-3 align-top text-sm ${salesSummaryColumnChromeClass(c.key, 'body')} ${c.align === 'right' ? 'text-right tabular-nums' : 'text-text-secondary'}`}>{cell(item, c.key)}</td>)}<td className="w-8 px-2 py-3 align-middle text-text-muted opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight className="h-4 w-4" aria-hidden /></td></tr>)
+                      rows.map((item, idx) => <tr key={`${item.row.performanceId}-${item.row.engagementId}`} className={`group border-b border-border/60 cursor-pointer transition-colors ${idx % 2 === 1 ? 'bg-surface/30' : ''} hover:bg-hover/35`} onClick={() => onOpenEngagement(item.row.engagementId, item.row.performanceId)} title="Open sales trends">{visibleSalesSummaryColumns.map((c) => <td key={c.key} className={`max-w-0 overflow-hidden px-3 py-3 align-top text-sm ${salesSummaryColumnChromeClass(c.key, 'body', visibleColumnGroupMetaByColumn)} ${c.align === 'right' ? 'text-right tabular-nums' : 'text-text-secondary'}`}>{cell(item, c.key)}</td>)}<td className="w-8 px-2 py-3 align-middle text-text-muted opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight className="h-4 w-4" aria-hidden /></td></tr>)
                     )}
                   </tbody>
                 </table>
