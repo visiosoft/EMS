@@ -150,6 +150,46 @@ html {
   transition: background-color 0.25s ease, color 0.25s ease;
 }
 
+
+
+/* ─────────────── Handbook / Book theme ─────────────── */
+@layer utilities {
+  .ink-grain {
+    background-image: radial-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+    background-size: 4px 4px;
+  }
+  .paper-grain {
+    background-image:
+      radial-gradient(rgba(0, 0, 0, 0.025) 1px, transparent 1px),
+      radial-gradient(rgba(0, 0, 0, 0.02) 1px, transparent 1px);
+    background-size: 3px 3px, 7px 7px;
+    background-position: 0 0, 1px 1px;
+  }
+  .book-shadow {
+    box-shadow:
+      0 30px 80px -20px rgba(0, 0, 0, 0.9),
+      0 10px 30px -10px rgba(0, 0, 0, 0.7);
+  }
+}
+
+@layer components {
+  .prose-handbook h1 {
+    font-weight: 500;
+    letter-spacing: -0.02em;
+  }
+  .prose-handbook h2 {
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+  .prose-handbook p {
+    line-height: 1.75;
+  }
+}
+
+.font-display {
+  font-family: 'DM Sans', 'Times New Roman', serif;
+}
+
 .font-mono {
   font-family: 'JetBrains Mono', monospace !important;
 }
