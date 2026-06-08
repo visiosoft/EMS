@@ -91,19 +91,7 @@ function handbookDataFromHash(hash: string): InternalViewData {
   if (normalized === "handbook") {
     return { handbook: "index", handbookHash: "handbook" };
   }
-  const introductionIds = new Set([
-    "handbook-introduction",
-    "message-from-ceo",
-    "the-company",
-    "change-in-policy",
-  ]);
-  if (introductionIds.has(normalized) || normalized.startsWith("handbook-introduction")) {
-    return { handbook: "introduction", handbookHash: normalized };
-  }
-  if (normalized.startsWith("handbook-")) {
-    return { handbook: "section", handbookHash: normalized };
-  }
-  return {};
+  return { handbook: "section", handbookHash: normalized };
 }
 
 function sanitizeViewData(view: InternalView, raw: unknown): InternalViewData {
@@ -113,7 +101,7 @@ function sanitizeViewData(view: InternalView, raw: unknown): InternalViewData {
   if (view !== "employee-services") return out;
 
   const handbook = typeof obj.handbook === "string" ? obj.handbook.trim() : "";
-  if (handbook === "services" || handbook === "index" || handbook === "introduction" || handbook === "section") {
+  if (handbook === "services" || handbook === "index" || handbook === "section") {
     out.handbook = handbook;
   }
 
