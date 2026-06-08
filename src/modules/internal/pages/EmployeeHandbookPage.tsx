@@ -5,7 +5,6 @@ import { useQuery } from "@tanstack/react-query";
 import { ReactFlipBook } from "@vuvandinh203/react-flipbook";
 import type { ReactFlipBookRef } from "@vuvandinh203/react-flipbook";
 import { fetchHandbookSections } from "@/api/employeeHandbookApi";
-import { InternalPageFrame } from "../layout/InternalPageFrame";
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
 import type { EmployeeHandbookView } from "../routing/internalSessionRoute";
 
@@ -581,54 +580,9 @@ export function EmployeeHandbookSectionPage({ handbookHash }: { handbookHash?: s
     return entries;
   }, [currentChapterIdx, bookPages]);
 
-  if (isError) {
-    return (
-      <InternalPageFrame>
-        <div className="flex min-h-[400px] flex-col items-center justify-center gap-5 px-4 animate-fade-in">
-          <div className="flex size-14 items-center justify-center r  ounded-full bg-ems-coral-dim">
-            <AlertCircle className="size-7 text-ems-coral" />
-          </div>
-          <div className="flex flex-col items-center gap-1.5 text-center">
-            <p className="text-base font-semibold text-text-secondary">Failed to load handbook</p>
-            <p className="max-w-[400px] text-sm leading-relaxed text-text-secondary">
-              {(error as Error)?.message ?? "An unexpected error occurred. Please try again later."}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="mt-1 h-[34px] rounded-[4px] bg-ems-coral px-4 text-[13px] font-semibold text-white transition-colors hover:bg-ems-coral/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ems-coral focus-visible:ring-offset-2"
-          >
-            Retry
-          </button>
-        </div>
-      </InternalPageFrame>
-    );
-  }
-
-  if (isLoading) {
-    return (
-      <InternalPageFrame>
-        <div className="flex min-h-[400px] items-center justify-center text-neutral-500">
-          Loading...
-        </div>
-      </InternalPageFrame>
-    );
-  }
-
-  if (!isIndex && !section) {
-    return (
-      <InternalPageFrame>
-        <div className="flex min-h-[400px] flex-col items-center justify-center gap-2 text-neutral-500">
-          <p>Section not found.</p>
-          <p className="text-sm">The handbook hash "{handbookHash}" did not match any loaded section.</p>
-        </div>
-      </InternalPageFrame>
-    );
-  }
-
   const totalPages = bookPages.length;
   const isMobile = stage.w > 0 && stage.w < 768;
+  const showFlipbook = !isError && !isLoading && (isIndex || section) && pageW > 0 && pageH > 0;
 
   function renderBookPage(page: BookPage, index: number, pageNumber: number) {
     const ink = page.theme === "ink";
@@ -804,66 +758,126 @@ export function EmployeeHandbookSectionPage({ handbookHash }: { handbookHash?: s
         </div>
       </div>
 
-      {/* Flipbook area */}
+      {/* Flipbook area — stageRef is always rendered so ResizeObserver always fires */}
       <div
         ref={stageRef}
         className="relative flex flex-1 items-center justify-center overflow-hidden px-2 pb-2 pt-1 sm:px-6 sm:pb-4"
       >
-        {pageW > 0 && pageH > 0 && (
-          <div
-            className="book-shadow"
-            style={{ width: isMobile ? pageW : pageW * 2, height: pageH }}
-          >
-            <ReactFlipBook
-              key={bookPages.length}
-              ref={bookRef}
-              width={pageW}
-              height={pageH}
-              size="fixed"
-              showCover={true}
-              usePortrait={isMobile}
-              flippingTime={700}
-              drawShadow
-              maxShadowOpacity={0.5}
-              enableKeyboardNav
-              showPageCorners
-              startPage={0}
-              mobileScrollSupport={false}
-              onFlip={(e: { data: number }) => setCurrentPage(e.data)}
-              renderNavigationButton={(type, onClick) => (
-                <button
-                  type="button"
-                  onClick={onClick}
-                  aria-label={type === "prev" ? "Previous page" : "Next page"}
-                  className="absolute top-1/2 z-10 -translate-y-1/2 rounded-full border border-white/[0.08] bg-neutral-950/60 p-2.5 text-white/40 shadow-lg backdrop-blur-md transition-all duration-200 hover:border-white/20 hover:bg-neutral-950/80 hover:text-white/70"
-                  style={{ [type === "prev" ? "left" : "right"]: "4px" }}
-                >
-                  {type === "prev" ? (
-                    <ChevronLeft className="size-4" strokeWidth={2} />
-                  ) : (
-                    <ChevronRight className="size-4" strokeWidth={2} />
-                  )}
-                </button>
-              )}
-              renderPageNumber={(current, total) => (
-                <div className="pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2">
-                  <span className="rounded-full bg-neutral-950/80 px-3 py-0.5 text-[10px] font-medium text-white/30 backdrop-blur-sm">
-                    {current + 1} / {total}
-                  </span>
-                </div>
-              )}
+        {isError ? (
+          <div className="flex min-h-[400px] flex-col items-center justify-center gap-5 px-4 animate-fade-in">
+            <div className="flex size-14 items-center justify-center rounded-full bg-ems-coral-dim">
+              <AlertCircle className="size-7 text-ems-coral" />
+            </div>
+            <div className="flex flex-col items-center gap-1.5 text-center">
+              <p className="text-base font-semibold text-white/70">Failed to load handbook</p>
+              <p className="max-w-[400px] text-sm leading-relaxed text-white/40">
+                {(error as Error)?.message ?? "An unexpected error occurred. Please try again later."}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="mt-1 h-[34px] rounded-[4px] bg-ems-coral px-4 text-[13px] font-semibold text-white transition-colors hover:bg-ems-coral/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ems-coral focus-visible:ring-offset-2"
             >
-              {bookPages.map((page, index) => (
-                <div key={index} style={{ width: pageW, height: pageH }}>
-                  {renderBookPage(page, index, index + 1)}
-                </div>
-              ))}
-            </ReactFlipBook>
+              Retry
+            </button>
           </div>
-        )}
+        ) : isLoading ? (
+          <div className="flex min-h-[400px] items-center justify-center text-white/40">
+            Loading...
+          </div>
+        ) : !isIndex && !section ? (
+          <div className="flex min-h-[400px] flex-col items-center justify-center gap-2 text-white/40">
+            <p>Section not found.</p>
+            <p className="text-sm">The handbook hash "{handbookHash}" did not match any loaded section.</p>
+          </div>
+        ) : pageW > 0 && pageH > 0 ? (
+          <>
+            <div
+              className="book-shadow"
+              style={{ width: isMobile ? pageW : pageW * 2, height: pageH }}
+            >
+              <ReactFlipBook
+                key={bookPages.length}
+                ref={bookRef}
+                width={pageW}
+                height={pageH}
+                size="fixed"
+                showCover={true}
+                usePortrait={isMobile}
+                flippingTime={700}
+                drawShadow
+                maxShadowOpacity={0.5}
+                enableKeyboardNav
+                showPageCorners
+                startPage={0}
+                mobileScrollSupport={false}
+                onFlip={(e: { data: number }) => setCurrentPage(e.data)}
+                renderNavigationButton={(type, onClick) => (
+                  <button
+                    type="button"
+                    onClick={onClick}
+                    aria-label={type === "prev" ? "Previous page" : "Next page"}
+                    className="absolute top-1/2 z-10 -translate-y-1/2 rounded-full border border-white/[0.08] bg-neutral-950/60 p-2.5 text-white/40 shadow-lg backdrop-blur-md transition-all duration-200 hover:border-white/20 hover:bg-neutral-950/80 hover:text-white/70"
+                    style={{ [type === "prev" ? "left" : "right"]: "4px" }}
+                  >
+                    {type === "prev" ? (
+                      <ChevronLeft className="size-4" strokeWidth={2} />
+                    ) : (
+                      <ChevronRight className="size-4" strokeWidth={2} />
+                    )}
+                  </button>
+                )}
+                renderPageNumber={(current, total) => (
+                  <div className="pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2">
+                    <span className="rounded-full bg-neutral-950/80 px-3 py-0.5 text-[10px] font-medium text-white/30 backdrop-blur-sm">
+                      {current + 1} / {total}
+                    </span>
+                  </div>
+                )}
+              >
+                {bookPages.map((page, index) => (
+                  <div key={index} style={{ width: pageW, height: pageH }}>
+                    {renderBookPage(page, index, index + 1)}
+                  </div>
+                ))}
+              </ReactFlipBook>
+            </div>
 
-        {/* ── Floating buttons: desktop (left side) ── */}
-        <div className="absolute left-2 top-1/2 z-20 -translate-y-1/2 flex-col gap-1.5 hidden md:flex">
+            {/* ── Floating buttons: desktop (left side) ── */}
+            <div className="absolute left-2 top-1/2 z-20 -translate-y-1/2 flex-col gap-1.5 hidden md:flex">
+              <button
+                type="button"
+                onClick={() => bookRef.current?.flip(0)}
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.08] bg-neutral-950/70 text-white/40 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
+                title="Go to cover"
+              >
+                <BookOpen className="size-3.5" strokeWidth={1.5} />
+              </button>
+
+              {chapterSubsections.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  {chapterSubsections.map((sub) => (
+                    <button
+                      key={sub.label}
+                      type="button"
+                      onClick={() => bookRef.current?.flip(sub.pageIndex)}
+                      className="flex h-6 items-center justify-center rounded-full border border-white/[0.08] bg-neutral-950/70 px-2 text-[8px] font-medium uppercase tracking-[0.1em] text-white/35 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
+                      title={sub.label}
+                    >
+                      {sub.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        ) : null}
+      </div>
+
+      {/* ── Mobile buttons: below flipbook ── */}
+      {showFlipbook && (
+        <div className="flex flex-wrap items-center justify-center gap-2 px-4 py-2 md:hidden">
           <button
             type="button"
             onClick={() => bookRef.current?.flip(0)}
@@ -874,13 +888,13 @@ export function EmployeeHandbookSectionPage({ handbookHash }: { handbookHash?: s
           </button>
 
           {chapterSubsections.length > 0 && (
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-wrap gap-1.5">
               {chapterSubsections.map((sub) => (
                 <button
                   key={sub.label}
                   type="button"
                   onClick={() => bookRef.current?.flip(sub.pageIndex)}
-                  className="flex h-6 items-center justify-center rounded-full border border-white/[0.08] bg-neutral-950/70 px-2 text-[8px] font-medium uppercase tracking-[0.1em] text-white/35 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
+                  className="flex h-6 items-center justify-center rounded-full border border-white/[0.08] bg-neutral-950/70 px-2.5 text-[8px] font-medium uppercase tracking-[0.1em] text-white/35 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
                   title={sub.label}
                 >
                   {sub.label}
@@ -889,51 +903,25 @@ export function EmployeeHandbookSectionPage({ handbookHash }: { handbookHash?: s
             </div>
           )}
         </div>
-      </div>
-
-      {/* ── Mobile buttons: below flipbook ── */}
-      <div className="flex flex-wrap items-center justify-center gap-2 px-4 py-2 md:hidden">
-        <button
-          type="button"
-          onClick={() => bookRef.current?.flip(0)}
-          className="flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.08] bg-neutral-950/70 text-white/40 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
-          title="Go to cover"
-        >
-          <BookOpen className="size-3.5" strokeWidth={1.5} />
-        </button>
-
-        {chapterSubsections.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {chapterSubsections.map((sub) => (
-              <button
-                key={sub.label}
-                type="button"
-                onClick={() => bookRef.current?.flip(sub.pageIndex)}
-                className="flex h-6 items-center justify-center rounded-full border border-white/[0.08] bg-neutral-950/70 px-2.5 text-[8px] font-medium uppercase tracking-[0.1em] text-white/35 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
-                title={sub.label}
-              >
-                {sub.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      )}
 
       {/* Progress bar */}
-      <div className="flex h-9 shrink-0 items-center gap-3 border-t border-white/[0.04] bg-neutral-950/80 px-4 backdrop-blur-md sm:px-6">
-        <span className="text-[9px] font-medium uppercase tracking-[0.2em] text-white/20 shrink-0">
-          Progress
-        </span>
-        <div className="relative flex-1 h-px bg-white/[0.06] overflow-hidden">
-          <div
-            className="absolute left-0 top-0 h-full bg-white/30 transition-[width] duration-500 ease-out"
-            style={{ width: `${totalPages ? ((currentPage + 1) / totalPages) * 100 : 0}%` }}
-          />
+      {showFlipbook && (
+        <div className="flex h-9 shrink-0 items-center gap-3 border-t border-white/[0.04] bg-neutral-950/80 px-4 backdrop-blur-md sm:px-6">
+          <span className="text-[9px] font-medium uppercase tracking-[0.2em] text-white/20 shrink-0">
+            Progress
+          </span>
+          <div className="relative flex-1 h-px bg-white/[0.06] overflow-hidden">
+            <div
+              className="absolute left-0 top-0 h-full bg-white/30 transition-[width] duration-500 ease-out"
+              style={{ width: `${totalPages ? ((currentPage + 1) / totalPages) * 100 : 0}%` }}
+            />
+          </div>
+          <span className="text-[9px] font-medium uppercase tracking-[0.2em] text-white/20 shrink-0">
+            &larr; &rarr; to turn
+          </span>
         </div>
-        <span className="text-[9px] font-medium uppercase tracking-[0.2em] text-white/20 shrink-0">
-          &larr; &rarr; to turn
-        </span>
-      </div>
+      )}
     </div>
   );
 }
