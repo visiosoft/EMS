@@ -62,6 +62,7 @@ export interface ApiPerformanceSalesRow {
   /** From engagement; used for save hints (capacity checks are server-side across all performances). */
   engagementSellableCapacity: number | null;
   engagementGrossPotential: number | null;
+  entertainmentComplexNames: string | null;
 }
 
 export interface ApiPerformanceCompanyFilterOption {
@@ -89,6 +90,8 @@ export interface ApiPerformanceSalesPage {
     todayRevenue: number;
     yesterdayTickets: number;
     yesterdayRevenue: number;
+    totalTickets: number;
+    totalRevenue: number;
   };
   /** Distinct attractions matching current filters (for sales summary links). */
   attractions: Array<{ attractionId: number; attractionName: string }>;
@@ -152,6 +155,21 @@ export function fetchDailySalesByPerformance(
   }
   const qs = p.toString() ? `?${p.toString()}` : '';
   return apiFetch<ApiPerformanceSalesPage>(`/daily-sales/by-performance${qs}`);
+}
+
+export interface SuggestionItem {
+  label: string;
+  sublabel: string;
+}
+
+export function fetchDailySalesByPerformanceSuggestions(
+  query: string,
+  asOfDate?: string,
+) {
+  const p = new URLSearchParams();
+  if (query) p.set('q', query);
+  if (asOfDate) p.set('asOfDate', asOfDate);
+  return apiFetch<SuggestionItem[]>(`/daily-sales/by-performance/suggestions?${p}`);
 }
 
 // ─── Update (upsert) — one running-total row per (performance, sales date) ──
