@@ -6,7 +6,7 @@
  *           Engagement → EngagementVenue → Venue → Company → Address + DMA
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Engagement } from '@/data/constants';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -44,7 +44,6 @@ import {
   fetchEngagementPerformances,
   fetchEngagementVenues,
   fetchEngagementServiceProviders,
-  addEngagementVenue,
   removeEngagementVenue,
   addEngagementServiceProvider,
   removeEngagementServiceProvider,
@@ -170,6 +169,18 @@ type PerformanceDraftRow = {
 const inputCls =
   'w-full bg-surface border border-border rounded-md px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-ems-accent focus:ring-1 focus:ring-ems-accent/20 placeholder:text-text-muted disabled:opacity-60 disabled:cursor-not-allowed transition-colors';
 
+function useUserEditTracker(resetKey: unknown) {
+  const [hasUserEdited, setHasUserEdited] = useState(false);
+  const markUserEdited = useCallback(() => setHasUserEdited(true), []);
+  const clearUserEdited = useCallback(() => setHasUserEdited(false), []);
+
+  useEffect(() => {
+    setHasUserEdited(false);
+  }, [resetKey]);
+
+  return { hasUserEdited, markUserEdited, clearUserEdited };
+}
+
 // ---------------------------------------------------------------------------
 // Legacy page (prototype string IDs)
 // ---------------------------------------------------------------------------
@@ -209,39 +220,17 @@ function VenuesTab({
   engagementId,
   addToast,
   onNavigate,
-  onDirtyChange,
 }: {
   engagementId: number;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
   onNavigate: (view: string, data?: Record<string, unknown>) => void;
-  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const qc = useQueryClient();
-  const [showAdd, setShowAdd] = useState(false);
-  const [selectedVenueId, setSelectedVenueId] = useState('');
   const [pendingRemove, setPendingRemove] = useState<ApiEngagementVenueRow | null>(null);
 
   const venuesQuery = useQuery({
     queryKey: ['engagements', engagementId, 'venues'],
     queryFn: () => fetchEngagementVenues(engagementId),
-  });
-
-  const companiesQuery = useQuery({
-    queryKey: companiesPickerQueryKey(),
-    queryFn: fetchCompaniesPickerRows,
-    staleTime: 60_000,
-  });
-
-  const addMutation = useMutation({
-    mutationFn: (venueCompanyId: number) =>
-      addEngagementVenue(engagementId, { venueCompanyId, isPrimary: false }),
-    onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venues'] });
-      addToast('Secondary venue added.', 'success');
-      setShowAdd(false);
-      setSelectedVenueId('');
-    },
-    onError: (e) => addToast(friendlyApiError(e, 'Could not add venue.'), 'error'),
   });
 
   const removeMutation = useMutation({
@@ -254,22 +243,7 @@ function VenuesTab({
     onError: (e) => addToast(friendlyApiError(e, 'Could not remove venue.'), 'error'),
   });
 
-  const venues = venuesQuery.data ?? [];
-  const venuesTabDirty = showAdd && selectedVenueId.trim() !== '';
-  useEffect(() => {
-    onDirtyChange?.(venuesTabDirty);
-    return () => onDirtyChange?.(false);
-  }, [onDirtyChange, venuesTabDirty]);
-
-  const availableVenueOptions = useMemo(() => {
-    const existingIds = new Set(venues.map((v) => v.venueCompanyId));
-    return companyToSelect2Options((companiesQuery.data ?? [])
-      .filter(
-        (c) =>
-          (c.companyTypeName === 'Venue' || (c.companyTypeNames ?? []).includes('Venue')) &&
-          !existingIds.has(c.companyId),
-      ));
-  }, [companiesQuery.data, venues]);
+  const venues = useMemo(() => venuesQuery.data ?? [], [venuesQuery.data]);
 
   if (venuesQuery.isLoading) {
     return (
@@ -297,71 +271,8 @@ function VenuesTab({
   }
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold text-text-primary">Venues</h3>
-          <p className="text-xs text-text-muted mt-0.5">
-            The venue is set when this engagement is created. You can link additional venues below.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => { setShowAdd(!showAdd); setSelectedVenueId(''); }}
-          className="shrink-0 text-ems-accent text-sm hover:underline"
-        >
-          {showAdd ? 'Cancel' : '+ Add Secondary Venue'}
-        </button>
-      </div>
-
-      {/* Add form */}
-      {showAdd && (
-        <div className="bg-elevated border border-border rounded-lg p-4 space-y-3">
-          {availableVenueOptions.length === 0 ? (
-            <p className="text-sm text-text-muted">
-              No additional venues available. All venue companies are already linked.
-            </p>
-          ) : (
-            <>
-              <p className="text-xs text-text-muted">
-                Only Venue-type companies not already linked are shown.
-              </p>
-              <FormField label="Venue">
-                <Select2
-                  options={availableVenueOptions}
-                  value={selectedVenueId}
-                  onChange={setSelectedVenueId}
-                  placeholder="Select venue…"
-                  disabled={addMutation.isPending}
-                />
-              </FormField>
-              <div className="flex gap-2 justify-end">
-                <button
-                  type="button"
-                  onClick={() => { setShowAdd(false); setSelectedVenueId(''); }}
-                  className="text-text-secondary text-sm px-3 py-1.5 hover:text-text-primary"
-                  disabled={addMutation.isPending}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={!selectedVenueId || addMutation.isPending}
-                  onClick={() => addMutation.mutate(Number(selectedVenueId))}
-                  className="inline-flex items-center gap-1.5 bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 hover:bg-ems-accent/90 transition-colors"
-                >
-                  {addMutation.isPending ? (
-                    <><Loader2 className="h-3.5 w-3.5 animate-spin" />Adding…</>
-                  ) : (
-                    'Add Venue'
-                  )}
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      )}
+      <div className="space-y-4">
+        <h3 className="text-sm font-semibold text-text-primary">Venues</h3>
 
       {/* Venue list */}
       {venues.length === 0 ? (
@@ -517,8 +428,10 @@ function ServiceProvidersTab({
     onError: (e) => addToast(friendlyApiError(e, 'Could not remove service provider.'), 'error'),
   });
 
-  const providers: ApiEngagementServiceProviderRow[] =
-    (providersQuery.data as ApiEngagementServiceProvidersResponse | undefined)?.providers ?? [];
+  const providers: ApiEngagementServiceProviderRow[] = useMemo(
+    () => (providersQuery.data as ApiEngagementServiceProvidersResponse | undefined)?.providers ?? [],
+    [providersQuery.data],
+  );
   const serviceProvidersTabDirty = showAdd && selectedCompanyId.trim() !== '';
   useEffect(() => {
     onDirtyChange?.(serviceProvidersTabDirty);
@@ -752,6 +665,11 @@ function EngagementProductionPanel({
 }) {
   const qc = useQueryClient();
   const [stagehandProviderId, setStagehandProviderId] = useState('');
+  const {
+    hasUserEdited: hasStagehandUserEdited,
+    markUserEdited: markStagehandUserEdited,
+    clearUserEdited: clearStagehandUserEdited,
+  } = useUserEditTracker(`${engagementId}:${venueCompanyId ?? ''}`);
 
   const venueDetailsQuery = useQuery({
     queryKey: ['companies', venueCompanyId, 'venue-details'],
@@ -814,6 +732,7 @@ function EngagementProductionPanel({
         queryKey: ['engagements', engagementId, 'service-providers'],
       });
       setStagehandProviderId(providerCompanyId == null ? '' : String(providerCompanyId));
+      clearStagehandUserEdited();
       addToast('Production details saved.', 'success');
     },
     onError: (e) => addToast(friendlyApiError(e, 'Could not save production details.'), 'error'),
@@ -830,7 +749,7 @@ function EngagementProductionPanel({
     stagehandProvidersQuery.error;
   const currentStagehandValue =
     currentStagehandProviderId == null ? '' : String(currentStagehandProviderId);
-  const stagehandDirty = stagehandProviderId !== currentStagehandValue;
+  const stagehandDirty = hasStagehandUserEdited && stagehandProviderId !== currentStagehandValue;
   useEffect(() => {
     onDirtyChange?.(stagehandDirty);
     return () => onDirtyChange?.(false);
@@ -962,7 +881,10 @@ function EngagementProductionPanel({
             <Select2
               options={stagehandProviderOptions}
               value={stagehandProviderId}
-              onChange={setStagehandProviderId}
+              onChange={(value) => {
+                markStagehandUserEdited();
+                setStagehandProviderId(value);
+              }}
               placeholder="None"
               allowClear
               disabled={venueDetailsMissing || saveStagehandProviderMutation.isPending}
@@ -1071,6 +993,11 @@ function EngagementTaxationPanel({
   const [iaeStatus, setIaeStatus] = useState('');
   const [iaeWaiverLink, setIaeWaiverLink] = useState('');
   const [artistWaiverLink, setArtistWaiverLink] = useState('');
+  const {
+    hasUserEdited: hasTaxationUserEdited,
+    markUserEdited: markTaxationUserEdited,
+    clearUserEdited: clearTaxationUserEdited,
+  } = useUserEditTracker(engagementId);
 
   const financeQuery = useQuery({
     queryKey: ['engagements', engagementId, 'finance'],
@@ -1098,7 +1025,7 @@ function EngagementTaxationPanel({
     if (!d) return;
     setWithholdingFk(intFieldToString(d.requiredNonResidentWithholdingId));
     setIaeConfNum(d.iaeWaiverApplicationConfirmationNumber ?? '');
-    setIaeSubmitDate(d.iaeWaiverApplicationSubmissionDate ?? getTodayDateString());
+    setIaeSubmitDate(d.iaeWaiverApplicationSubmissionDate ?? '');
     setIaeStatus(d.iaeApplicationWaiverStatus ?? '');
   }, [financeQuery.data]);
 
@@ -1189,6 +1116,7 @@ function EngagementTaxationPanel({
       if (venueCompanyId != null && venueCompanyId > 0) {
         await qc.invalidateQueries({ queryKey: ['companies', venueCompanyId, 'venue-details'] });
       }
+      clearTaxationUserEdited();
       addToast('Taxation details saved.', 'success');
     },
     onError: (e) => addToast(friendlyApiError(e, 'Could not save taxation details.'), 'error'),
@@ -1213,7 +1141,7 @@ function EngagementTaxationPanel({
     };
   };
 
-  const taxationDirty = useMemo(() => {
+  const taxationDirtyRaw = useMemo(() => {
     const r = financeQuery.data;
     if (!r) return false;
     const w = fkIdStringToNumber(withholdingFk);
@@ -1254,6 +1182,8 @@ function EngagementTaxationPanel({
     artistWaiverLink,
     selectedWithholding,
   ]);
+
+  const taxationDirty = hasTaxationUserEdited && taxationDirtyRaw;
 
   useEffect(() => {
     onDirtyChange?.(taxationDirty);
@@ -1371,7 +1301,10 @@ function EngagementTaxationPanel({
             <Select2
               options={withholdingSelectOptions}
               value={withholdingFk}
-              onChange={setWithholdingFk}
+              onChange={(value) => {
+                markTaxationUserEdited();
+                setWithholdingFk(value);
+              }}
               placeholder="No / not required"
               allowClear
               disabled={disabled}
@@ -1384,7 +1317,10 @@ function EngagementTaxationPanel({
                     type="button"
                     className="text-ems-accent hover:underline disabled:opacity-50"
                     disabled={disabled}
-                    onClick={() => setWithholdingFk(String(venueDefaultWithholding.id))}
+                    onClick={() => {
+                      markTaxationUserEdited();
+                      setWithholdingFk(String(venueDefaultWithholding.id));
+                    }}
                   >
                     Use venue default
                   </button>
@@ -1423,7 +1359,10 @@ function EngagementTaxationPanel({
               className={inputCls}
               value={iaeConfNum}
               maxLength={100}
-              onChange={(e) => setIaeConfNum(e.target.value)}
+              onChange={(e) => {
+                markTaxationUserEdited();
+                setIaeConfNum(e.target.value);
+              }}
               disabled={disabled}
             />
           </FormField>
@@ -1433,7 +1372,10 @@ function EngagementTaxationPanel({
               type="date"
               className={inputCls}
               value={iaeSubmitDate}
-              onChange={(e) => setIaeSubmitDate(e.target.value)}
+              onChange={(e) => {
+                markTaxationUserEdited();
+                setIaeSubmitDate(e.target.value);
+              }}
               disabled={disabled}
             />
           </FormField>
@@ -1442,7 +1384,10 @@ function EngagementTaxationPanel({
             <Select2
               options={iaeStatusSelectOptions}
               value={iaeStatus}
-              onChange={setIaeStatus}
+              onChange={(value) => {
+                markTaxationUserEdited();
+                setIaeStatus(value);
+              }}
               placeholder="Select status..."
               allowClear
               disabled={disabled}
@@ -1452,7 +1397,10 @@ function EngagementTaxationPanel({
           <TaxationEditableLinkField
             label="Link to IAE waiver"
             value={iaeWaiverLink}
-            onChange={setIaeWaiverLink}
+            onChange={(value) => {
+              markTaxationUserEdited();
+              setIaeWaiverLink(value);
+            }}
             disabled={disabled}
             hasWithholding={selectedWithholding != null}
           />
@@ -1460,7 +1408,10 @@ function EngagementTaxationPanel({
           <TaxationEditableLinkField
             label="Link to artist waiver"
             value={artistWaiverLink}
-            onChange={setArtistWaiverLink}
+            onChange={(value) => {
+              markTaxationUserEdited();
+              setArtistWaiverLink(value);
+            }}
             disabled={disabled}
             hasWithholding={selectedWithholding != null}
           />
@@ -1933,6 +1884,11 @@ function EngagementMainInformationPanel({
   const [staffSelections, setStaffSelections] = useState<Record<MainInfoStaffKey, string>>(
     blankMainInfoStaffSelections,
   );
+  const {
+    hasUserEdited: hasMainInfoUserEdited,
+    markUserEdited: markMainInfoUserEdited,
+    clearUserEdited: clearMainInfoUserEdited,
+  } = useUserEditTracker(engagementId);
 
   useEffect(() => {
     setAttractionId(row.attractionId != null ? String(row.attractionId) : '');
@@ -2062,7 +2018,7 @@ function EngagementMainInformationPanel({
 
   useEffect(() => {
     const parts = mainInfoClockParts(openingPerformance?.performanceTime);
-    setOpeningDate(openingPerformance?.performanceDate ?? getTodayDateString());
+    setOpeningDate(openingPerformance?.performanceDate ?? '');
     setOpeningHour(parts.hour);
     setOpeningMinute(parts.minute);
     setOpeningPeriod(parts.period);
@@ -2380,10 +2336,11 @@ function EngagementMainInformationPanel({
     venueProfileQuery.data,
   ]);
 
-  const mainInfoDirty = useMemo(
+  const mainInfoDirtyRaw = useMemo(
     () => JSON.stringify(currentSnapshot) !== JSON.stringify(baseSnapshot),
     [baseSnapshot, currentSnapshot],
   );
+  const mainInfoDirty = hasMainInfoUserEdited && mainInfoDirtyRaw;
 
   useEffect(() => {
     onDirtyChange?.(mainInfoDirty);
@@ -2589,6 +2546,7 @@ function EngagementMainInformationPanel({
         await qc.invalidateQueries({ queryKey: ['companies', 'detail', selectedVenueId] });
         await qc.invalidateQueries({ queryKey: ['companies', selectedVenueId, 'venue-profile'] });
       }
+      clearMainInfoUserEdited();
       addToast('Main information saved.', 'success');
     },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
@@ -2654,6 +2612,7 @@ function EngagementMainInformationPanel({
               options={attractionOptions}
               value={attractionId}
               onChange={(value) => {
+                markMainInfoUserEdited();
                 setAttractionId(value);
                 const selected = fkIdStringToNumber(value);
                 const currentTour = (lookups?.tours ?? []).find((tour) => tour.tourId === fkIdStringToNumber(tourId));
@@ -2668,35 +2627,44 @@ function EngagementMainInformationPanel({
 
           {fieldRow(
             'Tour Name',
-            <Select2
-              options={tourOptions}
-              value={tourId}
-              onChange={setTourId}
-              placeholder={attractionId ? 'Select tour…' : 'Select attraction first…'}
-              disabled={disabled}
-            />,
+              <Select2
+                options={tourOptions}
+                value={tourId}
+                onChange={(value) => {
+                  markMainInfoUserEdited();
+                  setTourId(value);
+                }}
+                placeholder={attractionId ? 'Select tour…' : 'Select attraction first…'}
+                disabled={disabled}
+              />,
           )}
 
           {fieldRow(
             'Venue',
-            <Select2
-              options={venueOptions}
-              value={venueCompanyId}
-              onChange={setVenueCompanyId}
-              placeholder="Select venue…"
-              disabled={disabled}
-            />,
+              <Select2
+                options={venueOptions}
+                value={venueCompanyId}
+                onChange={(value) => {
+                  markMainInfoUserEdited();
+                  setVenueCompanyId(value);
+                }}
+                placeholder="Select venue…"
+                disabled={disabled}
+              />,
           )}
 
           {fieldRow(
             'Complex',
-            <Select2
-              options={complexOptions}
-              value={complexCompanyId}
-              onChange={setComplexCompanyId}
-              placeholder="---"
-              allowClear
-              disabled={disabled || selectedVenueId == null}
+              <Select2
+                options={complexOptions}
+                value={complexCompanyId}
+                onChange={(value) => {
+                  markMainInfoUserEdited();
+                  setComplexCompanyId(value);
+                }}
+                placeholder="---"
+                allowClear
+                disabled={disabled || selectedVenueId == null}
             />,
           )}
 
@@ -2706,28 +2674,40 @@ function EngagementMainInformationPanel({
               <input
                 className={inputCls}
                 value={addressLine1}
-                onChange={(e) => setAddressLine1(e.target.value)}
+                onChange={(e) => {
+                  markMainInfoUserEdited();
+                  setAddressLine1(e.target.value);
+                }}
                 disabled={disabled || selectedVenueId == null}
                 placeholder="Street"
               />
               <input
                 className={inputCls}
                 value={addressCity}
-                onChange={(e) => setAddressCity(e.target.value)}
+                onChange={(e) => {
+                  markMainInfoUserEdited();
+                  setAddressCity(e.target.value);
+                }}
                 disabled={disabled || selectedVenueId == null}
                 placeholder="City"
               />
               <input
                 className={inputCls}
                 value={addressState}
-                onChange={(e) => setAddressState(e.target.value)}
+                onChange={(e) => {
+                  markMainInfoUserEdited();
+                  setAddressState(e.target.value);
+                }}
                 disabled={disabled || selectedVenueId == null}
                 placeholder="State"
               />
               <input
                 className={inputCls}
                 value={addressPostal}
-                onChange={(e) => setAddressPostal(e.target.value)}
+                onChange={(e) => {
+                  markMainInfoUserEdited();
+                  setAddressPostal(e.target.value);
+                }}
                 disabled={disabled || selectedVenueId == null}
                 placeholder="Zip"
               />
@@ -2741,27 +2721,39 @@ function EngagementMainInformationPanel({
                 type="date"
                 className={inputCls}
                 value={openingDate}
-                onChange={(e) => setOpeningDate(e.target.value)}
+                onChange={(e) => {
+                  markMainInfoUserEdited();
+                  setOpeningDate(e.target.value);
+                }}
                 disabled={disabled}
               />
               <Select2
                 options={hourOptions}
                 value={openingHour}
-                onChange={setOpeningHour}
+                onChange={(value) => {
+                  markMainInfoUserEdited();
+                  setOpeningHour(value);
+                }}
                 placeholder="HH"
                 disabled={disabled}
               />
               <Select2
                 options={minuteOptions}
                 value={openingMinute}
-                onChange={setOpeningMinute}
+                onChange={(value) => {
+                  markMainInfoUserEdited();
+                  setOpeningMinute(value);
+                }}
                 placeholder="MM"
                 disabled={disabled}
               />
               <Select2
                 options={periodOptions}
                 value={openingPeriod}
-                onChange={setOpeningPeriod}
+                onChange={(value) => {
+                  markMainInfoUserEdited();
+                  setOpeningPeriod(value);
+                }}
                 placeholder="AM/PM"
                 disabled={disabled}
               />
@@ -2770,25 +2762,31 @@ function EngagementMainInformationPanel({
 
           {fieldRow(
             'Brand/Series',
-            <Select2
-              options={brandOptions}
-              value={brandId}
-              onChange={setBrandId}
-              placeholder="---"
-              allowClear
-              disabled={disabled || selectedVenueId == null}
+              <Select2
+                options={brandOptions}
+                value={brandId}
+                onChange={(value) => {
+                  markMainInfoUserEdited();
+                  setBrandId(value);
+                }}
+                placeholder="---"
+                allowClear
+                disabled={disabled || selectedVenueId == null}
             />,
           )}
 
           {fieldRow(
             'DMA',
-            <Select2
-              options={dmaOptions}
-              value={dmaId}
-              onChange={setDmaId}
-              placeholder="Select DMA…"
-              disabled={disabled || selectedVenueId == null}
-            />,
+              <Select2
+                options={dmaOptions}
+                value={dmaId}
+                onChange={(value) => {
+                  markMainInfoUserEdited();
+                  setDmaId(value);
+                }}
+                placeholder="Select DMA…"
+                disabled={disabled || selectedVenueId == null}
+              />,
           )}
 
           {fieldRow(
@@ -2798,7 +2796,10 @@ function EngagementMainInformationPanel({
               type="url"
               inputMode="url"
               value={sharePointFolderLink}
-              onChange={(e) => setSharePointFolderLink(e.target.value)}
+              onChange={(e) => {
+                markMainInfoUserEdited();
+                setSharePointFolderLink(e.target.value);
+              }}
               disabled={disabled}
               placeholder="Folder on Sharepoint Server (IAE Cloud Server)"
             />,
@@ -2807,24 +2808,30 @@ function EngagementMainInformationPanel({
 
           {fieldRow(
             'Engagement Status',
-            <Select2
-              options={ENGAGEMENT_STATUS_ENUM.map((status) => ({ value: status, label: status }))}
-              value={engagementStatus}
-              onChange={setEngagementStatus}
-              placeholder="Select status…"
-              disabled={disabled}
-            />,
+              <Select2
+                options={ENGAGEMENT_STATUS_ENUM.map((status) => ({ value: status, label: status }))}
+                value={engagementStatus}
+                onChange={(value) => {
+                  markMainInfoUserEdited();
+                  setEngagementStatus(value);
+                }}
+                placeholder="Select status…"
+                disabled={disabled}
+              />,
           )}
 
           {fieldRow(
             'Ticketing Status',
-            <Select2
-              options={TICKETING_STATUS_OPTIONS}
-              value={ticketingStatus}
-              onChange={setTicketingStatus}
-              placeholder="Select ticketing status..."
-              disabled={disabled || openingPerformance == null}
-            />,
+              <Select2
+                options={TICKETING_STATUS_OPTIONS}
+                value={ticketingStatus}
+                onChange={(value) => {
+                  markMainInfoUserEdited();
+                  setTicketingStatus(value);
+                }}
+                placeholder="Select ticketing status..."
+                disabled={disabled || openingPerformance == null}
+              />,
             openingPerformance == null ? 'Stored on dbo.PerformanceTicketing after an opening performance exists.' : null,
           )}
 
@@ -2847,7 +2854,10 @@ function EngagementMainInformationPanel({
                 className={`${inputCls} pl-8`}
                 inputMode="decimal"
                 value={grossPotential}
-                onChange={(e) => setGrossPotential(e.target.value)}
+                onChange={(e) => {
+                  markMainInfoUserEdited();
+                  setGrossPotential(e.target.value);
+                }}
                 disabled={disabled}
               />
             </div>,
@@ -2861,7 +2871,10 @@ function EngagementMainInformationPanel({
                 className={`${inputCls} pl-8`}
                 inputMode="decimal"
                 value={estimatedBreakeven}
-                onChange={(e) => setEstimatedBreakeven(e.target.value)}
+                onChange={(e) => {
+                  markMainInfoUserEdited();
+                  setEstimatedBreakeven(e.target.value);
+                }}
                 disabled={disabled}
               />
             </div>,
@@ -2869,26 +2882,32 @@ function EngagementMainInformationPanel({
 
           {fieldRow(
             'Promoter Partners',
-            <Select2
-              options={promoterPartnerOptions}
-              value={promoterPartnerCompanyId}
-              onChange={setPromoterPartnerCompanyId}
-              placeholder="---"
-              allowClear
-              disabled={disabled}
+              <Select2
+                options={promoterPartnerOptions}
+                value={promoterPartnerCompanyId}
+                onChange={(value) => {
+                  markMainInfoUserEdited();
+                  setPromoterPartnerCompanyId(value);
+                }}
+                placeholder="---"
+                allowClear
+                disabled={disabled}
             />,
             'Stored through the engagement venue service-provider link for companies/services marked Promoter.',
           )}
 
           {fieldRow(
             'Confirmation Packet Approved',
-            <Select2
-              options={CONFIRMATION_PACKET_SELECT_OPTIONS}
-              value={confirmationPacketApproved}
-              onChange={setConfirmationPacketApproved}
-              placeholder="Not set"
-              allowClear
-              disabled={disabled}
+              <Select2
+                options={CONFIRMATION_PACKET_SELECT_OPTIONS}
+                value={confirmationPacketApproved}
+                onChange={(value) => {
+                  markMainInfoUserEdited();
+                  setConfirmationPacketApproved(value);
+                }}
+                placeholder="Not set"
+                allowClear
+                disabled={disabled}
             />,
           )}
 
@@ -2904,9 +2923,10 @@ function EngagementMainInformationPanel({
                     <Select2
                       options={contactOptions}
                       value={staffSelections[field.key]}
-                      onChange={(value) =>
-                        setStaffSelections((prev) => ({ ...prev, [field.key]: value }))
-                      }
+                      onChange={(value) => {
+                        markMainInfoUserEdited();
+                        setStaffSelections((prev) => ({ ...prev, [field.key]: value }));
+                      }}
                       placeholder="---"
                       allowClear
                       disabled={disabled || roleIdsByStaffKey[field.key] == null}
@@ -2924,7 +2944,10 @@ function EngagementMainInformationPanel({
               className={inputCls}
               maxLength={50}
               value={engagementScaling}
-              onChange={(e) => setEngagementScaling(e.target.value)}
+              onChange={(e) => {
+                markMainInfoUserEdited();
+                setEngagementScaling(e.target.value);
+              }}
               disabled={disabled}
             />,
           )}
@@ -2975,6 +2998,11 @@ function EngagementArtistTermsPanel({
   const [promoterProfit, setPromoterProfit] = useState('');
   const [finalOfferLink, setFinalOfferLink] = useState('');
   const [settlementFileLink, setSettlementFileLink] = useState('');
+  const {
+    hasUserEdited: hasArtistTermsUserEdited,
+    markUserEdited: markArtistTermsUserEdited,
+    clearUserEdited: clearArtistTermsUserEdited,
+  } = useUserEditTracker(engagementId);
 
   useEffect(() => {
     const d = financeQuery.data;
@@ -2996,6 +3024,7 @@ function EngagementArtistTermsPanel({
       await qc.invalidateQueries({ queryKey: ['engagements', 'finance-lookups'] });
     },
     onSuccess: () => {
+      clearArtistTermsUserEdited();
       setTimeout(() => {
         addToast('Artist terms saved.', 'success');
       }, 0);
@@ -3040,7 +3069,7 @@ function EngagementArtistTermsPanel({
     });
   };
 
-  const artistTermsDirty = useMemo(() => {
+  const artistTermsDirtyRaw = useMemo(() => {
     const d = financeQuery.data;
     if (!d) return false;
     const g = parseOptionalDecimal(artistGuarantee, 'Artist guarantee');
@@ -3076,6 +3105,7 @@ function EngagementArtistTermsPanel({
     finalOfferLink,
     settlementFileLink,
   ]);
+  const artistTermsDirty = hasArtistTermsUserEdited && artistTermsDirtyRaw;
 
   useEffect(() => {
     onDirtyChange?.(artistTermsDirty);
@@ -3105,7 +3135,10 @@ function EngagementArtistTermsPanel({
         className={`${inputCls} pl-8`}
         inputMode="decimal"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => {
+          markArtistTermsUserEdited();
+          onChange(e.target.value);
+        }}
         disabled={disabled}
       />
     </div>
@@ -3124,7 +3157,10 @@ function EngagementArtistTermsPanel({
           id={id}
           className={`${inputCls} min-h-[88px] resize-y pl-8 pt-2.5`}
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            markArtistTermsUserEdited();
+            onChange(e.target.value);
+          }}
           disabled={disabled}
         />
       ) : (
@@ -3132,7 +3168,10 @@ function EngagementArtistTermsPanel({
           id={id}
           className={`${inputCls} pl-8`}
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            markArtistTermsUserEdited();
+            onChange(e.target.value);
+          }}
           disabled={disabled}
         />
       )}
@@ -3214,7 +3253,10 @@ function EngagementArtistTermsPanel({
             inputMode="url"
             className={inputCls}
             value={finalOfferLink}
-            onChange={(e) => setFinalOfferLink(e.target.value)}
+            onChange={(e) => {
+              markArtistTermsUserEdited();
+              setFinalOfferLink(e.target.value);
+            }}
             disabled={disabled}
             placeholder="https://…"
           />,
@@ -3227,7 +3269,10 @@ function EngagementArtistTermsPanel({
             inputMode="url"
             className={inputCls}
             value={settlementFileLink}
-            onChange={(e) => setSettlementFileLink(e.target.value)}
+            onChange={(e) => {
+              markArtistTermsUserEdited();
+              setSettlementFileLink(e.target.value);
+            }}
             disabled={disabled}
             placeholder="https://…"
           />,
@@ -3288,6 +3333,11 @@ function EngagementEventBusinessPanel({
   const [amountDueToDeptOfRevenue, setAmountDueToDeptOfRevenue] = useState('');
   const [checkNumberOrConfOfWithholdingPayment, setCheckNumberOrConfOfWithholdingPayment] =
     useState('');
+  const {
+    hasUserEdited: hasEventBusinessUserEdited,
+    markUserEdited: markEventBusinessUserEdited,
+    clearUserEdited: clearEventBusinessUserEdited,
+  } = useUserEditTracker(engagementId);
 
   useEffect(() => {
     const d = financeQuery.data;
@@ -3317,6 +3367,7 @@ function EngagementEventBusinessPanel({
       await qc.invalidateQueries({ queryKey: ['engagements', 'finance-lookups'] });
     },
     onSuccess: () => {
+      clearEventBusinessUserEdited();
       setTimeout(() => {
         addToast('Event business saved.', 'success');
       }, 0);
@@ -3404,7 +3455,7 @@ function EngagementEventBusinessPanel({
     });
   };
 
-  const eventBusinessDirty = useMemo(() => {
+  const eventBusinessDirtyRaw = useMemo(() => {
     const d = financeQuery.data;
     if (!d) return false;
     const trimOrNullLocal = (s: string, max: number): string | null => {
@@ -3477,6 +3528,7 @@ function EngagementEventBusinessPanel({
     amountDueToDeptOfRevenue,
     checkNumberOrConfOfWithholdingPayment,
   ]);
+  const eventBusinessDirty = hasEventBusinessUserEdited && eventBusinessDirtyRaw;
 
   useEffect(() => {
     onDirtyChange?.(eventBusinessDirty);
@@ -3506,7 +3558,10 @@ function EngagementEventBusinessPanel({
         className={`${inputCls} pl-8`}
         inputMode="decimal"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => {
+          markEventBusinessUserEdited();
+          onChange(e.target.value);
+        }}
         disabled={disabled}
       />
     </div>
@@ -3562,7 +3617,10 @@ function EngagementEventBusinessPanel({
             <Select2
               options={SETTLEMENT_STATUS_OPTIONS}
               value={artistSettlementStatus}
-              onChange={setArtistSettlementStatus}
+              onChange={(value) => {
+                markEventBusinessUserEdited();
+                setArtistSettlementStatus(value);
+              }}
               placeholder="Select status..."
               disabled={disabled}
             />,
@@ -3572,7 +3630,10 @@ function EngagementEventBusinessPanel({
             <Select2
               options={SETTLEMENT_STATUS_OPTIONS}
               value={venueSettlementStatus}
-              onChange={setVenueSettlementStatus}
+              onChange={(value) => {
+                markEventBusinessUserEdited();
+                setVenueSettlementStatus(value);
+              }}
               placeholder="Select status..."
               disabled={disabled}
             />,
@@ -3659,7 +3720,10 @@ function EngagementEventBusinessPanel({
               className={`${inputCls} min-h-[88px] resize-y`}
               maxLength={255}
               value={netBoxOfficeFundsDepositedAccount}
-              onChange={(e) => setNetBoxOfficeFundsDepositedAccount(e.target.value)}
+              onChange={(e) => {
+                markEventBusinessUserEdited();
+                setNetBoxOfficeFundsDepositedAccount(e.target.value);
+              }}
               disabled={disabled}
             />,
           )}
@@ -3674,9 +3738,10 @@ function EngagementEventBusinessPanel({
                 className={inputCls}
                 maxLength={100}
                 value={checkNumberOrConfOfWithholdingPayment}
-                onChange={(e) =>
-                  setCheckNumberOrConfOfWithholdingPayment(e.target.value)
-                }
+                onChange={(e) => {
+                  markEventBusinessUserEdited();
+                  setCheckNumberOrConfOfWithholdingPayment(e.target.value);
+                }}
                 disabled={disabled}
               />,
             )}
@@ -3754,6 +3819,11 @@ function EngagementMarketingPanel({
   const [totalComps, setTotalComps] = useState('');
   const [totalTickets, setTotalTickets] = useState('');
   const [totalAdmissions, setTotalAdmissions] = useState('');
+  const {
+    hasUserEdited: hasMarketingUserEdited,
+    markUserEdited: markMarketingUserEdited,
+    clearUserEdited: clearMarketingUserEdited,
+  } = useUserEditTracker(`${engagementId}:${selectedPid ?? ''}`);
 
   const performanceSelectOptions = useMemo<Select2Option[]>(
     () =>
@@ -3770,8 +3840,8 @@ function EngagementMarketingPanel({
     const d = ticketingQuery.data;
     if (!d || selectedPid == null || d.performanceId !== selectedPid) return;
     setTicketingStatus(d.ticketingStatus ?? '');
-    setOnSaleDate(d.onSaleDate ?? getTodayDateString());
-    setPreSaleDate(d.preSaleDate ?? getTodayDateString());
+    setOnSaleDate(d.onSaleDate ?? '');
+    setPreSaleDate(d.preSaleDate ?? '');
     setVipPackagedOffer(d.vipPackagedOffer ?? '');
     setPreSaleSpecialPrices(d.preSaleSpecialPrices ?? '');
     setKidsTicketsPrices(d.kidsTicketsPrices ?? '');
@@ -3793,6 +3863,7 @@ function EngagementMarketingPanel({
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
     },
     onSuccess: () => {
+      clearMarketingUserEdited();
       setTimeout(() => {
         addToast('Marketing saved.', 'success');
       }, 0);
@@ -3846,7 +3917,7 @@ function EngagementMarketingPanel({
     });
   };
 
-  const marketingFormDirty = useMemo(() => {
+  const marketingFormDirtyRaw = useMemo(() => {
     const d = ticketingQuery.data;
     if (!d || selectedPid == null || d.performanceId !== selectedPid) return false;
     const linkUrl = ticketingLinkUrl.trim();
@@ -3912,6 +3983,7 @@ function EngagementMarketingPanel({
     totalTickets,
     totalAdmissions,
   ]);
+  const marketingFormDirty = hasMarketingUserEdited && marketingFormDirtyRaw;
 
   useEffect(() => {
     onDirtyChange?.(marketingFormDirty);
@@ -3940,7 +4012,10 @@ function EngagementMarketingPanel({
         className={`${inputCls} pl-8`}
         inputMode="decimal"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => {
+          markMarketingUserEdited();
+          onChange(e.target.value);
+        }}
         disabled={saveDisabled}
       />
     </div>
@@ -4038,7 +4113,10 @@ function EngagementMarketingPanel({
                 <Select2
                   options={TICKETING_STATUS_OPTIONS}
                   value={ticketingStatus}
-                  onChange={setTicketingStatus}
+                  onChange={(value) => {
+                    markMarketingUserEdited();
+                    setTicketingStatus(value);
+                  }}
                   placeholder="Select ticketing status..."
                   disabled={saveDisabled}
                 />,
@@ -4051,7 +4129,10 @@ function EngagementMarketingPanel({
                   inputMode="url"
                   className={inputCls}
                   value={ticketingLinkUrl}
-                  onChange={(e) => setTicketingLinkUrl(e.target.value)}
+                  onChange={(e) => {
+                    markMarketingUserEdited();
+                    setTicketingLinkUrl(e.target.value);
+                  }}
                   disabled={saveDisabled}
                   placeholder="https://…"
                 />,
@@ -4066,7 +4147,10 @@ function EngagementMarketingPanel({
                   type="date"
                   className={inputCls}
                   value={onSaleDate}
-                  onChange={(e) => setOnSaleDate(e.target.value)}
+                  onChange={(e) => {
+                    markMarketingUserEdited();
+                    setOnSaleDate(e.target.value);
+                  }}
                   disabled={saveDisabled}
                 />,
               )}
@@ -4077,7 +4161,10 @@ function EngagementMarketingPanel({
                   type="date"
                   className={inputCls}
                   value={preSaleDate}
-                  onChange={(e) => setPreSaleDate(e.target.value)}
+                  onChange={(e) => {
+                    markMarketingUserEdited();
+                    setPreSaleDate(e.target.value);
+                  }}
                   disabled={saveDisabled}
                 />,
               )}
@@ -4091,7 +4178,10 @@ function EngagementMarketingPanel({
                   className={inputCls}
                   maxLength={255}
                   value={vipPackagedOffer}
-                  onChange={(e) => setVipPackagedOffer(e.target.value)}
+                  onChange={(e) => {
+                    markMarketingUserEdited();
+                    setVipPackagedOffer(e.target.value);
+                  }}
                   disabled={saveDisabled}
                 />,
               )}
@@ -4109,7 +4199,10 @@ function EngagementMarketingPanel({
                   className={inputCls}
                   inputMode="numeric"
                   value={totalComps}
-                  onChange={(e) => setTotalComps(e.target.value)}
+                  onChange={(e) => {
+                    markMarketingUserEdited();
+                    setTotalComps(e.target.value);
+                  }}
                   disabled={saveDisabled}
                 />,
               )}
@@ -4120,7 +4213,10 @@ function EngagementMarketingPanel({
                   className={inputCls}
                   inputMode="numeric"
                   value={totalTickets}
-                  onChange={(e) => setTotalTickets(e.target.value)}
+                  onChange={(e) => {
+                    markMarketingUserEdited();
+                    setTotalTickets(e.target.value);
+                  }}
                   disabled={saveDisabled}
                 />,
               )}
@@ -4135,7 +4231,10 @@ function EngagementMarketingPanel({
                     className={inputCls}
                     inputMode="numeric"
                     value={totalAdmissions}
-                    onChange={(e) => setTotalAdmissions(e.target.value)}
+                    onChange={(e) => {
+                      markMarketingUserEdited();
+                      setTotalAdmissions(e.target.value);
+                    }}
                     disabled={saveDisabled}
                   />,
                 )}
@@ -4150,7 +4249,10 @@ function EngagementMarketingPanel({
                     id="mkt-presale-prices"
                     className={`${inputCls} min-h-[100px] resize-y`}
                     value={preSaleSpecialPrices}
-                    onChange={(e) => setPreSaleSpecialPrices(e.target.value)}
+                    onChange={(e) => {
+                      markMarketingUserEdited();
+                      setPreSaleSpecialPrices(e.target.value);
+                    }}
                     disabled={saveDisabled}
                   />,
                 )}
@@ -4165,7 +4267,10 @@ function EngagementMarketingPanel({
                     id="mkt-kids"
                     className={`${inputCls} min-h-[100px] resize-y`}
                     value={kidsTicketsPrices}
-                    onChange={(e) => setKidsTicketsPrices(e.target.value)}
+                    onChange={(e) => {
+                      markMarketingUserEdited();
+                      setKidsTicketsPrices(e.target.value);
+                    }}
                     disabled={saveDisabled}
                   />,
                 )}
@@ -4222,6 +4327,11 @@ function EngagementTicketingPanel({
   const [vipPackagedOffer, setVipPackagedOffer] = useState('');
   const [preSaleSpecialPrices, setPreSaleSpecialPrices] = useState('');
   const [kidsTicketsPrices, setKidsTicketsPrices] = useState('');
+  const {
+    hasUserEdited: hasTicketingUserEdited,
+    markUserEdited: markTicketingUserEdited,
+    clearUserEdited: clearTicketingUserEdited,
+  } = useUserEditTracker(`${engagementId}:${selectedPid ?? ''}`);
 
   const performanceSelectOptions = useMemo<Select2Option[]>(
     () =>
@@ -4265,7 +4375,7 @@ function EngagementTicketingPanel({
     setKidsTicketsPrices(d.kidsTicketsPrices ?? '');
   }, [selectedPid, ticketingQuery.data]);
 
-  const ticketingDirty = useMemo(() => {
+  const ticketingDirtyRaw = useMemo(() => {
     const d = ticketingQuery.data;
     const detail = detailQuery.data;
     if (!detail || !d || selectedPid == null || d.performanceId !== selectedPid) return false;
@@ -4293,6 +4403,7 @@ function EngagementTicketingPanel({
     ticketingQuery.data,
     vipPackagedOffer,
   ]);
+  const ticketingDirty = hasTicketingUserEdited && ticketingDirtyRaw;
 
   useEffect(() => {
     onDirtyChange?.(ticketingDirty);
@@ -4317,6 +4428,7 @@ function EngagementTicketingPanel({
       await qc.invalidateQueries({
         queryKey: ['engagements', engagementId, 'performance-ticketing', selectedPid],
       });
+      clearTicketingUserEdited();
       addToast('Ticketing saved.', 'success');
     },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
@@ -4405,7 +4517,10 @@ function EngagementTicketingPanel({
                   className={inputCls}
                   maxLength={50}
                   value={engagementScaling}
-                  onChange={(e) => setEngagementScaling(e.target.value)}
+                  onChange={(e) => {
+                    markTicketingUserEdited();
+                    setEngagementScaling(e.target.value);
+                  }}
                   disabled={disabled}
                 />,
               )}
@@ -4415,7 +4530,10 @@ function EngagementTicketingPanel({
                   className={inputCls}
                   maxLength={255}
                   value={vipPackagedOffer}
-                  onChange={(e) => setVipPackagedOffer(e.target.value)}
+                  onChange={(e) => {
+                    markTicketingUserEdited();
+                    setVipPackagedOffer(e.target.value);
+                  }}
                   disabled={disabled}
                 />,
               )}
@@ -4428,7 +4546,10 @@ function EngagementTicketingPanel({
                   <textarea
                     className={`${inputCls} min-h-[100px] resize-y`}
                     value={preSaleSpecialPrices}
-                    onChange={(e) => setPreSaleSpecialPrices(e.target.value)}
+                    onChange={(e) => {
+                      markTicketingUserEdited();
+                      setPreSaleSpecialPrices(e.target.value);
+                    }}
                     disabled={disabled}
                   />,
                 )}
@@ -4442,7 +4563,10 @@ function EngagementTicketingPanel({
                   <textarea
                     className={`${inputCls} min-h-[100px] resize-y`}
                     value={kidsTicketsPrices}
-                    onChange={(e) => setKidsTicketsPrices(e.target.value)}
+                    onChange={(e) => {
+                      markTicketingUserEdited();
+                      setKidsTicketsPrices(e.target.value);
+                    }}
                     disabled={disabled}
                   />,
                 )}
@@ -4513,6 +4637,11 @@ function EngagementOverviewIaeStaffSection({
   const [edDeptId, setEdDeptId] = useState('');
   const [edNotes, setEdNotes] = useState('');
   const [edPrimary, setEdPrimary] = useState(false);
+  const {
+    hasUserEdited: hasOverviewStaffUserEdited,
+    markUserEdited: markOverviewStaffUserEdited,
+    clearUserEdited: clearOverviewStaffUserEdited,
+  } = useUserEditTracker(`${engagementId}:${enabled ? 'enabled' : 'disabled'}`);
 
   useEffect(() => {
     if (!editRow) return;
@@ -4554,6 +4683,7 @@ function EngagementOverviewIaeStaffSection({
       setAddDeptId('');
       setAddIsPrimary(false);
       setAddNotes('');
+      clearOverviewStaffUserEdited();
       setTimeout(() => addToast('IAE staff assignment added.', 'success'), 0);
     },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
@@ -4566,6 +4696,7 @@ function EngagementOverviewIaeStaffSection({
     },
     onSuccess: () => {
       setEditRow(null);
+      clearOverviewStaffUserEdited();
       setTimeout(() => addToast('IAE staff assignment updated.', 'success'), 0);
     },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
@@ -4657,7 +4788,8 @@ function EngagementOverviewIaeStaffSection({
     );
   }, [editRow, edContactId, edRoleId, edDeptId, edNotes, edPrimary]);
 
-  const overviewIaeStaffDirty = addFormDirty || editModalDirty;
+  const overviewIaeStaffDirty =
+    hasOverviewStaffUserEdited && (addFormDirty || editModalDirty);
   useEffect(() => {
     onDirtyChange?.(enabled ? overviewIaeStaffDirty : false);
     return () => onDirtyChange?.(false);
@@ -4689,7 +4821,10 @@ function EngagementOverviewIaeStaffSection({
         type="checkbox"
         className="h-4 w-4 shrink-0 rounded border-border accent-ems-accent focus:ring-2 focus:ring-ems-accent/30"
         checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
+        onChange={(e) => {
+          markOverviewStaffUserEdited();
+          onChange(e.target.checked);
+        }}
         disabled={disabled}
       />
     </label>
@@ -4804,7 +4939,10 @@ function EngagementOverviewIaeStaffSection({
                   <Select2
                     options={contactOpts}
                     value={addContactId}
-                    onChange={(v) => setAddContactId(v)}
+                    onChange={(v) => {
+                      markOverviewStaffUserEdited();
+                      setAddContactId(v);
+                    }}
                     placeholder="Select contact…"
                     disabled={sectionBusy}
                   />
@@ -4813,7 +4951,10 @@ function EngagementOverviewIaeStaffSection({
                   <Select2
                     options={roleOpts}
                     value={addRoleId}
-                    onChange={(v) => setAddRoleId(v)}
+                    onChange={(v) => {
+                      markOverviewStaffUserEdited();
+                      setAddRoleId(v);
+                    }}
                     placeholder="Not set"
                     disabled={sectionBusy}
                   />
@@ -4822,7 +4963,10 @@ function EngagementOverviewIaeStaffSection({
                   <Select2
                     options={deptOpts}
                     value={addDeptId}
-                    onChange={(v) => setAddDeptId(v)}
+                    onChange={(v) => {
+                      markOverviewStaffUserEdited();
+                      setAddDeptId(v);
+                    }}
                     placeholder="Not set"
                     disabled={sectionBusy}
                   />
@@ -4836,7 +4980,10 @@ function EngagementOverviewIaeStaffSection({
                   className={`${inputCls} min-h-[72px] resize-y`}
                   maxLength={500}
                   value={addNotes}
-                  onChange={(e) => setAddNotes(e.target.value)}
+                  onChange={(e) => {
+                    markOverviewStaffUserEdited();
+                    setAddNotes(e.target.value);
+                  }}
                   disabled={sectionBusy}
                 />
               </FormField>
@@ -4874,7 +5021,10 @@ function EngagementOverviewIaeStaffSection({
               <Select2
                 options={contactOpts}
                 value={edContactId}
-                onChange={(v) => setEdContactId(v)}
+                onChange={(v) => {
+                  markOverviewStaffUserEdited();
+                  setEdContactId(v);
+                }}
                 placeholder="Select contact…"
                 disabled={updateMut.isPending}
               />
@@ -4883,7 +5033,10 @@ function EngagementOverviewIaeStaffSection({
               <Select2
                 options={roleOpts}
                 value={edRoleId}
-                onChange={(v) => setEdRoleId(v)}
+                onChange={(v) => {
+                  markOverviewStaffUserEdited();
+                  setEdRoleId(v);
+                }}
                 placeholder="Not set"
                 disabled={updateMut.isPending}
               />
@@ -4892,7 +5045,10 @@ function EngagementOverviewIaeStaffSection({
               <Select2
                 options={deptOpts}
                 value={edDeptId}
-                onChange={(v) => setEdDeptId(v)}
+                onChange={(v) => {
+                  markOverviewStaffUserEdited();
+                  setEdDeptId(v);
+                }}
                 placeholder="Not set"
                 disabled={updateMut.isPending}
               />
@@ -4905,7 +5061,10 @@ function EngagementOverviewIaeStaffSection({
                 className={`${inputCls} min-h-[88px] resize-y`}
                 maxLength={500}
                 value={edNotes}
-                onChange={(e) => setEdNotes(e.target.value)}
+                onChange={(e) => {
+                  markOverviewStaffUserEdited();
+                  setEdNotes(e.target.value);
+                }}
                 disabled={updateMut.isPending}
               />
             </FormField>
@@ -5025,6 +5184,11 @@ function EngagementFinancePanel({
   const [withholdingFk, setWithholdingFk] = useState('');
   const [artistFinanceFk, setArtistFinanceFk] = useState('');
   const [settlementFinanceFk, setSettlementFinanceFk] = useState('');
+  const {
+    hasUserEdited: hasFinanceUserEdited,
+    markUserEdited: markFinanceUserEdited,
+    clearUserEdited: clearFinanceUserEdited,
+  } = useUserEditTracker(engagementId);
 
   const financeQuery = useQuery({
     queryKey: ['engagements', engagementId, 'finance'],
@@ -5089,6 +5253,7 @@ function EngagementFinancePanel({
       if (body && ('sellableCapacity' in body || 'grossPotential' in body)) {
         await invalidateSalesCapacityRelatedQueries(qc);
       }
+      clearFinanceUserEdited();
     },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
   });
@@ -5101,9 +5266,9 @@ function EngagementFinancePanel({
     setVenueTerms(d.venueTerms ?? '');
     setConfPacket(boolToConfPacket(d.confirmationPacketApproved));
     setIaeConfNum(d.iaeWaiverApplicationConfirmationNumber ?? '');
-    setIaeSubmitDate(d.iaeWaiverApplicationSubmissionDate ?? getTodayDateString());
+    setIaeSubmitDate(d.iaeWaiverApplicationSubmissionDate ?? '');
     setIaeStatus(d.iaeApplicationWaiverStatus ?? '');
-    setDateFundsReceived(d.dateFundsReceived ?? getTodayDateString());
+    setDateFundsReceived(d.dateFundsReceived ?? '');
     setFundsDue(numFieldToString(d.fundsDue));
     setFundsWithheld(numFieldToString(d.fundsWithheld));
     setFundsOwed(numFieldToString(d.fundsOwed));
@@ -5161,7 +5326,7 @@ function EngagementFinancePanel({
     });
   };
 
-  const financeFormDirty = useMemo(() => {
+  const financeFormDirtyRaw = useMemo(() => {
     const r = financeQuery.data;
     if (!r) return false;
     const e1 = parseOptionalDecimal(estimatedBreakeven, 'l');
@@ -5235,6 +5400,7 @@ function EngagementFinancePanel({
     artistFinanceFk,
     settlementFinanceFk,
   ]);
+  const financeFormDirty = hasFinanceUserEdited && financeFormDirtyRaw;
 
   useEffect(() => {
     onDirtyChange?.(financeFormDirty);
@@ -5295,7 +5461,10 @@ function EngagementFinancePanel({
               className={inputCls}
               inputMode="decimal"
               value={estimatedBreakeven}
-              onChange={(e) => setEstimatedBreakeven(e.target.value)}
+              onChange={(e) => {
+                markFinanceUserEdited();
+                setEstimatedBreakeven(e.target.value);
+              }}
               disabled={saveMut.isPending}
             />
           </FormField>
@@ -5304,7 +5473,10 @@ function EngagementFinancePanel({
               className={inputCls}
               inputMode="decimal"
               value={grossPotential}
-              onChange={(e) => setGrossPotential(e.target.value)}
+              onChange={(e) => {
+                markFinanceUserEdited();
+                setGrossPotential(e.target.value);
+              }}
               disabled={saveMut.isPending}
             />
           </FormField>
@@ -5314,7 +5486,10 @@ function EngagementFinancePanel({
             <textarea
               className={`${inputCls} min-h-[88px] resize-y`}
               value={venueTerms}
-              onChange={(e) => setVenueTerms(e.target.value)}
+              onChange={(e) => {
+                markFinanceUserEdited();
+                setVenueTerms(e.target.value);
+              }}
               disabled={saveMut.isPending}
             />
           </FormField>
@@ -5328,7 +5503,10 @@ function EngagementFinancePanel({
             <Select2
               options={CONFIRMATION_PACKET_SELECT_OPTIONS}
               value={confPacket}
-              onChange={setConfPacket}
+              onChange={(value) => {
+                markFinanceUserEdited();
+                setConfPacket(value);
+              }}
               placeholder="Not set"
               disabled={saveMut.isPending}
             />
@@ -5337,7 +5515,10 @@ function EngagementFinancePanel({
             <input
               className={inputCls}
               value={iaeConfNum}
-              onChange={(e) => setIaeConfNum(e.target.value)}
+              onChange={(e) => {
+                markFinanceUserEdited();
+                setIaeConfNum(e.target.value);
+              }}
               disabled={saveMut.isPending}
               maxLength={100}
             />
@@ -5347,7 +5528,10 @@ function EngagementFinancePanel({
               type="date"
               className={inputCls}
               value={iaeSubmitDate}
-              onChange={(e) => setIaeSubmitDate(e.target.value)}
+              onChange={(e) => {
+                markFinanceUserEdited();
+                setIaeSubmitDate(e.target.value);
+              }}
               disabled={saveMut.isPending}
             />
           </FormField>
@@ -5355,7 +5539,10 @@ function EngagementFinancePanel({
             <Select2
               options={ieaStatusSelectOptions}
               value={iaeStatus}
-              onChange={setIaeStatus}
+              onChange={(value) => {
+                markFinanceUserEdited();
+                setIaeStatus(value);
+              }}
               placeholder="Select…"
               allowClear
               disabled={fkDisabled}
@@ -5372,7 +5559,10 @@ function EngagementFinancePanel({
               type="date"
               className={inputCls}
               value={dateFundsReceived}
-              onChange={(e) => setDateFundsReceived(e.target.value)}
+              onChange={(e) => {
+                markFinanceUserEdited();
+                setDateFundsReceived(e.target.value);
+              }}
               disabled={saveMut.isPending}
             />
           </FormField>
@@ -5381,7 +5571,10 @@ function EngagementFinancePanel({
               className={inputCls}
               inputMode="decimal"
               value={fundsDue}
-              onChange={(e) => setFundsDue(e.target.value)}
+              onChange={(e) => {
+                markFinanceUserEdited();
+                setFundsDue(e.target.value);
+              }}
               disabled={saveMut.isPending}
             />
           </FormField>
@@ -5390,7 +5583,10 @@ function EngagementFinancePanel({
               className={inputCls}
               inputMode="decimal"
               value={fundsWithheld}
-              onChange={(e) => setFundsWithheld(e.target.value)}
+              onChange={(e) => {
+                markFinanceUserEdited();
+                setFundsWithheld(e.target.value);
+              }}
               disabled={saveMut.isPending}
             />
           </FormField>
@@ -5399,7 +5595,10 @@ function EngagementFinancePanel({
               className={inputCls}
               inputMode="decimal"
               value={fundsOwed}
-              onChange={(e) => setFundsOwed(e.target.value)}
+              onChange={(e) => {
+                markFinanceUserEdited();
+                setFundsOwed(e.target.value);
+              }}
               disabled={saveMut.isPending}
             />
           </FormField>
@@ -5408,7 +5607,10 @@ function EngagementFinancePanel({
               <input
                 className={inputCls}
                 value={receivableBank}
-                onChange={(e) => setReceivableBank(e.target.value)}
+                onChange={(e) => {
+                  markFinanceUserEdited();
+                  setReceivableBank(e.target.value);
+                }}
                 disabled={saveMut.isPending}
                 maxLength={255}
               />
@@ -5425,7 +5627,10 @@ function EngagementFinancePanel({
             <Select2
               options={withholdingSelectOptions}
               value={withholdingFk}
-              onChange={setWithholdingFk}
+              onChange={(value) => {
+                markFinanceUserEdited();
+                setWithholdingFk(value);
+              }}
               placeholder="None"
               allowClear
               disabled={fkDisabled}
@@ -5435,7 +5640,10 @@ function EngagementFinancePanel({
             <Select2
               options={artistFinanceSelectOptions}
               value={artistFinanceFk}
-              onChange={setArtistFinanceFk}
+              onChange={(value) => {
+                markFinanceUserEdited();
+                setArtistFinanceFk(value);
+              }}
               placeholder="None"
               allowClear
               disabled={fkDisabled}
@@ -5445,7 +5653,10 @@ function EngagementFinancePanel({
             <Select2
               options={settlementFinanceSelectOptions}
               value={settlementFinanceFk}
-              onChange={setSettlementFinanceFk}
+              onChange={(value) => {
+                markFinanceUserEdited();
+                setSettlementFinanceFk(value);
+              }}
               placeholder="None"
               allowClear
               disabled={fkDisabled}
@@ -5498,8 +5709,18 @@ export function EngagementDetailPage({
   const [pendingDelete, setPendingDelete] = useState(false);
   const [sellableCapacityInput, setSellableCapacityInput] = useState('');
   const [grossPotentialInput, setGrossPotentialInput] = useState('');
-  const [rehearsalDateInput, setRehearsalDateInput] = useState(getTodayDateString());
-  const [loadInDateInput, setLoadInDateInput] = useState(getTodayDateString());
+  const [rehearsalDateInput, setRehearsalDateInput] = useState('');
+  const [loadInDateInput, setLoadInDateInput] = useState('');
+  const {
+    hasUserEdited: hasCapacityFieldsUserEdited,
+    markUserEdited: markCapacityFieldsUserEdited,
+    clearUserEdited: clearCapacityFieldsUserEdited,
+  } = useUserEditTracker(`${engagementId}:capacity`);
+  const {
+    hasUserEdited: hasProductionDatesUserEdited,
+    markUserEdited: markProductionDatesUserEdited,
+    clearUserEdited: clearProductionDatesUserEdited,
+  } = useUserEditTracker(`${engagementId}:production-dates`);
 
   // ── Data ────────────────────────────────────────────────────────────────
   const detailQuery = useQuery({
@@ -5548,13 +5769,13 @@ export function EngagementDetailPage({
     if (tours === undefined) return undefined as unknown as number | null;
     const t = tours.find((x) => x.tourId === r.tourId);
     return t?.talentAgencyCompanyId ?? null;
-  }, [detailQuery.data?.tourId, lookupsQuery.data?.tours]);
+  }, [detailQuery.data, lookupsQuery.data?.tours]);
 
   const selectedTourForContacts = useMemo(() => {
     const r = detailQuery.data;
     if (r?.tourId == null) return null;
     return (lookupsQuery.data?.tours ?? []).find((tour) => tour.tourId === r.tourId) ?? null;
-  }, [detailQuery.data?.tourId, lookupsQuery.data?.tours]);
+  }, [detailQuery.data, lookupsQuery.data?.tours]);
 
   const tourSelectedTalentAgentIds = useMemo(
     () => new Set((selectedTourForContacts?.talentAgentContactIds ?? []).map(Number)),
@@ -5648,6 +5869,7 @@ export function EngagementDetailPage({
       await qc.invalidateQueries({
         queryKey: ['engagements', engagementId, 'finance'],
       });
+      clearCapacityFieldsUserEdited();
       addToast('Engagement capacity fields updated.', 'success');
     },
     onError: engagementPatchError,
@@ -5658,6 +5880,7 @@ export function EngagementDetailPage({
       updateEngagement(engagementId, body),
     onSuccess: async () => {
       await invalidateEngagementListAndDetail();
+      clearProductionDatesUserEdited();
       addToast('Production dates saved.', 'success');
     },
     onError: engagementPatchError,
@@ -5690,8 +5913,8 @@ export function EngagementDetailPage({
       row.sellableCapacity == null ? '' : String(row.sellableCapacity),
     );
     setGrossPotentialInput(row.grossPotential == null ? '' : String(row.grossPotential));
-    setRehearsalDateInput(row.rehearsalDate ?? getTodayDateString());
-    setLoadInDateInput(row.loadInDate ?? getTodayDateString());
+    setRehearsalDateInput(row.rehearsalDate ?? '');
+    setLoadInDateInput(row.loadInDate ?? '');
   }, [row]);
 
   const handleStatusChange = (next: string) => {
@@ -5707,7 +5930,7 @@ export function EngagementDetailPage({
     [],
   );
 
-  const canSaveCapacityFields = useMemo(() => {
+  const canSaveCapacityFieldsRaw = useMemo(() => {
     if (!row) return false;
     const nextSellable = sellableCapacityInput.trim();
     const nextGross = grossPotentialInput.trim();
@@ -5715,13 +5938,15 @@ export function EngagementDetailPage({
     const currentGross = row.grossPotential == null ? '' : String(row.grossPotential);
     return nextSellable !== currentSellable || nextGross !== currentGross;
   }, [row, sellableCapacityInput, grossPotentialInput]);
+  const canSaveCapacityFields = hasCapacityFieldsUserEdited && canSaveCapacityFieldsRaw;
 
-  const canSaveProductionDates = useMemo(() => {
+  const canSaveProductionDatesRaw = useMemo(() => {
     if (!row) return false;
     const curR = row.rehearsalDate ?? '';
     const curL = row.loadInDate ?? '';
     return rehearsalDateInput !== curR || loadInDateInput !== curL;
   }, [row, rehearsalDateInput, loadInDateInput]);
+  const canSaveProductionDates = hasProductionDatesUserEdited && canSaveProductionDatesRaw;
 
   const capacitySectionSaving = capacityFieldsMutation.isPending;
   const productionSectionSaving = productionDatesMutation.isPending;
@@ -5805,7 +6030,7 @@ export function EngagementDetailPage({
       showAddPerformance &&
       pfRows.some(
         (rowDraft) =>
-          rowDraft.performanceDate.trim() !== '' ||
+          rowDraft.performanceDate.trim() !== getTodayDateString() ||
           rowDraft.performanceTime.trim() !== '20:00' ||
           (rowDraft.performanceStatus || '').trim() !== 'Public',
       ),
@@ -6205,7 +6430,10 @@ export function EngagementDetailPage({
                   step={1}
                   className={inputCls}
                   value={sellableCapacityInput}
-                  onChange={(e) => setSellableCapacityInput(e.target.value)}
+                  onChange={(e) => {
+                    markCapacityFieldsUserEdited();
+                    setSellableCapacityInput(e.target.value);
+                  }}
                   disabled={anyEngagementPatchPending}
                   placeholder="e.g. 2021"
                 />
@@ -6217,7 +6445,10 @@ export function EngagementDetailPage({
                   step={0.01}
                   className={inputCls}
                   value={grossPotentialInput}
-                  onChange={(e) => setGrossPotentialInput(e.target.value)}
+                  onChange={(e) => {
+                    markCapacityFieldsUserEdited();
+                    setGrossPotentialInput(e.target.value);
+                  }}
                   disabled={anyEngagementPatchPending}
                   placeholder="e.g. 403565.00"
                 />
@@ -6266,7 +6497,10 @@ export function EngagementDetailPage({
                   type="date"
                   className={inputCls}
                   value={rehearsalDateInput}
-                  onChange={(e) => setRehearsalDateInput(e.target.value)}
+                  onChange={(e) => {
+                    markProductionDatesUserEdited();
+                    setRehearsalDateInput(e.target.value);
+                  }}
                   disabled={anyEngagementPatchPending}
                 />
               </FormField>
@@ -6275,7 +6509,10 @@ export function EngagementDetailPage({
                   type="date"
                   className={inputCls}
                   value={loadInDateInput}
-                  onChange={(e) => setLoadInDateInput(e.target.value)}
+                  onChange={(e) => {
+                    markProductionDatesUserEdited();
+                    setLoadInDateInput(e.target.value);
+                  }}
                   disabled={anyEngagementPatchPending}
                 />
               </FormField>
@@ -6351,7 +6588,6 @@ export function EngagementDetailPage({
             engagementId={engagementId}
             addToast={addToast}
             onNavigate={onNavigate}
-            onDirtyChange={(dirty) => setTabDirty('Venues', dirty)}
           />
         </div>
       )}
@@ -6605,8 +6841,10 @@ export function EngagementDetailPage({
                   setGrossPotentialInput(
                     row.grossPotential == null ? '' : String(row.grossPotential),
                   );
-                  setRehearsalDateInput(row.rehearsalDate ?? getTodayDateString());
-                  setLoadInDateInput(row.loadInDate ?? getTodayDateString());
+                  setRehearsalDateInput(row.rehearsalDate ?? '');
+                  setLoadInDateInput(row.loadInDate ?? '');
+                  clearCapacityFieldsUserEdited();
+                  clearProductionDatesUserEdited();
                 }
                 if (tab === 'Performances') {
                   setShowAddPerformance(false);

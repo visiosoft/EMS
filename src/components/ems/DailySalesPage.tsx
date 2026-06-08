@@ -227,31 +227,56 @@ const DEFAULT_DAILY_SALES_COLUMN_WIDTHS: Record<DailySalesDataColumnId, number> 
   actions: 88,
 };
 
-const DAILY_SALES_COL_MIN = 24;
 const DAILY_SALES_COL_MAX = 720;
 
+const DAILY_SALES_COLUMN_MIN_WIDTHS: Record<DailySalesDataColumnId, number> = {
+  attraction: 86,
+  date: 68,
+  venue: 72,
+  city: 56,
+  yestTickets: 66,
+  yestRevenue: 78,
+  todayTickets: 66,
+  todayRevenue: 78,
+  actions: 66,
+};
+
+function clampDailySalesColumnWidth(col: DailySalesDataColumnId, width: number) {
+  const min = DAILY_SALES_COLUMN_MIN_WIDTHS[col];
+  return Math.min(DAILY_SALES_COL_MAX, Math.max(min, Math.round(width)));
+}
+
+function sanitizeDailySalesColumnWidths(widths: Record<DailySalesDataColumnId, number>) {
+  const out = { ...widths };
+  for (const key of Object.keys(DEFAULT_DAILY_SALES_COLUMN_WIDTHS) as DailySalesDataColumnId[]) {
+    out[key] = clampDailySalesColumnWidth(key, out[key]);
+  }
+  return out;
+}
+
 function loadDailySalesColumnWidths(): Record<DailySalesDataColumnId, number> {
-  if (typeof window === 'undefined') return { ...DEFAULT_DAILY_SALES_COLUMN_WIDTHS };
+  const defaults = sanitizeDailySalesColumnWidths(DEFAULT_DAILY_SALES_COLUMN_WIDTHS);
+  if (typeof window === 'undefined') return defaults;
   try {
     const raw = localStorage.getItem(DAILY_SALES_COLUMN_WIDTHS_KEY);
-    if (!raw) return { ...DEFAULT_DAILY_SALES_COLUMN_WIDTHS };
+    if (!raw) return defaults;
     const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const out = { ...DEFAULT_DAILY_SALES_COLUMN_WIDTHS };
+    const out = { ...defaults };
     for (const key of Object.keys(DEFAULT_DAILY_SALES_COLUMN_WIDTHS) as DailySalesDataColumnId[]) {
       const n = Number(parsed[key]);
-      if (Number.isFinite(n) && n >= DAILY_SALES_COL_MIN && n <= DAILY_SALES_COL_MAX) {
-        out[key] = Math.round(n);
+      if (Number.isFinite(n)) {
+        out[key] = clampDailySalesColumnWidth(key, n);
       }
     }
     return out;
   } catch {
-    return { ...DEFAULT_DAILY_SALES_COLUMN_WIDTHS };
+    return defaults;
   }
 }
 
 function saveDailySalesColumnWidths(widths: Record<DailySalesDataColumnId, number>) {
   try {
-    localStorage.setItem(DAILY_SALES_COLUMN_WIDTHS_KEY, JSON.stringify(widths));
+    localStorage.setItem(DAILY_SALES_COLUMN_WIDTHS_KEY, JSON.stringify(sanitizeDailySalesColumnWidths(widths)));
   } catch {
     /* ignore */
   }
@@ -268,16 +293,31 @@ function clearDailySalesTableLayoutPrefs(): void {
 }
 
 function distributePairedColumnWidths(
+  colA: DailySalesDataColumnId,
+  colB: DailySalesDataColumnId,
   startA: number,
   startB: number,
   newTotal: number,
 ): { a: number; b: number } {
   const startTotal = startA + startB;
+  const minA = DAILY_SALES_COLUMN_MIN_WIDTHS[colA];
+  const minB = DAILY_SALES_COLUMN_MIN_WIDTHS[colB];
+  const targetTotal = Math.min(
+    DAILY_SALES_COL_MAX * 2,
+    Math.max(minA + minB, Math.round(newTotal)),
+  );
   const ratioA = startTotal > 0 ? startA / startTotal : 0.5;
-  let a = Math.round(newTotal * ratioA);
-  let b = newTotal - a;
-  a = Math.min(DAILY_SALES_COL_MAX, Math.max(DAILY_SALES_COL_MIN, a));
-  b = Math.min(DAILY_SALES_COL_MAX, Math.max(DAILY_SALES_COL_MIN, b));
+  let a = clampDailySalesColumnWidth(colA, targetTotal * ratioA);
+  let b = targetTotal - a;
+  if (b < minB) {
+    b = minB;
+    a = targetTotal - b;
+  } else if (b > DAILY_SALES_COL_MAX) {
+    b = DAILY_SALES_COL_MAX;
+    a = targetTotal - b;
+  }
+  a = clampDailySalesColumnWidth(colA, a);
+  b = clampDailySalesColumnWidth(colB, b);
   return { a, b };
 }
 
@@ -700,10 +740,7 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
     beginColumnResizeDrag((ev) => {
       const snap = columnResizeSnapshot.current;
       if (!snap) return;
-      const next = Math.min(
-        DAILY_SALES_COL_MAX,
-        Math.max(DAILY_SALES_COL_MIN, snap.startW + (ev.clientX - snap.startX)),
-      );
+      const next = clampDailySalesColumnWidth(snap.col, snap.startW + (ev.clientX - snap.startX));
       setColumnWidths((w) => ({ ...w, [snap.col]: next }));
     });
   }, [columnWidths, beginColumnResizeDrag]);
@@ -721,11 +758,12 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
       beginColumnResizeDrag((ev) => {
         const snap = columnResizeSnapshot.current;
         if (!snap) return;
+        const minTotal = DAILY_SALES_COLUMN_MIN_WIDTHS[ticketsCol] + DAILY_SALES_COLUMN_MIN_WIDTHS[revenueCol];
         const newTotal = Math.min(
           DAILY_SALES_COL_MAX * 2,
-          Math.max(DAILY_SALES_COL_MIN * 2, startTotal + (ev.clientX - snap.startX)),
+          Math.max(minTotal, startTotal + (ev.clientX - snap.startX)),
         );
-        const { a, b } = distributePairedColumnWidths(startTickets, startRevenue, newTotal);
+        const { a, b } = distributePairedColumnWidths(ticketsCol, revenueCol, startTickets, startRevenue, newTotal);
         setColumnWidths((w) => ({ ...w, [ticketsCol]: a, [revenueCol]: b }));
       });
     },
@@ -746,7 +784,7 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
 
   const resetTableLayout = useCallback(() => {
     clearDailySalesTableLayoutPrefs();
-    setColumnWidths({ ...DEFAULT_DAILY_SALES_COLUMN_WIDTHS });
+    setColumnWidths(sanitizeDailySalesColumnWidths(DEFAULT_DAILY_SALES_COLUMN_WIDTHS));
     setLeadColumnOrder([...DEFAULT_DAILY_SALES_LEAD_COLUMNS]);
     setLeadSort({ ...DEFAULT_DAILY_SALES_LEAD_SORT });
     addToast('Column layout reset to default.', 'info');
@@ -1184,13 +1222,15 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
                         />
                         <button
                           type="button"
-                          className="truncate inline-flex items-center gap-1 text-left font-medium text-text-muted hover:text-text-primary"
+                          className="min-w-0 inline-flex items-center gap-1 text-left font-medium text-text-muted hover:text-text-primary"
                           onClick={(e) => {
                             e.stopPropagation();
                             toggleLeadSort(colId);
                           }}
                         >
-                          {DAILY_SALES_LEAD_COLUMN_LABELS[colId]}
+                          <span className="min-w-0 whitespace-normal break-words leading-tight">
+                            {DAILY_SALES_LEAD_COLUMN_LABELS[colId]}
+                          </span>
                           {leadSort.col === colId &&
                             (leadSort.dir === 'asc' ? (
                               <ArrowUp className="h-3.5 w-3.5 shrink-0 text-ems-accent" aria-hidden />
@@ -1242,25 +1282,25 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
                 </tr>
                 <tr className="text-xs border-b border-border">
                   <th className="relative text-right py-2 px-2 font-medium text-text-secondary bg-ems-blue-dim/40 border-l border-ems-blue/15">
-                    Ticket Sold
+                    <span className="inline-block whitespace-normal break-words leading-tight">Ticket Sold</span>
                     <DailySalesColResizeHandle
                       onResizeStart={(e) => startColumnResize('yestTickets', e)}
                     />
                   </th>
                   <th className="relative text-right py-2 px-2 font-medium text-text-secondary bg-ems-blue-dim/40 border-r border-ems-blue/10">
-                    Total Revenue
+                    <span className="inline-block whitespace-normal break-words leading-tight">Total Revenue</span>
                     <DailySalesColResizeHandle
                       onResizeStart={(e) => startColumnResize('yestRevenue', e)}
                     />
                   </th>
                   <th className="relative text-right py-2 px-2 font-medium text-text-secondary bg-ems-accent-dim/50 border-l border-ems-accent/20">
-                    Ticket Sold
+                    <span className="inline-block whitespace-normal break-words leading-tight">Ticket Sold</span>
                     <DailySalesColResizeHandle
                       onResizeStart={(e) => startColumnResize('todayTickets', e)}
                     />
                   </th>
                   <th className="relative text-right py-2 px-2 font-medium text-text-secondary bg-ems-accent-dim/50">
-                    Total Revenue
+                    <span className="inline-block whitespace-normal break-words leading-tight">Total Revenue</span>
                     <DailySalesColResizeHandle
                       onResizeStart={(e) => startColumnResize('todayRevenue', e)}
                     />
