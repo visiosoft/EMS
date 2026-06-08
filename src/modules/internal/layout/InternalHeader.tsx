@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronRight, Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AppSuiteSwitcher } from "@/components/AppSuiteSwitcher";
 import { IaeLogoIcon } from "@/components/brand/IaeBrandMark";
 import { INTERNAL_NAV_ITEMS } from "../constants/navigation";
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
@@ -100,6 +101,7 @@ export function InternalHeader() {
           </nav>
 
           <div className="flex min-w-0 flex-1 items-center justify-end gap-2 xl:hidden">
+            <AppSuiteSwitcher surface="dark" />
             <span className="truncate rounded-full border border-white/25 bg-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/90">
               {activeItemLabel}
             </span>
@@ -115,7 +117,9 @@ export function InternalHeader() {
             </button>
           </div>
 
-          <div className="hidden w-[70px] shrink-0 xl:block" aria-hidden />
+          <div className="hidden shrink-0 xl:block">
+            <AppSuiteSwitcher surface="dark" />
+          </div>
         </div>
       </div>
 

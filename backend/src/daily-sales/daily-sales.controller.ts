@@ -141,8 +141,17 @@ export class DailySalesController {
   getByPerformanceSuggestions(
     @Query('asOfDate') asOfDate?: string,
     @Query('q') q?: string,
+    @Query('performanceDate') performanceDate?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
-    return this.dailySalesService.getByPerformanceSuggestions(asOfDate, q);
+    return this.dailySalesService.getByPerformanceSuggestions(
+      asOfDate,
+      q,
+      performanceDate,
+      startDate,
+      endDate,
+    );
   }
 
   /**
