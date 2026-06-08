@@ -165,10 +165,18 @@ export interface SuggestionItem {
 export function fetchDailySalesByPerformanceSuggestions(
   query: string,
   asOfDate?: string,
+  options?: {
+    performanceDate?: string;
+    startDate?: string;
+    endDate?: string;
+  },
 ) {
   const p = new URLSearchParams();
   if (query) p.set('q', query);
   if (asOfDate) p.set('asOfDate', asOfDate);
+  if (options?.performanceDate) p.set('performanceDate', options.performanceDate);
+  if (options?.startDate) p.set('startDate', options.startDate);
+  if (options?.endDate) p.set('endDate', options.endDate);
   return apiFetch<SuggestionItem[]>(`/daily-sales/by-performance/suggestions?${p}`);
 }
 

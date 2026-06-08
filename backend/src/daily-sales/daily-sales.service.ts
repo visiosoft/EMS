@@ -1508,10 +1508,21 @@ export class DailySalesService {
   async getByPerformanceSuggestions(
     asOfDateParam: string | undefined,
     query: string | undefined,
+    performanceDateRaw?: string,
+    startDateRaw?: string,
+    endDateRaw?: string,
   ): Promise<Array<{ label: string; sublabel: string }>> {
     const q = (query ?? '').trim().toLowerCase();
     if (!q) return [];
     const asOf = await this.resolveAsOfDateString(asOfDateParam);
+    const performanceDate = this.normalizeOptionalYmd(performanceDateRaw);
+    const startDate = this.normalizeOptionalYmd(startDateRaw);
+    const endDate = this.normalizeOptionalYmd(endDateRaw);
+    if (startDate && endDate && endDate < startDate) {
+      throw new BadRequestException({
+        message: 'Performance range end cannot be before range start.',
+      });
+    }
     const like = `%${q}%`;
 
     const baseQb = this.performanceRepo
@@ -1523,8 +1534,29 @@ export class DailySalesService {
       .leftJoin(Venue, 'v', 'v.companyId = ev.venueCompanyId')
       .leftJoin(Company, 'vc', 'vc.companyId = ev.venueCompanyId')
       .leftJoin(Address, 'addr', 'addr.addressId = vc.physicalAddressId')
-      .andWhere('CONVERT(date, p.performanceDate) >= CAST(:asOf AS date)')
       .setParameter('asOf', asOf);
+
+    const hasExplicitPerfDateFilter = Boolean(
+      performanceDate || startDate || endDate,
+    );
+    if (!hasExplicitPerfDateFilter) {
+      baseQb.andWhere('CONVERT(date, p.performanceDate) >= CAST(:asOf AS date)');
+    }
+    if (performanceDate) {
+      baseQb.andWhere('CONVERT(date, p.performanceDate) = CAST(:perfDay AS date)', {
+        perfDay: performanceDate,
+      });
+    }
+    if (startDate) {
+      baseQb.andWhere('CONVERT(date, p.performanceDate) >= CAST(:startDate AS date)', {
+        startDate,
+      });
+    }
+    if (endDate) {
+      baseQb.andWhere('CONVERT(date, p.performanceDate) <= CAST(:endDate AS date)', {
+        endDate,
+      });
+    }
 
     const limitQb = (qb: SelectQueryBuilder<Performance>) => qb.addOrderBy('1').limit(6);
 

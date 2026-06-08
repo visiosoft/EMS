@@ -29,6 +29,7 @@ type SortColumn =
   | 'ticketsSoldYesterday' | 'grossSales7Days' | 'ticketsSoldPrevious7Days'
   | 'grossSales14Days' | 'ticketsSoldPrevious14Days' | 'grossUnsoldRevenue' | 'unsoldTickets';
 
+type EventDateScope = 'past' | 'upcoming' | 'custom';
 type SortState = { col: SortColumn; dir: 'asc' | 'desc' };
 type Snapshot = { tickets: number; revenue: number };
 type LedgerRow = Snapshot & { salesDate: string };
@@ -40,6 +41,12 @@ type Metrics = {
 };
 type SummaryRow = { row: ApiPerformanceSalesRow; metrics: Metrics };
 const EMPTY_PERFORMANCE_ROWS: ApiPerformanceSalesRow[] = [];
+
+const EVENT_DATE_SCOPE_OPTIONS: Array<{ value: EventDateScope; label: string }> = [
+  { value: 'upcoming', label: 'Upcoming' },
+  { value: 'past', label: 'Past' },
+  { value: 'custom', label: 'Custom Date Range' },
+];
 
 type RowWithMarket = ApiPerformanceSalesRow & { dmaMarketName?: string | null };
 
@@ -194,7 +201,7 @@ const SALES_SUMMARY_METRIC_COLUMN_GROUPS: Array<{ label: string; keys: SortColum
 
 const SALES_SUMMARY_GROUP_BY_COLUMN = new Map<
   SortColumn,
-  { groupIndex: number; isFirst: boolean; isLast: boolean }
+  { groupIndex: number; isFirst: boolean; isLast: boolean; shaded: boolean }
 >();
 
 SALES_SUMMARY_METRIC_COLUMN_GROUPS.forEach((group, groupIndex) => {
@@ -203,29 +210,30 @@ SALES_SUMMARY_METRIC_COLUMN_GROUPS.forEach((group, groupIndex) => {
       groupIndex,
       isFirst: columnIndex === 0,
       isLast: columnIndex === group.keys.length - 1,
+      shaded: groupIndex % 2 === 0,
     });
   });
 });
 
 function salesSummaryGroupHeaderClass(groupIndex: number) {
-  const fill = groupIndex % 2 === 0 ? 'bg-slate-100/80' : 'bg-white';
-  return `${fill} border-l-2 border-r-2 border-t border-slate-400/70 border-l-slate-500/70 border-r-slate-500/70`;
+  const fill = groupIndex % 2 === 0 ? 'bg-slate-200/90' : 'bg-white';
+  return `${fill} border-l-[3px] border-r-[3px] border-t-2 border-b-0 border-slate-700/80 shadow-[inset_0_-1px_0_rgba(15,23,42,0.18)]`;
 }
 
 function salesSummaryColumnChromeClass(col: SortColumn, area: 'header' | 'body') {
   const group = SALES_SUMMARY_GROUP_BY_COLUMN.get(col);
-  if (!group) return area === 'header' ? 'bg-white border-r border-slate-200' : 'border-r border-slate-100';
+  if (!group) return area === 'header' ? 'bg-white border-r border-slate-200' : 'bg-white border-r border-slate-100';
 
   const fill =
-    group.groupIndex % 2 === 0
+    group.shaded
       ? area === 'header'
-        ? 'bg-slate-100/85'
-        : 'bg-slate-50/60 group-hover:bg-ems-accent-dim/40'
+        ? 'bg-slate-100'
+        : 'bg-slate-50/90 group-hover:bg-ems-accent-dim/45'
       : area === 'header'
         ? 'bg-white'
         : 'bg-white group-hover:bg-ems-accent-dim/30';
-  const left = group.isFirst ? 'border-l-2 border-l-slate-500/70' : 'border-l border-l-slate-200';
-  const right = group.isLast ? 'border-r-2 border-r-slate-500/70' : 'border-r border-r-slate-200';
+  const left = group.isFirst ? 'border-l-[3px] border-l-slate-700/80' : 'border-l border-l-slate-300/70';
+  const right = group.isLast ? 'border-r-[3px] border-r-slate-700/80' : 'border-r border-r-slate-300/70';
   return `${fill} ${left} ${right}`;
 }
 
@@ -351,7 +359,12 @@ function ColResizeHandle({
 
 export function SalesSummaryPage({ onOpenEngagement }: Props) {
   const today = ymd();
-  const [reportDate, setReportDate] = useState(today);
+  const [eventDateScope, setEventDateScope] = useState<EventDateScope>('upcoming');
+  const [appliedEventDateScope, setAppliedEventDateScope] = useState<EventDateScope>('upcoming');
+  const [customStartDate, setCustomStartDate] = useState(today);
+  const [customEndDate, setCustomEndDate] = useState(today);
+  const [appliedCustomStartDate, setAppliedCustomStartDate] = useState(today);
+  const [appliedCustomEndDate, setAppliedCustomEndDate] = useState(today);
   const [attractionFilter, setAttractionFilter] = useState(''), [genreFilter, setGenreFilter] = useState(''), [tourFilter, setTourFilter] = useState(''), [companyFilter, setCompanyFilter] = useState(''), [venueFilter, setVenueFilter] = useState(''), [contactFilter, setContactFilter] = useState(''), [searchInput, setSearchInput] = useState('');
   const [activeSearch, setActiveSearch] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -360,15 +373,61 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE);
   const [sort, setSort] = useState<SortState>({ col: 'eventDate', dir: 'asc' });
-  const iso = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s.trim()); const dateOk = iso(reportDate); const reportAsOfDate = dateOk ? reportDate : today; const dateChanged = reportDate !== today;
-  const activeFilterCount = [attractionFilter, genreFilter, tourFilter, companyFilter, venueFilter, contactFilter, activeSearch.trim()].filter(Boolean).length;
-  const reset = () => { setAttractionFilter(''); setGenreFilter(''); setTourFilter(''); setCompanyFilter(''); setVenueFilter(''); setContactFilter(''); setSearchInput(''); setActiveSearch(''); setReportDate(today); setPage(1); };
+  const iso = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s.trim());
+  const reportAsOfDate = today;
+  const customDatesAreValid = iso(customStartDate) && iso(customEndDate);
+  const customRangeOrderIsValid = !customDatesAreValid || customEndDate >= customStartDate;
+  const appliedCustomDatesAreValid = iso(appliedCustomStartDate) && iso(appliedCustomEndDate);
+  const appliedCustomRangeOrderIsValid = !appliedCustomDatesAreValid || appliedCustomEndDate >= appliedCustomStartDate;
+  const dateOk = appliedEventDateScope !== 'custom' || (appliedCustomDatesAreValid && appliedCustomRangeOrderIsValid);
+  const dateScopeChanged = appliedEventDateScope !== 'upcoming';
+  const customRangeHasChanges =
+    eventDateScope === 'custom' &&
+    (appliedEventDateScope !== 'custom' ||
+      customStartDate !== appliedCustomStartDate ||
+      customEndDate !== appliedCustomEndDate);
+  const activeFilterCount = [
+    dateScopeChanged ? appliedEventDateScope : '',
+    attractionFilter,
+    genreFilter,
+    tourFilter,
+    companyFilter,
+    venueFilter,
+    contactFilter,
+    activeSearch.trim(),
+  ].filter(Boolean).length;
+  const reset = () => { setAttractionFilter(''); setGenreFilter(''); setTourFilter(''); setCompanyFilter(''); setVenueFilter(''); setContactFilter(''); setSearchInput(''); setActiveSearch(''); setEventDateScope('upcoming'); setAppliedEventDateScope('upcoming'); setCustomStartDate(today); setCustomEndDate(today); setAppliedCustomStartDate(today); setAppliedCustomEndDate(today); setPage(1); };
+
+  const handleEventDateScopeChange = (value: string) => {
+    const next = (value || 'upcoming') as EventDateScope;
+    setEventDateScope(next);
+    if (next !== 'custom') {
+      setAppliedEventDateScope(next);
+      setPage(1);
+    }
+  };
+
+  const applyCustomDateRange = () => {
+    if (!customDatesAreValid || !customRangeOrderIsValid) return;
+    setAppliedEventDateScope('custom');
+    setAppliedCustomStartDate(customStartDate);
+    setAppliedCustomEndDate(customEndDate);
+    setPage(1);
+  };
 
   const searchParam = activeSearch.trim() || undefined;
+  const performanceDateParams = useMemo(() => {
+    if (appliedEventDateScope === 'past') return { endDate: ymdAddDays(today, -1) };
+    if (appliedEventDateScope === 'custom' && dateOk) return { startDate: appliedCustomStartDate, endDate: appliedCustomEndDate };
+    return { startDate: today };
+  }, [appliedCustomEndDate, appliedCustomStartDate, appliedEventDateScope, dateOk, today]);
 
   const queryKey = [
     'sales-summary',
     reportAsOfDate,
+    appliedEventDateScope,
+    performanceDateParams.startDate ?? '',
+    performanceDateParams.endDate ?? '',
     page,
     pageSize,
     searchParam,
@@ -386,7 +445,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
         page,
         pageSize: isAllPageSize(pageSize) ? undefined : pageSize,
         search: searchParam,
-        startDate: reportAsOfDate,
+        ...performanceDateParams,
         attraction: attractionFilter || undefined,
         genre: genreFilter || undefined,
         tour: tourFilter || undefined,
@@ -406,7 +465,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
     placeholderData: (prev) => prev,
   });
 
-  const pageData = query.data;
+  const pageData = dateOk ? query.data : undefined;
   const rawRows = pageData?.items ?? EMPTY_PERFORMANCE_ROWS;
   const serverTotal = pageData?.total ?? 0;
   const summary = pageData?.summary;
@@ -431,8 +490,8 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
 
   const suggestionSearch = searchInput.trim();
   const suggestionsQuery = useQuery({
-    queryKey: ['sales-summary-suggestions', reportAsOfDate, suggestionSearch],
-    queryFn: () => fetchDailySalesByPerformanceSuggestions(suggestionSearch, reportAsOfDate),
+    queryKey: ['sales-summary-suggestions', reportAsOfDate, appliedEventDateScope, performanceDateParams.startDate ?? '', performanceDateParams.endDate ?? '', suggestionSearch],
+    queryFn: () => fetchDailySalesByPerformanceSuggestions(suggestionSearch, reportAsOfDate, performanceDateParams),
     staleTime: 30_000,
     enabled: dateOk && suggestionSearch.length >= 1,
   });
@@ -532,7 +591,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
 
   useEffect(() => {
     setPage(1);
-  }, [reportAsOfDate, attractionFilter, genreFilter, tourFilter, companyFilter, venueFilter, contactFilter, activeSearch]);
+  }, [reportAsOfDate, performanceDateParams.startDate, performanceDateParams.endDate, attractionFilter, genreFilter, tourFilter, companyFilter, venueFilter, contactFilter, activeSearch]);
 
   useEffect(() => {
     setPage(1);
@@ -556,7 +615,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
     ],
     [pageData?.filterOptions.companies],
   );
-  const isLoading = query.isPending || ledgerQuery.isPending;
+  const isLoading = (dateOk && query.isPending) || ledgerQuery.isPending;
   const isRefreshing = (query.isFetching || ledgerQuery.isFetching) && !isLoading;
   const dateInputClass = 'h-9 w-full rounded-lg border border-border bg-background px-2.5 text-sm text-text-primary shadow-sm focus:outline-none focus:ring-2 focus:ring-ems-accent/30 focus:border-ems-accent transition-colors';
 
@@ -585,15 +644,15 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
     return values[key];
   };
 
-  const showFullSkeleton = query.isPending && !query.data;
-  const showTableOverlay = query.isFetching && !!query.data;
+  const showFullSkeleton = dateOk && query.isPending && !query.data;
+  const showTableOverlay = dateOk && query.isFetching && !!query.data;
   const totalColSpan = SALES_SUMMARY_COLUMNS.length + 1;
 
   return <div className="space-y-4">
     {isRefreshing && <div className="pointer-events-none fixed top-0 left-0 right-0 z-[200] h-0.5 overflow-hidden" aria-hidden><div className="h-full w-1/3 animate-pulse bg-ems-accent/90" /></div>}
-    <div className="flex flex-col gap-3 rounded-xl border border-border bg-card px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="flex items-center gap-2"><h1 className="text-2xl font-bold text-text-primary tracking-tight">Overview Report</h1>{!isLoading && <span className="rounded-full bg-elevated px-2.5 py-0.5 text-[11px] font-semibold tabular-nums text-text-secondary">{kpis.events.toLocaleString()} {kpis.events === 1 ? 'event' : 'events'}</span>}</div><p className="mt-0.5 text-sm text-text-secondary">A detailed snapshot of upcoming events</p></div><div className="inline-flex items-center gap-2 rounded-lg border border-border bg-elevated/60 px-3 py-2 text-xs text-text-secondary"><Info className="h-4 w-4 text-ems-accent shrink-0" aria-hidden /><span>Click a row to view <span className="font-medium text-text-primary">Sales Trends</span> for that event</span></div></div>
-    {!isLoading && rows.length > 0 && !!summary && <div className="grid grid-cols-2 md:grid-cols-4 gap-3"><KpiCard icon={CalendarRange} label="Events" value={kpis.events.toLocaleString()} sub="from selected date" tone="blue" /><KpiCard icon={Ticket} label="Total tickets sold" value={kpis.totalSold.toLocaleString()} sub="across all events" tone="purple" /><KpiCard icon={TrendingUp} label="Revenue yesterday" value={money(kpis.revenueYesterday) || '$0'} sub="from prior day" tone="accent" /><KpiCard icon={DollarSign} label="Total revenue" value={money(kpis.totalRevenue) || '$0'} sub="across all events" tone="green" /></div>}
-    <div className="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]"><aside className="lg:sticky lg:top-[4.5rem] lg:self-start"><div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden"><div className="flex items-center justify-between gap-2 border-b border-border bg-surface/60 px-4 py-3"><div className="flex items-center gap-2 min-w-0"><FilterIcon className="h-4 w-4 text-ems-accent shrink-0" aria-hidden /><h2 className="text-sm font-semibold text-text-primary">Filters</h2>{activeFilterCount > 0 && <span className="rounded-full bg-ems-accent/15 text-ems-accent text-[10px] font-semibold tabular-nums ring-1 ring-ems-accent/20 px-2 py-0.5">{activeFilterCount}</span>}</div>{(activeFilterCount > 0 || dateChanged) && <button type="button" onClick={reset} className="inline-flex items-center gap-1 rounded-md text-[11px] font-medium text-text-secondary hover:text-ems-accent transition-colors" title="Clear all filters"><RotateCcw className="h-3 w-3" aria-hidden />Reset</button>}</div><div className="p-3 space-y-3 max-h-[calc(100vh-12rem)] overflow-y-auto"><FilterField label="Reporting as of"><input type="date" className={dateInputClass} value={reportDate} onChange={(e) => setReportDate(e.target.value)} aria-label="Reporting as of" />{!dateOk && <p className="mt-1 text-[11px] text-ems-coral">Enter a valid reporting date.</p>}</FilterField><div className="h-px bg-border" /><FilterField label="Attraction"><Select2 options={attractionOptions} value={attractionFilter} onChange={setAttractionFilter} placeholder="All attractions" allowClear={!!attractionFilter} /></FilterField><FilterField label="Genre"><Select2 options={opt('All genres', pageData?.filterOptions.genres)} value={genreFilter} onChange={setGenreFilter} placeholder="All genres" allowClear={!!genreFilter} /></FilterField><FilterField label="Tour Name"><Select2 options={opt('All tours', pageData?.filterOptions.tours)} value={tourFilter} onChange={setTourFilter} placeholder="All tours" allowClear={!!tourFilter} /></FilterField>{companyOptions.length > 1 && <FilterField label="Company"><Select2 options={companyOptions} value={companyFilter} onChange={setCompanyFilter} placeholder="All companies" allowClear={!!companyFilter} /></FilterField>}<FilterField label="Venue"><Select2 options={opt('All venues', pageData?.filterOptions.venues)} value={venueFilter} onChange={setVenueFilter} placeholder="All venues" allowClear={!!venueFilter} /></FilterField><FilterField label="Contact"><Select2 options={opt('All contacts', pageData?.filterOptions.contacts)} value={contactFilter} onChange={setContactFilter} placeholder="All contacts" allowClear={!!contactFilter} /></FilterField></div></div></aside>
+    <div className="flex flex-col gap-3 rounded-xl border border-border bg-card px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="flex items-center gap-2"><h1 className="text-2xl font-bold text-text-primary tracking-tight">Overview Report</h1>{!isLoading && <span className="rounded-full bg-elevated px-2.5 py-0.5 text-[11px] font-semibold tabular-nums text-text-secondary">{kpis.events.toLocaleString()} {kpis.events === 1 ? 'event' : 'events'}</span>}</div><p className="mt-0.5 text-sm text-text-secondary">A detailed snapshot of selected events</p></div><div className="inline-flex items-center gap-2 rounded-lg border border-border bg-elevated/60 px-3 py-2 text-xs text-text-secondary"><Info className="h-4 w-4 text-ems-accent shrink-0" aria-hidden /><span>Click a row to view <span className="font-medium text-text-primary">Sales Trends</span> for that event</span></div></div>
+    {!isLoading && rows.length > 0 && !!summary && <div className="grid grid-cols-2 md:grid-cols-4 gap-3"><KpiCard icon={CalendarRange} label="Events" value={kpis.events.toLocaleString()} sub="in selected date scope" tone="blue" /><KpiCard icon={Ticket} label="Total tickets sold" value={kpis.totalSold.toLocaleString()} sub="across selected events" tone="purple" /><KpiCard icon={TrendingUp} label="Revenue yesterday" value={money(kpis.revenueYesterday) || '$0'} sub="from prior day" tone="accent" /><KpiCard icon={DollarSign} label="Total revenue" value={money(kpis.totalRevenue) || '$0'} sub="across selected events" tone="green" /></div>}
+    <div className="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]"><aside className="lg:sticky lg:top-[4.5rem] lg:self-start"><div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden"><div className="flex items-center justify-between gap-2 border-b border-border bg-surface/60 px-4 py-3"><div className="flex items-center gap-2 min-w-0"><FilterIcon className="h-4 w-4 text-ems-accent shrink-0" aria-hidden /><h2 className="text-sm font-semibold text-text-primary">Filters</h2>{activeFilterCount > 0 && <span className="rounded-full bg-ems-accent/15 text-ems-accent text-[10px] font-semibold tabular-nums ring-1 ring-ems-accent/20 px-2 py-0.5">{activeFilterCount}</span>}</div>{activeFilterCount > 0 && <button type="button" onClick={reset} className="inline-flex items-center gap-1 rounded-md text-[11px] font-medium text-text-secondary hover:text-ems-accent transition-colors" title="Clear all filters"><RotateCcw className="h-3 w-3" aria-hidden />Reset</button>}</div><div className="p-3 space-y-3 max-h-[calc(100vh-12rem)] overflow-y-auto"><FilterField label="Event date"><Select2 options={EVENT_DATE_SCOPE_OPTIONS} value={eventDateScope} onChange={handleEventDateScopeChange} placeholder="Upcoming" allowClear={false} /></FilterField>{eventDateScope === 'custom' && <div className="rounded-lg border border-border bg-surface/45 p-2.5 space-y-2"><FilterField label="From"><input type="date" className={dateInputClass} value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} aria-label="Custom date range from" /></FilterField><FilterField label="To"><input type="date" className={dateInputClass} value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} aria-label="Custom date range to" /></FilterField>{!customDatesAreValid && <p className="text-[11px] text-ems-coral">Enter valid from and to dates.</p>}{customDatesAreValid && !customRangeOrderIsValid && <p className="text-[11px] text-ems-coral">To date must be on or after from date.</p>}<button type="button" onClick={applyCustomDateRange} disabled={!customDatesAreValid || !customRangeOrderIsValid || !customRangeHasChanges} className="inline-flex h-9 w-full items-center justify-center rounded-lg border border-ems-accent/30 bg-ems-accent text-sm font-semibold text-white shadow-sm transition-all hover:bg-ems-accent-hover disabled:cursor-not-allowed disabled:border-border disabled:bg-elevated disabled:text-text-muted disabled:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/30">Apply range</button></div>}<div className="h-px bg-border" /><FilterField label="Attraction"><Select2 options={attractionOptions} value={attractionFilter} onChange={setAttractionFilter} placeholder="All attractions" allowClear={!!attractionFilter} /></FilterField><FilterField label="Genre"><Select2 options={opt('All genres', pageData?.filterOptions.genres)} value={genreFilter} onChange={setGenreFilter} placeholder="All genres" allowClear={!!genreFilter} /></FilterField><FilterField label="Tour Name"><Select2 options={opt('All tours', pageData?.filterOptions.tours)} value={tourFilter} onChange={setTourFilter} placeholder="All tours" allowClear={!!tourFilter} /></FilterField>{companyOptions.length > 1 && <FilterField label="Company"><Select2 options={companyOptions} value={companyFilter} onChange={setCompanyFilter} placeholder="All companies" allowClear={!!companyFilter} /></FilterField>}<FilterField label="Venue"><Select2 options={opt('All venues', pageData?.filterOptions.venues)} value={venueFilter} onChange={setVenueFilter} placeholder="All venues" allowClear={!!venueFilter} /></FilterField><FilterField label="Contact"><Select2 options={opt('All contacts', pageData?.filterOptions.contacts)} value={contactFilter} onChange={setContactFilter} placeholder="All contacts" allowClear={!!contactFilter} /></FilterField></div></div></aside>
       <section className="min-w-0 rounded-xl border border-border bg-card shadow-sm overflow-hidden">
         {showFullSkeleton ? (
           <div className="p-8 flex items-center justify-center"><Loader2 className="h-8 w-8 text-ems-accent animate-spin" /></div>
@@ -723,29 +782,29 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                   </colgroup>
                   <thead className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm">
                     <tr className="border-b-0">
-                      <th colSpan={3} className="border-b border-slate-200 bg-white px-3 py-1.5" aria-hidden />
+                      <th colSpan={3} className="border-b-[3px] border-slate-700/80 bg-white px-3 py-1.5" aria-hidden />
                       {SALES_SUMMARY_METRIC_COLUMN_GROUPS.map((group, groupIndex) => (
                         <th
                           key={group.label}
                           scope="colgroup"
                           colSpan={group.keys.length}
-                          className={`px-2 py-1.5 text-center text-[11px] font-semibold leading-tight text-text-primary ${salesSummaryGroupHeaderClass(groupIndex)}`}
+                          className={`px-2 py-1.5 text-center text-[11px] font-bold leading-tight text-slate-950 ${salesSummaryGroupHeaderClass(groupIndex)}`}
                         >
                           {group.label}
                         </th>
                       ))}
-                      <th className="w-8 border-b border-slate-200 bg-white px-2 py-1.5" aria-hidden />
+                      <th className="w-8 border-b-[3px] border-slate-700/80 bg-white px-2 py-1.5" aria-hidden />
                     </tr>
-                    <tr className="border-b-2 border-slate-400/80">
+                    <tr className="border-b-[3px] border-slate-700/80">
                       {SALES_SUMMARY_COLUMNS.map((c) => <SortHeader key={c.key} col={c.key} label={c.label} title={c.title} sort={sort} onToggle={toggleSort} align={c.align} onResizeStart={(e) => startColumnResize(c.key, e)} className={salesSummaryColumnChromeClass(c.key, 'header')} />)}
                       <th className="w-8 border-l border-slate-200 bg-white px-2 py-3" aria-hidden />
                     </tr>
                   </thead>
                   <tbody>
                     {query.isPending && !query.data ? (
-                      Array.from({ length: 8 }).map((_, i) => <tr key={`skel-${i}`} className="border-b border-border/50">{Array.from({ length: 18 }).map((__, j) => <td key={j} className="px-4 py-3.5"><div className="h-3 rounded bg-muted/70 animate-pulse" style={{ width: j === 0 ? '82%' : j < 4 ? '70%' : '50%' }} /></td>)}</tr>)
+                      Array.from({ length: 8 }).map((_, i) => <tr key={`skel-${i}`} className="border-b border-border/50">{SALES_SUMMARY_COLUMNS.map((c, j) => <td key={c.key} className={`px-4 py-3.5 ${salesSummaryColumnChromeClass(c.key, 'body')}`}><div className="h-3 rounded bg-muted/70 animate-pulse" style={{ width: j === 0 ? '82%' : j < 4 ? '70%' : '50%' }} /></td>)}<td className="w-8 bg-white px-2 py-3.5" aria-hidden /></tr>)
                     ) : rows.length === 0 ? (
-                      <tr><td colSpan={totalColSpan} className="py-16"><div className="flex flex-col items-center justify-center gap-2 text-text-muted"><div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-elevated"><CalendarRange className="h-6 w-6 text-text-muted" aria-hidden /></div><p className="text-sm font-medium text-text-secondary">No events match your filters</p><p className="text-xs">Try changing the reporting date or clearing filters.</p>{(activeFilterCount > 0 || activeSearch || dateChanged) && <button type="button" onClick={reset} className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-border bg-elevated px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-hover transition-colors"><RotateCcw className="h-3 w-3" aria-hidden />Reset filters</button>}</div></td></tr>
+                      <tr><td colSpan={totalColSpan} className="py-16"><div className="flex flex-col items-center justify-center gap-2 text-text-muted"><div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-elevated"><CalendarRange className="h-6 w-6 text-text-muted" aria-hidden /></div><p className="text-sm font-medium text-text-secondary">No events match your filters</p><p className="text-xs">Try changing the date scope or clearing filters.</p>{activeFilterCount > 0 && <button type="button" onClick={reset} className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-border bg-elevated px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-hover transition-colors"><RotateCcw className="h-3 w-3" aria-hidden />Reset filters</button>}</div></td></tr>
                     ) : (
                       rows.map((item, idx) => <tr key={`${item.row.performanceId}-${item.row.engagementId}`} className={`group border-b border-border/60 cursor-pointer transition-colors ${idx % 2 === 1 ? 'bg-surface/30' : ''} hover:bg-ems-accent-dim/30`} onClick={() => onOpenEngagement(item.row.engagementId, item.row.performanceId)} title="Open sales trends">{SALES_SUMMARY_COLUMNS.map((c) => <td key={c.key} className={`max-w-0 overflow-hidden px-3 py-3 align-top text-sm ${salesSummaryColumnChromeClass(c.key, 'body')} ${c.align === 'right' ? 'text-right tabular-nums' : 'text-text-secondary'}`}>{cell(item, c.key)}</td>)}<td className="w-8 px-2 py-3 align-middle text-text-muted opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight className="h-4 w-4" aria-hidden /></td></tr>)
                     )}
