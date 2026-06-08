@@ -22,6 +22,7 @@ import type { LucideIcon } from 'lucide-react';
 import { Avatar } from './Primitives';
 import { getAccountEmail, getAccountInitials, getAccountName, getActiveAccount } from '@/auth/entra';
 import { IaeBrandMark } from '@/components/brand/IaeBrandMark';
+import { AppSuiteSwitcher } from '@/components/AppSuiteSwitcher';
 import { cn } from '@/lib/utils';
 
 export { IaeLogoFull } from '@/components/brand/IaeBrandMark';
@@ -377,6 +378,7 @@ export function Header({
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        <AppSuiteSwitcher surface="light" />
         <button
           type="button"
           onClick={onEnableViewPersistence}
