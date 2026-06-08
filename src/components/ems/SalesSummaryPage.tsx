@@ -139,16 +139,102 @@ function KpiCard({ icon: Icon, label, value, sub, tone }: { icon: React.Componen
   const icon = { accent: 'bg-ems-accent/15 text-ems-accent', blue: 'bg-ems-blue/15 text-ems-blue', green: 'bg-ems-green/15 text-ems-green', purple: 'bg-ems-purple/15 text-ems-purple' }[tone];
   return <div className={`rounded-xl border p-3.5 transition-colors shadow-sm ${shell}`}><div className="flex items-center gap-2.5"><span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg shrink-0 ${icon}`}><Icon className="h-4 w-4" aria-hidden /></span><div className="min-w-0"><div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">{label}</div><div className="text-lg font-semibold text-text-primary tabular-nums leading-tight mt-0.5">{value}</div></div></div>{sub && <div className="mt-1.5 text-[11px] text-text-secondary">{sub}</div>}</div>;
 }
-function SortHeader({ col, label, sort, onToggle, align, title, onResizeStart }: { col: SortColumn; label: React.ReactNode; sort: SortState; onToggle: (col: SortColumn) => void; align?: 'left' | 'right'; title?: string; onResizeStart?: (e: React.MouseEvent) => void }) {
-   const active = sort.col === col; const Arrow = sort.dir === 'asc' ? ArrowUp : ArrowDown;
-  return <th scope="col" className={`relative min-w-0 overflow-hidden px-3 py-3 align-middle select-none ${align === 'right' ? 'text-right' : 'text-left'}`}><button type="button" onClick={() => onToggle(col)} className={`inline-flex items-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-wide transition-colors max-w-full ${active ? 'text-ems-accent' : 'text-text-secondary hover:text-text-primary'} ${align === 'right' ? 'justify-end w-full' : 'justify-start'}`} title={`Sort by ${title ?? (typeof label === 'string' ? label : col)}`}><span className="min-w-0 whitespace-normal break-words leading-snug normal-case">{label}</span>{active ? <Arrow className="h-3.5 w-3.5 shrink-0 text-ems-accent" aria-hidden /> : <span className="inline-block h-3.5 w-3.5 shrink-0 opacity-0" aria-hidden />}</button>{onResizeStart && <ColResizeHandle onResizeStart={onResizeStart} />}</th>;
+function HeaderLabel({ lines }: { lines: string[] }) {
+  return (
+    <>
+      {lines.map((line) => (
+        <span key={line} className="italic block leading-tight">
+          {line}
+        </span>
+      ))}
+    </>
+  );
 }
+
+function SortHeader({ col, label, sort, onToggle, align, title, onResizeStart, className = '' }: { col: SortColumn; label: React.ReactNode; sort: SortState; onToggle: (col: SortColumn) => void; align?: 'left' | 'right'; title?: string; onResizeStart?: (e: React.MouseEvent) => void; className?: string }) {
+   const active = sort.col === col; const Arrow = sort.dir === 'asc' ? ArrowUp : ArrowDown;
+  return <th scope="col" className={`relative min-w-0 overflow-hidden px-3 py-3 align-middle select-none ${align === 'right' ? 'text-right' : 'text-left'} ${className}`}><button type="button" onClick={() => onToggle(col)} className={`inline-flex items-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-wide transition-colors max-w-full ${active ? 'text-ems-accent' : 'text-text-secondary hover:text-text-primary'} ${align === 'right' ? 'justify-end w-full' : 'justify-start'}`} title={`Sort by ${title ?? (typeof label === 'string' ? label : col)}`}><span className="min-w-0 whitespace-normal break-words leading-snug normal-case">{label}</span>{active ? <Arrow className="h-3.5 w-3.5 shrink-0 text-ems-accent" aria-hidden /> : <span className="inline-block h-3.5 w-3.5 shrink-0 opacity-0" aria-hidden />}</button>{onResizeStart && <ColResizeHandle onResizeStart={onResizeStart} />}</th>;
+}
+
+type SalesSummaryColumnDefinition = {
+  key: SortColumn;
+  label: React.ReactNode;
+  title?: string;
+  align?: 'right';
+};
+
+const SALES_SUMMARY_COLUMNS: SalesSummaryColumnDefinition[] = [
+  { key: 'attraction', label: <HeaderLabel lines={['Attraction,', 'Tour']} /> },
+  { key: 'eventDate', label: <HeaderLabel lines={['Opening', 'Performance Date']} />, title: 'Opening Performance Date' },
+  { key: 'venue', label: <HeaderLabel lines={['Venue,', 'City']} />, title: 'Venue, City' },
+  { key: 'sellableCapacity', label: <HeaderLabel lines={['Sellable', 'Capacity']} />, title: 'Sellable Capacity', align: 'right' },
+  { key: 'grossPotential', label: <HeaderLabel lines={['Gross', 'Potential $']} />, title: 'Gross Potential $', align: 'right' },
+  { key: 'totalSold', label: <HeaderLabel lines={['Total Tickets', 'Sold To Date']} />, title: 'Total Tickets Sold To Date', align: 'right' },
+  { key: 'grossSalesToDate', label: <HeaderLabel lines={['Total Sales $ To', 'Date']} />, title: 'Total Sales $ To Date', align: 'right' },
+  { key: 'venueCapacitySoldPct', label: <HeaderLabel lines={['% of Seats', 'Sold']} />, title: '% of Seats Sold', align: 'right' },
+  { key: 'grossPotentialSoldPct', label: <HeaderLabel lines={['% of $', 'Potential Sold']} />, title: '% of $ Potential Sold', align: 'right' },
+  { key: 'ticketsSoldYesterday', label: <HeaderLabel lines={['Total Tickets Sold', 'Yesterday']} />, title: 'Total Tickets Sold Yesterday', align: 'right' },
+  { key: 'yesterdayRevenue', label: <HeaderLabel lines={['Total $ Sold', 'Yesterday']} />, title: 'Total $ Sold Yesterday', align: 'right' },
+  { key: 'ticketsSoldPrevious7Days', label: <HeaderLabel lines={['7 Day Total', 'Tickets Sold']} />, title: '7 Day Total Tickets Sold', align: 'right' },
+  { key: 'grossSales7Days', label: <HeaderLabel lines={['7 Day $ Sold']} />, title: '7 Day $ Sold', align: 'right' },
+  { key: 'ticketsSoldPrevious14Days', label: <HeaderLabel lines={['14 Day Total', 'Tickets Sold']} />, title: '14 Day Total Tickets Sold', align: 'right' },
+  { key: 'grossSales14Days', label: <HeaderLabel lines={['14 Day $ Sold']} />, title: '14 Day $ Sold', align: 'right' },
+  { key: 'unsoldTickets', label: <HeaderLabel lines={['Total Unsold', 'Tickets']} />, title: 'Total Unsold Tickets', align: 'right' },
+  { key: 'grossUnsoldRevenue', label: <HeaderLabel lines={['Total', 'Unsold $']} />, title: 'Total Unsold $', align: 'right' },
+];
+
+const SALES_SUMMARY_METRIC_COLUMN_GROUPS: Array<{ label: string; keys: SortColumn[] }> = [
+  { label: 'Total Inventory', keys: ['sellableCapacity', 'grossPotential'] },
+  { label: 'Lifetime', keys: ['totalSold', 'grossSalesToDate', 'venueCapacitySoldPct', 'grossPotentialSoldPct'] },
+  { label: "Yesterday's Wrap", keys: ['ticketsSoldYesterday', 'yesterdayRevenue'] },
+  { label: 'Seven-Day Wrap', keys: ['ticketsSoldPrevious7Days', 'grossSales7Days'] },
+  { label: 'Fourteen-Day Wrap', keys: ['ticketsSoldPrevious14Days', 'grossSales14Days'] },
+  { label: 'Unsold Inventory & Value', keys: ['unsoldTickets', 'grossUnsoldRevenue'] },
+];
+
+const SALES_SUMMARY_GROUP_BY_COLUMN = new Map<
+  SortColumn,
+  { groupIndex: number; isFirst: boolean; isLast: boolean }
+>();
+
+SALES_SUMMARY_METRIC_COLUMN_GROUPS.forEach((group, groupIndex) => {
+  group.keys.forEach((key, columnIndex) => {
+    SALES_SUMMARY_GROUP_BY_COLUMN.set(key, {
+      groupIndex,
+      isFirst: columnIndex === 0,
+      isLast: columnIndex === group.keys.length - 1,
+    });
+  });
+});
+
+function salesSummaryGroupHeaderClass(groupIndex: number) {
+  const fill = groupIndex % 2 === 0 ? 'bg-slate-100/80' : 'bg-white';
+  return `${fill} border-l-2 border-r-2 border-t border-slate-400/70 border-l-slate-500/70 border-r-slate-500/70`;
+}
+
+function salesSummaryColumnChromeClass(col: SortColumn, area: 'header' | 'body') {
+  const group = SALES_SUMMARY_GROUP_BY_COLUMN.get(col);
+  if (!group) return area === 'header' ? 'bg-white border-r border-slate-200' : 'border-r border-slate-100';
+
+  const fill =
+    group.groupIndex % 2 === 0
+      ? area === 'header'
+        ? 'bg-slate-100/85'
+        : 'bg-slate-50/60 group-hover:bg-ems-accent-dim/40'
+      : area === 'header'
+        ? 'bg-white'
+        : 'bg-white group-hover:bg-ems-accent-dim/30';
+  const left = group.isFirst ? 'border-l-2 border-l-slate-500/70' : 'border-l border-l-slate-200';
+  const right = group.isLast ? 'border-r-2 border-r-slate-500/70' : 'border-r border-r-slate-200';
+  return `${fill} ${left} ${right}`;
+}
+
 function FilterField({ label, children }: { label: string; children: React.ReactNode }) { return <div><label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-text-secondary">{label}</label>{children}</div>; }
 const empty = <span className="text-text-muted font-normal">—</span>;
 
 // ─── Resizable column widths (persisted per browser) ─────────────────────────
 
-const SALES_SUMMARY_COLUMN_WIDTHS_KEY = 'iae-sales-summary-column-widths-v1';
+const SALES_SUMMARY_COLUMN_WIDTHS_KEY = 'iae-sales-summary-column-widths-v2';
 const SALES_SUMMARY_COL_MAX = 600;
 
 const DEFAULT_SALES_SUMMARY_COLUMN_WIDTHS: Record<SortColumn, number> = {
@@ -156,19 +242,19 @@ const DEFAULT_SALES_SUMMARY_COLUMN_WIDTHS: Record<SortColumn, number> = {
   eventDate: 120,
   venue: 140,
   sellableCapacity: 80,
-  grossPotential: 100,
-  grossSalesToDate: 100,
-  totalSold: 85,
+  grossPotential: 105,
+  grossSalesToDate: 120,
+  totalSold: 125,
   venueCapacitySoldPct: 85,
   grossPotentialSoldPct: 90,
-  yesterdayRevenue: 95,
-  ticketsSoldYesterday: 85,
-  grossSales7Days: 85,
-  ticketsSoldPrevious7Days: 90,
-  grossSales14Days: 85,
-  ticketsSoldPrevious14Days: 90,
-  grossUnsoldRevenue: 95,
-  unsoldTickets: 85,
+  yesterdayRevenue: 120,
+  ticketsSoldYesterday: 130,
+  grossSales7Days: 105,
+  ticketsSoldPrevious7Days: 125,
+  grossSales14Days: 105,
+  ticketsSoldPrevious14Days: 130,
+  grossUnsoldRevenue: 115,
+  unsoldTickets: 125,
 };
 
 const SALES_SUMMARY_COLUMN_MIN_WIDTHS: Record<SortColumn, number> = {
@@ -176,19 +262,19 @@ const SALES_SUMMARY_COLUMN_MIN_WIDTHS: Record<SortColumn, number> = {
   eventDate: 140,
   venue: 115,
   sellableCapacity: 105,
-  grossPotential: 125,
-  grossSalesToDate: 115,
-  totalSold: 135,
+  grossPotential: 115,
+  grossSalesToDate: 120,
+  totalSold: 140,
   venueCapacitySoldPct: 130,
   grossPotentialSoldPct: 140,
-  yesterdayRevenue: 125,
-  ticketsSoldYesterday: 120,
+  yesterdayRevenue: 120,
+  ticketsSoldYesterday: 135,
   grossSales7Days: 110,
-  ticketsSoldPrevious7Days: 115,
+  ticketsSoldPrevious7Days: 130,
   grossSales14Days: 110,
-  ticketsSoldPrevious14Days: 120,
+  ticketsSoldPrevious14Days: 135,
   grossUnsoldRevenue: 115,
-  unsoldTickets: 115,
+  unsoldTickets: 125,
 };
 
 function clampSalesSummaryColumnWidth(col: SortColumn, width: number) {
@@ -400,26 +486,6 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
 
   const toggleSort = (col: SortColumn) => setSort((s) => s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' });
 
-  const columns: Array<{ key: SortColumn; label: React.ReactNode; title?: string; align?: 'right' }> = [
-    { key: 'attraction', label: <><span className="italic block leading-tight">Attraction,</span><span className="italic block leading-tight">Tour</span></> },
-    { key: 'eventDate', label: <><span className="italic block leading-tight">Opening</span><span className="italic block leading-tight">Performance Date</span></>, title: 'Opening Performance Date' },
-    { key: 'venue', label: <><span className="italic block leading-tight">Venue,</span><span className="italic block leading-tight">City</span></>, title: 'Venue, City' },
-    { key: 'sellableCapacity', label: <><span className="italic block leading-tight">Sellable</span><span className="italic block leading-tight">Capacity</span></>, align: 'right' },
-    { key: 'grossPotential', label: <><span className="italic block leading-tight">Gross Ticket</span><span className="italic block leading-tight">Sales Potential</span></>, align: 'right' },
-    { key: 'grossSalesToDate', label: <><span className="italic block leading-tight">Gross Sales</span><span className="italic block leading-tight">To Date</span></>, align: 'right' },
-    { key: 'totalSold', label: <><span className="italic block leading-tight">Cumulative Tickets</span><span className="italic block leading-tight">Sold to Date</span></>, align: 'right' },
-    { key: 'venueCapacitySoldPct', label: <><span className="italic block leading-tight">% Venue Capacity</span><span className="italic block leading-tight">Sold to Date</span></>, align: 'right' },
-    { key: 'grossPotentialSoldPct', label: <><span className="italic block leading-tight">% Gross Potential</span><span className="italic block leading-tight">Sold to Date</span></>, align: 'right' },
-    { key: 'yesterdayRevenue', label: <><span className="italic block leading-tight">Yesterday's</span><span className="italic block leading-tight">Sales Revenue</span></>, align: 'right' },
-    { key: 'ticketsSoldYesterday', label: <><span className="italic block leading-tight">Tickets Sold</span><span className="italic block leading-tight">Yesterday</span></>, align: 'right' },
-    { key: 'grossSales7Days', label: <><span className="italic block leading-tight">7 Day</span><span className="italic block leading-tight">Gross Sales</span></>, align: 'right' },
-    { key: 'ticketsSoldPrevious7Days', label: <><span className="italic block leading-tight"># Tix Sold</span><span className="italic block leading-tight">Prev 7 Days</span></>, align: 'right' },
-    { key: 'grossSales14Days', label: <><span className="italic block leading-tight">14 Day</span><span className="italic block leading-tight">Gross Sales</span></>, align: 'right' },
-    { key: 'ticketsSoldPrevious14Days', label: <><span className="italic block leading-tight"># Tix Sold</span><span className="italic block leading-tight">Prev 14 Days</span></>, align: 'right' },
-    { key: 'grossUnsoldRevenue', label: <><span className="italic block leading-tight">Gross Unsold</span><span className="italic block leading-tight">Revenue</span></>, align: 'right' },
-    { key: 'unsoldTickets', label: <><span className="italic block leading-tight">Unsold</span><span className="italic block leading-tight"># of Tickets</span></>, align: 'right' },
-  ];
-
   const [columnWidths, setColumnWidths] = useState<Record<SortColumn, number>>(loadSalesSummaryColumnWidths);
   const columnResizeSnapshot = useRef<{ col: SortColumn; startX: number; startW: number } | null>(null);
 
@@ -456,7 +522,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   }, [columnWidths, beginColumnResizeDrag]);
 
   const salesSummaryTableMinWidth = useMemo(() => {
-    return columns.reduce((sum, c) => sum + columnWidths[c.key], 0) + 32;
+    return SALES_SUMMARY_COLUMNS.reduce((sum, c) => sum + columnWidths[c.key], 0) + 32;
   }, [columnWidths]);
 
   const resetTableLayout = useCallback(() => {
@@ -521,7 +587,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
 
   const showFullSkeleton = query.isPending && !query.data;
   const showTableOverlay = query.isFetching && !!query.data;
-  const totalColSpan = columns.length + 1;
+  const totalColSpan = SALES_SUMMARY_COLUMNS.length + 1;
 
   return <div className="space-y-4">
     {isRefreshing && <div className="pointer-events-none fixed top-0 left-0 right-0 z-[200] h-0.5 overflow-hidden" aria-hidden><div className="h-full w-1/3 animate-pulse bg-ems-accent/90" /></div>}
@@ -652,13 +718,27 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                 )}
                 <table className="w-full table-fixed text-sm" style={{ minWidth: salesSummaryTableMinWidth }}>
                   <colgroup>
-                    {columns.map((c) => <col key={c.key} style={{ width: columnWidths[c.key] }} />)}
+                    {SALES_SUMMARY_COLUMNS.map((c) => <col key={c.key} style={{ width: columnWidths[c.key] }} />)}
                     <col style={{ width: 32 }} />
                   </colgroup>
                   <thead className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm">
-                    <tr className="border-b border-border">
-                      {columns.map((c) => <SortHeader key={c.key} col={c.key} label={c.label} title={c.title} sort={sort} onToggle={toggleSort} align={c.align} onResizeStart={(e) => startColumnResize(c.key, e)} />)}
-                      <th className="w-8 px-2 py-3" aria-hidden />
+                    <tr className="border-b-0">
+                      <th colSpan={3} className="border-b border-slate-200 bg-white px-3 py-1.5" aria-hidden />
+                      {SALES_SUMMARY_METRIC_COLUMN_GROUPS.map((group, groupIndex) => (
+                        <th
+                          key={group.label}
+                          scope="colgroup"
+                          colSpan={group.keys.length}
+                          className={`px-2 py-1.5 text-center text-[11px] font-semibold leading-tight text-text-primary ${salesSummaryGroupHeaderClass(groupIndex)}`}
+                        >
+                          {group.label}
+                        </th>
+                      ))}
+                      <th className="w-8 border-b border-slate-200 bg-white px-2 py-1.5" aria-hidden />
+                    </tr>
+                    <tr className="border-b-2 border-slate-400/80">
+                      {SALES_SUMMARY_COLUMNS.map((c) => <SortHeader key={c.key} col={c.key} label={c.label} title={c.title} sort={sort} onToggle={toggleSort} align={c.align} onResizeStart={(e) => startColumnResize(c.key, e)} className={salesSummaryColumnChromeClass(c.key, 'header')} />)}
+                      <th className="w-8 border-l border-slate-200 bg-white px-2 py-3" aria-hidden />
                     </tr>
                   </thead>
                   <tbody>
@@ -667,7 +747,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                     ) : rows.length === 0 ? (
                       <tr><td colSpan={totalColSpan} className="py-16"><div className="flex flex-col items-center justify-center gap-2 text-text-muted"><div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-elevated"><CalendarRange className="h-6 w-6 text-text-muted" aria-hidden /></div><p className="text-sm font-medium text-text-secondary">No events match your filters</p><p className="text-xs">Try changing the reporting date or clearing filters.</p>{(activeFilterCount > 0 || activeSearch || dateChanged) && <button type="button" onClick={reset} className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-border bg-elevated px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-hover transition-colors"><RotateCcw className="h-3 w-3" aria-hidden />Reset filters</button>}</div></td></tr>
                     ) : (
-                      rows.map((item, idx) => <tr key={`${item.row.performanceId}-${item.row.engagementId}`} className={`group border-b border-border/60 cursor-pointer transition-colors ${idx % 2 === 1 ? 'bg-surface/30' : ''} hover:bg-ems-accent-dim/30`} onClick={() => onOpenEngagement(item.row.engagementId, item.row.performanceId)} title="Open sales trends">{columns.map((c) => <td key={c.key} className={`max-w-0 overflow-hidden px-3 py-3 align-top text-sm ${c.align === 'right' ? 'text-right tabular-nums' : 'text-text-secondary'}`}>{cell(item, c.key)}</td>)}<td className="w-8 px-2 py-3 align-middle text-text-muted opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight className="h-4 w-4" aria-hidden /></td></tr>)
+                      rows.map((item, idx) => <tr key={`${item.row.performanceId}-${item.row.engagementId}`} className={`group border-b border-border/60 cursor-pointer transition-colors ${idx % 2 === 1 ? 'bg-surface/30' : ''} hover:bg-ems-accent-dim/30`} onClick={() => onOpenEngagement(item.row.engagementId, item.row.performanceId)} title="Open sales trends">{SALES_SUMMARY_COLUMNS.map((c) => <td key={c.key} className={`max-w-0 overflow-hidden px-3 py-3 align-top text-sm ${salesSummaryColumnChromeClass(c.key, 'body')} ${c.align === 'right' ? 'text-right tabular-nums' : 'text-text-secondary'}`}>{cell(item, c.key)}</td>)}<td className="w-8 px-2 py-3 align-middle text-text-muted opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight className="h-4 w-4" aria-hidden /></td></tr>)
                     )}
                   </tbody>
                 </table>
