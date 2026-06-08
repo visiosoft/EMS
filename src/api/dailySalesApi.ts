@@ -205,6 +205,7 @@ export interface ApiSalesDashboardBody {
   header: {
     attractionName: string | null;
     tourName: string;
+    entertainmentComplexNames?: string | null;
     venueLabel: string;
     city: string | null;
     stateProvince: string | null;

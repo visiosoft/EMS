@@ -164,6 +164,7 @@ export interface EngagementSalesDashboardDto {
   header: {
     attractionName: string | null;
     tourName: string;
+    entertainmentComplexNames: string | null;
     venueLabel: string;
     city: string | null;
     stateProvince: string | null;
@@ -1805,6 +1806,7 @@ export class DailySalesService {
       header: {
         attractionName: engagement.attractionName,
         tourName: engagement.tourName ?? '',
+        entertainmentComplexNames: engagement.entertainmentComplexNames,
         venueLabel: venueLabelFromEngagement(engagement),
         city: engagement.city,
         stateProvince: engagement.stateProvince,
@@ -2017,6 +2019,7 @@ export class DailySalesService {
       header: {
         attractionName: att.attractionName,
         tourName: tourNameLabel,
+        entertainmentComplexNames: null,
         venueLabel: 'Roll-up (all engagements)',
         city: null,
         stateProvince: null,
