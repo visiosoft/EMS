@@ -429,7 +429,7 @@ export function EmployeeHandbookPage() {
   );
 }
 
-export function EmployeeHandbookSectionPage({ handbookHash }: { handbookHash?: string }) {
+export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }: { handbookHash?: string; handbookSubsection?: string }) {
   const { navigateHandbook, openEmployeeHandbook } = useInternalNavigation();
   const { data: handbookData = {}, isLoading, isError, error } = useHandbookSections();
   const section = getSectionForHash(handbookHash ?? "", handbookData);
@@ -579,6 +579,15 @@ export function EmployeeHandbookSectionPage({ handbookHash }: { handbookHash?: s
     });
     return entries;
   }, [currentChapterIdx, bookPages]);
+
+  const startPage = useMemo(() => {
+    if (!handbookSubsection || bookPages.length === 0) return 0;
+    const prefix = `${handbookSubsection} `;
+    const idx = bookPages.findIndex(
+      (p) => p.kind === "content" && p.subsectionTitle?.startsWith(prefix),
+    );
+    return idx > 0 ? idx : 0;
+  }, [handbookSubsection, bookPages]);
 
   const totalPages = bookPages.length;
   const isMobile = stage.w > 0 && stage.w < 768;
@@ -810,7 +819,7 @@ export function EmployeeHandbookSectionPage({ handbookHash }: { handbookHash?: s
                 maxShadowOpacity={0.5}
                 enableKeyboardNav
                 showPageCorners
-                startPage={0}
+                startPage={startPage}
                 mobileScrollSupport={false}
                 onFlip={(e: { data: number }) => setCurrentPage(e.data)}
                 renderNavigationButton={(type, onClick) => (

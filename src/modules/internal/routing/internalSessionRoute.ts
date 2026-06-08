@@ -23,6 +23,7 @@ export type InternalView =
 export type InternalViewData = {
   handbook?: EmployeeHandbookView;
   handbookHash?: string;
+  handbookSubsection?: string;
 };
 
 const VALID_VIEWS = new Set<string>([
