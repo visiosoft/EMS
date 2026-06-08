@@ -1,8 +1,10 @@
 const OVERVIEW_TABLE_PATCH_FLAG = '__iaeSalesSummaryOverviewColumnsInstalled';
 const OVERVIEW_TABLE_RAF_FLAG = '__iaeSalesSummaryOverviewColumnsRaf';
 const OVERVIEW_TABLE_OBSERVER_FLAG = '__iaeSalesSummaryOverviewColumnsObserver';
+const OVERVIEW_STYLE_ID = 'iae-sales-summary-overview-columns-style';
 const OVERVIEW_GROUP_ROW_ATTR = 'data-iae-overview-group-row';
 const OVERVIEW_COLUMN_KEY_ATTR = 'data-iae-overview-column-key';
+const OVERVIEW_TABLE_ATTR = 'data-iae-overview-table';
 
 type OverviewPatchWindow = Window & typeof globalThis & {
   [OVERVIEW_TABLE_PATCH_FLAG]?: boolean;
@@ -106,6 +108,58 @@ function textOf(node: Element | null | undefined): string {
   return String(node?.textContent ?? '').replace(/\s+/g, ' ').trim();
 }
 
+function installOverviewWorkbookStyles() {
+  if (typeof document === 'undefined' || document.getElementById(OVERVIEW_STYLE_ID)) return;
+  const style = document.createElement('style');
+  style.id = OVERVIEW_STYLE_ID;
+  style.textContent = `
+    table[${OVERVIEW_TABLE_ATTR}="1"] { border-collapse: collapse !important; }
+    table[${OVERVIEW_TABLE_ATTR}="1"] thead { background: #eeeeee !important; }
+    table[${OVERVIEW_TABLE_ATTR}="1"] thead th {
+      background: #eeeeee !important;
+      border-color: #111827 !important;
+      border-style: solid !important;
+      border-width: 1px !important;
+      color: #111827 !important;
+      font-size: 11px !important;
+      font-style: normal !important;
+      font-weight: 700 !important;
+      line-height: 1.15 !important;
+      min-height: 38px !important;
+      text-align: center !important;
+      vertical-align: middle !important;
+      white-space: normal !important;
+    }
+    table[${OVERVIEW_TABLE_ATTR}="1"] thead th > button {
+      color: #111827 !important;
+      font-size: 11px !important;
+      font-style: normal !important;
+      font-weight: 700 !important;
+      justify-content: center !important;
+      line-height: 1.15 !important;
+      min-height: 38px !important;
+      text-align: center !important;
+      width: 100% !important;
+    }
+    table[${OVERVIEW_TABLE_ATTR}="1"] thead th > button > span,
+    table[${OVERVIEW_TABLE_ATTR}="1"] thead th span {
+      font-style: normal !important;
+      white-space: normal !important;
+    }
+    table[${OVERVIEW_TABLE_ATTR}="1"] tr[${OVERVIEW_GROUP_ROW_ATTR}="1"] th {
+      border-bottom-width: 2px !important;
+      padding-bottom: 4px !important;
+      padding-top: 4px !important;
+    }
+    table[${OVERVIEW_TABLE_ATTR}="1"] tbody td {
+      border-color: #d1d5db !important;
+      border-style: solid !important;
+      border-width: 0 1px 1px 1px !important;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 function overviewColumnKey(node: Element): OverviewColumnKey | null {
   const value = node.getAttribute(OVERVIEW_COLUMN_KEY_ATTR) as OverviewColumnKey | null;
   return value && OVERVIEW_TARGET_COLUMN_ORDER.includes(value) ? value : null;
@@ -156,14 +210,15 @@ function reorderOverviewChildren(parent: Element, order: OverviewColumnKey[]) {
 function isSalesSummaryOverviewTable(table: HTMLTableElement): boolean {
   const headText = textOf(table.tHead ?? table.querySelector('thead'));
   const hasOriginalHeaders =
-    headText.includes('Gross Ticket Sales Potential') &&
-    headText.includes('Cumulative Tickets Sold to Date') &&
-    headText.includes('Unsold # of Tickets');
-  const hasOverviewHeaders =
+    headText.includes('Opening Performance Date') &&
+    headText.includes('Gross Sales To Date') &&
+    headText.includes('Tickets Sold Yesterday') &&
+    headText.includes('Gross Unsold Revenue');
+  const hasWorkbookHeaders =
+    headText.includes('Total Inventory') &&
     headText.includes('Gross Potential $') &&
-    headText.includes('Total Tickets Sold To Date') &&
     headText.includes('Total Unsold Tickets');
-  return hasOriginalHeaders || hasOverviewHeaders;
+  return hasOriginalHeaders || hasWorkbookHeaders;
 }
 
 function applyOverviewHeaderLabel(th: HTMLTableCellElement) {
@@ -190,7 +245,7 @@ function makeOverviewGroupCell(label: string, colSpan: number): HTMLTableCellEle
   th.scope = 'colgroup';
   th.colSpan = colSpan;
   th.textContent = label;
-  th.className = 'border-b border-border bg-surface/95 px-3 py-1.5 text-center text-[11px] font-semibold text-text-primary';
+  th.className = 'px-3 py-1.5 text-center text-[11px] font-semibold text-text-primary';
   return th;
 }
 
@@ -200,6 +255,8 @@ function patchSalesSummaryOverviewTable(table: HTMLTableElement) {
   const thead = table.tHead;
   const colgroup = table.querySelector('colgroup');
   if (!thead || !colgroup) return;
+
+  table.setAttribute(OVERVIEW_TABLE_ATTR, '1');
 
   const groupRows = Array.from(thead.querySelectorAll<HTMLTableRowElement>(`tr[${OVERVIEW_GROUP_ROW_ATTR}="1"]`));
   groupRows.slice(1).forEach((row) => row.remove());
@@ -223,7 +280,6 @@ function patchSalesSummaryOverviewTable(table: HTMLTableElement) {
     const headerByKey = keyedOverviewChildren<HTMLTableCellElement>(headerRow);
     groupRow = document.createElement('tr');
     groupRow.setAttribute(OVERVIEW_GROUP_ROW_ATTR, '1');
-    groupRow.className = 'border-b border-border bg-surface/95';
 
     (['attraction', 'eventDate', 'venue'] as OverviewColumnKey[]).forEach((key) => {
       const th = headerByKey.get(key);
@@ -259,6 +315,7 @@ function patchSalesSummaryOverviewTable(table: HTMLTableElement) {
 
 function patchSalesSummaryOverviewTables() {
   if (typeof document === 'undefined') return;
+  installOverviewWorkbookStyles();
   document.querySelectorAll<HTMLTableElement>('table').forEach(patchSalesSummaryOverviewTable);
 }
 
