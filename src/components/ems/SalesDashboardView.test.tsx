@@ -149,4 +149,16 @@ describe('SalesDashboardView', () => {
     expect(within(publicSaleRow as HTMLTableRowElement).getByText('$250')).toBeVisible();
     expect(within(publicSaleRow as HTMLTableRowElement).queryByText('$50')).not.toBeInTheDocument();
   });
+
+  it('shows informative lifetime snapshots instead of one-point charts', () => {
+    renderDashboard();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Lifetime' }));
+
+    expect(screen.getAllByText('Lifetime Snapshot').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Tickets sold').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Sales revenue').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('May 1, 2026 - May 22, 2026').length).toBeGreaterThan(0);
+    expect(screen.queryByText('No chart data available.')).not.toBeInTheDocument();
+  });
 });
