@@ -61,6 +61,10 @@ interface SalesChartPoint {
   date: string;
   label: string;
   tooltipLabel: string;
+  periodStart?: string;
+  periodEnd?: string;
+  calendarDays?: number;
+  salesDays?: number;
   totalTickets: number;
   dailyTickets: number;
   totalRevenue: number;
@@ -368,7 +372,23 @@ function buildDailyChartPoints(
   marketingWindow: MarketingWindow | undefined,
   asOfDate: string | undefined,
 ): SalesChartPoint[] {
-  const rows = trimLeadingQuietDays(sortedSeries(series));
+  const rawRows = trimLeadingQuietDays(sortedSeries(series));
+  const rows = rawRows.map((row, index) => {
+    const previous = index > 0 ? rawRows[index - 1] : undefined;
+    const totalTickets = finiteNumber(row.totalTickets) ?? 0;
+    const totalRevenue = finiteNumber(row.totalRevenue) ?? 0;
+    const prevTickets = finiteNumber(previous?.totalTickets) ?? 0;
+    const prevRevenue = finiteNumber(previous?.totalRevenue) ?? 0;
+    return {
+      ...row,
+      totalTickets,
+      totalRevenue,
+      dailyTickets:
+        finiteNumber(row.dailyTickets) ?? Math.max(0, totalTickets - prevTickets),
+      dailyRevenue:
+        finiteNumber(row.dailyRevenue) ?? Math.max(0, totalRevenue - prevRevenue),
+    };
+  });
   const rowByDate = new Map(rows.map((row) => [row.date, row]));
   const validMarketingDates = [
     marketingWindow?.preSaleDate,
@@ -554,11 +574,19 @@ function buildBucketedChartPoints(
 function buildLifetimeChartPoint(daily: SalesChartPoint[]) {
   const latest = daily[daily.length - 1];
   if (!latest) return [];
+  const first = daily[0];
+  const salesDays = daily.filter(
+    (point) => point.dailyTickets > 0 || point.dailyRevenue > 0,
+  ).length;
   return [
     {
       ...latest,
       label: 'Lifetime',
       tooltipLabel: `Through ${formatDateLabel(latest.date, 'MMM d, yyyy')}`,
+      periodStart: first?.date ?? latest.date,
+      periodEnd: latest.date,
+      calendarDays: daily.length,
+      salesDays,
       dailyTickets: latest.totalTickets,
       dailyRevenue: latest.totalRevenue,
       averageDailySales:
@@ -690,6 +718,106 @@ function InfoCell({ label, children }: InfoCellProps) {
   );
 }
 
+interface LifetimeMetric {
+  label: string;
+  value: string;
+}
+
+function pluralizeDays(days: number | null | undefined) {
+  if (days == null || !Number.isFinite(days)) return EMPTY;
+  return `${Math.round(days).toLocaleString()} day${Math.round(days) === 1 ? '' : 's'}`;
+}
+
+function lifetimePeriodLabel(point: SalesChartPoint) {
+  const start = point.periodStart;
+  const end = point.periodEnd ?? point.date;
+  if (!start || start === end) {
+    return `Through ${formatDateLabel(end, 'MMM d, yyyy')}`;
+  }
+  return `${formatDateLabel(start, 'MMM d, yyyy')} - ${formatDateLabel(end, 'MMM d, yyyy')}`;
+}
+
+function buildLifetimeMetrics(point: SalesChartPoint): LifetimeMetric[] {
+  return [
+    { label: 'Tickets sold', value: countOrDash(point.totalTickets) },
+    { label: 'Sales revenue', value: moneyOrDash(point.totalRevenue) },
+    { label: 'Avg ticket price', value: moneyDecimalOrDash(point.averageTicketPrice) },
+    { label: 'Tickets last 7 days', value: countOrDash(point.trailingTickets7) },
+    { label: 'Revenue last 7 days', value: moneyOrDash(point.trailingRevenue7) },
+    { label: 'Remaining inventory', value: moneyOrDash(point.remainingInventory) },
+    { label: 'Marketing spend guide', value: moneyOrDash(point.anticipatedMarketingSpend) },
+    { label: 'Active sales days', value: pluralizeDays(point.salesDays) },
+    { label: 'Calendar days tracked', value: pluralizeDays(point.calendarDays) },
+  ];
+}
+
+interface LifetimeChartSummaryProps {
+  config: ChartConfig;
+  point: SalesChartPoint;
+  expanded?: boolean;
+  className?: string;
+}
+
+function LifetimeChartSummary({
+  config,
+  point,
+  expanded = false,
+  className,
+}: LifetimeChartSummaryProps) {
+  const chartValue = finiteNumber(point[config.dataKey]);
+  const metrics = buildLifetimeMetrics(point);
+  const visibleMetrics = expanded ? metrics : metrics.slice(0, 6);
+
+  return (
+    <div
+      className={cn(
+        'flex h-[13.5rem] w-full flex-col rounded-md border border-border/70 bg-elevated/20',
+        expanded && 'h-full min-h-[22rem]',
+        className,
+      )}
+    >
+      <div className="border-b border-border/70 px-4 py-3">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+          Lifetime Snapshot
+        </div>
+        <div className="mt-1 flex flex-wrap items-end justify-between gap-2">
+          <div className="min-w-0">
+            <div className="truncate text-2xl font-bold tabular-nums text-text-primary">
+              {config.formatter(chartValue)}
+            </div>
+            <div className="mt-0.5 text-xs leading-snug text-text-secondary">
+              {config.valueLabel}
+            </div>
+          </div>
+          <div className="shrink-0 text-right text-xs font-medium text-text-muted">
+            {lifetimePeriodLabel(point)}
+          </div>
+        </div>
+      </div>
+      <div
+        className={cn(
+          'grid min-h-0 flex-1 grid-cols-2 overflow-hidden text-xs sm:grid-cols-3',
+          expanded && 'md:grid-cols-4',
+        )}
+      >
+        {visibleMetrics.map((metric) => (
+          <div
+            key={metric.label}
+            className="min-w-0 border-b border-r border-border/60 px-3 py-2.5"
+          >
+            <div className="truncate font-semibold uppercase tracking-wide text-text-muted">
+              {metric.label}
+            </div>
+            <div className="mt-1 truncate text-sm font-semibold tabular-nums text-text-primary">
+              {metric.value}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 interface SalesTrendChartProps {
   config: ChartConfig;
   points: SalesChartPoint[];
@@ -706,6 +834,19 @@ function SalesTrendChart({
   className,
 }: SalesTrendChartProps) {
   const hasValues = hasChartValues(points, config);
+  const lifetimePoint =
+    points.length === 1 && points[0]?.label === 'Lifetime' ? points[0] : null;
+  if (lifetimePoint) {
+    return (
+      <LifetimeChartSummary
+        config={config}
+        point={lifetimePoint}
+        expanded={expanded}
+        className={className}
+      />
+    );
+  }
+
   if (!hasValues) {
     return (
       <div
@@ -821,6 +962,7 @@ function SalesTrendChart({
             <Area
               {...commonGraphProps}
               type="monotone"
+              connectNulls
               stroke={config.color}
               strokeWidth={expanded ? 2.5 : 2}
               fill={config.color}
@@ -846,6 +988,7 @@ function SalesTrendChart({
             <Line
               {...commonGraphProps}
               type="monotone"
+              connectNulls
               stroke={config.color}
               strokeWidth={expanded ? 2.5 : 2}
               dot={
@@ -968,6 +1111,7 @@ export interface SalesDashboardViewProps {
   onRetry: () => void;
   data: ApiSalesDashboardBody | undefined;
   capacityHint?: string;
+  showBackButton?: boolean;
 }
 
 const DEFAULT_CAPACITY_HINT =
@@ -983,6 +1127,7 @@ export function SalesDashboardView({
   onRetry,
   data,
   capacityHint = DEFAULT_CAPACITY_HINT,
+  showBackButton = true,
 }: SalesDashboardViewProps) {
   const [chartUnit, setChartUnit] = useState<ChartUnit>('date');
   const [expandedChartId, setExpandedChartId] = useState<string | null>(null);
@@ -1080,17 +1225,19 @@ export function SalesDashboardView({
     <div className="space-y-5">
       <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-sm xl:flex-row xl:items-center xl:justify-between">
         <div className="flex min-w-0 items-center gap-3">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={onBack}
-            className="h-9 shrink-0 border-border bg-elevated text-text-primary hover:bg-hover"
-            title={backTitle}
-          >
-            <ArrowLeft className="mr-1.5 h-4 w-4" aria-hidden />
-            {backTitle}
-          </Button>
+          {showBackButton ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onBack}
+              className="h-9 shrink-0 border-border bg-elevated text-text-primary hover:bg-hover"
+              title={backTitle}
+            >
+              <ArrowLeft className="mr-1.5 h-4 w-4" aria-hidden />
+              {backTitle}
+            </Button>
+          ) : null}
           <div className="min-w-0">
             <h1 className="truncate text-xl font-bold tracking-tight text-text-primary md:text-2xl">
               Sales Summary Page
