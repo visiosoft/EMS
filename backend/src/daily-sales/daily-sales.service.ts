@@ -528,10 +528,23 @@ export class DailySalesService {
       return { preSaleDate: null, onSaleDate: null };
     }
 
-    const rows = await this.performanceTicketingRepo.find({
-      where: { performanceId: In(perfIds) },
-      order: { performanceId: 'ASC', ticketingId: 'ASC' },
+    const rows: PerformanceTicketing[] = [];
+    const chunkSize = 1000;
+    for (let i = 0; i < perfIds.length; i += chunkSize) {
+      const chunk = perfIds.slice(i, i + chunkSize);
+      const chunkRows = await this.performanceTicketingRepo.find({
+        where: { performanceId: In(chunk) },
+        order: { performanceId: 'ASC', ticketingId: 'ASC' },
+      });
+      rows.push(...chunkRows);
+    }
+    rows.sort((a, b) => {
+      if (a.performanceId !== b.performanceId) {
+        return a.performanceId - b.performanceId;
+      }
+      return a.ticketingId - b.ticketingId;
     });
+
     const firstByPerformance = new Map<number, PerformanceTicketing>();
     for (const row of rows) {
       if (!firstByPerformance.has(row.performanceId)) {
@@ -918,80 +931,86 @@ export class DailySalesService {
       };
     }
 
-    const rawItems = await baseQb
-      .clone()
-      .select([
-        'p.performanceId                                         AS performanceId',
-        'p.engagementId                                         AS engagementId',
-        'CONVERT(varchar(10), p.performanceDate, 120)           AS performanceDate',
-        'CONVERT(varchar(8),  p.performanceTime, 108)          AS performanceTime',
-        'p.performanceStatus                                    AS performanceStatus',
-        'e.engagementStatus                                     AS engagementStatus',
-        'e.sellableCapacity                                     AS engagementSellableCapacity',
-        'e.grossPotential                                       AS engagementGrossPotential',
-        'a.attractionId                                         AS attractionId',
-        'a.attractionName                                       AS attractionName',
-        'cls.className                                          AS genre',
-        't.tourName                                             AS tourName',
-        'vc.companyName                                         AS venueCompanyName',
-        'v.venueName                                            AS venueName',
-        'addr.city                                              AS city',
-        'addr.stateProvince                                   AS stateProvince',
-        `(
-        SELECT STRING_AGG(LTRIM(RTRIM(ccx.CompanyName)), N', ') WITHIN GROUP (ORDER BY LTRIM(RTRIM(ccx.CompanyName)))
-        FROM dbo.VenueComplexMember vcmx
-        INNER JOIN dbo.Company ccx ON ccx.CompanyID = vcmx.ComplexCompanyID
-        WHERE vcmx.VenueCompanyID = ev.venueCompanyId
-      )                                                       AS entertainmentComplexNames`,
-        `(
-        SELECT TOP 1 CONCAT(ci.FirstName, N' ', ci.LastName)
-        FROM dbo.ContactAssignment ca
-        INNER JOIN dbo.Contact c ON c.ContactID = ca.ContactID
-        INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
-        WHERE ca.CompanyID = ev.venueCompanyId
-        ORDER BY ci.FirstName, ci.LastName
-      )                                                       AS contactName`,
-        `(
-        SELECT CONVERT(varchar(10), MIN(CONVERT(date, ts0.SalesDate)), 120)
-        FROM dbo.TicketingSales ts0
-        WHERE ts0.PerformanceID = p.performanceId
-      )                                                       AS firstSalesDate`,
-        'CONVERT(varchar(10), CAST(:asOf AS date), 120)         AS todayDate',
-        'ts_today.performanceSalesQuantity                      AS todayTicketsSold',
-        'ts_today.performanceSalesRevenue                        AS todayRevenue',
-        'CONVERT(varchar(10), DATEADD(day, -1, CAST(:asOf AS date)), 120) AS yesterdayDate',
-        'ts_yesterday.performanceSalesQuantity                  AS yesterdayTicketsSold',
-        'ts_yesterday.performanceSalesRevenue                    AS yesterdayRevenue',
-        `(
-        SELECT COALESCE(SUM(CAST(ts_ca.performanceSalesQuantity AS BIGINT)), 0)
-        FROM dbo.TicketingSales ts_ca
-        WHERE ts_ca.performanceId = p.performanceId
-          AND CONVERT(date, ts_ca.salesDate) <= CAST(:asOf AS date)
-      )                                                       AS cumTicketsThruAsOf`,
-        `(
-        SELECT COALESCE(SUM(ts_cr.performanceSalesRevenue), 0)
-        FROM dbo.TicketingSales ts_cr
-        WHERE ts_cr.performanceId = p.performanceId
-          AND CONVERT(date, ts_cr.salesDate) <= CAST(:asOf AS date)
-      )                                                       AS cumRevenueThruAsOf`,
-        `(
-        SELECT COALESCE(SUM(CAST(ts_cy.performanceSalesQuantity AS BIGINT)), 0)
-        FROM dbo.TicketingSales ts_cy
-        WHERE ts_cy.performanceId = p.performanceId
-          AND CONVERT(date, ts_cy.salesDate) <= DATEADD(day, -1, CAST(:asOf AS date))
-      )                                                       AS cumTicketsThruPrior`,
-        `(
-        SELECT COALESCE(SUM(ts_cy2.performanceSalesRevenue), 0)
-        FROM dbo.TicketingSales ts_cy2
-        WHERE ts_cy2.performanceId = p.performanceId
-          AND CONVERT(date, ts_cy2.salesDate) <= DATEADD(day, -1, CAST(:asOf AS date))
-      )                                                       AS cumRevenueThruPrior`,
-      ])
-      .andWhere('e.engagementId IN (:...engagementIds)', {
-        engagementIds: pagedEngagementIds,
-      })
-      .setParameter('asOf', asOf)
-      .getRawMany<Record<string, unknown>>();
+    const rawItems: Record<string, unknown>[] = [];
+    const chunkSize = 1000;
+    for (let i = 0; i < pagedEngagementIds.length; i += chunkSize) {
+      const chunk = pagedEngagementIds.slice(i, i + chunkSize);
+      const chunkItems = await baseQb
+        .clone()
+        .select([
+          'p.performanceId                                         AS performanceId',
+          'p.engagementId                                         AS engagementId',
+          'CONVERT(varchar(10), p.performanceDate, 120)           AS performanceDate',
+          'CONVERT(varchar(8),  p.performanceTime, 108)          AS performanceTime',
+          'p.performanceStatus                                    AS performanceStatus',
+          'e.engagementStatus                                     AS engagementStatus',
+          'e.sellableCapacity                                     AS engagementSellableCapacity',
+          'e.grossPotential                                       AS engagementGrossPotential',
+          'a.attractionId                                         AS attractionId',
+          'a.attractionName                                       AS attractionName',
+          'cls.className                                          AS genre',
+          't.tourName                                             AS tourName',
+          'vc.companyName                                         AS venueCompanyName',
+          'v.venueName                                            AS venueName',
+          'addr.city                                              AS city',
+          'addr.stateProvince                                   AS stateProvince',
+          `(
+          SELECT STRING_AGG(LTRIM(RTRIM(ccx.CompanyName)), N', ') WITHIN GROUP (ORDER BY LTRIM(RTRIM(ccx.CompanyName)))
+          FROM dbo.VenueComplexMember vcmx
+          INNER JOIN dbo.Company ccx ON ccx.CompanyID = vcmx.ComplexCompanyID
+          WHERE vcmx.VenueCompanyID = ev.venueCompanyId
+        )                                                       AS entertainmentComplexNames`,
+          `(
+          SELECT TOP 1 CONCAT(ci.FirstName, N' ', ci.LastName)
+          FROM dbo.ContactAssignment ca
+          INNER JOIN dbo.Contact c ON c.ContactID = ca.ContactID
+          INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+          WHERE ca.CompanyID = ev.venueCompanyId
+          ORDER BY ci.FirstName, ci.LastName
+        )                                                       AS contactName`,
+          `(
+          SELECT CONVERT(varchar(10), MIN(CONVERT(date, ts0.SalesDate)), 120)
+          FROM dbo.TicketingSales ts0
+          WHERE ts0.PerformanceID = p.performanceId
+        )                                                       AS firstSalesDate`,
+          'CONVERT(varchar(10), CAST(:asOf AS date), 120)         AS todayDate',
+          'ts_today.performanceSalesQuantity                      AS todayTicketsSold',
+          'ts_today.performanceSalesRevenue                        AS todayRevenue',
+          'CONVERT(varchar(10), DATEADD(day, -1, CAST(:asOf AS date)), 120) AS yesterdayDate',
+          'ts_yesterday.performanceSalesQuantity                  AS yesterdayTicketsSold',
+          'ts_yesterday.performanceSalesRevenue                    AS yesterdayRevenue',
+          `(
+          SELECT COALESCE(SUM(CAST(ts_ca.performanceSalesQuantity AS BIGINT)), 0)
+          FROM dbo.TicketingSales ts_ca
+          WHERE ts_ca.performanceId = p.performanceId
+            AND CONVERT(date, ts_ca.salesDate) <= CAST(:asOf AS date)
+        )                                                       AS cumTicketsThruAsOf`,
+          `(
+          SELECT COALESCE(SUM(ts_cr.performanceSalesRevenue), 0)
+          FROM dbo.TicketingSales ts_cr
+          WHERE ts_cr.performanceId = p.performanceId
+            AND CONVERT(date, ts_cr.salesDate) <= CAST(:asOf AS date)
+        )                                                       AS cumRevenueThruAsOf`,
+          `(
+          SELECT COALESCE(SUM(CAST(ts_cy.performanceSalesQuantity AS BIGINT)), 0)
+          FROM dbo.TicketingSales ts_cy
+          WHERE ts_cy.performanceId = p.performanceId
+            AND CONVERT(date, ts_cy.salesDate) <= DATEADD(day, -1, CAST(:asOf AS date))
+        )                                                       AS cumTicketsThruPrior`,
+          `(
+          SELECT COALESCE(SUM(ts_cy2.performanceSalesRevenue), 0)
+          FROM dbo.TicketingSales ts_cy2
+          WHERE ts_cy2.performanceId = p.performanceId
+            AND CONVERT(date, ts_cy2.salesDate) <= DATEADD(day, -1, CAST(:asOf AS date))
+        )                                                       AS cumRevenueThruPrior`,
+        ])
+        .andWhere('e.engagementId IN (:...engagementIds)', {
+          engagementIds: chunk,
+        })
+        .setParameter('asOf', asOf)
+        .getRawMany<Record<string, unknown>>();
+      rawItems.push(...chunkItems);
+    }
 
     const mappedItems: PerformanceSalesRow[] = rawItems.map((r) => {
       const todayTickets =
@@ -1500,22 +1519,10 @@ export class DailySalesService {
     asOf: string,
   ): Promise<Record<string, unknown>> {
     const yest = ymdAddDays(asOf, -1);
-    const idRows = await base
+    const subQuery = base
       .clone()
       .select('p.performanceId', 'performanceId')
-      .distinct(true)
-      .getRawMany<{ performanceId: string | number }>();
-    const ids = idRows
-      .map((r) => Number(r.performanceId))
-      .filter((n) => Number.isFinite(n) && n > 0);
-    if (ids.length === 0) {
-      return {
-        sumTixT: 0,
-        sumRevT: 0,
-        sumTixY: 0,
-        sumRevY: 0,
-      };
-    }
+      .orderBy();
 
     const one = await this.salesRepo
       .createQueryBuilder('ts')
@@ -1543,8 +1550,8 @@ export class DailySalesService {
         'COALESCE(SUM(CAST(ts.performanceSalesRevenue AS decimal(18,2))), 0)',
         'sumTotalRevenue',
       )
-      .where('ts.performanceId IN (:...ids)', { ids })
-      .setParameter('asOf', asOf)
+      .where(`ts.performanceId IN (${subQuery.getQuery()})`)
+      .setParameters(subQuery.getParameters())
       .setParameter('yestDay', yest)
       .getRawOne<Record<string, unknown>>();
     return (one as Record<string, unknown>) ?? {};
@@ -1760,15 +1767,29 @@ export class DailySalesService {
     for (const id of perfIds) byPerf.set(id, []);
 
     if (perfIds.length > 0) {
-      const rows = await this.salesRepo
-        .createQueryBuilder('ts')
-        .where('ts.performanceId IN (:...ids)', { ids: perfIds })
-        .andWhere('CONVERT(date, ts.salesDate) <= CAST(:asOf AS date)', {
-          asOf,
-        })
-        .orderBy('ts.performanceId', 'ASC')
-        .addOrderBy('ts.salesDate', 'ASC')
-        .getMany();
+      const rows: TicketingSales[] = [];
+      const chunkSize = 1000;
+      for (let i = 0; i < perfIds.length; i += chunkSize) {
+        const chunk = perfIds.slice(i, i + chunkSize);
+        const chunkRows = await this.salesRepo
+          .createQueryBuilder('ts')
+          .where('ts.performanceId IN (:...ids)', { ids: chunk })
+          .andWhere('CONVERT(date, ts.salesDate) <= CAST(:asOf AS date)', {
+            asOf,
+          })
+          .orderBy('ts.performanceId', 'ASC')
+          .addOrderBy('ts.salesDate', 'ASC')
+          .getMany();
+        rows.push(...chunkRows);
+      }
+      rows.sort((a, b) => {
+        if (a.performanceId !== b.performanceId) {
+          return a.performanceId - b.performanceId;
+        }
+        const dateA = a.salesDate ? String(a.salesDate) : '';
+        const dateB = b.salesDate ? String(b.salesDate) : '';
+        return dateA.localeCompare(dateB);
+      });
 
       for (const row of rows) {
         const ymd = toYmdString(row.salesDate);
@@ -1973,11 +1994,27 @@ export class DailySalesService {
     const sellableCapacity = sellableAny ? sellableSum : null;
     const grossPotential = grossAny ? grossSum : null;
 
-    let perfs: Performance[] = [];
+    const perfs: Performance[] = [];
     if (engagementIds.length > 0) {
-      perfs = await this.performanceRepo.find({
-        where: { engagementId: In(engagementIds) },
-        order: { performanceDate: 'ASC', performanceTime: 'ASC' },
+      const chunkSize = 1000;
+      for (let i = 0; i < engagementIds.length; i += chunkSize) {
+        const chunk = engagementIds.slice(i, i + chunkSize);
+        const chunkPerfs = await this.performanceRepo.find({
+          where: { engagementId: In(chunk) },
+          order: { performanceDate: 'ASC', performanceTime: 'ASC' },
+        });
+        perfs.push(...chunkPerfs);
+      }
+      perfs.sort((a, b) => {
+        const dateA = a.performanceDate ? String(a.performanceDate) : '';
+        const dateB = b.performanceDate ? String(b.performanceDate) : '';
+        if (dateA !== dateB) return dateA.localeCompare(dateB);
+        
+        const timeA = a.performanceTime ? String(a.performanceTime) : '';
+        const timeB = b.performanceTime ? String(b.performanceTime) : '';
+        if (timeA !== timeB) return timeA.localeCompare(timeB);
+        
+        return a.performanceId - b.performanceId;
       });
     }
     const perfIds = perfs.map((p) => p.performanceId);
@@ -1990,15 +2027,29 @@ export class DailySalesService {
     for (const id of perfIds) byPerf.set(id, []);
 
     if (perfIds.length > 0) {
-      const rows = await this.salesRepo
-        .createQueryBuilder('ts')
-        .where('ts.performanceId IN (:...ids)', { ids: perfIds })
-        .andWhere('CONVERT(date, ts.salesDate) <= CAST(:asOf AS date)', {
-          asOf,
-        })
-        .orderBy('ts.performanceId', 'ASC')
-        .addOrderBy('ts.salesDate', 'ASC')
-        .getMany();
+      const rows: TicketingSales[] = [];
+      const chunkSize = 1000;
+      for (let i = 0; i < perfIds.length; i += chunkSize) {
+        const chunk = perfIds.slice(i, i + chunkSize);
+        const chunkRows = await this.salesRepo
+          .createQueryBuilder('ts')
+          .where('ts.performanceId IN (:...ids)', { ids: chunk })
+          .andWhere('CONVERT(date, ts.salesDate) <= CAST(:asOf AS date)', {
+            asOf,
+          })
+          .orderBy('ts.performanceId', 'ASC')
+          .addOrderBy('ts.salesDate', 'ASC')
+          .getMany();
+        rows.push(...chunkRows);
+      }
+      rows.sort((a, b) => {
+        if (a.performanceId !== b.performanceId) {
+          return a.performanceId - b.performanceId;
+        }
+        const dateA = a.salesDate ? String(a.salesDate) : '';
+        const dateB = b.salesDate ? String(b.salesDate) : '';
+        return dateA.localeCompare(dateB);
+      });
 
       for (const row of rows) {
         const ymd = toYmdString(row.salesDate);
