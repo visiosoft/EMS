@@ -13,6 +13,7 @@ import {
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -39,6 +40,7 @@ const CHART_TOOLTIP_BORDER = 'hsl(var(--border))';
 
 type SeriesPoint = ApiSalesDashboardBody['series'][number];
 type SummaryPoint = ApiSalesDashboardBody['summary'][number];
+type MarketingWindow = ApiSalesDashboardBody['marketingWindow'];
 type ChartUnit = 'date' | 'week' | 'month' | 'lifetime';
 
 type ChartValueKey =
@@ -94,6 +96,12 @@ interface AuditGroup {
   title: string;
   shade: string;
   cells: AuditCell[];
+}
+
+interface ChartMarker {
+  date: string;
+  label: string;
+  color: string;
 }
 
 const CHART_UNIT_OPTIONS: Array<{ id: ChartUnit; label: string }> = [
@@ -356,16 +364,58 @@ function trimLeadingQuietDays(rows: SeriesPoint[]) {
 
 function buildDailyChartPoints(
   series: SeriesPoint[] | undefined,
-  sellableCapacity: number | null | undefined,
   grossPotential: number | null | undefined,
+  marketingWindow: MarketingWindow | undefined,
+  asOfDate: string | undefined,
 ): SalesChartPoint[] {
   const rows = trimLeadingQuietDays(sortedSeries(series));
-  return rows.map((row, index) => {
+  const rowByDate = new Map(rows.map((row) => [row.date, row]));
+  const validMarketingDates = [
+    marketingWindow?.preSaleDate,
+    marketingWindow?.onSaleDate,
+  ].filter((date): date is string => !!date && /^\d{4}-\d{2}-\d{2}$/.test(date));
+  const startCandidates = [
+    rows[0]?.date,
+    ...validMarketingDates.filter((date) => !asOfDate || date <= asOfDate),
+  ].filter((date): date is string => !!date);
+  const boundedMarketingDates = validMarketingDates.filter(
+    (date) => !asOfDate || date <= asOfDate,
+  );
+  const endCandidates = [
+    rows[rows.length - 1]?.date,
+    asOfDate,
+    ...boundedMarketingDates,
+  ].filter((date): date is string => !!date && /^\d{4}-\d{2}-\d{2}$/.test(date));
+  if (startCandidates.length === 0 || endCandidates.length === 0) return [];
+
+  const start = startCandidates.sort()[0];
+  const end = endCandidates.sort()[endCandidates.length - 1];
+  const expandedRows: SeriesPoint[] = [];
+  let carryTotalTickets = 0;
+  let carryTotalRevenue = 0;
+  for (let date = start; date <= end; date = ymdAddDays(date, 1)) {
+    const row = rowByDate.get(date);
+    if (row) {
+      carryTotalTickets = finiteNumber(row.totalTickets) ?? 0;
+      carryTotalRevenue = finiteNumber(row.totalRevenue) ?? 0;
+      expandedRows.push(row);
+    } else {
+      expandedRows.push({
+        date,
+        totalTickets: carryTotalTickets,
+        totalRevenue: carryTotalRevenue,
+        dailyTickets: 0,
+        dailyRevenue: 0,
+      });
+    }
+  }
+
+  return expandedRows.map((row, index) => {
     const totalTickets = finiteNumber(row.totalTickets) ?? 0;
     const dailyTickets = finiteNumber(row.dailyTickets) ?? 0;
     const totalRevenue = finiteNumber(row.totalRevenue) ?? 0;
     const dailyRevenue = finiteNumber(row.dailyRevenue) ?? 0;
-    const trailingWindow = rows.slice(Math.max(0, index - 6), index + 1);
+    const trailingWindow = expandedRows.slice(Math.max(0, index - 6), index + 1);
     const trailingTickets7 = trailingWindow.reduce(
       (sum, pt) => sum + (finiteNumber(pt.dailyTickets) ?? 0),
       0,
@@ -394,6 +444,57 @@ function buildDailyChartPoints(
       averageDailySales: dailyTickets > 0 ? dailyRevenue / dailyTickets : null,
     };
   });
+}
+
+function markerDateForUnit(ymd: string, unit: ChartUnit) {
+  if (unit === 'lifetime') return null;
+  if (unit === 'week') return startOfWeekYmd(ymd);
+  if (unit === 'month') return startOfMonthYmd(ymd);
+  return ymd;
+}
+
+function buildChartMarkers(
+  marketingWindow: MarketingWindow | undefined,
+  unit: ChartUnit,
+  points: SalesChartPoint[],
+): ChartMarker[] {
+  const availableDates = new Set(points.map((point) => point.date));
+  return [
+    {
+      sourceDate: marketingWindow?.preSaleDate,
+      label: 'Pre-sale',
+      color: 'hsl(var(--ems-purple))',
+    },
+    {
+      sourceDate: marketingWindow?.onSaleDate,
+      label: 'Public sale',
+      color: 'hsl(var(--ems-accent))',
+    },
+  ]
+    .map((marker) => {
+      if (!marker.sourceDate || !/^\d{4}-\d{2}-\d{2}$/.test(marker.sourceDate)) {
+        return null;
+      }
+      const date = markerDateForUnit(marker.sourceDate, unit);
+      if (!date || !availableDates.has(date)) return null;
+      return { date, label: marker.label, color: marker.color };
+    })
+    .filter((marker): marker is ChartMarker => marker != null);
+}
+
+function salePeriodLabel(
+  ymd: string,
+  marketingWindow: MarketingWindow | undefined,
+) {
+  const preSaleDate = marketingWindow?.preSaleDate;
+  const onSaleDate = marketingWindow?.onSaleDate;
+  const hasPreSaleDate = !!preSaleDate && /^\d{4}-\d{2}-\d{2}$/.test(preSaleDate);
+  const hasOnSaleDate = !!onSaleDate && /^\d{4}-\d{2}-\d{2}$/.test(onSaleDate);
+  if (hasOnSaleDate && ymd >= onSaleDate) return 'Public Sale';
+  if (hasPreSaleDate && ymd >= preSaleDate && (!hasOnSaleDate || ymd < onSaleDate)) {
+    return 'Pre-Sale';
+  }
+  return EMPTY;
 }
 
 function buildBucketedChartPoints(
@@ -592,6 +693,7 @@ function InfoCell({ label, children }: InfoCellProps) {
 interface SalesTrendChartProps {
   config: ChartConfig;
   points: SalesChartPoint[];
+  markers?: ChartMarker[];
   expanded?: boolean;
   className?: string;
 }
@@ -599,6 +701,7 @@ interface SalesTrendChartProps {
 function SalesTrendChart({
   config,
   points,
+  markers = [],
   expanded = false,
   className,
 }: SalesTrendChartProps) {
@@ -618,6 +721,7 @@ function SalesTrendChart({
 
   const interval = xAxisInterval(points.length, expanded);
   const angled = points.length > (expanded ? 12 : 6);
+  const pointLabelByDate = new Map(points.map((point) => [point.date, point.label]));
   const commonGraphProps = {
     dataKey: config.dataKey,
     name: config.valueLabel,
@@ -642,11 +746,12 @@ function SalesTrendChart({
             vertical={false}
           />
           <XAxis
-            dataKey="label"
+            dataKey="date"
             interval={interval}
             tick={{ fill: CHART_AXIS, fontSize: expanded ? 12 : 10 }}
             tickLine={{ stroke: CHART_GRID }}
             axisLine={{ stroke: CHART_GRID }}
+            tickFormatter={(value) => pointLabelByDate.get(String(value)) ?? String(value)}
             angle={angled ? -35 : 0}
             textAnchor={angled ? 'end' : 'middle'}
             height={angled ? 54 : 28}
@@ -661,6 +766,27 @@ function SalesTrendChart({
             axisLine={false}
             tickFormatter={(value) => config.axisFormatter(finiteNumber(value))}
           />
+          {markers.map((marker) => (
+            <ReferenceLine
+              key={`${marker.label}-${marker.date}`}
+              x={marker.date}
+              stroke={marker.color}
+              strokeDasharray="4 3"
+              strokeOpacity={expanded ? 0.75 : 0.45}
+              ifOverflow="extendDomain"
+              label={
+                expanded
+                  ? {
+                      value: marker.label,
+                      position: 'insideTop',
+                      fill: marker.color,
+                      fontSize: 11,
+                      fontWeight: 700,
+                    }
+                  : undefined
+              }
+            />
+          ))}
           <Tooltip
             cursor={{ stroke: CHART_GRID, strokeWidth: 1 }}
             contentStyle={{
@@ -749,11 +875,12 @@ function SalesTrendChart({
 interface ChartCardProps {
   config: ChartConfig;
   points: SalesChartPoint[];
+  markers: ChartMarker[];
   unit: ChartUnit;
   onExpand: (chartId: string) => void;
 }
 
-function ChartCard({ config, points, unit, onExpand }: ChartCardProps) {
+function ChartCard({ config, points, markers, unit, onExpand }: ChartCardProps) {
   return (
     <button
       type="button"
@@ -780,6 +907,7 @@ function ChartCard({ config, points, unit, onExpand }: ChartCardProps) {
       <SalesTrendChart
         config={config}
         points={points}
+        markers={markers}
         className="mt-4 flex-1"
       />
       <div className="mt-3 flex items-center justify-between gap-3 border-t border-border/70 pt-3 text-[11px] text-text-muted">
@@ -787,6 +915,46 @@ function ChartCard({ config, points, unit, onExpand }: ChartCardProps) {
         <span className="font-medium text-text-secondary">Open</span>
       </div>
     </button>
+  );
+}
+
+interface ChartUnitTabsProps {
+  unit: ChartUnit;
+  onChange: (unit: ChartUnit) => void;
+  className?: string;
+}
+
+function ChartUnitTabs({ unit, onChange, className }: ChartUnitTabsProps) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Chart horizontal unit"
+      className={cn(
+        'grid grid-cols-2 rounded-md border border-border bg-elevated p-1 text-xs sm:inline-grid sm:grid-cols-4',
+        className,
+      )}
+    >
+      {CHART_UNIT_OPTIONS.map((option) => {
+        const active = unit === option.id;
+        return (
+          <button
+            key={option.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(option.id)}
+            className={cn(
+              'rounded px-3 py-1.5 font-semibold transition',
+              active
+                ? 'bg-card text-ems-accent shadow-sm'
+                : 'text-text-secondary hover:bg-hover hover:text-text-primary',
+            )}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -823,15 +991,21 @@ export function SalesDashboardView({
     () =>
       buildDailyChartPoints(
         data?.series,
-        data?.sellableCapacity,
         data?.grossPotential,
+        data?.marketingWindow,
+        data?.asOfDate,
       ),
-    [data?.grossPotential, data?.sellableCapacity, data?.series],
+    [data?.asOfDate, data?.grossPotential, data?.marketingWindow, data?.series],
   );
 
   const chartPoints = useMemo(
     () => chartPointsForUnit(dailyChartPoints, chartUnit),
     [chartUnit, dailyChartPoints],
+  );
+
+  const chartMarkers = useMemo(
+    () => buildChartMarkers(data?.marketingWindow, chartUnit, chartPoints),
+    [chartPoints, chartUnit, data?.marketingWindow],
   );
 
   const auditGroups = useMemo(
@@ -1056,32 +1230,7 @@ export function SalesDashboardView({
               {CHART_CONFIGS.length} sales views for {attractionTour || pageTitle}
             </p>
           </div>
-          <div
-            role="tablist"
-            aria-label="Chart horizontal unit"
-            className="grid grid-cols-2 rounded-md border border-border bg-elevated p-1 text-xs sm:inline-grid sm:grid-cols-4"
-          >
-            {CHART_UNIT_OPTIONS.map((option) => {
-              const active = chartUnit === option.id;
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => setChartUnit(option.id)}
-                  className={cn(
-                    'rounded px-3 py-1.5 font-semibold transition',
-                    active
-                      ? 'bg-card text-ems-accent shadow-sm'
-                      : 'text-text-secondary hover:bg-hover hover:text-text-primary',
-                  )}
-                >
-                  {option.label}
-                </button>
-              );
-            })}
-          </div>
+          <ChartUnitTabs unit={chartUnit} onChange={setChartUnit} />
         </div>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
@@ -1090,6 +1239,7 @@ export function SalesDashboardView({
               key={config.id}
               config={config}
               points={chartPoints}
+              markers={chartMarkers}
               unit={chartUnit}
               onExpand={setExpandedChartId}
             />
@@ -1137,12 +1287,14 @@ export function SalesDashboardView({
                     <td className="whitespace-nowrap px-4 py-3 font-medium text-text-primary">
                       {formatDateLabel(row.date, 'EEE, MMM d, yyyy')}
                     </td>
-                    <td className="px-4 py-3 text-text-secondary">{EMPTY}</td>
+                    <td className="px-4 py-3 text-text-secondary">
+                      {salePeriodLabel(row.date, d.marketingWindow)}
+                    </td>
                     <td className="px-4 py-3 text-right tabular-nums text-text-primary">
-                      {countOrDash(row.dailyTicketsSold)}
+                      {countOrDash(row.totalTicketsSold)}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums font-medium text-ems-accent">
-                      {moneyOrDash(row.dailyValueSold)}
+                      {moneyOrDash(row.totalValueSold)}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums text-text-primary">
                       {countOrDash(row.seatsRemaining)}
@@ -1167,20 +1319,30 @@ export function SalesDashboardView({
         {expandedChart ? (
           <DialogContent className="z-[360] grid h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-none grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden border-border bg-card p-0 shadow-2xl sm:h-[calc(100vh-3rem)] sm:w-[calc(100vw-3rem)]">
             <DialogHeader className="border-b border-border bg-surface/70 px-5 py-4 pr-14">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
-                {expandedChart.number} | Units: {currentUnitLabel(chartUnit)}
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+                    {expandedChart.number} | Units: {currentUnitLabel(chartUnit)}
+                  </div>
+                  <DialogTitle className="mt-2 text-xl text-text-primary">
+                    {expandedChart.title}
+                  </DialogTitle>
+                  <DialogDescription className="mt-2 text-sm text-text-secondary">
+                    {expandedChart.yAxisLabel}
+                  </DialogDescription>
+                </div>
+                <ChartUnitTabs
+                  unit={chartUnit}
+                  onChange={setChartUnit}
+                  className="w-full lg:w-auto"
+                />
               </div>
-              <DialogTitle className="text-xl text-text-primary">
-                {expandedChart.title}
-              </DialogTitle>
-              <DialogDescription className="text-sm text-text-secondary">
-                {expandedChart.yAxisLabel}
-              </DialogDescription>
             </DialogHeader>
             <div className="min-h-0 p-4">
               <SalesTrendChart
                 config={expandedChart}
                 points={chartPoints}
+                markers={chartMarkers}
                 expanded
                 className="h-full min-h-[22rem]"
               />
