@@ -10,6 +10,7 @@ import { ContactInfo } from '../entities/contact-info.entity';
 import { Engagement } from '../entities/engagement.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { Performance } from '../entities/performance.entity';
+import { PerformanceTicketing } from '../entities/performance-ticketing.entity';
 import { TicketingSales } from '../entities/ticketing-sales.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
@@ -25,6 +26,7 @@ import { DailySalesService } from './daily-sales.service';
     TypeOrmModule.forFeature([
       TicketingSales,
       Performance,
+      PerformanceTicketing,
       Engagement,
       Tour,
       Attraction,

@@ -14,6 +14,7 @@ import { Contact } from '../entities/contact.entity';
 import { Engagement } from '../entities/engagement.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { Performance } from '../entities/performance.entity';
+import { PerformanceTicketing } from '../entities/performance-ticketing.entity';
 import { TicketingSales } from '../entities/ticketing-sales.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
@@ -164,6 +165,7 @@ export interface EngagementSalesDashboardDto {
   header: {
     attractionName: string | null;
     tourName: string;
+    entertainmentComplexNames: string | null;
     venueLabel: string;
     city: string | null;
     stateProvince: string | null;
@@ -172,6 +174,10 @@ export interface EngagementSalesDashboardDto {
   };
   sellableCapacity: number | null;
   grossPotential: number | null;
+  marketingWindow: {
+    preSaleDate: string | null;
+    onSaleDate: string | null;
+  };
   kpis: {
     totalRevenue: number;
     ticketsDistributed: number;
@@ -279,12 +285,18 @@ function totalsForReportingDay(
   let tickets = 0;
   let revenue = 0;
   for (const pid of perfIds) {
-    const rows = byPerf.get(pid) ?? [];
+    const rows = [...(byPerf.get(pid) ?? [])].sort((a, b) =>
+      a.salesDate.localeCompare(b.salesDate),
+    );
+    let latest: { salesDate: string; tickets: number; revenue: number } | null =
+      null;
     for (const row of rows) {
-      if (row.salesDate <= day) {
-        tickets += row.tickets;
-        revenue += row.revenue;
-      }
+      if (row.salesDate > day) break;
+      latest = row;
+    }
+    if (latest) {
+      tickets += latest.tickets;
+      revenue += latest.revenue;
     }
   }
   return { tickets, revenue };
@@ -310,8 +322,8 @@ function revenueRemainingDisplay(
 /**
  * One point per calendar day from earliest sale to `asOf`.
  * - `totalTickets` / `totalRevenue` = cumulative through this day across the requested performances.
- * - `dailyTickets` / `dailyRevenue` = new sales recorded ON this calendar day only.
- * Each stored dbo.TicketingSales row is the amount for that calendar day only (not a running snapshot).
+ * - `dailyTickets` / `dailyRevenue` = positive change from the previous calendar day.
+ * Each stored dbo.TicketingSales row is the cumulative snapshot as of that sales date.
  */
 function buildDailySeries(
   asOf: string,
@@ -328,22 +340,24 @@ function buildDailySeries(
   dailyRevenue: number;
 }> {
   let minD: string | null = null;
-  const dailyTickets = new Map<string, number>();
-  const dailyRevenue = new Map<string, number>();
+  const cursors = new Map<
+    number,
+    {
+      rows: { salesDate: string; tickets: number; revenue: number }[];
+      index: number;
+      tickets: number;
+      revenue: number;
+    }
+  >();
   for (const pid of perfIds) {
-    const rows = byPerf.get(pid);
+    const rows = [...(byPerf.get(pid) ?? [])].sort((a, b) =>
+      a.salesDate.localeCompare(b.salesDate),
+    );
     if (!rows?.length) continue;
     for (const r of rows) {
       if (!minD || r.salesDate < minD) minD = r.salesDate;
-      dailyTickets.set(
-        r.salesDate,
-        (dailyTickets.get(r.salesDate) ?? 0) + r.tickets,
-      );
-      dailyRevenue.set(
-        r.salesDate,
-        (dailyRevenue.get(r.salesDate) ?? 0) + r.revenue,
-      );
     }
+    cursors.set(pid, { rows, index: 0, tickets: 0, revenue: 0 });
   }
   if (!minD) {
     return [
@@ -363,20 +377,35 @@ function buildDailySeries(
     dailyTickets: number;
     dailyRevenue: number;
   }> = [];
-  let cumTickets = 0;
-  let cumRevenue = 0;
+  let prevTickets = 0;
+  let prevRevenue = 0;
   for (let d = minD; d <= asOf; d = ymdAddDays(d, 1)) {
-    const dayT = dailyTickets.get(d) ?? 0;
-    const dayR = dailyRevenue.get(d) ?? 0;
-    cumTickets += dayT;
-    cumRevenue += dayR;
+    let totalTickets = 0;
+    let totalRevenue = 0;
+    for (const cursor of cursors.values()) {
+      while (
+        cursor.index < cursor.rows.length &&
+        cursor.rows[cursor.index].salesDate <= d
+      ) {
+        const row = cursor.rows[cursor.index];
+        cursor.tickets = row.tickets;
+        cursor.revenue = row.revenue;
+        cursor.index += 1;
+      }
+      totalTickets += cursor.tickets;
+      totalRevenue += cursor.revenue;
+    }
+    const dayT = Math.max(0, totalTickets - prevTickets);
+    const dayR = Math.max(0, totalRevenue - prevRevenue);
     out.push({
       date: d,
-      totalTickets: cumTickets,
-      totalRevenue: cumRevenue,
+      totalTickets,
+      totalRevenue,
       dailyTickets: dayT,
       dailyRevenue: dayR,
     });
+    prevTickets = totalTickets;
+    prevRevenue = totalRevenue;
   }
   return out;
 }
@@ -391,6 +420,8 @@ export class DailySalesService {
     private readonly salesRepo: Repository<TicketingSales>,
     @InjectRepository(Performance)
     private readonly performanceRepo: Repository<Performance>,
+    @InjectRepository(PerformanceTicketing)
+    private readonly performanceTicketingRepo: Repository<PerformanceTicketing>,
     @InjectRepository(Engagement)
     private readonly engagementRepo: Repository<Engagement>,
     @InjectRepository(Attraction)
@@ -487,6 +518,44 @@ export class DailySalesService {
         `Could not repair converted-project performance rows for Daily Sales: ${message}`,
       );
     }
+  }
+
+  private async getMarketingWindowForPerformances(perfIds: number[]): Promise<{
+    preSaleDate: string | null;
+    onSaleDate: string | null;
+  }> {
+    if (perfIds.length === 0) {
+      return { preSaleDate: null, onSaleDate: null };
+    }
+
+    const rows = await this.performanceTicketingRepo.find({
+      where: { performanceId: In(perfIds) },
+      order: { performanceId: 'ASC', ticketingId: 'ASC' },
+    });
+    const firstByPerformance = new Map<number, PerformanceTicketing>();
+    for (const row of rows) {
+      if (!firstByPerformance.has(row.performanceId)) {
+        firstByPerformance.set(row.performanceId, row);
+      }
+    }
+
+    const preSaleDates: string[] = [];
+    const onSaleDates: string[] = [];
+    for (const row of firstByPerformance.values()) {
+      const preSaleDate = toYmdString(row.preSaleDate);
+      const onSaleDate = toYmdString(row.onSaleDate);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(preSaleDate)) {
+        preSaleDates.push(preSaleDate);
+      }
+      if (/^\d{4}-\d{2}-\d{2}$/.test(onSaleDate)) {
+        onSaleDates.push(onSaleDate);
+      }
+    }
+
+    return {
+      preSaleDate: preSaleDates.sort()[0] ?? null,
+      onSaleDate: onSaleDates.sort()[0] ?? null,
+    };
   }
 
   private searchTokens(value: string | null | undefined): string[] {
@@ -1641,8 +1710,8 @@ export class DailySalesService {
 
   /**
    * Sales KPIs, cumulative daily series, and summary rows for performances
-   * under one engagement. Each TicketingSales row = that calendar day's amount;
-   * totals sum through each day. When `performanceId` is provided, the dashboard
+   * under one engagement. Each TicketingSales row = cumulative snapshot as of
+   * that sales date. When `performanceId` is provided, the dashboard
    * is scoped to that single show only (used by Sales Summary row-click → detail);
    * otherwise it rolls up every performance under the engagement.
    */
@@ -1682,6 +1751,7 @@ export class DailySalesService {
     }
     const perfIds = perfs.map((p) => p.performanceId);
     const performanceCount = perfs.length;
+    const marketingWindow = await this.getMarketingWindowForPerformances(perfIds);
 
     const byPerf = new Map<
       number,
@@ -1805,6 +1875,7 @@ export class DailySalesService {
       header: {
         attractionName: engagement.attractionName,
         tourName: engagement.tourName ?? '',
+        entertainmentComplexNames: engagement.entertainmentComplexNames,
         venueLabel: venueLabelFromEngagement(engagement),
         city: engagement.city,
         stateProvince: engagement.stateProvince,
@@ -1813,6 +1884,7 @@ export class DailySalesService {
       },
       sellableCapacity: cap,
       grossPotential: grossPotentialNum,
+      marketingWindow,
       kpis: {
         totalRevenue: endTotals.revenue,
         ticketsDistributed: endTotals.tickets,
@@ -1909,6 +1981,7 @@ export class DailySalesService {
       });
     }
     const perfIds = perfs.map((p) => p.performanceId);
+    const marketingWindow = await this.getMarketingWindowForPerformances(perfIds);
 
     const byPerf = new Map<
       number,
@@ -2017,6 +2090,7 @@ export class DailySalesService {
       header: {
         attractionName: att.attractionName,
         tourName: tourNameLabel,
+        entertainmentComplexNames: null,
         venueLabel: 'Roll-up (all engagements)',
         city: null,
         stateProvince: null,
@@ -2025,6 +2099,7 @@ export class DailySalesService {
       },
       sellableCapacity: cap,
       grossPotential: potential,
+      marketingWindow,
       kpis: {
         totalRevenue: endTotals.revenue,
         ticketsDistributed: endTotals.tickets,

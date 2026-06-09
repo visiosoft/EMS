@@ -205,6 +205,7 @@ export interface ApiSalesDashboardBody {
   header: {
     attractionName: string | null;
     tourName: string;
+    entertainmentComplexNames?: string | null;
     venueLabel: string;
     city: string | null;
     stateProvince: string | null;
@@ -213,6 +214,10 @@ export interface ApiSalesDashboardBody {
   };
   sellableCapacity: number | null;
   grossPotential: number | null;
+  marketingWindow?: {
+    preSaleDate: string | null;
+    onSaleDate: string | null;
+  };
   kpis: {
     totalRevenue: number;
     ticketsDistributed: number;
@@ -269,67 +274,7 @@ export interface ApiAttractionSalesDashboard extends ApiSalesDashboardBody {
   engagementBaselines: NonNullable<ApiSalesDashboardBody['engagementBaselines']>;
 }
 
-function asFiniteNumber(value: unknown): number | null {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
-}
-
-function ymdAddDays(ymd: string, delta: number): string {
-  const [y, m, d] = ymd.split('-').map(Number);
-  if (!y || !m || !d) return ymd;
-  const dt = new Date(y, m - 1, d);
-  dt.setDate(dt.getDate() + delta);
-  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
-}
-
-function latestSalesPoint<T extends { date: string }>(rows: T[] | undefined, asOf?: string): T | null {
-  const filtered = (rows ?? [])
-    .filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.date))
-    .filter((row) => !asOf || row.date <= asOf)
-    .sort((a, b) => a.date.localeCompare(b.date));
-  return filtered.length ? filtered[filtered.length - 1] : null;
-}
-
 type DashboardSummaryPoint = ApiSalesDashboardBody['summary'][number];
-type DashboardSeriesPoint = ApiSalesDashboardBody['series'][number];
-
-function summarySnapshotRevenue(row: DashboardSummaryPoint | null | undefined): number | null {
-  return asFiniteNumber(row?.dailyValueSold) ?? asFiniteNumber(row?.totalValueSold);
-}
-
-function summarySnapshotTickets(row: DashboardSummaryPoint | null | undefined): number | null {
-  return asFiniteNumber(row?.dailyTicketsSold) ?? asFiniteNumber(row?.totalTicketsSold);
-}
-
-function seriesSnapshotRevenue(row: DashboardSeriesPoint | null | undefined): number | null {
-  return asFiniteNumber(row?.dailyRevenue) ?? asFiniteNumber(row?.totalRevenue);
-}
-
-function seriesSnapshotTickets(row: DashboardSeriesPoint | null | undefined): number | null {
-  return asFiniteNumber(row?.dailyTickets) ?? asFiniteNumber(row?.totalTickets);
-}
-
-function hasEnteredSummarySnapshot(row: DashboardSummaryPoint): boolean {
-  return (summarySnapshotRevenue(row) ?? 0) !== 0 || (summarySnapshotTickets(row) ?? 0) !== 0;
-}
-
-function hasEnteredSeriesSnapshot(row: DashboardSeriesPoint): boolean {
-  return (seriesSnapshotRevenue(row) ?? 0) !== 0 || (seriesSnapshotTickets(row) ?? 0) !== 0;
-}
-
-function latestEnteredSummaryPoint(
-  rows: DashboardSummaryPoint[] | undefined,
-  asOf?: string,
-): DashboardSummaryPoint | null {
-  return latestSalesPoint((rows ?? []).filter(hasEnteredSummarySnapshot), asOf);
-}
-
-function latestEnteredSeriesPoint(
-  rows: DashboardSeriesPoint[] | undefined,
-  asOf?: string,
-): DashboardSeriesPoint | null {
-  return latestSalesPoint((rows ?? []).filter(hasEnteredSeriesSnapshot), asOf);
-}
 
 type SalesTrendSummaryRemainingWindow = Window & typeof globalThis & {
   __iaeSalesTrendSummaryRemainingByDate?: Record<string, { seats: string; revenue: string }>;
@@ -435,102 +380,6 @@ function normalizeDashboardSummaryRemaining<T extends ApiSalesDashboardBody>(das
   return dashboard;
 }
 
-function normalizeSinglePerformanceDashboard<T extends ApiSalesDashboardBody>(dashboard: T): T {
-  if (dashboard.performanceId == null) return dashboard;
-
-  const latestSummary =
-    latestEnteredSummaryPoint(dashboard.summary, dashboard.asOfDate) ??
-    latestSalesPoint(dashboard.summary, dashboard.asOfDate);
-  const latestSeries =
-    latestEnteredSeriesPoint(dashboard.series, dashboard.asOfDate) ??
-    latestSalesPoint(dashboard.series, dashboard.asOfDate);
-  const sevenDaysPrior = ymdAddDays(dashboard.asOfDate, -7);
-  const sevenDaysPriorSummary = latestEnteredSummaryPoint(
-    dashboard.summary,
-    sevenDaysPrior,
-  );
-  const sevenDaysPriorSeries = latestEnteredSeriesPoint(
-    dashboard.series,
-    sevenDaysPrior,
-  );
-
-  // Daily Sales stores user-entered running totals. For a single performance trend,
-  // KPI values must use the latest PerformanceSalesQuantity / PerformanceSalesRevenue
-  // snapshot. Last-7-day KPIs are the latest snapshot minus the snapshot as of seven
-  // days prior, not a sum of cumulative snapshots.
-  const latestRevenue =
-    summarySnapshotRevenue(latestSummary) ??
-    seriesSnapshotRevenue(latestSeries) ??
-    dashboard.kpis.totalRevenue;
-  const latestTickets =
-    summarySnapshotTickets(latestSummary) ??
-    seriesSnapshotTickets(latestSeries) ??
-    dashboard.kpis.ticketsDistributed;
-  const priorRevenue =
-    summarySnapshotRevenue(sevenDaysPriorSummary) ??
-    seriesSnapshotRevenue(sevenDaysPriorSeries) ??
-    0;
-  const priorTickets =
-    summarySnapshotTickets(sevenDaysPriorSummary) ??
-    seriesSnapshotTickets(sevenDaysPriorSeries) ??
-    0;
-
-  const pctSold =
-    dashboard.sellableCapacity != null && dashboard.sellableCapacity > 0
-      ? (latestTickets / dashboard.sellableCapacity) * 100
-      : dashboard.kpis.pctSold;
-  const pctRevenueVsPotential =
-    dashboard.grossPotential != null && dashboard.grossPotential > 0
-      ? (latestRevenue / dashboard.grossPotential) * 100
-      : dashboard.kpis.pctRevenueVsPotential;
-
-  const normalizedSummary = dashboard.summary.map((row) => {
-    const rowTotalTickets = asFiniteNumber(row.totalTicketsSold) ?? 0;
-    const rowTotalRevenue = asFiniteNumber(row.totalValueSold) ?? 0;
-    const rowDailyTickets =
-      asFiniteNumber(row.dailyTicketsSold) ??
-      asFiniteNumber(row.totalTicketsSold) ??
-      0;
-    const rowDailyRevenue =
-      asFiniteNumber(row.dailyValueSold) ??
-      asFiniteNumber(row.totalValueSold) ??
-      0;
-    return {
-      ...row,
-      totalTicketsSold: rowTotalTickets,
-      totalValueSold: rowTotalRevenue,
-      dailyTicketsSold: rowDailyTickets,
-      dailyValueSold: rowDailyRevenue,
-      seatsSoldPct:
-        dashboard.sellableCapacity != null && dashboard.sellableCapacity > 0
-          ? (rowTotalTickets / dashboard.sellableCapacity) * 100
-          : row.seatsSoldPct,
-      seatsRemaining:
-        dashboard.sellableCapacity != null
-          ? Math.max(0, dashboard.sellableCapacity - rowTotalTickets)
-          : row.seatsRemaining,
-      revenueRemaining:
-        dashboard.grossPotential != null
-          ? Math.max(0, dashboard.grossPotential - rowTotalRevenue)
-          : row.revenueRemaining,
-    };
-  });
-
-  return normalizeDashboardSummaryRemaining({
-    ...dashboard,
-    summary: normalizedSummary,
-    kpis: {
-      ...dashboard.kpis,
-      totalRevenue: latestRevenue,
-      ticketsDistributed: latestTickets,
-      pctSold,
-      revenueLast7Days: Math.max(0, latestRevenue - priorRevenue),
-      ticketsLast7Days: Math.max(0, latestTickets - priorTickets),
-      pctRevenueVsPotential,
-    },
-  });
-}
-
 /**
  * KPIs + daily series for one engagement.
  * When `performanceId` is provided, the dashboard is scoped to just that single show;
@@ -549,7 +398,7 @@ export function fetchEngagementSalesDashboard(
   }
   return apiFetch<ApiEngagementSalesDashboard>(
     `/daily-sales/engagement-dashboard?${p.toString()}`,
-  ).then(normalizeSinglePerformanceDashboard).then(normalizeDashboardSummaryRemaining);
+  ).then(normalizeDashboardSummaryRemaining);
 }
 
 export function fetchAttractionSalesDashboard(
