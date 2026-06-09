@@ -22,6 +22,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { Modal, FormField, TabBar } from './Primitives';
+import { EngagementSalesDashboardPanel } from './EngagementSalesDashboardPanel';
 import { Select2, type Select2Option } from './Select2';
 import { companyToSelect2Option, companyToSelect2Options } from './companySelectOptions';
 import { Button } from '@/components/ui/button';
@@ -6391,6 +6392,7 @@ export function EngagementDetailPage({
           'Service Providers',
           'Contacts',
           'Performances',
+          'Sale Summary',
           'Marketing',
           'Production',
           'Taxation',
@@ -6732,6 +6734,15 @@ export function EngagementDetailPage({
             </ul>
           )}
         </div>
+      )}
+
+      {/* ── Sale Summary ────────────────────────────────────────────────── */}
+      {tab === 'Sale Summary' && (
+        <EngagementSalesDashboardPanel
+          engagementId={engagementId}
+          onBack={() => setTab('Overview')}
+          showBackButton={false}
+        />
       )}
 
       {/* ── Marketing (dbo.PerformanceTicketing) ─────────────────────────── */}
