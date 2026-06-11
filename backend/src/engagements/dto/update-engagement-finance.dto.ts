@@ -308,6 +308,13 @@ export class UpdateEngagementFinanceDto {
 
   // ── Booking tab — optional columns on dbo.EngagementFinances ───────────
 
+  /** dbo.EngagementFinances.PromoterPartnerCompanyID (optional column) */
+  @IsOptional()
+  @Transform(({ value }) => toOptionalInt(value))
+  @IsInt()
+  @Min(1)
+  promoterPartnerCompanyId?: number | null;
+
   /** dbo.EngagementFinances.PromoterPartnerContactID (optional column) */
   @IsOptional()
   @Transform(({ value }) => toOptionalInt(value))
@@ -480,6 +487,12 @@ export class UpdateEngagementFinanceDto {
   @IsString()
   @MaxLength(255)
   financeJob?: string | null;
+
+  /** dbo.EngagementFinances.FinanceCustomer (optional column) */
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  financeCustomer?: string | null;
 
   // ── Attraction Terms extras — serialized into ArtistBackEndTerms JSON ──
 

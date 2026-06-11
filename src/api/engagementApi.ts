@@ -86,6 +86,12 @@ export interface ApiEngagementVenueRow {
   /** IAE Production Manager (optional column) */
   iaeProductionManagerContactId: number | null;
   iaeProductionManagerContactName: string | null;
+  /** Venue Production Manager (optional column) */
+  venueProductionManagerContactId: number | null;
+  venueProductionManagerContactName: string | null;
+  /** Stagehand / Stage Labor Contact (optional column) */
+  stagehandContactId: number | null;
+  stagehandContactName: string | null;
 }
 
 export interface ApiEngagementVenueTabData {
@@ -111,6 +117,8 @@ export interface UpdateEngagementVenueTabPayload {
   venueMarketingManagerContactId?: number | null;
   venueDigitalMarketingManagerContactId?: number | null;
   iaeProductionManagerContactId?: number | null;
+  venueProductionManagerContactId?: number | null;
+  stagehandContactId?: number | null;
 }
 
 export interface ApiEngagementServiceProviderRow {
@@ -227,6 +235,8 @@ export interface ApiEngagementFinanceRow {
   /** dbo.EngagementFinances.AnnouncementDate (optional column) */
   announcementDate: string | null;
   /** dbo.EngagementFinances Booking optional columns */
+  promoterPartnerCompanyId: number | null;
+  promoterPartnerCompanyName: string | null;
   promoterPartnerContactId: number | null;
   promoterPartnerContactName: string | null;
   tourManagerContactId: number | null;
@@ -261,6 +271,12 @@ export interface ApiEngagementFinanceRow {
   compensationDirectCharges: number | null;
   compensationReimbursibles: number | null;
   financeJob: string | null;
+  financeCustomer: string | null;
+  /** dbo.Tour licensing flags (read-only from Tour record) */
+  tourAscap: boolean | null;
+  tourBmi: boolean | null;
+  tourSesac: boolean | null;
+  tourGmr: boolean | null;
   /** Serialized into dbo.ArtistFinance.ArtistBackEndTerms JSON */
   artistDepositRequired: boolean | null;
   artistPartOfCollateralizedDeal: boolean | null;
@@ -332,6 +348,7 @@ export type UpdateEngagementFinancePayload = {
   /** dbo.EngagementFinances.AnnouncementDate */
   announcementDate?: string | null;
   /** dbo.EngagementFinances Booking optional columns */
+  promoterPartnerCompanyId?: number | null;
   promoterPartnerContactId?: number | null;
   tourManagerContactId?: number | null;
   attractionContractSharePointLink?: string | null;
@@ -361,6 +378,7 @@ export type UpdateEngagementFinancePayload = {
   compensationDirectCharges?: number | null;
   compensationReimbursibles?: number | null;
   financeJob?: string | null;
+  financeCustomer?: string | null;
   /** Serialized into dbo.ArtistFinance.ArtistBackEndTerms JSON */
   artistDepositRequired?: boolean | null;
   artistPartOfCollateralizedDeal?: boolean | null;
@@ -375,6 +393,7 @@ export interface ApiEngagementFinanceLookups {
     id: number;
     label: string;
     withholdingTaxRate?: string | null;
+    withholdingArea?: string | null;
     dmaid?: number | null;
     taxAgencyId?: number | null;
     withholdingLink?: ApiFinanceLink | null;
@@ -907,6 +926,11 @@ export interface ApiTravelHotelRow {
   bookedBy: string | null;
   hotelCompanyId: number | null;
   hotelCompanyName: string | null;
+  hotelAddressLine1: string | null;
+  hotelAddressCity: string | null;
+  hotelAddressStateProvince: string | null;
+  hotelAddressPostalCode: string | null;
+  hotelAddressCountry: string | null;
   numberOfRooms: number | null;
   roomTypes: string | null;
   checkInDate: string | null;

@@ -118,4 +118,18 @@ export class UpdateEngagementVenueTabDto {
   @IsInt()
   @Min(1)
   iaeProductionManagerContactId?: number | null;
+
+  /** dbo.EngagementVenue.VenueProductionManagerContactID (optional column) */
+  @IsOptional()
+  @Transform(({ value }) => toOptionalInt(value))
+  @IsInt()
+  @Min(1)
+  venueProductionManagerContactId?: number | null;
+
+  /** dbo.EngagementVenue.StagehandContactID (optional column) */
+  @IsOptional()
+  @Transform(({ value }) => toOptionalInt(value))
+  @IsInt()
+  @Min(1)
+  stagehandContactId?: number | null;
 }

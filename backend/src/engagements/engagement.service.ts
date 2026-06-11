@@ -134,6 +134,12 @@ export interface EngagementVenueRow {
   /** IAE Production Manager (optional column on dbo.EngagementVenue) */
   iaeProductionManagerContactId: number | null;
   iaeProductionManagerContactName: string | null;
+  /** Venue Production Manager (optional column on dbo.EngagementVenue) */
+  venueProductionManagerContactId: number | null;
+  venueProductionManagerContactName: string | null;
+  /** Stagehand / Stage Labor Contact (optional column on dbo.EngagementVenue) */
+  stagehandContactId: number | null;
+  stagehandContactName: string | null;
 }
 
 export interface EngagementVenueTabData {
@@ -160,6 +166,12 @@ export interface EngagementTravelHotelRow {
   bookedBy: string | null;
   hotelCompanyId: number | null;
   hotelCompanyName: string | null;
+  /** Hotel company physical address (read-only, from dbo.Company → dbo.Address) */
+  hotelAddressLine1: string | null;
+  hotelAddressCity: string | null;
+  hotelAddressStateProvince: string | null;
+  hotelAddressPostalCode: string | null;
+  hotelAddressCountry: string | null;
   numberOfRooms: number | null;
   roomTypes: string | null;
   checkInDate: string | null;
@@ -300,6 +312,8 @@ export interface EngagementFinanceRow {
   /** dbo.EngagementFinances.AnnouncementDate — optional column */
   announcementDate: string | null;
   /** dbo.EngagementFinances Booking optional columns */
+  promoterPartnerCompanyId: number | null;
+  promoterPartnerCompanyName: string | null;
   promoterPartnerContactId: number | null;
   promoterPartnerContactName: string | null;
   tourManagerContactId: number | null;
@@ -334,6 +348,13 @@ export interface EngagementFinanceRow {
   compensationDirectCharges: number | null;
   compensationReimbursibles: number | null;
   financeJob: string | null;
+  /** dbo.EngagementFinances.FinanceCustomer (optional column) */
+  financeCustomer: string | null;
+  /** dbo.Tour licensing flags (read-only from Tour record) */
+  tourAscap: boolean | null;
+  tourBmi: boolean | null;
+  tourSesac: boolean | null;
+  tourGmr: boolean | null;
   /** Serialized into dbo.ArtistFinance.ArtistBackEndTerms JSON */
   artistDepositRequired: boolean | null;
   artistPartOfCollateralizedDeal: boolean | null;
@@ -347,6 +368,7 @@ export interface FinanceMasterOption {
   id: number;
   label: string;
   withholdingTaxRate?: string | null;
+  withholdingArea?: string | null;
   dmaid?: number | null;
   taxAgencyId?: number | null;
   withholdingLink?: FinanceLink | null;
@@ -509,6 +531,10 @@ export class EngagementService {
   private engagementVenueMarketingColsPresent: boolean | null = null;
   /** Optional IaeProductionManagerContactID column on dbo.EngagementVenue */
   private engagementVenueProductionManagerColPresent: boolean | null = null;
+  /** Optional VenueProductionManagerContactID column on dbo.EngagementVenue */
+  private engagementVenueVenueProductionManagerColPresent: boolean | null = null;
+  /** Optional StagehandContactID column on dbo.EngagementVenue */
+  private engagementVenueStagehandContactColPresent: boolean | null = null;
   /** Optional AnnouncementDate column on dbo.EngagementFinances */
   private engagementFinanceAnnouncementDatePresent: boolean | null = null;
   /** Optional Booking columns on dbo.EngagementFinances */
@@ -1466,6 +1492,144 @@ export class EngagementService {
     if (!sets.length) return;
     await this.dataSource.query(
       `UPDATE dbo.EngagementFinances SET ${sets.join(', ')} WHERE [FinanceID] = ${fid}`,
+    );
+    // Separately probed optional columns
+    await this.tryPersistFinanceCustomer(fid, dto);
+    await this.tryPersistFinancePromoterPartnerCompany(fid, dto);
+  }
+
+  // ── Finance Customer optional column ─────────────────────────────────────
+
+  private engagementFinanceCustomerColPresent: boolean | null = null;
+
+  private async engagementFinancesHasCustomerColumn(): Promise<boolean> {
+    if (this.engagementFinanceCustomerColPresent !== null)
+      return this.engagementFinanceCustomerColPresent;
+    try {
+      const r = await this.dataSource.query(`
+        SELECT CASE WHEN EXISTS (
+          SELECT 1 FROM sys.columns c
+          INNER JOIN sys.tables t ON c.object_id = t.object_id
+          INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+          WHERE s.name = N'dbo' AND t.name = N'EngagementFinances' AND c.name = N'FinanceCustomer'
+        ) THEN 1 ELSE 0 END AS ok`);
+      const raw = pickRaw((r as Record<string, unknown>[])?.[0] ?? {}, 'ok');
+      this.engagementFinanceCustomerColPresent =
+        raw === 1 || raw === true || raw === '1' || Number(raw) === 1;
+      return this.engagementFinanceCustomerColPresent;
+    } catch {
+      this.engagementFinanceCustomerColPresent = false;
+      return false;
+    }
+  }
+
+  private async mergeFinanceCustomerFromDb(
+    financeId: number,
+    base: EngagementFinanceRow,
+  ): Promise<EngagementFinanceRow> {
+    if (!(await this.engagementFinancesHasCustomerColumn())) return base;
+    try {
+      const fid = Math.floor(Number(financeId));
+      if (!Number.isFinite(fid) || fid < 1) return base;
+      const r = await this.dataSource.query(
+        `SELECT [FinanceCustomer] AS fc FROM dbo.EngagementFinances WHERE [FinanceID] = ${fid}`,
+      );
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      if (!row0) return base;
+      const fc = pickRaw(row0, 'fc');
+      return {
+        ...base,
+        financeCustomer: fc == null || fc === '' ? null : String(fc).trim().slice(0, 255) || null,
+      };
+    } catch {
+      return base;
+    }
+  }
+
+  private async tryPersistFinanceCustomer(
+    financeId: number,
+    dto: UpdateEngagementFinanceDto,
+  ): Promise<void> {
+    if (dto.financeCustomer === undefined) return;
+    if (!(await this.engagementFinancesHasCustomerColumn())) return;
+    const fid = Math.floor(Number(financeId));
+    if (!Number.isFinite(fid) || fid < 1) return;
+    const val =
+      dto.financeCustomer == null || String(dto.financeCustomer).trim() === ''
+        ? 'NULL'
+        : this.escapeSqlNVarCharLiteral(String(dto.financeCustomer).trim().slice(0, 255));
+    await this.dataSource.query(
+      `UPDATE dbo.EngagementFinances SET [FinanceCustomer] = ${val} WHERE [FinanceID] = ${fid}`,
+    );
+  }
+
+  // ── PromoterPartnerCompanyID optional column ────────────────────────────
+
+  private engagementFinancePromoterPartnerCompanyColPresent: boolean | null = null;
+
+  private async engagementFinancesHasPromoterPartnerCompanyColumn(): Promise<boolean> {
+    if (this.engagementFinancePromoterPartnerCompanyColPresent !== null)
+      return this.engagementFinancePromoterPartnerCompanyColPresent;
+    try {
+      const r = await this.dataSource.query(`
+        SELECT CASE WHEN EXISTS (
+          SELECT 1 FROM sys.columns c
+          INNER JOIN sys.tables t ON c.object_id = t.object_id
+          INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+          WHERE s.name = N'dbo' AND t.name = N'EngagementFinances' AND c.name = N'PromoterPartnerCompanyID'
+        ) THEN 1 ELSE 0 END AS ok`);
+      const raw = pickRaw((r as Record<string, unknown>[])?.[0] ?? {}, 'ok');
+      this.engagementFinancePromoterPartnerCompanyColPresent =
+        raw === 1 || raw === true || raw === '1' || Number(raw) === 1;
+      return this.engagementFinancePromoterPartnerCompanyColPresent;
+    } catch {
+      this.engagementFinancePromoterPartnerCompanyColPresent = false;
+      return false;
+    }
+  }
+
+  private async mergeFinancePromoterPartnerCompanyFromDb(
+    financeId: number,
+    base: EngagementFinanceRow,
+  ): Promise<EngagementFinanceRow> {
+    if (!(await this.engagementFinancesHasPromoterPartnerCompanyColumn())) return base;
+    try {
+      const fid = Math.floor(Number(financeId));
+      if (!Number.isFinite(fid) || fid < 1) return base;
+      const r = await this.dataSource.query(
+        `SELECT ef.[PromoterPartnerCompanyID] AS cid, c.CompanyName AS cname
+         FROM dbo.EngagementFinances ef
+         LEFT JOIN dbo.Company c ON c.CompanyID = ef.[PromoterPartnerCompanyID]
+         WHERE ef.[FinanceID] = ${fid}`,
+      );
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      if (!row0) return base;
+      const cid = pickRaw(row0, 'cid');
+      const cname = pickRaw(row0, 'cname');
+      return {
+        ...base,
+        promoterPartnerCompanyId: cid == null ? null : Math.trunc(Number(cid)) || null,
+        promoterPartnerCompanyName: cname == null || cname === '' ? null : String(cname).trim() || null,
+      };
+    } catch {
+      return base;
+    }
+  }
+
+  private async tryPersistFinancePromoterPartnerCompany(
+    financeId: number,
+    dto: UpdateEngagementFinanceDto,
+  ): Promise<void> {
+    if (dto.promoterPartnerCompanyId === undefined) return;
+    if (!(await this.engagementFinancesHasPromoterPartnerCompanyColumn())) return;
+    const fid = Math.floor(Number(financeId));
+    if (!Number.isFinite(fid) || fid < 1) return;
+    const val =
+      dto.promoterPartnerCompanyId == null
+        ? 'NULL'
+        : Math.trunc(Number(dto.promoterPartnerCompanyId));
+    await this.dataSource.query(
+      `UPDATE dbo.EngagementFinances SET [PromoterPartnerCompanyID] = ${val} WHERE [FinanceID] = ${fid}`,
     );
   }
 
@@ -2857,6 +3021,8 @@ export class EngagementService {
         settlementFileSharePointLink: null,
         tourSplitPoint: null,
         announcementDate: null,
+        promoterPartnerCompanyId: null,
+        promoterPartnerCompanyName: null,
         promoterPartnerContactId: null,
         promoterPartnerContactName: null,
         tourManagerContactId: null,
@@ -2890,6 +3056,11 @@ export class EngagementService {
         compensationDirectCharges: null,
         compensationReimbursibles: null,
         financeJob: null,
+        financeCustomer: null,
+        tourAscap: null,
+        tourBmi: null,
+        tourSesac: null,
+        tourGmr: null,
         artistDepositRequired: parsedBackEnd.depositRequired,
         artistPartOfCollateralizedDeal: parsedBackEnd.partOfCollateralizedDeal,
         artistFexPerformanceAgreementLink: parsedBackEnd.fexPerformanceAgreementLink,
@@ -2946,6 +3117,8 @@ export class EngagementService {
       settlementFileSharePointLink: null,
       tourSplitPoint: null,
       announcementDate: null,
+      promoterPartnerCompanyId: null,
+      promoterPartnerCompanyName: null,
       promoterPartnerContactId: null,
       promoterPartnerContactName: null,
       tourManagerContactId: null,
@@ -2979,6 +3152,11 @@ export class EngagementService {
       compensationDirectCharges: null,
       compensationReimbursibles: null,
       financeJob: null,
+      financeCustomer: null,
+      tourAscap: null,
+      tourBmi: null,
+      tourSesac: null,
+      tourGmr: null,
       artistDepositRequired: parsedBackEnd.depositRequired,
       artistPartOfCollateralizedDeal: parsedBackEnd.partOfCollateralizedDeal,
       artistFexPerformanceAgreementLink: parsedBackEnd.fexPerformanceAgreementLink,
@@ -3580,7 +3758,37 @@ export class EngagementService {
       withDealStructures,
     );
     const withBooking = await this.mergeFinanceBookingFieldsFromDb(row.financeId, withSharePointLinks);
-    return this.mergeFinanceEventBusinessFieldsFromDb(row.financeId, withBooking);
+    const withEventBusiness = await this.mergeFinanceEventBusinessFieldsFromDb(row.financeId, withBooking);
+    const withCustomer = await this.mergeFinanceCustomerFromDb(row.financeId, withEventBusiness);
+    const withPromoterCompany = await this.mergeFinancePromoterPartnerCompanyFromDb(row.financeId, withCustomer);
+    return this.mergeFinanceTourLicensingFromDb(engagementId, withPromoterCompany);
+  }
+
+  private async mergeFinanceTourLicensingFromDb(
+    engagementId: number,
+    base: EngagementFinanceRow,
+  ): Promise<EngagementFinanceRow> {
+    try {
+      const eid = Math.floor(Number(engagementId));
+      if (!Number.isFinite(eid) || eid < 1) return base;
+      const r = await this.dataSource.query(`
+        SELECT t.[ASCAP] AS ascap, t.[BMI] AS bmi, t.[SESAC] AS sesac, t.[GMR] AS gmr
+        FROM dbo.Engagement e
+        INNER JOIN dbo.Tour t ON t.TourID = e.TourID
+        WHERE e.EngagementID = ${eid}
+      `);
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      if (!row0) return base;
+      return {
+        ...base,
+        tourAscap: this.mapBit(pickRaw(row0, 'ascap') as boolean | number | Buffer | null | undefined),
+        tourBmi: this.mapBit(pickRaw(row0, 'bmi') as boolean | number | Buffer | null | undefined),
+        tourSesac: this.mapBit(pickRaw(row0, 'sesac') as boolean | number | Buffer | null | undefined),
+        tourGmr: this.mapBit(pickRaw(row0, 'gmr') as boolean | number | Buffer | null | undefined),
+      };
+    } catch {
+      return base;
+    }
   }
 
   /**
@@ -3612,10 +3820,24 @@ export class EngagementService {
         ? await this.linkRepo.find({ where: { linkId: In(linkIds) } })
         : [];
     const linksById = new Map(links.map((link) => [link.linkId, link]));
+    // Load DMA market names for area display
+    const dmaIds = Array.from(new Set(nrRows.map((r) => r.dmaid).filter((id): id is number => id != null && id > 0)));
+    let dmaAreaById = new Map<number, string>();
+    if (dmaIds.length > 0) {
+      try {
+        const dmaRows = await this.dataSource.query(
+          `SELECT DMAID AS id, MIN(MarketName) AS marketName FROM dbo.DMA WHERE DMAID IN (${dmaIds.join(',')}) GROUP BY DMAID`,
+        );
+        dmaAreaById = new Map(
+          (dmaRows as Record<string, unknown>[]).map((d) => [Number(d['id']), String(d['marketName'] ?? '')]),
+        );
+      } catch { /* DMA table unavailable — skip area */ }
+    }
     const nonResidentWithholdings: FinanceMasterOption[] = nrRows.map((r) => ({
       id: r.withholdingId,
       label: `Withholding #${r.withholdingId} (rate ${r.withholdingTaxRate})`,
       withholdingTaxRate: String(r.withholdingTaxRate ?? ''),
+      withholdingArea: r.dmaid != null ? (dmaAreaById.get(r.dmaid) ?? null) : null,
       dmaid: r.dmaid ?? null,
       taxAgencyId: r.taxAgencyId ?? null,
       withholdingLink: this.mapFinanceLink(
@@ -4600,6 +4822,92 @@ export class EngagementService {
   }
 
 
+  private async engagementVenueHasVenueProductionManagerCol(): Promise<boolean> {
+    if (this.engagementVenueVenueProductionManagerColPresent !== null)
+      return this.engagementVenueVenueProductionManagerColPresent;
+    try {
+      const r = await this.dataSource.query(`
+        SELECT CASE WHEN
+          EXISTS (SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id=t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id=s.schema_id
+            WHERE s.name=N'dbo' AND t.name=N'EngagementVenue' AND c.name=N'VenueProductionManagerContactID')
+        THEN 1 ELSE 0 END AS ok`);
+      const raw = pickRaw((r as Record<string, unknown>[])?.[0] ?? {}, 'ok');
+      this.engagementVenueVenueProductionManagerColPresent =
+        raw === 1 || raw === true || raw === '1' || Number(raw) === 1;
+      return this.engagementVenueVenueProductionManagerColPresent;
+    } catch {
+      this.engagementVenueVenueProductionManagerColPresent = false;
+      return false;
+    }
+  }
+
+  private async readEngagementVenueVenueProductionManagerCol(
+    engagementId: number,
+    venueCompanyId: number,
+  ): Promise<number | null> {
+    if (!(await this.engagementVenueHasVenueProductionManagerCol())) return null;
+    try {
+      const r = await this.dataSource.query(
+        `SELECT [VenueProductionManagerContactID] AS vpm
+         FROM dbo.EngagementVenue
+         WHERE [EngagementID]=@0 AND [VenueCompanyID]=@1`,
+        [engagementId, venueCompanyId],
+      );
+      const row = (r as Record<string, unknown>[])?.[0];
+      if (!row) return null;
+      const v = pickRaw(row, 'vpm');
+      const n = Number(v);
+      return v != null && v !== '' && Number.isFinite(n) && n > 0 ? n : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async engagementVenueHasStagehandContactCol(): Promise<boolean> {
+    if (this.engagementVenueStagehandContactColPresent !== null)
+      return this.engagementVenueStagehandContactColPresent;
+    try {
+      const r = await this.dataSource.query(`
+        SELECT CASE WHEN
+          EXISTS (SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id=t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id=s.schema_id
+            WHERE s.name=N'dbo' AND t.name=N'EngagementVenue' AND c.name=N'StagehandContactID')
+        THEN 1 ELSE 0 END AS ok`);
+      const raw = pickRaw((r as Record<string, unknown>[])?.[0] ?? {}, 'ok');
+      this.engagementVenueStagehandContactColPresent =
+        raw === 1 || raw === true || raw === '1' || Number(raw) === 1;
+      return this.engagementVenueStagehandContactColPresent;
+    } catch {
+      this.engagementVenueStagehandContactColPresent = false;
+      return false;
+    }
+  }
+
+  private async readEngagementVenueStagehandContactCol(
+    engagementId: number,
+    venueCompanyId: number,
+  ): Promise<number | null> {
+    if (!(await this.engagementVenueHasStagehandContactCol())) return null;
+    try {
+      const r = await this.dataSource.query(
+        `SELECT [StagehandContactID] AS shc
+         FROM dbo.EngagementVenue
+         WHERE [EngagementID]=@0 AND [VenueCompanyID]=@1`,
+        [engagementId, venueCompanyId],
+      );
+      const row = (r as Record<string, unknown>[])?.[0];
+      if (!row) return null;
+      const v = pickRaw(row, 'shc');
+      const n = Number(v);
+      return v != null && v !== '' && Number.isFinite(n) && n > 0 ? n : null;
+    } catch {
+      return null;
+    }
+  }
+
   private async venueHasTechPackCol(): Promise<boolean> {
     if (this.venueOptionalTechPackColPresent !== null)
       return this.venueOptionalTechPackColPresent;
@@ -4878,11 +5186,13 @@ export class EngagementService {
     const venueMap = new Map(venues.map((v) => [v.companyId, v]));
 
     // Ticketing system column names (resolved once)
-    const [hasOptional, hasTechPack, hasMarketing, hasProdMgr] = await Promise.all([
+    const [hasOptional, hasTechPack, hasMarketing, hasProdMgr, hasVenueProdMgr, hasStagehand] = await Promise.all([
       this.engagementVenueHasOptionalCols(),
       this.venueHasTechPackCol(),
       this.engagementVenueHasMarketingCols(),
       this.engagementVenueHasProductionManagerCol(),
+      this.engagementVenueHasVenueProductionManagerCol(),
+      this.engagementVenueHasStagehandContactCol(),
     ]);
 
     // Load seating chart link IDs → URLs in batch
@@ -4974,6 +5284,18 @@ export class EngagementService {
         : null;
       const iaeProdMgrName = await this.lookupContactName(iaeProdMgrId);
 
+      // Venue Production Manager (optional col)
+      const venueProdMgrId = hasVenueProdMgr
+        ? await this.readEngagementVenueVenueProductionManagerCol(engagementId, ev.venueCompanyId)
+        : null;
+      const venueProdMgrName = await this.lookupContactName(venueProdMgrId);
+
+      // Stagehand / Stage Labor Contact (optional col)
+      const stagehandId = hasStagehand
+        ? await this.readEngagementVenueStagehandContactCol(engagementId, ev.venueCompanyId)
+        : null;
+      const stagehandName = await this.lookupContactName(stagehandId);
+
       results.push({
         engagementId: ev.engagementId,
         venueCompanyId: ev.venueCompanyId,
@@ -5012,6 +5334,10 @@ export class EngagementService {
         venueDigitalMarketingManagerName: digitalMktMgrName,
         iaeProductionManagerContactId: iaeProdMgrId,
         iaeProductionManagerContactName: iaeProdMgrName,
+        venueProductionManagerContactId: venueProdMgrId,
+        venueProductionManagerContactName: venueProdMgrName,
+        stagehandContactId: stagehandId,
+        stagehandContactName: stagehandName,
       });
     }
     return results;
@@ -5150,6 +5476,36 @@ export class EngagementService {
           : Math.trunc(Number(dto.iaeProductionManagerContactId));
       await this.dataSource.query(
         `UPDATE dbo.EngagementVenue SET [IaeProductionManagerContactID] = ${val}
+         WHERE [EngagementID] = ${engagementId} AND [VenueCompanyID] = ${venueCompanyId}`,
+      );
+    }
+
+    // ── Venue Production Manager (optional col) ────────────────────────────
+    if (
+      dto.venueProductionManagerContactId !== undefined &&
+      (await this.engagementVenueHasVenueProductionManagerCol())
+    ) {
+      const val =
+        dto.venueProductionManagerContactId == null
+          ? 'NULL'
+          : Math.trunc(Number(dto.venueProductionManagerContactId));
+      await this.dataSource.query(
+        `UPDATE dbo.EngagementVenue SET [VenueProductionManagerContactID] = ${val}
+         WHERE [EngagementID] = ${engagementId} AND [VenueCompanyID] = ${venueCompanyId}`,
+      );
+    }
+
+    // ── Stagehand / Stage Labor Contact (optional col) ─────────────────────
+    if (
+      dto.stagehandContactId !== undefined &&
+      (await this.engagementVenueHasStagehandContactCol())
+    ) {
+      const val =
+        dto.stagehandContactId == null
+          ? 'NULL'
+          : Math.trunc(Number(dto.stagehandContactId));
+      await this.dataSource.query(
+        `UPDATE dbo.EngagementVenue SET [StagehandContactID] = ${val}
          WHERE [EngagementID] = ${engagementId} AND [VenueCompanyID] = ${venueCompanyId}`,
       );
     }
@@ -6299,6 +6655,32 @@ export class EngagementService {
         });
         const hotelCompanyName = await this.lookupCompanyName(hotel?.hotelCompanyId ?? null);
         const occupantName = await this.lookupContactName(hotel?.occupantContactId ?? null);
+        // Hotel address: load from company's physical address
+        let hotelAddressLine1: string | null = null;
+        let hotelAddressCity: string | null = null;
+        let hotelAddressStateProvince: string | null = null;
+        let hotelAddressPostalCode: string | null = null;
+        let hotelAddressCountry: string | null = null;
+        if (hotel?.hotelCompanyId != null && hotel.hotelCompanyId > 0) {
+          try {
+            const addrRows = await this.dataSource.query(
+              `SELECT a.[AddressLine1] AS l1, a.[City] AS city, a.[StateProvince] AS sp, a.[PostalCode] AS pc, a.[Country] AS ctry
+               FROM dbo.Company c
+               LEFT JOIN dbo.Address a ON a.[AddressID] = c.[PhysicalAddressID]
+               WHERE c.[CompanyID] = @0`,
+              [hotel.hotelCompanyId],
+            );
+            const ar = (addrRows as Record<string, unknown>[])?.[0];
+            if (ar) {
+              const ts = (k: string) => { const v = pickRaw(ar, k); return v == null || v === '' ? null : String(v).trim(); };
+              hotelAddressLine1 = ts('l1');
+              hotelAddressCity = ts('city');
+              hotelAddressStateProvince = ts('sp');
+              hotelAddressPostalCode = ts('pc');
+              hotelAddressCountry = ts('ctry');
+            }
+          } catch { /* ignore */ }
+        }
         results.push({
           engagementTravelId: t.engagementTravelId,
           travelType: 'Hotel',
@@ -6309,6 +6691,11 @@ export class EngagementService {
                 bookedBy: t.bookedBy,
                 hotelCompanyId: hotel.hotelCompanyId,
                 hotelCompanyName,
+                hotelAddressLine1,
+                hotelAddressCity,
+                hotelAddressStateProvince,
+                hotelAddressPostalCode,
+                hotelAddressCountry,
                 numberOfRooms: hotel.numberOfRooms,
                 roomTypes: hotel.roomTypes,
                 checkInDate: hotel.checkInDate,

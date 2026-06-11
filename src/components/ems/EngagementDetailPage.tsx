@@ -973,6 +973,9 @@ function AttractionTravelSection({
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-text-secondary">
                     {t.hotel.bookedBy && <><span className="text-text-muted">Booked by:</span><span>{t.hotel.bookedBy}</span></>}
                     {t.hotel.hotelCompanyName && <><span className="text-text-muted">Hotel:</span><span>{t.hotel.hotelCompanyName}</span></>}
+                    {(t.hotel.hotelAddressLine1 || t.hotel.hotelAddressCity) && (
+                      <><span className="text-text-muted">Address:</span><span>{[t.hotel.hotelAddressLine1, t.hotel.hotelAddressCity, t.hotel.hotelAddressStateProvince, t.hotel.hotelAddressPostalCode, t.hotel.hotelAddressCountry].filter(Boolean).join(', ')}</span></>
+                    )}
                     {t.hotel.numberOfRooms != null && <><span className="text-text-muted"># Rooms:</span><span>{t.hotel.numberOfRooms}</span></>}
                     {t.hotel.roomTypes && <><span className="text-text-muted">Room types:</span><span>{t.hotel.roomTypes}</span></>}
                     {(t.hotel.checkInDate || t.hotel.checkOutDate) && <><span className="text-text-muted">Dates:</span><span>{t.hotel.checkInDate} → {t.hotel.checkOutDate}</span></>}
@@ -1574,6 +1577,8 @@ function EngagementProductionPanel({
 
   // Venue tab fields: IAE Production Manager, Venue Type, Tech Pack
   const [iaeProductionManagerId, setIaeProductionManagerId] = useState('');
+  const [venueProductionManagerId, setVenueProductionManagerId] = useState('');
+  const [stagehandContactId, setStagehandContactId] = useState('');
   const [venueTypeId, setVenueTypeId] = useState('');
   const [stageDimensions, setStageDimensions] = useState('');
   const [flySystemSpecs, setFlySystemSpecs] = useState('');
@@ -1593,6 +1598,8 @@ function EngagementProductionPanel({
   useEffect(() => {
     if (!primaryVenue) return;
     setIaeProductionManagerId(primaryVenue.iaeProductionManagerContactId != null ? String(primaryVenue.iaeProductionManagerContactId) : '');
+    setVenueProductionManagerId(primaryVenue.venueProductionManagerContactId != null ? String(primaryVenue.venueProductionManagerContactId) : '');
+    setStagehandContactId(primaryVenue.stagehandContactId != null ? String(primaryVenue.stagehandContactId) : '');
     setVenueTypeId(primaryVenue.venueTypeId != null ? String(primaryVenue.venueTypeId) : '');
     setStageDimensions(primaryVenue.stageDimensions ?? '');
     setFlySystemSpecs(primaryVenue.flySystemSpecs ?? '');
@@ -4806,6 +4813,10 @@ function EngagementBookingPanel({
   useEffect(() => {
     const d = financeQuery.data;
     if (!d) return;
+    // If the finance record stores a promoter company, prefer it over service provider
+    if (d.promoterPartnerCompanyId != null) {
+      setPromoterPartnerCompanyId(String(d.promoterPartnerCompanyId));
+    }
     setPromoterPartnerContactId(d.promoterPartnerContactId != null ? String(d.promoterPartnerContactId) : '');
     setTourManagerContactId(d.tourManagerContactId != null ? String(d.tourManagerContactId) : '');
     setAttractionDealType(d.artistDealType ?? '');
@@ -4916,6 +4927,7 @@ function EngagementBookingPanel({
         // Venue terms
         venueDealType: (venueDealType || null) as UpdateEngagementFinancePayload['venueDealType'],
         // Booking fields (new optional columns)
+        promoterPartnerCompanyId: fkIdStringToNumber(promoterPartnerCompanyId),
         promoterPartnerContactId: fkIdStringToNumber(promoterPartnerContactId),
         tourManagerContactId: fkIdStringToNumber(tourManagerContactId),
         attractionContractSharePointLink: acLink || null,
@@ -5339,6 +5351,11 @@ function EngagementEventBusinessPanel({
     queryFn: fetchEngagementIaeContactLookups,
     staleTime: 300_000,
   });
+  const financeLookupsQuery = useQuery({
+    queryKey: ['engagements', 'finance-lookups'],
+    queryFn: () => fetchEngagementFinanceLookups(),
+    staleTime: 300_000,
+  });
 
   const iaeContactOptions = useMemo((): Select2Option[] => [
     { value: '', label: '— not set —' },
@@ -5406,6 +5423,7 @@ function EngagementEventBusinessPanel({
 
   // ── Finance ───────────────────────────────────────────────────────────────
   const [financeJob, setFinanceJob] = useState('');
+  const [financeCustomer, setFinanceCustomer] = useState('');
 
   const {
     hasUserEdited: hasEventBusinessUserEdited,
@@ -5458,6 +5476,7 @@ function EngagementEventBusinessPanel({
     setArtistGrossTaxableCompensation(numFieldToString(d.artistGrossTaxableCompensation));
     setAmountDueToDeptOfRevenue(numFieldToString(d.amountDueToDeptOfRevenue));
     setFinanceJob(d.financeJob ?? '');
+    setFinanceCustomer(d.financeCustomer ?? '');
   }, [financeQuery.data]);
 
   const saveMut = useMutation({
@@ -5559,6 +5578,7 @@ function EngagementEventBusinessPanel({
       withholdingExceptions: trimOrNull(withholdingExceptions, 8000),
       checkNumberOrConfOfWithholdingPayment: trimOrNull(checkNumberOrConfOfWithholdingPayment, 100),
       financeJob: trimOrNull(financeJob, 255),
+      financeCustomer: trimOrNull(financeCustomer, 255),
     });
   };
 
@@ -5801,6 +5821,45 @@ function EngagementEventBusinessPanel({
 
         {/* ── Non-Resident Withholding Tax ─────────────────────────── */}
         {sectionHeader('Non-Resident Withholding Tax')}
+        {(() => {
+          const wid = d?.requiredNonResidentWithholdingId;
+          const wrow = wid != null ? (financeLookupsQuery.data?.nonResidentWithholdings ?? []).find((r) => r.id === wid) : undefined;
+          if (!wrow) return null;
+          return (
+            <div className="rounded-md border border-border bg-surface/60 p-3 space-y-2 text-sm">
+              <div className="flex flex-wrap gap-x-6 gap-y-1">
+                {wrow.withholdingTaxRate != null && (
+                  <span><span className="text-text-muted">Rate:</span> <span className="font-medium text-text-primary">{wrow.withholdingTaxRate}%</span></span>
+                )}
+                {wrow.withholdingArea != null && wrow.withholdingArea !== '' && (
+                  <span><span className="text-text-muted">Area:</span> <span className="font-medium text-text-primary">{wrow.withholdingArea}</span></span>
+                )}
+                {wrow.taxAgencyId != null && (
+                  <span><span className="text-text-muted">Tax Agency ID:</span> <span className="font-medium text-text-primary">{wrow.taxAgencyId}</span></span>
+                )}
+              </div>
+              {(wrow.withholdingLink?.linkUrl || wrow.iaeWaiverInstructions?.linkUrl || wrow.artistWaiverInstructions?.linkUrl) && (
+                <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs">
+                  {wrow.withholdingLink?.linkUrl && (
+                    <a href={wrow.withholdingLink.linkUrl} target="_blank" rel="noopener noreferrer" className="text-ems-accent underline">
+                      {wrow.withholdingLink.linkName || 'Withholding Link'}
+                    </a>
+                  )}
+                  {wrow.iaeWaiverInstructions?.linkUrl && (
+                    <a href={wrow.iaeWaiverInstructions.linkUrl} target="_blank" rel="noopener noreferrer" className="text-ems-accent underline">
+                      {wrow.iaeWaiverInstructions.linkName || 'IAE Waiver Instructions'}
+                    </a>
+                  )}
+                  {wrow.artistWaiverInstructions?.linkUrl && (
+                    <a href={wrow.artistWaiverInstructions.linkUrl} target="_blank" rel="noopener noreferrer" className="text-ems-accent underline">
+                      {wrow.artistWaiverInstructions.linkName || 'Artist Waiver Instructions'}
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
           {fieldRow('Payee',
             <input className={inputCls} value={withholdingPayee} maxLength={255}
@@ -5888,6 +5947,10 @@ function EngagementEventBusinessPanel({
         {sectionHeader('Finance')}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
           {fieldRow('Customer', <span className="text-sm text-text-primary">{d?.payableEntityCompanyName ?? '—'}<span className="text-xs text-text-muted ml-2">(set on Finance tab)</span></span>)}
+          {fieldRow('Customer (QuickBooks)',
+            <input className={inputCls} value={financeCustomer} maxLength={255}
+              onChange={(e) => { markEventBusinessUserEdited(); setFinanceCustomer(e.target.value); }}
+              disabled={disabled} />)}
           {fieldRow('Job',
             <input className={inputCls} value={financeJob} maxLength={255}
               onChange={(e) => { markEventBusinessUserEdited(); setFinanceJob(e.target.value); }}
@@ -5896,11 +5959,34 @@ function EngagementEventBusinessPanel({
 
         {/* ── Licensing / Royalties ─────────────────────────────────── */}
         {sectionHeader('Licensing / Royalties')}
-        <p className="text-sm text-text-muted">ASCAP / BMI / SESAC / GMR licensing and royalties are managed on the Tour record.</p>
+        <div className="flex flex-wrap gap-3">
+          {(['ASCAP', 'BMI', 'SESAC', 'GMR'] as const).map((org) => {
+            const flag = org === 'ASCAP' ? d?.tourAscap : org === 'BMI' ? d?.tourBmi : org === 'SESAC' ? d?.tourSesac : d?.tourGmr;
+            return (
+              <span key={org} className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${
+                flag === true ? 'bg-green-100 text-green-800 ring-1 ring-green-300' :
+                flag === false ? 'bg-gray-100 text-gray-400' :
+                'bg-gray-100 text-gray-400'
+              }`}>{org}</span>
+            );
+          })}
+          {d?.tourAscap == null && d?.tourBmi == null && d?.tourSesac == null && d?.tourGmr == null && (
+            <span className="text-sm text-text-muted">Licensing flags are set on the Tour record.</span>
+          )}
+        </div>
+        <p className="text-xs text-text-muted mt-1">Fee amounts are calculated from licensing rates — rate data is managed on the Tour record.</p>
 
         {/* ── RAMP ────────────────────────────────────────────────── */}
         {sectionHeader('RAMP')}
         <p className="text-sm text-text-muted">RAMP bills and reports will be shown here when available.</p>
+
+        {/* ── Sale Summary ─────────────────────────────────────────── */}
+        {sectionHeader('Sale Summary')}
+        <EngagementSalesDashboardPanel
+          engagementId={engagementId}
+          onBack={() => undefined}
+          showBackButton={false}
+        />
 
         {/* ── Save ────────────────────────────────────────────────── */}
         <div className="flex justify-end pt-2 border-t border-border">
