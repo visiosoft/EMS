@@ -13,6 +13,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { AddEngagementVenueDto } from './dto/add-engagement-venue.dto';
+import { UpdateEngagementVenueTabDto } from './dto/update-engagement-venue-tab.dto';
 import { CreateEngagementDto } from './dto/create-engagement.dto';
 import { CreateEngagementIaeContactDto } from './dto/create-engagement-iae-contact.dto';
 import { CreatePerformanceDto } from './dto/create-performance.dto';
@@ -21,6 +22,9 @@ import { UpdateEngagementFinanceDto } from './dto/update-engagement-finance.dto'
 import { UpdateEngagementIaeContactDto } from './dto/update-engagement-iae-contact.dto';
 import { UpdateNonResidentWithholdingLinksDto } from './dto/update-non-resident-withholding-links.dto';
 import { UpdatePerformanceTicketingDto } from './dto/update-performance-ticketing.dto';
+import { UpdateIaeTicketingManagerDto } from './dto/update-iae-ticketing-manager.dto';
+import { CreateEngagementRetailPartnerDto } from './dto/create-engagement-retail-partner.dto';
+import { CreateEngagementTravelHotelDto, UpdateEngagementTravelHotelDto, CreateEngagementTravelCarServiceDto, UpdateEngagementTravelCarServiceDto } from './dto/engagement-travel.dto';
 import { EngagementService } from './engagement.service';
 
 @Controller('engagements')
@@ -192,6 +196,12 @@ export class EngagementController {
     return this.engagementService.listVenues(id);
   }
 
+  /** Full Venues-tab data: per-venue details + engagement-level deal type / terms. */
+  @Get(':id/venue-tab-data')
+  getVenueTabData(@Param('id', ParseIntPipe) id: number) {
+    return this.engagementService.getVenueTabData(id);
+  }
+
   @Post(':id/venues')
   @HttpCode(HttpStatus.CREATED)
   addVenue(
@@ -208,6 +218,17 @@ export class EngagementController {
     @Param('venueCompanyId', ParseIntPipe) venueCompanyId: number,
   ) {
     return this.engagementService.removeVenue(id, venueCompanyId);
+  }
+
+  /** PATCH per-venue Venues-tab fields (booking manager, tech pack, contracts, etc.). */
+  @Patch(':id/venues/:venueCompanyId/tab')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  updateVenueTab(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('venueCompanyId', ParseIntPipe) venueCompanyId: number,
+    @Body() dto: UpdateEngagementVenueTabDto,
+  ) {
+    return this.engagementService.updateVenueTabPerVenue(id, venueCompanyId, dto);
   }
 
   // ─── Service Providers (VenueServiceProvider) ─────────────────────────────
@@ -275,6 +296,11 @@ export class EngagementController {
     return this.engagementService.deletePerformance(id, performanceId);
   }
 
+  @Get(':id/performances/ticketing-summary')
+  getPerformancesTicketingSummary(@Param('id', ParseIntPipe) id: number) {
+    return this.engagementService.getPerformancesWithTicketingSummary(id);
+  }
+
   @Get(':id/performances/:performanceId/ticketing')
   getPerformanceTicketing(
     @Param('id', ParseIntPipe) id: number,
@@ -295,5 +321,109 @@ export class EngagementController {
       performanceId,
       dto,
     );
+  }
+
+  @Get(':id/iae-ticketing-manager')
+  getIaeTicketingManager(@Param('id', ParseIntPipe) id: number) {
+    return this.engagementService.getIaeTicketingManager(id);
+  }
+
+  @Patch(':id/iae-ticketing-manager')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  updateIaeTicketingManager(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateIaeTicketingManagerDto,
+  ) {
+    return this.engagementService.updateIaeTicketingManager(
+      id,
+      dto.iaeTicketingManagerContactId ?? null,
+    );
+  }
+
+  // ─── Marketing Meta (Tour contacts, demographics, media mix) ────────────────────
+
+  /** Read-only tour marketing contacts, audience demographics, and media mix. */
+  @Get(':id/marketing-meta')
+  getMarketingMeta(@Param('id', ParseIntPipe) id: number) {
+    return this.engagementService.getMarketingMeta(id);
+  }
+
+  // ─── Retail Partners (dbo.EngagementRetailPartner) ───────────────────────────
+
+  @Get(':id/retail-partners')
+  listRetailPartners(@Param('id', ParseIntPipe) id: number) {
+    return this.engagementService.listRetailPartners(id);
+  }
+
+  @Post(':id/retail-partners')
+  @HttpCode(HttpStatus.CREATED)
+  addRetailPartner(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateEngagementRetailPartnerDto,
+  ) {
+    return this.engagementService.addRetailPartner(id, dto);
+  }
+
+  @Delete(':id/retail-partners/:retailPartnerId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeRetailPartner(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('retailPartnerId', ParseIntPipe) retailPartnerId: number,
+  ) {
+    return this.engagementService.removeRetailPartner(id, retailPartnerId);
+  }
+
+  // ─── Attraction Travel ─────────────────────────────────────────────────────
+
+  @Get(':id/travel')
+  listTravel(@Param('id', ParseIntPipe) id: number) {
+    return this.engagementService.listEngagementTravel(id);
+  }
+
+  @Post(':id/travel/hotel')
+  @HttpCode(HttpStatus.CREATED)
+  addTravelHotel(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateEngagementTravelHotelDto,
+  ) {
+    return this.engagementService.addEngagementTravelHotel(id, dto);
+  }
+
+  @Patch(':id/travel/:travelId/hotel')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  updateTravelHotel(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('travelId', ParseIntPipe) travelId: number,
+    @Body() dto: UpdateEngagementTravelHotelDto,
+  ) {
+    return this.engagementService.updateEngagementTravelHotel(id, travelId, dto);
+  }
+
+  @Post(':id/travel/car-service')
+  @HttpCode(HttpStatus.CREATED)
+  addTravelCarService(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateEngagementTravelCarServiceDto,
+  ) {
+    return this.engagementService.addEngagementTravelCarService(id, dto);
+  }
+
+  @Patch(':id/travel/car-service/:carServiceTravelId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  updateTravelCarService(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('carServiceTravelId', ParseIntPipe) carServiceTravelId: number,
+    @Body() dto: UpdateEngagementTravelCarServiceDto,
+  ) {
+    return this.engagementService.updateEngagementTravelCarService(id, carServiceTravelId, dto);
+  }
+
+  @Delete(':id/travel/:travelId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  deleteTravel(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('travelId', ParseIntPipe) travelId: number,
+  ) {
+    return this.engagementService.deleteEngagementTravel(id, travelId);
   }
 }

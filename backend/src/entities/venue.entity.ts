@@ -79,4 +79,16 @@ export class Venue {
   @ManyToOne(() => NonResidentWithholding)
   @JoinColumn({ name: 'NonResidentWithholdingID' })
   nonResidentWithholding: NonResidentWithholding | null;
+
+  @Column({ name: 'StageDimensions', type: 'nvarchar', length: 500, nullable: true })
+  stageDimensions: string | null;
+
+  @Column({ name: 'FlySystemSpecs', type: 'nvarchar', length: 500, nullable: true })
+  flySystemSpecs: string | null;
+
+  @Column({ name: 'StageType', type: 'nvarchar', length: 100, nullable: true })
+  stageType: string | null;
+
+  @Column({ name: 'SeatingChartLinkID', type: 'int', nullable: true })
+  seatingChartLinkId: number | null;
 }

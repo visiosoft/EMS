@@ -179,4 +179,120 @@ export class UpdatePerformanceTicketingDto {
   @Min(0)
   @Max(100)
   salesTaxAmountPercent?: number | null;
+
+  // --- Extended existing DB columns ---
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsInt()
+  @Min(1)
+  ticketingAdminContactId?: number | null;
+
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsInt()
+  @Min(1)
+  ticketingAdminCompanyId?: number | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  publicSaleLinkUrl?: string | null;
+
+  @IsOptional()
+  @IsDateString()
+  preSaleEndDate?: string | null;
+
+  @IsOptional()
+  @IsDateString()
+  preSaleRegistrationStartDate?: string | null;
+
+  @IsOptional()
+  @IsDateString()
+  preSaleRegistrationEndDate?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => value === undefined ? undefined : value === null ? null : Boolean(value))
+  isIAETMDeal?: boolean | null;
+
+  // --- New optional DB columns ---
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  presalePassword?: string | null;
+
+  @IsOptional()
+  @IsDateString()
+  presalePasswordDateStart?: string | null;
+
+  @IsOptional()
+  @IsDateString()
+  presalePasswordDateEnd?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  presaleSpecialPricePassword?: string | null;
+
+  @IsOptional()
+  @IsDateString()
+  presaleSpecialPricePasswordDateStart?: string | null;
+
+  @IsOptional()
+  @IsDateString()
+  presaleSpecialPricePasswordDateEnd?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  presaleSpecialPriceDiscountType?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  presaleSpecialPriceDiscountAmount?: number | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  publicSaleSpecialPricePassword?: string | null;
+
+  @IsOptional()
+  @IsDateString()
+  publicSaleSpecialPricePasswordDateStart?: string | null;
+
+  @IsOptional()
+  @IsDateString()
+  publicSaleSpecialPricePasswordDateEnd?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  publicSaleSpecialPriceDiscountType?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  publicSaleSpecialPriceDiscountAmount?: number | null;
+
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => value === undefined ? undefined : value === null ? null : Boolean(value))
+  vipPackageOffered?: boolean | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  vipPackageName?: string | null;
+
+  @IsOptional()
+  @IsString({ each: true })
+  vipPackageBenefits?: string[] | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  compTicketRequestLink?: string | null;
 }

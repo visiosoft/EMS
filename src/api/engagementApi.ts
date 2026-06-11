@@ -53,6 +53,64 @@ export interface ApiEngagementVenueRow {
   stateProvince: string | null;
   dmaMarketName: string | null;
   isPrimary: boolean;
+  /** dbo.EngagementVenue.VenueBookingManagerContactID */
+  venueBookingManagerContactId: number | null;
+  venueBookingManagerName: string | null;
+  /** dbo.Venue */
+  venueTypeId: number | null;
+  venueTypeName: string | null;
+  stageDimensions: string | null;
+  flySystemSpecs: string | null;
+  stageType: string | null;
+  seatingChartLinkId: number | null;
+  seatingChartLinkUrl: string | null;
+  ticketingSystem: string | null;
+  /** dbo.PerformanceTicketing (opening performance) */
+  ticketingAdminContactId: number | null;
+  ticketingAdminContactName: string | null;
+  /** Optional DB columns — null when column does not yet exist */
+  techPackPdfUrl: string | null;
+  attractionTechDirectorContactId: number | null;
+  attractionTechDirectorName: string | null;
+  venueContractSharePointLink: string | null;
+  partiallyExecutedContractSharePointLink: string | null;
+  fullyExecutedContractSharePointLink: string | null;
+  venueForecastSharePointLink: string | null;
+  /** Venue marketing team (optional columns) */
+  venueMarketingDirectorContactId: number | null;
+  venueMarketingDirectorName: string | null;
+  venueMarketingManagerContactId: number | null;
+  venueMarketingManagerName: string | null;
+  venueDigitalMarketingManagerContactId: number | null;
+  venueDigitalMarketingManagerName: string | null;
+  /** IAE Production Manager (optional column) */
+  iaeProductionManagerContactId: number | null;
+  iaeProductionManagerContactName: string | null;
+}
+
+export interface ApiEngagementVenueTabData {
+  venues: ApiEngagementVenueRow[];
+  /** From dbo.EngagementFinances */
+  venueDealType: string | null;
+  venueTerms: string | null;
+}
+
+export interface UpdateEngagementVenueTabPayload {
+  venueBookingManagerContactId?: number | null;
+  venueTypeId?: number | null;
+  stageDimensions?: string | null;
+  flySystemSpecs?: string | null;
+  stageType?: string | null;
+  techPackPdfUrl?: string | null;
+  attractionTechDirectorContactId?: number | null;
+  venueContractSharePointLink?: string | null;
+  partiallyExecutedContractSharePointLink?: string | null;
+  fullyExecutedContractSharePointLink?: string | null;
+  venueForecastSharePointLink?: string | null;
+  venueMarketingDirectorContactId?: number | null;
+  venueMarketingManagerContactId?: number | null;
+  venueDigitalMarketingManagerContactId?: number | null;
+  iaeProductionManagerContactId?: number | null;
 }
 
 export interface ApiEngagementServiceProviderRow {
@@ -164,6 +222,52 @@ export interface ApiEngagementFinanceRow {
   /** dbo.EngagementFinances (optional columns) */
   finalAcceptedOfferLink: string | null;
   settlementFileSharePointLink: string | null;
+  /** dbo.EngagementFinances.TourSplitPoint (existing column) */
+  tourSplitPoint: number | null;
+  /** dbo.EngagementFinances.AnnouncementDate (optional column) */
+  announcementDate: string | null;
+  /** dbo.EngagementFinances Booking optional columns */
+  promoterPartnerContactId: number | null;
+  promoterPartnerContactName: string | null;
+  tourManagerContactId: number | null;
+  tourManagerContactName: string | null;
+  attractionContractSharePointLink: string | null;
+  partiallyExecutedAttractionContractSharePointLink: string | null;
+  fullyExecutedAttractionContractSharePointLink: string | null;
+  /** dbo.EngagementFinances Event Business optional columns */
+  eventBusinessManagerContactId: number | null;
+  eventBusinessManagerContactName: string | null;
+  eventBusinessAssistantManagerContactId: number | null;
+  eventBusinessAssistantManagerContactName: string | null;
+  venueSettlementContactId: number | null;
+  venueSettlementContactName: string | null;
+  venueSettlementFileSharePointLink: string | null;
+  partnerSettlementFileSharePointLink: string | null;
+  salesTaxRemittedBy: string | null;
+  fexVenueAgreementLink: string | null;
+  venueDepositRequired: boolean | null;
+  withholdingPayee: string | null;
+  withholdingPaymentMethod: string | null;
+  withholdingFormToAttractionLink: string | null;
+  withholdingFormToMunicipalityLink: string | null;
+  withholdingQuickbooksNumber: string | null;
+  withholdingWaiver: string | null;
+  withholdingCompletedWaiverLink: string | null;
+  tourWaiverLink: string | null;
+  withholdingExceptions: string | null;
+  compensationRoyaltyAmount: number | null;
+  compensationOverageAmount: number | null;
+  compensationBuyouts: number | null;
+  compensationDirectCharges: number | null;
+  compensationReimbursibles: number | null;
+  financeJob: string | null;
+  /** Serialized into dbo.ArtistFinance.ArtistBackEndTerms JSON */
+  artistDepositRequired: boolean | null;
+  artistPartOfCollateralizedDeal: boolean | null;
+  artistFexPerformanceAgreementLink: string | null;
+  artistTourOfferLink: string | null;
+  artistOverageAmount: number | null;
+  artistBuyouts: number | null;
 }
 
 export type UpdateEngagementFinancePayload = {
@@ -223,6 +327,47 @@ export type UpdateEngagementFinancePayload = {
   artistRoyaltyBasedOn?: 'Net' | 'NAGBOR' | null;
   finalAcceptedOfferLink?: string | null;
   settlementFileSharePointLink?: string | null;
+  /** dbo.EngagementFinances.TourSplitPoint */
+  tourSplitPoint?: number | null;
+  /** dbo.EngagementFinances.AnnouncementDate */
+  announcementDate?: string | null;
+  /** dbo.EngagementFinances Booking optional columns */
+  promoterPartnerContactId?: number | null;
+  tourManagerContactId?: number | null;
+  attractionContractSharePointLink?: string | null;
+  partiallyExecutedAttractionContractSharePointLink?: string | null;
+  fullyExecutedAttractionContractSharePointLink?: string | null;
+  /** dbo.EngagementFinances Event Business optional columns */
+  eventBusinessManagerContactId?: number | null;
+  eventBusinessAssistantManagerContactId?: number | null;
+  venueSettlementContactId?: number | null;
+  venueSettlementFileSharePointLink?: string | null;
+  partnerSettlementFileSharePointLink?: string | null;
+  salesTaxRemittedBy?: string | null;
+  fexVenueAgreementLink?: string | null;
+  venueDepositRequired?: boolean | null;
+  withholdingPayee?: string | null;
+  withholdingPaymentMethod?: string | null;
+  withholdingFormToAttractionLink?: string | null;
+  withholdingFormToMunicipalityLink?: string | null;
+  withholdingQuickbooksNumber?: string | null;
+  withholdingWaiver?: string | null;
+  withholdingCompletedWaiverLink?: string | null;
+  tourWaiverLink?: string | null;
+  withholdingExceptions?: string | null;
+  compensationRoyaltyAmount?: number | null;
+  compensationOverageAmount?: number | null;
+  compensationBuyouts?: number | null;
+  compensationDirectCharges?: number | null;
+  compensationReimbursibles?: number | null;
+  financeJob?: string | null;
+  /** Serialized into dbo.ArtistFinance.ArtistBackEndTerms JSON */
+  artistDepositRequired?: boolean | null;
+  artistPartOfCollateralizedDeal?: boolean | null;
+  artistFexPerformanceAgreementLink?: string | null;
+  artistTourOfferLink?: string | null;
+  artistOverageAmount?: number | null;
+  artistBuyouts?: number | null;
 };
 
 export interface ApiEngagementFinanceLookups {
@@ -290,6 +435,47 @@ export interface ApiPerformanceTicketingRow {
   creditCardFeesAmountPercent: number | null;
   salesTaxType: 'Charged in Shopping Cart' | 'Budget Line Item' | null;
   salesTaxAmountPercent: number | null;
+  ticketingAdminContactId: number | null;
+  ticketingAdminContactName: string | null;
+  ticketingAdminCompanyId: number | null;
+  ticketingAdminCompanyName: string | null;
+  publicSaleLinkId: number | null;
+  publicSaleLinkUrl: string | null;
+  preSaleEndDate: string | null;
+  preSaleRegistrationStartDate: string | null;
+  preSaleRegistrationEndDate: string | null;
+  isIAETMDeal: boolean | null;
+  presalePassword: string | null;
+  presalePasswordDateStart: string | null;
+  presalePasswordDateEnd: string | null;
+  presaleSpecialPricePassword: string | null;
+  presaleSpecialPricePasswordDateStart: string | null;
+  presaleSpecialPricePasswordDateEnd: string | null;
+  presaleSpecialPriceDiscountType: string | null;
+  presaleSpecialPriceDiscountAmount: number | null;
+  publicSaleSpecialPricePassword: string | null;
+  publicSaleSpecialPricePasswordDateStart: string | null;
+  publicSaleSpecialPricePasswordDateEnd: string | null;
+  publicSaleSpecialPriceDiscountType: string | null;
+  publicSaleSpecialPriceDiscountAmount: number | null;
+  vipPackageOffered: boolean | null;
+  vipPackageName: string | null;
+  vipPackageBenefits: string[] | null;
+  compTicketRequestLink: string | null;
+}
+
+export interface ApiPerformanceTicketingSummaryRow {
+  performanceId: number;
+  performanceDate: string;
+  performanceTime: string;
+  performanceStatus: string;
+  sellableCapacity: number | null;
+  grossPotentialRevenue: number | null;
+}
+
+export interface ApiEngagementIaeTicketingManager {
+  iaeTicketingManagerContactId: number | null;
+  iaeTicketingManagerContactName: string | null;
 }
 
 export type UpdatePerformanceTicketingPayload = {
@@ -320,6 +506,30 @@ export type UpdatePerformanceTicketingPayload = {
   creditCardFeesAmountPercent?: number | null;
   salesTaxType?: 'Charged in Shopping Cart' | 'Budget Line Item' | null;
   salesTaxAmountPercent?: number | null;
+  ticketingAdminContactId?: number | null;
+  ticketingAdminCompanyId?: number | null;
+  publicSaleLinkUrl?: string | null;
+  preSaleEndDate?: string | null;
+  preSaleRegistrationStartDate?: string | null;
+  preSaleRegistrationEndDate?: string | null;
+  isIAETMDeal?: boolean | null;
+  presalePassword?: string | null;
+  presalePasswordDateStart?: string | null;
+  presalePasswordDateEnd?: string | null;
+  presaleSpecialPricePassword?: string | null;
+  presaleSpecialPricePasswordDateStart?: string | null;
+  presaleSpecialPricePasswordDateEnd?: string | null;
+  presaleSpecialPriceDiscountType?: string | null;
+  presaleSpecialPriceDiscountAmount?: number | null;
+  publicSaleSpecialPricePassword?: string | null;
+  publicSaleSpecialPricePasswordDateStart?: string | null;
+  publicSaleSpecialPricePasswordDateEnd?: string | null;
+  publicSaleSpecialPriceDiscountType?: string | null;
+  publicSaleSpecialPriceDiscountAmount?: number | null;
+  vipPackageOffered?: boolean | null;
+  vipPackageName?: string | null;
+  vipPackageBenefits?: string[] | null;
+  compTicketRequestLink?: string | null;
 };
 
 export type UpdateNonResidentWithholdingLinksPayload = {
@@ -468,6 +678,9 @@ export function fetchEngagementFilterOptions() {
 }
 export const fetchEngagement = (id: number) => apiFetch<ApiEngagementListRow>(`/engagements/${id}`);
 export const fetchEngagementVenues = (id: number) => apiFetch<ApiEngagementVenueRow[]>(`/engagements/${id}/venues`);
+export const fetchEngagementVenueTabData = (id: number) => apiFetch<ApiEngagementVenueTabData>(`/engagements/${id}/venue-tab-data`);
+export const updateEngagementVenueTab = (id: number, venueCompanyId: number, body: UpdateEngagementVenueTabPayload) =>
+  apiFetch<void>(`/engagements/${id}/venues/${venueCompanyId}/tab`, { method: 'PATCH', body: JSON.stringify(body) });
 export const fetchEngagementServiceProviders = (id: number) =>
   apiFetch<ApiEngagementServiceProvidersResponse>(`/engagements/${id}/service-providers`);
 export const addEngagementServiceProvider = (id: number, body: { providerCompanyId: number }) =>
@@ -522,6 +735,25 @@ export const updateEngagementPerformanceTicketing = (
     body: JSON.stringify(body),
   });
 
+export const fetchPerformancesWithTicketingSummary = (engagementId: number) =>
+  apiFetch<ApiPerformanceTicketingSummaryRow[]>(
+    `/engagements/${engagementId}/performances/ticketing-summary`,
+  );
+
+export const fetchEngagementIaeTicketingManager = (engagementId: number) =>
+  apiFetch<ApiEngagementIaeTicketingManager>(
+    `/engagements/${engagementId}/iae-ticketing-manager`,
+  );
+
+export const updateEngagementIaeTicketingManager = (
+  engagementId: number,
+  body: { iaeTicketingManagerContactId?: number | null },
+) =>
+  apiFetch<void>(`/engagements/${engagementId}/iae-ticketing-manager`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+
 export const fetchEngagementIaeContactLookups = () =>
   apiFetch<ApiEngagementIaeContactLookups>('/engagements/iae-contact-lookups');
 
@@ -569,3 +801,186 @@ export const updateNonResidentWithholdingLinks = (
     method: 'PATCH',
     body: JSON.stringify(body),
   });
+
+// ─── Retail Partners ──────────────────────────────────────────────────────────
+
+export interface ApiRetailPartnerRow {
+  retailPartnerId: number;
+  engagementId: number;
+  companyId: number;
+  companyName: string | null;
+  companyTypeId: number | null;
+  companyTypeName: string | null;
+  contactId: number | null;
+  contactName: string | null;
+}
+
+export interface CreateRetailPartnerPayload {
+  companyId: number;
+  companyTypeId?: number | null;
+  contactId?: number | null;
+}
+
+export const fetchRetailPartners = (engagementId: number) =>
+  apiFetch<ApiRetailPartnerRow[]>(`/engagements/${engagementId}/retail-partners`);
+
+export const addRetailPartner = (engagementId: number, body: CreateRetailPartnerPayload) =>
+  apiFetch<{ retailPartnerId: number }>(`/engagements/${engagementId}/retail-partners`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const deleteRetailPartner = (engagementId: number, retailPartnerId: number) =>
+  apiFetch<void>(`/engagements/${engagementId}/retail-partners/${retailPartnerId}`, {
+    method: 'DELETE',
+  });
+
+// ─── Marketing Meta (read-only tour data) ─────────────────────────────────────
+
+export interface ApiTourMarketingContact {
+  tourContactId: number;
+  contactId: number;
+  contactName: string;
+  roleId: number | null;
+  roleName: string | null;
+}
+
+export interface ApiTourAudienceAgeRange {
+  ageRangeId: number;
+  ageRangeLabel: string;
+  sortOrder: number | null;
+}
+
+export interface ApiTourMediaMixItem {
+  tourMediaMixId: number;
+  advertisingSubTypeId: number;
+  subTypeName: string;
+  parentCategory: string | null;
+  companyId: number | null;
+  companyName: string | null;
+}
+
+export interface ApiAdvertisingSubType {
+  advertisingSubTypeId: number;
+  subTypeName: string;
+  parentCategory: string | null;
+}
+
+export interface ApiMarketingMeta {
+  tourMarketingContacts: ApiTourMarketingContact[];
+  tourAudienceDemographics: ApiTourAudienceAgeRange[];
+  mediaMix: ApiTourMediaMixItem[];
+  advertisingSubTypes: ApiAdvertisingSubType[];
+}
+
+export const fetchMarketingMeta = (engagementId: number) =>
+  apiFetch<ApiMarketingMeta>(`/engagements/${engagementId}/marketing-meta`);
+
+// ─── Attraction Travel ─────────────────────────────────────────────────────────
+
+export const TRAVEL_BOOKED_BY_OPTIONS = ['IAE', 'Venue', 'Talent Agency', 'Tour Management'] as const;
+export type TravelBookedBy = (typeof TRAVEL_BOOKED_BY_OPTIONS)[number];
+
+export interface ApiTravelAddressInput {
+  addressLine1: string;
+  addressLine2?: string | null;
+  city: string;
+  stateProvince: string;
+  postalCode: string;
+  country: string;
+}
+
+export interface ApiTravelCarServiceRow {
+  carServiceTravelId: number;
+  engagementTravelId: number;
+  bookedBy: string | null;
+  originAddressId: number | null;
+  originAddressLabel: string | null;
+  destinationAddressId: number | null;
+  destinationAddressLabel: string | null;
+  pickupDateTime: string | null;
+}
+
+export interface ApiTravelHotelRow {
+  hotelTravelId: number;
+  engagementTravelId: number;
+  bookedBy: string | null;
+  hotelCompanyId: number | null;
+  hotelCompanyName: string | null;
+  numberOfRooms: number | null;
+  roomTypes: string | null;
+  checkInDate: string | null;
+  checkOutDate: string | null;
+  occupantContactId: number | null;
+  occupantContactName: string | null;
+}
+
+export interface ApiEngagementTravelRow {
+  engagementTravelId: number;
+  travelType: 'Hotel' | 'Car';
+  hotel: ApiTravelHotelRow | null;
+  carServices: ApiTravelCarServiceRow[];
+}
+
+export interface CreateTravelHotelPayload {
+  bookedBy?: string | null;
+  hotelCompanyId?: number | null;
+  numberOfRooms?: number | null;
+  roomTypes?: string | null;
+  checkInDate?: string | null;
+  checkOutDate?: string | null;
+  occupantContactId?: number | null;
+}
+
+export interface CreateTravelCarServicePayload {
+  bookedBy?: string | null;
+  originAddressId?: number | null;
+  originAddress?: ApiTravelAddressInput | null;
+  destinationAddressId?: number | null;
+  destinationAddress?: ApiTravelAddressInput | null;
+  pickupDateTime?: string | null;
+}
+
+export const fetchEngagementTravel = (engagementId: number) =>
+  apiFetch<ApiEngagementTravelRow[]>(`/engagements/${engagementId}/travel`);
+
+export const addEngagementTravelHotel = (engagementId: number, body: CreateTravelHotelPayload) =>
+  apiFetch<{ engagementTravelId: number; hotelTravelId: number }>(
+    `/engagements/${engagementId}/travel/hotel`,
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+
+export const updateEngagementTravelHotel = (
+  engagementId: number,
+  travelId: number,
+  body: CreateTravelHotelPayload,
+) =>
+  apiFetch<void>(`/engagements/${engagementId}/travel/${travelId}/hotel`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+
+export const addEngagementTravelCarService = (
+  engagementId: number,
+  body: CreateTravelCarServicePayload,
+) =>
+  apiFetch<{ engagementTravelId: number; carServiceTravelId: number }>(
+    `/engagements/${engagementId}/travel/car-service`,
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+
+export const updateEngagementTravelCarService = (
+  engagementId: number,
+  carServiceTravelId: number,
+  body: CreateTravelCarServicePayload,
+) =>
+  apiFetch<void>(
+    `/engagements/${engagementId}/travel/car-service/${carServiceTravelId}`,
+    { method: 'PATCH', body: JSON.stringify(body) },
+  );
+
+export const deleteEngagementTravel = (engagementId: number, travelId: number) =>
+  apiFetch<void>(`/engagements/${engagementId}/travel/${travelId}`, {
+    method: 'DELETE',
+  });
+

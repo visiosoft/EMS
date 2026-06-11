@@ -20,6 +20,7 @@ import {
   Tag,
   Plus,
   Trash2,
+  ExternalLink,
 } from 'lucide-react';
 import { Modal, FormField, TabBar } from './Primitives';
 import { EngagementSalesDashboardPanel } from './EngagementSalesDashboardPanel';
@@ -44,6 +45,8 @@ import {
   createEngagementWithholding,
   fetchEngagementPerformances,
   fetchEngagementVenues,
+  fetchEngagementVenueTabData,
+  updateEngagementVenueTab,
   fetchEngagementServiceProviders,
   removeEngagementVenue,
   addEngagementServiceProvider,
@@ -54,14 +57,38 @@ import {
   deleteEngagementPerformance,
   fetchEngagementPerformanceTicketing,
   updateEngagementPerformanceTicketing,
+  fetchPerformancesWithTicketingSummary,
+  fetchEngagementIaeTicketingManager,
+  updateEngagementIaeTicketingManager,
   fetchEngagementIaeContactLookups,
   fetchEngagementIaeContacts,
   addEngagementIaeContact,
   updateEngagementIaeContact,
   deleteEngagementIaeContact,
   updateNonResidentWithholdingLinks,
+  fetchRetailPartners,
+  addRetailPartner,
+  deleteRetailPartner,
+  fetchMarketingMeta,
+  fetchEngagementTravel,
+  addEngagementTravelHotel,
+  updateEngagementTravelHotel,
+  addEngagementTravelCarService,
+  updateEngagementTravelCarService,
+  deleteEngagementTravel,
+  TRAVEL_BOOKED_BY_OPTIONS,
+  type ApiRetailPartnerRow,
+  type ApiMarketingMeta,
+  type CreateRetailPartnerPayload,
+  type ApiEngagementTravelRow,
+  type ApiTravelHotelRow,
+  type ApiTravelCarServiceRow,
+  type CreateTravelHotelPayload,
+  type CreateTravelCarServicePayload,
   type ApiEngagementListRow,
   type ApiEngagementVenueRow,
+  type ApiEngagementVenueTabData,
+  type UpdateEngagementVenueTabPayload,
   type ApiEngagementServiceProviderRow,
   type ApiEngagementServiceProvidersResponse,
   type UpdateEngagementFinancePayload,
@@ -69,6 +96,8 @@ import {
   type ApiEngagementFinanceLookups,
   type UpdatePerformanceTicketingPayload,
   type ApiEngagementIaeContactRow,
+  type ApiPerformanceTicketingSummaryRow,
+  type ApiEngagementIaeTicketingManager,
   type CreateEngagementIaeContactPayload,
   type UpdateEngagementIaeContactPayload,
   type UpdateEngagementPayload,
@@ -76,8 +105,10 @@ import {
 import {
   fetchAttractions,
   fetchTours,
+  fetchVenueTypesLookup,
   type ApiAttractionListRow,
   type ApiTourListRow,
+  type ApiVenueType,
 } from '@/api/attractionToursApi';
 import {
   fetchStagehandProviderCompanies,
@@ -173,6 +204,18 @@ const SALES_TAX_TYPE_OPTIONS: Select2Option[] = [
   { value: 'Charged in Shopping Cart', label: 'Charged in Shopping Cart' },
   { value: 'Budget Line Item', label: 'Budget Line Item' },
 ];
+const VIP_PACKAGE_BENEFITS = [
+  'Meet & Greet without Photo',
+  'Meet & Greet with Photo',
+  'Merchandise Provided',
+  'Poster',
+  'Souvenir Laminate',
+] as const;
+const PRESALE_DISCOUNT_TYPE_OPTIONS: Select2Option[] = [
+  { value: '', label: 'Not set' },
+  { value: '$', label: '$ (Dollar amount)' },
+  { value: '%', label: '% (Percentage)' },
+];
 
 function formatPerformanceDateDisplay(isoDate: string): string {
   try {
@@ -267,6 +310,741 @@ export function LegacyEngagementDetailPage({
 // ---------------------------------------------------------------------------
 // Venues tab
 // ---------------------------------------------------------------------------
+
+/** Read-only info row used throughout the expanded Venues tab. */
+function VenueInfoRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[11px] text-text-muted font-medium uppercase tracking-wide">{label}</span>
+      <span className="text-sm text-text-primary">{value ?? <span className="text-text-muted italic">—</span>}</span>
+    </div>
+  );
+}
+
+/** Clickable SharePoint link row. */
+function SharePointLinkRow({ label, url }: { label: string; url: string | null }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[11px] text-text-muted font-medium uppercase tracking-wide">{label}</span>
+      {url ? (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-sm text-ems-accent hover:underline"
+        >
+          <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+          Open link
+        </a>
+      ) : (
+        <span className="text-sm text-text-muted italic">—</span>
+      )}
+    </div>
+  );
+}
+
+/** Inline editable text field for per-venue Venues tab fields. */
+function VenueTabEditField({
+  label,
+  value,
+  onChange,
+  disabled,
+  multiline,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  multiline?: boolean;
+}) {
+  const cls =
+    'w-full rounded border border-border bg-background px-2 py-1.5 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:ring-1 focus:ring-ems-accent/50 disabled:opacity-60';
+  return (
+    <FormField label={label}>
+      {multiline ? (
+        <textarea
+          className={`${cls} min-h-[64px] resize-y`}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
+        />
+      ) : (
+        <input
+          type="text"
+          className={cls}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
+        />
+      )}
+    </FormField>
+  );
+}
+
+const DEAL_TYPE_OPTIONS: Select2Option[] = [
+  { value: 'Rental', label: 'Rental' },
+  { value: 'CoPro', label: 'CoPro' },
+  { value: '3rd Party Renting Venue', label: '3rd Party Renting Venue' },
+  { value: 'Silent CoPro with Venue', label: 'Silent CoPro with Venue' },
+];
+
+function VenueDetailPanel({
+  engagementId,
+  venue,
+  venueDealType,
+  venueTerms,
+  addToast,
+  onNavigate,
+}: {
+  engagementId: number;
+  venue: ApiEngagementVenueRow;
+  venueDealType: string | null;
+  venueTerms: string | null;
+  addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  onNavigate: (view: string, data?: Record<string, unknown>) => void;
+}) {
+  const qc = useQueryClient();
+
+  // Editable state
+  const [venueContractLink, setVenueContractLink] = useState(venue.venueContractSharePointLink ?? '');
+  const [partialContractLink, setPartialContractLink] = useState(venue.partiallyExecutedContractSharePointLink ?? '');
+  const [fullContractLink, setFullContractLink] = useState(venue.fullyExecutedContractSharePointLink ?? '');
+  const [forecastLink, setForecastLink] = useState(venue.venueForecastSharePointLink ?? '');
+  // Venue marketing contacts (optional columns)
+  const [venueMarketingDirectorId, setVenueMarketingDirectorId] = useState(
+    venue.venueMarketingDirectorContactId != null ? String(venue.venueMarketingDirectorContactId) : '',
+  );
+  const [venueMarketingManagerId, setVenueMarketingManagerId] = useState(
+    venue.venueMarketingManagerContactId != null ? String(venue.venueMarketingManagerContactId) : '',
+  );
+  const [venueDigitalMarketingManagerId, setVenueDigitalMarketingManagerId] = useState(
+    venue.venueDigitalMarketingManagerContactId != null ? String(venue.venueDigitalMarketingManagerContactId) : '',
+  );
+
+  const venueContactsQuery = useQuery({
+    queryKey: ['company-contacts', venue.venueCompanyId],
+    queryFn: () => fetchCompanyContacts(venue.venueCompanyId),
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  const venueContactOptions = useMemo<Select2Option[]>(
+    () => [
+      { value: '', label: 'Not set' },
+      ...(venueContactsQuery.data ?? []).map((c) => ({
+        value: String(c.contactId),
+        label: `${c.firstName} ${c.lastName}`.trim() || c.contactId.toString(),
+      })),
+    ],
+    [venueContactsQuery.data],
+  );
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venue-tab-data'] });
+
+  const saveMutation = useMutation({
+    mutationFn: (body: UpdateEngagementVenueTabPayload) =>
+      updateEngagementVenueTab(engagementId, venue.venueCompanyId, body),
+    onSuccess: async () => {
+      await invalidate();
+      addToast('Venue details saved.', 'success');
+    },
+    onError: (e) => addToast(friendlyApiError(e, 'Could not save venue details.'), 'error'),
+  });
+
+  const handleSaveContracts = () =>
+    saveMutation.mutate({
+      venueContractSharePointLink: venueContractLink || null,
+      partiallyExecutedContractSharePointLink: partialContractLink || null,
+      fullyExecutedContractSharePointLink: fullContractLink || null,
+      venueForecastSharePointLink: forecastLink || null,
+    });
+
+  const handleSaveMarketingContacts = () =>
+    saveMutation.mutate({
+      venueMarketingDirectorContactId: venueMarketingDirectorId ? Number(venueMarketingDirectorId) : null,
+      venueMarketingManagerContactId: venueMarketingManagerId ? Number(venueMarketingManagerId) : null,
+      venueDigitalMarketingManagerContactId: venueDigitalMarketingManagerId ? Number(venueDigitalMarketingManagerId) : null,
+    });
+
+  const inputCls =
+    'w-full rounded border border-border bg-background px-2 py-1.5 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:ring-1 focus:ring-ems-accent/50 disabled:opacity-60';
+  const sectionCls = 'rounded-md border border-border bg-surface/40 p-4 space-y-4';
+  const labelCls = 'text-xs font-semibold text-text-primary mb-3 block';
+
+  return (
+    <div className="space-y-4 mt-3">
+      {/* Venue Booking */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Venue Booking</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <VenueInfoRow
+            label="Venue Booking Manager"
+            value={venue.venueBookingManagerName}
+          />
+        </div>
+      </div>
+
+      {/* Venue Terms */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Venue Terms</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <VenueInfoRow label="Deal Type" value={venueDealType} />
+          <div className="sm:col-span-2">
+            <VenueInfoRow label="Venue Terms" value={venueTerms} />
+          </div>
+        </div>
+        <p className="text-[11px] text-text-muted mt-1">
+          Deal Type and Venue Terms are editable on the Finance tab.
+        </p>
+      </div>
+
+      {/* Venue Seating */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Venue Seating</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <VenueInfoRow label="Seating Type" value={venue.venueTypeName} />
+          {venue.seatingChartLinkUrl ? (
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[11px] text-text-muted font-medium uppercase tracking-wide">Venue Seating Chart</span>
+              <a
+                href={venue.seatingChartLinkUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-sm text-ems-accent hover:underline"
+              >
+                <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                Open seating chart
+              </a>
+            </div>
+          ) : (
+            <VenueInfoRow label="Venue Seating Chart" value={null} />
+          )}
+        </div>
+        <p className="text-[11px] text-text-muted mt-1">
+          Seating chart link is managed on the company venue profile.
+        </p>
+      </div>
+
+      {/* Venue Ticketing */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Venue Ticketing</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <VenueInfoRow label="Venue Ticketing Software" value={venue.ticketingSystem} />
+          <VenueInfoRow label="Venue Ticketing Administrator" value={venue.ticketingAdminContactName} />
+        </div>
+        <p className="text-[11px] text-text-muted mt-1">
+          Ticketing software is editable on the company venue profile. Ticketing administrator is set on the performance ticketing record.
+        </p>
+      </div>
+
+      {/* Attraction Tech Director */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Attraction Tech Director</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <VenueInfoRow
+            label="Attraction Tech Director Contact"
+            value={venue.attractionTechDirectorName}
+          />
+        </div>
+        {venue.attractionTechDirectorContactId == null && (
+          <p className="text-[11px] text-text-muted mt-1">
+            Requires the <code>AttractionTechDirectorContactID</code> column on <code>dbo.EngagementVenue</code>.
+          </p>
+        )}
+      </div>
+
+      {/* Venue Contract */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Venue Contract</span>
+        <div className="grid grid-cols-1 gap-3">
+          <VenueTabEditField
+            label="Link to SharePoint – Venue Contract"
+            value={venueContractLink}
+            onChange={setVenueContractLink}
+            disabled={saveMutation.isPending}
+          />
+          <VenueTabEditField
+            label="Link to SharePoint – Partially Executed Contract"
+            value={partialContractLink}
+            onChange={setPartialContractLink}
+            disabled={saveMutation.isPending}
+          />
+          <VenueTabEditField
+            label="Link to SharePoint – Fully Executed Contract"
+            value={fullContractLink}
+            onChange={setFullContractLink}
+            disabled={saveMutation.isPending}
+          />
+        </div>
+      </div>
+
+      {/* Venue Forecast */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Venue Forecast</span>
+        <VenueTabEditField
+          label="Link to SharePoint – Venue Forecast"
+          value={forecastLink}
+          onChange={setForecastLink}
+          disabled={saveMutation.isPending}
+        />
+      </div>
+
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          size="sm"
+          className="bg-ems-accent text-white hover:opacity-90"
+          onClick={handleSaveContracts}
+          disabled={saveMutation.isPending}
+        >
+          {saveMutation.isPending ? (
+            <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
+          ) : 'Save contracts & forecast links'}
+        </Button>
+      </div>
+
+      {/* Venue Marketing Team */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Venue Marketing Team</span>
+        <p className="text-[11px] text-text-muted -mt-2">
+          These fields require DB column additions (optional) — they will be blank until the columns are added.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Venue Marketing Director">
+            <Select2
+              options={venueContactOptions}
+              value={venueMarketingDirectorId}
+              onChange={setVenueMarketingDirectorId}
+              placeholder="Select contact…"
+              allowClear
+              disabled={saveMutation.isPending}
+            />
+          </FormField>
+          <FormField label="Venue Marketing Manager">
+            <Select2
+              options={venueContactOptions}
+              value={venueMarketingManagerId}
+              onChange={setVenueMarketingManagerId}
+              placeholder="Select contact…"
+              allowClear
+              disabled={saveMutation.isPending}
+            />
+          </FormField>
+          <FormField label="Venue Digital Marketing Manager">
+            <Select2
+              options={venueContactOptions}
+              value={venueDigitalMarketingManagerId}
+              onChange={setVenueDigitalMarketingManagerId}
+              placeholder="Select contact…"
+              allowClear
+              disabled={saveMutation.isPending}
+            />
+          </FormField>
+        </div>
+        <div className="flex justify-end mt-2">
+          <Button
+            type="button"
+            size="sm"
+            className="bg-ems-accent text-white hover:opacity-90"
+            onClick={handleSaveMarketingContacts}
+            disabled={saveMutation.isPending}
+          >
+            {saveMutation.isPending ? (
+              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
+            ) : 'Save marketing contacts'}
+          </Button>
+        </div>
+      </div>
+
+    </div>
+  );
+}
+
+// ─── Attraction Travel section (inside Venues tab) ────────────────────────────
+
+const BOOKED_BY_OPTIONS: Select2Option[] = [
+  { value: '', label: 'Not set' },
+  ...TRAVEL_BOOKED_BY_OPTIONS.map((v) => ({ value: v, label: v })),
+];
+
+function TravelHotelForm({
+  engagementId,
+  row,
+  addToast,
+  onSaved,
+  onCancel,
+  companyOptions,
+  contactOptions,
+}: {
+  engagementId: number;
+  row?: ApiTravelHotelRow | null;
+  addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  onSaved: () => void;
+  onCancel: () => void;
+  companyOptions: Select2Option[];
+  contactOptions: Select2Option[];
+}) {
+  const [bookedBy, setBookedBy] = useState(row?.bookedBy ?? '');
+  const [hotelCompanyId, setHotelCompanyId] = useState(row?.hotelCompanyId != null ? String(row.hotelCompanyId) : '');
+  const [numRooms, setNumRooms] = useState(row?.numberOfRooms != null ? String(row.numberOfRooms) : '');
+  const [roomTypes, setRoomTypes] = useState(row?.roomTypes ?? '');
+  const [checkIn, setCheckIn] = useState(row?.checkInDate ?? '');
+  const [checkOut, setCheckOut] = useState(row?.checkOutDate ?? '');
+  const [occupantId, setOccupantId] = useState(row?.occupantContactId != null ? String(row.occupantContactId) : '');
+
+  const mutation = useMutation<void, Error, CreateTravelHotelPayload>({
+    mutationFn: async (body) => {
+      if (row?.engagementTravelId) {
+        await updateEngagementTravelHotel(engagementId, row.engagementTravelId, body);
+      } else {
+        await addEngagementTravelHotel(engagementId, body);
+      }
+    },
+    onSuccess: () => { addToast('Hotel travel saved.', 'success'); onSaved(); },
+    onError: (e) => addToast(friendlyApiError(e, 'Could not save hotel travel.'), 'error'),
+  });
+
+  const handleSave = () =>
+    mutation.mutate({
+      bookedBy: bookedBy || null,
+      hotelCompanyId: hotelCompanyId ? Number(hotelCompanyId) : null,
+      numberOfRooms: numRooms ? Number(numRooms) : null,
+      roomTypes: roomTypes || null,
+      checkInDate: checkIn || null,
+      checkOutDate: checkOut || null,
+      occupantContactId: occupantId ? Number(occupantId) : null,
+    });
+
+  const cls = 'w-full rounded border border-border bg-background px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-ems-accent/50 disabled:opacity-60';
+
+  return (
+    <div className="space-y-3 rounded-md border border-border bg-surface/40 p-4">
+      <p className="text-xs font-semibold text-text-primary">Hotel Booking</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <FormField label="Booked By">
+          <Select2 options={BOOKED_BY_OPTIONS} value={bookedBy} onChange={setBookedBy} placeholder="Select…" allowClear disabled={mutation.isPending} />
+        </FormField>
+        <FormField label="Hotel Company">
+          <Select2 options={companyOptions} value={hotelCompanyId} onChange={setHotelCompanyId} placeholder="Select hotel company…" allowClear disabled={mutation.isPending} />
+        </FormField>
+        <FormField label="# Rooms">
+          <input type="number" min={1} className={cls} value={numRooms} onChange={(e) => setNumRooms(e.target.value)} disabled={mutation.isPending} />
+        </FormField>
+        <FormField label="Room Types">
+          <input type="text" className={cls} value={roomTypes} onChange={(e) => setRoomTypes(e.target.value)} placeholder="e.g. King, Double…" disabled={mutation.isPending} />
+        </FormField>
+        <FormField label="Check-In Date">
+          <input type="date" className={cls} value={checkIn} onChange={(e) => setCheckIn(e.target.value)} disabled={mutation.isPending} />
+        </FormField>
+        <FormField label="Check-Out Date">
+          <input type="date" className={cls} value={checkOut} onChange={(e) => setCheckOut(e.target.value)} disabled={mutation.isPending} />
+        </FormField>
+        <FormField label="Occupant Contact">
+          <Select2 options={contactOptions} value={occupantId} onChange={setOccupantId} placeholder="Select contact…" allowClear disabled={mutation.isPending} />
+        </FormField>
+      </div>
+      <div className="flex justify-end gap-2 pt-2 border-t border-border">
+        <Button type="button" size="sm" variant="outline" onClick={onCancel} disabled={mutation.isPending}>Cancel</Button>
+        <Button type="button" size="sm" className="bg-ems-accent text-white hover:opacity-90" onClick={handleSave} disabled={mutation.isPending}>
+          {mutation.isPending ? <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span> : 'Save Hotel'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function TravelCarServiceForm({
+  engagementId,
+  row,
+  addToast,
+  onSaved,
+  onCancel,
+}: {
+  engagementId: number;
+  row?: ApiTravelCarServiceRow | null;
+  addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  onSaved: () => void;
+  onCancel: () => void;
+}) {
+  const [bookedBy, setBookedBy] = useState(row?.bookedBy ?? '');
+  const [originLine1, setOriginLine1] = useState('');
+  const [originCity, setOriginCity] = useState('');
+  const [originState, setOriginState] = useState('');
+  const [originPostal, setOriginPostal] = useState('');
+  const [originCountry, setOriginCountry] = useState('US');
+  const [destLine1, setDestLine1] = useState('');
+  const [destCity, setDestCity] = useState('');
+  const [destState, setDestState] = useState('');
+  const [destPostal, setDestPostal] = useState('');
+  const [destCountry, setDestCountry] = useState('US');
+  const [pickupDateTime, setPickupDateTime] = useState(
+    row?.pickupDateTime ? row.pickupDateTime.slice(0, 16) : '',
+  );
+
+  const mutation = useMutation<void, Error, CreateTravelCarServicePayload>({
+    mutationFn: async (body) => {
+      if (row?.carServiceTravelId) {
+        await updateEngagementTravelCarService(engagementId, row.carServiceTravelId, body);
+      } else {
+        await addEngagementTravelCarService(engagementId, body);
+      }
+    },
+    onSuccess: () => { addToast('Car service saved.', 'success'); onSaved(); },
+    onError: (e) => addToast(friendlyApiError(e, 'Could not save car service.'), 'error'),
+  });
+
+  const handleSave = () => {
+    const body: CreateTravelCarServicePayload = {
+      bookedBy: bookedBy || null,
+      pickupDateTime: pickupDateTime || null,
+    };
+    if (originLine1.trim()) {
+      body.originAddress = { addressLine1: originLine1.trim(), city: originCity.trim(), stateProvince: originState.trim(), postalCode: originPostal.trim(), country: originCountry.trim() };
+    }
+    if (destLine1.trim()) {
+      body.destinationAddress = { addressLine1: destLine1.trim(), city: destCity.trim(), stateProvince: destState.trim(), postalCode: destPostal.trim(), country: destCountry.trim() };
+    }
+    mutation.mutate(body);
+  };
+
+  const cls = 'w-full rounded border border-border bg-background px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-ems-accent/50 disabled:opacity-60';
+
+  return (
+    <div className="space-y-3 rounded-md border border-border bg-surface/40 p-4">
+      <p className="text-xs font-semibold text-text-primary">Car Service</p>
+      {row?.originAddressLabel && (
+        <p className="text-xs text-text-muted">Current origin: {row.originAddressLabel}</p>
+      )}
+      {row?.destinationAddressLabel && (
+        <p className="text-xs text-text-muted">Current destination: {row.destinationAddressLabel}</p>
+      )}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <FormField label="Booked By">
+          <Select2 options={BOOKED_BY_OPTIONS} value={bookedBy} onChange={setBookedBy} placeholder="Select…" allowClear disabled={mutation.isPending} />
+        </FormField>
+        <FormField label="Pickup Date & Time">
+          <input type="datetime-local" className={cls} value={pickupDateTime} onChange={(e) => setPickupDateTime(e.target.value)} disabled={mutation.isPending} />
+        </FormField>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-text-secondary">Origin Address</p>
+          <input type="text" className={cls} placeholder="Address Line 1" value={originLine1} onChange={(e) => setOriginLine1(e.target.value)} disabled={mutation.isPending} />
+          <div className="grid grid-cols-2 gap-2">
+            <input type="text" className={cls} placeholder="City" value={originCity} onChange={(e) => setOriginCity(e.target.value)} disabled={mutation.isPending} />
+            <input type="text" className={cls} placeholder="State/Province" value={originState} onChange={(e) => setOriginState(e.target.value)} disabled={mutation.isPending} />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <input type="text" className={cls} placeholder="Postal Code" value={originPostal} onChange={(e) => setOriginPostal(e.target.value)} disabled={mutation.isPending} />
+            <input type="text" className={cls} placeholder="Country" value={originCountry} onChange={(e) => setOriginCountry(e.target.value)} disabled={mutation.isPending} />
+          </div>
+        </div>
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-text-secondary">Destination Address</p>
+          <input type="text" className={cls} placeholder="Address Line 1" value={destLine1} onChange={(e) => setDestLine1(e.target.value)} disabled={mutation.isPending} />
+          <div className="grid grid-cols-2 gap-2">
+            <input type="text" className={cls} placeholder="City" value={destCity} onChange={(e) => setDestCity(e.target.value)} disabled={mutation.isPending} />
+            <input type="text" className={cls} placeholder="State/Province" value={destState} onChange={(e) => setDestState(e.target.value)} disabled={mutation.isPending} />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <input type="text" className={cls} placeholder="Postal Code" value={destPostal} onChange={(e) => setDestPostal(e.target.value)} disabled={mutation.isPending} />
+            <input type="text" className={cls} placeholder="Country" value={destCountry} onChange={(e) => setDestCountry(e.target.value)} disabled={mutation.isPending} />
+          </div>
+        </div>
+      </div>
+      <div className="flex justify-end gap-2 pt-2 border-t border-border">
+        <Button type="button" size="sm" variant="outline" onClick={onCancel} disabled={mutation.isPending}>Cancel</Button>
+        <Button type="button" size="sm" className="bg-ems-accent text-white hover:opacity-90" onClick={handleSave} disabled={mutation.isPending}>
+          {mutation.isPending ? <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span> : 'Save Car Service'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function AttractionTravelSection({
+  engagementId,
+  addToast,
+}: {
+  engagementId: number;
+  addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+}) {
+  const qc = useQueryClient();
+  const [addingType, setAddingType] = useState<'Hotel' | 'Car' | null>(null);
+  const [editingHotel, setEditingHotel] = useState<ApiTravelHotelRow | null>(null);
+  const [editingCar, setEditingCar] = useState<ApiTravelCarServiceRow | null>(null);
+
+  const travelQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'travel'],
+    queryFn: () => fetchEngagementTravel(engagementId),
+  });
+
+  const iaeContactLookupsQuery = useQuery({
+    queryKey: ['engagements', 'iae-contact-lookups'],
+    queryFn: fetchEngagementIaeContactLookups,
+    staleTime: 300_000,
+  });
+
+  const hotelCompanySearchQuery = useQuery({
+    queryKey: ['companies', 'hotel-type'],
+    queryFn: () => fetchCompanies(0, 200, { companyType: 'Hotel' }),
+    staleTime: 120_000,
+  });
+
+  const hotelCompanyOptions = useMemo<Select2Option[]>(
+    () => [
+      { value: '', label: 'Select hotel company…' },
+      ...(hotelCompanySearchQuery.data?.data ?? []).map((c) => ({
+        value: String(c.companyId),
+        label: c.companyName,
+      })),
+    ],
+    [hotelCompanySearchQuery.data],
+  );
+
+  const contactOptions = useMemo<Select2Option[]>(
+    () => [
+      { value: '', label: 'Not set' },
+      ...(iaeContactLookupsQuery.data?.contacts ?? []).map((c) => ({ value: String(c.id), label: c.label })),
+    ],
+    [iaeContactLookupsQuery.data],
+  );
+
+  const deleteMutation = useMutation({
+    mutationFn: (travelId: number) => deleteEngagementTravel(engagementId, travelId),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'travel'] });
+      addToast('Travel record removed.', 'warning');
+    },
+    onError: (e) => addToast(friendlyApiError(e, 'Could not remove travel record.'), 'error'),
+  });
+
+  const invalidateTravel = () => qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'travel'] });
+  const sectionCls = 'rounded-md border border-border bg-surface/40 p-4 space-y-3';
+
+  if (travelQuery.isLoading) {
+    return (
+      <div className={sectionCls}>
+        <span className="text-xs font-semibold text-text-primary block mb-3">Attraction Travel</span>
+        <div className="flex items-center gap-2 text-text-muted text-sm py-4">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading travel…
+        </div>
+      </div>
+    );
+  }
+
+  const travels = travelQuery.data ?? [];
+
+  return (
+    <div className={sectionCls}>
+      <span className="text-xs font-semibold text-text-primary block">Attraction Travel</span>
+
+      {travels.length > 0 && (
+        <div className="space-y-3">
+          {travels.map((t) => (
+            <div key={t.engagementTravelId} className="rounded border border-border bg-background p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-text-secondary">
+                  {t.travelType === 'Hotel' ? '🏨 Hotel' : '🚗 Car Service'}
+                </span>
+                <button
+                  type="button"
+                  className="text-ems-coral hover:text-ems-coral/70 p-1 rounded"
+                  onClick={() => deleteMutation.mutate(t.engagementTravelId)}
+                  disabled={deleteMutation.isPending}
+                  title="Remove travel record"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              {t.travelType === 'Hotel' && t.hotel && (
+                editingHotel?.engagementTravelId === t.engagementTravelId ? (
+                  <TravelHotelForm
+                    engagementId={engagementId}
+                    row={t.hotel}
+                    addToast={addToast}
+                    onSaved={() => { setEditingHotel(null); void invalidateTravel(); }}
+                    onCancel={() => setEditingHotel(null)}
+                    companyOptions={hotelCompanyOptions}
+                    contactOptions={contactOptions}
+                  />
+                ) : (
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-text-secondary">
+                    {t.hotel.bookedBy && <><span className="text-text-muted">Booked by:</span><span>{t.hotel.bookedBy}</span></>}
+                    {t.hotel.hotelCompanyName && <><span className="text-text-muted">Hotel:</span><span>{t.hotel.hotelCompanyName}</span></>}
+                    {t.hotel.numberOfRooms != null && <><span className="text-text-muted"># Rooms:</span><span>{t.hotel.numberOfRooms}</span></>}
+                    {t.hotel.roomTypes && <><span className="text-text-muted">Room types:</span><span>{t.hotel.roomTypes}</span></>}
+                    {(t.hotel.checkInDate || t.hotel.checkOutDate) && <><span className="text-text-muted">Dates:</span><span>{t.hotel.checkInDate} → {t.hotel.checkOutDate}</span></>}
+                    {t.hotel.occupantContactName && <><span className="text-text-muted">Occupant:</span><span>{t.hotel.occupantContactName}</span></>}
+                    <div className="col-span-2 flex justify-end mt-1">
+                      <button type="button" className="text-xs text-ems-accent hover:underline" onClick={() => setEditingHotel(t.hotel)}>Edit</button>
+                    </div>
+                  </div>
+                )
+              )}
+
+              {t.travelType === 'Car' && t.carServices.map((cs) => (
+                editingCar?.carServiceTravelId === cs.carServiceTravelId ? (
+                  <TravelCarServiceForm
+                    key={cs.carServiceTravelId}
+                    engagementId={engagementId}
+                    row={cs}
+                    addToast={addToast}
+                    onSaved={() => { setEditingCar(null); void invalidateTravel(); }}
+                    onCancel={() => setEditingCar(null)}
+                  />
+                ) : (
+                  <div key={cs.carServiceTravelId} className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-text-secondary">
+                    {cs.bookedBy && <><span className="text-text-muted">Booked by:</span><span>{cs.bookedBy}</span></>}
+                    {cs.originAddressLabel && <><span className="text-text-muted">Origin:</span><span>{cs.originAddressLabel}</span></>}
+                    {cs.destinationAddressLabel && <><span className="text-text-muted">Destination:</span><span>{cs.destinationAddressLabel}</span></>}
+                    {cs.pickupDateTime && <><span className="text-text-muted">Pickup:</span><span>{new Date(cs.pickupDateTime).toLocaleString()}</span></>}
+                    <div className="col-span-2 flex justify-end mt-1">
+                      <button type="button" className="text-xs text-ems-accent hover:underline" onClick={() => setEditingCar(cs)}>Edit</button>
+                    </div>
+                  </div>
+                )
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {addingType === 'Hotel' && (
+        <TravelHotelForm
+          engagementId={engagementId}
+          addToast={addToast}
+          onSaved={() => { setAddingType(null); void invalidateTravel(); }}
+          onCancel={() => setAddingType(null)}
+          companyOptions={hotelCompanyOptions}
+          contactOptions={contactOptions}
+        />
+      )}
+
+      {addingType === 'Car' && (
+        <TravelCarServiceForm
+          engagementId={engagementId}
+          addToast={addToast}
+          onSaved={() => { setAddingType(null); void invalidateTravel(); }}
+          onCancel={() => setAddingType(null)}
+        />
+      )}
+
+      {!addingType && (
+        <div className="flex gap-2 pt-1">
+          <Button type="button" size="sm" variant="outline" onClick={() => setAddingType('Hotel')}>
+            <Plus className="h-3 w-3 mr-1" /> Add Hotel
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => setAddingType('Car')}>
+            <Plus className="h-3 w-3 mr-1" /> Add Car Service
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function VenuesTab({
   engagementId,
   addToast,
@@ -278,25 +1056,32 @@ function VenuesTab({
 }) {
   const qc = useQueryClient();
   const [pendingRemove, setPendingRemove] = useState<ApiEngagementVenueRow | null>(null);
+  const [expandedVenueId, setExpandedVenueId] = useState<number | null>(null);
 
-  const venuesQuery = useQuery({
-    queryKey: ['engagements', engagementId, 'venues'],
-    queryFn: () => fetchEngagementVenues(engagementId),
+  const venueTabQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'venue-tab-data'],
+    queryFn: () => fetchEngagementVenueTabData(engagementId),
   });
 
+  // Keep the legacy venues query in sync (used by other parts of the page)
   const removeMutation = useMutation({
     mutationFn: (venueCompanyId: number) => removeEngagementVenue(engagementId, venueCompanyId),
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venues'] });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venues'] }),
+        qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venue-tab-data'] }),
+      ]);
       addToast('Venue removed from engagement.', 'warning');
       setPendingRemove(null);
     },
     onError: (e) => addToast(friendlyApiError(e, 'Could not remove venue.'), 'error'),
   });
 
-  const venues = useMemo(() => venuesQuery.data ?? [], [venuesQuery.data]);
+  const venues = useMemo(() => venueTabQuery.data?.venues ?? [], [venueTabQuery.data]);
+  const venueDealType = venueTabQuery.data?.venueDealType ?? null;
+  const venueTerms = venueTabQuery.data?.venueTerms ?? null;
 
-  if (venuesQuery.isLoading) {
+  if (venueTabQuery.isLoading) {
     return (
       <div className="flex items-center gap-2 text-text-muted text-sm py-6">
         <Loader2 className="h-4 w-4 animate-spin" />
@@ -305,16 +1090,12 @@ function VenuesTab({
     );
   }
 
-  if (venuesQuery.error) {
+  if (venueTabQuery.error) {
     return (
       <div className="flex items-center gap-2 text-ems-coral text-sm py-4">
         <AlertCircle className="h-4 w-4 shrink-0" />
-        {friendlyApiError(venuesQuery.error)}
-        <button
-          type="button"
-          onClick={() => venuesQuery.refetch()}
-          className="text-xs underline ml-1"
-        >
+        {friendlyApiError(venueTabQuery.error)}
+        <button type="button" onClick={() => venueTabQuery.refetch()} className="text-xs underline ml-1">
           Retry
         </button>
       </div>
@@ -322,79 +1103,96 @@ function VenuesTab({
   }
 
   return (
-      <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-text-primary">Venues</h3>
+    <div className="space-y-4">
+      <h3 className="text-sm font-semibold text-text-primary">Venues</h3>
 
-      {/* Venue list */}
       {venues.length === 0 ? (
         <div className="flex flex-col items-center gap-2 py-8 text-center">
           <Building2 className="h-8 w-8 text-text-muted/50" />
           <p className="text-sm text-text-muted">No venue links found for this engagement.</p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-3">
           {venues.map((v) => (
             <div
               key={v.venueCompanyId}
-              className={`flex items-start justify-between border rounded-lg px-4 py-3 ${
-                v.isPrimary
-                  ? 'border-ems-accent/40 bg-ems-accent-dim/20'
-                  : 'border-border bg-surface/40'
+              className={`border rounded-lg ${
+                v.isPrimary ? 'border-ems-accent/40 bg-ems-accent-dim/20' : 'border-border bg-surface/40'
               }`}
             >
-              <div className="flex items-start gap-3 min-w-0">
-                <Building2
-                  className={`h-4 w-4 mt-0.5 shrink-0 ${v.isPrimary ? 'text-ems-accent' : 'text-text-muted'}`}
-                />
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onNavigate('companies', { selectedCompanyId: v.venueCompanyId })
-                      }
-                      className="text-sm font-medium text-text-primary text-left hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm"
-                      title="Open venue company profile"
-                    >
-                      {v.venueCompanyName ?? 'Unknown company'}
-                    </button>
-                    {v.isPrimary && (
-                      <span className="inline-flex items-center gap-1 text-[10px] bg-ems-accent/15 text-ems-accent px-1.5 py-0.5 rounded font-medium shrink-0">
-                        <Star className="h-2.5 w-2.5" />
-                        Main
-                      </span>
+              {/* Venue header row */}
+              <div className="flex items-start justify-between px-4 py-3">
+                <div className="flex items-start gap-3 min-w-0">
+                  <Building2 className={`h-4 w-4 mt-0.5 shrink-0 ${v.isPrimary ? 'text-ems-accent' : 'text-text-muted'}`} />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => onNavigate('companies', { selectedCompanyId: v.venueCompanyId })}
+                        className="text-sm font-medium text-text-primary text-left hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm"
+                        title="Open venue company profile"
+                      >
+                        {v.venueCompanyName ?? 'Unknown company'}
+                      </button>
+                      {v.isPrimary && (
+                        <span className="inline-flex items-center gap-1 text-[10px] bg-ems-accent/15 text-ems-accent px-1.5 py-0.5 rounded font-medium shrink-0">
+                          <Star className="h-2.5 w-2.5" />
+                          Main
+                        </span>
+                      )}
+                    </div>
+                    {v.venueName && v.venueName !== v.venueCompanyName && (
+                      <button
+                        type="button"
+                        onClick={() => onNavigate('companies', { selectedCompanyId: v.venueCompanyId })}
+                        className="block w-full text-left text-xs text-text-secondary mt-0.5 hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm"
+                        title="Open venue company profile"
+                      >
+                        {v.venueName}
+                      </button>
+                    )}
+                    {(v.city || v.stateProvince || v.dmaMarketName) && (
+                      <div className="flex items-center gap-1 text-xs text-text-muted mt-0.5">
+                        <MapPin className="h-3 w-3 shrink-0" />
+                        {[v.city, v.stateProvince].filter(Boolean).join(', ')}
+                        {v.dmaMarketName ? ` · ${v.dmaMarketName}` : ''}
+                      </div>
                     )}
                   </div>
-                  {v.venueName && v.venueName !== v.venueCompanyName && (
+                </div>
+                <div className="flex items-center gap-3 shrink-0 ml-2">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedVenueId(expandedVenueId === v.venueCompanyId ? null : v.venueCompanyId)}
+                    className="text-xs text-ems-accent hover:underline"
+                  >
+                    {expandedVenueId === v.venueCompanyId ? 'Collapse' : 'Details'}
+                  </button>
+                  {!v.isPrimary && (
                     <button
                       type="button"
-                      onClick={() =>
-                        onNavigate('companies', { selectedCompanyId: v.venueCompanyId })
-                      }
-                      className="block w-full text-left text-xs text-text-secondary mt-0.5 hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm"
-                      title="Open venue company profile"
+                      onClick={() => setPendingRemove(v)}
+                      disabled={removeMutation.isPending}
+                      className="text-ems-coral text-xs hover:underline disabled:opacity-50"
                     >
-                      {v.venueName}
+                      Remove
                     </button>
-                  )}
-                  {(v.city || v.stateProvince || v.dmaMarketName) && (
-                    <div className="flex items-center gap-1 text-xs text-text-muted mt-0.5">
-                      <MapPin className="h-3 w-3 shrink-0" />
-                      {[v.city, v.stateProvince].filter(Boolean).join(', ')}
-                      {v.dmaMarketName ? ` · ${v.dmaMarketName}` : ''}
-                    </div>
                   )}
                 </div>
               </div>
-              {!v.isPrimary && (
-                <button
-                  type="button"
-                  onClick={() => setPendingRemove(v)}
-                  disabled={removeMutation.isPending}
-                  className="text-ems-coral text-xs hover:underline shrink-0 mt-0.5 disabled:opacity-50"
-                >
-                  Remove
-                </button>
+
+              {/* Expanded details */}
+              {expandedVenueId === v.venueCompanyId && (
+                <div className="border-t border-border px-4 pb-4">
+                  <VenueDetailPanel
+                    engagementId={engagementId}
+                    venue={v}
+                    venueDealType={venueDealType}
+                    venueTerms={venueTerms}
+                    addToast={addToast}
+                    onNavigate={onNavigate}
+                  />
+                </div>
               )}
             </div>
           ))}
@@ -768,6 +1566,85 @@ function EngagementProductionPanel({
     return base;
   }, [currentStagehandProviderId, stagehandProvidersQuery.data]);
 
+  const stagehandProviderContacts = useMemo(() => {
+    const data = venueDetailsQuery.data;
+    if (!data || data.missing === true) return [] as { contactInfoId: number; fullName: string; email: string; phone: string | null; cellPhone: string | null }[];
+    return data.stagehandProviderContacts ?? [];
+  }, [venueDetailsQuery.data]);
+
+  // Venue tab fields: IAE Production Manager, Venue Type, Tech Pack
+  const [iaeProductionManagerId, setIaeProductionManagerId] = useState('');
+  const [venueTypeId, setVenueTypeId] = useState('');
+  const [stageDimensions, setStageDimensions] = useState('');
+  const [flySystemSpecs, setFlySystemSpecs] = useState('');
+  const [stageType, setStageType] = useState('');
+
+  const venueTabDataQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'venue-tab-data'],
+    queryFn: () => fetchEngagementVenueTabData(engagementId),
+    enabled: venueCompanyId != null && venueCompanyId > 0,
+  });
+
+  const primaryVenue = useMemo(
+    () => (venueTabDataQuery.data?.venues ?? []).find((v) => v.venueCompanyId === venueCompanyId) ?? null,
+    [venueTabDataQuery.data, venueCompanyId],
+  );
+
+  useEffect(() => {
+    if (!primaryVenue) return;
+    setIaeProductionManagerId(primaryVenue.iaeProductionManagerContactId != null ? String(primaryVenue.iaeProductionManagerContactId) : '');
+    setVenueTypeId(primaryVenue.venueTypeId != null ? String(primaryVenue.venueTypeId) : '');
+    setStageDimensions(primaryVenue.stageDimensions ?? '');
+    setFlySystemSpecs(primaryVenue.flySystemSpecs ?? '');
+    setStageType(primaryVenue.stageType ?? '');
+  }, [primaryVenue]);
+
+  const iaeContactLookupsQuery = useQuery({
+    queryKey: ['engagements', 'iae-contact-lookups'],
+    queryFn: fetchEngagementIaeContactLookups,
+    staleTime: 300_000,
+  });
+
+  const iaeContactOptions = useMemo<Select2Option[]>(
+    () => [
+      { value: '', label: 'Not set' },
+      ...(iaeContactLookupsQuery.data?.contacts ?? []).map((c) => ({
+        value: String(c.id),
+        label: c.label,
+      })),
+    ],
+    [iaeContactLookupsQuery.data],
+  );
+
+  const venueTypesQuery = useQuery({
+    queryKey: ['lookups', 'venue-types'],
+    queryFn: fetchVenueTypesLookup,
+    staleTime: 300_000,
+  });
+
+  const venueTypeOptions = useMemo<Select2Option[]>(
+    () => [
+      { value: '', label: 'Not set' },
+      ...(venueTypesQuery.data ?? []).map((vt: ApiVenueType) => ({
+        value: String(vt.venueTypeId),
+        label: vt.venueTypeName,
+      })),
+    ],
+    [venueTypesQuery.data],
+  );
+
+  const saveVenueTabMutation = useMutation({
+    mutationFn: (body: UpdateEngagementVenueTabPayload) => {
+      if (venueCompanyId == null) throw new Error('No venue linked to this engagement.');
+      return updateEngagementVenueTab(engagementId, venueCompanyId, body);
+    },
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venue-tab-data'] });
+      addToast('Saved.', 'success');
+    },
+    onError: (e) => addToast(friendlyApiError(e, 'Could not save.'), 'error'),
+  });
+
   const saveStagehandProviderMutation = useMutation({
     mutationFn: (providerCompanyId: number | null) => {
       if (venueCompanyId == null) {
@@ -793,11 +1670,13 @@ function EngagementProductionPanel({
   const loading =
     venueDetailsQuery.isLoading ||
     venueContactsQuery.isLoading ||
-    stagehandProvidersQuery.isLoading;
+    stagehandProvidersQuery.isLoading ||
+    venueTabDataQuery.isLoading;
   const error =
     venueDetailsQuery.error ||
     venueContactsQuery.error ||
-    stagehandProvidersQuery.error;
+    stagehandProvidersQuery.error ||
+    venueTabDataQuery.error;
   const currentStagehandValue =
     currentStagehandProviderId == null ? '' : String(currentStagehandProviderId);
   const stagehandDirty = hasStagehandUserEdited && stagehandProviderId !== currentStagehandValue;
@@ -856,6 +1735,7 @@ function EngagementProductionPanel({
               void venueDetailsQuery.refetch();
               void venueContactsQuery.refetch();
               void stagehandProvidersQuery.refetch();
+              void venueTabDataQuery.refetch();
             }}
             className="text-xs underline ml-1"
           >
@@ -883,10 +1763,42 @@ function EngagementProductionPanel({
         </div>
       )}
 
+      {/* IAE Production Manager */}
+      <div className="rounded-md border border-border bg-surface/40 p-4 space-y-4">
+        <span className="text-xs font-semibold text-text-primary block">IAE Production Manager</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Production Manager Contact">
+            <Select2
+              options={iaeContactOptions}
+              value={iaeProductionManagerId}
+              onChange={setIaeProductionManagerId}
+              placeholder="Select IAE contact…"
+              allowClear
+              disabled={saveVenueTabMutation.isPending}
+            />
+          </FormField>
+        </div>
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            size="sm"
+            className="bg-ems-accent text-white hover:opacity-90"
+            onClick={() => saveVenueTabMutation.mutate({ iaeProductionManagerContactId: iaeProductionManagerId ? Number(iaeProductionManagerId) : null })}
+            disabled={saveVenueTabMutation.isPending}
+          >
+            {saveVenueTabMutation.isPending ? (
+              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
+            ) : 'Save IAE production manager'}
+          </Button>
+        </div>
+      </div>
+
+      {/* Venue Production Manager */}
       <div
-        className="relative rounded-lg border border-border bg-surface/40 p-4"
+        className="relative rounded-lg border border-border bg-surface/40 p-4 space-y-4"
         aria-busy={saveStagehandProviderMutation.isPending}
       >
+        <span className="text-xs font-semibold text-text-primary block">Venue Production Manager</span>
         {saveStagehandProviderMutation.isPending && (
           <div
             className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/55 backdrop-blur-[1px]"
@@ -899,23 +1811,18 @@ function EngagementProductionPanel({
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-x-6 gap-y-5">
-          <FormField label="Venue production manager contact information">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Venue Production Manager">
             <div className="min-h-[42px] rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary">
               {productionManagerContacts.length === 0 ? (
-                <span className="text-text-muted">
-                  No production manager contact assigned to this venue.
-                </span>
+                <span className="text-text-muted">No production manager contact assigned to this venue.</span>
               ) : (
                 <ul className="space-y-2">
                   {productionManagerContacts.map((contact) => {
                     const name = compactContactName(contact) || contact.email;
                     const phone = contactPhoneDisplay(contact);
                     return (
-                      <li
-                        key={contact.contactAssignmentId}
-                        className="flex flex-col gap-0.5"
-                      >
+                      <li key={contact.contactAssignmentId} className="flex flex-col gap-0.5">
                         <span className="font-medium">{name}</span>
                         <span className="text-xs text-text-secondary">
                           {[contact.email, phone].filter(Boolean).join(' | ') || '-'}
@@ -928,7 +1835,7 @@ function EngagementProductionPanel({
             </div>
           </FormField>
 
-          <FormField label="Stagehand provider">
+          <FormField label="Stagehand Provider">
             <Select2
               options={stagehandProviderOptions}
               value={stagehandProviderId}
@@ -943,7 +1850,28 @@ function EngagementProductionPanel({
           </FormField>
         </div>
 
-        <div className="mt-5 flex justify-end border-t border-border pt-4">
+        <FormField label="Venue Stage Labor Company Contact">
+          <div className="min-h-[42px] rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary">
+            {!currentStagehandProviderId ? (
+              <span className="text-text-muted">Select a stagehand provider to view stage labor contacts.</span>
+            ) : stagehandProviderContacts.length === 0 ? (
+              <span className="text-text-muted">No contacts found for this stagehand provider.</span>
+            ) : (
+              <ul className="space-y-2">
+                {stagehandProviderContacts.map((contact) => (
+                  <li key={contact.contactInfoId} className="flex flex-col gap-0.5">
+                    <span className="font-medium">{contact.fullName}</span>
+                    <span className="text-xs text-text-secondary">
+                      {[contact.email, contact.phone || contact.cellPhone].filter(Boolean).join(' | ') || '-'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </FormField>
+
+        <div className="flex justify-end border-t border-border pt-4">
           <Button
             type="button"
             size="sm"
@@ -957,10 +1885,88 @@ function EngagementProductionPanel({
                 Saving...
               </span>
             ) : (
-              'Save production fields'
+              'Save stagehand provider'
             )}
           </Button>
         </div>
+      </div>
+
+      {/* Venue Type */}
+      <div className="rounded-md border border-border bg-surface/40 p-4 space-y-4">
+        <span className="text-xs font-semibold text-text-primary block">Venue Type</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Venue Type">
+            <Select2
+              options={venueTypeOptions}
+              value={venueTypeId}
+              onChange={setVenueTypeId}
+              placeholder="Select type…"
+              allowClear
+              disabled={saveVenueTabMutation.isPending}
+            />
+          </FormField>
+        </div>
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            size="sm"
+            className="bg-ems-accent text-white hover:opacity-90"
+            onClick={() => saveVenueTabMutation.mutate({ venueTypeId: venueTypeId ? Number(venueTypeId) : null })}
+            disabled={saveVenueTabMutation.isPending}
+          >
+            {saveVenueTabMutation.isPending ? (
+              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
+            ) : 'Save venue type'}
+          </Button>
+        </div>
+      </div>
+
+      {/* Venue Tech Pack */}
+      <div className="rounded-md border border-border bg-surface/40 p-4 space-y-4">
+        <span className="text-xs font-semibold text-text-primary block">Venue Tech Pack</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <VenueTabEditField
+            label="Venue Stage Dimensions"
+            value={stageDimensions}
+            onChange={setStageDimensions}
+            disabled={saveVenueTabMutation.isPending}
+          />
+          <VenueTabEditField
+            label="Venue Fly System Specs"
+            value={flySystemSpecs}
+            onChange={setFlySystemSpecs}
+            disabled={saveVenueTabMutation.isPending}
+          />
+          <VenueTabEditField
+            label="Stage Type"
+            value={stageType}
+            onChange={setStageType}
+            disabled={saveVenueTabMutation.isPending}
+          />
+        </div>
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            size="sm"
+            className="bg-ems-accent text-white hover:opacity-90"
+            onClick={() => saveVenueTabMutation.mutate({
+              stageDimensions: stageDimensions || null,
+              flySystemSpecs: flySystemSpecs || null,
+              stageType: stageType || null,
+            })}
+            disabled={saveVenueTabMutation.isPending}
+          >
+            {saveVenueTabMutation.isPending ? (
+              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
+            ) : 'Save tech pack'}
+          </Button>
+        </div>
+      </div>
+
+      {/* Attraction Travel */}
+      <div className="rounded-md border border-border bg-surface/40 p-4 space-y-2">
+        <span className="text-xs font-semibold text-text-primary block mb-2">Attraction Travel</span>
+        <AttractionTravelSection engagementId={engagementId} addToast={addToast} />
       </div>
     </div>
   );
@@ -3422,21 +4428,17 @@ function EngagementArtistTermsPanel({
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
         {fieldRow(
           'Deal Type',
-          <select
-            id="at-deal-type"
-            className={inputCls}
+          <Select2
+            options={BOOKING_ATTRACTION_DEAL_TYPE_OPTIONS}
             value={artistDealType}
-            onChange={(e) => {
+            onChange={(v) => {
               markArtistTermsUserEdited();
-              setArtistDealType(e.target.value);
+              setArtistDealType(v);
             }}
+            placeholder="Not set"
+            allowClear
             disabled={disabled}
-          >
-            <option value="">Select deal type</option>
-            <option value="Flat">Flat</option>
-            <option value="Versus">Versus</option>
-            <option value="Promoter Profit">Promoter Profit</option>
-          </select>,
+          />,
         )}
         {fieldRow('Guarantee Amount', moneyInput(artistGuarantee, setArtistGuarantee, 'at-guarantee'))}
       </div>
@@ -3579,6 +4581,744 @@ function EngagementArtistTermsPanel({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Booking Tab Panel
+// ---------------------------------------------------------------------------
+const BOOKING_ATTRACTION_DEAL_TYPES = ['Flat', 'Versus', 'Promoter Profit'] as const;
+const BOOKING_ATTRACTION_DEAL_TYPE_OPTIONS: Select2Option[] = [
+  { value: '', label: 'Not set' },
+  ...(['Flat', 'Versus', 'Promoter Profit'] as const).map((v) => ({ value: v, label: v })),
+];
+const BOOKING_IAE_STAFF_FIELDS = [
+  { key: 'talentBuyer' as const, label: 'IAE Talent Buyer', aliases: ['Talent Buyer', 'IAE Talent Buyer'] as readonly string[] },
+  { key: 'bookingManager' as const, label: 'IAE Booking Manager', aliases: ['Booking Manager', 'IAE Booking Manager'] as readonly string[] },
+];
+
+function EngagementBookingPanel({
+  engagementId,
+  row,
+  addToast,
+  onDirtyChange,
+}: {
+  engagementId: number;
+  row: ApiEngagementListRow;
+  addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
+  const qc = useQueryClient();
+
+  // ── Data queries ──────────────────────────────────────────────────────────
+  const financeQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'finance'],
+    queryFn: () => fetchEngagementFinance(engagementId),
+    retry: 1,
+  });
+
+  const iaeLookupsQuery = useQuery({
+    queryKey: ['engagements', 'iae-contact-lookups'],
+    queryFn: fetchEngagementIaeContactLookups,
+    staleTime: 300_000,
+  });
+
+  const iaeContactsQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'iae-contacts'],
+    queryFn: () => fetchEngagementIaeContacts(engagementId),
+    retry: 1,
+  });
+
+  const venueTabQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'venue-tab-data'],
+    queryFn: () => fetchEngagementVenueTabData(engagementId),
+    retry: 1,
+  });
+
+  const serviceProvidersQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'service-providers'],
+    queryFn: () => fetchEngagementServiceProviders(engagementId),
+    staleTime: 30_000,
+  });
+
+  // Reuse the tours/companies lookups (shared cache with main component)
+  const lookupsQuery = useQuery({
+    queryKey: ['engagements-lookups'],
+    queryFn: async () => {
+      const lookupLimit = 10000;
+      const [attractions, tours, companies] = await Promise.all([
+        fetchAttractions(0, lookupLimit),
+        fetchTours(0, lookupLimit),
+        fetchCompanies(0, lookupLimit),
+      ]);
+      return { attractions: attractions.data ?? [], tours: tours.data ?? [], companies: companies.data ?? [] };
+    },
+    staleTime: 60_000,
+  });
+
+  // ── Derived tour info ─────────────────────────────────────────────────────
+  const selectedTour = useMemo(
+    () => (lookupsQuery.data?.tours ?? []).find((t) => t.tourId === row.tourId) ?? null,
+    [lookupsQuery.data?.tours, row.tourId],
+  );
+  const tourMgmtCompanyId = selectedTour?.tourManagementCompanyId ?? null;
+  const tourMgmtCompanyName = useMemo(() => {
+    if (tourMgmtCompanyId == null) return null;
+    return (lookupsQuery.data?.companies ?? []).find((c) => c.companyId === tourMgmtCompanyId)?.companyName
+      ?? selectedTour?.tourManagementCompanyName
+      ?? null;
+  }, [lookupsQuery.data?.companies, tourMgmtCompanyId, selectedTour?.tourManagementCompanyName]);
+
+  const talentAgencyCompanyId = selectedTour?.talentAgencyCompanyId ?? null;
+  const talentAgencyCompanyName = useMemo(
+    () => (lookupsQuery.data?.companies ?? []).find((c) => c.companyId === talentAgencyCompanyId)?.companyName
+      ?? selectedTour?.talentAgencyCompanyName ?? null,
+    [lookupsQuery.data?.companies, talentAgencyCompanyId, selectedTour?.talentAgencyCompanyName],
+  );
+  const talentAgentContactIds = useMemo(
+    () => new Set((selectedTour?.talentAgentContactIds ?? []).map(Number)),
+    [selectedTour?.talentAgentContactIds],
+  );
+
+  // ── Contacts for promoter and tour management companies ───────────────────
+  const promoterProviders = useMemo(
+    () => (serviceProvidersQuery.data?.providers ?? []).filter(providerIsPromoter),
+    [serviceProvidersQuery.data?.providers],
+  );
+  const promoterCompanyId = promoterProviders[0]?.providerCompanyId ?? null;
+
+  const promoterContactsQuery = useQuery({
+    queryKey: ['company-contacts', 'promoter', promoterCompanyId],
+    queryFn: () => fetchCompanyContacts(promoterCompanyId!),
+    enabled: promoterCompanyId != null && promoterCompanyId > 0,
+  });
+
+  const tourMgmtContactsQuery = useQuery({
+    queryKey: ['company-contacts', 'tour-mgmt', tourMgmtCompanyId],
+    queryFn: () => fetchCompanyContacts(tourMgmtCompanyId!),
+    enabled: tourMgmtCompanyId != null && tourMgmtCompanyId > 0,
+  });
+
+  const talentAgencyContactsQuery = useQuery({
+    queryKey: ['company-contacts', 'talent-agency', talentAgencyCompanyId],
+    queryFn: () => fetchCompanyContacts(talentAgencyCompanyId!),
+    enabled: talentAgencyCompanyId != null && talentAgencyCompanyId > 0,
+  });
+
+  // ── IAE contact lookups (contacts picker for talent buyer / booking mgr) ──
+  const iaeContactOptions = useMemo((): Select2Option[] => [
+    { value: '', label: '— not set —' },
+    ...(iaeLookupsQuery.data?.contacts ?? []).map((c) => ({ value: String(c.id), label: c.label })),
+  ], [iaeLookupsQuery.data?.contacts]);
+
+  const roleIdsByKey = useMemo(() => {
+    const roles = iaeLookupsQuery.data?.roles;
+    return Object.fromEntries(
+      BOOKING_IAE_STAFF_FIELDS.map((f) => [f.key, findMainInfoRoleId(roles, f.aliases)]),
+    ) as Record<'talentBuyer' | 'bookingManager', number | null>;
+  }, [iaeLookupsQuery.data?.roles]);
+
+  const iaeRowsByKey = useMemo(() => {
+    const result: Partial<Record<'talentBuyer' | 'bookingManager', typeof iaeContactsQuery.data extends (infer U)[] | undefined ? U : never>> = {};
+    for (const field of BOOKING_IAE_STAFF_FIELDS) {
+      const roleId = roleIdsByKey[field.key];
+      if (roleId == null) continue;
+      const match = (iaeContactsQuery.data ?? []).find((r) => r.roleId === roleId);
+      if (match) result[field.key] = match;
+    }
+    return result;
+  }, [iaeContactsQuery.data, roleIdsByKey]);
+
+  // ── Primary venue for booking manager ─────────────────────────────────────
+  const primaryVenue = useMemo(
+    () => (venueTabQuery.data?.venues ?? []).find((v) => v.isPrimary) ?? null,
+    [venueTabQuery.data?.venues],
+  );
+
+  // ── Contact options for venue-linked pickers ──────────────────────────────
+  const toContactOption = (c: ApiCompanyContact): Select2Option => ({
+    value: String(c.contactId),
+    label: [c.firstName, c.lastName].filter(Boolean).join(' ') || `Contact #${c.contactId}`,
+  });
+
+  const makeContactOptions = (contacts: ApiCompanyContact[] | undefined): Select2Option[] => [
+    { value: '', label: '— not set —' },
+    ...(contacts ?? []).map(toContactOption),
+  ];
+
+  const promoterContactOptions = useMemo(
+    () => makeContactOptions(promoterContactsQuery.data),
+    [promoterContactsQuery.data],
+  );
+
+  const tourMgmtContactOptions = useMemo(
+    () => makeContactOptions(tourMgmtContactsQuery.data),
+    [tourMgmtContactsQuery.data],
+  );
+
+  const talentAgentContacts = useMemo(
+    () => (talentAgencyContactsQuery.data ?? []).filter((c) => talentAgentContactIds.has(c.contactId)),
+    [talentAgencyContactsQuery.data, talentAgentContactIds],
+  );
+
+  // ── Edit states ──────────────────────────────────────────────────────────
+  const [talentBuyerContactId, setTalentBuyerContactId] = useState('');
+  const [bookingManagerContactId, setBookingManagerContactId] = useState('');
+  const [venueBookingManagerContactId, setVenueBookingManagerContactId] = useState('');
+  const [promoterPartnerCompanyId, setPromoterPartnerCompanyId] = useState('');
+  const [promoterPartnerContactId, setPromoterPartnerContactId] = useState('');
+  const [tourManagerContactId, setTourManagerContactId] = useState('');
+  // Attraction terms
+  const [attractionDealType, setAttractionDealType] = useState('');
+  const [attractionGuarantee, setAttractionGuarantee] = useState('');
+  const [attractionOveragePercent, setAttractionOveragePercent] = useState('');
+  const [attractionRoyaltyPercent, setAttractionRoyaltyPercent] = useState('');
+  const [attractionMiddleMoney, setAttractionMiddleMoney] = useState('');
+  // Venue terms
+  const [venueDealType, setVenueDealType] = useState('');
+  // Attraction contract links
+  const [attractionContractLink, setAttractionContractLink] = useState('');
+  const [partiallyExecutedLink, setPartiallyExecutedLink] = useState('');
+  const [fullyExecutedLink, setFullyExecutedLink] = useState('');
+
+  const {
+    hasUserEdited,
+    markUserEdited,
+    clearUserEdited,
+  } = useUserEditTracker(`booking:${engagementId}`);
+
+  // ── Populate from API data ────────────────────────────────────────────────
+  useEffect(() => {
+    setTalentBuyerContactId(iaeRowsByKey.talentBuyer ? String(iaeRowsByKey.talentBuyer.contactId) : '');
+    setBookingManagerContactId(iaeRowsByKey.bookingManager ? String(iaeRowsByKey.bookingManager.contactId) : '');
+  }, [iaeRowsByKey]);
+
+  useEffect(() => {
+    setVenueBookingManagerContactId(
+      primaryVenue?.venueBookingManagerContactId != null
+        ? String(primaryVenue.venueBookingManagerContactId)
+        : '',
+    );
+  }, [primaryVenue]);
+
+  useEffect(() => {
+    const promoterId = promoterProviders[0]?.providerCompanyId;
+    setPromoterPartnerCompanyId(promoterId != null ? String(promoterId) : '');
+  }, [promoterProviders]);
+
+  useEffect(() => {
+    const d = financeQuery.data;
+    if (!d) return;
+    setPromoterPartnerContactId(d.promoterPartnerContactId != null ? String(d.promoterPartnerContactId) : '');
+    setTourManagerContactId(d.tourManagerContactId != null ? String(d.tourManagerContactId) : '');
+    setAttractionDealType(d.artistDealType ?? '');
+    setAttractionGuarantee(numFieldToString(d.artistGuarantee));
+    setAttractionOveragePercent(numFieldToString(d.artistVersusPercent));
+    setAttractionRoyaltyPercent(numFieldToString(d.artistRoyaltyRatePercent));
+    setAttractionMiddleMoney(numFieldToString(d.artistMiddleMoney));
+    setVenueDealType(d.venueDealType ?? '');
+    setAttractionContractLink(d.attractionContractSharePointLink ?? '');
+    setPartiallyExecutedLink(d.partiallyExecutedAttractionContractSharePointLink ?? '');
+    setFullyExecutedLink(d.fullyExecutedAttractionContractSharePointLink ?? '');
+  }, [financeQuery.data]);
+
+  // ── Venue booking manager contact options ──────────────────────────────────
+  const primaryVenueCompanyId = row.primaryVenueCompanyId;
+  const venueContactsQuery = useQuery({
+    queryKey: ['company-contacts', 'venue', primaryVenueCompanyId],
+    queryFn: () => fetchCompanyContacts(primaryVenueCompanyId!),
+    enabled: primaryVenueCompanyId != null && primaryVenueCompanyId > 0,
+  });
+  const venueContactOptions = useMemo(
+    () => makeContactOptions(venueContactsQuery.data),
+    [venueContactsQuery.data],
+  );
+
+  // ── Promoter company options ───────────────────────────────────────────────
+  const allPromoterCompanyOptions = useMemo((): Select2Option[] => [
+    { value: '', label: '— not set —' },
+    ...(lookupsQuery.data?.companies ?? [])
+      .filter(companyIsPromoter)
+      .map((c) => ({ value: String(c.companyId), label: c.companyName })),
+  ], [lookupsQuery.data?.companies]);
+
+  // ── Save ──────────────────────────────────────────────────────────────────
+  const saveMut = useMutation({
+    mutationFn: async () => {
+      const d = financeQuery.data;
+      const guarantee = parseOptionalDecimal(attractionGuarantee, 'Guarantee');
+      if (!guarantee.ok) throw new Error(guarantee.message);
+      const overage = parseOptionalPercent(attractionOveragePercent, 'Overage (%)');
+      if (!overage.ok) throw new Error(overage.message);
+      const royalty = parseOptionalPercent(attractionRoyaltyPercent, 'Royalty (%)');
+      if (!royalty.ok) throw new Error(royalty.message);
+      const middleMoney = parseOptionalDecimal(attractionMiddleMoney, 'Middle Money');
+      if (!middleMoney.ok) throw new Error(middleMoney.message);
+
+      const acLink = attractionContractLink.trim();
+      const peLink = partiallyExecutedLink.trim();
+      const feLink = fullyExecutedLink.trim();
+      for (const [label, val] of [
+        ['Attraction Contract Link', acLink],
+        ['Partially Executed Attraction Contract Link', peLink],
+        ['Fully Executed Attraction Contract Link', feLink],
+      ] as const) {
+        if (val && !isValidHttpOrHttpsUrl(val)) {
+          throw new Error(`${label} must be a valid http(s) URL or empty.`);
+        }
+      }
+
+      // ── IAE contacts (talent buyer / booking manager) ────────────────────
+      for (const field of BOOKING_IAE_STAFF_FIELDS) {
+        const roleId = roleIdsByKey[field.key];
+        if (roleId == null) continue;
+        const selectedId = fkIdStringToNumber(field.key === 'talentBuyer' ? talentBuyerContactId : bookingManagerContactId);
+        const existing = iaeRowsByKey[field.key];
+        if (selectedId == null && existing) {
+          await deleteEngagementIaeContact(engagementId, existing.engagementIaeContactId);
+        } else if (selectedId != null && existing && selectedId !== existing.contactId) {
+          await updateEngagementIaeContact(engagementId, existing.engagementIaeContactId, { contactId: selectedId, roleId });
+        } else if (selectedId != null && !existing) {
+          await addEngagementIaeContact(engagementId, { contactId: selectedId, roleId, isPrimary: false });
+        }
+      }
+
+      // ── Venue booking manager ─────────────────────────────────────────────
+      if (primaryVenue != null) {
+        const newVbmId = fkIdStringToNumber(venueBookingManagerContactId);
+        const currentVbmId = primaryVenue.venueBookingManagerContactId;
+        if (newVbmId !== currentVbmId) {
+          await updateEngagementVenueTab(engagementId, primaryVenue.venueCompanyId, {
+            venueBookingManagerContactId: newVbmId,
+          });
+        }
+      }
+
+      // ── Promoter partner company ──────────────────────────────────────────
+      const selectedPromoterId = fkIdStringToNumber(promoterPartnerCompanyId);
+      const currentPromoterId = promoterProviders[0]?.providerCompanyId ?? null;
+      if (selectedPromoterId !== currentPromoterId) {
+        for (const prov of promoterProviders) {
+          if (prov.providerCompanyId !== selectedPromoterId) {
+            await removeEngagementServiceProvider(engagementId, prov.providerCompanyId);
+          }
+        }
+        if (selectedPromoterId != null && !promoterProviders.some((p) => p.providerCompanyId === selectedPromoterId)) {
+          await addEngagementServiceProvider(engagementId, { providerCompanyId: selectedPromoterId });
+        }
+      }
+
+      // ── Finance fields (new + existing artist terms + venue deal type) ────
+      await updateEngagementFinance(engagementId, {
+        // Artist / Attraction terms
+        artistDealType: attractionDealType.trim() || null,
+        artistGuarantee: guarantee.value,
+        artistVersusPercent: attractionDealType === 'Versus' ? overage.value : null,
+        artistRoyaltyRatePercent: royalty.value,
+        artistMiddleMoney: middleMoney.value,
+        // Venue terms
+        venueDealType: (venueDealType || null) as UpdateEngagementFinancePayload['venueDealType'],
+        // Booking fields (new optional columns)
+        promoterPartnerContactId: fkIdStringToNumber(promoterPartnerContactId),
+        tourManagerContactId: fkIdStringToNumber(tourManagerContactId),
+        attractionContractSharePointLink: acLink || null,
+        partiallyExecutedAttractionContractSharePointLink: peLink || null,
+        fullyExecutedAttractionContractSharePointLink: feLink || null,
+      });
+
+      // Invalidate queries
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] }),
+        qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'iae-contacts'] }),
+        qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venue-tab-data'] }),
+        qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'service-providers'] }),
+      ]);
+    },
+    onSuccess: () => {
+      clearUserEdited();
+      addToast('Booking tab saved.', 'success');
+    },
+    onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
+  });
+
+  const isLoading =
+    financeQuery.isLoading ||
+    iaeLookupsQuery.isLoading ||
+    iaeContactsQuery.isLoading ||
+    venueTabQuery.isLoading ||
+    serviceProvidersQuery.isLoading;
+
+  const loadError =
+    financeQuery.error ??
+    iaeLookupsQuery.error ??
+    iaeContactsQuery.error ??
+    venueTabQuery.error ??
+    serviceProvidersQuery.error;
+
+  const disabled = saveMut.isPending;
+
+  useEffect(() => {
+    onDirtyChange?.(hasUserEdited);
+    return () => onDirtyChange?.(false);
+  }, [hasUserEdited, onDirtyChange]);
+
+  const inputCls =
+    'w-full rounded-md border border-border bg-elevated px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-ems-accent disabled:opacity-50';
+
+  const sectionTitle = (title: string) => (
+    <h4 className="text-xs font-semibold uppercase tracking-wide text-text-muted mb-3">{title}</h4>
+  );
+
+  const fieldRow = (label: string, control: React.ReactNode) => (
+    <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[180px_1fr] sm:items-center sm:gap-4">
+      <label className="text-sm font-medium text-text-primary">{label}</label>
+      <div>{control}</div>
+    </div>
+  );
+
+  if (isLoading && !financeQuery.data) {
+    return (
+      <div className="bg-card border border-border rounded-lg p-8 flex items-center gap-2 text-text-muted text-sm">
+        <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+        Loading booking data…
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="bg-card border border-border rounded-lg p-5">
+        <div className="flex items-center gap-2 text-ems-coral text-sm">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {friendlyApiError(loadError)}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative overflow-hidden rounded-lg border border-border bg-card">
+      {saveMut.isPending && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/55 backdrop-blur-[1px]" aria-live="polite" aria-busy="true">
+          <span className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2.5 text-sm font-medium text-text-primary shadow-md">
+            <Loader2 className="h-5 w-5 shrink-0 animate-spin text-ems-accent" />
+            Saving to database…
+          </span>
+        </div>
+      )}
+      <div className="space-y-6 p-5">
+        <h3 className="text-base font-semibold text-text-primary">Booking</h3>
+
+        {/* ── IAE BOOKING ──────────────────────────────────────────────── */}
+        <div className="rounded-lg border border-border bg-surface/40 p-4 space-y-3">
+          {sectionTitle('IAE Booking')}
+          {fieldRow(
+            'IAE Talent Buyer',
+            <Select2
+              options={iaeContactOptions}
+              value={talentBuyerContactId}
+              onChange={(v) => { markUserEdited(); setTalentBuyerContactId(v); }}
+              placeholder="— not set —"
+              allowClear
+              disabled={disabled || roleIdsByKey.talentBuyer == null}
+            />,
+          )}
+          {fieldRow(
+            'IAE Booking Manager',
+            <Select2
+              options={iaeContactOptions}
+              value={bookingManagerContactId}
+              onChange={(v) => { markUserEdited(); setBookingManagerContactId(v); }}
+              placeholder="— not set —"
+              allowClear
+              disabled={disabled || roleIdsByKey.bookingManager == null}
+            />,
+          )}
+          <p className="text-xs text-text-muted">Also editable in the Main Information tab under "Innovation Arts Staff Assignments".</p>
+        </div>
+
+        {/* ── VENUE BOOKING MANAGER ─────────────────────────────────── */}
+        <div className="rounded-lg border border-border bg-surface/40 p-4 space-y-3">
+          {sectionTitle('Venue Booking Manager')}
+          {fieldRow(
+            'Venue Booking Manager',
+            primaryVenue == null ? (
+              <span className="text-sm text-text-muted">No primary venue linked.</span>
+            ) : (
+              <Select2
+                options={venueContactOptions}
+                value={venueBookingManagerContactId}
+                onChange={(v) => { markUserEdited(); setVenueBookingManagerContactId(v); }}
+                placeholder="— not set —"
+                allowClear
+                disabled={disabled}
+              />
+            ),
+          )}
+          <p className="text-xs text-text-muted">Also editable in the Venues tab.</p>
+        </div>
+
+        {/* ── PROMOTER PARTNER ─────────────────────────────────────────── */}
+        <div className="rounded-lg border border-border bg-surface/40 p-4 space-y-3">
+          {sectionTitle('Promoter Partner')}
+          {fieldRow(
+            'Promoter Partner Company',
+            <Select2
+              options={allPromoterCompanyOptions}
+              value={promoterPartnerCompanyId}
+              onChange={(v) => { markUserEdited(); setPromoterPartnerCompanyId(v); }}
+              placeholder="— not set —"
+              allowClear
+              disabled={disabled}
+            />,
+          )}
+          {fieldRow(
+            'Promoter Partner Contact',
+            promoterCompanyId == null && !fkIdStringToNumber(promoterPartnerCompanyId) ? (
+              <span className="text-sm text-text-muted">Select a promoter company first.</span>
+            ) : (
+              <Select2
+                options={promoterContactOptions}
+                value={promoterPartnerContactId}
+                onChange={(v) => { markUserEdited(); setPromoterPartnerContactId(v); }}
+                placeholder="— not set —"
+                allowClear
+                disabled={disabled || promoterContactsQuery.isLoading}
+              />
+            ),
+          )}
+          <p className="text-xs text-text-muted">Company also editable in the Main Information tab.</p>
+        </div>
+
+        {/* ── TOUR MANAGEMENT ──────────────────────────────────────────── */}
+        <div className="rounded-lg border border-border bg-surface/40 p-4 space-y-3">
+          {sectionTitle('Tour Management')}
+          {fieldRow(
+            'Tour Management Company',
+            <input
+              className={inputCls}
+              value={tourMgmtCompanyName ?? ''}
+              disabled
+              readOnly
+              placeholder="Defined on the tour"
+            />,
+          )}
+          {fieldRow(
+            'Tour Manager Contact',
+            tourMgmtCompanyId == null ? (
+              <span className="text-sm text-text-muted">No Tour Management Company on this tour.</span>
+            ) : (
+              <Select2
+                options={tourMgmtContactOptions}
+                value={tourManagerContactId}
+                onChange={(v) => { markUserEdited(); setTourManagerContactId(v); }}
+                placeholder="— not set —"
+                allowClear
+                disabled={disabled || tourMgmtContactsQuery.isLoading}
+              />
+            ),
+          )}
+        </div>
+
+        {/* ── TALENT AGENCY ────────────────────────────────────────────── */}
+        <div className="rounded-lg border border-border bg-surface/40 p-4 space-y-3">
+          {sectionTitle('Talent Agency')}
+          {talentAgencyCompanyName ? (
+            <p className="text-sm text-text-secondary">
+              <span className="font-medium">Agency:</span> {talentAgencyCompanyName}
+            </p>
+          ) : null}
+          {talentAgentContacts.length === 0 ? (
+            <p className="text-sm text-text-muted">No talent agents assigned to this tour.</p>
+          ) : (
+            <div className="space-y-1">
+              {talentAgentContacts.map((c) => (
+                <p key={c.contactId} className="text-sm text-text-secondary">
+                  {[c.firstName, c.lastName].filter(Boolean).join(' ') || `Contact #${c.contactId}`}
+                </p>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-text-muted">Talent agents are read-only here; manage them on the Tour record.</p>
+        </div>
+
+        {/* ── ATTRACTION TERMS ─────────────────────────────────────────── */}
+        <div className="rounded-lg border border-border bg-surface/40 p-4 space-y-3">
+          {sectionTitle('Attraction Terms')}
+          {fieldRow(
+            'Deal Type',
+            <Select2
+              options={BOOKING_ATTRACTION_DEAL_TYPE_OPTIONS}
+              value={attractionDealType}
+              onChange={(v) => { markUserEdited(); setAttractionDealType(v); }}
+              placeholder="Not set"
+              allowClear
+              disabled={disabled}
+            />,
+          )}
+          {fieldRow(
+            'Guarantee (Amount $)',
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-text-muted">$</span>
+              <input
+                className={`${inputCls} pl-8`}
+                inputMode="decimal"
+                value={attractionGuarantee}
+                onChange={(e) => { markUserEdited(); setAttractionGuarantee(e.target.value); }}
+                disabled={disabled}
+              />
+            </div>,
+          )}
+          {fieldRow(
+            'Overage (%)',
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-text-muted">%</span>
+              <input
+                className={`${inputCls} pl-8`}
+                inputMode="decimal"
+                value={attractionOveragePercent}
+                onChange={(e) => { markUserEdited(); setAttractionOveragePercent(e.target.value); }}
+                disabled={disabled}
+              />
+            </div>,
+          )}
+          {fieldRow(
+            'Royalty (%)',
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-text-muted">%</span>
+              <input
+                className={`${inputCls} pl-8`}
+                inputMode="decimal"
+                value={attractionRoyaltyPercent}
+                onChange={(e) => { markUserEdited(); setAttractionRoyaltyPercent(e.target.value); }}
+                disabled={disabled}
+              />
+            </div>,
+          )}
+          {fieldRow(
+            'Middle Money ($)',
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-text-muted">$</span>
+              <input
+                className={`${inputCls} pl-8`}
+                inputMode="decimal"
+                value={attractionMiddleMoney}
+                onChange={(e) => { markUserEdited(); setAttractionMiddleMoney(e.target.value); }}
+                disabled={disabled}
+              />
+            </div>,
+          )}
+          <p className="text-xs text-text-muted">Also editable in the Artist Terms tab.</p>
+        </div>
+
+        {/* ── VENUE TERMS ──────────────────────────────────────────────── */}
+        <div className="rounded-lg border border-border bg-surface/40 p-4 space-y-3">
+          {sectionTitle('Venue Terms')}
+          {fieldRow(
+            'Deal Type',
+            <Select2
+              options={VENUE_DEAL_TYPE_OPTIONS}
+              value={venueDealType}
+              onChange={(v) => { markUserEdited(); setVenueDealType(v); }}
+              placeholder="Not set"
+              allowClear
+              disabled={disabled}
+            />,
+          )}
+          <p className="text-xs text-text-muted">Also editable in the Finance tab.</p>
+        </div>
+
+        {/* ── ATTRACTION CONTRACT ───────────────────────────────────────── */}
+        <div className="rounded-lg border border-border bg-surface/40 p-4 space-y-3">
+          {sectionTitle('Attraction Contract')}
+          {fieldRow(
+            'Attraction Contract',
+            <div className="flex gap-2 items-center">
+              <input
+                type="url"
+                className={`${inputCls} flex-1`}
+                value={attractionContractLink}
+                onChange={(e) => { markUserEdited(); setAttractionContractLink(e.target.value); }}
+                disabled={disabled}
+                placeholder="https://…"
+              />
+              {attractionContractLink && isValidHttpOrHttpsUrl(attractionContractLink) && (
+                <a href={attractionContractLink} target="_blank" rel="noopener noreferrer" className="shrink-0 text-text-muted hover:text-ems-accent">
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              )}
+            </div>,
+          )}
+          {fieldRow(
+            'Partially Executed',
+            <div className="flex gap-2 items-center">
+              <input
+                type="url"
+                className={`${inputCls} flex-1`}
+                value={partiallyExecutedLink}
+                onChange={(e) => { markUserEdited(); setPartiallyExecutedLink(e.target.value); }}
+                disabled={disabled}
+                placeholder="https://…"
+              />
+              {partiallyExecutedLink && isValidHttpOrHttpsUrl(partiallyExecutedLink) && (
+                <a href={partiallyExecutedLink} target="_blank" rel="noopener noreferrer" className="shrink-0 text-text-muted hover:text-ems-accent">
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              )}
+            </div>,
+          )}
+          {fieldRow(
+            'Fully Executed',
+            <div className="flex gap-2 items-center">
+              <input
+                type="url"
+                className={`${inputCls} flex-1`}
+                value={fullyExecutedLink}
+                onChange={(e) => { markUserEdited(); setFullyExecutedLink(e.target.value); }}
+                disabled={disabled}
+                placeholder="https://…"
+              />
+              {fullyExecutedLink && isValidHttpOrHttpsUrl(fullyExecutedLink) && (
+                <a href={fullyExecutedLink} target="_blank" rel="noopener noreferrer" className="shrink-0 text-text-muted hover:text-ems-accent">
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              )}
+            </div>,
+          )}
+        </div>
+
+        <div className="flex justify-end pt-2 border-t border-border">
+          <Button
+            type="button"
+            className="bg-ems-accent text-white hover:opacity-90"
+            onClick={() => saveMut.mutate()}
+            disabled={disabled || !hasUserEdited}
+          >
+            {disabled ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Saving…
+              </span>
+            ) : (
+              'Save booking'
+            )}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const SALES_TAX_REMITTED_BY_OPTIONS: Select2Option[] = [
+  { value: '', label: 'Not set' },
+  { value: 'Venue', label: 'Venue' },
+  { value: 'IAE', label: 'IAE' },
+  { value: 'Partner', label: 'Partner' },
+];
+const WITHHOLDING_PAYMENT_METHOD_OPTIONS: Select2Option[] = [
+  { value: '', label: 'Not set' },
+  { value: 'Check', label: 'Check' },
+  { value: 'Wire', label: 'Wire' },
+  { value: 'ACH', label: 'ACH' },
+];
+
 function EngagementEventBusinessPanel({
   engagementId,
   addToast,
@@ -3594,23 +5334,79 @@ function EngagementEventBusinessPanel({
     queryFn: () => fetchEngagementFinance(engagementId),
     retry: 1,
   });
+  const iaeLookupsQuery = useQuery({
+    queryKey: ['engagements', 'iae-contact-lookups'],
+    queryFn: fetchEngagementIaeContactLookups,
+    staleTime: 300_000,
+  });
 
+  const iaeContactOptions = useMemo((): Select2Option[] => [
+    { value: '', label: '— not set —' },
+    ...(iaeLookupsQuery.data?.contacts ?? []).map((c) => ({ value: String(c.id), label: c.label })),
+  ], [iaeLookupsQuery.data?.contacts]);
+
+  // ── Settlement status ──────────────────────────────────────────────────────
   const [artistSettlementStatus, setArtistSettlementStatus] = useState('');
   const [venueSettlementStatus, setVenueSettlementStatus] = useState('');
+
+  // ── IAE Event Business ────────────────────────────────────────────────────
+  const [eventBusinessManagerContactId, setEventBusinessManagerContactId] = useState('');
+  const [eventBusinessAssistantManagerContactId, setEventBusinessAssistantManagerContactId] = useState('');
+
+  // ── Venue Settlement Manager ──────────────────────────────────────────────
+  const [venueSettlementContactId, setVenueSettlementContactId] = useState('');
+
+  // ── Settlement Files ──────────────────────────────────────────────────────
+  const [venueSettlementFileSharePointLink, setVenueSettlementFileSharePointLink] = useState('');
+  const [partnerSettlementFileSharePointLink, setPartnerSettlementFileSharePointLink] = useState('');
+
+  // ── Attraction Terms ──────────────────────────────────────────────────────
+  const [artistDepositRequired, setArtistDepositRequired] = useState('');
+  const [artistPartOfCollateralizedDeal, setArtistPartOfCollateralizedDeal] = useState('');
+  const [artistFexPerformanceAgreementLink, setArtistFexPerformanceAgreementLink] = useState('');
+  const [artistTourOfferLink, setArtistTourOfferLink] = useState('');
+  const [artistOverageAmount, setArtistOverageAmount] = useState('');
+  const [artistBuyouts, setArtistBuyouts] = useState('');
+
+  // ── Venue Terms ───────────────────────────────────────────────────────────
+  const [fexVenueAgreementLink, setFexVenueAgreementLink] = useState('');
+  const [venueDepositRequired, setVenueDepositRequired] = useState('');
+
+  // ── Sales Tax ─────────────────────────────────────────────────────────────
+  const [salesTaxRemittedBy, setSalesTaxRemittedBy] = useState('');
   const [subscriptionSalesRevenueTotal, setSubscriptionSalesRevenueTotal] = useState('');
   const [seasonTicketSalesByIae, setSeasonTicketSalesByIae] = useState('');
   const [seasonTicketFundsTransferred, setSeasonTicketFundsTransferred] = useState('');
-  const [netBoxOfficeFundsDepositedAccount, setNetBoxOfficeFundsDepositedAccount] =
-    useState('');
+  const [netBoxOfficeFundsDepositedAccount, setNetBoxOfficeFundsDepositedAccount] = useState('');
   const [hstCollectedFromTicketSales, setHstCollectedFromTicketSales] = useState('');
   const [hstPaidOnTourPayments, setHstPaidOnTourPayments] = useState('');
   const [hstPaidOnShowExpenses, setHstPaidOnShowExpenses] = useState('');
   const [hstPaidOnVenueExpenses, setHstPaidOnVenueExpenses] = useState('');
-  const [artistGrossTaxableCompensation, setArtistGrossTaxableCompensation] =
-    useState('');
+
+  // ── Non-Resident Withholding ──────────────────────────────────────────────
+  const [withholdingPayee, setWithholdingPayee] = useState('');
+  const [withholdingPaymentMethod, setWithholdingPaymentMethod] = useState('');
+  const [withholdingFormToAttractionLink, setWithholdingFormToAttractionLink] = useState('');
+  const [withholdingFormToMunicipalityLink, setWithholdingFormToMunicipalityLink] = useState('');
+  const [withholdingQuickbooksNumber, setWithholdingQuickbooksNumber] = useState('');
+  const [withholdingWaiver, setWithholdingWaiver] = useState('');
+  const [withholdingCompletedWaiverLink, setWithholdingCompletedWaiverLink] = useState('');
+  const [tourWaiverLink, setTourWaiverLink] = useState('');
+  const [withholdingExceptions, setWithholdingExceptions] = useState('');
+  const [checkNumberOrConfOfWithholdingPayment, setCheckNumberOrConfOfWithholdingPayment] = useState('');
+
+  // ── Compensation ──────────────────────────────────────────────────────────
+  const [compensationRoyaltyAmount, setCompensationRoyaltyAmount] = useState('');
+  const [compensationOverageAmount, setCompensationOverageAmount] = useState('');
+  const [compensationBuyouts, setCompensationBuyouts] = useState('');
+  const [compensationDirectCharges, setCompensationDirectCharges] = useState('');
+  const [compensationReimbursibles, setCompensationReimbursibles] = useState('');
+  const [artistGrossTaxableCompensation, setArtistGrossTaxableCompensation] = useState('');
   const [amountDueToDeptOfRevenue, setAmountDueToDeptOfRevenue] = useState('');
-  const [checkNumberOrConfOfWithholdingPayment, setCheckNumberOrConfOfWithholdingPayment] =
-    useState('');
+
+  // ── Finance ───────────────────────────────────────────────────────────────
+  const [financeJob, setFinanceJob] = useState('');
+
   const {
     hasUserEdited: hasEventBusinessUserEdited,
     markUserEdited: markEventBusinessUserEdited,
@@ -3622,6 +5418,20 @@ function EngagementEventBusinessPanel({
     if (!d) return;
     setArtistSettlementStatus(d.artistSettlementStatus ?? '');
     setVenueSettlementStatus(d.venueSettlementStatus ?? '');
+    setEventBusinessManagerContactId(d.eventBusinessManagerContactId == null ? '' : String(d.eventBusinessManagerContactId));
+    setEventBusinessAssistantManagerContactId(d.eventBusinessAssistantManagerContactId == null ? '' : String(d.eventBusinessAssistantManagerContactId));
+    setVenueSettlementContactId(d.venueSettlementContactId == null ? '' : String(d.venueSettlementContactId));
+    setVenueSettlementFileSharePointLink(d.venueSettlementFileSharePointLink ?? '');
+    setPartnerSettlementFileSharePointLink(d.partnerSettlementFileSharePointLink ?? '');
+    setArtistDepositRequired(d.artistDepositRequired == null ? '' : d.artistDepositRequired ? 'Yes' : 'No');
+    setArtistPartOfCollateralizedDeal(d.artistPartOfCollateralizedDeal == null ? '' : d.artistPartOfCollateralizedDeal ? 'Yes' : 'No');
+    setArtistFexPerformanceAgreementLink(d.artistFexPerformanceAgreementLink ?? '');
+    setArtistTourOfferLink(d.artistTourOfferLink ?? '');
+    setArtistOverageAmount(numFieldToString(d.artistOverageAmount));
+    setArtistBuyouts(numFieldToString(d.artistBuyouts));
+    setFexVenueAgreementLink(d.fexVenueAgreementLink ?? '');
+    setVenueDepositRequired(d.venueDepositRequired == null ? '' : d.venueDepositRequired ? 'Yes' : 'No');
+    setSalesTaxRemittedBy(d.salesTaxRemittedBy ?? '');
     setSubscriptionSalesRevenueTotal(numFieldToString(d.subscriptionSalesRevenueTotal));
     setSeasonTicketSalesByIae(numFieldToString(d.seasonTicketSalesByIae));
     setSeasonTicketFundsTransferred(numFieldToString(d.seasonTicketFundsTransferred));
@@ -3630,11 +5440,24 @@ function EngagementEventBusinessPanel({
     setHstPaidOnTourPayments(numFieldToString(d.hstPaidOnTourPayments));
     setHstPaidOnShowExpenses(numFieldToString(d.hstPaidOnShowExpenses));
     setHstPaidOnVenueExpenses(numFieldToString(d.hstPaidOnVenueExpenses));
+    setWithholdingPayee(d.withholdingPayee ?? '');
+    setWithholdingPaymentMethod(d.withholdingPaymentMethod ?? '');
+    setWithholdingFormToAttractionLink(d.withholdingFormToAttractionLink ?? '');
+    setWithholdingFormToMunicipalityLink(d.withholdingFormToMunicipalityLink ?? '');
+    setWithholdingQuickbooksNumber(d.withholdingQuickbooksNumber ?? '');
+    setWithholdingWaiver(d.withholdingWaiver ?? '');
+    setWithholdingCompletedWaiverLink(d.withholdingCompletedWaiverLink ?? '');
+    setTourWaiverLink(d.tourWaiverLink ?? '');
+    setWithholdingExceptions(d.withholdingExceptions ?? '');
+    setCheckNumberOrConfOfWithholdingPayment(d.checkNumberOrConfOfWithholdingPayment ?? '');
+    setCompensationRoyaltyAmount(numFieldToString(d.compensationRoyaltyAmount));
+    setCompensationOverageAmount(numFieldToString(d.compensationOverageAmount));
+    setCompensationBuyouts(numFieldToString(d.compensationBuyouts));
+    setCompensationDirectCharges(numFieldToString(d.compensationDirectCharges));
+    setCompensationReimbursibles(numFieldToString(d.compensationReimbursibles));
     setArtistGrossTaxableCompensation(numFieldToString(d.artistGrossTaxableCompensation));
     setAmountDueToDeptOfRevenue(numFieldToString(d.amountDueToDeptOfRevenue));
-    setCheckNumberOrConfOfWithholdingPayment(
-      d.checkNumberOrConfOfWithholdingPayment ?? '',
-    );
+    setFinanceJob(d.financeJob ?? '');
   }, [financeQuery.data]);
 
   const saveMut = useMutation({
@@ -3659,65 +5482,52 @@ function EngagementEventBusinessPanel({
     return t.slice(0, max);
   };
 
+  const yesNoToBool = (v: string): boolean | null =>
+    v === 'Yes' ? true : v === 'No' ? false : null;
+
   const handleSave = () => {
-    const decimalSpecs: {
-      raw: string;
-      label: string;
-      apiKey: keyof UpdateEngagementFinancePayload;
-    }[] = [
-      {
-        raw: subscriptionSalesRevenueTotal,
-        label: 'Subscription sales revenue total',
-        apiKey: 'subscriptionSalesRevenueTotal',
-      },
-      {
-        raw: seasonTicketSalesByIae,
-        label: 'Season ticket sales by IAE',
-        apiKey: 'seasonTicketSalesByIae',
-      },
-      {
-        raw: seasonTicketFundsTransferred,
-        label: 'Season ticket funds transferred',
-        apiKey: 'seasonTicketFundsTransferred',
-      },
-      {
-        raw: hstCollectedFromTicketSales,
-        label: 'HST collected from ticket sales',
-        apiKey: 'hstCollectedFromTicketSales',
-      },
-      {
-        raw: hstPaidOnTourPayments,
-        label: 'HST paid on tour payments',
-        apiKey: 'hstPaidOnTourPayments',
-      },
-      {
-        raw: hstPaidOnShowExpenses,
-        label: 'HST paid on show expenses',
-        apiKey: 'hstPaidOnShowExpenses',
-      },
-      {
-        raw: hstPaidOnVenueExpenses,
-        label: 'HST paid on venue expenses',
-        apiKey: 'hstPaidOnVenueExpenses',
-      },
-      {
-        raw: artistGrossTaxableCompensation,
-        label: 'Artist gross taxable compensation',
-        apiKey: 'artistGrossTaxableCompensation',
-      },
-      {
-        raw: amountDueToDeptOfRevenue,
-        label: 'Amount due to Dept of Revenue',
-        apiKey: 'amountDueToDeptOfRevenue',
-      },
+    // URL validation
+    const urlFields: [string, string][] = [
+      ['Venue Settlement File link', venueSettlementFileSharePointLink],
+      ['Partner Settlement File link', partnerSettlementFileSharePointLink],
+      ['FEX Performance Agreement link', artistFexPerformanceAgreementLink],
+      ['Tour Offer link', artistTourOfferLink],
+      ['FEX Venue Agreement link', fexVenueAgreementLink],
+      ['Withholding Form to Attraction link', withholdingFormToAttractionLink],
+      ['Withholding Form to Municipality link', withholdingFormToMunicipalityLink],
+      ['Withholding Completed Waiver link', withholdingCompletedWaiverLink],
+      ['Tour Waiver link', tourWaiverLink],
+    ];
+    for (const [label, val] of urlFields) {
+      const t = val.trim();
+      if (t && !isValidHttpOrHttpsUrl(t)) {
+        addToast(`${label} must be a valid http(s) URL or empty.`, 'error');
+        return;
+      }
+    }
+
+    const decimalSpecs: { raw: string; label: string; apiKey: keyof UpdateEngagementFinancePayload }[] = [
+      { raw: artistOverageAmount, label: 'Attraction overage amount', apiKey: 'artistOverageAmount' },
+      { raw: artistBuyouts, label: 'Attraction buyouts', apiKey: 'artistBuyouts' },
+      { raw: subscriptionSalesRevenueTotal, label: 'Subscription sales revenue total', apiKey: 'subscriptionSalesRevenueTotal' },
+      { raw: seasonTicketSalesByIae, label: 'Season ticket sales by IAE', apiKey: 'seasonTicketSalesByIae' },
+      { raw: seasonTicketFundsTransferred, label: 'Season ticket funds transferred', apiKey: 'seasonTicketFundsTransferred' },
+      { raw: hstCollectedFromTicketSales, label: 'HST collected from ticket sales', apiKey: 'hstCollectedFromTicketSales' },
+      { raw: hstPaidOnTourPayments, label: 'HST paid on tour payments', apiKey: 'hstPaidOnTourPayments' },
+      { raw: hstPaidOnShowExpenses, label: 'HST paid on show expenses', apiKey: 'hstPaidOnShowExpenses' },
+      { raw: hstPaidOnVenueExpenses, label: 'HST paid on venue expenses', apiKey: 'hstPaidOnVenueExpenses' },
+      { raw: compensationRoyaltyAmount, label: 'Compensation royalty amount', apiKey: 'compensationRoyaltyAmount' },
+      { raw: compensationOverageAmount, label: 'Compensation overage amount', apiKey: 'compensationOverageAmount' },
+      { raw: compensationBuyouts, label: 'Compensation buyouts', apiKey: 'compensationBuyouts' },
+      { raw: compensationDirectCharges, label: 'Direct company charges', apiKey: 'compensationDirectCharges' },
+      { raw: compensationReimbursibles, label: 'Reimbursibles', apiKey: 'compensationReimbursibles' },
+      { raw: artistGrossTaxableCompensation, label: 'Artist gross taxable compensation', apiKey: 'artistGrossTaxableCompensation' },
+      { raw: amountDueToDeptOfRevenue, label: 'Amount due to Dept of Revenue', apiKey: 'amountDueToDeptOfRevenue' },
     ];
     const parsedDecimals: Partial<UpdateEngagementFinancePayload> = {};
     for (const { raw, label, apiKey } of decimalSpecs) {
       const p = parseOptionalDecimal(raw, label);
-      if (!p.ok) {
-        addToast(p.message, 'error');
-        return;
-      }
+      if (!p.ok) { addToast(p.message, 'error'); return; }
       parsedDecimals[apiKey] = p.value;
     }
 
@@ -3725,88 +5535,34 @@ function EngagementEventBusinessPanel({
       ...parsedDecimals,
       artistSettlementStatus: trimOrNull(artistSettlementStatus, 50),
       venueSettlementStatus: trimOrNull(venueSettlementStatus, 50),
+      eventBusinessManagerContactId: fkIdStringToNumber(eventBusinessManagerContactId),
+      eventBusinessAssistantManagerContactId: fkIdStringToNumber(eventBusinessAssistantManagerContactId),
+      venueSettlementContactId: fkIdStringToNumber(venueSettlementContactId),
+      venueSettlementFileSharePointLink: trimOrNull(venueSettlementFileSharePointLink, 2048),
+      partnerSettlementFileSharePointLink: trimOrNull(partnerSettlementFileSharePointLink, 2048),
+      artistDepositRequired: yesNoToBool(artistDepositRequired),
+      artistPartOfCollateralizedDeal: yesNoToBool(artistPartOfCollateralizedDeal),
+      artistFexPerformanceAgreementLink: trimOrNull(artistFexPerformanceAgreementLink, 2048),
+      artistTourOfferLink: trimOrNull(artistTourOfferLink, 2048),
+      fexVenueAgreementLink: trimOrNull(fexVenueAgreementLink, 2048),
+      venueDepositRequired: yesNoToBool(venueDepositRequired),
+      salesTaxRemittedBy: trimOrNull(salesTaxRemittedBy, 100),
       netBoxOfficeFundsDepositedAccount: trimOrNull(netBoxOfficeFundsDepositedAccount, 255),
-      checkNumberOrConfOfWithholdingPayment: trimOrNull(
-        checkNumberOrConfOfWithholdingPayment,
-        100,
-      ),
+      withholdingPayee: trimOrNull(withholdingPayee, 255),
+      withholdingPaymentMethod: trimOrNull(withholdingPaymentMethod, 255),
+      withholdingFormToAttractionLink: trimOrNull(withholdingFormToAttractionLink, 2048),
+      withholdingFormToMunicipalityLink: trimOrNull(withholdingFormToMunicipalityLink, 2048),
+      withholdingQuickbooksNumber: trimOrNull(withholdingQuickbooksNumber, 100),
+      withholdingWaiver: trimOrNull(withholdingWaiver, 10),
+      withholdingCompletedWaiverLink: trimOrNull(withholdingCompletedWaiverLink, 2048),
+      tourWaiverLink: trimOrNull(tourWaiverLink, 2048),
+      withholdingExceptions: trimOrNull(withholdingExceptions, 8000),
+      checkNumberOrConfOfWithholdingPayment: trimOrNull(checkNumberOrConfOfWithholdingPayment, 100),
+      financeJob: trimOrNull(financeJob, 255),
     });
   };
 
-  const eventBusinessDirtyRaw = useMemo(() => {
-    const d = financeQuery.data;
-    if (!d) return false;
-    const trimOrNullLocal = (s: string, max: number): string | null => {
-      const t = s.trim();
-      if (t === '') return null;
-      return t.slice(0, max);
-    };
-    const specs: { raw: string; key: keyof UpdateEngagementFinancePayload }[] = [
-      { raw: subscriptionSalesRevenueTotal, key: 'subscriptionSalesRevenueTotal' },
-      { raw: seasonTicketSalesByIae, key: 'seasonTicketSalesByIae' },
-      { raw: seasonTicketFundsTransferred, key: 'seasonTicketFundsTransferred' },
-      { raw: hstCollectedFromTicketSales, key: 'hstCollectedFromTicketSales' },
-      { raw: hstPaidOnTourPayments, key: 'hstPaidOnTourPayments' },
-      { raw: hstPaidOnShowExpenses, key: 'hstPaidOnShowExpenses' },
-      { raw: hstPaidOnVenueExpenses, key: 'hstPaidOnVenueExpenses' },
-      { raw: artistGrossTaxableCompensation, key: 'artistGrossTaxableCompensation' },
-      { raw: amountDueToDeptOfRevenue, key: 'amountDueToDeptOfRevenue' },
-    ];
-    const parsed: Record<string, number | null> = {};
-    for (const { raw, key } of specs) {
-      const p = parseOptionalDecimal(raw, 'x');
-      if (!p.ok) return true;
-      parsed[key as string] = p.value;
-    }
-    const cur = JSON.stringify({
-      ...parsed,
-      artistSettlementStatus: trimOrNullLocal(artistSettlementStatus, 50),
-      venueSettlementStatus: trimOrNullLocal(venueSettlementStatus, 50),
-      netBoxOfficeFundsDepositedAccount: trimOrNullLocal(netBoxOfficeFundsDepositedAccount, 255),
-      checkNumberOrConfOfWithholdingPayment: trimOrNullLocal(
-        checkNumberOrConfOfWithholdingPayment,
-        100,
-      ),
-    });
-    const base = JSON.stringify({
-      subscriptionSalesRevenueTotal: d.subscriptionSalesRevenueTotal ?? null,
-      seasonTicketSalesByIae: d.seasonTicketSalesByIae ?? null,
-      seasonTicketFundsTransferred: d.seasonTicketFundsTransferred ?? null,
-      hstCollectedFromTicketSales: d.hstCollectedFromTicketSales ?? null,
-      hstPaidOnTourPayments: d.hstPaidOnTourPayments ?? null,
-      hstPaidOnShowExpenses: d.hstPaidOnShowExpenses ?? null,
-      hstPaidOnVenueExpenses: d.hstPaidOnVenueExpenses ?? null,
-      artistGrossTaxableCompensation: d.artistGrossTaxableCompensation ?? null,
-      amountDueToDeptOfRevenue: d.amountDueToDeptOfRevenue ?? null,
-      artistSettlementStatus: trimOrNullLocal(d.artistSettlementStatus ?? '', 50),
-      venueSettlementStatus: trimOrNullLocal(d.venueSettlementStatus ?? '', 50),
-      netBoxOfficeFundsDepositedAccount: trimOrNullLocal(
-        d.netBoxOfficeFundsDepositedAccount ?? '',
-        255,
-      ),
-      checkNumberOrConfOfWithholdingPayment: trimOrNullLocal(
-        d.checkNumberOrConfOfWithholdingPayment ?? '',
-        100,
-      ),
-    });
-    return cur !== base;
-  }, [
-    financeQuery.data,
-    artistSettlementStatus,
-    venueSettlementStatus,
-    subscriptionSalesRevenueTotal,
-    seasonTicketSalesByIae,
-    seasonTicketFundsTransferred,
-    netBoxOfficeFundsDepositedAccount,
-    hstCollectedFromTicketSales,
-    hstPaidOnTourPayments,
-    hstPaidOnShowExpenses,
-    hstPaidOnVenueExpenses,
-    artistGrossTaxableCompensation,
-    amountDueToDeptOfRevenue,
-    checkNumberOrConfOfWithholdingPayment,
-  ]);
-  const eventBusinessDirty = hasEventBusinessUserEdited && eventBusinessDirtyRaw;
+  const eventBusinessDirty = hasEventBusinessUserEdited;
 
   useEffect(() => {
     onDirtyChange?.(eventBusinessDirty);
@@ -3825,12 +5581,7 @@ function EngagementEventBusinessPanel({
 
   const moneyInput = (value: string, onChange: (v: string) => void, id: string) => (
     <div className="relative">
-      <span
-        className="pointer-events-none absolute left-3 top-1/2 z-[1] -translate-y-1/2 text-sm text-text-muted"
-        aria-hidden
-      >
-        $
-      </span>
+      <span className="pointer-events-none absolute left-3 top-1/2 z-[1] -translate-y-1/2 text-sm text-text-muted" aria-hidden>$</span>
       <input
         id={id}
         className={`${inputCls} pl-8`}
@@ -3872,6 +5623,19 @@ function EngagementEventBusinessPanel({
     );
   }
 
+  const d = financeQuery.data;
+
+  const sectionHeader = (title: string) => (
+    <h4 className="text-sm font-semibold text-text-primary uppercase tracking-wide pt-2 pb-1 border-b border-border">{title}</h4>
+  );
+
+  const readOnlyField = (label: string, value: string | null | undefined) => (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs font-medium text-text-muted uppercase tracking-wide">{label}</span>
+      <span className="text-sm text-text-primary">{value ?? '—'}</span>
+    </div>
+  );
+
   return (
     <div className="relative overflow-hidden rounded-lg border border-border bg-card">
       {saveMut.isPending && (
@@ -3886,146 +5650,259 @@ function EngagementEventBusinessPanel({
           </span>
         </div>
       )}
-      <div className="space-y-5 p-5">
-        <h3 className="text-base font-semibold text-text-primary">Event business</h3>
+      <div className="space-y-6 p-5">
 
+        {/* ── Settlement Status ─────────────────────────────────────── */}
+        {sectionHeader('Settlement Status')}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow(
-            'Artist settlement status',
-            <Select2
-              options={SETTLEMENT_STATUS_OPTIONS}
-              value={artistSettlementStatus}
-              onChange={(value) => {
-                markEventBusinessUserEdited();
-                setArtistSettlementStatus(value);
-              }}
-              placeholder="Select status..."
-              disabled={disabled}
-            />,
-          )}
-          {fieldRow(
-            'Venue settlement status',
-            <Select2
-              options={SETTLEMENT_STATUS_OPTIONS}
-              value={venueSettlementStatus}
-              onChange={(value) => {
-                markEventBusinessUserEdited();
-                setVenueSettlementStatus(value);
-              }}
-              placeholder="Select status..."
-              disabled={disabled}
-            />,
-          )}
+          {fieldRow('Artist settlement status',
+            <Select2 options={SETTLEMENT_STATUS_OPTIONS} value={artistSettlementStatus}
+              onChange={(v) => { markEventBusinessUserEdited(); setArtistSettlementStatus(v); }}
+              placeholder="Select status..." disabled={disabled} />)}
+          {fieldRow('Venue settlement status',
+            <Select2 options={SETTLEMENT_STATUS_OPTIONS} value={venueSettlementStatus}
+              onChange={(v) => { markEventBusinessUserEdited(); setVenueSettlementStatus(v); }}
+              placeholder="Select status..." disabled={disabled} />)}
         </div>
 
+        {/* ── IAE Event Business ───────────────────────────────────── */}
+        {sectionHeader('IAE Event Business')}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow(
-            'Subscription sales revenue total',
-            moneyInput(
-              subscriptionSalesRevenueTotal,
-              setSubscriptionSalesRevenueTotal,
-              'eb-subscription-revenue',
-            ),
-          )}
-          {fieldRow(
-            'Season ticket sales by IAE',
-            moneyInput(seasonTicketSalesByIae, setSeasonTicketSalesByIae, 'eb-season-iae'),
-          )}
+          {fieldRow('Event Business Manager',
+            <Select2 options={iaeContactOptions} value={eventBusinessManagerContactId}
+              onChange={(v) => { markEventBusinessUserEdited(); setEventBusinessManagerContactId(v); }}
+              placeholder="— not set —" disabled={disabled} />)}
+          {fieldRow('Event Business Assistant Manager',
+            <Select2 options={iaeContactOptions} value={eventBusinessAssistantManagerContactId}
+              onChange={(v) => { markEventBusinessUserEdited(); setEventBusinessAssistantManagerContactId(v); }}
+              placeholder="— not set —" disabled={disabled} />)}
         </div>
 
+        {/* ── Venue Settlement Manager ─────────────────────────────── */}
+        {sectionHeader('Venue Settlement Manager')}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow(
-            'Season ticket funds transferred',
-            moneyInput(
-              seasonTicketFundsTransferred,
-              setSeasonTicketFundsTransferred,
-              'eb-season-transferred',
-            ),
-          )}
-          {fieldRow(
-            'HST collected from ticket sales',
-            moneyInput(
-              hstCollectedFromTicketSales,
-              setHstCollectedFromTicketSales,
-              'eb-hst-ticket',
-            ),
-          )}
+          {fieldRow('Venue Settlement Contact',
+            <Select2 options={iaeContactOptions} value={venueSettlementContactId}
+              onChange={(v) => { markEventBusinessUserEdited(); setVenueSettlementContactId(v); }}
+              placeholder="— not set —" disabled={disabled} />)}
         </div>
 
+        {/* ── Settlement Files ─────────────────────────────────────── */}
+        {sectionHeader('Settlement Files')}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow(
-            'HST paid on tour payments',
-            moneyInput(hstPaidOnTourPayments, setHstPaidOnTourPayments, 'eb-hst-tour'),
-          )}
-          {fieldRow(
-            'HST paid on show expenses',
-            moneyInput(hstPaidOnShowExpenses, setHstPaidOnShowExpenses, 'eb-hst-show'),
-          )}
+          {d?.settlementFileSharePointLink
+            ? fieldRow('Tour Settlement File', <a href={d.settlementFileSharePointLink} target="_blank" rel="noopener noreferrer" className="text-sm text-ems-accent underline break-all">{d.settlementFileSharePointLink}</a>)
+            : fieldRow('Tour Settlement File', <span className="text-sm text-text-muted italic">Set on Finance tab</span>)}
+          {fieldRow('Venue Settlement File (SharePoint)',
+            <input className={inputCls} value={venueSettlementFileSharePointLink} maxLength={2048}
+              placeholder="https://..."
+              onChange={(e) => { markEventBusinessUserEdited(); setVenueSettlementFileSharePointLink(e.target.value); }}
+              disabled={disabled} />)}
         </div>
-
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow(
-            'HST paid on venue expenses',
-            moneyInput(
-              hstPaidOnVenueExpenses,
-              setHstPaidOnVenueExpenses,
-              'eb-hst-venue',
-            ),
-          )}
-          {fieldRow(
-            'Artist gross taxable compensation',
-            moneyInput(
-              artistGrossTaxableCompensation,
-              setArtistGrossTaxableCompensation,
-              'eb-artist-gross',
-            ),
-          )}
+          {fieldRow('Partner Settlement File (SharePoint)',
+            <input className={inputCls} value={partnerSettlementFileSharePointLink} maxLength={2048}
+              placeholder="https://..."
+              onChange={(e) => { markEventBusinessUserEdited(); setPartnerSettlementFileSharePointLink(e.target.value); }}
+              disabled={disabled} />)}
         </div>
 
+        {/* ── Attraction Terms ─────────────────────────────────────── */}
+        {sectionHeader('Attraction Terms')}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow(
-            'Amount due to Dept of Revenue',
-            moneyInput(
-              amountDueToDeptOfRevenue,
-              setAmountDueToDeptOfRevenue,
-              'eb-dept-revenue',
-            ),
-          )}
-          {fieldRow(
-            'Net box office funds deposited (account)',
-            <textarea
-              id="eb-net-box"
-              className={`${inputCls} min-h-[88px] resize-y`}
-              maxLength={255}
-              value={netBoxOfficeFundsDepositedAccount}
-              onChange={(e) => {
-                markEventBusinessUserEdited();
-                setNetBoxOfficeFundsDepositedAccount(e.target.value);
-              }}
-              disabled={disabled}
-            />,
-          )}
+          {fieldRow('Guarantee ($)', <span className="text-sm text-text-primary">{d?.artistGuarantee != null ? `$${d.artistGuarantee.toLocaleString()}` : '—'}</span>)}
+          {fieldRow('Overage Amount ($)',
+            moneyInput(artistOverageAmount, (v) => { markEventBusinessUserEdited(); setArtistOverageAmount(v); }, 'eb-artist-overage'))}
+        </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Royalty (%)', <span className="text-sm text-text-primary">{d?.artistRoyaltyRatePercent != null ? `${d.artistRoyaltyRatePercent}%` : '—'}</span>)}
+          {fieldRow('Middle Money ($)', <span className="text-sm text-text-primary">{d?.artistMiddleMoney != null ? `$${d.artistMiddleMoney.toLocaleString()}` : '—'}</span>)}
+        </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Deposit Required?',
+            <Select2 options={YES_NO_OPTIONS} value={artistDepositRequired}
+              onChange={(v) => { markEventBusinessUserEdited(); setArtistDepositRequired(v); }}
+              disabled={disabled} />)}
+          {fieldRow('Part of Collateralized Deal?',
+            <Select2 options={YES_NO_OPTIONS} value={artistPartOfCollateralizedDeal}
+              onChange={(v) => { markEventBusinessUserEdited(); setArtistPartOfCollateralizedDeal(v); }}
+              disabled={disabled} />)}
+        </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('FEX Performance Agreement Link',
+            <input className={inputCls} value={artistFexPerformanceAgreementLink} maxLength={2048}
+              placeholder="https://..."
+              onChange={(e) => { markEventBusinessUserEdited(); setArtistFexPerformanceAgreementLink(e.target.value); }}
+              disabled={disabled} />)}
+          {fieldRow('Tour Offer Link',
+            <input className={inputCls} value={artistTourOfferLink} maxLength={2048}
+              placeholder="https://..."
+              onChange={(e) => { markEventBusinessUserEdited(); setArtistTourOfferLink(e.target.value); }}
+              disabled={disabled} />)}
+        </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Buyouts ($)',
+            moneyInput(artistBuyouts, (v) => { markEventBusinessUserEdited(); setArtistBuyouts(v); }, 'eb-artist-buyouts'))}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 lg:gap-x-10">
-          <div className="min-w-0 lg:col-span-2">
-            {fieldRow(
-              'Check # or confirmation of withholding payment',
-              <input
-                id="eb-check-conf"
-                className={inputCls}
-                maxLength={100}
-                value={checkNumberOrConfOfWithholdingPayment}
-                onChange={(e) => {
-                  markEventBusinessUserEdited();
-                  setCheckNumberOrConfOfWithholdingPayment(e.target.value);
-                }}
-                disabled={disabled}
-              />,
-            )}
-          </div>
+        {/* ── Venue Terms ──────────────────────────────────────────── */}
+        {sectionHeader('Venue Terms')}
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('FEX Venue Agreement Link',
+            <input className={inputCls} value={fexVenueAgreementLink} maxLength={2048}
+              placeholder="https://..."
+              onChange={(e) => { markEventBusinessUserEdited(); setFexVenueAgreementLink(e.target.value); }}
+              disabled={disabled} />)}
+          {fieldRow('Deposit Required?',
+            <Select2 options={YES_NO_OPTIONS} value={venueDepositRequired}
+              onChange={(v) => { markEventBusinessUserEdited(); setVenueDepositRequired(v); }}
+              disabled={disabled} />)}
+        </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Deal Type', <span className="text-sm text-text-primary">{d?.venueDealType ?? '—'}<span className="text-xs text-text-muted ml-2">(set on Finance tab)</span></span>)}
+          {readOnlyField('Venue Forecast Link', undefined)}
         </div>
 
+        {/* ── Sales Tax ────────────────────────────────────────────── */}
+        {sectionHeader('Sales Tax')}
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Sales Tax Remitted By',
+            <Select2 options={SALES_TAX_REMITTED_BY_OPTIONS} value={salesTaxRemittedBy}
+              onChange={(v) => { markEventBusinessUserEdited(); setSalesTaxRemittedBy(v); }}
+              disabled={disabled} />)}
+        </div>
+        <p className="text-xs text-text-muted font-medium uppercase tracking-wide">Canada — HST</p>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('HST Collected from Ticket Sales',
+            moneyInput(hstCollectedFromTicketSales, (v) => { markEventBusinessUserEdited(); setHstCollectedFromTicketSales(v); }, 'eb-hst-ticket'))}
+          {fieldRow('HST Paid on Tour Payments',
+            moneyInput(hstPaidOnTourPayments, (v) => { markEventBusinessUserEdited(); setHstPaidOnTourPayments(v); }, 'eb-hst-tour'))}
+        </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('HST Paid on Show Expenses',
+            moneyInput(hstPaidOnShowExpenses, (v) => { markEventBusinessUserEdited(); setHstPaidOnShowExpenses(v); }, 'eb-hst-show'))}
+          {fieldRow('HST Paid on Venue Expenses',
+            moneyInput(hstPaidOnVenueExpenses, (v) => { markEventBusinessUserEdited(); setHstPaidOnVenueExpenses(v); }, 'eb-hst-venue'))}
+        </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Subscription Sales Revenue Total',
+            moneyInput(subscriptionSalesRevenueTotal, (v) => { markEventBusinessUserEdited(); setSubscriptionSalesRevenueTotal(v); }, 'eb-sub-rev'))}
+          {fieldRow('Season Ticket Sales by IAE',
+            moneyInput(seasonTicketSalesByIae, (v) => { markEventBusinessUserEdited(); setSeasonTicketSalesByIae(v); }, 'eb-season-iae'))}
+        </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Season Ticket Funds Transferred',
+            moneyInput(seasonTicketFundsTransferred, (v) => { markEventBusinessUserEdited(); setSeasonTicketFundsTransferred(v); }, 'eb-season-transfer'))}
+          {fieldRow('Net Box Office Funds Deposited (Account)',
+            <input className={inputCls} value={netBoxOfficeFundsDepositedAccount} maxLength={255}
+              onChange={(e) => { markEventBusinessUserEdited(); setNetBoxOfficeFundsDepositedAccount(e.target.value); }}
+              disabled={disabled} />)}
+        </div>
+
+        {/* ── Non-Resident Withholding Tax ─────────────────────────── */}
+        {sectionHeader('Non-Resident Withholding Tax')}
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Payee',
+            <input className={inputCls} value={withholdingPayee} maxLength={255}
+              onChange={(e) => { markEventBusinessUserEdited(); setWithholdingPayee(e.target.value); }}
+              disabled={disabled} />)}
+          {fieldRow('Payment Method',
+            <Select2 options={WITHHOLDING_PAYMENT_METHOD_OPTIONS} value={withholdingPaymentMethod}
+              onChange={(v) => { markEventBusinessUserEdited(); setWithholdingPaymentMethod(v); }}
+              disabled={disabled} />)}
+        </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Form to Attraction Link',
+            <input className={inputCls} value={withholdingFormToAttractionLink} maxLength={2048}
+              placeholder="https://..."
+              onChange={(e) => { markEventBusinessUserEdited(); setWithholdingFormToAttractionLink(e.target.value); }}
+              disabled={disabled} />)}
+          {fieldRow('Form to Municipality Link',
+            <input className={inputCls} value={withholdingFormToMunicipalityLink} maxLength={2048}
+              placeholder="https://..."
+              onChange={(e) => { markEventBusinessUserEdited(); setWithholdingFormToMunicipalityLink(e.target.value); }}
+              disabled={disabled} />)}
+        </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('QuickBooks Number',
+            <input className={inputCls} value={withholdingQuickbooksNumber} maxLength={100}
+              onChange={(e) => { markEventBusinessUserEdited(); setWithholdingQuickbooksNumber(e.target.value); }}
+              disabled={disabled} />)}
+          {fieldRow('Waiver',
+            <Select2 options={YES_NO_OPTIONS} value={withholdingWaiver}
+              onChange={(v) => { markEventBusinessUserEdited(); setWithholdingWaiver(v); }}
+              disabled={disabled} />)}
+        </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Completed Waiver Link',
+            <input className={inputCls} value={withholdingCompletedWaiverLink} maxLength={2048}
+              placeholder="https://..."
+              onChange={(e) => { markEventBusinessUserEdited(); setWithholdingCompletedWaiverLink(e.target.value); }}
+              disabled={disabled} />)}
+          {fieldRow('Tour Waiver Link',
+            <input className={inputCls} value={tourWaiverLink} maxLength={2048}
+              placeholder="https://..."
+              onChange={(e) => { markEventBusinessUserEdited(); setTourWaiverLink(e.target.value); }}
+              disabled={disabled} />)}
+        </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Check # / Confirmation of Withholding Payment',
+            <input className={inputCls} value={checkNumberOrConfOfWithholdingPayment} maxLength={100}
+              onChange={(e) => { markEventBusinessUserEdited(); setCheckNumberOrConfOfWithholdingPayment(e.target.value); }}
+              disabled={disabled} />)}
+        </div>
+        <div className="grid grid-cols-1">
+          {fieldRow('Exceptions',
+            <textarea className={`${inputCls} min-h-[88px] resize-y`} value={withholdingExceptions}
+              onChange={(e) => { markEventBusinessUserEdited(); setWithholdingExceptions(e.target.value); }}
+              disabled={disabled} />)}
+        </div>
+
+        {/* ── Compensation ─────────────────────────────────────────── */}
+        {sectionHeader('Compensation')}
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Guarantee Amount ($)', <span className="text-sm text-text-primary">{d?.artistGuarantee != null ? `$${d.artistGuarantee.toLocaleString()}` : '—'}<span className="text-xs text-text-muted ml-2">(set on Artist Terms tab)</span></span>)}
+          {fieldRow('Royalty Amount ($)',
+            moneyInput(compensationRoyaltyAmount, (v) => { markEventBusinessUserEdited(); setCompensationRoyaltyAmount(v); }, 'eb-comp-royalty'))}
+        </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Overage Amount ($)',
+            moneyInput(compensationOverageAmount, (v) => { markEventBusinessUserEdited(); setCompensationOverageAmount(v); }, 'eb-comp-overage'))}
+          {fieldRow('Buyouts ($)',
+            moneyInput(compensationBuyouts, (v) => { markEventBusinessUserEdited(); setCompensationBuyouts(v); }, 'eb-comp-buyouts'))}
+        </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Direct Company Charges ($)',
+            moneyInput(compensationDirectCharges, (v) => { markEventBusinessUserEdited(); setCompensationDirectCharges(v); }, 'eb-comp-direct'))}
+          {fieldRow('Reimbursibles ($)',
+            moneyInput(compensationReimbursibles, (v) => { markEventBusinessUserEdited(); setCompensationReimbursibles(v); }, 'eb-comp-reimb'))}
+        </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Artist Gross Taxable Compensation ($)',
+            moneyInput(artistGrossTaxableCompensation, (v) => { markEventBusinessUserEdited(); setArtistGrossTaxableCompensation(v); }, 'eb-artist-gross'))}
+          {fieldRow('Amount Due to Dept of Revenue ($)',
+            moneyInput(amountDueToDeptOfRevenue, (v) => { markEventBusinessUserEdited(); setAmountDueToDeptOfRevenue(v); }, 'eb-dept-revenue'))}
+        </div>
+
+        {/* ── Finance ──────────────────────────────────────────────── */}
+        {sectionHeader('Finance')}
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Customer', <span className="text-sm text-text-primary">{d?.payableEntityCompanyName ?? '—'}<span className="text-xs text-text-muted ml-2">(set on Finance tab)</span></span>)}
+          {fieldRow('Job',
+            <input className={inputCls} value={financeJob} maxLength={255}
+              onChange={(e) => { markEventBusinessUserEdited(); setFinanceJob(e.target.value); }}
+              disabled={disabled} />)}
+        </div>
+
+        {/* ── Licensing / Royalties ─────────────────────────────────── */}
+        {sectionHeader('Licensing / Royalties')}
+        <p className="text-sm text-text-muted">ASCAP / BMI / SESAC / GMR licensing and royalties are managed on the Tour record.</p>
+
+        {/* ── RAMP ────────────────────────────────────────────────── */}
+        {sectionHeader('RAMP')}
+        <p className="text-sm text-text-muted">RAMP bills and reports will be shown here when available.</p>
+
+        {/* ── Save ────────────────────────────────────────────────── */}
         <div className="flex justify-end pt-2 border-t border-border">
           <Button
             type="button"
@@ -4092,6 +5969,8 @@ function EngagementMarketingPanel({
   const [grossMarketingBudget, setGrossMarketingBudget] = useState('');
   const [netMarketingBudget, setNetMarketingBudget] = useState('');
   const [salesRevenueGoal, setSalesRevenueGoal] = useState('');
+  const [tourSplitPoint, setTourSplitPoint] = useState('');
+  const [announcementDate, setAnnouncementDate] = useState('');
   const [vipPackagedOffer, setVipPackagedOffer] = useState('');
   const [preSaleSpecialPrices, setPreSaleSpecialPrices] = useState('');
   const [kidsTicketsPrices, setKidsTicketsPrices] = useState('');
@@ -4129,6 +6008,45 @@ function EngagementMarketingPanel({
   const financeQuery = useQuery({
     queryKey: ['engagements', engagementId, 'finance'],
     queryFn: () => fetchEngagementFinance(engagementId),
+    retry: 1,
+  });
+
+  const retailPartnersQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'retail-partners'],
+    queryFn: () => fetchRetailPartners(engagementId),
+    retry: 1,
+  });
+
+  const marketingMetaQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'marketing-meta'],
+    queryFn: () => fetchMarketingMeta(engagementId),
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  const [newRetailPartnerCompanyId, setNewRetailPartnerCompanyId] = useState('');
+  const [newRetailPartnerCompanyTypeId, setNewRetailPartnerCompanyTypeId] = useState('');
+  const [newRetailPartnerContactId, setNewRetailPartnerContactId] = useState('');
+
+  const companyTypesQuery = useQuery({
+    queryKey: ['lookups', 'company-types'],
+    queryFn: () => fetchLookups(),
+    staleTime: 300_000,
+    retry: 1,
+  });
+
+  const ticketingCompaniesQuery = useQuery({
+    queryKey: ['companies', 'ticketing-systems'],
+    queryFn: () => fetchCompanies(0, 10_000),
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  const retailPartnerCompanyContactsQuery = useQuery({
+    queryKey: ['company-contacts', newRetailPartnerCompanyId],
+    queryFn: () => fetchCompanyContacts(Number(newRetailPartnerCompanyId)),
+    enabled: !!newRetailPartnerCompanyId && newRetailPartnerCompanyId !== '',
+    staleTime: 60_000,
     retry: 1,
   });
 
@@ -4184,6 +6102,8 @@ function EngagementMarketingPanel({
     setGrossMarketingBudget(numFieldToString(d.grossMarketingBudget));
     setNetMarketingBudget(numFieldToString(d.netMarketingBudget));
     setSalesRevenueGoal(numFieldToString(d.salesRevenueGoal));
+    setTourSplitPoint(numFieldToString(d.tourSplitPoint));
+    setAnnouncementDate(d.announcementDate ?? '');
   }, [financeQuery.data]);
 
   const saveMut = useMutation({
@@ -4217,6 +6137,29 @@ function EngagementMarketingPanel({
         addToast('Marketing budget saved.', 'success');
       }, 0);
     },
+    onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
+  });
+
+  const addRetailPartnerMut = useMutation({
+    mutationFn: async (payload: CreateRetailPartnerPayload) => {
+      await addRetailPartner(engagementId, payload);
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'retail-partners'] });
+    },
+    onSuccess: () => {
+      setNewRetailPartnerCompanyId('');
+      setNewRetailPartnerCompanyTypeId('');
+      setNewRetailPartnerContactId('');
+      addToast('Retail partner added.', 'success');
+    },
+    onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
+  });
+
+  const removeRetailPartnerMut = useMutation({
+    mutationFn: async (retailPartnerId: number) => {
+      await deleteRetailPartner(engagementId, retailPartnerId);
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'retail-partners'] });
+    },
+    onSuccess: () => addToast('Retail partner removed.', 'success'),
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
   });
 
@@ -4270,7 +6213,8 @@ function EngagementMarketingPanel({
     const gross = parseOptionalDecimal(grossMarketingBudget, 'Gross marketing budget');
     const net = parseOptionalDecimal(netMarketingBudget, 'Net marketing budget');
     const goal = parseOptionalDecimal(salesRevenueGoal, 'Sales revenue goal');
-    for (const x of [gross, net, goal]) {
+    const split = parseOptionalDecimal(tourSplitPoint, 'Tour split point');
+    for (const x of [gross, net, goal, split]) {
       if (!x.ok) {
         addToast(x.message, 'error');
         return;
@@ -4280,6 +6224,8 @@ function EngagementMarketingPanel({
       grossMarketingBudget: gross.value,
       netMarketingBudget: net.value,
       salesRevenueGoal: goal.value,
+      tourSplitPoint: split.value,
+      announcementDate: announcementDate.trim() === '' ? null : announcementDate.trim(),
     });
   };
 
@@ -4358,18 +6304,24 @@ function EngagementMarketingPanel({
     const net = parseOptionalDecimal(netMarketingBudget, 'Net marketing budget');
     const goal = parseOptionalDecimal(salesRevenueGoal, 'Sales revenue goal');
     if (!gross.ok || !net.ok || !goal.ok) return true;
+    const split = parseOptionalDecimal(tourSplitPoint, 'Tour split point');
+    if (!split.ok) return true;
     const cur = {
       grossMarketingBudget: gross.value,
       netMarketingBudget: net.value,
       salesRevenueGoal: goal.value,
+      tourSplitPoint: split.value,
+      announcementDate: announcementDate.trim() === '' ? null : announcementDate.trim(),
     };
     const base = {
       grossMarketingBudget: d.grossMarketingBudget ?? null,
       netMarketingBudget: d.netMarketingBudget ?? null,
       salesRevenueGoal: d.salesRevenueGoal ?? null,
+      tourSplitPoint: d.tourSplitPoint ?? null,
+      announcementDate: (d.announcementDate ?? '').trim() === '' ? null : (d.announcementDate ?? '').trim(),
     };
     return JSON.stringify(cur) !== JSON.stringify(base);
-  }, [financeQuery.data, grossMarketingBudget, netMarketingBudget, salesRevenueGoal]);
+  }, [financeQuery.data, grossMarketingBudget, netMarketingBudget, salesRevenueGoal, tourSplitPoint, announcementDate]);
   const marketingBudgetDirty =
     hasMarketingBudgetUserEdited && marketingBudgetDirtyRaw;
 
@@ -4379,6 +6331,8 @@ function EngagementMarketingPanel({
   }, [marketingBudgetDirty, marketingFormDirty, onDirtyChange]);
 
   const saveDisabled = saveMut.isPending || ticketingQuery.isLoading;
+  const disabled = saveDisabled;
+  const markTicketingUserEdited = markMarketingUserEdited;
   const marketingSaveDisabled = saveDisabled || !marketingFormDirty;
   const marketingBudgetSaveDisabled =
     saveBudgetMut.isPending || financeQuery.isLoading || !marketingBudgetDirty;
@@ -4465,7 +6419,7 @@ function EngagementMarketingPanel({
         <h3 className="text-base font-semibold text-text-primary">Marketing</h3>
 
         <div className="rounded-lg border border-border bg-surface/40 p-4">
-          <h4 className="text-sm font-semibold text-text-primary mb-3">Engagement Marketing Budget</h4>
+          <h4 className="text-sm font-semibold text-text-primary mb-3">Marketing Budget</h4>
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
             {fieldRow(
               'Gross Marketing Budget',
@@ -4489,6 +6443,29 @@ function EngagementMarketingPanel({
                 markMarketingBudgetUserEdited();
                 setSalesRevenueGoal(next);
               }, 'mkt-sales-goal'),
+            )}
+            {fieldRow(
+              'Engagement Tour Split Point ($)',
+              moneyInput(tourSplitPoint, (next) => {
+                markMarketingBudgetUserEdited();
+                setTourSplitPoint(next);
+              }, 'mkt-tour-split'),
+            )}
+          </div>
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10 mt-1">
+            {fieldRow(
+              'Announcement Date',
+              <input
+                id="mkt-announcement-date"
+                type="date"
+                className={inputCls}
+                value={announcementDate}
+                onChange={(e) => {
+                  markMarketingBudgetUserEdited();
+                  setAnnouncementDate(e.target.value);
+                }}
+                disabled={saveBudgetMut.isPending || financeQuery.isLoading}
+              />,
             )}
           </div>
           <div className="mt-4 flex justify-end border-t border-border pt-3">
@@ -4965,6 +6942,212 @@ function EngagementMarketingPanel({
             </div>
           </>
         )}
+
+        {/* ── Tour Marketing Team (read-only from TourContact) ── */}
+        <div className="rounded-lg border border-border bg-surface/40 p-4">
+          <h4 className="text-sm font-semibold text-text-primary mb-3">Tour Marketing Team</h4>
+          {marketingMetaQuery.isLoading && (
+            <div className="flex items-center gap-2 text-text-muted text-sm">
+              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+              Loading…
+            </div>
+          )}
+          {marketingMetaQuery.isError && (
+            <div className="text-ems-coral text-sm">{friendlyApiError(marketingMetaQuery.error)}</div>
+          )}
+          {!marketingMetaQuery.isLoading && !marketingMetaQuery.isError && (
+            <>
+              {(marketingMetaQuery.data?.tourMarketingContacts ?? []).length === 0 ? (
+                <p className="text-sm text-text-muted">No tour marketing contacts on file.</p>
+              ) : (
+                <div className="space-y-1">
+                  {(marketingMetaQuery.data?.tourMarketingContacts ?? []).map((c) => (
+                    <div key={c.tourContactId} className="flex items-baseline gap-2 text-sm">
+                      <span className="text-text-primary font-medium">{c.contactName}</span>
+                      {c.roleName && (
+                        <span className="text-text-muted text-xs">— {c.roleName}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* ── Tour Audience Demographic (read-only from TourAudienceAgeRange) ── */}
+        <div className="rounded-lg border border-border bg-surface/40 p-4">
+          <h4 className="text-sm font-semibold text-text-primary mb-3">Tour Audience Demographic</h4>
+          {!marketingMetaQuery.isLoading && !marketingMetaQuery.isError && (
+            <>
+              {(marketingMetaQuery.data?.tourAudienceDemographics ?? []).length === 0 ? (
+                <p className="text-sm text-text-muted">No audience demographics on file.</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {[...(marketingMetaQuery.data?.tourAudienceDemographics ?? [])]
+                    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+                    .map((d) => (
+                      <span
+                        key={d.ageRangeId}
+                        className="rounded-full border border-border bg-surface px-3 py-0.5 text-xs font-medium text-text-primary"
+                      >
+                        {d.ageRangeLabel}
+                      </span>
+                    ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* ── Retail Partnerships ── */}
+        <div className="rounded-lg border border-border bg-surface/40 p-4">
+          <h4 className="text-sm font-semibold text-text-primary mb-3">Retail Partnerships</h4>
+
+          {retailPartnersQuery.isLoading && (
+            <div className="flex items-center gap-2 text-text-muted text-sm mb-3">
+              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+              Loading…
+            </div>
+          )}
+          {retailPartnersQuery.isError && (
+            <div className="text-ems-coral text-sm mb-3">{friendlyApiError(retailPartnersQuery.error)}</div>
+          )}
+
+          {!retailPartnersQuery.isLoading && (retailPartnersQuery.data ?? []).length > 0 && (
+            <div className="mb-4 divide-y divide-border rounded-md border border-border">
+              {(retailPartnersQuery.data ?? []).map((rp) => (
+                <div key={rp.retailPartnerId} className="flex items-center justify-between px-3 py-2">
+                  <div className="min-w-0">
+                    <span className="text-sm font-medium text-text-primary">{rp.companyName ?? '—'}</span>
+                    {rp.companyTypeName && (
+                      <span className="ml-2 text-xs text-text-muted">[{rp.companyTypeName}]</span>
+                    )}
+                    {rp.contactName && (
+                      <span className="ml-2 text-xs text-text-muted">· {rp.contactName}</span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    className="ml-3 shrink-0 rounded p-1 text-text-muted hover:text-ems-coral"
+                    onClick={() => removeRetailPartnerMut.mutate(rp.retailPartnerId)}
+                    disabled={removeRetailPartnerMut.isPending}
+                    title="Remove"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Add Retail Partner</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {fieldRow(
+                'Company',
+                <Select2
+                  options={[{ value: '', label: 'Select company…' }, ...(ticketingCompaniesQuery.data?.data ?? []).map(companyToSelect2Option)]}
+                  value={newRetailPartnerCompanyId}
+                  onChange={(v) => {
+                    setNewRetailPartnerCompanyId(v);
+                    setNewRetailPartnerContactId('');
+                  }}
+                  placeholder="Search company…"
+                  allowClear
+                />,
+              )}
+              {fieldRow(
+                'Company Type',
+                <Select2
+                  options={[
+                    { value: '', label: 'Not set' },
+                    ...((companyTypesQuery.data?.companyTypes ?? []).map((ct) => ({ value: String(ct.companyTypeId), label: ct.companyTypeName }))),
+                  ]}
+                  value={newRetailPartnerCompanyTypeId}
+                  onChange={setNewRetailPartnerCompanyTypeId}
+                  placeholder="Select type…"
+                  allowClear
+                />,
+              )}
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {fieldRow(
+                'Contact',
+                <Select2
+                  options={[
+                    { value: '', label: 'Not set' },
+                    ...(retailPartnerCompanyContactsQuery.data ?? []).map((c) => ({
+                      value: String(c.contactId),
+                      label: `${c.firstName} ${c.lastName}`.trim() || c.contactId.toString(),
+                    })),
+                  ]}
+                  value={newRetailPartnerContactId}
+                  onChange={setNewRetailPartnerContactId}
+                  placeholder={newRetailPartnerCompanyId ? 'Select contact…' : 'Select company first…'}
+                  disabled={!newRetailPartnerCompanyId}
+                  allowClear
+                />,
+              )}
+            </div>
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                size="sm"
+                className="bg-ems-accent text-white hover:opacity-90"
+                disabled={!newRetailPartnerCompanyId || addRetailPartnerMut.isPending}
+                onClick={() => {
+                  if (!newRetailPartnerCompanyId) return;
+                  addRetailPartnerMut.mutate({
+                    companyId: Number(newRetailPartnerCompanyId),
+                    companyTypeId: newRetailPartnerCompanyTypeId ? Number(newRetailPartnerCompanyTypeId) : null,
+                    contactId: newRetailPartnerContactId ? Number(newRetailPartnerContactId) : null,
+                  });
+                }}
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Add
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Media Mix (read-only from TourMediaMix) ── */}
+        <div className="rounded-lg border border-border bg-surface/40 p-4">
+          <h4 className="text-sm font-semibold text-text-primary mb-3">Media Mix</h4>
+          {!marketingMetaQuery.isLoading && !marketingMetaQuery.isError && (
+            <>
+              {(marketingMetaQuery.data?.mediaMix ?? []).length === 0 ? (
+                <p className="text-sm text-text-muted">No media mix on file for this tour.</p>
+              ) : (
+                <div className="space-y-3">
+                  {Object.entries(
+                    (marketingMetaQuery.data?.mediaMix ?? []).reduce<Record<string, typeof marketingMetaQuery.data.mediaMix>>((acc, item) => {
+                      const key = item.parentCategory ?? item.subTypeName;
+                      if (!acc[key]) acc[key] = [];
+                      acc[key].push(item);
+                      return acc;
+                    }, {}),
+                  ).map(([category, items]) => (
+                    <div key={category}>
+                      <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-1">{category}</p>
+                      <div className="space-y-1 pl-2">
+                        {items.map((item) => (
+                          <div key={item.tourMediaMixId} className="flex items-baseline gap-2 text-sm">
+                            <span className="text-text-primary">{item.subTypeName}</span>
+                            {item.companyName && (
+                              <span className="text-text-muted text-xs">— {item.companyName}</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -4980,11 +7163,8 @@ function EngagementTicketingPanel({
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   const qc = useQueryClient();
-  const detailQuery = useQuery({
-    queryKey: ['engagements', engagementId],
-    queryFn: () => fetchEngagement(engagementId),
-    retry: 1,
-  });
+
+  // ── Queries ──────────────────────────────────────────────────────────────
   const performancesQuery = useQuery({
     queryKey: ['engagements', engagementId, 'performances'],
     queryFn: () => fetchEngagementPerformances(engagementId),
@@ -4996,13 +7176,94 @@ function EngagementTicketingPanel({
     staleTime: 60_000,
     retry: 1,
   });
+  const iaeLookupsQuery = useQuery({
+    queryKey: ['engagements', 'iae-contact-lookups'],
+    queryFn: fetchEngagementIaeContactLookups,
+    staleTime: 300_000,
+  });
+  const venueTabQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'venue-tab-data'],
+    queryFn: () => fetchEngagementVenueTabData(engagementId),
+    retry: 1,
+  });
+  const iaeMgrQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'iae-ticketing-manager'],
+    queryFn: () => fetchEngagementIaeTicketingManager(engagementId),
+    retry: 1,
+  });
+  const ticketingSummaryQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'performances-ticketing-summary'],
+    queryFn: () => fetchPerformancesWithTicketingSummary(engagementId),
+    retry: 1,
+  });
 
+  // ── State: engagement-level IAE Ticketing Manager ─────────────────────
+  const [iaeMgrContactId, setIaeMgrContactId] = useState('');
+  const {
+    hasUserEdited: hasMgrUserEdited,
+    markUserEdited: markMgrUserEdited,
+    clearUserEdited: clearMgrUserEdited,
+  } = useUserEditTracker(`ticketing-mgr:${engagementId}`);
+
+  useEffect(() => {
+    const d = iaeMgrQuery.data;
+    if (!d) return;
+    setIaeMgrContactId(d.iaeTicketingManagerContactId == null ? '' : String(d.iaeTicketingManagerContactId));
+  }, [iaeMgrQuery.data]);
+
+  const mgrDirtyRaw = useMemo(() => {
+    const d = iaeMgrQuery.data;
+    if (!d) return false;
+    return fkIdStringToNumber(iaeMgrContactId) !== (d.iaeTicketingManagerContactId ?? null);
+  }, [iaeMgrQuery.data, iaeMgrContactId]);
+  const mgrDirty = hasMgrUserEdited && mgrDirtyRaw;
+
+  const saveMgrMut = useMutation({
+    mutationFn: () =>
+      updateEngagementIaeTicketingManager(engagementId, {
+        iaeTicketingManagerContactId: fkIdStringToNumber(iaeMgrContactId),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'iae-ticketing-manager'] });
+      clearMgrUserEdited();
+      addToast('IAE Ticketing Manager saved.', 'success');
+    },
+    onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
+  });
+
+  // ── State: per-performance ticketing ─────────────────────────────────
   const [selectedPid, setSelectedPid] = useState<number | null>(null);
   const [sellableCapacity, setSellableCapacity] = useState('');
   const [grossPotentialRevenue, setGrossPotentialRevenue] = useState('');
   const [ticketingSystemCompanyId, setTicketingSystemCompanyId] = useState('');
   const [ticketingAdministrator, setTicketingAdministrator] = useState('');
+  const [ticketingAdminContactId, setTicketingAdminContactId] = useState('');
+  const [ticketingAdminCompanyId, setTicketingAdminCompanyId] = useState('');
   const [boxOfficeLaborStaffingRequired, setBoxOfficeLaborStaffingRequired] = useState('');
+  const [isIAETMDeal, setIsIAETMDeal] = useState('');
+  const [ticketingLinkUrl, setTicketingLinkUrl] = useState('');
+  const [publicSaleLinkUrl, setPublicSaleLinkUrl] = useState('');
+  const [preSaleDate, setPreSaleDate] = useState('');
+  const [preSaleEndDate, setPreSaleEndDate] = useState('');
+  const [preSaleRegistrationStartDate, setPreSaleRegistrationStartDate] = useState('');
+  const [preSaleRegistrationEndDate, setPreSaleRegistrationEndDate] = useState('');
+  const [presalePassword, setPresalePassword] = useState('');
+  const [presalePasswordDateStart, setPresalePasswordDateStart] = useState('');
+  const [presalePasswordDateEnd, setPresalePasswordDateEnd] = useState('');
+  const [presaleSpecialPricePassword, setPresaleSpecialPricePassword] = useState('');
+  const [presaleSpecialPricePasswordDateStart, setPresaleSpecialPricePasswordDateStart] = useState('');
+  const [presaleSpecialPricePasswordDateEnd, setPresaleSpecialPricePasswordDateEnd] = useState('');
+  const [presaleSpecialPriceDiscountType, setPresaleSpecialPriceDiscountType] = useState('');
+  const [presaleSpecialPriceDiscountAmount, setPresaleSpecialPriceDiscountAmount] = useState('');
+  const [publicSaleSpecialPricePassword, setPublicSaleSpecialPricePassword] = useState('');
+  const [publicSaleSpecialPricePasswordDateStart, setPublicSaleSpecialPricePasswordDateStart] = useState('');
+  const [publicSaleSpecialPricePasswordDateEnd, setPublicSaleSpecialPricePasswordDateEnd] = useState('');
+  const [publicSaleSpecialPriceDiscountType, setPublicSaleSpecialPriceDiscountType] = useState('');
+  const [publicSaleSpecialPriceDiscountAmount, setPublicSaleSpecialPriceDiscountAmount] = useState('');
+  const [vipPackageOffered, setVipPackageOffered] = useState('');
+  const [vipPackageName, setVipPackageName] = useState('');
+  const [vipPackageBenefits, setVipPackageBenefits] = useState<string[]>([]);
+  const [compTicketRequestLink, setCompTicketRequestLink] = useState('');
   const [facilityFeeType, setFacilityFeeType] = useState('');
   const [facilityFeeAmount, setFacilityFeeAmount] = useState('');
   const [dynamicPricingMode, setDynamicPricingMode] = useState('');
@@ -5013,19 +7274,19 @@ function EngagementTicketingPanel({
   const [creditCardFeesAmountPercent, setCreditCardFeesAmountPercent] = useState('');
   const [salesTaxType, setSalesTaxType] = useState('');
   const [salesTaxAmountPercent, setSalesTaxAmountPercent] = useState('');
+
   const {
     hasUserEdited: hasTicketingUserEdited,
     markUserEdited: markTicketingUserEdited,
     clearUserEdited: clearTicketingUserEdited,
   } = useUserEditTracker(`ticketing:${engagementId}:${selectedPid ?? ''}`);
 
+  // ── Derived options ───────────────────────────────────────────────────
   const performanceSelectOptions = useMemo<Select2Option[]>(
     () =>
       (performancesQuery.data ?? []).map((p) => ({
         value: String(p.performanceId),
-        label: `${formatPerformanceDateDisplay(p.performanceDate)} · ${formatPerformanceTimeDisplay(
-          p.performanceTime,
-        )} · ${p.performanceStatus}`,
+        label: `${formatPerformanceDateDisplay(p.performanceDate)} · ${formatPerformanceTimeDisplay(p.performanceTime)} · ${p.performanceStatus}`,
       })),
     [performancesQuery.data],
   );
@@ -5042,18 +7303,33 @@ function EngagementTicketingPanel({
     return [{ value: '', label: 'Not set' }, ...opts];
   }, [companiesQuery.data?.data]);
 
+  const allCompanyOptions = useMemo<Select2Option[]>(() => {
+    const rows = companiesQuery.data?.data ?? [];
+    return [{ value: '', label: 'Not set' }, ...rows.map(companyToSelect2Option)];
+  }, [companiesQuery.data?.data]);
+
+  const iaeContactOptions = useMemo<Select2Option[]>(() => {
+    const rows = iaeLookupsQuery.data?.contacts ?? [];
+    return [{ value: '', label: 'Not set' }, ...rows.map((r) => ({ value: String(r.id), label: r.label }))];
+  }, [iaeLookupsQuery.data?.contacts]);
+
+  const seatingChartLinks = useMemo(() => {
+    return (venueTabQuery.data?.venues ?? [])
+      .filter((v) => v.seatingChartLinkUrl)
+      .map((v) => ({ name: v.venueCompanyName ?? 'Venue', url: v.seatingChartLinkUrl! }));
+  }, [venueTabQuery.data?.venues]);
+
+  // ── Auto-select first performance ─────────────────────────────────────
   useEffect(() => {
     const list = performancesQuery.data;
-    if (!list?.length) {
-      setSelectedPid(null);
-      return;
-    }
+    if (!list?.length) { setSelectedPid(null); return; }
     setSelectedPid((prev) => {
       if (prev != null && list.some((p) => p.performanceId === prev)) return prev;
       return list[0]!.performanceId;
     });
   }, [performancesQuery.data]);
 
+  // ── Per-performance ticketing query ──────────────────────────────────
   const ticketingQuery = useQuery({
     queryKey: ['engagements', engagementId, 'performance-ticketing', selectedPid] as const,
     queryFn: () => fetchEngagementPerformanceTicketing(engagementId, selectedPid!),
@@ -5066,13 +7342,35 @@ function EngagementTicketingPanel({
     if (!d || selectedPid == null || d.performanceId !== selectedPid) return;
     setSellableCapacity(d.sellableCapacity == null ? '' : String(d.sellableCapacity));
     setGrossPotentialRevenue(numFieldToString(d.grossPotentialRevenue));
-    setTicketingSystemCompanyId(
-      d.ticketingSystemCompanyId == null ? '' : String(d.ticketingSystemCompanyId),
-    );
+    setTicketingSystemCompanyId(d.ticketingSystemCompanyId == null ? '' : String(d.ticketingSystemCompanyId));
     setTicketingAdministrator(d.ticketingAdministrator ?? '');
-    setBoxOfficeLaborStaffingRequired(
-      d.boxOfficeLaborStaffingRequired == null ? '' : d.boxOfficeLaborStaffingRequired ? 'Yes' : 'No',
-    );
+    setTicketingAdminContactId(d.ticketingAdminContactId == null ? '' : String(d.ticketingAdminContactId));
+    setTicketingAdminCompanyId(d.ticketingAdminCompanyId == null ? '' : String(d.ticketingAdminCompanyId));
+    setBoxOfficeLaborStaffingRequired(d.boxOfficeLaborStaffingRequired == null ? '' : d.boxOfficeLaborStaffingRequired ? 'Yes' : 'No');
+    setIsIAETMDeal(d.isIAETMDeal == null ? '' : d.isIAETMDeal ? 'Yes' : 'No');
+    setTicketingLinkUrl(d.ticketingLinkUrl ?? '');
+    setPublicSaleLinkUrl(d.publicSaleLinkUrl ?? '');
+    setPreSaleDate(d.preSaleDate ?? '');
+    setPreSaleEndDate(d.preSaleEndDate ?? '');
+    setPreSaleRegistrationStartDate(d.preSaleRegistrationStartDate ?? '');
+    setPreSaleRegistrationEndDate(d.preSaleRegistrationEndDate ?? '');
+    setPresalePassword(d.presalePassword ?? '');
+    setPresalePasswordDateStart(d.presalePasswordDateStart ?? '');
+    setPresalePasswordDateEnd(d.presalePasswordDateEnd ?? '');
+    setPresaleSpecialPricePassword(d.presaleSpecialPricePassword ?? '');
+    setPresaleSpecialPricePasswordDateStart(d.presaleSpecialPricePasswordDateStart ?? '');
+    setPresaleSpecialPricePasswordDateEnd(d.presaleSpecialPricePasswordDateEnd ?? '');
+    setPresaleSpecialPriceDiscountType(d.presaleSpecialPriceDiscountType ?? '');
+    setPresaleSpecialPriceDiscountAmount(numFieldToString(d.presaleSpecialPriceDiscountAmount));
+    setPublicSaleSpecialPricePassword(d.publicSaleSpecialPricePassword ?? '');
+    setPublicSaleSpecialPricePasswordDateStart(d.publicSaleSpecialPricePasswordDateStart ?? '');
+    setPublicSaleSpecialPricePasswordDateEnd(d.publicSaleSpecialPricePasswordDateEnd ?? '');
+    setPublicSaleSpecialPriceDiscountType(d.publicSaleSpecialPriceDiscountType ?? '');
+    setPublicSaleSpecialPriceDiscountAmount(numFieldToString(d.publicSaleSpecialPriceDiscountAmount));
+    setVipPackageOffered(d.vipPackageOffered == null ? '' : d.vipPackageOffered ? 'Yes' : 'No');
+    setVipPackageName(d.vipPackageName ?? '');
+    setVipPackageBenefits(d.vipPackageBenefits ?? []);
+    setCompTicketRequestLink(d.compTicketRequestLink ?? '');
     setFacilityFeeType(d.facilityFeeType ?? '');
     setFacilityFeeAmount(numFieldToString(d.facilityFeeAmount));
     setDynamicPricingMode(d.dynamicPricingMode ?? '');
@@ -5085,80 +7383,101 @@ function EngagementTicketingPanel({
     setSalesTaxAmountPercent(numFieldToString(d.salesTaxAmountPercent));
   }, [selectedPid, ticketingQuery.data]);
 
+  // ── Helpers ───────────────────────────────────────────────────────────
   const parseOptionalWhole = (raw: string, label: string) => {
     const t = raw.trim();
     if (!t) return { ok: true as const, value: null as number | null };
     if (!/^\d+$/.test(t)) return { ok: false as const, message: `${label} must be a whole number.` };
     return { ok: true as const, value: Number(t) };
   };
-
   const parseOptionalPercent = (raw: string, label: string) => {
     const x = parseOptionalDecimal(raw, label);
     if (!x.ok) return x;
-    if (x.value != null && (x.value < 0 || x.value > 100)) {
+    if (x.value != null && (x.value < 0 || x.value > 100))
       return { ok: false as const, message: `${label} must be between 0 and 100.` };
-    }
     return x;
   };
+  const boolStr = (s: string): boolean | null => s === 'Yes' ? true : s === 'No' ? false : null;
 
+  // ── Dirty tracking ────────────────────────────────────────────────────
   const ticketingDirtyRaw = useMemo(() => {
     const d = ticketingQuery.data;
     if (!d || selectedPid == null || d.performanceId !== selectedPid) return false;
-    const cur = {
-      sellableCapacity: parseOptionalWhole(sellableCapacity, 'Sellable capacity').ok
-        ? parseOptionalWhole(sellableCapacity, 'Sellable capacity').value
-        : '__invalid__',
-      grossPotentialRevenue: parseOptionalDecimal(grossPotentialRevenue, 'Gross potential revenue').ok
-        ? parseOptionalDecimal(grossPotentialRevenue, 'Gross potential revenue').value
-        : '__invalid__',
+    const cur = JSON.stringify({
+      sellableCapacity: parseOptionalWhole(sellableCapacity, '').value,
+      grossPotentialRevenue: parseOptionalDecimal(grossPotentialRevenue, '').value,
       ticketingSystemCompanyId: fkIdStringToNumber(ticketingSystemCompanyId),
       ticketingAdministrator: ticketingAdministrator.trim() || null,
-      boxOfficeLaborStaffingRequired:
-        ticketingAdministrator === 'IAE Contract'
-          ? boxOfficeLaborStaffingRequired === 'Yes'
-            ? true
-            : boxOfficeLaborStaffingRequired === 'No'
-              ? false
-              : null
-          : null,
+      ticketingAdminContactId: fkIdStringToNumber(ticketingAdminContactId),
+      ticketingAdminCompanyId: fkIdStringToNumber(ticketingAdminCompanyId),
+      boxOfficeLaborStaffingRequired: ticketingAdministrator === 'IAE Contract' ? boolStr(boxOfficeLaborStaffingRequired) : null,
+      isIAETMDeal: boolStr(isIAETMDeal),
+      ticketingLinkUrl: ticketingLinkUrl.trim() || null,
+      publicSaleLinkUrl: publicSaleLinkUrl.trim() || null,
+      preSaleDate: preSaleDate || null,
+      preSaleEndDate: preSaleEndDate || null,
+      preSaleRegistrationStartDate: preSaleRegistrationStartDate || null,
+      preSaleRegistrationEndDate: preSaleRegistrationEndDate || null,
+      presalePassword: presalePassword.trim() || null,
+      presalePasswordDateStart: presalePasswordDateStart || null,
+      presalePasswordDateEnd: presalePasswordDateEnd || null,
+      presaleSpecialPricePassword: presaleSpecialPricePassword.trim() || null,
+      presaleSpecialPricePasswordDateStart: presaleSpecialPricePasswordDateStart || null,
+      presaleSpecialPricePasswordDateEnd: presaleSpecialPricePasswordDateEnd || null,
+      presaleSpecialPriceDiscountType: presaleSpecialPriceDiscountType || null,
+      presaleSpecialPriceDiscountAmount: parseOptionalDecimal(presaleSpecialPriceDiscountAmount, '').value,
+      publicSaleSpecialPricePassword: publicSaleSpecialPricePassword.trim() || null,
+      publicSaleSpecialPricePasswordDateStart: publicSaleSpecialPricePasswordDateStart || null,
+      publicSaleSpecialPricePasswordDateEnd: publicSaleSpecialPricePasswordDateEnd || null,
+      publicSaleSpecialPriceDiscountType: publicSaleSpecialPriceDiscountType || null,
+      publicSaleSpecialPriceDiscountAmount: parseOptionalDecimal(publicSaleSpecialPriceDiscountAmount, '').value,
+      vipPackageOffered: boolStr(vipPackageOffered),
+      vipPackageName: vipPackageName.trim() || null,
+      vipPackageBenefits: [...vipPackageBenefits].sort(),
+      compTicketRequestLink: compTicketRequestLink.trim() || null,
       facilityFeeType: facilityFeeType.trim() || null,
-      facilityFeeAmount: parseOptionalDecimal(facilityFeeAmount, 'Facility fee amount').ok
-        ? parseOptionalDecimal(facilityFeeAmount, 'Facility fee amount').value
-        : '__invalid__',
+      facilityFeeAmount: parseOptionalDecimal(facilityFeeAmount, '').value,
       dynamicPricingMode: dynamicPricingMode.trim() || null,
-      serviceChargeRevenueShare: parseOptionalDecimal(
-        serviceChargeRevenueShare,
-        'Service charge revenue share',
-      ).ok
-        ? parseOptionalDecimal(serviceChargeRevenueShare, 'Service charge revenue share').value
-        : '__invalid__',
-      rebateAmount: parseOptionalDecimal(rebateAmount, 'Rebate amount').ok
-        ? parseOptionalDecimal(rebateAmount, 'Rebate amount').value
-        : '__invalid__',
-      bumpAmount: parseOptionalDecimal(bumpAmount, 'Bump amount').ok
-        ? parseOptionalDecimal(bumpAmount, 'Bump amount').value
-        : '__invalid__',
+      serviceChargeRevenueShare: parseOptionalDecimal(serviceChargeRevenueShare, '').value,
+      rebateAmount: parseOptionalDecimal(rebateAmount, '').value,
+      bumpAmount: parseOptionalDecimal(bumpAmount, '').value,
       creditCardFeesType: creditCardFeesType.trim() || null,
-      creditCardFeesAmountPercent: parseOptionalPercent(
-        creditCardFeesAmountPercent,
-        'Credit card fees amount (%)',
-      ).ok
-        ? parseOptionalPercent(creditCardFeesAmountPercent, 'Credit card fees amount (%)').value
-        : '__invalid__',
+      creditCardFeesAmountPercent: parseOptionalDecimal(creditCardFeesAmountPercent, '').value,
       salesTaxType: salesTaxType.trim() || null,
-      salesTaxAmountPercent: parseOptionalPercent(salesTaxAmountPercent, 'Sales tax amount (%)').ok
-        ? parseOptionalPercent(salesTaxAmountPercent, 'Sales tax amount (%)').value
-        : '__invalid__',
-    };
-    const base = {
+      salesTaxAmountPercent: parseOptionalDecimal(salesTaxAmountPercent, '').value,
+    });
+    const base = JSON.stringify({
       sellableCapacity: d.sellableCapacity ?? null,
       grossPotentialRevenue: d.grossPotentialRevenue ?? null,
       ticketingSystemCompanyId: d.ticketingSystemCompanyId ?? null,
       ticketingAdministrator: d.ticketingAdministrator ?? null,
-      boxOfficeLaborStaffingRequired:
-        d.ticketingAdministrator === 'IAE Contract'
-          ? d.boxOfficeLaborStaffingRequired ?? null
-          : null,
+      ticketingAdminContactId: d.ticketingAdminContactId ?? null,
+      ticketingAdminCompanyId: d.ticketingAdminCompanyId ?? null,
+      boxOfficeLaborStaffingRequired: d.ticketingAdministrator === 'IAE Contract' ? (d.boxOfficeLaborStaffingRequired ?? null) : null,
+      isIAETMDeal: d.isIAETMDeal ?? null,
+      ticketingLinkUrl: d.ticketingLinkUrl ?? null,
+      publicSaleLinkUrl: d.publicSaleLinkUrl ?? null,
+      preSaleDate: d.preSaleDate ?? null,
+      preSaleEndDate: d.preSaleEndDate ?? null,
+      preSaleRegistrationStartDate: d.preSaleRegistrationStartDate ?? null,
+      preSaleRegistrationEndDate: d.preSaleRegistrationEndDate ?? null,
+      presalePassword: d.presalePassword ?? null,
+      presalePasswordDateStart: d.presalePasswordDateStart ?? null,
+      presalePasswordDateEnd: d.presalePasswordDateEnd ?? null,
+      presaleSpecialPricePassword: d.presaleSpecialPricePassword ?? null,
+      presaleSpecialPricePasswordDateStart: d.presaleSpecialPricePasswordDateStart ?? null,
+      presaleSpecialPricePasswordDateEnd: d.presaleSpecialPricePasswordDateEnd ?? null,
+      presaleSpecialPriceDiscountType: d.presaleSpecialPriceDiscountType ?? null,
+      presaleSpecialPriceDiscountAmount: d.presaleSpecialPriceDiscountAmount ?? null,
+      publicSaleSpecialPricePassword: d.publicSaleSpecialPricePassword ?? null,
+      publicSaleSpecialPricePasswordDateStart: d.publicSaleSpecialPricePasswordDateStart ?? null,
+      publicSaleSpecialPricePasswordDateEnd: d.publicSaleSpecialPricePasswordDateEnd ?? null,
+      publicSaleSpecialPriceDiscountType: d.publicSaleSpecialPriceDiscountType ?? null,
+      publicSaleSpecialPriceDiscountAmount: d.publicSaleSpecialPriceDiscountAmount ?? null,
+      vipPackageOffered: d.vipPackageOffered ?? null,
+      vipPackageName: d.vipPackageName ?? null,
+      vipPackageBenefits: [...(d.vipPackageBenefits ?? [])].sort(),
+      compTicketRequestLink: d.compTicketRequestLink ?? null,
       facilityFeeType: d.facilityFeeType ?? null,
       facilityFeeAmount: d.facilityFeeAmount ?? null,
       dynamicPricingMode: d.dynamicPricingMode ?? null,
@@ -5169,34 +7488,34 @@ function EngagementTicketingPanel({
       creditCardFeesAmountPercent: d.creditCardFeesAmountPercent ?? null,
       salesTaxType: d.salesTaxType ?? null,
       salesTaxAmountPercent: d.salesTaxAmountPercent ?? null,
-    };
-    return JSON.stringify(cur) !== JSON.stringify(base);
+    });
+    return cur !== base;
   }, [
-    ticketingQuery.data,
-    selectedPid,
-    sellableCapacity,
-    grossPotentialRevenue,
-    ticketingSystemCompanyId,
-    ticketingAdministrator,
-    boxOfficeLaborStaffingRequired,
-    facilityFeeType,
-    facilityFeeAmount,
-    dynamicPricingMode,
-    serviceChargeRevenueShare,
-    rebateAmount,
-    bumpAmount,
-    creditCardFeesType,
-    creditCardFeesAmountPercent,
-    salesTaxType,
-    salesTaxAmountPercent,
+    ticketingQuery.data, selectedPid,
+    sellableCapacity, grossPotentialRevenue, ticketingSystemCompanyId,
+    ticketingAdministrator, ticketingAdminContactId, ticketingAdminCompanyId,
+    boxOfficeLaborStaffingRequired, isIAETMDeal,
+    ticketingLinkUrl, publicSaleLinkUrl,
+    preSaleDate, preSaleEndDate, preSaleRegistrationStartDate, preSaleRegistrationEndDate,
+    presalePassword, presalePasswordDateStart, presalePasswordDateEnd,
+    presaleSpecialPricePassword, presaleSpecialPricePasswordDateStart, presaleSpecialPricePasswordDateEnd,
+    presaleSpecialPriceDiscountType, presaleSpecialPriceDiscountAmount,
+    publicSaleSpecialPricePassword, publicSaleSpecialPricePasswordDateStart, publicSaleSpecialPricePasswordDateEnd,
+    publicSaleSpecialPriceDiscountType, publicSaleSpecialPriceDiscountAmount,
+    vipPackageOffered, vipPackageName, vipPackageBenefits, compTicketRequestLink,
+    facilityFeeType, facilityFeeAmount, dynamicPricingMode, serviceChargeRevenueShare,
+    rebateAmount, bumpAmount, creditCardFeesType, creditCardFeesAmountPercent,
+    salesTaxType, salesTaxAmountPercent,
   ]);
   const ticketingDirty = hasTicketingUserEdited && ticketingDirtyRaw;
+  const anyDirty = mgrDirty || ticketingDirty;
 
   useEffect(() => {
-    onDirtyChange?.(ticketingDirty);
+    onDirtyChange?.(anyDirty);
     return () => onDirtyChange?.(false);
-  }, [onDirtyChange, ticketingDirty]);
+  }, [onDirtyChange, anyDirty]);
 
+  // ── Save mutation ─────────────────────────────────────────────────────
   const saveMut = useMutation({
     mutationFn: async () => {
       if (selectedPid == null) throw new Error('Add a show date before saving ticketing.');
@@ -5206,71 +7525,87 @@ function EngagementTicketingPanel({
       const scrs = parseOptionalDecimal(serviceChargeRevenueShare, 'Service charge revenue share');
       const ra = parseOptionalDecimal(rebateAmount, 'Rebate amount');
       const ba = parseOptionalDecimal(bumpAmount, 'Bump amount');
-      const ccf = parseOptionalPercent(creditCardFeesAmountPercent, 'Credit card fees amount (%)');
-      const stp = parseOptionalPercent(salesTaxAmountPercent, 'Sales tax amount (%)');
-      const sysCompanyId = fkIdStringToNumber(ticketingSystemCompanyId);
-
-      for (const x of [sc, gpr, ffa, scrs, ra, ba, ccf, stp]) {
+      const ccf = parseOptionalPercent(creditCardFeesAmountPercent, 'Credit card fees (%)');
+      const stp = parseOptionalPercent(salesTaxAmountPercent, 'Sales tax (%)');
+      const pspda = parseOptionalDecimal(presaleSpecialPriceDiscountAmount, 'Presale special price discount amount');
+      const pubspda = parseOptionalDecimal(publicSaleSpecialPriceDiscountAmount, 'Public sale special price discount amount');
+      for (const x of [sc, gpr, ffa, scrs, ra, ba, ccf, stp, pspda, pubspda]) {
         if (!x.ok) throw new Error(x.message);
       }
-      if (ticketingSystemCompanyId.trim() !== '' && sysCompanyId == null) {
-        throw new Error('Select a valid ticketing system company, or clear the field.');
-      }
-
       await updateEngagementPerformanceTicketing(engagementId, selectedPid, {
         sellableCapacity: sc.value,
         grossPotentialRevenue: gpr.value,
-        ticketingSystemCompanyId: sysCompanyId,
-        ticketingAdministrator: ticketingAdministrator.trim()
-          ? (ticketingAdministrator as 'Venue' | 'Partner' | 'IAE Contract')
-          : null,
-        boxOfficeLaborStaffingRequired:
-          ticketingAdministrator === 'IAE Contract'
-            ? boxOfficeLaborStaffingRequired === 'Yes'
-              ? true
-              : boxOfficeLaborStaffingRequired === 'No'
-                ? false
-                : null
-            : null,
-        facilityFeeType: facilityFeeType.trim()
-          ? (facilityFeeType as 'Inside Face Value' | 'Outside Face Value')
-          : null,
+        ticketingSystemCompanyId: fkIdStringToNumber(ticketingSystemCompanyId),
+        ticketingAdministrator: ticketingAdministrator.trim() ? (ticketingAdministrator as 'Venue' | 'Partner' | 'IAE Contract') : null,
+        ticketingAdminContactId: fkIdStringToNumber(ticketingAdminContactId),
+        ticketingAdminCompanyId: fkIdStringToNumber(ticketingAdminCompanyId),
+        boxOfficeLaborStaffingRequired: ticketingAdministrator === 'IAE Contract' ? boolStr(boxOfficeLaborStaffingRequired) : null,
+        isIAETMDeal: boolStr(isIAETMDeal),
+        ticketingLinkUrl: ticketingLinkUrl.trim() || null,
+        publicSaleLinkUrl: publicSaleLinkUrl.trim() || null,
+        preSaleDate: preSaleDate || null,
+        preSaleEndDate: preSaleEndDate || null,
+        preSaleRegistrationStartDate: preSaleRegistrationStartDate || null,
+        preSaleRegistrationEndDate: preSaleRegistrationEndDate || null,
+        presalePassword: presalePassword.trim() || null,
+        presalePasswordDateStart: presalePasswordDateStart || null,
+        presalePasswordDateEnd: presalePasswordDateEnd || null,
+        presaleSpecialPricePassword: presaleSpecialPricePassword.trim() || null,
+        presaleSpecialPricePasswordDateStart: presaleSpecialPricePasswordDateStart || null,
+        presaleSpecialPricePasswordDateEnd: presaleSpecialPricePasswordDateEnd || null,
+        presaleSpecialPriceDiscountType: presaleSpecialPriceDiscountType || null,
+        presaleSpecialPriceDiscountAmount: pspda.value,
+        publicSaleSpecialPricePassword: publicSaleSpecialPricePassword.trim() || null,
+        publicSaleSpecialPricePasswordDateStart: publicSaleSpecialPricePasswordDateStart || null,
+        publicSaleSpecialPricePasswordDateEnd: publicSaleSpecialPricePasswordDateEnd || null,
+        publicSaleSpecialPriceDiscountType: publicSaleSpecialPriceDiscountType || null,
+        publicSaleSpecialPriceDiscountAmount: pubspda.value,
+        vipPackageOffered: boolStr(vipPackageOffered),
+        vipPackageName: vipPackageName.trim() || null,
+        vipPackageBenefits: vipPackageBenefits.length ? vipPackageBenefits : null,
+        compTicketRequestLink: compTicketRequestLink.trim() || null,
+        facilityFeeType: facilityFeeType.trim() ? (facilityFeeType as 'Inside Face Value' | 'Outside Face Value') : null,
         facilityFeeAmount: ffa.value,
-        dynamicPricingMode: dynamicPricingMode.trim()
-          ? (dynamicPricingMode as 'Self Managed' | '3rd Party Managed')
-          : null,
+        dynamicPricingMode: dynamicPricingMode.trim() ? (dynamicPricingMode as 'Self Managed' | '3rd Party Managed') : null,
         serviceChargeRevenueShare: scrs.value,
         rebateAmount: ra.value,
         bumpAmount: ba.value,
-        creditCardFeesType: creditCardFeesType.trim()
-          ? (creditCardFeesType as 'Inside Service Charge' | 'Budget Line Item')
-          : null,
+        creditCardFeesType: creditCardFeesType.trim() ? (creditCardFeesType as 'Inside Service Charge' | 'Budget Line Item') : null,
         creditCardFeesAmountPercent: ccf.value,
-        salesTaxType: salesTaxType.trim()
-          ? (salesTaxType as 'Charged in Shopping Cart' | 'Budget Line Item')
-          : null,
+        salesTaxType: salesTaxType.trim() ? (salesTaxType as 'Charged in Shopping Cart' | 'Budget Line Item') : null,
         salesTaxAmountPercent: stp.value,
       });
     },
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performance-ticketing', selectedPid] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performances-ticketing-summary'] });
       clearTicketingUserEdited();
       addToast('Ticketing saved.', 'success');
     },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
   });
 
-  const disabled =
-    saveMut.isPending || performancesQuery.isLoading || ticketingQuery.isLoading || companiesQuery.isLoading;
-  const saveDisabled = disabled || !ticketingDirty;
+  // ── UI helpers ────────────────────────────────────────────────────────
+  const disabled = saveMut.isPending || saveMgrMut.isPending;
   const loadError = performancesQuery.error ?? ticketingQuery.error ?? companiesQuery.error;
 
   const fieldRow = (label: string, control: React.ReactNode) => (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-6 min-w-0">
-      <div className="text-sm font-medium text-text-primary shrink-0 sm:w-72 sm:pt-2.5">{label}</div>
-      <div className="min-w-0 flex-1 sm:max-w-none">{control}</div>
+      <div className="text-sm font-medium text-text-primary shrink-0 sm:w-56 sm:pt-2.5">{label}</div>
+      <div className="min-w-0 flex-1">{control}</div>
     </div>
   );
+
+  const sectionHeader = (title: string) => (
+    <h4 className="text-sm font-semibold text-text-primary uppercase tracking-wide border-b border-border pb-1">{title}</h4>
+  );
+
+  const toggleVipBenefit = (benefit: string) => {
+    markTicketingUserEdited();
+    setVipPackageBenefits((prev) =>
+      prev.includes(benefit) ? prev.filter((b) => b !== benefit) : [...prev, benefit],
+    );
+  };
 
   if (performancesQuery.isLoading && !performancesQuery.data) {
     return (
@@ -5284,31 +7619,23 @@ function EngagementTicketingPanel({
   if (!(performancesQuery.data ?? []).length) {
     return (
       <div className="bg-card border border-border rounded-lg p-6 text-sm text-text-muted">
-        Add at least one show date on the <strong className="text-text-primary">Performance Schedule</strong>{' '}
-        tab to edit ticketing.
+        Add at least one show date on the <strong className="text-text-primary">Performance Schedule</strong> tab to edit ticketing.
       </div>
     );
   }
 
   return (
     <div className="relative overflow-hidden rounded-lg border border-border bg-card">
-      {saveMut.isPending && (
-        <div
-          className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/55 backdrop-blur-[1px]"
-          aria-live="polite"
-          aria-busy="true"
-        >
+      {(saveMut.isPending || saveMgrMut.isPending) && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/55 backdrop-blur-[1px]" aria-live="polite" aria-busy="true">
           <span className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2.5 text-sm font-medium text-text-primary shadow-md">
             <Loader2 className="h-5 w-5 shrink-0 animate-spin text-ems-accent" aria-hidden />
             Saving to database…
           </span>
         </div>
       )}
-      <div className="space-y-5 p-5">
+      <div className="space-y-6 p-5">
         <h3 className="text-base font-semibold text-text-primary">Ticketing</h3>
-        <p className="text-xs text-text-muted">
-          View full performance schedule in the <strong className="text-text-primary">Performances</strong> tab. Fields below apply to the selected show.
-        </p>
 
         {loadError && (
           <div className="flex flex-wrap items-center gap-2 text-ems-coral text-sm">
@@ -5317,54 +7644,372 @@ function EngagementTicketingPanel({
           </div>
         )}
 
-        <FormField label="Show">
+        {/* ── IAE TICKETING (engagement-level) ── */}
+        <div className="space-y-4">
+          {sectionHeader('IAE Ticketing')}
+          {fieldRow('IAE Ticketing Manager',
+            <Select2
+              options={iaeContactOptions}
+              value={iaeMgrContactId}
+              onChange={(v) => { markMgrUserEdited(); setIaeMgrContactId(v); }}
+              placeholder="Select contact…"
+              allowClear
+              disabled={disabled}
+            />,
+          )}
+          {iaeMgrQuery.data?.iaeTicketingManagerContactName && (
+            <p className="text-xs text-text-muted pl-0 sm:pl-[calc(14rem+1.5rem)]">
+              Current: {iaeMgrQuery.data.iaeTicketingManagerContactName}
+            </p>
+          )}
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => saveMgrMut.mutate()}
+              disabled={disabled || !mgrDirty}
+            >
+              {saveMgrMut.isPending ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />Saving…</> : 'Save IAE Manager'}
+            </Button>
+          </div>
+        </div>
+
+        {/* ── PERFORMANCE SCHEDULE SUMMARY ── */}
+        <div className="space-y-3">
+          {sectionHeader('Performance Schedule')}
+          {ticketingSummaryQuery.isLoading ? (
+            <div className="flex items-center gap-2 text-text-muted text-sm"><Loader2 className="h-3.5 w-3.5 animate-spin" />Loading…</div>
+          ) : (ticketingSummaryQuery.data ?? []).length > 0 ? (
+            <div className="overflow-x-auto rounded border border-border">
+              <table className="min-w-full text-sm">
+                <thead className="bg-muted/40">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-medium text-text-muted">Date / Time</th>
+                    <th className="px-3 py-2 text-left font-medium text-text-muted">Status</th>
+                    <th className="px-3 py-2 text-right font-medium text-text-muted">Sellable Cap.</th>
+                    <th className="px-3 py-2 text-right font-medium text-text-muted">Gross Potential</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {(ticketingSummaryQuery.data as ApiPerformanceTicketingSummaryRow[]).map((row) => (
+                    <tr
+                      key={row.performanceId}
+                      className={`cursor-pointer hover:bg-muted/30 transition-colors${row.performanceId === selectedPid ? ' bg-ems-accent/10' : ''}`}
+                      onClick={() => setSelectedPid(row.performanceId)}
+                    >
+                      <td className="px-3 py-2 text-text-primary whitespace-nowrap">
+                        {formatPerformanceDateDisplay(row.performanceDate)} · {formatPerformanceTimeDisplay(row.performanceTime)}
+                      </td>
+                      <td className="px-3 py-2 text-text-muted">{row.performanceStatus}</td>
+                      <td className="px-3 py-2 text-right text-text-primary">{row.sellableCapacity != null ? row.sellableCapacity.toLocaleString() : '—'}</td>
+                      <td className="px-3 py-2 text-right text-text-primary">{row.grossPotentialRevenue != null ? `$${row.grossPotentialRevenue.toLocaleString()}` : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </div>
+
+        {/* ── SEATING CHART (read-only from venue tab) ── */}
+        {seatingChartLinks.length > 0 && (
+          <div className="space-y-2">
+            {sectionHeader('Seating Chart')}
+            {seatingChartLinks.map((item) => (
+              <div key={item.url} className="flex items-center gap-2 text-sm">
+                <span className="text-text-muted shrink-0">{item.name}:</span>
+                <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-ems-accent hover:underline break-all">{item.url}</a>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── PER-PERFORMANCE FIELDS ── */}
+        <div className="space-y-2">
+          {sectionHeader('Show')}
           <Select2
             options={performanceSelectOptions}
             value={selectedPid == null ? '' : String(selectedPid)}
             onChange={(value) => setSelectedPid(fkIdStringToNumber(value))}
             placeholder="Select show…"
-            disabled={saveMut.isPending}
+            disabled={disabled}
           />
-        </FormField>
+        </div>
 
         {!ticketingQuery.isLoading && !ticketingQuery.isError && ticketingQuery.data && (
           <>
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-              {fieldRow('Sellable Capacity', <input className={inputCls} inputMode="numeric" value={sellableCapacity} onChange={(e) => { markTicketingUserEdited(); setSellableCapacity(e.target.value); }} disabled={disabled} />)}
-              {fieldRow('Gross Potential Revenue', <input className={inputCls} inputMode="decimal" value={grossPotentialRevenue} onChange={(e) => { markTicketingUserEdited(); setGrossPotentialRevenue(e.target.value); }} disabled={disabled} />)}
-            </div>
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-              {fieldRow('Company (Ticketing System)', <Select2 options={ticketingSystemCompanyOptions} value={ticketingSystemCompanyId} onChange={(value) => { markTicketingUserEdited(); setTicketingSystemCompanyId(value); }} placeholder="Select…" allowClear disabled={disabled} />)}
-              {fieldRow('Ticketing Administrator', <Select2 options={TICKETING_ADMIN_OPTIONS} value={ticketingAdministrator} onChange={(value) => { markTicketingUserEdited(); setTicketingAdministrator(value); }} placeholder="Select…" allowClear disabled={disabled} />)}
-            </div>
-            {ticketingAdministrator === 'IAE Contract' && (
-              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-                {fieldRow('Do we have to staff Box office labor?', <Select2 options={YES_NO_OPTIONS} value={boxOfficeLaborStaffingRequired} onChange={(value) => { markTicketingUserEdited(); setBoxOfficeLaborStaffingRequired(value); }} placeholder="Select…" allowClear disabled={disabled} />)}
+            {/* ── TICKETING SOFTWARE ── */}
+            <div className="space-y-4">
+              {sectionHeader('Ticketing Software')}
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-x-10">
+                {fieldRow('Ticketing System Company',
+                  <Select2 options={ticketingSystemCompanyOptions} value={ticketingSystemCompanyId}
+                    onChange={(v) => { markTicketingUserEdited(); setTicketingSystemCompanyId(v); }}
+                    placeholder="Select…" allowClear disabled={disabled} />,
+                )}
+                {fieldRow('Ticketing Administrator',
+                  <Select2 options={TICKETING_ADMIN_OPTIONS} value={ticketingAdministrator}
+                    onChange={(v) => { markTicketingUserEdited(); setTicketingAdministrator(v); }}
+                    placeholder="Select…" allowClear disabled={disabled} />,
+                )}
+                {fieldRow('Ticketing Admin Contact',
+                  <Select2 options={iaeContactOptions} value={ticketingAdminContactId}
+                    onChange={(v) => { markTicketingUserEdited(); setTicketingAdminContactId(v); }}
+                    placeholder="Select contact…" allowClear disabled={disabled} />,
+                )}
+                {fieldRow('Ticketing Admin Company',
+                  <Select2 options={allCompanyOptions} value={ticketingAdminCompanyId}
+                    onChange={(v) => { markTicketingUserEdited(); setTicketingAdminCompanyId(v); }}
+                    placeholder="Select company…" allowClear disabled={disabled} />,
+                )}
               </div>
-            )}
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-              {fieldRow('Facility Fee Type', <Select2 options={FACE_VALUE_TYPE_OPTIONS} value={facilityFeeType} onChange={(value) => { markTicketingUserEdited(); setFacilityFeeType(value); }} placeholder="Select…" allowClear disabled={disabled} />)}
-              {fieldRow('Facility Fee Amount ($)', <input className={inputCls} inputMode="decimal" value={facilityFeeAmount} onChange={(e) => { markTicketingUserEdited(); setFacilityFeeAmount(e.target.value); }} disabled={disabled} />)}
+              {ticketingAdministrator === 'IAE Contract' && (
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-x-10">
+                  {fieldRow('Box Office Labor Staffing Required?',
+                    <Select2 options={YES_NO_OPTIONS} value={boxOfficeLaborStaffingRequired}
+                      onChange={(v) => { markTicketingUserEdited(); setBoxOfficeLaborStaffingRequired(v); }}
+                      placeholder="Select…" allowClear disabled={disabled} />,
+                  )}
+                </div>
+              )}
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-x-10">
+                {fieldRow('IAE TM Deal?',
+                  <Select2 options={YES_NO_OPTIONS} value={isIAETMDeal}
+                    onChange={(v) => { markTicketingUserEdited(); setIsIAETMDeal(v); }}
+                    placeholder="Select…" allowClear disabled={disabled} />,
+                )}
+                {fieldRow('Sellable Capacity',
+                  <input className={inputCls} inputMode="numeric" value={sellableCapacity}
+                    onChange={(e) => { markTicketingUserEdited(); setSellableCapacity(e.target.value); }} disabled={disabled} />,
+                )}
+                {fieldRow('Gross Potential Revenue ($)',
+                  <input className={inputCls} inputMode="decimal" value={grossPotentialRevenue}
+                    onChange={(e) => { markTicketingUserEdited(); setGrossPotentialRevenue(e.target.value); }} disabled={disabled} />,
+                )}
+              </div>
             </div>
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-              {fieldRow('Dynamic Pricing', <Select2 options={DYNAMIC_PRICING_MODE_OPTIONS} value={dynamicPricingMode} onChange={(value) => { markTicketingUserEdited(); setDynamicPricingMode(value); }} placeholder="Select…" allowClear disabled={disabled} />)}
-              {fieldRow('Service Charge Revenue Share', <input className={inputCls} inputMode="decimal" value={serviceChargeRevenueShare} onChange={(e) => { markTicketingUserEdited(); setServiceChargeRevenueShare(e.target.value); }} disabled={disabled} />)}
+
+            {/* ── PRESALE DATES ── */}
+            <div className="space-y-4">
+              {sectionHeader('Pre-Sale Dates')}
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-x-10">
+                {fieldRow('Pre-Sale Start Date',
+                  <input type="date" className={inputCls} value={preSaleDate}
+                    onChange={(e) => { markTicketingUserEdited(); setPreSaleDate(e.target.value); }} disabled={disabled} />,
+                )}
+                {fieldRow('Pre-Sale End Date',
+                  <input type="date" className={inputCls} value={preSaleEndDate}
+                    onChange={(e) => { markTicketingUserEdited(); setPreSaleEndDate(e.target.value); }} disabled={disabled} />,
+                )}
+                {fieldRow('Pre-Sale Registration Start',
+                  <input type="date" className={inputCls} value={preSaleRegistrationStartDate}
+                    onChange={(e) => { markTicketingUserEdited(); setPreSaleRegistrationStartDate(e.target.value); }} disabled={disabled} />,
+                )}
+                {fieldRow('Pre-Sale Registration End',
+                  <input type="date" className={inputCls} value={preSaleRegistrationEndDate}
+                    onChange={(e) => { markTicketingUserEdited(); setPreSaleRegistrationEndDate(e.target.value); }} disabled={disabled} />,
+                )}
+              </div>
             </div>
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-              {fieldRow('Rebate Amount', <input className={inputCls} inputMode="decimal" value={rebateAmount} onChange={(e) => { markTicketingUserEdited(); setRebateAmount(e.target.value); }} disabled={disabled} />)}
-              {fieldRow('Bump Amount', <input className={inputCls} inputMode="decimal" value={bumpAmount} onChange={(e) => { markTicketingUserEdited(); setBumpAmount(e.target.value); }} disabled={disabled} />)}
+
+            {/* ── PURCHASE LINKS ── */}
+            <div className="space-y-4">
+              {sectionHeader('Purchase Links')}
+              <div className="grid grid-cols-1 gap-4">
+                {fieldRow('Pre-Sale Ticketing Link',
+                  <input className={inputCls} type="url" placeholder="https://…" value={ticketingLinkUrl}
+                    onChange={(e) => { markTicketingUserEdited(); setTicketingLinkUrl(e.target.value); }} disabled={disabled} />,
+                )}
+                {fieldRow('Public Sale Ticketing Link',
+                  <input className={inputCls} type="url" placeholder="https://…" value={publicSaleLinkUrl}
+                    onChange={(e) => { markTicketingUserEdited(); setPublicSaleLinkUrl(e.target.value); }} disabled={disabled} />,
+                )}
+              </div>
             </div>
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-              {fieldRow('Credit Card Fees Type', <Select2 options={FEE_TYPE_OPTIONS} value={creditCardFeesType} onChange={(value) => { markTicketingUserEdited(); setCreditCardFeesType(value); }} placeholder="Select…" allowClear disabled={disabled} />)}
-              {fieldRow('Credit Card Fees Amount (%)', <input className={inputCls} inputMode="decimal" value={creditCardFeesAmountPercent} onChange={(e) => { markTicketingUserEdited(); setCreditCardFeesAmountPercent(e.target.value); }} disabled={disabled} />)}
+
+            {/* ── PROMOTIONAL PASSWORDS ── */}
+            <div className="space-y-5">
+              {sectionHeader('Promotional Passwords')}
+
+              {/* Pre-Sale Password */}
+              <div className="space-y-3 rounded border border-border p-3">
+                <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Pre-Sale Password</p>
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 lg:gap-x-10">
+                  {fieldRow('Password',
+                    <input className={inputCls} value={presalePassword}
+                      onChange={(e) => { markTicketingUserEdited(); setPresalePassword(e.target.value); }} disabled={disabled} />,
+                  )}
+                  {fieldRow('Start Date',
+                    <input type="date" className={inputCls} value={presalePasswordDateStart}
+                      onChange={(e) => { markTicketingUserEdited(); setPresalePasswordDateStart(e.target.value); }} disabled={disabled} />,
+                  )}
+                  {fieldRow('End Date',
+                    <input type="date" className={inputCls} value={presalePasswordDateEnd}
+                      onChange={(e) => { markTicketingUserEdited(); setPresalePasswordDateEnd(e.target.value); }} disabled={disabled} />,
+                  )}
+                </div>
+              </div>
+
+              {/* Pre-Sale Special Price Password */}
+              <div className="space-y-3 rounded border border-border p-3">
+                <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Pre-Sale Special Price Password</p>
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 lg:gap-x-10">
+                  {fieldRow('Password',
+                    <input className={inputCls} value={presaleSpecialPricePassword}
+                      onChange={(e) => { markTicketingUserEdited(); setPresaleSpecialPricePassword(e.target.value); }} disabled={disabled} />,
+                  )}
+                  {fieldRow('Start Date',
+                    <input type="date" className={inputCls} value={presaleSpecialPricePasswordDateStart}
+                      onChange={(e) => { markTicketingUserEdited(); setPresaleSpecialPricePasswordDateStart(e.target.value); }} disabled={disabled} />,
+                  )}
+                  {fieldRow('End Date',
+                    <input type="date" className={inputCls} value={presaleSpecialPricePasswordDateEnd}
+                      onChange={(e) => { markTicketingUserEdited(); setPresaleSpecialPricePasswordDateEnd(e.target.value); }} disabled={disabled} />,
+                  )}
+                  {fieldRow('Discount Type',
+                    <Select2 options={PRESALE_DISCOUNT_TYPE_OPTIONS} value={presaleSpecialPriceDiscountType}
+                      onChange={(v) => { markTicketingUserEdited(); setPresaleSpecialPriceDiscountType(v); }}
+                      placeholder="Select…" allowClear disabled={disabled} />,
+                  )}
+                  {fieldRow('Discount Amount',
+                    <input className={inputCls} inputMode="decimal" value={presaleSpecialPriceDiscountAmount}
+                      onChange={(e) => { markTicketingUserEdited(); setPresaleSpecialPriceDiscountAmount(e.target.value); }} disabled={disabled} />,
+                  )}
+                </div>
+              </div>
+
+              {/* Public Sale Special Price Password */}
+              <div className="space-y-3 rounded border border-border p-3">
+                <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Public Sale Special Price Password</p>
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 lg:gap-x-10">
+                  {fieldRow('Password',
+                    <input className={inputCls} value={publicSaleSpecialPricePassword}
+                      onChange={(e) => { markTicketingUserEdited(); setPublicSaleSpecialPricePassword(e.target.value); }} disabled={disabled} />,
+                  )}
+                  {fieldRow('Start Date',
+                    <input type="date" className={inputCls} value={publicSaleSpecialPricePasswordDateStart}
+                      onChange={(e) => { markTicketingUserEdited(); setPublicSaleSpecialPricePasswordDateStart(e.target.value); }} disabled={disabled} />,
+                  )}
+                  {fieldRow('End Date',
+                    <input type="date" className={inputCls} value={publicSaleSpecialPricePasswordDateEnd}
+                      onChange={(e) => { markTicketingUserEdited(); setPublicSaleSpecialPricePasswordDateEnd(e.target.value); }} disabled={disabled} />,
+                  )}
+                  {fieldRow('Discount Type',
+                    <Select2 options={PRESALE_DISCOUNT_TYPE_OPTIONS} value={publicSaleSpecialPriceDiscountType}
+                      onChange={(v) => { markTicketingUserEdited(); setPublicSaleSpecialPriceDiscountType(v); }}
+                      placeholder="Select…" allowClear disabled={disabled} />,
+                  )}
+                  {fieldRow('Discount Amount',
+                    <input className={inputCls} inputMode="decimal" value={publicSaleSpecialPriceDiscountAmount}
+                      onChange={(e) => { markTicketingUserEdited(); setPublicSaleSpecialPriceDiscountAmount(e.target.value); }} disabled={disabled} />,
+                  )}
+                </div>
+              </div>
             </div>
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-              {fieldRow('Sales Tax Type', <Select2 options={SALES_TAX_TYPE_OPTIONS} value={salesTaxType} onChange={(value) => { markTicketingUserEdited(); setSalesTaxType(value); }} placeholder="Select…" allowClear disabled={disabled} />)}
-              {fieldRow('Sales Tax Amount (%)', <input className={inputCls} inputMode="decimal" value={salesTaxAmountPercent} onChange={(e) => { markTicketingUserEdited(); setSalesTaxAmountPercent(e.target.value); }} disabled={disabled} />)}
+
+            {/* ── VIP TICKET PACKAGES ── */}
+            <div className="space-y-4">
+              {sectionHeader('VIP Ticket Packages')}
+              {fieldRow('VIP Package Offered?',
+                <Select2 options={YES_NO_OPTIONS} value={vipPackageOffered}
+                  onChange={(v) => { markTicketingUserEdited(); setVipPackageOffered(v); }}
+                  placeholder="Select…" allowClear disabled={disabled} />,
+              )}
+              {vipPackageOffered === 'Yes' && (
+                <div className="space-y-4 pl-0">
+                  {fieldRow('Package Name',
+                    <input className={inputCls} value={vipPackageName} maxLength={255}
+                      onChange={(e) => { markTicketingUserEdited(); setVipPackageName(e.target.value); }} disabled={disabled} />,
+                  )}
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-6">
+                    <div className="text-sm font-medium text-text-primary shrink-0 sm:w-56 sm:pt-1">Benefits</div>
+                    <div className="flex flex-wrap gap-x-6 gap-y-2">
+                      {VIP_PACKAGE_BENEFITS.map((benefit) => (
+                        <label key={benefit} className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={vipPackageBenefits.includes(benefit)}
+                            onChange={() => toggleVipBenefit(benefit)}
+                            disabled={disabled}
+                            className="h-4 w-4 rounded border-border text-ems-accent"
+                          />
+                          {benefit}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ── COMPLIMENTARY TICKET REQUEST ── */}
+            <div className="space-y-4">
+              {sectionHeader('Complimentary Ticket Request')}
+              {fieldRow('Comp Ticket Request Link',
+                <input className={inputCls} type="url" placeholder="https://…" value={compTicketRequestLink}
+                  onChange={(e) => { markTicketingUserEdited(); setCompTicketRequestLink(e.target.value); }} disabled={disabled} />,
+              )}
+            </div>
+
+            {/* ── FEES ── */}
+            <div className="space-y-4">
+              {sectionHeader('Fees & Charges')}
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-x-10">
+                {fieldRow('Facility Fee Type',
+                  <Select2 options={FACE_VALUE_TYPE_OPTIONS} value={facilityFeeType}
+                    onChange={(v) => { markTicketingUserEdited(); setFacilityFeeType(v); }}
+                    placeholder="Select…" allowClear disabled={disabled} />,
+                )}
+                {fieldRow('Facility Fee Amount ($)',
+                  <input className={inputCls} inputMode="decimal" value={facilityFeeAmount}
+                    onChange={(e) => { markTicketingUserEdited(); setFacilityFeeAmount(e.target.value); }} disabled={disabled} />,
+                )}
+                {fieldRow('Dynamic Pricing',
+                  <Select2 options={DYNAMIC_PRICING_MODE_OPTIONS} value={dynamicPricingMode}
+                    onChange={(v) => { markTicketingUserEdited(); setDynamicPricingMode(v); }}
+                    placeholder="Select…" allowClear disabled={disabled} />,
+                )}
+                {fieldRow('Service Charge Revenue Share',
+                  <input className={inputCls} inputMode="decimal" value={serviceChargeRevenueShare}
+                    onChange={(e) => { markTicketingUserEdited(); setServiceChargeRevenueShare(e.target.value); }} disabled={disabled} />,
+                )}
+                {fieldRow('Rebate Amount',
+                  <input className={inputCls} inputMode="decimal" value={rebateAmount}
+                    onChange={(e) => { markTicketingUserEdited(); setRebateAmount(e.target.value); }} disabled={disabled} />,
+                )}
+                {fieldRow('Bump Amount',
+                  <input className={inputCls} inputMode="decimal" value={bumpAmount}
+                    onChange={(e) => { markTicketingUserEdited(); setBumpAmount(e.target.value); }} disabled={disabled} />,
+                )}
+                {fieldRow('Credit Card Fees Type',
+                  <Select2 options={FEE_TYPE_OPTIONS} value={creditCardFeesType}
+                    onChange={(v) => { markTicketingUserEdited(); setCreditCardFeesType(v); }}
+                    placeholder="Select…" allowClear disabled={disabled} />,
+                )}
+                {fieldRow('Credit Card Fees (%)',
+                  <input className={inputCls} inputMode="decimal" value={creditCardFeesAmountPercent}
+                    onChange={(e) => { markTicketingUserEdited(); setCreditCardFeesAmountPercent(e.target.value); }} disabled={disabled} />,
+                )}
+                {fieldRow('Sales Tax Type',
+                  <Select2 options={SALES_TAX_TYPE_OPTIONS} value={salesTaxType}
+                    onChange={(v) => { markTicketingUserEdited(); setSalesTaxType(v); }}
+                    placeholder="Select…" allowClear disabled={disabled} />,
+                )}
+                {fieldRow('Sales Tax (%)',
+                  <input className={inputCls} inputMode="decimal" value={salesTaxAmountPercent}
+                    onChange={(e) => { markTicketingUserEdited(); setSalesTaxAmountPercent(e.target.value); }} disabled={disabled} />,
+                )}
+              </div>
             </div>
 
             <div className="flex justify-end pt-2 border-t border-border">
-              <Button type="button" className="bg-ems-accent text-white hover:opacity-90" onClick={() => saveMut.mutate()} disabled={saveDisabled}>
+              <Button
+                type="button"
+                className="bg-ems-accent text-white hover:opacity-90"
+                onClick={() => saveMut.mutate()}
+                disabled={disabled || !ticketingDirty}
+              >
                 {saveMut.isPending ? (
                   <span className="inline-flex items-center gap-1.5">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -6615,6 +9260,28 @@ export function EngagementDetailPage({
     return names.length > 0 ? names : ['Venue'];
   }, [lookupsQuery.data?.companies, venueId]);
 
+  const venueCompanyName = useMemo(() => {
+    const company = (lookupsQuery.data?.companies ?? []).find((c) => c.companyId === venueId);
+    return company?.companyName ?? detailQuery.data?.venueCompanyName ?? '';
+  }, [lookupsQuery.data?.companies, venueId, detailQuery.data?.venueCompanyName]);
+
+  const talentAgencyCompanyName = useMemo(() => {
+    if (typeof tourMgmtCompanyId !== 'number' || tourMgmtCompanyId < 1) return '';
+    return (lookupsQuery.data?.companies ?? []).find((c) => c.companyId === tourMgmtCompanyId)?.companyName ?? '';
+  }, [lookupsQuery.data?.companies, tourMgmtCompanyId]);
+
+  const serviceProviderCompanyIdToName = useMemo((): Record<number, string> => {
+    const result: Record<number, string> = {};
+    for (const company of lookupsQuery.data?.companies ?? []) {
+      result[company.companyId] = company.companyName;
+    }
+    for (const provider of serviceProvidersQuery.data?.providers ?? []) {
+      const id = Number(provider.providerCompanyId);
+      if (!result[id] && provider.providerCompanyName) result[id] = provider.providerCompanyName;
+    }
+    return result;
+  }, [lookupsQuery.data?.companies, serviceProvidersQuery.data?.providers]);
+
   const serviceProviderContactGroups = useMemo(() => {
     const providers = serviceProvidersQuery.data?.providers ?? [];
     const companyById = new Map(
@@ -6667,6 +9334,16 @@ export function EngagementDetailPage({
       tourSelectedTalentAgentIds.has(contact.contactId),
     );
   }, [tourContactsQuery.data, tourSelectedTalentAgentIds]);
+
+  const venueContactsWithCompany = useMemo(
+    () => (venueContactsQuery.data ?? []).map((c) => ({ ...c, companyName: venueCompanyName })),
+    [venueContactsQuery.data, venueCompanyName],
+  );
+
+  const talentAgentContactsWithCompany = useMemo(
+    () => tourSelectedTalentAgentContacts.map((c) => ({ ...c, companyName: talentAgencyCompanyName })),
+    [tourSelectedTalentAgentContacts, talentAgencyCompanyName],
+  );
 
   // ── Engagement PATCH (split mutations so each Overview card gets a real isPending + loader) ──
   const engagementPatchError = (e: unknown) => addToast(friendlyApiError(e), 'error');
@@ -6904,6 +9581,10 @@ export function EngagementDetailPage({
     (dirty: boolean) => setTabDirty('Overview', dirty),
     [setTabDirty],
   );
+  const handleStaffAssignmentsDirtyChange = useCallback(
+    (dirty: boolean) => setTabDirty('Staff Assignments', dirty),
+    [setTabDirty],
+  );
   const handleMainInformationDirtyChange = useCallback(
     (dirty: boolean) => setTabDirty('Main Information', dirty),
     [setTabDirty],
@@ -6930,6 +9611,10 @@ export function EngagementDetailPage({
   );
   const handleArtistTermsDirtyChange = useCallback(
     (dirty: boolean) => setTabDirty('Artist terms', dirty),
+    [setTabDirty],
+  );
+  const handleBookingDirtyChange = useCallback(
+    (dirty: boolean) => setTabDirty('Booking', dirty),
     [setTabDirty],
   );
   const handleEventBusinessDirtyChange = useCallback(
@@ -7301,7 +9986,9 @@ export function EngagementDetailPage({
       <TabBar
         tabs={[
           'Overview',
+          'Staff Assignments',
           'Main Information',
+          'Booking',
           'Venues',
           'Service Providers',
           'Contacts',
@@ -7513,13 +10200,6 @@ export function EngagementDetailPage({
             </div>
           </div>
 
-          <EngagementOverviewIaeStaffSection
-            engagementId={engagementId}
-            enabled={tab === 'Overview'}
-            addToast={addToast}
-            onDirtyChange={handleOverviewDirtyChange}
-          />
-
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-sm">
             <div>
               <span className="text-text-muted text-xs block mb-1 font-medium">Engagement</span>
@@ -7542,7 +10222,17 @@ export function EngagementDetailPage({
           </div>
         </div>
       )}
-
+     {/* ── Staff Assignments ────────────────────────────────────────────── */}
+      {tab === 'Staff Assignments' && (
+        <div className="bg-card border border-border rounded-lg p-5">
+          <EngagementOverviewIaeStaffSection
+            engagementId={engagementId}
+            enabled={tab === 'Staff Assignments'}
+            addToast={addToast}
+            onDirtyChange={handleStaffAssignmentsDirtyChange}
+          />
+        </div>
+      )}
       {/* ── Main Information ─────────────────────────────────────────────── */}
       {tab === 'Main Information' && (
         <EngagementMainInformationPanel
@@ -7552,6 +10242,16 @@ export function EngagementDetailPage({
           lookupsLoading={lookupsQuery.isPending}
           addToast={addToast}
           onDirtyChange={handleMainInformationDirtyChange}
+        />
+      )}
+
+      {/* ── Booking ──────────────────────────────────────────────────────── */}
+      {tab === 'Booking' && row && (
+        <EngagementBookingPanel
+          engagementId={engagementId}
+          row={row}
+          addToast={addToast}
+          onDirtyChange={handleBookingDirtyChange}
         />
       )}
 
@@ -7596,7 +10296,7 @@ export function EngagementDetailPage({
               ) : venueContactsQuery.error ? (
                 <p className="text-sm text-ems-coral">{friendlyApiError(venueContactsQuery.error)}</p>
               ) : (
-                <ContactsTable contacts={venueContactsQuery.data ?? []} />
+                <ContactsTable contacts={venueContactsWithCompany} />
               )}
             </div>
           ))}
@@ -7624,10 +10324,10 @@ export function EngagementDetailPage({
               </div>
             ) : tourContactsQuery.error ? (
               <p className="text-sm text-ems-coral">{friendlyApiError(tourContactsQuery.error)}</p>
-            ) : tourSelectedTalentAgentContacts.length === 0 ? (
+            ) : talentAgentContactsWithCompany.length === 0 ? (
               <p className="text-sm text-text-muted">No talent agents are selected for this tour.</p>
             ) : (
-              <ContactsTable contacts={tourSelectedTalentAgentContacts} />
+              <ContactsTable contacts={talentAgentContactsWithCompany} />
             )}
           </div>
 
@@ -7637,6 +10337,7 @@ export function EngagementDetailPage({
               title={group.title}
               description="Contacts for service provider companies linked to this engagement."
               companyIds={group.companyIds}
+              companyIdToName={serviceProviderCompanyIdToName}
             />
           ))}
         </div>
@@ -8110,10 +10811,12 @@ function RelatedCompanyContactsBox({
   title,
   description,
   companyIds,
+  companyIdToName,
 }: {
   title: string;
   description: string;
   companyIds: number[];
+  companyIdToName?: Record<number, string>;
 }) {
   const uniqueCompanyIds = useMemo(
     () => Array.from(new Set(companyIds.filter((id) => Number.isInteger(id) && id > 0))).sort((a, b) => a - b),
@@ -8122,10 +10825,15 @@ function RelatedCompanyContactsBox({
   const contactsQuery = useQuery({
     queryKey: ['engagement-related-company-contacts', title, uniqueCompanyIds],
     queryFn: async () => {
-      const lists = await Promise.all(uniqueCompanyIds.map((id) => fetchCompanyContacts(id)));
+      const pairs = await Promise.all(
+        uniqueCompanyIds.map(async (id) => {
+          const contacts = await fetchCompanyContacts(id);
+          return contacts.map((c) => ({ ...c, companyName: companyIdToName?.[id] ?? '' }));
+        }),
+      );
       const seen = new Set<string>();
-      const out: ApiCompanyContact[] = [];
-      for (const contact of lists.flat()) {
+      const out: (ApiCompanyContact & { companyName: string })[] = [];
+      for (const contact of pairs.flat()) {
         const key = `${contact.contactAssignmentId}:${contact.contactId}:${contact.roleId}:${contact.departmentId}`;
         if (seen.has(key)) continue;
         seen.add(key);
@@ -8172,7 +10880,7 @@ function ContactsTable({
     cellPhone?: string | null;
     workPhone?: string | null;
     roleName: string;
-    departmentName: string;
+    companyName?: string | null;
   }[];
 }) {
   if (contacts.length === 0) {
@@ -8183,14 +10891,14 @@ function ContactsTable({
   return (
     <div className="bg-elevated border border-border rounded-lg overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[400px]">
+        <table className="w-full text-sm min-w-[500px]">
           <thead>
             <tr className="text-text-muted text-xs border-b border-border bg-surface">
               <th className="text-left py-2 px-3">Name</th>
-              <th className="text-left py-2 px-3">Roles</th>
-              <th className="text-left py-2 px-3">Departments</th>
+              <th className="text-left py-2 px-3">Company Name</th>
               <th className="text-left py-2 px-3">Email</th>
               <th className="text-left py-2 px-3">Phone</th>
+              <th className="text-left py-2 px-3">Role</th>
             </tr>
           </thead>
           <tbody>
@@ -8200,14 +10908,14 @@ function ContactsTable({
                   {c.firstName} {c.lastName}
                 </td>
                 <td className="py-2 px-3 text-text-secondary text-xs">
-                  {c.roleName || '—'}
+                  {c.companyName || '—'}
                 </td>
-                <td className="py-2 px-3 text-text-secondary text-xs">
-                  {c.departmentName || '—'}
-                </td>
-                <td className="py-2 px-3 text-ems-blue text-xs">{c.email}</td>
+                <td className="py-2 px-3 text-ems-blue text-xs">{c.email || '—'}</td>
                 <td className="py-2 px-3 text-text-secondary text-xs">
                   {formatE164ForDisplay(c.cellPhone || c.workPhone) || '—'}
+                </td>
+                <td className="py-2 px-3 text-text-secondary text-xs">
+                  {c.roleName || '—'}
                 </td>
               </tr>
             ))}

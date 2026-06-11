@@ -16,6 +16,7 @@ import { Address } from '../entities/address.entity';
 import { Attraction } from '../entities/attraction.entity';
 import { Company } from '../entities/company.entity';
 import { Contact } from '../entities/contact.entity';
+import { ContactInfo } from '../entities/contact-info.entity';
 import { Department } from '../entities/department.entity';
 import { Dma } from '../entities/dma.entity';
 import { Link } from '../entities/link.entity';
@@ -47,6 +48,12 @@ import { CreateEngagementIaeContactDto } from './dto/create-engagement-iae-conta
 import { UpdateEngagementIaeContactDto } from './dto/update-engagement-iae-contact.dto';
 import { UpdateNonResidentWithholdingLinksDto } from './dto/update-non-resident-withholding-links.dto';
 import { AddEngagementVenueDto } from './dto/add-engagement-venue.dto';
+import { UpdateEngagementVenueTabDto } from './dto/update-engagement-venue-tab.dto';
+import { CreateEngagementRetailPartnerDto } from './dto/create-engagement-retail-partner.dto';
+import { CreateEngagementTravelHotelDto, UpdateEngagementTravelHotelDto, CreateEngagementTravelCarServiceDto, UpdateEngagementTravelCarServiceDto } from './dto/engagement-travel.dto';
+import { EngagementTravel } from '../entities/engagement-travel.entity';
+import { EngagementTravelCarService } from '../entities/engagement-travel-car-service.entity';
+import { EngagementTravelHotel } from '../entities/engagement-travel-hotel.entity';
 import { AuditRequestContext } from '../audit/audit-request-context.service';
 import { buildEngagementDisplayTitle } from './engagement-display.util';
 import { normalizeEngagementStatus } from './engagement-status.util';
@@ -94,6 +101,127 @@ export interface EngagementVenueRow {
   stateProvince: string | null;
   dmaMarketName: string | null;
   isPrimary: boolean;
+  /** dbo.EngagementVenue.VenueBookingManagerContactID */
+  venueBookingManagerContactId: number | null;
+  venueBookingManagerName: string | null;
+  /** dbo.Venue */
+  venueTypeId: number | null;
+  venueTypeName: string | null;
+  stageDimensions: string | null;
+  flySystemSpecs: string | null;
+  stageType: string | null;
+  seatingChartLinkId: number | null;
+  seatingChartLinkUrl: string | null;
+  ticketingSystem: string | null;
+  /** dbo.PerformanceTicketing (first performance) */
+  ticketingAdminContactId: number | null;
+  ticketingAdminContactName: string | null;
+  /** Optional DB columns — null when column does not yet exist */
+  techPackPdfUrl: string | null;
+  attractionTechDirectorContactId: number | null;
+  attractionTechDirectorName: string | null;
+  venueContractSharePointLink: string | null;
+  partiallyExecutedContractSharePointLink: string | null;
+  fullyExecutedContractSharePointLink: string | null;
+  venueForecastSharePointLink: string | null;
+  /** Venue marketing team (optional columns on dbo.EngagementVenue) */
+  venueMarketingDirectorContactId: number | null;
+  venueMarketingDirectorName: string | null;
+  venueMarketingManagerContactId: number | null;
+  venueMarketingManagerName: string | null;
+  venueDigitalMarketingManagerContactId: number | null;
+  venueDigitalMarketingManagerName: string | null;
+  /** IAE Production Manager (optional column on dbo.EngagementVenue) */
+  iaeProductionManagerContactId: number | null;
+  iaeProductionManagerContactName: string | null;
+}
+
+export interface EngagementVenueTabData {
+  venues: EngagementVenueRow[];
+  /** From dbo.EngagementFinances */
+  venueDealType: string | null;
+  venueTerms: string | null;
+}
+
+export interface EngagementTravelCarServiceRow {
+  carServiceTravelId: number;
+  engagementTravelId: number;
+  bookedBy: string | null;
+  originAddressId: number | null;
+  originAddressLabel: string | null;
+  destinationAddressId: number | null;
+  destinationAddressLabel: string | null;
+  pickupDateTime: string | null;
+}
+
+export interface EngagementTravelHotelRow {
+  hotelTravelId: number;
+  engagementTravelId: number;
+  bookedBy: string | null;
+  hotelCompanyId: number | null;
+  hotelCompanyName: string | null;
+  numberOfRooms: number | null;
+  roomTypes: string | null;
+  checkInDate: string | null;
+  checkOutDate: string | null;
+  occupantContactId: number | null;
+  occupantContactName: string | null;
+}
+
+export interface EngagementTravelRow {
+  engagementTravelId: number;
+  travelType: 'Hotel' | 'Car';
+  hotel: EngagementTravelHotelRow | null;
+  carServices: EngagementTravelCarServiceRow[];
+}
+
+export interface EngagementRetailPartnerRow {
+  retailPartnerId: number;
+  engagementId: number;
+  companyId: number | null;
+  companyName: string | null;
+  companyTypeId: number | null;
+  companyTypeName: string | null;
+  contactId: number | null;
+  contactName: string | null;
+}
+
+export interface TourMarketingContactRow {
+  tourContactId: number;
+  contactId: number;
+  contactName: string | null;
+  roleId: number | null;
+  roleName: string | null;
+  isPrimary: boolean;
+}
+
+export interface AdvertisingSubTypeRow {
+  advertisingSubTypeId: number;
+  subTypeName: string;
+  parentCategory: string | null;
+  isActive: boolean;
+}
+
+export interface TourMediaMixRow {
+  tourMediaMixId: number;
+  advertisingSubTypeId: number;
+  subTypeName: string;
+  parentCategory: string | null;
+  companyId: number | null;
+  companyName: string | null;
+}
+
+export interface EngagementMarketingMeta {
+  /** Marketing contacts for the tour (read-only, from dbo.TourContact) */
+  tourMarketingContacts: TourMarketingContactRow[];
+  /** Tour audience age range labels (read-only, from dbo.TourAudienceAgeRange + dbo.AgeRange) */
+  tourAudienceDemographics: string[];
+  /** Tour audience age range as combined string */
+  tourAudienceAgeRange: string | null;
+  /** Media mix entries for the tour (read-only, from dbo.TourMediaMix) */
+  mediaMix: TourMediaMixRow[];
+  /** All active AdvertisingSubType entries for the Media Mix picker (reference data) */
+  advertisingSubTypes: AdvertisingSubTypeRow[];
 }
 
 export interface EngagementServiceProviderRow {
@@ -167,6 +295,52 @@ export interface EngagementFinanceRow {
   /** dbo.EngagementFinances — add columns if missing */
   finalAcceptedOfferLink: string | null;
   settlementFileSharePointLink: string | null;
+  /** dbo.EngagementFinances.TourSplitPoint — existing column */
+  tourSplitPoint: number | null;
+  /** dbo.EngagementFinances.AnnouncementDate — optional column */
+  announcementDate: string | null;
+  /** dbo.EngagementFinances Booking optional columns */
+  promoterPartnerContactId: number | null;
+  promoterPartnerContactName: string | null;
+  tourManagerContactId: number | null;
+  tourManagerContactName: string | null;
+  attractionContractSharePointLink: string | null;
+  partiallyExecutedAttractionContractSharePointLink: string | null;
+  fullyExecutedAttractionContractSharePointLink: string | null;
+  /** dbo.EngagementFinances Event Business optional columns */
+  eventBusinessManagerContactId: number | null;
+  eventBusinessManagerContactName: string | null;
+  eventBusinessAssistantManagerContactId: number | null;
+  eventBusinessAssistantManagerContactName: string | null;
+  venueSettlementContactId: number | null;
+  venueSettlementContactName: string | null;
+  venueSettlementFileSharePointLink: string | null;
+  partnerSettlementFileSharePointLink: string | null;
+  salesTaxRemittedBy: string | null;
+  fexVenueAgreementLink: string | null;
+  venueDepositRequired: boolean | null;
+  withholdingPayee: string | null;
+  withholdingPaymentMethod: string | null;
+  withholdingFormToAttractionLink: string | null;
+  withholdingFormToMunicipalityLink: string | null;
+  withholdingQuickbooksNumber: string | null;
+  withholdingWaiver: string | null;
+  withholdingCompletedWaiverLink: string | null;
+  tourWaiverLink: string | null;
+  withholdingExceptions: string | null;
+  compensationRoyaltyAmount: number | null;
+  compensationOverageAmount: number | null;
+  compensationBuyouts: number | null;
+  compensationDirectCharges: number | null;
+  compensationReimbursibles: number | null;
+  financeJob: string | null;
+  /** Serialized into dbo.ArtistFinance.ArtistBackEndTerms JSON */
+  artistDepositRequired: boolean | null;
+  artistPartOfCollateralizedDeal: boolean | null;
+  artistFexPerformanceAgreementLink: string | null;
+  artistTourOfferLink: string | null;
+  artistOverageAmount: number | null;
+  artistBuyouts: number | null;
 }
 
 export interface FinanceMasterOption {
@@ -226,6 +400,49 @@ export interface PerformanceTicketingRow {
   creditCardFeesAmountPercent: number | null;
   salesTaxType: 'Charged in Shopping Cart' | 'Budget Line Item' | null;
   salesTaxAmountPercent: number | null;
+  /** Existing DB cols exposed via optional-col probe */
+  ticketingAdminContactId: number | null;
+  ticketingAdminContactName: string | null;
+  ticketingAdminCompanyId: number | null;
+  ticketingAdminCompanyName: string | null;
+  publicSaleLinkId: number | null;
+  publicSaleLinkUrl: string | null;
+  preSaleEndDate: string | null;
+  preSaleRegistrationStartDate: string | null;
+  preSaleRegistrationEndDate: string | null;
+  isIAETMDeal: boolean | null;
+  /** Optional DB columns — null when column absent */
+  presalePassword: string | null;
+  presalePasswordDateStart: string | null;
+  presalePasswordDateEnd: string | null;
+  presaleSpecialPricePassword: string | null;
+  presaleSpecialPricePasswordDateStart: string | null;
+  presaleSpecialPricePasswordDateEnd: string | null;
+  presaleSpecialPriceDiscountType: string | null;
+  presaleSpecialPriceDiscountAmount: number | null;
+  publicSaleSpecialPricePassword: string | null;
+  publicSaleSpecialPricePasswordDateStart: string | null;
+  publicSaleSpecialPricePasswordDateEnd: string | null;
+  publicSaleSpecialPriceDiscountType: string | null;
+  publicSaleSpecialPriceDiscountAmount: number | null;
+  vipPackageOffered: boolean | null;
+  vipPackageName: string | null;
+  vipPackageBenefits: string[] | null;
+  compTicketRequestLink: string | null;
+}
+
+export interface PerformanceTicketingSummaryRow {
+  performanceId: number;
+  performanceDate: string;
+  performanceTime: string;
+  performanceStatus: string;
+  sellableCapacity: number | null;
+  grossPotentialRevenue: number | null;
+}
+
+export interface EngagementIaeTicketingManager {
+  iaeTicketingManagerContactId: number | null;
+  iaeTicketingManagerContactName: string | null;
 }
 
 export interface EngagementIaeContactRow {
@@ -281,8 +498,23 @@ export class EngagementService {
     | { venueDealType: boolean; thirdPartyPartnerDealStructure: boolean }
     | null = null;
   private performanceTicketingAdvancedColsPresent: boolean | null = null;
+  private performanceTicketingExtendedColsPresent: boolean | null = null;
+  private performanceTicketingPasswordColsPresent: boolean | null = null;
+  private engagementFinancesIaeTicketingManagerColPresent: boolean | null = null;
   private nonResidentWithholdingHasDmaIdColumn: boolean | null = null;
   private engagementProductionTimeColsPresent: boolean | null = null;
+  private engagementVenueOptionalColsPresent: boolean | null = null;
+  private venueOptionalTechPackColPresent: boolean | null = null;
+  /** Optional venue marketing contact columns on dbo.EngagementVenue */
+  private engagementVenueMarketingColsPresent: boolean | null = null;
+  /** Optional IaeProductionManagerContactID column on dbo.EngagementVenue */
+  private engagementVenueProductionManagerColPresent: boolean | null = null;
+  /** Optional AnnouncementDate column on dbo.EngagementFinances */
+  private engagementFinanceAnnouncementDatePresent: boolean | null = null;
+  /** Optional Booking columns on dbo.EngagementFinances */
+  private engagementFinanceBookingColsPresent: boolean | null = null;
+  /** Optional Event Business columns on dbo.EngagementFinances */
+  private engagementFinanceEventBusinessColsPresent: boolean | null = null;
 
   constructor(
     @InjectRepository(Engagement)
@@ -315,6 +547,8 @@ export class EngagementService {
     private readonly engagementIaeContactRepo: Repository<EngagementIAEContact>,
     @InjectRepository(Contact)
     private readonly contactRepo: Repository<Contact>,
+    @InjectRepository(ContactInfo)
+    private readonly contactInfoRepo: Repository<ContactInfo>,
     @InjectRepository(Role)
     private readonly roleRepo: Repository<Role>,
     @InjectRepository(Department)
@@ -325,6 +559,12 @@ export class EngagementService {
     private readonly artistFinanceRepo: Repository<ArtistFinance>,
     @InjectRepository(SettlementFinance)
     private readonly settlementFinanceRepo: Repository<SettlementFinance>,
+    @InjectRepository(EngagementTravel)
+    private readonly engagementTravelRepo: Repository<EngagementTravel>,
+    @InjectRepository(EngagementTravelCarService)
+    private readonly engagementTravelCarServiceRepo: Repository<EngagementTravelCarService>,
+    @InjectRepository(EngagementTravelHotel)
+    private readonly engagementTravelHotelRepo: Repository<EngagementTravelHotel>,
     private readonly emsCreated: EmsAppCreatedStore,
     private readonly dataSource: DataSource,
     private readonly auditContext: AuditRequestContext,
@@ -651,31 +891,69 @@ export class EngagementService {
         `SELECT
           [GrossMarketingBudget] AS gmb,
           [NetMarketingBudget] AS nmb,
-          [SalesRevenueGoal] AS srg
+          [SalesRevenueGoal] AS srg,
+          [TourSplitPoint] AS tsp
          FROM dbo.EngagementFinances WHERE [FinanceID] = ${fid}`,
       );
       const row0 = (r as Record<string, unknown>[])?.[0];
       if (!row0) return base;
-      const gmb = pickRaw(row0, 'gmb') as
-        | string
-        | number
-        | null
-        | undefined;
-      const nmb = pickRaw(row0, 'nmb') as
-        | string
-        | number
-        | null
-        | undefined;
-      const srg = pickRaw(row0, 'srg') as
-        | string
-        | number
-        | null
-        | undefined;
-      return {
+      const gmb = pickRaw(row0, 'gmb') as string | number | null | undefined;
+      const nmb = pickRaw(row0, 'nmb') as string | number | null | undefined;
+      const srg = pickRaw(row0, 'srg') as string | number | null | undefined;
+      const tsp = pickRaw(row0, 'tsp') as string | number | null | undefined;
+      const merged: EngagementFinanceRow = {
         ...base,
         grossMarketingBudget: this.mapFinanceNumber(gmb),
         netMarketingBudget: this.mapFinanceNumber(nmb),
         salesRevenueGoal: this.mapFinanceNumber(srg),
+        tourSplitPoint: this.mapFinanceNumber(tsp),
+      };
+      // Also probe AnnouncementDate (optional column)
+      return this.mergeFinanceAnnouncementDateFromDb(fid, merged);
+    } catch {
+      return base;
+    }
+  }
+
+  private async engagementFinancesHasAnnouncementDateColumn(): Promise<boolean> {
+    if (this.engagementFinanceAnnouncementDatePresent !== null)
+      return this.engagementFinanceAnnouncementDatePresent;
+    try {
+      const r = await this.dataSource.query(`
+        SELECT CASE WHEN EXISTS (
+          SELECT 1 FROM sys.columns c
+          INNER JOIN sys.tables t ON c.object_id = t.object_id
+          INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+          WHERE s.name = N'dbo' AND t.name = N'EngagementFinances' AND c.name = N'AnnouncementDate'
+        ) THEN 1 ELSE 0 END AS ok`);
+      const raw = pickRaw((r as Record<string, unknown>[])?.[0] ?? {}, 'ok');
+      this.engagementFinanceAnnouncementDatePresent =
+        raw === 1 || raw === true || raw === '1' || Number(raw) === 1;
+      return this.engagementFinanceAnnouncementDatePresent;
+    } catch {
+      this.engagementFinanceAnnouncementDatePresent = false;
+      return false;
+    }
+  }
+
+  private async mergeFinanceAnnouncementDateFromDb(
+    financeId: number,
+    base: EngagementFinanceRow,
+  ): Promise<EngagementFinanceRow> {
+    if (!(await this.engagementFinancesHasAnnouncementDateColumn())) return base;
+    try {
+      const fid = Math.floor(Number(financeId));
+      if (!Number.isFinite(fid) || fid < 1) return base;
+      const r = await this.dataSource.query(
+        `SELECT CONVERT(varchar(10), [AnnouncementDate], 120) AS ad
+         FROM dbo.EngagementFinances WHERE [FinanceID] = ${fid}`,
+      );
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      if (!row0) return base;
+      const ad = pickRaw(row0, 'ad');
+      return {
+        ...base,
+        announcementDate: ad != null && ad !== '' ? String(ad).slice(0, 10) : null,
       };
     } catch {
       return base;
@@ -693,7 +971,12 @@ export class EngagementService {
     const wantG = dto.grossMarketingBudget !== undefined;
     const wantN = dto.netMarketingBudget !== undefined;
     const wantS = dto.salesRevenueGoal !== undefined;
-    if (!wantG && !wantN && !wantS) return;
+    const wantT = dto.tourSplitPoint !== undefined;
+    if (!wantG && !wantN && !wantS && !wantT) {
+      // Still handle AnnouncementDate separately
+      await this.tryPersistFinanceAnnouncementDate(fid, dto);
+      return;
+    }
 
     const sets: string[] = [];
     if (wantG) {
@@ -711,10 +994,31 @@ export class EngagementService {
         `[SalesRevenueGoal] = ${dto.salesRevenueGoal == null ? 'NULL' : Number(dto.salesRevenueGoal)}`,
       );
     }
-    if (!sets.length) return;
+    if (wantT) {
+      sets.push(
+        `[TourSplitPoint] = ${dto.tourSplitPoint == null ? 'NULL' : Number(dto.tourSplitPoint)}`,
+      );
+    }
+    if (sets.length > 0) {
+      await this.dataSource.query(
+        `UPDATE dbo.EngagementFinances SET ${sets.join(', ')} WHERE [FinanceID] = ${fid}`,
+      );
+    }
+    await this.tryPersistFinanceAnnouncementDate(fid, dto);
+  }
 
+  private async tryPersistFinanceAnnouncementDate(
+    financeId: number,
+    dto: UpdateEngagementFinanceDto,
+  ): Promise<void> {
+    if (dto.announcementDate === undefined) return;
+    if (!(await this.engagementFinancesHasAnnouncementDateColumn())) return;
+    const val =
+      dto.announcementDate == null || dto.announcementDate === ''
+        ? 'NULL'
+        : this.escapeSqlNVarCharLiteral(String(dto.announcementDate).slice(0, 10));
     await this.dataSource.query(
-      `UPDATE dbo.EngagementFinances SET ${sets.join(', ')} WHERE [FinanceID] = ${fid}`,
+      `UPDATE dbo.EngagementFinances SET [AnnouncementDate] = ${val} WHERE [FinanceID] = ${financeId}`,
     );
   }
 
@@ -869,6 +1173,297 @@ export class EngagementService {
     }
     if (!sets.length) return;
 
+    await this.dataSource.query(
+      `UPDATE dbo.EngagementFinances SET ${sets.join(', ')} WHERE [FinanceID] = ${fid}`,
+    );
+  }
+
+  // ── Booking tab optional columns (PromoterPartnerContactID, TourManagerContactID,
+  //    AttractionContractSharePointLink, PartiallyExecuted…, FullyExecuted…) ──────
+
+  private async engagementFinancesHasBookingColumns(): Promise<boolean> {
+    if (this.engagementFinanceBookingColsPresent !== null) {
+      return this.engagementFinanceBookingColsPresent;
+    }
+    try {
+      const r = await this.dataSource.query(`
+        SELECT CASE WHEN
+          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'PromoterPartnerContactID') AND
+          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'TourManagerContactID') AND
+          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'AttractionContractSharePointLink') AND
+          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'PartiallyExecutedAttractionContractSharePointLink') AND
+          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'FullyExecutedAttractionContractSharePointLink')
+        THEN 1 ELSE 0 END AS ok
+      `);
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      const rawOk = row0 ? pickRaw(row0, 'ok') : undefined;
+      const ok = rawOk === 1 || rawOk === true || rawOk === '1' || Number(rawOk) === 1;
+      this.engagementFinanceBookingColsPresent = ok;
+      return ok;
+    } catch {
+      this.engagementFinanceBookingColsPresent = false;
+      return false;
+    }
+  }
+
+  private async mergeFinanceBookingFieldsFromDb(
+    financeId: number,
+    base: EngagementFinanceRow,
+  ): Promise<EngagementFinanceRow> {
+    if (!(await this.engagementFinancesHasBookingColumns())) return base;
+    try {
+      const fid = Math.floor(Number(financeId));
+      if (!Number.isFinite(fid) || fid < 1) return base;
+      const r = await this.dataSource.query(`
+        SELECT
+          ef.[PromoterPartnerContactID] AS ppContactId,
+          ef.[TourManagerContactID] AS tmContactId,
+          ef.[AttractionContractSharePointLink] AS acLink,
+          ef.[PartiallyExecutedAttractionContractSharePointLink] AS peLink,
+          ef.[FullyExecutedAttractionContractSharePointLink] AS feLink,
+          ppc.FirstName + ' ' + ppc.LastName AS ppContactName,
+          tmc.FirstName + ' ' + tmc.LastName AS tmContactName
+        FROM dbo.EngagementFinances ef
+        LEFT JOIN dbo.Contact ppc ON ppc.ContactID = ef.[PromoterPartnerContactID]
+        LEFT JOIN dbo.Contact tmc ON tmc.ContactID = ef.[TourManagerContactID]
+        WHERE ef.[FinanceID] = ${fid}
+      `);
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      if (!row0) return base;
+      const ppId = pickRaw(row0, 'ppContactId');
+      const tmId = pickRaw(row0, 'tmContactId');
+      const ppName = pickRaw(row0, 'ppContactName');
+      const tmName = pickRaw(row0, 'tmContactName');
+      const acLink = pickRaw(row0, 'acLink');
+      const peLink = pickRaw(row0, 'peLink');
+      const feLink = pickRaw(row0, 'feLink');
+      return {
+        ...base,
+        promoterPartnerContactId: ppId == null ? null : Math.trunc(Number(ppId)) || null,
+        promoterPartnerContactName: ppName == null || ppName === '' ? null : String(ppName).trim(),
+        tourManagerContactId: tmId == null ? null : Math.trunc(Number(tmId)) || null,
+        tourManagerContactName: tmName == null || tmName === '' ? null : String(tmName).trim(),
+        attractionContractSharePointLink: acLink == null || acLink === '' ? null : String(acLink).slice(0, 2048),
+        partiallyExecutedAttractionContractSharePointLink: peLink == null || peLink === '' ? null : String(peLink).slice(0, 2048),
+        fullyExecutedAttractionContractSharePointLink: feLink == null || feLink === '' ? null : String(feLink).slice(0, 2048),
+      };
+    } catch {
+      return base;
+    }
+  }
+
+  private async tryPersistFinanceBookingFields(
+    financeId: number | null | undefined,
+    dto: UpdateEngagementFinanceDto,
+  ): Promise<void> {
+    const fid = financeId == null ? NaN : Math.floor(Number(financeId));
+    if (!Number.isFinite(fid) || fid < 1) return;
+    if (!(await this.engagementFinancesHasBookingColumns())) return;
+
+    const hasAny =
+      dto.promoterPartnerContactId !== undefined ||
+      dto.tourManagerContactId !== undefined ||
+      dto.attractionContractSharePointLink !== undefined ||
+      dto.partiallyExecutedAttractionContractSharePointLink !== undefined ||
+      dto.fullyExecutedAttractionContractSharePointLink !== undefined;
+    if (!hasAny) return;
+
+    const sets: string[] = [];
+    if (dto.promoterPartnerContactId !== undefined) {
+      sets.push(`[PromoterPartnerContactID] = ${dto.promoterPartnerContactId == null ? 'NULL' : Math.trunc(Number(dto.promoterPartnerContactId))}`);
+    }
+    if (dto.tourManagerContactId !== undefined) {
+      sets.push(`[TourManagerContactID] = ${dto.tourManagerContactId == null ? 'NULL' : Math.trunc(Number(dto.tourManagerContactId))}`);
+    }
+    if (dto.attractionContractSharePointLink !== undefined) {
+      const v = dto.attractionContractSharePointLink;
+      sets.push(`[AttractionContractSharePointLink] = ${v == null || String(v).trim() === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(v).trim().slice(0, 2048))}`);
+    }
+    if (dto.partiallyExecutedAttractionContractSharePointLink !== undefined) {
+      const v = dto.partiallyExecutedAttractionContractSharePointLink;
+      sets.push(`[PartiallyExecutedAttractionContractSharePointLink] = ${v == null || String(v).trim() === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(v).trim().slice(0, 2048))}`);
+    }
+    if (dto.fullyExecutedAttractionContractSharePointLink !== undefined) {
+      const v = dto.fullyExecutedAttractionContractSharePointLink;
+      sets.push(`[FullyExecutedAttractionContractSharePointLink] = ${v == null || String(v).trim() === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(v).trim().slice(0, 2048))}`);
+    }
+    if (!sets.length) return;
+    await this.dataSource.query(
+      `UPDATE dbo.EngagementFinances SET ${sets.join(', ')} WHERE [FinanceID] = ${fid}`,
+    );
+  }
+
+  // ── Event Business tab optional columns ─────────────────────────────────
+
+  private async engagementFinancesHasEventBusinessColumns(): Promise<boolean> {
+    if (this.engagementFinanceEventBusinessColsPresent !== null) {
+      return this.engagementFinanceEventBusinessColsPresent;
+    }
+    try {
+      const r = await this.dataSource.query(`
+        SELECT CASE WHEN
+          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'EventBusinessManagerContactID') AND
+          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'VenueSettlementFileSharePointLink') AND
+          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'CompensationRoyaltyAmount')
+        THEN 1 ELSE 0 END AS ok
+      `);
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      const rawOk = row0 ? pickRaw(row0, 'ok') : undefined;
+      const ok = rawOk === 1 || rawOk === true || rawOk === '1' || Number(rawOk) === 1;
+      this.engagementFinanceEventBusinessColsPresent = ok;
+      return ok;
+    } catch {
+      this.engagementFinanceEventBusinessColsPresent = false;
+      return false;
+    }
+  }
+
+  private async mergeFinanceEventBusinessFieldsFromDb(
+    financeId: number,
+    base: EngagementFinanceRow,
+  ): Promise<EngagementFinanceRow> {
+    if (!(await this.engagementFinancesHasEventBusinessColumns())) return base;
+    try {
+      const fid = Math.floor(Number(financeId));
+      if (!Number.isFinite(fid) || fid < 1) return base;
+      const r = await this.dataSource.query(`
+        SELECT
+          ef.[EventBusinessManagerContactID]            AS ebmId,
+          ebmc.FirstName + ' ' + ebmc.LastName          AS ebmName,
+          ef.[EventBusinessAssistantManagerContactID]   AS ebamId,
+          ebamc.FirstName + ' ' + ebamc.LastName        AS ebamName,
+          ef.[VenueSettlementContactID]                 AS vscId,
+          vscc.FirstName + ' ' + vscc.LastName          AS vscName,
+          ef.[VenueSettlementFileSharePointLink]        AS vsLink,
+          ef.[PartnerSettlementFileSharePointLink]      AS psLink,
+          ef.[SalesTaxRemittedBy]                       AS stRemittedBy,
+          ef.[FexVenueAgreementLink]                    AS fexVenueLink,
+          ef.[VenueDepositRequired]                     AS venueDeposit,
+          ef.[WithholdingPayee]                         AS whPayee,
+          ef.[WithholdingPaymentMethod]                 AS whPayMethod,
+          ef.[WithholdingFormToAttractionLink]          AS whAttrLink,
+          ef.[WithholdingFormToMunicipalityLink]        AS whMuniLink,
+          ef.[WithholdingQuickbooksNumber]              AS whQb,
+          ef.[WithholdingWaiver]                        AS whWaiver,
+          ef.[WithholdingCompletedWaiverLink]           AS whCompleted,
+          ef.[TourWaiverLink]                           AS tourWaiver,
+          ef.[WithholdingExceptions]                    AS whExceptions,
+          ef.[CompensationRoyaltyAmount]                AS compRoyalty,
+          ef.[CompensationOverageAmount]                AS compOverage,
+          ef.[CompensationBuyouts]                      AS compBuyouts,
+          ef.[CompensationDirectCharges]                AS compDirect,
+          ef.[CompensationReimbursibles]                AS compReimb,
+          ef.[FinanceJob]                               AS finJob
+        FROM dbo.EngagementFinances ef
+        LEFT JOIN dbo.Contact ebmc  ON ebmc.ContactID  = ef.[EventBusinessManagerContactID]
+        LEFT JOIN dbo.Contact ebamc ON ebamc.ContactID = ef.[EventBusinessAssistantManagerContactID]
+        LEFT JOIN dbo.Contact vscc  ON vscc.ContactID  = ef.[VenueSettlementContactID]
+        WHERE ef.[FinanceID] = ${fid}
+      `);
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      if (!row0) return base;
+      const toStr = (k: string, max = 2048): string | null => {
+        const v = pickRaw(row0, k);
+        return v == null || v === '' ? null : String(v).trim().slice(0, max) || null;
+      };
+      const toContactId = (k: string): number | null => {
+        const v = pickRaw(row0, k);
+        return v == null ? null : Math.trunc(Number(v)) || null;
+      };
+      const toContactName = (k: string): string | null => {
+        const v = pickRaw(row0, k);
+        return v == null || v === '' ? null : String(v).trim() || null;
+      };
+      const toNum = (k: string): number | null => {
+        const v = pickRaw(row0, k);
+        if (v == null) return null;
+        const n = Number(v);
+        return Number.isFinite(n) ? n : null;
+      };
+      const toBit = (k: string): boolean | null => {
+        const v = pickRaw(row0, k);
+        if (v == null) return null;
+        return v === 1 || v === true || v === '1' || v === 'true';
+      };
+      return {
+        ...base,
+        eventBusinessManagerContactId: toContactId('ebmId'),
+        eventBusinessManagerContactName: toContactName('ebmName'),
+        eventBusinessAssistantManagerContactId: toContactId('ebamId'),
+        eventBusinessAssistantManagerContactName: toContactName('ebamName'),
+        venueSettlementContactId: toContactId('vscId'),
+        venueSettlementContactName: toContactName('vscName'),
+        venueSettlementFileSharePointLink: toStr('vsLink'),
+        partnerSettlementFileSharePointLink: toStr('psLink'),
+        salesTaxRemittedBy: toStr('stRemittedBy', 100),
+        fexVenueAgreementLink: toStr('fexVenueLink'),
+        venueDepositRequired: toBit('venueDeposit'),
+        withholdingPayee: toStr('whPayee', 255),
+        withholdingPaymentMethod: toStr('whPayMethod', 255),
+        withholdingFormToAttractionLink: toStr('whAttrLink'),
+        withholdingFormToMunicipalityLink: toStr('whMuniLink'),
+        withholdingQuickbooksNumber: toStr('whQb', 100),
+        withholdingWaiver: toStr('whWaiver', 10),
+        withholdingCompletedWaiverLink: toStr('whCompleted'),
+        tourWaiverLink: toStr('tourWaiver'),
+        withholdingExceptions: toStr('whExceptions', 4000),
+        compensationRoyaltyAmount: toNum('compRoyalty'),
+        compensationOverageAmount: toNum('compOverage'),
+        compensationBuyouts: toNum('compBuyouts'),
+        compensationDirectCharges: toNum('compDirect'),
+        compensationReimbursibles: toNum('compReimb'),
+        financeJob: toStr('finJob', 255),
+      };
+    } catch {
+      return base;
+    }
+  }
+
+  private async tryPersistFinanceEventBusinessFields(
+    financeId: number | null | undefined,
+    dto: UpdateEngagementFinanceDto,
+  ): Promise<void> {
+    const fid = financeId == null ? NaN : Math.floor(Number(financeId));
+    if (!Number.isFinite(fid) || fid < 1) return;
+    if (!(await this.engagementFinancesHasEventBusinessColumns())) return;
+
+    const sets: string[] = [];
+    const intField = (col: string, v: number | null | undefined) => {
+      if (v !== undefined) sets.push(`[${col}] = ${v == null ? 'NULL' : Math.trunc(Number(v))}`);
+    };
+    const strField = (col: string, v: string | null | undefined, max: number) => {
+      if (v !== undefined) sets.push(`[${col}] = ${v == null || String(v).trim() === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(v).trim().slice(0, max))}`);
+    };
+    const numField = (col: string, v: number | null | undefined) => {
+      if (v !== undefined) sets.push(`[${col}] = ${v == null ? 'NULL' : Number(v)}`);
+    };
+    const bitField = (col: string, v: boolean | null | undefined) => {
+      if (v !== undefined) sets.push(`[${col}] = ${v == null ? 'NULL' : v ? '1' : '0'}`);
+    };
+    intField('EventBusinessManagerContactID', dto.eventBusinessManagerContactId);
+    intField('EventBusinessAssistantManagerContactID', dto.eventBusinessAssistantManagerContactId);
+    intField('VenueSettlementContactID', dto.venueSettlementContactId);
+    strField('VenueSettlementFileSharePointLink', dto.venueSettlementFileSharePointLink, 2048);
+    strField('PartnerSettlementFileSharePointLink', dto.partnerSettlementFileSharePointLink, 2048);
+    strField('SalesTaxRemittedBy', dto.salesTaxRemittedBy, 100);
+    strField('FexVenueAgreementLink', dto.fexVenueAgreementLink, 2048);
+    bitField('VenueDepositRequired', dto.venueDepositRequired);
+    strField('WithholdingPayee', dto.withholdingPayee, 255);
+    strField('WithholdingPaymentMethod', dto.withholdingPaymentMethod, 255);
+    strField('WithholdingFormToAttractionLink', dto.withholdingFormToAttractionLink, 2048);
+    strField('WithholdingFormToMunicipalityLink', dto.withholdingFormToMunicipalityLink, 2048);
+    strField('WithholdingQuickbooksNumber', dto.withholdingQuickbooksNumber, 100);
+    strField('WithholdingWaiver', dto.withholdingWaiver, 10);
+    strField('WithholdingCompletedWaiverLink', dto.withholdingCompletedWaiverLink, 2048);
+    strField('TourWaiverLink', dto.tourWaiverLink, 2048);
+    strField('WithholdingExceptions', dto.withholdingExceptions, 4000);
+    numField('CompensationRoyaltyAmount', dto.compensationRoyaltyAmount);
+    numField('CompensationOverageAmount', dto.compensationOverageAmount);
+    numField('CompensationBuyouts', dto.compensationBuyouts);
+    numField('CompensationDirectCharges', dto.compensationDirectCharges);
+    numField('CompensationReimbursibles', dto.compensationReimbursibles);
+    strField('FinanceJob', dto.financeJob, 255);
+    if (!sets.length) return;
     await this.dataSource.query(
       `UPDATE dbo.EngagementFinances SET ${sets.join(', ')} WHERE [FinanceID] = ${fid}`,
     );
@@ -1030,6 +1625,73 @@ export class EngagementService {
     }
   }
 
+  private async performanceTicketingHasExtendedColumns(): Promise<boolean> {
+    if (this.performanceTicketingExtendedColsPresent !== null) {
+      return this.performanceTicketingExtendedColsPresent;
+    }
+    try {
+      const r = await this.dataSource.query(`
+        SELECT CASE WHEN
+          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'PerformanceTicketing' AND c.name=N'TicketingAdminContactID') AND
+          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'PerformanceTicketing' AND c.name=N'TicketingAdminCompanyID') AND
+          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'PerformanceTicketing' AND c.name=N'PublicSaleLinkID') AND
+          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'PerformanceTicketing' AND c.name=N'IsIAETMDeal') AND
+          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'PerformanceTicketing' AND c.name=N'PreSaleEndDate')
+        THEN 1 ELSE 0 END AS ok
+      `);
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      const rawOk = row0 ? pickRaw(row0, 'ok') : undefined;
+      const ok = rawOk === 1 || rawOk === true || rawOk === '1' || Number(rawOk) === 1;
+      this.performanceTicketingExtendedColsPresent = ok;
+      return ok;
+    } catch {
+      this.performanceTicketingExtendedColsPresent = false;
+      return false;
+    }
+  }
+
+  private async performanceTicketingHasPasswordColumns(): Promise<boolean> {
+    if (this.performanceTicketingPasswordColsPresent !== null) {
+      return this.performanceTicketingPasswordColsPresent;
+    }
+    try {
+      const r = await this.dataSource.query(`
+        SELECT CASE WHEN
+          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'PerformanceTicketing' AND c.name=N'PresalePassword')
+        THEN 1 ELSE 0 END AS ok
+      `);
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      const rawOk = row0 ? pickRaw(row0, 'ok') : undefined;
+      const ok = rawOk === 1 || rawOk === true || rawOk === '1' || Number(rawOk) === 1;
+      this.performanceTicketingPasswordColsPresent = ok;
+      return ok;
+    } catch {
+      this.performanceTicketingPasswordColsPresent = false;
+      return false;
+    }
+  }
+
+  private async engagementFinancesHasIaeTicketingManagerCol(): Promise<boolean> {
+    if (this.engagementFinancesIaeTicketingManagerColPresent !== null) {
+      return this.engagementFinancesIaeTicketingManagerColPresent;
+    }
+    try {
+      const r = await this.dataSource.query(`
+        SELECT CASE WHEN
+          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'IAETicketingManagerContactID')
+        THEN 1 ELSE 0 END AS ok
+      `);
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      const rawOk = row0 ? pickRaw(row0, 'ok') : undefined;
+      const ok = rawOk === 1 || rawOk === true || rawOk === '1' || Number(rawOk) === 1;
+      this.engagementFinancesIaeTicketingManagerColPresent = ok;
+      return ok;
+    } catch {
+      this.engagementFinancesIaeTicketingManagerColPresent = false;
+      return false;
+    }
+  }
+
   private async mergePerformanceTicketingAdvancedFromDb(
     ticketingId: number,
     base: PerformanceTicketingRow,
@@ -1061,7 +1723,7 @@ export class EngagementService {
       if (!row0) return base;
       const sc = pickRaw(row0, 'sc');
       const tsc = pickRaw(row0, 'tsc');
-      return {
+      const merged: PerformanceTicketingRow = {
         ...base,
         sellableCapacity:
           sc == null || sc === '' ? null : Number.isFinite(Number(sc)) ? Math.trunc(Number(sc)) : null,
@@ -1116,6 +1778,131 @@ export class EngagementService {
         salesTaxAmountPercent: this.mapFinanceNumber(
           pickRaw(row0, 'stap') as string | number | null | undefined,
         ),
+      };
+      return this.mergePerformanceTicketingExtendedFromDb(
+        ticketingId,
+        await this.mergePerformanceTicketingPasswordFromDb(ticketingId, merged),
+      );
+    } catch {
+      return base;
+    }
+  }
+
+  private async mergePerformanceTicketingExtendedFromDb(
+    ticketingId: number,
+    base: PerformanceTicketingRow,
+  ): Promise<PerformanceTicketingRow> {
+    if (!(await this.performanceTicketingHasExtendedColumns())) return base;
+    try {
+      const tid = Math.floor(Number(ticketingId));
+      if (!Number.isFinite(tid) || tid < 1) return base;
+      const r = await this.dataSource.query(
+        `SELECT
+          [TicketingAdminContactID] AS tacid,
+          [TicketingAdminCompanyID] AS taccid,
+          [PublicSaleLinkID] AS pslid,
+          [IsIAETMDeal] AS iatm,
+          CONVERT(varchar(10), [PreSaleEndDate], 120) AS psed,
+          CONVERT(varchar(10), [PreSaleRegistrationStartDate], 120) AS psrsd,
+          CONVERT(varchar(10), [PreSaleRegistrationEndDate], 120) AS psred
+         FROM dbo.PerformanceTicketing WHERE [TicketingID] = ${tid}`,
+      );
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      if (!row0) return base;
+      const tacid = pickRaw(row0, 'tacid');
+      const taccid = pickRaw(row0, 'taccid');
+      const pslid = pickRaw(row0, 'pslid');
+      const taContactId = tacid != null && tacid !== '' && Number.isFinite(Number(tacid)) ? Math.trunc(Number(tacid)) : null;
+      const taCompanyId = taccid != null && taccid !== '' && Number.isFinite(Number(taccid)) ? Math.trunc(Number(taccid)) : null;
+      const pubSaleLinkId = pslid != null && pslid !== '' && Number.isFinite(Number(pslid)) ? Math.trunc(Number(pslid)) : null;
+      const [taContactName, taCompanyName, pubSaleLinkUrl] = await Promise.all([
+        this.lookupContactName(taContactId),
+        taCompanyId != null ? this.lookupCompanyName(taCompanyId) : Promise.resolve(null),
+        pubSaleLinkId != null
+          ? this.linkRepo.findOne({ where: { linkId: pubSaleLinkId } }).then((l) => l?.linkUrl ?? null)
+          : Promise.resolve(null),
+      ]);
+      const psed = pickRaw(row0, 'psed');
+      const psrsd = pickRaw(row0, 'psrsd');
+      const psred = pickRaw(row0, 'psred');
+      return {
+        ...base,
+        ticketingAdminContactId: taContactId,
+        ticketingAdminContactName: taContactName,
+        ticketingAdminCompanyId: taCompanyId,
+        ticketingAdminCompanyName: taCompanyName,
+        publicSaleLinkId: pubSaleLinkId,
+        publicSaleLinkUrl: pubSaleLinkUrl,
+        preSaleEndDate: psed != null && psed !== '' ? String(psed).slice(0, 10) : null,
+        preSaleRegistrationStartDate: psrsd != null && psrsd !== '' ? String(psrsd).slice(0, 10) : null,
+        preSaleRegistrationEndDate: psred != null && psred !== '' ? String(psred).slice(0, 10) : null,
+        isIAETMDeal: this.mapBit(pickRaw(row0, 'iatm') as boolean | number | Buffer | null | undefined),
+      };
+    } catch {
+      return base;
+    }
+  }
+
+  private async mergePerformanceTicketingPasswordFromDb(
+    ticketingId: number,
+    base: PerformanceTicketingRow,
+  ): Promise<PerformanceTicketingRow> {
+    if (!(await this.performanceTicketingHasPasswordColumns())) return base;
+    try {
+      const tid = Math.floor(Number(ticketingId));
+      if (!Number.isFinite(tid) || tid < 1) return base;
+      const r = await this.dataSource.query(
+        `SELECT
+          [PresalePassword] AS pp,
+          CONVERT(varchar(10),[PresalePasswordDateStart],120) AS ppds,
+          CONVERT(varchar(10),[PresalePasswordDateEnd],120) AS ppde,
+          [PresaleSpecialPricePassword] AS pspp,
+          CONVERT(varchar(10),[PresaleSpecialPricePasswordDateStart],120) AS psppds,
+          CONVERT(varchar(10),[PresaleSpecialPricePasswordDateEnd],120) AS psppde,
+          [PresaleSpecialPriceDiscountType] AS psppdt,
+          [PresaleSpecialPriceDiscountAmount] AS psppda,
+          [PublicSaleSpecialPricePassword] AS pubspp,
+          CONVERT(varchar(10),[PublicSaleSpecialPricePasswordDateStart],120) AS pubsppds,
+          CONVERT(varchar(10),[PublicSaleSpecialPricePasswordDateEnd],120) AS pubsppde,
+          [PublicSaleSpecialPriceDiscountType] AS pubsppdt,
+          [PublicSaleSpecialPriceDiscountAmount] AS pubsppda,
+          [VIPPackageOffered] AS vipo,
+          [VIPPackageName] AS vipn,
+          [VIPPackageBenefits] AS vipb,
+          [CompTicketRequestLink] AS ctrl
+         FROM dbo.PerformanceTicketing WHERE [TicketingID] = ${tid}`,
+      );
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      if (!row0) return base;
+      const vipbRaw = pickRaw(row0, 'vipb');
+      let vipBenefits: string[] | null = null;
+      try {
+        if (vipbRaw != null && vipbRaw !== '') {
+          const parsed = JSON.parse(String(vipbRaw));
+          if (Array.isArray(parsed)) vipBenefits = parsed.map(String);
+        }
+      } catch { /* ignore */ }
+      const strOrNull = (k: string) => { const v = pickRaw(row0, k); return v == null || v === '' ? null : String(v).trim(); };
+      const dateOrNull = (k: string) => { const v = pickRaw(row0, k); return v == null || v === '' ? null : String(v).slice(0, 10); };
+      return {
+        ...base,
+        presalePassword: strOrNull('pp'),
+        presalePasswordDateStart: dateOrNull('ppds'),
+        presalePasswordDateEnd: dateOrNull('ppde'),
+        presaleSpecialPricePassword: strOrNull('pspp'),
+        presaleSpecialPricePasswordDateStart: dateOrNull('psppds'),
+        presaleSpecialPricePasswordDateEnd: dateOrNull('psppde'),
+        presaleSpecialPriceDiscountType: strOrNull('psppdt'),
+        presaleSpecialPriceDiscountAmount: this.mapFinanceNumber(pickRaw(row0, 'psppda') as string | number | null | undefined),
+        publicSaleSpecialPricePassword: strOrNull('pubspp'),
+        publicSaleSpecialPricePasswordDateStart: dateOrNull('pubsppds'),
+        publicSaleSpecialPricePasswordDateEnd: dateOrNull('pubsppde'),
+        publicSaleSpecialPriceDiscountType: strOrNull('pubsppdt'),
+        publicSaleSpecialPriceDiscountAmount: this.mapFinanceNumber(pickRaw(row0, 'pubsppda') as string | number | null | undefined),
+        vipPackageOffered: this.mapBit(pickRaw(row0, 'vipo') as boolean | number | Buffer | null | undefined),
+        vipPackageName: strOrNull('vipn'),
+        vipPackageBenefits: vipBenefits,
+        compTicketRequestLink: strOrNull('ctrl'),
       };
     } catch {
       return base;
@@ -1229,6 +2016,111 @@ export class EngagementService {
     if (!sets.length) return;
     await this.dataSource.query(
       `UPDATE dbo.PerformanceTicketing SET ${sets.join(', ')} WHERE [TicketingID] = ${tid}`,
+    );
+    await this.tryPersistPerformanceTicketingExtended(tid, dto);
+    await this.tryPersistPerformanceTicketingPassword(tid, dto);
+  }
+
+  private async tryPersistPerformanceTicketingExtended(
+    ticketingId: number,
+    dto: UpdatePerformanceTicketingDto,
+  ): Promise<void> {
+    if (!(await this.performanceTicketingHasExtendedColumns())) return;
+    const sets: string[] = [];
+    if (dto.ticketingAdminContactId !== undefined) {
+      sets.push(`[TicketingAdminContactID] = ${dto.ticketingAdminContactId == null ? 'NULL' : Math.trunc(Number(dto.ticketingAdminContactId))}`);
+    }
+    if (dto.ticketingAdminCompanyId !== undefined) {
+      sets.push(`[TicketingAdminCompanyID] = ${dto.ticketingAdminCompanyId == null ? 'NULL' : Math.trunc(Number(dto.ticketingAdminCompanyId))}`);
+    }
+    if (dto.publicSaleLinkUrl !== undefined) {
+      if (dto.publicSaleLinkUrl == null || String(dto.publicSaleLinkUrl).trim() === '') {
+        sets.push(`[PublicSaleLinkID] = NULL`);
+      } else {
+        const urlVal = String(dto.publicSaleLinkUrl).trim().slice(0, 2048);
+        const escaped = this.escapeSqlNVarCharLiteral(urlVal);
+        const linkR = await this.dataSource.query(
+          `DECLARE @lnkId INT;
+           SELECT @lnkId = [LinkID] FROM dbo.Link WHERE [URL] = ${escaped};
+           IF @lnkId IS NULL
+           BEGIN INSERT INTO dbo.Link ([URL]) VALUES (${escaped}); SET @lnkId = SCOPE_IDENTITY(); END
+           UPDATE dbo.PerformanceTicketing SET [PublicSaleLinkID] = @lnkId WHERE [TicketingID] = ${ticketingId};
+           SELECT @lnkId AS lid`,
+        );
+        const newId = pickRaw((linkR as Record<string, unknown>[])?.[0] ?? {}, 'lid');
+        if (newId != null) return; // already updated above
+      }
+    }
+    if (dto.preSaleEndDate !== undefined) {
+      sets.push(`[PreSaleEndDate] = ${dto.preSaleEndDate == null || dto.preSaleEndDate === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(dto.preSaleEndDate).slice(0, 10))}`);
+    }
+    if (dto.preSaleRegistrationStartDate !== undefined) {
+      sets.push(`[PreSaleRegistrationStartDate] = ${dto.preSaleRegistrationStartDate == null || dto.preSaleRegistrationStartDate === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(dto.preSaleRegistrationStartDate).slice(0, 10))}`);
+    }
+    if (dto.preSaleRegistrationEndDate !== undefined) {
+      sets.push(`[PreSaleRegistrationEndDate] = ${dto.preSaleRegistrationEndDate == null || dto.preSaleRegistrationEndDate === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(dto.preSaleRegistrationEndDate).slice(0, 10))}`);
+    }
+    if (dto.isIAETMDeal !== undefined) {
+      sets.push(`[IsIAETMDeal] = ${dto.isIAETMDeal == null ? 'NULL' : dto.isIAETMDeal ? 1 : 0}`);
+    }
+    if (!sets.length) return;
+    await this.dataSource.query(
+      `UPDATE dbo.PerformanceTicketing SET ${sets.join(', ')} WHERE [TicketingID] = ${ticketingId}`,
+    );
+  }
+
+  private async tryPersistPerformanceTicketingPassword(
+    ticketingId: number,
+    dto: UpdatePerformanceTicketingDto,
+  ): Promise<void> {
+    if (!(await this.performanceTicketingHasPasswordColumns())) return;
+    const sets: string[] = [];
+    const strField = (dbCol: string, val: string | null | undefined) => {
+      if (val === undefined) return;
+      sets.push(`[${dbCol}] = ${val == null || val === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(val).slice(0, 500))}`);
+    };
+    const dateField = (dbCol: string, val: string | null | undefined) => {
+      if (val === undefined) return;
+      sets.push(`[${dbCol}] = ${val == null || val === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(val).slice(0, 10))}`);
+    };
+    const decField = (dbCol: string, val: number | null | undefined) => {
+      if (val === undefined) return;
+      sets.push(`[${dbCol}] = ${val == null ? 'NULL' : Number(val)}`);
+    };
+    const bitField = (dbCol: string, val: boolean | null | undefined) => {
+      if (val === undefined) return;
+      sets.push(`[${dbCol}] = ${val == null ? 'NULL' : val ? 1 : 0}`);
+    };
+    strField('PresalePassword', dto.presalePassword);
+    dateField('PresalePasswordDateStart', dto.presalePasswordDateStart);
+    dateField('PresalePasswordDateEnd', dto.presalePasswordDateEnd);
+    strField('PresaleSpecialPricePassword', dto.presaleSpecialPricePassword);
+    dateField('PresaleSpecialPricePasswordDateStart', dto.presaleSpecialPricePasswordDateStart);
+    dateField('PresaleSpecialPricePasswordDateEnd', dto.presaleSpecialPricePasswordDateEnd);
+    strField('PresaleSpecialPriceDiscountType', dto.presaleSpecialPriceDiscountType);
+    decField('PresaleSpecialPriceDiscountAmount', dto.presaleSpecialPriceDiscountAmount);
+    strField('PublicSaleSpecialPricePassword', dto.publicSaleSpecialPricePassword);
+    dateField('PublicSaleSpecialPricePasswordDateStart', dto.publicSaleSpecialPricePasswordDateStart);
+    dateField('PublicSaleSpecialPricePasswordDateEnd', dto.publicSaleSpecialPricePasswordDateEnd);
+    strField('PublicSaleSpecialPriceDiscountType', dto.publicSaleSpecialPriceDiscountType);
+    decField('PublicSaleSpecialPriceDiscountAmount', dto.publicSaleSpecialPriceDiscountAmount);
+    bitField('VIPPackageOffered', dto.vipPackageOffered);
+    if (dto.vipPackageName !== undefined) {
+      sets.push(`[VIPPackageName] = ${dto.vipPackageName == null || dto.vipPackageName === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(dto.vipPackageName).slice(0, 255))}`);
+    }
+    if (dto.vipPackageBenefits !== undefined) {
+      if (dto.vipPackageBenefits == null || !Array.isArray(dto.vipPackageBenefits)) {
+        sets.push(`[VIPPackageBenefits] = NULL`);
+      } else {
+        sets.push(`[VIPPackageBenefits] = ${this.escapeSqlNVarCharLiteral(JSON.stringify(dto.vipPackageBenefits))}`);
+      }
+    }
+    if (dto.compTicketRequestLink !== undefined) {
+      sets.push(`[CompTicketRequestLink] = ${dto.compTicketRequestLink == null || dto.compTicketRequestLink === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(dto.compTicketRequestLink).slice(0, 2048))}`);
+    }
+    if (!sets.length) return;
+    await this.dataSource.query(
+      `UPDATE dbo.PerformanceTicketing SET ${sets.join(', ')} WHERE [TicketingID] = ${ticketingId}`,
     );
   }
 
@@ -1602,6 +2494,13 @@ export class EngagementService {
     return n;
   }
 
+  private toDecimalOrNull(v: unknown): number | null {
+    if (v == null || v === '') return null;
+    const n = Number(v);
+    if (!Number.isFinite(n)) return null;
+    return n;
+  }
+
   private normalizeRoyaltyBasis(v: unknown): 'Net' | 'NAGBOR' | null {
     const t = String(v ?? '').trim().toLowerCase();
     if (!t) return null;
@@ -1643,40 +2542,66 @@ export class EngagementService {
     versusPercent: number | null;
     promoterProfitPercent: number | null;
     artistBackendPercent: number | null;
+    depositRequired: boolean | null;
+    partOfCollateralizedDeal: boolean | null;
+    fexPerformanceAgreementLink: string | null;
+    tourOfferLink: string | null;
+    overageAmount: number | null;
+    buyouts: number | null;
   } {
     const t = String(raw ?? '').trim();
-    if (!t) {
-      return {
-        versusPercent: null,
-        promoterProfitPercent: null,
-        artistBackendPercent: null,
-      };
-    }
+    const empty = {
+      versusPercent: null,
+      promoterProfitPercent: null,
+      artistBackendPercent: null,
+      depositRequired: null,
+      partOfCollateralizedDeal: null,
+      fexPerformanceAgreementLink: null,
+      tourOfferLink: null,
+      overageAmount: null,
+      buyouts: null,
+    };
+    if (!t) return empty;
 
     try {
       const parsed = JSON.parse(t) as {
         versusPercent?: unknown;
         promoterProfitPercent?: unknown;
         artistBackendPercent?: unknown;
+        depositRequired?: unknown;
+        partOfCollateralizedDeal?: unknown;
+        fexPerformanceAgreementLink?: unknown;
+        tourOfferLink?: unknown;
+        overageAmount?: unknown;
+        buyouts?: unknown;
       };
       if (parsed && typeof parsed === 'object') {
+        const toOptBool = (v: unknown): boolean | null => {
+          if (v === true || v === 1 || v === '1' || v === 'true') return true;
+          if (v === false || v === 0 || v === '0' || v === 'false') return false;
+          return null;
+        };
+        const toOptStr = (v: unknown): string | null => {
+          if (v == null || v === '') return null;
+          return String(v).trim().slice(0, 2048) || null;
+        };
         return {
           versusPercent: this.toPercentOrNull(parsed.versusPercent),
-          promoterProfitPercent: this.toPercentOrNull(
-            parsed.promoterProfitPercent,
-          ),
+          promoterProfitPercent: this.toPercentOrNull(parsed.promoterProfitPercent),
           artistBackendPercent: this.toPercentOrNull(parsed.artistBackendPercent),
+          depositRequired: toOptBool(parsed.depositRequired),
+          partOfCollateralizedDeal: toOptBool(parsed.partOfCollateralizedDeal),
+          fexPerformanceAgreementLink: toOptStr(parsed.fexPerformanceAgreementLink),
+          tourOfferLink: toOptStr(parsed.tourOfferLink),
+          overageAmount: this.toDecimalOrNull(parsed.overageAmount),
+          buyouts: this.toDecimalOrNull(parsed.buyouts),
         };
       }
     } catch {
       // Not JSON; continue with tolerant legacy parsing.
     }
 
-    return {
-      versusPercent: null,
-      promoterProfitPercent: null,
-      artistBackendPercent: null,
-    };
+    return empty;
   }
 
   private nextArtistRoyaltyVariableFee(
@@ -1711,13 +2636,27 @@ export class EngagementService {
     const hasStructuredInput =
       dto.artistVersusPercent !== undefined ||
       dto.artistPromoterProfitPercent !== undefined ||
-      dto.artistBackendPercent !== undefined;
+      dto.artistBackendPercent !== undefined ||
+      dto.artistDepositRequired !== undefined ||
+      dto.artistPartOfCollateralizedDeal !== undefined ||
+      dto.artistFexPerformanceAgreementLink !== undefined ||
+      dto.artistTourOfferLink !== undefined ||
+      dto.artistOverageAmount !== undefined ||
+      dto.artistBuyouts !== undefined;
     if (!hasStructuredInput) {
       const t = dto.artistBackEndTerms;
       return t == null || t.trim() === '' ? null : t.trim();
     }
 
     const parsed = this.parseArtistBackEndTerms(currentRaw);
+    const toOptBool = (v: boolean | null | undefined, fallback: boolean | null): boolean | null => {
+      if (v === undefined) return fallback;
+      return v ?? null;
+    };
+    const toOptStr = (v: string | null | undefined, fallback: string | null): string | null => {
+      if (v === undefined) return fallback;
+      return v == null || String(v).trim() === '' ? null : String(v).trim().slice(0, 2048);
+    };
     const versusPercent =
       dto.artistVersusPercent !== undefined
         ? this.toPercentOrNull(dto.artistVersusPercent)
@@ -1730,11 +2669,29 @@ export class EngagementService {
       dto.artistBackendPercent !== undefined
         ? this.toPercentOrNull(dto.artistBackendPercent)
         : parsed.artistBackendPercent;
+    const depositRequired = toOptBool(dto.artistDepositRequired, parsed.depositRequired);
+    const partOfCollateralizedDeal = toOptBool(dto.artistPartOfCollateralizedDeal, parsed.partOfCollateralizedDeal);
+    const fexPerformanceAgreementLink = toOptStr(dto.artistFexPerformanceAgreementLink, parsed.fexPerformanceAgreementLink);
+    const tourOfferLink = toOptStr(dto.artistTourOfferLink, parsed.tourOfferLink);
+    const overageAmount =
+      dto.artistOverageAmount !== undefined
+        ? this.toDecimalOrNull(dto.artistOverageAmount)
+        : parsed.overageAmount;
+    const buyouts =
+      dto.artistBuyouts !== undefined
+        ? this.toDecimalOrNull(dto.artistBuyouts)
+        : parsed.buyouts;
 
     if (
       versusPercent == null &&
       promoterProfitPercent == null &&
-      artistBackendPercent == null
+      artistBackendPercent == null &&
+      depositRequired == null &&
+      partOfCollateralizedDeal == null &&
+      fexPerformanceAgreementLink == null &&
+      tourOfferLink == null &&
+      overageAmount == null &&
+      buyouts == null
     ) {
       return null;
     }
@@ -1743,6 +2700,12 @@ export class EngagementService {
       versusPercent,
       promoterProfitPercent,
       artistBackendPercent,
+      depositRequired,
+      partOfCollateralizedDeal,
+      fexPerformanceAgreementLink,
+      tourOfferLink,
+      overageAmount,
+      buyouts,
     });
   }
 
@@ -1892,6 +2855,47 @@ export class EngagementService {
         ...this.settlementFinanceResponseSlice(settlementRow),
         finalAcceptedOfferLink: null,
         settlementFileSharePointLink: null,
+        tourSplitPoint: null,
+        announcementDate: null,
+        promoterPartnerContactId: null,
+        promoterPartnerContactName: null,
+        tourManagerContactId: null,
+        tourManagerContactName: null,
+        attractionContractSharePointLink: null,
+        partiallyExecutedAttractionContractSharePointLink: null,
+        fullyExecutedAttractionContractSharePointLink: null,
+        eventBusinessManagerContactId: null,
+        eventBusinessManagerContactName: null,
+        eventBusinessAssistantManagerContactId: null,
+        eventBusinessAssistantManagerContactName: null,
+        venueSettlementContactId: null,
+        venueSettlementContactName: null,
+        venueSettlementFileSharePointLink: null,
+        partnerSettlementFileSharePointLink: null,
+        salesTaxRemittedBy: null,
+        fexVenueAgreementLink: null,
+        venueDepositRequired: null,
+        withholdingPayee: null,
+        withholdingPaymentMethod: null,
+        withholdingFormToAttractionLink: null,
+        withholdingFormToMunicipalityLink: null,
+        withholdingQuickbooksNumber: null,
+        withholdingWaiver: null,
+        withholdingCompletedWaiverLink: null,
+        tourWaiverLink: null,
+        withholdingExceptions: null,
+        compensationRoyaltyAmount: null,
+        compensationOverageAmount: null,
+        compensationBuyouts: null,
+        compensationDirectCharges: null,
+        compensationReimbursibles: null,
+        financeJob: null,
+        artistDepositRequired: parsedBackEnd.depositRequired,
+        artistPartOfCollateralizedDeal: parsedBackEnd.partOfCollateralizedDeal,
+        artistFexPerformanceAgreementLink: parsedBackEnd.fexPerformanceAgreementLink,
+        artistTourOfferLink: parsedBackEnd.tourOfferLink,
+        artistOverageAmount: parsedBackEnd.overageAmount,
+        artistBuyouts: parsedBackEnd.buyouts,
       };
     }
     return {
@@ -1940,11 +2944,51 @@ export class EngagementService {
       ...this.settlementFinanceResponseSlice(settlementRow),
       finalAcceptedOfferLink: null,
       settlementFileSharePointLink: null,
+      tourSplitPoint: null,
+      announcementDate: null,
+      promoterPartnerContactId: null,
+      promoterPartnerContactName: null,
+      tourManagerContactId: null,
+      tourManagerContactName: null,
+      attractionContractSharePointLink: null,
+      partiallyExecutedAttractionContractSharePointLink: null,
+      fullyExecutedAttractionContractSharePointLink: null,
+      eventBusinessManagerContactId: null,
+      eventBusinessManagerContactName: null,
+      eventBusinessAssistantManagerContactId: null,
+      eventBusinessAssistantManagerContactName: null,
+      venueSettlementContactId: null,
+      venueSettlementContactName: null,
+      venueSettlementFileSharePointLink: null,
+      partnerSettlementFileSharePointLink: null,
+      salesTaxRemittedBy: null,
+      fexVenueAgreementLink: null,
+      venueDepositRequired: null,
+      withholdingPayee: null,
+      withholdingPaymentMethod: null,
+      withholdingFormToAttractionLink: null,
+      withholdingFormToMunicipalityLink: null,
+      withholdingQuickbooksNumber: null,
+      withholdingWaiver: null,
+      withholdingCompletedWaiverLink: null,
+      tourWaiverLink: null,
+      withholdingExceptions: null,
+      compensationRoyaltyAmount: null,
+      compensationOverageAmount: null,
+      compensationBuyouts: null,
+      compensationDirectCharges: null,
+      compensationReimbursibles: null,
+      financeJob: null,
+      artistDepositRequired: parsedBackEnd.depositRequired,
+      artistPartOfCollateralizedDeal: parsedBackEnd.partOfCollateralizedDeal,
+      artistFexPerformanceAgreementLink: parsedBackEnd.fexPerformanceAgreementLink,
+      artistTourOfferLink: parsedBackEnd.tourOfferLink,
+      artistOverageAmount: parsedBackEnd.overageAmount,
+      artistBuyouts: parsedBackEnd.buyouts,
     };
   }
 
   /**
-   * Core query:
    *   Engagement → Tour → Attraction (attraction name/id)
    *             → EngagementVenue (primary) → Venue → Company → Address + DMA
    */
@@ -2531,10 +3575,12 @@ export class EngagementService {
       row.financeId,
       withMarketingBudget,
     );
-    return this.mergeFinanceSharePointLinksFromDb(
+    const withSharePointLinks = await this.mergeFinanceSharePointLinksFromDb(
       row.financeId,
       withDealStructures,
     );
+    const withBooking = await this.mergeFinanceBookingFieldsFromDb(row.financeId, withSharePointLinks);
+    return this.mergeFinanceEventBusinessFieldsFromDb(row.financeId, withBooking);
   }
 
   /**
@@ -3236,6 +4282,8 @@ export class EngagementService {
     await this.tryPersistFinanceMarketingBudget(row.financeId, dto);
     await this.tryPersistFinanceDealStructures(row.financeId, dto);
     await this.tryPersistFinanceSharePointLinks(row.financeId, dto);
+    await this.tryPersistFinanceBookingFields(row.financeId, dto);
+    await this.tryPersistFinanceEventBusinessFields(row.financeId, dto);
   }
 
   async create(dto: CreateEngagementDto): Promise<{ engagementId: number }> {
@@ -3486,6 +4534,322 @@ export class EngagementService {
 
   // ─── Venues ───────────────────────────────────────────────────────────────
 
+  // ── Optional-column probing (EngagementVenue extra fields) ────────────────
+
+  private async engagementVenueHasOptionalCols(): Promise<boolean> {
+    if (this.engagementVenueOptionalColsPresent !== null)
+      return this.engagementVenueOptionalColsPresent;
+    try {
+      const r = await this.dataSource.query(`
+        SELECT CASE WHEN
+          EXISTS (SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id=t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id=s.schema_id
+            WHERE s.name=N'dbo' AND t.name=N'EngagementVenue' AND c.name=N'AttractionTechDirectorContactID')
+        THEN 1 ELSE 0 END AS ok`);
+      const raw = pickRaw((r as Record<string, unknown>[])?.[0] ?? {}, 'ok');
+      this.engagementVenueOptionalColsPresent =
+        raw === 1 || raw === true || raw === '1' || Number(raw) === 1;
+      return this.engagementVenueOptionalColsPresent;
+    } catch {
+      this.engagementVenueOptionalColsPresent = false;
+      return false;
+    }
+  }
+
+  private async engagementVenueHasMarketingCols(): Promise<boolean> {
+    if (this.engagementVenueMarketingColsPresent !== null)
+      return this.engagementVenueMarketingColsPresent;
+    try {
+      const r = await this.dataSource.query(`
+        SELECT CASE WHEN
+          EXISTS (SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id=t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id=s.schema_id
+            WHERE s.name=N'dbo' AND t.name=N'EngagementVenue' AND c.name=N'VenueMarketingDirectorContactID')
+        THEN 1 ELSE 0 END AS ok`);
+      const raw = pickRaw((r as Record<string, unknown>[])?.[0] ?? {}, 'ok');
+      this.engagementVenueMarketingColsPresent =
+        raw === 1 || raw === true || raw === '1' || Number(raw) === 1;
+      return this.engagementVenueMarketingColsPresent;
+    } catch {
+      this.engagementVenueMarketingColsPresent = false;
+      return false;
+    }
+  }
+
+  private async engagementVenueHasProductionManagerCol(): Promise<boolean> {
+    if (this.engagementVenueProductionManagerColPresent !== null)
+      return this.engagementVenueProductionManagerColPresent;
+    try {
+      const r = await this.dataSource.query(`
+        SELECT CASE WHEN
+          EXISTS (SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id=t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id=s.schema_id
+            WHERE s.name=N'dbo' AND t.name=N'EngagementVenue' AND c.name=N'IaeProductionManagerContactID')
+        THEN 1 ELSE 0 END AS ok`);
+      const raw = pickRaw((r as Record<string, unknown>[])?.[0] ?? {}, 'ok');
+      this.engagementVenueProductionManagerColPresent =
+        raw === 1 || raw === true || raw === '1' || Number(raw) === 1;
+      return this.engagementVenueProductionManagerColPresent;
+    } catch {
+      this.engagementVenueProductionManagerColPresent = false;
+      return false;
+    }
+  }
+
+
+  private async venueHasTechPackCol(): Promise<boolean> {
+    if (this.venueOptionalTechPackColPresent !== null)
+      return this.venueOptionalTechPackColPresent;
+    try {
+      const r = await this.dataSource.query(`
+        SELECT CASE WHEN
+          EXISTS (SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id=t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id=s.schema_id
+            WHERE s.name=N'dbo' AND t.name=N'Venue' AND c.name=N'TechPackPdfUrl')
+        THEN 1 ELSE 0 END AS ok`);
+      const raw = pickRaw((r as Record<string, unknown>[])?.[0] ?? {}, 'ok');
+      this.venueOptionalTechPackColPresent =
+        raw === 1 || raw === true || raw === '1' || Number(raw) === 1;
+      return this.venueOptionalTechPackColPresent;
+    } catch {
+      this.venueOptionalTechPackColPresent = false;
+      return false;
+    }
+  }
+
+  private async readEngagementVenueOptionalCols(
+    engagementId: number,
+    venueCompanyId: number,
+  ): Promise<{
+    attractionTechDirectorContactId: number | null;
+    venueContractSharePointLink: string | null;
+    partiallyExecutedContractSharePointLink: string | null;
+    fullyExecutedContractSharePointLink: string | null;
+    venueForecastSharePointLink: string | null;
+  }> {
+    const empty = {
+      attractionTechDirectorContactId: null,
+      venueContractSharePointLink: null,
+      partiallyExecutedContractSharePointLink: null,
+      fullyExecutedContractSharePointLink: null,
+      venueForecastSharePointLink: null,
+    };
+    if (!(await this.engagementVenueHasOptionalCols())) return empty;
+    try {
+      const r = await this.dataSource.query(
+        `SELECT [AttractionTechDirectorContactID] AS atd,
+                [VenueContractSharePointLink] AS vc,
+                [PartiallyExecutedContractSharePointLink] AS pec,
+                [FullyExecutedContractSharePointLink] AS fec,
+                [VenueForecastSharePointLink] AS vf
+         FROM dbo.EngagementVenue
+         WHERE [EngagementID]=@0 AND [VenueCompanyID]=@1`,
+        [engagementId, venueCompanyId],
+      );
+      const row = (r as Record<string, unknown>[])?.[0];
+      if (!row) return empty;
+      const toInt = (v: unknown) => {
+        const n = Number(v);
+        return v != null && v !== '' && Number.isFinite(n) && n > 0 ? n : null;
+      };
+      const toStr = (v: unknown) =>
+        v == null || v === '' ? null : String(v).slice(0, 2048);
+      return {
+        attractionTechDirectorContactId: toInt(pickRaw(row, 'atd')),
+        venueContractSharePointLink: toStr(pickRaw(row, 'vc')),
+        partiallyExecutedContractSharePointLink: toStr(pickRaw(row, 'pec')),
+        fullyExecutedContractSharePointLink: toStr(pickRaw(row, 'fec')),
+        venueForecastSharePointLink: toStr(pickRaw(row, 'vf')),
+      };
+    } catch {
+      return empty;
+    }
+  }
+
+  private async readEngagementVenueMarketingCols(
+    engagementId: number,
+    venueCompanyId: number,
+  ): Promise<{
+    venueMarketingDirectorContactId: number | null;
+    venueMarketingManagerContactId: number | null;
+    venueDigitalMarketingManagerContactId: number | null;
+  }> {
+    const empty = {
+      venueMarketingDirectorContactId: null,
+      venueMarketingManagerContactId: null,
+      venueDigitalMarketingManagerContactId: null,
+    };
+    if (!(await this.engagementVenueHasMarketingCols())) return empty;
+    try {
+      const r = await this.dataSource.query(
+        `SELECT [VenueMarketingDirectorContactID] AS vmd,
+                [VenueMarketingManagerContactID] AS vmm,
+                [VenueDigitalMarketingManagerContactID] AS vdmm
+         FROM dbo.EngagementVenue
+         WHERE [EngagementID]=@0 AND [VenueCompanyID]=@1`,
+        [engagementId, venueCompanyId],
+      );
+      const row = (r as Record<string, unknown>[])?.[0];
+      if (!row) return empty;
+      const toInt = (v: unknown) => {
+        const n = Number(v);
+        return v != null && v !== '' && Number.isFinite(n) && n > 0 ? n : null;
+      };
+      return {
+        venueMarketingDirectorContactId: toInt(pickRaw(row, 'vmd')),
+        venueMarketingManagerContactId: toInt(pickRaw(row, 'vmm')),
+        venueDigitalMarketingManagerContactId: toInt(pickRaw(row, 'vdmm')),
+      };
+    } catch {
+      return empty;
+    }
+  }
+
+  private async readEngagementVenueProductionManagerCol(
+    engagementId: number,
+    venueCompanyId: number,
+  ): Promise<number | null> {
+    if (!(await this.engagementVenueHasProductionManagerCol())) return null;
+    try {
+      const r = await this.dataSource.query(
+        `SELECT [IaeProductionManagerContactID] AS ipm
+         FROM dbo.EngagementVenue
+         WHERE [EngagementID]=@0 AND [VenueCompanyID]=@1`,
+        [engagementId, venueCompanyId],
+      );
+      const row = (r as Record<string, unknown>[])?.[0];
+      if (!row) return null;
+      const v = pickRaw(row, 'ipm');
+      const n = Number(v);
+      return v != null && v !== '' && Number.isFinite(n) && n > 0 ? n : null;
+    } catch {
+      return null;
+    }
+  }
+
+
+  private async readVenueTechPackUrl(venueCompanyId: number): Promise<string | null> {
+    if (!(await this.venueHasTechPackCol())) return null;
+    try {
+      const r = await this.dataSource.query(
+        `SELECT [TechPackPdfUrl] AS url FROM dbo.Venue WHERE [CompanyID]=@0`,
+        [venueCompanyId],
+      );
+      const v = pickRaw((r as Record<string, unknown>[])?.[0] ?? {}, 'url');
+      return v == null || v === '' ? null : String(v).slice(0, 2048);
+    } catch {
+      return null;
+    }
+  }
+
+  private async lookupContactName(contactId: number | null): Promise<string | null> {
+    if (contactId == null || contactId < 1) return null;
+    try {
+      const r = await this.dataSource.query(
+        `SELECT ci.FirstName + ' ' + ci.LastName AS fullName
+         FROM dbo.Contact c
+         INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+         WHERE c.ContactID = @0`,
+        [contactId],
+      );
+      const v = pickRaw((r as Record<string, unknown>[])?.[0] ?? {}, 'fullName');
+      return v == null || v === '' ? null : String(v).trim();
+    } catch {
+      return null;
+    }
+  }
+
+  private async lookupCompanyName(companyId: number | null): Promise<string | null> {
+    if (companyId == null || companyId < 1) return null;
+    try {
+      const company = await this.companyRepo.findOne({ where: { companyId } });
+      return company?.companyName?.trim() || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async getPerformancesWithTicketingSummary(
+    engagementId: number,
+  ): Promise<PerformanceTicketingSummaryRow[]> {
+    await this.assertEngagementExists(engagementId);
+    const hasAdv = await this.performanceTicketingHasAdvancedColumns();
+    const selectAdv = hasAdv
+      ? ', pt.[SellableCapacity] AS sc, pt.[GrossPotentialRevenue] AS gpr'
+      : '';
+    const joinAdv = hasAdv
+      ? 'LEFT JOIN dbo.PerformanceTicketing pt ON pt.[PerformanceID] = p.[PerformanceID]'
+      : '';
+    const rows = await this.dataSource.query(
+      `SELECT
+        p.[PerformanceID] AS pid,
+        CONVERT(varchar(10), p.[PerformanceDate], 120) AS pdate,
+        p.[PerformanceTime] AS ptime,
+        p.[PerformanceStatus] AS pstatus
+        ${selectAdv}
+       FROM dbo.Performance p
+       ${joinAdv}
+       WHERE p.[EngagementID] = ${engagementId}
+       ORDER BY p.[PerformanceDate], p.[PerformanceTime]`,
+    ) as Record<string, unknown>[];
+    return rows.map((r) => {
+      const sc = pickRaw(r, 'sc');
+      const gpr = pickRaw(r, 'gpr');
+      return {
+        performanceId: Number(pickRaw(r, 'pid')),
+        performanceDate: String(pickRaw(r, 'pdate') ?? '').slice(0, 10),
+        performanceTime: String(pickRaw(r, 'ptime') ?? ''),
+        performanceStatus: String(pickRaw(r, 'pstatus') ?? ''),
+        sellableCapacity: sc != null && sc !== '' ? Math.trunc(Number(sc)) : null,
+        grossPotentialRevenue: gpr != null && gpr !== '' ? Number(gpr) : null,
+      };
+    });
+  }
+
+  async getIaeTicketingManager(
+    engagementId: number,
+  ): Promise<EngagementIaeTicketingManager> {
+    await this.assertEngagementExists(engagementId);
+    const blank: EngagementIaeTicketingManager = {
+      iaeTicketingManagerContactId: null,
+      iaeTicketingManagerContactName: null,
+    };
+    if (!(await this.engagementFinancesHasIaeTicketingManagerCol())) return blank;
+    try {
+      const r = await this.dataSource.query(
+        `SELECT [IAETicketingManagerContactID] AS cid FROM dbo.EngagementFinances WHERE [EngagementID] = ${engagementId}`,
+      );
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      if (!row0) return blank;
+      const cidRaw = pickRaw(row0, 'cid');
+      const cid = cidRaw != null && cidRaw !== '' && Number.isFinite(Number(cidRaw)) ? Math.trunc(Number(cidRaw)) : null;
+      const name = await this.lookupContactName(cid);
+      return { iaeTicketingManagerContactId: cid, iaeTicketingManagerContactName: name };
+    } catch {
+      return blank;
+    }
+  }
+
+  async updateIaeTicketingManager(
+    engagementId: number,
+    iaeTicketingManagerContactId: number | null,
+  ): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+    if (!(await this.engagementFinancesHasIaeTicketingManagerCol())) return;
+    const cidSql = iaeTicketingManagerContactId == null ? 'NULL' : Math.trunc(Number(iaeTicketingManagerContactId));
+    // Upsert EngagementFinances row
+    await this.dataSource.query(
+      `IF EXISTS (SELECT 1 FROM dbo.EngagementFinances WHERE [EngagementID] = ${engagementId})
+         UPDATE dbo.EngagementFinances SET [IAETicketingManagerContactID] = ${cidSql} WHERE [EngagementID] = ${engagementId}
+       ELSE
+         INSERT INTO dbo.EngagementFinances ([EngagementID],[IAETicketingManagerContactID]) VALUES (${engagementId}, ${cidSql})`,
+    );
+  }
+
   async listVenues(engagementId: number): Promise<EngagementVenueRow[]> {
     await this.assertEngagementExists(engagementId);
 
@@ -3504,16 +4868,113 @@ export class EngagementService {
         where: { companyId: In(venueCompanyIds) },
         relations: ['physicalAddress', 'dma'],
       }),
-      this.venueRepo.find({ where: { companyId: In(venueCompanyIds) } }),
+      this.venueRepo.find({
+        where: { companyId: In(venueCompanyIds) },
+        relations: ['venueType'],
+      }),
     ]);
 
     const companyMap = new Map(companies.map((c) => [c.companyId, c]));
     const venueMap = new Map(venues.map((v) => [v.companyId, v]));
 
-    return evRows.map((ev) => {
+    // Ticketing system column names (resolved once)
+    const [hasOptional, hasTechPack, hasMarketing, hasProdMgr] = await Promise.all([
+      this.engagementVenueHasOptionalCols(),
+      this.venueHasTechPackCol(),
+      this.engagementVenueHasMarketingCols(),
+      this.engagementVenueHasProductionManagerCol(),
+    ]);
+
+    // Load seating chart link IDs → URLs in batch
+    const seatingChartIds = venues
+      .map((v) => v.seatingChartLinkId)
+      .filter((id): id is number => id != null && id > 0);
+    const seatingChartLinks =
+      seatingChartIds.length > 0
+        ? await this.linkRepo.find({ where: { linkId: In(seatingChartIds) } })
+        : [];
+    const seatingChartLinkMap = new Map(seatingChartLinks.map((l) => [l.linkId, l.linkUrl]));
+
+    // Load ticketing admin from first performance for this engagement
+    const firstPerf = await this.performanceRepo.findOne({
+      where: { engagementId },
+      order: { performanceDate: 'ASC', performanceTime: 'ASC' },
+    });
+    let ticketingAdminContactId: number | null = null;
+    let ticketingAdminContactName: string | null = null;
+    if (firstPerf) {
+      const pt = await this.performanceTicketingRepo.findOne({
+        where: { performanceId: firstPerf.performanceId },
+      });
+      if (pt) {
+        const raw = (pt as unknown as Record<string, unknown>)['TicketingAdminContactID'] ??
+          (pt as unknown as Record<string, unknown>)['ticketingAdminContactId'];
+        const id = raw != null && raw !== '' ? Number(raw) : NaN;
+        if (Number.isFinite(id) && id > 0) {
+          ticketingAdminContactId = id;
+          ticketingAdminContactName = await this.lookupContactName(id);
+        }
+      }
+    }
+
+    // Load ticketing system column (already resolved in company service; use raw SQL)
+    // key: venueCompanyId → ticketing system string
+    const ticketingSystemMap = new Map<number, string | null>();
+    for (const vid of venueCompanyIds) {
+      try {
+        const r = await this.dataSource.query(
+          `SELECT [TicketingSystem] AS ts FROM dbo.Venue WHERE [CompanyID]=@0`,
+          [vid],
+        );
+        const v = pickRaw((r as Record<string, unknown>[])?.[0] ?? {}, 'ts');
+        ticketingSystemMap.set(vid, v == null || v === '' ? null : String(v));
+      } catch {
+        ticketingSystemMap.set(vid, null);
+      }
+    }
+
+    const results: EngagementVenueRow[] = [];
+    for (const ev of evRows) {
       const company = companyMap.get(ev.venueCompanyId);
       const venue = venueMap.get(ev.venueCompanyId);
-      return {
+
+      // Booking manager contact name
+      const bmName = await this.lookupContactName(ev.venueBookingManagerContactId ?? null);
+
+      // Optional cols (per-row)
+      const optCols = hasOptional
+        ? await this.readEngagementVenueOptionalCols(engagementId, ev.venueCompanyId)
+        : {
+            attractionTechDirectorContactId: null,
+            venueContractSharePointLink: null,
+            partiallyExecutedContractSharePointLink: null,
+            fullyExecutedContractSharePointLink: null,
+            venueForecastSharePointLink: null,
+          };
+      const attractionTechName = await this.lookupContactName(optCols.attractionTechDirectorContactId);
+      const techPackUrl = hasTechPack ? await this.readVenueTechPackUrl(ev.venueCompanyId) : null;
+
+      // Venue marketing contacts (optional cols)
+      const mktCols = hasMarketing
+        ? await this.readEngagementVenueMarketingCols(engagementId, ev.venueCompanyId)
+        : {
+            venueMarketingDirectorContactId: null,
+            venueMarketingManagerContactId: null,
+            venueDigitalMarketingManagerContactId: null,
+          };
+      const [mktDirName, mktMgrName, digitalMktMgrName] = await Promise.all([
+        this.lookupContactName(mktCols.venueMarketingDirectorContactId),
+        this.lookupContactName(mktCols.venueMarketingManagerContactId),
+        this.lookupContactName(mktCols.venueDigitalMarketingManagerContactId),
+      ]);
+
+      // IAE Production Manager (optional col)
+      const iaeProdMgrId = hasProdMgr
+        ? await this.readEngagementVenueProductionManagerCol(engagementId, ev.venueCompanyId)
+        : null;
+      const iaeProdMgrName = await this.lookupContactName(iaeProdMgrId);
+
+      results.push({
         engagementId: ev.engagementId,
         venueCompanyId: ev.venueCompanyId,
         venueCompanyName: company?.companyName ?? null,
@@ -3522,8 +4983,176 @@ export class EngagementService {
         stateProvince: company?.physicalAddress?.stateProvince ?? null,
         dmaMarketName: company?.dma?.marketName ?? null,
         isPrimary: Boolean(ev.isPrimary),
-      };
+        venueBookingManagerContactId: ev.venueBookingManagerContactId ?? null,
+        venueBookingManagerName: bmName,
+        venueTypeId: venue?.venueTypeId ?? null,
+        venueTypeName: venue?.venueType?.venueTypeName ?? null,
+        stageDimensions: venue?.stageDimensions ?? null,
+        flySystemSpecs: venue?.flySystemSpecs ?? null,
+        stageType: venue?.stageType ?? null,
+        seatingChartLinkId: venue?.seatingChartLinkId ?? null,
+        seatingChartLinkUrl: venue?.seatingChartLinkId
+          ? (seatingChartLinkMap.get(venue.seatingChartLinkId) ?? null)
+          : null,
+        ticketingSystem: ticketingSystemMap.get(ev.venueCompanyId) ?? null,
+        ticketingAdminContactId,
+        ticketingAdminContactName,
+        techPackPdfUrl: techPackUrl,
+        attractionTechDirectorContactId: optCols.attractionTechDirectorContactId,
+        attractionTechDirectorName: attractionTechName,
+        venueContractSharePointLink: optCols.venueContractSharePointLink,
+        partiallyExecutedContractSharePointLink: optCols.partiallyExecutedContractSharePointLink,
+        fullyExecutedContractSharePointLink: optCols.fullyExecutedContractSharePointLink,
+        venueForecastSharePointLink: optCols.venueForecastSharePointLink,
+        venueMarketingDirectorContactId: mktCols.venueMarketingDirectorContactId,
+        venueMarketingDirectorName: mktDirName,
+        venueMarketingManagerContactId: mktCols.venueMarketingManagerContactId,
+        venueMarketingManagerName: mktMgrName,
+        venueDigitalMarketingManagerContactId: mktCols.venueDigitalMarketingManagerContactId,
+        venueDigitalMarketingManagerName: digitalMktMgrName,
+        iaeProductionManagerContactId: iaeProdMgrId,
+        iaeProductionManagerContactName: iaeProdMgrName,
+      });
+    }
+    return results;
+  }
+
+  async getVenueTabData(engagementId: number): Promise<EngagementVenueTabData> {
+    const [venues, finance] = await Promise.all([
+      this.listVenues(engagementId),
+      this.engagementFinancesRepo.findOne({ where: { engagementId } }),
+    ]);
+    // venueDealType is an optional column — read via raw SQL when available
+    let venueDealType: string | null = null;
+    if (finance) {
+      const cols = await this.engagementFinancesGetDealStructureColumns();
+      if (cols.venueDealType) {
+        try {
+          const r = await this.dataSource.query(
+            `SELECT [VenueDealType] AS vdt FROM dbo.EngagementFinances WHERE [FinanceID] = ${finance.financeId}`,
+          );
+          venueDealType = this.normalizeVenueDealType(pickRaw((r as Record<string, unknown>[])?.[0] ?? {}, 'vdt'));
+        } catch { /* ignore */ }
+      }
+    }
+    return {
+      venues,
+      venueDealType,
+      venueTerms: finance?.venueTerms ?? null,
+    };
+  }
+
+  async updateVenueTabPerVenue(
+    engagementId: number,
+    venueCompanyId: number,
+    dto: UpdateEngagementVenueTabDto,
+  ): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+    const ev = await this.engagementVenueRepo.findOne({
+      where: { engagementId, venueCompanyId },
     });
+    if (!ev) throw new NotFoundException({ message: 'Venue not linked to this engagement.' });
+
+    // ── dbo.EngagementVenue ORM-backed fields ─────────────────────────────
+    if (dto.venueBookingManagerContactId !== undefined) {
+      ev.venueBookingManagerContactId = dto.venueBookingManagerContactId ?? null;
+      await this.engagementVenueRepo.save(ev);
+    }
+
+    // ── dbo.Venue direct fields ────────────────────────────────────────────
+    const venuePatch: Partial<Venue> = {};
+    if (dto.venueTypeId !== undefined) venuePatch.venueTypeId = dto.venueTypeId ?? null;
+    if (dto.stageDimensions !== undefined) venuePatch.stageDimensions = dto.stageDimensions ?? null;
+    if (dto.flySystemSpecs !== undefined) venuePatch.flySystemSpecs = dto.flySystemSpecs ?? null;
+    if (dto.stageType !== undefined) venuePatch.stageType = dto.stageType ?? null;
+
+    if (Object.keys(venuePatch).length > 0) {
+      await this.venueRepo.update({ companyId: venueCompanyId }, venuePatch);
+    }
+
+    // ── Optional columns via raw SQL ──────────────────────────────────────
+    const toSqlStr = (v: string | null | undefined, max = 2048) => {
+      if (v === undefined) return undefined;
+      if (v == null || v.trim() === '') return 'NULL';
+      return this.escapeSqlNVarCharLiteral(v.trim().slice(0, max));
+    };
+
+    // TechPackPdfUrl on dbo.Venue
+    if (dto.techPackPdfUrl !== undefined && (await this.venueHasTechPackCol())) {
+      const sql = toSqlStr(dto.techPackPdfUrl);
+      await this.dataSource.query(
+        `UPDATE dbo.Venue SET [TechPackPdfUrl] = ${sql} WHERE [CompanyID] = ${venueCompanyId}`,
+      );
+    }
+
+    // Optional EngagementVenue fields
+    if (await this.engagementVenueHasOptionalCols()) {
+      const sets: string[] = [];
+      const addSet = (col: string, val: string | number | null | undefined) => {
+        if (val === undefined) return;
+        if (val === null) { sets.push(`[${col}] = NULL`); return; }
+        if (typeof val === 'number') { sets.push(`[${col}] = ${val}`); return; }
+        sets.push(`[${col}] = ${this.escapeSqlNVarCharLiteral(String(val).slice(0, 2048))}`);
+      };
+
+      addSet('AttractionTechDirectorContactID', dto.attractionTechDirectorContactId);
+      const vcStr = toSqlStr(dto.venueContractSharePointLink);
+      if (vcStr !== undefined) sets.push(`[VenueContractSharePointLink] = ${vcStr}`);
+      const pecStr = toSqlStr(dto.partiallyExecutedContractSharePointLink);
+      if (pecStr !== undefined) sets.push(`[PartiallyExecutedContractSharePointLink] = ${pecStr}`);
+      const fecStr = toSqlStr(dto.fullyExecutedContractSharePointLink);
+      if (fecStr !== undefined) sets.push(`[FullyExecutedContractSharePointLink] = ${fecStr}`);
+      const vfStr = toSqlStr(dto.venueForecastSharePointLink);
+      if (vfStr !== undefined) sets.push(`[VenueForecastSharePointLink] = ${vfStr}`);
+
+      if (sets.length > 0) {
+        await this.dataSource.query(
+          `UPDATE dbo.EngagementVenue SET ${sets.join(', ')}
+           WHERE [EngagementID] = ${engagementId} AND [VenueCompanyID] = ${venueCompanyId}`,
+        );
+      }
+    }
+
+    // ── Venue marketing contacts (separate optional cols) ─────────────────
+    if (await this.engagementVenueHasMarketingCols()) {
+      const mktSets: string[] = [];
+      if (dto.venueMarketingDirectorContactId !== undefined) {
+        mktSets.push(
+          `[VenueMarketingDirectorContactID] = ${dto.venueMarketingDirectorContactId == null ? 'NULL' : Math.trunc(Number(dto.venueMarketingDirectorContactId))}`,
+        );
+      }
+      if (dto.venueMarketingManagerContactId !== undefined) {
+        mktSets.push(
+          `[VenueMarketingManagerContactID] = ${dto.venueMarketingManagerContactId == null ? 'NULL' : Math.trunc(Number(dto.venueMarketingManagerContactId))}`,
+        );
+      }
+      if (dto.venueDigitalMarketingManagerContactId !== undefined) {
+        mktSets.push(
+          `[VenueDigitalMarketingManagerContactID] = ${dto.venueDigitalMarketingManagerContactId == null ? 'NULL' : Math.trunc(Number(dto.venueDigitalMarketingManagerContactId))}`,
+        );
+      }
+      if (mktSets.length > 0) {
+        await this.dataSource.query(
+          `UPDATE dbo.EngagementVenue SET ${mktSets.join(', ')}
+           WHERE [EngagementID] = ${engagementId} AND [VenueCompanyID] = ${venueCompanyId}`,
+        );
+      }
+    }
+
+    // ── IAE Production Manager (optional col) ─────────────────────────────
+    if (
+      dto.iaeProductionManagerContactId !== undefined &&
+      (await this.engagementVenueHasProductionManagerCol())
+    ) {
+      const val =
+        dto.iaeProductionManagerContactId == null
+          ? 'NULL'
+          : Math.trunc(Number(dto.iaeProductionManagerContactId));
+      await this.dataSource.query(
+        `UPDATE dbo.EngagementVenue SET [IaeProductionManagerContactID] = ${val}
+         WHERE [EngagementID] = ${engagementId} AND [VenueCompanyID] = ${venueCompanyId}`,
+      );
+    }
   }
 
   async addVenue(
@@ -4149,6 +5778,33 @@ export class EngagementService {
         creditCardFeesAmountPercent: null,
         salesTaxType: null,
         salesTaxAmountPercent: null,
+        ticketingAdminContactId: null,
+        ticketingAdminContactName: null,
+        ticketingAdminCompanyId: null,
+        ticketingAdminCompanyName: null,
+        publicSaleLinkId: null,
+        publicSaleLinkUrl: null,
+        preSaleEndDate: null,
+        preSaleRegistrationStartDate: null,
+        preSaleRegistrationEndDate: null,
+        isIAETMDeal: null,
+        presalePassword: null,
+        presalePasswordDateStart: null,
+        presalePasswordDateEnd: null,
+        presaleSpecialPricePassword: null,
+        presaleSpecialPricePasswordDateStart: null,
+        presaleSpecialPricePasswordDateEnd: null,
+        presaleSpecialPriceDiscountType: null,
+        presaleSpecialPriceDiscountAmount: null,
+        publicSaleSpecialPricePassword: null,
+        publicSaleSpecialPricePasswordDateStart: null,
+        publicSaleSpecialPricePasswordDateEnd: null,
+        publicSaleSpecialPriceDiscountType: null,
+        publicSaleSpecialPriceDiscountAmount: null,
+        vipPackageOffered: null,
+        vipPackageName: null,
+        vipPackageBenefits: null,
+        compTicketRequestLink: null,
       };
     }
     const ticketingLink =
@@ -4187,6 +5843,33 @@ export class EngagementService {
       creditCardFeesAmountPercent: null,
       salesTaxType: null,
       salesTaxAmountPercent: null,
+      ticketingAdminContactId: null,
+      ticketingAdminContactName: null,
+      ticketingAdminCompanyId: null,
+      ticketingAdminCompanyName: null,
+      publicSaleLinkId: null,
+      publicSaleLinkUrl: null,
+      preSaleEndDate: null,
+      preSaleRegistrationStartDate: null,
+      preSaleRegistrationEndDate: null,
+      isIAETMDeal: null,
+      presalePassword: null,
+      presalePasswordDateStart: null,
+      presalePasswordDateEnd: null,
+      presaleSpecialPricePassword: null,
+      presaleSpecialPricePasswordDateStart: null,
+      presaleSpecialPricePasswordDateEnd: null,
+      presaleSpecialPriceDiscountType: null,
+      presaleSpecialPriceDiscountAmount: null,
+      publicSaleSpecialPricePassword: null,
+      publicSaleSpecialPricePasswordDateStart: null,
+      publicSaleSpecialPricePasswordDateEnd: null,
+      publicSaleSpecialPriceDiscountType: null,
+      publicSaleSpecialPriceDiscountAmount: null,
+      vipPackageOffered: null,
+      vipPackageName: null,
+      vipPackageBenefits: null,
+      compTicketRequestLink: null,
     };
     return this.mergePerformanceTicketingAdvancedFromDb(row.ticketingId, base);
   }
@@ -4391,4 +6074,503 @@ export class EngagementService {
     });
     await this.enforceOpeningPerformancePublic(engagementId);
   }
+
+  // ─── Retail Partners (dbo.EngagementRetailPartner) ────────────────────────
+
+  async listRetailPartners(engagementId: number): Promise<EngagementRetailPartnerRow[]> {
+    await this.assertEngagementExists(engagementId);
+    try {
+      const rows = await this.dataSource.query(
+        `SELECT
+          erp.[EngagementRetailPartnerID] AS rpid,
+          erp.[CompanyID] AS cid,
+          c.[CompanyName] AS cname,
+          erp.[CompanyTypeID] AS ctid,
+          ct.[CompanyTypeName] AS ctname,
+          erp.[ContactID] AS contid,
+          ci.[FirstName] + N' ' + ci.[LastName] AS contname
+         FROM dbo.EngagementRetailPartner erp
+         LEFT JOIN dbo.Company c ON c.[CompanyID] = erp.[CompanyID]
+         LEFT JOIN dbo.CompanyType ct ON ct.[CompanyTypeID] = erp.[CompanyTypeID]
+         LEFT JOIN dbo.Contact con ON con.[ContactID] = erp.[ContactID]
+         LEFT JOIN dbo.ContactInfo ci ON ci.[ContactInfoID] = con.[ContactInfoID]
+         WHERE erp.[EngagementID] = ${engagementId}
+         ORDER BY erp.[EngagementRetailPartnerID]`,
+      ) as Record<string, unknown>[];
+      const toInt = (v: unknown) => { const n = Number(v); return v != null && v !== '' && Number.isFinite(n) && n > 0 ? n : null; };
+      const toStr = (v: unknown) => (v == null || v === '' ? null : String(v).trim());
+      return rows.map((r) => ({
+        retailPartnerId: Number(pickRaw(r, 'rpid')),
+        engagementId,
+        companyId: toInt(pickRaw(r, 'cid')),
+        companyName: toStr(pickRaw(r, 'cname')),
+        companyTypeId: toInt(pickRaw(r, 'ctid')),
+        companyTypeName: toStr(pickRaw(r, 'ctname')),
+        contactId: toInt(pickRaw(r, 'contid')),
+        contactName: toStr(pickRaw(r, 'contname')),
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  async addRetailPartner(
+    engagementId: number,
+    dto: CreateEngagementRetailPartnerDto,
+  ): Promise<{ retailPartnerId: number }> {
+    await this.assertEngagementExists(engagementId);
+    const companyId = Math.trunc(Number(dto.companyId));
+    const company = await this.companyRepo.findOne({ where: { companyId } });
+    if (!company) {
+      throw new BadRequestException({ message: `Company #${companyId} not found.` });
+    }
+    const companyTypeId = dto.companyTypeId != null ? Math.trunc(Number(dto.companyTypeId)) : null;
+    const contactId = dto.contactId != null ? Math.trunc(Number(dto.contactId)) : null;
+    const companyTypeIdSql = companyTypeId != null ? String(companyTypeId) : 'NULL';
+    const contactIdSql = contactId != null ? String(contactId) : 'NULL';
+    const r = await this.dataSource.query(
+      `INSERT INTO dbo.EngagementRetailPartner ([EngagementID],[CompanyID],[CompanyTypeID],[ContactID],[created_by],[created_at],[modified_by],[modified_at])
+       OUTPUT INSERTED.[EngagementRetailPartnerID] AS rpid
+       VALUES (${engagementId}, ${companyId}, ${companyTypeIdSql}, ${contactIdSql}, N'app', GETDATE(), N'app', GETDATE())`,
+    ) as Record<string, unknown>[];
+    const rpid = Number(pickRaw((r as Record<string, unknown>[])?.[0] ?? {}, 'rpid'));
+    return { retailPartnerId: rpid };
+  }
+
+  async removeRetailPartner(
+    engagementId: number,
+    retailPartnerId: number,
+  ): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+    const rid = Math.trunc(Number(retailPartnerId));
+    if (!Number.isFinite(rid) || rid < 1) {
+      throw new BadRequestException({ message: 'Invalid retail partner ID.' });
+    }
+    const r = await this.dataSource.query(
+      `DELETE FROM dbo.EngagementRetailPartner
+       WHERE [EngagementRetailPartnerID] = ${rid} AND [EngagementID] = ${engagementId}`,
+    );
+    const affected = (r as unknown as { rowsAffected?: number[] })?.[0] ?? 0;
+    if ((typeof affected === 'number' ? affected : 0) === 0 && Array.isArray(r) && r.length === 0) {
+      // DELETE succeeded with 0 rows - that's ok (idempotent)
+    }
+  }
+
+  // ─── Marketing Meta (Tour contacts, demographics, media mix) ──────────────
+
+  async getMarketingMeta(engagementId: number): Promise<EngagementMarketingMeta> {
+    const engagement = await this.assertEngagementExists(engagementId);
+    const tourId = engagement.tourId;
+
+    // 1. Tour marketing contacts (RoleName LIKE '%Marketing%')
+    let tourMarketingContacts: TourMarketingContactRow[] = [];
+    try {
+      const rows = await this.dataSource.query(
+        `SELECT
+          tc.[TourContactID] AS tcid,
+          tc.[ContactID] AS cid,
+          ci.[FirstName] + N' ' + ci.[LastName] AS cname,
+          tc.[RoleID] AS rid,
+          r.[RoleName] AS rname,
+          tc.[IsPrimary] AS isp
+         FROM dbo.TourContact tc
+         LEFT JOIN dbo.Contact con ON con.[ContactID] = tc.[ContactID]
+         LEFT JOIN dbo.ContactInfo ci ON ci.[ContactInfoID] = con.[ContactInfoID]
+         LEFT JOIN dbo.Role r ON r.[RoleID] = tc.[RoleID]
+         WHERE tc.[TourID] = ${tourId}
+           AND r.[RoleName] LIKE N'%Marketing%'
+         ORDER BY tc.[IsPrimary] DESC, r.[RoleName]`,
+      ) as Record<string, unknown>[];
+      const toInt = (v: unknown) => { const n = Number(v); return v != null && v !== '' && Number.isFinite(n) && n > 0 ? n : null; };
+      const toStr = (v: unknown) => (v == null || v === '' ? null : String(v).trim());
+      tourMarketingContacts = rows.map((r) => ({
+        tourContactId: Number(pickRaw(r, 'tcid')),
+        contactId: Number(pickRaw(r, 'cid')),
+        contactName: toStr(pickRaw(r, 'cname')),
+        roleId: toInt(pickRaw(r, 'rid')),
+        roleName: toStr(pickRaw(r, 'rname')),
+        isPrimary: pickRaw(r, 'isp') === true || pickRaw(r, 'isp') === 1 || pickRaw(r, 'isp') === '1',
+      }));
+    } catch { /* ignore */ }
+
+    // 2. Tour audience demographics
+    let tourAudienceDemographics: string[] = [];
+    let tourAudienceAgeRange: string | null = null;
+    try {
+      const demoRows = await this.dataSource.query(
+        `SELECT ar.[AgeRangeLabel] AS label
+         FROM dbo.TourAudienceAgeRange tar
+         INNER JOIN dbo.AgeRange ar ON ar.[AgeRangeID] = tar.[AgeRangeID]
+         WHERE tar.[TourID] = ${tourId}
+         ORDER BY ar.[SortOrder], ar.[AgeRangeLabel]`,
+      ) as Record<string, unknown>[];
+      tourAudienceDemographics = demoRows.map((r) => String(pickRaw(r, 'label') ?? '').trim()).filter(Boolean);
+      tourAudienceAgeRange = tourAudienceDemographics.length > 0 ? tourAudienceDemographics.join(', ') : null;
+    } catch { /* ignore */ }
+
+    // 3. Media Mix (from Tour)
+    let mediaMix: TourMediaMixRow[] = [];
+    try {
+      const mmRows = await this.dataSource.query(
+        `SELECT
+          tmm.[TourMediaMixID] AS mmid,
+          tmm.[AdvertisingSubTypeID] AS astid,
+          ast.[SubTypeName] AS astn,
+          ast.[ParentCategory] AS astpc,
+          tmm.[CompanyID] AS cid,
+          c.[CompanyName] AS cname
+         FROM dbo.TourMediaMix tmm
+         LEFT JOIN dbo.AdvertisingSubType ast ON ast.[AdvertisingSubTypeID] = tmm.[AdvertisingSubTypeID]
+         LEFT JOIN dbo.Company c ON c.[CompanyID] = tmm.[CompanyID]
+         WHERE tmm.[TourID] = ${tourId}
+         ORDER BY ast.[ParentCategory], ast.[SubTypeName]`,
+      ) as Record<string, unknown>[];
+      const toInt2 = (v: unknown) => { const n = Number(v); return v != null && v !== '' && Number.isFinite(n) && n > 0 ? n : null; };
+      const toStr2 = (v: unknown) => (v == null || v === '' ? null : String(v).trim());
+      mediaMix = mmRows.map((r) => ({
+        tourMediaMixId: Number(pickRaw(r, 'mmid')),
+        advertisingSubTypeId: Number(pickRaw(r, 'astid')),
+        subTypeName: String(pickRaw(r, 'astn') ?? ''),
+        parentCategory: toStr2(pickRaw(r, 'astpc')),
+        companyId: toInt2(pickRaw(r, 'cid')),
+        companyName: toStr2(pickRaw(r, 'cname')),
+      }));
+    } catch { /* ignore */ }
+
+    // 4. All AdvertisingSubType reference rows (for Media Mix picker)
+    let advertisingSubTypes: AdvertisingSubTypeRow[] = [];
+    try {
+      const astRows = await this.dataSource.query(
+        `SELECT [AdvertisingSubTypeID] AS id, [SubTypeName] AS name, [ParentCategory] AS pc, [IsActive] AS ia
+         FROM dbo.AdvertisingSubType WHERE [IsActive] = 1
+         ORDER BY [ParentCategory], [SortOrder], [SubTypeName]`,
+      ) as Record<string, unknown>[];
+      advertisingSubTypes = astRows.map((r) => ({
+        advertisingSubTypeId: Number(pickRaw(r, 'id')),
+        subTypeName: String(pickRaw(r, 'name') ?? ''),
+        parentCategory: (pickRaw(r, 'pc') == null || pickRaw(r, 'pc') === '') ? null : String(pickRaw(r, 'pc')).trim(),
+        isActive: pickRaw(r, 'ia') === true || pickRaw(r, 'ia') === 1 || pickRaw(r, 'ia') === '1',
+      }));
+    } catch { /* ignore */ }
+
+    return {
+      tourMarketingContacts,
+      tourAudienceDemographics,
+      tourAudienceAgeRange,
+      mediaMix,
+      advertisingSubTypes,
+    };
+  }
+
+  // ─── Attraction Travel (EngagementTravel / Hotel / CarService) ────────────
+
+  private buildAddressLabel(row: Record<string, unknown> | null | undefined): string | null {
+    if (!row) return null;
+    const parts = [
+      row['line1'],
+      row['line2'],
+      row['city'],
+      row['state'],
+      row['postal'],
+      row['country'],
+    ]
+      .map((v) => (v == null || v === '' ? null : String(v).trim()))
+      .filter(Boolean);
+    return parts.length > 0 ? parts.join(', ') : null;
+  }
+
+  async listEngagementTravel(engagementId: number): Promise<EngagementTravelRow[]> {
+    await this.assertEngagementExists(engagementId);
+
+    const travels = await this.engagementTravelRepo.find({
+      where: { engagementId },
+      order: { engagementTravelId: 'ASC' },
+    });
+    if (travels.length === 0) return [];
+
+    const results: EngagementTravelRow[] = [];
+
+    for (const t of travels) {
+      const travelType = String(t.travelType ?? '').trim();
+
+      if (travelType === 'Hotel') {
+        const hotel = await this.engagementTravelHotelRepo.findOne({
+          where: { engagementTravelId: t.engagementTravelId },
+        });
+        const hotelCompanyName = await this.lookupCompanyName(hotel?.hotelCompanyId ?? null);
+        const occupantName = await this.lookupContactName(hotel?.occupantContactId ?? null);
+        results.push({
+          engagementTravelId: t.engagementTravelId,
+          travelType: 'Hotel',
+          hotel: hotel
+            ? {
+                hotelTravelId: hotel.hotelTravelId,
+                engagementTravelId: t.engagementTravelId,
+                bookedBy: t.bookedBy,
+                hotelCompanyId: hotel.hotelCompanyId,
+                hotelCompanyName,
+                numberOfRooms: hotel.numberOfRooms,
+                roomTypes: hotel.roomTypes,
+                checkInDate: hotel.checkInDate,
+                checkOutDate: hotel.checkOutDate,
+                occupantContactId: hotel.occupantContactId,
+                occupantContactName: occupantName,
+              }
+            : null,
+          carServices: [],
+        });
+      } else if (travelType === 'Car') {
+        const carServices = await this.engagementTravelCarServiceRepo.find({
+          where: { engagementTravelId: t.engagementTravelId },
+          order: { carServiceTravelId: 'ASC' },
+        });
+
+        const csRows: EngagementTravelCarServiceRow[] = [];
+        for (const cs of carServices) {
+          const [origRow, destRow] = await Promise.all([
+            cs.originAddressId
+              ? this.dataSource.query(
+                  `SELECT [AddressLine1] AS line1, [AddressLine2] AS line2, [City] AS city, [StateProvince] AS state, [PostalCode] AS postal, [Country] AS country
+                   FROM dbo.Address WHERE [AddressID]=@0`,
+                  [cs.originAddressId],
+                )
+              : null,
+            cs.destinationAddressId
+              ? this.dataSource.query(
+                  `SELECT [AddressLine1] AS line1, [AddressLine2] AS line2, [City] AS city, [StateProvince] AS state, [PostalCode] AS postal, [Country] AS country
+                   FROM dbo.Address WHERE [AddressID]=@0`,
+                  [cs.destinationAddressId],
+                )
+              : null,
+          ]);
+          csRows.push({
+            carServiceTravelId: cs.carServiceTravelId,
+            engagementTravelId: t.engagementTravelId,
+            bookedBy: t.bookedBy,
+            originAddressId: cs.originAddressId,
+            originAddressLabel: this.buildAddressLabel(
+              (origRow as Record<string, unknown>[])?.[0],
+            ),
+            destinationAddressId: cs.destinationAddressId,
+            destinationAddressLabel: this.buildAddressLabel(
+              (destRow as Record<string, unknown>[])?.[0],
+            ),
+            pickupDateTime:
+              cs.pickupDateTime instanceof Date
+                ? cs.pickupDateTime.toISOString()
+                : (cs.pickupDateTime as string | null),
+          });
+        }
+        results.push({
+          engagementTravelId: t.engagementTravelId,
+          travelType: 'Car',
+          hotel: null,
+          carServices: csRows,
+        });
+      }
+    }
+
+    return results;
+  }
+
+  async addEngagementTravelHotel(
+    engagementId: number,
+    dto: CreateEngagementTravelHotelDto,
+  ): Promise<{ engagementTravelId: number; hotelTravelId: number }> {
+    await this.assertEngagementExists(engagementId);
+
+    return this.dataSource.transaction(async (manager) => {
+      const travel = manager.create(EngagementTravel, {
+        engagementId,
+        travelType: 'Hotel',
+        bookedBy: dto.bookedBy ?? null,
+      });
+      const savedTravel = await manager.save(EngagementTravel, travel);
+
+      const hotel = manager.create(EngagementTravelHotel, {
+        engagementTravelId: savedTravel.engagementTravelId,
+        hotelCompanyId: dto.hotelCompanyId ?? null,
+        numberOfRooms: dto.numberOfRooms ?? null,
+        roomTypes: dto.roomTypes ?? null,
+        checkInDate: dto.checkInDate ?? null,
+        checkOutDate: dto.checkOutDate ?? null,
+        occupantContactId: dto.occupantContactId ?? null,
+      });
+      const savedHotel = await manager.save(EngagementTravelHotel, hotel);
+
+      return {
+        engagementTravelId: savedTravel.engagementTravelId,
+        hotelTravelId: savedHotel.hotelTravelId,
+      };
+    });
+  }
+
+  async updateEngagementTravelHotel(
+    engagementId: number,
+    engagementTravelId: number,
+    dto: UpdateEngagementTravelHotelDto,
+  ): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+
+    const travel = await this.engagementTravelRepo.findOne({
+      where: { engagementTravelId, engagementId },
+    });
+    if (!travel) throw new NotFoundException({ message: 'Travel record not found for this engagement.' });
+    if (travel.travelType !== 'Hotel') throw new BadRequestException({ message: 'Travel record is not a Hotel type.' });
+
+    if (dto.bookedBy !== undefined) travel.bookedBy = dto.bookedBy ?? null;
+    await this.engagementTravelRepo.save(travel);
+
+    const hotel = await this.engagementTravelHotelRepo.findOne({ where: { engagementTravelId } });
+    if (!hotel) throw new NotFoundException({ message: 'Hotel detail record not found.' });
+
+    if (dto.hotelCompanyId !== undefined) hotel.hotelCompanyId = dto.hotelCompanyId ?? null;
+    if (dto.numberOfRooms !== undefined) hotel.numberOfRooms = dto.numberOfRooms ?? null;
+    if (dto.roomTypes !== undefined) hotel.roomTypes = dto.roomTypes?.slice(0, 255) ?? null;
+    if (dto.checkInDate !== undefined) hotel.checkInDate = dto.checkInDate ?? null;
+    if (dto.checkOutDate !== undefined) hotel.checkOutDate = dto.checkOutDate ?? null;
+    if (dto.occupantContactId !== undefined) hotel.occupantContactId = dto.occupantContactId ?? null;
+    await this.engagementTravelHotelRepo.save(hotel);
+  }
+
+  async addEngagementTravelCarService(
+    engagementId: number,
+    dto: CreateEngagementTravelCarServiceDto,
+  ): Promise<{ engagementTravelId: number; carServiceTravelId: number }> {
+    await this.assertEngagementExists(engagementId);
+
+    return this.dataSource.transaction(async (manager) => {
+      // Resolve or create origin address
+      let originAddressId = dto.originAddressId ?? null;
+      if (originAddressId == null && dto.originAddress) {
+        const addr = manager.create(Address, {
+          addressLine1: dto.originAddress.addressLine1,
+          addressLine2: dto.originAddress.addressLine2 ?? null,
+          city: dto.originAddress.city,
+          stateProvince: dto.originAddress.stateProvince,
+          postalCode: dto.originAddress.postalCode,
+          country: dto.originAddress.country,
+        });
+        const saved = await manager.save(Address, addr);
+        originAddressId = saved.addressId;
+      }
+
+      // Resolve or create destination address
+      let destinationAddressId = dto.destinationAddressId ?? null;
+      if (destinationAddressId == null && dto.destinationAddress) {
+        const addr = manager.create(Address, {
+          addressLine1: dto.destinationAddress.addressLine1,
+          addressLine2: dto.destinationAddress.addressLine2 ?? null,
+          city: dto.destinationAddress.city,
+          stateProvince: dto.destinationAddress.stateProvince,
+          postalCode: dto.destinationAddress.postalCode,
+          country: dto.destinationAddress.country,
+        });
+        const saved = await manager.save(Address, addr);
+        destinationAddressId = saved.addressId;
+      }
+
+      const travel = manager.create(EngagementTravel, {
+        engagementId,
+        travelType: 'Car',
+        bookedBy: dto.bookedBy ?? null,
+      });
+      const savedTravel = await manager.save(EngagementTravel, travel);
+
+      const cs = manager.create(EngagementTravelCarService, {
+        engagementTravelId: savedTravel.engagementTravelId,
+        originAddressId,
+        destinationAddressId,
+        pickupDateTime: dto.pickupDateTime ? new Date(dto.pickupDateTime) : null,
+      });
+      const savedCs = await manager.save(EngagementTravelCarService, cs);
+
+      return {
+        engagementTravelId: savedTravel.engagementTravelId,
+        carServiceTravelId: savedCs.carServiceTravelId,
+      };
+    });
+  }
+
+  async updateEngagementTravelCarService(
+    engagementId: number,
+    carServiceTravelId: number,
+    dto: UpdateEngagementTravelCarServiceDto,
+  ): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+
+    const cs = await this.engagementTravelCarServiceRepo.findOne({
+      where: { carServiceTravelId },
+    });
+    if (!cs) throw new NotFoundException({ message: 'Car service record not found.' });
+
+    const travel = await this.engagementTravelRepo.findOne({
+      where: { engagementTravelId: cs.engagementTravelId, engagementId },
+    });
+    if (!travel) throw new NotFoundException({ message: 'Travel record not found for this engagement.' });
+
+    if (dto.bookedBy !== undefined) {
+      travel.bookedBy = dto.bookedBy ?? null;
+      await this.engagementTravelRepo.save(travel);
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      if (dto.originAddressId !== undefined) {
+        cs.originAddressId = dto.originAddressId ?? null;
+      } else if (dto.originAddress) {
+        const addr = manager.create(Address, {
+          addressLine1: dto.originAddress.addressLine1,
+          addressLine2: dto.originAddress.addressLine2 ?? null,
+          city: dto.originAddress.city,
+          stateProvince: dto.originAddress.stateProvince,
+          postalCode: dto.originAddress.postalCode,
+          country: dto.originAddress.country,
+        });
+        const saved = await manager.save(Address, addr);
+        cs.originAddressId = saved.addressId;
+      }
+
+      if (dto.destinationAddressId !== undefined) {
+        cs.destinationAddressId = dto.destinationAddressId ?? null;
+      } else if (dto.destinationAddress) {
+        const addr = manager.create(Address, {
+          addressLine1: dto.destinationAddress.addressLine1,
+          addressLine2: dto.destinationAddress.addressLine2 ?? null,
+          city: dto.destinationAddress.city,
+          stateProvince: dto.destinationAddress.stateProvince,
+          postalCode: dto.destinationAddress.postalCode,
+          country: dto.destinationAddress.country,
+        });
+        const saved = await manager.save(Address, addr);
+        cs.destinationAddressId = saved.addressId;
+      }
+
+      if (dto.pickupDateTime !== undefined) {
+        cs.pickupDateTime = dto.pickupDateTime ? new Date(dto.pickupDateTime) : null;
+      }
+
+      await manager.save(EngagementTravelCarService, cs);
+    });
+  }
+
+  async deleteEngagementTravel(
+    engagementId: number,
+    engagementTravelId: number,
+  ): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+    const travel = await this.engagementTravelRepo.findOne({
+      where: { engagementTravelId, engagementId },
+    });
+    if (!travel) throw new NotFoundException({ message: 'Travel record not found for this engagement.' });
+
+    await this.dataSource.transaction(async (manager) => {
+      if (travel.travelType === 'Hotel') {
+        await manager.delete(EngagementTravelHotel, { engagementTravelId });
+      } else if (travel.travelType === 'Car') {
+        await manager.delete(EngagementTravelCarService, { engagementTravelId });
+      }
+      await manager.delete(EngagementTravel, { engagementTravelId });
+    });
+  }
 }
+
