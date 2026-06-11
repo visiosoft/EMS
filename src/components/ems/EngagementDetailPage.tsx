@@ -123,6 +123,56 @@ const SETTLEMENT_STATUS_OPTIONS = [
   { value: 'Pre-Settled', label: 'Pre-Settled' },
   { value: 'Open', label: 'Open' },
 ];
+const VENUE_DEAL_TYPE_OPTIONS: Select2Option[] = [
+  { value: '', label: 'Not set' },
+  { value: 'Rental', label: 'Rental' },
+  { value: 'CoPro', label: 'CoPro' },
+  { value: '3rd Party Renting Venue', label: '3rd Party Renting Venue' },
+  { value: 'Silent CoPro with Venue', label: 'Silent CoPro with Venue' },
+];
+const THIRD_PARTY_PARTNER_DEAL_STRUCTURE_OPTIONS: Select2Option[] = [
+  { value: '', label: 'Not set' },
+  { value: 'CoPro with 3rd Party', label: 'CoPro with 3rd Party' },
+  {
+    value: 'CoPro with 3rd Party, 3rd Party Renting Venue',
+    label: 'CoPro with 3rd Party, 3rd Party Renting Venue',
+  },
+  {
+    value: 'Silent CoPro with 3rd Party, 3rd Party Renting Venue',
+    label: 'Silent CoPro with 3rd Party, 3rd Party Renting Venue',
+  },
+];
+const TICKETING_ADMIN_OPTIONS: Select2Option[] = [
+  { value: '', label: 'Not set' },
+  { value: 'Venue', label: 'Venue' },
+  { value: 'Partner', label: 'Partner' },
+  { value: 'IAE Contract', label: 'IAE Contract' },
+];
+const YES_NO_OPTIONS: Select2Option[] = [
+  { value: '', label: 'Not set' },
+  { value: 'Yes', label: 'Yes' },
+  { value: 'No', label: 'No' },
+];
+const FACE_VALUE_TYPE_OPTIONS: Select2Option[] = [
+  { value: '', label: 'Not set' },
+  { value: 'Inside Face Value', label: 'Inside Face Value' },
+  { value: 'Outside Face Value', label: 'Outside Face Value' },
+];
+const DYNAMIC_PRICING_MODE_OPTIONS: Select2Option[] = [
+  { value: '', label: 'Not set' },
+  { value: 'Self Managed', label: 'Self Managed' },
+  { value: '3rd Party Managed', label: '3rd Party Managed' },
+];
+const FEE_TYPE_OPTIONS: Select2Option[] = [
+  { value: '', label: 'Not set' },
+  { value: 'Inside Service Charge', label: 'Inside Service Charge' },
+  { value: 'Budget Line Item', label: 'Budget Line Item' },
+];
+const SALES_TAX_TYPE_OPTIONS: Select2Option[] = [
+  { value: '', label: 'Not set' },
+  { value: 'Charged in Shopping Cart', label: 'Charged in Shopping Cart' },
+  { value: 'Budget Line Item', label: 'Budget Line Item' },
+];
 
 function formatPerformanceDateDisplay(isoDate: string): string {
   try {
@@ -1467,7 +1517,9 @@ function EditablePerformanceRow({
   const [editing, setEditing] = useState(false);
   const [date, setDate] = useState(perf.performanceDate);
   const [time, setTime] = useState(perf.performanceTime.slice(0, 5));
-  const [status, setStatus] = useState(perf.performanceStatus);
+  const [status, setStatus] = useState(
+    perf.performanceStatus.trim().toLowerCase() === 'private' ? 'Private' : 'Public',
+  );
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -1483,10 +1535,28 @@ function EditablePerformanceRow({
       await updateEngagementPerformance(engagementId, perf.performanceId, {
         performanceDate: date,
         performanceTime: time,
-        performanceStatus: status || 'Public',
+        performanceStatus: isPrimary ? 'Public' : status || 'Public',
       });
       addToast('Performance updated.', 'success');
       setEditing(false);
+      onRefresh();
+    } catch (e) {
+      addToast(friendlyApiError(e), 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleToggleVisibility = async () => {
+    if (isPrimary) return;
+    const next =
+      perf.performanceStatus.trim().toLowerCase() === 'private' ? 'Public' : 'Private';
+    setSaving(true);
+    try {
+      await updateEngagementPerformance(engagementId, perf.performanceId, {
+        performanceStatus: next,
+      });
+      addToast(`Performance set to ${next}.`, 'success');
       onRefresh();
     } catch (e) {
       addToast(friendlyApiError(e), 'error');
@@ -1531,19 +1601,42 @@ function EditablePerformanceRow({
             />
           </div>
           <div>
-            <label className="text-xs text-text-muted block mb-1 font-medium">Status</label>
-            <Select2
-              options={PERFORMANCE_STATUS_OPTIONS}
-              value={status}
-              onChange={setStatus}
-              placeholder="Status…"
-            />
+            <label className="text-xs text-text-muted block mb-1 font-medium">Visibility</label>
+            <div className="flex items-center rounded-md border border-border bg-surface p-1">
+              <button
+                type="button"
+                className={`flex-1 rounded px-2 py-1 text-xs font-medium transition-colors ${status === 'Public' ? 'bg-ems-accent text-white' : 'text-text-secondary hover:bg-hover'}`}
+                onClick={() => setStatus('Public')}
+              >
+                Public
+              </button>
+              <button
+                type="button"
+                className={`flex-1 rounded px-2 py-1 text-xs font-medium transition-colors ${status === 'Private' ? 'bg-ems-accent text-white' : 'text-text-secondary hover:bg-hover'}`}
+                onClick={() => setStatus('Private')}
+                disabled={isPrimary}
+              >
+                Private
+              </button>
+            </div>
+            {isPrimary && (
+              <p className="mt-1 text-[11px] text-text-muted">Opening performance is always Public.</p>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2 justify-end">
           <button
             type="button"
-            onClick={() => { setEditing(false); setDate(perf.performanceDate); setTime(perf.performanceTime.slice(0, 5)); setStatus(perf.performanceStatus); }}
+            onClick={() => {
+              setEditing(false);
+              setDate(perf.performanceDate);
+              setTime(perf.performanceTime.slice(0, 5));
+              setStatus(
+                perf.performanceStatus.trim().toLowerCase() === 'private'
+                  ? 'Private'
+                  : 'Public',
+              );
+            }}
             disabled={saving}
             className="text-text-secondary text-xs px-3 py-1.5 hover:text-text-primary disabled:opacity-50"
           >
@@ -1593,6 +1686,16 @@ function EditablePerformanceRow({
               First
             </span>
           )}
+          <button
+            type="button"
+            onClick={() => void handleToggleVisibility()}
+            disabled={saving || isPrimary}
+            className="text-xs text-text-secondary hover:text-ems-accent px-2.5 py-1.5 rounded hover:bg-elevated transition-colors disabled:opacity-50"
+          >
+            {perf.performanceStatus.trim().toLowerCase() === 'private'
+              ? 'Set Public'
+              : 'Set Private'}
+          </button>
           <button
             type="button"
             onClick={() => setEditing(true)}
@@ -1670,6 +1773,19 @@ function parseOptionalDecimal(
     return { ok: false, message: `${label} must be a valid number.` };
   }
   return { ok: true, value: n };
+}
+
+function parseOptionalPercent(
+  s: string,
+  label: string,
+): { ok: true; value: number | null } | { ok: false; message: string } {
+  const parsed = parseOptionalDecimal(s, label);
+  if (!parsed.ok) return parsed;
+  if (parsed.value == null) return parsed;
+  if (parsed.value < 0 || parsed.value > 100) {
+    return { ok: false, message: `${label} must be between 0 and 100.` };
+  }
+  return parsed;
 }
 
 function parseOptionalInt(
@@ -1938,6 +2054,12 @@ function EngagementMainInformationPanel({
   const performancesQuery = useQuery({
     queryKey: ['engagements', engagementId, 'performances'],
     queryFn: () => fetchEngagementPerformances(engagementId),
+    retry: 1,
+  });
+  const ticketingCompaniesQuery = useQuery({
+    queryKey: ['companies', 'ticketing-systems'],
+    queryFn: () => fetchCompanies(0, 10_000),
+    staleTime: 60_000,
     retry: 1,
   });
 
@@ -2992,11 +3114,18 @@ function EngagementArtistTermsPanel({
     retry: 1,
   });
 
+  const DEAL_TYPES = ['Flat', 'Versus', 'Promoter Profit'] as const;
+  const ROYALTY_BASIS = ['Net', 'NAGBOR'] as const;
+
+  const [artistDealType, setArtistDealType] = useState('');
   const [artistGuarantee, setArtistGuarantee] = useState('');
+  const [artistVersusPercent, setArtistVersusPercent] = useState('');
+  const [artistPromoterProfitPercent, setArtistPromoterProfitPercent] = useState('');
+  const [artistBackendPercent, setArtistBackendPercent] = useState('');
   const [artistMiddleMoney, setArtistMiddleMoney] = useState('');
-  const [artistRoyaltyVariableFee, setArtistRoyaltyVariableFee] = useState('');
-  const [artistBackEndTerms, setArtistBackEndTerms] = useState('');
-  const [promoterProfit, setPromoterProfit] = useState('');
+  const [middleMoneyEnabled, setMiddleMoneyEnabled] = useState<'yes' | 'no'>('no');
+  const [artistRoyaltyRatePercent, setArtistRoyaltyRatePercent] = useState('');
+  const [artistRoyaltyBasedOn, setArtistRoyaltyBasedOn] = useState('');
   const [finalOfferLink, setFinalOfferLink] = useState('');
   const [settlementFileLink, setSettlementFileLink] = useState('');
   const {
@@ -3008,11 +3137,17 @@ function EngagementArtistTermsPanel({
   useEffect(() => {
     const d = financeQuery.data;
     if (!d) return;
+    setArtistDealType(d.artistDealType ?? '');
     setArtistGuarantee(numFieldToString(d.artistGuarantee));
+    setArtistVersusPercent(numFieldToString(d.artistVersusPercent));
+    setArtistPromoterProfitPercent(
+      numFieldToString(d.artistPromoterProfitPercent ?? d.promoterProfit),
+    );
+    setArtistBackendPercent(numFieldToString(d.artistBackendPercent));
     setArtistMiddleMoney(numFieldToString(d.artistMiddleMoney));
-    setArtistRoyaltyVariableFee(d.artistRoyaltyVariableFee ?? '');
-    setArtistBackEndTerms(d.artistBackEndTerms ?? '');
-    setPromoterProfit(numFieldToString(d.promoterProfit));
+    setMiddleMoneyEnabled(d.artistMiddleMoney == null ? 'no' : 'yes');
+    setArtistRoyaltyRatePercent(numFieldToString(d.artistRoyaltyRatePercent));
+    setArtistRoyaltyBasedOn(d.artistRoyaltyBasedOn ?? '');
     setFinalOfferLink(d.finalAcceptedOfferLink ?? '');
     setSettlementFileLink(d.settlementFileSharePointLink ?? '');
   }, [financeQuery.data]);
@@ -3034,15 +3169,46 @@ function EngagementArtistTermsPanel({
   });
 
   const handleSave = () => {
+    const dealType = artistDealType.trim();
+    if (dealType !== '' && !DEAL_TYPES.includes(dealType as (typeof DEAL_TYPES)[number])) {
+      addToast('Deal Type must be Flat, Versus, or Promoter Profit.', 'error');
+      return;
+    }
+
     const g = parseOptionalDecimal(artistGuarantee, 'Artist guarantee');
+    const versus = parseOptionalPercent(artistVersusPercent, 'Versus (%)');
+    const promoterPct = parseOptionalPercent(
+      artistPromoterProfitPercent,
+      'Promoter Profit (%)',
+    );
+    const backendPct = parseOptionalPercent(artistBackendPercent, 'Artist Backend (%)');
     const m = parseOptionalDecimal(artistMiddleMoney, 'Artist middle money');
-    const p = parseOptionalDecimal(promoterProfit, 'Promoter profit');
-    for (const x of [g, m, p]) {
+    const royaltyRate = parseOptionalPercent(artistRoyaltyRatePercent, 'Royalty rate (%)');
+    for (const x of [g, versus, promoterPct, backendPct, m, royaltyRate]) {
       if (!x.ok) {
         addToast(x.message, 'error');
         return;
       }
     }
+    if (g.value != null && g.value < 0) {
+      addToast('Artist guarantee must be 0 or greater.', 'error');
+      return;
+    }
+
+    const royaltyBasis = artistRoyaltyBasedOn.trim();
+    if (
+      royaltyBasis !== '' &&
+      !ROYALTY_BASIS.includes(royaltyBasis as (typeof ROYALTY_BASIS)[number])
+    ) {
+      addToast('Royalty basis must be Based on Net or Based on NAGBOR.', 'error');
+      return;
+    }
+
+    if (m.value != null && m.value < 0) {
+      addToast('Middle Money amount must be 0 or greater.', 'error');
+      return;
+    }
+
     const offerTrim = finalOfferLink.trim();
     const settleTrim = settlementFileLink.trim();
     if (!isValidHttpOrHttpsUrl(offerTrim)) {
@@ -3060,11 +3226,16 @@ function EngagementArtistTermsPanel({
       return;
     }
     saveMut.mutate({
+      artistDealType: dealType || null,
       artistGuarantee: g.value,
-      artistMiddleMoney: m.value,
-      artistRoyaltyVariableFee: artistRoyaltyVariableFee.trim() || null,
-      artistBackEndTerms: artistBackEndTerms.trim() || null,
-      promoterProfit: p.value,
+      artistVersusPercent: dealType === 'Versus' ? versus.value : null,
+      artistPromoterProfitPercent:
+        dealType === 'Promoter Profit' ? promoterPct.value : null,
+      artistBackendPercent: dealType === 'Promoter Profit' ? backendPct.value : null,
+      promoterProfit: dealType === 'Promoter Profit' ? promoterPct.value : null,
+      artistRoyaltyRatePercent: royaltyRate.value,
+      artistRoyaltyBasedOn: royaltyBasis ? (royaltyBasis as 'Net' | 'NAGBOR') : null,
+      artistMiddleMoney: middleMoneyEnabled === 'yes' ? m.value : null,
       finalAcceptedOfferLink: offerTrim || null,
       settlementFileSharePointLink: settleTrim || null,
     });
@@ -3073,36 +3244,61 @@ function EngagementArtistTermsPanel({
   const artistTermsDirtyRaw = useMemo(() => {
     const d = financeQuery.data;
     if (!d) return false;
+    const dealType = artistDealType.trim();
     const g = parseOptionalDecimal(artistGuarantee, 'Artist guarantee');
+    const versus = parseOptionalPercent(artistVersusPercent, 'Versus (%)');
+    const promoterPct = parseOptionalPercent(artistPromoterProfitPercent, 'Promoter Profit (%)');
+    const backendPct = parseOptionalPercent(artistBackendPercent, 'Artist Backend (%)');
     const m = parseOptionalDecimal(artistMiddleMoney, 'Artist middle money');
-    const p = parseOptionalDecimal(promoterProfit, 'Promoter profit');
-    if (!g.ok || !m.ok || !p.ok) return true;
+    const royaltyRate = parseOptionalPercent(artistRoyaltyRatePercent, 'Royalty rate (%)');
+    if (!g.ok || !versus.ok || !promoterPct.ok || !backendPct.ok || !m.ok || !royaltyRate.ok)
+      return true;
+    const royaltyBasis = artistRoyaltyBasedOn.trim();
     const cur = JSON.stringify({
+      artistDealType: dealType || null,
       artistGuarantee: g.value,
-      artistMiddleMoney: m.value,
-      artistRoyaltyVariableFee: artistRoyaltyVariableFee.trim() || null,
-      artistBackEndTerms: artistBackEndTerms.trim() || null,
-      promoterProfit: p.value,
+      artistVersusPercent: dealType === 'Versus' ? versus.value : null,
+      artistPromoterProfitPercent:
+        dealType === 'Promoter Profit' ? promoterPct.value : null,
+      artistBackendPercent: dealType === 'Promoter Profit' ? backendPct.value : null,
+      artistRoyaltyRatePercent: royaltyRate.value,
+      artistRoyaltyBasedOn: royaltyRate.value != null && royaltyRate.value > 0 ? royaltyBasis || null : null,
+      artistMiddleMoney: middleMoneyEnabled === 'yes' ? m.value : null,
       finalAcceptedOfferLink: finalOfferLink.trim() || null,
       settlementFileSharePointLink: settlementFileLink.trim() || null,
     });
     const base = JSON.stringify({
+      artistDealType: (d.artistDealType ?? '').trim() || null,
       artistGuarantee: d.artistGuarantee ?? null,
+      artistVersusPercent:
+        (d.artistDealType ?? '').trim() === 'Versus' ? d.artistVersusPercent ?? null : null,
+      artistPromoterProfitPercent:
+        (d.artistDealType ?? '').trim() === 'Promoter Profit'
+          ? (d.artistPromoterProfitPercent ?? d.promoterProfit ?? null)
+          : null,
+      artistBackendPercent:
+        (d.artistDealType ?? '').trim() === 'Promoter Profit'
+          ? d.artistBackendPercent ?? null
+          : null,
+      artistRoyaltyRatePercent: d.artistRoyaltyRatePercent ?? null,
+      artistRoyaltyBasedOn:
+        (d.artistRoyaltyRatePercent ?? 0) > 0 ? (d.artistRoyaltyBasedOn ?? null) : null,
       artistMiddleMoney: d.artistMiddleMoney ?? null,
-      artistRoyaltyVariableFee: (d.artistRoyaltyVariableFee ?? '').trim() || null,
-      artistBackEndTerms: (d.artistBackEndTerms ?? '').trim() || null,
-      promoterProfit: d.promoterProfit ?? null,
       finalAcceptedOfferLink: (d.finalAcceptedOfferLink ?? '').trim() || null,
       settlementFileSharePointLink: (d.settlementFileSharePointLink ?? '').trim() || null,
     });
     return cur !== base;
   }, [
     financeQuery.data,
+    artistDealType,
     artistGuarantee,
+    artistVersusPercent,
+    artistPromoterProfitPercent,
+    artistBackendPercent,
     artistMiddleMoney,
-    artistRoyaltyVariableFee,
-    artistBackEndTerms,
-    promoterProfit,
+    middleMoneyEnabled,
+    artistRoyaltyRatePercent,
+    artistRoyaltyBasedOn,
     finalOfferLink,
     settlementFileLink,
   ]);
@@ -3224,25 +3420,106 @@ function EngagementArtistTermsPanel({
       <h3 className="text-base font-semibold text-text-primary">Artist terms</h3>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-        {fieldRow('Artist Guarantee', moneyInput(artistGuarantee, setArtistGuarantee, 'at-guarantee'))}
-        {fieldRow('Artist Middle Money', moneyInput(artistMiddleMoney, setArtistMiddleMoney, 'at-middle'))}
+        {fieldRow(
+          'Deal Type',
+          <select
+            id="at-deal-type"
+            className={inputCls}
+            value={artistDealType}
+            onChange={(e) => {
+              markArtistTermsUserEdited();
+              setArtistDealType(e.target.value);
+            }}
+            disabled={disabled}
+          >
+            <option value="">Select deal type</option>
+            <option value="Flat">Flat</option>
+            <option value="Versus">Versus</option>
+            <option value="Promoter Profit">Promoter Profit</option>
+          </select>,
+        )}
+        {fieldRow('Guarantee Amount', moneyInput(artistGuarantee, setArtistGuarantee, 'at-guarantee'))}
+      </div>
+
+      {artistDealType === 'Versus' && (
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Versus (%)', pctInput(artistVersusPercent, setArtistVersusPercent, 'at-versus', false))}
+        </div>
+      )}
+
+      {artistDealType === 'Promoter Profit' && (
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow(
+            'Promoter Profit (%)',
+            pctInput(artistPromoterProfitPercent, setArtistPromoterProfitPercent, 'at-promoter-profit', false),
+          )}
+          {fieldRow(
+            'Artist Backend (%)',
+            pctInput(artistBackendPercent, setArtistBackendPercent, 'at-artist-backend', false),
+          )}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+        {fieldRow(
+          'Royalty Rate (%)',
+          pctInput(artistRoyaltyRatePercent, setArtistRoyaltyRatePercent, 'at-royalty-rate', false),
+        )}
+        {Number(artistRoyaltyRatePercent || '0') > 0
+          ? fieldRow(
+              'Royalty Basis',
+              <select
+                id="at-royalty-basis"
+                className={inputCls}
+                value={artistRoyaltyBasedOn}
+                onChange={(e) => {
+                  markArtistTermsUserEdited();
+                  setArtistRoyaltyBasedOn(e.target.value);
+                }}
+                disabled={disabled}
+              >
+                <option value="">Select basis</option>
+                <option value="Net">Based on Net</option>
+                <option value="NAGBOR">Based on NAGBOR</option>
+              </select>,
+            )
+          : fieldRow(
+              'Royalty Basis',
+              <input
+                id="at-royalty-basis-disabled"
+                className={inputCls}
+                value="Not required when rate is 0"
+                disabled
+                readOnly
+              />,
+            )}
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
         {fieldRow(
-          'Artist Royalty Variable Fee',
-          pctInput(artistRoyaltyVariableFee, setArtistRoyaltyVariableFee, 'at-royalty', false),
+          'Middle Money?',
+          <select
+            id="at-middle-enabled"
+            className={inputCls}
+            value={middleMoneyEnabled}
+            onChange={(e) => {
+              markArtistTermsUserEdited();
+              const next = e.target.value === 'yes' ? 'yes' : 'no';
+              setMiddleMoneyEnabled(next);
+              if (next === 'no') setArtistMiddleMoney('');
+            }}
+            disabled={disabled}
+          >
+            <option value="no">No</option>
+            <option value="yes">Yes</option>
+          </select>,
         )}
-        {fieldRow('Promoter Profit', pctInput(promoterProfit, setPromoterProfit, 'at-promoter', false))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 lg:gap-x-10">
-        <div className="min-w-0 lg:col-span-2">
-          {fieldRow(
-            'Artist Back and Terms',
-            pctInput(artistBackEndTerms, setArtistBackEndTerms, 'at-backend', true),
-          )}
-        </div>
+        {middleMoneyEnabled === 'yes'
+          ? fieldRow('Middle Money Amount ($)', moneyInput(artistMiddleMoney, setArtistMiddleMoney, 'at-middle'))
+          : fieldRow(
+              'Middle Money Amount ($)',
+              <input id="at-middle-disabled" className={inputCls} value="Not applicable" disabled readOnly />,
+            )}
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
@@ -3812,9 +4089,27 @@ function EngagementMarketingPanel({
   const [ticketingStatus, setTicketingStatus] = useState('');
   const [onSaleDate, setOnSaleDate] = useState(getTodayDateString());
   const [preSaleDate, setPreSaleDate] = useState(getTodayDateString());
+  const [grossMarketingBudget, setGrossMarketingBudget] = useState('');
+  const [netMarketingBudget, setNetMarketingBudget] = useState('');
+  const [salesRevenueGoal, setSalesRevenueGoal] = useState('');
   const [vipPackagedOffer, setVipPackagedOffer] = useState('');
   const [preSaleSpecialPrices, setPreSaleSpecialPrices] = useState('');
   const [kidsTicketsPrices, setKidsTicketsPrices] = useState('');
+  const [sellableCapacity, setSellableCapacity] = useState('');
+  const [grossPotentialRevenue, setGrossPotentialRevenue] = useState('');
+  const [ticketingSystemCompanyId, setTicketingSystemCompanyId] = useState('');
+  const [ticketingAdministrator, setTicketingAdministrator] = useState('');
+  const [boxOfficeLaborStaffingRequired, setBoxOfficeLaborStaffingRequired] = useState('');
+  const [facilityFeeType, setFacilityFeeType] = useState('');
+  const [facilityFeeAmount, setFacilityFeeAmount] = useState('');
+  const [dynamicPricingMode, setDynamicPricingMode] = useState('');
+  const [serviceChargeRevenueShare, setServiceChargeRevenueShare] = useState('');
+  const [rebateAmount, setRebateAmount] = useState('');
+  const [bumpAmount, setBumpAmount] = useState('');
+  const [creditCardFeesType, setCreditCardFeesType] = useState('');
+  const [creditCardFeesAmountPercent, setCreditCardFeesAmountPercent] = useState('');
+  const [salesTaxType, setSalesTaxType] = useState('');
+  const [salesTaxAmountPercent, setSalesTaxAmountPercent] = useState('');
   const [ticketingLinkUrl, setTicketingLinkUrl] = useState('');
   const [grossTicketSales, setGrossTicketSales] = useState('');
   const [totalComps, setTotalComps] = useState('');
@@ -3825,6 +4120,17 @@ function EngagementMarketingPanel({
     markUserEdited: markMarketingUserEdited,
     clearUserEdited: clearMarketingUserEdited,
   } = useUserEditTracker(`${engagementId}:${selectedPid ?? ''}`);
+  const {
+    hasUserEdited: hasMarketingBudgetUserEdited,
+    markUserEdited: markMarketingBudgetUserEdited,
+    clearUserEdited: clearMarketingBudgetUserEdited,
+  } = useUserEditTracker(`marketing-budget:${engagementId}`);
+
+  const financeQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'finance'],
+    queryFn: () => fetchEngagementFinance(engagementId),
+    retry: 1,
+  });
 
   const performanceSelectOptions = useMemo<Select2Option[]>(
     () =>
@@ -3836,6 +4142,25 @@ function EngagementMarketingPanel({
       })),
     [performancesQuery.data],
   );
+
+  const ticketingSystemCompanyOptions = useMemo<Select2Option[]>(() => {
+    const rows = ticketingCompaniesQuery.data?.data ?? [];
+    const filtered = rows.filter((company) => {
+      const names = [company.companyTypeName, ...(company.companyTypeNames ?? [])]
+        .filter(Boolean)
+        .map((x) => String(x).toLowerCase());
+      return names.some((x) => x.includes('ticket'));
+    });
+    const opts = filtered.map(companyToSelect2Option);
+    if (
+      ticketingSystemCompanyId.trim() !== '' &&
+      !opts.some((o) => o.value === ticketingSystemCompanyId)
+    ) {
+      const fallback = rows.find((r) => String(r.companyId) === ticketingSystemCompanyId);
+      if (fallback) opts.unshift(companyToSelect2Option(fallback));
+    }
+    return opts;
+  }, [ticketingCompaniesQuery.data?.data, ticketingSystemCompanyId]);
 
   useEffect(() => {
     const d = ticketingQuery.data;
@@ -3853,6 +4178,14 @@ function EngagementMarketingPanel({
     setTotalAdmissions(intFieldToString(d.totalAdmissions));
   }, [ticketingQuery.data, selectedPid]);
 
+  useEffect(() => {
+    const d = financeQuery.data;
+    if (!d) return;
+    setGrossMarketingBudget(numFieldToString(d.grossMarketingBudget));
+    setNetMarketingBudget(numFieldToString(d.netMarketingBudget));
+    setSalesRevenueGoal(numFieldToString(d.salesRevenueGoal));
+  }, [financeQuery.data]);
+
   const saveMut = useMutation({
     mutationFn: async (body: UpdatePerformanceTicketingPayload) => {
       if (selectedPid == null) throw new Error('No performance selected.');
@@ -3867,6 +4200,21 @@ function EngagementMarketingPanel({
       clearMarketingUserEdited();
       setTimeout(() => {
         addToast('Marketing saved.', 'success');
+      }, 0);
+    },
+    onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
+  });
+
+  const saveBudgetMut = useMutation({
+    mutationFn: async (body: UpdateEngagementFinancePayload) => {
+      await updateEngagementFinance(engagementId, body);
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
+    },
+    onSuccess: () => {
+      clearMarketingBudgetUserEdited();
+      setTimeout(() => {
+        addToast('Marketing budget saved.', 'success');
       }, 0);
     },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
@@ -3915,6 +4263,23 @@ function EngagementMarketingPanel({
       totalComps: comps.value,
       totalTickets: tickets.value,
       totalAdmissions: admissions.value,
+    });
+  };
+
+  const handleSaveMarketingBudget = () => {
+    const gross = parseOptionalDecimal(grossMarketingBudget, 'Gross marketing budget');
+    const net = parseOptionalDecimal(netMarketingBudget, 'Net marketing budget');
+    const goal = parseOptionalDecimal(salesRevenueGoal, 'Sales revenue goal');
+    for (const x of [gross, net, goal]) {
+      if (!x.ok) {
+        addToast(x.message, 'error');
+        return;
+      }
+    }
+    saveBudgetMut.mutate({
+      grossMarketingBudget: gross.value,
+      netMarketingBudget: net.value,
+      salesRevenueGoal: goal.value,
     });
   };
 
@@ -3986,13 +4351,37 @@ function EngagementMarketingPanel({
   ]);
   const marketingFormDirty = hasMarketingUserEdited && marketingFormDirtyRaw;
 
+  const marketingBudgetDirtyRaw = useMemo(() => {
+    const d = financeQuery.data;
+    if (!d) return false;
+    const gross = parseOptionalDecimal(grossMarketingBudget, 'Gross marketing budget');
+    const net = parseOptionalDecimal(netMarketingBudget, 'Net marketing budget');
+    const goal = parseOptionalDecimal(salesRevenueGoal, 'Sales revenue goal');
+    if (!gross.ok || !net.ok || !goal.ok) return true;
+    const cur = {
+      grossMarketingBudget: gross.value,
+      netMarketingBudget: net.value,
+      salesRevenueGoal: goal.value,
+    };
+    const base = {
+      grossMarketingBudget: d.grossMarketingBudget ?? null,
+      netMarketingBudget: d.netMarketingBudget ?? null,
+      salesRevenueGoal: d.salesRevenueGoal ?? null,
+    };
+    return JSON.stringify(cur) !== JSON.stringify(base);
+  }, [financeQuery.data, grossMarketingBudget, netMarketingBudget, salesRevenueGoal]);
+  const marketingBudgetDirty =
+    hasMarketingBudgetUserEdited && marketingBudgetDirtyRaw;
+
   useEffect(() => {
-    onDirtyChange?.(marketingFormDirty);
+    onDirtyChange?.(marketingFormDirty || marketingBudgetDirty);
     return () => onDirtyChange?.(false);
-  }, [marketingFormDirty, onDirtyChange]);
+  }, [marketingBudgetDirty, marketingFormDirty, onDirtyChange]);
 
   const saveDisabled = saveMut.isPending || ticketingQuery.isLoading;
   const marketingSaveDisabled = saveDisabled || !marketingFormDirty;
+  const marketingBudgetSaveDisabled =
+    saveBudgetMut.isPending || financeQuery.isLoading || !marketingBudgetDirty;
   const fieldRow = (label: string, control: React.ReactNode) => (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-6 min-w-0">
       <div className="text-sm font-medium text-text-primary shrink-0 sm:w-52 sm:pt-2.5">{label}</div>
@@ -4075,6 +4464,52 @@ function EngagementMarketingPanel({
       <div className="space-y-5 p-5">
         <h3 className="text-base font-semibold text-text-primary">Marketing</h3>
 
+        <div className="rounded-lg border border-border bg-surface/40 p-4">
+          <h4 className="text-sm font-semibold text-text-primary mb-3">Engagement Marketing Budget</h4>
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+            {fieldRow(
+              'Gross Marketing Budget',
+              moneyInput(grossMarketingBudget, (next) => {
+                markMarketingBudgetUserEdited();
+                setGrossMarketingBudget(next);
+              }, 'mkt-gross-budget'),
+            )}
+            {fieldRow(
+              'Net Marketing Budget',
+              moneyInput(netMarketingBudget, (next) => {
+                markMarketingBudgetUserEdited();
+                setNetMarketingBudget(next);
+              }, 'mkt-net-budget'),
+            )}
+          </div>
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10 mt-1">
+            {fieldRow(
+              'Sales Revenue Goal',
+              moneyInput(salesRevenueGoal, (next) => {
+                markMarketingBudgetUserEdited();
+                setSalesRevenueGoal(next);
+              }, 'mkt-sales-goal'),
+            )}
+          </div>
+          <div className="mt-4 flex justify-end border-t border-border pt-3">
+            <Button
+              type="button"
+              className="bg-ems-accent text-white hover:opacity-90"
+              onClick={handleSaveMarketingBudget}
+              disabled={marketingBudgetSaveDisabled}
+            >
+              {saveBudgetMut.isPending ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Saving…
+                </span>
+              ) : (
+                'Save budget'
+              )}
+            </Button>
+          </div>
+        </div>
+
         <FormField label="Show">
           <Select2
             options={performanceSelectOptions}
@@ -4108,6 +4543,239 @@ function EngagementMarketingPanel({
 
         {!ticketingQuery.isLoading && !ticketingQuery.isError && ticketingQuery.data && (
           <>
+            <div className="rounded-md border border-border bg-surface/40 px-3 py-2 text-xs text-text-muted">
+              View full performance schedule in the <strong className="text-text-primary">Performances</strong>{' '}
+              tab. Ticketing fields below are scoped to the selected show.
+            </div>
+
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+              {fieldRow(
+                'Sellable Capacity (for selected performance)',
+                <input
+                  className={inputCls}
+                  inputMode="numeric"
+                  value={sellableCapacity}
+                  onChange={(e) => {
+                    markTicketingUserEdited();
+                    setSellableCapacity(e.target.value);
+                  }}
+                  disabled={disabled}
+                />,
+              )}
+              {fieldRow(
+                'Gross Potential Revenue',
+                <input
+                  className={inputCls}
+                  inputMode="decimal"
+                  value={grossPotentialRevenue}
+                  onChange={(e) => {
+                    markTicketingUserEdited();
+                    setGrossPotentialRevenue(e.target.value);
+                  }}
+                  disabled={disabled}
+                />,
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+              {fieldRow(
+                'Company (type: Ticketing System)',
+                <Select2
+                  options={[{ value: '', label: 'Not set' }, ...ticketingSystemCompanyOptions]}
+                  value={ticketingSystemCompanyId}
+                  onChange={(value) => {
+                    markTicketingUserEdited();
+                    setTicketingSystemCompanyId(value);
+                  }}
+                  placeholder="Select ticketing system company…"
+                  allowClear
+                  disabled={disabled}
+                />,
+              )}
+              {fieldRow(
+                'Ticketing Administrator',
+                <Select2
+                  options={TICKETING_ADMIN_OPTIONS}
+                  value={ticketingAdministrator}
+                  onChange={(value) => {
+                    markTicketingUserEdited();
+                    setTicketingAdministrator(value);
+                  }}
+                  placeholder="Select…"
+                  allowClear
+                  disabled={disabled}
+                />,
+              )}
+            </div>
+
+            {ticketingAdministrator === 'IAE Contract' && (
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+                {fieldRow(
+                  'Do we have to staff Box office labor?',
+                  <Select2
+                    options={YES_NO_OPTIONS}
+                    value={boxOfficeLaborStaffingRequired}
+                    onChange={(value) => {
+                      markTicketingUserEdited();
+                      setBoxOfficeLaborStaffingRequired(value);
+                    }}
+                    placeholder="Select…"
+                    allowClear
+                    disabled={disabled}
+                  />,
+                )}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+              {fieldRow(
+                'Facility Fee Type',
+                <Select2
+                  options={FACE_VALUE_TYPE_OPTIONS}
+                  value={facilityFeeType}
+                  onChange={(value) => {
+                    markTicketingUserEdited();
+                    setFacilityFeeType(value);
+                  }}
+                  placeholder="Select…"
+                  allowClear
+                  disabled={disabled}
+                />,
+              )}
+              {fieldRow(
+                'Facility Fee Amount ($)',
+                <input
+                  className={inputCls}
+                  inputMode="decimal"
+                  value={facilityFeeAmount}
+                  onChange={(e) => {
+                    markTicketingUserEdited();
+                    setFacilityFeeAmount(e.target.value);
+                  }}
+                  disabled={disabled}
+                />,
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+              {fieldRow(
+                'Dynamic Pricing',
+                <Select2
+                  options={DYNAMIC_PRICING_MODE_OPTIONS}
+                  value={dynamicPricingMode}
+                  onChange={(value) => {
+                    markTicketingUserEdited();
+                    setDynamicPricingMode(value);
+                  }}
+                  placeholder="Select…"
+                  allowClear
+                  disabled={disabled}
+                />,
+              )}
+              {fieldRow(
+                'Service Charge Revenue Share',
+                <input
+                  className={inputCls}
+                  inputMode="decimal"
+                  value={serviceChargeRevenueShare}
+                  onChange={(e) => {
+                    markTicketingUserEdited();
+                    setServiceChargeRevenueShare(e.target.value);
+                  }}
+                  disabled={disabled}
+                />,
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+              {fieldRow(
+                'Rebate Amount',
+                <input
+                  className={inputCls}
+                  inputMode="decimal"
+                  value={rebateAmount}
+                  onChange={(e) => {
+                    markTicketingUserEdited();
+                    setRebateAmount(e.target.value);
+                  }}
+                  disabled={disabled}
+                />,
+              )}
+              {fieldRow(
+                'Bump Amount',
+                <input
+                  className={inputCls}
+                  inputMode="decimal"
+                  value={bumpAmount}
+                  onChange={(e) => {
+                    markTicketingUserEdited();
+                    setBumpAmount(e.target.value);
+                  }}
+                  disabled={disabled}
+                />,
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+              {fieldRow(
+                'Credit Card Fees Type',
+                <Select2
+                  options={FEE_TYPE_OPTIONS}
+                  value={creditCardFeesType}
+                  onChange={(value) => {
+                    markTicketingUserEdited();
+                    setCreditCardFeesType(value);
+                  }}
+                  placeholder="Select…"
+                  allowClear
+                  disabled={disabled}
+                />,
+              )}
+              {fieldRow(
+                'Credit Card Fees Amount (%)',
+                <input
+                  className={inputCls}
+                  inputMode="decimal"
+                  value={creditCardFeesAmountPercent}
+                  onChange={(e) => {
+                    markTicketingUserEdited();
+                    setCreditCardFeesAmountPercent(e.target.value);
+                  }}
+                  disabled={disabled}
+                />,
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+              {fieldRow(
+                'Sales Tax Type',
+                <Select2
+                  options={SALES_TAX_TYPE_OPTIONS}
+                  value={salesTaxType}
+                  onChange={(value) => {
+                    markTicketingUserEdited();
+                    setSalesTaxType(value);
+                  }}
+                  placeholder="Select…"
+                  allowClear
+                  disabled={disabled}
+                />,
+              )}
+              {fieldRow(
+                'Sales Tax Amount (%)',
+                <input
+                  className={inputCls}
+                  inputMode="decimal"
+                  value={salesTaxAmountPercent}
+                  onChange={(e) => {
+                    markTicketingUserEdited();
+                    setSalesTaxAmountPercent(e.target.value);
+                  }}
+                  disabled={disabled}
+                />,
+              )}
+            </div>
+
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
               {fieldRow(
                 'Ticketing status',
@@ -4322,17 +4990,34 @@ function EngagementTicketingPanel({
     queryFn: () => fetchEngagementPerformances(engagementId),
     retry: 1,
   });
+  const companiesQuery = useQuery({
+    queryKey: ['companies', 'ticketing-systems'],
+    queryFn: () => fetchCompanies(0, 10_000),
+    staleTime: 60_000,
+    retry: 1,
+  });
 
   const [selectedPid, setSelectedPid] = useState<number | null>(null);
-  const [engagementScaling, setEngagementScaling] = useState('');
-  const [vipPackagedOffer, setVipPackagedOffer] = useState('');
-  const [preSaleSpecialPrices, setPreSaleSpecialPrices] = useState('');
-  const [kidsTicketsPrices, setKidsTicketsPrices] = useState('');
+  const [sellableCapacity, setSellableCapacity] = useState('');
+  const [grossPotentialRevenue, setGrossPotentialRevenue] = useState('');
+  const [ticketingSystemCompanyId, setTicketingSystemCompanyId] = useState('');
+  const [ticketingAdministrator, setTicketingAdministrator] = useState('');
+  const [boxOfficeLaborStaffingRequired, setBoxOfficeLaborStaffingRequired] = useState('');
+  const [facilityFeeType, setFacilityFeeType] = useState('');
+  const [facilityFeeAmount, setFacilityFeeAmount] = useState('');
+  const [dynamicPricingMode, setDynamicPricingMode] = useState('');
+  const [serviceChargeRevenueShare, setServiceChargeRevenueShare] = useState('');
+  const [rebateAmount, setRebateAmount] = useState('');
+  const [bumpAmount, setBumpAmount] = useState('');
+  const [creditCardFeesType, setCreditCardFeesType] = useState('');
+  const [creditCardFeesAmountPercent, setCreditCardFeesAmountPercent] = useState('');
+  const [salesTaxType, setSalesTaxType] = useState('');
+  const [salesTaxAmountPercent, setSalesTaxAmountPercent] = useState('');
   const {
     hasUserEdited: hasTicketingUserEdited,
     markUserEdited: markTicketingUserEdited,
     clearUserEdited: clearTicketingUserEdited,
-  } = useUserEditTracker(`${engagementId}:${selectedPid ?? ''}`);
+  } = useUserEditTracker(`ticketing:${engagementId}:${selectedPid ?? ''}`);
 
   const performanceSelectOptions = useMemo<Select2Option[]>(
     () =>
@@ -4345,9 +5030,17 @@ function EngagementTicketingPanel({
     [performancesQuery.data],
   );
 
-  useEffect(() => {
-    setEngagementScaling(detailQuery.data?.engagementScaling ?? '');
-  }, [detailQuery.data?.engagementScaling]);
+  const ticketingSystemCompanyOptions = useMemo<Select2Option[]>(() => {
+    const rows = companiesQuery.data?.data ?? [];
+    const filtered = rows.filter((company) => {
+      const names = [company.companyTypeName, ...(company.companyTypeNames ?? [])]
+        .filter(Boolean)
+        .map((x) => String(x).toLowerCase());
+      return names.some((x) => x.includes('ticket'));
+    });
+    const opts = filtered.map(companyToSelect2Option);
+    return [{ value: '', label: 'Not set' }, ...opts];
+  }, [companiesQuery.data?.data]);
 
   useEffect(() => {
     const list = performancesQuery.data;
@@ -4371,38 +5064,131 @@ function EngagementTicketingPanel({
   useEffect(() => {
     const d = ticketingQuery.data;
     if (!d || selectedPid == null || d.performanceId !== selectedPid) return;
-    setVipPackagedOffer(d.vipPackagedOffer ?? '');
-    setPreSaleSpecialPrices(d.preSaleSpecialPrices ?? '');
-    setKidsTicketsPrices(d.kidsTicketsPrices ?? '');
+    setSellableCapacity(d.sellableCapacity == null ? '' : String(d.sellableCapacity));
+    setGrossPotentialRevenue(numFieldToString(d.grossPotentialRevenue));
+    setTicketingSystemCompanyId(
+      d.ticketingSystemCompanyId == null ? '' : String(d.ticketingSystemCompanyId),
+    );
+    setTicketingAdministrator(d.ticketingAdministrator ?? '');
+    setBoxOfficeLaborStaffingRequired(
+      d.boxOfficeLaborStaffingRequired == null ? '' : d.boxOfficeLaborStaffingRequired ? 'Yes' : 'No',
+    );
+    setFacilityFeeType(d.facilityFeeType ?? '');
+    setFacilityFeeAmount(numFieldToString(d.facilityFeeAmount));
+    setDynamicPricingMode(d.dynamicPricingMode ?? '');
+    setServiceChargeRevenueShare(numFieldToString(d.serviceChargeRevenueShare));
+    setRebateAmount(numFieldToString(d.rebateAmount));
+    setBumpAmount(numFieldToString(d.bumpAmount));
+    setCreditCardFeesType(d.creditCardFeesType ?? '');
+    setCreditCardFeesAmountPercent(numFieldToString(d.creditCardFeesAmountPercent));
+    setSalesTaxType(d.salesTaxType ?? '');
+    setSalesTaxAmountPercent(numFieldToString(d.salesTaxAmountPercent));
   }, [selectedPid, ticketingQuery.data]);
+
+  const parseOptionalWhole = (raw: string, label: string) => {
+    const t = raw.trim();
+    if (!t) return { ok: true as const, value: null as number | null };
+    if (!/^\d+$/.test(t)) return { ok: false as const, message: `${label} must be a whole number.` };
+    return { ok: true as const, value: Number(t) };
+  };
+
+  const parseOptionalPercent = (raw: string, label: string) => {
+    const x = parseOptionalDecimal(raw, label);
+    if (!x.ok) return x;
+    if (x.value != null && (x.value < 0 || x.value > 100)) {
+      return { ok: false as const, message: `${label} must be between 0 and 100.` };
+    }
+    return x;
+  };
 
   const ticketingDirtyRaw = useMemo(() => {
     const d = ticketingQuery.data;
-    const detail = detailQuery.data;
-    if (!detail || !d || selectedPid == null || d.performanceId !== selectedPid) return false;
+    if (!d || selectedPid == null || d.performanceId !== selectedPid) return false;
     const cur = {
-      engagementScaling: engagementScaling.trim() || null,
-      vipPackagedOffer: vipPackagedOffer.trim() ? vipPackagedOffer.trim().slice(0, 255) : null,
-      preSaleSpecialPrices: preSaleSpecialPrices.trim() || null,
-      kidsTicketsPrices: kidsTicketsPrices.trim() || null,
+      sellableCapacity: parseOptionalWhole(sellableCapacity, 'Sellable capacity').ok
+        ? parseOptionalWhole(sellableCapacity, 'Sellable capacity').value
+        : '__invalid__',
+      grossPotentialRevenue: parseOptionalDecimal(grossPotentialRevenue, 'Gross potential revenue').ok
+        ? parseOptionalDecimal(grossPotentialRevenue, 'Gross potential revenue').value
+        : '__invalid__',
+      ticketingSystemCompanyId: fkIdStringToNumber(ticketingSystemCompanyId),
+      ticketingAdministrator: ticketingAdministrator.trim() || null,
+      boxOfficeLaborStaffingRequired:
+        ticketingAdministrator === 'IAE Contract'
+          ? boxOfficeLaborStaffingRequired === 'Yes'
+            ? true
+            : boxOfficeLaborStaffingRequired === 'No'
+              ? false
+              : null
+          : null,
+      facilityFeeType: facilityFeeType.trim() || null,
+      facilityFeeAmount: parseOptionalDecimal(facilityFeeAmount, 'Facility fee amount').ok
+        ? parseOptionalDecimal(facilityFeeAmount, 'Facility fee amount').value
+        : '__invalid__',
+      dynamicPricingMode: dynamicPricingMode.trim() || null,
+      serviceChargeRevenueShare: parseOptionalDecimal(
+        serviceChargeRevenueShare,
+        'Service charge revenue share',
+      ).ok
+        ? parseOptionalDecimal(serviceChargeRevenueShare, 'Service charge revenue share').value
+        : '__invalid__',
+      rebateAmount: parseOptionalDecimal(rebateAmount, 'Rebate amount').ok
+        ? parseOptionalDecimal(rebateAmount, 'Rebate amount').value
+        : '__invalid__',
+      bumpAmount: parseOptionalDecimal(bumpAmount, 'Bump amount').ok
+        ? parseOptionalDecimal(bumpAmount, 'Bump amount').value
+        : '__invalid__',
+      creditCardFeesType: creditCardFeesType.trim() || null,
+      creditCardFeesAmountPercent: parseOptionalPercent(
+        creditCardFeesAmountPercent,
+        'Credit card fees amount (%)',
+      ).ok
+        ? parseOptionalPercent(creditCardFeesAmountPercent, 'Credit card fees amount (%)').value
+        : '__invalid__',
+      salesTaxType: salesTaxType.trim() || null,
+      salesTaxAmountPercent: parseOptionalPercent(salesTaxAmountPercent, 'Sales tax amount (%)').ok
+        ? parseOptionalPercent(salesTaxAmountPercent, 'Sales tax amount (%)').value
+        : '__invalid__',
     };
     const base = {
-      engagementScaling: (detail.engagementScaling ?? '').trim() || null,
-      vipPackagedOffer: (d.vipPackagedOffer ?? '').trim()
-        ? (d.vipPackagedOffer ?? '').trim().slice(0, 255)
-        : null,
-      preSaleSpecialPrices: (d.preSaleSpecialPrices ?? '').trim() || null,
-      kidsTicketsPrices: (d.kidsTicketsPrices ?? '').trim() || null,
+      sellableCapacity: d.sellableCapacity ?? null,
+      grossPotentialRevenue: d.grossPotentialRevenue ?? null,
+      ticketingSystemCompanyId: d.ticketingSystemCompanyId ?? null,
+      ticketingAdministrator: d.ticketingAdministrator ?? null,
+      boxOfficeLaborStaffingRequired:
+        d.ticketingAdministrator === 'IAE Contract'
+          ? d.boxOfficeLaborStaffingRequired ?? null
+          : null,
+      facilityFeeType: d.facilityFeeType ?? null,
+      facilityFeeAmount: d.facilityFeeAmount ?? null,
+      dynamicPricingMode: d.dynamicPricingMode ?? null,
+      serviceChargeRevenueShare: d.serviceChargeRevenueShare ?? null,
+      rebateAmount: d.rebateAmount ?? null,
+      bumpAmount: d.bumpAmount ?? null,
+      creditCardFeesType: d.creditCardFeesType ?? null,
+      creditCardFeesAmountPercent: d.creditCardFeesAmountPercent ?? null,
+      salesTaxType: d.salesTaxType ?? null,
+      salesTaxAmountPercent: d.salesTaxAmountPercent ?? null,
     };
     return JSON.stringify(cur) !== JSON.stringify(base);
   }, [
-    detailQuery.data,
-    engagementScaling,
-    kidsTicketsPrices,
-    preSaleSpecialPrices,
-    selectedPid,
     ticketingQuery.data,
-    vipPackagedOffer,
+    selectedPid,
+    sellableCapacity,
+    grossPotentialRevenue,
+    ticketingSystemCompanyId,
+    ticketingAdministrator,
+    boxOfficeLaborStaffingRequired,
+    facilityFeeType,
+    facilityFeeAmount,
+    dynamicPricingMode,
+    serviceChargeRevenueShare,
+    rebateAmount,
+    bumpAmount,
+    creditCardFeesType,
+    creditCardFeesAmountPercent,
+    salesTaxType,
+    salesTaxAmountPercent,
   ]);
   const ticketingDirty = hasTicketingUserEdited && ticketingDirtyRaw;
 
@@ -4414,21 +5200,60 @@ function EngagementTicketingPanel({
   const saveMut = useMutation({
     mutationFn: async () => {
       if (selectedPid == null) throw new Error('Add a show date before saving ticketing.');
-      await updateEngagement(engagementId, {
-        engagementScaling: engagementScaling.trim() ? engagementScaling.trim().slice(0, 50) : null,
-      });
+      const sc = parseOptionalWhole(sellableCapacity, 'Sellable capacity');
+      const gpr = parseOptionalDecimal(grossPotentialRevenue, 'Gross potential revenue');
+      const ffa = parseOptionalDecimal(facilityFeeAmount, 'Facility fee amount');
+      const scrs = parseOptionalDecimal(serviceChargeRevenueShare, 'Service charge revenue share');
+      const ra = parseOptionalDecimal(rebateAmount, 'Rebate amount');
+      const ba = parseOptionalDecimal(bumpAmount, 'Bump amount');
+      const ccf = parseOptionalPercent(creditCardFeesAmountPercent, 'Credit card fees amount (%)');
+      const stp = parseOptionalPercent(salesTaxAmountPercent, 'Sales tax amount (%)');
+      const sysCompanyId = fkIdStringToNumber(ticketingSystemCompanyId);
+
+      for (const x of [sc, gpr, ffa, scrs, ra, ba, ccf, stp]) {
+        if (!x.ok) throw new Error(x.message);
+      }
+      if (ticketingSystemCompanyId.trim() !== '' && sysCompanyId == null) {
+        throw new Error('Select a valid ticketing system company, or clear the field.');
+      }
+
       await updateEngagementPerformanceTicketing(engagementId, selectedPid, {
-        vipPackagedOffer: vipPackagedOffer.trim() ? vipPackagedOffer.trim().slice(0, 255) : null,
-        preSaleSpecialPrices: preSaleSpecialPrices.trim() || null,
-        kidsTicketsPrices: kidsTicketsPrices.trim() || null,
+        sellableCapacity: sc.value,
+        grossPotentialRevenue: gpr.value,
+        ticketingSystemCompanyId: sysCompanyId,
+        ticketingAdministrator: ticketingAdministrator.trim()
+          ? (ticketingAdministrator as 'Venue' | 'Partner' | 'IAE Contract')
+          : null,
+        boxOfficeLaborStaffingRequired:
+          ticketingAdministrator === 'IAE Contract'
+            ? boxOfficeLaborStaffingRequired === 'Yes'
+              ? true
+              : boxOfficeLaborStaffingRequired === 'No'
+                ? false
+                : null
+            : null,
+        facilityFeeType: facilityFeeType.trim()
+          ? (facilityFeeType as 'Inside Face Value' | 'Outside Face Value')
+          : null,
+        facilityFeeAmount: ffa.value,
+        dynamicPricingMode: dynamicPricingMode.trim()
+          ? (dynamicPricingMode as 'Self Managed' | '3rd Party Managed')
+          : null,
+        serviceChargeRevenueShare: scrs.value,
+        rebateAmount: ra.value,
+        bumpAmount: ba.value,
+        creditCardFeesType: creditCardFeesType.trim()
+          ? (creditCardFeesType as 'Inside Service Charge' | 'Budget Line Item')
+          : null,
+        creditCardFeesAmountPercent: ccf.value,
+        salesTaxType: salesTaxType.trim()
+          ? (salesTaxType as 'Charged in Shopping Cart' | 'Budget Line Item')
+          : null,
+        salesTaxAmountPercent: stp.value,
       });
     },
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ['engagements'] });
-      await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
-      await qc.invalidateQueries({
-        queryKey: ['engagements', engagementId, 'performance-ticketing', selectedPid],
-      });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performance-ticketing', selectedPid] });
       clearTicketingUserEdited();
       addToast('Ticketing saved.', 'success');
     },
@@ -4436,16 +5261,13 @@ function EngagementTicketingPanel({
   });
 
   const disabled =
-    saveMut.isPending ||
-    detailQuery.isLoading ||
-    performancesQuery.isLoading ||
-    ticketingQuery.isLoading;
+    saveMut.isPending || performancesQuery.isLoading || ticketingQuery.isLoading || companiesQuery.isLoading;
   const saveDisabled = disabled || !ticketingDirty;
-  const loadError = detailQuery.error ?? performancesQuery.error ?? ticketingQuery.error;
+  const loadError = performancesQuery.error ?? ticketingQuery.error ?? companiesQuery.error;
 
   const fieldRow = (label: string, control: React.ReactNode) => (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-6 min-w-0">
-      <div className="text-sm font-medium text-text-primary shrink-0 sm:w-52 sm:pt-2.5">{label}</div>
+      <div className="text-sm font-medium text-text-primary shrink-0 sm:w-72 sm:pt-2.5">{label}</div>
       <div className="min-w-0 flex-1 sm:max-w-none">{control}</div>
     </div>
   );
@@ -4484,6 +5306,9 @@ function EngagementTicketingPanel({
       )}
       <div className="space-y-5 p-5">
         <h3 className="text-base font-semibold text-text-primary">Ticketing</h3>
+        <p className="text-xs text-text-muted">
+          View full performance schedule in the <strong className="text-text-primary">Performances</strong> tab. Fields below apply to the selected show.
+        </p>
 
         {loadError && (
           <div className="flex flex-wrap items-center gap-2 text-ems-coral text-sm">
@@ -4502,85 +5327,44 @@ function EngagementTicketingPanel({
           />
         </FormField>
 
-        {ticketingQuery.isLoading && (
-          <div className="flex items-center gap-2 text-text-muted text-sm py-2">
-            <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-            Loading selected show ticketing…
-          </div>
-        )}
-
         {!ticketingQuery.isLoading && !ticketingQuery.isError && ticketingQuery.data && (
           <>
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-              {fieldRow(
-                'Scaling',
-                <input
-                  className={inputCls}
-                  maxLength={50}
-                  value={engagementScaling}
-                  onChange={(e) => {
-                    markTicketingUserEdited();
-                    setEngagementScaling(e.target.value);
-                  }}
-                  disabled={disabled}
-                />,
-              )}
-              {fieldRow(
-                'VIP Package Offered',
-                <input
-                  className={inputCls}
-                  maxLength={255}
-                  value={vipPackagedOffer}
-                  onChange={(e) => {
-                    markTicketingUserEdited();
-                    setVipPackagedOffer(e.target.value);
-                  }}
-                  disabled={disabled}
-                />,
-              )}
+              {fieldRow('Sellable Capacity', <input className={inputCls} inputMode="numeric" value={sellableCapacity} onChange={(e) => { markTicketingUserEdited(); setSellableCapacity(e.target.value); }} disabled={disabled} />)}
+              {fieldRow('Gross Potential Revenue', <input className={inputCls} inputMode="decimal" value={grossPotentialRevenue} onChange={(e) => { markTicketingUserEdited(); setGrossPotentialRevenue(e.target.value); }} disabled={disabled} />)}
             </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 lg:gap-x-10">
-              <div className="min-w-0 lg:col-span-2">
-                {fieldRow(
-                  'Pre Sale Special Prices',
-                  <textarea
-                    className={`${inputCls} min-h-[100px] resize-y`}
-                    value={preSaleSpecialPrices}
-                    onChange={(e) => {
-                      markTicketingUserEdited();
-                      setPreSaleSpecialPrices(e.target.value);
-                    }}
-                    disabled={disabled}
-                  />,
-                )}
-              </div>
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+              {fieldRow('Company (Ticketing System)', <Select2 options={ticketingSystemCompanyOptions} value={ticketingSystemCompanyId} onChange={(value) => { markTicketingUserEdited(); setTicketingSystemCompanyId(value); }} placeholder="Select…" allowClear disabled={disabled} />)}
+              {fieldRow('Ticketing Administrator', <Select2 options={TICKETING_ADMIN_OPTIONS} value={ticketingAdministrator} onChange={(value) => { markTicketingUserEdited(); setTicketingAdministrator(value); }} placeholder="Select…" allowClear disabled={disabled} />)}
             </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 lg:gap-x-10">
-              <div className="min-w-0 lg:col-span-2">
-                {fieldRow(
-                  'Kids Ticket Prices',
-                  <textarea
-                    className={`${inputCls} min-h-[100px] resize-y`}
-                    value={kidsTicketsPrices}
-                    onChange={(e) => {
-                      markTicketingUserEdited();
-                      setKidsTicketsPrices(e.target.value);
-                    }}
-                    disabled={disabled}
-                  />,
-                )}
+            {ticketingAdministrator === 'IAE Contract' && (
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+                {fieldRow('Do we have to staff Box office labor?', <Select2 options={YES_NO_OPTIONS} value={boxOfficeLaborStaffingRequired} onChange={(value) => { markTicketingUserEdited(); setBoxOfficeLaborStaffingRequired(value); }} placeholder="Select…" allowClear disabled={disabled} />)}
               </div>
+            )}
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+              {fieldRow('Facility Fee Type', <Select2 options={FACE_VALUE_TYPE_OPTIONS} value={facilityFeeType} onChange={(value) => { markTicketingUserEdited(); setFacilityFeeType(value); }} placeholder="Select…" allowClear disabled={disabled} />)}
+              {fieldRow('Facility Fee Amount ($)', <input className={inputCls} inputMode="decimal" value={facilityFeeAmount} onChange={(e) => { markTicketingUserEdited(); setFacilityFeeAmount(e.target.value); }} disabled={disabled} />)}
+            </div>
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+              {fieldRow('Dynamic Pricing', <Select2 options={DYNAMIC_PRICING_MODE_OPTIONS} value={dynamicPricingMode} onChange={(value) => { markTicketingUserEdited(); setDynamicPricingMode(value); }} placeholder="Select…" allowClear disabled={disabled} />)}
+              {fieldRow('Service Charge Revenue Share', <input className={inputCls} inputMode="decimal" value={serviceChargeRevenueShare} onChange={(e) => { markTicketingUserEdited(); setServiceChargeRevenueShare(e.target.value); }} disabled={disabled} />)}
+            </div>
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+              {fieldRow('Rebate Amount', <input className={inputCls} inputMode="decimal" value={rebateAmount} onChange={(e) => { markTicketingUserEdited(); setRebateAmount(e.target.value); }} disabled={disabled} />)}
+              {fieldRow('Bump Amount', <input className={inputCls} inputMode="decimal" value={bumpAmount} onChange={(e) => { markTicketingUserEdited(); setBumpAmount(e.target.value); }} disabled={disabled} />)}
+            </div>
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+              {fieldRow('Credit Card Fees Type', <Select2 options={FEE_TYPE_OPTIONS} value={creditCardFeesType} onChange={(value) => { markTicketingUserEdited(); setCreditCardFeesType(value); }} placeholder="Select…" allowClear disabled={disabled} />)}
+              {fieldRow('Credit Card Fees Amount (%)', <input className={inputCls} inputMode="decimal" value={creditCardFeesAmountPercent} onChange={(e) => { markTicketingUserEdited(); setCreditCardFeesAmountPercent(e.target.value); }} disabled={disabled} />)}
+            </div>
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+              {fieldRow('Sales Tax Type', <Select2 options={SALES_TAX_TYPE_OPTIONS} value={salesTaxType} onChange={(value) => { markTicketingUserEdited(); setSalesTaxType(value); }} placeholder="Select…" allowClear disabled={disabled} />)}
+              {fieldRow('Sales Tax Amount (%)', <input className={inputCls} inputMode="decimal" value={salesTaxAmountPercent} onChange={(e) => { markTicketingUserEdited(); setSalesTaxAmountPercent(e.target.value); }} disabled={disabled} />)}
             </div>
 
             <div className="flex justify-end pt-2 border-t border-border">
-              <Button
-                type="button"
-                className="bg-ems-accent text-white hover:opacity-90"
-                onClick={() => saveMut.mutate()}
-                disabled={saveDisabled}
-              >
+              <Button type="button" className="bg-ems-accent text-white hover:opacity-90" onClick={() => saveMut.mutate()} disabled={saveDisabled}>
                 {saveMut.isPending ? (
                   <span className="inline-flex items-center gap-1.5">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -5172,6 +5956,8 @@ function EngagementFinancePanel({
   const qc = useQueryClient();
   const [estimatedBreakeven, setEstimatedBreakeven] = useState('');
   const [grossPotential, setGrossPotential] = useState('');
+  const [venueDealType, setVenueDealType] = useState('');
+  const [thirdPartyPartnerDealStructure, setThirdPartyPartnerDealStructure] = useState('');
   const [venueTerms, setVenueTerms] = useState('');
   const [confPacket, setConfPacket] = useState('');
   const [iaeConfNum, setIaeConfNum] = useState('');
@@ -5264,6 +6050,8 @@ function EngagementFinancePanel({
     if (!d) return;
     setEstimatedBreakeven(numFieldToString(d.estimatedBreakeven));
     setGrossPotential(numFieldToString(d.grossPotential));
+    setVenueDealType(d.venueDealType ?? '');
+    setThirdPartyPartnerDealStructure(d.thirdPartyPartnerDealStructure ?? '');
     setVenueTerms(d.venueTerms ?? '');
     setConfPacket(boolToConfPacket(d.confirmationPacketApproved));
     setIaeConfNum(d.iaeWaiverApplicationConfirmationNumber ?? '');
@@ -5311,6 +6099,8 @@ function EngagementFinancePanel({
     saveMut.mutate({
       estimatedBreakeven: e1.value,
       grossPotential: e2.value,
+      venueDealType: venueDealType.trim() || null,
+      thirdPartyPartnerDealStructure: thirdPartyPartnerDealStructure.trim() || null,
       venueTerms: venueTerms === '' ? null : venueTerms,
       confirmationPacketApproved: confPacket === '' ? null : confPacket === '1',
       iaeWaiverApplicationConfirmationNumber: iaeConfNum.trim().slice(0, 100) || null,
@@ -5349,6 +6139,8 @@ function EngagementFinancePanel({
     const cur = {
       estimatedBreakeven: e1.value,
       grossPotential: e2.value,
+      venueDealType: venueDealType.trim() || null,
+      thirdPartyPartnerDealStructure: thirdPartyPartnerDealStructure.trim() || null,
       venueTerms: venueTerms === '' ? null : venueTerms,
       confirmationPacketApproved: confPacket === '' ? null : confPacket === '1',
       iaeWaiverApplicationConfirmationNumber: iaeConfNum.trim().slice(0, 100) || null,
@@ -5366,6 +6158,9 @@ function EngagementFinancePanel({
     const base = {
       estimatedBreakeven: r.estimatedBreakeven ?? null,
       grossPotential: r.grossPotential ?? null,
+      venueDealType: (r.venueDealType ?? '').trim() || null,
+      thirdPartyPartnerDealStructure:
+        (r.thirdPartyPartnerDealStructure ?? '').trim() || null,
       venueTerms: venueNorm(r.venueTerms),
       confirmationPacketApproved: r.confirmationPacketApproved,
       iaeWaiverApplicationConfirmationNumber:
@@ -5387,6 +6182,8 @@ function EngagementFinancePanel({
     financeQuery.data,
     estimatedBreakeven,
     grossPotential,
+    venueDealType,
+    thirdPartyPartnerDealStructure,
     venueTerms,
     confPacket,
     iaeConfNum,
@@ -5478,6 +6275,32 @@ function EngagementFinancePanel({
                 markFinanceUserEdited();
                 setGrossPotential(e.target.value);
               }}
+              disabled={saveMut.isPending}
+            />
+          </FormField>
+          <FormField label="Venue Deal">
+            <Select2
+              options={VENUE_DEAL_TYPE_OPTIONS}
+              value={venueDealType}
+              onChange={(value) => {
+                markFinanceUserEdited();
+                setVenueDealType(value);
+              }}
+              placeholder="Select venue deal..."
+              allowClear
+              disabled={saveMut.isPending}
+            />
+          </FormField>
+          <FormField label="3rd Party Partner">
+            <Select2
+              options={THIRD_PARTY_PARTNER_DEAL_STRUCTURE_OPTIONS}
+              value={thirdPartyPartnerDealStructure}
+              onChange={(value) => {
+                markFinanceUserEdited();
+                setThirdPartyPartnerDealStructure(value);
+              }}
+              placeholder="Select 3rd party structure..."
+              allowClear
               disabled={saveMut.isPending}
             />
           </FormField>
@@ -5710,8 +6533,11 @@ export function EngagementDetailPage({
   const [pendingDelete, setPendingDelete] = useState(false);
   const [sellableCapacityInput, setSellableCapacityInput] = useState('');
   const [grossPotentialInput, setGrossPotentialInput] = useState('');
+  const [hasRehearsalInput, setHasRehearsalInput] = useState(false);
   const [rehearsalDateInput, setRehearsalDateInput] = useState('');
+  const [rehearsalTimeInput, setRehearsalTimeInput] = useState('');
   const [loadInDateInput, setLoadInDateInput] = useState('');
+  const [loadInTimeInput, setLoadInTimeInput] = useState('');
   const {
     hasUserEdited: hasCapacityFieldsUserEdited,
     markUserEdited: markCapacityFieldsUserEdited,
@@ -5914,8 +6740,11 @@ export function EngagementDetailPage({
       row.sellableCapacity == null ? '' : String(row.sellableCapacity),
     );
     setGrossPotentialInput(row.grossPotential == null ? '' : String(row.grossPotential));
+    setHasRehearsalInput(Boolean((row.rehearsalDate ?? '').trim() || (row.rehearsalTime ?? '').trim()));
     setRehearsalDateInput(row.rehearsalDate ?? '');
+    setRehearsalTimeInput((row.rehearsalTime ?? '').slice(0, 5));
     setLoadInDateInput(row.loadInDate ?? '');
+    setLoadInTimeInput((row.loadInTime ?? '').slice(0, 5));
   }, [row]);
 
   const handleStatusChange = (next: string) => {
@@ -5943,10 +6772,26 @@ export function EngagementDetailPage({
 
   const canSaveProductionDatesRaw = useMemo(() => {
     if (!row) return false;
+    const curHasRehearsal = Boolean((row.rehearsalDate ?? '').trim() || (row.rehearsalTime ?? '').trim());
     const curR = row.rehearsalDate ?? '';
+    const curRT = (row.rehearsalTime ?? '').slice(0, 5);
     const curL = row.loadInDate ?? '';
-    return rehearsalDateInput !== curR || loadInDateInput !== curL;
-  }, [row, rehearsalDateInput, loadInDateInput]);
+    const curLT = (row.loadInTime ?? '').slice(0, 5);
+    return (
+      hasRehearsalInput !== curHasRehearsal ||
+      rehearsalDateInput !== curR ||
+      rehearsalTimeInput !== curRT ||
+      loadInDateInput !== curL ||
+      loadInTimeInput !== curLT
+    );
+  }, [
+    row,
+    hasRehearsalInput,
+    rehearsalDateInput,
+    rehearsalTimeInput,
+    loadInDateInput,
+    loadInTimeInput,
+  ]);
   const canSaveProductionDates = hasProductionDatesUserEdited && canSaveProductionDatesRaw;
 
   const capacitySectionSaving = capacityFieldsMutation.isPending;
@@ -5954,19 +6799,48 @@ export function EngagementDetailPage({
 
   const handleSaveProductionDates = () => {
     const r = rehearsalDateInput.trim();
+    const rt = rehearsalTimeInput.trim();
     const l = loadInDateInput.trim();
+    const lt = loadInTimeInput.trim();
     const ymd = /^\d{4}-\d{2}-\d{2}$/;
+    const hms = /^\d{2}:\d{2}(:\d{2})?$/;
+    if (!l) {
+      addToast('Load-In date is required.', 'warning');
+      return;
+    }
+    if (!lt) {
+      addToast('Load-In time is required.', 'warning');
+      return;
+    }
     if (r && !ymd.test(r)) {
       addToast('Rehearsal date must be YYYY-MM-DD or empty.', 'warning');
+      return;
+    }
+    if (rt && !hms.test(rt)) {
+      addToast('Rehearsal time must be HH:mm or HH:mm:ss.', 'warning');
       return;
     }
     if (l && !ymd.test(l)) {
       addToast('Load-in date must be YYYY-MM-DD or empty.', 'warning');
       return;
     }
+    if (lt && !hms.test(lt)) {
+      addToast('Load-In time must be HH:mm or HH:mm:ss.', 'warning');
+      return;
+    }
+    if (hasRehearsalInput && !r) {
+      addToast('Rehearsal date is required when rehearsal is enabled.', 'warning');
+      return;
+    }
+    if (hasRehearsalInput && !rt) {
+      addToast('Rehearsal time is required when rehearsal is enabled.', 'warning');
+      return;
+    }
     productionDatesMutation.mutate({
-      rehearsalDate: r ? r : null,
+      rehearsalDate: hasRehearsalInput && r ? r : null,
+      rehearsalTime: hasRehearsalInput && rt ? rt : null,
       loadInDate: l ? l : null,
+      loadInTime: lt ? lt : null,
     });
   };
 
@@ -6020,12 +6894,52 @@ export function EngagementDetailPage({
   const [pfErrors, setPfErrors] = useState<
     Record<string, { date?: string; time?: string; duplicate?: string }>
   >({});
-  const setTabDirty = (tabName: string, dirty: boolean) => {
+  const setTabDirty = useCallback((tabName: string, dirty: boolean) => {
     setTabDirtyState((prev) => {
       if ((prev[tabName] ?? false) === dirty) return prev;
       return { ...prev, [tabName]: dirty };
     });
-  };
+  }, []);
+  const handleOverviewDirtyChange = useCallback(
+    (dirty: boolean) => setTabDirty('Overview', dirty),
+    [setTabDirty],
+  );
+  const handleMainInformationDirtyChange = useCallback(
+    (dirty: boolean) => setTabDirty('Main Information', dirty),
+    [setTabDirty],
+  );
+  const handleServiceProvidersDirtyChange = useCallback(
+    (dirty: boolean) => setTabDirty('Service Providers', dirty),
+    [setTabDirty],
+  );
+  const handleMarketingDirtyChange = useCallback(
+    (dirty: boolean) => setTabDirty('Marketing', dirty),
+    [setTabDirty],
+  );
+  const handleProductionDirtyChange = useCallback(
+    (dirty: boolean) => setTabDirty('Production', dirty),
+    [setTabDirty],
+  );
+  const handleTaxationDirtyChange = useCallback(
+    (dirty: boolean) => setTabDirty('Taxation', dirty),
+    [setTabDirty],
+  );
+  const handleTicketingDirtyChange = useCallback(
+    (dirty: boolean) => setTabDirty('Ticketing', dirty),
+    [setTabDirty],
+  );
+  const handleArtistTermsDirtyChange = useCallback(
+    (dirty: boolean) => setTabDirty('Artist terms', dirty),
+    [setTabDirty],
+  );
+  const handleEventBusinessDirtyChange = useCallback(
+    (dirty: boolean) => setTabDirty('Event business', dirty),
+    [setTabDirty],
+  );
+  const handleFinanceDirtyChange = useCallback(
+    (dirty: boolean) => setTabDirty('Finance', dirty),
+    [setTabDirty],
+  );
   const performancesDraftDirty = useMemo(
     () =>
       showAddPerformance &&
@@ -6492,21 +7406,9 @@ export function EngagementDetailPage({
                 </span>
               </div>
             )}
-            <h3 className="text-sm font-semibold text-text-primary mb-1">Rehearsal and load-in</h3>
+            <h3 className="text-sm font-semibold text-text-primary mb-1">Production and performance schedule</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <FormField label="Rehearsal date">
-                <input
-                  type="date"
-                  className={inputCls}
-                  value={rehearsalDateInput}
-                  onChange={(e) => {
-                    markProductionDatesUserEdited();
-                    setRehearsalDateInput(e.target.value);
-                  }}
-                  disabled={anyEngagementPatchPending}
-                />
-              </FormField>
-              <FormField label="Load-in date">
+              <FormField label="Load-In date" required>
                 <input
                   type="date"
                   className={inputCls}
@@ -6518,6 +7420,76 @@ export function EngagementDetailPage({
                   disabled={anyEngagementPatchPending}
                 />
               </FormField>
+              <FormField label="Load-In time" required>
+                <input
+                  type="time"
+                  className={inputCls}
+                  value={loadInTimeInput}
+                  onChange={(e) => {
+                    markProductionDatesUserEdited();
+                    setLoadInTimeInput(e.target.value);
+                  }}
+                  disabled={anyEngagementPatchPending}
+                />
+              </FormField>
+            </div>
+
+            <div className="mt-3 rounded-md border border-border bg-surface px-3 py-2">
+              <label className="flex items-center justify-between gap-3 text-sm text-text-primary">
+                <span>Is there a rehearsal?</span>
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={hasRehearsalInput}
+                  onChange={(e) => {
+                    markProductionDatesUserEdited();
+                    const checked = e.target.checked;
+                    setHasRehearsalInput(checked);
+                    if (!checked) {
+                      setRehearsalDateInput('');
+                      setRehearsalTimeInput('');
+                    }
+                  }}
+                  disabled={anyEngagementPatchPending}
+                />
+              </label>
+            </div>
+
+            {hasRehearsalInput && (
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <FormField label="Rehearsal date" required>
+                  <input
+                    type="date"
+                    className={inputCls}
+                    value={rehearsalDateInput}
+                    onChange={(e) => {
+                      markProductionDatesUserEdited();
+                      setRehearsalDateInput(e.target.value);
+                    }}
+                    disabled={anyEngagementPatchPending}
+                  />
+                </FormField>
+                <FormField label="Rehearsal time" required>
+                  <input
+                    type="time"
+                    className={inputCls}
+                    value={rehearsalTimeInput}
+                    onChange={(e) => {
+                      markProductionDatesUserEdited();
+                      setRehearsalTimeInput(e.target.value);
+                    }}
+                    disabled={anyEngagementPatchPending}
+                  />
+                </FormField>
+              </div>
+            )}
+
+            <p className="mt-3 text-xs text-text-muted">
+              Opening performance is automatically Public. Use the performance rows to toggle Private/Public for additional performances.
+            </p>
+
+            <div className="mt-3 rounded-md border border-border bg-surface/40 px-3 py-2 text-xs text-text-muted">
+              Are there additional potential performances? Use <strong className="text-text-primary">Add Date and Time</strong> in the Performances tab.
             </div>
             <div className="mt-4 flex justify-end">
               <Button
@@ -6545,7 +7517,7 @@ export function EngagementDetailPage({
             engagementId={engagementId}
             enabled={tab === 'Overview'}
             addToast={addToast}
-            onDirtyChange={(dirty) => setTabDirty('Overview', dirty)}
+            onDirtyChange={handleOverviewDirtyChange}
           />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-sm">
@@ -6579,7 +7551,7 @@ export function EngagementDetailPage({
           lookups={lookupsQuery.data}
           lookupsLoading={lookupsQuery.isPending}
           addToast={addToast}
-          onDirtyChange={(dirty) => setTabDirty('Main Information', dirty)}
+          onDirtyChange={handleMainInformationDirtyChange}
         />
       )}
 
@@ -6600,7 +7572,7 @@ export function EngagementDetailPage({
           <ServiceProvidersTab
             engagementId={engagementId}
             addToast={addToast}
-            onDirtyChange={(dirty) => setTabDirty('Service Providers', dirty)}
+            onDirtyChange={handleServiceProvidersDirtyChange}
           />
         </div>
       )}
@@ -6686,7 +7658,7 @@ export function EngagementDetailPage({
               }}
               className="inline-flex items-center justify-center shrink-0 bg-ems-accent text-background text-sm px-4 py-2 rounded-md font-medium hover:bg-ems-accent/90 transition-colors"
             >
-              + Add date
+              Add Date and Time
             </button>
           </div>
 
@@ -6750,7 +7722,7 @@ export function EngagementDetailPage({
         <EngagementMarketingPanel
           engagementId={engagementId}
           addToast={addToast}
-          onDirtyChange={(dirty) => setTabDirty('Marketing', dirty)}
+          onDirtyChange={handleMarketingDirtyChange}
         />
       )}
 
@@ -6761,7 +7733,7 @@ export function EngagementDetailPage({
           venueCompanyId={row.primaryVenueCompanyId}
           venueLabel={row.venueCompanyName ?? row.venueName}
           addToast={addToast}
-          onDirtyChange={(dirty) => setTabDirty('Production', dirty)}
+          onDirtyChange={handleProductionDirtyChange}
         />
       )}
 
@@ -6772,7 +7744,7 @@ export function EngagementDetailPage({
           venueCompanyId={row.primaryVenueCompanyId}
           venueLabel={row.venueCompanyName ?? row.venueName}
           addToast={addToast}
-          onDirtyChange={(dirty) => setTabDirty('Taxation', dirty)}
+          onDirtyChange={handleTaxationDirtyChange}
         />
       )}
 
@@ -6781,7 +7753,7 @@ export function EngagementDetailPage({
         <EngagementTicketingPanel
           engagementId={engagementId}
           addToast={addToast}
-          onDirtyChange={(dirty) => setTabDirty('Ticketing', dirty)}
+          onDirtyChange={handleTicketingDirtyChange}
         />
       )}
 
@@ -6790,7 +7762,7 @@ export function EngagementDetailPage({
         <EngagementArtistTermsPanel
           engagementId={engagementId}
           addToast={addToast}
-          onDirtyChange={(dirty) => setTabDirty('Artist terms', dirty)}
+          onDirtyChange={handleArtistTermsDirtyChange}
         />
       )}
 
@@ -6798,7 +7770,7 @@ export function EngagementDetailPage({
         <EngagementEventBusinessPanel
           engagementId={engagementId}
           addToast={addToast}
-          onDirtyChange={(dirty) => setTabDirty('Event business', dirty)}
+          onDirtyChange={handleEventBusinessDirtyChange}
         />
       )}
 
@@ -6808,7 +7780,7 @@ export function EngagementDetailPage({
           key={engagementId}
           engagementId={engagementId}
           addToast={addToast}
-          onDirtyChange={(dirty) => setTabDirty('Finance', dirty)}
+          onDirtyChange={handleFinanceDirtyChange}
         />
       )}
 
@@ -6852,8 +7824,13 @@ export function EngagementDetailPage({
                   setGrossPotentialInput(
                     row.grossPotential == null ? '' : String(row.grossPotential),
                   );
+                  setHasRehearsalInput(
+                    Boolean((row.rehearsalDate ?? '').trim() || (row.rehearsalTime ?? '').trim()),
+                  );
                   setRehearsalDateInput(row.rehearsalDate ?? '');
+                  setRehearsalTimeInput((row.rehearsalTime ?? '').slice(0, 5));
                   setLoadInDateInput(row.loadInDate ?? '');
+                  setLoadInTimeInput((row.loadInTime ?? '').slice(0, 5));
                   clearCapacityFieldsUserEdited();
                   clearProductionDatesUserEdited();
                 }
@@ -6955,18 +7932,33 @@ export function EngagementDetailPage({
                         )}
                       </FormField>
 
-                      <FormField label="Status">
-                        <Select2
-                          options={PERFORMANCE_STATUS_OPTIONS}
-                          value={rowDraft.performanceStatus}
-                          onChange={(value) =>
-                            updatePerformanceDraftRow(rowDraft.id, {
-                              performanceStatus: value,
-                            })
-                          }
-                          placeholder="Select status…"
-                          disabled={createPerformanceMut.isPending}
-                        />
+                      <FormField label="Visibility">
+                        <div className="flex items-center rounded-md border border-border bg-surface p-1">
+                          <button
+                            type="button"
+                            className={`flex-1 rounded px-2 py-1 text-xs font-medium transition-colors ${rowDraft.performanceStatus === 'Public' ? 'bg-ems-accent text-white' : 'text-text-secondary hover:bg-hover'}`}
+                            onClick={() =>
+                              updatePerformanceDraftRow(rowDraft.id, {
+                                performanceStatus: 'Public',
+                              })
+                            }
+                            disabled={createPerformanceMut.isPending}
+                          >
+                            Public
+                          </button>
+                          <button
+                            type="button"
+                            className={`flex-1 rounded px-2 py-1 text-xs font-medium transition-colors ${rowDraft.performanceStatus === 'Private' ? 'bg-ems-accent text-white' : 'text-text-secondary hover:bg-hover'}`}
+                            onClick={() =>
+                              updatePerformanceDraftRow(rowDraft.id, {
+                                performanceStatus: 'Private',
+                              })
+                            }
+                            disabled={createPerformanceMut.isPending}
+                          >
+                            Private
+                          </button>
+                        </div>
                       </FormField>
                     </div>
 
@@ -6986,7 +7978,7 @@ export function EngagementDetailPage({
                 className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border border-border text-text-primary bg-elevated hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 <Plus className="h-4 w-4" />
-                Add another row
+                Add Date and Time
               </button>
             </div>
 

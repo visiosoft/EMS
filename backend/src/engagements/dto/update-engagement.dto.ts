@@ -2,6 +2,7 @@ import {
   IsDateString,
   IsIn,
   IsInt,
+  Matches,
   IsNumber,
   IsOptional,
   IsString,
@@ -56,9 +57,23 @@ export class UpdateEngagementDto {
   @IsDateString()
   rehearsalDate?: string | null;
 
+  /** dbo.EngagementProduction.RehearsalTime (HH:mm or HH:mm:ss; optional column) */
+  @IsOptional()
+  @ValidateIf((_, v) => v != null && v !== '')
+  @IsString()
+  @Matches(/^\d{2}:\d{2}(:\d{2})?$/)
+  rehearsalTime?: string | null;
+
   /** dbo.EngagementProduction.LoadInDate */
   @IsOptional()
   @ValidateIf((_, v) => v != null && v !== '')
   @IsDateString()
   loadInDate?: string | null;
+
+  /** dbo.EngagementProduction.LoadInTime (HH:mm or HH:mm:ss; optional column) */
+  @IsOptional()
+  @ValidateIf((_, v) => v != null && v !== '')
+  @IsString()
+  @Matches(/^\d{2}:\d{2}(:\d{2})?$/)
+  loadInTime?: string | null;
 }

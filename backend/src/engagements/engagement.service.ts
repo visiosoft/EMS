@@ -78,7 +78,9 @@ export interface EngagementListRow {
   entertainmentComplexNames: string | null;
   /** Latest dbo.EngagementProduction row for this engagement (RehearsalDate / LoadInDate). */
   rehearsalDate: string | null;
+  rehearsalTime: string | null;
   loadInDate: string | null;
+  loadInTime: string | null;
   displayTitle: string;
   appCreated: boolean;
 }
@@ -109,7 +111,21 @@ export interface EngagementFinanceRow {
   estimatedBreakeven: number | null;
   grossPotential: number | null;
   sellableCapacity: number | null;
+  grossMarketingBudget: number | null;
+  netMarketingBudget: number | null;
+  salesRevenueGoal: number | null;
   promoterProfit: number | null;
+  venueDealType:
+    | 'Rental'
+    | 'CoPro'
+    | '3rd Party Renting Venue'
+    | 'Silent CoPro with Venue'
+    | null;
+  thirdPartyPartnerDealStructure:
+    | 'CoPro with 3rd Party'
+    | 'CoPro with 3rd Party, 3rd Party Renting Venue'
+    | 'Silent CoPro with 3rd Party, 3rd Party Renting Venue'
+    | null;
   venueTerms: string | null;
   confirmationPacketApproved: boolean | null;
   iaeWaiverApplicationConfirmationNumber: string | null;
@@ -143,6 +159,11 @@ export interface EngagementFinanceRow {
   artistMiddleMoney: number | null;
   artistRoyaltyVariableFee: string | null;
   artistBackEndTerms: string | null;
+  artistVersusPercent: number | null;
+  artistPromoterProfitPercent: number | null;
+  artistBackendPercent: number | null;
+  artistRoyaltyRatePercent: number | null;
+  artistRoyaltyBasedOn: 'Net' | 'NAGBOR' | null;
   /** dbo.EngagementFinances — add columns if missing */
   finalAcceptedOfferLink: string | null;
   settlementFileSharePointLink: string | null;
@@ -190,6 +211,21 @@ export interface PerformanceTicketingRow {
   totalComps: number | null;
   totalTickets: number | null;
   totalAdmissions: number | null;
+  sellableCapacity: number | null;
+  grossPotentialRevenue: number | null;
+  ticketingSystemCompanyId: number | null;
+  ticketingAdministrator: 'Venue' | 'Partner' | 'IAE Contract' | null;
+  boxOfficeLaborStaffingRequired: boolean | null;
+  facilityFeeType: 'Inside Face Value' | 'Outside Face Value' | null;
+  facilityFeeAmount: number | null;
+  dynamicPricingMode: 'Self Managed' | '3rd Party Managed' | null;
+  serviceChargeRevenueShare: number | null;
+  rebateAmount: number | null;
+  bumpAmount: number | null;
+  creditCardFeesType: 'Inside Service Charge' | 'Budget Line Item' | null;
+  creditCardFeesAmountPercent: number | null;
+  salesTaxType: 'Charged in Shopping Cart' | 'Budget Line Item' | null;
+  salesTaxAmountPercent: number | null;
 }
 
 export interface EngagementIaeContactRow {
@@ -240,7 +276,13 @@ export class EngagementService {
    * `null` = not yet probed; avoids repeated metadata queries once resolved.
    */
   private engagementFinanceSharePointLinkColsPresent: boolean | null = null;
+  private engagementFinanceMarketingBudgetColsPresent: boolean | null = null;
+  private engagementFinanceDealStructureColsPresent:
+    | { venueDealType: boolean; thirdPartyPartnerDealStructure: boolean }
+    | null = null;
+  private performanceTicketingAdvancedColsPresent: boolean | null = null;
   private nonResidentWithholdingHasDmaIdColumn: boolean | null = null;
+  private engagementProductionTimeColsPresent: boolean | null = null;
 
   constructor(
     @InjectRepository(Engagement)
@@ -556,6 +598,727 @@ export class EngagementService {
     );
   }
 
+  private async engagementFinancesHasMarketingBudgetColumns(): Promise<boolean> {
+    if (this.engagementFinanceMarketingBudgetColsPresent !== null) {
+      return this.engagementFinanceMarketingBudgetColsPresent;
+    }
+    try {
+      const r = await this.dataSource.query(
+        `
+        SELECT CASE WHEN
+          EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'EngagementFinances' AND c.name = N'GrossMarketingBudget'
+          ) AND EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'EngagementFinances' AND c.name = N'NetMarketingBudget'
+          ) AND EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'EngagementFinances' AND c.name = N'SalesRevenueGoal'
+          )
+        THEN 1 ELSE 0 END AS ok
+      `,
+      );
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      const rawOk = row0 ? pickRaw(row0, 'ok') : undefined;
+      const ok =
+        rawOk === 1 || rawOk === true || rawOk === '1' || Number(rawOk) === 1;
+      this.engagementFinanceMarketingBudgetColsPresent = ok;
+      return ok;
+    } catch {
+      this.engagementFinanceMarketingBudgetColsPresent = false;
+      return false;
+    }
+  }
+
+  private async mergeFinanceMarketingBudgetFromDb(
+    financeId: number,
+    base: EngagementFinanceRow,
+  ): Promise<EngagementFinanceRow> {
+    if (!(await this.engagementFinancesHasMarketingBudgetColumns())) {
+      return base;
+    }
+    try {
+      const fid = Math.floor(Number(financeId));
+      if (!Number.isFinite(fid) || fid < 1) return base;
+      const r = await this.dataSource.query(
+        `SELECT
+          [GrossMarketingBudget] AS gmb,
+          [NetMarketingBudget] AS nmb,
+          [SalesRevenueGoal] AS srg
+         FROM dbo.EngagementFinances WHERE [FinanceID] = ${fid}`,
+      );
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      if (!row0) return base;
+      const gmb = pickRaw(row0, 'gmb') as
+        | string
+        | number
+        | null
+        | undefined;
+      const nmb = pickRaw(row0, 'nmb') as
+        | string
+        | number
+        | null
+        | undefined;
+      const srg = pickRaw(row0, 'srg') as
+        | string
+        | number
+        | null
+        | undefined;
+      return {
+        ...base,
+        grossMarketingBudget: this.mapFinanceNumber(gmb),
+        netMarketingBudget: this.mapFinanceNumber(nmb),
+        salesRevenueGoal: this.mapFinanceNumber(srg),
+      };
+    } catch {
+      return base;
+    }
+  }
+
+  private async tryPersistFinanceMarketingBudget(
+    financeId: number | null | undefined,
+    dto: UpdateEngagementFinanceDto,
+  ): Promise<void> {
+    const fid = financeId == null ? NaN : Math.floor(Number(financeId));
+    if (!Number.isFinite(fid) || fid < 1) return;
+    if (!(await this.engagementFinancesHasMarketingBudgetColumns())) return;
+
+    const wantG = dto.grossMarketingBudget !== undefined;
+    const wantN = dto.netMarketingBudget !== undefined;
+    const wantS = dto.salesRevenueGoal !== undefined;
+    if (!wantG && !wantN && !wantS) return;
+
+    const sets: string[] = [];
+    if (wantG) {
+      sets.push(
+        `[GrossMarketingBudget] = ${dto.grossMarketingBudget == null ? 'NULL' : Number(dto.grossMarketingBudget)}`,
+      );
+    }
+    if (wantN) {
+      sets.push(
+        `[NetMarketingBudget] = ${dto.netMarketingBudget == null ? 'NULL' : Number(dto.netMarketingBudget)}`,
+      );
+    }
+    if (wantS) {
+      sets.push(
+        `[SalesRevenueGoal] = ${dto.salesRevenueGoal == null ? 'NULL' : Number(dto.salesRevenueGoal)}`,
+      );
+    }
+    if (!sets.length) return;
+
+    await this.dataSource.query(
+      `UPDATE dbo.EngagementFinances SET ${sets.join(', ')} WHERE [FinanceID] = ${fid}`,
+    );
+  }
+
+  private normalizeVenueDealType(
+    value: unknown,
+  ):
+    | 'Rental'
+    | 'CoPro'
+    | '3rd Party Renting Venue'
+    | 'Silent CoPro with Venue'
+    | null {
+    const t = String(value ?? '').trim().toLowerCase();
+    if (!t) return null;
+    if (t === 'rental') return 'Rental';
+    if (t === 'copro') return 'CoPro';
+    if (t === '3rd party renting venue') return '3rd Party Renting Venue';
+    if (t === 'silent copro with venue') return 'Silent CoPro with Venue';
+    return null;
+  }
+
+  private normalizeThirdPartyPartnerDealStructure(
+    value: unknown,
+  ):
+    | 'CoPro with 3rd Party'
+    | 'CoPro with 3rd Party, 3rd Party Renting Venue'
+    | 'Silent CoPro with 3rd Party, 3rd Party Renting Venue'
+    | null {
+    const t = String(value ?? '').trim().toLowerCase();
+    if (!t) return null;
+    if (t === 'copro with 3rd party') return 'CoPro with 3rd Party';
+    if (t === 'copro with 3rd party, 3rd party renting venue') {
+      return 'CoPro with 3rd Party, 3rd Party Renting Venue';
+    }
+    if (t === 'silent copro with 3rd party, 3rd party renting venue') {
+      return 'Silent CoPro with 3rd Party, 3rd Party Renting Venue';
+    }
+    return null;
+  }
+
+  private async engagementFinancesGetDealStructureColumns(): Promise<{
+    venueDealType: boolean;
+    thirdPartyPartnerDealStructure: boolean;
+  }> {
+    if (this.engagementFinanceDealStructureColsPresent !== null) {
+      return this.engagementFinanceDealStructureColsPresent;
+    }
+    try {
+      const r = await this.dataSource.query(
+        `
+        SELECT
+          CASE WHEN EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'EngagementFinances' AND c.name = N'VenueDealType'
+          ) THEN 1 ELSE 0 END AS venueDealType,
+          CASE WHEN EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'EngagementFinances' AND c.name = N'ThirdPartyPartnerDealStructure'
+          ) THEN 1 ELSE 0 END AS thirdPartyPartnerDealStructure
+      `,
+      );
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      const venueDealTypeRaw = row0 ? pickRaw(row0, 'venueDealType') : undefined;
+      const thirdPartyRaw = row0
+        ? pickRaw(row0, 'thirdPartyPartnerDealStructure')
+        : undefined;
+      const present = {
+        venueDealType:
+          venueDealTypeRaw === 1 ||
+          venueDealTypeRaw === true ||
+          venueDealTypeRaw === '1' ||
+          Number(venueDealTypeRaw) === 1,
+        thirdPartyPartnerDealStructure:
+          thirdPartyRaw === 1 ||
+          thirdPartyRaw === true ||
+          thirdPartyRaw === '1' ||
+          Number(thirdPartyRaw) === 1,
+      };
+      this.engagementFinanceDealStructureColsPresent = present;
+      return present;
+    } catch {
+      const missing = {
+        venueDealType: false,
+        thirdPartyPartnerDealStructure: false,
+      };
+      this.engagementFinanceDealStructureColsPresent = missing;
+      return missing;
+    }
+  }
+
+  private async mergeFinanceDealStructuresFromDb(
+    financeId: number,
+    base: EngagementFinanceRow,
+  ): Promise<EngagementFinanceRow> {
+    const cols = await this.engagementFinancesGetDealStructureColumns();
+    if (!cols.venueDealType && !cols.thirdPartyPartnerDealStructure) return base;
+    try {
+      const fid = Math.floor(Number(financeId));
+      if (!Number.isFinite(fid) || fid < 1) return base;
+      const sets: string[] = [];
+      if (cols.venueDealType) sets.push('[VenueDealType] AS vdt');
+      if (cols.thirdPartyPartnerDealStructure) {
+        sets.push('[ThirdPartyPartnerDealStructure] AS tppds');
+      }
+      if (!sets.length) return base;
+      const r = await this.dataSource.query(
+        `SELECT ${sets.join(', ')} FROM dbo.EngagementFinances WHERE [FinanceID] = ${fid}`,
+      );
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      if (!row0) return base;
+      return {
+        ...base,
+        venueDealType: cols.venueDealType
+          ? this.normalizeVenueDealType(pickRaw(row0, 'vdt'))
+          : base.venueDealType,
+        thirdPartyPartnerDealStructure: cols.thirdPartyPartnerDealStructure
+          ? this.normalizeThirdPartyPartnerDealStructure(pickRaw(row0, 'tppds'))
+          : base.thirdPartyPartnerDealStructure,
+      };
+    } catch {
+      return base;
+    }
+  }
+
+  private async tryPersistFinanceDealStructures(
+    financeId: number | null | undefined,
+    dto: UpdateEngagementFinanceDto,
+  ): Promise<void> {
+    const fid = financeId == null ? NaN : Math.floor(Number(financeId));
+    if (!Number.isFinite(fid) || fid < 1) return;
+    const cols = await this.engagementFinancesGetDealStructureColumns();
+    if (!cols.venueDealType && !cols.thirdPartyPartnerDealStructure) return;
+
+    const sets: string[] = [];
+    if (cols.venueDealType && dto.venueDealType !== undefined) {
+      const v = this.normalizeVenueDealType(dto.venueDealType);
+      sets.push(`[VenueDealType] = ${v == null ? 'NULL' : this.escapeSqlNVarCharLiteral(v)}`);
+    }
+    if (
+      cols.thirdPartyPartnerDealStructure &&
+      dto.thirdPartyPartnerDealStructure !== undefined
+    ) {
+      const v = this.normalizeThirdPartyPartnerDealStructure(
+        dto.thirdPartyPartnerDealStructure,
+      );
+      sets.push(
+        `[ThirdPartyPartnerDealStructure] = ${v == null ? 'NULL' : this.escapeSqlNVarCharLiteral(v)}`,
+      );
+    }
+    if (!sets.length) return;
+
+    await this.dataSource.query(
+      `UPDATE dbo.EngagementFinances SET ${sets.join(', ')} WHERE [FinanceID] = ${fid}`,
+    );
+  }
+
+  private async engagementProductionHasTimeColumns(): Promise<boolean> {
+    if (this.engagementProductionTimeColsPresent !== null) {
+      return this.engagementProductionTimeColsPresent;
+    }
+    try {
+      const r = await this.dataSource.query(
+        `
+        SELECT CASE WHEN
+          EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'EngagementProduction' AND c.name = N'RehearsalTime'
+          ) AND EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'EngagementProduction' AND c.name = N'LoadInTime'
+          )
+        THEN 1 ELSE 0 END AS ok
+      `,
+      );
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      const rawOk = row0 ? pickRaw(row0, 'ok') : undefined;
+      const ok =
+        rawOk === 1 || rawOk === true || rawOk === '1' || Number(rawOk) === 1;
+      this.engagementProductionTimeColsPresent = ok;
+      return ok;
+    } catch {
+      this.engagementProductionTimeColsPresent = false;
+      return false;
+    }
+  }
+
+  private normalizeTicketingAdmin(
+    value: unknown,
+  ): 'Venue' | 'Partner' | 'IAE Contract' | null {
+    const t = String(value ?? '').trim().toLowerCase();
+    if (!t) return null;
+    if (t === 'venue') return 'Venue';
+    if (t === 'partner') return 'Partner';
+    if (t === 'iae contract') return 'IAE Contract';
+    return null;
+  }
+
+  private normalizeTicketingPick(
+    value: unknown,
+    a: string,
+    b: string,
+  ): string | null {
+    const t = String(value ?? '').trim().toLowerCase();
+    if (!t) return null;
+    if (t === a.toLowerCase()) return a;
+    if (t === b.toLowerCase()) return b;
+    return null;
+  }
+
+  private async performanceTicketingHasAdvancedColumns(): Promise<boolean> {
+    if (this.performanceTicketingAdvancedColsPresent !== null) {
+      return this.performanceTicketingAdvancedColsPresent;
+    }
+    try {
+      const r = await this.dataSource.query(
+        `
+        SELECT CASE WHEN
+          EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'SellableCapacity'
+          ) AND EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'GrossPotentialRevenue'
+          ) AND EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'TicketingSystemCompanyID'
+          ) AND EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'TicketingAdministrator'
+          ) AND EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'BoxOfficeLaborStaffingRequired'
+          ) AND EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'FacilityFeeType'
+          ) AND EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'FacilityFeeAmount'
+          ) AND EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'DynamicPricingMode'
+          ) AND EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'ServiceChargeRevenueShare'
+          ) AND EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'RebateAmount'
+          ) AND EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'BumpAmount'
+          ) AND EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'CreditCardFeesType'
+          ) AND EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'CreditCardFeesAmountPercent'
+          ) AND EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'SalesTaxType'
+          ) AND EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'SalesTaxAmountPercent'
+          )
+        THEN 1 ELSE 0 END AS ok
+      `,
+      );
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      const rawOk = row0 ? pickRaw(row0, 'ok') : undefined;
+      const ok =
+        rawOk === 1 || rawOk === true || rawOk === '1' || Number(rawOk) === 1;
+      this.performanceTicketingAdvancedColsPresent = ok;
+      return ok;
+    } catch {
+      this.performanceTicketingAdvancedColsPresent = false;
+      return false;
+    }
+  }
+
+  private async mergePerformanceTicketingAdvancedFromDb(
+    ticketingId: number,
+    base: PerformanceTicketingRow,
+  ): Promise<PerformanceTicketingRow> {
+    if (!(await this.performanceTicketingHasAdvancedColumns())) return base;
+    try {
+      const tid = Math.floor(Number(ticketingId));
+      if (!Number.isFinite(tid) || tid < 1) return base;
+      const r = await this.dataSource.query(
+        `SELECT
+          [SellableCapacity] AS sc,
+          [GrossPotentialRevenue] AS gpr,
+          [TicketingSystemCompanyID] AS tsc,
+          [TicketingAdministrator] AS ta,
+          [BoxOfficeLaborStaffingRequired] AS bol,
+          [FacilityFeeType] AS fft,
+          [FacilityFeeAmount] AS ffa,
+          [DynamicPricingMode] AS dpm,
+          [ServiceChargeRevenueShare] AS scrs,
+          [RebateAmount] AS ra,
+          [BumpAmount] AS ba,
+          [CreditCardFeesType] AS ccft,
+          [CreditCardFeesAmountPercent] AS ccfap,
+          [SalesTaxType] AS stt,
+          [SalesTaxAmountPercent] AS stap
+         FROM dbo.PerformanceTicketing WHERE [TicketingID] = ${tid}`,
+      );
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      if (!row0) return base;
+      const sc = pickRaw(row0, 'sc');
+      const tsc = pickRaw(row0, 'tsc');
+      return {
+        ...base,
+        sellableCapacity:
+          sc == null || sc === '' ? null : Number.isFinite(Number(sc)) ? Math.trunc(Number(sc)) : null,
+        grossPotentialRevenue: this.mapFinanceNumber(
+          pickRaw(row0, 'gpr') as string | number | null | undefined,
+        ),
+        ticketingSystemCompanyId:
+          tsc == null || tsc === ''
+            ? null
+            : Number.isFinite(Number(tsc))
+              ? Math.trunc(Number(tsc))
+              : null,
+        ticketingAdministrator: this.normalizeTicketingAdmin(pickRaw(row0, 'ta')),
+        boxOfficeLaborStaffingRequired: this.mapBit(
+          pickRaw(row0, 'bol') as boolean | number | Buffer | null | undefined,
+        ),
+        facilityFeeType: this.normalizeTicketingPick(
+          pickRaw(row0, 'fft'),
+          'Inside Face Value',
+          'Outside Face Value',
+        ) as 'Inside Face Value' | 'Outside Face Value' | null,
+        facilityFeeAmount: this.mapFinanceNumber(
+          pickRaw(row0, 'ffa') as string | number | null | undefined,
+        ),
+        dynamicPricingMode: this.normalizeTicketingPick(
+          pickRaw(row0, 'dpm'),
+          'Self Managed',
+          '3rd Party Managed',
+        ) as 'Self Managed' | '3rd Party Managed' | null,
+        serviceChargeRevenueShare: this.mapFinanceNumber(
+          pickRaw(row0, 'scrs') as string | number | null | undefined,
+        ),
+        rebateAmount: this.mapFinanceNumber(
+          pickRaw(row0, 'ra') as string | number | null | undefined,
+        ),
+        bumpAmount: this.mapFinanceNumber(
+          pickRaw(row0, 'ba') as string | number | null | undefined,
+        ),
+        creditCardFeesType: this.normalizeTicketingPick(
+          pickRaw(row0, 'ccft'),
+          'Inside Service Charge',
+          'Budget Line Item',
+        ) as 'Inside Service Charge' | 'Budget Line Item' | null,
+        creditCardFeesAmountPercent: this.mapFinanceNumber(
+          pickRaw(row0, 'ccfap') as string | number | null | undefined,
+        ),
+        salesTaxType: this.normalizeTicketingPick(
+          pickRaw(row0, 'stt'),
+          'Charged in Shopping Cart',
+          'Budget Line Item',
+        ) as 'Charged in Shopping Cart' | 'Budget Line Item' | null,
+        salesTaxAmountPercent: this.mapFinanceNumber(
+          pickRaw(row0, 'stap') as string | number | null | undefined,
+        ),
+      };
+    } catch {
+      return base;
+    }
+  }
+
+  private async tryPersistPerformanceTicketingAdvanced(
+    ticketingId: number | null | undefined,
+    dto: UpdatePerformanceTicketingDto,
+  ): Promise<void> {
+    const tid = ticketingId == null ? NaN : Math.floor(Number(ticketingId));
+    if (!Number.isFinite(tid) || tid < 1) return;
+    if (!(await this.performanceTicketingHasAdvancedColumns())) return;
+
+    const sets: string[] = [];
+    if (dto.sellableCapacity !== undefined) {
+      sets.push(
+        `[SellableCapacity] = ${dto.sellableCapacity == null ? 'NULL' : Math.trunc(Number(dto.sellableCapacity))}`,
+      );
+    }
+    if (dto.grossPotentialRevenue !== undefined) {
+      sets.push(
+        `[GrossPotentialRevenue] = ${dto.grossPotentialRevenue == null ? 'NULL' : Number(dto.grossPotentialRevenue)}`,
+      );
+    }
+    if (dto.ticketingSystemCompanyId !== undefined) {
+      sets.push(
+        `[TicketingSystemCompanyID] = ${dto.ticketingSystemCompanyId == null ? 'NULL' : Math.trunc(Number(dto.ticketingSystemCompanyId))}`,
+      );
+    }
+    if (dto.ticketingAdministrator !== undefined) {
+      const v = this.normalizeTicketingAdmin(dto.ticketingAdministrator);
+      sets.push(
+        `[TicketingAdministrator] = ${v == null ? 'NULL' : this.escapeSqlNVarCharLiteral(v)}`,
+      );
+    }
+    if (dto.boxOfficeLaborStaffingRequired !== undefined) {
+      sets.push(
+        `[BoxOfficeLaborStaffingRequired] = ${dto.boxOfficeLaborStaffingRequired == null ? 'NULL' : dto.boxOfficeLaborStaffingRequired ? 1 : 0}`,
+      );
+    }
+    if (dto.facilityFeeType !== undefined) {
+      const v = this.normalizeTicketingPick(
+        dto.facilityFeeType,
+        'Inside Face Value',
+        'Outside Face Value',
+      );
+      sets.push(
+        `[FacilityFeeType] = ${v == null ? 'NULL' : this.escapeSqlNVarCharLiteral(v)}`,
+      );
+    }
+    if (dto.facilityFeeAmount !== undefined) {
+      sets.push(
+        `[FacilityFeeAmount] = ${dto.facilityFeeAmount == null ? 'NULL' : Number(dto.facilityFeeAmount)}`,
+      );
+    }
+    if (dto.dynamicPricingMode !== undefined) {
+      const v = this.normalizeTicketingPick(
+        dto.dynamicPricingMode,
+        'Self Managed',
+        '3rd Party Managed',
+      );
+      sets.push(
+        `[DynamicPricingMode] = ${v == null ? 'NULL' : this.escapeSqlNVarCharLiteral(v)}`,
+      );
+    }
+    if (dto.serviceChargeRevenueShare !== undefined) {
+      sets.push(
+        `[ServiceChargeRevenueShare] = ${dto.serviceChargeRevenueShare == null ? 'NULL' : Number(dto.serviceChargeRevenueShare)}`,
+      );
+    }
+    if (dto.rebateAmount !== undefined) {
+      sets.push(
+        `[RebateAmount] = ${dto.rebateAmount == null ? 'NULL' : Number(dto.rebateAmount)}`,
+      );
+    }
+    if (dto.bumpAmount !== undefined) {
+      sets.push(
+        `[BumpAmount] = ${dto.bumpAmount == null ? 'NULL' : Number(dto.bumpAmount)}`,
+      );
+    }
+    if (dto.creditCardFeesType !== undefined) {
+      const v = this.normalizeTicketingPick(
+        dto.creditCardFeesType,
+        'Inside Service Charge',
+        'Budget Line Item',
+      );
+      sets.push(
+        `[CreditCardFeesType] = ${v == null ? 'NULL' : this.escapeSqlNVarCharLiteral(v)}`,
+      );
+    }
+    if (dto.creditCardFeesAmountPercent !== undefined) {
+      sets.push(
+        `[CreditCardFeesAmountPercent] = ${dto.creditCardFeesAmountPercent == null ? 'NULL' : Number(dto.creditCardFeesAmountPercent)}`,
+      );
+    }
+    if (dto.salesTaxType !== undefined) {
+      const v = this.normalizeTicketingPick(
+        dto.salesTaxType,
+        'Charged in Shopping Cart',
+        'Budget Line Item',
+      );
+      sets.push(`[SalesTaxType] = ${v == null ? 'NULL' : this.escapeSqlNVarCharLiteral(v)}`);
+    }
+    if (dto.salesTaxAmountPercent !== undefined) {
+      sets.push(
+        `[SalesTaxAmountPercent] = ${dto.salesTaxAmountPercent == null ? 'NULL' : Number(dto.salesTaxAmountPercent)}`,
+      );
+    }
+
+    if (!sets.length) return;
+    await this.dataSource.query(
+      `UPDATE dbo.PerformanceTicketing SET ${sets.join(', ')} WHERE [TicketingID] = ${tid}`,
+    );
+  }
+
+  private async mergeEngagementProductionTimesFromDb(
+    engagementId: number,
+    base: EngagementListRow,
+  ): Promise<EngagementListRow> {
+    if (!(await this.engagementProductionHasTimeColumns())) return base;
+    try {
+      const eid = Math.floor(Number(engagementId));
+      if (!Number.isFinite(eid) || eid < 1) return base;
+      const r = await this.dataSource.query(
+        `
+        SELECT TOP 1
+          CONVERT(varchar(8), ep.RehearsalTime, 108) AS rehearsalTime,
+          CONVERT(varchar(8), ep.LoadInTime, 108) AS loadInTime
+        FROM dbo.EngagementProduction ep
+        WHERE ep.EngagementID = ${eid}
+        ORDER BY ep.ProductionID DESC
+      `,
+      );
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      if (!row0) return base;
+      return {
+        ...base,
+        rehearsalTime: this.parseOpeningTimeOnly(pickRaw(row0, 'rehearsalTime')),
+        loadInTime: this.parseOpeningTimeOnly(pickRaw(row0, 'loadInTime')),
+      };
+    } catch {
+      return base;
+    }
+  }
+
+  private async tryPersistEngagementProductionTimes(
+    productionId: number | null | undefined,
+    dto: UpdateEngagementDto,
+  ): Promise<void> {
+    const pid = productionId == null ? NaN : Math.floor(Number(productionId));
+    if (!Number.isFinite(pid) || pid < 1) return;
+    if (!(await this.engagementProductionHasTimeColumns())) return;
+
+    const wantRehearsalTime = dto.rehearsalTime !== undefined;
+    const wantLoadInTime = dto.loadInTime !== undefined;
+    if (!wantRehearsalTime && !wantLoadInTime) return;
+
+    const rtSql =
+      wantRehearsalTime &&
+      (dto.rehearsalTime == null || String(dto.rehearsalTime).trim() === '')
+        ? 'NULL'
+        : wantRehearsalTime
+          ? this.escapeSqlNVarCharLiteral(
+              this.normalizeTime(String(dto.rehearsalTime)).slice(0, 8),
+            )
+          : null;
+    const ltSql =
+      wantLoadInTime &&
+      (dto.loadInTime == null || String(dto.loadInTime).trim() === '')
+        ? 'NULL'
+        : wantLoadInTime
+          ? this.escapeSqlNVarCharLiteral(
+              this.normalizeTime(String(dto.loadInTime)).slice(0, 8),
+            )
+          : null;
+    const sets: string[] = [];
+    if (wantRehearsalTime && rtSql != null) sets.push(`[RehearsalTime] = ${rtSql}`);
+    if (wantLoadInTime && ltSql != null) sets.push(`[LoadInTime] = ${ltSql}`);
+    if (!sets.length) return;
+    await this.dataSource.query(
+      `UPDATE dbo.EngagementProduction SET ${sets.join(', ')} WHERE [ProductionID] = ${pid}`,
+    );
+  }
+
+  private async enforceOpeningPerformancePublic(
+    engagementId: number,
+  ): Promise<void> {
+    const opening = await this.performanceRepo.findOne({
+      where: { engagementId },
+      order: {
+        performanceDate: 'ASC',
+        performanceTime: 'ASC',
+        performanceId: 'ASC',
+      },
+    });
+    if (!opening) return;
+    const isPublic = opening.performanceStatus.trim().toLowerCase() === 'public';
+    if (isPublic) return;
+    opening.performanceStatus = 'Public';
+    await this.performanceRepo.save(opening);
+  }
+
   private mapBit(
     v: boolean | number | Buffer | null | undefined,
   ): boolean | null {
@@ -832,6 +1595,157 @@ export class EngagementService {
     return this.upsertUrlLink(rawUrl, existingLinkId, 'Ticketing link');
   }
 
+  private toPercentOrNull(v: unknown): number | null {
+    if (v == null || v === '') return null;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0 || n > 100) return null;
+    return n;
+  }
+
+  private normalizeRoyaltyBasis(v: unknown): 'Net' | 'NAGBOR' | null {
+    const t = String(v ?? '').trim().toLowerCase();
+    if (!t) return null;
+    if (t === 'net' || t === 'based on net') return 'Net';
+    if (t === 'nagbor' || t === 'based on nagbor') return 'NAGBOR';
+    return null;
+  }
+
+  private parseArtistRoyaltyVariableFee(raw: string | null | undefined): {
+    ratePercent: number | null;
+    basedOn: 'Net' | 'NAGBOR' | null;
+  } {
+    const t = String(raw ?? '').trim();
+    if (!t) return { ratePercent: null, basedOn: null };
+
+    try {
+      const parsed = JSON.parse(t) as {
+        ratePercent?: unknown;
+        basedOn?: unknown;
+      };
+      if (parsed && typeof parsed === 'object') {
+        return {
+          ratePercent: this.toPercentOrNull(parsed.ratePercent),
+          basedOn: this.normalizeRoyaltyBasis(parsed.basedOn),
+        };
+      }
+    } catch {
+      // Not JSON; continue with tolerant legacy parsing.
+    }
+
+    const rateMatch = /(-?\d+(?:\.\d+)?)/.exec(t);
+    return {
+      ratePercent: rateMatch ? this.toPercentOrNull(rateMatch[1]) : null,
+      basedOn: this.normalizeRoyaltyBasis(t),
+    };
+  }
+
+  private parseArtistBackEndTerms(raw: string | null | undefined): {
+    versusPercent: number | null;
+    promoterProfitPercent: number | null;
+    artistBackendPercent: number | null;
+  } {
+    const t = String(raw ?? '').trim();
+    if (!t) {
+      return {
+        versusPercent: null,
+        promoterProfitPercent: null,
+        artistBackendPercent: null,
+      };
+    }
+
+    try {
+      const parsed = JSON.parse(t) as {
+        versusPercent?: unknown;
+        promoterProfitPercent?: unknown;
+        artistBackendPercent?: unknown;
+      };
+      if (parsed && typeof parsed === 'object') {
+        return {
+          versusPercent: this.toPercentOrNull(parsed.versusPercent),
+          promoterProfitPercent: this.toPercentOrNull(
+            parsed.promoterProfitPercent,
+          ),
+          artistBackendPercent: this.toPercentOrNull(parsed.artistBackendPercent),
+        };
+      }
+    } catch {
+      // Not JSON; continue with tolerant legacy parsing.
+    }
+
+    return {
+      versusPercent: null,
+      promoterProfitPercent: null,
+      artistBackendPercent: null,
+    };
+  }
+
+  private nextArtistRoyaltyVariableFee(
+    currentRaw: string | null | undefined,
+    dto: UpdateEngagementFinanceDto,
+  ): string | null {
+    const hasStructuredInput =
+      dto.artistRoyaltyRatePercent !== undefined ||
+      dto.artistRoyaltyBasedOn !== undefined;
+    if (!hasStructuredInput) {
+      const t = dto.artistRoyaltyVariableFee;
+      return t == null || t.trim() === '' ? null : t.trim().slice(0, 255);
+    }
+
+    const parsed = this.parseArtistRoyaltyVariableFee(currentRaw);
+    const ratePercent =
+      dto.artistRoyaltyRatePercent !== undefined
+        ? this.toPercentOrNull(dto.artistRoyaltyRatePercent)
+        : parsed.ratePercent;
+    const basedOn =
+      dto.artistRoyaltyBasedOn !== undefined
+        ? this.normalizeRoyaltyBasis(dto.artistRoyaltyBasedOn)
+        : parsed.basedOn;
+    if (ratePercent == null && basedOn == null) return null;
+    return JSON.stringify({ ratePercent, basedOn });
+  }
+
+  private nextArtistBackEndTerms(
+    currentRaw: string | null | undefined,
+    dto: UpdateEngagementFinanceDto,
+  ): string | null {
+    const hasStructuredInput =
+      dto.artistVersusPercent !== undefined ||
+      dto.artistPromoterProfitPercent !== undefined ||
+      dto.artistBackendPercent !== undefined;
+    if (!hasStructuredInput) {
+      const t = dto.artistBackEndTerms;
+      return t == null || t.trim() === '' ? null : t.trim();
+    }
+
+    const parsed = this.parseArtistBackEndTerms(currentRaw);
+    const versusPercent =
+      dto.artistVersusPercent !== undefined
+        ? this.toPercentOrNull(dto.artistVersusPercent)
+        : parsed.versusPercent;
+    const promoterProfitPercent =
+      dto.artistPromoterProfitPercent !== undefined
+        ? this.toPercentOrNull(dto.artistPromoterProfitPercent)
+        : parsed.promoterProfitPercent;
+    const artistBackendPercent =
+      dto.artistBackendPercent !== undefined
+        ? this.toPercentOrNull(dto.artistBackendPercent)
+        : parsed.artistBackendPercent;
+
+    if (
+      versusPercent == null &&
+      promoterProfitPercent == null &&
+      artistBackendPercent == null
+    ) {
+      return null;
+    }
+
+    return JSON.stringify({
+      versusPercent,
+      promoterProfitPercent,
+      artistBackendPercent,
+    });
+  }
+
   private settlementFinanceResponseSlice(
     settlementRow: SettlementFinance | null,
   ): Pick<
@@ -928,6 +1842,13 @@ export class EngagementService {
     const artistRoyaltyVariableFee =
       artistRow?.artistRoyaltyVariableFee ?? null;
     const artistBackEndTerms = artistRow?.artistBackEndTerms ?? null;
+    const parsedRoyalty = this.parseArtistRoyaltyVariableFee(
+      artistRoyaltyVariableFee,
+    );
+    const parsedBackEnd = this.parseArtistBackEndTerms(artistBackEndTerms);
+    const promoterProfitPercent = row
+      ? this.mapFinanceNumber(row.promoterProfit)
+      : null;
 
     if (!row) {
       return {
@@ -938,7 +1859,12 @@ export class EngagementService {
         estimatedBreakeven: null,
         grossPotential,
         sellableCapacity,
+        grossMarketingBudget: null,
+        netMarketingBudget: null,
+        salesRevenueGoal: null,
         promoterProfit: null,
+        venueDealType: null,
+        thirdPartyPartnerDealStructure: null,
         venueTerms: null,
         confirmationPacketApproved: null,
         iaeWaiverApplicationConfirmationNumber: null,
@@ -957,6 +1883,12 @@ export class EngagementService {
         artistMiddleMoney,
         artistRoyaltyVariableFee,
         artistBackEndTerms,
+        artistVersusPercent: parsedBackEnd.versusPercent,
+        artistPromoterProfitPercent:
+          promoterProfitPercent ?? parsedBackEnd.promoterProfitPercent,
+        artistBackendPercent: parsedBackEnd.artistBackendPercent,
+        artistRoyaltyRatePercent: parsedRoyalty.ratePercent,
+        artistRoyaltyBasedOn: parsedRoyalty.basedOn,
         ...this.settlementFinanceResponseSlice(settlementRow),
         finalAcceptedOfferLink: null,
         settlementFileSharePointLink: null,
@@ -970,7 +1902,12 @@ export class EngagementService {
       estimatedBreakeven: this.mapFinanceNumber(row.estimatedBreakeven),
       grossPotential,
       sellableCapacity,
+      grossMarketingBudget: null,
+      netMarketingBudget: null,
+      salesRevenueGoal: null,
       promoterProfit: this.mapFinanceNumber(row.promoterProfit),
+      venueDealType: null,
+      thirdPartyPartnerDealStructure: null,
       venueTerms: row.venueTerms,
       confirmationPacketApproved: this.mapBit(row.confirmationPacketApproved),
       iaeWaiverApplicationConfirmationNumber:
@@ -994,6 +1931,12 @@ export class EngagementService {
       artistMiddleMoney,
       artistRoyaltyVariableFee,
       artistBackEndTerms,
+      artistVersusPercent: parsedBackEnd.versusPercent,
+      artistPromoterProfitPercent:
+        promoterProfitPercent ?? parsedBackEnd.promoterProfitPercent,
+      artistBackendPercent: parsedBackEnd.artistBackendPercent,
+      artistRoyaltyRatePercent: parsedRoyalty.ratePercent,
+      artistRoyaltyBasedOn: parsedRoyalty.basedOn,
       ...this.settlementFinanceResponseSlice(settlementRow),
       finalAcceptedOfferLink: null,
       settlementFileSharePointLink: null,
@@ -1176,7 +2119,9 @@ export class EngagementService {
         return s || null;
       })(),
       rehearsalDate: this.parseOpeningDateOnly(g('rehearsalDate')),
+      rehearsalTime: null,
       loadInDate: this.parseOpeningDateOnly(g('loadInDate')),
+      loadInTime: null,
       displayTitle: buildEngagementDisplayTitle(
         attractionName,
         tourName,
@@ -1532,7 +2477,8 @@ export class EngagementService {
     const raw = await this.buildEngagementQuery(id).getRawOne();
     if (!raw)
       throw new NotFoundException({ message: `Engagement #${id} not found.` });
-    return this.mapRaw(raw as Record<string, unknown>);
+    const base = this.mapRaw(raw as Record<string, unknown>);
+    return this.mergeEngagementProductionTimesFromDb(id, base);
   }
 
   async getFinance(engagementId: number): Promise<EngagementFinanceRow> {
@@ -1577,7 +2523,18 @@ export class EngagementService {
       payableEntity,
     );
     if (!row?.financeId) return base;
-    return this.mergeFinanceSharePointLinksFromDb(row.financeId, base);
+    const withMarketingBudget = await this.mergeFinanceMarketingBudgetFromDb(
+      row.financeId,
+      base,
+    );
+    const withDealStructures = await this.mergeFinanceDealStructuresFromDb(
+      row.financeId,
+      withMarketingBudget,
+    );
+    return this.mergeFinanceSharePointLinksFromDb(
+      row.financeId,
+      withDealStructures,
+    );
   }
 
   /**
@@ -1926,9 +2883,15 @@ export class EngagementService {
       row.estimatedBreakeven =
         dto.estimatedBreakeven == null ? null : dto.estimatedBreakeven;
     }
-    if (dto.promoterProfit !== undefined) {
+    const promoterProfitPercentToPersist =
+      dto.promoterProfit !== undefined
+        ? dto.promoterProfit
+        : dto.artistPromoterProfitPercent;
+    if (promoterProfitPercentToPersist !== undefined) {
       row.promoterProfit =
-        dto.promoterProfit == null ? null : dto.promoterProfit;
+        promoterProfitPercentToPersist == null
+          ? null
+          : promoterProfitPercentToPersist;
     }
     if (dto.venueTerms !== undefined) {
       const t = dto.venueTerms;
@@ -1982,7 +2945,12 @@ export class EngagementService {
       dto.artistGuarantee !== undefined ||
       dto.artistMiddleMoney !== undefined ||
       dto.artistRoyaltyVariableFee !== undefined ||
-      dto.artistBackEndTerms !== undefined;
+      dto.artistBackEndTerms !== undefined ||
+      dto.artistRoyaltyRatePercent !== undefined ||
+      dto.artistRoyaltyBasedOn !== undefined ||
+      dto.artistVersusPercent !== undefined ||
+      dto.artistPromoterProfitPercent !== undefined ||
+      dto.artistBackendPercent !== undefined;
 
     if (touchesArtistMaster) {
       let afId = row.artistFinanceId;
@@ -2006,20 +2974,8 @@ export class EngagementService {
               : dto.artistMiddleMoney == null
                 ? null
                 : dto.artistMiddleMoney,
-          artistRoyaltyVariableFee:
-            dto.artistRoyaltyVariableFee === undefined
-              ? null
-              : dto.artistRoyaltyVariableFee == null ||
-                  dto.artistRoyaltyVariableFee.trim() === ''
-                ? null
-                : dto.artistRoyaltyVariableFee.trim().slice(0, 255),
-          artistBackEndTerms:
-            dto.artistBackEndTerms === undefined
-              ? null
-              : dto.artistBackEndTerms == null ||
-                  dto.artistBackEndTerms.trim() === ''
-                ? null
-                : dto.artistBackEndTerms.trim(),
+          artistRoyaltyVariableFee: this.nextArtistRoyaltyVariableFee(null, dto),
+          artistBackEndTerms: this.nextArtistBackEndTerms(null, dto),
         });
         const savedAf = await this.artistFinanceRepo.save(created);
         afId = savedAf.artistFinanceId;
@@ -2046,15 +3002,26 @@ export class EngagementService {
           af.artistMiddleMoney =
             dto.artistMiddleMoney == null ? null : dto.artistMiddleMoney;
         }
-        if (dto.artistRoyaltyVariableFee !== undefined) {
-          const t = dto.artistRoyaltyVariableFee;
-          af.artistRoyaltyVariableFee =
-            t == null || t.trim() === '' ? null : t.trim().slice(0, 255);
+        if (
+          dto.artistRoyaltyVariableFee !== undefined ||
+          dto.artistRoyaltyRatePercent !== undefined ||
+          dto.artistRoyaltyBasedOn !== undefined
+        ) {
+          af.artistRoyaltyVariableFee = this.nextArtistRoyaltyVariableFee(
+            af.artistRoyaltyVariableFee,
+            dto,
+          );
         }
-        if (dto.artistBackEndTerms !== undefined) {
-          const t = dto.artistBackEndTerms;
-          af.artistBackEndTerms =
-            t == null || t.trim() === '' ? null : t.trim();
+        if (
+          dto.artistBackEndTerms !== undefined ||
+          dto.artistVersusPercent !== undefined ||
+          dto.artistPromoterProfitPercent !== undefined ||
+          dto.artistBackendPercent !== undefined
+        ) {
+          af.artistBackEndTerms = this.nextArtistBackEndTerms(
+            af.artistBackEndTerms,
+            dto,
+          );
         }
         await this.artistFinanceRepo.save(af);
       }
@@ -2266,6 +3233,8 @@ export class EngagementService {
     }
 
     await this.engagementFinancesRepo.save(row);
+    await this.tryPersistFinanceMarketingBudget(row.financeId, dto);
+    await this.tryPersistFinanceDealStructures(row.financeId, dto);
     await this.tryPersistFinanceSharePointLinks(row.financeId, dto);
   }
 
@@ -2413,7 +3382,12 @@ export class EngagementService {
       });
     }
 
-    if (dto.rehearsalDate !== undefined || dto.loadInDate !== undefined) {
+    if (
+      dto.rehearsalDate !== undefined ||
+      dto.loadInDate !== undefined ||
+      dto.rehearsalTime !== undefined ||
+      dto.loadInTime !== undefined
+    ) {
       const rows = await this.engagementProductionRepo.find({
         where: { engagementId: id },
         order: { productionId: 'DESC' },
@@ -2439,7 +3413,8 @@ export class EngagementService {
             ? null
             : this.assertYmdOrNull(dto.loadInDate);
       }
-      await this.engagementProductionRepo.save(prod);
+      const savedProd = await this.engagementProductionRepo.save(prod);
+      await this.tryPersistEngagementProductionTimes(savedProd.productionId, dto);
     }
   }
 
@@ -3159,6 +4134,21 @@ export class EngagementService {
         totalComps: null,
         totalTickets: null,
         totalAdmissions: null,
+        sellableCapacity: null,
+        grossPotentialRevenue: null,
+        ticketingSystemCompanyId: null,
+        ticketingAdministrator: null,
+        boxOfficeLaborStaffingRequired: null,
+        facilityFeeType: null,
+        facilityFeeAmount: null,
+        dynamicPricingMode: null,
+        serviceChargeRevenueShare: null,
+        rebateAmount: null,
+        bumpAmount: null,
+        creditCardFeesType: null,
+        creditCardFeesAmountPercent: null,
+        salesTaxType: null,
+        salesTaxAmountPercent: null,
       };
     }
     const ticketingLink =
@@ -3167,7 +4157,7 @@ export class EngagementService {
             where: { linkId: row.ticketingLinkId },
           })
         : null;
-    return {
+    const base: PerformanceTicketingRow = {
       ticketingId: row.ticketingId,
       performanceId,
       ticketingStatus: row.ticketingStatus,
@@ -3182,7 +4172,23 @@ export class EngagementService {
       totalComps: row.totalComps,
       totalTickets: row.totalTickets,
       totalAdmissions: row.totalAdmissions,
+      sellableCapacity: null,
+      grossPotentialRevenue: null,
+      ticketingSystemCompanyId: null,
+      ticketingAdministrator: null,
+      boxOfficeLaborStaffingRequired: null,
+      facilityFeeType: null,
+      facilityFeeAmount: null,
+      dynamicPricingMode: null,
+      serviceChargeRevenueShare: null,
+      rebateAmount: null,
+      bumpAmount: null,
+      creditCardFeesType: null,
+      creditCardFeesAmountPercent: null,
+      salesTaxType: null,
+      salesTaxAmountPercent: null,
     };
+    return this.mergePerformanceTicketingAdvancedFromDb(row.ticketingId, base);
   }
 
   async upsertPerformanceTicketing(
@@ -3268,7 +4274,8 @@ export class EngagementService {
       row.totalAdmissions = dto.totalAdmissions;
     }
 
-    await this.performanceTicketingRepo.save(row);
+    const saved = await this.performanceTicketingRepo.save(row);
+    await this.tryPersistPerformanceTicketingAdvanced(saved.ticketingId, dto);
   }
 
   async createPerformance(
@@ -3300,6 +4307,7 @@ export class EngagementService {
     });
 
     const saved = await this.performanceRepo.save(row);
+    await this.enforceOpeningPerformancePublic(engagementId);
     return { performanceId: saved.performanceId };
   }
 
@@ -3348,6 +4356,7 @@ export class EngagementService {
     );
 
     await this.performanceRepo.save(perf);
+    await this.enforceOpeningPerformancePublic(engagementId);
   }
 
   async deletePerformance(
@@ -3380,5 +4389,6 @@ export class EngagementService {
       await manager.delete(TicketingSales, { performanceId });
       await manager.delete(Performance, { performanceId, engagementId });
     });
+    await this.enforceOpeningPerformancePublic(engagementId);
   }
 }

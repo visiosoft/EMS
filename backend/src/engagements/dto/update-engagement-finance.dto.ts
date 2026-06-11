@@ -60,7 +60,41 @@ export class UpdateEngagementFinanceDto {
   @IsOptional()
   @Transform(({ value }) => toOptionalNumber(value))
   @IsNumber({ maxDecimalPlaces: 2 })
+  grossMarketingBudget?: number | null;
+
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  netMarketingBudget?: number | null;
+
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  salesRevenueGoal?: number | null;
+
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
   promoterProfit?: number | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  venueDealType?:
+    | 'Rental'
+    | 'CoPro'
+    | '3rd Party Renting Venue'
+    | 'Silent CoPro with Venue'
+    | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  thirdPartyPartnerDealStructure?:
+    | 'CoPro with 3rd Party'
+    | 'CoPro with 3rd Party, 3rd Party Renting Venue'
+    | 'Silent CoPro with 3rd Party, 3rd Party Renting Venue'
+    | null;
 
   @IsOptional()
   @IsString()
@@ -148,8 +182,41 @@ export class UpdateEngagementFinanceDto {
   artistRoyaltyVariableFee?: string | null;
 
   @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  artistRoyaltyRatePercent?: number | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  artistRoyaltyBasedOn?: 'Net' | 'NAGBOR' | null;
+
+  @IsOptional()
   @IsString()
   artistBackEndTerms?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  artistVersusPercent?: number | null;
+
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  artistPromoterProfitPercent?: number | null;
+
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  artistBackendPercent?: number | null;
 
   @IsOptional()
   @IsString()

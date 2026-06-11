@@ -37,7 +37,9 @@ export interface ApiEngagementListRow {
   entertainmentComplexNames: string | null;
   /** dbo.EngagementProduction (latest row by ProductionID) */
   rehearsalDate: string | null;
+  rehearsalTime: string | null;
   loadInDate: string | null;
+  loadInTime: string | null;
   displayTitle: string;
   appCreated: boolean;
 }
@@ -92,7 +94,9 @@ export interface UpdateEngagementPayload {
   sellableCapacity?: number | null;
   grossPotential?: number | null;
   rehearsalDate?: string | null;
+  rehearsalTime?: string | null;
   loadInDate?: string | null;
+  loadInTime?: string | null;
 }
 
 /** dbo.EngagementFinances — one row per engagement (GET returns nulls for missing row / empty fields) */
@@ -104,7 +108,21 @@ export interface ApiEngagementFinanceRow {
   estimatedBreakeven: number | null;
   grossPotential: number | null;
   sellableCapacity: number | null;
+  grossMarketingBudget: number | null;
+  netMarketingBudget: number | null;
+  salesRevenueGoal: number | null;
   promoterProfit: number | null;
+  venueDealType:
+    | 'Rental'
+    | 'CoPro'
+    | '3rd Party Renting Venue'
+    | 'Silent CoPro with Venue'
+    | null;
+  thirdPartyPartnerDealStructure:
+    | 'CoPro with 3rd Party'
+    | 'CoPro with 3rd Party, 3rd Party Renting Venue'
+    | 'Silent CoPro with 3rd Party, 3rd Party Renting Venue'
+    | null;
   venueTerms: string | null;
   confirmationPacketApproved: boolean | null;
   iaeWaiverApplicationConfirmationNumber: string | null;
@@ -138,6 +156,11 @@ export interface ApiEngagementFinanceRow {
   artistMiddleMoney: number | null;
   artistRoyaltyVariableFee: string | null;
   artistBackEndTerms: string | null;
+  artistVersusPercent: number | null;
+  artistPromoterProfitPercent: number | null;
+  artistBackendPercent: number | null;
+  artistRoyaltyRatePercent: number | null;
+  artistRoyaltyBasedOn: 'Net' | 'NAGBOR' | null;
   /** dbo.EngagementFinances (optional columns) */
   finalAcceptedOfferLink: string | null;
   settlementFileSharePointLink: string | null;
@@ -147,7 +170,21 @@ export type UpdateEngagementFinancePayload = {
   estimatedBreakeven?: number | null;
   sellableCapacity?: number | null;
   grossPotential?: number | null;
+  grossMarketingBudget?: number | null;
+  netMarketingBudget?: number | null;
+  salesRevenueGoal?: number | null;
   promoterProfit?: number | null;
+  venueDealType?:
+    | 'Rental'
+    | 'CoPro'
+    | '3rd Party Renting Venue'
+    | 'Silent CoPro with Venue'
+    | null;
+  thirdPartyPartnerDealStructure?:
+    | 'CoPro with 3rd Party'
+    | 'CoPro with 3rd Party, 3rd Party Renting Venue'
+    | 'Silent CoPro with 3rd Party, 3rd Party Renting Venue'
+    | null;
   venueTerms?: string | null;
   confirmationPacketApproved?: boolean | null;
   iaeWaiverApplicationConfirmationNumber?: string | null;
@@ -179,6 +216,11 @@ export type UpdateEngagementFinancePayload = {
   artistMiddleMoney?: number | null;
   artistRoyaltyVariableFee?: string | null;
   artistBackEndTerms?: string | null;
+  artistVersusPercent?: number | null;
+  artistPromoterProfitPercent?: number | null;
+  artistBackendPercent?: number | null;
+  artistRoyaltyRatePercent?: number | null;
+  artistRoyaltyBasedOn?: 'Net' | 'NAGBOR' | null;
   finalAcceptedOfferLink?: string | null;
   settlementFileSharePointLink?: string | null;
 };
@@ -233,6 +275,21 @@ export interface ApiPerformanceTicketingRow {
   totalComps: number | null;
   totalTickets: number | null;
   totalAdmissions: number | null;
+  sellableCapacity: number | null;
+  grossPotentialRevenue: number | null;
+  ticketingSystemCompanyId: number | null;
+  ticketingAdministrator: 'Venue' | 'Partner' | 'IAE Contract' | null;
+  boxOfficeLaborStaffingRequired: boolean | null;
+  facilityFeeType: 'Inside Face Value' | 'Outside Face Value' | null;
+  facilityFeeAmount: number | null;
+  dynamicPricingMode: 'Self Managed' | '3rd Party Managed' | null;
+  serviceChargeRevenueShare: number | null;
+  rebateAmount: number | null;
+  bumpAmount: number | null;
+  creditCardFeesType: 'Inside Service Charge' | 'Budget Line Item' | null;
+  creditCardFeesAmountPercent: number | null;
+  salesTaxType: 'Charged in Shopping Cart' | 'Budget Line Item' | null;
+  salesTaxAmountPercent: number | null;
 }
 
 export type UpdatePerformanceTicketingPayload = {
@@ -248,6 +305,21 @@ export type UpdatePerformanceTicketingPayload = {
   totalComps?: number | null;
   totalTickets?: number | null;
   totalAdmissions?: number | null;
+  sellableCapacity?: number | null;
+  grossPotentialRevenue?: number | null;
+  ticketingSystemCompanyId?: number | null;
+  ticketingAdministrator?: 'Venue' | 'Partner' | 'IAE Contract' | null;
+  boxOfficeLaborStaffingRequired?: boolean | null;
+  facilityFeeType?: 'Inside Face Value' | 'Outside Face Value' | null;
+  facilityFeeAmount?: number | null;
+  dynamicPricingMode?: 'Self Managed' | '3rd Party Managed' | null;
+  serviceChargeRevenueShare?: number | null;
+  rebateAmount?: number | null;
+  bumpAmount?: number | null;
+  creditCardFeesType?: 'Inside Service Charge' | 'Budget Line Item' | null;
+  creditCardFeesAmountPercent?: number | null;
+  salesTaxType?: 'Charged in Shopping Cart' | 'Budget Line Item' | null;
+  salesTaxAmountPercent?: number | null;
 };
 
 export type UpdateNonResidentWithholdingLinksPayload = {
