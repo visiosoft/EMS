@@ -368,7 +368,7 @@ export function EmployeeHandbookPage() {
         {/* ── Left: cover / branding ── */}
         <div className="flex flex-col justify-between lg:sticky lg:top-16 lg:h-[calc(100vh-8rem)] lg:w-[420px] lg:shrink-0">
           <div>
-            <div className="flex items-center gap-3 text-[9px] font-medium uppercase tracking-[0.25em] text-white/25">
+            <div className="flex items-center gap-3 text-[9px] font-medium uppercase tracking-[0.25em] text-white/50">
               <span className="inline-block h-2 w-2 rounded-full bg-white/40" />
               Edition 01 · 2026
             </div>
@@ -416,7 +416,7 @@ export function EmployeeHandbookPage() {
                     <span className="flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.06] text-[10px] font-medium text-white/30 transition-colors group-hover:border-white/20 group-hover:text-white/60">
                       {String(i + 1).padStart(2, "0")}
                     </span>
-                    <Icon className="h-[18px] w-[18px] shrink-0 text-white/25 transition-colors group-hover:text-white/50" strokeWidth={1.5} aria-hidden />
+                    <Icon className="h-[18px] w-[18px] shrink-0 text-white/50 transition-colors group-hover:text-white/50" strokeWidth={1.5} aria-hidden />
                     <span className="leading-tight">{section.title}</span>
                   </button>
                 );
@@ -565,7 +565,11 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
     return result;
   }, [isIndex, section, handbookData, contentHeight]);
 
-  const currentChapterIdx = bookPages[currentPage]?.chapterIdx ?? -1;
+  const currentPageInfo = bookPages[currentPage];
+  const currentChapterIdx = currentPageInfo?.chapterIdx ?? -1;
+  const headerLabel = currentPageInfo?.chapterTitle
+    ? `Ch. ${currentPageInfo.chapterNumber} · ${currentPageInfo.chapterTitle}`
+    : navLabel;
 
   const chapterSubsections = useMemo(() => {
     if (currentChapterIdx < 0) return [];
@@ -621,12 +625,12 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
                 A comprehensive guide to how we work, build, and care for the people at Innovation Arts Entertainment.
               </p>
             </div>
-            <div className="flex items-end justify-between text-[9px] font-medium uppercase tracking-[0.25em] text-white/25">
+            <div className="flex items-end justify-between text-[9px] font-medium uppercase tracking-[0.25em] text-white/50">
               <span>Innovation Arts Entertainment</span>
               <span>No. 001</span>
             </div>
           </div>
-          <div className={`flex shrink-0 items-center justify-between border-t px-5 py-2 ${ink ? "border-white/[0.06] text-white/25" : "border-neutral-100 text-neutral-300"}`}>
+          <div className={`flex shrink-0 items-center justify-between border-t px-5 py-2 ${ink ? "border-white/[0.06] text-white/50" : "border-black-100 text-black-300"}`}>
             <span className="text-[8px] font-medium uppercase tracking-[0.2em]">iAE Employee Handbook</span>
             <span className="text-[8px] font-medium uppercase tracking-[0.2em]">{String(pageNumber).padStart(3, "0")} / {String(totalPages).padStart(3, "0")}</span>
           </div>
@@ -648,20 +652,20 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
                   <button
                     key={sec.number}
                     type="button"
-                    onClick={() => bookRef.current?.flip(Math.min(sec.pageIndex + 1, totalPages - 1))}
-                    className="group flex h-[44px] w-full items-center gap-3 border-t border-neutral-200 px-0 text-left text-[12px] text-neutral-500 transition-colors hover:text-neutral-900 focus-visible:outline-none"
+                    onClick={() => bookRef.current?.flip(Math.min(sec.pageIndex, totalPages - 1))}
+                    className="group flex h-[44px] w-full items-center gap-3 border-t border-neutral-200 px-0 text-left text-[12px] text-black-500 transition-colors hover:text-neutral-900 focus-visible:outline-none"
                   >
-                    <span className="w-5 text-[10px] font-medium text-neutral-300 group-hover:text-neutral-500">
+                    <span className="w-5 text-[10px] font-medium text-black-300 group-hover:text-neutral-500">
                       {String(sec.number).padStart(2, "0")}
                     </span>
-                    <Icon className="size-[16px] shrink-0 text-neutral-300 transition-colors group-hover:text-neutral-500" strokeWidth={1.5} aria-hidden />
+                    <Icon className="size-[16px] shrink-0 text-black-300 transition-colors group-hover:text-neutral-500" strokeWidth={1.5} aria-hidden />
                     <span className="leading-tight">{sec.title}</span>
                   </button>
                 );
               })}
             </nav>
           </div>
-          <div className="flex shrink-0 items-center justify-between border-t border-neutral-100 px-5 py-2 text-neutral-300">
+          <div className="flex shrink-0 items-center justify-between border-t border-black-100 px-5 py-2 text-black-300">
             <span className="text-[8px] font-medium uppercase tracking-[0.2em]">iAE Employee Handbook</span>
             <span className="text-[8px] font-medium uppercase tracking-[0.2em]">{String(pageNumber).padStart(3, "0")} / {String(totalPages).padStart(3, "0")}</span>
           </div>
@@ -682,7 +686,7 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
               Innovation Arts Entertainment · 2026
             </div>
           </div>
-          <div className="flex shrink-0 items-center justify-between border-t border-white/[0.06] px-5 py-2 text-white/25">
+          <div className="flex shrink-0 items-center justify-between border-t border-white/[0.06] px-5 py-2 text-white/50">
             <span className="text-[8px] font-medium uppercase tracking-[0.2em]">iAE Employee Handbook</span>
             <span className="text-[8px] font-medium uppercase tracking-[0.2em]">{String(pageNumber).padStart(3, "0")} / {String(totalPages).padStart(3, "0")}</span>
           </div>
@@ -706,7 +710,7 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
             </div>
             <div className="text-[9px] font-medium uppercase tracking-[0.25em] opacity-60">Continue →</div>
           </div>
-          <div className={`flex shrink-0 items-center justify-between border-t px-5 py-2 ${ink ? "border-white/[0.06] text-white/25" : "border-neutral-100 text-neutral-300"}`}>
+          <div className={`flex shrink-0 items-center justify-between border-t px-5 py-2 ${ink ? "border-white/[0.06] text-white/50" : "border-black-100 text-black-300"}`}>
             <span className="text-[8px] font-medium uppercase tracking-[0.2em]">iAE Employee Handbook</span>
             <span className="text-[8px] font-medium uppercase tracking-[0.2em]">{String(pageNumber).padStart(3, "0")} / {String(totalPages).padStart(3, "0")}</span>
           </div>
@@ -739,7 +743,7 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
             {page.blocks?.map((block, i) => renderContentBlock(block, i))}
           </div>
         </div>
-        <div className={`flex shrink-0 items-center justify-between border-t px-5 py-2 ${ink ? "border-white/[0.06] text-white/25" : "border-neutral-100 text-neutral-300"}`}>
+        <div className={`flex shrink-0 items-center justify-between border-t px-5 py-2 ${ink ? "border-white/[0.06] text-white/50" : "border-black-100 text-black-300"}`}>
           <span className="text-[8px] font-medium uppercase tracking-[0.2em]">iAE Employee Handbook</span>
           <span className="text-[8px] font-medium uppercase tracking-[0.2em]">{String(pageNumber).padStart(3, "0")} / {String(totalPages).padStart(3, "0")}</span>
         </div>
@@ -754,16 +758,16 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
         <button
           type="button"
           onClick={() => openEmployeeHandbook("services")}
-          className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.15em] text-white/30 transition-colors hover:text-white/60"
+          className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.15em] text-white/100 transition-colors hover:text-white/60"
         >
           <X className="size-3.5" strokeWidth={2} />
           Close
         </button>
-        <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-white/20">
-          {navLabel}
+        <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-white/100">
+          {headerLabel}
         </span>
         <div className="flex items-center gap-2">
-          <span className="inline-block h-1.5 w-1.5 rounded-full bg-white/30" />
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-white text-white/100" />
         </div>
       </div>
 
@@ -839,7 +843,7 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
                 )}
                 renderPageNumber={(current, total) => (
                   <div className="pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2">
-                    <span className="rounded-full bg-neutral-950/80 px-3 py-0.5 text-[10px] font-medium text-white/30 backdrop-blur-sm">
+                    <span className="rounded-full bg-white/90 px-3 py-0.5 text-[10px] font-medium text-black backdrop-blur-sm">
                       {current + 1} / {total}
                     </span>
                   </div>
@@ -858,7 +862,7 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
               <button
                 type="button"
                 onClick={() => bookRef.current?.flip(0)}
-                className="flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.08] bg-neutral-950/70 text-white/40 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.50] bg-neutral-950/70 text-white/80 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
                 title="Go to cover"
               >
                 <BookOpen className="size-3.5" strokeWidth={1.5} />
@@ -871,7 +875,7 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
                       key={sub.label}
                       type="button"
                       onClick={() => bookRef.current?.flip(sub.pageIndex)}
-                      className="flex h-6 items-center justify-center rounded-full border border-white/[0.08] bg-neutral-950/70 px-2 text-[8px] font-medium uppercase tracking-[0.1em] text-white/35 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
+                      className="flex h-6 items-center justify-center rounded-full border border-white/[0.50] bg-neutral-950/70 px-2 text-[8px] font-medium uppercase tracking-[0.1em] text-white/70 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
                       title={sub.label}
                     >
                       {sub.label}
@@ -890,7 +894,7 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
           <button
             type="button"
             onClick={() => bookRef.current?.flip(0)}
-            className="flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.08] bg-neutral-950/70 text-white/40 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.50] bg-neutral-950/70 text-white/80 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
             title="Go to cover"
           >
             <BookOpen className="size-3.5" strokeWidth={1.5} />
@@ -903,7 +907,7 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
                   key={sub.label}
                   type="button"
                   onClick={() => bookRef.current?.flip(sub.pageIndex)}
-                  className="flex h-6 items-center justify-center rounded-full border border-white/[0.08] bg-neutral-950/70 px-2.5 text-[8px] font-medium uppercase tracking-[0.1em] text-white/35 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
+                  className="flex h-6 items-center justify-center rounded-full border border-white/[0.50] bg-neutral-950/70 px-2.5 text-[8px] font-medium uppercase tracking-[0.1em] text-white/70 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
                   title={sub.label}
                 >
                   {sub.label}
@@ -917,16 +921,16 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
       {/* Progress bar */}
       {showFlipbook && (
         <div className="flex h-9 shrink-0 items-center gap-3 border-t border-white/[0.04] bg-neutral-950/80 px-4 backdrop-blur-md sm:px-6">
-          <span className="text-[9px] font-medium uppercase tracking-[0.2em] text-white/20 shrink-0">
+          <span className="text-[9px] font-medium uppercase tracking-[0.2em] text-white/80 shrink-0">
             Progress
           </span>
           <div className="relative flex-1 h-px bg-white/[0.06] overflow-hidden">
             <div
-              className="absolute left-0 top-0 h-full bg-white/30 transition-[width] duration-500 ease-out"
+              className="absolute left-0 top-0 h-full bg-white/60 transition-[width] duration-500 ease-out"
               style={{ width: `${totalPages ? ((currentPage + 1) / totalPages) * 100 : 0}%` }}
             />
           </div>
-          <span className="text-[9px] font-medium uppercase tracking-[0.2em] text-white/20 shrink-0">
+          <span className="text-[9px] font-medium uppercase tracking-[0.2em] text-white/80 shrink-0">
             &larr; &rarr; to turn
           </span>
         </div>
