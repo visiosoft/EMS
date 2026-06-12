@@ -5607,6 +5607,7 @@ function EngagementEventBusinessPanel({
   const [venueSettlementContactId, setVenueSettlementContactId] = useState('');
 
   // ── Settlement Files ──────────────────────────────────────────────────────
+  const [tourSettlementFileSharePointLink, setTourSettlementFileSharePointLink] = useState('');
   const [venueSettlementFileSharePointLink, setVenueSettlementFileSharePointLink] = useState('');
   const [partnerSettlementFileSharePointLink, setPartnerSettlementFileSharePointLink] = useState('');
 
@@ -5672,6 +5673,7 @@ function EngagementEventBusinessPanel({
     setEventBusinessManagerContactId(d.eventBusinessManagerContactId == null ? '' : String(d.eventBusinessManagerContactId));
     setEventBusinessAssistantManagerContactId(d.eventBusinessAssistantManagerContactId == null ? '' : String(d.eventBusinessAssistantManagerContactId));
     setVenueSettlementContactId(d.venueSettlementContactId == null ? '' : String(d.venueSettlementContactId));
+    setTourSettlementFileSharePointLink(d.settlementFileSharePointLink ?? '');
     setVenueSettlementFileSharePointLink(d.venueSettlementFileSharePointLink ?? '');
     setPartnerSettlementFileSharePointLink(d.partnerSettlementFileSharePointLink ?? '');
     setArtistDepositRequired(d.artistDepositRequired == null ? '' : d.artistDepositRequired ? 'Yes' : 'No');
@@ -5740,6 +5742,7 @@ function EngagementEventBusinessPanel({
   const handleSave = () => {
     // URL validation
     const urlFields: [string, string][] = [
+      ['Tour Settlement File link', tourSettlementFileSharePointLink],
       ['Venue Settlement File link', venueSettlementFileSharePointLink],
       ['Partner Settlement File link', partnerSettlementFileSharePointLink],
       ['FEX Performance Agreement link', artistFexPerformanceAgreementLink],
@@ -5790,6 +5793,7 @@ function EngagementEventBusinessPanel({
       eventBusinessManagerContactId: fkIdStringToNumber(eventBusinessManagerContactId),
       eventBusinessAssistantManagerContactId: fkIdStringToNumber(eventBusinessAssistantManagerContactId),
       venueSettlementContactId: fkIdStringToNumber(venueSettlementContactId),
+      settlementFileSharePointLink: trimOrNull(tourSettlementFileSharePointLink, 2048),
       venueSettlementFileSharePointLink: trimOrNull(venueSettlementFileSharePointLink, 2048),
       partnerSettlementFileSharePointLink: trimOrNull(partnerSettlementFileSharePointLink, 2048),
       artistDepositRequired: yesNoToBool(artistDepositRequired),
@@ -5943,9 +5947,11 @@ function EngagementEventBusinessPanel({
         {/* ── Settlement Files ─────────────────────────────────────── */}
         {sectionHeader('Settlement Files')}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {d?.settlementFileSharePointLink
-            ? fieldRow('Tour Settlement File', <a href={d.settlementFileSharePointLink} target="_blank" rel="noopener noreferrer" className="text-sm text-ems-accent underline break-all">{d.settlementFileSharePointLink}</a>)
-            : fieldRow('Tour Settlement File', <span className="text-sm text-text-muted italic">Set on Finance tab</span>)}
+          {fieldRow('Tour Settlement File (SharePoint)',
+            <input className={inputCls} value={tourSettlementFileSharePointLink} maxLength={2048}
+              placeholder="https://..."
+              onChange={(e) => { markEventBusinessUserEdited(); setTourSettlementFileSharePointLink(e.target.value); }}
+              disabled={disabled} />)}
           {fieldRow('Venue Settlement File (SharePoint)',
             <input className={inputCls} value={venueSettlementFileSharePointLink} maxLength={2048}
               placeholder="https://..."
@@ -6173,8 +6179,7 @@ function EngagementEventBusinessPanel({
         {/* ── Finance ──────────────────────────────────────────────── */}
         {sectionHeader('Finance')}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow('Customer', <span className="text-sm text-text-primary">{d?.payableEntityCompanyName ?? '—'}<span className="text-xs text-text-muted ml-2">(set on Finance tab)</span></span>)}
-          {fieldRow('Customer (QuickBooks)',
+          {fieldRow('Customer',
             <input className={inputCls} value={financeCustomer} maxLength={255}
               onChange={(e) => { markEventBusinessUserEdited(); setFinanceCustomer(e.target.value); }}
               disabled={disabled} />)}
