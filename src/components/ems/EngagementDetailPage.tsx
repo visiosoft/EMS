@@ -6169,12 +6169,6 @@ function EngagementEventBusinessPanel({
           {fieldRow('Reimbursibles ($)',
             moneyInput(compensationReimbursibles, (v) => { markEventBusinessUserEdited(); setCompensationReimbursibles(v); }, 'eb-comp-reimb'))}
         </div>
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow('Artist Gross Taxable Compensation ($)',
-            moneyInput(artistGrossTaxableCompensation, (v) => { markEventBusinessUserEdited(); setArtistGrossTaxableCompensation(v); }, 'eb-artist-gross'))}
-          {fieldRow('Amount Due to Dept of Revenue ($)',
-            moneyInput(amountDueToDeptOfRevenue, (v) => { markEventBusinessUserEdited(); setAmountDueToDeptOfRevenue(v); }, 'eb-dept-revenue'))}
-        </div>
 
         {/* ── Finance ──────────────────────────────────────────────── */}
         {sectionHeader('Finance')}
@@ -7450,28 +7444,33 @@ function EngagementMarketingPanel({
             <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Add Retail Partner</p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {fieldRow(
+                'Company Type',
+                <Select2
+                  options={[
+                    { value: '', label: 'Select type…' },
+                    ...((companyTypesQuery.data?.companyTypes ?? []).map((ct) => ({ value: String(ct.companyTypeId), label: ct.companyTypeName }))),
+                  ]}
+                  value={newRetailPartnerCompanyTypeId}
+                  onChange={(v) => {
+                    setNewRetailPartnerCompanyTypeId(v);
+                    setNewRetailPartnerCompanyId('');
+                    setNewRetailPartnerContactId('');
+                  }}
+                  placeholder="Select type…"
+                  allowClear
+                />,
+              )}
+              {fieldRow(
                 'Company',
                 <Select2
-                  options={[{ value: '', label: 'Select company…' }, ...(ticketingCompaniesQuery.data?.data ?? []).map(companyToSelect2Option)]}
+                  options={[{ value: '', label: newRetailPartnerCompanyTypeId ? 'Select company…' : 'Select type first…' }, ...(ticketingCompaniesQuery.data?.data ?? []).filter((c) => !newRetailPartnerCompanyTypeId || (c.companyTypeIds ?? []).includes(Number(newRetailPartnerCompanyTypeId))).map(companyToSelect2Option)]}
                   value={newRetailPartnerCompanyId}
                   onChange={(v) => {
                     setNewRetailPartnerCompanyId(v);
                     setNewRetailPartnerContactId('');
                   }}
-                  placeholder="Search company…"
-                  allowClear
-                />,
-              )}
-              {fieldRow(
-                'Company Type',
-                <Select2
-                  options={[
-                    { value: '', label: 'Not set' },
-                    ...((companyTypesQuery.data?.companyTypes ?? []).map((ct) => ({ value: String(ct.companyTypeId), label: ct.companyTypeName }))),
-                  ]}
-                  value={newRetailPartnerCompanyTypeId}
-                  onChange={setNewRetailPartnerCompanyTypeId}
-                  placeholder="Select type…"
+                  placeholder={newRetailPartnerCompanyTypeId ? 'Select company…' : 'Select type first…'}
+                  disabled={!newRetailPartnerCompanyTypeId}
                   allowClear
                 />,
               )}
