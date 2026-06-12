@@ -17,7 +17,6 @@ import {
 } from 'lucide-react';
 import { fetchDailySales, fetchDailySalesByPerformance, fetchDailySalesByPerformanceSuggestions, type ApiDailySalesRow, type ApiPerformanceSalesRow, type SuggestionItem } from '@/api/dailySalesApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
-import { companyToSelect2Options } from './companySelectOptions';
 import { Select2 } from './Select2';
 import { PAGE_SIZE, PAGE_SIZE_ALL, type PageSizeOption, isAllPageSize, toPageSize } from '@/lib/serverPagination';
 import { PageSizeSelect } from './PageSizeSelect';
@@ -530,7 +529,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   const [customEndDate, setCustomEndDate] = useState(today);
   const [appliedCustomStartDate, setAppliedCustomStartDate] = useState(today);
   const [appliedCustomEndDate, setAppliedCustomEndDate] = useState(today);
-  const [attractionFilter, setAttractionFilter] = useState(''), [genreFilter, setGenreFilter] = useState(''), [tourFilter, setTourFilter] = useState(''), [companyFilter, setCompanyFilter] = useState(''), [venueFilter, setVenueFilter] = useState(''), [contactFilter, setContactFilter] = useState(''), [searchInput, setSearchInput] = useState('');
+  const [attractionFilter, setAttractionFilter] = useState(''), [genreFilter, setGenreFilter] = useState(''), [tourFilter, setTourFilter] = useState(''), [venueFilter, setVenueFilter] = useState(''), [searchInput, setSearchInput] = useState('');
   const [activeSearch, setActiveSearch] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
@@ -557,12 +556,10 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
     attractionFilter,
     genreFilter,
     tourFilter,
-    companyFilter,
     venueFilter,
-    contactFilter,
     activeSearch.trim(),
   ].filter(Boolean).length;
-  const reset = () => { setAttractionFilter(''); setGenreFilter(''); setTourFilter(''); setCompanyFilter(''); setVenueFilter(''); setContactFilter(''); setSearchInput(''); setActiveSearch(''); setEventDateScope('upcoming'); setAppliedEventDateScope('upcoming'); setCustomStartDate(today); setCustomEndDate(today); setAppliedCustomStartDate(today); setAppliedCustomEndDate(today); setPage(1); };
+  const reset = () => { setAttractionFilter(''); setGenreFilter(''); setTourFilter(''); setVenueFilter(''); setSearchInput(''); setActiveSearch(''); setEventDateScope('upcoming'); setAppliedEventDateScope('upcoming'); setCustomStartDate(today); setCustomEndDate(today); setAppliedCustomStartDate(today); setAppliedCustomEndDate(today); setPage(1); };
 
   const handleEventDateScopeChange = (value: string) => {
     const next = (value || 'upcoming') as EventDateScope;
@@ -600,9 +597,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
     attractionFilter,
     genreFilter,
     tourFilter,
-    companyFilter,
     venueFilter,
-    contactFilter,
   ];
   const query = useQuery({
     queryKey,
@@ -615,9 +610,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
         attraction: attractionFilter || undefined,
         genre: genreFilter || undefined,
         tour: tourFilter || undefined,
-        company: companyFilter || undefined,
         venue: venueFilter || undefined,
-        contact: contactFilter || undefined,
       }),
     staleTime: 2 * 60 * 1000,
     enabled: dateOk,
@@ -816,7 +809,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
 
   useEffect(() => {
     setPage(1);
-  }, [reportAsOfDate, performanceDateParams.startDate, performanceDateParams.endDate, attractionFilter, genreFilter, tourFilter, companyFilter, venueFilter, contactFilter, activeSearch]);
+  }, [reportAsOfDate, performanceDateParams.startDate, performanceDateParams.endDate, attractionFilter, genreFilter, tourFilter, venueFilter, activeSearch]);
 
   useEffect(() => {
     setPage(1);
@@ -839,13 +832,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
 
   const opt = (label: string, values?: string[]) => [{ value: '', label }, ...((values ?? []).map((v) => ({ value: v, label: v })))];
   const attractionOptions = useMemo(() => [{ value: '', label: 'All attractions' }, ...((pageData?.attractions ?? []).map((a) => ({ value: a.attractionName, label: a.attractionName })))], [pageData?.attractions]);
-  const companyOptions = useMemo(
-    () => [
-      { value: '', label: 'All companies' },
-      ...companyToSelect2Options(pageData?.filterOptions.companies ?? []),
-    ],
-    [pageData?.filterOptions.companies],
-  );
+
   const isLoading = (dateOk && query.isPending) || ledgerQuery.isPending;
   const isRefreshing = (query.isFetching || ledgerQuery.isFetching) && !isLoading;
   const dateInputClass = 'h-9 w-full rounded-lg border border-border bg-background px-2.5 text-sm text-text-primary shadow-sm focus:outline-none focus:ring-2 focus:ring-ems-accent/30 focus:border-ems-accent transition-colors';
@@ -879,18 +866,18 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   const showTableOverlay = dateOk && query.isFetching && !!query.data;
   const totalColSpan = visibleSalesSummaryColumns.length + 1;
 
-  return <div className="space-y-4">
+  return <div className="flex flex-col gap-4 min-h-0 h-[calc(100svh-5.5rem)] lg:h-[calc(100vh-6.5rem)]">
     {isRefreshing && <div className="pointer-events-none fixed top-0 left-0 right-0 z-[200] h-0.5 overflow-hidden" aria-hidden><div className="h-full w-1/3 animate-pulse bg-ems-accent/90" /></div>}
-    <div className="flex flex-col gap-3 rounded-xl border border-border bg-card px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="flex items-center gap-2"><h1 className="text-2xl font-bold text-text-primary tracking-tight">Overview Report</h1>{!isLoading && <span className="rounded-full bg-elevated px-2.5 py-0.5 text-[11px] font-semibold tabular-nums text-text-secondary">{kpis.events.toLocaleString()} {kpis.events === 1 ? 'event' : 'events'}</span>}</div><p className="mt-0.5 text-sm text-text-secondary">A detailed snapshot of selected events</p></div><div className="inline-flex items-center gap-2 rounded-lg border border-border bg-elevated/60 px-3 py-2 text-xs text-text-secondary"><Info className="h-4 w-4 text-ems-accent shrink-0" aria-hidden /><span>Click a row to view <span className="font-medium text-text-primary">Sales Trends</span> for that event</span></div></div>
-    {!isLoading && rows.length > 0 && !!summary && <div className="grid grid-cols-2 md:grid-cols-4 gap-3"><KpiCard icon={CalendarRange} label="Events" value={kpis.events.toLocaleString()} sub="in selected date scope" tone="blue" /><KpiCard icon={Ticket} label="Total tickets sold" value={kpis.totalSold.toLocaleString()} sub="across selected events" tone="purple" /><KpiCard icon={TrendingUp} label="Revenue yesterday" value={money(kpis.revenueYesterday) || '$0'} sub="from prior day" tone="accent" /><KpiCard icon={DollarSign} label="Total revenue" value={money(kpis.totalRevenue) || '$0'} sub="across selected events" tone="green" /></div>}
-    <div className="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]"><aside className="lg:sticky lg:top-[4.5rem] lg:self-start"><div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden"><div className="flex items-center justify-between gap-2 border-b border-border bg-surface/60 px-4 py-3"><div className="flex items-center gap-2 min-w-0"><FilterIcon className="h-4 w-4 text-ems-accent shrink-0" aria-hidden /><h2 className="text-sm font-semibold text-text-primary">Filters</h2>{activeFilterCount > 0 && <span className="rounded-full bg-ems-accent/15 text-ems-accent text-[10px] font-semibold tabular-nums ring-1 ring-ems-accent/20 px-2 py-0.5">{activeFilterCount}</span>}</div>{activeFilterCount > 0 && <button type="button" onClick={reset} className="inline-flex items-center gap-1 rounded-md text-[11px] font-medium text-text-secondary hover:text-ems-accent transition-colors" title="Clear all filters"><RotateCcw className="h-3 w-3" aria-hidden />Reset</button>}</div><div className="p-3 space-y-3 max-h-[calc(100vh-12rem)] overflow-y-auto"><FilterField label="Event date"><Select2 options={EVENT_DATE_SCOPE_OPTIONS} value={eventDateScope} onChange={handleEventDateScopeChange} placeholder="Upcoming" allowClear={false} /></FilterField>{eventDateScope === 'custom' && <div className="rounded-lg border border-border bg-surface/45 p-2.5 space-y-2"><FilterField label="From"><input type="date" className={dateInputClass} value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} aria-label="Custom date range from" /></FilterField><FilterField label="To"><input type="date" className={dateInputClass} value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} aria-label="Custom date range to" /></FilterField>{!customDatesAreValid && <p className="text-[11px] text-ems-coral">Enter valid from and to dates.</p>}{customDatesAreValid && !customRangeOrderIsValid && <p className="text-[11px] text-ems-coral">To date must be on or after from date.</p>}<button type="button" onClick={applyCustomDateRange} disabled={!customDatesAreValid || !customRangeOrderIsValid || !customRangeHasChanges} className="inline-flex h-9 w-full items-center justify-center rounded-lg border border-ems-accent/30 bg-ems-accent text-sm font-semibold text-white shadow-sm transition-all hover:bg-ems-accent-hover disabled:cursor-not-allowed disabled:border-border disabled:bg-elevated disabled:text-text-muted disabled:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/30">Apply range</button></div>}<div className="h-px bg-border" /><FilterField label="Attraction"><Select2 options={attractionOptions} value={attractionFilter} onChange={setAttractionFilter} placeholder="All attractions" allowClear={!!attractionFilter} /></FilterField><FilterField label="Genre"><Select2 options={opt('All genres', pageData?.filterOptions.genres)} value={genreFilter} onChange={setGenreFilter} placeholder="All genres" allowClear={!!genreFilter} /></FilterField><FilterField label="Tour Name"><Select2 options={opt('All tours', pageData?.filterOptions.tours)} value={tourFilter} onChange={setTourFilter} placeholder="All tours" allowClear={!!tourFilter} /></FilterField>{companyOptions.length > 1 && <FilterField label="Company"><Select2 options={companyOptions} value={companyFilter} onChange={setCompanyFilter} placeholder="All companies" allowClear={!!companyFilter} /></FilterField>}<FilterField label="Venue"><Select2 options={opt('All venues', pageData?.filterOptions.venues)} value={venueFilter} onChange={setVenueFilter} placeholder="All venues" allowClear={!!venueFilter} /></FilterField><FilterField label="Contact"><Select2 options={opt('All contacts', pageData?.filterOptions.contacts)} value={contactFilter} onChange={setContactFilter} placeholder="All contacts" allowClear={!!contactFilter} /></FilterField></div></div></aside>
-      <section className="min-w-0 rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+    <div className="shrink-0 flex flex-col gap-3 rounded-xl border border-border bg-card px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="flex items-center gap-2"><h1 className="text-2xl font-bold text-text-primary tracking-tight">Overview Report</h1>{!isLoading && <span className="rounded-full bg-elevated px-2.5 py-0.5 text-[11px] font-semibold tabular-nums text-text-secondary">{kpis.events.toLocaleString()} {kpis.events === 1 ? 'event' : 'events'}</span>}</div><p className="mt-0.5 text-sm text-text-secondary">A detailed snapshot of selected events</p></div><div className="inline-flex items-center gap-2 rounded-lg border border-border bg-elevated/60 px-3 py-2 text-xs text-text-secondary"><Info className="h-4 w-4 text-ems-accent shrink-0" aria-hidden /><span>Click a row to view <span className="font-medium text-text-primary">Sales Trends</span> for that event</span></div></div>
+    {!isLoading && rows.length > 0 && !!summary && <div className="shrink-0 grid grid-cols-2 md:grid-cols-4 gap-3"><KpiCard icon={CalendarRange} label="Events" value={kpis.events.toLocaleString()} sub="in selected date scope" tone="blue" /><KpiCard icon={Ticket} label="Total tickets sold" value={kpis.totalSold.toLocaleString()} sub="across selected events" tone="purple" /><KpiCard icon={TrendingUp} label="Revenue yesterday" value={money(kpis.revenueYesterday) || '$0'} sub="from prior day" tone="accent" /><KpiCard icon={DollarSign} label="Total revenue" value={money(kpis.totalRevenue) || '$0'} sub="across selected events" tone="green" /></div>}
+    <div className="grid gap-4 min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] lg:grid-rows-1 lg:grid-cols-[16rem_minmax(0,1fr)]"><aside className="lg:sticky lg:top-[4.5rem] lg:self-start"><div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden"><div className="flex items-center justify-between gap-2 border-b border-border bg-surface/60 px-4 py-3"><div className="flex items-center gap-2 min-w-0"><FilterIcon className="h-4 w-4 text-ems-accent shrink-0" aria-hidden /><h2 className="text-sm font-semibold text-text-primary">Filters</h2>{activeFilterCount > 0 && <span className="rounded-full bg-ems-accent/15 text-ems-accent text-[10px] font-semibold tabular-nums ring-1 ring-ems-accent/20 px-2 py-0.5">{activeFilterCount}</span>}</div>{activeFilterCount > 0 && <button type="button" onClick={reset} className="inline-flex items-center gap-1 rounded-md text-[11px] font-medium text-text-secondary hover:text-ems-accent transition-colors" title="Clear all filters"><RotateCcw className="h-3 w-3" aria-hidden />Reset</button>}</div><div className="p-3 space-y-3 max-h-[calc(100vh-12rem)] overflow-y-auto"><FilterField label="Event date"><Select2 options={EVENT_DATE_SCOPE_OPTIONS} value={eventDateScope} onChange={handleEventDateScopeChange} placeholder="Upcoming" allowClear={false} /></FilterField>{eventDateScope === 'custom' && <div className="rounded-lg border border-border bg-surface/45 p-2.5 space-y-2"><FilterField label="From"><input type="date" className={dateInputClass} value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} aria-label="Custom date range from" /></FilterField><FilterField label="To"><input type="date" className={dateInputClass} value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} aria-label="Custom date range to" /></FilterField>{!customDatesAreValid && <p className="text-[11px] text-ems-coral">Enter valid from and to dates.</p>}{customDatesAreValid && !customRangeOrderIsValid && <p className="text-[11px] text-ems-coral">To date must be on or after from date.</p>}<button type="button" onClick={applyCustomDateRange} disabled={!customDatesAreValid || !customRangeOrderIsValid || !customRangeHasChanges} className="inline-flex h-9 w-full items-center justify-center rounded-lg border border-ems-accent/30 bg-ems-accent text-sm font-semibold text-white shadow-sm transition-all hover:bg-ems-accent-hover disabled:cursor-not-allowed disabled:border-border disabled:bg-elevated disabled:text-text-muted disabled:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/30">Apply range</button></div>}<div className="h-px bg-border" /><FilterField label="Attraction"><Select2 options={attractionOptions} value={attractionFilter} onChange={setAttractionFilter} placeholder="All attractions" allowClear={!!attractionFilter} /></FilterField><FilterField label="Genre"><Select2 options={opt('All genres', pageData?.filterOptions.genres)} value={genreFilter} onChange={setGenreFilter} placeholder="All genres" allowClear={!!genreFilter} /></FilterField><FilterField label="Tour Name"><Select2 options={opt('All tours', pageData?.filterOptions.tours)} value={tourFilter} onChange={setTourFilter} placeholder="All tours" allowClear={!!tourFilter} /></FilterField><FilterField label="Venue"><Select2 options={opt('All venues', pageData?.filterOptions.venues)} value={venueFilter} onChange={setVenueFilter} placeholder="All venues" allowClear={!!venueFilter} /></FilterField></div></div></aside>
+      <section className="flex min-h-0 flex-col min-w-0 rounded-xl border border-border bg-card shadow-sm overflow-hidden">
         {showFullSkeleton ? (
           <div className="p-8 flex items-center justify-center"><Loader2 className="h-8 w-8 text-ems-accent animate-spin" /></div>
         ) : (
           <>
-            <div className="relative overflow-hidden">
-              <div className="flex flex-col gap-2 border-b border-border bg-surface/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="shrink-0 flex flex-col gap-2 border-b border-border bg-surface/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="relative flex-1 max-w-md" ref={searchWrapperRef}>
                   <div className="flex min-w-0 items-center border border-border rounded-lg bg-background overflow-hidden focus-within:border-ems-accent shadow-sm transition-colors">
                     <input
@@ -1003,7 +990,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
               </div>
               {query.isError && <div className="m-4 rounded-md border border-ems-coral/30 bg-ems-coral-dim px-3 py-2 text-sm text-ems-coral">{friendlyApiError(query.error)}</div>}
               {ledgerQuery.isError && <div className="m-4 rounded-md border border-ems-coral/30 bg-ems-coral-dim px-3 py-2 text-sm text-ems-coral">{friendlyApiError(ledgerQuery.error)}</div>}
-              <div className="relative overflow-x-auto">
+              <div className="relative min-h-0 flex-1 overflow-auto">
                 {showTableOverlay && (
                   <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/55 backdrop-blur-[1px]" aria-live="polite" aria-busy>
                     <div className="inline-flex items-center gap-2 rounded-xl border border-border bg-card/95 px-4 py-3 text-sm font-semibold text-text-primary shadow-xl">
@@ -1050,7 +1037,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
               </div>
             </div>
             {serverTotal > 0 && (
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-text-secondary px-1 py-2.5">
+              <div className="shrink-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-text-secondary px-1 py-2.5">
                 <p className="tabular-nums">
                   <span>
                     Showing{' '}
