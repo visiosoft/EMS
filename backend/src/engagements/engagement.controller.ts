@@ -23,6 +23,8 @@ import { UpdateEngagementIaeContactDto } from './dto/update-engagement-iae-conta
 import { UpdateNonResidentWithholdingLinksDto } from './dto/update-non-resident-withholding-links.dto';
 import { UpdatePerformanceTicketingDto } from './dto/update-performance-ticketing.dto';
 import { UpdateIaeTicketingManagerDto } from './dto/update-iae-ticketing-manager.dto';
+import { UpdateIaeMarketingTeamDto } from './dto/update-iae-marketing-team.dto';
+import { UpdateTourMarketingTeamDto } from './dto/update-tour-marketing-team.dto';
 import { CreateEngagementRetailPartnerDto } from './dto/create-engagement-retail-partner.dto';
 import { CreateEngagementTravelHotelDto, UpdateEngagementTravelHotelDto, CreateEngagementTravelCarServiceDto, UpdateEngagementTravelCarServiceDto } from './dto/engagement-travel.dto';
 import { EngagementService } from './engagement.service';
@@ -346,6 +348,24 @@ export class EngagementController {
   @Get(':id/marketing-meta')
   getMarketingMeta(@Param('id', ParseIntPipe) id: number) {
     return this.engagementService.getMarketingMeta(id);
+  }
+
+  @Patch(':id/iae-marketing-team')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  updateIaeMarketingTeam(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateIaeMarketingTeamDto,
+  ) {
+    return this.engagementService.updateIaeMarketingTeam(id, dto);
+  }
+
+  @Patch(':id/tour-marketing-team')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  updateTourMarketingTeam(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateTourMarketingTeamDto,
+  ) {
+    return this.engagementService.updateTourMarketingTeam(id, dto);
   }
 
   // ─── Retail Partners (dbo.EngagementRetailPartner) ───────────────────────────

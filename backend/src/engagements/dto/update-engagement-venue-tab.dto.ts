@@ -132,4 +132,23 @@ export class UpdateEngagementVenueTabDto {
   @IsInt()
   @Min(1)
   stagehandContactId?: number | null;
+
+  /** dbo.Venue.TicketingSystem (existing column, editable here) */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  ticketingSystem?: string | null;
+
+  /** dbo.EngagementVenue.TicketingAdminContactID (optional column) */
+  @IsOptional()
+  @Transform(({ value }) => toOptionalInt(value))
+  @IsInt()
+  @Min(1)
+  ticketingAdminContactId?: number | null;
+
+  /** dbo.Venue.SeatingChartUrl (optional column) */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  seatingChartUrl?: string | null;
 }

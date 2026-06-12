@@ -64,6 +64,8 @@ export interface ApiEngagementVenueRow {
   stageType: string | null;
   seatingChartLinkId: number | null;
   seatingChartLinkUrl: string | null;
+  /** dbo.Venue.SeatingChartUrl (optional column) — editable seating chart image/link */
+  seatingChartUrl: string | null;
   ticketingSystem: string | null;
   /** dbo.PerformanceTicketing (opening performance) */
   ticketingAdminContactId: number | null;
@@ -119,6 +121,12 @@ export interface UpdateEngagementVenueTabPayload {
   iaeProductionManagerContactId?: number | null;
   venueProductionManagerContactId?: number | null;
   stagehandContactId?: number | null;
+  /** dbo.Venue.TicketingSystem */
+  ticketingSystem?: string | null;
+  /** dbo.EngagementVenue.TicketingAdminContactID (optional column) */
+  ticketingAdminContactId?: number | null;
+  /** dbo.Venue.SeatingChartUrl (optional column) */
+  seatingChartUrl?: string | null;
 }
 
 export interface ApiEngagementServiceProviderRow {
@@ -887,13 +895,47 @@ export interface ApiAdvertisingSubType {
 
 export interface ApiMarketingMeta {
   tourMarketingContacts: ApiTourMarketingContact[];
+  audienceGender: string | null;
   tourAudienceDemographics: ApiTourAudienceAgeRange[];
   mediaMix: ApiTourMediaMixItem[];
   advertisingSubTypes: ApiAdvertisingSubType[];
+  iaeMarketingDirectorContactId: number | null;
+  iaeMarketingDirectorContactName: string | null;
+  iaeMarketingManagerContactId: number | null;
+  iaeMarketingManagerContactName: string | null;
+  iaeMarketingCoordinatorContactId: number | null;
+  iaeMarketingCoordinatorContactName: string | null;
+  tourMarketingDirectorContactId: number | null;
+  tourMarketingDirectorContactName: string | null;
+  tourMarketingManagerContactId: number | null;
+  tourMarketingManagerContactName: string | null;
 }
 
 export const fetchMarketingMeta = (engagementId: number) =>
   apiFetch<ApiMarketingMeta>(`/engagements/${engagementId}/marketing-meta`);
+
+export interface UpdateIaeMarketingTeamPayload {
+  iaeMarketingDirectorContactId?: number | null;
+  iaeMarketingManagerContactId?: number | null;
+  iaeMarketingCoordinatorContactId?: number | null;
+}
+
+export const updateIaeMarketingTeam = (engagementId: number, body: UpdateIaeMarketingTeamPayload) =>
+  apiFetch<void>(`/engagements/${engagementId}/iae-marketing-team`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+
+export interface UpdateTourMarketingTeamPayload {
+  tourMarketingDirectorContactId?: number | null;
+  tourMarketingManagerContactId?: number | null;
+}
+
+export const updateTourMarketingTeam = (engagementId: number, body: UpdateTourMarketingTeamPayload) =>
+  apiFetch<void>(`/engagements/${engagementId}/tour-marketing-team`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
 
 // ─── Attraction Travel ─────────────────────────────────────────────────────────
 

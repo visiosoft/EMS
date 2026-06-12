@@ -25,6 +25,7 @@ import {
 import { Modal, FormField, TabBar } from './Primitives';
 import { EngagementSalesDashboardPanel } from './EngagementSalesDashboardPanel';
 import { Select2, type Select2Option } from './Select2';
+import { SeatingChartDiagram } from './SeatingChartDiagram';
 import { companyToSelect2Option, companyToSelect2Options } from './companySelectOptions';
 import { Button } from '@/components/ui/button';
 import {
@@ -70,6 +71,8 @@ import {
   addRetailPartner,
   deleteRetailPartner,
   fetchMarketingMeta,
+  updateIaeMarketingTeam,
+  updateTourMarketingTeam,
   fetchEngagementTravel,
   addEngagementTravelHotel,
   updateEngagementTravelHotel,
@@ -350,15 +353,23 @@ function VenueTabEditField({
   onChange,
   disabled,
   multiline,
+  urlField,
+  inputBgClass,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   disabled?: boolean;
   multiline?: boolean;
+  /** When true, the input is treated as an http(s) link and validated. */
+  urlField?: boolean;
+  inputBgClass?: string;
 }) {
+  const invalid = !multiline && urlField === true && !isValidHttpOrHttpsUrl(value);
+  const bg = inputBgClass ?? 'bg-background';
   const cls =
-    'w-full rounded border border-border bg-background px-2 py-1.5 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:ring-1 focus:ring-ems-accent/50 disabled:opacity-60';
+    `w-full rounded border border-border ${bg} px-2 py-1.5 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:ring-1 focus:ring-ems-accent/50 disabled:opacity-60`;
+  const invalidCls = invalid ? ' border-red-500 focus:ring-red-500/50' : '';
   return (
     <FormField label={label}>
       {multiline ? (
@@ -369,13 +380,21 @@ function VenueTabEditField({
           disabled={disabled}
         />
       ) : (
-        <input
-          type="text"
-          className={cls}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          disabled={disabled}
-        />
+        <>
+          <input
+            type={urlField ? 'url' : 'text'}
+            inputMode={urlField ? 'url' : undefined}
+            placeholder={urlField ? 'https://…' : undefined}
+            className={`${cls}${invalidCls}`}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            disabled={disabled}
+            aria-invalid={invalid}
+          />
+          {invalid && (
+            <p className="mt-1 text-[11px] text-red-500">Enter a valid http:// or https:// link.</p>
+          )}
+        </>
       )}
     </FormField>
   );
@@ -410,16 +429,49 @@ function VenueDetailPanel({
   const [partialContractLink, setPartialContractLink] = useState(venue.partiallyExecutedContractSharePointLink ?? '');
   const [fullContractLink, setFullContractLink] = useState(venue.fullyExecutedContractSharePointLink ?? '');
   const [forecastLink, setForecastLink] = useState(venue.venueForecastSharePointLink ?? '');
-  // Venue marketing contacts (optional columns)
-  const [venueMarketingDirectorId, setVenueMarketingDirectorId] = useState(
-    venue.venueMarketingDirectorContactId != null ? String(venue.venueMarketingDirectorContactId) : '',
+  // Newly-editable fields
+  const [venueBookingManagerId, setVenueBookingManagerId] = useState(
+    venue.venueBookingManagerContactId != null ? String(venue.venueBookingManagerContactId) : '',
   );
-  const [venueMarketingManagerId, setVenueMarketingManagerId] = useState(
-    venue.venueMarketingManagerContactId != null ? String(venue.venueMarketingManagerContactId) : '',
+  const [dealType, setDealType] = useState(venueDealType ?? '');
+  const [ticketingSystem, setTicketingSystem] = useState(venue.ticketingSystem ?? '');
+  const [ticketingAdminId, setTicketingAdminId] = useState(
+    venue.ticketingAdminContactId != null ? String(venue.ticketingAdminContactId) : '',
   );
-  const [venueDigitalMarketingManagerId, setVenueDigitalMarketingManagerId] = useState(
-    venue.venueDigitalMarketingManagerContactId != null ? String(venue.venueDigitalMarketingManagerContactId) : '',
+  const [attractionTechDirectorId, setAttractionTechDirectorId] = useState(
+    venue.attractionTechDirectorContactId != null ? String(venue.attractionTechDirectorContactId) : '',
   );
+  const [venueTypeId, setVenueTypeId] = useState(venue.venueTypeId != null ? String(venue.venueTypeId) : '');
+  const [stageDimensions, setStageDimensions] = useState(venue.stageDimensions ?? '');
+  const [flySystemSpecs, setFlySystemSpecs] = useState(venue.flySystemSpecs ?? '');
+  const [stageType, setStageType] = useState(venue.stageType ?? '');
+  const [techPackPdfUrl, setTechPackPdfUrl] = useState(venue.techPackPdfUrl ?? '');
+
+  const venueTypesQuery = useQuery({
+    queryKey: ['lookups', 'venue-types'],
+    queryFn: fetchVenueTypesLookup,
+    staleTime: 300_000,
+  });
+  const venueTypeOptions = useMemo<Select2Option[]>(
+    () => [
+      { value: '', label: 'Not set' },
+      ...(venueTypesQuery.data ?? []).map((vt: ApiVenueType) => ({
+        value: String(vt.venueTypeId),
+        label: vt.venueTypeName,
+      })),
+    ],
+    [venueTypesQuery.data],
+  );
+
+  const venueProfileQuery = useQuery({
+    queryKey: ['companies', venue.venueCompanyId, 'venue-profile'],
+    queryFn: () => fetchVenueProfile(venue.venueCompanyId),
+    staleTime: 60_000,
+  });
+  const venueSeatingCapacity = useMemo(() => {
+    const d = venueProfileQuery.data;
+    return d && d.missing === false ? d.seatingCapacity : 0;
+  }, [venueProfileQuery.data]);
 
   const venueContactsQuery = useQuery({
     queryKey: ['company-contacts', venue.venueCompanyId],
@@ -441,30 +493,90 @@ function VenueDetailPanel({
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venue-tab-data'] });
 
-  const saveMutation = useMutation({
-    mutationFn: (body: UpdateEngagementVenueTabPayload) =>
-      updateEngagementVenueTab(engagementId, venue.venueCompanyId, body),
+  const makeVenueMutation = () =>
+    useMutation({
+      mutationFn: (body: UpdateEngagementVenueTabPayload) =>
+        updateEngagementVenueTab(engagementId, venue.venueCompanyId, body),
+      onSuccess: async () => {
+        await invalidate();
+        addToast('Venue details saved.', 'success');
+      },
+      onError: (e) => addToast(friendlyApiError(e, 'Could not save venue details.'), 'error'),
+    });
+
+  const saveBookingManagerMutation = makeVenueMutation();
+  const saveVenueTermsMutation = makeVenueMutation();
+  const saveTicketingMutation = makeVenueMutation();
+  const saveTechDirectorMutation = makeVenueMutation();
+  const saveTechPackMutation = makeVenueMutation();
+  const saveContractsMutation = makeVenueMutation();
+
+  const handleSaveContracts = () => {
+    const linkFields: [string, string][] = [
+      ['Link to SharePoint – Venue Contract', venueContractLink],
+      ['Link to SharePoint – Partially Executed Contract', partialContractLink],
+      ['Link to SharePoint – Fully Executed Contract', fullContractLink],
+      ['Link to SharePoint – Venue Forecast', forecastLink],
+    ];
+    for (const [label, val] of linkFields) {
+      if (!isValidHttpOrHttpsUrl(val)) {
+        addToast(`${label} must be a valid http(s) URL, or left empty.`, 'error');
+        return;
+      }
+    }
+    saveContractsMutation.mutate({
+      venueContractSharePointLink: venueContractLink.trim() || null,
+      partiallyExecutedContractSharePointLink: partialContractLink.trim() || null,
+      fullyExecutedContractSharePointLink: fullContractLink.trim() || null,
+      venueForecastSharePointLink: forecastLink.trim() || null,
+    });
+  };
+
+  const handleSaveBookingManager = () =>
+    saveBookingManagerMutation.mutate({
+      venueBookingManagerContactId: venueBookingManagerId ? Number(venueBookingManagerId) : null,
+    });
+
+  const handleSaveAttractionTechDirector = () =>
+    saveTechDirectorMutation.mutate({
+      attractionTechDirectorContactId: attractionTechDirectorId ? Number(attractionTechDirectorId) : null,
+    });
+
+  const handleSaveTicketing = () =>
+    saveTicketingMutation.mutate({
+      ticketingSystem: ticketingSystem.trim() || null,
+      ticketingAdminContactId: ticketingAdminId ? Number(ticketingAdminId) : null,
+    });
+
+  const dealTypeMutation = useMutation({
+    mutationFn: (value: string | null) =>
+      updateEngagementFinance(engagementId, {
+        venueDealType: value as UpdateEngagementFinancePayload['venueDealType'],
+      }),
     onSuccess: async () => {
       await invalidate();
-      addToast('Venue details saved.', 'success');
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] });
+      addToast('Deal type saved.', 'success');
     },
-    onError: (e) => addToast(friendlyApiError(e, 'Could not save venue details.'), 'error'),
+    onError: (e) => addToast(friendlyApiError(e, 'Could not save deal type.'), 'error'),
   });
+  const handleSaveVenueTerms = () => {
+    dealTypeMutation.mutate(dealType.trim() || null);
+    saveVenueTermsMutation.mutate({ venueTypeId: venueTypeId ? Number(venueTypeId) : null });
+  };
 
-  const handleSaveContracts = () =>
-    saveMutation.mutate({
-      venueContractSharePointLink: venueContractLink || null,
-      partiallyExecutedContractSharePointLink: partialContractLink || null,
-      fullyExecutedContractSharePointLink: fullContractLink || null,
-      venueForecastSharePointLink: forecastLink || null,
+  const handleSaveTechPack = () => {
+    if (!isValidHttpOrHttpsUrl(techPackPdfUrl)) {
+      addToast('Venue Tech Pack PDF must be a valid http(s) URL, or left empty.', 'error');
+      return;
+    }
+    saveTechPackMutation.mutate({
+      stageDimensions: stageDimensions.trim() || null,
+      flySystemSpecs: flySystemSpecs.trim() || null,
+      stageType: stageType.trim() || null,
+      techPackPdfUrl: techPackPdfUrl.trim() || null,
     });
-
-  const handleSaveMarketingContacts = () =>
-    saveMutation.mutate({
-      venueMarketingDirectorContactId: venueMarketingDirectorId ? Number(venueMarketingDirectorId) : null,
-      venueMarketingManagerContactId: venueMarketingManagerId ? Number(venueMarketingManagerId) : null,
-      venueDigitalMarketingManagerContactId: venueDigitalMarketingManagerId ? Number(venueDigitalMarketingManagerId) : null,
-    });
+  };
 
   const inputCls =
     'w-full rounded border border-border bg-background px-2 py-1.5 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:ring-1 focus:ring-ems-accent/50 disabled:opacity-60';
@@ -477,10 +589,24 @@ function VenueDetailPanel({
       <div className={sectionCls}>
         <span className={labelCls}>Venue Booking</span>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <VenueInfoRow
-            label="Venue Booking Manager"
-            value={venue.venueBookingManagerName}
-          />
+          <FormField label="Venue Booking Manager">
+            <Select2
+              options={venueContactOptions}
+              value={venueBookingManagerId}
+              onChange={setVenueBookingManagerId}
+              placeholder="Select contact…"
+              allowClear
+              disabled={saveBookingManagerMutation.isPending}
+            />
+          </FormField>
+        </div>
+        <div className="flex justify-end">
+          <Button type="button" size="sm" className="bg-ems-accent text-white hover:opacity-90"
+            onClick={handleSaveBookingManager} disabled={saveBookingManagerMutation.isPending}>
+            {saveBookingManagerMutation.isPending ? (
+              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
+            ) : 'Save booking manager'}
+          </Button>
         </div>
       </div>
 
@@ -488,69 +614,165 @@ function VenueDetailPanel({
       <div className={sectionCls}>
         <span className={labelCls}>Venue Terms</span>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <VenueInfoRow label="Deal Type" value={venueDealType} />
-          <div className="sm:col-span-2">
-            <VenueInfoRow label="Venue Terms" value={venueTerms} />
-          </div>
+          <FormField label="Deal Type">
+            <Select2
+              options={VENUE_DEAL_TYPE_OPTIONS}
+              value={dealType}
+              onChange={setDealType}
+              placeholder="Not set"
+              allowClear
+              disabled={dealTypeMutation.isPending}
+            />
+          </FormField>
+          <FormField label="Venue Type">
+            <Select2
+              options={venueTypeOptions}
+              value={venueTypeId}
+              onChange={setVenueTypeId}
+              placeholder="Select type…"
+              allowClear
+              disabled={saveVenueTermsMutation.isPending}
+            />
+          </FormField>
+        </div>
+        <div className="flex justify-end">
+          <Button type="button" size="sm" className="bg-ems-accent text-white hover:opacity-90"
+            onClick={handleSaveVenueTerms} disabled={dealTypeMutation.isPending || saveVenueTermsMutation.isPending}>
+            {(dealTypeMutation.isPending || saveVenueTermsMutation.isPending) ? (
+              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
+            ) : 'Save venue terms'}
+          </Button>
         </div>
         <p className="text-[11px] text-text-muted mt-1">
-          Deal Type and Venue Terms are editable on the Finance tab.
+          Deal Type is shared with the Finance tab. Venue Terms remain editable on the Finance tab.
         </p>
       </div>
 
       {/* Venue Seating */}
       <div className={sectionCls}>
         <span className={labelCls}>Venue Seating</span>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-3">
           <VenueInfoRow label="Seating Type" value={venue.venueTypeName} />
-          {venue.seatingChartLinkUrl ? (
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[11px] text-text-muted font-medium uppercase tracking-wide">Venue Seating Chart</span>
-              <a
-                href={venue.seatingChartLinkUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-sm text-ems-accent hover:underline"
-              >
-                <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-                Open seating chart
-              </a>
-            </div>
-          ) : (
-            <VenueInfoRow label="Venue Seating Chart" value={null} />
-          )}
+          <SeatingChartDiagram
+            venueName={venue.venueName ?? venue.venueCompanyName}
+            venueType={venue.venueTypeName}
+            capacity={venueSeatingCapacity}
+          />
         </div>
-        <p className="text-[11px] text-text-muted mt-1">
-          Seating chart link is managed on the company venue profile.
-        </p>
       </div>
 
       {/* Venue Ticketing */}
       <div className={sectionCls}>
         <span className={labelCls}>Venue Ticketing</span>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <VenueInfoRow label="Venue Ticketing Software" value={venue.ticketingSystem} />
-          <VenueInfoRow label="Venue Ticketing Administrator" value={venue.ticketingAdminContactName} />
+          <FormField label="Venue Ticketing Software">
+            <input
+              type="text"
+              className={`${inputCls} !bg-white`}
+              value={ticketingSystem}
+              onChange={(e) => setTicketingSystem(e.target.value)}
+              placeholder="e.g. Ticketmaster"
+              disabled={saveTicketingMutation.isPending}
+            />
+          </FormField>
+          <FormField label="Venue Ticketing Administrator">
+            <Select2
+              options={venueContactOptions}
+              value={ticketingAdminId}
+              onChange={setTicketingAdminId}
+              placeholder="Select contact…"
+              allowClear
+              disabled={saveTicketingMutation.isPending}
+            />
+          </FormField>
         </div>
-        <p className="text-[11px] text-text-muted mt-1">
-          Ticketing software is editable on the company venue profile. Ticketing administrator is set on the performance ticketing record.
-        </p>
+        <div className="flex justify-end">
+          <Button type="button" size="sm" className="bg-ems-accent text-white hover:opacity-90"
+            onClick={handleSaveTicketing} disabled={saveTicketingMutation.isPending}>
+            {saveTicketingMutation.isPending ? (
+              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
+            ) : 'Save ticketing'}
+          </Button>
+        </div>
       </div>
 
       {/* Attraction Tech Director */}
       <div className={sectionCls}>
         <span className={labelCls}>Attraction Tech Director</span>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <VenueInfoRow
-            label="Attraction Tech Director Contact"
-            value={venue.attractionTechDirectorName}
+          <FormField label="Attraction Tech Director Contact">
+            <Select2
+              options={venueContactOptions}
+              value={attractionTechDirectorId}
+              onChange={setAttractionTechDirectorId}
+              placeholder="Select contact…"
+              allowClear
+              disabled={saveTechDirectorMutation.isPending}
+            />
+          </FormField>
+        </div>
+        <div className="flex justify-end">
+          <Button type="button" size="sm" className="bg-ems-accent text-white hover:opacity-90"
+            onClick={handleSaveAttractionTechDirector} disabled={saveTechDirectorMutation.isPending}>
+            {saveTechDirectorMutation.isPending ? (
+              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
+            ) : 'Save tech director'}
+          </Button>
+        </div>
+      </div>
+
+      {/* Venue Tech Pack */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Venue Tech Pack</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <VenueTabEditField
+            label="Venue Stage Dimensions"
+            value={stageDimensions}
+            onChange={setStageDimensions}
+            disabled={saveTechPackMutation.isPending}
+            inputBgClass="bg-white"
+          />
+          <VenueTabEditField
+            label="Venue Fly System Specs"
+            value={flySystemSpecs}
+            onChange={setFlySystemSpecs}
+            disabled={saveTechPackMutation.isPending}
+            inputBgClass="bg-white"
+          />
+          <VenueTabEditField
+            label="Stage Type"
+            value={stageType}
+            onChange={setStageType}
+            disabled={saveTechPackMutation.isPending}
+            inputBgClass="bg-white"
+          />
+          <VenueTabEditField
+            label="Venue Tech Pack PDF (URL)"
+            value={techPackPdfUrl}
+            onChange={setTechPackPdfUrl}
+            disabled={saveTechPackMutation.isPending}
+            urlField
+            inputBgClass="bg-white"
           />
         </div>
-        {venue.attractionTechDirectorContactId == null && (
-          <p className="text-[11px] text-text-muted mt-1">
-            Requires the <code>AttractionTechDirectorContactID</code> column on <code>dbo.EngagementVenue</code>.
-          </p>
+        {techPackPdfUrl.trim() && isValidHttpOrHttpsUrl(techPackPdfUrl) && (
+          <a
+            href={techPackPdfUrl.trim()}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-ems-accent hover:underline"
+          >
+            <ExternalLink className="h-3 w-3 shrink-0" /> Open tech pack PDF
+          </a>
         )}
+        <div className="flex justify-end">
+          <Button type="button" size="sm" className="bg-ems-accent text-white hover:opacity-90"
+            onClick={handleSaveTechPack} disabled={saveTechPackMutation.isPending}>
+            {saveTechPackMutation.isPending ? (
+              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
+            ) : 'Save tech pack'}
+          </Button>
+        </div>
       </div>
 
       {/* Venue Contract */}
@@ -561,19 +783,25 @@ function VenueDetailPanel({
             label="Link to SharePoint – Venue Contract"
             value={venueContractLink}
             onChange={setVenueContractLink}
-            disabled={saveMutation.isPending}
+            disabled={saveContractsMutation.isPending}
+            urlField
+            inputBgClass="bg-white"
           />
           <VenueTabEditField
             label="Link to SharePoint – Partially Executed Contract"
             value={partialContractLink}
             onChange={setPartialContractLink}
-            disabled={saveMutation.isPending}
+            disabled={saveContractsMutation.isPending}
+            urlField
+            inputBgClass="bg-white"
           />
           <VenueTabEditField
             label="Link to SharePoint – Fully Executed Contract"
             value={fullContractLink}
             onChange={setFullContractLink}
-            disabled={saveMutation.isPending}
+            disabled={saveContractsMutation.isPending}
+            urlField
+            inputBgClass="bg-white"
           />
         </div>
       </div>
@@ -585,7 +813,9 @@ function VenueDetailPanel({
           label="Link to SharePoint – Venue Forecast"
           value={forecastLink}
           onChange={setForecastLink}
-          disabled={saveMutation.isPending}
+          disabled={saveContractsMutation.isPending}
+          urlField
+          inputBgClass="bg-white"
         />
       </div>
 
@@ -595,65 +825,12 @@ function VenueDetailPanel({
           size="sm"
           className="bg-ems-accent text-white hover:opacity-90"
           onClick={handleSaveContracts}
-          disabled={saveMutation.isPending}
+          disabled={saveContractsMutation.isPending}
         >
-          {saveMutation.isPending ? (
+          {saveContractsMutation.isPending ? (
             <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
           ) : 'Save contracts & forecast links'}
         </Button>
-      </div>
-
-      {/* Venue Marketing Team */}
-      <div className={sectionCls}>
-        <span className={labelCls}>Venue Marketing Team</span>
-        <p className="text-[11px] text-text-muted -mt-2">
-          These fields require DB column additions (optional) — they will be blank until the columns are added.
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Venue Marketing Director">
-            <Select2
-              options={venueContactOptions}
-              value={venueMarketingDirectorId}
-              onChange={setVenueMarketingDirectorId}
-              placeholder="Select contact…"
-              allowClear
-              disabled={saveMutation.isPending}
-            />
-          </FormField>
-          <FormField label="Venue Marketing Manager">
-            <Select2
-              options={venueContactOptions}
-              value={venueMarketingManagerId}
-              onChange={setVenueMarketingManagerId}
-              placeholder="Select contact…"
-              allowClear
-              disabled={saveMutation.isPending}
-            />
-          </FormField>
-          <FormField label="Venue Digital Marketing Manager">
-            <Select2
-              options={venueContactOptions}
-              value={venueDigitalMarketingManagerId}
-              onChange={setVenueDigitalMarketingManagerId}
-              placeholder="Select contact…"
-              allowClear
-              disabled={saveMutation.isPending}
-            />
-          </FormField>
-        </div>
-        <div className="flex justify-end mt-2">
-          <Button
-            type="button"
-            size="sm"
-            className="bg-ems-accent text-white hover:opacity-90"
-            onClick={handleSaveMarketingContacts}
-            disabled={saveMutation.isPending}
-          >
-            {saveMutation.isPending ? (
-              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
-            ) : 'Save marketing contacts'}
-          </Button>
-        </div>
       </div>
 
     </div>
@@ -1474,34 +1651,6 @@ function ServiceProvidersTab({
 // ---------------------------------------------------------------------------
 // Production tab (venue-backed production details)
 // ---------------------------------------------------------------------------
-function compactContactName(contact: ApiCompanyContact): string {
-  return [contact.firstName, contact.lastName].filter(Boolean).join(' ').trim();
-}
-
-function contactPhoneDisplay(contact: ApiCompanyContact): string {
-  return (
-    formatE164ForDisplay(contact.cellPhone) ||
-    formatE164ForDisplay(contact.workPhone) ||
-    contact.cellPhone ||
-    contact.workPhone ||
-    ''
-  );
-}
-
-function normalizedProductionLookup(value: string | null | undefined): string {
-  return String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
-}
-
-function isVenueProductionManagerContact(contact: ApiCompanyContact): boolean {
-  const role = normalizedProductionLookup(contact.roleName);
-  const department = normalizedProductionLookup(contact.departmentName);
-  return (
-    role.includes('productionmanager') ||
-    (role.includes('production') && role.includes('manager')) ||
-    (department.includes('production') && role.includes('manager'))
-  );
-}
-
 function EngagementProductionPanel({
   engagementId,
   venueCompanyId,
@@ -1554,8 +1703,14 @@ function EngagementProductionPanel({
     );
   }, [currentStagehandProviderId, venueDetailsQuery.data]);
 
-  const productionManagerContacts = useMemo(
-    () => (venueContactsQuery.data ?? []).filter(isVenueProductionManagerContact),
+  const venueContactOptions = useMemo<Select2Option[]>(
+    () => [
+      { value: '', label: 'Not set' },
+      ...(venueContactsQuery.data ?? []).map((c) => ({
+        value: String(c.contactId),
+        label: `${c.firstName} ${c.lastName}`.trim() || c.contactId.toString(),
+      })),
+    ],
     [venueContactsQuery.data],
   );
 
@@ -1583,6 +1738,7 @@ function EngagementProductionPanel({
   const [stageDimensions, setStageDimensions] = useState('');
   const [flySystemSpecs, setFlySystemSpecs] = useState('');
   const [stageType, setStageType] = useState('');
+  const [techPackPdfUrl, setTechPackPdfUrl] = useState('');
 
   const venueTabDataQuery = useQuery({
     queryKey: ['engagements', engagementId, 'venue-tab-data'],
@@ -1604,6 +1760,7 @@ function EngagementProductionPanel({
     setStageDimensions(primaryVenue.stageDimensions ?? '');
     setFlySystemSpecs(primaryVenue.flySystemSpecs ?? '');
     setStageType(primaryVenue.stageType ?? '');
+    setTechPackPdfUrl(primaryVenue.techPackPdfUrl ?? '');
   }, [primaryVenue]);
 
   const iaeContactLookupsQuery = useQuery({
@@ -1640,17 +1797,24 @@ function EngagementProductionPanel({
     [venueTypesQuery.data],
   );
 
-  const saveVenueTabMutation = useMutation({
-    mutationFn: (body: UpdateEngagementVenueTabPayload) => {
-      if (venueCompanyId == null) throw new Error('No venue linked to this engagement.');
-      return updateEngagementVenueTab(engagementId, venueCompanyId, body);
-    },
-    onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venue-tab-data'] });
-      addToast('Saved.', 'success');
-    },
-    onError: (e) => addToast(friendlyApiError(e, 'Could not save.'), 'error'),
-  });
+  const makeVenueTabMutation = (onSuccessExtra?: () => void) =>
+    useMutation({
+      mutationFn: (body: UpdateEngagementVenueTabPayload) => {
+        if (venueCompanyId == null) throw new Error('No venue linked to this engagement.');
+        return updateEngagementVenueTab(engagementId, venueCompanyId, body);
+      },
+      onSuccess: async () => {
+        await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venue-tab-data'] });
+        addToast('Saved.', 'success');
+        onSuccessExtra?.();
+      },
+      onError: (e) => addToast(friendlyApiError(e, 'Could not save.'), 'error'),
+    });
+
+  const saveIaePmMutation = makeVenueTabMutation();
+  const saveVenuePmMutation = makeVenueTabMutation();
+  const saveVenueTypeMutation = makeVenueTabMutation();
+  const saveTechPackMutation = makeVenueTabMutation();
 
   const saveStagehandProviderMutation = useMutation({
     mutationFn: (providerCompanyId: number | null) => {
@@ -1781,7 +1945,7 @@ function EngagementProductionPanel({
               onChange={setIaeProductionManagerId}
               placeholder="Select IAE contact…"
               allowClear
-              disabled={saveVenueTabMutation.isPending}
+              disabled={saveIaePmMutation.isPending}
             />
           </FormField>
         </div>
@@ -1790,10 +1954,10 @@ function EngagementProductionPanel({
             type="button"
             size="sm"
             className="bg-ems-accent text-white hover:opacity-90"
-            onClick={() => saveVenueTabMutation.mutate({ iaeProductionManagerContactId: iaeProductionManagerId ? Number(iaeProductionManagerId) : null })}
-            disabled={saveVenueTabMutation.isPending}
+            onClick={() => saveIaePmMutation.mutate({ iaeProductionManagerContactId: iaeProductionManagerId ? Number(iaeProductionManagerId) : null })}
+            disabled={saveIaePmMutation.isPending}
           >
-            {saveVenueTabMutation.isPending ? (
+            {saveIaePmMutation.isPending ? (
               <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
             ) : 'Save IAE production manager'}
           </Button>
@@ -1820,29 +1984,46 @@ function EngagementProductionPanel({
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="Venue Production Manager">
-            <div className="min-h-[42px] rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary">
-              {productionManagerContacts.length === 0 ? (
-                <span className="text-text-muted">No production manager contact assigned to this venue.</span>
-              ) : (
-                <ul className="space-y-2">
-                  {productionManagerContacts.map((contact) => {
-                    const name = compactContactName(contact) || contact.email;
-                    const phone = contactPhoneDisplay(contact);
-                    return (
-                      <li key={contact.contactAssignmentId} className="flex flex-col gap-0.5">
-                        <span className="font-medium">{name}</span>
-                        <span className="text-xs text-text-secondary">
-                          {[contact.email, phone].filter(Boolean).join(' | ') || '-'}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
+            <Select2
+              options={venueContactOptions}
+              value={venueProductionManagerId}
+              onChange={setVenueProductionManagerId}
+              placeholder="Select contact…"
+              allowClear
+              disabled={saveVenuePmMutation.isPending}
+            />
           </FormField>
 
-          <FormField label="Stagehand Provider">
+          <FormField label="Venue Stage Labor Company Contact">
+            <Select2
+              options={venueContactOptions}
+              value={stagehandContactId}
+              onChange={setStagehandContactId}
+              placeholder="Select contact…"
+              allowClear
+              disabled={saveVenuePmMutation.isPending}
+            />
+          </FormField>
+        </div>
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            size="sm"
+            className="bg-ems-accent text-white hover:opacity-90"
+            onClick={() => saveVenuePmMutation.mutate({
+              venueProductionManagerContactId: venueProductionManagerId ? Number(venueProductionManagerId) : null,
+              stagehandContactId: stagehandContactId ? Number(stagehandContactId) : null,
+            })}
+            disabled={saveVenuePmMutation.isPending}
+          >
+            {saveVenuePmMutation.isPending ? (
+              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
+            ) : 'Save production manager & stage labor contact'}
+          </Button>
+        </div>
+
+        <div className="border-t border-border pt-4 space-y-4">
+          <FormField label="Stagehand Provider (company)">
             <Select2
               options={stagehandProviderOptions}
               value={stagehandProviderId}
@@ -1855,16 +2036,10 @@ function EngagementProductionPanel({
               disabled={venueDetailsMissing || saveStagehandProviderMutation.isPending}
             />
           </FormField>
-        </div>
-
-        <FormField label="Venue Stage Labor Company Contact">
-          <div className="min-h-[42px] rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary">
-            {!currentStagehandProviderId ? (
-              <span className="text-text-muted">Select a stagehand provider to view stage labor contacts.</span>
-            ) : stagehandProviderContacts.length === 0 ? (
-              <span className="text-text-muted">No contacts found for this stagehand provider.</span>
-            ) : (
-              <ul className="space-y-2">
+          {currentStagehandProviderId != null && stagehandProviderContacts.length > 0 && (
+            <div className="rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary">
+              <span className="text-[11px] text-text-muted font-medium uppercase tracking-wide">Stage labor provider contacts</span>
+              <ul className="space-y-2 mt-1">
                 {stagehandProviderContacts.map((contact) => (
                   <li key={contact.contactInfoId} className="flex flex-col gap-0.5">
                     <span className="font-medium">{contact.fullName}</span>
@@ -1874,9 +2049,9 @@ function EngagementProductionPanel({
                   </li>
                 ))}
               </ul>
-            )}
-          </div>
-        </FormField>
+            </div>
+          )}
+        </div>
 
         <div className="flex justify-end border-t border-border pt-4">
           <Button
@@ -1909,7 +2084,7 @@ function EngagementProductionPanel({
               onChange={setVenueTypeId}
               placeholder="Select type…"
               allowClear
-              disabled={saveVenueTabMutation.isPending}
+              disabled={saveVenueTypeMutation.isPending}
             />
           </FormField>
         </div>
@@ -1918,10 +2093,10 @@ function EngagementProductionPanel({
             type="button"
             size="sm"
             className="bg-ems-accent text-white hover:opacity-90"
-            onClick={() => saveVenueTabMutation.mutate({ venueTypeId: venueTypeId ? Number(venueTypeId) : null })}
-            disabled={saveVenueTabMutation.isPending}
+            onClick={() => saveVenueTypeMutation.mutate({ venueTypeId: venueTypeId ? Number(venueTypeId) : null })}
+            disabled={saveVenueTypeMutation.isPending}
           >
-            {saveVenueTabMutation.isPending ? (
+            {saveVenueTypeMutation.isPending ? (
               <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
             ) : 'Save venue type'}
           </Button>
@@ -1936,34 +2111,51 @@ function EngagementProductionPanel({
             label="Venue Stage Dimensions"
             value={stageDimensions}
             onChange={setStageDimensions}
-            disabled={saveVenueTabMutation.isPending}
+            disabled={saveTechPackMutation.isPending}
           />
           <VenueTabEditField
             label="Venue Fly System Specs"
             value={flySystemSpecs}
             onChange={setFlySystemSpecs}
-            disabled={saveVenueTabMutation.isPending}
+            disabled={saveTechPackMutation.isPending}
           />
           <VenueTabEditField
             label="Stage Type"
             value={stageType}
             onChange={setStageType}
-            disabled={saveVenueTabMutation.isPending}
+            disabled={saveTechPackMutation.isPending}
           />
         </div>
+        {techPackPdfUrl.trim() && isValidHttpOrHttpsUrl(techPackPdfUrl) && (
+          <a
+            href={techPackPdfUrl.trim()}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-ems-accent hover:underline"
+          >
+            <ExternalLink className="h-3 w-3 shrink-0" /> Open tech pack PDF
+          </a>
+        )}
         <div className="flex justify-end">
           <Button
             type="button"
             size="sm"
             className="bg-ems-accent text-white hover:opacity-90"
-            onClick={() => saveVenueTabMutation.mutate({
-              stageDimensions: stageDimensions || null,
-              flySystemSpecs: flySystemSpecs || null,
-              stageType: stageType || null,
-            })}
-            disabled={saveVenueTabMutation.isPending}
+            onClick={() => {
+              if (!isValidHttpOrHttpsUrl(techPackPdfUrl)) {
+                addToast('Venue Tech Pack PDF must be a valid http(s) URL, or left empty.', 'error');
+                return;
+              }
+              saveTechPackMutation.mutate({
+                stageDimensions: stageDimensions || null,
+                flySystemSpecs: flySystemSpecs || null,
+                stageType: stageType || null,
+                techPackPdfUrl: techPackPdfUrl.trim() || null,
+              });
+            }}
+            disabled={saveTechPackMutation.isPending}
           >
-            {saveVenueTabMutation.isPending ? (
+            {saveTechPackMutation.isPending ? (
               <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
             ) : 'Save tech pack'}
           </Button>
@@ -2829,7 +3021,7 @@ function fkIdStringToNumber(s: string): number | null {
   return Number.isFinite(n) && n >= 1 ? n : null;
 }
 
-/** Empty is allowed; otherwise must be a valid absolute URL with http: or https: */
+/** Empty is allowed; otherwise must be a valid absolute http:// or https:// URL (not random text). */
 function isValidHttpOrHttpsUrl(raw: string): boolean {
   const t = raw.trim();
   if (t === '') return true;
@@ -4710,17 +4902,34 @@ function EngagementBookingPanel({
   });
 
   // ── IAE contact lookups (contacts picker for talent buyer / booking mgr) ──
-  const iaeContactOptions = useMemo((): Select2Option[] => [
-    { value: '', label: '— not set —' },
-    ...(iaeLookupsQuery.data?.contacts ?? []).map((c) => ({ value: String(c.id), label: c.label })),
-  ], [iaeLookupsQuery.data?.contacts]);
-
   const roleIdsByKey = useMemo(() => {
     const roles = iaeLookupsQuery.data?.roles;
     return Object.fromEntries(
       BOOKING_IAE_STAFF_FIELDS.map((f) => [f.key, findMainInfoRoleId(roles, f.aliases)]),
     ) as Record<'talentBuyer' | 'bookingManager', number | null>;
   }, [iaeLookupsQuery.data?.roles]);
+
+  // Only IAE staff assigned to this engagement (Overview → staff assignments)
+  // with the matching role appear in each picker.
+  const iaeStaffOptionsForRole = (roleId: number | null): Select2Option[] => {
+    const seen = new Set<number>();
+    const opts: Select2Option[] = [{ value: '', label: '— not set —' }];
+    for (const r of iaeContactsQuery.data ?? []) {
+      if (roleId == null || r.roleId !== roleId || seen.has(r.contactId)) continue;
+      seen.add(r.contactId);
+      opts.push({ value: String(r.contactId), label: r.contactLabel });
+    }
+    return opts;
+  };
+
+  const talentBuyerOptions = useMemo(
+    () => iaeStaffOptionsForRole(roleIdsByKey.talentBuyer),
+    [iaeContactsQuery.data, roleIdsByKey.talentBuyer],
+  );
+  const bookingManagerOptions = useMemo(
+    () => iaeStaffOptionsForRole(roleIdsByKey.bookingManager),
+    [iaeContactsQuery.data, roleIdsByKey.bookingManager],
+  );
 
   const iaeRowsByKey = useMemo(() => {
     const result: Partial<Record<'talentBuyer' | 'bookingManager', typeof iaeContactsQuery.data extends (infer U)[] | undefined ? U : never>> = {};
@@ -4972,7 +5181,9 @@ function EngagementBookingPanel({
   }, [hasUserEdited, onDirtyChange]);
 
   const inputCls =
-    'w-full rounded-md border border-border bg-elevated px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-ems-accent disabled:opacity-50';
+    'w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-ems-accent disabled:opacity-50';
+  // White-background variant for the Attraction Terms / Attraction Contract inputs.
+  const whiteInputCls = inputCls.replace('bg-background', 'bg-white');
 
   const sectionTitle = (title: string) => (
     <h4 className="text-xs font-semibold uppercase tracking-wide text-text-muted mb-3">{title}</h4>
@@ -5024,7 +5235,7 @@ function EngagementBookingPanel({
           {fieldRow(
             'IAE Talent Buyer',
             <Select2
-              options={iaeContactOptions}
+              options={talentBuyerOptions}
               value={talentBuyerContactId}
               onChange={(v) => { markUserEdited(); setTalentBuyerContactId(v); }}
               placeholder="— not set —"
@@ -5035,7 +5246,7 @@ function EngagementBookingPanel({
           {fieldRow(
             'IAE Booking Manager',
             <Select2
-              options={iaeContactOptions}
+              options={bookingManagerOptions}
               value={bookingManagerContactId}
               onChange={(v) => { markUserEdited(); setBookingManagerContactId(v); }}
               placeholder="— not set —"
@@ -5127,6 +5338,28 @@ function EngagementBookingPanel({
               />
             ),
           )}
+          {tourMgmtCompanyId != null && (
+            <div>
+              <p className="mb-1 text-xs font-medium text-text-muted">Tour Management Contacts</p>
+              {tourMgmtContactsQuery.isLoading ? (
+                <div className="flex items-center gap-2 text-sm text-text-muted">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading contacts…
+                </div>
+              ) : (tourMgmtContactsQuery.data ?? []).length === 0 ? (
+                <p className="text-sm text-text-muted">No contacts for this company.</p>
+              ) : (
+                <div className="space-y-1">
+                  {(tourMgmtContactsQuery.data ?? []).map((c) => (
+                    <p key={c.contactId} className="text-sm text-text-secondary">
+                      {[c.firstName, c.lastName].filter(Boolean).join(' ') || `Contact #${c.contactId}`}
+                      {c.roleName ? <span className="text-text-muted"> — {c.roleName}</span> : null}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          <p className="text-xs text-text-muted">Tour Management Company is defined on the linked tour.</p>
         </div>
 
         {/* ── TALENT AGENCY ────────────────────────────────────────────── */}
@@ -5170,7 +5403,7 @@ function EngagementBookingPanel({
             <div className="relative">
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-text-muted">$</span>
               <input
-                className={`${inputCls} pl-8`}
+                className={`${whiteInputCls} pl-8`}
                 inputMode="decimal"
                 value={attractionGuarantee}
                 onChange={(e) => { markUserEdited(); setAttractionGuarantee(e.target.value); }}
@@ -5183,7 +5416,7 @@ function EngagementBookingPanel({
             <div className="relative">
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-text-muted">%</span>
               <input
-                className={`${inputCls} pl-8`}
+                className={`${whiteInputCls} pl-8`}
                 inputMode="decimal"
                 value={attractionOveragePercent}
                 onChange={(e) => { markUserEdited(); setAttractionOveragePercent(e.target.value); }}
@@ -5196,7 +5429,7 @@ function EngagementBookingPanel({
             <div className="relative">
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-text-muted">%</span>
               <input
-                className={`${inputCls} pl-8`}
+                className={`${whiteInputCls} pl-8`}
                 inputMode="decimal"
                 value={attractionRoyaltyPercent}
                 onChange={(e) => { markUserEdited(); setAttractionRoyaltyPercent(e.target.value); }}
@@ -5209,7 +5442,7 @@ function EngagementBookingPanel({
             <div className="relative">
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-text-muted">$</span>
               <input
-                className={`${inputCls} pl-8`}
+                className={`${whiteInputCls} pl-8`}
                 inputMode="decimal"
                 value={attractionMiddleMoney}
                 onChange={(e) => { markUserEdited(); setAttractionMiddleMoney(e.target.value); }}
@@ -5245,7 +5478,7 @@ function EngagementBookingPanel({
             <div className="flex gap-2 items-center">
               <input
                 type="url"
-                className={`${inputCls} flex-1`}
+                className={`${whiteInputCls} flex-1`}
                 value={attractionContractLink}
                 onChange={(e) => { markUserEdited(); setAttractionContractLink(e.target.value); }}
                 disabled={disabled}
@@ -5263,7 +5496,7 @@ function EngagementBookingPanel({
             <div className="flex gap-2 items-center">
               <input
                 type="url"
-                className={`${inputCls} flex-1`}
+                className={`${whiteInputCls} flex-1`}
                 value={partiallyExecutedLink}
                 onChange={(e) => { markUserEdited(); setPartiallyExecutedLink(e.target.value); }}
                 disabled={disabled}
@@ -5281,7 +5514,7 @@ function EngagementBookingPanel({
             <div className="flex gap-2 items-center">
               <input
                 type="url"
-                className={`${inputCls} flex-1`}
+                className={`${whiteInputCls} flex-1`}
                 value={fullyExecutedLink}
                 onChange={(e) => { markUserEdited(); setFullyExecutedLink(e.target.value); }}
                 disabled={disabled}
@@ -5980,14 +6213,6 @@ function EngagementEventBusinessPanel({
         {sectionHeader('RAMP')}
         <p className="text-sm text-text-muted">RAMP bills and reports will be shown here when available.</p>
 
-        {/* ── Sale Summary ─────────────────────────────────────────── */}
-        {sectionHeader('Sale Summary')}
-        <EngagementSalesDashboardPanel
-          engagementId={engagementId}
-          onBack={() => undefined}
-          showBackButton={false}
-        />
-
         {/* ── Save ────────────────────────────────────────────────── */}
         <div className="flex justify-end pt-2 border-t border-border">
           <Button
@@ -6052,6 +6277,9 @@ function EngagementMarketingPanel({
   const [ticketingStatus, setTicketingStatus] = useState('');
   const [onSaleDate, setOnSaleDate] = useState(getTodayDateString());
   const [preSaleDate, setPreSaleDate] = useState(getTodayDateString());
+  const [preSaleEndDate, setPreSaleEndDate] = useState('');
+  const [preSaleRegistrationStartDate, setPreSaleRegistrationStartDate] = useState('');
+  const [preSaleRegistrationEndDate, setPreSaleRegistrationEndDate] = useState('');
   const [grossMarketingBudget, setGrossMarketingBudget] = useState('');
   const [netMarketingBudget, setNetMarketingBudget] = useState('');
   const [salesRevenueGoal, setSalesRevenueGoal] = useState('');
@@ -6060,21 +6288,6 @@ function EngagementMarketingPanel({
   const [vipPackagedOffer, setVipPackagedOffer] = useState('');
   const [preSaleSpecialPrices, setPreSaleSpecialPrices] = useState('');
   const [kidsTicketsPrices, setKidsTicketsPrices] = useState('');
-  const [sellableCapacity, setSellableCapacity] = useState('');
-  const [grossPotentialRevenue, setGrossPotentialRevenue] = useState('');
-  const [ticketingSystemCompanyId, setTicketingSystemCompanyId] = useState('');
-  const [ticketingAdministrator, setTicketingAdministrator] = useState('');
-  const [boxOfficeLaborStaffingRequired, setBoxOfficeLaborStaffingRequired] = useState('');
-  const [facilityFeeType, setFacilityFeeType] = useState('');
-  const [facilityFeeAmount, setFacilityFeeAmount] = useState('');
-  const [dynamicPricingMode, setDynamicPricingMode] = useState('');
-  const [serviceChargeRevenueShare, setServiceChargeRevenueShare] = useState('');
-  const [rebateAmount, setRebateAmount] = useState('');
-  const [bumpAmount, setBumpAmount] = useState('');
-  const [creditCardFeesType, setCreditCardFeesType] = useState('');
-  const [creditCardFeesAmountPercent, setCreditCardFeesAmountPercent] = useState('');
-  const [salesTaxType, setSalesTaxType] = useState('');
-  const [salesTaxAmountPercent, setSalesTaxAmountPercent] = useState('');
   const [ticketingLinkUrl, setTicketingLinkUrl] = useState('');
   const [grossTicketSales, setGrossTicketSales] = useState('');
   const [totalComps, setTotalComps] = useState('');
@@ -6103,11 +6316,99 @@ function EngagementMarketingPanel({
     retry: 1,
   });
 
+  const venueTabQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'venue-tab-data'],
+    queryFn: () => fetchEngagementVenueTabData(engagementId),
+    retry: 1,
+  });
+
   const marketingMetaQuery = useQuery({
     queryKey: ['engagements', engagementId, 'marketing-meta'],
     queryFn: () => fetchMarketingMeta(engagementId),
     staleTime: 60_000,
     retry: 1,
+  });
+
+  // ── IAE Marketing Team ──────────────────────────────────────────────
+  const [iaeMarketingDirectorId, setIaeMarketingDirectorId] = useState('');
+  const [iaeMarketingManagerId, setIaeMarketingManagerId] = useState('');
+  const [iaeMarketingCoordinatorId, setIaeMarketingCoordinatorId] = useState('');
+
+  const iaeContactLookupsQuery = useQuery({
+    queryKey: ['engagements', 'iae-contact-lookups'],
+    queryFn: fetchEngagementIaeContactLookups,
+    staleTime: 300_000,
+  });
+
+  const iaeMarketingContactOptions = useMemo<Select2Option[]>(
+    () => [
+      { value: '', label: 'Not set' },
+      ...(iaeContactLookupsQuery.data?.contacts ?? []).map((c) => ({
+        value: String(c.id),
+        label: c.label,
+      })),
+    ],
+    [iaeContactLookupsQuery.data],
+  );
+
+  useEffect(() => {
+    const d = marketingMetaQuery.data;
+    if (!d) return;
+    setIaeMarketingDirectorId(d.iaeMarketingDirectorContactId != null ? String(d.iaeMarketingDirectorContactId) : '');
+    setIaeMarketingManagerId(d.iaeMarketingManagerContactId != null ? String(d.iaeMarketingManagerContactId) : '');
+    setIaeMarketingCoordinatorId(d.iaeMarketingCoordinatorContactId != null ? String(d.iaeMarketingCoordinatorContactId) : '');
+  }, [marketingMetaQuery.data]);
+
+  const {
+    hasUserEdited: hasIaeMarketingTeamEdited,
+    markUserEdited: markIaeMarketingTeamEdited,
+    clearUserEdited: clearIaeMarketingTeamEdited,
+  } = useUserEditTracker(`iae-marketing-team:${engagementId}`);
+
+  const saveIaeMarketingTeamMut = useMutation({
+    mutationFn: () =>
+      updateIaeMarketingTeam(engagementId, {
+        iaeMarketingDirectorContactId: iaeMarketingDirectorId ? Number(iaeMarketingDirectorId) : null,
+        iaeMarketingManagerContactId: iaeMarketingManagerId ? Number(iaeMarketingManagerId) : null,
+        iaeMarketingCoordinatorContactId: iaeMarketingCoordinatorId ? Number(iaeMarketingCoordinatorId) : null,
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'marketing-meta'] });
+      clearIaeMarketingTeamEdited();
+      addToast('IAE Marketing Team saved.', 'success');
+    },
+    onError: (e: unknown) => addToast(friendlyApiError(e, 'Could not save IAE Marketing Team.'), 'error'),
+  });
+
+  // ── Tour Marketing Team ──────────────────────────────────────────────
+  const [tourMarketingDirectorId, setTourMarketingDirectorId] = useState('');
+  const [tourMarketingManagerId, setTourMarketingManagerId] = useState('');
+
+  useEffect(() => {
+    const d = marketingMetaQuery.data;
+    if (!d) return;
+    setTourMarketingDirectorId(d.tourMarketingDirectorContactId != null ? String(d.tourMarketingDirectorContactId) : '');
+    setTourMarketingManagerId(d.tourMarketingManagerContactId != null ? String(d.tourMarketingManagerContactId) : '');
+  }, [marketingMetaQuery.data]);
+
+  const {
+    hasUserEdited: hasTourMarketingTeamEdited,
+    markUserEdited: markTourMarketingTeamEdited,
+    clearUserEdited: clearTourMarketingTeamEdited,
+  } = useUserEditTracker(`tour-marketing-team:${engagementId}`);
+
+  const saveTourMarketingTeamMut = useMutation({
+    mutationFn: () =>
+      updateTourMarketingTeam(engagementId, {
+        tourMarketingDirectorContactId: tourMarketingDirectorId ? Number(tourMarketingDirectorId) : null,
+        tourMarketingManagerContactId: tourMarketingManagerId ? Number(tourMarketingManagerId) : null,
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'marketing-meta'] });
+      clearTourMarketingTeamEdited();
+      addToast('Tour Marketing Team saved.', 'success');
+    },
+    onError: (e: unknown) => addToast(friendlyApiError(e, 'Could not save Tour Marketing Team.'), 'error'),
   });
 
   const [newRetailPartnerCompanyId, setNewRetailPartnerCompanyId] = useState('');
@@ -6146,25 +6447,6 @@ function EngagementMarketingPanel({
       })),
     [performancesQuery.data],
   );
-
-  const ticketingSystemCompanyOptions = useMemo<Select2Option[]>(() => {
-    const rows = ticketingCompaniesQuery.data?.data ?? [];
-    const filtered = rows.filter((company) => {
-      const names = [company.companyTypeName, ...(company.companyTypeNames ?? [])]
-        .filter(Boolean)
-        .map((x) => String(x).toLowerCase());
-      return names.some((x) => x.includes('ticket'));
-    });
-    const opts = filtered.map(companyToSelect2Option);
-    if (
-      ticketingSystemCompanyId.trim() !== '' &&
-      !opts.some((o) => o.value === ticketingSystemCompanyId)
-    ) {
-      const fallback = rows.find((r) => String(r.companyId) === ticketingSystemCompanyId);
-      if (fallback) opts.unshift(companyToSelect2Option(fallback));
-    }
-    return opts;
-  }, [ticketingCompaniesQuery.data?.data, ticketingSystemCompanyId]);
 
   useEffect(() => {
     const d = ticketingQuery.data;
@@ -6282,6 +6564,9 @@ function EngagementMarketingPanel({
       ticketingStatus: ticketingStatus.trim() ? ticketingStatus.trim().slice(0, 50) : null,
       onSaleDate: onSaleDate.trim() === '' ? null : onSaleDate.trim(),
       preSaleDate: preSaleDate.trim() === '' ? null : preSaleDate.trim(),
+      preSaleEndDate: preSaleEndDate.trim() === '' ? null : preSaleEndDate.trim(),
+      preSaleRegistrationStartDate: preSaleRegistrationStartDate.trim() === '' ? null : preSaleRegistrationStartDate.trim(),
+      preSaleRegistrationEndDate: preSaleRegistrationEndDate.trim() === '' ? null : preSaleRegistrationEndDate.trim(),
       vipPackagedOffer: vipPackagedOffer.trim()
         ? vipPackagedOffer.trim().slice(0, 255)
         : null,
@@ -6333,6 +6618,9 @@ function EngagementMarketingPanel({
       ticketingStatus: ticketingStatus.trim() ? ticketingStatus.trim().slice(0, 50) : null,
       onSaleDate: onSaleDate.trim() === '' ? null : onSaleDate.trim(),
       preSaleDate: preSaleDate.trim() === '' ? null : preSaleDate.trim(),
+      preSaleEndDate: preSaleEndDate.trim() === '' ? null : preSaleEndDate.trim(),
+      preSaleRegistrationStartDate: preSaleRegistrationStartDate.trim() === '' ? null : preSaleRegistrationStartDate.trim(),
+      preSaleRegistrationEndDate: preSaleRegistrationEndDate.trim() === '' ? null : preSaleRegistrationEndDate.trim(),
       vipPackagedOffer: vipPackagedOffer.trim()
         ? vipPackagedOffer.trim().slice(0, 255)
         : null,
@@ -6356,6 +6644,9 @@ function EngagementMarketingPanel({
       ticketingStatus: ts(d.ticketingStatus),
       onSaleDate: (d.onSaleDate ?? '').trim() === '' ? null : (d.onSaleDate ?? '').trim(),
       preSaleDate: (d.preSaleDate ?? '').trim() === '' ? null : (d.preSaleDate ?? '').trim(),
+      preSaleEndDate: (d.preSaleEndDate ?? '').trim() === '' ? null : (d.preSaleEndDate ?? '').trim(),
+      preSaleRegistrationStartDate: (d.preSaleRegistrationStartDate ?? '').trim() === '' ? null : (d.preSaleRegistrationStartDate ?? '').trim(),
+      preSaleRegistrationEndDate: (d.preSaleRegistrationEndDate ?? '').trim() === '' ? null : (d.preSaleRegistrationEndDate ?? '').trim(),
       vipPackagedOffer: vipNorm(d.vipPackagedOffer),
       preSaleSpecialPrices: (d.preSaleSpecialPrices ?? '').trim() || null,
       kidsTicketsPrices: (d.kidsTicketsPrices ?? '').trim() || null,
@@ -6372,6 +6663,9 @@ function EngagementMarketingPanel({
     ticketingStatus,
     onSaleDate,
     preSaleDate,
+    preSaleEndDate,
+    preSaleRegistrationStartDate,
+    preSaleRegistrationEndDate,
     vipPackagedOffer,
     preSaleSpecialPrices,
     kidsTicketsPrices,
@@ -6422,6 +6716,57 @@ function EngagementMarketingPanel({
   const marketingSaveDisabled = saveDisabled || !marketingFormDirty;
   const marketingBudgetSaveDisabled =
     saveBudgetMut.isPending || financeQuery.isLoading || !marketingBudgetDirty;
+
+  // ── Venue Marketing Team (moved here from the Venues tab) ─────────────────
+  const venueMktVenue = useMemo(
+    () =>
+      (venueTabQuery.data?.venues ?? []).find((v) => v.isPrimary) ??
+      (venueTabQuery.data?.venues ?? [])[0] ??
+      null,
+    [venueTabQuery.data?.venues],
+  );
+  const venueMktCompanyId = venueMktVenue?.venueCompanyId ?? null;
+  const venueMktContactsQuery = useQuery({
+    queryKey: ['company-contacts', venueMktCompanyId],
+    queryFn: () => fetchCompanyContacts(venueMktCompanyId!),
+    enabled: venueMktCompanyId != null && venueMktCompanyId > 0,
+    staleTime: 60_000,
+  });
+  const venueMktContactOptions = useMemo<Select2Option[]>(
+    () => [
+      { value: '', label: 'Not set' },
+      ...(venueMktContactsQuery.data ?? []).map((c) => ({
+        value: String(c.contactId),
+        label: `${c.firstName} ${c.lastName}`.trim() || c.contactId.toString(),
+      })),
+    ],
+    [venueMktContactsQuery.data],
+  );
+  const [venueMktDirectorId, setVenueMktDirectorId] = useState('');
+  const [venueMktManagerId, setVenueMktManagerId] = useState('');
+  const [venueMktDigitalId, setVenueMktDigitalId] = useState('');
+  useEffect(() => {
+    const v = venueMktVenue;
+    setVenueMktDirectorId(v?.venueMarketingDirectorContactId != null ? String(v.venueMarketingDirectorContactId) : '');
+    setVenueMktManagerId(v?.venueMarketingManagerContactId != null ? String(v.venueMarketingManagerContactId) : '');
+    setVenueMktDigitalId(v?.venueDigitalMarketingManagerContactId != null ? String(v.venueDigitalMarketingManagerContactId) : '');
+  }, [venueMktVenue]);
+  const saveVenueMktMut = useMutation({
+    mutationFn: () => {
+      if (venueMktCompanyId == null) throw new Error('No venue linked to this engagement.');
+      return updateEngagementVenueTab(engagementId, venueMktCompanyId, {
+        venueMarketingDirectorContactId: venueMktDirectorId ? Number(venueMktDirectorId) : null,
+        venueMarketingManagerContactId: venueMktManagerId ? Number(venueMktManagerId) : null,
+        venueDigitalMarketingManagerContactId: venueMktDigitalId ? Number(venueMktDigitalId) : null,
+      });
+    },
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venue-tab-data'] });
+      addToast('Venue marketing team saved.', 'success');
+    },
+    onError: (e) => addToast(friendlyApiError(e, 'Could not save venue marketing team.'), 'error'),
+  });
+
   const fieldRow = (label: string, control: React.ReactNode) => (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-6 min-w-0">
       <div className="text-sm font-medium text-text-primary shrink-0 sm:w-52 sm:pt-2.5">{label}</div>
@@ -6611,232 +6956,90 @@ function EngagementMarketingPanel({
               tab. Ticketing fields below are scoped to the selected show.
             </div>
 
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-              {fieldRow(
-                'Sellable Capacity (for selected performance)',
-                <input
-                  className={inputCls}
-                  inputMode="numeric"
-                  value={sellableCapacity}
-                  onChange={(e) => {
-                    markTicketingUserEdited();
-                    setSellableCapacity(e.target.value);
-                  }}
-                  disabled={disabled}
-                />,
-              )}
-              {fieldRow(
-                'Gross Potential Revenue',
-                <input
-                  className={inputCls}
-                  inputMode="decimal"
-                  value={grossPotentialRevenue}
-                  onChange={(e) => {
-                    markTicketingUserEdited();
-                    setGrossPotentialRevenue(e.target.value);
-                  }}
-                  disabled={disabled}
-                />,
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-              {fieldRow(
-                'Company (type: Ticketing System)',
-                <Select2
-                  options={[{ value: '', label: 'Not set' }, ...ticketingSystemCompanyOptions]}
-                  value={ticketingSystemCompanyId}
-                  onChange={(value) => {
-                    markTicketingUserEdited();
-                    setTicketingSystemCompanyId(value);
-                  }}
-                  placeholder="Select ticketing system company…"
-                  allowClear
-                  disabled={disabled}
-                />,
-              )}
-              {fieldRow(
-                'Ticketing Administrator',
-                <Select2
-                  options={TICKETING_ADMIN_OPTIONS}
-                  value={ticketingAdministrator}
-                  onChange={(value) => {
-                    markTicketingUserEdited();
-                    setTicketingAdministrator(value);
-                  }}
-                  placeholder="Select…"
-                  allowClear
-                  disabled={disabled}
-                />,
-              )}
-            </div>
-
-            {ticketingAdministrator === 'IAE Contract' && (
+            {/* ── On Sale Dates ── */}
+            <div className="rounded-lg border border-border bg-surface/40 p-4">
+              <h4 className="text-sm font-semibold text-text-primary mb-3">On Sale Dates</h4>
               <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
                 {fieldRow(
-                  'Do we have to staff Box office labor?',
-                  <Select2
-                    options={YES_NO_OPTIONS}
-                    value={boxOfficeLaborStaffingRequired}
-                    onChange={(value) => {
-                      markTicketingUserEdited();
-                      setBoxOfficeLaborStaffingRequired(value);
+                  'Presale Start Date',
+                  <input
+                    id="mkt-presale-start"
+                    type="date"
+                    className={inputCls}
+                    value={preSaleDate}
+                    onChange={(e) => {
+                      markMarketingUserEdited();
+                      setPreSaleDate(e.target.value);
                     }}
-                    placeholder="Select…"
-                    allowClear
-                    disabled={disabled}
+                    disabled={saveDisabled}
+                  />,
+                )}
+                {fieldRow(
+                  'PreSale End Date',
+                  <input
+                    id="mkt-presale-end"
+                    type="date"
+                    className={inputCls}
+                    value={preSaleEndDate}
+                    onChange={(e) => {
+                      markMarketingUserEdited();
+                      setPreSaleEndDate(e.target.value);
+                    }}
+                    disabled={saveDisabled}
                   />,
                 )}
               </div>
-            )}
-
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-              {fieldRow(
-                'Facility Fee Type',
-                <Select2
-                  options={FACE_VALUE_TYPE_OPTIONS}
-                  value={facilityFeeType}
-                  onChange={(value) => {
-                    markTicketingUserEdited();
-                    setFacilityFeeType(value);
-                  }}
-                  placeholder="Select…"
-                  allowClear
-                  disabled={disabled}
-                />,
-              )}
-              {fieldRow(
-                'Facility Fee Amount ($)',
-                <input
-                  className={inputCls}
-                  inputMode="decimal"
-                  value={facilityFeeAmount}
-                  onChange={(e) => {
-                    markTicketingUserEdited();
-                    setFacilityFeeAmount(e.target.value);
-                  }}
-                  disabled={disabled}
-                />,
-              )}
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10 mt-1">
+                {fieldRow(
+                  'Public On Sale Start Date',
+                  <input
+                    id="mkt-onsale"
+                    type="date"
+                    className={inputCls}
+                    value={onSaleDate}
+                    onChange={(e) => {
+                      markMarketingUserEdited();
+                      setOnSaleDate(e.target.value);
+                    }}
+                    disabled={saveDisabled}
+                  />,
+                )}
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-              {fieldRow(
-                'Dynamic Pricing',
-                <Select2
-                  options={DYNAMIC_PRICING_MODE_OPTIONS}
-                  value={dynamicPricingMode}
-                  onChange={(value) => {
-                    markTicketingUserEdited();
-                    setDynamicPricingMode(value);
-                  }}
-                  placeholder="Select…"
-                  allowClear
-                  disabled={disabled}
-                />,
-              )}
-              {fieldRow(
-                'Service Charge Revenue Share',
-                <input
-                  className={inputCls}
-                  inputMode="decimal"
-                  value={serviceChargeRevenueShare}
-                  onChange={(e) => {
-                    markTicketingUserEdited();
-                    setServiceChargeRevenueShare(e.target.value);
-                  }}
-                  disabled={disabled}
-                />,
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-              {fieldRow(
-                'Rebate Amount',
-                <input
-                  className={inputCls}
-                  inputMode="decimal"
-                  value={rebateAmount}
-                  onChange={(e) => {
-                    markTicketingUserEdited();
-                    setRebateAmount(e.target.value);
-                  }}
-                  disabled={disabled}
-                />,
-              )}
-              {fieldRow(
-                'Bump Amount',
-                <input
-                  className={inputCls}
-                  inputMode="decimal"
-                  value={bumpAmount}
-                  onChange={(e) => {
-                    markTicketingUserEdited();
-                    setBumpAmount(e.target.value);
-                  }}
-                  disabled={disabled}
-                />,
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-              {fieldRow(
-                'Credit Card Fees Type',
-                <Select2
-                  options={FEE_TYPE_OPTIONS}
-                  value={creditCardFeesType}
-                  onChange={(value) => {
-                    markTicketingUserEdited();
-                    setCreditCardFeesType(value);
-                  }}
-                  placeholder="Select…"
-                  allowClear
-                  disabled={disabled}
-                />,
-              )}
-              {fieldRow(
-                'Credit Card Fees Amount (%)',
-                <input
-                  className={inputCls}
-                  inputMode="decimal"
-                  value={creditCardFeesAmountPercent}
-                  onChange={(e) => {
-                    markTicketingUserEdited();
-                    setCreditCardFeesAmountPercent(e.target.value);
-                  }}
-                  disabled={disabled}
-                />,
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-              {fieldRow(
-                'Sales Tax Type',
-                <Select2
-                  options={SALES_TAX_TYPE_OPTIONS}
-                  value={salesTaxType}
-                  onChange={(value) => {
-                    markTicketingUserEdited();
-                    setSalesTaxType(value);
-                  }}
-                  placeholder="Select…"
-                  allowClear
-                  disabled={disabled}
-                />,
-              )}
-              {fieldRow(
-                'Sales Tax Amount (%)',
-                <input
-                  className={inputCls}
-                  inputMode="decimal"
-                  value={salesTaxAmountPercent}
-                  onChange={(e) => {
-                    markTicketingUserEdited();
-                    setSalesTaxAmountPercent(e.target.value);
-                  }}
-                  disabled={disabled}
-                />,
-              )}
+            {/* ── Lead Generation ── */}
+            <div className="rounded-lg border border-border bg-surface/40 p-4">
+              <h4 className="text-sm font-semibold text-text-primary mb-3">Lead Generation</h4>
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+                {fieldRow(
+                  'Presale Registration Start Date',
+                  <input
+                    id="mkt-presale-reg-start"
+                    type="date"
+                    className={inputCls}
+                    value={preSaleRegistrationStartDate}
+                    onChange={(e) => {
+                      markMarketingUserEdited();
+                      setPreSaleRegistrationStartDate(e.target.value);
+                    }}
+                    disabled={saveDisabled}
+                  />,
+                )}
+                {fieldRow(
+                  'PreSale Registration End Date',
+                  <input
+                    id="mkt-presale-reg-end"
+                    type="date"
+                    className={inputCls}
+                    value={preSaleRegistrationEndDate}
+                    onChange={(e) => {
+                      markMarketingUserEdited();
+                      setPreSaleRegistrationEndDate(e.target.value);
+                    }}
+                    disabled={saveDisabled}
+                  />,
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
@@ -6867,37 +7070,6 @@ function EngagementMarketingPanel({
                   }}
                   disabled={saveDisabled}
                   placeholder="https://…"
-                />,
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-              {fieldRow(
-                'On-sale date',
-                <input
-                  id="mkt-onsale"
-                  type="date"
-                  className={inputCls}
-                  value={onSaleDate}
-                  onChange={(e) => {
-                    markMarketingUserEdited();
-                    setOnSaleDate(e.target.value);
-                  }}
-                  disabled={saveDisabled}
-                />,
-              )}
-              {fieldRow(
-                'Pre-sale date',
-                <input
-                  id="mkt-presale"
-                  type="date"
-                  className={inputCls}
-                  value={preSaleDate}
-                  onChange={(e) => {
-                    markMarketingUserEdited();
-                    setPreSaleDate(e.target.value);
-                  }}
-                  disabled={saveDisabled}
                 />,
               )}
             </div>
@@ -7029,60 +7201,207 @@ function EngagementMarketingPanel({
           </>
         )}
 
-        {/* ── Tour Marketing Team (read-only from TourContact) ── */}
+        {/* ── Venue Marketing Team (editable, per primary venue) ── */}
         <div className="rounded-lg border border-border bg-surface/40 p-4">
-          <h4 className="text-sm font-semibold text-text-primary mb-3">Tour Marketing Team</h4>
-          {marketingMetaQuery.isLoading && (
-            <div className="flex items-center gap-2 text-text-muted text-sm">
-              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-              Loading…
-            </div>
-          )}
-          {marketingMetaQuery.isError && (
-            <div className="text-ems-coral text-sm">{friendlyApiError(marketingMetaQuery.error)}</div>
-          )}
-          {!marketingMetaQuery.isLoading && !marketingMetaQuery.isError && (
+          <div className="mb-3 flex items-baseline justify-between gap-2">
+            <h4 className="text-sm font-semibold text-text-primary">Venue Marketing Team</h4>
+            {venueMktVenue?.venueCompanyName && (
+              <span className="text-xs text-text-muted">{venueMktVenue.venueCompanyName}</span>
+            )}
+          </div>
+          {venueMktCompanyId == null ? (
+            <p className="text-sm text-text-muted">No venue is linked to this engagement.</p>
+          ) : (
             <>
-              {(marketingMetaQuery.data?.tourMarketingContacts ?? []).length === 0 ? (
-                <p className="text-sm text-text-muted">No tour marketing contacts on file.</p>
-              ) : (
-                <div className="space-y-1">
-                  {(marketingMetaQuery.data?.tourMarketingContacts ?? []).map((c) => (
-                    <div key={c.tourContactId} className="flex items-baseline gap-2 text-sm">
-                      <span className="text-text-primary font-medium">{c.contactName}</span>
-                      {c.roleName && (
-                        <span className="text-text-muted text-xs">— {c.roleName}</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <FormField label="Venue Marketing Director">
+                  <Select2
+                    options={venueMktContactOptions}
+                    value={venueMktDirectorId}
+                    onChange={setVenueMktDirectorId}
+                    placeholder="Select contact…"
+                    allowClear
+                    disabled={saveVenueMktMut.isPending}
+                  />
+                </FormField>
+                <FormField label="Venue Marketing Manager">
+                  <Select2
+                    options={venueMktContactOptions}
+                    value={venueMktManagerId}
+                    onChange={setVenueMktManagerId}
+                    placeholder="Select contact…"
+                    allowClear
+                    disabled={saveVenueMktMut.isPending}
+                  />
+                </FormField>
+                <FormField label="Venue Digital Marketing Manager">
+                  <Select2
+                    options={venueMktContactOptions}
+                    value={venueMktDigitalId}
+                    onChange={setVenueMktDigitalId}
+                    placeholder="Select contact…"
+                    allowClear
+                    disabled={saveVenueMktMut.isPending}
+                  />
+                </FormField>
+              </div>
+              <div className="flex justify-end mt-3">
+                <Button
+                  type="button"
+                  size="sm"
+                  className="bg-ems-accent text-white hover:opacity-90"
+                  onClick={() => saveVenueMktMut.mutate()}
+                  disabled={saveVenueMktMut.isPending}
+                >
+                  {saveVenueMktMut.isPending ? (
+                    <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
+                  ) : 'Save venue marketing team'}
+                </Button>
+              </div>
             </>
           )}
         </div>
 
-        {/* ── Tour Audience Demographic (read-only from TourAudienceAgeRange) ── */}
+        {/* ── IAE Marketing Team ── */}
+        <div className="rounded-lg border border-border bg-surface/40 p-4">
+          <h4 className="text-sm font-semibold text-text-primary mb-3">IAE Marketing Team</h4>
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+            {fieldRow(
+              'Marketing Director',
+              <Select2
+                options={iaeMarketingContactOptions}
+                value={iaeMarketingDirectorId}
+                onChange={(v) => { markIaeMarketingTeamEdited(); setIaeMarketingDirectorId(v); }}
+                placeholder="Select contact…"
+                allowClear
+                disabled={saveIaeMarketingTeamMut.isPending}
+              />,
+            )}
+            {fieldRow(
+              'Marketing Manager',
+              <Select2
+                options={iaeMarketingContactOptions}
+                value={iaeMarketingManagerId}
+                onChange={(v) => { markIaeMarketingTeamEdited(); setIaeMarketingManagerId(v); }}
+                placeholder="Select contact…"
+                allowClear
+                disabled={saveIaeMarketingTeamMut.isPending}
+              />,
+            )}
+            {fieldRow(
+              'Marketing Coordinator',
+              <Select2
+                options={iaeMarketingContactOptions}
+                value={iaeMarketingCoordinatorId}
+                onChange={(v) => { markIaeMarketingTeamEdited(); setIaeMarketingCoordinatorId(v); }}
+                placeholder="Select contact…"
+                allowClear
+                disabled={saveIaeMarketingTeamMut.isPending}
+              />,
+            )}
+          </div>
+          <div className="mt-4 flex justify-end border-t border-border pt-3">
+            <Button
+              type="button"
+              className="bg-ems-accent text-white hover:opacity-90"
+              onClick={() => saveIaeMarketingTeamMut.mutate()}
+              disabled={saveIaeMarketingTeamMut.isPending || !hasIaeMarketingTeamEdited}
+            >
+              {saveIaeMarketingTeamMut.isPending ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Saving…
+                </span>
+              ) : (
+                'Save IAE marketing team'
+              )}
+            </Button>
+          </div>
+        </div>
+
+        {/* ── Tour Marketing Team (editable) ── */}
+        <div className="rounded-lg border border-border bg-surface/40 p-4">
+          <h4 className="text-sm font-semibold text-text-primary mb-3">Tour Marketing Team</h4>
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+            {fieldRow(
+              'Marketing Director',
+              <Select2
+                options={iaeMarketingContactOptions}
+                value={tourMarketingDirectorId}
+                onChange={(v) => { markTourMarketingTeamEdited(); setTourMarketingDirectorId(v); }}
+                placeholder="Select contact…"
+                allowClear
+                disabled={saveTourMarketingTeamMut.isPending}
+              />,
+            )}
+            {fieldRow(
+              'Marketing Manager',
+              <Select2
+                options={iaeMarketingContactOptions}
+                value={tourMarketingManagerId}
+                onChange={(v) => { markTourMarketingTeamEdited(); setTourMarketingManagerId(v); }}
+                placeholder="Select contact…"
+                allowClear
+                disabled={saveTourMarketingTeamMut.isPending}
+              />,
+            )}
+          </div>
+          <div className="mt-4 flex justify-end border-t border-border pt-3">
+            <Button
+              type="button"
+              className="bg-ems-accent text-white hover:opacity-90"
+              onClick={() => saveTourMarketingTeamMut.mutate()}
+              disabled={saveTourMarketingTeamMut.isPending || !hasTourMarketingTeamEdited}
+            >
+              {saveTourMarketingTeamMut.isPending ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Saving…
+                </span>
+              ) : (
+                'Save tour marketing team'
+              )}
+            </Button>
+          </div>
+        </div>
+
+        {/* ── Tour Audience Demographic (read-only from dbo.Tour + TourAudienceAgeRange) ── */}
         <div className="rounded-lg border border-border bg-surface/40 p-4">
           <h4 className="text-sm font-semibold text-text-primary mb-3">Tour Audience Demographic</h4>
           {!marketingMetaQuery.isLoading && !marketingMetaQuery.isError && (
-            <>
-              {(marketingMetaQuery.data?.tourAudienceDemographics ?? []).length === 0 ? (
-                <p className="text-sm text-text-muted">No audience demographics on file.</p>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {[...(marketingMetaQuery.data?.tourAudienceDemographics ?? [])]
-                    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-                    .map((d) => (
-                      <span
-                        key={d.ageRangeId}
-                        className="rounded-full border border-border bg-surface px-3 py-0.5 text-xs font-medium text-text-primary"
-                      >
-                        {d.ageRangeLabel}
-                      </span>
-                    ))}
-                </div>
-              )}
-            </>
+            <div className="space-y-3">
+              {/* General Demographics (gender) */}
+              <div>
+                <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-1">General Demographics</p>
+                {marketingMetaQuery.data?.audienceGender ? (
+                  <span className="rounded-full border border-border bg-surface px-3 py-0.5 text-xs font-medium text-text-primary">
+                    {marketingMetaQuery.data.audienceGender}
+                  </span>
+                ) : (
+                  <p className="text-sm text-text-muted">No gender demographic on file.</p>
+                )}
+              </div>
+              {/* Age Range */}
+              <div>
+                <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-1">Age Range</p>
+                {(marketingMetaQuery.data?.tourAudienceDemographics ?? []).length === 0 ? (
+                  <p className="text-sm text-text-muted">No age range demographics on file.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {[...(marketingMetaQuery.data?.tourAudienceDemographics ?? [])]
+                      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+                      .map((d) => (
+                        <span
+                          key={d.ageRangeId}
+                          className="rounded-full border border-border bg-surface px-3 py-0.5 text-xs font-medium text-text-primary"
+                        >
+                          {d.ageRangeLabel}
+                        </span>
+                      ))}
+                  </div>
+                )}
+              </div>
+            </div>
           )}
         </div>
 
@@ -7198,41 +7517,79 @@ function EngagementMarketingPanel({
           </div>
         </div>
 
-        {/* ── Media Mix (read-only from TourMediaMix) ── */}
-        <div className="rounded-lg border border-border bg-surface/40 p-4">
-          <h4 className="text-sm font-semibold text-text-primary mb-3">Media Mix</h4>
-          {!marketingMetaQuery.isLoading && !marketingMetaQuery.isError && (
-            <>
-              {(marketingMetaQuery.data?.mediaMix ?? []).length === 0 ? (
-                <p className="text-sm text-text-muted">No media mix on file for this tour.</p>
-              ) : (
-                <div className="space-y-3">
-                  {Object.entries(
-                    (marketingMetaQuery.data?.mediaMix ?? []).reduce<Record<string, typeof marketingMetaQuery.data.mediaMix>>((acc, item) => {
-                      const key = item.parentCategory ?? item.subTypeName;
-                      if (!acc[key]) acc[key] = [];
-                      acc[key].push(item);
-                      return acc;
-                    }, {}),
-                  ).map(([category, items]) => (
-                    <div key={category}>
-                      <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-1">{category}</p>
-                      <div className="space-y-1 pl-2">
-                        {items.map((item) => (
-                          <div key={item.tourMediaMixId} className="flex items-baseline gap-2 text-sm">
-                            <span className="text-text-primary">{item.subTypeName}</span>
-                            {item.companyName && (
-                              <span className="text-text-muted text-xs">— {item.companyName}</span>
-                            )}
-                          </div>
-                        ))}
-                      </div>
+        {/* ── Media Mix ── */}
+        <div className="rounded-lg border border-border bg-surface/40 p-4 space-y-4">
+          <h4 className="text-sm font-semibold text-text-primary">Media Mix</h4>
+
+          {/* Tour-selected media mix (read-only from TourMediaMix) */}
+          {!marketingMetaQuery.isLoading && !marketingMetaQuery.isError && (marketingMetaQuery.data?.mediaMix ?? []).length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-text-secondary mb-2">Selected for this tour</p>
+              <div className="space-y-3">
+                {Object.entries(
+                  (marketingMetaQuery.data?.mediaMix ?? []).reduce<Record<string, typeof marketingMetaQuery.data.mediaMix>>((acc, item) => {
+                    const key = item.parentCategory ?? item.subTypeName;
+                    if (!acc[key]) acc[key] = [];
+                    acc[key].push(item);
+                    return acc;
+                  }, {}),
+                ).map(([category, items]) => (
+                  <div key={category}>
+                    <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-1">{category}</p>
+                    <div className="space-y-1 pl-2">
+                      {items.map((item) => (
+                        <div key={item.tourMediaMixId} className="flex items-baseline gap-2 text-sm">
+                          <span className="text-text-primary">{item.subTypeName}</span>
+                          {item.companyName && (
+                            <span className="text-text-muted text-xs">— {item.companyName}</span>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              )}
-            </>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
+
+          {/* All Advertising Outlet company types & sub-types (reference catalog) */}
+          <div className="border-t border-border pt-3">
+            <p className="text-xs font-semibold text-text-secondary mb-2">Advertising Outlet — Company Types &amp; Sub-types</p>
+            {marketingMetaQuery.isLoading ? (
+              <div className="flex items-center gap-2 text-text-muted text-sm">
+                <Loader2 className="h-4 w-4 animate-spin shrink-0" /> Loading…
+              </div>
+            ) : marketingMetaQuery.isError ? (
+              <div className="text-ems-coral text-sm">{friendlyApiError(marketingMetaQuery.error)}</div>
+            ) : (marketingMetaQuery.data?.advertisingSubTypes ?? []).length === 0 ? (
+              <p className="text-sm text-text-muted">No Advertising Outlet types on file.</p>
+            ) : (
+              <div className="space-y-3">
+                {Object.entries(
+                  (marketingMetaQuery.data?.advertisingSubTypes ?? []).reduce<Record<string, typeof marketingMetaQuery.data.advertisingSubTypes>>((acc, st) => {
+                    const key = st.parentCategory ?? 'Other';
+                    if (!acc[key]) acc[key] = [];
+                    acc[key].push(st);
+                    return acc;
+                  }, {}),
+                ).map(([category, items]) => (
+                  <div key={category}>
+                    <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-1">{category}</p>
+                    <div className="flex flex-wrap gap-1.5 pl-2">
+                      {items.map((st) => (
+                        <span
+                          key={st.advertisingSubTypeId}
+                          className="rounded-full border border-border bg-surface px-2.5 py-0.5 text-xs text-text-primary"
+                        >
+                          {st.subTypeName}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -7272,6 +7629,7 @@ function EngagementTicketingPanel({
     queryFn: () => fetchEngagementVenueTabData(engagementId),
     retry: 1,
   });
+
   const iaeMgrQuery = useQuery({
     queryKey: ['engagements', engagementId, 'iae-ticketing-manager'],
     queryFn: () => fetchEngagementIaeTicketingManager(engagementId),
@@ -7389,10 +7747,36 @@ function EngagementTicketingPanel({
     return [{ value: '', label: 'Not set' }, ...opts];
   }, [companiesQuery.data?.data]);
 
-  const allCompanyOptions = useMemo<Select2Option[]>(() => {
+  const ticketingAdminCompanyOptions = useMemo<Select2Option[]>(() => {
     const rows = companiesQuery.data?.data ?? [];
-    return [{ value: '', label: 'Not set' }, ...rows.map(companyToSelect2Option)];
+    const filtered = rows.filter((company) => {
+      const names = [company.companyTypeName, ...(company.companyTypeNames ?? [])]
+        .filter(Boolean)
+        .map((x) => String(x).toLowerCase());
+      return names.some((x) => x.includes('ticketing administrator'));
+    });
+    const opts = filtered.map(companyToSelect2Option);
+    return [{ value: '', label: 'Not set' }, ...opts];
   }, [companiesQuery.data?.data]);
+
+  const ticketingAdminCompanyContactsQuery = useQuery({
+    queryKey: ['company-contacts', Number(ticketingAdminCompanyId)],
+    queryFn: () => fetchCompanyContacts(Number(ticketingAdminCompanyId)),
+    enabled: !!ticketingAdminCompanyId && ticketingAdminCompanyId !== '',
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  const ticketingAdminContactOptions = useMemo<Select2Option[]>(() => {
+    const rows = ticketingAdminCompanyContactsQuery.data ?? [];
+    return [
+      { value: '', label: 'Not set' },
+      ...rows.map((c) => ({
+        value: String(c.contactId),
+        label: `${c.firstName} ${c.lastName}`.trim() || String(c.contactId),
+      })),
+    ];
+  }, [ticketingAdminCompanyContactsQuery.data]);
 
   const iaeContactOptions = useMemo<Select2Option[]>(() => {
     const rows = iaeLookupsQuery.data?.contacts ?? [];
@@ -7404,6 +7788,23 @@ function EngagementTicketingPanel({
       .filter((v) => v.seatingChartLinkUrl)
       .map((v) => ({ name: v.venueCompanyName ?? 'Venue', url: v.seatingChartLinkUrl! }));
   }, [venueTabQuery.data?.venues]);
+
+  const ticketingPrimaryVenue = useMemo(() => {
+    const venues = venueTabQuery.data?.venues ?? [];
+    return venues.find((v) => v.isPrimary) ?? venues[0] ?? null;
+  }, [venueTabQuery.data?.venues]);
+
+  const ticketingVenueProfileQuery = useQuery({
+    queryKey: ['companies', ticketingPrimaryVenue?.venueCompanyId, 'venue-profile'],
+    queryFn: () => fetchVenueProfile(ticketingPrimaryVenue!.venueCompanyId),
+    enabled: ticketingPrimaryVenue != null,
+    staleTime: 60_000,
+  });
+
+  const ticketingSeatingCapacity = useMemo(() => {
+    const d = ticketingVenueProfileQuery.data;
+    return d && d.missing === false ? d.seatingCapacity : 0;
+  }, [ticketingVenueProfileQuery.data]);
 
   // ── Auto-select first performance ─────────────────────────────────────
   useEffect(() => {
@@ -7618,6 +8019,16 @@ function EngagementTicketingPanel({
       for (const x of [sc, gpr, ffa, scrs, ra, ba, ccf, stp, pspda, pubspda]) {
         if (!x.ok) throw new Error(x.message);
       }
+      const urlFields: [string, string][] = [
+        ['Ticketing Link', ticketingLinkUrl],
+        ['Public Sale Link', publicSaleLinkUrl],
+        ['Comp Ticket Request Link', compTicketRequestLink],
+      ];
+      for (const [label, val] of urlFields) {
+        if (!isValidHttpOrHttpsUrl(val)) {
+          throw new Error(`${label} must be a valid http(s) URL, or left empty.`);
+        }
+      }
       await updateEngagementPerformanceTicketing(engagementId, selectedPid, {
         sellableCapacity: sc.value,
         grossPotentialRevenue: gpr.value,
@@ -7811,6 +8222,18 @@ function EngagementTicketingPanel({
           </div>
         )}
 
+        {/* ── SEATING CHART DIAGRAM ── */}
+        {ticketingPrimaryVenue && (
+          <div className="space-y-2">
+            {!seatingChartLinks.length && sectionHeader('Seating Chart')}
+            <SeatingChartDiagram
+              venueName={ticketingPrimaryVenue.venueName ?? ticketingPrimaryVenue.venueCompanyName}
+              venueType={ticketingPrimaryVenue.venueTypeName}
+              capacity={ticketingSeatingCapacity}
+            />
+          </div>
+        )}
+
         {/* ── PER-PERFORMANCE FIELDS ── */}
         <div className="space-y-2">
           {sectionHeader('Show')}
@@ -7839,15 +8262,15 @@ function EngagementTicketingPanel({
                     onChange={(v) => { markTicketingUserEdited(); setTicketingAdministrator(v); }}
                     placeholder="Select…" allowClear disabled={disabled} />,
                 )}
-                {fieldRow('Ticketing Admin Contact',
-                  <Select2 options={iaeContactOptions} value={ticketingAdminContactId}
-                    onChange={(v) => { markTicketingUserEdited(); setTicketingAdminContactId(v); }}
-                    placeholder="Select contact…" allowClear disabled={disabled} />,
-                )}
-                {fieldRow('Ticketing Admin Company',
-                  <Select2 options={allCompanyOptions} value={ticketingAdminCompanyId}
-                    onChange={(v) => { markTicketingUserEdited(); setTicketingAdminCompanyId(v); }}
+                {fieldRow('Ticketing Administrator Company',
+                  <Select2 options={ticketingAdminCompanyOptions} value={ticketingAdminCompanyId}
+                    onChange={(v) => { markTicketingUserEdited(); setTicketingAdminCompanyId(v); setTicketingAdminContactId(''); }}
                     placeholder="Select company…" allowClear disabled={disabled} />,
+                )}
+                {fieldRow('Ticketing Administrator Contact',
+                  <Select2 options={ticketingAdminContactOptions} value={ticketingAdminContactId}
+                    onChange={(v) => { markTicketingUserEdited(); setTicketingAdminContactId(v); }}
+                    placeholder="Select contact…" allowClear disabled={disabled || !ticketingAdminCompanyId} />,
                 )}
               </div>
               {ticketingAdministrator === 'IAE Contract' && (
@@ -7872,29 +8295,6 @@ function EngagementTicketingPanel({
                 {fieldRow('Gross Potential Revenue ($)',
                   <input className={inputCls} inputMode="decimal" value={grossPotentialRevenue}
                     onChange={(e) => { markTicketingUserEdited(); setGrossPotentialRevenue(e.target.value); }} disabled={disabled} />,
-                )}
-              </div>
-            </div>
-
-            {/* ── PRESALE DATES ── */}
-            <div className="space-y-4">
-              {sectionHeader('Pre-Sale Dates')}
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-x-10">
-                {fieldRow('Pre-Sale Start Date',
-                  <input type="date" className={inputCls} value={preSaleDate}
-                    onChange={(e) => { markTicketingUserEdited(); setPreSaleDate(e.target.value); }} disabled={disabled} />,
-                )}
-                {fieldRow('Pre-Sale End Date',
-                  <input type="date" className={inputCls} value={preSaleEndDate}
-                    onChange={(e) => { markTicketingUserEdited(); setPreSaleEndDate(e.target.value); }} disabled={disabled} />,
-                )}
-                {fieldRow('Pre-Sale Registration Start',
-                  <input type="date" className={inputCls} value={preSaleRegistrationStartDate}
-                    onChange={(e) => { markTicketingUserEdited(); setPreSaleRegistrationStartDate(e.target.value); }} disabled={disabled} />,
-                )}
-                {fieldRow('Pre-Sale Registration End',
-                  <input type="date" className={inputCls} value={preSaleRegistrationEndDate}
-                    onChange={(e) => { markTicketingUserEdited(); setPreSaleRegistrationEndDate(e.target.value); }} disabled={disabled} />,
                 )}
               </div>
             </div>
@@ -9314,12 +9714,6 @@ export function EngagementDetailPage({
 
   const venueId = detailQuery.data?.primaryVenueCompanyId;
 
-  const serviceProvidersQuery = useQuery({
-    queryKey: ['engagements', engagementId, 'service-providers'],
-    queryFn: () => fetchEngagementServiceProviders(engagementId),
-    staleTime: 30_000,
-  });
-
   const tourMgmtCompanyId = useMemo(() => {
     const r = detailQuery.data;
     if (r?.tourId == null) return null as number | null;
@@ -9355,49 +9749,6 @@ export function EngagementDetailPage({
     if (typeof tourMgmtCompanyId !== 'number' || tourMgmtCompanyId < 1) return '';
     return (lookupsQuery.data?.companies ?? []).find((c) => c.companyId === tourMgmtCompanyId)?.companyName ?? '';
   }, [lookupsQuery.data?.companies, tourMgmtCompanyId]);
-
-  const serviceProviderCompanyIdToName = useMemo((): Record<number, string> => {
-    const result: Record<number, string> = {};
-    for (const company of lookupsQuery.data?.companies ?? []) {
-      result[company.companyId] = company.companyName;
-    }
-    for (const provider of serviceProvidersQuery.data?.providers ?? []) {
-      const id = Number(provider.providerCompanyId);
-      if (!result[id] && provider.providerCompanyName) result[id] = provider.providerCompanyName;
-    }
-    return result;
-  }, [lookupsQuery.data?.companies, serviceProvidersQuery.data?.providers]);
-
-  const serviceProviderContactGroups = useMemo(() => {
-    const providers = serviceProvidersQuery.data?.providers ?? [];
-    const companyById = new Map(
-      (lookupsQuery.data?.companies ?? []).map((company) => [company.companyId, company]),
-    );
-    const groups = new Map<string, Set<number>>();
-    for (const provider of providers) {
-      const providerId = Number(provider.providerCompanyId);
-      if (!Number.isInteger(providerId) || providerId < 1) continue;
-      const company = companyById.get(providerId);
-      const typeNames =
-        company?.companyTypeNames?.filter(Boolean) ??
-        (company?.companyTypeName ? [company.companyTypeName] : []);
-      const fallbackNames =
-        provider.serviceProvidedNames.length > 0
-          ? provider.serviceProvidedNames.map((name) => `${name} Provider`)
-          : ['Service Provider'];
-      const headings = typeNames.length > 0 ? typeNames : fallbackNames;
-      for (const heading of headings) {
-        const title = `${heading} contacts`;
-        const set = groups.get(title) ?? new Set<number>();
-        set.add(providerId);
-        groups.set(title, set);
-      }
-    }
-    return Array.from(groups.entries()).map(([title, companyIds]) => ({
-      title,
-      companyIds: Array.from(companyIds),
-    }));
-  }, [lookupsQuery.data?.companies, serviceProvidersQuery.data?.providers]);
 
   const venueContactsQuery = useQuery({
     queryKey: ['company-contacts', 'venue', venueId],
@@ -10285,7 +10636,12 @@ export function EngagementDetailPage({
               </Button>
             </div>
           </div>
-
+          <EngagementOverviewIaeStaffSection
+            engagementId={engagementId}
+            enabled={tab === 'Overview'}
+            addToast={addToast}
+            onDirtyChange={handleOverviewDirtyChange}
+          />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-sm">
             <div>
               <span className="text-text-muted text-xs block mb-1 font-medium">Engagement</span>
@@ -10416,16 +10772,6 @@ export function EngagementDetailPage({
               <ContactsTable contacts={talentAgentContactsWithCompany} />
             )}
           </div>
-
-          {serviceProviderContactGroups.map((group) => (
-            <RelatedCompanyContactsBox
-              key={`${group.title}-${group.companyIds.join('-')}`}
-              title={group.title}
-              description="Contacts for service provider companies linked to this engagement."
-              companyIds={group.companyIds}
-              companyIdToName={serviceProviderCompanyIdToName}
-            />
-          ))}
         </div>
       )}
 
@@ -10893,68 +11239,6 @@ export function EngagementDetailPage({
 // ---------------------------------------------------------------------------
 // Contacts table (shared)
 // ---------------------------------------------------------------------------
-function RelatedCompanyContactsBox({
-  title,
-  description,
-  companyIds,
-  companyIdToName,
-}: {
-  title: string;
-  description: string;
-  companyIds: number[];
-  companyIdToName?: Record<number, string>;
-}) {
-  const uniqueCompanyIds = useMemo(
-    () => Array.from(new Set(companyIds.filter((id) => Number.isInteger(id) && id > 0))).sort((a, b) => a - b),
-    [companyIds],
-  );
-  const contactsQuery = useQuery({
-    queryKey: ['engagement-related-company-contacts', title, uniqueCompanyIds],
-    queryFn: async () => {
-      const pairs = await Promise.all(
-        uniqueCompanyIds.map(async (id) => {
-          const contacts = await fetchCompanyContacts(id);
-          return contacts.map((c) => ({ ...c, companyName: companyIdToName?.[id] ?? '' }));
-        }),
-      );
-      const seen = new Set<string>();
-      const out: (ApiCompanyContact & { companyName: string })[] = [];
-      for (const contact of pairs.flat()) {
-        const key = `${contact.contactAssignmentId}:${contact.contactId}:${contact.roleId}:${contact.departmentId}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push(contact);
-      }
-      return out.sort((a, b) => {
-        const an = `${a.firstName} ${a.lastName}`.trim();
-        const bn = `${b.firstName} ${b.lastName}`.trim();
-        return an.localeCompare(bn, undefined, { sensitivity: 'base' });
-      });
-    },
-    enabled: uniqueCompanyIds.length > 0,
-    staleTime: 60_000,
-  });
-
-  return (
-    <div className="bg-card border border-border rounded-lg p-5">
-      <h3 className="text-sm font-semibold text-text-primary mb-1">{title}</h3>
-      <p className="text-xs text-text-muted mb-3">{description}</p>
-      {uniqueCompanyIds.length === 0 ? (
-        <p className="text-sm text-text-muted">No related companies are linked.</p>
-      ) : contactsQuery.isLoading ? (
-        <div className="flex items-center gap-2 text-text-muted text-sm">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading contacts…
-        </div>
-      ) : contactsQuery.error ? (
-        <p className="text-sm text-ems-coral">{friendlyApiError(contactsQuery.error)}</p>
-      ) : (
-        <ContactsTable contacts={contactsQuery.data ?? []} />
-      )}
-    </div>
-  );
-}
-
 function ContactsTable({
   contacts,
 }: {

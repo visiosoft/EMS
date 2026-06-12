@@ -112,6 +112,8 @@ export interface EngagementVenueRow {
   stageType: string | null;
   seatingChartLinkId: number | null;
   seatingChartLinkUrl: string | null;
+  /** dbo.Venue.SeatingChartUrl (optional column) — editable seating chart image/link */
+  seatingChartUrl: string | null;
   ticketingSystem: string | null;
   /** dbo.PerformanceTicketing (first performance) */
   ticketingAdminContactId: number | null;
@@ -226,6 +228,8 @@ export interface TourMediaMixRow {
 export interface EngagementMarketingMeta {
   /** Marketing contacts for the tour (read-only, from dbo.TourContact) */
   tourMarketingContacts: TourMarketingContactRow[];
+  /** Tour audience gender (read-only, from dbo.Tour.AudienceGender) */
+  audienceGender: string | null;
   /** Tour audience age range labels (read-only, from dbo.TourAudienceAgeRange + dbo.AgeRange) */
   tourAudienceDemographics: string[];
   /** Tour audience age range as combined string */
@@ -234,6 +238,18 @@ export interface EngagementMarketingMeta {
   mediaMix: TourMediaMixRow[];
   /** All active AdvertisingSubType entries for the Media Mix picker (reference data) */
   advertisingSubTypes: AdvertisingSubTypeRow[];
+  /** IAE Marketing Team (optional columns on dbo.Engagement) */
+  iaeMarketingDirectorContactId: number | null;
+  iaeMarketingDirectorContactName: string | null;
+  iaeMarketingManagerContactId: number | null;
+  iaeMarketingManagerContactName: string | null;
+  iaeMarketingCoordinatorContactId: number | null;
+  iaeMarketingCoordinatorContactName: string | null;
+  /** Tour Marketing Team (optional columns on dbo.Tour) */
+  tourMarketingDirectorContactId: number | null;
+  tourMarketingDirectorContactName: string | null;
+  tourMarketingManagerContactId: number | null;
+  tourMarketingManagerContactName: string | null;
 }
 
 export interface EngagementServiceProviderRow {
@@ -535,6 +551,14 @@ export class EngagementService {
   private engagementVenueVenueProductionManagerColPresent: boolean | null = null;
   /** Optional StagehandContactID column on dbo.EngagementVenue */
   private engagementVenueStagehandContactColPresent: boolean | null = null;
+  /** Optional TicketingAdminContactID column on dbo.EngagementVenue */
+  private engagementVenueTicketingAdminColPresent: boolean | null = null;
+  /** Optional SeatingChartUrl column on dbo.Venue */
+  private venueSeatingChartUrlColPresent: boolean | null = null;
+  /** Optional IAE Marketing Team columns on dbo.Engagement */
+  private engagementIaeMarketingColsPresent: boolean | null = null;
+  /** Optional Tour Marketing Director/Manager columns on dbo.Tour */
+  private tourMarketingColsPresent: boolean | null = null;
   /** Optional AnnouncementDate column on dbo.EngagementFinances */
   private engagementFinanceAnnouncementDatePresent: boolean | null = null;
   /** Optional Booking columns on dbo.EngagementFinances */
@@ -4800,6 +4824,48 @@ export class EngagementService {
     }
   }
 
+  private async engagementHasIaeMarketingCols(): Promise<boolean> {
+    if (this.engagementIaeMarketingColsPresent !== null)
+      return this.engagementIaeMarketingColsPresent;
+    try {
+      const r = await this.dataSource.query(`
+        SELECT CASE WHEN
+          EXISTS (SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id=t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id=s.schema_id
+            WHERE s.name=N'dbo' AND t.name=N'Engagement' AND c.name=N'IAEMarketingDirectorContactID')
+        THEN 1 ELSE 0 END AS ok`);
+      const raw = pickRaw((r as Record<string, unknown>[])?.[0] ?? {}, 'ok');
+      this.engagementIaeMarketingColsPresent =
+        raw === 1 || raw === true || raw === '1' || Number(raw) === 1;
+      return this.engagementIaeMarketingColsPresent;
+    } catch {
+      this.engagementIaeMarketingColsPresent = false;
+      return false;
+    }
+  }
+
+  private async tourHasMarketingCols(): Promise<boolean> {
+    if (this.tourMarketingColsPresent !== null)
+      return this.tourMarketingColsPresent;
+    try {
+      const r = await this.dataSource.query(`
+        SELECT CASE WHEN
+          EXISTS (SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id=t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id=s.schema_id
+            WHERE s.name=N'dbo' AND t.name=N'Tour' AND c.name=N'TourMarketingDirectorContactID')
+        THEN 1 ELSE 0 END AS ok`);
+      const raw = pickRaw((r as Record<string, unknown>[])?.[0] ?? {}, 'ok');
+      this.tourMarketingColsPresent =
+        raw === 1 || raw === true || raw === '1' || Number(raw) === 1;
+      return this.tourMarketingColsPresent;
+    } catch {
+      this.tourMarketingColsPresent = false;
+      return false;
+    }
+  }
+
   private async engagementVenueHasProductionManagerCol(): Promise<boolean> {
     if (this.engagementVenueProductionManagerColPresent !== null)
       return this.engagementVenueProductionManagerColPresent;
@@ -4903,6 +4969,86 @@ export class EngagementService {
       const v = pickRaw(row, 'shc');
       const n = Number(v);
       return v != null && v !== '' && Number.isFinite(n) && n > 0 ? n : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async engagementVenueHasTicketingAdminCol(): Promise<boolean> {
+    if (this.engagementVenueTicketingAdminColPresent !== null)
+      return this.engagementVenueTicketingAdminColPresent;
+    try {
+      const r = await this.dataSource.query(`
+        SELECT CASE WHEN
+          EXISTS (SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id=t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id=s.schema_id
+            WHERE s.name=N'dbo' AND t.name=N'EngagementVenue' AND c.name=N'TicketingAdminContactID')
+        THEN 1 ELSE 0 END AS ok`);
+      const raw = pickRaw((r as Record<string, unknown>[])?.[0] ?? {}, 'ok');
+      this.engagementVenueTicketingAdminColPresent =
+        raw === 1 || raw === true || raw === '1' || Number(raw) === 1;
+      return this.engagementVenueTicketingAdminColPresent;
+    } catch {
+      this.engagementVenueTicketingAdminColPresent = false;
+      return false;
+    }
+  }
+
+  private async readEngagementVenueTicketingAdminCol(
+    engagementId: number,
+    venueCompanyId: number,
+  ): Promise<number | null> {
+    if (!(await this.engagementVenueHasTicketingAdminCol())) return null;
+    try {
+      const r = await this.dataSource.query(
+        `SELECT [TicketingAdminContactID] AS tac
+         FROM dbo.EngagementVenue
+         WHERE [EngagementID]=@0 AND [VenueCompanyID]=@1`,
+        [engagementId, venueCompanyId],
+      );
+      const row = (r as Record<string, unknown>[])?.[0];
+      if (!row) return null;
+      const v = pickRaw(row, 'tac');
+      const n = Number(v);
+      return v != null && v !== '' && Number.isFinite(n) && n > 0 ? n : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async venueHasSeatingChartUrlCol(): Promise<boolean> {
+    if (this.venueSeatingChartUrlColPresent !== null)
+      return this.venueSeatingChartUrlColPresent;
+    try {
+      const r = await this.dataSource.query(`
+        SELECT CASE WHEN
+          EXISTS (SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id=t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id=s.schema_id
+            WHERE s.name=N'dbo' AND t.name=N'Venue' AND c.name=N'SeatingChartUrl')
+        THEN 1 ELSE 0 END AS ok`);
+      const raw = pickRaw((r as Record<string, unknown>[])?.[0] ?? {}, 'ok');
+      this.venueSeatingChartUrlColPresent =
+        raw === 1 || raw === true || raw === '1' || Number(raw) === 1;
+      return this.venueSeatingChartUrlColPresent;
+    } catch {
+      this.venueSeatingChartUrlColPresent = false;
+      return false;
+    }
+  }
+
+  private async readVenueSeatingChartUrl(
+    venueCompanyId: number,
+  ): Promise<string | null> {
+    if (!(await this.venueHasSeatingChartUrlCol())) return null;
+    try {
+      const r = await this.dataSource.query(
+        `SELECT [SeatingChartUrl] AS url FROM dbo.Venue WHERE [CompanyID]=@0`,
+        [venueCompanyId],
+      );
+      const v = pickRaw((r as Record<string, unknown>[])?.[0] ?? {}, 'url');
+      return v == null || v === '' ? null : String(v);
     } catch {
       return null;
     }
@@ -5186,13 +5332,15 @@ export class EngagementService {
     const venueMap = new Map(venues.map((v) => [v.companyId, v]));
 
     // Ticketing system column names (resolved once)
-    const [hasOptional, hasTechPack, hasMarketing, hasProdMgr, hasVenueProdMgr, hasStagehand] = await Promise.all([
+    const [hasOptional, hasTechPack, hasMarketing, hasProdMgr, hasVenueProdMgr, hasStagehand, hasTicketingAdmin, hasSeatingChartUrl] = await Promise.all([
       this.engagementVenueHasOptionalCols(),
       this.venueHasTechPackCol(),
       this.engagementVenueHasMarketingCols(),
       this.engagementVenueHasProductionManagerCol(),
       this.engagementVenueHasVenueProductionManagerCol(),
       this.engagementVenueHasStagehandContactCol(),
+      this.engagementVenueHasTicketingAdminCol(),
+      this.venueHasSeatingChartUrlCol(),
     ]);
 
     // Load seating chart link IDs → URLs in batch
@@ -5296,6 +5444,22 @@ export class EngagementService {
         : null;
       const stagehandName = await this.lookupContactName(stagehandId);
 
+      // Seating chart URL (optional col on dbo.Venue)
+      const seatingChartUrl = hasSeatingChartUrl
+        ? await this.readVenueSeatingChartUrl(ev.venueCompanyId)
+        : null;
+
+      // Per-venue ticketing administrator (optional col) overrides the
+      // performance-derived value when set.
+      const venueTicketingAdminId = hasTicketingAdmin
+        ? await this.readEngagementVenueTicketingAdminCol(engagementId, ev.venueCompanyId)
+        : null;
+      const rowTicketingAdminId = venueTicketingAdminId ?? ticketingAdminContactId;
+      const rowTicketingAdminName =
+        venueTicketingAdminId != null
+          ? await this.lookupContactName(venueTicketingAdminId)
+          : ticketingAdminContactName;
+
       results.push({
         engagementId: ev.engagementId,
         venueCompanyId: ev.venueCompanyId,
@@ -5316,9 +5480,10 @@ export class EngagementService {
         seatingChartLinkUrl: venue?.seatingChartLinkId
           ? (seatingChartLinkMap.get(venue.seatingChartLinkId) ?? null)
           : null,
+        seatingChartUrl,
         ticketingSystem: ticketingSystemMap.get(ev.venueCompanyId) ?? null,
-        ticketingAdminContactId,
-        ticketingAdminContactName,
+        ticketingAdminContactId: rowTicketingAdminId,
+        ticketingAdminContactName: rowTicketingAdminName,
         techPackPdfUrl: techPackUrl,
         attractionTechDirectorContactId: optCols.attractionTechDirectorContactId,
         attractionTechDirectorName: attractionTechName,
@@ -5408,6 +5573,37 @@ export class EngagementService {
       const sql = toSqlStr(dto.techPackPdfUrl);
       await this.dataSource.query(
         `UPDATE dbo.Venue SET [TechPackPdfUrl] = ${sql} WHERE [CompanyID] = ${venueCompanyId}`,
+      );
+    }
+
+    // TicketingSystem on dbo.Venue (existing column)
+    if (dto.ticketingSystem !== undefined) {
+      const sql = toSqlStr(dto.ticketingSystem, 200);
+      await this.dataSource.query(
+        `UPDATE dbo.Venue SET [TicketingSystem] = ${sql} WHERE [CompanyID] = ${venueCompanyId}`,
+      );
+    }
+
+    // SeatingChartUrl on dbo.Venue (optional column)
+    if (dto.seatingChartUrl !== undefined && (await this.venueHasSeatingChartUrlCol())) {
+      const sql = toSqlStr(dto.seatingChartUrl);
+      await this.dataSource.query(
+        `UPDATE dbo.Venue SET [SeatingChartUrl] = ${sql} WHERE [CompanyID] = ${venueCompanyId}`,
+      );
+    }
+
+    // TicketingAdminContactID on dbo.EngagementVenue (optional column)
+    if (
+      dto.ticketingAdminContactId !== undefined &&
+      (await this.engagementVenueHasTicketingAdminCol())
+    ) {
+      const val =
+        dto.ticketingAdminContactId == null
+          ? 'NULL'
+          : Math.trunc(Number(dto.ticketingAdminContactId));
+      await this.dataSource.query(
+        `UPDATE dbo.EngagementVenue SET [TicketingAdminContactID] = ${val}
+         WHERE [EngagementID] = ${engagementId} AND [VenueCompanyID] = ${venueCompanyId}`,
       );
     }
 
@@ -6549,7 +6745,17 @@ export class EngagementService {
       }));
     } catch { /* ignore */ }
 
-    // 2. Tour audience demographics
+    // 2. Tour general demographics (AudienceGender from dbo.Tour)
+    let audienceGender: string | null = null;
+    try {
+      const genderRows = await this.dataSource.query(
+        `SELECT [AudienceGender] AS g FROM dbo.Tour WHERE [TourID] = ${tourId}`,
+      ) as Record<string, unknown>[];
+      const raw = genderRows?.[0] ? pickRaw(genderRows[0], 'g') : null;
+      audienceGender = raw != null && raw !== '' ? String(raw).trim() : null;
+    } catch { /* ignore */ }
+
+    // 3. Tour audience age-range demographics
     let tourAudienceDemographics: string[] = [];
     let tourAudienceAgeRange: string | null = null;
     try {
@@ -6564,7 +6770,7 @@ export class EngagementService {
       tourAudienceAgeRange = tourAudienceDemographics.length > 0 ? tourAudienceDemographics.join(', ') : null;
     } catch { /* ignore */ }
 
-    // 3. Media Mix (from Tour)
+    // 4. Media Mix (from Tour)
     let mediaMix: TourMediaMixRow[] = [];
     try {
       const mmRows = await this.dataSource.query(
@@ -6593,7 +6799,7 @@ export class EngagementService {
       }));
     } catch { /* ignore */ }
 
-    // 4. All AdvertisingSubType reference rows (for Media Mix picker)
+    // 5. All AdvertisingSubType reference rows (for Media Mix picker)
     let advertisingSubTypes: AdvertisingSubTypeRow[] = [];
     try {
       const astRows = await this.dataSource.query(
@@ -6609,13 +6815,146 @@ export class EngagementService {
       }));
     } catch { /* ignore */ }
 
+    // 6. IAE Marketing Team (optional columns on dbo.Engagement)
+    let iaeMarketingDirectorContactId: number | null = null;
+    let iaeMarketingDirectorContactName: string | null = null;
+    let iaeMarketingManagerContactId: number | null = null;
+    let iaeMarketingManagerContactName: string | null = null;
+    let iaeMarketingCoordinatorContactId: number | null = null;
+    let iaeMarketingCoordinatorContactName: string | null = null;
+    if (await this.engagementHasIaeMarketingCols()) {
+      try {
+        const rows = await this.dataSource.query(`
+          SELECT
+            e.[IAEMarketingDirectorContactID] AS dirId,
+            dirCI.[FirstName] + N' ' + dirCI.[LastName] AS dirName,
+            e.[IAEMarketingManagerContactID] AS mgrId,
+            mgrCI.[FirstName] + N' ' + mgrCI.[LastName] AS mgrName,
+            e.[IAEMarketingCoordinatorContactID] AS coordId,
+            coordCI.[FirstName] + N' ' + coordCI.[LastName] AS coordName
+          FROM dbo.Engagement e
+          LEFT JOIN dbo.Contact dirC ON dirC.[ContactID] = e.[IAEMarketingDirectorContactID]
+          LEFT JOIN dbo.ContactInfo dirCI ON dirCI.[ContactInfoID] = dirC.[ContactInfoID]
+          LEFT JOIN dbo.Contact mgrC ON mgrC.[ContactID] = e.[IAEMarketingManagerContactID]
+          LEFT JOIN dbo.ContactInfo mgrCI ON mgrCI.[ContactInfoID] = mgrC.[ContactInfoID]
+          LEFT JOIN dbo.Contact coordC ON coordC.[ContactID] = e.[IAEMarketingCoordinatorContactID]
+          LEFT JOIN dbo.ContactInfo coordCI ON coordCI.[ContactInfoID] = coordC.[ContactInfoID]
+          WHERE e.[EngagementID] = ${engagementId}
+        `) as Record<string, unknown>[];
+        const row = rows?.[0];
+        if (row) {
+          const toInt = (v: unknown) => { const n = Number(v); return v != null && v !== '' && Number.isFinite(n) && n > 0 ? n : null; };
+          const toStr = (v: unknown) => (v == null || v === '' ? null : String(v).trim());
+          iaeMarketingDirectorContactId = toInt(pickRaw(row, 'dirId'));
+          iaeMarketingDirectorContactName = toStr(pickRaw(row, 'dirName'));
+          iaeMarketingManagerContactId = toInt(pickRaw(row, 'mgrId'));
+          iaeMarketingManagerContactName = toStr(pickRaw(row, 'mgrName'));
+          iaeMarketingCoordinatorContactId = toInt(pickRaw(row, 'coordId'));
+          iaeMarketingCoordinatorContactName = toStr(pickRaw(row, 'coordName'));
+        }
+      } catch { /* ignore */ }
+    }
+
+    // 7. Tour Marketing Team (optional columns on dbo.Tour)
+    let tourMarketingDirectorContactId: number | null = null;
+    let tourMarketingDirectorContactName: string | null = null;
+    let tourMarketingManagerContactId: number | null = null;
+    let tourMarketingManagerContactName: string | null = null;
+    if (await this.tourHasMarketingCols()) {
+      try {
+        const rows = await this.dataSource.query(`
+          SELECT
+            t.[TourMarketingDirectorContactID] AS dirId,
+            dirCI.[FirstName] + N' ' + dirCI.[LastName] AS dirName,
+            t.[TourMarketingManagerContactID] AS mgrId,
+            mgrCI.[FirstName] + N' ' + mgrCI.[LastName] AS mgrName
+          FROM dbo.Tour t
+          LEFT JOIN dbo.Contact dirC ON dirC.[ContactID] = t.[TourMarketingDirectorContactID]
+          LEFT JOIN dbo.ContactInfo dirCI ON dirCI.[ContactInfoID] = dirC.[ContactInfoID]
+          LEFT JOIN dbo.Contact mgrC ON mgrC.[ContactID] = t.[TourMarketingManagerContactID]
+          LEFT JOIN dbo.ContactInfo mgrCI ON mgrCI.[ContactInfoID] = mgrC.[ContactInfoID]
+          WHERE t.[TourID] = ${tourId}
+        `) as Record<string, unknown>[];
+        const row = rows?.[0];
+        if (row) {
+          const toInt = (v: unknown) => { const n = Number(v); return v != null && v !== '' && Number.isFinite(n) && n > 0 ? n : null; };
+          const toStr = (v: unknown) => (v == null || v === '' ? null : String(v).trim());
+          tourMarketingDirectorContactId = toInt(pickRaw(row, 'dirId'));
+          tourMarketingDirectorContactName = toStr(pickRaw(row, 'dirName'));
+          tourMarketingManagerContactId = toInt(pickRaw(row, 'mgrId'));
+          tourMarketingManagerContactName = toStr(pickRaw(row, 'mgrName'));
+        }
+      } catch { /* ignore */ }
+    }
+
     return {
       tourMarketingContacts,
+      audienceGender,
       tourAudienceDemographics,
       tourAudienceAgeRange,
       mediaMix,
       advertisingSubTypes,
+      iaeMarketingDirectorContactId,
+      iaeMarketingDirectorContactName,
+      iaeMarketingManagerContactId,
+      iaeMarketingManagerContactName,
+      iaeMarketingCoordinatorContactId,
+      iaeMarketingCoordinatorContactName,
+      tourMarketingDirectorContactId,
+      tourMarketingDirectorContactName,
+      tourMarketingManagerContactId,
+      tourMarketingManagerContactName,
     };
+  }
+
+  async updateIaeMarketingTeam(
+    engagementId: number,
+    dto: {
+      iaeMarketingDirectorContactId?: number | null;
+      iaeMarketingManagerContactId?: number | null;
+      iaeMarketingCoordinatorContactId?: number | null;
+    },
+  ): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+    if (!(await this.engagementHasIaeMarketingCols())) return;
+
+    const sets: string[] = [];
+    if (dto.iaeMarketingDirectorContactId !== undefined) {
+      sets.push(`[IAEMarketingDirectorContactID] = ${dto.iaeMarketingDirectorContactId ?? 'NULL'}`);
+    }
+    if (dto.iaeMarketingManagerContactId !== undefined) {
+      sets.push(`[IAEMarketingManagerContactID] = ${dto.iaeMarketingManagerContactId ?? 'NULL'}`);
+    }
+    if (dto.iaeMarketingCoordinatorContactId !== undefined) {
+      sets.push(`[IAEMarketingCoordinatorContactID] = ${dto.iaeMarketingCoordinatorContactId ?? 'NULL'}`);
+    }
+    if (sets.length === 0) return;
+    await this.dataSource.query(
+      `UPDATE dbo.Engagement SET ${sets.join(', ')} WHERE [EngagementID] = ${engagementId}`,
+    );
+  }
+
+  async updateTourMarketingTeam(
+    engagementId: number,
+    dto: {
+      tourMarketingDirectorContactId?: number | null;
+      tourMarketingManagerContactId?: number | null;
+    },
+  ): Promise<void> {
+    const engagement = await this.assertEngagementExists(engagementId);
+    if (!(await this.tourHasMarketingCols())) return;
+
+    const sets: string[] = [];
+    if (dto.tourMarketingDirectorContactId !== undefined) {
+      sets.push(`[TourMarketingDirectorContactID] = ${dto.tourMarketingDirectorContactId ?? 'NULL'}`);
+    }
+    if (dto.tourMarketingManagerContactId !== undefined) {
+      sets.push(`[TourMarketingManagerContactID] = ${dto.tourMarketingManagerContactId ?? 'NULL'}`);
+    }
+    if (sets.length === 0) return;
+    await this.dataSource.query(
+      `UPDATE dbo.Tour SET ${sets.join(', ')} WHERE [TourID] = ${engagement.tourId}`,
+    );
   }
 
   // ─── Attraction Travel (EngagementTravel / Hotel / CarService) ────────────
