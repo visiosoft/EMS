@@ -52,7 +52,11 @@ export function LeadershipPage() {
                     </dt>
                     <dd>
                       <span className="block text-[9px] uppercase tracking-[0.16em] text-white/50">Mobile</span>
-                      <span className="font-semibold text-white">{person.mobile}</span>
+                      {person.mobile && person.mobile !== '—' ? (
+                        <a href={`tel:+1${person.mobile.replace(/\D/g, '')}`} className="font-semibold text-white hover:underline">{person.mobile}</a>
+                      ) : (
+                        <span className="font-semibold text-white">{person.mobile}</span>
+                      )}
                     </dd>
                   </div>
                   <div className="grid grid-cols-[28px_1fr] gap-2">
@@ -61,7 +65,7 @@ export function LeadershipPage() {
                     </dt>
                     <dd className="min-w-0">
                       <span className="block text-[9px] uppercase tracking-[0.16em] text-white/50">Email</span>
-                      <span className="block truncate font-semibold text-white">{person.email}</span>
+                      <a href={`mailto:${person.email}`} className="block truncate font-semibold text-white hover:underline">{person.email}</a>
                     </dd>
                   </div>
                 </dl>

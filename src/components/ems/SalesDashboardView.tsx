@@ -354,6 +354,15 @@ function sortedSeries(series: SeriesPoint[] | undefined) {
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
+function isUnreportedSeriesRow(row: SeriesPoint) {
+  return (
+    (finiteNumber(row.totalTickets) ?? 0) === 0 &&
+    (finiteNumber(row.totalRevenue) ?? 0) === 0 &&
+    (finiteNumber(row.dailyTickets) ?? 0) === 0 &&
+    (finiteNumber(row.dailyRevenue) ?? 0) === 0
+  );
+}
+
 function trimLeadingQuietDays(rows: SeriesPoint[]) {
   const firstActive = rows.findIndex(
     (row) =>
@@ -410,12 +419,15 @@ function buildDailyChartPoints(
 
   const start = startCandidates.sort()[0];
   const end = endCandidates.sort()[endCandidates.length - 1];
+  const reportedDates = new Set(
+    rows.filter((row) => !isUnreportedSeriesRow(row)).map((row) => row.date),
+  );
   const expandedRows: SeriesPoint[] = [];
   let carryTotalTickets = 0;
   let carryTotalRevenue = 0;
   for (let date = start; date <= end; date = ymdAddDays(date, 1)) {
     const row = rowByDate.get(date);
-    if (row) {
+    if (row && reportedDates.has(date)) {
       carryTotalTickets = finiteNumber(row.totalTickets) ?? 0;
       carryTotalRevenue = finiteNumber(row.totalRevenue) ?? 0;
       expandedRows.push(row);
@@ -427,6 +439,26 @@ function buildDailyChartPoints(
         dailyTickets: 0,
         dailyRevenue: 0,
       });
+    }
+  }
+
+  // UI-only autofill: a day with no report (omitted from the series, or all
+  // zeros) inherits the next reported day's results, so e.g. an unreported
+  // Saturday and Sunday show Monday's report. Trailing days with no later
+  // report keep their carried-forward placeholder (nothing to carry back from).
+  let nextReported: SeriesPoint | null = null;
+  for (let i = expandedRows.length - 1; i >= 0; i -= 1) {
+    const row = expandedRows[i];
+    if (reportedDates.has(row.date)) {
+      nextReported = row;
+    } else if (nextReported) {
+      expandedRows[i] = {
+        ...row,
+        totalTickets: nextReported.totalTickets,
+        totalRevenue: nextReported.totalRevenue,
+        dailyTickets: nextReported.dailyTickets,
+        dailyRevenue: nextReported.dailyRevenue,
+      };
     }
   }
 
@@ -623,11 +655,30 @@ function currentUnitLabel(unit: ChartUnit) {
   return CHART_UNIT_OPTIONS.find((option) => option.id === unit)?.label ?? 'Date';
 }
 
-function buildAuditGroups(data: ApiSalesDashboardBody): AuditGroup[] {
+function buildAuditGroups(
+  data: ApiSalesDashboardBody,
+  dailyPoints: SalesChartPoint[],
+): AuditGroup[] {
   const asOf = data.asOfDate;
-  const yesterdayPoint = sortedSeries(data.series).find(
-    (point) => point.date === ymdAddDays(asOf, -1),
-  );
+  const yesterday = ymdAddDays(asOf, -1);
+  const hasActivity = (point: SalesChartPoint | undefined) =>
+    !!point &&
+    ((finiteNumber(point.dailyTickets) ?? 0) > 0 ||
+      (finiteNumber(point.dailyRevenue) ?? 0) > 0);
+  const yesterdayPoint = dailyPoints.find((point) => point.date === yesterday);
+  // When yesterday has no report of its own (and no later report to backfill
+  // from — e.g. the reporting date is past the last daily-sales entry), fall
+  // back to the most recent reported day on or before the reporting date so
+  // the wrap still shows the latest numbers we have.
+  const wrapPoint = hasActivity(yesterdayPoint)
+    ? yesterdayPoint
+    : [...dailyPoints]
+        .reverse()
+        .find((point) => point.date <= asOf && hasActivity(point)) ?? yesterdayPoint;
+  const wrapNote =
+    wrapPoint && wrapPoint.date !== yesterday
+      ? `As of ${formatDateLabel(wrapPoint.date, 'EEE, MMM d, yyyy')}`
+      : undefined;
   const totalTickets = finiteNumber(data.kpis.ticketsDistributed) ?? 0;
   const totalRevenue = finiteNumber(data.kpis.totalRevenue) ?? 0;
   const sellableCapacity = data.sellableCapacity;
@@ -652,11 +703,13 @@ function buildAuditGroups(data: ApiSalesDashboardBody): AuditGroup[] {
       cells: [
         {
           label: 'Total Tickets Sold Yesterday',
-          value: countOrDash(finiteNumber(yesterdayPoint?.dailyTickets) ?? 0),
+          value: countOrDash(finiteNumber(wrapPoint?.dailyTickets) ?? 0),
+          note: wrapNote,
         },
         {
           label: 'Total $ Sold Yesterday',
-          value: moneyOrDash(finiteNumber(yesterdayPoint?.dailyRevenue) ?? 0),
+          value: moneyOrDash(finiteNumber(wrapPoint?.dailyRevenue) ?? 0),
+          note: wrapNote,
         },
       ],
     },
@@ -694,10 +747,54 @@ function buildAuditGroups(data: ApiSalesDashboardBody): AuditGroup[] {
   ];
 }
 
-function summaryRowsNewestFirst(summary: SummaryPoint[] | undefined) {
-  return [...(summary ?? [])]
+function isUnreportedSummaryRow(row: SummaryPoint) {
+  return (
+    (finiteNumber(row.totalTicketsSold) ?? 0) === 0 &&
+    (finiteNumber(row.totalValueSold) ?? 0) === 0 &&
+    (finiteNumber(row.dailyTicketsSold) ?? 0) === 0 &&
+    (finiteNumber(row.dailyValueSold) ?? 0) === 0
+  );
+}
+
+/**
+ * UI-only autofill: when a day has no reported sales (the API returns 0 for
+ * every value), backfill it from the next calendar day that does have a
+ * report. e.g. if Saturday and Sunday have no reported sales, Monday's report
+ * fills the Saturday and Sunday cells. Trailing days with no later report stay
+ * as-is since there is nothing to carry back from.
+ */
+function autofillUnreportedSummaryRows(summary: SummaryPoint[] | undefined) {
+  const rows = [...(summary ?? [])]
     .filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.date))
-    .sort((a, b) => b.date.localeCompare(a.date));
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  let nextReported: SummaryPoint | null = null;
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const row = rows[i];
+    if (isUnreportedSummaryRow(row)) {
+      if (nextReported) {
+        rows[i] = {
+          ...row,
+          totalTicketsSold: nextReported.totalTicketsSold,
+          totalValueSold: nextReported.totalValueSold,
+          dailyTicketsSold: nextReported.dailyTicketsSold,
+          dailyValueSold: nextReported.dailyValueSold,
+          seatsSoldPct: nextReported.seatsSoldPct,
+          seatsRemaining: nextReported.seatsRemaining,
+          revenueRemaining: nextReported.revenueRemaining,
+        };
+      }
+    } else {
+      nextReported = row;
+    }
+  }
+  return rows;
+}
+
+function summaryRowsNewestFirst(summary: SummaryPoint[] | undefined) {
+  return autofillUnreportedSummaryRows(summary).sort((a, b) =>
+    b.date.localeCompare(a.date),
+  );
 }
 
 interface InfoCellProps {
@@ -1154,8 +1251,8 @@ export function SalesDashboardView({
   );
 
   const auditGroups = useMemo(
-    () => (data ? buildAuditGroups(data) : []),
-    [data],
+    () => (data ? buildAuditGroups(data, dailyChartPoints) : []),
+    [data, dailyChartPoints],
   );
 
   const summaryRows = useMemo(

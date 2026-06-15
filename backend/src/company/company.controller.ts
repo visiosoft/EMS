@@ -91,6 +91,11 @@ export class CompanyController {
     return this.companyService.listEngagements(id);
   }
 
+  @Get(':id/links')
+  getCompanyLinks(@Param('id', ParseIntPipe) id: number) {
+    return this.companyService.getCompanyLinks(id);
+  }
+
   @Get(':id/venue-ticketing')
   getVenueTicketing(@Param('id', ParseIntPipe) id: number) {
     return this.companyService.getVenueTicketing(id);

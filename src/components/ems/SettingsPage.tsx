@@ -185,7 +185,7 @@ export function SettingsPage({ addToast, users, onUpdateUsers }: Props) {
                 {users.map(u => (
                   <tr key={u.id} className="border-b border-border/50">
                     <td className="py-2.5 px-3 text-text-primary">{u.name}</td>
-                    <td className="py-2.5 px-3 text-ems-blue text-xs">{u.email}</td>
+                    <td className="py-2.5 px-3 text-ems-blue text-xs">{u.email ? <a href={`mailto:${u.email}`} className="hover:underline">{u.email}</a> : '—'}</td>
                     <td className="py-2.5 px-3 text-text-secondary">{u.role}</td>
                     <td className="py-2.5 px-3 text-text-secondary text-xs">{u.lastLogin}</td>
                     <td className="py-2.5 px-3"><StatusBadge status="Active" /></td>

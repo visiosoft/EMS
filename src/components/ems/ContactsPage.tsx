@@ -1034,7 +1034,7 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
                     </td>
                     <td className="px-3 py-2"><div className="flex flex-wrap gap-1.5">{row.roleNames.length ? row.roleNames.map(chip) : '—'}</div></td>
                     <td className="px-3 py-2"><div className="flex flex-wrap gap-1.5">{row.departmentNames.length ? row.departmentNames.map(chip) : '—'}</div></td>
-                    <td className="px-3 py-2 text-text-secondary">{row.email}</td>
+                    <td className="px-3 py-2 text-text-secondary">{row.email ? <a href={`mailto:${row.email}`} className="hover:underline text-ems-blue">{row.email}</a> : '—'}</td>
                   </tr>
                 );
               })
