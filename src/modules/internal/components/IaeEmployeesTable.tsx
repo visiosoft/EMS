@@ -44,6 +44,8 @@ function dedupeEmployees(employees: IaeEmployee[]): IaeEmployee[] {
 }
 
 function EmployeeRow({ employee }: { employee: IaeEmployee }) {
+  const rawMobile = employee.cellPhone || employee.workPhone;
+  const mobileDisplay = displayMobile(employee.cellPhone, employee.workPhone);
   return (
     <tr className="transition-colors hover:bg-neutral-50">
       <td className="px-4 py-3">
@@ -51,8 +53,8 @@ function EmployeeRow({ employee }: { employee: IaeEmployee }) {
       </td>
       <td className="px-4 py-3 font-medium text-neutral-900">{displayName(employee)}</td>
       <td className="px-4 py-3 text-neutral-800">{displayExtension(employee.workPhone)}</td>
-      <td className="px-4 py-3 text-neutral-800">{displayMobile(employee.cellPhone, employee.workPhone)}</td>
-      <td className="px-4 py-3 text-neutral-800">{employee.email || '—'}</td>
+      <td className="px-4 py-3 text-neutral-800">{rawMobile && mobileDisplay !== '—' ? <a href={`tel:${rawMobile}`} className="hover:underline">{mobileDisplay}</a> : mobileDisplay}</td>
+      <td className="px-4 py-3 text-neutral-800">{employee.email ? <a href={`mailto:${employee.email}`} className="hover:underline">{employee.email}</a> : '—'}</td>
     </tr>
   );
 }

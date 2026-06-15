@@ -4408,6 +4408,148 @@ export class CompanyService {
     return this.engagementService.listByCompany(companyId);
   }
 
+  async getCompanyLinks(companyId: number) {
+    await this.ensureCompany(companyId);
+
+    // Engagement venues (this company is a venue on engagements)
+    const engagementVenueRows: { engagementId: number; attractionName: string | null; tourName: string | null }[] =
+      await this.dataSource.query(
+        `SELECT ev.EngagementID AS engagementId, a.AttractionName AS attractionName, t.TourName AS tourName
+         FROM [dbo].[EngagementVenue] ev
+         INNER JOIN [dbo].[Engagement] e ON e.EngagementID = ev.EngagementID
+         LEFT JOIN [dbo].[Tour] t ON t.TourID = e.TourID
+         LEFT JOIN [dbo].[Attraction] a ON a.AttractionID = t.AttractionID
+         WHERE ev.VenueCompanyID = @0`,
+        [companyId],
+      );
+
+    // Project venues (this company is a venue on projects)
+    const projectVenueRows: { projectId: number; attractionName: string | null; tourName: string | null }[] =
+      await this.dataSource.query(
+        `SELECT pv.EngagementProjectID AS projectId, a.AttractionName AS attractionName, t.TourName AS tourName
+         FROM [dbo].[EngagementProjectVenue] pv
+         INNER JOIN [dbo].[EngagementProject] p ON p.EngagementProjectID = pv.EngagementProjectID
+         LEFT JOIN [dbo].[Tour] t ON t.TourID = p.TourID
+         LEFT JOIN [dbo].[Attraction] a ON a.AttractionID = t.AttractionID
+         WHERE pv.VenueCompanyID = @0`,
+        [companyId],
+      );
+
+    // Tours where this company is talent agency or tour management
+    const tourRows: { tourId: number; tourName: string | null; attractionName: string | null; isTalentAgency: number; isTourManagement: number }[] =
+      await this.dataSource.query(
+        `SELECT t.TourID AS tourId, t.TourName AS tourName, a.AttractionName AS attractionName,
+                CASE WHEN t.TalentAgencyCompanyID = @0 THEN 1 ELSE 0 END AS isTalentAgency,
+                CASE WHEN t.TourManagementCompanyID = @0 THEN 1 ELSE 0 END AS isTourManagement
+         FROM [dbo].[Tour] t
+         LEFT JOIN [dbo].[Attraction] a ON a.AttractionID = t.AttractionID
+         WHERE t.TalentAgencyCompanyID = @0 OR t.TourManagementCompanyID = @0`,
+        [companyId],
+      );
+
+    // Attractions where this company is attraction management
+    const attractionRows = await this.dataSource
+      .getRepository(Attraction)
+      .find({ where: { attractionManagementLinkId: companyId } });
+
+    // Service provider links (this company provides services to other venues)
+    const serviceProviderRows: { venueCompanyId: number; venueCompanyName: string | null }[] =
+      await this.dataSource.query(
+        `SELECT DISTINCT vsp.VenueCompanyID AS venueCompanyId, c.CompanyName AS venueCompanyName
+         FROM [dbo].[VenueServiceProvider] vsp
+         INNER JOIN [dbo].[Company] c ON c.CompanyID = vsp.VenueCompanyID
+         WHERE vsp.ProviderCompanyID = @0`,
+        [companyId],
+      );
+
+    // Entertainment complex membership (this company is a venue in a complex)
+    const complexMemberRows: { complexCompanyId: number; complexCompanyName: string | null }[] =
+      await this.dataSource.query(
+        `SELECT vcm.ComplexCompanyID AS complexCompanyId, c.CompanyName AS complexCompanyName
+         FROM [dbo].[VenueComplexMember] vcm
+         INNER JOIN [dbo].[Company] c ON c.CompanyID = vcm.ComplexCompanyID
+         WHERE vcm.VenueCompanyID = @0`,
+        [companyId],
+      );
+
+    // Venues in this complex (this company IS the complex)
+    const complexVenueRows: { venueCompanyId: number; venueCompanyName: string | null }[] =
+      await this.dataSource.query(
+        `SELECT vcm.VenueCompanyID AS venueCompanyId, c.CompanyName AS venueCompanyName
+         FROM [dbo].[VenueComplexMember] vcm
+         INNER JOIN [dbo].[Company] c ON c.CompanyID = vcm.VenueCompanyID
+         WHERE vcm.ComplexCompanyID = @0`,
+        [companyId],
+      );
+
+    return {
+      engagements: engagementVenueRows.map((r) => {
+        const fallback = `Engagement #${r.engagementId}`;
+        return {
+          engagementId: r.engagementId,
+          title: r.attractionName || r.tourName || fallback,
+          subtitle: r.attractionName ? r.tourName || fallback : null,
+          label: r.attractionName
+            ? `${r.attractionName} — ${r.tourName || fallback}`
+            : r.tourName || fallback,
+        };
+      }),
+      projects: projectVenueRows.map((r) => {
+        const fallback = `Project #${r.projectId}`;
+        return {
+          projectId: r.projectId,
+          title: r.attractionName || r.tourName || fallback,
+          subtitle: r.attractionName ? r.tourName || fallback : null,
+          label: r.attractionName
+            ? `${r.attractionName} — ${r.tourName || fallback}`
+            : r.tourName || fallback,
+        };
+      }),
+      tours: tourRows.map((r) => {
+        const fallback = `Tour #${r.tourId}`;
+        return {
+          tourId: r.tourId,
+          title: r.attractionName || r.tourName || fallback,
+          subtitle: r.attractionName ? r.tourName || fallback : null,
+          label: r.attractionName
+            ? `${r.attractionName} — ${r.tourName || fallback}`
+            : r.tourName || fallback,
+          role:
+            r.isTalentAgency && r.isTourManagement
+              ? 'Talent Agency & Tour Management'
+              : r.isTalentAgency
+                ? 'Talent Agency'
+                : 'Tour Management',
+        };
+      }),
+      attractions: attractionRows.map((r) => ({
+        attractionId: r.attractionId,
+        title: r.attractionName || `Attraction #${r.attractionId}`,
+        subtitle: null,
+        label: r.attractionName || `Attraction #${r.attractionId}`,
+        role: 'Attraction Management',
+      })),
+      serviceProviderFor: serviceProviderRows.map((r) => ({
+        venueCompanyId: r.venueCompanyId,
+        title: r.venueCompanyName || `Company #${r.venueCompanyId}`,
+        subtitle: null,
+        label: r.venueCompanyName || `Company #${r.venueCompanyId}`,
+      })),
+      entertainmentComplexes: complexMemberRows.map((r) => ({
+        complexCompanyId: r.complexCompanyId,
+        title: r.complexCompanyName || `Company #${r.complexCompanyId}`,
+        subtitle: null,
+        label: r.complexCompanyName || `Company #${r.complexCompanyId}`,
+      })),
+      complexVenues: complexVenueRows.map((r) => ({
+        venueCompanyId: r.venueCompanyId,
+        title: r.venueCompanyName || `Company #${r.venueCompanyId}`,
+        subtitle: null,
+        label: r.venueCompanyName || `Company #${r.venueCompanyId}`,
+      })),
+    };
+  }
+
   async updateVenueTicketing(
     companyId: number,
     dto: UpdateVenueTicketingDto,

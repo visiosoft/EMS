@@ -1711,8 +1711,8 @@ function TourDrawer({
                         <div className="font-medium text-text-primary">{c.firstName} {c.lastName}</div>
                         <div className="text-xs text-text-secondary">{c.roleName} • {c.departmentName}</div>
                         <div className="mt-2 text-xs text-text-secondary space-y-1">
-                          <div>{c.email}</div>
-                          {c.workPhone && <div>{formatE164ForDisplay(c.workPhone)}</div>}
+                          <div>{c.email ? <a href={`mailto:${c.email}`} className="hover:underline">{c.email}</a> : null}</div>
+                          {c.workPhone && <div><a href={`tel:${c.workPhone}`} className="hover:underline">{formatE164ForDisplay(c.workPhone)}</a></div>}
                         </div>
                       </div>
                     ))}
