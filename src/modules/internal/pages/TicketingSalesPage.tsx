@@ -4,6 +4,8 @@ import { UrgentUpcomingSection } from "../components/UrgentUpcomingSection";
 import { InternalPageFrame } from "../layout/InternalPageFrame";
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
 
+import type { ComponentType } from "react";
+
 type QuickLinkIconProps = {
   className?: string;
 };
@@ -11,7 +13,7 @@ type QuickLinkIconProps = {
 type DepartmentQuickLink = {
   label: string;
   href: string;
-  icon: (props: QuickLinkIconProps) => JSX.Element;
+  icon: ComponentType<QuickLinkIconProps>;
 };
 
 type TeamMember = {

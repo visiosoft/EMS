@@ -3948,8 +3948,8 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
 
   const deleteMut = useMutation({
     mutationFn: async (id: number) => deleteCompany(id),
-    onSuccess: (_, id) => {
-      removeCompanyFromCache(id);
+    onSuccess: () => {
+      removeCompanyFromCache();
     },
   });
 

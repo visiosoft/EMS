@@ -30,7 +30,7 @@ const msalConfig: Configuration = {
     cache: {
         cacheLocation: "localStorage",
         storeAuthStateInCookie: false,
-    },
+    } as any,
 };
 
 export const loginRequest = {
