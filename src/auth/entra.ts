@@ -125,7 +125,8 @@ export async function acquireGraphAccessToken(account: AccountInfo): Promise<str
             scopes: [graphScope],
         });
         return response.accessToken;
-    } catch {
+    } catch (error) {
+        console.warn("[MSAL] Silent token acquisition for Microsoft Graph failed:", error);
         return null;
     }
 }
