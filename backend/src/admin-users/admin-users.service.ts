@@ -72,6 +72,24 @@ export class AdminUsersService {
 
   async listUsers(graphAccessToken?: string): Promise<AdminDirectoryUser[]> {
     const accessToken = await this.getGraphAccessToken(graphAccessToken);
+
+    try {
+      if (accessToken) {
+        const parts = accessToken.split('.');
+        if (parts.length === 3) {
+          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+          console.log(`[JWT Scope Debug] Scopes in Graph Access Token:`, payload.scp || payload.roles || 'None');
+          console.log(`[JWT Scope Debug] Full payload:`, payload);
+        } else {
+          console.log(`[JWT Scope Debug] Token is not a 3-part JWT`);
+        }
+      } else {
+        console.log(`[JWT Scope Debug] Access token is empty`);
+      }
+    } catch (e) {
+      console.error(`Failed to debug decode token:`, e);
+    }
+
     const users: AdminDirectoryUser[] = [];
 
     for (const user of await this.fetchGraphUsers(accessToken)) {
@@ -148,10 +166,32 @@ export class AdminUsersService {
         error instanceof BadGatewayException &&
         String(error.message).includes('status 403')
       ) {
-        return this.fetchGraphUsersWithSelect(
-          accessToken,
-          'id,displayName,mail,userPrincipalName',
-        );
+        try {
+          return await this.fetchGraphUsersWithSelect(
+            accessToken,
+            'id,displayName,mail,userPrincipalName',
+          );
+        } catch (innerError) {
+          if (
+            innerError instanceof BadGatewayException &&
+            String(innerError.message).includes('status 403')
+          ) {
+            console.warn('[Graph API] Guest access restricted. Falling back to /me endpoint.');
+            try {
+              const meResponse = await fetch('https://graph.microsoft.com/v1.0/me?$select=id,displayName,mail,userPrincipalName', {
+                headers: { Authorization: `Bearer ${accessToken}` },
+              });
+              if (meResponse.ok) {
+                const me = await meResponse.json();
+                return [me as GraphUser];
+              }
+            } catch (e) {
+              console.error('[Graph API] Fallback to /me failed', e);
+            }
+            return [];
+          }
+          throw innerError;
+        }
       }
       throw error;
     }
@@ -166,6 +206,7 @@ export class AdminUsersService {
       `https://graph.microsoft.com/v1.0/users?$select=${select}&$top=999`;
 
     while (nextUrl) {
+      console.log(`[Graph API] Fetching: ${nextUrl}`);
       const response = await fetch(nextUrl, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -174,6 +215,7 @@ export class AdminUsersService {
 
       if (!response.ok) {
         const graphError = await readGraphErrorDetail(response);
+        console.error(`[Graph API] Failed with status ${response.status}: ${graphError}`);
         const permissionHint =
           response.status === 403
             ? ' Grant Microsoft Graph directory consent (User.ReadBasic.All or Directory.Read.All), or configure backend ENTRA_GRAPH_CLIENT_ID and ENTRA_GRAPH_CLIENT_SECRET with Graph application permission.'
