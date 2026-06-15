@@ -61,6 +61,7 @@ export default defineConfig(({ mode }) => {
     "import.meta.env.VITE_ENTRA_CLIENT_ID": JSON.stringify((fileEnv.VITE_ENTRA_CLIENT_ID ?? "").trim()),
     "import.meta.env.VITE_ENTRA_TENANT_ID": JSON.stringify((fileEnv.VITE_ENTRA_TENANT_ID ?? "").trim()),
     "import.meta.env.VITE_ENTRA_API_SCOPE": JSON.stringify((fileEnv.VITE_ENTRA_API_SCOPE ?? "").trim()),
+    "import.meta.env.VITE_ENTRA_GRAPH_SCOPE": JSON.stringify((fileEnv.VITE_ENTRA_GRAPH_SCOPE ?? "").trim()),
     "import.meta.env.VITE_ENTRA_REDIRECT_URI": JSON.stringify((fileEnv.VITE_ENTRA_REDIRECT_URI ?? "").trim()),
     "import.meta.env.VITE_ENTRA_REDIRECT_PATH": JSON.stringify(
       (fileEnv.VITE_ENTRA_REDIRECT_PATH ?? "/login").trim() || "/login",

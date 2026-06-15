@@ -3,14 +3,14 @@ import {
   Injectable,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 type GraphUser = {
   id: string;
   displayName?: string | null;
   mail?: string | null;
   userPrincipalName?: string | null;
-  accountEnabled?: boolean | null;
+  givenName?: string | null;
+  surname?: string | null;
 };
 
 type GraphUsersResponse = {
@@ -29,13 +29,11 @@ export type AdminDirectoryUser = {
   email: string;
   role: string;
   lastLogin: string;
-  status: 'Active' | 'Disabled';
+  status: 'Active';
 };
 
 @Injectable()
 export class AdminUsersService {
-  constructor(private readonly configService: ConfigService) {}
-
   private async graphGetJson<T>(
     accessToken: string,
     url: string,
@@ -60,35 +58,19 @@ export class AdminUsersService {
       id: user.id,
       name:
         user.displayName?.trim() ||
+        `${user.givenName ?? ''} ${user.surname ?? ''}`.trim() ||
         user.mail?.trim() ||
         user.userPrincipalName?.trim() ||
         'Entra user',
       email: user.mail?.trim() || user.userPrincipalName?.trim() || '',
       role: 'Entra user',
       lastLogin: '—',
-      status: user.accountEnabled === false ? 'Disabled' : 'Active',
+      status: 'Active',
     };
   }
 
   async listUsers(graphAccessToken?: string): Promise<AdminDirectoryUser[]> {
     const accessToken = await this.getGraphAccessToken(graphAccessToken);
-
-    try {
-      if (accessToken) {
-        const parts = accessToken.split('.');
-        if (parts.length === 3) {
-          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
-          console.log(`[JWT Scope Debug] Scopes in Graph Access Token:`, payload.scp || payload.roles || 'None');
-          console.log(`[JWT Scope Debug] Full payload:`, payload);
-        } else {
-          console.log(`[JWT Scope Debug] Token is not a 3-part JWT`);
-        }
-      } else {
-        console.log(`[JWT Scope Debug] Access token is empty`);
-      }
-    } catch (e) {
-      console.error(`Failed to debug decode token:`, e);
-    }
 
     const users: AdminDirectoryUser[] = [];
 
@@ -110,7 +92,7 @@ export class AdminUsersService {
     try {
       const directUser = await this.graphGetJson<GraphUser>(
         accessToken,
-        `https://graph.microsoft.com/v1.0/users/${encodedId}?$select=id,displayName,mail,userPrincipalName,accountEnabled`,
+        `https://graph.microsoft.com/v1.0/users/${encodedId}?$select=id,displayName,userPrincipalName,mail,givenName,surname`,
         true,
       );
       if (directUser?.id) return this.buildUserDisplay(directUser);
@@ -123,7 +105,7 @@ export class AdminUsersService {
       const escaped = userId.replace(/'/g, "''");
       const filteredUsers = await this.graphGetJson<GraphUsersResponse>(
         accessToken,
-        `https://graph.microsoft.com/v1.0/users?$filter=id eq '${escaped}'&$select=id,displayName,mail,userPrincipalName,accountEnabled&$top=1`,
+        `https://graph.microsoft.com/v1.0/users?$filter=id eq '${escaped}'&$select=id,displayName,userPrincipalName,mail,givenName,surname&$top=1`,
       );
       const filteredUser = filteredUsers?.value?.[0];
       if (filteredUser?.id) return this.buildUserDisplay(filteredUser);
@@ -157,44 +139,10 @@ export class AdminUsersService {
   }
 
   private async fetchGraphUsers(accessToken: string): Promise<GraphUser[]> {
-    const primarySelect =
-      'id,displayName,mail,userPrincipalName,accountEnabled';
-    try {
-      return await this.fetchGraphUsersWithSelect(accessToken, primarySelect);
-    } catch (error) {
-      if (
-        error instanceof BadGatewayException &&
-        String(error.message).includes('status 403')
-      ) {
-        try {
-          return await this.fetchGraphUsersWithSelect(
-            accessToken,
-            'id,displayName,mail,userPrincipalName',
-          );
-        } catch (innerError) {
-          if (
-            innerError instanceof BadGatewayException &&
-            String(innerError.message).includes('status 403')
-          ) {
-            console.warn('[Graph API] Guest access restricted. Falling back to /me endpoint.');
-            try {
-              const meResponse = await fetch('https://graph.microsoft.com/v1.0/me?$select=id,displayName,mail,userPrincipalName', {
-                headers: { Authorization: `Bearer ${accessToken}` },
-              });
-              if (meResponse.ok) {
-                const me = await meResponse.json();
-                return [me as GraphUser];
-              }
-            } catch (e) {
-              console.error('[Graph API] Fallback to /me failed', e);
-            }
-            return [];
-          }
-          throw innerError;
-        }
-      }
-      throw error;
-    }
+    return this.fetchGraphUsersWithSelect(
+      accessToken,
+      'id,displayName,userPrincipalName,mail,givenName,surname',
+    );
   }
 
   private async fetchGraphUsersWithSelect(
@@ -218,7 +166,7 @@ export class AdminUsersService {
         console.error(`[Graph API] Failed with status ${response.status}: ${graphError}`);
         const permissionHint =
           response.status === 403
-            ? ' Grant Microsoft Graph directory consent (User.ReadBasic.All or Directory.Read.All), or configure backend ENTRA_GRAPH_CLIENT_ID and ENTRA_GRAPH_CLIENT_SECRET with Graph application permission.'
+            ? ' Please confirm delegated Microsoft Graph permission User.ReadBasic.All is granted with admin consent.'
             : '';
         throw new BadGatewayException(
           `Microsoft Graph user lookup failed with status ${response.status}.${graphError}${permissionHint}`,
@@ -237,69 +185,12 @@ export class AdminUsersService {
     graphAccessToken?: string,
   ): Promise<string> {
     const delegatedGraphToken = String(graphAccessToken ?? '').trim();
-    const tenantId = this.getConfigValue(
-      'ENTRA_TENANT_ID',
-      'VITE_ENTRA_TENANT_ID',
-    );
-    const clientId = this.getConfigValue(
-      'ENTRA_GRAPH_CLIENT_ID',
-      'ENTRA_CLIENT_ID',
-      'VITE_ENTRA_CLIENT_ID',
-    );
-    const clientSecret = this.getConfigValue(
-      'ENTRA_GRAPH_CLIENT_SECRET',
-      'ENTRA_CLIENT_SECRET',
-      'ENTRA_API_CLIENT_SECRET',
-    );
-    const scope =
-      this.configService.get<string>('ENTRA_GRAPH_SCOPE')?.trim() ||
-      'https://graph.microsoft.com/.default';
-
-    if (!tenantId || !clientId || !clientSecret) {
-      if (delegatedGraphToken) return delegatedGraphToken;
-      throw new ServiceUnavailableException(
-        'Microsoft Graph integration is not configured. Set ENTRA_TENANT_ID or VITE_ENTRA_TENANT_ID plus ENTRA_GRAPH_CLIENT_ID and ENTRA_GRAPH_CLIENT_SECRET, or allow the frontend delegated Graph scope.',
-      );
+    if (delegatedGraphToken) {
+      return delegatedGraphToken;
     }
-
-    const tokenResponse = await fetch(
-      `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-          client_id: clientId,
-          client_secret: clientSecret,
-          scope,
-          grant_type: 'client_credentials',
-        }),
-      },
+    throw new ServiceUnavailableException(
+      'Microsoft Graph delegated access token is required. Acquire a delegated Graph token in the frontend with https://graph.microsoft.com/User.ReadBasic.All.',
     );
-
-    if (!tokenResponse.ok) {
-      throw new BadGatewayException(
-        `Could not acquire Microsoft Graph access token (status ${tokenResponse.status}).`,
-      );
-    }
-
-    const payload = (await tokenResponse.json()) as { access_token?: string };
-    if (!payload.access_token) {
-      throw new BadGatewayException(
-        'Microsoft Graph token response did not contain an access token.',
-      );
-    }
-
-    return payload.access_token;
-  }
-
-  private getConfigValue(...keys: string[]): string {
-    for (const key of keys) {
-      const value = this.configService.get<string>(key)?.trim();
-      if (value) return value;
-    }
-    return '';
   }
 }
 
