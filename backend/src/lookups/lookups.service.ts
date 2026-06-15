@@ -639,7 +639,10 @@ export class LookupsService {
   }
 
   private normalizeServiceProvidedIds(
-    dto: Pick<CreateLookupRowDto | UpdateLookupRowDto, 'serviceProvidedId' | 'serviceProvidedIds'>,
+    dto: Pick<
+      CreateLookupRowDto | UpdateLookupRowDto,
+      'serviceProvidedId' | 'serviceProvidedIds'
+    >,
   ): number[] {
     const rawValues =
       Array.isArray(dto.serviceProvidedIds) && dto.serviceProvidedIds.length > 0
@@ -680,11 +683,17 @@ export class LookupsService {
       where: { companyTypeId },
     });
     if (!companyType) {
-      throw new NotFoundException(`CompanyType ${companyTypeId} was not found.`);
+      throw new NotFoundException(
+        `CompanyType ${companyTypeId} was not found.`,
+      );
     }
     const rows = await this.companyTypeServiceRepo
       .createQueryBuilder('cts')
-      .leftJoin(ServiceProvided, 'sp', 'sp.serviceProvidedId = cts.serviceProvidedId')
+      .leftJoin(
+        ServiceProvided,
+        'sp',
+        'sp.serviceProvidedId = cts.serviceProvidedId',
+      )
       .select([
         'cts.companyTypeId AS companyTypeId',
         'cts.serviceProvidedId AS serviceProvidedId',
@@ -698,7 +707,10 @@ export class LookupsService {
         serviceProvidedId: Number(row.serviceProvidedId),
         serviceName: String(row.serviceName ?? ''),
       }))
-      .filter((row) => Number.isInteger(row.serviceProvidedId) && row.serviceProvidedId > 0);
+      .filter(
+        (row) =>
+          Number.isInteger(row.serviceProvidedId) && row.serviceProvidedId > 0,
+      );
     return {
       companyTypeServiceId: companyTypeId,
       companyTypeId,
@@ -870,7 +882,10 @@ export class LookupsService {
         );
       });
 
-      qb.orderBy('ct.companyTypeName', 'ASC').addOrderBy('sp.serviceName', 'ASC');
+      qb.orderBy('ct.companyTypeName', 'ASC').addOrderBy(
+        'sp.serviceName',
+        'ASC',
+      );
 
       const rows = await qb.getRawMany<Record<string, unknown>>();
       const grouped = new Map<
@@ -888,16 +903,14 @@ export class LookupsService {
         const companyTypeId = Number(r.companyTypeId);
         const serviceProvidedId = Number(r.serviceProvidedId);
         if (!Number.isInteger(companyTypeId) || companyTypeId < 1) continue;
-        const current =
-          grouped.get(companyTypeId) ??
-          {
-            companyTypeServiceId: companyTypeId,
-            companyTypeId,
-            companyTypeName: String(r.companyTypeName ?? ''),
-            serviceProvidedIds: [],
-            serviceNames: [],
-            services: [],
-          };
+        const current = grouped.get(companyTypeId) ?? {
+          companyTypeServiceId: companyTypeId,
+          companyTypeId,
+          companyTypeName: String(r.companyTypeName ?? ''),
+          serviceProvidedIds: [],
+          serviceNames: [],
+          services: [],
+        };
         if (
           Number.isInteger(serviceProvidedId) &&
           serviceProvidedId > 0 &&

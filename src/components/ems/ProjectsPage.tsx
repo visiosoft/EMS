@@ -91,6 +91,7 @@ import type {
   ProjectStage,
   VenueStatus,
   CreateProjectResult,
+  ProjectOpeningPerformancePayload,
 } from '@/api/projectApi';
 import type { ApiPaginatedResponse } from '@/api/companyApi';
 import {

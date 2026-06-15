@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import {
   ChevronDown,
   Landmark,
@@ -193,9 +193,12 @@ export function VenuesExplorer() {
     queryKey: internalVenuesQueryKeys.suggestions(debouncedTrimmed),
     queryFn: () => fetchInternalVenueSuggestions(debouncedTrimmed, SUGGESTION_LIMIT),
     enabled: debouncedTrimmed.length > 0,
-    ...venuesHubFreshCache,
-    placeholderData: keepPreviousData,
-  });
+    staleTime: venuesHubFreshCache.staleTime,
+    gcTime: venuesHubFreshCache.gcTime,
+    refetchOnMount: venuesHubFreshCache.refetchOnMount,
+    refetchOnWindowFocus: venuesHubFreshCache.refetchOnWindowFocus,
+    placeholderData: (prev) => prev,
+  }) as UseQueryResult<InternalHubVenue[], Error>;
 
   const isSuggestionsLoading =
     isDebouncingSearch ||

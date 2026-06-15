@@ -183,7 +183,9 @@ export class TourService {
     ];
   }
 
-  private normalizeAudienceGender(value: string | null | undefined): string | null {
+  private normalizeAudienceGender(
+    value: string | null | undefined,
+  ): string | null {
     const t = String(value ?? '').trim();
     if (!t) return null;
     const allowed = new Set(['All', 'Male', 'Female']);
@@ -256,7 +258,9 @@ export class TourService {
     return map;
   }
 
-  private async resolveJobId(jobName: string | null | undefined): Promise<number | null> {
+  private async resolveJobId(
+    jobName: string | null | undefined,
+  ): Promise<number | null> {
     const name = String(jobName ?? '').trim();
     if (!name) return null;
     const existing = await this.jobRepo
@@ -267,7 +271,11 @@ export class TourService {
       .getOne();
     if (existing) return existing.jobId;
     const created = await this.jobRepo.save(
-      this.jobRepo.create({ jobName: name.slice(0, 255), jobCode: null, isActive: true }),
+      this.jobRepo.create({
+        jobName: name.slice(0, 255),
+        jobCode: null,
+        isActive: true,
+      }),
     );
     return created.jobId;
   }
@@ -452,7 +460,9 @@ export class TourService {
       classId: t.classId,
       className: t.class?.className ?? '',
       audienceGender: t.audienceGender,
-      audienceAgeRange: ageLabels.length ? ageLabels.join(', ') : t.audienceAgeRange,
+      audienceAgeRange: ageLabels.length
+        ? ageLabels.join(', ')
+        : t.audienceAgeRange,
       audienceAgeRangeIds: ageRanges?.ids ?? [],
       audienceAgeRangeLabels: ageLabels,
       ascap: t.ascap,
@@ -519,9 +529,7 @@ export class TourService {
     const agentMap = await this.tourTalentAgentsByTourIds(
       rows.map((t) => t.tourId),
     );
-    const ageMap = await this.tourAgeRangesByTourIds(
-      rows.map((t) => t.tourId),
-    );
+    const ageMap = await this.tourAgeRangesByTourIds(rows.map((t) => t.tourId));
     return rows.map((t) =>
       this.mapTourEntityToRow(
         t,
@@ -588,9 +596,7 @@ export class TourService {
     const agentMap = await this.tourTalentAgentsByTourIds(
       rows.map((t) => t.tourId),
     );
-    const ageMap = await this.tourAgeRangesByTourIds(
-      rows.map((t) => t.tourId),
-    );
+    const ageMap = await this.tourAgeRangesByTourIds(rows.map((t) => t.tourId));
     return {
       data: rows.map((t) =>
         this.mapTourEntityToRow(
@@ -638,9 +644,7 @@ export class TourService {
     const agentMap = await this.tourTalentAgentsByTourIds(
       rows.map((t) => t.tourId),
     );
-    const ageMap = await this.tourAgeRangesByTourIds(
-      rows.map((t) => t.tourId),
-    );
+    const ageMap = await this.tourAgeRangesByTourIds(rows.map((t) => t.tourId));
 
     return {
       data: rows.map((t) =>
@@ -707,7 +711,9 @@ export class TourService {
       attractionId: dto.attractionId,
       classId: dto.classId,
       audienceGender,
-      audienceAgeRange: ageRangeLabels.length ? ageRangeLabels.join(', ') : null,
+      audienceAgeRange: ageRangeLabels.length
+        ? ageRangeLabels.join(', ')
+        : null,
       ascap: dto.ascap ?? false,
       bmi: dto.bmi ?? false,
       sesac: dto.sesac ?? false,
@@ -771,7 +777,9 @@ export class TourService {
     if (dto.sesac !== undefined) existing.sesac = dto.sesac;
     if (dto.gmr !== undefined) existing.gmr = dto.gmr;
     if (dto.audienceGender !== undefined) {
-      existing.audienceGender = this.normalizeAudienceGender(dto.audienceGender);
+      existing.audienceGender = this.normalizeAudienceGender(
+        dto.audienceGender,
+      );
     }
     if (dto.audienceAgeRange !== undefined) {
       existing.audienceAgeRange = dto.audienceAgeRange?.trim() || null;
