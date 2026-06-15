@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { ConfigService } from '@nestjs/config';
 import {
   BadRequestException,
@@ -43,7 +42,10 @@ import { CompanyServiceArea } from '../entities/company-service-area.entity';
 import { CompanyTypeService } from '../entities/company-type-service.entity';
 import { VenueServiceProvider } from '../entities/venue-service-provider.entity';
 import { NonResidentWithholding } from '../entities/non-resident-withholding.entity';
-import { EngagementService, EngagementListRow } from '../engagements/engagement.service';
+import {
+  EngagementService,
+  EngagementListRow,
+} from '../engagements/engagement.service';
 import { Link } from '../entities/link.entity';
 import { VenueComplex } from '../entities/venue-complex.entity';
 import { VenueComplexMember } from '../entities/venue-complex-member.entity';
@@ -3552,7 +3554,9 @@ export class CompanyService {
           })
         : null;
     if (existingContactId != null && !existingContact) {
-      throw new NotFoundException(`Contact ${existingContactId} was not found.`);
+      throw new NotFoundException(
+        `Contact ${existingContactId} was not found.`,
+      );
     }
 
     const email = dto.email?.trim();
@@ -3570,7 +3574,10 @@ export class CompanyService {
         const contactForEmail = await contactRepo.findOne({
           where: { contactInfoId: infoForEmail.contactInfoId },
         });
-        if (contactForEmail && contactForEmail.contactId !== existingContactId) {
+        if (
+          contactForEmail &&
+          contactForEmail.contactId !== existingContactId
+        ) {
           throw new ConflictException({
             statusCode: HttpStatus.CONFLICT,
             error: 'Conflict',
@@ -3884,7 +3891,9 @@ export class CompanyService {
     return out;
   }
 
-  async createManagedContact(dto: ManageContactDto): Promise<ManagedContactRow> {
+  async createManagedContact(
+    dto: ManageContactDto,
+  ): Promise<ManagedContactRow> {
     return this.dataSource.transaction(async (em) => {
       const contact = await this.getOrCreateManagedContact(em, dto);
       const isStaff = await this.ensureManagedContactAssignments(
@@ -3898,7 +3907,9 @@ export class CompanyService {
       await em.save(Contact, contact);
       const row = await this.getManagedContactRowById(contact.contactId, em);
       if (!row) {
-        throw new BadRequestException('Contact was saved but could not be loaded.');
+        throw new BadRequestException(
+          'Contact was saved but could not be loaded.',
+        );
       }
       return row;
     });
@@ -3913,9 +3924,11 @@ export class CompanyService {
       const nextCompany =
         dto.companyId !== undefined
           ? dto.companyId
-          : (await em.getRepository(ContactAssignment).findOne({
-              where: { contactId },
-            }))?.companyId ?? null;
+          : ((
+              await em.getRepository(ContactAssignment).findOne({
+                where: { contactId },
+              })
+            )?.companyId ?? null);
       const isStaff = await this.ensureManagedContactAssignments(
         em,
         contact.contactId,
@@ -3927,7 +3940,9 @@ export class CompanyService {
       await em.save(Contact, contact);
       const row = await this.getManagedContactRowById(contact.contactId, em);
       if (!row) {
-        throw new BadRequestException('Contact was updated but could not be loaded.');
+        throw new BadRequestException(
+          'Contact was updated but could not be loaded.',
+        );
       }
       return row;
     });
@@ -3938,7 +3953,8 @@ export class CompanyService {
       const contact = await em.getRepository(Contact).findOne({
         where: { contactId },
       });
-      if (!contact) throw new NotFoundException(`Contact ${contactId} was not found.`);
+      if (!contact)
+        throw new NotFoundException(`Contact ${contactId} was not found.`);
       await em.delete(ContactAssignment, { contactId });
       await em.delete(Contact, { contactId });
       const stillUsed = await em.getRepository(Contact).count({

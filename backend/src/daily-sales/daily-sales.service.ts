@@ -720,9 +720,7 @@ export class DailySalesService {
     const companyToken = companyRaw?.trim() || undefined;
     const parsedCompanyId = Number(companyToken);
     const companyId =
-      companyToken &&
-      Number.isInteger(parsedCompanyId) &&
-      parsedCompanyId > 0
+      companyToken && Number.isInteger(parsedCompanyId) && parsedCompanyId > 0
         ? parsedCompanyId
         : undefined;
 
@@ -1487,8 +1485,9 @@ export class DailySalesService {
               if (!name) return false;
               const key = name.toLowerCase();
               return (
-                list.findIndex((candidate) => candidate.toLowerCase() === key) ===
-                index
+                list.findIndex(
+                  (candidate) => candidate.toLowerCase() === key,
+                ) === index
               );
             }),
           physicalCity:
@@ -1606,7 +1605,12 @@ export class DailySalesService {
       .innerJoin(Engagement, 'e', 'e.engagementId = p.engagementId')
       .leftJoin(Tour, 't', 't.tourId = e.tourId')
       .leftJoin(Attraction, 'a', 'a.attractionId = t.attractionId')
-      .leftJoin(EngagementVenue, 'ev', 'ev.engagementId = e.engagementId AND ev.isPrimary = :prim', { prim: true })
+      .leftJoin(
+        EngagementVenue,
+        'ev',
+        'ev.engagementId = e.engagementId AND ev.isPrimary = :prim',
+        { prim: true },
+      )
       .leftJoin(Venue, 'v', 'v.companyId = ev.venueCompanyId')
       .leftJoin(Company, 'vc', 'vc.companyId = ev.venueCompanyId')
       .leftJoin(Address, 'addr', 'addr.addressId = vc.physicalAddressId')
@@ -1616,64 +1620,88 @@ export class DailySalesService {
       performanceDate || startDate || endDate,
     );
     if (!hasExplicitPerfDateFilter) {
-      baseQb.andWhere('CONVERT(date, p.performanceDate) >= CAST(:asOf AS date)');
+      baseQb.andWhere(
+        'CONVERT(date, p.performanceDate) >= CAST(:asOf AS date)',
+      );
     }
     if (performanceDate) {
-      baseQb.andWhere('CONVERT(date, p.performanceDate) = CAST(:perfDay AS date)', {
-        perfDay: performanceDate,
-      });
+      baseQb.andWhere(
+        'CONVERT(date, p.performanceDate) = CAST(:perfDay AS date)',
+        {
+          perfDay: performanceDate,
+        },
+      );
     }
     if (startDate) {
-      baseQb.andWhere('CONVERT(date, p.performanceDate) >= CAST(:startDate AS date)', {
-        startDate,
-      });
+      baseQb.andWhere(
+        'CONVERT(date, p.performanceDate) >= CAST(:startDate AS date)',
+        {
+          startDate,
+        },
+      );
     }
     if (endDate) {
-      baseQb.andWhere('CONVERT(date, p.performanceDate) <= CAST(:endDate AS date)', {
-        endDate,
-      });
+      baseQb.andWhere(
+        'CONVERT(date, p.performanceDate) <= CAST(:endDate AS date)',
+        {
+          endDate,
+        },
+      );
     }
 
-    const limitQb = (qb: SelectQueryBuilder<Performance>) => qb.addOrderBy('1').limit(6);
+    const limitQb = (qb: SelectQueryBuilder<Performance>) =>
+      qb.addOrderBy('1').limit(6);
 
     const [attractions, tours, venues, companies, cities] = await Promise.all([
-      limitQb(baseQb.clone()
-        .select('a.attractionName', 'label')
-        .addSelect('t.tourName', 'sublabel')
-        .distinct(true)
-        .andWhere('LOWER(a.attractionName) LIKE :q', { q: like }))
-        .getRawMany() as Promise<Array<{ label: string; sublabel: string }>>,
-      limitQb(baseQb.clone()
-        .select('t.tourName', 'label')
-        .addSelect('vc.companyName', 'sublabel')
-        .distinct(true)
-        .andWhere('LOWER(t.tourName) LIKE :q', { q: like }))
-        .getRawMany() as Promise<Array<{ label: string; sublabel: string }>>,
-      limitQb(baseQb.clone()
-        .select('v.venueName', 'label')
-        .addSelect('addr.city', 'sublabel')
-        .distinct(true)
-        .andWhere('LOWER(v.venueName) LIKE :q', { q: like }))
-        .getRawMany() as Promise<Array<{ label: string; sublabel: string }>>,
-      limitQb(baseQb.clone()
-        .select('vc.companyName', 'label')
-        .addSelect('addr.city', 'sublabel')
-        .distinct(true)
-        .andWhere('LOWER(vc.companyName) LIKE :q', { q: like }))
-        .getRawMany() as Promise<Array<{ label: string; sublabel: string }>>,
-      limitQb(baseQb.clone()
-        .select('addr.city', 'label')
-        .addSelect('addr.stateProvince', 'sublabel')
-        .distinct(true)
-        .andWhere('LOWER(addr.city) LIKE :q', { q: like }))
-        .getRawMany() as Promise<Array<{ label: string; sublabel: string }>>,
+      limitQb(
+        baseQb
+          .clone()
+          .select('a.attractionName', 'label')
+          .addSelect('t.tourName', 'sublabel')
+          .distinct(true)
+          .andWhere('LOWER(a.attractionName) LIKE :q', { q: like }),
+      ).getRawMany(),
+      limitQb(
+        baseQb
+          .clone()
+          .select('t.tourName', 'label')
+          .addSelect('vc.companyName', 'sublabel')
+          .distinct(true)
+          .andWhere('LOWER(t.tourName) LIKE :q', { q: like }),
+      ).getRawMany(),
+      limitQb(
+        baseQb
+          .clone()
+          .select('v.venueName', 'label')
+          .addSelect('addr.city', 'sublabel')
+          .distinct(true)
+          .andWhere('LOWER(v.venueName) LIKE :q', { q: like }),
+      ).getRawMany(),
+      limitQb(
+        baseQb
+          .clone()
+          .select('vc.companyName', 'label')
+          .addSelect('addr.city', 'sublabel')
+          .distinct(true)
+          .andWhere('LOWER(vc.companyName) LIKE :q', { q: like }),
+      ).getRawMany(),
+      limitQb(
+        baseQb
+          .clone()
+          .select('addr.city', 'label')
+          .addSelect('addr.stateProvince', 'sublabel')
+          .distinct(true)
+          .andWhere('LOWER(addr.city) LIKE :q', { q: like }),
+      ).getRawMany(),
     ]);
 
     const clean = (rows: Array<{ label?: unknown; sublabel?: unknown }>) =>
-      rows.map((r) => ({
-        label: String(r.label ?? '').trim(),
-        sublabel: String(r.sublabel ?? '').trim(),
-      })).filter((r) => r.label.length > 0);
+      rows
+        .map((r) => ({
+          label: String(r.label ?? '').trim(),
+          sublabel: String(r.sublabel ?? '').trim(),
+        }))
+        .filter((r) => r.label.length > 0);
 
     const all = [
       ...clean(attractions),
@@ -1683,12 +1711,14 @@ export class DailySalesService {
       ...clean(cities),
     ];
     const seen = new Set<string>();
-    return all.filter((r) => {
-      const key = r.label.toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    }).slice(0, 10);
+    return all
+      .filter((r) => {
+        const key = r.label.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 10);
   }
 
   /** Optional performance calendar day filter (YYYY-MM-DD); invalid values ignored. */
@@ -1758,7 +1788,8 @@ export class DailySalesService {
     }
     const perfIds = perfs.map((p) => p.performanceId);
     const performanceCount = perfs.length;
-    const marketingWindow = await this.getMarketingWindowForPerformances(perfIds);
+    const marketingWindow =
+      await this.getMarketingWindowForPerformances(perfIds);
 
     const byPerf = new Map<
       number,
@@ -2009,16 +2040,17 @@ export class DailySalesService {
         const dateA = a.performanceDate ? String(a.performanceDate) : '';
         const dateB = b.performanceDate ? String(b.performanceDate) : '';
         if (dateA !== dateB) return dateA.localeCompare(dateB);
-        
+
         const timeA = a.performanceTime ? String(a.performanceTime) : '';
         const timeB = b.performanceTime ? String(b.performanceTime) : '';
         if (timeA !== timeB) return timeA.localeCompare(timeB);
-        
+
         return a.performanceId - b.performanceId;
       });
     }
     const perfIds = perfs.map((p) => p.performanceId);
-    const marketingWindow = await this.getMarketingWindowForPerformances(perfIds);
+    const marketingWindow =
+      await this.getMarketingWindowForPerformances(perfIds);
 
     const byPerf = new Map<
       number,

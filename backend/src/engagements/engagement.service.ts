@@ -1204,7 +1204,12 @@ export class EngagementService {
     }
 
     const raw = await this.buildEngagementQuery()
-      .innerJoin(EngagementVenue, 'ev2', 'ev2.engagementId = e.engagementId AND ev2.venueCompanyId = :cid', { cid: safe })
+      .innerJoin(
+        EngagementVenue,
+        'ev2',
+        'ev2.engagementId = e.engagementId AND ev2.venueCompanyId = :cid',
+        { cid: safe },
+      )
       .distinct(true)
       .getRawMany();
     return (raw as Record<string, unknown>[]).map((r) => this.mapRaw(r));

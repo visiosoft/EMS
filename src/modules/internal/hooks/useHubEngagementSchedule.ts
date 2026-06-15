@@ -13,7 +13,7 @@ import {
 export function useHubEngagementSchedule(scheduleWeek: HubScheduleWeek) {
   const { accounts } = useMsal();
   const isAuthenticated = useIsAuthenticated();
-  const userOid = getAccountOid() || getAccountOid(accounts[0]) || "";
+  const userOid = getAccountOid(accounts[0]) || "";
 
   const weekRange = useMemo(() => getHubWeekDateRange(scheduleWeek), [scheduleWeek]);
 

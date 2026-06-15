@@ -3041,11 +3041,17 @@ function EngagementArtistTermsPanel({
     const g = parseOptionalDecimal(artistGuarantee, 'Artist guarantee');
     const m = parseOptionalDecimal(artistMiddleMoney, 'Artist middle money');
     const p = parseOptionalDecimal(promoterProfit, 'Promoter profit');
-    for (const x of [g, m, p]) {
-      if (!x.ok) {
-        addToast(x.message, 'error');
-        return;
-      }
+    if (!g.ok) {
+      addToast(g.message, 'error');
+      return;
+    }
+    if (!m.ok) {
+      addToast(m.message, 'error');
+      return;
+    }
+    if (!p.ok) {
+      addToast(p.message, 'error');
+      return;
     }
     const offerTrim = finalOfferLink.trim();
     const settleTrim = settlementFileLink.trim();
@@ -3445,7 +3451,7 @@ function EngagementEventBusinessPanel({
         addToast(p.message, 'error');
         return;
       }
-      parsedDecimals[apiKey] = p.value;
+      parsedDecimals[apiKey] = p.value as any;
     }
 
     saveMut.mutate({
@@ -3894,15 +3900,29 @@ function EngagementMarketingPanel({
     const comps = parseOptionalInt(totalComps, 'Total comps');
     const tickets = parseOptionalInt(totalTickets, 'Total tickets');
     const admissions = parseOptionalInt(totalAdmissions, 'Total admissions');
-    for (const x of [comps, tickets, admissions]) {
-      if (!x.ok) {
-        addToast(x.message, 'error');
-        return;
-      }
-      if (x.value != null && x.value < 0) {
-        addToast('Counts cannot be negative.', 'error');
-        return;
-      }
+    if (!comps.ok) {
+      addToast(comps.message, 'error');
+      return;
+    }
+    if (comps.value != null && comps.value < 0) {
+      addToast('Total comps cannot be negative.', 'error');
+      return;
+    }
+    if (!tickets.ok) {
+      addToast(tickets.message, 'error');
+      return;
+    }
+    if (tickets.value != null && tickets.value < 0) {
+      addToast('Total tickets cannot be negative.', 'error');
+      return;
+    }
+    if (!admissions.ok) {
+      addToast(admissions.message, 'error');
+      return;
+    }
+    if (admissions.value != null && admissions.value < 0) {
+      addToast('Total admissions cannot be negative.', 'error');
+      return;
     }
 
     saveMut.mutate({
@@ -5290,11 +5310,25 @@ function EngagementFinancePanel({
     const e4 = a('Funds due', fundsDue);
     const e5 = a('Funds withheld', fundsWithheld);
     const e6 = a('Funds owed', fundsOwed);
-    for (const x of [e1, e2, e4, e5, e6]) {
-      if (!x.ok) {
-        addToast(x.message, 'error');
-        return;
-      }
+    if (!e1.ok) {
+      addToast(e1.message, 'error');
+      return;
+    }
+    if (!e2.ok) {
+      addToast(e2.message, 'error');
+      return;
+    }
+    if (!e4.ok) {
+      addToast(e4.message, 'error');
+      return;
+    }
+    if (!e5.ok) {
+      addToast(e5.message, 'error');
+      return;
+    }
+    if (!e6.ok) {
+      addToast(e6.message, 'error');
+      return;
     }
     const w = fkIdStringToNumber(withholdingFk);
     const af = fkIdStringToNumber(artistFinanceFk);

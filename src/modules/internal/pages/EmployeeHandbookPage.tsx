@@ -3,7 +3,18 @@ import { AlertCircle, Banknote, BookOpen, ChevronLeft, ChevronRight, ClipboardCh
 import type { LucideIcon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { ReactFlipBook } from "@vuvandinh203/react-flipbook";
-import type { ReactFlipBookRef } from "@vuvandinh203/react-flipbook";
+
+interface ReactFlipBookRef {
+  pageFlip: () => unknown;
+  flipNext: () => void;
+  flipPrev: () => void;
+  flip: (page: number) => void;
+  getCurrentPageIndex: () => number | undefined;
+  getPageCount: () => number | undefined;
+  destroy: () => void;
+  startAutoFlip: (delay?: number, direction?: 'next' | 'prev') => void;
+  stopAutoFlip: () => void;
+}
 import { fetchHandbookSections } from "@/api/employeeHandbookApi";
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
 import type { EmployeeHandbookView } from "../routing/internalSessionRoute";

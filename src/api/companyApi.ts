@@ -464,7 +464,9 @@ export function updateManagedContact(contactId: number, body: Partial<ManagedCon
 export function deleteManagedContact(contactId: number) {
   return apiFetch<void>(`/contacts/${contactId}`, { method: 'DELETE' });
 }
-export function fetchCompanyEngagements(companyId: number) { return apiFetch<ApiEngagementRow[]>(`/companies/${companyId}/engagements`); }
+export function fetchCompanyEngagements(companyId: number) {
+  return apiFetch<ApiEngagementListRow[]>(`/companies/${companyId}/engagements`);
+}
 
 /** Shared shape for one linked record. `title` is the headline, `subtitle` an
  *  optional second line (e.g. tour name); `label` is the combined "Title — Subtitle". */
@@ -473,6 +475,7 @@ export interface ApiCompanyLinkItem {
   subtitle: string | null;
   label: string;
 }
+
 export interface ApiCompanyLinks {
   engagements: (ApiCompanyLinkItem & { engagementId: number })[];
   projects: (ApiCompanyLinkItem & { projectId: number })[];
@@ -482,8 +485,10 @@ export interface ApiCompanyLinks {
   entertainmentComplexes: (ApiCompanyLinkItem & { complexCompanyId: number })[];
   complexVenues: (ApiCompanyLinkItem & { venueCompanyId: number })[];
 }
-export function fetchCompanyLinks(companyId: number) { return apiFetch<ApiCompanyLinks>(`/companies/${companyId}/links`); }
 
+export function fetchCompanyLinks(companyId: number) {
+  return apiFetch<ApiCompanyLinks>(`/companies/${companyId}/links`);
+}
 export function fetchVenueTicketing(companyId: number) { return apiFetch<ApiVenueTicketing | null>(`/companies/${companyId}/venue-ticketing`); }
 export function fetchVenueProfile(companyId: number) { return apiFetch<ApiVenueProfileResponse>(`/companies/${companyId}/venue-profile`); }
 export function provisionVenueProfile(companyId: number) { return apiFetch<{ created: boolean }>(`/companies/${companyId}/venue-profile/provision`, { method: 'POST' }); }

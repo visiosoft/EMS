@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient, type UseQueryOptions, type UseQueryResult } from '@tanstack/react-query';
 import {
   ChevronDown,
   LayoutGrid,
@@ -277,13 +277,14 @@ export function AttractionsExplorer() {
   const isDebouncingSearch = trimmedDraft.length > 0 && trimmedDraft !== debouncedTrimmed;
   const showSuggestionsPanel = suggestionsOpen && trimmedDraft.length > 0;
 
-  const suggestionsQuery = useQuery({
+  const suggestionsQuery: UseQueryResult<InternalHubAttraction[], Error> = useQuery({
     queryKey: internalAttractionsQueryKeys.suggestions(debouncedTrimmed),
     queryFn: () => fetchInternalAttractionSuggestions(debouncedTrimmed, SUGGESTION_LIMIT),
     enabled: debouncedTrimmed.length > 0,
-    ...attractionsHubFreshCache,
-    placeholderData: keepPreviousData,
-  });
+    staleTime: attractionsHubFreshCache.staleTime,
+    gcTime: attractionsHubFreshCache.gcTime,
+    placeholderData: (prev: InternalHubAttraction[] | undefined) => prev,
+  }) as unknown as UseQueryResult<InternalHubAttraction[], Error>;
 
   const isSuggestionsLoading =
     isDebouncingSearch ||
