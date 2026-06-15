@@ -101,6 +101,22 @@ function snap(ledger: Ledger, performanceId: number, cutoff: string): Snapshot |
   let hit: LedgerRow | null = null; for (const r of rows) { if (r.salesDate > cutoff) break; hit = r; }
   return hit ? { tickets: hit.tickets, revenue: hit.revenue } : null;
 }
+// Daily movement on the most recent reported day at or before the cutoff (the
+// latest report's cumulative minus the report before it). Lets "yesterday"
+// figures fall back to the last day that actually had sales when yesterday
+// itself had none reported.
+function lastDailyMovement(rows: LedgerRow[] | undefined, cutoff: string): Snapshot {
+  if (!rows?.length) return { tickets: 0, revenue: 0 };
+  let idx = -1; for (let i = 0; i < rows.length; i++) { if (rows[i].salesDate <= cutoff) idx = i; else break; }
+  if (idx < 0) return { tickets: 0, revenue: 0 };
+  const cur = rows[idx]; const prev = idx > 0 ? rows[idx - 1] : null;
+  return { tickets: delta(cur.tickets, prev?.tickets ?? 0), revenue: delta(cur.revenue, prev?.revenue ?? 0) };
+}
+function aggregateLastDailyMovement(ledger: Ledger, cutoff: string): Snapshot {
+  let tickets = 0, revenue = 0;
+  ledger.forEach((rows) => { const m = lastDailyMovement(rows, cutoff); tickets += m.tickets; revenue += m.revenue; });
+  return { tickets, revenue };
+}
 function metricsFor(r: ApiPerformanceSalesRow, ledger: Ledger, reportDate: string, ready: boolean): Metrics {
   const current = (ready ? snap(ledger, r.performanceId, reportDate) : null) ?? { tickets: fallbackTickets(r), revenue: fallbackRevenue(r) };
   const prev = ready ? snap(ledger, r.performanceId, ymdAddDays(reportDate, -1)) : { tickets: num(r.yesterdayTicketsSold) ?? 0, revenue: num(r.yesterdayRevenue) ?? 0 };
@@ -639,13 +655,23 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
 
   const kpis = useMemo(() => {
     if (!summary) return { events: 0, totalSold: 0, totalRevenue: 0, revenueYesterday: 0 };
+    // The API reports "yesterday" literally, so it returns 0 when no sales were
+    // entered on the prior calendar day. Fall back to the most recent reported
+    // day's revenue from the ledger so the card reflects the latest activity.
+    // (The ledger isn't scoped to the active filters, so this is an
+    // approximation when filters are applied.)
+    const apiYesterday = num(summary.yesterdayRevenue) ?? 0;
+    const revenueYesterday =
+      apiYesterday > 0 || !ledgerReady
+        ? apiYesterday
+        : aggregateLastDailyMovement(ledger, reportAsOfDate).revenue;
     return {
       events: serverTotal,
       totalSold: summary.totalTickets,
       totalRevenue: summary.totalRevenue,
-      revenueYesterday: summary.yesterdayRevenue,
+      revenueYesterday,
     };
-  }, [summary, serverTotal]);
+  }, [summary, serverTotal, ledger, ledgerReady, reportAsOfDate]);
 
   const suggestionSearch = searchInput.trim();
   const suggestionsQuery = useQuery({

@@ -150,6 +150,23 @@ describe('SalesDashboardView', () => {
     expect(within(publicSaleRow as HTMLTableRowElement).queryByText('$50')).not.toBeInTheDocument();
   });
 
+  it("backfills an unreported day's audit wrap from the next reported day", () => {
+    // asOf is May 22; May 21 has no report, so Yesterday's Wrap should reflect
+    // May 22's report (5 tickets / $50) rather than 0.
+    renderDashboard();
+
+    const wrapRow = screen.getByText('Total Tickets Sold Yesterday').closest('th');
+    expect(wrapRow).not.toBeNull();
+
+    const valuesRow = screen
+      .getByText("Yesterday's Wrap")
+      .closest('table')
+      ?.querySelector('tbody tr');
+    expect(valuesRow).not.toBeNull();
+    expect(within(valuesRow as HTMLElement).getByText('5')).toBeVisible();
+    expect(within(valuesRow as HTMLElement).getByText('$50')).toBeVisible();
+  });
+
   it('shows informative lifetime snapshots instead of one-point charts', () => {
     renderDashboard();
 
