@@ -861,6 +861,7 @@ function EngagementProductionPanel({
                   {productionManagerContacts.map((contact) => {
                     const name = compactContactName(contact) || contact.email;
                     const phone = contactPhoneDisplay(contact);
+                    const rawPhone = contact.cellPhone || contact.workPhone;
                     return (
                       <li
                         key={contact.contactAssignmentId}
@@ -868,7 +869,10 @@ function EngagementProductionPanel({
                       >
                         <span className="font-medium">{name}</span>
                         <span className="text-xs text-text-secondary">
-                          {[contact.email, phone].filter(Boolean).join(' | ') || '-'}
+                          {contact.email && <a href={`mailto:${contact.email}`} className="hover:underline">{contact.email}</a>}
+                          {contact.email && phone && ' | '}
+                          {phone && rawPhone && <a href={`tel:${rawPhone}`} className="hover:underline">{phone}</a>}
+                          {!contact.email && !phone && '-'}
                         </span>
                       </li>
                     );
@@ -7247,9 +7251,9 @@ function ContactsTable({
                 <td className="py-2 px-3 text-text-secondary text-xs">
                   {c.departmentName || '—'}
                 </td>
-                <td className="py-2 px-3 text-ems-blue text-xs">{c.email}</td>
+                <td className="py-2 px-3 text-ems-blue text-xs">{c.email ? <a href={`mailto:${c.email}`} className="hover:underline">{c.email}</a> : '—'}</td>
                 <td className="py-2 px-3 text-text-secondary text-xs">
-                  {formatE164ForDisplay(c.cellPhone || c.workPhone) || '—'}
+                  {(c.cellPhone || c.workPhone) ? <a href={`tel:${c.cellPhone || c.workPhone}`} className="hover:underline">{formatE164ForDisplay(c.cellPhone || c.workPhone)}</a> : '—'}
                 </td>
               </tr>
             ))}
