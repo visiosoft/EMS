@@ -53,11 +53,15 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
-import { fetchAdminUsers } from '@/api/adminUsersApi';
 import {
-  acquireApiAccessToken,
-  acquireGraphAccessToken,
+  fetchAdminUsers,
+  getGraphRequestErrorDetail,
+  type GraphRequestErrorDetail,
+} from '@/api/adminUsersApi';
+import {
+  describeGraphAccessToken,
   getActiveAccount,
+  type GraphTokenDiagnostics,
   requestGraphAccessToken,
 } from '@/auth/entra';
 import { richTextMatches } from './searchUtils';
@@ -285,6 +289,56 @@ function saveLookupSortStateForKey(
   }
 }
 
+function getDirectoryUsersErrorMessage(error: unknown): string {
+  const status =
+    typeof error === 'object' && error !== null && 'status' in error
+      ? Number((error as { status?: unknown }).status)
+      : NaN;
+  const message = error instanceof Error ? error.message : String(error ?? '');
+
+  if (
+    status === 403 ||
+    /insufficient|privilege|Authorization_RequestDenied|User\.ReadBasic\.All|admin consent/i.test(message)
+  ) {
+    return 'Unable to read Microsoft Entra users. Please confirm delegated Microsoft Graph permission User.ReadBasic.All is granted with admin consent.';
+  }
+
+  if (/token|interaction_required|consent_required|login_required|no_account/i.test(message)) {
+    return 'Unable to acquire Microsoft Graph token. Please sign in again.';
+  }
+
+  return 'Could not load the Entra user directory from Microsoft Graph.';
+}
+
+type DirectoryDiagnostics = {
+  accountUsername: string;
+  token?: GraphTokenDiagnostics;
+  graphError?: GraphRequestErrorDetail | null;
+  userCount?: number;
+};
+
+function getDirectoryDiagnosticHint(diagnostics: DirectoryDiagnostics | null): string {
+  const token = diagnostics?.token;
+  const graphError = diagnostics?.graphError;
+
+  if (!token) {
+    return 'No Microsoft Graph token diagnostics are available yet.';
+  }
+  if (!token.isGraphAudience) {
+    return 'The access token audience is not Microsoft Graph. Check VITE_ENTRA_GRAPH_SCOPE and restart the Vite server.';
+  }
+  if (!token.hasUserReadBasicAll) {
+    return 'The token is missing User.ReadBasic.All. Add Microsoft Graph > Delegated permission > User.ReadBasic.All to this app registration, then grant admin consent.';
+  }
+  if (graphError?.code === 'Authorization_RequestDenied') {
+    return 'The token has the expected Graph scope, so this usually means the signed-in user is a guest or is restricted from reading directory users. Sign in with a member account in this Entra tenant, convert this account to a member user, or grant the signed-in user a directory role such as Directory Readers.';
+  }
+  if (graphError?.code) {
+    return `Microsoft Graph returned ${graphError.code}. Use the request ID below when checking Entra sign-in and Graph audit logs.`;
+  }
+  return 'The token has the expected Microsoft Graph audience and delegated scope.';
+}
+
 export function SettingsPage({
   addToast,
   users,
@@ -316,15 +370,15 @@ export function SettingsPage({
   const [deleteLookupRow, setDeleteLookupRow] = useState<LookupManageRow | null>(null);
   const [selectedLookupRow, setSelectedLookupRow] = useState<LookupManageRow | null>(null);
   const [detailsTab, setDetailsTab] = useState('Overview');
-  const [directoryGraphToken, setDirectoryGraphToken] = useState<string | null>(null);
   const [directoryPermissionBusy, setDirectoryPermissionBusy] = useState(false);
   const [directoryPermissionError, setDirectoryPermissionError] = useState<string | null>(null);
+  const [directoryDiagnostics, setDirectoryDiagnostics] = useState<DirectoryDiagnostics | null>(null);
 
   const inputCls =
     'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
 
   const adminUsersQuery = useQuery({
-    queryKey: ['admin-users', account?.homeAccountId ?? null, Boolean(directoryGraphToken)],
+    queryKey: ['admin-users', account?.homeAccountId ?? null],
     enabled: tab === 'Users' && account != null,
     retry: false,
     staleTime: 5 * 60 * 1000,
@@ -332,15 +386,44 @@ export function SettingsPage({
       if (!account) {
         throw new Error('Sign in with Microsoft Entra ID to load the user directory.');
       }
-      const accessToken = await acquireApiAccessToken(account);
-      const graphAccessToken = directoryGraphToken ?? (await acquireGraphAccessToken(account));
-      return fetchAdminUsers(accessToken, graphAccessToken);
+      console.debug(`[Microsoft Graph] Active account: ${account.username}`);
+      const baseDiagnostics: DirectoryDiagnostics = {
+        accountUsername: account.username,
+      };
+      let graphAccessToken: string;
+      try {
+        graphAccessToken = await requestGraphAccessToken(account, { forceRefresh: true });
+      } catch (error) {
+        setDirectoryDiagnostics(baseDiagnostics);
+        const tokenError = new Error('Unable to acquire Microsoft Graph token. Please sign in again.') as Error & {
+          cause?: unknown;
+        };
+        tokenError.cause = error;
+        throw tokenError;
+      }
+      const diagnostics = {
+        ...baseDiagnostics,
+        token: describeGraphAccessToken(graphAccessToken),
+      };
+      setDirectoryDiagnostics(diagnostics);
+
+      try {
+        const rows = await fetchAdminUsers(graphAccessToken);
+        setDirectoryDiagnostics({ ...diagnostics, userCount: rows.length });
+        return rows;
+      } catch (error) {
+        setDirectoryDiagnostics({
+          ...diagnostics,
+          graphError: getGraphRequestErrorDetail(error),
+        });
+        throw error;
+      }
     },
   });
 
   useEffect(() => {
-    setDirectoryGraphToken(null);
     setDirectoryPermissionError(null);
+    setDirectoryDiagnostics(null);
   }, [account?.homeAccountId]);
 
   async function handleConnectDirectory() {
@@ -349,8 +432,7 @@ export function SettingsPage({
     setDirectoryPermissionBusy(true);
     setDirectoryPermissionError(null);
     try {
-      const graphAccessToken = await requestGraphAccessToken(account);
-      setDirectoryGraphToken(graphAccessToken);
+      await requestGraphAccessToken(account, { forceRefresh: true });
       await qc.invalidateQueries({
         queryKey: ['admin-users', account.homeAccountId ?? null],
       });
@@ -724,7 +806,7 @@ export function SettingsPage({
             <div>
               <h3 className="text-base font-semibold text-text-primary">Microsoft Entra user directory</h3>
               <p className="mt-1 text-sm text-text-secondary">
-                This table is loaded from Microsoft Entra through the backend user directory API.
+                This table is loaded directly from Microsoft Graph using your signed-in Entra account.
               </p>
             </div>
 
@@ -740,7 +822,7 @@ export function SettingsPage({
                 <div className="rounded-md border border-ems-coral/30 bg-ems-coral-dim px-3 py-2 text-sm text-ems-coral">
                   {friendlyApiError(
                     adminUsersQuery.error,
-                    'Could not load the Entra user directory. Check the Entra tenant/API scope settings and Microsoft Graph directory permission.',
+                    getDirectoryUsersErrorMessage(adminUsersQuery.error),
                   )}
                 </div>
                 {account ? (
@@ -765,6 +847,73 @@ export function SettingsPage({
                 {directoryPermissionError ? (
                   <div className="rounded-md border border-ems-coral/30 bg-ems-coral-dim px-3 py-2 text-sm text-ems-coral">
                     {directoryPermissionError}
+                  </div>
+                ) : null}
+                {directoryDiagnostics ? (
+                  <div className="rounded-md border border-border bg-elevated px-3 py-3 text-xs text-text-secondary">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <p className="font-semibold text-text-primary">Microsoft Graph diagnostics</p>
+                      {directoryDiagnostics.userCount != null ? (
+                        <span className="text-text-muted">{directoryDiagnostics.userCount} users returned</span>
+                      ) : null}
+                    </div>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <div>
+                        <span className="text-text-muted">Account</span>
+                        <div className="break-all font-mono text-text-secondary">
+                          {directoryDiagnostics.accountUsername || '—'}
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-text-muted">Token audience</span>
+                        <div className="break-all font-mono text-text-secondary">
+                          {directoryDiagnostics.token?.aud || '—'}
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-text-muted">Graph audience</span>
+                        <div className="font-mono text-text-secondary">
+                          {directoryDiagnostics.token?.isGraphAudience ? 'yes' : 'no'}
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-text-muted">Has User.ReadBasic.All</span>
+                        <div className="font-mono text-text-secondary">
+                          {directoryDiagnostics.token?.hasUserReadBasicAll ? 'yes' : 'no'}
+                        </div>
+                      </div>
+                      <div className="md:col-span-2">
+                        <span className="text-text-muted">Delegated scopes</span>
+                        <div className="break-all font-mono text-text-secondary">
+                          {directoryDiagnostics.token?.scp || '—'}
+                        </div>
+                      </div>
+                      {directoryDiagnostics.graphError ? (
+                        <>
+                          <div>
+                            <span className="text-text-muted">Graph error</span>
+                            <div className="break-all font-mono text-text-secondary">
+                              {directoryDiagnostics.graphError.code || '—'}
+                            </div>
+                          </div>
+                          <div>
+                            <span className="text-text-muted">Graph request ID</span>
+                            <div className="break-all font-mono text-text-secondary">
+                              {directoryDiagnostics.graphError.requestId || '—'}
+                            </div>
+                          </div>
+                          <div className="md:col-span-2">
+                            <span className="text-text-muted">Graph message</span>
+                            <div className="break-all text-text-secondary">
+                              {directoryDiagnostics.graphError.message || '—'}
+                            </div>
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
+                    <p className="mt-3 rounded border border-border bg-surface px-2 py-2 text-text-secondary">
+                      {getDirectoryDiagnosticHint(directoryDiagnostics)}
+                    </p>
                   </div>
                 ) : null}
               </div>
