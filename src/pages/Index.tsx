@@ -345,9 +345,9 @@ const Index = () => {
     };
   }, [currentView, viewData.createEngagement]);
 
-  const navigate = useCallback((view: string, data?: Record<string, unknown>) => {
+  const navigate = useCallback((view: string, data?: unknown) => {
     setCurrentView(view);
-    setViewData(data ?? {});
+    setViewData((data as Record<string, unknown>) ?? {});
   }, []);
 
   const addToast = useCallback((

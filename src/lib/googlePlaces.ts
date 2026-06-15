@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { toCountryAlpha2FromGoogleComponents } from '@/lib/addressAbbrev';
 
 export interface AddressParts {

@@ -162,7 +162,8 @@ export class AdminUsersService {
     select: string,
   ): Promise<GraphUser[]> {
     const users: GraphUser[] = [];
-    let nextUrl: string | null = `https://graph.microsoft.com/v1.0/users?$select=${select}&$top=999`;
+    let nextUrl: string | null =
+      `https://graph.microsoft.com/v1.0/users?$select=${select}&$top=999`;
 
     while (nextUrl) {
       const response = await fetch(nextUrl, {
@@ -190,7 +191,9 @@ export class AdminUsersService {
     return users;
   }
 
-  private async getGraphAccessToken(graphAccessToken?: string): Promise<string> {
+  private async getGraphAccessToken(
+    graphAccessToken?: string,
+  ): Promise<string> {
     const delegatedGraphToken = String(graphAccessToken ?? '').trim();
     const tenantId = this.getConfigValue(
       'ENTRA_TENANT_ID',

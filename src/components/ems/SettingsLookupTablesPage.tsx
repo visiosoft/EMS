@@ -40,6 +40,7 @@ import {
   type LookupManageRow,
   type LookupManageTableKey,
   type LookupManageUpdatePayload,
+  type LookupManageListResponse,
   updateLookupManageRow,
 } from '@/api/lookupManagementApi';
 import {
@@ -427,7 +428,7 @@ export function SettingsPage({
 
   const [lookupListSettledKey, setLookupListSettledKey] = useState<string | null>(null);
 
-  const lookupListQuery = useQuery({
+  const lookupListQuery = useQuery<LookupManageListResponse>({
     queryKey: lookupListQueryKey,
     queryFn: () =>
       fetchLookupManageRows(activeLookupKey, offset, limit, {
@@ -437,10 +438,10 @@ export function SettingsPage({
       }),
     enabled: tab === 'Lookup Tables',
     staleTime: 5 * 60 * 1000,
-    // Never reuse rows from another lookup table: same-table keys (sort/page/search) still get smooth placeholders.
-    placeholderData: (previousData, previousQuery) => {
+    placeholderData: (previousData: LookupManageListResponse | undefined, previousQuery: unknown) => {
       if (!previousData) return undefined;
-      const prevTable = previousQuery?.queryKey?.[1];
+      const query = previousQuery as { queryKey?: unknown[] } | undefined;
+      const prevTable = query?.queryKey?.[1];
       if (prevTable !== activeLookupKey) return undefined;
       return previousData;
     },
@@ -707,7 +708,15 @@ export function SettingsPage({
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-semibold text-text-primary">Settings</h1>
-      <TabBar tabs={['Users', 'Lookup Tables', 'System']} active={tab} onChange={setTab} />
+      <TabBar
+        tabs={['Users', 'Lookup Tables', 'System']}
+        active={tab}
+        onChange={(t) => {
+          if (t === 'Users' || t === 'Lookup Tables' || t === 'System') {
+            setTab(t);
+          }
+        }}
+      />
 
       {tab === 'Users' && (
         <div className="space-y-3">
