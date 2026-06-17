@@ -197,6 +197,10 @@ export interface ApiEngagementFinanceRow {
     | 'CoPro with 3rd Party, 3rd Party Renting Venue'
     | 'Silent CoPro with 3rd Party, 3rd Party Renting Venue'
     | null;
+  /** dbo.EngagementFinances.VenueDealTypeID — merged "Venue Deal" FK. */
+  venueDealTypeId: number | null;
+  /** dbo.VenueDealType.VenueDealTypeName for display. */
+  venueDealTypeName: string | null;
   venueTerms: string | null;
   confirmationPacketApproved: boolean | null;
   iaeWaiverApplicationConfirmationNumber: string | null;
@@ -313,6 +317,8 @@ export type UpdateEngagementFinancePayload = {
     | 'CoPro with 3rd Party, 3rd Party Renting Venue'
     | 'Silent CoPro with 3rd Party, 3rd Party Renting Venue'
     | null;
+  /** dbo.EngagementFinances.VenueDealTypeID — merged "Venue Deal" FK. */
+  venueDealTypeId?: number | null;
   venueTerms?: string | null;
   confirmationPacketApproved?: boolean | null;
   iaeWaiverApplicationConfirmationNumber?: string | null;
@@ -411,6 +417,8 @@ export interface ApiEngagementFinanceLookups {
   artistFinances: { id: number; label: string }[];
   settlementFinances: { id: number; label: string }[];
   iaeApplicationWaiverStatuses: { value: string; label: string }[];
+  /** dbo.VenueDealType — options for the merged "Venue Deal" dropdown. */
+  venueDealTypes: { id: number; label: string }[];
 }
 
 export interface ApiFinanceLink {

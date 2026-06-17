@@ -107,6 +107,17 @@ export class UpdateEngagementFinanceDto {
     | 'Silent CoPro with 3rd Party, 3rd Party Renting Venue'
     | null;
 
+  /**
+   * dbo.EngagementFinances.VenueDealTypeID — FK into dbo.VenueDealType.
+   * Single merged "Venue Deal" dropdown (replaces the venueDealType /
+   * thirdPartyPartnerDealStructure string pair on the Finance tab).
+   */
+  @IsOptional()
+  @Transform(({ value }) => toOptionalInt(value))
+  @IsInt()
+  @Min(1)
+  venueDealTypeId?: number | null;
+
   @IsOptional()
   @IsString()
   venueTerms?: string | null;

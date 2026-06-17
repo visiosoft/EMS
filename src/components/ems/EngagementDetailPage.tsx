@@ -164,18 +164,6 @@ const VENUE_DEAL_TYPE_OPTIONS: Select2Option[] = [
   { value: '3rd Party Renting Venue', label: '3rd Party Renting Venue' },
   { value: 'Silent CoPro with Venue', label: 'Silent CoPro with Venue' },
 ];
-const THIRD_PARTY_PARTNER_DEAL_STRUCTURE_OPTIONS: Select2Option[] = [
-  { value: '', label: 'Not set' },
-  { value: 'CoPro with 3rd Party', label: 'CoPro with 3rd Party' },
-  {
-    value: 'CoPro with 3rd Party, 3rd Party Renting Venue',
-    label: 'CoPro with 3rd Party, 3rd Party Renting Venue',
-  },
-  {
-    value: 'Silent CoPro with 3rd Party, 3rd Party Renting Venue',
-    label: 'Silent CoPro with 3rd Party, 3rd Party Renting Venue',
-  },
-];
 const TICKETING_ADMIN_OPTIONS: Select2Option[] = [
   { value: '', label: 'Not set' },
   { value: 'Venue', label: 'Venue' },
@@ -9141,8 +9129,7 @@ function EngagementFinancePanel({
   const qc = useQueryClient();
   const [estimatedBreakeven, setEstimatedBreakeven] = useState('');
   const [grossPotential, setGrossPotential] = useState('');
-  const [venueDealType, setVenueDealType] = useState('');
-  const [thirdPartyPartnerDealStructure, setThirdPartyPartnerDealStructure] = useState('');
+  const [venueDealTypeId, setVenueDealTypeId] = useState('');
   const [venueTerms, setVenueTerms] = useState('');
   const [confPacket, setConfPacket] = useState('');
   const [iaeConfNum, setIaeConfNum] = useState('');
@@ -9216,6 +9203,18 @@ function EngagementFinancePanel({
     return base;
   }, [ldata?.settlementFinances, settlementFinanceFk]);
 
+  const venueDealTypeSelectOptions = useMemo((): Select2Option[] => {
+    const rows = ldata?.venueDealTypes ?? [];
+    const base = rows.map((r) => ({ value: String(r.id), label: r.label }));
+    if (venueDealTypeId && !base.some((o) => o.value === venueDealTypeId)) {
+      return [
+        { value: venueDealTypeId, label: 'Current selection (saved)' },
+        ...base,
+      ];
+    }
+    return base;
+  }, [ldata?.venueDealTypes, venueDealTypeId]);
+
   const saveMut = useMutation({
     mutationFn: (body: UpdateEngagementFinancePayload) => updateEngagementFinance(engagementId, body),
     onSuccess: async (_data, body) => {
@@ -9235,8 +9234,7 @@ function EngagementFinancePanel({
     if (!d) return;
     setEstimatedBreakeven(numFieldToString(d.estimatedBreakeven));
     setGrossPotential(numFieldToString(d.grossPotential));
-    setVenueDealType(d.venueDealType ?? '');
-    setThirdPartyPartnerDealStructure(d.thirdPartyPartnerDealStructure ?? '');
+    setVenueDealTypeId(intFieldToString(d.venueDealTypeId));
     setVenueTerms(d.venueTerms ?? '');
     setConfPacket(boolToConfPacket(d.confirmationPacketApproved));
     setIaeConfNum(d.iaeWaiverApplicationConfirmationNumber ?? '');
@@ -9294,12 +9292,16 @@ function EngagementFinancePanel({
       addToast('Select a valid settlement finance row, or clear the field.', 'error');
       return;
     }
+    const vdt = fkIdStringToNumber(venueDealTypeId);
+    if (venueDealTypeId.trim() !== '' && vdt == null) {
+      addToast('Select a valid venue deal, or clear the field.', 'error');
+      return;
+    }
 
     saveMut.mutate({
       estimatedBreakeven: e1.value,
       grossPotential: e2.value,
-      venueDealType: venueDealType.trim() || null,
-      thirdPartyPartnerDealStructure: thirdPartyPartnerDealStructure.trim() || null,
+      venueDealTypeId: vdt,
       venueTerms: venueTerms === '' ? null : venueTerms,
       confirmationPacketApproved: confPacket === '' ? null : confPacket === '1',
       iaeWaiverApplicationConfirmationNumber: iaeConfNum.trim().slice(0, 100) || null,
@@ -9331,6 +9333,8 @@ function EngagementFinancePanel({
     if (withholdingFk.trim() !== '' && w == null) return true;
     if (artistFinanceFk.trim() !== '' && af == null) return true;
     if (settlementFinanceFk.trim() !== '' && sf == null) return true;
+    const vdt = fkIdStringToNumber(venueDealTypeId);
+    if (venueDealTypeId.trim() !== '' && vdt == null) return true;
     const venueNorm = (s: string | null | undefined) => {
       const v = s ?? '';
       return v === '' ? null : v;
@@ -9338,8 +9342,7 @@ function EngagementFinancePanel({
     const cur = {
       estimatedBreakeven: e1.value,
       grossPotential: e2.value,
-      venueDealType: venueDealType.trim() || null,
-      thirdPartyPartnerDealStructure: thirdPartyPartnerDealStructure.trim() || null,
+      venueDealTypeId: vdt,
       venueTerms: venueTerms === '' ? null : venueTerms,
       confirmationPacketApproved: confPacket === '' ? null : confPacket === '1',
       iaeWaiverApplicationConfirmationNumber: iaeConfNum.trim().slice(0, 100) || null,
@@ -9357,9 +9360,7 @@ function EngagementFinancePanel({
     const base = {
       estimatedBreakeven: r.estimatedBreakeven ?? null,
       grossPotential: r.grossPotential ?? null,
-      venueDealType: (r.venueDealType ?? '').trim() || null,
-      thirdPartyPartnerDealStructure:
-        (r.thirdPartyPartnerDealStructure ?? '').trim() || null,
+      venueDealTypeId: r.venueDealTypeId ?? null,
       venueTerms: venueNorm(r.venueTerms),
       confirmationPacketApproved: r.confirmationPacketApproved,
       iaeWaiverApplicationConfirmationNumber:
@@ -9381,8 +9382,7 @@ function EngagementFinancePanel({
     financeQuery.data,
     estimatedBreakeven,
     grossPotential,
-    venueDealType,
-    thirdPartyPartnerDealStructure,
+    venueDealTypeId,
     venueTerms,
     confPacket,
     iaeConfNum,
@@ -9479,26 +9479,13 @@ function EngagementFinancePanel({
           </FormField>
           <FormField label="Venue Deal">
             <Select2
-              options={VENUE_DEAL_TYPE_OPTIONS}
-              value={venueDealType}
+              options={venueDealTypeSelectOptions}
+              value={venueDealTypeId}
               onChange={(value) => {
                 markFinanceUserEdited();
-                setVenueDealType(value);
+                setVenueDealTypeId(value);
               }}
               placeholder="Select venue deal..."
-              allowClear
-              disabled={saveMut.isPending}
-            />
-          </FormField>
-          <FormField label="3rd Party Partner">
-            <Select2
-              options={THIRD_PARTY_PARTNER_DEAL_STRUCTURE_OPTIONS}
-              value={thirdPartyPartnerDealStructure}
-              onChange={(value) => {
-                markFinanceUserEdited();
-                setThirdPartyPartnerDealStructure(value);
-              }}
-              placeholder="Select 3rd party structure..."
               allowClear
               disabled={saveMut.isPending}
             />

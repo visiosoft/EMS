@@ -282,6 +282,10 @@ export interface EngagementFinanceRow {
     | 'CoPro with 3rd Party, 3rd Party Renting Venue'
     | 'Silent CoPro with 3rd Party, 3rd Party Renting Venue'
     | null;
+  /** dbo.EngagementFinances.VenueDealTypeID — FK into dbo.VenueDealType (merged "Venue Deal"). */
+  venueDealTypeId: number | null;
+  /** dbo.VenueDealType.VenueDealTypeName for the selected VenueDealTypeID (display only). */
+  venueDealTypeName: string | null;
   venueTerms: string | null;
   confirmationPacketApproved: boolean | null;
   iaeWaiverApplicationConfirmationNumber: string | null;
@@ -405,6 +409,8 @@ export interface EngagementFinanceLookups {
   artistFinances: FinanceMasterOption[];
   settlementFinances: FinanceMasterOption[];
   iaeApplicationWaiverStatuses: { value: string; label: string }[];
+  /** dbo.VenueDealType — options for the merged "Venue Deal" dropdown. */
+  venueDealTypes: { id: number; label: string }[];
 }
 
 /** dbo.PerformanceTicketing (one logical row per performance in the EMS UI). */
@@ -533,7 +539,11 @@ export class EngagementService {
   private engagementFinanceSharePointLinkColsPresent: boolean | null = null;
   private engagementFinanceMarketingBudgetColsPresent: boolean | null = null;
   private engagementFinanceDealStructureColsPresent:
-    | { venueDealType: boolean; thirdPartyPartnerDealStructure: boolean }
+    | {
+        venueDealType: boolean;
+        thirdPartyPartnerDealStructure: boolean;
+        venueDealTypeId: boolean;
+      }
     | null = null;
   private performanceTicketingAdvancedColsPresent: boolean | null = null;
   private performanceTicketingExtendedColsPresent: boolean | null = null;
@@ -1111,6 +1121,7 @@ export class EngagementService {
   private async engagementFinancesGetDealStructureColumns(): Promise<{
     venueDealType: boolean;
     thirdPartyPartnerDealStructure: boolean;
+    venueDealTypeId: boolean;
   }> {
     if (this.engagementFinanceDealStructureColsPresent !== null) {
       return this.engagementFinanceDealStructureColsPresent;
@@ -1130,7 +1141,13 @@ export class EngagementService {
             INNER JOIN sys.tables t ON c.object_id = t.object_id
             INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
             WHERE s.name = N'dbo' AND t.name = N'EngagementFinances' AND c.name = N'ThirdPartyPartnerDealStructure'
-          ) THEN 1 ELSE 0 END AS thirdPartyPartnerDealStructure
+          ) THEN 1 ELSE 0 END AS thirdPartyPartnerDealStructure,
+          CASE WHEN EXISTS (
+            SELECT 1 FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = N'dbo' AND t.name = N'EngagementFinances' AND c.name = N'VenueDealTypeID'
+          ) THEN 1 ELSE 0 END AS venueDealTypeId
       `,
       );
       const row0 = (r as Record<string, unknown>[])?.[0];
@@ -1138,17 +1155,15 @@ export class EngagementService {
       const thirdPartyRaw = row0
         ? pickRaw(row0, 'thirdPartyPartnerDealStructure')
         : undefined;
+      const venueDealTypeIdRaw = row0
+        ? pickRaw(row0, 'venueDealTypeId')
+        : undefined;
+      const truthy = (v: unknown) =>
+        v === 1 || v === true || v === '1' || Number(v) === 1;
       const present = {
-        venueDealType:
-          venueDealTypeRaw === 1 ||
-          venueDealTypeRaw === true ||
-          venueDealTypeRaw === '1' ||
-          Number(venueDealTypeRaw) === 1,
-        thirdPartyPartnerDealStructure:
-          thirdPartyRaw === 1 ||
-          thirdPartyRaw === true ||
-          thirdPartyRaw === '1' ||
-          Number(thirdPartyRaw) === 1,
+        venueDealType: truthy(venueDealTypeRaw),
+        thirdPartyPartnerDealStructure: truthy(thirdPartyRaw),
+        venueDealTypeId: truthy(venueDealTypeIdRaw),
       };
       this.engagementFinanceDealStructureColsPresent = present;
       return present;
@@ -1156,6 +1171,7 @@ export class EngagementService {
       const missing = {
         venueDealType: false,
         thirdPartyPartnerDealStructure: false,
+        venueDealTypeId: false,
       };
       this.engagementFinanceDealStructureColsPresent = missing;
       return missing;
@@ -1167,21 +1183,37 @@ export class EngagementService {
     base: EngagementFinanceRow,
   ): Promise<EngagementFinanceRow> {
     const cols = await this.engagementFinancesGetDealStructureColumns();
-    if (!cols.venueDealType && !cols.thirdPartyPartnerDealStructure) return base;
+    if (
+      !cols.venueDealType &&
+      !cols.thirdPartyPartnerDealStructure &&
+      !cols.venueDealTypeId
+    ) {
+      return base;
+    }
     try {
       const fid = Math.floor(Number(financeId));
       if (!Number.isFinite(fid) || fid < 1) return base;
       const sets: string[] = [];
-      if (cols.venueDealType) sets.push('[VenueDealType] AS vdt');
+      if (cols.venueDealType) sets.push('ef.[VenueDealType] AS vdt');
       if (cols.thirdPartyPartnerDealStructure) {
-        sets.push('[ThirdPartyPartnerDealStructure] AS tppds');
+        sets.push('ef.[ThirdPartyPartnerDealStructure] AS tppds');
+      }
+      if (cols.venueDealTypeId) {
+        sets.push('ef.[VenueDealTypeID] AS vdtid');
+        sets.push('vdt_lk.[VenueDealTypeName] AS vdtname');
       }
       if (!sets.length) return base;
+      const join = cols.venueDealTypeId
+        ? 'LEFT JOIN dbo.VenueDealType vdt_lk ON vdt_lk.VenueDealTypeID = ef.VenueDealTypeID'
+        : '';
       const r = await this.dataSource.query(
-        `SELECT ${sets.join(', ')} FROM dbo.EngagementFinances WHERE [FinanceID] = ${fid}`,
+        `SELECT ${sets.join(', ')} FROM dbo.EngagementFinances ef ${join} WHERE ef.[FinanceID] = ${fid}`,
       );
       const row0 = (r as Record<string, unknown>[])?.[0];
       if (!row0) return base;
+      const vdtidRaw = cols.venueDealTypeId ? pickRaw(row0, 'vdtid') : null;
+      const vdtid =
+        vdtidRaw == null || vdtidRaw === '' ? null : Math.floor(Number(vdtidRaw));
       return {
         ...base,
         venueDealType: cols.venueDealType
@@ -1190,6 +1222,17 @@ export class EngagementService {
         thirdPartyPartnerDealStructure: cols.thirdPartyPartnerDealStructure
           ? this.normalizeThirdPartyPartnerDealStructure(pickRaw(row0, 'tppds'))
           : base.thirdPartyPartnerDealStructure,
+        venueDealTypeId: cols.venueDealTypeId
+          ? Number.isFinite(vdtid as number) && (vdtid as number) > 0
+            ? (vdtid as number)
+            : null
+          : base.venueDealTypeId,
+        venueDealTypeName: cols.venueDealTypeId
+          ? (() => {
+              const n = String(pickRaw(row0, 'vdtname') ?? '').trim();
+              return n || null;
+            })()
+          : base.venueDealTypeName,
       };
     } catch {
       return base;
@@ -1203,7 +1246,13 @@ export class EngagementService {
     const fid = financeId == null ? NaN : Math.floor(Number(financeId));
     if (!Number.isFinite(fid) || fid < 1) return;
     const cols = await this.engagementFinancesGetDealStructureColumns();
-    if (!cols.venueDealType && !cols.thirdPartyPartnerDealStructure) return;
+    if (
+      !cols.venueDealType &&
+      !cols.thirdPartyPartnerDealStructure &&
+      !cols.venueDealTypeId
+    ) {
+      return;
+    }
 
     const sets: string[] = [];
     if (cols.venueDealType && dto.venueDealType !== undefined) {
@@ -1219,6 +1268,15 @@ export class EngagementService {
       );
       sets.push(
         `[ThirdPartyPartnerDealStructure] = ${v == null ? 'NULL' : this.escapeSqlNVarCharLiteral(v)}`,
+      );
+    }
+    if (cols.venueDealTypeId && dto.venueDealTypeId !== undefined) {
+      const id =
+        dto.venueDealTypeId == null
+          ? null
+          : Math.floor(Number(dto.venueDealTypeId));
+      sets.push(
+        `[VenueDealTypeID] = ${id == null || !Number.isFinite(id) || id < 1 ? 'NULL' : id}`,
       );
     }
     if (!sets.length) return;
@@ -3022,6 +3080,8 @@ export class EngagementService {
         promoterProfit: null,
         venueDealType: null,
         thirdPartyPartnerDealStructure: null,
+        venueDealTypeId: null,
+        venueDealTypeName: null,
         venueTerms: null,
         confirmationPacketApproved: null,
         iaeWaiverApplicationConfirmationNumber: null,
@@ -3112,6 +3172,8 @@ export class EngagementService {
       promoterProfit: this.mapFinanceNumber(row.promoterProfit),
       venueDealType: null,
       thirdPartyPartnerDealStructure: null,
+      venueDealTypeId: null,
+      venueDealTypeName: null,
       venueTerms: row.venueTerms,
       confirmationPacketApproved: this.mapBit(row.confirmationPacketApproved),
       iaeWaiverApplicationConfirmationNumber:
@@ -3944,11 +4006,27 @@ export class EngagementService {
       }
     }
 
+    let venueDealTypes: { id: number; label: string }[] = [];
+    try {
+      const raw = await this.dataSource.query(
+        `SELECT VenueDealTypeID AS id, VenueDealTypeName AS label FROM dbo.VenueDealType ORDER BY VenueDealTypeName`,
+      );
+      venueDealTypes = (raw as Record<string, unknown>[] ?? [])
+        .map((r) => ({
+          id: Number(r['id']),
+          label: String(r['label'] ?? '').trim(),
+        }))
+        .filter((o) => Number.isInteger(o.id) && o.id > 0 && o.label);
+    } catch {
+      venueDealTypes = [];
+    }
+
     return {
       nonResidentWithholdings,
       artistFinances,
       settlementFinances,
       iaeApplicationWaiverStatuses,
+      venueDealTypes,
     };
   }
 
