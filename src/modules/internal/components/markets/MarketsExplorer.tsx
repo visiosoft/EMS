@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import {
   ChevronDown,
   LayoutGrid,
@@ -209,9 +209,12 @@ export function MarketsExplorer() {
     queryKey: internalMarketsQueryKeys.suggestions(debouncedTrimmed),
     queryFn: () => fetchInternalMarketSuggestions(debouncedTrimmed, SUGGESTION_LIMIT),
     enabled: debouncedTrimmed.length > 0,
-    ...marketsHubFreshCache,
-    placeholderData: keepPreviousData,
-  });
+    staleTime: marketsHubFreshCache.staleTime,
+    gcTime: marketsHubFreshCache.gcTime,
+    refetchOnMount: marketsHubFreshCache.refetchOnMount,
+    refetchOnWindowFocus: marketsHubFreshCache.refetchOnWindowFocus,
+    placeholderData: (prev) => prev,
+  }) as UseQueryResult<InternalHubMarket[], Error>;
 
   const isSuggestionsLoading =
     isDebouncingSearch ||

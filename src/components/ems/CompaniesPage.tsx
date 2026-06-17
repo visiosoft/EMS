@@ -47,6 +47,8 @@ import {
   fetchCompanyContacts,
   fetchCompanyLinkedVenueContacts,
   fetchCompanyEngagements,
+  fetchCompanyLinks,
+  type ApiCompanyLinks,
   fetchDmaByPostal,
   fetchDmaMarketsPage,
   fetchLookups,
@@ -78,7 +80,21 @@ import {
   tryE164FromDisplay,
   PHONE_INVALID_MESSAGE,
 } from "@/lib/contactPhoneField";
-import { Loader2, Pencil, Trash2, Check, X } from "lucide-react";
+import {
+  Loader2,
+  Pencil,
+  Trash2,
+  Check,
+  X,
+  Link2,
+  MapPin,
+  CalendarRange,
+  FolderKanban,
+  Sparkles,
+  Wrench,
+  Building2,
+  Building,
+} from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import {
@@ -1826,6 +1842,152 @@ function engagementVenueLabel(e: ApiEngagementRow): string {
 function engagementLocationLabel(e: ApiEngagementRow): string {
   const location = [e.city, e.stateProvince].filter(Boolean).join(", ");
   return location || e.dmaMarketName || "Location not set";
+}
+
+// ─── Company Linked Records Section ─────────────────────────────────────────
+
+type LinkedRecord = { title: string; subtitle: string | null; role?: string };
+
+/** Saturated avatar tones (white text), picked deterministically from the title. */
+const LINKED_AVATAR_TONES = [
+  "bg-ems-blue",
+  "bg-ems-amber",
+  "bg-ems-green",
+  "bg-ems-purple",
+  "bg-ems-accent",
+  "bg-ems-coral",
+];
+
+function linkedRecordInitials(title: string): string {
+  const cleaned = title.trim();
+  if (!cleaned) return "—";
+  const letters = cleaned
+    .split(/\s+/)
+    .map((w) => w[0])
+    .join("");
+  return letters.slice(0, 2).toUpperCase();
+}
+
+function LinkedRecordRow({ item }: { item: LinkedRecord }) {
+  const toneIdx =
+    item.title.split("").reduce((sum, ch) => sum + ch.charCodeAt(0), 0) %
+    LINKED_AVATAR_TONES.length;
+  return (
+    <li className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-hover/40">
+      <div
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white ${LINKED_AVATAR_TONES[toneIdx]}`}
+        aria-hidden
+      >
+        {linkedRecordInitials(item.title)}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-semibold text-text-primary">
+          {item.title}
+        </div>
+        {item.subtitle && (
+          <div className="mt-0.5 truncate text-xs font-medium text-ems-accent">
+            {item.subtitle}
+          </div>
+        )}
+      </div>
+      {item.role && (
+        <span className="shrink-0 whitespace-nowrap rounded-full border border-border bg-surface/60 px-2.5 py-1 text-[11px] font-medium text-text-secondary">
+          {item.role}
+        </span>
+      )}
+    </li>
+  );
+}
+
+function LinkGroup({
+  title,
+  icon: Icon,
+  items,
+}: {
+  title: string;
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+  items: LinkedRecord[];
+}) {
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 border-b border-border/60 bg-surface/40 px-4 py-2">
+        <Icon className="h-3.5 w-3.5 text-text-muted" aria-hidden />
+        <span className="text-xs font-semibold text-text-secondary">{title}</span>
+      </div>
+      <ul className="divide-y divide-border/50">
+        {items.map((item, i) => (
+          <LinkedRecordRow key={`${item.title}-${item.subtitle ?? ""}-${i}`} item={item} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function CompanyLinksSection({ companyId }: { companyId: string }) {
+  const q = useQuery({
+    queryKey: ["companies", companyId, "links"],
+    queryFn: () => fetchCompanyLinks(Number(companyId)),
+    enabled: Number.isFinite(Number(companyId)),
+    staleTime: 60_000,
+  });
+
+  if (q.isLoading) {
+    return (
+      <div className="mt-4 rounded-xl border border-border bg-card p-4 shadow-sm">
+        <div className="flex items-center gap-2 text-sm text-text-muted">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          Loading linked records…
+        </div>
+      </div>
+    );
+  }
+  if (q.isError) return null;
+
+  const data = q.data;
+  if (!data) return null;
+
+  const groups: {
+    key: string;
+    title: string;
+    icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+    items: LinkedRecord[];
+  }[] = [
+    { key: "engagements", title: "Engagements", icon: CalendarRange, items: data.engagements },
+    { key: "projects", title: "Projects", icon: FolderKanban, items: data.projects },
+    { key: "tours", title: "Tours", icon: MapPin, items: data.tours },
+    { key: "attractions", title: "Attractions", icon: Sparkles, items: data.attractions },
+    { key: "serviceProviderFor", title: "Service Provider for", icon: Wrench, items: data.serviceProviderFor },
+    { key: "entertainmentComplexes", title: "Member of Complex", icon: Building2, items: data.entertainmentComplexes },
+    { key: "complexVenues", title: "Complex Venues", icon: Building, items: data.complexVenues },
+  ].filter((g) => g.items.length > 0);
+
+  const totalLinks = groups.reduce((sum, g) => sum + g.items.length, 0);
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+        <Link2 className="h-4 w-4 text-text-muted" aria-hidden />
+        <h4 className="text-xs font-bold uppercase tracking-wide text-text-secondary">
+          Linked Records
+        </h4>
+        <span className="rounded-full bg-elevated px-2 py-0.5 text-[11px] font-semibold tabular-nums text-text-secondary">
+          {totalLinks}
+        </span>
+      </div>
+
+      {totalLinks === 0 ? (
+        <p className="px-4 py-6 text-sm text-text-muted">
+          This company is not linked to any engagements, tours, projects, or other records.
+        </p>
+      ) : (
+        <div className="divide-y divide-border">
+          {groups.map((g) => (
+            <LinkGroup key={g.key} title={g.title} icon={g.icon} items={g.items} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function EngagementsTab({
@@ -3877,7 +4039,8 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
 
   const drawerTabs = useMemo(() => {
     const base: string[] = ["Overview", "Contacts", "Engagements"];
-    return isVenueCompany ? [...base, "Venue Profile"] : base;
+    const withVenue = isVenueCompany ? [...base, "Venue Profile"] : base;
+    return [...withVenue, "Linked Records"];
   }, [isVenueCompany]);
 
   useEffect(() => {
@@ -3948,8 +4111,8 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
 
   const deleteMut = useMutation({
     mutationFn: async (id: number) => deleteCompany(id),
-    onSuccess: (_, id) => {
-      removeCompanyFromCache(id);
+    onSuccess: () => {
+      removeCompanyFromCache();
     },
   });
 
@@ -4553,17 +4716,19 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
 
           <div className="p-4">
             {drawerTab === "Overview" && lookupsQuery.data && (
-              <InlineEditableOverview
-                key={String(selectedCompany.id)}
-                company={selectedCompany}
-                companyTypes={lookupsQuery.data.companyTypes}
-                servicesProvided={servicesProvided}
-                dmaMarkets={dmaMarkets}
-                addToast={addToast}
-                onSaved={(row) => {
-                  upsertCompanyInCache();
-                }}
-              />
+              <>
+                <InlineEditableOverview
+                  key={String(selectedCompany.id)}
+                  company={selectedCompany}
+                  companyTypes={lookupsQuery.data.companyTypes}
+                  servicesProvided={servicesProvided}
+                  dmaMarkets={dmaMarkets}
+                  addToast={addToast}
+                  onSaved={(row) => {
+                    upsertCompanyInCache();
+                  }}
+                />
+              </>
             )}
 
             {drawerTab === "Contacts" && (
@@ -4714,11 +4879,10 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                             })()}
                           </td>
                           <td className="py-2 text-ems-blue text-xs">
-                            {ct.workEmail || ct.email}
+                            {(ct.workEmail || ct.email) ? <a href={`mailto:${ct.workEmail || ct.email}`} className="hover:underline">{ct.workEmail || ct.email}</a> : '—'}
                           </td>
                           <td className="py-2 text-text-secondary text-xs">
-                            {formatE164ForDisplay(ct.workPhone || ct.phone) ||
-                              "—"}
+                            {(ct.workPhone || ct.phone) ? <a href={`tel:${ct.workPhone || ct.phone}`} className="hover:underline">{formatE164ForDisplay(ct.workPhone || ct.phone)}</a> : '—'}
                           </td>
                           <td className="py-2 text-right">
                             <ActionMenu
@@ -4844,12 +5008,10 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                                   })()}
                                 </td>
                                 <td className="py-2 px-3 text-ems-blue text-xs">
-                                  {ct.workEmail || ct.email}
+                                  {(ct.workEmail || ct.email) ? <a href={`mailto:${ct.workEmail || ct.email}`} className="hover:underline">{ct.workEmail || ct.email}</a> : '—'}
                                 </td>
                                 <td className="py-2 px-3 text-text-secondary text-xs">
-                                  {formatE164ForDisplay(
-                                    ct.workPhone || ct.phone,
-                                  ) || "—"}
+                                  {(ct.workPhone || ct.phone) ? <a href={`tel:${ct.workPhone || ct.phone}`} className="hover:underline">{formatE164ForDisplay(ct.workPhone || ct.phone)}</a> : '—'}
                                 </td>
                               </tr>
                             ))}
@@ -4880,6 +5042,10 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                   addToast={addToast}
                 />
               )}
+
+            {drawerTab === "Linked Records" && (
+              <CompanyLinksSection companyId={String(selectedCompany.id)} />
+            )}
           </div>
         </Drawer>
       )}

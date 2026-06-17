@@ -1079,39 +1079,39 @@ export class ProjectService {
     );
 
     const venuesWithDetails = dbVenues.map((v) => {
-        const company = venueCompanyById.get(v.venueCompanyId);
-        const venue = venueByCompanyId.get(v.venueCompanyId);
-        return {
-          engagementProjectVenueId: v.engagementProjectVenueId,
-          engagementProjectId: v.engagementProjectId,
-          venueCompanyId: v.venueCompanyId,
-          venueCompanyName: company?.companyName ?? null,
-          venueName: venue?.venueName ?? null,
-          venueDmaId: company?.dmaid ?? null,
-          venueDmaMarketName: company?.dma?.marketName ?? null,
-          venueStatus: v.venueStatus,
-          // Frontend-only fields returned as null (Option A — we never persisted them)
-          configName: null,
-          dealType: null,
-          guarantee: null,
-          splitPct: null,
-          breakeven: null,
-          marketingCoOp: null,
-          engagementId:
-            engagementIdByVenueRowId.get(v.engagementProjectVenueId) ??
-            (v.venueStatus === 'Confirmed' ? convertedEngagementId : null),
-          performanceOptions: optionsForVenue(v.engagementProjectVenueId).map(
-            (o) => ({
-              performanceOptionId: o.performanceOptionId,
-              engagementProjectId: o.engagementProjectId,
-              engagementProjectVenueId: o.engagementProjectVenueId ?? null,
-              proposedDate: o.proposedDate,
-              proposedTime: this.formatTime(o.proposedTime),
-              optionStatus: o.optionStatus,
-            }),
-          ),
-        };
-      });
+      const company = venueCompanyById.get(v.venueCompanyId);
+      const venue = venueByCompanyId.get(v.venueCompanyId);
+      return {
+        engagementProjectVenueId: v.engagementProjectVenueId,
+        engagementProjectId: v.engagementProjectId,
+        venueCompanyId: v.venueCompanyId,
+        venueCompanyName: company?.companyName ?? null,
+        venueName: venue?.venueName ?? null,
+        venueDmaId: company?.dmaid ?? null,
+        venueDmaMarketName: company?.dma?.marketName ?? null,
+        venueStatus: v.venueStatus,
+        // Frontend-only fields returned as null (Option A — we never persisted them)
+        configName: null,
+        dealType: null,
+        guarantee: null,
+        splitPct: null,
+        breakeven: null,
+        marketingCoOp: null,
+        engagementId:
+          engagementIdByVenueRowId.get(v.engagementProjectVenueId) ??
+          (v.venueStatus === 'Confirmed' ? convertedEngagementId : null),
+        performanceOptions: optionsForVenue(v.engagementProjectVenueId).map(
+          (o) => ({
+            performanceOptionId: o.performanceOptionId,
+            engagementProjectId: o.engagementProjectId,
+            engagementProjectVenueId: o.engagementProjectVenueId ?? null,
+            proposedDate: o.proposedDate,
+            proposedTime: this.formatTime(o.proposedTime),
+            optionStatus: o.optionStatus,
+          }),
+        ),
+      };
+    });
 
     const createdBy = await this.resolveCreatedByDisplayValue(
       project.createdBy,
@@ -1663,7 +1663,6 @@ export class ProjectService {
     venueId: number,
     dto: UpdateProjectVenueDto,
   ): Promise<void> {
-
     const pv = await this.assertVenueInProject(projectId, venueId);
     if (dto.venueStatus !== undefined) {
       await this.assertValidVenueStatus(dto.venueStatus);
@@ -1674,7 +1673,9 @@ export class ProjectService {
     if (dto.engagementId) {
       const xrefKey = `EngagementProjectVenue:${venueId}`;
       const xrefRepo = this.dataSource.manager.getRepository(EngagementXref);
-      let xref = await xrefRepo.findOne({ where: { sourceEngagementId: xrefKey } });
+      let xref = await xrefRepo.findOne({
+        where: { sourceEngagementId: xrefKey },
+      });
       if (!xref) {
         xref = xrefRepo.create({
           sourceEngagementId: xrefKey,
@@ -1688,7 +1689,6 @@ export class ProjectService {
   }
 
   async removeVenue(projectId: number, venueId: number): Promise<void> {
-
     await this.assertVenueInProject(projectId, venueId);
     await this.optionRepo.delete({
       engagementProjectVenueId: venueId,
@@ -1725,7 +1725,6 @@ export class ProjectService {
     optionId: number,
     dto: UpdatePerformanceOptionDto,
   ): Promise<void> {
-
     const opt = await this.assertOptionInProject(projectId, optionId);
     if (dto.proposedDate !== undefined) opt.proposedDate = dto.proposedDate;
     if (dto.proposedTime !== undefined)
@@ -1741,7 +1740,6 @@ export class ProjectService {
     projectId: number,
     optionId: number,
   ): Promise<void> {
-
     await this.assertOptionInProject(projectId, optionId);
     await this.optionRepo.delete({
       engagementProjectId: projectId,

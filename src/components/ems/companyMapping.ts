@@ -20,7 +20,7 @@ export function mapApiCompanyToCompany(row: ApiCompanyListRow): Company {
     serviceAreas: row.serviceAreas ?? [],
     allDmas: row.allDmas ?? false,
     allDmasServiceProvidedId: row.allDmasServiceProvidedId ?? null,
-    dmaId: row.dmaId,
+    dmaId: row.dmaId ?? undefined,
     dmaMarketName: row.dmaMarketName,
     name: row.companyName,
     type:

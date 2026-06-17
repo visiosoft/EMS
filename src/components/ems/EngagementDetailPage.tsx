@@ -1993,6 +1993,39 @@ function EngagementProductionPanel({
               disabled={saveVenuePmMutation.isPending}
             />
           </FormField>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-x-6 gap-y-5">
+          <FormField label="Venue production manager contact information">
+            <div className="min-h-[42px] rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary">
+              {productionManagerContacts.length === 0 ? (
+                <span className="text-text-muted">
+                  No production manager contact assigned to this venue.
+                </span>
+              ) : (
+                <ul className="space-y-2">
+                  {productionManagerContacts.map((contact) => {
+                    const name = compactContactName(contact) || contact.email;
+                    const phone = contactPhoneDisplay(contact);
+                    const rawPhone = contact.cellPhone || contact.workPhone;
+                    return (
+                      <li
+                        key={contact.contactAssignmentId}
+                        className="flex flex-col gap-0.5"
+                      >
+                        <span className="font-medium">{name}</span>
+                        <span className="text-xs text-text-secondary">
+                          {contact.email && <a href={`mailto:${contact.email}`} className="hover:underline">{contact.email}</a>}
+                          {contact.email && phone && ' | '}
+                          {phone && rawPhone && <a href={`tel:${rawPhone}`} className="hover:underline">{phone}</a>}
+                          {!contact.email && !phone && '-'}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </FormField>
 
           <FormField label="Venue Stage Labor Company Contact">
             <Select2
@@ -4394,6 +4427,18 @@ function EngagementArtistTermsPanel({
         addToast(x.message, 'error');
         return;
       }
+    const p = parseOptionalDecimal(promoterProfit, 'Promoter profit');
+    if (!g.ok) {
+      addToast(g.message, 'error');
+      return;
+    }
+    if (!m.ok) {
+      addToast(m.message, 'error');
+      return;
+    }
+    if (!p.ok) {
+      addToast(p.message, 'error');
+      return;
     }
     if (g.value != null && g.value < 0) {
       addToast('Artist guarantee must be 0 or greater.', 'error');
@@ -5782,8 +5827,11 @@ function EngagementEventBusinessPanel({
     const parsedDecimals: Partial<UpdateEngagementFinancePayload> = {};
     for (const { raw, label, apiKey } of decimalSpecs) {
       const p = parseOptionalDecimal(raw, label);
-      if (!p.ok) { addToast(p.message, 'error'); return; }
-      parsedDecimals[apiKey] = p.value;
+      if (!p.ok) {
+        addToast(p.message, 'error');
+        return;
+      }
+      parsedDecimals[apiKey] = p.value as any;
     }
 
     saveMut.mutate({
@@ -6548,15 +6596,29 @@ function EngagementMarketingPanel({
     const comps = parseOptionalInt(totalComps, 'Total comps');
     const tickets = parseOptionalInt(totalTickets, 'Total tickets');
     const admissions = parseOptionalInt(totalAdmissions, 'Total admissions');
-    for (const x of [comps, tickets, admissions]) {
-      if (!x.ok) {
-        addToast(x.message, 'error');
-        return;
-      }
-      if (x.value != null && x.value < 0) {
-        addToast('Counts cannot be negative.', 'error');
-        return;
-      }
+    if (!comps.ok) {
+      addToast(comps.message, 'error');
+      return;
+    }
+    if (comps.value != null && comps.value < 0) {
+      addToast('Total comps cannot be negative.', 'error');
+      return;
+    }
+    if (!tickets.ok) {
+      addToast(tickets.message, 'error');
+      return;
+    }
+    if (tickets.value != null && tickets.value < 0) {
+      addToast('Total tickets cannot be negative.', 'error');
+      return;
+    }
+    if (!admissions.ok) {
+      addToast(admissions.message, 'error');
+      return;
+    }
+    if (admissions.value != null && admissions.value < 0) {
+      addToast('Total admissions cannot be negative.', 'error');
+      return;
     }
 
     saveMut.mutate({
@@ -9209,11 +9271,25 @@ function EngagementFinancePanel({
     const e4 = a('Funds due', fundsDue);
     const e5 = a('Funds withheld', fundsWithheld);
     const e6 = a('Funds owed', fundsOwed);
-    for (const x of [e1, e2, e4, e5, e6]) {
-      if (!x.ok) {
-        addToast(x.message, 'error');
-        return;
-      }
+    if (!e1.ok) {
+      addToast(e1.message, 'error');
+      return;
+    }
+    if (!e2.ok) {
+      addToast(e2.message, 'error');
+      return;
+    }
+    if (!e4.ok) {
+      addToast(e4.message, 'error');
+      return;
+    }
+    if (!e5.ok) {
+      addToast(e5.message, 'error');
+      return;
+    }
+    if (!e6.ok) {
+      addToast(e6.message, 'error');
+      return;
     }
     const w = fkIdStringToNumber(withholdingFk);
     const af = fkIdStringToNumber(artistFinanceFk);
@@ -11284,9 +11360,12 @@ function ContactsTable({
                 <td className="py-2 px-3 text-text-secondary text-xs">
                   {c.companyName || '—'}
                 </td>
-                <td className="py-2 px-3 text-ems-blue text-xs">{c.email || '—'}</td>
                 <td className="py-2 px-3 text-text-secondary text-xs">
-                  {formatE164ForDisplay(c.cellPhone || c.workPhone) || '—'}
+                  {c.departmentName || '—'}
+                </td>
+                <td className="py-2 px-3 text-ems-blue text-xs">{c.email ? <a href={`mailto:${c.email}`} className="hover:underline">{c.email}</a> : '—'}</td>
+                <td className="py-2 px-3 text-text-secondary text-xs">
+                  {(c.cellPhone || c.workPhone) ? <a href={`tel:${c.cellPhone || c.workPhone}`} className="hover:underline">{formatE164ForDisplay(c.cellPhone || c.workPhone)}</a> : '—'}
                 </td>
                 <td className="py-2 px-3 text-text-secondary text-xs">
                   {c.roleName || '—'}

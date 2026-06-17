@@ -34,9 +34,7 @@ type ContentBlock = {
 
 @Injectable()
 export class InternalHandbookService {
-  constructor(
-    private readonly dataSource: DataSource,
-  ) {}
+  constructor(private readonly dataSource: DataSource) {}
 
   async findAllSections(): Promise<HandbookSectionGrouped[]> {
     const rows = await this.dataSource.query<SectionContentRow[]>(
@@ -48,13 +46,19 @@ export class InternalHandbookService {
     return rows.map((row) => this.rowToGrouped(row));
   }
 
-  async findSectionBySectionId(sectionId: string): Promise<HandbookSectionGrouped | null> {
+  async findSectionBySectionId(
+    sectionId: string,
+  ): Promise<HandbookSectionGrouped | null> {
     const rows = await this.dataSource.query<SectionContentRow[]>(
       `SELECT SectionContentID, SectionTistle, SectionNumber, HtmlContent, CanvasContent, APIResponse, NavigationConfig
        FROM SectionContent
        WHERE IsActive = 1`,
     );
-    const matched = rows.find((r) => this.sectionTitleToId(this.stripNumberPrefix(r.SectionTitle)) === sectionId);
+    const matched = rows.find(
+      (r) =>
+        this.sectionTitleToId(this.stripNumberPrefix(r.SectionTitle)) ===
+        sectionId,
+    );
     return matched ? this.rowToGrouped(matched) : null;
   }
 
@@ -70,7 +74,10 @@ export class InternalHandbookService {
       sectionNumber: row.SectionNumber,
       sectionId,
       sectionTitle: row.SectionTitle,
-      heroTitle: row.SectionNumber != null ? `${row.SectionNumber}. ${cleanedTitle}` : cleanedTitle,
+      heroTitle:
+        row.SectionNumber != null
+          ? `${row.SectionNumber}. ${cleanedTitle}`
+          : cleanedTitle,
       subsections: [
         {
           id: String(row.SectionContentID),
@@ -85,7 +92,7 @@ export class InternalHandbookService {
 
   private sectionTitleToId(title: string): string {
     const map: Record<string, string> = {
-      'Introduction': 'introduction',
+      Introduction: 'introduction',
       'Employment Policies and Practices': 'employment-policies',
       'Company Policies and Practices': 'company-policies',
       'Compensation and Benefits': 'compensation-benefits',
@@ -97,27 +104,41 @@ export class InternalHandbookService {
   }
 
   private slugify(text: string): string {
-    return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    return text
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
   }
 
   private htmlToBlocks(html: string): ContentBlock[] {
     const blocks: ContentBlock[] = [];
     let content = html.trim();
 
-    content = content.replace(/<\/?(?:html|body|head|meta|title|style|script)[^>]*>/gi, '').trim();
+    content = content
+      .replace(/<\/?(?:html|body|head|meta|title|style|script)[^>]*>/gi, '')
+      .trim();
 
-    const tagRegex = /<(p|h[1-6]|ul|ol|div|section|article)[^>]*>[\s\S]*?<\/\1>/gi;
+    const tagRegex =
+      /<(p|h[1-6]|ul|ol|div|section|article)[^>]*>[\s\S]*?<\/\1>/gi;
     let match: RegExpExecArray | null;
 
     while ((match = tagRegex.exec(content)) !== null) {
       const fullTag = match[0];
       const tagName = match[1].toLowerCase();
-      const innerHtml = fullTag.replace(/^<[^>]+>/, '').replace(/<\/[^>]+>$/, '').trim();
+      const innerHtml = fullTag
+        .replace(/^<[^>]+>/, '')
+        .replace(/<\/[^>]+>$/, '')
+        .trim();
       const text = this.stripHtml(innerHtml).trim();
 
       if (!text) continue;
 
-      if (tagName === 'p' || tagName === 'div' || tagName === 'section' || tagName === 'article') {
+      if (
+        tagName === 'p' ||
+        tagName === 'div' ||
+        tagName === 'section' ||
+        tagName === 'article'
+      ) {
         blocks.push({ kind: 'paragraph', text: this.decodeEntities(text) });
       } else if (tagName.match(/^h[1-6]$/)) {
         blocks.push({ kind: 'heading', text: this.decodeEntities(text) });

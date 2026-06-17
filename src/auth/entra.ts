@@ -11,7 +11,13 @@ import {
 const clientId = import.meta.env.VITE_ENTRA_CLIENT_ID;
 const tenantId = import.meta.env.VITE_ENTRA_TENANT_ID;
 const apiScope = import.meta.env.VITE_ENTRA_API_SCOPE?.trim();
-const graphScope = import.meta.env.VITE_ENTRA_GRAPH_SCOPE?.trim() || "User.ReadBasic.All";
+const graphScope =
+    import.meta.env.VITE_ENTRA_GRAPH_SCOPE?.trim() ||
+    "https://graph.microsoft.com/User.ReadBasic.All";
+const microsoftGraphAudiences = new Set([
+    "00000003-0000-0000-c000-000000000000",
+    "https://graph.microsoft.com",
+]);
 const redirectUriOverride = import.meta.env.VITE_ENTRA_REDIRECT_URI;
 const redirectPath = import.meta.env.VITE_ENTRA_REDIRECT_PATH ?? "/login";
 
@@ -30,7 +36,7 @@ const msalConfig: Configuration = {
     cache: {
         cacheLocation: "localStorage",
         storeAuthStateInCookie: false,
-    },
+    } as any,
 };
 
 export const loginRequest = {
@@ -118,34 +124,100 @@ export async function acquireApiAccessToken(account: AccountInfo): Promise<strin
     return response.accessToken;
 }
 
-export async function acquireGraphAccessToken(account: AccountInfo): Promise<string | null> {
-    try {
-        const response = await msalInstance.acquireTokenSilent({
-            account,
-            scopes: [graphScope],
-        });
-        return response.accessToken;
-    } catch {
-        return null;
-    }
+type GraphAccessTokenOptions = {
+    forceRefresh?: boolean;
+};
+
+export type GraphTokenDiagnostics = {
+    aud: string;
+    tid: string;
+    scp: string;
+    roles: string[];
+    hasUserReadBasicAll: boolean;
+    isGraphAudience: boolean;
+};
+
+export async function acquireGraphAccessToken(
+    account: AccountInfo,
+    options: GraphAccessTokenOptions = {},
+): Promise<string> {
+    const response = await msalInstance.acquireTokenSilent({
+        account,
+        scopes: [graphScope],
+        forceRefresh: options.forceRefresh,
+    });
+    logGraphTokenDiagnostics(response.accessToken);
+    return response.accessToken;
 }
 
-export async function requestGraphAccessToken(account: AccountInfo): Promise<string> {
+export async function requestGraphAccessToken(
+    account: AccountInfo,
+    options: GraphAccessTokenOptions = {},
+): Promise<string> {
     const request = {
         account,
         scopes: [graphScope],
         loginHint: account.username,
+        forceRefresh: options.forceRefresh,
     };
 
     try {
         const response = await msalInstance.acquireTokenSilent(request);
+        logGraphTokenDiagnostics(response.accessToken);
         return response.accessToken;
     } catch (error) {
         if (!requiresInteractiveGraphConsent(error)) throw error;
     }
 
     const response = await msalInstance.acquireTokenPopup(request);
+    logGraphTokenDiagnostics(response.accessToken);
     return response.accessToken;
+}
+
+export function describeGraphAccessToken(accessToken: string): GraphTokenDiagnostics {
+    const claims = decodeJwtPayload(accessToken);
+    const scopes = typeof claims?.scp === "string" ? claims.scp.split(/\s+/).filter(Boolean) : [];
+    const roles = Array.isArray(claims?.roles)
+        ? claims.roles.filter((role): role is string => typeof role === "string")
+        : [];
+    const audience = typeof claims?.aud === "string" ? claims.aud : "";
+    const tenant = typeof claims?.tid === "string" ? claims.tid : "";
+    return {
+        aud: audience,
+        tid: tenant,
+        scp: scopes.join(" "),
+        roles,
+        hasUserReadBasicAll: scopes.includes("User.ReadBasic.All"),
+        isGraphAudience: microsoftGraphAudiences.has(audience),
+    };
+}
+
+function logGraphTokenDiagnostics(accessToken: string): void {
+    const diagnostics = describeGraphAccessToken(accessToken);
+
+    console.debug("[MSAL] Microsoft Graph token acquisition succeeded.", diagnostics);
+
+    if (!diagnostics.isGraphAudience || !diagnostics.hasUserReadBasicAll) {
+        console.warn("[MSAL] Microsoft Graph token is missing the expected audience or delegated scope.", {
+            expectedAudience: "Microsoft Graph",
+            expectedScope: "User.ReadBasic.All",
+            aud: diagnostics.aud,
+            scp: diagnostics.scp,
+            roles: diagnostics.roles,
+        });
+    }
+}
+
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+    try {
+        const [, payload] = token.split(".");
+        if (!payload) return null;
+        const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+        const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+        return JSON.parse(atob(padded)) as Record<string, unknown>;
+    } catch {
+        return null;
+    }
 }
 
 function requiresInteractiveGraphConsent(error: unknown): boolean {
