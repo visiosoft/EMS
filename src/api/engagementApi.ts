@@ -234,7 +234,7 @@ export interface ApiEngagementFinanceRow {
   artistPromoterProfitPercent: number | null;
   artistBackendPercent: number | null;
   artistRoyaltyRatePercent: number | null;
-  artistRoyaltyBasedOn: 'Net' | 'NAGBOR' | null;
+  artistRoyaltyBasedOn: string | null;
   /** dbo.EngagementFinances (optional columns) */
   finalAcceptedOfferLink: string | null;
   settlementFileSharePointLink: string | null;
@@ -348,7 +348,7 @@ export type UpdateEngagementFinancePayload = {
   artistPromoterProfitPercent?: number | null;
   artistBackendPercent?: number | null;
   artistRoyaltyRatePercent?: number | null;
-  artistRoyaltyBasedOn?: 'Net' | 'NAGBOR' | null;
+  artistRoyaltyBasedOn?: string | null;
   finalAcceptedOfferLink?: string | null;
   settlementFileSharePointLink?: string | null;
   /** dbo.EngagementFinances.TourSplitPoint */

@@ -201,8 +201,8 @@ export class UpdateEngagementFinanceDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(10)
-  artistRoyaltyBasedOn?: 'Net' | 'NAGBOR' | null;
+  @MaxLength(50)
+  artistRoyaltyBasedOn?: string | null;
 
   @IsOptional()
   @IsString()

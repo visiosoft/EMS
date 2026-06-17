@@ -4353,7 +4353,7 @@ function EngagementArtistTermsPanel({
   });
 
   const DEAL_TYPES = ['Flat', 'Versus', 'Promoter Profit'] as const;
-  const ROYALTY_BASIS = ['Net', 'NAGBOR'] as const;
+  const ROYALTY_BASIS = ['Based on Net', 'Based on NAGBOR'] as const;
 
   const [artistDealType, setArtistDealType] = useState('');
   const [artistGuarantee, setArtistGuarantee] = useState('');
@@ -4427,18 +4427,6 @@ function EngagementArtistTermsPanel({
         addToast(x.message, 'error');
         return;
       }
-    const p = parseOptionalDecimal(promoterProfit, 'Promoter profit');
-    if (!g.ok) {
-      addToast(g.message, 'error');
-      return;
-    }
-    if (!m.ok) {
-      addToast(m.message, 'error');
-      return;
-    }
-    if (!p.ok) {
-      addToast(p.message, 'error');
-      return;
     }
     if (g.value != null && g.value < 0) {
       addToast('Artist guarantee must be 0 or greater.', 'error');
@@ -4484,7 +4472,7 @@ function EngagementArtistTermsPanel({
       artistBackendPercent: dealType === 'Promoter Profit' ? backendPct.value : null,
       promoterProfit: dealType === 'Promoter Profit' ? promoterPct.value : null,
       artistRoyaltyRatePercent: royaltyRate.value,
-      artistRoyaltyBasedOn: royaltyBasis ? (royaltyBasis as 'Net' | 'NAGBOR') : null,
+      artistRoyaltyBasedOn: royaltyBasis || null,
       artistMiddleMoney: middleMoneyEnabled === 'yes' ? m.value : null,
       finalAcceptedOfferLink: offerTrim || null,
       settlementFileSharePointLink: settleTrim || null,
@@ -4684,12 +4672,12 @@ function EngagementArtistTermsPanel({
             disabled={disabled}
           />,
         )}
-        {fieldRow('Guarantee Amount', moneyInput(artistGuarantee, setArtistGuarantee, 'at-guarantee'))}
+        {fieldRow('Artist Guarantee', moneyInput(artistGuarantee, setArtistGuarantee, 'at-guarantee'))}
       </div>
 
       {artistDealType === 'Versus' && (
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow('Versus (%)', pctInput(artistVersusPercent, setArtistVersusPercent, 'at-versus', false))}
+          {fieldRow('Artist Royalty Variable Fee (%)', pctInput(artistVersusPercent, setArtistVersusPercent, 'at-versus', false))}
         </div>
       )}
 
@@ -4700,7 +4688,7 @@ function EngagementArtistTermsPanel({
             pctInput(artistPromoterProfitPercent, setArtistPromoterProfitPercent, 'at-promoter-profit', false),
           )}
           {fieldRow(
-            'Artist Backend (%)',
+            'Artist Back End Terms (%)',
             pctInput(artistBackendPercent, setArtistBackendPercent, 'at-artist-backend', false),
           )}
         </div>
@@ -4725,8 +4713,8 @@ function EngagementArtistTermsPanel({
                 disabled={disabled}
               >
                 <option value="">Select basis</option>
-                <option value="Net">Based on Net</option>
-                <option value="NAGBOR">Based on NAGBOR</option>
+                <option value="Based on Net">Based on Net</option>
+                <option value="Based on NAGBOR">Based on NAGBOR</option>
               </select>,
             )
           : fieldRow(
@@ -4743,7 +4731,7 @@ function EngagementArtistTermsPanel({
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
         {fieldRow(
-          'Middle Money?',
+          'Artist Middle Money?',
           <select
             id="at-middle-enabled"
             className={inputCls}
@@ -4761,9 +4749,9 @@ function EngagementArtistTermsPanel({
           </select>,
         )}
         {middleMoneyEnabled === 'yes'
-          ? fieldRow('Middle Money Amount ($)', moneyInput(artistMiddleMoney, setArtistMiddleMoney, 'at-middle'))
+          ? fieldRow('Artist Middle Money Amount ($)', moneyInput(artistMiddleMoney, setArtistMiddleMoney, 'at-middle'))
           : fieldRow(
-              'Middle Money Amount ($)',
+              'Artist Middle Money Amount ($)',
               <input id="at-middle-disabled" className={inputCls} value="Not applicable" disabled readOnly />,
             )}
       </div>
@@ -10094,10 +10082,6 @@ export function EngagementDetailPage({
       return { ...prev, [tabName]: dirty };
     });
   }, []);
-  const handleOverviewDirtyChange = useCallback(
-    (dirty: boolean) => setTabDirty('Overview', dirty),
-    [setTabDirty],
-  );
   const handleStaffAssignmentsDirtyChange = useCallback(
     (dirty: boolean) => setTabDirty('Staff Assignments', dirty),
     [setTabDirty],
@@ -10688,13 +10672,6 @@ export function EngagementDetailPage({
               </div>
             )}
 
-            <p className="mt-3 text-xs text-text-muted">
-              Opening performance is automatically Public. Use the performance rows to toggle Private/Public for additional performances.
-            </p>
-
-            <div className="mt-3 rounded-md border border-border bg-surface/40 px-3 py-2 text-xs text-text-muted">
-              Are there additional potential performances? Use <strong className="text-text-primary">Add Date and Time</strong> in the Performances tab.
-            </div>
             <div className="mt-4 flex justify-end">
               <Button
                 type="button"
@@ -10716,12 +10693,6 @@ export function EngagementDetailPage({
               </Button>
             </div>
           </div>
-          <EngagementOverviewIaeStaffSection
-            engagementId={engagementId}
-            enabled={tab === 'Overview'}
-            addToast={addToast}
-            onDirtyChange={handleOverviewDirtyChange}
-          />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-sm">
             <div>
               <span className="text-text-muted text-xs block mb-1 font-medium">Engagement</span>

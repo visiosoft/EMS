@@ -319,7 +319,7 @@ export interface EngagementFinanceRow {
   artistPromoterProfitPercent: number | null;
   artistBackendPercent: number | null;
   artistRoyaltyRatePercent: number | null;
-  artistRoyaltyBasedOn: 'Net' | 'NAGBOR' | null;
+  artistRoyaltyBasedOn: string | null;
   /** dbo.EngagementFinances — add columns if missing */
   finalAcceptedOfferLink: string | null;
   settlementFileSharePointLink: string | null;
@@ -2993,10 +2993,16 @@ export class EngagementService {
     const artistRoyaltyVariableFee =
       artistRow?.artistRoyaltyVariableFee ?? null;
     const artistBackEndTerms = artistRow?.artistBackEndTerms ?? null;
-    const parsedRoyalty = this.parseArtistRoyaltyVariableFee(
-      artistRoyaltyVariableFee,
-    );
-    const parsedBackEnd = this.parseArtistBackEndTerms(artistBackEndTerms);
+
+    // Read versus% directly from ArtistRoyaltyVariableFee column (plain number string)
+    const artistVersusPercent = artistRoyaltyVariableFee != null
+      ? this.toPercentOrNull(parseFloat(artistRoyaltyVariableFee))
+      : null;
+    // Read backend% directly from ArtistBackEndTerms column (plain number string)
+    const artistBackendPercent = artistBackEndTerms != null
+      ? this.toPercentOrNull(parseFloat(artistBackEndTerms))
+      : null;
+
     const promoterProfitPercent = row
       ? this.mapFinanceNumber(row.promoterProfit)
       : null;
@@ -3034,12 +3040,11 @@ export class EngagementService {
         artistMiddleMoney,
         artistRoyaltyVariableFee,
         artistBackEndTerms,
-        artistVersusPercent: parsedBackEnd.versusPercent,
-        artistPromoterProfitPercent:
-          promoterProfitPercent ?? parsedBackEnd.promoterProfitPercent,
-        artistBackendPercent: parsedBackEnd.artistBackendPercent,
-        artistRoyaltyRatePercent: parsedRoyalty.ratePercent,
-        artistRoyaltyBasedOn: parsedRoyalty.basedOn,
+        artistVersusPercent,
+        artistPromoterProfitPercent: promoterProfitPercent,
+        artistBackendPercent,
+        artistRoyaltyRatePercent: artistRow ? this.mapFinanceNumber(artistRow.royaltyRate) : null,
+        artistRoyaltyBasedOn: artistRow?.royaltyBasis ?? null,
         ...this.settlementFinanceResponseSlice(settlementRow),
         finalAcceptedOfferLink: null,
         settlementFileSharePointLink: null,
@@ -3085,12 +3090,12 @@ export class EngagementService {
         tourBmi: null,
         tourSesac: null,
         tourGmr: null,
-        artistDepositRequired: parsedBackEnd.depositRequired,
-        artistPartOfCollateralizedDeal: parsedBackEnd.partOfCollateralizedDeal,
-        artistFexPerformanceAgreementLink: parsedBackEnd.fexPerformanceAgreementLink,
-        artistTourOfferLink: parsedBackEnd.tourOfferLink,
-        artistOverageAmount: parsedBackEnd.overageAmount,
-        artistBuyouts: parsedBackEnd.buyouts,
+        artistDepositRequired: null,
+        artistPartOfCollateralizedDeal: null,
+        artistFexPerformanceAgreementLink: null,
+        artistTourOfferLink: null,
+        artistOverageAmount: null,
+        artistBuyouts: null,
       };
     }
     return {
@@ -3130,12 +3135,11 @@ export class EngagementService {
       artistMiddleMoney,
       artistRoyaltyVariableFee,
       artistBackEndTerms,
-      artistVersusPercent: parsedBackEnd.versusPercent,
-      artistPromoterProfitPercent:
-        promoterProfitPercent ?? parsedBackEnd.promoterProfitPercent,
-      artistBackendPercent: parsedBackEnd.artistBackendPercent,
-      artistRoyaltyRatePercent: parsedRoyalty.ratePercent,
-      artistRoyaltyBasedOn: parsedRoyalty.basedOn,
+      artistVersusPercent,
+      artistPromoterProfitPercent: promoterProfitPercent,
+      artistBackendPercent,
+      artistRoyaltyRatePercent: artistRow ? this.mapFinanceNumber(artistRow.royaltyRate) : null,
+      artistRoyaltyBasedOn: artistRow?.royaltyBasis ?? null,
       ...this.settlementFinanceResponseSlice(settlementRow),
       finalAcceptedOfferLink: null,
       settlementFileSharePointLink: null,
@@ -3181,12 +3185,12 @@ export class EngagementService {
       tourBmi: null,
       tourSesac: null,
       tourGmr: null,
-      artistDepositRequired: parsedBackEnd.depositRequired,
-      artistPartOfCollateralizedDeal: parsedBackEnd.partOfCollateralizedDeal,
-      artistFexPerformanceAgreementLink: parsedBackEnd.fexPerformanceAgreementLink,
-      artistTourOfferLink: parsedBackEnd.tourOfferLink,
-      artistOverageAmount: parsedBackEnd.overageAmount,
-      artistBuyouts: parsedBackEnd.buyouts,
+      artistDepositRequired: null,
+      artistPartOfCollateralizedDeal: null,
+      artistFexPerformanceAgreementLink: null,
+      artistTourOfferLink: null,
+      artistOverageAmount: null,
+      artistBuyouts: null,
     };
   }
 
@@ -4271,8 +4275,14 @@ export class EngagementService {
               : dto.artistMiddleMoney == null
                 ? null
                 : dto.artistMiddleMoney,
-          artistRoyaltyVariableFee: this.nextArtistRoyaltyVariableFee(null, dto),
-          artistBackEndTerms: this.nextArtistBackEndTerms(null, dto),
+          artistRoyaltyVariableFee: dto.artistVersusPercent !== undefined
+            ? (dto.artistVersusPercent != null ? String(dto.artistVersusPercent) : null)
+            : null,
+          artistBackEndTerms: dto.artistBackendPercent !== undefined
+            ? (dto.artistBackendPercent != null ? String(dto.artistBackendPercent) : null)
+            : null,
+          royaltyRate: dto.artistRoyaltyRatePercent !== undefined ? dto.artistRoyaltyRatePercent : null,
+          royaltyBasis: dto.artistRoyaltyBasedOn !== undefined ? (dto.artistRoyaltyBasedOn?.trim() || null) : null,
         });
         const savedAf = await this.artistFinanceRepo.save(created);
         afId = savedAf.artistFinanceId;
@@ -4299,26 +4309,19 @@ export class EngagementService {
           af.artistMiddleMoney =
             dto.artistMiddleMoney == null ? null : dto.artistMiddleMoney;
         }
-        if (
-          dto.artistRoyaltyVariableFee !== undefined ||
-          dto.artistRoyaltyRatePercent !== undefined ||
-          dto.artistRoyaltyBasedOn !== undefined
-        ) {
-          af.artistRoyaltyVariableFee = this.nextArtistRoyaltyVariableFee(
-            af.artistRoyaltyVariableFee,
-            dto,
-          );
+        if (dto.artistVersusPercent !== undefined) {
+          af.artistRoyaltyVariableFee =
+            dto.artistVersusPercent != null ? String(dto.artistVersusPercent) : null;
         }
-        if (
-          dto.artistBackEndTerms !== undefined ||
-          dto.artistVersusPercent !== undefined ||
-          dto.artistPromoterProfitPercent !== undefined ||
-          dto.artistBackendPercent !== undefined
-        ) {
-          af.artistBackEndTerms = this.nextArtistBackEndTerms(
-            af.artistBackEndTerms,
-            dto,
-          );
+        if (dto.artistBackendPercent !== undefined) {
+          af.artistBackEndTerms =
+            dto.artistBackendPercent != null ? String(dto.artistBackendPercent) : null;
+        }
+        if (dto.artistRoyaltyRatePercent !== undefined) {
+          af.royaltyRate = dto.artistRoyaltyRatePercent;
+        }
+        if (dto.artistRoyaltyBasedOn !== undefined) {
+          af.royaltyBasis = dto.artistRoyaltyBasedOn?.trim() || null;
         }
         await this.artistFinanceRepo.save(af);
       }
