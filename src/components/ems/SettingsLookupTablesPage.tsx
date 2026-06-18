@@ -298,9 +298,9 @@ function getDirectoryUsersErrorMessage(error: unknown): string {
 
   if (
     status === 403 ||
-    /insufficient|privilege|Authorization_RequestDenied|User\.ReadBasic\.All|admin consent/i.test(message)
+    /insufficient|privilege|Authorization_RequestDenied|User\.Read\.All|admin consent/i.test(message)
   ) {
-    return 'Unable to read Microsoft Entra users. Please confirm delegated Microsoft Graph permission User.ReadBasic.All is granted with admin consent.';
+    return 'Unable to read Microsoft Entra users. Please confirm delegated Microsoft Graph permission User.Read.All is granted with admin consent.';
   }
 
   if (/token|interaction_required|consent_required|login_required|no_account/i.test(message)) {
@@ -327,8 +327,8 @@ function getDirectoryDiagnosticHint(diagnostics: DirectoryDiagnostics | null): s
   if (!token.isGraphAudience) {
     return 'The access token audience is not Microsoft Graph. Check VITE_ENTRA_GRAPH_SCOPE and restart the Vite server.';
   }
-  if (!token.hasUserReadBasicAll) {
-    return 'The token is missing User.ReadBasic.All. Add Microsoft Graph > Delegated permission > User.ReadBasic.All to this app registration, then grant admin consent.';
+  if (!token.hasUserReadAll) {
+    return 'The token is missing User.Read.All. Add Microsoft Graph > Delegated permission > User.Read.All to this app registration, then grant admin consent.';
   }
   if (graphError?.code === 'Authorization_RequestDenied') {
     return 'The token has the expected Graph scope, so this usually means the signed-in user is a guest or is restricted from reading directory users. Sign in with a member account in this Entra tenant, convert this account to a member user, or grant the signed-in user a directory role such as Directory Readers.';
@@ -877,9 +877,9 @@ export function SettingsPage({
                         </div>
                       </div>
                       <div>
-                        <span className="text-text-muted">Has User.ReadBasic.All</span>
+                        <span className="text-text-muted">Has User.Read.All</span>
                         <div className="font-mono text-text-secondary">
-                          {directoryDiagnostics.token?.hasUserReadBasicAll ? 'yes' : 'no'}
+                          {directoryDiagnostics.token?.hasUserReadAll ? 'yes' : 'no'}
                         </div>
                       </div>
                       <div className="md:col-span-2">
