@@ -17,8 +17,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "seed": "npm run seed --prefix backend"
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@azure/msal-browser": "^5.10.0",
