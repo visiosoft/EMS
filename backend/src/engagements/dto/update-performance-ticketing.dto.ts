@@ -144,11 +144,6 @@ export class UpdatePerformanceTicketingDto {
   @IsOptional()
   @Transform(({ value }) => toOptionalNumber(value))
   @IsNumber({ maxDecimalPlaces: 2 })
-  serviceChargeRevenueShare?: number | null;
-
-  @IsOptional()
-  @Transform(({ value }) => toOptionalNumber(value))
-  @IsNumber({ maxDecimalPlaces: 2 })
   rebateAmount?: number | null;
 
   @IsOptional()
@@ -175,7 +170,7 @@ export class UpdatePerformanceTicketingDto {
 
   @IsOptional()
   @Transform(({ value }) => toOptionalNumber(value))
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsNumber({ maxDecimalPlaces: 6 })
   @Min(0)
   @Max(100)
   salesTaxAmountPercent?: number | null;
@@ -295,4 +290,9 @@ export class UpdatePerformanceTicketingDto {
   @IsString()
   @MaxLength(2048)
   compTicketRequestLink?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  engagementScaling?: string | null;
 }

@@ -463,12 +463,11 @@ export interface ApiPerformanceTicketingRow {
   facilityFeeType: 'Inside Face Value' | 'Outside Face Value' | null;
   facilityFeeAmount: number | null;
   dynamicPricingMode: 'Self Managed' | '3rd Party Managed' | null;
-  serviceChargeRevenueShare: number | null;
   rebateAmount: number | null;
   bumpAmount: number | null;
   creditCardFeesType: 'Inside Service Charge' | 'Budget Line Item' | null;
   creditCardFeesAmountPercent: number | null;
-  salesTaxType: 'Charged in Shopping Cart' | 'Budget Line Item' | null;
+  salesTaxType: string | null;
   salesTaxAmountPercent: number | null;
   ticketingAdminContactId: number | null;
   ticketingAdminContactName: string | null;
@@ -520,6 +519,7 @@ export type UpdatePerformanceTicketingPayload = {
   vipPackagedOffer?: string | null;
   preSaleSpecialPrices?: string | null;
   kidsTicketsPrices?: string | null;
+  engagementScaling?: string | null;
   ticketingLinkId?: number | null;
   ticketingLinkUrl?: string | null;
   grossTicketSales?: number | null;
@@ -534,12 +534,11 @@ export type UpdatePerformanceTicketingPayload = {
   facilityFeeType?: 'Inside Face Value' | 'Outside Face Value' | null;
   facilityFeeAmount?: number | null;
   dynamicPricingMode?: 'Self Managed' | '3rd Party Managed' | null;
-  serviceChargeRevenueShare?: number | null;
   rebateAmount?: number | null;
   bumpAmount?: number | null;
   creditCardFeesType?: 'Inside Service Charge' | 'Budget Line Item' | null;
   creditCardFeesAmountPercent?: number | null;
-  salesTaxType?: 'Charged in Shopping Cart' | 'Budget Line Item' | null;
+  salesTaxType?: string | null;
   salesTaxAmountPercent?: number | null;
   ticketingAdminContactId?: number | null;
   ticketingAdminCompanyId?: number | null;
@@ -590,6 +589,7 @@ export interface ApiEngagementIaeContactLookups {
   contacts: { id: number; label: string }[];
   roles: { id: number; label: string }[];
   departments: { id: number; label: string }[];
+  ticketingManagerContactIds: number[];
 }
 
 export type CreateEngagementIaeContactPayload = {

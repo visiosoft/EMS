@@ -28,6 +28,14 @@ export class Venue {
   seatingCapacity: number;
 
   @Column({
+    name: 'SalesTaxType',
+    type: 'nvarchar',
+    length: 50,
+    nullable: true,
+  })
+  salesTaxType: string | null;
+
+  @Column({
     name: 'SalesTaxRate',
     type: 'decimal',
     precision: 18,

@@ -21,6 +21,8 @@ import {
   Plus,
   Trash2,
   ExternalLink,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { Modal, FormField, TabBar } from './Primitives';
 import { EngagementSalesDashboardPanel } from './EngagementSalesDashboardPanel';
@@ -59,8 +61,6 @@ import {
   fetchEngagementPerformanceTicketing,
   updateEngagementPerformanceTicketing,
   fetchPerformancesWithTicketingSummary,
-  fetchEngagementIaeTicketingManager,
-  updateEngagementIaeTicketingManager,
   fetchEngagementIaeContactLookups,
   fetchEngagementIaeContacts,
   addEngagementIaeContact,
@@ -100,7 +100,6 @@ import {
   type UpdatePerformanceTicketingPayload,
   type ApiEngagementIaeContactRow,
   type ApiPerformanceTicketingSummaryRow,
-  type ApiEngagementIaeTicketingManager,
   type CreateEngagementIaeContactPayload,
   type UpdateEngagementIaeContactPayload,
   type UpdateEngagementPayload,
@@ -206,6 +205,12 @@ const PRESALE_DISCOUNT_TYPE_OPTIONS: Select2Option[] = [
   { value: '', label: 'Not set' },
   { value: '$', label: '$ (Dollar amount)' },
   { value: '%', label: '% (Percentage)' },
+];
+
+const PASSWORD_TYPE_OPTIONS: Select2Option[] = [
+  { value: 'PreSale', label: 'PreSale' },
+  { value: 'PreSaleSpecialPrice', label: 'PreSaleSpecialPrice' },
+  { value: 'PublicSaleSpecialPrice', label: 'PublicSaleSpecialPrice' },
 ];
 
 function formatPerformanceDateDisplay(isoDate: string): string {
@@ -7640,10 +7645,12 @@ function EngagementMarketingPanel({
 
 function EngagementTicketingPanel({
   engagementId,
+  engagementScaling,
   addToast,
   onDirtyChange,
 }: {
   engagementId: number;
+  engagementScaling: string | null;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
@@ -7672,49 +7679,10 @@ function EngagementTicketingPanel({
     retry: 1,
   });
 
-  const iaeMgrQuery = useQuery({
-    queryKey: ['engagements', engagementId, 'iae-ticketing-manager'],
-    queryFn: () => fetchEngagementIaeTicketingManager(engagementId),
-    retry: 1,
-  });
   const ticketingSummaryQuery = useQuery({
     queryKey: ['engagements', engagementId, 'performances-ticketing-summary'],
     queryFn: () => fetchPerformancesWithTicketingSummary(engagementId),
     retry: 1,
-  });
-
-  // ── State: engagement-level IAE Ticketing Manager ─────────────────────
-  const [iaeMgrContactId, setIaeMgrContactId] = useState('');
-  const {
-    hasUserEdited: hasMgrUserEdited,
-    markUserEdited: markMgrUserEdited,
-    clearUserEdited: clearMgrUserEdited,
-  } = useUserEditTracker(`ticketing-mgr:${engagementId}`);
-
-  useEffect(() => {
-    const d = iaeMgrQuery.data;
-    if (!d) return;
-    setIaeMgrContactId(d.iaeTicketingManagerContactId == null ? '' : String(d.iaeTicketingManagerContactId));
-  }, [iaeMgrQuery.data]);
-
-  const mgrDirtyRaw = useMemo(() => {
-    const d = iaeMgrQuery.data;
-    if (!d) return false;
-    return fkIdStringToNumber(iaeMgrContactId) !== (d.iaeTicketingManagerContactId ?? null);
-  }, [iaeMgrQuery.data, iaeMgrContactId]);
-  const mgrDirty = hasMgrUserEdited && mgrDirtyRaw;
-
-  const saveMgrMut = useMutation({
-    mutationFn: () =>
-      updateEngagementIaeTicketingManager(engagementId, {
-        iaeTicketingManagerContactId: fkIdStringToNumber(iaeMgrContactId),
-      }),
-    onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'iae-ticketing-manager'] });
-      clearMgrUserEdited();
-      addToast('IAE Ticketing Manager saved.', 'success');
-    },
-    onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
   });
 
   // ── State: per-performance ticketing ─────────────────────────────────
@@ -7746,6 +7714,8 @@ function EngagementTicketingPanel({
   const [publicSaleSpecialPricePasswordDateEnd, setPublicSaleSpecialPricePasswordDateEnd] = useState('');
   const [publicSaleSpecialPriceDiscountType, setPublicSaleSpecialPriceDiscountType] = useState('');
   const [publicSaleSpecialPriceDiscountAmount, setPublicSaleSpecialPriceDiscountAmount] = useState('');
+  const [selectedPasswordType, setSelectedPasswordType] = useState<'PreSale' | 'PreSaleSpecialPrice' | 'PublicSaleSpecialPrice'>('PreSale');
+  const [showPassword, setShowPassword] = useState(false);
   const [vipPackageOffered, setVipPackageOffered] = useState('');
   const [vipPackageName, setVipPackageName] = useState('');
   const [vipPackageBenefits, setVipPackageBenefits] = useState<string[]>([]);
@@ -7753,13 +7723,14 @@ function EngagementTicketingPanel({
   const [facilityFeeType, setFacilityFeeType] = useState('');
   const [facilityFeeAmount, setFacilityFeeAmount] = useState('');
   const [dynamicPricingMode, setDynamicPricingMode] = useState('');
-  const [serviceChargeRevenueShare, setServiceChargeRevenueShare] = useState('');
   const [rebateAmount, setRebateAmount] = useState('');
   const [bumpAmount, setBumpAmount] = useState('');
   const [creditCardFeesType, setCreditCardFeesType] = useState('');
   const [creditCardFeesAmountPercent, setCreditCardFeesAmountPercent] = useState('');
   const [salesTaxType, setSalesTaxType] = useState('');
   const [salesTaxAmountPercent, setSalesTaxAmountPercent] = useState('');
+  const [kidsTicketsPrices, setKidsTicketsPrices] = useState('');
+  const [scalingLocal, setScalingLocal] = useState(engagementScaling ?? '');
 
   const {
     hasUserEdited: hasTicketingUserEdited,
@@ -7783,28 +7754,16 @@ function EngagementTicketingPanel({
       const names = [company.companyTypeName, ...(company.companyTypeNames ?? [])]
         .filter(Boolean)
         .map((x) => String(x).toLowerCase());
-      return names.some((x) => x.includes('ticket'));
-    });
-    const opts = filtered.map(companyToSelect2Option);
-    return [{ value: '', label: 'Not set' }, ...opts];
-  }, [companiesQuery.data?.data]);
-
-  const ticketingAdminCompanyOptions = useMemo<Select2Option[]>(() => {
-    const rows = companiesQuery.data?.data ?? [];
-    const filtered = rows.filter((company) => {
-      const names = [company.companyTypeName, ...(company.companyTypeNames ?? [])]
-        .filter(Boolean)
-        .map((x) => String(x).toLowerCase());
-      return names.some((x) => x.includes('ticketing administrator'));
+      return names.some((x) => x.includes('ticketing system'));
     });
     const opts = filtered.map(companyToSelect2Option);
     return [{ value: '', label: 'Not set' }, ...opts];
   }, [companiesQuery.data?.data]);
 
   const ticketingAdminCompanyContactsQuery = useQuery({
-    queryKey: ['company-contacts', Number(ticketingAdminCompanyId)],
-    queryFn: () => fetchCompanyContacts(Number(ticketingAdminCompanyId)),
-    enabled: !!ticketingAdminCompanyId && ticketingAdminCompanyId !== '',
+    queryKey: ['company-contacts', Number(ticketingSystemCompanyId), 'ticketing-admin'],
+    queryFn: () => fetchCompanyContacts(Number(ticketingSystemCompanyId), { roleName: 'Ticketing Administrator' }),
+    enabled: !!ticketingSystemCompanyId && ticketingSystemCompanyId !== '',
     staleTime: 60_000,
     retry: 1,
   });
@@ -7819,11 +7778,6 @@ function EngagementTicketingPanel({
       })),
     ];
   }, [ticketingAdminCompanyContactsQuery.data]);
-
-  const iaeContactOptions = useMemo<Select2Option[]>(() => {
-    const rows = iaeLookupsQuery.data?.contacts ?? [];
-    return [{ value: '', label: 'Not set' }, ...rows.map((r) => ({ value: String(r.id), label: r.label }))];
-  }, [iaeLookupsQuery.data?.contacts]);
 
   const seatingChartLinks = useMemo(() => {
     return (venueTabQuery.data?.venues ?? [])
@@ -7903,14 +7857,15 @@ function EngagementTicketingPanel({
     setFacilityFeeType(d.facilityFeeType ?? '');
     setFacilityFeeAmount(numFieldToString(d.facilityFeeAmount));
     setDynamicPricingMode(d.dynamicPricingMode ?? '');
-    setServiceChargeRevenueShare(numFieldToString(d.serviceChargeRevenueShare));
     setRebateAmount(numFieldToString(d.rebateAmount));
     setBumpAmount(numFieldToString(d.bumpAmount));
     setCreditCardFeesType(d.creditCardFeesType ?? '');
     setCreditCardFeesAmountPercent(numFieldToString(d.creditCardFeesAmountPercent));
     setSalesTaxType(d.salesTaxType ?? '');
     setSalesTaxAmountPercent(numFieldToString(d.salesTaxAmountPercent));
-  }, [selectedPid, ticketingQuery.data]);
+    setKidsTicketsPrices(d.kidsTicketsPrices ?? '');
+    setScalingLocal(engagementScaling ?? '');
+  }, [selectedPid, ticketingQuery.data, engagementScaling]);
 
   // ── Helpers ───────────────────────────────────────────────────────────
   const parseOptionalWhole = (raw: string, label: string) => {
@@ -7928,8 +7883,8 @@ function EngagementTicketingPanel({
   };
   const boolStr = (s: string): boolean | null => s === 'Yes' ? true : s === 'No' ? false : null;
 
-  // ── Dirty tracking ────────────────────────────────────────────────────
-  const ticketingDirtyRaw = useMemo(() => {
+  // ── Dirty tracking per table ────────────────────────────────────────
+  const ticketingMainDirty = useMemo(() => {
     const d = ticketingQuery.data;
     if (!d || selectedPid == null || d.performanceId !== selectedPid) return false;
     const cur = JSON.stringify({
@@ -7947,33 +7902,14 @@ function EngagementTicketingPanel({
       preSaleEndDate: preSaleEndDate || null,
       preSaleRegistrationStartDate: preSaleRegistrationStartDate || null,
       preSaleRegistrationEndDate: preSaleRegistrationEndDate || null,
-      presalePassword: presalePassword.trim() || null,
-      presalePasswordDateStart: presalePasswordDateStart || null,
-      presalePasswordDateEnd: presalePasswordDateEnd || null,
-      presaleSpecialPricePassword: presaleSpecialPricePassword.trim() || null,
-      presaleSpecialPricePasswordDateStart: presaleSpecialPricePasswordDateStart || null,
-      presaleSpecialPricePasswordDateEnd: presaleSpecialPricePasswordDateEnd || null,
-      presaleSpecialPriceDiscountType: presaleSpecialPriceDiscountType || null,
-      presaleSpecialPriceDiscountAmount: parseOptionalDecimal(presaleSpecialPriceDiscountAmount, '').value,
-      publicSaleSpecialPricePassword: publicSaleSpecialPricePassword.trim() || null,
-      publicSaleSpecialPricePasswordDateStart: publicSaleSpecialPricePasswordDateStart || null,
-      publicSaleSpecialPricePasswordDateEnd: publicSaleSpecialPricePasswordDateEnd || null,
-      publicSaleSpecialPriceDiscountType: publicSaleSpecialPriceDiscountType || null,
-      publicSaleSpecialPriceDiscountAmount: parseOptionalDecimal(publicSaleSpecialPriceDiscountAmount, '').value,
-      vipPackageOffered: boolStr(vipPackageOffered),
-      vipPackageName: vipPackageName.trim() || null,
-      vipPackageBenefits: [...vipPackageBenefits].sort(),
-      compTicketRequestLink: compTicketRequestLink.trim() || null,
       facilityFeeType: facilityFeeType.trim() || null,
       facilityFeeAmount: parseOptionalDecimal(facilityFeeAmount, '').value,
       dynamicPricingMode: dynamicPricingMode.trim() || null,
-      serviceChargeRevenueShare: parseOptionalDecimal(serviceChargeRevenueShare, '').value,
       rebateAmount: parseOptionalDecimal(rebateAmount, '').value,
       bumpAmount: parseOptionalDecimal(bumpAmount, '').value,
       creditCardFeesType: creditCardFeesType.trim() || null,
       creditCardFeesAmountPercent: parseOptionalDecimal(creditCardFeesAmountPercent, '').value,
-      salesTaxType: salesTaxType.trim() || null,
-      salesTaxAmountPercent: parseOptionalDecimal(salesTaxAmountPercent, '').value,
+      kidsTicketsPrices: kidsTicketsPrices.trim() || null,
     });
     const base = JSON.stringify({
       sellableCapacity: d.sellableCapacity ?? null,
@@ -7990,6 +7926,47 @@ function EngagementTicketingPanel({
       preSaleEndDate: d.preSaleEndDate ?? null,
       preSaleRegistrationStartDate: d.preSaleRegistrationStartDate ?? null,
       preSaleRegistrationEndDate: d.preSaleRegistrationEndDate ?? null,
+      facilityFeeType: d.facilityFeeType ?? null,
+      facilityFeeAmount: d.facilityFeeAmount ?? null,
+      dynamicPricingMode: d.dynamicPricingMode ?? null,
+      rebateAmount: d.rebateAmount ?? null,
+      bumpAmount: d.bumpAmount ?? null,
+      creditCardFeesType: d.creditCardFeesType ?? null,
+      creditCardFeesAmountPercent: d.creditCardFeesAmountPercent ?? null,
+      kidsTicketsPrices: d.kidsTicketsPrices ?? null,
+    });
+    return cur !== base;
+  }, [
+    ticketingQuery.data, selectedPid,
+    sellableCapacity, grossPotentialRevenue, ticketingSystemCompanyId,
+    ticketingAdministrator, ticketingAdminContactId, ticketingAdminCompanyId,
+    boxOfficeLaborStaffingRequired, isIAETMDeal,
+    ticketingLinkUrl, publicSaleLinkUrl,
+    preSaleDate, preSaleEndDate, preSaleRegistrationStartDate, preSaleRegistrationEndDate,
+    facilityFeeType, facilityFeeAmount, dynamicPricingMode,
+    rebateAmount, bumpAmount, creditCardFeesType, creditCardFeesAmountPercent,
+    kidsTicketsPrices,
+  ]);
+
+  const promoPasswordDirty = useMemo(() => {
+    const d = ticketingQuery.data;
+    if (!d || selectedPid == null || d.performanceId !== selectedPid) return false;
+    const cur = JSON.stringify({
+      presalePassword: presalePassword.trim() || null,
+      presalePasswordDateStart: presalePasswordDateStart || null,
+      presalePasswordDateEnd: presalePasswordDateEnd || null,
+      presaleSpecialPricePassword: presaleSpecialPricePassword.trim() || null,
+      presaleSpecialPricePasswordDateStart: presaleSpecialPricePasswordDateStart || null,
+      presaleSpecialPricePasswordDateEnd: presaleSpecialPricePasswordDateEnd || null,
+      presaleSpecialPriceDiscountType: presaleSpecialPriceDiscountType || null,
+      presaleSpecialPriceDiscountAmount: parseOptionalDecimal(presaleSpecialPriceDiscountAmount, '').value,
+      publicSaleSpecialPricePassword: publicSaleSpecialPricePassword.trim() || null,
+      publicSaleSpecialPricePasswordDateStart: publicSaleSpecialPricePasswordDateStart || null,
+      publicSaleSpecialPricePasswordDateEnd: publicSaleSpecialPricePasswordDateEnd || null,
+      publicSaleSpecialPriceDiscountType: publicSaleSpecialPriceDiscountType || null,
+      publicSaleSpecialPriceDiscountAmount: parseOptionalDecimal(publicSaleSpecialPriceDiscountAmount, '').value,
+    });
+    const base = JSON.stringify({
       presalePassword: d.presalePassword ?? null,
       presalePasswordDateStart: d.presalePasswordDateStart ?? null,
       presalePasswordDateEnd: d.presalePasswordDateEnd ?? null,
@@ -8003,68 +7980,79 @@ function EngagementTicketingPanel({
       publicSaleSpecialPricePasswordDateEnd: d.publicSaleSpecialPricePasswordDateEnd ?? null,
       publicSaleSpecialPriceDiscountType: d.publicSaleSpecialPriceDiscountType ?? null,
       publicSaleSpecialPriceDiscountAmount: d.publicSaleSpecialPriceDiscountAmount ?? null,
-      vipPackageOffered: d.vipPackageOffered ?? null,
-      vipPackageName: d.vipPackageName ?? null,
-      vipPackageBenefits: [...(d.vipPackageBenefits ?? [])].sort(),
-      compTicketRequestLink: d.compTicketRequestLink ?? null,
-      facilityFeeType: d.facilityFeeType ?? null,
-      facilityFeeAmount: d.facilityFeeAmount ?? null,
-      dynamicPricingMode: d.dynamicPricingMode ?? null,
-      serviceChargeRevenueShare: d.serviceChargeRevenueShare ?? null,
-      rebateAmount: d.rebateAmount ?? null,
-      bumpAmount: d.bumpAmount ?? null,
-      creditCardFeesType: d.creditCardFeesType ?? null,
-      creditCardFeesAmountPercent: d.creditCardFeesAmountPercent ?? null,
-      salesTaxType: d.salesTaxType ?? null,
-      salesTaxAmountPercent: d.salesTaxAmountPercent ?? null,
     });
     return cur !== base;
   }, [
     ticketingQuery.data, selectedPid,
-    sellableCapacity, grossPotentialRevenue, ticketingSystemCompanyId,
-    ticketingAdministrator, ticketingAdminContactId, ticketingAdminCompanyId,
-    boxOfficeLaborStaffingRequired, isIAETMDeal,
-    ticketingLinkUrl, publicSaleLinkUrl,
-    preSaleDate, preSaleEndDate, preSaleRegistrationStartDate, preSaleRegistrationEndDate,
     presalePassword, presalePasswordDateStart, presalePasswordDateEnd,
     presaleSpecialPricePassword, presaleSpecialPricePasswordDateStart, presaleSpecialPricePasswordDateEnd,
     presaleSpecialPriceDiscountType, presaleSpecialPriceDiscountAmount,
     publicSaleSpecialPricePassword, publicSaleSpecialPricePasswordDateStart, publicSaleSpecialPricePasswordDateEnd,
     publicSaleSpecialPriceDiscountType, publicSaleSpecialPriceDiscountAmount,
-    vipPackageOffered, vipPackageName, vipPackageBenefits, compTicketRequestLink,
-    facilityFeeType, facilityFeeAmount, dynamicPricingMode, serviceChargeRevenueShare,
-    rebateAmount, bumpAmount, creditCardFeesType, creditCardFeesAmountPercent,
-    salesTaxType, salesTaxAmountPercent,
   ]);
-  const ticketingDirty = hasTicketingUserEdited && ticketingDirtyRaw;
-  const anyDirty = mgrDirty || ticketingDirty;
+
+  const vipDirty = useMemo(() => {
+    const d = ticketingQuery.data;
+    if (!d || selectedPid == null || d.performanceId !== selectedPid) return false;
+    const cur = JSON.stringify({
+      vipPackageOffered: boolStr(vipPackageOffered),
+      vipPackageName: vipPackageName.trim() || null,
+      vipPackageBenefits: [...vipPackageBenefits].sort(),
+    });
+    const base = JSON.stringify({
+      vipPackageOffered: d.vipPackageOffered ?? null,
+      vipPackageName: d.vipPackageName ?? null,
+      vipPackageBenefits: [...(d.vipPackageBenefits ?? [])].sort(),
+    });
+    return cur !== base;
+  }, [ticketingQuery.data, selectedPid, vipPackageOffered, vipPackageName, vipPackageBenefits]);
+
+  const salesTaxDirty = useMemo(() => {
+    const d = ticketingQuery.data;
+    if (!d || selectedPid == null || d.performanceId !== selectedPid) return false;
+    const cur = JSON.stringify({
+      salesTaxType: salesTaxType.trim() || null,
+      salesTaxAmountPercent: salesTaxAmountPercent.trim() ? Number(salesTaxAmountPercent) : null,
+    });
+    const base = JSON.stringify({
+      salesTaxType: d.salesTaxType ?? null,
+      salesTaxAmountPercent: d.salesTaxAmountPercent ?? null,
+    });
+    return cur !== base;
+  }, [ticketingQuery.data, selectedPid, salesTaxType, salesTaxAmountPercent]);
+
+  const scalingDirty = useMemo(() => {
+    return (scalingLocal.trim() || null) !== (engagementScaling ?? null);
+  }, [scalingLocal, engagementScaling]);
+
+  const anyDirty = hasTicketingUserEdited && (ticketingMainDirty || promoPasswordDirty || vipDirty || salesTaxDirty || scalingDirty);
 
   useEffect(() => {
     onDirtyChange?.(anyDirty);
     return () => onDirtyChange?.(false);
   }, [onDirtyChange, anyDirty]);
 
-  // ── Save mutation ─────────────────────────────────────────────────────
-  const saveMut = useMutation({
+  // ── Save mutations (one per target table) ──────────────────────────
+  const invalidateTicketing = async () => {
+    await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performance-ticketing', selectedPid] });
+    await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performances-ticketing-summary'] });
+  };
+
+  const saveTicketingMainMut = useMutation({
     mutationFn: async () => {
-      if (selectedPid == null) throw new Error('Add a show date before saving ticketing.');
+      if (selectedPid == null) throw new Error('Add a show date before saving.');
       const sc = parseOptionalWhole(sellableCapacity, 'Sellable capacity');
       const gpr = parseOptionalDecimal(grossPotentialRevenue, 'Gross potential revenue');
       const ffa = parseOptionalDecimal(facilityFeeAmount, 'Facility fee amount');
-      const scrs = parseOptionalDecimal(serviceChargeRevenueShare, 'Service charge revenue share');
       const ra = parseOptionalDecimal(rebateAmount, 'Rebate amount');
       const ba = parseOptionalDecimal(bumpAmount, 'Bump amount');
       const ccf = parseOptionalPercent(creditCardFeesAmountPercent, 'Credit card fees (%)');
-      const stp = parseOptionalPercent(salesTaxAmountPercent, 'Sales tax (%)');
-      const pspda = parseOptionalDecimal(presaleSpecialPriceDiscountAmount, 'Presale special price discount amount');
-      const pubspda = parseOptionalDecimal(publicSaleSpecialPriceDiscountAmount, 'Public sale special price discount amount');
-      for (const x of [sc, gpr, ffa, scrs, ra, ba, ccf, stp, pspda, pubspda]) {
+      for (const x of [sc, gpr, ffa, ra, ba, ccf]) {
         if (!x.ok) throw new Error(x.message);
       }
       const urlFields: [string, string][] = [
         ['Ticketing Link', ticketingLinkUrl],
         ['Public Sale Link', publicSaleLinkUrl],
-        ['Comp Ticket Request Link', compTicketRequestLink],
       ];
       for (const [label, val] of urlFields) {
         if (!isValidHttpOrHttpsUrl(val)) {
@@ -8086,6 +8074,41 @@ function EngagementTicketingPanel({
         preSaleEndDate: preSaleEndDate || null,
         preSaleRegistrationStartDate: preSaleRegistrationStartDate || null,
         preSaleRegistrationEndDate: preSaleRegistrationEndDate || null,
+        facilityFeeType: facilityFeeType.trim() ? (facilityFeeType as 'Inside Face Value' | 'Outside Face Value') : null,
+        facilityFeeAmount: ffa.value,
+        dynamicPricingMode: dynamicPricingMode.trim() ? (dynamicPricingMode as 'Self Managed' | '3rd Party Managed') : null,
+        rebateAmount: ra.value,
+        bumpAmount: ba.value,
+        creditCardFeesType: creditCardFeesType.trim() ? (creditCardFeesType as 'Inside Service Charge' | 'Budget Line Item') : null,
+        creditCardFeesAmountPercent: ccf.value,
+        kidsTicketsPrices: kidsTicketsPrices.trim() || null,
+      });
+    },
+    onSuccess: async () => {
+      await invalidateTicketing();
+      addToast('Ticketing info saved.', 'success');
+    },
+    onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
+  });
+
+  const savePromoPasswordMut = useMutation({
+    mutationFn: async () => {
+      if (selectedPid == null) throw new Error('Add a show date before saving.');
+      const pspda = parseOptionalDecimal(presaleSpecialPriceDiscountAmount, 'Presale special price discount amount');
+      const pubspda = parseOptionalDecimal(publicSaleSpecialPriceDiscountAmount, 'Public sale special price discount amount');
+      for (const x of [pspda, pubspda]) {
+        if (!x.ok) throw new Error(x.message);
+      }
+      if (!presalePassword.trim() && (presalePasswordDateStart || presalePasswordDateEnd)) {
+        throw new Error('PreSale Password is required when date range is set.');
+      }
+      if (!presaleSpecialPricePassword.trim() && (presaleSpecialPricePasswordDateStart || presaleSpecialPricePasswordDateEnd || presaleSpecialPriceDiscountType || presaleSpecialPriceDiscountAmount.trim())) {
+        throw new Error('PreSale Special Price Password is required when date range or discount is set.');
+      }
+      if (!publicSaleSpecialPricePassword.trim() && (publicSaleSpecialPricePasswordDateStart || publicSaleSpecialPricePasswordDateEnd || publicSaleSpecialPriceDiscountType || publicSaleSpecialPriceDiscountAmount.trim())) {
+        throw new Error('Public Sale Special Price Password is required when date range or discount is set.');
+      }
+      await updateEngagementPerformanceTicketing(engagementId, selectedPid, {
         presalePassword: presalePassword.trim() || null,
         presalePasswordDateStart: presalePasswordDateStart || null,
         presalePasswordDateEnd: presalePasswordDateEnd || null,
@@ -8099,33 +8122,64 @@ function EngagementTicketingPanel({
         publicSaleSpecialPricePasswordDateEnd: publicSaleSpecialPricePasswordDateEnd || null,
         publicSaleSpecialPriceDiscountType: publicSaleSpecialPriceDiscountType || null,
         publicSaleSpecialPriceDiscountAmount: pubspda.value,
-        vipPackageOffered: boolStr(vipPackageOffered),
-        vipPackageName: vipPackageName.trim() || null,
-        vipPackageBenefits: vipPackageBenefits.length ? vipPackageBenefits : null,
-        compTicketRequestLink: compTicketRequestLink.trim() || null,
-        facilityFeeType: facilityFeeType.trim() ? (facilityFeeType as 'Inside Face Value' | 'Outside Face Value') : null,
-        facilityFeeAmount: ffa.value,
-        dynamicPricingMode: dynamicPricingMode.trim() ? (dynamicPricingMode as 'Self Managed' | '3rd Party Managed') : null,
-        serviceChargeRevenueShare: scrs.value,
-        rebateAmount: ra.value,
-        bumpAmount: ba.value,
-        creditCardFeesType: creditCardFeesType.trim() ? (creditCardFeesType as 'Inside Service Charge' | 'Budget Line Item') : null,
-        creditCardFeesAmountPercent: ccf.value,
-        salesTaxType: salesTaxType.trim() ? (salesTaxType as 'Charged in Shopping Cart' | 'Budget Line Item') : null,
-        salesTaxAmountPercent: stp.value,
       });
     },
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performance-ticketing', selectedPid] });
-      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performances-ticketing-summary'] });
-      clearTicketingUserEdited();
-      addToast('Ticketing saved.', 'success');
+      await invalidateTicketing();
+      addToast('Promotional passwords saved.', 'success');
+    },
+    onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
+  });
+
+  const saveVipMut = useMutation({
+    mutationFn: async () => {
+      if (selectedPid == null) throw new Error('Add a show date before saving.');
+      await updateEngagementPerformanceTicketing(engagementId, selectedPid, {
+        vipPackageOffered: boolStr(vipPackageOffered),
+        vipPackageName: vipPackageName.trim() || null,
+        vipPackageBenefits: vipPackageBenefits.length ? vipPackageBenefits : null,
+      });
+    },
+    onSuccess: async () => {
+      await invalidateTicketing();
+      addToast('VIP packages saved.', 'success');
+    },
+    onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
+  });
+
+  const saveSalesTaxMut = useMutation({
+    mutationFn: async () => {
+      if (selectedPid == null) throw new Error('Add a show date before saving.');
+      await updateEngagementPerformanceTicketing(engagementId, selectedPid, {
+        salesTaxType: salesTaxType.trim() || null,
+        salesTaxAmountPercent: salesTaxAmountPercent.trim() ? Number(salesTaxAmountPercent) : null,
+      });
+    },
+    onSuccess: async () => {
+      await invalidateTicketing();
+      addToast('Sales tax saved.', 'success');
+    },
+    onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
+  });
+
+  const saveScalingMut = useMutation({
+    mutationFn: async () => {
+      if (selectedPid == null) throw new Error('Add a show date before saving.');
+      await updateEngagementPerformanceTicketing(engagementId, selectedPid, {
+        engagementScaling: scalingLocal.trim() || null,
+      });
+    },
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
+      await invalidateTicketing();
+      addToast('Scaling saved.', 'success');
     },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
   });
 
   // ── UI helpers ────────────────────────────────────────────────────────
-  const disabled = saveMut.isPending || saveMgrMut.isPending;
+  const anySaving = saveTicketingMainMut.isPending || savePromoPasswordMut.isPending || saveVipMut.isPending || saveSalesTaxMut.isPending || saveScalingMut.isPending;
+  const disabled = anySaving;
   const loadError = performancesQuery.error ?? ticketingQuery.error ?? companiesQuery.error;
 
   const fieldRow = (label: string, control: React.ReactNode) => (
@@ -8165,7 +8219,7 @@ function EngagementTicketingPanel({
 
   return (
     <div className="relative overflow-hidden rounded-lg border border-border bg-card">
-      {(saveMut.isPending || saveMgrMut.isPending) && (
+      {anySaving && (
         <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/55 backdrop-blur-[1px]" aria-live="polite" aria-busy="true">
           <span className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2.5 text-sm font-medium text-text-primary shadow-md">
             <Loader2 className="h-5 w-5 shrink-0 animate-spin text-ems-accent" aria-hidden />
@@ -8187,31 +8241,21 @@ function EngagementTicketingPanel({
         <div className="space-y-4">
           {sectionHeader('IAE Ticketing')}
           {fieldRow('IAE Ticketing Manager',
-            <Select2
-              options={iaeContactOptions}
-              value={iaeMgrContactId}
-              onChange={(v) => { markMgrUserEdited(); setIaeMgrContactId(v); }}
-              placeholder="Select contact…"
-              allowClear
-              disabled={disabled}
-            />,
+            <div className="text-sm text-text-primary">
+              {(() => {
+                const rows = iaeLookupsQuery.data?.contacts ?? [];
+                const tmIds = new Set(iaeLookupsQuery.data?.ticketingManagerContactIds ?? []);
+                const managers = tmIds.size > 0 ? rows.filter((r) => tmIds.has(r.id)) : [];
+                if (iaeLookupsQuery.isLoading) return <span className="text-text-muted">Loading…</span>;
+                if (managers.length === 0) return <span className="text-text-muted">No Ticketing Managers assigned</span>;
+                return (
+                  <ul className="list-disc list-inside space-y-0.5">
+                    {managers.map((m) => <li key={m.id}>{m.label}</li>)}
+                  </ul>
+                );
+              })()}
+            </div>,
           )}
-          {iaeMgrQuery.data?.iaeTicketingManagerContactName && (
-            <p className="text-xs text-text-muted pl-0 sm:pl-[calc(14rem+1.5rem)]">
-              Current: {iaeMgrQuery.data.iaeTicketingManagerContactName}
-            </p>
-          )}
-          <div className="flex justify-end">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => saveMgrMut.mutate()}
-              disabled={disabled || !mgrDirty}
-            >
-              {saveMgrMut.isPending ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />Saving…</> : 'Save IAE Manager'}
-            </Button>
-          </div>
         </div>
 
         {/* ── PERFORMANCE SCHEDULE SUMMARY ── */}
@@ -8234,8 +8278,6 @@ function EngagementTicketingPanel({
                   {(ticketingSummaryQuery.data as ApiPerformanceTicketingSummaryRow[]).map((row) => (
                     <tr
                       key={row.performanceId}
-                      className={`cursor-pointer hover:bg-muted/30 transition-colors${row.performanceId === selectedPid ? ' bg-ems-accent/10' : ''}`}
-                      onClick={() => setSelectedPid(row.performanceId)}
                     >
                       <td className="px-3 py-2 text-text-primary whitespace-nowrap">
                         {formatPerformanceDateDisplay(row.performanceDate)} · {formatPerformanceTimeDisplay(row.performanceTime)}
@@ -8252,7 +8294,7 @@ function EngagementTicketingPanel({
         </div>
 
         {/* ── SEATING CHART (read-only from venue tab) ── */}
-        {seatingChartLinks.length > 0 && (
+        {/* {seatingChartLinks.length > 0 && (
           <div className="space-y-2">
             {sectionHeader('Seating Chart')}
             {seatingChartLinks.map((item) => (
@@ -8262,10 +8304,10 @@ function EngagementTicketingPanel({
               </div>
             ))}
           </div>
-        )}
+        )} */}
 
         {/* ── SEATING CHART DIAGRAM ── */}
-        {ticketingPrimaryVenue && (
+        {/* {ticketingPrimaryVenue && (
           <div className="space-y-2">
             {!seatingChartLinks.length && sectionHeader('Seating Chart')}
             <SeatingChartDiagram
@@ -8274,7 +8316,7 @@ function EngagementTicketingPanel({
               capacity={ticketingSeatingCapacity}
             />
           </div>
-        )}
+        )} */}
 
         {/* ── PER-PERFORMANCE FIELDS ── */}
         <div className="space-y-2">
@@ -8296,7 +8338,7 @@ function EngagementTicketingPanel({
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-x-10">
                 {fieldRow('Ticketing System Company',
                   <Select2 options={ticketingSystemCompanyOptions} value={ticketingSystemCompanyId}
-                    onChange={(v) => { markTicketingUserEdited(); setTicketingSystemCompanyId(v); }}
+                    onChange={(v) => { markTicketingUserEdited(); setTicketingSystemCompanyId(v); setTicketingAdminContactId(''); }}
                     placeholder="Select…" allowClear disabled={disabled} />,
                 )}
                 {fieldRow('Ticketing Administrator',
@@ -8304,15 +8346,10 @@ function EngagementTicketingPanel({
                     onChange={(v) => { markTicketingUserEdited(); setTicketingAdministrator(v); }}
                     placeholder="Select…" allowClear disabled={disabled} />,
                 )}
-                {fieldRow('Ticketing Administrator Company',
-                  <Select2 options={ticketingAdminCompanyOptions} value={ticketingAdminCompanyId}
-                    onChange={(v) => { markTicketingUserEdited(); setTicketingAdminCompanyId(v); setTicketingAdminContactId(''); }}
-                    placeholder="Select company…" allowClear disabled={disabled} />,
-                )}
                 {fieldRow('Ticketing Administrator Contact',
                   <Select2 options={ticketingAdminContactOptions} value={ticketingAdminContactId}
                     onChange={(v) => { markTicketingUserEdited(); setTicketingAdminContactId(v); }}
-                    placeholder="Select contact…" allowClear disabled={disabled || !ticketingAdminCompanyId} />,
+                    placeholder="Select contact…" allowClear disabled={disabled || !ticketingSystemCompanyId} />,
                 )}
               </div>
               {ticketingAdministrator === 'IAE Contract' && (
@@ -8341,6 +8378,54 @@ function EngagementTicketingPanel({
               </div>
             </div>
 
+            {/* ── FEES ── */}
+            <div className="space-y-4">
+              {sectionHeader('Fees & Charges')}
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-x-10">
+                {fieldRow('Facility Fee Type',
+                  <Select2 options={FACE_VALUE_TYPE_OPTIONS} value={facilityFeeType}
+                    onChange={(v) => { markTicketingUserEdited(); setFacilityFeeType(v); }}
+                    placeholder="Select…" allowClear disabled={disabled} />,
+                )}
+                {fieldRow('Facility Fee Amount ($)',
+                  <input className={inputCls} inputMode="decimal" value={facilityFeeAmount}
+                    onChange={(e) => { markTicketingUserEdited(); setFacilityFeeAmount(e.target.value); }} disabled={disabled} />,
+                )}
+                {fieldRow('Dynamic Pricing',
+                  <Select2 options={DYNAMIC_PRICING_MODE_OPTIONS} value={dynamicPricingMode}
+                    onChange={(v) => { markTicketingUserEdited(); setDynamicPricingMode(v); }}
+                    placeholder="Select…" allowClear disabled={disabled} />,
+                )}
+                {fieldRow('Rebate Amount',
+                  <input className={inputCls} inputMode="decimal" value={rebateAmount}
+                    onChange={(e) => { markTicketingUserEdited(); setRebateAmount(e.target.value); }} disabled={disabled} />,
+                )}
+                {fieldRow('Bump Amount',
+                  <input className={inputCls} inputMode="decimal" value={bumpAmount}
+                    onChange={(e) => { markTicketingUserEdited(); setBumpAmount(e.target.value); }} disabled={disabled} />,
+                )}
+                {fieldRow('Credit Card Fees Type',
+                  <Select2 options={FEE_TYPE_OPTIONS} value={creditCardFeesType}
+                    onChange={(v) => { markTicketingUserEdited(); setCreditCardFeesType(v); }}
+                    placeholder="Select…" allowClear disabled={disabled} />,
+                )}
+                {fieldRow('Credit Card Fees (%)',
+                  <input className={inputCls} inputMode="decimal" value={creditCardFeesAmountPercent}
+                    onChange={(e) => { markTicketingUserEdited(); setCreditCardFeesAmountPercent(e.target.value); }} disabled={disabled} />,
+                )}
+              </div>
+              <div className="grid grid-cols-1 gap-4">
+                {fieldRow('Kids Ticket Prices',
+                  <textarea
+                    className={`${inputCls} min-h-[80px] resize-y`}
+                    value={kidsTicketsPrices}
+                    onChange={(e) => { markTicketingUserEdited(); setKidsTicketsPrices(e.target.value); }}
+                    disabled={disabled}
+                  />,
+                )}
+              </div>
+            </div>
+
             {/* ── PURCHASE LINKS ── */}
             <div className="space-y-4">
               {sectionHeader('Purchase Links')}
@@ -8354,85 +8439,114 @@ function EngagementTicketingPanel({
                     onChange={(e) => { markTicketingUserEdited(); setPublicSaleLinkUrl(e.target.value); }} disabled={disabled} />,
                 )}
               </div>
+              <div className="flex justify-end pt-2 border-t border-border">
+                <Button type="button" className="bg-ems-accent text-white hover:opacity-90"
+                  onClick={() => saveTicketingMainMut.mutate()}
+                  disabled={disabled || !ticketingMainDirty}>
+                  {saveTicketingMainMut.isPending ? <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving…</span> : 'Save Ticketing Info'}
+                </Button>
+              </div>
             </div>
 
             {/* ── PROMOTIONAL PASSWORDS ── */}
             <div className="space-y-5">
               {sectionHeader('Promotional Passwords')}
-
-              {/* Pre-Sale Password */}
-              <div className="space-y-3 rounded border border-border p-3">
-                <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Pre-Sale Password</p>
-                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 lg:gap-x-10">
-                  {fieldRow('Password',
-                    <input className={inputCls} value={presalePassword}
-                      onChange={(e) => { markTicketingUserEdited(); setPresalePassword(e.target.value); }} disabled={disabled} />,
-                  )}
-                  {fieldRow('Start Date',
-                    <input type="date" className={inputCls} value={presalePasswordDateStart}
-                      onChange={(e) => { markTicketingUserEdited(); setPresalePasswordDateStart(e.target.value); }} disabled={disabled} />,
-                  )}
-                  {fieldRow('End Date',
-                    <input type="date" className={inputCls} value={presalePasswordDateEnd}
-                      onChange={(e) => { markTicketingUserEdited(); setPresalePasswordDateEnd(e.target.value); }} disabled={disabled} />,
-                  )}
-                </div>
+              <div className="overflow-x-auto rounded border border-border">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-muted/40">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium text-text-muted">Type <span className="text-red-500">*</span></th>
+                      <th className="px-3 py-2 text-left font-medium text-text-muted">Password <span className="text-red-500">*</span></th>
+                      <th className="px-3 py-2 text-left font-medium text-text-muted">Date Range Active (Start)</th>
+                      <th className="px-3 py-2 text-left font-medium text-text-muted">Date Range Active (End)</th>
+                      <th className="px-3 py-2 text-left font-medium text-text-muted">Discount Type</th>
+                      <th className="px-3 py-2 text-left font-medium text-text-muted">Discount Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td className="px-3 py-2">
+                        <Select2 options={PASSWORD_TYPE_OPTIONS} value={selectedPasswordType}
+                          onChange={(v) => setSelectedPasswordType(v as 'PreSale' | 'PreSaleSpecialPrice' | 'PublicSaleSpecialPrice')}
+                          disabled={disabled} />
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="relative">
+                          <input type={showPassword ? 'text' : 'password'} autoComplete="off" className={`${inputCls} pr-9 ${!(selectedPasswordType === 'PreSale' ? presalePassword : selectedPasswordType === 'PreSaleSpecialPrice' ? presaleSpecialPricePassword : publicSaleSpecialPricePassword).trim() ? 'border-red-400' : ''}`}
+                            value={selectedPasswordType === 'PreSale' ? presalePassword : selectedPasswordType === 'PreSaleSpecialPrice' ? presaleSpecialPricePassword : publicSaleSpecialPricePassword}
+                            placeholder="Required"
+                            required
+                            onChange={(e) => {
+                              markTicketingUserEdited();
+                              if (selectedPasswordType === 'PreSale') setPresalePassword(e.target.value);
+                              else if (selectedPasswordType === 'PreSaleSpecialPrice') setPresaleSpecialPricePassword(e.target.value);
+                              else setPublicSaleSpecialPricePassword(e.target.value);
+                            }} disabled={disabled} />
+                          <button type="button" tabIndex={-1}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+                            onClick={() => setShowPassword((p) => !p)}
+                            title={showPassword ? 'Hide password' : 'Show password'}>
+                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <input type="date" className={inputCls}
+                          value={selectedPasswordType === 'PreSale' ? presalePasswordDateStart : selectedPasswordType === 'PreSaleSpecialPrice' ? presaleSpecialPricePasswordDateStart : publicSaleSpecialPricePasswordDateStart}
+                          onChange={(e) => {
+                            markTicketingUserEdited();
+                            if (selectedPasswordType === 'PreSale') setPresalePasswordDateStart(e.target.value);
+                            else if (selectedPasswordType === 'PreSaleSpecialPrice') setPresaleSpecialPricePasswordDateStart(e.target.value);
+                            else setPublicSaleSpecialPricePasswordDateStart(e.target.value);
+                          }} disabled={disabled} />
+                      </td>
+                      <td className="px-3 py-2">
+                        <input type="date" className={inputCls}
+                          value={selectedPasswordType === 'PreSale' ? presalePasswordDateEnd : selectedPasswordType === 'PreSaleSpecialPrice' ? presaleSpecialPricePasswordDateEnd : publicSaleSpecialPricePasswordDateEnd}
+                          onChange={(e) => {
+                            markTicketingUserEdited();
+                            if (selectedPasswordType === 'PreSale') setPresalePasswordDateEnd(e.target.value);
+                            else if (selectedPasswordType === 'PreSaleSpecialPrice') setPresaleSpecialPricePasswordDateEnd(e.target.value);
+                            else setPublicSaleSpecialPricePasswordDateEnd(e.target.value);
+                          }} disabled={disabled} />
+                      </td>
+                      <td className="px-3 py-2">
+                        {selectedPasswordType === 'PreSale' ? (
+                          <span className="text-text-muted">—</span>
+                        ) : (
+                          <Select2 options={PRESALE_DISCOUNT_TYPE_OPTIONS}
+                            value={selectedPasswordType === 'PreSaleSpecialPrice' ? presaleSpecialPriceDiscountType : publicSaleSpecialPriceDiscountType}
+                            onChange={(v) => {
+                              markTicketingUserEdited();
+                              if (selectedPasswordType === 'PreSaleSpecialPrice') setPresaleSpecialPriceDiscountType(v);
+                              else setPublicSaleSpecialPriceDiscountType(v);
+                            }}
+                            placeholder="Select…" allowClear disabled={disabled} />
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        {selectedPasswordType === 'PreSale' ? (
+                          <span className="text-text-muted">—</span>
+                        ) : (
+                          <input className={inputCls} inputMode="decimal"
+                            value={selectedPasswordType === 'PreSaleSpecialPrice' ? presaleSpecialPriceDiscountAmount : publicSaleSpecialPriceDiscountAmount}
+                            onChange={(e) => {
+                              markTicketingUserEdited();
+                              if (selectedPasswordType === 'PreSaleSpecialPrice') setPresaleSpecialPriceDiscountAmount(e.target.value);
+                              else setPublicSaleSpecialPriceDiscountAmount(e.target.value);
+                            }} disabled={disabled} />
+                        )}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
-
-              {/* Pre-Sale Special Price Password */}
-              <div className="space-y-3 rounded border border-border p-3">
-                <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Pre-Sale Special Price Password</p>
-                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 lg:gap-x-10">
-                  {fieldRow('Password',
-                    <input className={inputCls} value={presaleSpecialPricePassword}
-                      onChange={(e) => { markTicketingUserEdited(); setPresaleSpecialPricePassword(e.target.value); }} disabled={disabled} />,
-                  )}
-                  {fieldRow('Start Date',
-                    <input type="date" className={inputCls} value={presaleSpecialPricePasswordDateStart}
-                      onChange={(e) => { markTicketingUserEdited(); setPresaleSpecialPricePasswordDateStart(e.target.value); }} disabled={disabled} />,
-                  )}
-                  {fieldRow('End Date',
-                    <input type="date" className={inputCls} value={presaleSpecialPricePasswordDateEnd}
-                      onChange={(e) => { markTicketingUserEdited(); setPresaleSpecialPricePasswordDateEnd(e.target.value); }} disabled={disabled} />,
-                  )}
-                  {fieldRow('Discount Type',
-                    <Select2 options={PRESALE_DISCOUNT_TYPE_OPTIONS} value={presaleSpecialPriceDiscountType}
-                      onChange={(v) => { markTicketingUserEdited(); setPresaleSpecialPriceDiscountType(v); }}
-                      placeholder="Select…" allowClear disabled={disabled} />,
-                  )}
-                  {fieldRow('Discount Amount',
-                    <input className={inputCls} inputMode="decimal" value={presaleSpecialPriceDiscountAmount}
-                      onChange={(e) => { markTicketingUserEdited(); setPresaleSpecialPriceDiscountAmount(e.target.value); }} disabled={disabled} />,
-                  )}
-                </div>
-              </div>
-
-              {/* Public Sale Special Price Password */}
-              <div className="space-y-3 rounded border border-border p-3">
-                <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Public Sale Special Price Password</p>
-                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 lg:gap-x-10">
-                  {fieldRow('Password',
-                    <input className={inputCls} value={publicSaleSpecialPricePassword}
-                      onChange={(e) => { markTicketingUserEdited(); setPublicSaleSpecialPricePassword(e.target.value); }} disabled={disabled} />,
-                  )}
-                  {fieldRow('Start Date',
-                    <input type="date" className={inputCls} value={publicSaleSpecialPricePasswordDateStart}
-                      onChange={(e) => { markTicketingUserEdited(); setPublicSaleSpecialPricePasswordDateStart(e.target.value); }} disabled={disabled} />,
-                  )}
-                  {fieldRow('End Date',
-                    <input type="date" className={inputCls} value={publicSaleSpecialPricePasswordDateEnd}
-                      onChange={(e) => { markTicketingUserEdited(); setPublicSaleSpecialPricePasswordDateEnd(e.target.value); }} disabled={disabled} />,
-                  )}
-                  {fieldRow('Discount Type',
-                    <Select2 options={PRESALE_DISCOUNT_TYPE_OPTIONS} value={publicSaleSpecialPriceDiscountType}
-                      onChange={(v) => { markTicketingUserEdited(); setPublicSaleSpecialPriceDiscountType(v); }}
-                      placeholder="Select…" allowClear disabled={disabled} />,
-                  )}
-                  {fieldRow('Discount Amount',
-                    <input className={inputCls} inputMode="decimal" value={publicSaleSpecialPriceDiscountAmount}
-                      onChange={(e) => { markTicketingUserEdited(); setPublicSaleSpecialPriceDiscountAmount(e.target.value); }} disabled={disabled} />,
-                  )}
-                </div>
+              <div className="flex justify-end pt-2 border-t border-border">
+                <Button type="button" className="bg-ems-accent text-white hover:opacity-90"
+                  onClick={() => savePromoPasswordMut.mutate()}
+                  disabled={disabled || !promoPasswordDirty}>
+                  {savePromoPasswordMut.isPending ? <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving…</span> : 'Save Passwords'}
+                </Button>
               </div>
             </div>
 
@@ -8469,56 +8583,19 @@ function EngagementTicketingPanel({
                   </div>
                 </div>
               )}
+              <div className="flex justify-end pt-2 border-t border-border">
+                <Button type="button" className="bg-ems-accent text-white hover:opacity-90"
+                  onClick={() => saveVipMut.mutate()}
+                  disabled={disabled || !vipDirty}>
+                  {saveVipMut.isPending ? <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving…</span> : 'Save VIP Packages'}
+                </Button>
+              </div>
             </div>
 
-            {/* ── COMPLIMENTARY TICKET REQUEST ── */}
+            {/* ── SALES TAX (dbo.Venue) ── */}
             <div className="space-y-4">
-              {sectionHeader('Complimentary Ticket Request')}
-              {fieldRow('Comp Ticket Request Link',
-                <input className={inputCls} type="url" placeholder="https://…" value={compTicketRequestLink}
-                  onChange={(e) => { markTicketingUserEdited(); setCompTicketRequestLink(e.target.value); }} disabled={disabled} />,
-              )}
-            </div>
-
-            {/* ── FEES ── */}
-            <div className="space-y-4">
-              {sectionHeader('Fees & Charges')}
+              {sectionHeader('Sales Tax')}
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-x-10">
-                {fieldRow('Facility Fee Type',
-                  <Select2 options={FACE_VALUE_TYPE_OPTIONS} value={facilityFeeType}
-                    onChange={(v) => { markTicketingUserEdited(); setFacilityFeeType(v); }}
-                    placeholder="Select…" allowClear disabled={disabled} />,
-                )}
-                {fieldRow('Facility Fee Amount ($)',
-                  <input className={inputCls} inputMode="decimal" value={facilityFeeAmount}
-                    onChange={(e) => { markTicketingUserEdited(); setFacilityFeeAmount(e.target.value); }} disabled={disabled} />,
-                )}
-                {fieldRow('Dynamic Pricing',
-                  <Select2 options={DYNAMIC_PRICING_MODE_OPTIONS} value={dynamicPricingMode}
-                    onChange={(v) => { markTicketingUserEdited(); setDynamicPricingMode(v); }}
-                    placeholder="Select…" allowClear disabled={disabled} />,
-                )}
-                {fieldRow('Service Charge Revenue Share',
-                  <input className={inputCls} inputMode="decimal" value={serviceChargeRevenueShare}
-                    onChange={(e) => { markTicketingUserEdited(); setServiceChargeRevenueShare(e.target.value); }} disabled={disabled} />,
-                )}
-                {fieldRow('Rebate Amount',
-                  <input className={inputCls} inputMode="decimal" value={rebateAmount}
-                    onChange={(e) => { markTicketingUserEdited(); setRebateAmount(e.target.value); }} disabled={disabled} />,
-                )}
-                {fieldRow('Bump Amount',
-                  <input className={inputCls} inputMode="decimal" value={bumpAmount}
-                    onChange={(e) => { markTicketingUserEdited(); setBumpAmount(e.target.value); }} disabled={disabled} />,
-                )}
-                {fieldRow('Credit Card Fees Type',
-                  <Select2 options={FEE_TYPE_OPTIONS} value={creditCardFeesType}
-                    onChange={(v) => { markTicketingUserEdited(); setCreditCardFeesType(v); }}
-                    placeholder="Select…" allowClear disabled={disabled} />,
-                )}
-                {fieldRow('Credit Card Fees (%)',
-                  <input className={inputCls} inputMode="decimal" value={creditCardFeesAmountPercent}
-                    onChange={(e) => { markTicketingUserEdited(); setCreditCardFeesAmountPercent(e.target.value); }} disabled={disabled} />,
-                )}
                 {fieldRow('Sales Tax Type',
                   <Select2 options={SALES_TAX_TYPE_OPTIONS} value={salesTaxType}
                     onChange={(v) => { markTicketingUserEdited(); setSalesTaxType(v); }}
@@ -8529,24 +8606,32 @@ function EngagementTicketingPanel({
                     onChange={(e) => { markTicketingUserEdited(); setSalesTaxAmountPercent(e.target.value); }} disabled={disabled} />,
                 )}
               </div>
+              <div className="flex justify-end pt-2 border-t border-border">
+                <Button type="button" className="bg-ems-accent text-white hover:opacity-90"
+                  onClick={() => saveSalesTaxMut.mutate()}
+                  disabled={disabled || !salesTaxDirty}>
+                  {saveSalesTaxMut.isPending ? <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving…</span> : 'Save Sales Tax'}
+                </Button>
+              </div>
             </div>
 
-            <div className="flex justify-end pt-2 border-t border-border">
-              <Button
-                type="button"
-                className="bg-ems-accent text-white hover:opacity-90"
-                onClick={() => saveMut.mutate()}
-                disabled={disabled || !ticketingDirty}
-              >
-                {saveMut.isPending ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Saving…
-                  </span>
-                ) : (
-                  'Save ticketing'
+            {/* ── SCALING (dbo.Engagement) ── */}
+            <div className="space-y-4">
+              {sectionHeader('Scaling')}
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-x-10">
+                {fieldRow('Scaling',
+                  <input className={inputCls} maxLength={50} value={scalingLocal}
+                    onChange={(e) => { markTicketingUserEdited(); setScalingLocal(e.target.value); }}
+                    disabled={disabled} />,
                 )}
-              </Button>
+              </div>
+              <div className="flex justify-end pt-2 border-t border-border">
+                <Button type="button" className="bg-ems-accent text-white hover:opacity-90"
+                  onClick={() => saveScalingMut.mutate()}
+                  disabled={disabled || !scalingDirty}>
+                  {saveScalingMut.isPending ? <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving…</span> : 'Save Scaling'}
+                </Button>
+              </div>
             </div>
           </>
         )}
@@ -10923,6 +11008,7 @@ export function EngagementDetailPage({
       {tab === 'Ticketing' && (
         <EngagementTicketingPanel
           engagementId={engagementId}
+          engagementScaling={row.engagementScaling}
           addToast={addToast}
           onDirtyChange={handleTicketingDirtyChange}
         />

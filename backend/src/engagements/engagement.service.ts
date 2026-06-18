@@ -442,7 +442,7 @@ export interface PerformanceTicketingRow {
   bumpAmount: number | null;
   creditCardFeesType: 'Inside Service Charge' | 'Budget Line Item' | null;
   creditCardFeesAmountPercent: number | null;
-  salesTaxType: 'Charged in Shopping Cart' | 'Budget Line Item' | null;
+  salesTaxType: string | null;
   salesTaxAmountPercent: number | null;
   /** Existing DB cols exposed via optional-col probe */
   ticketingAdminContactId: number | null;
@@ -507,6 +507,7 @@ export interface EngagementIaeContactLookups {
   contacts: FinanceMasterOption[];
   roles: FinanceMasterOption[];
   departments: FinanceMasterOption[];
+  ticketingManagerContactIds: number[];
 }
 
 /** Query params for {@link EngagementService.listPaginated}. */
@@ -1794,7 +1795,7 @@ export class EngagementService {
             SELECT 1 FROM sys.columns c
             INNER JOIN sys.tables t ON c.object_id = t.object_id
             INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'TicketingSystemCompanyID'
+            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'TicketingCompanyID'
           ) AND EXISTS (
             SELECT 1 FROM sys.columns c
             INNER JOIN sys.tables t ON c.object_id = t.object_id
@@ -1804,12 +1805,12 @@ export class EngagementService {
             SELECT 1 FROM sys.columns c
             INNER JOIN sys.tables t ON c.object_id = t.object_id
             INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'BoxOfficeLaborStaffingRequired'
+            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'BoxOfficeLaborRequired'
           ) AND EXISTS (
             SELECT 1 FROM sys.columns c
             INNER JOIN sys.tables t ON c.object_id = t.object_id
             INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'FacilityFeeType'
+            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'FacilityFeePlacement'
           ) AND EXISTS (
             SELECT 1 FROM sys.columns c
             INNER JOIN sys.tables t ON c.object_id = t.object_id
@@ -1819,42 +1820,27 @@ export class EngagementService {
             SELECT 1 FROM sys.columns c
             INNER JOIN sys.tables t ON c.object_id = t.object_id
             INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'DynamicPricingMode'
+            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'DynamicPricingType'
           ) AND EXISTS (
             SELECT 1 FROM sys.columns c
             INNER JOIN sys.tables t ON c.object_id = t.object_id
             INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'ServiceChargeRevenueShare'
+            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'ServiceChargeRebateAmount'
           ) AND EXISTS (
             SELECT 1 FROM sys.columns c
             INNER JOIN sys.tables t ON c.object_id = t.object_id
             INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'RebateAmount'
+            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'ServiceChargeBumpAmount'
           ) AND EXISTS (
             SELECT 1 FROM sys.columns c
             INNER JOIN sys.tables t ON c.object_id = t.object_id
             INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'BumpAmount'
+            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'CreditCardFeePlacement'
           ) AND EXISTS (
             SELECT 1 FROM sys.columns c
             INNER JOIN sys.tables t ON c.object_id = t.object_id
             INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'CreditCardFeesType'
-          ) AND EXISTS (
-            SELECT 1 FROM sys.columns c
-            INNER JOIN sys.tables t ON c.object_id = t.object_id
-            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'CreditCardFeesAmountPercent'
-          ) AND EXISTS (
-            SELECT 1 FROM sys.columns c
-            INNER JOIN sys.tables t ON c.object_id = t.object_id
-            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'SalesTaxType'
-          ) AND EXISTS (
-            SELECT 1 FROM sys.columns c
-            INNER JOIN sys.tables t ON c.object_id = t.object_id
-            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'SalesTaxAmountPercent'
+            WHERE s.name = N'dbo' AND t.name = N'PerformanceTicketing' AND c.name = N'CreditCardFeePercent'
           )
         THEN 1 ELSE 0 END AS ok
       `,
@@ -1903,7 +1889,7 @@ export class EngagementService {
     try {
       const r = await this.dataSource.query(`
         SELECT CASE WHEN
-          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'PerformanceTicketing' AND c.name=N'PresalePassword')
+          EXISTS (SELECT 1 FROM sys.tables t INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'PerformancePromoPassword')
         THEN 1 ELSE 0 END AS ok
       `);
       const row0 = (r as Record<string, unknown>[])?.[0];
@@ -1950,19 +1936,16 @@ export class EngagementService {
         `SELECT
           [SellableCapacity] AS sc,
           [GrossPotentialRevenue] AS gpr,
-          [TicketingSystemCompanyID] AS tsc,
+          [TicketingCompanyID] AS tsc,
           [TicketingAdministrator] AS ta,
-          [BoxOfficeLaborStaffingRequired] AS bol,
-          [FacilityFeeType] AS fft,
+          [BoxOfficeLaborRequired] AS bol,
+          [FacilityFeePlacement] AS fft,
           [FacilityFeeAmount] AS ffa,
-          [DynamicPricingMode] AS dpm,
-          [ServiceChargeRevenueShare] AS scrs,
-          [RebateAmount] AS ra,
-          [BumpAmount] AS ba,
-          [CreditCardFeesType] AS ccft,
-          [CreditCardFeesAmountPercent] AS ccfap,
-          [SalesTaxType] AS stt,
-          [SalesTaxAmountPercent] AS stap
+          [DynamicPricingType] AS dpm,
+          [ServiceChargeRebateAmount] AS ra,
+          [ServiceChargeBumpAmount] AS ba,
+          [CreditCardFeePlacement] AS ccft,
+          [CreditCardFeePercent] AS ccfap
          FROM dbo.PerformanceTicketing WHERE [TicketingID] = ${tid}`,
       );
       const row0 = (r as Record<string, unknown>[])?.[0];
@@ -1999,9 +1982,7 @@ export class EngagementService {
           'Self Managed',
           '3rd Party Managed',
         ) as 'Self Managed' | '3rd Party Managed' | null,
-        serviceChargeRevenueShare: this.mapFinanceNumber(
-          pickRaw(row0, 'scrs') as string | number | null | undefined,
-        ),
+        serviceChargeRevenueShare: null,
         rebateAmount: this.mapFinanceNumber(
           pickRaw(row0, 'ra') as string | number | null | undefined,
         ),
@@ -2016,14 +1997,8 @@ export class EngagementService {
         creditCardFeesAmountPercent: this.mapFinanceNumber(
           pickRaw(row0, 'ccfap') as string | number | null | undefined,
         ),
-        salesTaxType: this.normalizeTicketingPick(
-          pickRaw(row0, 'stt'),
-          'Charged in Shopping Cart',
-          'Budget Line Item',
-        ) as 'Charged in Shopping Cart' | 'Budget Line Item' | null,
-        salesTaxAmountPercent: this.mapFinanceNumber(
-          pickRaw(row0, 'stap') as string | number | null | undefined,
-        ),
+        salesTaxType: null,
+        salesTaxAmountPercent: null,
       };
       return this.mergePerformanceTicketingExtendedFromDb(
         ticketingId,
@@ -2095,60 +2070,103 @@ export class EngagementService {
   ): Promise<PerformanceTicketingRow> {
     if (!(await this.performanceTicketingHasPasswordColumns())) return base;
     try {
-      const tid = Math.floor(Number(ticketingId));
-      if (!Number.isFinite(tid) || tid < 1) return base;
-      const r = await this.dataSource.query(
+      const pid = base.performanceId;
+      if (!Number.isFinite(pid) || pid < 1) return base;
+
+      // Read promo passwords from PerformancePromoPassword table
+      const pwRows = await this.dataSource.query(
         `SELECT
-          [PresalePassword] AS pp,
-          CONVERT(varchar(10),[PresalePasswordDateStart],120) AS ppds,
-          CONVERT(varchar(10),[PresalePasswordDateEnd],120) AS ppde,
-          [PresaleSpecialPricePassword] AS pspp,
-          CONVERT(varchar(10),[PresaleSpecialPricePasswordDateStart],120) AS psppds,
-          CONVERT(varchar(10),[PresaleSpecialPricePasswordDateEnd],120) AS psppde,
-          [PresaleSpecialPriceDiscountType] AS psppdt,
-          [PresaleSpecialPriceDiscountAmount] AS psppda,
-          [PublicSaleSpecialPricePassword] AS pubspp,
-          CONVERT(varchar(10),[PublicSaleSpecialPricePasswordDateStart],120) AS pubsppds,
-          CONVERT(varchar(10),[PublicSaleSpecialPricePasswordDateEnd],120) AS pubsppde,
-          [PublicSaleSpecialPriceDiscountType] AS pubsppdt,
-          [PublicSaleSpecialPriceDiscountAmount] AS pubsppda,
-          [VIPPackageOffered] AS vipo,
-          [VIPPackageName] AS vipn,
-          [VIPPackageBenefits] AS vipb,
-          [CompTicketRequestLink] AS ctrl
-         FROM dbo.PerformanceTicketing WHERE [TicketingID] = ${tid}`,
-      );
-      const row0 = (r as Record<string, unknown>[])?.[0];
-      if (!row0) return base;
-      const vipbRaw = pickRaw(row0, 'vipb');
-      let vipBenefits: string[] | null = null;
-      try {
-        if (vipbRaw != null && vipbRaw !== '') {
-          const parsed = JSON.parse(String(vipbRaw));
-          if (Array.isArray(parsed)) vipBenefits = parsed.map(String);
+          [PasswordType] AS ptype,
+          [Password] AS pw,
+          CONVERT(varchar(10),[ActiveDateStart],120) AS ds,
+          CONVERT(varchar(10),[ActiveDateEnd],120) AS de,
+          [DiscountType] AS dt,
+          [DiscountAmount] AS da
+         FROM dbo.PerformancePromoPassword WHERE [PerformanceID] = ${pid}`,
+      ) as Record<string, unknown>[];
+
+      const strOrNull = (v: unknown) => v == null || v === '' ? null : String(v).trim();
+      const dateOrNull = (v: unknown) => v == null || v === '' ? null : String(v).slice(0, 10);
+
+      let presalePassword: string | null = null;
+      let presalePasswordDateStart: string | null = null;
+      let presalePasswordDateEnd: string | null = null;
+      let presaleSpecialPricePassword: string | null = null;
+      let presaleSpecialPricePasswordDateStart: string | null = null;
+      let presaleSpecialPricePasswordDateEnd: string | null = null;
+      let presaleSpecialPriceDiscountType: string | null = null;
+      let presaleSpecialPriceDiscountAmount: number | null = null;
+      let publicSaleSpecialPricePassword: string | null = null;
+      let publicSaleSpecialPricePasswordDateStart: string | null = null;
+      let publicSaleSpecialPricePasswordDateEnd: string | null = null;
+      let publicSaleSpecialPriceDiscountType: string | null = null;
+      let publicSaleSpecialPriceDiscountAmount: number | null = null;
+
+      for (const row of pwRows) {
+        const ptype = strOrNull(pickRaw(row, 'ptype'))?.toLowerCase();
+        if (ptype === 'presale') {
+          presalePassword = strOrNull(pickRaw(row, 'pw'));
+          presalePasswordDateStart = dateOrNull(pickRaw(row, 'ds'));
+          presalePasswordDateEnd = dateOrNull(pickRaw(row, 'de'));
+        } else if (ptype === 'presalespecialprice') {
+          presaleSpecialPricePassword = strOrNull(pickRaw(row, 'pw'));
+          presaleSpecialPricePasswordDateStart = dateOrNull(pickRaw(row, 'ds'));
+          presaleSpecialPricePasswordDateEnd = dateOrNull(pickRaw(row, 'de'));
+          presaleSpecialPriceDiscountType = strOrNull(pickRaw(row, 'dt'));
+          presaleSpecialPriceDiscountAmount = this.mapFinanceNumber(pickRaw(row, 'da') as string | number | null | undefined);
+        } else if (ptype === 'publicsalespecialprice') {
+          publicSaleSpecialPricePassword = strOrNull(pickRaw(row, 'pw'));
+          publicSaleSpecialPricePasswordDateStart = dateOrNull(pickRaw(row, 'ds'));
+          publicSaleSpecialPricePasswordDateEnd = dateOrNull(pickRaw(row, 'de'));
+          publicSaleSpecialPriceDiscountType = strOrNull(pickRaw(row, 'dt'));
+          publicSaleSpecialPriceDiscountAmount = this.mapFinanceNumber(pickRaw(row, 'da') as string | number | null | undefined);
         }
-      } catch { /* ignore */ }
-      const strOrNull = (k: string) => { const v = pickRaw(row0, k); return v == null || v === '' ? null : String(v).trim(); };
-      const dateOrNull = (k: string) => { const v = pickRaw(row0, k); return v == null || v === '' ? null : String(v).slice(0, 10); };
+      }
+
+      // Read VIP Package from VIPPackage + VIPPackageBenefit tables
+      let vipPackageOffered: boolean | null = null;
+      let vipPackageName: string | null = null;
+      let vipPackageBenefits: string[] | null = null;
+
+      const vipRows = await this.dataSource.query(
+        `SELECT [VIPPackageID] AS vpid, [IsOffered] AS iso, [PackageName] AS pn
+         FROM dbo.VIPPackage WHERE [PerformanceID] = ${pid}`,
+      ) as Record<string, unknown>[];
+
+      if (vipRows.length > 0) {
+        const vipRow = vipRows[0]!;
+        vipPackageOffered = this.mapBit(pickRaw(vipRow, 'iso') as boolean | number | Buffer | null | undefined);
+        vipPackageName = strOrNull(pickRaw(vipRow, 'pn'));
+        const vpid = pickRaw(vipRow, 'vpid');
+        if (vpid != null && Number.isFinite(Number(vpid))) {
+          const benefitRows = await this.dataSource.query(
+            `SELECT [VIPBenefitID] AS bid FROM dbo.VIPPackageBenefit WHERE [VIPPackageID] = ${Math.trunc(Number(vpid))}`,
+          ) as Record<string, unknown>[];
+          if (benefitRows.length > 0) {
+            vipPackageBenefits = benefitRows.map((br) => String(pickRaw(br, 'bid')));
+          }
+        }
+      }
+
       return {
         ...base,
-        presalePassword: strOrNull('pp'),
-        presalePasswordDateStart: dateOrNull('ppds'),
-        presalePasswordDateEnd: dateOrNull('ppde'),
-        presaleSpecialPricePassword: strOrNull('pspp'),
-        presaleSpecialPricePasswordDateStart: dateOrNull('psppds'),
-        presaleSpecialPricePasswordDateEnd: dateOrNull('psppde'),
-        presaleSpecialPriceDiscountType: strOrNull('psppdt'),
-        presaleSpecialPriceDiscountAmount: this.mapFinanceNumber(pickRaw(row0, 'psppda') as string | number | null | undefined),
-        publicSaleSpecialPricePassword: strOrNull('pubspp'),
-        publicSaleSpecialPricePasswordDateStart: dateOrNull('pubsppds'),
-        publicSaleSpecialPricePasswordDateEnd: dateOrNull('pubsppde'),
-        publicSaleSpecialPriceDiscountType: strOrNull('pubsppdt'),
-        publicSaleSpecialPriceDiscountAmount: this.mapFinanceNumber(pickRaw(row0, 'pubsppda') as string | number | null | undefined),
-        vipPackageOffered: this.mapBit(pickRaw(row0, 'vipo') as boolean | number | Buffer | null | undefined),
-        vipPackageName: strOrNull('vipn'),
-        vipPackageBenefits: vipBenefits,
-        compTicketRequestLink: strOrNull('ctrl'),
+        presalePassword,
+        presalePasswordDateStart,
+        presalePasswordDateEnd,
+        presaleSpecialPricePassword,
+        presaleSpecialPricePasswordDateStart,
+        presaleSpecialPricePasswordDateEnd,
+        presaleSpecialPriceDiscountType,
+        presaleSpecialPriceDiscountAmount,
+        publicSaleSpecialPricePassword,
+        publicSaleSpecialPricePasswordDateStart,
+        publicSaleSpecialPricePasswordDateEnd,
+        publicSaleSpecialPriceDiscountType,
+        publicSaleSpecialPriceDiscountAmount,
+        vipPackageOffered,
+        vipPackageName,
+        vipPackageBenefits,
+        compTicketRequestLink: null,
       };
     } catch {
       return base;
@@ -2158,6 +2176,7 @@ export class EngagementService {
   private async tryPersistPerformanceTicketingAdvanced(
     ticketingId: number | null | undefined,
     dto: UpdatePerformanceTicketingDto,
+    performanceId?: number,
   ): Promise<void> {
     const tid = ticketingId == null ? NaN : Math.floor(Number(ticketingId));
     if (!Number.isFinite(tid) || tid < 1) return;
@@ -2176,7 +2195,7 @@ export class EngagementService {
     }
     if (dto.ticketingSystemCompanyId !== undefined) {
       sets.push(
-        `[TicketingSystemCompanyID] = ${dto.ticketingSystemCompanyId == null ? 'NULL' : Math.trunc(Number(dto.ticketingSystemCompanyId))}`,
+        `[TicketingCompanyID] = ${dto.ticketingSystemCompanyId == null ? 'NULL' : Math.trunc(Number(dto.ticketingSystemCompanyId))}`,
       );
     }
     if (dto.ticketingAdministrator !== undefined) {
@@ -2187,7 +2206,7 @@ export class EngagementService {
     }
     if (dto.boxOfficeLaborStaffingRequired !== undefined) {
       sets.push(
-        `[BoxOfficeLaborStaffingRequired] = ${dto.boxOfficeLaborStaffingRequired == null ? 'NULL' : dto.boxOfficeLaborStaffingRequired ? 1 : 0}`,
+        `[BoxOfficeLaborRequired] = ${dto.boxOfficeLaborStaffingRequired == null ? 'NULL' : dto.boxOfficeLaborStaffingRequired ? 1 : 0}`,
       );
     }
     if (dto.facilityFeeType !== undefined) {
@@ -2197,7 +2216,7 @@ export class EngagementService {
         'Outside Face Value',
       );
       sets.push(
-        `[FacilityFeeType] = ${v == null ? 'NULL' : this.escapeSqlNVarCharLiteral(v)}`,
+        `[FacilityFeePlacement] = ${v == null ? 'NULL' : this.escapeSqlNVarCharLiteral(v)}`,
       );
     }
     if (dto.facilityFeeAmount !== undefined) {
@@ -2212,22 +2231,17 @@ export class EngagementService {
         '3rd Party Managed',
       );
       sets.push(
-        `[DynamicPricingMode] = ${v == null ? 'NULL' : this.escapeSqlNVarCharLiteral(v)}`,
-      );
-    }
-    if (dto.serviceChargeRevenueShare !== undefined) {
-      sets.push(
-        `[ServiceChargeRevenueShare] = ${dto.serviceChargeRevenueShare == null ? 'NULL' : Number(dto.serviceChargeRevenueShare)}`,
+        `[DynamicPricingType] = ${v == null ? 'NULL' : this.escapeSqlNVarCharLiteral(v)}`,
       );
     }
     if (dto.rebateAmount !== undefined) {
       sets.push(
-        `[RebateAmount] = ${dto.rebateAmount == null ? 'NULL' : Number(dto.rebateAmount)}`,
+        `[ServiceChargeRebateAmount] = ${dto.rebateAmount == null ? 'NULL' : Number(dto.rebateAmount)}`,
       );
     }
     if (dto.bumpAmount !== undefined) {
       sets.push(
-        `[BumpAmount] = ${dto.bumpAmount == null ? 'NULL' : Number(dto.bumpAmount)}`,
+        `[ServiceChargeBumpAmount] = ${dto.bumpAmount == null ? 'NULL' : Number(dto.bumpAmount)}`,
       );
     }
     if (dto.creditCardFeesType !== undefined) {
@@ -2237,34 +2251,24 @@ export class EngagementService {
         'Budget Line Item',
       );
       sets.push(
-        `[CreditCardFeesType] = ${v == null ? 'NULL' : this.escapeSqlNVarCharLiteral(v)}`,
+        `[CreditCardFeePlacement] = ${v == null ? 'NULL' : this.escapeSqlNVarCharLiteral(v)}`,
       );
     }
     if (dto.creditCardFeesAmountPercent !== undefined) {
       sets.push(
-        `[CreditCardFeesAmountPercent] = ${dto.creditCardFeesAmountPercent == null ? 'NULL' : Number(dto.creditCardFeesAmountPercent)}`,
-      );
-    }
-    if (dto.salesTaxType !== undefined) {
-      const v = this.normalizeTicketingPick(
-        dto.salesTaxType,
-        'Charged in Shopping Cart',
-        'Budget Line Item',
-      );
-      sets.push(`[SalesTaxType] = ${v == null ? 'NULL' : this.escapeSqlNVarCharLiteral(v)}`);
-    }
-    if (dto.salesTaxAmountPercent !== undefined) {
-      sets.push(
-        `[SalesTaxAmountPercent] = ${dto.salesTaxAmountPercent == null ? 'NULL' : Number(dto.salesTaxAmountPercent)}`,
+        `[CreditCardFeePercent] = ${dto.creditCardFeesAmountPercent == null ? 'NULL' : Number(dto.creditCardFeesAmountPercent)}`,
       );
     }
 
-    if (!sets.length) return;
-    await this.dataSource.query(
-      `UPDATE dbo.PerformanceTicketing SET ${sets.join(', ')} WHERE [TicketingID] = ${tid}`,
-    );
-    await this.tryPersistPerformanceTicketingExtended(tid, dto);
-    await this.tryPersistPerformanceTicketingPassword(tid, dto);
+    if (sets.length) {
+      await this.dataSource.query(
+        `UPDATE dbo.PerformanceTicketing SET ${sets.join(', ')} WHERE [TicketingID] = ${tid}`,
+      );
+    }
+    await Promise.all([
+      this.tryPersistPerformanceTicketingExtended(tid, dto),
+      this.tryPersistPerformanceTicketingPassword(tid, dto, performanceId),
+    ]);
   }
 
   private async tryPersistPerformanceTicketingExtended(
@@ -2287,9 +2291,9 @@ export class EngagementService {
         const escaped = this.escapeSqlNVarCharLiteral(urlVal);
         const linkR = await this.dataSource.query(
           `DECLARE @lnkId INT;
-           SELECT @lnkId = [LinkID] FROM dbo.Link WHERE [URL] = ${escaped};
+           SELECT @lnkId = [LinkID] FROM dbo.Link WHERE [LinkURL] = ${escaped};
            IF @lnkId IS NULL
-           BEGIN INSERT INTO dbo.Link ([URL]) VALUES (${escaped}); SET @lnkId = SCOPE_IDENTITY(); END
+           BEGIN INSERT INTO dbo.Link ([LinkType], [LinkURL], [LinkName], [LinkPath]) VALUES (N'URL', ${escaped}, N'Public Sale Link', ${escaped}); SET @lnkId = SCOPE_IDENTITY(); END
            UPDATE dbo.PerformanceTicketing SET [PublicSaleLinkID] = @lnkId WHERE [TicketingID] = ${ticketingId};
            SELECT @lnkId AS lid`,
         );
@@ -2318,56 +2322,96 @@ export class EngagementService {
   private async tryPersistPerformanceTicketingPassword(
     ticketingId: number,
     dto: UpdatePerformanceTicketingDto,
+    performanceId?: number,
   ): Promise<void> {
     if (!(await this.performanceTicketingHasPasswordColumns())) return;
-    const sets: string[] = [];
-    const strField = (dbCol: string, val: string | null | undefined) => {
-      if (val === undefined) return;
-      sets.push(`[${dbCol}] = ${val == null || val === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(val).slice(0, 500))}`);
+    const pid = performanceId ?? (ticketingId > 0 ? await this.getPerformanceIdFromTicketingId(ticketingId) : null);
+    if (pid == null || !Number.isFinite(pid) || pid < 1) return;
+
+    // --- Promo Passwords: upsert into PerformancePromoPassword ---
+    const upsertPromoPassword = async (
+      passwordType: string,
+      password: string | null | undefined,
+      dateStart: string | null | undefined,
+      dateEnd: string | null | undefined,
+      discountType?: string | null | undefined,
+      discountAmount?: number | null | undefined,
+    ) => {
+      if (password === undefined && dateStart === undefined && dateEnd === undefined && discountType === undefined && discountAmount === undefined) return;
+      const escapedType = this.escapeSqlNVarCharLiteral(passwordType);
+
+      // If password is being cleared, delete the row (Password column is NOT NULL)
+      if (password === null || password === '') {
+        await this.dataSource.query(
+          `DELETE FROM dbo.PerformancePromoPassword WHERE [PerformanceID] = ${pid} AND [PasswordType] = ${escapedType}`,
+        );
+        return;
+      }
+
+      const pwSql = this.escapeSqlNVarCharLiteral(String(password).slice(0, 500));
+      const dsSql = dateStart == null || dateStart === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(dateStart).slice(0, 10));
+      const deSql = dateEnd == null || dateEnd === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(dateEnd).slice(0, 10));
+      const dtSql = discountType == null || discountType === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(discountType).slice(0, 10));
+      const daSql = discountAmount == null ? 'NULL' : String(Number(discountAmount));
+      await this.dataSource.query(
+        `IF EXISTS (SELECT 1 FROM dbo.PerformancePromoPassword WHERE [PerformanceID] = ${pid} AND [PasswordType] = ${escapedType})
+           UPDATE dbo.PerformancePromoPassword SET [Password] = ${pwSql}, [ActiveDateStart] = ${dsSql}, [ActiveDateEnd] = ${deSql}, [DiscountType] = ${dtSql}, [DiscountAmount] = ${daSql} WHERE [PerformanceID] = ${pid} AND [PasswordType] = ${escapedType}
+         ELSE
+           INSERT INTO dbo.PerformancePromoPassword ([PerformanceID],[PasswordType],[Password],[ActiveDateStart],[ActiveDateEnd],[DiscountType],[DiscountAmount]) VALUES (${pid}, ${escapedType}, ${pwSql}, ${dsSql}, ${deSql}, ${dtSql}, ${daSql})`,
+      );
     };
-    const dateField = (dbCol: string, val: string | null | undefined) => {
-      if (val === undefined) return;
-      sets.push(`[${dbCol}] = ${val == null || val === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(val).slice(0, 10))}`);
-    };
-    const decField = (dbCol: string, val: number | null | undefined) => {
-      if (val === undefined) return;
-      sets.push(`[${dbCol}] = ${val == null ? 'NULL' : Number(val)}`);
-    };
-    const bitField = (dbCol: string, val: boolean | null | undefined) => {
-      if (val === undefined) return;
-      sets.push(`[${dbCol}] = ${val == null ? 'NULL' : val ? 1 : 0}`);
-    };
-    strField('PresalePassword', dto.presalePassword);
-    dateField('PresalePasswordDateStart', dto.presalePasswordDateStart);
-    dateField('PresalePasswordDateEnd', dto.presalePasswordDateEnd);
-    strField('PresaleSpecialPricePassword', dto.presaleSpecialPricePassword);
-    dateField('PresaleSpecialPricePasswordDateStart', dto.presaleSpecialPricePasswordDateStart);
-    dateField('PresaleSpecialPricePasswordDateEnd', dto.presaleSpecialPricePasswordDateEnd);
-    strField('PresaleSpecialPriceDiscountType', dto.presaleSpecialPriceDiscountType);
-    decField('PresaleSpecialPriceDiscountAmount', dto.presaleSpecialPriceDiscountAmount);
-    strField('PublicSaleSpecialPricePassword', dto.publicSaleSpecialPricePassword);
-    dateField('PublicSaleSpecialPricePasswordDateStart', dto.publicSaleSpecialPricePasswordDateStart);
-    dateField('PublicSaleSpecialPricePasswordDateEnd', dto.publicSaleSpecialPricePasswordDateEnd);
-    strField('PublicSaleSpecialPriceDiscountType', dto.publicSaleSpecialPriceDiscountType);
-    decField('PublicSaleSpecialPriceDiscountAmount', dto.publicSaleSpecialPriceDiscountAmount);
-    bitField('VIPPackageOffered', dto.vipPackageOffered);
-    if (dto.vipPackageName !== undefined) {
-      sets.push(`[VIPPackageName] = ${dto.vipPackageName == null || dto.vipPackageName === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(dto.vipPackageName).slice(0, 255))}`);
-    }
-    if (dto.vipPackageBenefits !== undefined) {
-      if (dto.vipPackageBenefits == null || !Array.isArray(dto.vipPackageBenefits)) {
-        sets.push(`[VIPPackageBenefits] = NULL`);
-      } else {
-        sets.push(`[VIPPackageBenefits] = ${this.escapeSqlNVarCharLiteral(JSON.stringify(dto.vipPackageBenefits))}`);
+
+    await Promise.all([
+      upsertPromoPassword('PreSale', dto.presalePassword, dto.presalePasswordDateStart, dto.presalePasswordDateEnd),
+      upsertPromoPassword('PreSaleSpecialPrice', dto.presaleSpecialPricePassword, dto.presaleSpecialPricePasswordDateStart, dto.presaleSpecialPricePasswordDateEnd, dto.presaleSpecialPriceDiscountType, dto.presaleSpecialPriceDiscountAmount),
+      upsertPromoPassword('PublicSaleSpecialPrice', dto.publicSaleSpecialPricePassword, dto.publicSaleSpecialPricePasswordDateStart, dto.publicSaleSpecialPricePasswordDateEnd, dto.publicSaleSpecialPriceDiscountType, dto.publicSaleSpecialPriceDiscountAmount),
+    ]);
+
+    // --- VIP Package: upsert into VIPPackage + VIPPackageBenefit ---
+    if (dto.vipPackageOffered !== undefined || dto.vipPackageName !== undefined || dto.vipPackageBenefits !== undefined) {
+      const offeredSql = dto.vipPackageOffered == null ? '0' : dto.vipPackageOffered ? '1' : '0';
+      const nameSql = dto.vipPackageName == null || dto.vipPackageName === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(dto.vipPackageName).slice(0, 255));
+
+      const vpResult = await this.dataSource.query(
+        `DECLARE @vpid INT;
+         SELECT @vpid = [VIPPackageID] FROM dbo.VIPPackage WHERE [PerformanceID] = ${pid};
+         IF @vpid IS NULL
+         BEGIN INSERT INTO dbo.VIPPackage ([PerformanceID],[IsOffered],[PackageName]) VALUES (${pid}, ${offeredSql}, ${nameSql}); SET @vpid = SCOPE_IDENTITY(); END
+         ELSE
+         BEGIN UPDATE dbo.VIPPackage SET [IsOffered] = ${offeredSql}, [PackageName] = ${nameSql} WHERE [VIPPackageID] = @vpid; END
+         SELECT @vpid AS vpid`,
+      );
+      const vpid = pickRaw((vpResult as Record<string, unknown>[])?.[0] ?? {}, 'vpid');
+
+      if (dto.vipPackageBenefits !== undefined && vpid != null && Number.isFinite(Number(vpid))) {
+        const vipPkgId = Math.trunc(Number(vpid));
+        await this.dataSource.query(`DELETE FROM dbo.VIPPackageBenefit WHERE [VIPPackageID] = ${vipPkgId}`);
+        if (Array.isArray(dto.vipPackageBenefits) && dto.vipPackageBenefits.length > 0) {
+          const values = dto.vipPackageBenefits
+            .filter((b) => b != null && String(b).trim() !== '')
+            .map((b) => `(${vipPkgId}, ${Math.trunc(Number(b))})`)
+            .filter((_, i, arr) => arr.indexOf(_) === i);
+          if (values.length > 0) {
+            await this.dataSource.query(
+              `INSERT INTO dbo.VIPPackageBenefit ([VIPPackageID],[VIPBenefitID]) VALUES ${values.join(', ')}`,
+            );
+          }
+        }
       }
     }
-    if (dto.compTicketRequestLink !== undefined) {
-      sets.push(`[CompTicketRequestLink] = ${dto.compTicketRequestLink == null || dto.compTicketRequestLink === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(dto.compTicketRequestLink).slice(0, 2048))}`);
+  }
+
+  private async getPerformanceIdFromTicketingId(ticketingId: number): Promise<number | null> {
+    try {
+      const r = await this.dataSource.query(
+        `SELECT [PerformanceID] AS pid FROM dbo.PerformanceTicketing WHERE [TicketingID] = ${Math.trunc(ticketingId)}`,
+      );
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      const pid = row0 ? pickRaw(row0, 'pid') : null;
+      return pid != null && Number.isFinite(Number(pid)) ? Math.trunc(Number(pid)) : null;
+    } catch {
+      return null;
     }
-    if (!sets.length) return;
-    await this.dataSource.query(
-      `UPDATE dbo.PerformanceTicketing SET ${sets.join(', ')} WHERE [TicketingID] = ${ticketingId}`,
-    );
   }
 
   private async mergeEngagementProductionTimesFromDb(
@@ -6077,6 +6121,21 @@ export class EngagementService {
       }),
     ]);
 
+    // Find contactIds that have been assigned the "Ticketing Manager" role
+    const ticketingManagerRole = roles.find((r) => (r.roleName ?? '').trim().toLowerCase() === 'ticketing manager');
+    let ticketingManagerContactIds: number[] = [];
+    if (ticketingManagerRole) {
+      try {
+        const tmRows = await this.dataSource.query(
+          `SELECT DISTINCT [ContactID] AS cid FROM dbo.EngagementIAEContact WHERE [RoleID] = ${ticketingManagerRole.roleId}`,
+        ) as Record<string, unknown>[];
+        ticketingManagerContactIds = tmRows
+          .map((r) => pickRaw(r, 'cid'))
+          .filter((v): v is number => v != null && Number.isFinite(Number(v)))
+          .map(Number);
+      } catch { /* ignore */ }
+    }
+
     return {
       roles: roles.map((r) => ({
         id: r.roleId,
@@ -6095,6 +6154,7 @@ export class EngagementService {
           c.contactId,
         ),
       })),
+      ticketingManagerContactIds,
     };
   }
 
@@ -6386,7 +6446,7 @@ export class EngagementService {
       order: { ticketingId: 'ASC' },
     });
     if (!row) {
-      return {
+      const blankRow: PerformanceTicketingRow = {
         ticketingId: null,
         performanceId,
         ticketingStatus: null,
@@ -6444,6 +6504,7 @@ export class EngagementService {
         vipPackageBenefits: null,
         compTicketRequestLink: null,
       };
+      return this.mergeSalesTaxFromVenue(engagementId, blankRow);
     }
     const ticketingLink =
       row.ticketingLinkId != null
@@ -6509,7 +6570,33 @@ export class EngagementService {
       vipPackageBenefits: null,
       compTicketRequestLink: null,
     };
-    return this.mergePerformanceTicketingAdvancedFromDb(row.ticketingId, base);
+    const merged = await this.mergePerformanceTicketingAdvancedFromDb(row.ticketingId, base);
+    return this.mergeSalesTaxFromVenue(engagementId, merged);
+  }
+
+  private async mergeSalesTaxFromVenue(
+    engagementId: number,
+    base: PerformanceTicketingRow,
+  ): Promise<PerformanceTicketingRow> {
+    try {
+      const r = await this.dataSource.query(
+        `SELECT v.[SalesTaxType] AS stt, v.[SalesTaxRate] AS str
+         FROM dbo.Venue v
+         INNER JOIN dbo.EngagementVenue ev ON ev.[VenueCompanyID] = v.[CompanyID]
+         WHERE ev.[EngagementID] = ${engagementId} AND ev.[IsPrimary] = 1`,
+      );
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      if (!row0) return base;
+      const stt = pickRaw(row0, 'stt');
+      const str = pickRaw(row0, 'str');
+      return {
+        ...base,
+        salesTaxType: stt != null && stt !== '' ? String(stt).trim() : null,
+        salesTaxAmountPercent: str != null && str !== '' && Number.isFinite(Number(str)) ? Number(str) : null,
+      };
+    } catch {
+      return base;
+    }
   }
 
   async upsertPerformanceTicketing(
@@ -6596,7 +6683,54 @@ export class EngagementService {
     }
 
     const saved = await this.performanceTicketingRepo.save(row);
-    await this.tryPersistPerformanceTicketingAdvanced(saved.ticketingId, dto);
+    await Promise.all([
+      this.tryPersistPerformanceTicketingAdvanced(saved.ticketingId, dto, performanceId),
+      this.tryPersistSalesTaxToVenue(engagementId, dto),
+      this.tryPersistEngagementScaling(engagementId, dto),
+    ]);
+  }
+
+  private async tryPersistEngagementScaling(
+    engagementId: number,
+    dto: UpdatePerformanceTicketingDto,
+  ): Promise<void> {
+    if (dto.engagementScaling === undefined) return;
+    const val =
+      dto.engagementScaling == null || String(dto.engagementScaling).trim() === ''
+        ? null
+        : String(dto.engagementScaling).trim().slice(0, 50);
+    await this.engagementRepo.update(
+      { engagementId },
+      { engagementScaling: val },
+    );
+  }
+
+  private async tryPersistSalesTaxToVenue(
+    engagementId: number,
+    dto: UpdatePerformanceTicketingDto,
+  ): Promise<void> {
+    if (dto.salesTaxType === undefined && dto.salesTaxAmountPercent === undefined) return;
+    const sets: string[] = [];
+    if (dto.salesTaxType !== undefined) {
+      sets.push(
+        `[SalesTaxType] = ${dto.salesTaxType == null ? 'NULL' : this.escapeSqlNVarCharLiteral(String(dto.salesTaxType).trim().slice(0, 50))}`,
+      );
+    }
+    if (dto.salesTaxAmountPercent !== undefined) {
+      sets.push(
+        `[SalesTaxRate] = ${dto.salesTaxAmountPercent == null ? 'NULL' : Number(dto.salesTaxAmountPercent)}`,
+      );
+    }
+    if (!sets.length) return;
+    try {
+      await this.dataSource.query(
+        `UPDATE dbo.Venue SET ${sets.join(', ')}
+         WHERE [CompanyID] IN (
+           SELECT ev.[VenueCompanyID] FROM dbo.EngagementVenue ev
+           WHERE ev.[EngagementID] = ${Math.trunc(engagementId)} AND ev.[IsPrimary] = 1
+         )`,
+      );
+    } catch { /* column may not exist */ }
   }
 
   async createPerformance(
