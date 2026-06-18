@@ -128,6 +128,7 @@ export interface ApiVenueTicketing {
 }
 
 export type ApiVenueRoleContact = {
+  contactId: number;
   contactInfoId: number;
   fullName: string;
   email: string;

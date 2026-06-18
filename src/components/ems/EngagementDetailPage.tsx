@@ -50,6 +50,8 @@ import {
   fetchEngagementVenues,
   fetchEngagementVenueTabData,
   updateEngagementVenueTab,
+  upsertEngagementLink,
+  removeEngagementLink,
   fetchEngagementServiceProviders,
   removeEngagementVenue,
   addEngagementServiceProvider,
@@ -93,6 +95,8 @@ import {
   type ApiEngagementListRow,
   type ApiEngagementVenueRow,
   type ApiEngagementVenueTabData,
+  type ApiEngagementLinkRow,
+  type ApiVenueRoleContacts,
   type UpdateEngagementVenueTabPayload,
   type ApiEngagementServiceProviderRow,
   type ApiEngagementServiceProvidersResponse,
@@ -407,42 +411,49 @@ function VenueDetailPanel({
   engagementId,
   venue,
   venueDealType,
+  venueDealTypeId: initialVenueDealTypeId,
   venueTerms,
+  techRiderLinkUrl,
+  engagementLinks,
+  venueRoleContacts,
   addToast,
   onNavigate,
 }: {
   engagementId: number;
   venue: ApiEngagementVenueRow;
   venueDealType: string | null;
+  venueDealTypeId: number | null;
   venueTerms: string | null;
+  techRiderLinkUrl: string | null;
+  engagementLinks: ApiEngagementLinkRow[];
+  venueRoleContacts: ApiVenueRoleContacts | null;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
   onNavigate: (view: string, data?: Record<string, unknown>) => void;
 }) {
   const qc = useQueryClient();
 
   // Editable state
-  const [venueContractLink, setVenueContractLink] = useState(venue.venueContractSharePointLink ?? '');
-  const [partialContractLink, setPartialContractLink] = useState(venue.partiallyExecutedContractSharePointLink ?? '');
-  const [fullContractLink, setFullContractLink] = useState(venue.fullyExecutedContractSharePointLink ?? '');
-  const [forecastLink, setForecastLink] = useState(venue.venueForecastSharePointLink ?? '');
-  // Newly-editable fields
   const [venueBookingManagerId, setVenueBookingManagerId] = useState(
     venue.venueBookingManagerContactId != null ? String(venue.venueBookingManagerContactId) : '',
   );
-  const [dealType, setDealType] = useState(venueDealType ?? '');
-  const [ticketingSystem, setTicketingSystem] = useState(venue.ticketingSystem ?? '');
-  const [ticketingAdminId, setTicketingAdminId] = useState(
-    venue.ticketingAdminContactId != null ? String(venue.ticketingAdminContactId) : '',
-  );
-  const [attractionTechDirectorId, setAttractionTechDirectorId] = useState(
-    venue.attractionTechDirectorContactId != null ? String(venue.attractionTechDirectorContactId) : '',
+  const [venueDealTypeId, setVenueDealTypeId] = useState(
+    initialVenueDealTypeId != null ? String(initialVenueDealTypeId) : '',
   );
   const [venueTypeId, setVenueTypeId] = useState(venue.venueTypeId != null ? String(venue.venueTypeId) : '');
   const [stageDimensions, setStageDimensions] = useState(venue.stageDimensions ?? '');
   const [flySystemSpecs, setFlySystemSpecs] = useState(venue.flySystemSpecs ?? '');
   const [stageType, setStageType] = useState(venue.stageType ?? '');
-  const [techPackPdfUrl, setTechPackPdfUrl] = useState(venue.techPackPdfUrl ?? '');
+  const [techRiderUrl, setTechRiderUrl] = useState(techRiderLinkUrl ?? '');
 
+  // Contract link state (EngagementLink-based)
+  const getEngagementLinkUrl = (purpose: string) =>
+    engagementLinks.find((el) => el.linkPurpose === purpose)?.linkUrl ?? '';
+  const [venueContractLink, setVenueContractLink] = useState(getEngagementLinkUrl('received'));
+  const [partialContractLink, setPartialContractLink] = useState(getEngagementLinkUrl('partially executed'));
+  const [fullContractLink, setFullContractLink] = useState(getEngagementLinkUrl('fully executed'));
+  const [forecastLink, setForecastLink] = useState(getEngagementLinkUrl('VenueForcast'));
+
+  // ── Lookups ──────────────────────────────────────────────────────────────
   const venueTypesQuery = useQuery({
     queryKey: ['lookups', 'venue-types'],
     queryFn: fetchVenueTypesLookup,
@@ -459,33 +470,41 @@ function VenueDetailPanel({
     [venueTypesQuery.data],
   );
 
-  const venueProfileQuery = useQuery({
-    queryKey: ['companies', venue.venueCompanyId, 'venue-profile'],
-    queryFn: () => fetchVenueProfile(venue.venueCompanyId),
-    staleTime: 60_000,
+  // Venue Deal Type options from VenueDealType table
+  const financeLookupsQuery = useQuery({
+    queryKey: ['engagements', 'finance-lookups'],
+    queryFn: () => fetchEngagementFinanceLookups(),
+    staleTime: 300_000,
   });
-  const venueSeatingCapacity = useMemo(() => {
-    const d = venueProfileQuery.data;
-    return d && d.missing === false ? d.seatingCapacity : 0;
-  }, [venueProfileQuery.data]);
+  const dealTypeOptions = useMemo<Select2Option[]>(() => [
+    { value: '', label: 'Not set' },
+    ...(financeLookupsQuery.data?.venueDealTypes ?? []).map((r) => ({ value: String(r.id), label: r.label })),
+  ], [financeLookupsQuery.data?.venueDealTypes]);
 
-  const venueContactsQuery = useQuery({
-    queryKey: ['company-contacts', venue.venueCompanyId],
-    queryFn: () => fetchCompanyContacts(venue.venueCompanyId),
+  // Booking manager contacts: from venue "Booking & Programming" section (managers only, no directors)
+  const venueDetailsForBookingQuery = useQuery({
+    queryKey: ['companies', venue.venueCompanyId, 'venue-details'],
+    queryFn: () => fetchVenueDetails(venue.venueCompanyId),
     staleTime: 60_000,
     retry: 1,
   });
-
-  const venueContactOptions = useMemo<Select2Option[]>(
-    () => [
-      { value: '', label: 'Not set' },
-      ...(venueContactsQuery.data ?? []).map((c) => ({
-        value: String(c.contactId),
-        label: `${c.firstName} ${c.lastName}`.trim() || c.contactId.toString(),
-      })),
-    ],
-    [venueContactsQuery.data],
-  );
+  const bookingManagerOptions = useMemo<Select2Option[]>(() => {
+    const d = venueDetailsForBookingQuery.data;
+    if (!d || d.missing) return [{ value: '', label: 'Not set' }];
+    const managers = [
+      ...(d.rentalManagers ?? []),
+      ...(d.calendarManagers ?? []),
+      ...(d.contractManagers ?? []),
+    ];
+    const seen = new Set<number>();
+    const opts: Select2Option[] = [{ value: '', label: 'Not set' }];
+    for (const c of managers) {
+      if (seen.has(c.contactId)) continue;
+      seen.add(c.contactId);
+      opts.push({ value: String(c.contactId), label: c.fullName || String(c.contactId) });
+    }
+    return opts;
+  }, [venueDetailsForBookingQuery.data]);
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venue-tab-data'] });
 
@@ -502,75 +521,58 @@ function VenueDetailPanel({
 
   const saveBookingManagerMutation = makeVenueMutation();
   const saveVenueTermsMutation = makeVenueMutation();
-  const saveTicketingMutation = makeVenueMutation();
-  const saveTechDirectorMutation = makeVenueMutation();
   const saveTechPackMutation = makeVenueMutation();
-  const saveContractsMutation = makeVenueMutation();
 
-  const handleSaveContracts = () => {
-    const linkFields: [string, string][] = [
-      ['Link to SharePoint – Venue Contract', venueContractLink],
-      ['Link to SharePoint – Partially Executed Contract', partialContractLink],
-      ['Link to SharePoint – Fully Executed Contract', fullContractLink],
-      ['Link to SharePoint – Venue Forecast', forecastLink],
-    ];
-    for (const [label, val] of linkFields) {
-      if (!isValidHttpOrHttpsUrl(val)) {
-        addToast(`${label} must be a valid http(s) URL, or left empty.`, 'error');
-        return;
+  const saveContractsMutation = useMutation({
+    mutationFn: async () => {
+      const linkFields: [string, string][] = [
+        ['received', venueContractLink],
+        ['partially executed', partialContractLink],
+        ['fully executed', fullContractLink],
+        ['VenueForcast', forecastLink],
+      ];
+      for (const [purpose, url] of linkFields) {
+        if (url.trim() && !isValidHttpOrHttpsUrl(url)) {
+          throw new Error(`${purpose} must be a valid http(s) URL, or left empty.`);
+        }
       }
-    }
-    saveContractsMutation.mutate({
-      venueContractSharePointLink: venueContractLink.trim() || null,
-      partiallyExecutedContractSharePointLink: partialContractLink.trim() || null,
-      fullyExecutedContractSharePointLink: fullContractLink.trim() || null,
-      venueForecastSharePointLink: forecastLink.trim() || null,
-    });
-  };
+      for (const [purpose, url] of linkFields) {
+        if (url.trim()) {
+          await upsertEngagementLink(engagementId, { linkUrl: url.trim(), linkPurpose: purpose });
+        } else {
+          // Remove link if URL is cleared
+          const existing = engagementLinks.find((el) => el.linkPurpose === purpose);
+          if (existing) {
+            await removeEngagementLink(engagementId, existing.engagementLinkId);
+          }
+        }
+      }
+    },
+    onSuccess: async () => {
+      await invalidate();
+      addToast('Contract & forecast links saved.', 'success');
+    },
+    onError: (e) => addToast(e instanceof Error ? e.message : 'Could not save links.', 'error'),
+  });
 
   const handleSaveBookingManager = () =>
     saveBookingManagerMutation.mutate({
       venueBookingManagerContactId: venueBookingManagerId ? Number(venueBookingManagerId) : null,
     });
 
-  const handleSaveAttractionTechDirector = () =>
-    saveTechDirectorMutation.mutate({
-      attractionTechDirectorContactId: attractionTechDirectorId ? Number(attractionTechDirectorId) : null,
-    });
-
-  const handleSaveTicketing = () =>
-    saveTicketingMutation.mutate({
-      ticketingSystem: ticketingSystem.trim() || null,
-      ticketingAdminContactId: ticketingAdminId ? Number(ticketingAdminId) : null,
-    });
-
-  const dealTypeMutation = useMutation({
-    mutationFn: (value: string | null) =>
-      updateEngagementFinance(engagementId, {
-        venueDealType: value as UpdateEngagementFinancePayload['venueDealType'],
-      }),
-    onSuccess: async () => {
-      await invalidate();
-      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] });
-      addToast('Deal type saved.', 'success');
-    },
-    onError: (e) => addToast(friendlyApiError(e, 'Could not save deal type.'), 'error'),
-  });
   const handleSaveVenueTerms = () => {
-    dealTypeMutation.mutate(dealType.trim() || null);
-    saveVenueTermsMutation.mutate({ venueTypeId: venueTypeId ? Number(venueTypeId) : null });
+    saveVenueTermsMutation.mutate({
+      venueDealTypeId: venueDealTypeId ? Number(venueDealTypeId) : null,
+      venueTypeId: venueTypeId ? Number(venueTypeId) : null,
+    });
   };
 
   const handleSaveTechPack = () => {
-    if (!isValidHttpOrHttpsUrl(techPackPdfUrl)) {
-      addToast('Venue Tech Pack PDF must be a valid http(s) URL, or left empty.', 'error');
-      return;
-    }
     saveTechPackMutation.mutate({
       stageDimensions: stageDimensions.trim() || null,
       flySystemSpecs: flySystemSpecs.trim() || null,
       stageType: stageType.trim() || null,
-      techPackPdfUrl: techPackPdfUrl.trim() || null,
+      techRiderLinkUrl: techRiderUrl.trim() || null,
     });
   };
 
@@ -578,6 +580,7 @@ function VenueDetailPanel({
     'w-full rounded border border-border bg-background px-2 py-1.5 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:ring-1 focus:ring-ems-accent/50 disabled:opacity-60';
   const sectionCls = 'rounded-md border border-border bg-surface/40 p-4 space-y-4';
   const labelCls = 'text-xs font-semibold text-text-primary mb-3 block';
+  const readOnlyValueCls = 'text-sm text-text-primary';
 
   return (
     <div className="space-y-4 mt-3">
@@ -587,10 +590,10 @@ function VenueDetailPanel({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="Venue Booking Manager">
             <Select2
-              options={venueContactOptions}
+              options={bookingManagerOptions}
               value={venueBookingManagerId}
               onChange={setVenueBookingManagerId}
-              placeholder="Select contact…"
+              placeholder="Select manager…"
               allowClear
               disabled={saveBookingManagerMutation.isPending}
             />
@@ -606,18 +609,18 @@ function VenueDetailPanel({
         </div>
       </div>
 
-      {/* Venue Terms */}
+      {/* Venue Terms (Deal Type + Venue Type) */}
       <div className={sectionCls}>
         <span className={labelCls}>Venue Terms</span>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="Deal Type">
             <Select2
-              options={VENUE_DEAL_TYPE_OPTIONS}
-              value={dealType}
-              onChange={setDealType}
+              options={dealTypeOptions}
+              value={venueDealTypeId}
+              onChange={setVenueDealTypeId}
               placeholder="Not set"
               allowClear
-              disabled={dealTypeMutation.isPending}
+              disabled={saveVenueTermsMutation.isPending}
             />
           </FormField>
           <FormField label="Venue Type">
@@ -633,86 +636,10 @@ function VenueDetailPanel({
         </div>
         <div className="flex justify-end">
           <Button type="button" size="sm" className="bg-ems-accent text-white hover:opacity-90"
-            onClick={handleSaveVenueTerms} disabled={dealTypeMutation.isPending || saveVenueTermsMutation.isPending}>
-            {(dealTypeMutation.isPending || saveVenueTermsMutation.isPending) ? (
+            onClick={handleSaveVenueTerms} disabled={saveVenueTermsMutation.isPending}>
+            {saveVenueTermsMutation.isPending ? (
               <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
             ) : 'Save venue terms'}
-          </Button>
-        </div>
-        <p className="text-[11px] text-text-muted mt-1">
-          Deal Type is shared with the Finance tab. Venue Terms remain editable on the Finance tab.
-        </p>
-      </div>
-
-      {/* Venue Seating */}
-      <div className={sectionCls}>
-        <span className={labelCls}>Venue Seating</span>
-        <div className="grid grid-cols-1 gap-3">
-          <VenueInfoRow label="Seating Type" value={venue.venueTypeName} />
-          <SeatingChartDiagram
-            venueName={venue.venueName ?? venue.venueCompanyName}
-            venueType={venue.venueTypeName}
-            capacity={venueSeatingCapacity}
-          />
-        </div>
-      </div>
-
-      {/* Venue Ticketing */}
-      <div className={sectionCls}>
-        <span className={labelCls}>Venue Ticketing</span>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Venue Ticketing Software">
-            <input
-              type="text"
-              className={`${inputCls} !bg-white`}
-              value={ticketingSystem}
-              onChange={(e) => setTicketingSystem(e.target.value)}
-              placeholder="e.g. Ticketmaster"
-              disabled={saveTicketingMutation.isPending}
-            />
-          </FormField>
-          <FormField label="Venue Ticketing Administrator">
-            <Select2
-              options={venueContactOptions}
-              value={ticketingAdminId}
-              onChange={setTicketingAdminId}
-              placeholder="Select contact…"
-              allowClear
-              disabled={saveTicketingMutation.isPending}
-            />
-          </FormField>
-        </div>
-        <div className="flex justify-end">
-          <Button type="button" size="sm" className="bg-ems-accent text-white hover:opacity-90"
-            onClick={handleSaveTicketing} disabled={saveTicketingMutation.isPending}>
-            {saveTicketingMutation.isPending ? (
-              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
-            ) : 'Save ticketing'}
-          </Button>
-        </div>
-      </div>
-
-      {/* Attraction Tech Director */}
-      <div className={sectionCls}>
-        <span className={labelCls}>Attraction Tech Director</span>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Attraction Tech Director Contact">
-            <Select2
-              options={venueContactOptions}
-              value={attractionTechDirectorId}
-              onChange={setAttractionTechDirectorId}
-              placeholder="Select contact…"
-              allowClear
-              disabled={saveTechDirectorMutation.isPending}
-            />
-          </FormField>
-        </div>
-        <div className="flex justify-end">
-          <Button type="button" size="sm" className="bg-ems-accent text-white hover:opacity-90"
-            onClick={handleSaveAttractionTechDirector} disabled={saveTechDirectorMutation.isPending}>
-            {saveTechDirectorMutation.isPending ? (
-              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
-            ) : 'Save tech director'}
           </Button>
         </div>
       </div>
@@ -721,6 +648,19 @@ function VenueDetailPanel({
       <div className={sectionCls}>
         <span className={labelCls}>Venue Tech Pack</span>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Venue Tech Pack PDF">
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                className={inputCls}
+                value={techRiderUrl}
+                onChange={(e) => setTechRiderUrl(e.target.value)}
+                placeholder="Paste tech pack PDF URL…"
+                disabled={saveTechPackMutation.isPending}
+              />
+
+            </div>
+          </FormField>
           <VenueTabEditField
             label="Venue Stage Dimensions"
             value={stageDimensions}
@@ -742,25 +682,7 @@ function VenueDetailPanel({
             disabled={saveTechPackMutation.isPending}
             inputBgClass="bg-white"
           />
-          <VenueTabEditField
-            label="Venue Tech Pack PDF (URL)"
-            value={techPackPdfUrl}
-            onChange={setTechPackPdfUrl}
-            disabled={saveTechPackMutation.isPending}
-            urlField
-            inputBgClass="bg-white"
-          />
         </div>
-        {techPackPdfUrl.trim() && isValidHttpOrHttpsUrl(techPackPdfUrl) && (
-          <a
-            href={techPackPdfUrl.trim()}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-ems-accent hover:underline"
-          >
-            <ExternalLink className="h-3 w-3 shrink-0" /> Open tech pack PDF
-          </a>
-        )}
         <div className="flex justify-end">
           <Button type="button" size="sm" className="bg-ems-accent text-white hover:opacity-90"
             onClick={handleSaveTechPack} disabled={saveTechPackMutation.isPending}>
@@ -768,6 +690,72 @@ function VenueDetailPanel({
               <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
             ) : 'Save tech pack'}
           </Button>
+        </div>
+      </div>
+
+      {/* Venue Ticketing (read-only) */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Venue Ticketing</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Venue Ticketing Software">
+            <div className={readOnlyValueCls}>
+              {(venueRoleContacts?.venueTicketingSoftware ?? []).length > 0
+                ? venueRoleContacts!.venueTicketingSoftware.map((c) => (
+                    <div key={c.contactId}>{`${c.firstName} ${c.lastName}`.trim()}</div>
+                  ))
+                : <span className="text-text-muted">— none assigned —</span>}
+            </div>
+          </FormField>
+          <FormField label="Venue Ticketing Administrator">
+            <div className={readOnlyValueCls}>
+              {(venueRoleContacts?.venueTicketingAdministrator ?? []).length > 0
+                ? venueRoleContacts!.venueTicketingAdministrator.map((c) => (
+                    <div key={c.contactId}>{`${c.firstName} ${c.lastName}`.trim()}</div>
+                  ))
+                : <span className="text-text-muted">— none assigned —</span>}
+            </div>
+          </FormField>
+        </div>
+      </div>
+
+      {/* Venue Production (read-only) */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Venue Production</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Venue Production Manager">
+            <div className={readOnlyValueCls}>
+              {(venueRoleContacts?.venueProductionManager ?? []).length > 0
+                ? venueRoleContacts!.venueProductionManager.map((c) => (
+                    <div key={c.contactId}>{`${c.firstName} ${c.lastName}`.trim()}</div>
+                  ))
+                : <span className="text-text-muted">— none assigned —</span>}
+            </div>
+          </FormField>
+          <FormField label="Venue Stage Labor">
+            <div className={readOnlyValueCls}>
+              {(venueRoleContacts?.venueStageLaborCompany ?? []).length > 0
+                ? venueRoleContacts!.venueStageLaborCompany.map((c) => (
+                    <div key={c.contactId}>{`${c.firstName} ${c.lastName}`.trim()}</div>
+                  ))
+                : <span className="text-text-muted">— none assigned —</span>}
+            </div>
+          </FormField>
+        </div>
+      </div>
+
+      {/* Attraction Tech Director (read-only) */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Attraction Tech Director</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Attraction Tech Director">
+            <div className={readOnlyValueCls}>
+              {(venueRoleContacts?.attractionTechDirector ?? []).length > 0
+                ? venueRoleContacts!.attractionTechDirector.map((c) => (
+                    <div key={c.contactId}>{`${c.firstName} ${c.lastName}`.trim()}</div>
+                  ))
+                : <span className="text-text-muted">— none assigned —</span>}
+            </div>
+          </FormField>
         </div>
       </div>
 
@@ -799,34 +787,28 @@ function VenueDetailPanel({
             urlField
             inputBgClass="bg-white"
           />
+          <VenueTabEditField
+            label="Link to SharePoint – Venue Forecast"
+            value={forecastLink}
+            onChange={setForecastLink}
+            disabled={saveContractsMutation.isPending}
+            urlField
+            inputBgClass="bg-white"
+          />
         </div>
-      </div>
-
-      {/* Venue Forecast */}
-      <div className={sectionCls}>
-        <span className={labelCls}>Venue Forecast</span>
-        <VenueTabEditField
-          label="Link to SharePoint – Venue Forecast"
-          value={forecastLink}
-          onChange={setForecastLink}
-          disabled={saveContractsMutation.isPending}
-          urlField
-          inputBgClass="bg-white"
-        />
-      </div>
-
-      <div className="flex justify-end">
-        <Button
-          type="button"
-          size="sm"
-          className="bg-ems-accent text-white hover:opacity-90"
-          onClick={handleSaveContracts}
-          disabled={saveContractsMutation.isPending}
-        >
-          {saveContractsMutation.isPending ? (
-            <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
-          ) : 'Save contracts & forecast links'}
-        </Button>
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            size="sm"
+            className="bg-ems-accent text-white hover:opacity-90"
+            onClick={() => saveContractsMutation.mutate()}
+            disabled={saveContractsMutation.isPending}
+          >
+            {saveContractsMutation.isPending ? (
+              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
+            ) : 'Save contracts & forecast links'}
+          </Button>
+        </div>
       </div>
 
     </div>
@@ -1255,7 +1237,11 @@ function VenuesTab({
 
   const venues = useMemo(() => venueTabQuery.data?.venues ?? [], [venueTabQuery.data]);
   const venueDealType = venueTabQuery.data?.venueDealType ?? null;
+  const venueDealTypeId = venueTabQuery.data?.venueDealTypeId ?? null;
   const venueTerms = venueTabQuery.data?.venueTerms ?? null;
+  const techRiderLinkUrl = venueTabQuery.data?.techRiderLinkUrl ?? null;
+  const engagementLinks = useMemo(() => venueTabQuery.data?.engagementLinks ?? [], [venueTabQuery.data]);
+  const venueRoleContacts = venueTabQuery.data?.venueRoleContacts ?? {};
 
   if (venueTabQuery.isLoading) {
     return (
@@ -1364,7 +1350,11 @@ function VenuesTab({
                     engagementId={engagementId}
                     venue={v}
                     venueDealType={venueDealType}
+                    venueDealTypeId={venueDealTypeId}
                     venueTerms={venueTerms}
+                    techRiderLinkUrl={techRiderLinkUrl}
+                    engagementLinks={engagementLinks}
+                    venueRoleContacts={venueRoleContacts[v.venueCompanyId] ?? null}
                     addToast={addToast}
                     onNavigate={onNavigate}
                   />
@@ -2023,7 +2013,7 @@ function EngagementProductionPanel({
             </div>
           </FormField>
 
-          <FormField label="Venue Stage Labor Company Contact">
+          <FormField label="Venue Stage Labor Contact">
             <Select2
               options={venueContactOptions}
               value={stagehandContactId}

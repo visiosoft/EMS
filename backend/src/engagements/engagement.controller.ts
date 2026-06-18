@@ -233,6 +233,26 @@ export class EngagementController {
     return this.engagementService.updateVenueTabPerVenue(id, venueCompanyId, dto);
   }
 
+  /** Upsert an engagement link (for contracts/forecast via dbo.EngagementLink). */
+  @Post(':id/links')
+  @HttpCode(HttpStatus.CREATED)
+  upsertEngagementLink(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: { linkUrl: string; linkName?: string; linkPurpose: string },
+  ) {
+    return this.engagementService.upsertEngagementLink(id, dto);
+  }
+
+  /** Remove an engagement link. */
+  @Delete(':id/links/:engagementLinkId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeEngagementLink(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('engagementLinkId', ParseIntPipe) engagementLinkId: number,
+  ) {
+    return this.engagementService.removeEngagementLink(id, engagementLinkId);
+  }
+
   // ─── Service Providers (VenueServiceProvider) ─────────────────────────────
 
   @Get(':id/service-providers')

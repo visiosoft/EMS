@@ -99,18 +99,51 @@ export interface ApiEngagementVenueRow {
 
 export interface ApiEngagementVenueTabData {
   venues: ApiEngagementVenueRow[];
-  /** From dbo.EngagementFinances */
+  /** From dbo.EngagementFinances.VenueDealTypeID */
+  venueDealTypeId: number | null;
+  /** From dbo.EngagementFinances (legacy text) */
   venueDealType: string | null;
   venueTerms: string | null;
+  /** From dbo.Tour.TechRiderLinkID → dbo.Link.LinkURL */
+  techRiderLinkUrl: string | null;
+  /** dbo.EngagementLink rows (contracts/forecast) */
+  engagementLinks: ApiEngagementLinkRow[];
+  /** Role-based contacts per venue for read-only display */
+  venueRoleContacts: Record<number, ApiVenueRoleContacts>;
+}
+
+export interface ApiEngagementLinkRow {
+  engagementLinkId: number;
+  linkId: number;
+  linkPurpose: string | null;
+  linkUrl: string;
+  linkName: string;
+}
+
+export interface ApiVenueRoleContacts {
+  venueTicketingSoftware: ApiRoleContactDisplay[];
+  venueTicketingAdministrator: ApiRoleContactDisplay[];
+  venueProductionManager: ApiRoleContactDisplay[];
+  venueStageLaborCompany: ApiRoleContactDisplay[];
+  attractionTechDirector: ApiRoleContactDisplay[];
+}
+
+export interface ApiRoleContactDisplay {
+  contactId: number;
+  firstName: string;
+  lastName: string;
+  roleName: string;
 }
 
 export interface UpdateEngagementVenueTabPayload {
   venueBookingManagerContactId?: number | null;
+  venueDealTypeId?: number | null;
   venueTypeId?: number | null;
   stageDimensions?: string | null;
   flySystemSpecs?: string | null;
   stageType?: string | null;
   techPackPdfUrl?: string | null;
+  techRiderLinkUrl?: string | null;
   attractionTechDirectorContactId?: number | null;
   venueContractSharePointLink?: string | null;
   partiallyExecutedContractSharePointLink?: string | null;
@@ -722,6 +755,10 @@ export const fetchEngagementVenues = (id: number) => apiFetch<ApiEngagementVenue
 export const fetchEngagementVenueTabData = (id: number) => apiFetch<ApiEngagementVenueTabData>(`/engagements/${id}/venue-tab-data`);
 export const updateEngagementVenueTab = (id: number, venueCompanyId: number, body: UpdateEngagementVenueTabPayload) =>
   apiFetch<void>(`/engagements/${id}/venues/${venueCompanyId}/tab`, { method: 'PATCH', body: JSON.stringify(body) });
+export const upsertEngagementLink = (id: number, body: { linkUrl: string; linkName?: string; linkPurpose: string }) =>
+  apiFetch<{ engagementLinkId: number; linkId: number }>(`/engagements/${id}/links`, { method: 'POST', body: JSON.stringify(body) });
+export const removeEngagementLink = (id: number, engagementLinkId: number) =>
+  apiFetch<void>(`/engagements/${id}/links/${engagementLinkId}`, { method: 'DELETE' });
 export const fetchEngagementServiceProviders = (id: number) =>
   apiFetch<ApiEngagementServiceProvidersResponse>(`/engagements/${id}/service-providers`);
 export const addEngagementServiceProvider = (id: number, body: { providerCompanyId: number }) =>

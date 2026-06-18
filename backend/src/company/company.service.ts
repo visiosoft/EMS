@@ -1171,6 +1171,7 @@ export class CompanyService {
     em?: EntityManager,
   ): Promise<
     Array<{
+      contactId: number;
       contactInfoId: number;
       fullName: string;
       email: string;
@@ -1199,6 +1200,7 @@ export class CompanyService {
     const mergedRows: Array<{
       contactAssignmentId: number;
       row: {
+        contactId: number;
         contactInfoId: number;
         fullName: string;
         email: string;
@@ -1223,22 +1225,22 @@ export class CompanyService {
         if (!ci) continue;
         mergedRows.push({
           contactAssignmentId: ca.contactAssignmentId,
-          row: this.mapContactInfoToVenueRoleRow(ci),
+          row: { contactId: ca.contact.contactId, ...this.mapContactInfoToVenueRoleRow(ci) },
         });
       }
     }
     mergedRows.sort((a, b) => a.contactAssignmentId - b.contactAssignmentId);
     const mapped = mergedRows.map((x) => x.row);
-    const dedupedByContactInfo = new Map<number, (typeof mapped)[number]>();
+    const dedupedByContact = new Map<number, (typeof mapped)[number]>();
     for (const row of mapped) {
       // A contact can be assigned both at Venue and Complex company level.
       // We return one row per person (contact identity) so inherited contacts
       // do not duplicate entries in the venue profile UI.
-      if (!dedupedByContactInfo.has(row.contactInfoId)) {
-        dedupedByContactInfo.set(row.contactInfoId, row);
+      if (!dedupedByContact.has(row.contactId)) {
+        dedupedByContact.set(row.contactId, row);
       }
     }
-    return [...dedupedByContactInfo.values()];
+    return [...dedupedByContact.values()];
   }
 
   /**
