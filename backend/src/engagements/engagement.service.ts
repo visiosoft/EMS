@@ -16,6 +16,7 @@ import { Address } from '../entities/address.entity';
 import { Attraction } from '../entities/attraction.entity';
 import { Company } from '../entities/company.entity';
 import { Contact } from '../entities/contact.entity';
+import { ContactAssignment } from '../entities/contact-assignment.entity';
 import { ContactInfo } from '../entities/contact-info.entity';
 import { Department } from '../entities/department.entity';
 import { Dma } from '../entities/dma.entity';
@@ -6163,6 +6164,48 @@ export class EngagementService {
       .execute();
   }
 
+  private async assertInternalContact(contactId: number): Promise<void> {
+    const row = await this.contactRepo
+      .createQueryBuilder('c')
+      .innerJoin(ContactAssignment, 'ca', 'ca.contactId = c.contactId')
+      .innerJoin(Company, 'company', 'company.companyId = ca.companyId')
+      .where('c.contactId = :contactId', { contactId })
+      .andWhere('company.isInternal = :isInternal', { isInternal: true })
+      .select('c.contactId', 'contactId')
+      .getRawOne<Record<string, unknown>>();
+
+    if (!row) {
+      throw new BadRequestException({
+        message:
+          'Select an internal contact. IAE staff must belong to a company marked Internal.',
+      });
+    }
+  }
+
+  private async loadInternalContactIdSet(contactIds: number[]): Promise<Set<number>> {
+    const ids = [
+      ...new Set(
+        contactIds.filter((id) => Number.isInteger(id) && id > 0),
+      ),
+    ];
+    if (ids.length === 0) return new Set();
+
+    const rows = await this.contactRepo
+      .createQueryBuilder('c')
+      .innerJoin(ContactAssignment, 'ca', 'ca.contactId = c.contactId')
+      .innerJoin(Company, 'company', 'company.companyId = ca.companyId')
+      .where('c.contactId IN (:...ids)', { ids })
+      .andWhere('company.isInternal = :isInternal', { isInternal: true })
+      .select('DISTINCT c.contactId', 'contactId')
+      .getRawMany<Record<string, unknown>>();
+
+    return new Set(
+      rows
+        .map((row) => Number(pickRaw(row, 'contactId')))
+        .filter((id) => Number.isInteger(id) && id > 0),
+    );
+  }
+
   async getEngagementIaeContactLookups(): Promise<EngagementIaeContactLookups> {
     const [roles, departments, contactRows] = await Promise.all([
       this.roleRepo.find({
@@ -6173,12 +6216,22 @@ export class EngagementService {
         order: { departmentId: 'ASC' },
         take: 5000,
       }),
-      this.contactRepo.find({
-        where: { isStaff: true },
-        relations: { contactInfo: true },
-        order: { contactId: 'ASC' },
-        take: 8000,
-      }),
+      this.contactRepo
+        .createQueryBuilder('c')
+        .innerJoin('c.contactInfo', 'ci')
+        .innerJoin(ContactAssignment, 'ca', 'ca.contactId = c.contactId')
+        .innerJoin(Company, 'company', 'company.companyId = ca.companyId')
+        .where('company.isInternal = :isInternal', { isInternal: true })
+        .select([
+          'c.contactId AS contactId',
+          'ci.firstName AS firstName',
+          'ci.lastName AS lastName',
+          'ci.email AS email',
+        ])
+        .distinct(true)
+        .orderBy('c.contactId', 'ASC')
+        .take(8000)
+        .getRawMany<Record<string, unknown>>(),
     ]);
 
     // Find contactIds that have been assigned the "Ticketing Manager" role
@@ -6206,12 +6259,12 @@ export class EngagementService {
         label: (d.departmentName ?? '').trim() || `Dept #${d.departmentId}`,
       })),
       contacts: contactRows.map((c) => ({
-        id: c.contactId,
+        id: Number(pickRaw(c, 'contactId')),
         label: this.contactDisplayLabel(
-          c.contactInfo?.firstName,
-          c.contactInfo?.lastName,
-          c.contactInfo?.email,
-          c.contactId,
+          String(pickRaw(c, 'firstName') ?? ''),
+          String(pickRaw(c, 'lastName') ?? ''),
+          String(pickRaw(c, 'email') ?? ''),
+          Number(pickRaw(c, 'contactId')),
         ),
       })),
       ticketingManagerContactIds,
@@ -6222,10 +6275,16 @@ export class EngagementService {
     engagementId: number,
   ): Promise<EngagementIaeContactRow[]> {
     await this.assertEngagementExists(engagementId);
-    const rows = await this.engagementIaeContactRepo.find({
+    const allRows = await this.engagementIaeContactRepo.find({
       where: { engagementId },
       order: { isPrimary: 'DESC', createdDate: 'DESC' },
     });
+    if (allRows.length === 0) return [];
+
+    const internalContactIds = await this.loadInternalContactIdSet(
+      allRows.map((r) => r.contactId),
+    );
+    const rows = allRows.filter((row) => internalContactIds.has(row.contactId));
     if (rows.length === 0) return [];
 
     const contactIds = [...new Set(rows.map((r) => r.contactId))];
@@ -6301,6 +6360,7 @@ export class EngagementService {
         message: `Contact #${dto.contactId} was not found.`,
       });
     }
+    await this.assertInternalContact(dto.contactId);
 
     if (dto.roleId != null && dto.roleId !== undefined) {
       const role = await this.roleRepo.findOne({
@@ -6393,6 +6453,7 @@ export class EngagementService {
           message: `Contact #${dto.contactId} was not found.`,
         });
       }
+      await this.assertInternalContact(dto.contactId);
     }
     if (dto.roleId !== undefined && dto.roleId != null) {
       const role = await this.roleRepo.findOne({
@@ -7648,4 +7709,3 @@ export class EngagementService {
     }
   }
 }
-

@@ -102,6 +102,14 @@ function chip(label: string) {
   );
 }
 
+function internalStaffChip() {
+  return (
+    <span className="inline-flex max-w-full items-center rounded-md border border-ems-accent/30 bg-ems-accent-dim px-2 py-0.5 text-[11px] font-medium text-ems-accent">
+      <span className="truncate">Internal IAE staff</span>
+    </span>
+  );
+}
+
 function normalizeDraftForCompare(draft: ContactDraft) {
   return {
     firstName: draft.firstName.trim(),
@@ -249,7 +257,7 @@ function ContactDetailDrawer({
   const selectedCompany = hasCompany ? companyById.get(Number(draft.companyId)) : null;
   const companyOptions = useMemo(
     () => [
-      { value: '', label: 'Internal IAE staff' },
+      { value: '', label: 'No company' },
       ...companyToSelect2Options(companies),
     ],
     [companies],
@@ -315,10 +323,11 @@ function ContactDetailDrawer({
                     {selectedCompany.companyTypeName}
                   </span>
                 )}
+                {row.isStaff ? internalStaffChip() : null}
               </>
             ) : (
               <span className="inline-flex items-center rounded-md bg-elevated px-2 py-0.5 text-[11px] font-medium text-text-secondary">
-                Internal IAE staff
+                No company
               </span>
             )}
           </div>
@@ -395,7 +404,7 @@ function ContactDetailDrawer({
                       departmentIds: companyId ? current.departmentIds : [],
                     }))
                   }
-                  placeholder="Internal IAE staff"
+                  placeholder="Select a company"
                   allowClear
                 />
               </FormField>
@@ -410,7 +419,7 @@ function ContactDetailDrawer({
                     </div>
                   </>
                 ) : (
-                  'No company selected. This contact is saved as internal IAE staff.'
+                  'No company selected. Pick a company marked Internal to make this an IAE staff contact.'
                 )}
               </div>
               <FormField label="Roles" required={hasCompany}>
@@ -528,7 +537,7 @@ function ContactModal({
   const hasCompany = Boolean(draft.companyId);
   const companyOptions = useMemo(
     () => [
-      { value: '', label: 'Internal IAE staff' },
+      { value: '', label: 'No company' },
       ...companyToSelect2Options(companies),
     ],
     [companies],
@@ -604,7 +613,7 @@ function ContactModal({
       <div className="space-y-6">
         <div className="rounded-md border border-ems-accent/30 bg-ems-accent-dim px-3 py-2 text-xs text-text-secondary flex items-start gap-2">
           <span className="mt-0.5 shrink-0 text-ems-accent">ⓘ</span>
-          <span>Pick a company for an external company contact. Leave it as internal staff for an IAE staff contact.</span>
+          <span>Pick a company for this contact. Contacts assigned to a company marked Internal are treated as IAE staff.</span>
         </div>
 
         <section className="space-y-4">
@@ -633,7 +642,7 @@ function ContactModal({
                     departmentIds: companyId ? d.departmentIds : [],
                   }))
                 }
-                placeholder="Internal IAE staff"
+                placeholder="Select a company"
                 allowClear
               />
             </FormField>
@@ -911,7 +920,6 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
 
       const hasEngagements = connections.engagements && connections.engagements.length > 0;
       const hasTours = connections.tours && connections.tours.length > 0;
-
       if (hasEngagements || hasTours) {
         let htmlList = `
           <div class="space-y-3">
@@ -1162,6 +1170,7 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
                                 {companyDetails.companyTypeName}
                               </span>
                             )}
+                            {row.isStaff ? internalStaffChip() : null}
                             {companyDetails && (companyDetails.physicalCity || companyDetails.physicalStateProvince) && (
                               <span>{[companyDetails.physicalCity, companyDetails.physicalStateProvince].filter(Boolean).join(', ')}</span>
                             )}
@@ -1171,7 +1180,7 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
                           )}
                         </div>
                       ) : (
-                        chip('Internal IAE staff')
+                        chip('No company')
                       )}
                     </td>
                     <td className="px-3 py-2"><div className="flex flex-wrap gap-1.5">{row.roleNames.length ? row.roleNames.map(chip) : '—'}</div></td>
