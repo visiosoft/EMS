@@ -13,4 +13,11 @@ export class AdminUsersController {
   ) {
     return this.adminUsersService.listUsers(graphAccessToken);
   }
+
+  @Get('users/entra-raw')
+  async listRawUsers(
+    @Headers('x-entra-graph-access-token') graphAccessToken?: string,
+  ) {
+    return this.adminUsersService.listRawUsers(graphAccessToken);
+  }
 }

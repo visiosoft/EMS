@@ -1,5 +1,6 @@
 import {
   acquireApiAccessToken,
+  acquireGraphAccessToken,
   getActiveAccount,
   getAccountEmail,
   getAccountName,
@@ -73,29 +74,8 @@ async function buildApiHeaders(
     new Headers(incoming).forEach((value, key) => headers.set(key, value));
   }
 
-  if (!headers.has('Authorization') && isApiAccessTokenConfigured()) {
-    const account = getActiveAccount();
-    if (account) {
-      const oid = getAccountOid(account);
-      const name = getAccountName(account).trim();
-      const email = getAccountEmail(account).trim().toLowerCase();
-      if (oid && !headers.has('X-User-Oid')) {
-        headers.set('X-User-Oid', oid);
-      }
-      if (name && !headers.has('X-User-Name')) {
-        headers.set('X-User-Name', name);
-      }
-      if (email && email.includes('@') && !headers.has('X-User-Email')) {
-        headers.set('X-User-Email', email);
-      }
-      try {
-        headers.set('Authorization', `Bearer ${await acquireApiAccessToken(account)}`);
-      } catch {
-        headers.delete('Authorization');
-      }
-    }
-  } else {
-    const account = getActiveAccount();
+  const account = getActiveAccount();
+  if (account) {
     const oid = getAccountOid(account);
     const name = getAccountName(account).trim();
     const email = getAccountEmail(account).trim().toLowerCase();
@@ -107,6 +87,25 @@ async function buildApiHeaders(
     }
     if (email && email.includes('@') && !headers.has('X-User-Email')) {
       headers.set('X-User-Email', email);
+    }
+
+    if (!headers.has('Authorization') && isApiAccessTokenConfigured()) {
+      try {
+        headers.set('Authorization', `Bearer ${await acquireApiAccessToken(account)}`);
+      } catch {
+        headers.delete('Authorization');
+      }
+    }
+
+    if (!headers.has('x-entra-graph-access-token')) {
+      try {
+        const graphToken = await acquireGraphAccessToken(account);
+        if (graphToken) {
+          headers.set('x-entra-graph-access-token', graphToken);
+        }
+      } catch (err) {
+        // ignore silently
+      }
     }
   }
 

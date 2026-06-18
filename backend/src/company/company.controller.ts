@@ -212,6 +212,11 @@ export class ContactsController {
     return this.companyService.updateManagedContact(id, dto);
   }
 
+  @Get(':id/connections')
+  getConnections(@Param('id', ParseIntPipe) id: number) {
+    return this.companyService.getContactConnections(id);
+  }
+
   @Delete(':id')
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.companyService.removeManagedContact(id);

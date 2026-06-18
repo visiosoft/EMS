@@ -15,6 +15,7 @@ export class AuditContextMiddleware implements NestMiddleware {
 
   async use(req: Request, _res: Response, next: NextFunction): Promise<void> {
     const token = getOptionalBearerToken(req.headers.authorization);
+    const graphAccessToken = req.header('x-entra-graph-access-token') ?? null;
     let userOid = readAuditUserOidHeader(req);
     let userDisplayName = readAuditUserNameHeader(req);
     let userEmail = readAuditUserEmailHeader(req);
@@ -39,7 +40,10 @@ export class AuditContextMiddleware implements NestMiddleware {
       }
     }
 
-    this.auditContext.run({ userOid, userDisplayName, userEmail }, next);
+    this.auditContext.run(
+      { userOid, userDisplayName, userEmail, graphAccessToken },
+      next,
+    );
   }
 }
 
