@@ -1880,7 +1880,14 @@ function VenueProposalRow({
 
   return (
     <>
-      <div className="bg-card border border-border rounded-lg overflow-hidden">
+      <div className="relative bg-card border border-border rounded-lg overflow-hidden">
+        {venue.venueStatus === 'Confirmed' && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/50 backdrop-blur-[1px]">
+            <span className="text-xs font-medium italic text-emerald-600 dark:text-emerald-400 px-3 py-1 rounded bg-background/80 shadow-sm">
+              Engagement created (locked)
+            </span>
+          </div>
+        )}
         <div className="p-4 space-y-3">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
@@ -1894,11 +1901,6 @@ function VenueProposalRow({
               </div>
               {venue.venueName && venue.venueName !== venue.venueCompanyName && (
                 <div className="text-xs text-text-secondary">{venue.venueName}</div>
-              )}
-              {scopeMismatchReason && (
-                <div className="mt-1 text-[11px] text-amber-500">
-                  Out of current filters: {scopeMismatchReason}
-                </div>
               )}
             </div>
             <div className="flex items-center gap-2 shrink-0">
@@ -1940,6 +1942,7 @@ function VenueProposalRow({
                       setEditingStatus(true);
                     }}
                     title="Click to change status"
+                    disabled={venue.venueStatus === 'Confirmed'}
                   >
                     <StatusBadge status={venue.venueStatus} />
                   </button>
@@ -1952,7 +1955,7 @@ function VenueProposalRow({
                   <StatusBadge status={venue.venueStatus} />
                 </div>
               )}
-              {!readOnly && (
+              {!readOnly && venue.venueStatus !== 'Confirmed' && (
                 <button type="button" onClick={() => setConfirmRemoveOpen(true)} disabled={deleting}
                   className="text-text-muted hover:text-ems-coral text-xs disabled:opacity-50 px-1"
                   aria-label={`Remove ${venueDisplayName}`}
@@ -1966,7 +1969,7 @@ function VenueProposalRow({
           <div className="border-t border-border/60 pt-2 space-y-1">
             <div className="flex items-center justify-between mb-1.5">
               <p className="text-[11px] text-text-muted font-medium">Proposed Dates</p>
-              {!readOnly && (
+              {!readOnly && venue.venueStatus !== 'Confirmed' && (
                 <button type="button" onClick={() => setShowAddOpt(!showAddOpt)} className="text-ems-accent text-[11px] hover:underline">+ Add date</button>
               )}
             </div>
@@ -2271,7 +2274,7 @@ function ProjectDetailDrawer({
 
   const project = detailQuery.data;
   const venues = useMemo(() => project?.venues ?? [], [project?.venues]);
-  const existingVenueIds = useMemo(() => new Set(venues.map((v) => v.venueCompanyId)), [venues]);
+  const existingVenueIds = useMemo(() => new Set(venues.filter((v) => v.venueStatus !== 'Confirmed').map((v) => v.venueCompanyId)), [venues]);
   const selectedTourForProject = useMemo(
     () => (project ? (toursQuery.data ?? []).find((t) => t.tourId === project.tourId) : undefined),
     [project, toursQuery.data],
@@ -2301,11 +2304,7 @@ function ProjectDetailDrawer({
     enabled: Boolean(project) && activeTab === 'Venues' && showAddVenue && !project?.isReadOnly,
     staleTime: 60_000,
   });
-  const eligibleVenueRows = useMemo(() => {
-    const all = scopedVenuesQuery.data ?? [];
-    if (preferredVenueTypeId == null || preferredVenueTypeId < 1) return all;
-    return all.filter((v) => v.venueTypeId != null && v.venueTypeId === preferredVenueTypeId);
-  }, [scopedVenuesQuery.data, preferredVenueTypeId]);
+  const eligibleVenueRows = scopedVenuesQuery.data ?? [];
   const addVenueMarketNames = useMemo(() => {
     const byKey = new Map<string, string>();
     const registerMarket = (marketName: string | null | undefined) => {
@@ -2440,10 +2439,7 @@ function ProjectDetailDrawer({
 
             <div className="rounded-md border border-border bg-surface px-3 py-2">
               <p className="text-[11px] text-text-muted leading-relaxed">
-                Scope for this project: {projectDmaIds.length} market{projectDmaIds.length === 1 ? '' : 's'} selected
-                {preferredVenueTypeId != null && preferredVenueTypeId >= 1
-                  ? ` · Preferred type: ${preferredVenueTypeName ?? `Type #${preferredVenueTypeId}`}`
-                  : ' · Preferred type: not set'}.
+                Scope for this project: {projectDmaIds.length} market{projectDmaIds.length === 1 ? '' : 's'} selected.
               </p>
               {scopedVenuesQuery.isPending ? (
                 <p className="text-[11px] text-text-muted mt-1">Loading eligible venues…</p>
@@ -2453,16 +2449,11 @@ function ProjectDetailDrawer({
                 </p>
               )}
             </div>
-            {!scopedVenuesQuery.isPending && outOfScopeVenueCount > 0 && (
-              <p className="text-xs text-amber-500">
-                {outOfScopeVenueCount} venue{outOfScopeVenueCount === 1 ? '' : 's'} out of scope — update/remove to avoid discard.
-              </p>
-            )}
             {!project.isReadOnly && showAddVenue && (
               <AddVenueForm
                 projectId={projectId}
                 existingIds={existingVenueIds}
-                availableVenueRows={eligibleVenueRows}
+                availableVenueRows={scopedVenuesQuery.data ?? []}
                 marketNames={addVenueMarketNames}
                 loadingMarkets={addVenueMarketsQuery.isPending}
                 loadingVenues={scopedVenuesQuery.isPending}
@@ -2482,13 +2473,6 @@ function ProjectDetailDrawer({
                 key={v.engagementProjectVenueId}
                 venue={v}
                 projectId={projectId}
-                scopeMismatchReason={
-                  scopedVenuesQuery.isPending
-                    ? undefined
-                    : eligibleVenueIdSet.has(v.venueCompanyId)
-                      ? undefined
-                      : 'not in current DMA/preferred-type scope'
-                }
                 onRefresh={() => refresh()}
                 addToast={addToast}
                 readOnly={Boolean(project.isReadOnly)}
