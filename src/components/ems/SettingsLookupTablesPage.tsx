@@ -71,6 +71,16 @@ interface UserRow {
   name: string;
   role: string;
   email: string;
+  jobTitle?: string;
+  department?: string;
+  employeeType?: string;
+  officeLocation?: string;
+  city?: string;
+  mobilePhone?: string;
+  businessPhones?: string[];
+  companyName?: string;
+  accountEnabled?: boolean;
+  userType?: string;
   lastLogin: string;
   status?: 'Active' | 'Disabled';
 }
@@ -386,7 +396,6 @@ export function SettingsPage({
       if (!account) {
         throw new Error('Sign in with Microsoft Entra ID to load the user directory.');
       }
-      console.debug(`[Microsoft Graph] Active account: ${account.username}`);
       const baseDiagnostics: DirectoryDiagnostics = {
         accountUsername: account.username,
       };
@@ -921,28 +930,46 @@ export function SettingsPage({
 
             {adminUsersQuery.data ? (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm bg-card border border-border rounded-lg min-w-[550px]">
+                <table className="w-full text-sm bg-card border border-border rounded-lg min-w-[1180px]">
                   <thead>
                     <tr className="text-text-muted text-xs border-b border-border bg-surface">
                       <th className="text-left py-2.5 px-3">Name</th>
                       <th className="text-left py-2.5 px-3">Email</th>
-                      <th className="text-left py-2.5 px-3">Role</th>
-                      <th className="text-left py-2.5 px-3">Last Login</th>
+                      <th className="text-left py-2.5 px-3">Role / Job Title</th>
+                      <th className="text-left py-2.5 px-3">Department</th>
+                      <th className="text-left py-2.5 px-3">Employee Type</th>
+                      <th className="text-left py-2.5 px-3">Office</th>
+                      <th className="text-left py-2.5 px-3">City</th>
+                      <th className="text-left py-2.5 px-3">Mobile</th>
                       <th className="text-left py-2.5 px-3">Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {adminUsersQuery.data.map((u) => (
-                      <tr key={u.id} className="border-b border-border/50">
-                        <td className="py-2.5 px-3 text-text-primary">{u.name}</td>
-                        <td className="py-2.5 px-3 text-ems-blue text-xs">{u.email ? <a href={`mailto:${u.email}`} className="hover:underline">{u.email}</a> : '—'}</td>
-                        <td className="py-2.5 px-3 text-text-secondary">{u.role}</td>
-                        <td className="py-2.5 px-3 text-text-secondary text-xs">{u.lastLogin}</td>
-                        <td className="py-2.5 px-3">
-                          <StatusBadge status={u.status} />
-                        </td>
-                      </tr>
-                    ))}
+                    {adminUsersQuery.data.map((u) => {
+                      const phone = u.mobilePhone || u.businessPhones?.[0] || '';
+                      return (
+                        <tr key={u.id} className="border-b border-border/50">
+                          <td className="py-2.5 px-3 text-text-primary">{u.name}</td>
+                          <td className="py-2.5 px-3 text-ems-blue text-xs">
+                            {u.email ? <a href={`mailto:${u.email}`} className="hover:underline">{u.email}</a> : '—'}
+                          </td>
+                          <td className="py-2.5 px-3 text-text-secondary">
+                            <div className="font-medium text-text-primary">{u.jobTitle || u.role || '—'}</div>
+                            {u.jobTitle && u.role ? (
+                              <div className="text-xs text-text-muted">{u.role}</div>
+                            ) : null}
+                          </td>
+                          <td className="py-2.5 px-3 text-text-secondary">{u.department || '—'}</td>
+                          <td className="py-2.5 px-3 text-text-secondary">{u.employeeType || '—'}</td>
+                          <td className="py-2.5 px-3 text-text-secondary">{u.officeLocation || '—'}</td>
+                          <td className="py-2.5 px-3 text-text-secondary">{u.city || '—'}</td>
+                          <td className="py-2.5 px-3 text-text-secondary text-xs">{phone || '—'}</td>
+                          <td className="py-2.5 px-3">
+                            <StatusBadge status={u.status ?? 'Active'} />
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

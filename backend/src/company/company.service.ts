@@ -31,6 +31,8 @@ import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { Department } from '../entities/department.entity';
 import { Role } from '../entities/role.entity';
 import { Tour } from '../entities/tour.entity';
+import { EngagementIAEContact } from '../entities/engagement-iae-contact.entity';
+import { TourTalentAgent } from '../entities/tour-talent-agent.entity';
 import { Venue } from '../entities/venue.entity';
 import { VenueBrand } from '../entities/venue-brand.entity';
 import { Brand } from '../entities/brand.entity';
@@ -141,6 +143,7 @@ function sqlNVarCharLiteral(value: string | null): string {
 export interface CompanyListRow {
   companyId: number;
   companyName: string;
+  isInternal: boolean;
   companyTypeId: number;
   companyTypeName: string;
   companyTypeIds: number[];
@@ -596,6 +599,7 @@ export class CompanyService {
     return {
       companyId: company.companyId,
       companyName: company.companyName,
+      isInternal: Boolean(company.isInternal),
       companyTypeId: primaryTypeId,
       companyTypeName: primaryTypeName,
       companyTypeIds,
@@ -2342,6 +2346,7 @@ export class CompanyService {
 
       const company = em.create(Company, {
         companyName: dto.companyName.trim(),
+        isInternal: dto.isInternal ?? false,
         companyTypeId: primaryCompanyTypeId,
         physicalAddressId: savedPhysical.addressId,
         mailingAddressId: mailingId,
@@ -3045,6 +3050,9 @@ export class CompanyService {
 
     if (dto.companyName !== undefined) {
       existing.companyName = dto.companyName.trim();
+    }
+    if (dto.isInternal !== undefined) {
+      existing.isInternal = Boolean(dto.isInternal);
     }
     const nextCompanyTypeIds =
       dto.companyTypeIds !== undefined
@@ -3948,6 +3956,41 @@ export class CompanyService {
     });
   }
 
+  async getContactConnections(contactId: number): Promise<{ engagements: { engagementId: number; tourName: string }[]; tours: { tourId: number; tourName: string }[] }> {
+    const contact = await this.contactRepo.findOne({
+      where: { contactId },
+    });
+    if (!contact) {
+      throw new NotFoundException(`Contact ${contactId} was not found.`);
+    }
+
+    const engagements = await this.dataSource.getRepository(EngagementIAEContact)
+      .createQueryBuilder('eic')
+      .innerJoin(Engagement, 'e', 'e.engagementId = eic.engagementId')
+      .innerJoin(Tour, 't', 't.tourId = e.tourId')
+      .where('eic.contactId = :contactId', { contactId })
+      .select(['e.engagementId AS engagementId', 't.tourName AS tourName'])
+      .getRawMany();
+
+    const tours = await this.dataSource.getRepository(TourTalentAgent)
+      .createQueryBuilder('tta')
+      .innerJoin(Tour, 't', 't.tourId = tta.tourId')
+      .where('tta.contactId = :contactId', { contactId })
+      .select(['t.tourId AS tourId', 't.tourName AS tourName'])
+      .getRawMany();
+
+    return {
+      engagements: engagements.map((row) => ({
+        engagementId: Number(pickRawRowValue(row, 'engagementId')),
+        tourName: String(pickRawRowValue(row, 'tourName') ?? ''),
+      })),
+      tours: tours.map((row) => ({
+        tourId: Number(pickRawRowValue(row, 'tourId')),
+        tourName: String(pickRawRowValue(row, 'tourName') ?? ''),
+      })),
+    };
+  }
+
   async removeManagedContact(contactId: number): Promise<void> {
     await this.dataSource.transaction(async (em) => {
       const contact = await em.getRepository(Contact).findOne({
@@ -3955,6 +3998,20 @@ export class CompanyService {
       });
       if (!contact)
         throw new NotFoundException(`Contact ${contactId} was not found.`);
+
+      // Get contact assignment IDs to delete from EmployeePhoneExtension
+      const assignments = await em.getRepository(ContactAssignment).find({
+        where: { contactId },
+      });
+      const assignmentIds = assignments.map((a) => a.contactAssignmentId);
+      if (assignmentIds.length > 0) {
+        await em.query(
+          `DELETE FROM dbo.EmployeePhoneExtension WHERE ContactAssignmentID IN (${assignmentIds.join(',')})`,
+        );
+      }
+
+      await em.getRepository(EngagementIAEContact).delete({ contactId });
+      await em.getRepository(TourTalentAgent).delete({ contactId });
       await em.delete(ContactAssignment, { contactId });
       await em.delete(Contact, { contactId });
       const stillUsed = await em.getRepository(Contact).count({

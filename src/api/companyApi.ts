@@ -14,6 +14,7 @@ export interface ApiAddress {
 export interface ApiCompanyListRow {
   companyId: number;
   companyName: string;
+  isInternal: boolean;
   companyTypeId: number;
   companyTypeName: string;
   companyTypeIds: number[];
@@ -168,6 +169,7 @@ export type ApiVenueDetailsResponse =
 
 export interface CreateCompanyPayload {
   companyName: string;
+  isInternal?: boolean;
   companyTypeIds: number[];
   companyTypeId?: number;
   serviceProvidedIds?: number[];
@@ -182,6 +184,7 @@ export interface CreateCompanyPayload {
 
 export interface UpdateCompanyPayload {
   companyName?: string;
+  isInternal?: boolean;
   companyTypeIds?: number[];
   companyTypeId?: number;
   serviceProvidedIds?: number[];
@@ -461,6 +464,15 @@ export function createManagedContact(body: ManagedContactPayload) {
 export function updateManagedContact(contactId: number, body: Partial<ManagedContactPayload>) {
   return apiFetch<ApiManagedContact>(`/contacts/${contactId}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
+export interface ApiContactConnections {
+  engagements: { engagementId: number; tourName: string }[];
+  tours: { tourId: number; tourName: string }[];
+}
+
+export function fetchContactConnections(contactId: number) {
+  return apiFetch<ApiContactConnections>(`/contacts/${contactId}/connections`);
+}
+
 export function deleteManagedContact(contactId: number) {
   return apiFetch<void>(`/contacts/${contactId}`, { method: 'DELETE' });
 }

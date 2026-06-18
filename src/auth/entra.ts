@@ -195,8 +195,6 @@ export function describeGraphAccessToken(accessToken: string): GraphTokenDiagnos
 function logGraphTokenDiagnostics(accessToken: string): void {
     const diagnostics = describeGraphAccessToken(accessToken);
 
-    console.debug("[MSAL] Microsoft Graph token acquisition succeeded.", diagnostics);
-
     if (!diagnostics.isGraphAudience || !diagnostics.hasUserReadAll) {
         console.warn("[MSAL] Microsoft Graph token is missing the expected audience or delegated scope.", {
             expectedAudience: "Microsoft Graph",

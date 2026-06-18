@@ -45,4 +45,7 @@ export class Company extends AuditColumns {
   @ManyToOne(() => Dma)
   @JoinColumn({ name: 'DMAID' })
   dma: Dma;
+
+  @Column({ name: 'is_internal', type: 'bit' })
+  isInternal: boolean;
 }
