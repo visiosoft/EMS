@@ -110,6 +110,8 @@ export interface ApiEngagementVenueTabData {
   engagementLinks: ApiEngagementLinkRow[];
   /** Role-based contacts per venue for read-only display */
   venueRoleContacts: Record<number, ApiVenueRoleContacts>;
+  /** IAE staff assigned with role 'Production Manager' */
+  iaeProductionManagers: ApiRoleContactDisplay[];
 }
 
 export interface ApiEngagementLinkRow {

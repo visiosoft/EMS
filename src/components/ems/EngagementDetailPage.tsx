@@ -1689,17 +1689,6 @@ function EngagementProductionPanel({
     );
   }, [currentStagehandProviderId, venueDetailsQuery.data]);
 
-  const venueContactOptions = useMemo<Select2Option[]>(
-    () => [
-      { value: '', label: 'Not set' },
-      ...(venueContactsQuery.data ?? []).map((c) => ({
-        value: String(c.contactId),
-        label: `${c.firstName} ${c.lastName}`.trim() || c.contactId.toString(),
-      })),
-    ],
-    [venueContactsQuery.data],
-  );
-
   const stagehandProviderOptions = useMemo((): Select2Option[] => {
     const base = companyToSelect2Options(stagehandProvidersQuery.data ?? []);
 
@@ -1716,10 +1705,7 @@ function EngagementProductionPanel({
     return data.stagehandProviderContacts ?? [];
   }, [venueDetailsQuery.data]);
 
-  // Venue tab fields: IAE Production Manager, Venue Type, Tech Pack
-  const [iaeProductionManagerId, setIaeProductionManagerId] = useState('');
-  const [venueProductionManagerId, setVenueProductionManagerId] = useState('');
-  const [stagehandContactId, setStagehandContactId] = useState('');
+  // Venue tab fields: Venue Type, Tech Pack
   const [venueTypeId, setVenueTypeId] = useState('');
   const [stageDimensions, setStageDimensions] = useState('');
   const [flySystemSpecs, setFlySystemSpecs] = useState('');
@@ -1737,34 +1723,19 @@ function EngagementProductionPanel({
     [venueTabDataQuery.data, venueCompanyId],
   );
 
+  const venueRoleContactsForVenue = useMemo(
+    () => (venueCompanyId != null ? venueTabDataQuery.data?.venueRoleContacts?.[venueCompanyId] : null) ?? null,
+    [venueTabDataQuery.data, venueCompanyId],
+  );
+
   useEffect(() => {
     if (!primaryVenue) return;
-    setIaeProductionManagerId(primaryVenue.iaeProductionManagerContactId != null ? String(primaryVenue.iaeProductionManagerContactId) : '');
-    setVenueProductionManagerId(primaryVenue.venueProductionManagerContactId != null ? String(primaryVenue.venueProductionManagerContactId) : '');
-    setStagehandContactId(primaryVenue.stagehandContactId != null ? String(primaryVenue.stagehandContactId) : '');
     setVenueTypeId(primaryVenue.venueTypeId != null ? String(primaryVenue.venueTypeId) : '');
     setStageDimensions(primaryVenue.stageDimensions ?? '');
     setFlySystemSpecs(primaryVenue.flySystemSpecs ?? '');
     setStageType(primaryVenue.stageType ?? '');
     setTechPackPdfUrl(primaryVenue.techPackPdfUrl ?? '');
   }, [primaryVenue]);
-
-  const iaeContactLookupsQuery = useQuery({
-    queryKey: ['engagements', 'iae-contact-lookups'],
-    queryFn: fetchEngagementIaeContactLookups,
-    staleTime: 300_000,
-  });
-
-  const iaeContactOptions = useMemo<Select2Option[]>(
-    () => [
-      { value: '', label: 'Not set' },
-      ...(iaeContactLookupsQuery.data?.contacts ?? []).map((c) => ({
-        value: String(c.id),
-        label: c.label,
-      })),
-    ],
-    [iaeContactLookupsQuery.data],
-  );
 
   const venueTypesQuery = useQuery({
     queryKey: ['lookups', 'venue-types'],
@@ -1797,8 +1768,6 @@ function EngagementProductionPanel({
       onError: (e) => addToast(friendlyApiError(e, 'Could not save.'), 'error'),
     });
 
-  const saveIaePmMutation = makeVenueTabMutation();
-  const saveVenuePmMutation = makeVenueTabMutation();
   const saveVenueTypeMutation = makeVenueTabMutation();
   const saveTechPackMutation = makeVenueTabMutation();
 
@@ -1923,172 +1892,57 @@ function EngagementProductionPanel({
       {/* IAE Production Manager */}
       <div className="rounded-md border border-border bg-surface/40 p-4 space-y-4">
         <span className="text-xs font-semibold text-text-primary block">IAE Production Manager</span>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Production Manager Contact">
-            <Select2
-              options={iaeContactOptions}
-              value={iaeProductionManagerId}
-              onChange={setIaeProductionManagerId}
-              placeholder="Select IAE contact…"
-              allowClear
-              disabled={saveIaePmMutation.isPending}
-            />
-          </FormField>
-        </div>
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            size="sm"
-            className="bg-ems-accent text-white hover:opacity-90"
-            onClick={() => saveIaePmMutation.mutate({ iaeProductionManagerContactId: iaeProductionManagerId ? Number(iaeProductionManagerId) : null })}
-            disabled={saveIaePmMutation.isPending}
-          >
-            {saveIaePmMutation.isPending ? (
-              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
-            ) : 'Save IAE production manager'}
-          </Button>
+        <div className="min-h-[42px] rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary">
+          {(venueTabDataQuery.data?.iaeProductionManagers ?? []).length === 0 ? (
+            <span className="text-text-muted">No IAE production manager assigned.</span>
+          ) : (
+            <ul className="space-y-2">
+              {venueTabDataQuery.data!.iaeProductionManagers.map((c) => (
+                <li key={c.contactId} className="flex flex-col gap-0.5">
+                  <span className="font-medium">{`${c.firstName} ${c.lastName}`.trim()}</span>
+                  <span className="text-xs text-text-muted">{c.roleName}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
 
       {/* Venue Production Manager */}
-      <div
-        className="relative rounded-lg border border-border bg-surface/40 p-4 space-y-4"
-        aria-busy={saveStagehandProviderMutation.isPending}
-      >
+      <div className="rounded-md border border-border bg-surface/40 p-4 space-y-4">
         <span className="text-xs font-semibold text-text-primary block">Venue Production Manager</span>
-        {saveStagehandProviderMutation.isPending && (
-          <div
-            className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/55 backdrop-blur-[1px]"
-            aria-live="polite"
-          >
-            <span className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2.5 text-sm font-medium text-text-primary shadow-md">
-              <Loader2 className="h-5 w-5 animate-spin text-ems-accent shrink-0" />
-              Saving to database...
-            </span>
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Venue Production Manager">
-            <Select2
-              options={venueContactOptions}
-              value={venueProductionManagerId}
-              onChange={setVenueProductionManagerId}
-              placeholder="Select contact…"
-              allowClear
-              disabled={saveVenuePmMutation.isPending}
-            />
-          </FormField>
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-x-6 gap-y-5">
-          <FormField label="Venue production manager contact information">
-            <div className="min-h-[42px] rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary">
-              {productionManagerContacts.length === 0 ? (
-                <span className="text-text-muted">
-                  No production manager contact assigned to this venue.
-                </span>
-              ) : (
-                <ul className="space-y-2">
-                  {productionManagerContacts.map((contact) => {
-                    const name = compactContactName(contact) || contact.email;
-                    const phone = contactPhoneDisplay(contact);
-                    const rawPhone = contact.cellPhone || contact.workPhone;
-                    return (
-                      <li
-                        key={contact.contactAssignmentId}
-                        className="flex flex-col gap-0.5"
-                      >
-                        <span className="font-medium">{name}</span>
-                        <span className="text-xs text-text-secondary">
-                          {contact.email && <a href={`mailto:${contact.email}`} className="hover:underline">{contact.email}</a>}
-                          {contact.email && phone && ' | '}
-                          {phone && rawPhone && <a href={`tel:${rawPhone}`} className="hover:underline">{phone}</a>}
-                          {!contact.email && !phone && '-'}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
-          </FormField>
-
-          <FormField label="Venue Stage Labor Contact">
-            <Select2
-              options={venueContactOptions}
-              value={stagehandContactId}
-              onChange={setStagehandContactId}
-              placeholder="Select contact…"
-              allowClear
-              disabled={saveVenuePmMutation.isPending}
-            />
-          </FormField>
-        </div>
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            size="sm"
-            className="bg-ems-accent text-white hover:opacity-90"
-            onClick={() => saveVenuePmMutation.mutate({
-              venueProductionManagerContactId: venueProductionManagerId ? Number(venueProductionManagerId) : null,
-              stagehandContactId: stagehandContactId ? Number(stagehandContactId) : null,
-            })}
-            disabled={saveVenuePmMutation.isPending}
-          >
-            {saveVenuePmMutation.isPending ? (
-              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
-            ) : 'Save production manager & stage labor contact'}
-          </Button>
-        </div>
-
-        <div className="border-t border-border pt-4 space-y-4">
-          <FormField label="Stagehand Provider (company)">
-            <Select2
-              options={stagehandProviderOptions}
-              value={stagehandProviderId}
-              onChange={(value) => {
-                markStagehandUserEdited();
-                setStagehandProviderId(value);
-              }}
-              placeholder="None"
-              allowClear
-              disabled={venueDetailsMissing || saveStagehandProviderMutation.isPending}
-            />
-          </FormField>
-          {currentStagehandProviderId != null && stagehandProviderContacts.length > 0 && (
-            <div className="rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary">
-              <span className="text-[11px] text-text-muted font-medium uppercase tracking-wide">Stage labor provider contacts</span>
-              <ul className="space-y-2 mt-1">
-                {stagehandProviderContacts.map((contact) => (
-                  <li key={contact.contactInfoId} className="flex flex-col gap-0.5">
-                    <span className="font-medium">{contact.fullName}</span>
-                    <span className="text-xs text-text-secondary">
-                      {[contact.email, contact.phone || contact.cellPhone].filter(Boolean).join(' | ') || '-'}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+        <div className="min-h-[42px] rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary">
+          {(venueRoleContactsForVenue?.venueProductionManager ?? []).length === 0 ? (
+            <span className="text-text-muted">No venue production manager contact assigned.</span>
+          ) : (
+            <ul className="space-y-2">
+              {venueRoleContactsForVenue!.venueProductionManager.map((c) => (
+                <li key={c.contactId} className="flex flex-col gap-0.5">
+                  <span className="font-medium">{`${c.firstName} ${c.lastName}`.trim()}</span>
+                  <span className="text-xs text-text-muted">{c.roleName}</span>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
+      </div>
 
-        <div className="flex justify-end border-t border-border pt-4">
-          <Button
-            type="button"
-            size="sm"
-            className="bg-ems-accent text-white hover:opacity-90"
-            onClick={handleSave}
-            disabled={stagehandSaveDisabled}
-          >
-            {saveStagehandProviderMutation.isPending ? (
-              <span className="inline-flex items-center gap-1">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Saving...
-              </span>
-            ) : (
-              'Save stagehand provider'
-            )}
-          </Button>
+      {/* Venue Stage Labor Company Contact */}
+      <div className="rounded-md border border-border bg-surface/40 p-4 space-y-4">
+        <span className="text-xs font-semibold text-text-primary block">Stagehand Provider</span>
+        <div className="min-h-[42px] rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary">
+          {(venueRoleContactsForVenue?.venueStageLaborCompany ?? []).length === 0 ? (
+            <span className="text-text-muted">No stage labor contact assigned.</span>
+          ) : (
+            <ul className="space-y-2">
+              {venueRoleContactsForVenue!.venueStageLaborCompany.map((c) => (
+                <li key={c.contactId} className="flex flex-col gap-0.5">
+                  <span className="font-medium">{`${c.firstName} ${c.lastName}`.trim()}</span>
+                  <span className="text-xs text-text-muted">{c.roleName}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
 

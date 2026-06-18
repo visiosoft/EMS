@@ -160,6 +160,8 @@ export interface EngagementVenueTabData {
   engagementLinks: EngagementLinkRow[];
   /** Role-based contacts per venue (for read-only display sections) */
   venueRoleContacts: Record<number, VenueRoleContacts>;
+  /** IAE staff assigned to this engagement with role 'Production Manager' */
+  iaeProductionManagers: RoleContactDisplay[];
 }
 
 export interface EngagementLinkRow {
@@ -5841,6 +5843,27 @@ export class EngagementService {
       venueRoleContacts[vid] = contacts;
     }
 
+    // IAE staff with role 'Production Manager' assigned to this engagement
+    let iaeProductionManagers: RoleContactDisplay[] = [];
+    try {
+      const pmRows = await this.dataSource.query(
+        `SELECT eic.[ContactID] AS contactId, ci.[FirstName] AS firstName, ci.[LastName] AS lastName, r.[RoleName] AS roleName
+         FROM dbo.EngagementIAEContact eic
+         INNER JOIN dbo.Contact c ON c.[ContactID] = eic.[ContactID]
+         INNER JOIN dbo.ContactInfo ci ON ci.[ContactInfoID] = c.[ContactInfoID]
+         INNER JOIN dbo.Role r ON r.[RoleID] = eic.[RoleID]
+         WHERE eic.[EngagementID] = @0
+           AND LOWER(LTRIM(RTRIM(r.[RoleName]))) = @1`,
+        [engagementId, 'production manager'],
+      ) as Record<string, unknown>[];
+      iaeProductionManagers = (pmRows ?? []).map((row) => ({
+        contactId: Number(row['contactId'] ?? row['contactid'] ?? 0),
+        firstName: String(row['firstName'] ?? row['firstname'] ?? ''),
+        lastName: String(row['lastName'] ?? row['lastname'] ?? ''),
+        roleName: String(row['roleName'] ?? row['rolename'] ?? ''),
+      }));
+    } catch { /* ignore if table unavailable */ }
+
     return {
       venues,
       venueDealTypeId,
@@ -5849,6 +5872,7 @@ export class EngagementService {
       techRiderLinkUrl,
       engagementLinks,
       venueRoleContacts,
+      iaeProductionManagers,
     };
   }
 
