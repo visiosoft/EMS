@@ -31,6 +31,7 @@ import { EngagementService } from './engagement.service';
 import { EngagementTravel } from '../entities/engagement-travel.entity';
 import { EngagementTravelCarService } from '../entities/engagement-travel-car-service.entity';
 import { EngagementTravelHotel } from '../entities/engagement-travel-hotel.entity';
+import { EngagementPartner } from '../entities/engagement-partner.entity';
 
 @Module({
   imports: [
@@ -63,6 +64,7 @@ import { EngagementTravelHotel } from '../entities/engagement-travel-hotel.entit
       EngagementTravel,
       EngagementTravelCarService,
       EngagementTravelHotel,
+      EngagementPartner,
     ]),
     AttractionToursModule,
   ],

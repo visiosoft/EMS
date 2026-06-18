@@ -88,6 +88,7 @@ export interface EngagementListRow {
   rehearsalTime: string | null;
   loadInDate: string | null;
   loadInTime: string | null;
+  tourManagerContactId: number | null;
   displayTitle: string;
   appCreated: boolean;
 }
@@ -320,6 +321,8 @@ export interface EngagementFinanceRow {
   artistRoyaltyVariableFee: string | null;
   artistBackEndTerms: string | null;
   artistVersusPercent: number | null;
+  /** dbo.ArtistFinance.OveragePercent — Overage (%) stored as decimal */
+  overagePercent: number | null;
   artistPromoterProfitPercent: number | null;
   artistBackendPercent: number | null;
   artistRoyaltyRatePercent: number | null;
@@ -572,8 +575,10 @@ export class EngagementService {
   private tourMarketingColsPresent: boolean | null = null;
   /** Optional AnnouncementDate column on dbo.EngagementFinances */
   private engagementFinanceAnnouncementDatePresent: boolean | null = null;
-  /** Optional Booking columns on dbo.EngagementFinances */
+  /** Optional Booking contact columns on dbo.EngagementFinances */
   private engagementFinanceBookingColsPresent: boolean | null = null;
+  /** Optional Attraction Contract link columns on dbo.EngagementFinances */
+  private engagementFinanceContractLinkColsPresent: boolean | null = null;
   /** Optional Event Business columns on dbo.EngagementFinances */
   private engagementFinanceEventBusinessColsPresent: boolean | null = null;
 
@@ -1298,10 +1303,7 @@ export class EngagementService {
       const r = await this.dataSource.query(`
         SELECT CASE WHEN
           EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'PromoterPartnerContactID') AND
-          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'TourManagerContactID') AND
-          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'AttractionContractSharePointLink') AND
-          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'PartiallyExecutedAttractionContractSharePointLink') AND
-          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'FullyExecutedAttractionContractSharePointLink')
+          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'TourManagerContactID')
         THEN 1 ELSE 0 END AS ok
       `);
       const row0 = (r as Record<string, unknown>[])?.[0];
@@ -1315,47 +1317,86 @@ export class EngagementService {
     }
   }
 
+  private async engagementFinancesHasContractLinkColumns(): Promise<boolean> {
+    if (this.engagementFinanceContractLinkColsPresent !== null) {
+      return this.engagementFinanceContractLinkColsPresent;
+    }
+    try {
+      const r = await this.dataSource.query(`
+        SELECT CASE WHEN
+          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'AttractionContractSharePointLink') AND
+          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'PartiallyExecutedAttractionContractSharePointLink') AND
+          EXISTS (SELECT 1 FROM sys.columns c INNER JOIN sys.tables t ON c.object_id=t.object_id INNER JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE s.name=N'dbo' AND t.name=N'EngagementFinances' AND c.name=N'FullyExecutedAttractionContractSharePointLink')
+        THEN 1 ELSE 0 END AS ok
+      `);
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      const rawOk = row0 ? pickRaw(row0, 'ok') : undefined;
+      const ok = rawOk === 1 || rawOk === true || rawOk === '1' || Number(rawOk) === 1;
+      this.engagementFinanceContractLinkColsPresent = ok;
+      return ok;
+    } catch {
+      this.engagementFinanceContractLinkColsPresent = false;
+      return false;
+    }
+  }
+
   private async mergeFinanceBookingFieldsFromDb(
     financeId: number,
     base: EngagementFinanceRow,
   ): Promise<EngagementFinanceRow> {
-    if (!(await this.engagementFinancesHasBookingColumns())) return base;
+    const hasContactCols = await this.engagementFinancesHasBookingColumns();
+    const hasLinkCols = await this.engagementFinancesHasContractLinkColumns();
+    if (!hasContactCols && !hasLinkCols) return base;
     try {
       const fid = Math.floor(Number(financeId));
       if (!Number.isFinite(fid) || fid < 1) return base;
-      const r = await this.dataSource.query(`
-        SELECT
-          ef.[PromoterPartnerContactID] AS ppContactId,
-          ef.[TourManagerContactID] AS tmContactId,
-          ef.[AttractionContractSharePointLink] AS acLink,
-          ef.[PartiallyExecutedAttractionContractSharePointLink] AS peLink,
-          ef.[FullyExecutedAttractionContractSharePointLink] AS feLink,
-          ppc.FirstName + ' ' + ppc.LastName AS ppContactName,
-          tmc.FirstName + ' ' + tmc.LastName AS tmContactName
-        FROM dbo.EngagementFinances ef
-        LEFT JOIN dbo.Contact ppc ON ppc.ContactID = ef.[PromoterPartnerContactID]
-        LEFT JOIN dbo.Contact tmc ON tmc.ContactID = ef.[TourManagerContactID]
-        WHERE ef.[FinanceID] = ${fid}
-      `);
+      const selects: string[] = [];
+      const joins: string[] = [];
+      if (hasContactCols) {
+        selects.push(
+          'ef.[PromoterPartnerContactID] AS ppContactId',
+          'ef.[TourManagerContactID] AS tmContactId',
+          "ppc.FirstName + ' ' + ppc.LastName AS ppContactName",
+          "tmc.FirstName + ' ' + tmc.LastName AS tmContactName",
+        );
+        joins.push(
+          'LEFT JOIN dbo.Contact ppc ON ppc.ContactID = ef.[PromoterPartnerContactID]',
+          'LEFT JOIN dbo.Contact tmc ON tmc.ContactID = ef.[TourManagerContactID]',
+        );
+      }
+      if (hasLinkCols) {
+        selects.push(
+          'ef.[AttractionContractSharePointLink] AS acLink',
+          'ef.[PartiallyExecutedAttractionContractSharePointLink] AS peLink',
+          'ef.[FullyExecutedAttractionContractSharePointLink] AS feLink',
+        );
+      }
+      if (!selects.length) return base;
+      const r = await this.dataSource.query(
+        `SELECT ${selects.join(', ')} FROM dbo.EngagementFinances ef ${joins.join(' ')} WHERE ef.[FinanceID] = ${fid}`,
+      );
       const row0 = (r as Record<string, unknown>[])?.[0];
       if (!row0) return base;
-      const ppId = pickRaw(row0, 'ppContactId');
-      const tmId = pickRaw(row0, 'tmContactId');
-      const ppName = pickRaw(row0, 'ppContactName');
-      const tmName = pickRaw(row0, 'tmContactName');
-      const acLink = pickRaw(row0, 'acLink');
-      const peLink = pickRaw(row0, 'peLink');
-      const feLink = pickRaw(row0, 'feLink');
-      return {
-        ...base,
-        promoterPartnerContactId: ppId == null ? null : Math.trunc(Number(ppId)) || null,
-        promoterPartnerContactName: ppName == null || ppName === '' ? null : String(ppName).trim(),
-        tourManagerContactId: tmId == null ? null : Math.trunc(Number(tmId)) || null,
-        tourManagerContactName: tmName == null || tmName === '' ? null : String(tmName).trim(),
-        attractionContractSharePointLink: acLink == null || acLink === '' ? null : String(acLink).slice(0, 2048),
-        partiallyExecutedAttractionContractSharePointLink: peLink == null || peLink === '' ? null : String(peLink).slice(0, 2048),
-        fullyExecutedAttractionContractSharePointLink: feLink == null || feLink === '' ? null : String(feLink).slice(0, 2048),
-      };
+      const merged = { ...base };
+      if (hasContactCols) {
+        const ppId = pickRaw(row0, 'ppContactId');
+        const tmId = pickRaw(row0, 'tmContactId');
+        const ppName = pickRaw(row0, 'ppContactName');
+        const tmName = pickRaw(row0, 'tmContactName');
+        merged.promoterPartnerContactId = ppId == null ? null : Math.trunc(Number(ppId)) || null;
+        merged.promoterPartnerContactName = ppName == null || ppName === '' ? null : String(ppName).trim();
+        merged.tourManagerContactId = tmId == null ? null : Math.trunc(Number(tmId)) || null;
+        merged.tourManagerContactName = tmName == null || tmName === '' ? null : String(tmName).trim();
+      }
+      if (hasLinkCols) {
+        const acLink = pickRaw(row0, 'acLink');
+        const peLink = pickRaw(row0, 'peLink');
+        const feLink = pickRaw(row0, 'feLink');
+        merged.attractionContractSharePointLink = acLink == null || acLink === '' ? null : String(acLink).slice(0, 2048);
+        merged.partiallyExecutedAttractionContractSharePointLink = peLink == null || peLink === '' ? null : String(peLink).slice(0, 2048);
+        merged.fullyExecutedAttractionContractSharePointLink = feLink == null || feLink === '' ? null : String(feLink).slice(0, 2048);
+      }
+      return merged;
     } catch {
       return base;
     }
@@ -1367,34 +1408,33 @@ export class EngagementService {
   ): Promise<void> {
     const fid = financeId == null ? NaN : Math.floor(Number(financeId));
     if (!Number.isFinite(fid) || fid < 1) return;
-    if (!(await this.engagementFinancesHasBookingColumns())) return;
 
-    const hasAny =
-      dto.promoterPartnerContactId !== undefined ||
-      dto.tourManagerContactId !== undefined ||
-      dto.attractionContractSharePointLink !== undefined ||
-      dto.partiallyExecutedAttractionContractSharePointLink !== undefined ||
-      dto.fullyExecutedAttractionContractSharePointLink !== undefined;
-    if (!hasAny) return;
+    const hasContactCols = await this.engagementFinancesHasBookingColumns();
+    const hasLinkCols = await this.engagementFinancesHasContractLinkColumns();
+    if (!hasContactCols && !hasLinkCols) return;
 
     const sets: string[] = [];
-    if (dto.promoterPartnerContactId !== undefined) {
-      sets.push(`[PromoterPartnerContactID] = ${dto.promoterPartnerContactId == null ? 'NULL' : Math.trunc(Number(dto.promoterPartnerContactId))}`);
+    if (hasContactCols) {
+      if (dto.promoterPartnerContactId !== undefined) {
+        sets.push(`[PromoterPartnerContactID] = ${dto.promoterPartnerContactId == null ? 'NULL' : Math.trunc(Number(dto.promoterPartnerContactId))}`);
+      }
+      if (dto.tourManagerContactId !== undefined) {
+        sets.push(`[TourManagerContactID] = ${dto.tourManagerContactId == null ? 'NULL' : Math.trunc(Number(dto.tourManagerContactId))}`);
+      }
     }
-    if (dto.tourManagerContactId !== undefined) {
-      sets.push(`[TourManagerContactID] = ${dto.tourManagerContactId == null ? 'NULL' : Math.trunc(Number(dto.tourManagerContactId))}`);
-    }
-    if (dto.attractionContractSharePointLink !== undefined) {
-      const v = dto.attractionContractSharePointLink;
-      sets.push(`[AttractionContractSharePointLink] = ${v == null || String(v).trim() === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(v).trim().slice(0, 2048))}`);
-    }
-    if (dto.partiallyExecutedAttractionContractSharePointLink !== undefined) {
-      const v = dto.partiallyExecutedAttractionContractSharePointLink;
-      sets.push(`[PartiallyExecutedAttractionContractSharePointLink] = ${v == null || String(v).trim() === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(v).trim().slice(0, 2048))}`);
-    }
-    if (dto.fullyExecutedAttractionContractSharePointLink !== undefined) {
-      const v = dto.fullyExecutedAttractionContractSharePointLink;
-      sets.push(`[FullyExecutedAttractionContractSharePointLink] = ${v == null || String(v).trim() === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(v).trim().slice(0, 2048))}`);
+    if (hasLinkCols) {
+      if (dto.attractionContractSharePointLink !== undefined) {
+        const v = dto.attractionContractSharePointLink;
+        sets.push(`[AttractionContractSharePointLink] = ${v == null || String(v).trim() === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(v).trim().slice(0, 2048))}`);
+      }
+      if (dto.partiallyExecutedAttractionContractSharePointLink !== undefined) {
+        const v = dto.partiallyExecutedAttractionContractSharePointLink;
+        sets.push(`[PartiallyExecutedAttractionContractSharePointLink] = ${v == null || String(v).trim() === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(v).trim().slice(0, 2048))}`);
+      }
+      if (dto.fullyExecutedAttractionContractSharePointLink !== undefined) {
+        const v = dto.fullyExecutedAttractionContractSharePointLink;
+        sets.push(`[FullyExecutedAttractionContractSharePointLink] = ${v == null || String(v).trim() === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(v).trim().slice(0, 2048))}`);
+      }
     }
     if (!sets.length) return;
     await this.dataSource.query(
@@ -3100,6 +3140,9 @@ export class EngagementService {
     const artistVersusPercent = artistRoyaltyVariableFee != null
       ? this.toPercentOrNull(parseFloat(artistRoyaltyVariableFee))
       : null;
+    const overagePercent = artistRow
+      ? this.mapFinanceNumber(artistRow.overagePercent)
+      : null;
     // Read backend% directly from ArtistBackEndTerms column (plain number string)
     const artistBackendPercent = artistBackEndTerms != null
       ? this.toPercentOrNull(parseFloat(artistBackEndTerms))
@@ -3145,6 +3188,7 @@ export class EngagementService {
         artistRoyaltyVariableFee,
         artistBackEndTerms,
         artistVersusPercent,
+        overagePercent: null,
         artistPromoterProfitPercent: promoterProfitPercent,
         artistBackendPercent,
         artistRoyaltyRatePercent: artistRow ? this.mapFinanceNumber(artistRow.royaltyRate) : null,
@@ -3242,6 +3286,7 @@ export class EngagementService {
       artistRoyaltyVariableFee,
       artistBackEndTerms,
       artistVersusPercent,
+      overagePercent,
       artistPromoterProfitPercent: promoterProfitPercent,
       artistBackendPercent,
       artistRoyaltyRatePercent: artistRow ? this.mapFinanceNumber(artistRow.royaltyRate) : null,
@@ -3361,7 +3406,8 @@ export class EngagementService {
         'openingPerformanceSortNull',
       )
       .addSelect(this.engagementRehearsalDateSubquery(), 'rehearsalDate')
-      .addSelect(this.engagementLoadInDateSubquery(), 'loadInDate');
+      .addSelect(this.engagementLoadInDateSubquery(), 'loadInDate')
+      .addSelect('e.tourManagerContactId', 'tourManagerContactId');
 
     if (whereId !== undefined) {
       qb.where('e.engagementId = :id', { id: whereId });
@@ -3478,6 +3524,8 @@ export class EngagementService {
       rehearsalTime: null,
       loadInDate: this.parseOpeningDateOnly(g('loadInDate')),
       loadInTime: null,
+      tourManagerContactId:
+        g('tourManagerContactId') != null ? Number(g('tourManagerContactId')) : null,
       displayTitle: buildEngagementDisplayTitle(
         attractionName,
         tourName,
@@ -4400,6 +4448,9 @@ export class EngagementService {
           artistRoyaltyVariableFee: dto.artistVersusPercent !== undefined
             ? (dto.artistVersusPercent != null ? String(dto.artistVersusPercent) : null)
             : null,
+          overagePercent: dto.overagePercent !== undefined
+            ? (dto.overagePercent == null ? null : dto.overagePercent)
+            : null,
           artistBackEndTerms: dto.artistBackendPercent !== undefined
             ? (dto.artistBackendPercent != null ? String(dto.artistBackendPercent) : null)
             : null,
@@ -4434,6 +4485,10 @@ export class EngagementService {
         if (dto.artistVersusPercent !== undefined) {
           af.artistRoyaltyVariableFee =
             dto.artistVersusPercent != null ? String(dto.artistVersusPercent) : null;
+        }
+        if (dto.overagePercent !== undefined) {
+          af.overagePercent =
+            dto.overagePercent == null ? null : dto.overagePercent;
         }
         if (dto.artistBackendPercent !== undefined) {
           af.artistBackEndTerms =
@@ -4765,6 +4820,11 @@ export class EngagementService {
     if (dto.grossPotential !== undefined) {
       existing.grossPotential =
         dto.grossPotential == null ? null : dto.grossPotential;
+    }
+
+    if (dto.tourManagerContactId !== undefined) {
+      existing.tourManagerContactId =
+        dto.tourManagerContactId == null ? null : dto.tourManagerContactId;
     }
 
     await this.engagementRepo.save(existing);
@@ -7517,6 +7577,75 @@ export class EngagementService {
       }
       await manager.delete(EngagementTravel, { engagementTravelId });
     });
+  }
+
+  // ─── Engagement Partner (dbo.EngagementPartner) ─────────────────────────────
+
+  async getEngagementPartner(
+    engagementId: number,
+  ): Promise<{ partnerCompanyId: number | null; partnerCompanyName: string | null; partnerContactId: number | null; partnerContactName: string | null }> {
+    await this.assertEngagementExists(engagementId);
+    try {
+      const rows = await this.dataSource.query(
+        `SELECT TOP 1
+          ep.[PartnerCompanyID] AS compId,
+          c.[CompanyName] AS compName,
+          ep.[PartnerContactID] AS contId,
+          ci.[FirstName] + N' ' + ci.[LastName] AS contName
+         FROM dbo.EngagementPartner ep
+         LEFT JOIN dbo.Company c ON c.[CompanyID] = ep.[PartnerCompanyID]
+         LEFT JOIN dbo.Contact con ON con.[ContactID] = ep.[PartnerContactID]
+         LEFT JOIN dbo.ContactInfo ci ON ci.[ContactInfoID] = con.[ContactInfoID]
+         WHERE ep.[EngagementID] = ${Math.trunc(Number(engagementId))}
+         ORDER BY ep.[EngagementPartnerID]`,
+      ) as Record<string, unknown>[];
+      const row = rows?.[0];
+      if (!row) return { partnerCompanyId: null, partnerCompanyName: null, partnerContactId: null, partnerContactName: null };
+      const toInt = (v: unknown) => { const n = Number(v); return v != null && v !== '' && Number.isFinite(n) && n > 0 ? n : null; };
+      const toStr = (v: unknown) => (v == null || v === '' ? null : String(v).trim());
+      return {
+        partnerCompanyId: toInt(pickRaw(row, 'compId')),
+        partnerCompanyName: toStr(pickRaw(row, 'compName')),
+        partnerContactId: toInt(pickRaw(row, 'contId')),
+        partnerContactName: toStr(pickRaw(row, 'contName')),
+      };
+    } catch {
+      return { partnerCompanyId: null, partnerCompanyName: null, partnerContactId: null, partnerContactName: null };
+    }
+  }
+
+  async upsertEngagementPartner(
+    engagementId: number,
+    dto: { partnerCompanyId: number; partnerContactId: number | null },
+  ): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+    const eid = Math.trunc(Number(engagementId));
+    if (dto.partnerCompanyId == null || !Number.isFinite(Number(dto.partnerCompanyId)) || Number(dto.partnerCompanyId) < 1) {
+      throw new BadRequestException({ message: 'partnerCompanyId is required.' });
+    }
+    const compSql = String(Math.trunc(Number(dto.partnerCompanyId)));
+    const contSql = dto.partnerContactId != null ? String(Math.trunc(Number(dto.partnerContactId))) : 'NULL';
+
+    // Check if a row already exists
+    const existing = await this.dataSource.query(
+      `SELECT [EngagementPartnerID] FROM dbo.EngagementPartner WHERE [EngagementID] = ${eid}`,
+    ) as Record<string, unknown>[];
+
+    if (existing.length > 0) {
+      await this.dataSource.query(
+        `UPDATE dbo.EngagementPartner
+         SET [PartnerCompanyID] = ${compSql},
+             [PartnerContactID] = ${contSql},
+             [modified_by] = N'app',
+             [modified_at] = GETDATE()
+         WHERE [EngagementID] = ${eid}`,
+      );
+    } else {
+      await this.dataSource.query(
+        `INSERT INTO dbo.EngagementPartner ([EngagementID],[PartnerCompanyID],[PartnerContactID],[created_by],[created_at],[modified_by],[modified_at])
+         VALUES (${eid}, ${compSql}, ${contSql}, N'app', GETDATE(), N'app', GETDATE())`,
+      );
+    }
   }
 }
 

@@ -393,6 +393,21 @@ export class EngagementController {
     return this.engagementService.removeRetailPartner(id, retailPartnerId);
   }
 
+  // ─── Engagement Partner (dbo.EngagementPartner) ─────────────────────────────
+
+  @Get(':id/partner')
+  getPartner(@Param('id', ParseIntPipe) id: number) {
+    return this.engagementService.getEngagementPartner(id);
+  }
+
+  @Patch(':id/partner')
+  updatePartner(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { partnerCompanyId: number; partnerContactId: number | null },
+  ) {
+    return this.engagementService.upsertEngagementPartner(id, body);
+  }
+
   // ─── Attraction Travel ─────────────────────────────────────────────────────
 
   @Get(':id/travel')

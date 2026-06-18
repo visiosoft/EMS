@@ -51,6 +51,13 @@ export class UpdateEngagementDto {
   @Min(0)
   grossPotential?: number | null;
 
+  /** dbo.Engagement.TourManagerContactID */
+  @IsOptional()
+  @ValidateIf((_, v) => v != null)
+  @IsInt()
+  @Min(1)
+  tourManagerContactId?: number | null;
+
   /** dbo.EngagementProduction.RehearsalDate (yyyy-MM-dd or null to clear) */
   @IsOptional()
   @ValidateIf((_, v) => v != null && v !== '')

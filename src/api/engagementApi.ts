@@ -40,6 +40,7 @@ export interface ApiEngagementListRow {
   rehearsalTime: string | null;
   loadInDate: string | null;
   loadInTime: string | null;
+  tourManagerContactId: number | null;
   displayTitle: string;
   appCreated: boolean;
 }
@@ -167,6 +168,7 @@ export interface UpdateEngagementPayload {
   primaryVenueCompanyId?: number;
   sellableCapacity?: number | null;
   grossPotential?: number | null;
+  tourManagerContactId?: number | null;
   rehearsalDate?: string | null;
   rehearsalTime?: string | null;
   loadInDate?: string | null;
@@ -235,6 +237,8 @@ export interface ApiEngagementFinanceRow {
   artistRoyaltyVariableFee: string | null;
   artistBackEndTerms: string | null;
   artistVersusPercent: number | null;
+  /** dbo.ArtistFinance.OveragePercent */
+  overagePercent: number | null;
   artistPromoterProfitPercent: number | null;
   artistBackendPercent: number | null;
   artistRoyaltyRatePercent: number | null;
@@ -351,6 +355,8 @@ export type UpdateEngagementFinancePayload = {
   artistRoyaltyVariableFee?: string | null;
   artistBackEndTerms?: string | null;
   artistVersusPercent?: number | null;
+  /** dbo.ArtistFinance.OveragePercent */
+  overagePercent?: number | null;
   artistPromoterProfitPercent?: number | null;
   artistBackendPercent?: number | null;
   artistRoyaltyRatePercent?: number | null;
@@ -722,6 +728,19 @@ export const addEngagementServiceProvider = (id: number, body: { providerCompany
   apiFetch<void>(`/engagements/${id}/service-providers`, { method: 'POST', body: JSON.stringify(body) });
 export const removeEngagementServiceProvider = (id: number, providerCompanyId: number) =>
   apiFetch<void>(`/engagements/${id}/service-providers/${providerCompanyId}`, { method: 'DELETE' });
+
+// ─── Engagement Partner (dbo.EngagementPartner) ─────────────────────────────
+export interface ApiEngagementPartner {
+  partnerCompanyId: number | null;
+  partnerCompanyName: string | null;
+  partnerContactId: number | null;
+  partnerContactName: string | null;
+}
+export const fetchEngagementPartner = (id: number) =>
+  apiFetch<ApiEngagementPartner>(`/engagements/${id}/partner`);
+export const updateEngagementPartner = (id: number, body: { partnerCompanyId: number; partnerContactId: number | null }) =>
+  apiFetch<void>(`/engagements/${id}/partner`, { method: 'PATCH', body: JSON.stringify(body) });
+
 export const addEngagementVenue = (id: number, body: { venueCompanyId: number; isPrimary?: boolean }) =>
   apiFetch<void>(`/engagements/${id}/venues`, { method: 'POST', body: JSON.stringify(body) });
 export const removeEngagementVenue = (id: number, venueCompanyId: number) =>

@@ -52,6 +52,15 @@ export class ArtistFinance {
   artistBackEndTerms: string | null;
 
   @Column({
+    name: 'OveragePercent',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
+  overagePercent: string | number | null;
+
+  @Column({
     name: 'RoyaltyRate',
     type: 'decimal',
     precision: 18,

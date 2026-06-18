@@ -226,6 +226,14 @@ export class UpdateEngagementFinanceDto {
   @Max(100)
   artistVersusPercent?: number | null;
 
+  /** dbo.ArtistFinance.OveragePercent — Overage (%) as decimal */
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  overagePercent?: number | null;
+
   @IsOptional()
   @Transform(({ value }) => toOptionalNumber(value))
   @IsNumber({ maxDecimalPlaces: 2 })

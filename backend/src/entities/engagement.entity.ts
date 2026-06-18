@@ -47,6 +47,9 @@ export class Engagement extends AuditColumns {
   })
   grossPotential: string | number | null;
 
+  @Column({ name: 'TourManagerContactID', type: 'int', nullable: true })
+  tourManagerContactId: number | null;
+
   @ManyToOne(() => Tour)
   @JoinColumn({ name: 'TourID' })
   tour: Tour;

@@ -80,6 +80,8 @@ import {
   updateEngagementTravelCarService,
   deleteEngagementTravel,
   TRAVEL_BOOKED_BY_OPTIONS,
+  fetchEngagementPartner,
+  updateEngagementPartner,
   type ApiRetailPartnerRow,
   type ApiMarketingMeta,
   type CreateRetailPartnerPayload,
@@ -108,6 +110,7 @@ import {
   fetchAttractions,
   fetchTours,
   fetchVenueTypesLookup,
+  updateTour,
   type ApiAttractionListRow,
   type ApiTourListRow,
   type ApiVenueType,
@@ -4883,13 +4886,7 @@ function EngagementBookingPanel({
     () => (lookupsQuery.data?.tours ?? []).find((t) => t.tourId === row.tourId) ?? null,
     [lookupsQuery.data?.tours, row.tourId],
   );
-  const tourMgmtCompanyId = selectedTour?.tourManagementCompanyId ?? null;
-  const tourMgmtCompanyName = useMemo(() => {
-    if (tourMgmtCompanyId == null) return null;
-    return (lookupsQuery.data?.companies ?? []).find((c) => c.companyId === tourMgmtCompanyId)?.companyName
-      ?? selectedTour?.tourManagementCompanyName
-      ?? null;
-  }, [lookupsQuery.data?.companies, tourMgmtCompanyId, selectedTour?.tourManagementCompanyName]);
+  // tourMgmtCompanyId is editable — initialised from tour, saved back to dbo.Tour
 
   const talentAgencyCompanyId = selectedTour?.talentAgencyCompanyId ?? null;
   const talentAgencyCompanyName = useMemo(
@@ -4902,24 +4899,24 @@ function EngagementBookingPanel({
     [selectedTour?.talentAgentContactIds],
   );
 
-  // ── Contacts for promoter and tour management companies ───────────────────
-  const promoterProviders = useMemo(
-    () => (serviceProvidersQuery.data?.providers ?? []).filter(providerIsPromoter),
-    [serviceProvidersQuery.data?.providers],
-  );
-  const promoterCompanyId = promoterProviders[0]?.providerCompanyId ?? null;
-
-  const promoterContactsQuery = useQuery({
-    queryKey: ['company-contacts', 'promoter', promoterCompanyId],
-    queryFn: () => fetchCompanyContacts(promoterCompanyId!),
-    enabled: promoterCompanyId != null && promoterCompanyId > 0,
+  // ── Engagement partner (Promoter Partner from dbo.EngagementPartner) ──────
+  const partnerQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'partner'],
+    queryFn: () => fetchEngagementPartner(engagementId),
+    enabled: engagementId > 0,
   });
 
-  const tourMgmtContactsQuery = useQuery({
-    queryKey: ['company-contacts', 'tour-mgmt', tourMgmtCompanyId],
-    queryFn: () => fetchCompanyContacts(tourMgmtCompanyId!),
-    enabled: tourMgmtCompanyId != null && tourMgmtCompanyId > 0,
+  // ── Tour Management companies (type = 'Tour Management') ─────────────────
+  const tourMgmtCompaniesQuery = useQuery({
+    queryKey: ['companies', 'tour-management'],
+    queryFn: () => fetchCompanies(0, 5000, { companyType: 'Tour Management' }),
+    staleTime: 300_000,
   });
+  const allTourMgmtCompanyOptions = useMemo((): Select2Option[] => [
+    { value: '', label: '— not set —' },
+    ...(tourMgmtCompaniesQuery.data?.data ?? [])
+      .map((c) => ({ value: String(c.companyId), label: c.companyName })),
+  ], [tourMgmtCompaniesQuery.data?.data]);
 
   const talentAgencyContactsQuery = useQuery({
     queryKey: ['company-contacts', 'talent-agency', talentAgencyCompanyId],
@@ -4937,26 +4934,6 @@ function EngagementBookingPanel({
 
   // Only IAE staff assigned to this engagement (Overview → staff assignments)
   // with the matching role appear in each picker.
-  const iaeStaffOptionsForRole = (roleId: number | null): Select2Option[] => {
-    const seen = new Set<number>();
-    const opts: Select2Option[] = [{ value: '', label: '— not set —' }];
-    for (const r of iaeContactsQuery.data ?? []) {
-      if (roleId == null || r.roleId !== roleId || seen.has(r.contactId)) continue;
-      seen.add(r.contactId);
-      opts.push({ value: String(r.contactId), label: r.contactLabel });
-    }
-    return opts;
-  };
-
-  const talentBuyerOptions = useMemo(
-    () => iaeStaffOptionsForRole(roleIdsByKey.talentBuyer),
-    [iaeContactsQuery.data, roleIdsByKey.talentBuyer],
-  );
-  const bookingManagerOptions = useMemo(
-    () => iaeStaffOptionsForRole(roleIdsByKey.bookingManager),
-    [iaeContactsQuery.data, roleIdsByKey.bookingManager],
-  );
-
   const iaeRowsByKey = useMemo(() => {
     const result: Partial<Record<'talentBuyer' | 'bookingManager', typeof iaeContactsQuery.data extends (infer U)[] | undefined ? U : never>> = {};
     for (const field of BOOKING_IAE_STAFF_FIELDS) {
@@ -4985,27 +4962,15 @@ function EngagementBookingPanel({
     ...(contacts ?? []).map(toContactOption),
   ];
 
-  const promoterContactOptions = useMemo(
-    () => makeContactOptions(promoterContactsQuery.data),
-    [promoterContactsQuery.data],
-  );
-
-  const tourMgmtContactOptions = useMemo(
-    () => makeContactOptions(tourMgmtContactsQuery.data),
-    [tourMgmtContactsQuery.data],
-  );
-
   const talentAgentContacts = useMemo(
     () => (talentAgencyContactsQuery.data ?? []).filter((c) => talentAgentContactIds.has(c.contactId)),
     [talentAgencyContactsQuery.data, talentAgentContactIds],
   );
 
   // ── Edit states ──────────────────────────────────────────────────────────
-  const [talentBuyerContactId, setTalentBuyerContactId] = useState('');
-  const [bookingManagerContactId, setBookingManagerContactId] = useState('');
-  const [venueBookingManagerContactId, setVenueBookingManagerContactId] = useState('');
   const [promoterPartnerCompanyId, setPromoterPartnerCompanyId] = useState('');
   const [promoterPartnerContactId, setPromoterPartnerContactId] = useState('');
+  const [tourMgmtCompanyId, setTourMgmtCompanyId] = useState('');
   const [tourManagerContactId, setTourManagerContactId] = useState('');
   // Attraction terms
   const [attractionDealType, setAttractionDealType] = useState('');
@@ -5014,11 +4979,25 @@ function EngagementBookingPanel({
   const [attractionRoyaltyPercent, setAttractionRoyaltyPercent] = useState('');
   const [attractionMiddleMoney, setAttractionMiddleMoney] = useState('');
   // Venue terms
-  const [venueDealType, setVenueDealType] = useState('');
+  const [venueDealTypeId, setVenueDealTypeId] = useState('');
   // Attraction contract links
   const [attractionContractLink, setAttractionContractLink] = useState('');
   const [partiallyExecutedLink, setPartiallyExecutedLink] = useState('');
   const [fullyExecutedLink, setFullyExecutedLink] = useState('');
+
+  // ── Tour Management contacts (based on selected company) ──────────────────
+  const selectedTourMgmtCompanyId = fkIdStringToNumber(tourMgmtCompanyId);
+
+  const tourMgmtContactsQuery = useQuery({
+    queryKey: ['company-contacts', 'tour-mgmt', selectedTourMgmtCompanyId],
+    queryFn: () => fetchCompanyContacts(selectedTourMgmtCompanyId!),
+    enabled: selectedTourMgmtCompanyId != null && selectedTourMgmtCompanyId > 0,
+  });
+
+  const tourMgmtContactOptions = useMemo(
+    () => makeContactOptions(tourMgmtContactsQuery.data),
+    [tourMgmtContactsQuery.data],
+  );
 
   const {
     hasUserEdited,
@@ -5028,62 +5007,90 @@ function EngagementBookingPanel({
 
   // ── Populate from API data ────────────────────────────────────────────────
   useEffect(() => {
-    setTalentBuyerContactId(iaeRowsByKey.talentBuyer ? String(iaeRowsByKey.talentBuyer.contactId) : '');
-    setBookingManagerContactId(iaeRowsByKey.bookingManager ? String(iaeRowsByKey.bookingManager.contactId) : '');
-  }, [iaeRowsByKey]);
+    const p = partnerQuery.data;
+    if (!p) return;
+    setPromoterPartnerCompanyId(p.partnerCompanyId != null ? String(p.partnerCompanyId) : '');
+    setPromoterPartnerContactId(p.partnerContactId != null ? String(p.partnerContactId) : '');
+  }, [partnerQuery.data]);
 
   useEffect(() => {
-    setVenueBookingManagerContactId(
-      primaryVenue?.venueBookingManagerContactId != null
-        ? String(primaryVenue.venueBookingManagerContactId)
-        : '',
-    );
-  }, [primaryVenue]);
+    const compId = selectedTour?.tourManagementCompanyId;
+    setTourMgmtCompanyId(compId != null ? String(compId) : '');
+  }, [selectedTour?.tourManagementCompanyId]);
 
   useEffect(() => {
-    const promoterId = promoterProviders[0]?.providerCompanyId;
-    setPromoterPartnerCompanyId(promoterId != null ? String(promoterId) : '');
-  }, [promoterProviders]);
+    setTourManagerContactId(row.tourManagerContactId != null ? String(row.tourManagerContactId) : '');
+  }, [row.tourManagerContactId]);
 
   useEffect(() => {
     const d = financeQuery.data;
     if (!d) return;
-    // If the finance record stores a promoter company, prefer it over service provider
-    if (d.promoterPartnerCompanyId != null) {
-      setPromoterPartnerCompanyId(String(d.promoterPartnerCompanyId));
-    }
-    setPromoterPartnerContactId(d.promoterPartnerContactId != null ? String(d.promoterPartnerContactId) : '');
-    setTourManagerContactId(d.tourManagerContactId != null ? String(d.tourManagerContactId) : '');
     setAttractionDealType(d.artistDealType ?? '');
     setAttractionGuarantee(numFieldToString(d.artistGuarantee));
-    setAttractionOveragePercent(numFieldToString(d.artistVersusPercent));
+    setAttractionOveragePercent(numFieldToString(d.overagePercent));
     setAttractionRoyaltyPercent(numFieldToString(d.artistRoyaltyRatePercent));
     setAttractionMiddleMoney(numFieldToString(d.artistMiddleMoney));
-    setVenueDealType(d.venueDealType ?? '');
+    setVenueDealTypeId(d.venueDealTypeId != null ? String(d.venueDealTypeId) : '');
     setAttractionContractLink(d.attractionContractSharePointLink ?? '');
     setPartiallyExecutedLink(d.partiallyExecutedAttractionContractSharePointLink ?? '');
     setFullyExecutedLink(d.fullyExecutedAttractionContractSharePointLink ?? '');
   }, [financeQuery.data]);
 
-  // ── Venue booking manager contact options ──────────────────────────────────
+  // ── Venue Booking & Programming contacts (read-only) ──────────────────────
   const primaryVenueCompanyId = row.primaryVenueCompanyId;
-  const venueContactsQuery = useQuery({
-    queryKey: ['company-contacts', 'venue', primaryVenueCompanyId],
-    queryFn: () => fetchCompanyContacts(primaryVenueCompanyId!),
+  const venueDetailsQuery = useQuery({
+    queryKey: ['venue-details', primaryVenueCompanyId],
+    queryFn: () => fetchVenueDetails(primaryVenueCompanyId!),
     enabled: primaryVenueCompanyId != null && primaryVenueCompanyId > 0,
+    staleTime: 60_000,
   });
-  const venueContactOptions = useMemo(
-    () => makeContactOptions(venueContactsQuery.data),
-    [venueContactsQuery.data],
+  const venueBookingProgrammingContacts = useMemo(() => {
+    const d = venueDetailsQuery.data;
+    if (!d || d.missing) return [];
+    const entries: { role: string; name: string }[] = [];
+    for (const c of d.rentalManagers ?? []) entries.push({ role: 'Rental Manager', name: c.fullName });
+    for (const c of d.calendarManagers ?? []) entries.push({ role: 'Calendar Manager', name: c.fullName });
+    for (const c of d.contractManagers ?? []) entries.push({ role: 'Contracts Manager', name: c.fullName });
+    return entries;
+  }, [venueDetailsQuery.data]
   );
 
-  // ── Promoter company options ───────────────────────────────────────────────
+  // ── Venue Deal Type options (from dbo.VenueDealType) ────────────────────────
+  const financeLookupsQuery = useQuery({
+    queryKey: ['engagements', 'finance-lookups'],
+    queryFn: () => fetchEngagementFinanceLookups(),
+    staleTime: 300_000,
+  });
+  const venueDealTypeOptions = useMemo((): Select2Option[] => [
+    { value: '', label: 'Not set' },
+    ...(financeLookupsQuery.data?.venueDealTypes ?? []).map((r) => ({ value: String(r.id), label: r.label })),
+  ], [financeLookupsQuery.data?.venueDealTypes]);
+
+  // ── Promoter partner company options (type = 'Promoter Partner') ────────────
+  const promoterPartnerCompaniesQuery = useQuery({
+    queryKey: ['companies', 'promoter-partner'],
+    queryFn: () => fetchCompanies(0, 5000, { companyType: 'Promoter Partner' }),
+    staleTime: 300_000,
+  });
   const allPromoterCompanyOptions = useMemo((): Select2Option[] => [
     { value: '', label: '— not set —' },
-    ...(lookupsQuery.data?.companies ?? [])
-      .filter(companyIsPromoter)
+    ...(promoterPartnerCompaniesQuery.data?.data ?? [])
       .map((c) => ({ value: String(c.companyId), label: c.companyName })),
-  ], [lookupsQuery.data?.companies]);
+  ], [promoterPartnerCompaniesQuery.data?.data]);
+
+  // ── Promoter partner contacts (based on selected company) ──────────────────
+  const selectedPromoterCompanyId = fkIdStringToNumber(promoterPartnerCompanyId);
+
+  const promoterContactsQuery = useQuery({
+    queryKey: ['company-contacts', 'promoter', selectedPromoterCompanyId],
+    queryFn: () => fetchCompanyContacts(selectedPromoterCompanyId!),
+    enabled: selectedPromoterCompanyId != null && selectedPromoterCompanyId > 0,
+  });
+
+  const promoterContactOptions = useMemo(
+    () => makeContactOptions(promoterContactsQuery.data),
+    [promoterContactsQuery.data],
+  );
 
   // ── Save ──────────────────────────────────────────────────────────────────
   const saveMut = useMutation({
@@ -5111,60 +5118,38 @@ function EngagementBookingPanel({
         }
       }
 
-      // ── IAE contacts (talent buyer / booking manager) ────────────────────
-      for (const field of BOOKING_IAE_STAFF_FIELDS) {
-        const roleId = roleIdsByKey[field.key];
-        if (roleId == null) continue;
-        const selectedId = fkIdStringToNumber(field.key === 'talentBuyer' ? talentBuyerContactId : bookingManagerContactId);
-        const existing = iaeRowsByKey[field.key];
-        if (selectedId == null && existing) {
-          await deleteEngagementIaeContact(engagementId, existing.engagementIaeContactId);
-        } else if (selectedId != null && existing && selectedId !== existing.contactId) {
-          await updateEngagementIaeContact(engagementId, existing.engagementIaeContactId, { contactId: selectedId, roleId });
-        } else if (selectedId != null && !existing) {
-          await addEngagementIaeContact(engagementId, { contactId: selectedId, roleId, isPrimary: false });
-        }
-      }
-
-      // ── Venue booking manager ─────────────────────────────────────────────
-      if (primaryVenue != null) {
-        const newVbmId = fkIdStringToNumber(venueBookingManagerContactId);
-        const currentVbmId = primaryVenue.venueBookingManagerContactId;
-        if (newVbmId !== currentVbmId) {
-          await updateEngagementVenueTab(engagementId, primaryVenue.venueCompanyId, {
-            venueBookingManagerContactId: newVbmId,
-          });
-        }
-      }
-
-      // ── Promoter partner company ──────────────────────────────────────────
+      // ── Promoter partner → dbo.EngagementPartner ─────────────────────────
       const selectedPromoterId = fkIdStringToNumber(promoterPartnerCompanyId);
-      const currentPromoterId = promoterProviders[0]?.providerCompanyId ?? null;
-      if (selectedPromoterId !== currentPromoterId) {
-        for (const prov of promoterProviders) {
-          if (prov.providerCompanyId !== selectedPromoterId) {
-            await removeEngagementServiceProvider(engagementId, prov.providerCompanyId);
-          }
-        }
-        if (selectedPromoterId != null && !promoterProviders.some((p) => p.providerCompanyId === selectedPromoterId)) {
-          await addEngagementServiceProvider(engagementId, { providerCompanyId: selectedPromoterId });
-        }
+      if (selectedPromoterId != null) {
+        await updateEngagementPartner(engagementId, {
+          partnerCompanyId: selectedPromoterId,
+          partnerContactId: fkIdStringToNumber(promoterPartnerContactId) ?? null,
+        });
       }
 
-      // ── Finance fields (new + existing artist terms + venue deal type) ────
+      // ── Tour Management Company → dbo.Tour.TourManagementCompanyID ───────
+      if (row.tourId != null) {
+        await updateTour(row.tourId, {
+          tourManagementCompanyId: fkIdStringToNumber(tourMgmtCompanyId) ?? null,
+        });
+      }
+
+      // ── Tour Manager Contact → dbo.Engagement.TourManagerContactID ────────
+      await updateEngagement(engagementId, {
+        tourManagerContactId: fkIdStringToNumber(tourManagerContactId) ?? null,
+      });
+
+      // ── Finance fields (artist terms + venue deal type + booking columns) ─
       await updateEngagementFinance(engagementId, {
         // Artist / Attraction terms
         artistDealType: attractionDealType.trim() || null,
         artistGuarantee: guarantee.value,
-        artistVersusPercent: attractionDealType === 'Versus' ? overage.value : null,
+        overagePercent: overage.value,
         artistRoyaltyRatePercent: royalty.value,
         artistMiddleMoney: middleMoney.value,
         // Venue terms
-        venueDealType: (venueDealType || null) as UpdateEngagementFinancePayload['venueDealType'],
+        venueDealTypeId: fkIdStringToNumber(venueDealTypeId),
         // Booking fields (new optional columns)
-        promoterPartnerCompanyId: fkIdStringToNumber(promoterPartnerCompanyId),
-        promoterPartnerContactId: fkIdStringToNumber(promoterPartnerContactId),
-        tourManagerContactId: fkIdStringToNumber(tourManagerContactId),
         attractionContractSharePointLink: acLink || null,
         partiallyExecutedAttractionContractSharePointLink: peLink || null,
         fullyExecutedAttractionContractSharePointLink: feLink || null,
@@ -5173,9 +5158,11 @@ function EngagementBookingPanel({
       // Invalidate queries
       await Promise.all([
         qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] }),
+        qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'partner'] }),
         qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'iae-contacts'] }),
         qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venue-tab-data'] }),
-        qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'service-providers'] }),
+        qc.invalidateQueries({ queryKey: ['engagements', engagementId] }),
+        qc.invalidateQueries({ queryKey: ['tours'] }),
       ]);
     },
     onSuccess: () => {
@@ -5187,6 +5174,7 @@ function EngagementBookingPanel({
 
   const isLoading =
     financeQuery.isLoading ||
+    partnerQuery.isLoading ||
     iaeLookupsQuery.isLoading ||
     iaeContactsQuery.isLoading ||
     venueTabQuery.isLoading ||
@@ -5194,6 +5182,7 @@ function EngagementBookingPanel({
 
   const loadError =
     financeQuery.error ??
+    partnerQuery.error ??
     iaeLookupsQuery.error ??
     iaeContactsQuery.error ??
     venueTabQuery.error ??
@@ -5260,48 +5249,59 @@ function EngagementBookingPanel({
           {sectionTitle('IAE Booking')}
           {fieldRow(
             'IAE Talent Buyer',
-            <Select2
-              options={talentBuyerOptions}
-              value={talentBuyerContactId}
-              onChange={(v) => { markUserEdited(); setTalentBuyerContactId(v); }}
-              placeholder="— not set —"
-              allowClear
-              disabled={disabled || roleIdsByKey.talentBuyer == null}
-            />,
+            <span className="text-sm text-text-primary">{iaeRowsByKey.talentBuyer?.contactLabel ?? '— not set —'}</span>,
           )}
           {fieldRow(
             'IAE Booking Manager',
-            <Select2
-              options={bookingManagerOptions}
-              value={bookingManagerContactId}
-              onChange={(v) => { markUserEdited(); setBookingManagerContactId(v); }}
-              placeholder="— not set —"
-              allowClear
-              disabled={disabled || roleIdsByKey.bookingManager == null}
-            />,
+            <span className="text-sm text-text-primary">{iaeRowsByKey.bookingManager?.contactLabel ?? '— not set —'}</span>,
           )}
-          <p className="text-xs text-text-muted">Also editable in the Main Information tab under "Innovation Arts Staff Assignments".</p>
+          <p className="text-xs text-text-muted">Managed in the Main Information tab under "Innovation Arts Staff Assignments".</p>
         </div>
 
-        {/* ── VENUE BOOKING MANAGER ─────────────────────────────────── */}
+        {/* ── VENUE BOOKING & PROGRAMMING ──────────────────────────── */}
         <div className="rounded-lg border border-border bg-surface/40 p-4 space-y-3">
           {sectionTitle('Venue Booking Manager')}
-          {fieldRow(
-            'Venue Booking Manager',
-            primaryVenue == null ? (
-              <span className="text-sm text-text-muted">No primary venue linked.</span>
-            ) : (
-              <Select2
-                options={venueContactOptions}
-                value={venueBookingManagerContactId}
-                onChange={(v) => { markUserEdited(); setVenueBookingManagerContactId(v); }}
-                placeholder="— not set —"
-                allowClear
-                disabled={disabled}
-              />
-            ),
+          {primaryVenueCompanyId == null ? (
+            <p className="text-sm text-text-muted">No primary venue linked.</p>
+          ) : venueDetailsQuery.isLoading ? (
+            <div className="flex items-center gap-2 text-sm text-text-muted">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading venue contacts…
+            </div>
+          ) : venueBookingProgrammingContacts.length === 0 ? (
+            <p className="text-sm text-text-muted">No Booking & Programming contacts set on this venue.</p>
+          ) : (
+            <div className="space-y-1">
+              {venueBookingProgrammingContacts.map((c, i) => (
+                <div key={i} className="flex items-center gap-2 text-sm">
+                  <span className="text-text-muted min-w-[140px]">{c.role}:</span>
+                  <span className="text-text-primary">{c.name}</span>
+                </div>
+              ))}
+            </div>
           )}
-          <p className="text-xs text-text-muted">Also editable in the Venues tab.</p>
+          <p className="text-xs text-text-muted">Managed in the venue's company profile.</p>
+        </div>
+
+  {/* ── TALENT AGENCY ────────────────────────────────────────────── */}
+        <div className="rounded-lg border border-border bg-surface/40 p-4 space-y-3">
+          {sectionTitle('Talent Agency')}
+          {talentAgencyCompanyName ? (
+            <p className="text-sm text-text-secondary">
+              <span className="font-medium">Agency:</span> {talentAgencyCompanyName}
+            </p>
+          ) : null}
+          {talentAgentContacts.length === 0 ? (
+            <p className="text-sm text-text-muted">No talent agents assigned to this tour.</p>
+          ) : (
+            <div className="space-y-1">
+              {talentAgentContacts.map((c) => (
+                <p key={c.contactId} className="text-sm text-text-secondary">
+                  {[c.firstName, c.lastName].filter(Boolean).join(' ') || `Contact #${c.contactId}`}
+                </p>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-text-muted">Talent agents are read-only here; manage them on the Tour record.</p>
         </div>
 
         {/* ── PROMOTER PARTNER ─────────────────────────────────────────── */}
@@ -5312,7 +5312,7 @@ function EngagementBookingPanel({
             <Select2
               options={allPromoterCompanyOptions}
               value={promoterPartnerCompanyId}
-              onChange={(v) => { markUserEdited(); setPromoterPartnerCompanyId(v); }}
+              onChange={(v) => { markUserEdited(); setPromoterPartnerCompanyId(v); setPromoterPartnerContactId(''); }}
               placeholder="— not set —"
               allowClear
               disabled={disabled}
@@ -5320,7 +5320,7 @@ function EngagementBookingPanel({
           )}
           {fieldRow(
             'Promoter Partner Contact',
-            promoterCompanyId == null && !fkIdStringToNumber(promoterPartnerCompanyId) ? (
+            selectedPromoterCompanyId == null ? (
               <span className="text-sm text-text-muted">Select a promoter company first.</span>
             ) : (
               <Select2
@@ -5341,18 +5341,19 @@ function EngagementBookingPanel({
           {sectionTitle('Tour Management')}
           {fieldRow(
             'Tour Management Company',
-            <input
-              className={inputCls}
-              value={tourMgmtCompanyName ?? ''}
-              disabled
-              readOnly
-              placeholder="Defined on the tour"
+            <Select2
+              options={allTourMgmtCompanyOptions}
+              value={tourMgmtCompanyId}
+              onChange={(v) => { markUserEdited(); setTourMgmtCompanyId(v); setTourManagerContactId(''); }}
+              placeholder="— not set —"
+              allowClear
+              disabled={disabled || tourMgmtCompaniesQuery.isLoading}
             />,
           )}
           {fieldRow(
             'Tour Manager Contact',
-            tourMgmtCompanyId == null ? (
-              <span className="text-sm text-text-muted">No Tour Management Company on this tour.</span>
+            selectedTourMgmtCompanyId == null ? (
+              <span className="text-sm text-text-muted">Select a Tour Management Company first.</span>
             ) : (
               <Select2
                 options={tourMgmtContactOptions}
@@ -5364,50 +5365,6 @@ function EngagementBookingPanel({
               />
             ),
           )}
-          {tourMgmtCompanyId != null && (
-            <div>
-              <p className="mb-1 text-xs font-medium text-text-muted">Tour Management Contacts</p>
-              {tourMgmtContactsQuery.isLoading ? (
-                <div className="flex items-center gap-2 text-sm text-text-muted">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Loading contacts…
-                </div>
-              ) : (tourMgmtContactsQuery.data ?? []).length === 0 ? (
-                <p className="text-sm text-text-muted">No contacts for this company.</p>
-              ) : (
-                <div className="space-y-1">
-                  {(tourMgmtContactsQuery.data ?? []).map((c) => (
-                    <p key={c.contactId} className="text-sm text-text-secondary">
-                      {[c.firstName, c.lastName].filter(Boolean).join(' ') || `Contact #${c.contactId}`}
-                      {c.roleName ? <span className="text-text-muted"> — {c.roleName}</span> : null}
-                    </p>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-          <p className="text-xs text-text-muted">Tour Management Company is defined on the linked tour.</p>
-        </div>
-
-        {/* ── TALENT AGENCY ────────────────────────────────────────────── */}
-        <div className="rounded-lg border border-border bg-surface/40 p-4 space-y-3">
-          {sectionTitle('Talent Agency')}
-          {talentAgencyCompanyName ? (
-            <p className="text-sm text-text-secondary">
-              <span className="font-medium">Agency:</span> {talentAgencyCompanyName}
-            </p>
-          ) : null}
-          {talentAgentContacts.length === 0 ? (
-            <p className="text-sm text-text-muted">No talent agents assigned to this tour.</p>
-          ) : (
-            <div className="space-y-1">
-              {talentAgentContacts.map((c) => (
-                <p key={c.contactId} className="text-sm text-text-secondary">
-                  {[c.firstName, c.lastName].filter(Boolean).join(' ') || `Contact #${c.contactId}`}
-                </p>
-              ))}
-            </div>
-          )}
-          <p className="text-xs text-text-muted">Talent agents are read-only here; manage them on the Tour record.</p>
         </div>
 
         {/* ── ATTRACTION TERMS ─────────────────────────────────────────── */}
@@ -5485,9 +5442,9 @@ function EngagementBookingPanel({
           {fieldRow(
             'Deal Type',
             <Select2
-              options={VENUE_DEAL_TYPE_OPTIONS}
-              value={venueDealType}
-              onChange={(v) => { markUserEdited(); setVenueDealType(v); }}
+              options={venueDealTypeOptions}
+              value={venueDealTypeId}
+              onChange={(v) => { markUserEdited(); setVenueDealTypeId(v); }}
               placeholder="Not set"
               allowClear
               disabled={disabled}
@@ -5510,11 +5467,6 @@ function EngagementBookingPanel({
                 disabled={disabled}
                 placeholder="https://…"
               />
-              {attractionContractLink && isValidHttpOrHttpsUrl(attractionContractLink) && (
-                <a href={attractionContractLink} target="_blank" rel="noopener noreferrer" className="shrink-0 text-text-muted hover:text-ems-accent">
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-              )}
             </div>,
           )}
           {fieldRow(
@@ -5528,11 +5480,6 @@ function EngagementBookingPanel({
                 disabled={disabled}
                 placeholder="https://…"
               />
-              {partiallyExecutedLink && isValidHttpOrHttpsUrl(partiallyExecutedLink) && (
-                <a href={partiallyExecutedLink} target="_blank" rel="noopener noreferrer" className="shrink-0 text-text-muted hover:text-ems-accent">
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-              )}
             </div>,
           )}
           {fieldRow(
@@ -5546,11 +5493,7 @@ function EngagementBookingPanel({
                 disabled={disabled}
                 placeholder="https://…"
               />
-              {fullyExecutedLink && isValidHttpOrHttpsUrl(fullyExecutedLink) && (
-                <a href={fullyExecutedLink} target="_blank" rel="noopener noreferrer" className="shrink-0 text-text-muted hover:text-ems-accent">
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-              )}
+
             </div>,
           )}
         </div>
@@ -7668,10 +7611,10 @@ function EngagementTicketingPanel({
     staleTime: 60_000,
     retry: 1,
   });
-  const iaeLookupsQuery = useQuery({
-    queryKey: ['engagements', 'iae-contact-lookups'],
-    queryFn: fetchEngagementIaeContactLookups,
-    staleTime: 300_000,
+  const iaeContactsQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'iae-contacts'],
+    queryFn: () => fetchEngagementIaeContacts(engagementId),
+    retry: 1,
   });
   const venueTabQuery = useQuery({
     queryKey: ['engagements', engagementId, 'venue-tab-data'],
@@ -8243,14 +8186,14 @@ function EngagementTicketingPanel({
           {fieldRow('IAE Ticketing Manager',
             <div className="text-sm text-text-primary">
               {(() => {
-                const rows = iaeLookupsQuery.data?.contacts ?? [];
-                const tmIds = new Set(iaeLookupsQuery.data?.ticketingManagerContactIds ?? []);
-                const managers = tmIds.size > 0 ? rows.filter((r) => tmIds.has(r.id)) : [];
-                if (iaeLookupsQuery.isLoading) return <span className="text-text-muted">Loading…</span>;
+                const managers = (iaeContactsQuery.data ?? []).filter(
+                  (r) => (r.roleName ?? '').trim().toLowerCase() === 'ticketing manager',
+                );
+                if (iaeContactsQuery.isLoading) return <span className="text-text-muted">Loading…</span>;
                 if (managers.length === 0) return <span className="text-text-muted">No Ticketing Managers assigned</span>;
                 return (
                   <ul className="list-disc list-inside space-y-0.5">
-                    {managers.map((m) => <li key={m.id}>{m.label}</li>)}
+                    {managers.map((m) => <li key={m.engagementIaeContactId}>{m.contactLabel}</li>)}
                   </ul>
                 );
               })()}
