@@ -13,7 +13,7 @@ const tenantId = import.meta.env.VITE_ENTRA_TENANT_ID;
 const apiScope = import.meta.env.VITE_ENTRA_API_SCOPE?.trim();
 const graphScope =
     import.meta.env.VITE_ENTRA_GRAPH_SCOPE?.trim() ||
-    "https://graph.microsoft.com/User.ReadBasic.All";
+    "https://graph.microsoft.com/User.Read.All";
 const microsoftGraphAudiences = new Set([
     "00000003-0000-0000-c000-000000000000",
     "https://graph.microsoft.com",
@@ -133,7 +133,7 @@ export type GraphTokenDiagnostics = {
     tid: string;
     scp: string;
     roles: string[];
-    hasUserReadBasicAll: boolean;
+    hasUserReadAll: boolean;
     isGraphAudience: boolean;
 };
 
@@ -187,7 +187,7 @@ export function describeGraphAccessToken(accessToken: string): GraphTokenDiagnos
         tid: tenant,
         scp: scopes.join(" "),
         roles,
-        hasUserReadBasicAll: scopes.includes("User.ReadBasic.All"),
+        hasUserReadAll: scopes.includes("User.Read.All"),
         isGraphAudience: microsoftGraphAudiences.has(audience),
     };
 }
@@ -197,10 +197,10 @@ function logGraphTokenDiagnostics(accessToken: string): void {
 
     console.debug("[MSAL] Microsoft Graph token acquisition succeeded.", diagnostics);
 
-    if (!diagnostics.isGraphAudience || !diagnostics.hasUserReadBasicAll) {
+    if (!diagnostics.isGraphAudience || !diagnostics.hasUserReadAll) {
         console.warn("[MSAL] Microsoft Graph token is missing the expected audience or delegated scope.", {
             expectedAudience: "Microsoft Graph",
-            expectedScope: "User.ReadBasic.All",
+            expectedScope: "User.Read.All",
             aud: diagnostics.aud,
             scp: diagnostics.scp,
             roles: diagnostics.roles,

@@ -42,6 +42,7 @@ import { AuditRequestContext } from '../audit/audit-request-context.service';
 import {
   isAllowedProjectStage,
   PROJECT_STAGE_VALUES,
+  isProjectConversionStage,
 } from './project-stage.constants';
 
 const ENGAGEMENT_VENUE_OPTION_STATUS_ALLOWLIST = [
@@ -588,7 +589,7 @@ export class ProjectService {
     manager: EntityManager,
     project: EngagementProject,
     openingPerformances: ProjectOpeningPerformanceDto[] = [],
-  ): Promise<number> {
+  ): Promise<number | null> {
     const existing = await this.getConvertedEngagementId(
       project.engagementProjectId,
       manager,
@@ -616,53 +617,71 @@ export class ProjectService {
       venueCompanyIds.add(venue.venueCompanyId);
     }
 
-    const performanceRows: Array<{
-      date: string;
-      time: string;
-      status: string;
-    }> = [];
-    const showDateTimes = new Set<string>();
+    let firstEngagementId: number | null = null;
 
-    const addPerformanceRow = (
-      dateRaw: string | Date | null | undefined,
-      timeRaw: string | null | undefined,
-      statusRaw: string | null | undefined,
-      missingMessage: string,
-    ) => {
-      const date = this.normalizeDateOnly(dateRaw);
-      const time = this.normalizeTime(timeRaw);
-      if (!date || !time) {
-        throw new BadRequestException({
-          message: missingMessage,
-        });
-      }
-      const key = `${date}T${time}`;
-      if (showDateTimes.has(key)) {
-        throw new BadRequestException({
-          message:
-            'Two proposed performances use the same date and time. Change one before converting this project.',
-        });
-      }
-      showDateTimes.add(key);
-      performanceRows.push({
-        date,
-        time,
-        status: (statusRaw ?? '').trim() || 'Public',
+    for (const venue of venues) {
+      // Check if this venue was already converted
+      const existingVenueXref = await manager.findOne(EngagementXref, {
+        where: {
+          sourceEngagementId: `EngagementProjectVenue:${venue.engagementProjectVenueId}`,
+        },
       });
-    };
+      if (existingVenueXref) {
+        if (firstEngagementId === null) {
+          firstEngagementId = existingVenueXref.engagementId;
+        }
+        continue;
+      }
 
-    for (const opening of openingPerformances ?? []) {
-      addPerformanceRow(
-        opening.performanceDate,
-        opening.performanceTime,
-        opening.performanceStatus,
-        'Every opening show needs both a date and time before this project can be converted into an engagement.',
-      );
-    }
+      const performanceRows: Array<{
+        date: string;
+        time: string;
+        status: string;
+      }> = [];
+      const showDateTimes = new Set<string>();
 
-    if (performanceRows.length === 0) {
+      const addPerformanceRow = (
+        dateRaw: string | Date | null | undefined,
+        timeRaw: string | null | undefined,
+        statusRaw: string | null | undefined,
+        missingMessage: string,
+      ) => {
+        const date = this.normalizeDateOnly(dateRaw);
+        const time = this.normalizeTime(timeRaw);
+        if (!date || !time) {
+          throw new BadRequestException({
+            message: missingMessage,
+          });
+        }
+        const key = `${date}T${time}`;
+        if (showDateTimes.has(key)) {
+          throw new BadRequestException({
+            message:
+              'Two proposed performances for a venue use the same date and time. Change one before converting this project.',
+          });
+        }
+        showDateTimes.add(key);
+        performanceRows.push({
+          date,
+          time,
+          status: (statusRaw ?? '').trim() || 'Public',
+        });
+      };
+
+      for (const opening of openingPerformances ?? []) {
+        addPerformanceRow(
+          opening.performanceDate,
+          opening.performanceTime,
+          opening.performanceStatus,
+          'Every opening show needs both a date and time before this project can be converted into an engagement.',
+        );
+      }
+
       const options = await manager.find(EngagementProjectPerformanceOption, {
-        where: { engagementProjectId: project.engagementProjectId },
+        where: {
+          engagementProjectId: project.engagementProjectId,
+          engagementProjectVenueId: venue.engagementProjectVenueId,
+        },
         order: { proposedDate: 'ASC', performanceOptionId: 'ASC' },
       });
       for (const option of options) {
@@ -673,58 +692,71 @@ export class ProjectService {
           'Every proposed performance needs both a date and time before this project can be converted into an engagement.',
         );
       }
-    }
 
-    if (performanceRows.length === 0) {
-      throw new BadRequestException({
-        message:
-          'Add at least one opening show before converting this project into an engagement.',
-      });
-    }
+      if (performanceRows.length === 0) {
+        throw new BadRequestException({
+          message:
+            'Add at least one opening show or proposed performance for each venue before converting this project into an engagement.',
+        });
+      }
 
-    const savedEngagement = await manager.save(
-      Engagement,
-      manager.create(Engagement, {
-        engagementStatus: 'Unknown',
-        engagementScaling: null,
-        tourId: project.tourId,
-        sellableCapacity: null,
-        grossPotential: null,
-      }),
-    );
+      const savedEngagement = await manager.save(
+        Engagement,
+        manager.create(Engagement, {
+          engagementStatus: 'Unknown',
+          engagementScaling: null,
+          tourId: project.tourId,
+          sellableCapacity: null,
+          grossPotential: null,
+        }),
+      );
 
-    for (const [index, venue] of venues.entries()) {
+      if (firstEngagementId === null) {
+        firstEngagementId = savedEngagement.engagementId;
+      }
+
       await manager.save(
         EngagementVenue,
         manager.create(EngagementVenue, {
           engagementId: savedEngagement.engagementId,
           venueCompanyId: venue.venueCompanyId,
-          isPrimary: index === 0,
+          isPrimary: true,
         }),
       );
-    }
 
-    for (const row of performanceRows) {
+      for (const row of performanceRows) {
+        await manager.save(
+          Performance,
+          manager.create(Performance, {
+            engagementId: savedEngagement.engagementId,
+            performanceStatus: row.status,
+            performanceDate: row.date,
+            performanceTime: row.time,
+          }),
+        );
+      }
+
       await manager.save(
-        Performance,
-        manager.create(Performance, {
+        EngagementXref,
+        manager.create(EngagementXref, {
+          sourceEngagementId: `EngagementProjectVenue:${venue.engagementProjectVenueId}`,
           engagementId: savedEngagement.engagementId,
-          performanceStatus: row.status,
-          performanceDate: row.date,
-          performanceTime: row.time,
+        }),
+      );
+      this.emsCreated.recordEngagement(savedEngagement.engagementId);
+    }
+
+    if (firstEngagementId !== null) {
+      await manager.save(
+        EngagementXref,
+        manager.create(EngagementXref, {
+          sourceEngagementId: this.projectXrefKey(project.engagementProjectId),
+          engagementId: firstEngagementId,
         }),
       );
     }
 
-    await manager.save(
-      EngagementXref,
-      manager.create(EngagementXref, {
-        sourceEngagementId: this.projectXrefKey(project.engagementProjectId),
-        engagementId: savedEngagement.engagementId,
-      }),
-    );
-    this.emsCreated.recordEngagement(savedEngagement.engagementId);
-    return savedEngagement.engagementId;
+    return firstEngagementId;
   }
 
   private isOidLike(value: string | null | undefined): boolean {
@@ -1236,10 +1268,18 @@ export class ProjectService {
           normalizedAgentContactId,
         );
 
+        const engagementId = isProjectConversionStage(dto.projectStage)
+          ? await this.convertProjectToEngagement(
+              manager,
+              savedProject,
+              dto.openingPerformances,
+            )
+          : null;
+
         return {
           engagementProjectId: savedProject.engagementProjectId,
-          engagementId: null,
-          converted: false,
+          engagementId,
+          converted: engagementId != null,
         };
       });
     } catch (err) {
@@ -1268,6 +1308,10 @@ export class ProjectService {
     dto: UpdateProjectDto,
   ): Promise<{ engagementId: number | null; converted: boolean }> {
     const project = await this.assertProjectExists(id);
+
+    const shouldConvert =
+      dto.projectStage !== undefined &&
+      isProjectConversionStage(dto.projectStage);
 
     if (dto.projectStage !== undefined) {
       this.assertValidProjectStage(dto.projectStage);
@@ -1367,10 +1411,16 @@ export class ProjectService {
             );
           }
           await manager.save(EngagementProject, project);
-          return null;
+          return shouldConvert
+            ? await this.convertProjectToEngagement(
+                manager,
+                project,
+                dto.openingPerformances,
+              )
+            : null;
         },
       );
-      return { engagementId, converted: false };
+      return { engagementId, converted: engagementId != null };
     } catch (e: unknown) {
       if (e instanceof BadRequestException) throw e;
       if (e instanceof QueryFailedError) {

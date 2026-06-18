@@ -92,7 +92,7 @@ export class AdminUsersService {
     try {
       const directUser = await this.graphGetJson<GraphUser>(
         accessToken,
-        `https://graph.microsoft.com/v1.0/users/${encodedId}?$select=id,displayName,userPrincipalName,mail,givenName,surname`,
+        `https://graph.microsoft.com/v1.0/users/${encodedId}?$select=id,displayName,userPrincipalName,mail,givenName,surname,department,jobTitle,employeeId,mobilePhone,businessPhones,officeLocation,city,state,country,companyName,accountEnabled`,
         true,
       );
       if (directUser?.id) return this.buildUserDisplay(directUser);
@@ -105,7 +105,7 @@ export class AdminUsersService {
       const escaped = userId.replace(/'/g, "''");
       const filteredUsers = await this.graphGetJson<GraphUsersResponse>(
         accessToken,
-        `https://graph.microsoft.com/v1.0/users?$filter=id eq '${escaped}'&$select=id,displayName,userPrincipalName,mail,givenName,surname&$top=1`,
+        `https://graph.microsoft.com/v1.0/users?$filter=id eq '${escaped}'&$select=id,displayName,userPrincipalName,mail,givenName,surname,department,jobTitle,employeeId,mobilePhone,businessPhones,officeLocation,city,state,country,companyName,accountEnabled&$top=1`,
       );
       const filteredUser = filteredUsers?.value?.[0];
       if (filteredUser?.id) return this.buildUserDisplay(filteredUser);
@@ -141,7 +141,7 @@ export class AdminUsersService {
   private async fetchGraphUsers(accessToken: string): Promise<GraphUser[]> {
     return this.fetchGraphUsersWithSelect(
       accessToken,
-      'id,displayName,userPrincipalName,mail,givenName,surname',
+      'id,displayName,userPrincipalName,mail,givenName,surname,department,jobTitle,employeeId,mobilePhone,businessPhones,officeLocation,city,state,country,companyName,accountEnabled',
     );
   }
 
@@ -166,7 +166,7 @@ export class AdminUsersService {
         console.error(`[Graph API] Failed with status ${response.status}: ${graphError}`);
         const permissionHint =
           response.status === 403
-            ? ' Please confirm delegated Microsoft Graph permission User.ReadBasic.All is granted with admin consent.'
+            ? ' Please confirm delegated Microsoft Graph permission User.Read.All is granted with admin consent.'
             : '';
         throw new BadGatewayException(
           `Microsoft Graph user lookup failed with status ${response.status}.${graphError}${permissionHint}`,
@@ -189,7 +189,7 @@ export class AdminUsersService {
       return delegatedGraphToken;
     }
     throw new ServiceUnavailableException(
-      'Microsoft Graph delegated access token is required. Acquire a delegated Graph token in the frontend with https://graph.microsoft.com/User.ReadBasic.All.',
+      'Microsoft Graph delegated access token is required. Acquire a delegated Graph token in the frontend with https://graph.microsoft.com/User.Read.All.',
     );
   }
 }

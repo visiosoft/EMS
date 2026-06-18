@@ -36,7 +36,7 @@ export type GraphRequestError = Error & {
 };
 
 const GRAPH_USERS_URL =
-    'https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,mail,givenName,surname&$top=999';
+    'https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,mail,givenName,surname,department,jobTitle,employeeId,mobilePhone,businessPhones,officeLocation,city,state,country,companyName,accountEnabled&$top=999';
 
 export async function fetchAdminUsers(graphAccessToken: string): Promise<AdminDirectoryUserRow[]> {
     const users = await fetchEntraUsers(graphAccessToken);
@@ -67,7 +67,7 @@ async function fetchEntraUsers(graphAccessToken: string): Promise<GraphUser[]> {
             const graph = parseGraphErrorDetail(text, clientRequestId);
             const message =
                 response.status === 403
-                    ? 'Unable to read Microsoft Entra users. Please confirm delegated Microsoft Graph permission User.ReadBasic.All is granted with admin consent.'
+                    ? 'Unable to read Microsoft Entra users. Please confirm delegated Microsoft Graph permission User.Read.All is granted with admin consent.'
                     : `Microsoft Graph users request failed: ${response.status}`;
             const error = new Error(message) as GraphRequestError;
             error.status = response.status;
