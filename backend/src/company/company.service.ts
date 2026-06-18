@@ -120,6 +120,10 @@ function pickRawRowValue(row: Record<string, unknown>, key: string): unknown {
   return undefined;
 }
 
+function isTruthyBit(value: unknown): boolean {
+  return value === true || value === 1 || value === '1';
+}
+
 function splitFullName(fullName: string): {
   firstName: string;
   lastName: string;
@@ -3499,7 +3503,7 @@ export class CompanyService {
     const companyIdNum = Number(companyId ?? 0);
     const hasCompany = Number.isInteger(companyIdNum) && companyIdNum > 0;
     await em.delete(ContactAssignment, { contactId });
-    if (!hasCompany) return true;
+    if (!hasCompany) return false;
 
     const company = await em.getRepository(Company).findOne({
       where: { companyId: companyIdNum },
@@ -3536,7 +3540,7 @@ export class CompanyService {
       }
     }
     await em.save(ContactAssignment, assignments);
-    return false;
+    return Boolean(company.isInternal);
   }
 
   private async getOrCreateManagedContact(
@@ -3630,7 +3634,6 @@ export class CompanyService {
     if (!contact) {
       contact = contactRepo.create({
         contactInfoId: savedInfo.contactInfoId,
-        isStaff: false,
       });
     }
     return contactRepo.save(contact);
@@ -3729,7 +3732,7 @@ export class CompanyService {
         'ci.email AS email',
         'ci.cellPhone AS cellPhone',
         'ci.workPhone AS workPhone',
-        'ct.isStaff AS isStaff',
+        'c.isInternal AS companyIsInternal',
         'c.companyId AS companyId',
         'c.companyName AS companyName',
         'r.roleId AS roleId',
@@ -3765,9 +3768,7 @@ export class CompanyService {
             pickRawRowValue(row, 'workPhone') == null
               ? null
               : String(pickRawRowValue(row, 'workPhone')),
-          isStaff:
-            pickRawRowValue(row, 'isStaff') === true ||
-            pickRawRowValue(row, 'isStaff') === 1,
+          isStaff: isTruthyBit(pickRawRowValue(row, 'companyIsInternal')),
           companyIds: [],
           companyNames: [],
           roleIds: [],
@@ -3779,6 +3780,8 @@ export class CompanyService {
       }
       const companyIdValue = Number(pickRawRowValue(row, 'companyId'));
       if (Number.isInteger(companyIdValue) && companyIdValue > 0) {
+        item.isStaff =
+          item.isStaff || isTruthyBit(pickRawRowValue(row, 'companyIsInternal'));
         pushUnique(item.companyIds, companyIdValue);
         pushUnique(
           item.companyNames,
@@ -3831,7 +3834,7 @@ export class CompanyService {
         'ci.email AS email',
         'ci.cellPhone AS cellPhone',
         'ci.workPhone AS workPhone',
-        'ct.isStaff AS isStaff',
+        'c.isInternal AS companyIsInternal',
         'c.companyId AS companyId',
         'c.companyName AS companyName',
         'r.roleId AS roleId',
@@ -3856,9 +3859,7 @@ export class CompanyService {
         pickRawRowValue(first, 'workPhone') == null
           ? null
           : String(pickRawRowValue(first, 'workPhone')),
-      isStaff:
-        pickRawRowValue(first, 'isStaff') === true ||
-        pickRawRowValue(first, 'isStaff') === 1,
+      isStaff: isTruthyBit(pickRawRowValue(first, 'companyIsInternal')),
       companyIds: [],
       companyNames: [],
       roleIds: [],
@@ -3873,6 +3874,8 @@ export class CompanyService {
     for (const row of raw) {
       const companyIdValue = Number(pickRawRowValue(row, 'companyId'));
       if (Number.isInteger(companyIdValue) && companyIdValue > 0) {
+        out.isStaff =
+          out.isStaff || isTruthyBit(pickRawRowValue(row, 'companyIsInternal'));
         pushUnique(out.companyIds, companyIdValue);
         pushUnique(
           out.companyNames,
@@ -3904,15 +3907,13 @@ export class CompanyService {
   ): Promise<ManagedContactRow> {
     return this.dataSource.transaction(async (em) => {
       const contact = await this.getOrCreateManagedContact(em, dto);
-      const isStaff = await this.ensureManagedContactAssignments(
+      await this.ensureManagedContactAssignments(
         em,
         contact.contactId,
         dto.companyId,
         dto.roleIds,
         dto.departmentIds,
       );
-      contact.isStaff = isStaff;
-      await em.save(Contact, contact);
       const row = await this.getManagedContactRowById(contact.contactId, em);
       if (!row) {
         throw new BadRequestException(
@@ -3937,15 +3938,13 @@ export class CompanyService {
                 where: { contactId },
               })
             )?.companyId ?? null);
-      const isStaff = await this.ensureManagedContactAssignments(
+      await this.ensureManagedContactAssignments(
         em,
         contact.contactId,
         nextCompany,
         dto.roleIds,
         dto.departmentIds,
       );
-      contact.isStaff = isStaff;
-      await em.save(Contact, contact);
       const row = await this.getManagedContactRowById(contact.contactId, em);
       if (!row) {
         throw new BadRequestException(
@@ -4075,13 +4074,8 @@ export class CompanyService {
           Contact,
           em.create(Contact, {
             contactInfoId: savedInfo.contactInfoId,
-            isStaff: false,
           }),
         ));
-      if (savedContact.isStaff !== false) {
-        savedContact.isStaff = false;
-        await em.save(Contact, savedContact);
-      }
 
       const existingAssignment = await em.findOne(ContactAssignment, {
         where: { companyId, contactId: savedContact.contactId },

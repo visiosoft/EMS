@@ -50,4 +50,30 @@ export class ArtistFinance {
     nullable: true,
   })
   artistBackEndTerms: string | null;
+
+  @Column({
+    name: 'OveragePercent',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
+  overagePercent: string | number | null;
+
+  @Column({
+    name: 'RoyaltyRate',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
+  royaltyRate: string | number | null;
+
+  @Column({
+    name: 'RoyaltyBasis',
+    type: 'nvarchar',
+    length: 50,
+    nullable: true,
+  })
+  royaltyBasis: string | null;
 }

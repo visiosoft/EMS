@@ -11,6 +11,7 @@ import { Attraction } from '../entities/attraction.entity';
 import { Class } from '../entities/class.entity';
 import { Company } from '../entities/company.entity';
 import { Contact } from '../entities/contact.entity';
+import { ContactAssignment } from '../entities/contact-assignment.entity';
 import { Engagement } from '../entities/engagement.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { Performance } from '../entities/performance.entity';
@@ -594,7 +595,12 @@ export class DailySalesService {
     const row = await this.contactRepo
       .createQueryBuilder('c')
       .innerJoin('c.contactInfo', 'ci')
+      .innerJoin(ContactAssignment, 'ca', 'ca.contactId = c.contactId')
+      .innerJoin(Company, 'internalCompany', 'internalCompany.companyId = ca.companyId')
       .where('LOWER(LTRIM(RTRIM(ci.email))) = :email', { email })
+      .andWhere('internalCompany.isInternal = :isInternal', {
+        isInternal: true,
+      })
       .select('c.contactId', 'contactId')
       .getRawOne<{ contactId: number | string }>();
     if (row?.contactId == null) return null;
