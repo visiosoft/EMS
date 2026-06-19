@@ -17,6 +17,27 @@ export interface ApiAgeRange {
   sortOrder: number;
 }
 
+export interface ApiAdvertisingSubType {
+  advertisingSubTypeId: number;
+  subTypeName: string;
+  parentCategory: string | null;
+}
+
+export interface ApiTourMediaMixItem {
+  tourMediaMixId: number;
+  advertisingSubTypeId: number;
+  subTypeName: string;
+  parentCategory: string | null;
+  companyId: number | null;
+  companyName: string | null;
+}
+
+/** One Media Mix row to persist — companyId is optional (CompanyID is nullable). */
+export interface TourMediaMixInput {
+  advertisingSubTypeId: number;
+  companyId: number | null;
+}
+
 export interface ApiAttractionListRow {
   attractionId: number;
   attractionName: string;
@@ -56,6 +77,7 @@ export interface ApiTourListRow {
   tourStartDate: string | null;
   tourEndDate: string | null;
   tourBannerImageUrl: string | null;
+  mediaMix: ApiTourMediaMixItem[];
   appCreated: boolean;
 }
 
@@ -88,6 +110,7 @@ export interface CreateTourPayload {
   techRiderLinkId?: number | null;
   tourStartDate?: string | null;
   tourEndDate?: string | null;
+  mediaMix?: TourMediaMixInput[];
 }
 
 export type UpdateTourPayload = Partial<CreateTourPayload>;
@@ -222,6 +245,7 @@ function buildUpdateTourFormData(body: UpdateTourPayload): FormData {
     'techRiderLinkId',
     'tourStartDate',
     'tourEndDate',
+    'mediaMix',
   ];
   for (const k of keys) {
     const v = body[k];
@@ -274,6 +298,10 @@ export function fetchTourEngagements(tourId: number) {
 
 export function fetchTourAgeRanges() {
   return apiFetch<ApiAgeRange[]>('/tours/age-ranges');
+}
+
+export function fetchAdvertisingSubTypes() {
+  return apiFetch<ApiAdvertisingSubType[]>('/tours/advertising-sub-types');
 }
 
 export function fetchClasses() {

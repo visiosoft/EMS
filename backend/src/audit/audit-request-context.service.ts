@@ -6,6 +6,7 @@ type AuditRequestStore = {
   userDisplayName: string | null;
   /** Entra preferred_username / UPN when available (used for "my" list filters). */
   userEmail: string | null;
+  graphAccessToken: string | null;
 };
 
 @Injectable()
@@ -26,5 +27,9 @@ export class AuditRequestContext {
 
   getUserEmail(): string | null {
     return this.storage.getStore()?.userEmail ?? null;
+  }
+
+  getGraphAccessToken(): string | null {
+    return this.storage.getStore()?.graphAccessToken ?? null;
   }
 }
