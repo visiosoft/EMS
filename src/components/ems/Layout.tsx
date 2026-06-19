@@ -331,6 +331,7 @@ interface HeaderProps {
   viewPersistenceEnabled?: boolean;
   onEnableViewPersistence?: () => void;
   onResetViewPersistence?: () => void;
+  onOpenProfile?: () => void;
 }
 
 function getGreeting(): string {
@@ -346,6 +347,7 @@ export function Header({
   viewPersistenceEnabled = false,
   onEnableViewPersistence,
   onResetViewPersistence,
+  onOpenProfile,
 }: HeaderProps) {
   const { accounts } = useMsal();
   const account = getActiveAccount() ?? accounts[0] ?? null;
@@ -412,9 +414,15 @@ export function Header({
           </div>
         </div>
         <ThemeToggle />
-        <div className="w-8 h-8 rounded-full bg-ems-accent-dim border border-ems-accent/30 flex items-center justify-center text-ems-accent text-xs font-bold select-none">
+        <button
+          type="button"
+          onClick={onOpenProfile}
+          className="w-8 h-8 rounded-full bg-ems-accent-dim border border-ems-accent/30 flex items-center justify-center text-ems-accent text-xs font-bold select-none transition hover:bg-ems-accent/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/35"
+          title="Open my profile"
+          aria-label="Open my profile"
+        >
           {getAccountInitials(account)}
-        </div>
+        </button>
       </div>
     </div>
   );

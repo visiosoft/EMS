@@ -1882,18 +1882,6 @@ export function SettingsPage({
                         ) : null}
                         Preview Entra {'->'} EMS
                       </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handlePreviewInternalContactSync('emsToEntra')}
-                        disabled={internalSyncBusy || internalSyncApplying}
-                      >
-                        {internalSyncBusy && internalSyncDirection === 'emsToEntra' ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : null}
-                        Preview EMS {'->'} Entra
-                      </Button>
                     </div>
 	                </div>
 

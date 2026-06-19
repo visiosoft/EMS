@@ -12,6 +12,7 @@ export function InternalHeader() {
 
   function isActive(itemKey: string) {
     if (itemKey === "employee-services") return currentView === "employee-services";
+    if (itemKey === "document-library") return currentView === "document-library";
     if (itemKey === "leadership") return currentView === "leadership";
     if (itemKey === "markets") return currentView === "markets";
     if (itemKey === "venues") return currentView === "venues";

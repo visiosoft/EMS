@@ -20,7 +20,8 @@ export type InternalView =
   | "department-production"
   | "department-ticketing-sales"
   | "learning-portal"
-  | "learning-admin";
+  | "learning-admin"
+  | "document-library";
 
 export type InternalViewData = {
   handbook?: EmployeeHandbookView;
@@ -47,6 +48,7 @@ const VALID_VIEWS = new Set<string>([
   "department-ticketing-sales",
   "learning-portal",
   "learning-admin",
+  "document-library",
 ]);
 
 const LEGACY_PATH_TO_VIEW: Record<string, InternalView> = {
