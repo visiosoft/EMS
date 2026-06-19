@@ -49,14 +49,16 @@ export class InternalEmployeesService {
         FROM dbo.Contact c
         INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
         OUTER APPLY (
-          SELECT TOP 1 r.RoleName AS roleName
-          FROM dbo.ContactAssignment ca
-          INNER JOIN dbo.Company internalCompany
-            ON internalCompany.CompanyID = ca.CompanyID
-          INNER JOIN dbo.Role r ON r.RoleID = ca.RoleID
-          WHERE ca.ContactID = c.ContactID
-            AND internalCompany.is_internal = 1
-          ORDER BY ca.ContactAssignmentID
+          SELECT STUFF((
+            SELECT ', ' + r.RoleName
+            FROM dbo.ContactAssignment ca
+            INNER JOIN dbo.Company internalCompany
+              ON internalCompany.CompanyID = ca.CompanyID
+            INNER JOIN dbo.Role r ON r.RoleID = ca.RoleID
+            WHERE ca.ContactID = c.ContactID
+              AND internalCompany.is_internal = 1
+            FOR XML PATH(''), TYPE
+          ).value('.', 'NVARCHAR(MAX)'), 1, 2, '') AS roleName
         ) rolePick
         WHERE EXISTS (
           SELECT 1

@@ -76,4 +76,23 @@ export class ArtistFinance {
     nullable: true,
   })
   royaltyBasis: string | null;
+
+  @Column({
+    name: 'IsCollateralizedDeal',
+    type: 'bit',
+    nullable: true,
+  })
+  isCollateralizedDeal: boolean | null;
+
+  @Column({
+    name: 'BuyoutAmount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
+  buyoutAmount: string | number | null;
+
+  @Column({ name: 'TourOfferLinkID', type: 'int', nullable: true })
+  tourOfferLinkId: number | null;
 }

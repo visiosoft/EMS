@@ -99,18 +99,53 @@ export interface ApiEngagementVenueRow {
 
 export interface ApiEngagementVenueTabData {
   venues: ApiEngagementVenueRow[];
-  /** From dbo.EngagementFinances */
+  /** From dbo.EngagementFinances.VenueDealTypeID */
+  venueDealTypeId: number | null;
+  /** From dbo.EngagementFinances (legacy text) */
   venueDealType: string | null;
   venueTerms: string | null;
+  /** From dbo.Tour.TechRiderLinkID → dbo.Link.LinkURL */
+  techRiderLinkUrl: string | null;
+  /** dbo.EngagementLink rows (contracts/forecast) */
+  engagementLinks: ApiEngagementLinkRow[];
+  /** Role-based contacts per venue for read-only display */
+  venueRoleContacts: Record<number, ApiVenueRoleContacts>;
+  /** IAE staff assigned with role 'Production Manager' */
+  iaeProductionManagers: ApiRoleContactDisplay[];
+}
+
+export interface ApiEngagementLinkRow {
+  engagementLinkId: number;
+  linkId: number;
+  linkPurpose: string | null;
+  linkUrl: string;
+  linkName: string;
+}
+
+export interface ApiVenueRoleContacts {
+  venueTicketingSoftware: ApiRoleContactDisplay[];
+  venueTicketingAdministrator: ApiRoleContactDisplay[];
+  venueProductionManager: ApiRoleContactDisplay[];
+  venueStageLaborCompany: ApiRoleContactDisplay[];
+  attractionTechDirector: ApiRoleContactDisplay[];
+}
+
+export interface ApiRoleContactDisplay {
+  contactId: number;
+  firstName: string;
+  lastName: string;
+  roleName: string;
 }
 
 export interface UpdateEngagementVenueTabPayload {
   venueBookingManagerContactId?: number | null;
+  venueDealTypeId?: number | null;
   venueTypeId?: number | null;
   stageDimensions?: string | null;
   flySystemSpecs?: string | null;
   stageType?: string | null;
   techPackPdfUrl?: string | null;
+  techRiderLinkUrl?: string | null;
   attractionTechDirectorContactId?: number | null;
   venueContractSharePointLink?: string | null;
   partiallyExecutedContractSharePointLink?: string | null;
@@ -214,6 +249,7 @@ export interface ApiEngagementFinanceRow {
   fundsOwed: number | null;
   receivableBankAccount: string | null;
   requiredNonResidentWithholdingId: number | null;
+  isCanadaEngagement: boolean | null;
   artistFinanceId: number | null;
   settlementFinanceId: number | null;
   /** dbo.SettlementFinance via SettlementFinanceID */
@@ -300,6 +336,13 @@ export interface ApiEngagementFinanceRow {
   artistTourOfferLink: string | null;
   artistOverageAmount: number | null;
   artistBuyouts: number | null;
+  /** dbo.SettlementFinance — Final Attraction Compensation */
+  finalGuaranteeAmount: number | null;
+  finalRoyaltyAmount: number | null;
+  finalOverageAmount: number | null;
+  finalBuyoutAmount: number | null;
+  finalDirectCompanyCharges: number | null;
+  finalReimbursables: number | null;
 }
 
 export type UpdateEngagementFinancePayload = {
@@ -406,6 +449,13 @@ export type UpdateEngagementFinancePayload = {
   artistTourOfferLink?: string | null;
   artistOverageAmount?: number | null;
   artistBuyouts?: number | null;
+  /** dbo.SettlementFinance — Final Attraction Compensation */
+  finalGuaranteeAmount?: number | null;
+  finalRoyaltyAmount?: number | null;
+  finalOverageAmount?: number | null;
+  finalBuyoutAmount?: number | null;
+  finalDirectCompanyCharges?: number | null;
+  finalReimbursables?: number | null;
 };
 
 export interface ApiEngagementFinanceLookups {
@@ -416,6 +466,20 @@ export interface ApiEngagementFinanceLookups {
     withholdingArea?: string | null;
     dmaid?: number | null;
     taxAgencyId?: number | null;
+    withholdingAgencyName?: string | null;
+    withholdingPayee?: string | null;
+    paymentMethod?: string | null;
+    formToAttractionUrl?: string | null;
+    formToMunicipalityUrl?: string | null;
+    quickBooksNumber?: string | null;
+    canApplyForWaiver?: boolean | null;
+    iaeWaiverInstructionsText?: string | null;
+    completedWaiverUrl?: string | null;
+    iaeWaiverSubmissionDate?: string | null;
+    iaeWaiverAppNumber?: string | null;
+    iaeWaiverUrl?: string | null;
+    tourWaiverUrl?: string | null;
+    exceptionsNotes?: string | null;
     withholdingLink?: ApiFinanceLink | null;
     artistWaiverInstructions?: ApiFinanceLink | null;
     iaeWaiverInstructions?: ApiFinanceLink | null;
@@ -722,6 +786,10 @@ export const fetchEngagementVenues = (id: number) => apiFetch<ApiEngagementVenue
 export const fetchEngagementVenueTabData = (id: number) => apiFetch<ApiEngagementVenueTabData>(`/engagements/${id}/venue-tab-data`);
 export const updateEngagementVenueTab = (id: number, venueCompanyId: number, body: UpdateEngagementVenueTabPayload) =>
   apiFetch<void>(`/engagements/${id}/venues/${venueCompanyId}/tab`, { method: 'PATCH', body: JSON.stringify(body) });
+export const upsertEngagementLink = (id: number, body: { linkUrl: string; linkName?: string; linkPurpose: string }) =>
+  apiFetch<{ engagementLinkId: number; linkId: number }>(`/engagements/${id}/links`, { method: 'POST', body: JSON.stringify(body) });
+export const removeEngagementLink = (id: number, engagementLinkId: number) =>
+  apiFetch<void>(`/engagements/${id}/links/${engagementLinkId}`, { method: 'DELETE' });
 export const fetchEngagementServiceProviders = (id: number) =>
   apiFetch<ApiEngagementServiceProvidersResponse>(`/engagements/${id}/service-providers`);
 export const addEngagementServiceProvider = (id: number, body: { providerCompanyId: number }) =>
@@ -841,6 +909,17 @@ export const fetchEngagementFinance = (id: number) =>
 
 export const updateEngagementFinance = (id: number, body: UpdateEngagementFinancePayload) =>
   apiFetch<void>(`/engagements/${id}/finance`, { method: 'PATCH', body: JSON.stringify(body) });
+
+export type UpdateNonResidentWithholdingPayload = {
+  withholdingArea?: string | null;
+  withholdingTaxRate?: number | null;
+  withholdingAgencyName?: string | null;
+  iaeWaiverSubmissionDate?: string | null;
+  iaeWaiverAppNumber?: string | null;
+};
+
+export const updateNonResidentWithholding = (nrwId: number, body: UpdateNonResidentWithholdingPayload) =>
+  apiFetch<void>(`/engagements/non-resident-withholding/${nrwId}`, { method: 'PATCH', body: JSON.stringify(body) });
 
 export const createEngagementWithholding = (id: number) =>
   apiFetch<{ withholdingId: number }>(`/engagements/${id}/withholding`, {

@@ -4854,15 +4854,15 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                     </div>
                   )}
                 {companyContacts.length > 0 && (
-                  <table className="w-full text-sm">
+                  <table className="w-full text-sm table-fixed">
                     <thead>
                       <tr className="text-text-muted text-xs border-b border-border">
-                        <th className="text-left py-2">Name</th>
-                        <th className="text-left py-2">Roles</th>
-                        <th className="text-left py-2">Departments</th>
-                        <th className="text-left py-2">Email</th>
-                        <th className="text-left py-2">Phone</th>
-                        <th />
+                        <th className="text-left py-2 w-[20%]">Name</th>
+                        <th className="text-left py-2 w-[18%]">Roles</th>
+                        <th className="text-left py-2 w-[18%]">Departments</th>
+                        <th className="text-left py-2 w-[26%]">Email</th>
+                        <th className="text-left py-2 w-[14%]">Phone</th>
+                        <th className="w-10" />
                       </tr>
                     </thead>
                     <tbody>
@@ -4913,7 +4913,7 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                               ));
                             })()}
                           </td>
-                          <td className="py-2 text-ems-blue text-xs">
+                          <td className="py-2 text-ems-blue text-xs break-all pr-2">
                             {(ct.workEmail || ct.email) ? <a href={`mailto:${ct.workEmail || ct.email}`} className="hover:underline">{ct.workEmail || ct.email}</a> : '—'}
                           </td>
                           <td className="py-2 text-text-secondary text-xs">
@@ -4977,16 +4977,14 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                         <div className="px-3 py-2 border-b border-border bg-elevated/40 text-xs font-medium text-text-secondary">
                           {section.venueCompanyName}
                         </div>
-                        <table className="w-full text-sm">
+                        <table className="w-full text-sm table-fixed">
                           <thead>
                             <tr className="text-text-muted text-xs border-b border-border/60">
-                              <th className="text-left py-2 px-3">Name</th>
-                              <th className="text-left py-2 px-3">Roles</th>
-                              <th className="text-left py-2 px-3">
-                                Departments
-                              </th>
-                              <th className="text-left py-2 px-3">Email</th>
-                              <th className="text-left py-2 px-3">Phone</th>
+                              <th className="text-left py-2 px-3 w-[20%]">Name</th>
+                              <th className="text-left py-2 px-3 w-[20%]">Roles</th>
+                              <th className="text-left py-2 px-3 w-[20%]">Departments</th>
+                              <th className="text-left py-2 px-3 w-[25%]">Email</th>
+                              <th className="text-left py-2 px-3 w-[15%]">Phone</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -5042,7 +5040,7 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                                     ));
                                   })()}
                                 </td>
-                                <td className="py-2 px-3 text-ems-blue text-xs">
+                                <td className="py-2 px-3 text-ems-blue text-xs break-all pr-2">
                                   {(ct.workEmail || ct.email) ? <a href={`mailto:${ct.workEmail || ct.email}`} className="hover:underline">{ct.workEmail || ct.email}</a> : '—'}
                                 </td>
                                 <td className="py-2 px-3 text-text-secondary text-xs">

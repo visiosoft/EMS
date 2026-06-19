@@ -1,4 +1,4 @@
-/**
+﻿/**
  * EngagementDetailPage – fully dynamic, end-to-end DB-driven.
  * All data comes from the API. No static/hardcoded content.
  *
@@ -50,12 +50,15 @@ import {
   fetchEngagementVenues,
   fetchEngagementVenueTabData,
   updateEngagementVenueTab,
+  upsertEngagementLink,
+  removeEngagementLink,
   fetchEngagementServiceProviders,
   removeEngagementVenue,
   addEngagementServiceProvider,
   removeEngagementServiceProvider,
   updateEngagement,
   updateEngagementFinance,
+  updateNonResidentWithholding,
   updateEngagementPerformance,
   deleteEngagementPerformance,
   fetchEngagementPerformanceTicketing,
@@ -93,6 +96,8 @@ import {
   type ApiEngagementListRow,
   type ApiEngagementVenueRow,
   type ApiEngagementVenueTabData,
+  type ApiEngagementLinkRow,
+  type ApiVenueRoleContacts,
   type UpdateEngagementVenueTabPayload,
   type ApiEngagementServiceProviderRow,
   type ApiEngagementServiceProvidersResponse,
@@ -135,6 +140,7 @@ import {
 } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { invalidateSalesCapacityRelatedQueries } from '@/api/cacheHelpers';
+// fetchIaeStaffEmployees removed — IAE Marketing Team now uses EngagementIAEContact
 import { formatOpeningDateSafe, formatSqlTimeDisplay } from '@/lib/engagementDisplay';
 import { formatE164ForDisplay } from '@/lib/contactPhoneField';
 import { ENGAGEMENT_STATUS_ENUM } from './engagementFormConstants';
@@ -211,6 +217,7 @@ const PRESALE_DISCOUNT_TYPE_OPTIONS: Select2Option[] = [
 ];
 
 const PASSWORD_TYPE_OPTIONS: Select2Option[] = [
+  { value: '', label: 'Select type…' },
   { value: 'PreSale', label: 'PreSale' },
   { value: 'PreSaleSpecialPrice', label: 'PreSaleSpecialPrice' },
   { value: 'PublicSaleSpecialPrice', label: 'PublicSaleSpecialPrice' },
@@ -407,42 +414,49 @@ function VenueDetailPanel({
   engagementId,
   venue,
   venueDealType,
+  venueDealTypeId: initialVenueDealTypeId,
   venueTerms,
+  techRiderLinkUrl,
+  engagementLinks,
+  venueRoleContacts,
   addToast,
   onNavigate,
 }: {
   engagementId: number;
   venue: ApiEngagementVenueRow;
   venueDealType: string | null;
+  venueDealTypeId: number | null;
   venueTerms: string | null;
+  techRiderLinkUrl: string | null;
+  engagementLinks: ApiEngagementLinkRow[];
+  venueRoleContacts: ApiVenueRoleContacts | null;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
   onNavigate: (view: string, data?: Record<string, unknown>) => void;
 }) {
   const qc = useQueryClient();
 
   // Editable state
-  const [venueContractLink, setVenueContractLink] = useState(venue.venueContractSharePointLink ?? '');
-  const [partialContractLink, setPartialContractLink] = useState(venue.partiallyExecutedContractSharePointLink ?? '');
-  const [fullContractLink, setFullContractLink] = useState(venue.fullyExecutedContractSharePointLink ?? '');
-  const [forecastLink, setForecastLink] = useState(venue.venueForecastSharePointLink ?? '');
-  // Newly-editable fields
   const [venueBookingManagerId, setVenueBookingManagerId] = useState(
     venue.venueBookingManagerContactId != null ? String(venue.venueBookingManagerContactId) : '',
   );
-  const [dealType, setDealType] = useState(venueDealType ?? '');
-  const [ticketingSystem, setTicketingSystem] = useState(venue.ticketingSystem ?? '');
-  const [ticketingAdminId, setTicketingAdminId] = useState(
-    venue.ticketingAdminContactId != null ? String(venue.ticketingAdminContactId) : '',
-  );
-  const [attractionTechDirectorId, setAttractionTechDirectorId] = useState(
-    venue.attractionTechDirectorContactId != null ? String(venue.attractionTechDirectorContactId) : '',
+  const [venueDealTypeId, setVenueDealTypeId] = useState(
+    initialVenueDealTypeId != null ? String(initialVenueDealTypeId) : '',
   );
   const [venueTypeId, setVenueTypeId] = useState(venue.venueTypeId != null ? String(venue.venueTypeId) : '');
   const [stageDimensions, setStageDimensions] = useState(venue.stageDimensions ?? '');
   const [flySystemSpecs, setFlySystemSpecs] = useState(venue.flySystemSpecs ?? '');
   const [stageType, setStageType] = useState(venue.stageType ?? '');
-  const [techPackPdfUrl, setTechPackPdfUrl] = useState(venue.techPackPdfUrl ?? '');
+  const [techRiderUrl, setTechRiderUrl] = useState(techRiderLinkUrl ?? '');
 
+  // Contract link state (EngagementLink-based)
+  const getEngagementLinkUrl = (purpose: string) =>
+    engagementLinks.find((el) => el.linkPurpose === purpose)?.linkUrl ?? '';
+  const [venueContractLink, setVenueContractLink] = useState(getEngagementLinkUrl('received'));
+  const [partialContractLink, setPartialContractLink] = useState(getEngagementLinkUrl('partially executed'));
+  const [fullContractLink, setFullContractLink] = useState(getEngagementLinkUrl('fully executed'));
+  const [forecastLink, setForecastLink] = useState(getEngagementLinkUrl('VenueForcast'));
+
+  // ── Lookups ──────────────────────────────────────────────────────────────
   const venueTypesQuery = useQuery({
     queryKey: ['lookups', 'venue-types'],
     queryFn: fetchVenueTypesLookup,
@@ -459,33 +473,41 @@ function VenueDetailPanel({
     [venueTypesQuery.data],
   );
 
-  const venueProfileQuery = useQuery({
-    queryKey: ['companies', venue.venueCompanyId, 'venue-profile'],
-    queryFn: () => fetchVenueProfile(venue.venueCompanyId),
-    staleTime: 60_000,
+  // Venue Deal Type options from VenueDealType table
+  const financeLookupsQuery = useQuery({
+    queryKey: ['engagements', 'finance-lookups'],
+    queryFn: () => fetchEngagementFinanceLookups(),
+    staleTime: 300_000,
   });
-  const venueSeatingCapacity = useMemo(() => {
-    const d = venueProfileQuery.data;
-    return d && d.missing === false ? d.seatingCapacity : 0;
-  }, [venueProfileQuery.data]);
+  const dealTypeOptions = useMemo<Select2Option[]>(() => [
+    { value: '', label: 'Not set' },
+    ...(financeLookupsQuery.data?.venueDealTypes ?? []).map((r) => ({ value: String(r.id), label: r.label })),
+  ], [financeLookupsQuery.data?.venueDealTypes]);
 
-  const venueContactsQuery = useQuery({
-    queryKey: ['company-contacts', venue.venueCompanyId],
-    queryFn: () => fetchCompanyContacts(venue.venueCompanyId),
+  // Booking manager contacts: from venue "Booking & Programming" section (managers only, no directors)
+  const venueDetailsForBookingQuery = useQuery({
+    queryKey: ['companies', venue.venueCompanyId, 'venue-details'],
+    queryFn: () => fetchVenueDetails(venue.venueCompanyId),
     staleTime: 60_000,
     retry: 1,
   });
-
-  const venueContactOptions = useMemo<Select2Option[]>(
-    () => [
-      { value: '', label: 'Not set' },
-      ...(venueContactsQuery.data ?? []).map((c) => ({
-        value: String(c.contactId),
-        label: `${c.firstName} ${c.lastName}`.trim() || c.contactId.toString(),
-      })),
-    ],
-    [venueContactsQuery.data],
-  );
+  const bookingManagerOptions = useMemo<Select2Option[]>(() => {
+    const d = venueDetailsForBookingQuery.data;
+    if (!d || d.missing) return [{ value: '', label: 'Not set' }];
+    const managers = [
+      ...(d.rentalManagers ?? []),
+      ...(d.calendarManagers ?? []),
+      ...(d.contractManagers ?? []),
+    ];
+    const seen = new Set<number>();
+    const opts: Select2Option[] = [{ value: '', label: 'Not set' }];
+    for (const c of managers) {
+      if (seen.has(c.contactId)) continue;
+      seen.add(c.contactId);
+      opts.push({ value: String(c.contactId), label: c.fullName || String(c.contactId) });
+    }
+    return opts;
+  }, [venueDetailsForBookingQuery.data]);
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venue-tab-data'] });
 
@@ -502,75 +524,58 @@ function VenueDetailPanel({
 
   const saveBookingManagerMutation = makeVenueMutation();
   const saveVenueTermsMutation = makeVenueMutation();
-  const saveTicketingMutation = makeVenueMutation();
-  const saveTechDirectorMutation = makeVenueMutation();
   const saveTechPackMutation = makeVenueMutation();
-  const saveContractsMutation = makeVenueMutation();
 
-  const handleSaveContracts = () => {
-    const linkFields: [string, string][] = [
-      ['Link to SharePoint – Venue Contract', venueContractLink],
-      ['Link to SharePoint – Partially Executed Contract', partialContractLink],
-      ['Link to SharePoint – Fully Executed Contract', fullContractLink],
-      ['Link to SharePoint – Venue Forecast', forecastLink],
-    ];
-    for (const [label, val] of linkFields) {
-      if (!isValidHttpOrHttpsUrl(val)) {
-        addToast(`${label} must be a valid http(s) URL, or left empty.`, 'error');
-        return;
+  const saveContractsMutation = useMutation({
+    mutationFn: async () => {
+      const linkFields: [string, string][] = [
+        ['received', venueContractLink],
+        ['partially executed', partialContractLink],
+        ['fully executed', fullContractLink],
+        ['VenueForcast', forecastLink],
+      ];
+      for (const [purpose, url] of linkFields) {
+        if (url.trim() && !isValidHttpOrHttpsUrl(url)) {
+          throw new Error(`${purpose} must be a valid http(s) URL, or left empty.`);
+        }
       }
-    }
-    saveContractsMutation.mutate({
-      venueContractSharePointLink: venueContractLink.trim() || null,
-      partiallyExecutedContractSharePointLink: partialContractLink.trim() || null,
-      fullyExecutedContractSharePointLink: fullContractLink.trim() || null,
-      venueForecastSharePointLink: forecastLink.trim() || null,
-    });
-  };
+      for (const [purpose, url] of linkFields) {
+        if (url.trim()) {
+          await upsertEngagementLink(engagementId, { linkUrl: url.trim(), linkPurpose: purpose });
+        } else {
+          // Remove link if URL is cleared
+          const existing = engagementLinks.find((el) => el.linkPurpose === purpose);
+          if (existing) {
+            await removeEngagementLink(engagementId, existing.engagementLinkId);
+          }
+        }
+      }
+    },
+    onSuccess: async () => {
+      await invalidate();
+      addToast('Contract & forecast links saved.', 'success');
+    },
+    onError: (e) => addToast(e instanceof Error ? e.message : 'Could not save links.', 'error'),
+  });
 
   const handleSaveBookingManager = () =>
     saveBookingManagerMutation.mutate({
       venueBookingManagerContactId: venueBookingManagerId ? Number(venueBookingManagerId) : null,
     });
 
-  const handleSaveAttractionTechDirector = () =>
-    saveTechDirectorMutation.mutate({
-      attractionTechDirectorContactId: attractionTechDirectorId ? Number(attractionTechDirectorId) : null,
-    });
-
-  const handleSaveTicketing = () =>
-    saveTicketingMutation.mutate({
-      ticketingSystem: ticketingSystem.trim() || null,
-      ticketingAdminContactId: ticketingAdminId ? Number(ticketingAdminId) : null,
-    });
-
-  const dealTypeMutation = useMutation({
-    mutationFn: (value: string | null) =>
-      updateEngagementFinance(engagementId, {
-        venueDealType: value as UpdateEngagementFinancePayload['venueDealType'],
-      }),
-    onSuccess: async () => {
-      await invalidate();
-      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] });
-      addToast('Deal type saved.', 'success');
-    },
-    onError: (e) => addToast(friendlyApiError(e, 'Could not save deal type.'), 'error'),
-  });
   const handleSaveVenueTerms = () => {
-    dealTypeMutation.mutate(dealType.trim() || null);
-    saveVenueTermsMutation.mutate({ venueTypeId: venueTypeId ? Number(venueTypeId) : null });
+    saveVenueTermsMutation.mutate({
+      venueDealTypeId: venueDealTypeId ? Number(venueDealTypeId) : null,
+      venueTypeId: venueTypeId ? Number(venueTypeId) : null,
+    });
   };
 
   const handleSaveTechPack = () => {
-    if (!isValidHttpOrHttpsUrl(techPackPdfUrl)) {
-      addToast('Venue Tech Pack PDF must be a valid http(s) URL, or left empty.', 'error');
-      return;
-    }
     saveTechPackMutation.mutate({
       stageDimensions: stageDimensions.trim() || null,
       flySystemSpecs: flySystemSpecs.trim() || null,
       stageType: stageType.trim() || null,
-      techPackPdfUrl: techPackPdfUrl.trim() || null,
+      techRiderLinkUrl: techRiderUrl.trim() || null,
     });
   };
 
@@ -578,6 +583,7 @@ function VenueDetailPanel({
     'w-full rounded border border-border bg-background px-2 py-1.5 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:ring-1 focus:ring-ems-accent/50 disabled:opacity-60';
   const sectionCls = 'rounded-md border border-border bg-surface/40 p-4 space-y-4';
   const labelCls = 'text-xs font-semibold text-text-primary mb-3 block';
+  const readOnlyValueCls = 'text-sm text-text-primary';
 
   return (
     <div className="space-y-4 mt-3">
@@ -587,10 +593,10 @@ function VenueDetailPanel({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="Venue Booking Manager">
             <Select2
-              options={venueContactOptions}
+              options={bookingManagerOptions}
               value={venueBookingManagerId}
               onChange={setVenueBookingManagerId}
-              placeholder="Select contact…"
+              placeholder="Select manager…"
               allowClear
               disabled={saveBookingManagerMutation.isPending}
             />
@@ -606,18 +612,18 @@ function VenueDetailPanel({
         </div>
       </div>
 
-      {/* Venue Terms */}
+      {/* Venue Terms (Deal Type + Venue Type) */}
       <div className={sectionCls}>
         <span className={labelCls}>Venue Terms</span>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="Deal Type">
             <Select2
-              options={VENUE_DEAL_TYPE_OPTIONS}
-              value={dealType}
-              onChange={setDealType}
+              options={dealTypeOptions}
+              value={venueDealTypeId}
+              onChange={setVenueDealTypeId}
               placeholder="Not set"
               allowClear
-              disabled={dealTypeMutation.isPending}
+              disabled={saveVenueTermsMutation.isPending}
             />
           </FormField>
           <FormField label="Venue Type">
@@ -633,86 +639,10 @@ function VenueDetailPanel({
         </div>
         <div className="flex justify-end">
           <Button type="button" size="sm" className="bg-ems-accent text-white hover:opacity-90"
-            onClick={handleSaveVenueTerms} disabled={dealTypeMutation.isPending || saveVenueTermsMutation.isPending}>
-            {(dealTypeMutation.isPending || saveVenueTermsMutation.isPending) ? (
+            onClick={handleSaveVenueTerms} disabled={saveVenueTermsMutation.isPending}>
+            {saveVenueTermsMutation.isPending ? (
               <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
             ) : 'Save venue terms'}
-          </Button>
-        </div>
-        <p className="text-[11px] text-text-muted mt-1">
-          Deal Type is shared with the Finance tab. Venue Terms remain editable on the Finance tab.
-        </p>
-      </div>
-
-      {/* Venue Seating */}
-      <div className={sectionCls}>
-        <span className={labelCls}>Venue Seating</span>
-        <div className="grid grid-cols-1 gap-3">
-          <VenueInfoRow label="Seating Type" value={venue.venueTypeName} />
-          <SeatingChartDiagram
-            venueName={venue.venueName ?? venue.venueCompanyName}
-            venueType={venue.venueTypeName}
-            capacity={venueSeatingCapacity}
-          />
-        </div>
-      </div>
-
-      {/* Venue Ticketing */}
-      <div className={sectionCls}>
-        <span className={labelCls}>Venue Ticketing</span>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Venue Ticketing Software">
-            <input
-              type="text"
-              className={`${inputCls} !bg-white`}
-              value={ticketingSystem}
-              onChange={(e) => setTicketingSystem(e.target.value)}
-              placeholder="e.g. Ticketmaster"
-              disabled={saveTicketingMutation.isPending}
-            />
-          </FormField>
-          <FormField label="Venue Ticketing Administrator">
-            <Select2
-              options={venueContactOptions}
-              value={ticketingAdminId}
-              onChange={setTicketingAdminId}
-              placeholder="Select contact…"
-              allowClear
-              disabled={saveTicketingMutation.isPending}
-            />
-          </FormField>
-        </div>
-        <div className="flex justify-end">
-          <Button type="button" size="sm" className="bg-ems-accent text-white hover:opacity-90"
-            onClick={handleSaveTicketing} disabled={saveTicketingMutation.isPending}>
-            {saveTicketingMutation.isPending ? (
-              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
-            ) : 'Save ticketing'}
-          </Button>
-        </div>
-      </div>
-
-      {/* Attraction Tech Director */}
-      <div className={sectionCls}>
-        <span className={labelCls}>Attraction Tech Director</span>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Attraction Tech Director Contact">
-            <Select2
-              options={venueContactOptions}
-              value={attractionTechDirectorId}
-              onChange={setAttractionTechDirectorId}
-              placeholder="Select contact…"
-              allowClear
-              disabled={saveTechDirectorMutation.isPending}
-            />
-          </FormField>
-        </div>
-        <div className="flex justify-end">
-          <Button type="button" size="sm" className="bg-ems-accent text-white hover:opacity-90"
-            onClick={handleSaveAttractionTechDirector} disabled={saveTechDirectorMutation.isPending}>
-            {saveTechDirectorMutation.isPending ? (
-              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
-            ) : 'Save tech director'}
           </Button>
         </div>
       </div>
@@ -721,6 +651,19 @@ function VenueDetailPanel({
       <div className={sectionCls}>
         <span className={labelCls}>Venue Tech Pack</span>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Venue Tech Pack PDF">
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                className={inputCls}
+                value={techRiderUrl}
+                onChange={(e) => setTechRiderUrl(e.target.value)}
+                placeholder="Paste tech pack PDF URL…"
+                disabled={saveTechPackMutation.isPending}
+              />
+
+            </div>
+          </FormField>
           <VenueTabEditField
             label="Venue Stage Dimensions"
             value={stageDimensions}
@@ -742,25 +685,7 @@ function VenueDetailPanel({
             disabled={saveTechPackMutation.isPending}
             inputBgClass="bg-white"
           />
-          <VenueTabEditField
-            label="Venue Tech Pack PDF (URL)"
-            value={techPackPdfUrl}
-            onChange={setTechPackPdfUrl}
-            disabled={saveTechPackMutation.isPending}
-            urlField
-            inputBgClass="bg-white"
-          />
         </div>
-        {techPackPdfUrl.trim() && isValidHttpOrHttpsUrl(techPackPdfUrl) && (
-          <a
-            href={techPackPdfUrl.trim()}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-ems-accent hover:underline"
-          >
-            <ExternalLink className="h-3 w-3 shrink-0" /> Open tech pack PDF
-          </a>
-        )}
         <div className="flex justify-end">
           <Button type="button" size="sm" className="bg-ems-accent text-white hover:opacity-90"
             onClick={handleSaveTechPack} disabled={saveTechPackMutation.isPending}>
@@ -768,6 +693,72 @@ function VenueDetailPanel({
               <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
             ) : 'Save tech pack'}
           </Button>
+        </div>
+      </div>
+
+      {/* Venue Ticketing (read-only) */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Venue Ticketing</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Venue Ticketing Software">
+            <div className={readOnlyValueCls}>
+              {(venueRoleContacts?.venueTicketingSoftware ?? []).length > 0
+                ? venueRoleContacts!.venueTicketingSoftware.map((c) => (
+                    <div key={c.contactId}>{`${c.firstName} ${c.lastName}`.trim()}</div>
+                  ))
+                : <span className="text-text-muted">— none assigned —</span>}
+            </div>
+          </FormField>
+          <FormField label="Venue Ticketing Administrator">
+            <div className={readOnlyValueCls}>
+              {(venueRoleContacts?.venueTicketingAdministrator ?? []).length > 0
+                ? venueRoleContacts!.venueTicketingAdministrator.map((c) => (
+                    <div key={c.contactId}>{`${c.firstName} ${c.lastName}`.trim()}</div>
+                  ))
+                : <span className="text-text-muted">— none assigned —</span>}
+            </div>
+          </FormField>
+        </div>
+      </div>
+
+      {/* Venue Production (read-only) */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Venue Production</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Venue Production Manager">
+            <div className={readOnlyValueCls}>
+              {(venueRoleContacts?.venueProductionManager ?? []).length > 0
+                ? venueRoleContacts!.venueProductionManager.map((c) => (
+                    <div key={c.contactId}>{`${c.firstName} ${c.lastName}`.trim()}</div>
+                  ))
+                : <span className="text-text-muted">— none assigned —</span>}
+            </div>
+          </FormField>
+          <FormField label="Venue Stage Labor">
+            <div className={readOnlyValueCls}>
+              {(venueRoleContacts?.venueStageLaborCompany ?? []).length > 0
+                ? venueRoleContacts!.venueStageLaborCompany.map((c) => (
+                    <div key={c.contactId}>{`${c.firstName} ${c.lastName}`.trim()}</div>
+                  ))
+                : <span className="text-text-muted">— none assigned —</span>}
+            </div>
+          </FormField>
+        </div>
+      </div>
+
+      {/* Attraction Tech Director (read-only) */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Attraction Tech Director</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Attraction Tech Director">
+            <div className={readOnlyValueCls}>
+              {(venueRoleContacts?.attractionTechDirector ?? []).length > 0
+                ? venueRoleContacts!.attractionTechDirector.map((c) => (
+                    <div key={c.contactId}>{`${c.firstName} ${c.lastName}`.trim()}</div>
+                  ))
+                : <span className="text-text-muted">— none assigned —</span>}
+            </div>
+          </FormField>
         </div>
       </div>
 
@@ -799,34 +790,28 @@ function VenueDetailPanel({
             urlField
             inputBgClass="bg-white"
           />
+          <VenueTabEditField
+            label="Link to SharePoint – Venue Forecast"
+            value={forecastLink}
+            onChange={setForecastLink}
+            disabled={saveContractsMutation.isPending}
+            urlField
+            inputBgClass="bg-white"
+          />
         </div>
-      </div>
-
-      {/* Venue Forecast */}
-      <div className={sectionCls}>
-        <span className={labelCls}>Venue Forecast</span>
-        <VenueTabEditField
-          label="Link to SharePoint – Venue Forecast"
-          value={forecastLink}
-          onChange={setForecastLink}
-          disabled={saveContractsMutation.isPending}
-          urlField
-          inputBgClass="bg-white"
-        />
-      </div>
-
-      <div className="flex justify-end">
-        <Button
-          type="button"
-          size="sm"
-          className="bg-ems-accent text-white hover:opacity-90"
-          onClick={handleSaveContracts}
-          disabled={saveContractsMutation.isPending}
-        >
-          {saveContractsMutation.isPending ? (
-            <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
-          ) : 'Save contracts & forecast links'}
-        </Button>
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            size="sm"
+            className="bg-ems-accent text-white hover:opacity-90"
+            onClick={() => saveContractsMutation.mutate()}
+            disabled={saveContractsMutation.isPending}
+          >
+            {saveContractsMutation.isPending ? (
+              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
+            ) : 'Save contracts & forecast links'}
+          </Button>
+        </div>
       </div>
 
     </div>
@@ -1255,7 +1240,11 @@ function VenuesTab({
 
   const venues = useMemo(() => venueTabQuery.data?.venues ?? [], [venueTabQuery.data]);
   const venueDealType = venueTabQuery.data?.venueDealType ?? null;
+  const venueDealTypeId = venueTabQuery.data?.venueDealTypeId ?? null;
   const venueTerms = venueTabQuery.data?.venueTerms ?? null;
+  const techRiderLinkUrl = venueTabQuery.data?.techRiderLinkUrl ?? null;
+  const engagementLinks = useMemo(() => venueTabQuery.data?.engagementLinks ?? [], [venueTabQuery.data]);
+  const venueRoleContacts = venueTabQuery.data?.venueRoleContacts ?? {};
 
   if (venueTabQuery.isLoading) {
     return (
@@ -1364,7 +1353,11 @@ function VenuesTab({
                     engagementId={engagementId}
                     venue={v}
                     venueDealType={venueDealType}
+                    venueDealTypeId={venueDealTypeId}
                     venueTerms={venueTerms}
+                    techRiderLinkUrl={techRiderLinkUrl}
+                    engagementLinks={engagementLinks}
+                    venueRoleContacts={venueRoleContacts[v.venueCompanyId] ?? null}
                     addToast={addToast}
                     onNavigate={onNavigate}
                   />
@@ -1699,17 +1692,6 @@ function EngagementProductionPanel({
     );
   }, [currentStagehandProviderId, venueDetailsQuery.data]);
 
-  const venueContactOptions = useMemo<Select2Option[]>(
-    () => [
-      { value: '', label: 'Not set' },
-      ...(venueContactsQuery.data ?? []).map((c) => ({
-        value: String(c.contactId),
-        label: `${c.firstName} ${c.lastName}`.trim() || c.contactId.toString(),
-      })),
-    ],
-    [venueContactsQuery.data],
-  );
-
   const stagehandProviderOptions = useMemo((): Select2Option[] => {
     const base = companyToSelect2Options(stagehandProvidersQuery.data ?? []);
 
@@ -1726,10 +1708,7 @@ function EngagementProductionPanel({
     return data.stagehandProviderContacts ?? [];
   }, [venueDetailsQuery.data]);
 
-  // Venue tab fields: IAE Production Manager, Venue Type, Tech Pack
-  const [iaeProductionManagerId, setIaeProductionManagerId] = useState('');
-  const [venueProductionManagerId, setVenueProductionManagerId] = useState('');
-  const [stagehandContactId, setStagehandContactId] = useState('');
+  // Venue tab fields: Venue Type, Tech Pack
   const [venueTypeId, setVenueTypeId] = useState('');
   const [stageDimensions, setStageDimensions] = useState('');
   const [flySystemSpecs, setFlySystemSpecs] = useState('');
@@ -1747,34 +1726,19 @@ function EngagementProductionPanel({
     [venueTabDataQuery.data, venueCompanyId],
   );
 
+  const venueRoleContactsForVenue = useMemo(
+    () => (venueCompanyId != null ? venueTabDataQuery.data?.venueRoleContacts?.[venueCompanyId] : null) ?? null,
+    [venueTabDataQuery.data, venueCompanyId],
+  );
+
   useEffect(() => {
     if (!primaryVenue) return;
-    setIaeProductionManagerId(primaryVenue.iaeProductionManagerContactId != null ? String(primaryVenue.iaeProductionManagerContactId) : '');
-    setVenueProductionManagerId(primaryVenue.venueProductionManagerContactId != null ? String(primaryVenue.venueProductionManagerContactId) : '');
-    setStagehandContactId(primaryVenue.stagehandContactId != null ? String(primaryVenue.stagehandContactId) : '');
     setVenueTypeId(primaryVenue.venueTypeId != null ? String(primaryVenue.venueTypeId) : '');
     setStageDimensions(primaryVenue.stageDimensions ?? '');
     setFlySystemSpecs(primaryVenue.flySystemSpecs ?? '');
     setStageType(primaryVenue.stageType ?? '');
     setTechPackPdfUrl(primaryVenue.techPackPdfUrl ?? '');
   }, [primaryVenue]);
-
-  const iaeContactLookupsQuery = useQuery({
-    queryKey: ['engagements', 'iae-contact-lookups'],
-    queryFn: fetchEngagementIaeContactLookups,
-    staleTime: 300_000,
-  });
-
-  const iaeContactOptions = useMemo<Select2Option[]>(
-    () => [
-      { value: '', label: 'Not set' },
-      ...(iaeContactLookupsQuery.data?.contacts ?? []).map((c) => ({
-        value: String(c.id),
-        label: c.label,
-      })),
-    ],
-    [iaeContactLookupsQuery.data],
-  );
 
   const venueTypesQuery = useQuery({
     queryKey: ['lookups', 'venue-types'],
@@ -1807,8 +1771,6 @@ function EngagementProductionPanel({
       onError: (e) => addToast(friendlyApiError(e, 'Could not save.'), 'error'),
     });
 
-  const saveIaePmMutation = makeVenueTabMutation();
-  const saveVenuePmMutation = makeVenueTabMutation();
   const saveVenueTypeMutation = makeVenueTabMutation();
   const saveTechPackMutation = makeVenueTabMutation();
 
@@ -1933,172 +1895,57 @@ function EngagementProductionPanel({
       {/* IAE Production Manager */}
       <div className="rounded-md border border-border bg-surface/40 p-4 space-y-4">
         <span className="text-xs font-semibold text-text-primary block">IAE Production Manager</span>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Production Manager Contact">
-            <Select2
-              options={iaeContactOptions}
-              value={iaeProductionManagerId}
-              onChange={setIaeProductionManagerId}
-              placeholder="Select IAE contact…"
-              allowClear
-              disabled={saveIaePmMutation.isPending}
-            />
-          </FormField>
-        </div>
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            size="sm"
-            className="bg-ems-accent text-white hover:opacity-90"
-            onClick={() => saveIaePmMutation.mutate({ iaeProductionManagerContactId: iaeProductionManagerId ? Number(iaeProductionManagerId) : null })}
-            disabled={saveIaePmMutation.isPending}
-          >
-            {saveIaePmMutation.isPending ? (
-              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
-            ) : 'Save IAE production manager'}
-          </Button>
+        <div className="min-h-[42px] rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary">
+          {(venueTabDataQuery.data?.iaeProductionManagers ?? []).length === 0 ? (
+            <span className="text-text-muted">No IAE production manager assigned.</span>
+          ) : (
+            <ul className="space-y-2">
+              {venueTabDataQuery.data!.iaeProductionManagers.map((c) => (
+                <li key={c.contactId} className="flex flex-col gap-0.5">
+                  <span className="font-medium">{`${c.firstName} ${c.lastName}`.trim()}</span>
+                  <span className="text-xs text-text-muted">{c.roleName}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
 
       {/* Venue Production Manager */}
-      <div
-        className="relative rounded-lg border border-border bg-surface/40 p-4 space-y-4"
-        aria-busy={saveStagehandProviderMutation.isPending}
-      >
+      <div className="rounded-md border border-border bg-surface/40 p-4 space-y-4">
         <span className="text-xs font-semibold text-text-primary block">Venue Production Manager</span>
-        {saveStagehandProviderMutation.isPending && (
-          <div
-            className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/55 backdrop-blur-[1px]"
-            aria-live="polite"
-          >
-            <span className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2.5 text-sm font-medium text-text-primary shadow-md">
-              <Loader2 className="h-5 w-5 animate-spin text-ems-accent shrink-0" />
-              Saving to database...
-            </span>
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Venue Production Manager">
-            <Select2
-              options={venueContactOptions}
-              value={venueProductionManagerId}
-              onChange={setVenueProductionManagerId}
-              placeholder="Select contact…"
-              allowClear
-              disabled={saveVenuePmMutation.isPending}
-            />
-          </FormField>
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-x-6 gap-y-5">
-          <FormField label="Venue production manager contact information">
-            <div className="min-h-[42px] rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary">
-              {productionManagerContacts.length === 0 ? (
-                <span className="text-text-muted">
-                  No production manager contact assigned to this venue.
-                </span>
-              ) : (
-                <ul className="space-y-2">
-                  {productionManagerContacts.map((contact) => {
-                    const name = compactContactName(contact) || contact.email;
-                    const phone = contactPhoneDisplay(contact);
-                    const rawPhone = contact.cellPhone || contact.workPhone;
-                    return (
-                      <li
-                        key={contact.contactAssignmentId}
-                        className="flex flex-col gap-0.5"
-                      >
-                        <span className="font-medium">{name}</span>
-                        <span className="text-xs text-text-secondary">
-                          {contact.email && <a href={`mailto:${contact.email}`} className="hover:underline">{contact.email}</a>}
-                          {contact.email && phone && ' | '}
-                          {phone && rawPhone && <a href={`tel:${rawPhone}`} className="hover:underline">{phone}</a>}
-                          {!contact.email && !phone && '-'}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
-          </FormField>
-
-          <FormField label="Venue Stage Labor Company Contact">
-            <Select2
-              options={venueContactOptions}
-              value={stagehandContactId}
-              onChange={setStagehandContactId}
-              placeholder="Select contact…"
-              allowClear
-              disabled={saveVenuePmMutation.isPending}
-            />
-          </FormField>
-        </div>
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            size="sm"
-            className="bg-ems-accent text-white hover:opacity-90"
-            onClick={() => saveVenuePmMutation.mutate({
-              venueProductionManagerContactId: venueProductionManagerId ? Number(venueProductionManagerId) : null,
-              stagehandContactId: stagehandContactId ? Number(stagehandContactId) : null,
-            })}
-            disabled={saveVenuePmMutation.isPending}
-          >
-            {saveVenuePmMutation.isPending ? (
-              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
-            ) : 'Save production manager & stage labor contact'}
-          </Button>
-        </div>
-
-        <div className="border-t border-border pt-4 space-y-4">
-          <FormField label="Stagehand Provider (company)">
-            <Select2
-              options={stagehandProviderOptions}
-              value={stagehandProviderId}
-              onChange={(value) => {
-                markStagehandUserEdited();
-                setStagehandProviderId(value);
-              }}
-              placeholder="None"
-              allowClear
-              disabled={venueDetailsMissing || saveStagehandProviderMutation.isPending}
-            />
-          </FormField>
-          {currentStagehandProviderId != null && stagehandProviderContacts.length > 0 && (
-            <div className="rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary">
-              <span className="text-[11px] text-text-muted font-medium uppercase tracking-wide">Stage labor provider contacts</span>
-              <ul className="space-y-2 mt-1">
-                {stagehandProviderContacts.map((contact) => (
-                  <li key={contact.contactInfoId} className="flex flex-col gap-0.5">
-                    <span className="font-medium">{contact.fullName}</span>
-                    <span className="text-xs text-text-secondary">
-                      {[contact.email, contact.phone || contact.cellPhone].filter(Boolean).join(' | ') || '-'}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+        <div className="min-h-[42px] rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary">
+          {(venueRoleContactsForVenue?.venueProductionManager ?? []).length === 0 ? (
+            <span className="text-text-muted">No venue production manager contact assigned.</span>
+          ) : (
+            <ul className="space-y-2">
+              {venueRoleContactsForVenue!.venueProductionManager.map((c) => (
+                <li key={c.contactId} className="flex flex-col gap-0.5">
+                  <span className="font-medium">{`${c.firstName} ${c.lastName}`.trim()}</span>
+                  <span className="text-xs text-text-muted">{c.roleName}</span>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
+      </div>
 
-        <div className="flex justify-end border-t border-border pt-4">
-          <Button
-            type="button"
-            size="sm"
-            className="bg-ems-accent text-white hover:opacity-90"
-            onClick={handleSave}
-            disabled={stagehandSaveDisabled}
-          >
-            {saveStagehandProviderMutation.isPending ? (
-              <span className="inline-flex items-center gap-1">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Saving...
-              </span>
-            ) : (
-              'Save stagehand provider'
-            )}
-          </Button>
+      {/* Venue Stage Labor Company Contact */}
+      <div className="rounded-md border border-border bg-surface/40 p-4 space-y-4">
+        <span className="text-xs font-semibold text-text-primary block">Stagehand Provider</span>
+        <div className="min-h-[42px] rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary">
+          {(venueRoleContactsForVenue?.venueStageLaborCompany ?? []).length === 0 ? (
+            <span className="text-text-muted">No stage labor contact assigned.</span>
+          ) : (
+            <ul className="space-y-2">
+              {venueRoleContactsForVenue!.venueStageLaborCompany.map((c) => (
+                <li key={c.contactId} className="flex flex-col gap-0.5">
+                  <span className="font-medium">{`${c.firstName} ${c.lastName}`.trim()}</span>
+                  <span className="text-xs text-text-muted">{c.roleName}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
 
@@ -5535,10 +5382,12 @@ const WITHHOLDING_PAYMENT_METHOD_OPTIONS: Select2Option[] = [
 
 function EngagementEventBusinessPanel({
   engagementId,
+  venueCompanyId,
   addToast,
   onDirtyChange,
 }: {
   engagementId: number;
+  venueCompanyId: number | null | undefined;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
@@ -5558,41 +5407,89 @@ function EngagementEventBusinessPanel({
     queryFn: () => fetchEngagementFinanceLookups(),
     staleTime: 300_000,
   });
+  const venueDealTypeOptions = useMemo((): Select2Option[] => [
+    { value: '', label: 'Not set' },
+    ...(financeLookupsQuery.data?.venueDealTypes ?? []).map((r) => ({ value: String(r.id), label: r.label })),
+  ], [financeLookupsQuery.data?.venueDealTypes]);
+
+  // ── IAE contacts assigned to this engagement (for role-based display) ─────────────────────────────────────────────
+  const iaeContactsQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'iae-contacts'],
+    queryFn: () => fetchEngagementIaeContacts(engagementId),
+    staleTime: 60_000,
+  });
+
+  // ── Venue tab data (for engagement links) ─────────────────────────────────────────────
+  const venueTabDataQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'venue-tab-data'],
+    queryFn: () => fetchEngagementVenueTabData(engagementId),
+    staleTime: 60_000,
+  });
+  const engagementLinks = useMemo(() => venueTabDataQuery.data?.engagementLinks ?? [], [venueTabDataQuery.data]);
+
+  // ── Venue details (for settlement managers from venue company) ─────────────────────────────────────────────
+  const venueDetailsQuery = useQuery({
+    queryKey: ['venue-details', venueCompanyId],
+    queryFn: () => fetchVenueDetails(venueCompanyId!),
+    enabled: venueCompanyId != null && venueCompanyId > 0,
+    staleTime: 120_000,
+  });
+
+  // Derive IAE staff by role from engagement IAE contacts
+  const iaeEventBusinessManagers = useMemo(() =>
+    (iaeContactsQuery.data ?? []).filter((c) => c.roleName === 'Event Business Manager'),
+    [iaeContactsQuery.data],
+  );
+  const iaeEventBusinessAssistantManagers = useMemo(() =>
+    (iaeContactsQuery.data ?? []).filter((c) => c.roleName === 'Event Business Assistant Manager'),
+    [iaeContactsQuery.data],
+  );
+
+  // Derive venue settlement managers from venue details
+  const venueSettlementManagers = useMemo(() => {
+    const vd = venueDetailsQuery.data;
+    if (!vd || vd.missing === true) return [];
+    return (vd as { settlementManagers?: { contactId: number; fullName: string }[] }).settlementManagers ?? [];
+  }, [venueDetailsQuery.data]);
 
   const iaeContactOptions = useMemo((): Select2Option[] => [
     { value: '', label: '— not set —' },
     ...(iaeLookupsQuery.data?.contacts ?? []).map((c) => ({ value: String(c.id), label: c.label })),
   ], [iaeLookupsQuery.data?.contacts]);
 
-  // ── Settlement status ──────────────────────────────────────────────────────
+  // ── Settlement status ─────────────────────────────────────────────
   const [artistSettlementStatus, setArtistSettlementStatus] = useState('');
   const [venueSettlementStatus, setVenueSettlementStatus] = useState('');
 
-  // ── IAE Event Business ────────────────────────────────────────────────────
+  // ── IAE Event Business ─────────────────────────────────────────────
   const [eventBusinessManagerContactId, setEventBusinessManagerContactId] = useState('');
   const [eventBusinessAssistantManagerContactId, setEventBusinessAssistantManagerContactId] = useState('');
 
-  // ── Venue Settlement Manager ──────────────────────────────────────────────
+  // ── Venue Settlement Manager ─────────────────────────────────────────────
   const [venueSettlementContactId, setVenueSettlementContactId] = useState('');
 
-  // ── Settlement Files ──────────────────────────────────────────────────────
+  // ── Settlement Files ─────────────────────────────────────────────
   const [tourSettlementFileSharePointLink, setTourSettlementFileSharePointLink] = useState('');
   const [venueSettlementFileSharePointLink, setVenueSettlementFileSharePointLink] = useState('');
   const [partnerSettlementFileSharePointLink, setPartnerSettlementFileSharePointLink] = useState('');
 
-  // ── Attraction Terms ──────────────────────────────────────────────────────
-  const [artistDepositRequired, setArtistDepositRequired] = useState('');
-  const [artistPartOfCollateralizedDeal, setArtistPartOfCollateralizedDeal] = useState('');
-  const [artistFexPerformanceAgreementLink, setArtistFexPerformanceAgreementLink] = useState('');
-  const [artistTourOfferLink, setArtistTourOfferLink] = useState('');
-  const [artistOverageAmount, setArtistOverageAmount] = useState('');
-  const [artistBuyouts, setArtistBuyouts] = useState('');
+  // ── Attraction Terms (separate save) ─────────────────────────────────────────────
+  const [attrDealType, setAttrDealType] = useState('');
+  const [attrGuarantee, setAttrGuarantee] = useState('');
+  const [attrOveragePercent, setAttrOveragePercent] = useState('');
+  const [attrRoyaltyPercent, setAttrRoyaltyPercent] = useState('');
+  const [attrMiddleMoney, setAttrMiddleMoney] = useState('');
+  const [attrBuyouts, setAttrBuyouts] = useState('');
+  const [attrCollateralizedDeal, setAttrCollateralizedDeal] = useState('');
+  const [attrTourOfferLink, setAttrTourOfferLink] = useState('');
+  const [attrFullyExecutedContractLink, setAttrFullyExecutedContractLink] = useState('');
 
-  // ── Venue Terms ───────────────────────────────────────────────────────────
-  const [fexVenueAgreementLink, setFexVenueAgreementLink] = useState('');
-  const [venueDepositRequired, setVenueDepositRequired] = useState('');
+  // ── Venue Terms (separate save) ─────────────────────────────────────────────
+  const [venueTermsDealTypeId, setVenueTermsDealTypeId] = useState('');
+  const [venueTermsFullyExecutedLink, setVenueTermsFullyExecutedLink] = useState('');
+  const [venueTermsForecastLink, setVenueTermsForecastLink] = useState('');
 
-  // ── Sales Tax ─────────────────────────────────────────────────────────────
+  // ── Sales Tax ─────────────────────────────────────────────
   const [salesTaxRemittedBy, setSalesTaxRemittedBy] = useState('');
   const [subscriptionSalesRevenueTotal, setSubscriptionSalesRevenueTotal] = useState('');
   const [seasonTicketSalesByIae, setSeasonTicketSalesByIae] = useState('');
@@ -5602,8 +5499,13 @@ function EngagementEventBusinessPanel({
   const [hstPaidOnTourPayments, setHstPaidOnTourPayments] = useState('');
   const [hstPaidOnShowExpenses, setHstPaidOnShowExpenses] = useState('');
   const [hstPaidOnVenueExpenses, setHstPaidOnVenueExpenses] = useState('');
+  const [hstRemittedToIae, setHstRemittedToIae] = useState('');
+  const [hstPaidToAttraction, setHstPaidToAttraction] = useState('');
 
-  // ── Non-Resident Withholding ──────────────────────────────────────────────
+  // ── Non-Resident Withholding ─────────────────────────────────────────────
+  const [withholdingArea, setWithholdingArea] = useState('');
+  const [withholdingRate, setWithholdingRate] = useState('');
+  const [withholdingAgency, setWithholdingAgency] = useState('');
   const [withholdingPayee, setWithholdingPayee] = useState('');
   const [withholdingPaymentMethod, setWithholdingPaymentMethod] = useState('');
   const [withholdingFormToAttractionLink, setWithholdingFormToAttractionLink] = useState('');
@@ -5613,26 +5515,31 @@ function EngagementEventBusinessPanel({
   const [withholdingCompletedWaiverLink, setWithholdingCompletedWaiverLink] = useState('');
   const [tourWaiverLink, setTourWaiverLink] = useState('');
   const [withholdingExceptions, setWithholdingExceptions] = useState('');
+  const [iaeWaiverSubmissionDate, setIaeWaiverSubmissionDate] = useState('');
+  const [iaeWaiverAppNumber, setIaeWaiverAppNumber] = useState('');
   const [checkNumberOrConfOfWithholdingPayment, setCheckNumberOrConfOfWithholdingPayment] = useState('');
 
-  // ── Compensation ──────────────────────────────────────────────────────────
-  const [compensationRoyaltyAmount, setCompensationRoyaltyAmount] = useState('');
-  const [compensationOverageAmount, setCompensationOverageAmount] = useState('');
-  const [compensationBuyouts, setCompensationBuyouts] = useState('');
-  const [compensationDirectCharges, setCompensationDirectCharges] = useState('');
-  const [compensationReimbursibles, setCompensationReimbursibles] = useState('');
+  // ── Final Attraction Compensation (separate save) ─────────────────────────────────────────────
+  const [finalGuaranteeAmount, setFinalGuaranteeAmount] = useState('');
+  const [finalRoyaltyAmount, setFinalRoyaltyAmount] = useState('');
+  const [finalOverageAmount, setFinalOverageAmount] = useState('');
+  const [finalBuyoutAmount, setFinalBuyoutAmount] = useState('');
+  const [finalDirectCompanyCharges, setFinalDirectCompanyCharges] = useState('');
+  const [finalReimbursables, setFinalReimbursables] = useState('');
   const [artistGrossTaxableCompensation, setArtistGrossTaxableCompensation] = useState('');
   const [amountDueToDeptOfRevenue, setAmountDueToDeptOfRevenue] = useState('');
 
-  // ── Finance ───────────────────────────────────────────────────────────────
-  const [financeJob, setFinanceJob] = useState('');
-  const [financeCustomer, setFinanceCustomer] = useState('');
+  const {
+    hasUserEdited: hasSettlementEdited,
+    markUserEdited: markSettlementEdited,
+    clearUserEdited: clearSettlementEdited,
+  } = useUserEditTracker(`settlement:${engagementId}`);
 
   const {
-    hasUserEdited: hasEventBusinessUserEdited,
-    markUserEdited: markEventBusinessUserEdited,
-    clearUserEdited: clearEventBusinessUserEdited,
-  } = useUserEditTracker(engagementId);
+    hasUserEdited: hasSettlementFilesEdited,
+    markUserEdited: markSettlementFilesEdited,
+    clearUserEdited: clearSettlementFilesEdited,
+  } = useUserEditTracker(`settlement-files:${engagementId}`);
 
   useEffect(() => {
     const d = financeQuery.data;
@@ -5642,17 +5549,23 @@ function EngagementEventBusinessPanel({
     setEventBusinessManagerContactId(d.eventBusinessManagerContactId == null ? '' : String(d.eventBusinessManagerContactId));
     setEventBusinessAssistantManagerContactId(d.eventBusinessAssistantManagerContactId == null ? '' : String(d.eventBusinessAssistantManagerContactId));
     setVenueSettlementContactId(d.venueSettlementContactId == null ? '' : String(d.venueSettlementContactId));
-    setTourSettlementFileSharePointLink(d.settlementFileSharePointLink ?? '');
+    setTourSettlementFileSharePointLink(engagementLinks.find((el) => el.linkPurpose === 'TourSettlementFile')?.linkUrl ?? '');
     setVenueSettlementFileSharePointLink(d.venueSettlementFileSharePointLink ?? '');
     setPartnerSettlementFileSharePointLink(d.partnerSettlementFileSharePointLink ?? '');
-    setArtistDepositRequired(d.artistDepositRequired == null ? '' : d.artistDepositRequired ? 'Yes' : 'No');
-    setArtistPartOfCollateralizedDeal(d.artistPartOfCollateralizedDeal == null ? '' : d.artistPartOfCollateralizedDeal ? 'Yes' : 'No');
-    setArtistFexPerformanceAgreementLink(d.artistFexPerformanceAgreementLink ?? '');
-    setArtistTourOfferLink(d.artistTourOfferLink ?? '');
-    setArtistOverageAmount(numFieldToString(d.artistOverageAmount));
-    setArtistBuyouts(numFieldToString(d.artistBuyouts));
-    setFexVenueAgreementLink(d.fexVenueAgreementLink ?? '');
-    setVenueDepositRequired(d.venueDepositRequired == null ? '' : d.venueDepositRequired ? 'Yes' : 'No');
+    // Attraction Terms (separate save)
+    setAttrDealType(d.artistDealType ?? '');
+    setAttrGuarantee(numFieldToString(d.artistGuarantee));
+    setAttrOveragePercent(numFieldToString(d.overagePercent));
+    setAttrRoyaltyPercent(numFieldToString(d.artistRoyaltyRatePercent));
+    setAttrMiddleMoney(numFieldToString(d.artistMiddleMoney));
+    setAttrBuyouts(numFieldToString(d.artistBuyouts));
+    setAttrCollateralizedDeal(d.artistPartOfCollateralizedDeal == null ? '' : d.artistPartOfCollateralizedDeal ? 'Yes' : 'No');
+    setAttrTourOfferLink(d.artistTourOfferLink ?? '');
+    setAttrFullyExecutedContractLink(d.fullyExecutedAttractionContractSharePointLink ?? '');
+    // Venue Terms (separate save)
+    setVenueTermsDealTypeId(d.venueDealTypeId != null ? String(d.venueDealTypeId) : '');
+    setVenueTermsFullyExecutedLink(engagementLinks.find((el) => el.linkPurpose === 'fully executed')?.linkUrl ?? '');
+    setVenueTermsForecastLink(engagementLinks.find((el) => el.linkPurpose === 'VenueForcast')?.linkUrl ?? '');
     setSalesTaxRemittedBy(d.salesTaxRemittedBy ?? '');
     setSubscriptionSalesRevenueTotal(numFieldToString(d.subscriptionSalesRevenueTotal));
     setSeasonTicketSalesByIae(numFieldToString(d.seasonTicketSalesByIae));
@@ -5662,6 +5575,17 @@ function EngagementEventBusinessPanel({
     setHstPaidOnTourPayments(numFieldToString(d.hstPaidOnTourPayments));
     setHstPaidOnShowExpenses(numFieldToString(d.hstPaidOnShowExpenses));
     setHstPaidOnVenueExpenses(numFieldToString(d.hstPaidOnVenueExpenses));
+    setHstRemittedToIae(d.hstCollectedFromTicketSales != null && d.hstCollectedFromTicketSales !== 0 ? 'Yes' : '');
+    setHstPaidToAttraction(d.hstPaidOnTourPayments != null && d.hstPaidOnTourPayments !== 0 ? 'Yes' : '');
+    // NRW lookup fields (area/rate/agency/waiver date/app) are populated from financeLookupsQuery
+    const nrwRow = d.requiredNonResidentWithholdingId != null
+      ? (financeLookupsQuery.data?.nonResidentWithholdings ?? []).find((r) => r.id === d.requiredNonResidentWithholdingId)
+      : undefined;
+    setWithholdingArea(nrwRow?.withholdingArea ?? '');
+    setWithholdingRate(nrwRow?.withholdingTaxRate != null ? String(nrwRow.withholdingTaxRate) : '');
+    setWithholdingAgency(nrwRow?.withholdingAgencyName ?? '');
+    setIaeWaiverSubmissionDate(nrwRow?.iaeWaiverSubmissionDate ?? '');
+    setIaeWaiverAppNumber(nrwRow?.iaeWaiverAppNumber ?? '');
     setWithholdingPayee(d.withholdingPayee ?? '');
     setWithholdingPaymentMethod(d.withholdingPaymentMethod ?? '');
     setWithholdingFormToAttractionLink(d.withholdingFormToAttractionLink ?? '');
@@ -5672,31 +5596,292 @@ function EngagementEventBusinessPanel({
     setTourWaiverLink(d.tourWaiverLink ?? '');
     setWithholdingExceptions(d.withholdingExceptions ?? '');
     setCheckNumberOrConfOfWithholdingPayment(d.checkNumberOrConfOfWithholdingPayment ?? '');
-    setCompensationRoyaltyAmount(numFieldToString(d.compensationRoyaltyAmount));
-    setCompensationOverageAmount(numFieldToString(d.compensationOverageAmount));
-    setCompensationBuyouts(numFieldToString(d.compensationBuyouts));
-    setCompensationDirectCharges(numFieldToString(d.compensationDirectCharges));
-    setCompensationReimbursibles(numFieldToString(d.compensationReimbursibles));
+    // Final Attraction Compensation (separate save)
+    setFinalGuaranteeAmount(numFieldToString(d.finalGuaranteeAmount));
+    setFinalRoyaltyAmount(numFieldToString(d.finalRoyaltyAmount));
+    setFinalOverageAmount(numFieldToString(d.finalOverageAmount));
+    setFinalBuyoutAmount(numFieldToString(d.finalBuyoutAmount));
+    setFinalDirectCompanyCharges(numFieldToString(d.finalDirectCompanyCharges));
+    setFinalReimbursables(numFieldToString(d.finalReimbursables));
     setArtistGrossTaxableCompensation(numFieldToString(d.artistGrossTaxableCompensation));
     setAmountDueToDeptOfRevenue(numFieldToString(d.amountDueToDeptOfRevenue));
-    setFinanceJob(d.financeJob ?? '');
-    setFinanceCustomer(d.financeCustomer ?? '');
-  }, [financeQuery.data]);
+  }, [financeQuery.data, engagementLinks]);
 
-  const saveMut = useMutation({
-    mutationFn: async (body: UpdateEngagementFinancePayload) => {
-      await updateEngagementFinance(engagementId, body);
+  // â”€â”€ Settlement Status — separate save â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // -- Settlement -- separate save
+  const saveSettlementMut = useMutation({
+    mutationFn: async () => {
+      const decSpecs: { raw: string; label: string; key: keyof UpdateEngagementFinancePayload }[] = [
+        { raw: subscriptionSalesRevenueTotal, label: 'Subscription sales revenue total', key: 'subscriptionSalesRevenueTotal' },
+        { raw: seasonTicketSalesByIae, label: 'Season ticket sales by IAE', key: 'seasonTicketSalesByIae' },
+        { raw: seasonTicketFundsTransferred, label: 'Season ticket funds transferred', key: 'seasonTicketFundsTransferred' },
+        { raw: artistGrossTaxableCompensation, label: 'Artist gross taxable compensation', key: 'artistGrossTaxableCompensation' },
+        { raw: amountDueToDeptOfRevenue, label: 'Amount due to Dept of Revenue', key: 'amountDueToDeptOfRevenue' },
+      ];
+      const payload: Partial<UpdateEngagementFinancePayload> = {};
+      for (const { raw, label, key } of decSpecs) {
+        const p = parseOptionalDecimal(raw, label);
+        if (!p.ok) throw new Error((p as { ok: false; message: string }).message);
+        (payload as any)[key] = (p as { ok: true; value: number | null }).value;
+      }
+      payload.artistSettlementStatus = artistSettlementStatus.trim() || null;
+      payload.venueSettlementStatus = venueSettlementStatus.trim() || null;
+      payload.netBoxOfficeFundsDepositedAccount = netBoxOfficeFundsDepositedAccount.trim() || null;
+      payload.checkNumberOrConfOfWithholdingPayment = checkNumberOrConfOfWithholdingPayment.trim() || null;
+      await updateEngagementFinance(engagementId, payload);
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
+    },
+    onSuccess: () => { clearSettlementEdited(); addToast('Settlement saved.', 'success'); },
+    onError: (e: unknown) => addToast(e instanceof Error ? e.message : friendlyApiError(e), 'error'),
+  });
+
+  // -- Sales Tax -- separate save
+  const {
+    hasUserEdited: hasSalesTaxEdited,
+    markUserEdited: markSalesTaxEdited,
+    clearUserEdited: clearSalesTaxEdited,
+  } = useUserEditTracker(`sales-tax:${engagementId}`);
+
+  const saveSalesTaxMut = useMutation({
+    mutationFn: async () => {
+      const decSpecs: { raw: string; label: string; key: keyof UpdateEngagementFinancePayload }[] = [
+        { raw: hstCollectedFromTicketSales, label: 'HST collected from ticket sales', key: 'hstCollectedFromTicketSales' },
+        { raw: hstPaidOnTourPayments, label: 'HST paid on tour payments', key: 'hstPaidOnTourPayments' },
+        { raw: hstPaidOnShowExpenses, label: 'HST paid on show expenses', key: 'hstPaidOnShowExpenses' },
+        { raw: hstPaidOnVenueExpenses, label: 'HST paid on venue expenses', key: 'hstPaidOnVenueExpenses' },
+      ];
+      const payload: Partial<UpdateEngagementFinancePayload> = {};
+      for (const { raw, label, key } of decSpecs) {
+        const p = parseOptionalDecimal(raw, label);
+        if (!p.ok) throw new Error((p as { ok: false; message: string }).message);
+        (payload as any)[key] = (p as { ok: true; value: number | null }).value;
+      }
+      payload.salesTaxRemittedBy = salesTaxRemittedBy.trim() || null;
+      await updateEngagementFinance(engagementId, payload);
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
+    },
+    onSuccess: () => { clearSalesTaxEdited(); addToast('Sales tax saved.', 'success'); },
+    onError: (e: unknown) => addToast(e instanceof Error ? e.message : friendlyApiError(e), 'error'),
+  });
+
+  // -- Non-Resident Withholding Tax -- separate save
+  const {
+    hasUserEdited: hasWithholdingEdited,
+    markUserEdited: markWithholdingEdited,
+    clearUserEdited: clearWithholdingEdited,
+  } = useUserEditTracker(`withholding:${engagementId}`);
+
+  const saveWithholdingMut = useMutation({
+    mutationFn: async () => {
+      const urlFields: [string, string][] = [
+        ['Withholding Form to Attraction link', withholdingFormToAttractionLink],
+        ['Withholding Form to Municipality link', withholdingFormToMunicipalityLink],
+        ['Withholding Completed Waiver link', withholdingCompletedWaiverLink],
+        ['Tour Waiver link', tourWaiverLink],
+      ];
+      for (const [label, val] of urlFields) {
+        const t = val.trim();
+        if (t && !isValidHttpOrHttpsUrl(t)) throw new Error(`${label} must be a valid http(s) URL or empty.`);
+      }
+      const payload: Partial<UpdateEngagementFinancePayload> = {};
+      payload.withholdingPayee = withholdingPayee.trim() || null;
+      payload.withholdingPaymentMethod = withholdingPaymentMethod.trim() || null;
+      payload.withholdingFormToAttractionLink = withholdingFormToAttractionLink.trim() || null;
+      payload.withholdingFormToMunicipalityLink = withholdingFormToMunicipalityLink.trim() || null;
+      payload.withholdingQuickbooksNumber = withholdingQuickbooksNumber.trim() || null;
+      payload.withholdingWaiver = withholdingWaiver.trim() || null;
+      payload.withholdingCompletedWaiverLink = withholdingCompletedWaiverLink.trim() || null;
+      payload.tourWaiverLink = tourWaiverLink.trim() || null;
+      payload.withholdingExceptions = withholdingExceptions.trim() || null;
+      await updateEngagementFinance(engagementId, payload);
+      // Update NRW lookup record fields (area, rate, agency, waiver date/app)
+      const nrwId = financeQuery.data?.requiredNonResidentWithholdingId;
+      if (nrwId != null) {
+        await updateNonResidentWithholding(nrwId, {
+          withholdingArea: withholdingArea.trim() || null,
+          withholdingTaxRate: withholdingRate.trim() ? Number(withholdingRate) : null,
+          withholdingAgencyName: withholdingAgency.trim() || null,
+          iaeWaiverSubmissionDate: iaeWaiverSubmissionDate.trim() || null,
+          iaeWaiverAppNumber: iaeWaiverAppNumber.trim() || null,
+        });
+      }
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] });
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
       await qc.invalidateQueries({ queryKey: ['engagements', 'finance-lookups'] });
     },
-    onSuccess: () => {
-      clearEventBusinessUserEdited();
-      setTimeout(() => {
-        addToast('Event business saved.', 'success');
-      }, 0);
+    onSuccess: () => { clearWithholdingEdited(); addToast('Withholding tax saved.', 'success'); },
+    onError: (e: unknown) => addToast(e instanceof Error ? e.message : friendlyApiError(e), 'error'),
+  });
+
+  // ── Settlement Files — separate save ─────────────────────────────────────────────
+  const saveSettlementFilesMut = useMutation({
+    mutationFn: async () => {
+      const urlFields: [string, string][] = [
+        ['Tour Settlement File link', tourSettlementFileSharePointLink],
+        ['Venue Settlement File link', venueSettlementFileSharePointLink],
+        ['Partner Settlement File link', partnerSettlementFileSharePointLink],
+      ];
+      for (const [label, val] of urlFields) {
+        const t = val.trim();
+        if (t && !isValidHttpOrHttpsUrl(t)) throw new Error(`${label} must be a valid http(s) URL or empty.`);
+      }
+      await updateEngagementFinance(engagementId, {
+        venueSettlementFileSharePointLink: venueSettlementFileSharePointLink.trim() || null,
+        partnerSettlementFileSharePointLink: partnerSettlementFileSharePointLink.trim() || null,
+      });
+      // Tour Settlement File via EngagementLink
+      const tourSettleUrl = tourSettlementFileSharePointLink.trim();
+      if (tourSettleUrl) {
+        await upsertEngagementLink(engagementId, { linkUrl: tourSettleUrl, linkPurpose: 'TourSettlementFile' });
+      } else {
+        const existing = engagementLinks.find((el) => el.linkPurpose === 'TourSettlementFile');
+        if (existing) await removeEngagementLink(engagementId, existing.engagementLinkId);
+      }
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venue-tab-data'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
     },
-    onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
+    onSuccess: () => { clearSettlementFilesEdited(); addToast('Settlement files saved.', 'success'); },
+    onError: (e: unknown) => addToast(e instanceof Error ? e.message : friendlyApiError(e), 'error'),
+  });
+
+
+
+
+
+  // Attraction Terms — separate save ─────────────────────────────────────────────
+  const {
+    hasUserEdited: hasAttrTermsEdited,
+    markUserEdited: markAttrTermsEdited,
+    clearUserEdited: clearAttrTermsEdited,
+  } = useUserEditTracker(`attr-terms:${engagementId}`);
+
+  const saveAttrTermsMut = useMutation({
+    mutationFn: async () => {
+      // Validate URL fields
+      const tourOfferUrl = attrTourOfferLink.trim();
+      const fullyExecUrl = attrFullyExecutedContractLink.trim();
+      if (tourOfferUrl && !isValidHttpOrHttpsUrl(tourOfferUrl)) {
+        throw new Error('Tour Offer Link must be a valid http(s) URL or empty.');
+      }
+      if (fullyExecUrl && !isValidHttpOrHttpsUrl(fullyExecUrl)) {
+        throw new Error('Fully Executed Contract Link must be a valid http(s) URL or empty.');
+      }
+      // Validate decimal fields
+      const guarantee = parseOptionalDecimal(attrGuarantee, 'Guarantee');
+      if (!guarantee.ok) throw new Error((guarantee as { ok: false; message: string }).message);
+      const overage = parseOptionalDecimal(attrOveragePercent, 'Overage (%)');
+      if (!overage.ok) throw new Error((overage as { ok: false; message: string }).message);
+      const royalty = parseOptionalDecimal(attrRoyaltyPercent, 'Royalty (%)');
+      if (!royalty.ok) throw new Error((royalty as { ok: false; message: string }).message);
+      const middleMoney = parseOptionalDecimal(attrMiddleMoney, 'Middle Money');
+      if (!middleMoney.ok) throw new Error((middleMoney as { ok: false; message: string }).message);
+      const buyouts = parseOptionalDecimal(attrBuyouts, 'Buyouts');
+      if (!buyouts.ok) throw new Error((buyouts as { ok: false; message: string }).message);
+
+      await updateEngagementFinance(engagementId, {
+        artistDealType: attrDealType.trim() || null,
+        artistGuarantee: (guarantee as { ok: true; value: number | null }).value,
+        overagePercent: (overage as { ok: true; value: number | null }).value,
+        artistRoyaltyRatePercent: (royalty as { ok: true; value: number | null }).value,
+        artistMiddleMoney: (middleMoney as { ok: true; value: number | null }).value,
+        artistBuyouts: (buyouts as { ok: true; value: number | null }).value,
+        artistPartOfCollateralizedDeal: yesNoToBool(attrCollateralizedDeal),
+        artistTourOfferLink: tourOfferUrl || null,
+        fullyExecutedAttractionContractSharePointLink: fullyExecUrl || null,
+      });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
+    },
+    onSuccess: () => {
+      clearAttrTermsEdited();
+      addToast('Attraction terms saved.', 'success');
+    },
+    onError: (e: unknown) => addToast(e instanceof Error ? e.message : friendlyApiError(e), 'error'),
+  });
+
+  const {
+    hasUserEdited: hasVenueTermsEdited,
+    markUserEdited: markVenueTermsEdited,
+    clearUserEdited: clearVenueTermsEdited,
+  } = useUserEditTracker(`venue-terms:${engagementId}`);
+
+  const saveVenueTermsMut = useMutation({
+    mutationFn: async () => {
+      // Validate URLs
+      const feUrl = venueTermsFullyExecutedLink.trim();
+      const fcUrl = venueTermsForecastLink.trim();
+      if (feUrl && !isValidHttpOrHttpsUrl(feUrl)) {
+        throw new Error('Fully Executed Venue Contract link must be a valid http(s) URL or empty.');
+      }
+      if (fcUrl && !isValidHttpOrHttpsUrl(fcUrl)) {
+        throw new Error('Venue Forecast link must be a valid http(s) URL or empty.');
+      }
+
+      // Save deal type via finance update
+      await updateEngagementFinance(engagementId, {
+        venueDealTypeId: venueTermsDealTypeId ? Number(venueTermsDealTypeId) : null,
+      });
+
+      // Save engagement links
+      const linkPairs: [string, string][] = [
+        ['fully executed', feUrl],
+        ['VenueForcast', fcUrl],
+      ];
+      for (const [purpose, url] of linkPairs) {
+        const existing = engagementLinks.find((el) => el.linkPurpose === purpose);
+        if (url) {
+          await upsertEngagementLink(engagementId, { linkUrl: url, linkPurpose: purpose });
+        } else if (existing) {
+          await removeEngagementLink(engagementId, existing.engagementLinkId);
+        }
+      }
+
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venue-tab'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
+    },
+    onSuccess: () => {
+      clearVenueTermsEdited();
+      addToast('Venue terms saved.', 'success');
+    },
+    onError: (e: unknown) => addToast(e instanceof Error ? e.message : friendlyApiError(e), 'error'),
+  });
+
+  // â”€â”€ Final Attraction Compensation — separate save â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const {
+    hasUserEdited: hasFinalCompEdited,
+    markUserEdited: markFinalCompEdited,
+    clearUserEdited: clearFinalCompEdited,
+  } = useUserEditTracker(`final-comp:${engagementId}`);
+
+  const saveFinalCompMut = useMutation({
+    mutationFn: async () => {
+      const specs: { raw: string; label: string; key: keyof UpdateEngagementFinancePayload }[] = [
+        { raw: finalGuaranteeAmount, label: 'Guarantee Amount', key: 'finalGuaranteeAmount' },
+        { raw: finalRoyaltyAmount, label: 'Royalty Amount', key: 'finalRoyaltyAmount' },
+        { raw: finalOverageAmount, label: 'Overage Amount', key: 'finalOverageAmount' },
+        { raw: finalBuyoutAmount, label: 'Buyouts', key: 'finalBuyoutAmount' },
+        { raw: finalDirectCompanyCharges, label: 'Direct Company Charges', key: 'finalDirectCompanyCharges' },
+        { raw: finalReimbursables, label: 'Reimbursibles', key: 'finalReimbursables' },
+      ];
+      const payload: Partial<UpdateEngagementFinancePayload> = {};
+      for (const { raw, label, key } of specs) {
+        const p = parseOptionalDecimal(raw, label);
+        if (!p.ok) throw new Error((p as { ok: false; message: string }).message);
+        (payload as any)[key] = (p as { ok: true; value: number | null }).value;
+      }
+      await updateEngagementFinance(engagementId, payload);
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
+    },
+    onSuccess: () => {
+      clearFinalCompEdited();
+      addToast('Final attraction compensation saved.', 'success');
+    },
+    onError: (e: unknown) => addToast(e instanceof Error ? e.message : friendlyApiError(e), 'error'),
   });
 
   const trimOrNull = (s: string, max: number): string | null => {
@@ -5708,98 +5893,28 @@ function EngagementEventBusinessPanel({
   const yesNoToBool = (v: string): boolean | null =>
     v === 'Yes' ? true : v === 'No' ? false : null;
 
-  const handleSave = () => {
-    // URL validation
-    const urlFields: [string, string][] = [
-      ['Tour Settlement File link', tourSettlementFileSharePointLink],
-      ['Venue Settlement File link', venueSettlementFileSharePointLink],
-      ['Partner Settlement File link', partnerSettlementFileSharePointLink],
-      ['FEX Performance Agreement link', artistFexPerformanceAgreementLink],
-      ['Tour Offer link', artistTourOfferLink],
-      ['FEX Venue Agreement link', fexVenueAgreementLink],
-      ['Withholding Form to Attraction link', withholdingFormToAttractionLink],
-      ['Withholding Form to Municipality link', withholdingFormToMunicipalityLink],
-      ['Withholding Completed Waiver link', withholdingCompletedWaiverLink],
-      ['Tour Waiver link', tourWaiverLink],
-    ];
-    for (const [label, val] of urlFields) {
-      const t = val.trim();
-      if (t && !isValidHttpOrHttpsUrl(t)) {
-        addToast(`${label} must be a valid http(s) URL or empty.`, 'error');
-        return;
-      }
-    }
 
-    const decimalSpecs: { raw: string; label: string; apiKey: keyof UpdateEngagementFinancePayload }[] = [
-      { raw: artistOverageAmount, label: 'Attraction overage amount', apiKey: 'artistOverageAmount' },
-      { raw: artistBuyouts, label: 'Attraction buyouts', apiKey: 'artistBuyouts' },
-      { raw: subscriptionSalesRevenueTotal, label: 'Subscription sales revenue total', apiKey: 'subscriptionSalesRevenueTotal' },
-      { raw: seasonTicketSalesByIae, label: 'Season ticket sales by IAE', apiKey: 'seasonTicketSalesByIae' },
-      { raw: seasonTicketFundsTransferred, label: 'Season ticket funds transferred', apiKey: 'seasonTicketFundsTransferred' },
-      { raw: hstCollectedFromTicketSales, label: 'HST collected from ticket sales', apiKey: 'hstCollectedFromTicketSales' },
-      { raw: hstPaidOnTourPayments, label: 'HST paid on tour payments', apiKey: 'hstPaidOnTourPayments' },
-      { raw: hstPaidOnShowExpenses, label: 'HST paid on show expenses', apiKey: 'hstPaidOnShowExpenses' },
-      { raw: hstPaidOnVenueExpenses, label: 'HST paid on venue expenses', apiKey: 'hstPaidOnVenueExpenses' },
-      { raw: compensationRoyaltyAmount, label: 'Compensation royalty amount', apiKey: 'compensationRoyaltyAmount' },
-      { raw: compensationOverageAmount, label: 'Compensation overage amount', apiKey: 'compensationOverageAmount' },
-      { raw: compensationBuyouts, label: 'Compensation buyouts', apiKey: 'compensationBuyouts' },
-      { raw: compensationDirectCharges, label: 'Direct company charges', apiKey: 'compensationDirectCharges' },
-      { raw: compensationReimbursibles, label: 'Reimbursibles', apiKey: 'compensationReimbursibles' },
-      { raw: artistGrossTaxableCompensation, label: 'Artist gross taxable compensation', apiKey: 'artistGrossTaxableCompensation' },
-      { raw: amountDueToDeptOfRevenue, label: 'Amount due to Dept of Revenue', apiKey: 'amountDueToDeptOfRevenue' },
-    ];
-    const parsedDecimals: Partial<UpdateEngagementFinancePayload> = {};
-    for (const { raw, label, apiKey } of decimalSpecs) {
-      const p = parseOptionalDecimal(raw, label);
-      if (!p.ok) {
-        addToast(p.message, 'error');
-        return;
-      }
-      parsedDecimals[apiKey] = p.value as any;
-    }
-
-    saveMut.mutate({
-      ...parsedDecimals,
-      artistSettlementStatus: trimOrNull(artistSettlementStatus, 50),
-      venueSettlementStatus: trimOrNull(venueSettlementStatus, 50),
-      eventBusinessManagerContactId: fkIdStringToNumber(eventBusinessManagerContactId),
-      eventBusinessAssistantManagerContactId: fkIdStringToNumber(eventBusinessAssistantManagerContactId),
-      venueSettlementContactId: fkIdStringToNumber(venueSettlementContactId),
-      settlementFileSharePointLink: trimOrNull(tourSettlementFileSharePointLink, 2048),
-      venueSettlementFileSharePointLink: trimOrNull(venueSettlementFileSharePointLink, 2048),
-      partnerSettlementFileSharePointLink: trimOrNull(partnerSettlementFileSharePointLink, 2048),
-      artistDepositRequired: yesNoToBool(artistDepositRequired),
-      artistPartOfCollateralizedDeal: yesNoToBool(artistPartOfCollateralizedDeal),
-      artistFexPerformanceAgreementLink: trimOrNull(artistFexPerformanceAgreementLink, 2048),
-      artistTourOfferLink: trimOrNull(artistTourOfferLink, 2048),
-      fexVenueAgreementLink: trimOrNull(fexVenueAgreementLink, 2048),
-      venueDepositRequired: yesNoToBool(venueDepositRequired),
-      salesTaxRemittedBy: trimOrNull(salesTaxRemittedBy, 100),
-      netBoxOfficeFundsDepositedAccount: trimOrNull(netBoxOfficeFundsDepositedAccount, 255),
-      withholdingPayee: trimOrNull(withholdingPayee, 255),
-      withholdingPaymentMethod: trimOrNull(withholdingPaymentMethod, 255),
-      withholdingFormToAttractionLink: trimOrNull(withholdingFormToAttractionLink, 2048),
-      withholdingFormToMunicipalityLink: trimOrNull(withholdingFormToMunicipalityLink, 2048),
-      withholdingQuickbooksNumber: trimOrNull(withholdingQuickbooksNumber, 100),
-      withholdingWaiver: trimOrNull(withholdingWaiver, 10),
-      withholdingCompletedWaiverLink: trimOrNull(withholdingCompletedWaiverLink, 2048),
-      tourWaiverLink: trimOrNull(tourWaiverLink, 2048),
-      withholdingExceptions: trimOrNull(withholdingExceptions, 8000),
-      checkNumberOrConfOfWithholdingPayment: trimOrNull(checkNumberOrConfOfWithholdingPayment, 100),
-      financeJob: trimOrNull(financeJob, 255),
-      financeCustomer: trimOrNull(financeCustomer, 255),
-    });
-  };
-
-  const eventBusinessDirty = hasEventBusinessUserEdited;
+  const settlementDirty = hasSettlementEdited;
+  const settlementFilesDirty = hasSettlementFilesEdited;
+  const salesTaxDirty = hasSalesTaxEdited;
+  const withholdingDirty = hasWithholdingEdited;
+  const attrTermsDirty = hasAttrTermsEdited;
+  const venueTermsDirty = hasVenueTermsEdited;
+  const finalCompDirty = hasFinalCompEdited;
 
   useEffect(() => {
-    onDirtyChange?.(eventBusinessDirty);
+    onDirtyChange?.(settlementDirty || settlementFilesDirty || salesTaxDirty || withholdingDirty || attrTermsDirty || venueTermsDirty || finalCompDirty);
     return () => onDirtyChange?.(false);
-  }, [eventBusinessDirty, onDirtyChange]);
+  }, [settlementDirty, settlementFilesDirty, salesTaxDirty, withholdingDirty, attrTermsDirty, venueTermsDirty, finalCompDirty, onDirtyChange]);
 
-  const disabled = saveMut.isPending;
-  const saveDisabled = disabled || !eventBusinessDirty;
+  const disabled = saveSettlementMut.isPending || saveSettlementFilesMut.isPending || saveSalesTaxMut.isPending || saveWithholdingMut.isPending || saveAttrTermsMut.isPending || saveVenueTermsMut.isPending || saveFinalCompMut.isPending;
+  const settlementSaveDisabled = disabled || !settlementDirty;
+  const settlementFilesSaveDisabled = disabled || !settlementFilesDirty;
+  const salesTaxSaveDisabled = disabled || !salesTaxDirty;
+  const withholdingSaveDisabled = disabled || !withholdingDirty;
+  const attrTermsSaveDisabled = disabled || !attrTermsDirty;
+  const venueTermsSaveDisabled = disabled || !venueTermsDirty;
+  const finalCompSaveDisabled = disabled || !finalCompDirty;
 
   const fieldRow = (label: string, control: React.ReactNode) => (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-6 min-w-0">
@@ -5817,7 +5932,6 @@ function EngagementEventBusinessPanel({
         inputMode="decimal"
         value={value}
         onChange={(e) => {
-          markEventBusinessUserEdited();
           onChange(e.target.value);
         }}
         disabled={disabled}
@@ -5867,7 +5981,7 @@ function EngagementEventBusinessPanel({
 
   return (
     <div className="relative overflow-hidden rounded-lg border border-border bg-card">
-      {saveMut.isPending && (
+      {disabled && (
         <div
           className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/55 backdrop-blur-[1px]"
           aria-live="polite"
@@ -5881,39 +5995,82 @@ function EngagementEventBusinessPanel({
       )}
       <div className="space-y-6 p-5">
 
-        {/* ── Settlement Status ─────────────────────────────────────── */}
-        {sectionHeader('Settlement Status')}
+        {/* -- Settlement -- */}
+        {sectionHeader('Settlement')}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
           {fieldRow('Artist settlement status',
             <Select2 options={SETTLEMENT_STATUS_OPTIONS} value={artistSettlementStatus}
-              onChange={(v) => { markEventBusinessUserEdited(); setArtistSettlementStatus(v); }}
+              onChange={(v) => { markSettlementEdited(); setArtistSettlementStatus(v); }}
               placeholder="Select status..." disabled={disabled} />)}
           {fieldRow('Venue settlement status',
             <Select2 options={SETTLEMENT_STATUS_OPTIONS} value={venueSettlementStatus}
-              onChange={(v) => { markEventBusinessUserEdited(); setVenueSettlementStatus(v); }}
+              onChange={(v) => { markSettlementEdited(); setVenueSettlementStatus(v); }}
               placeholder="Select status..." disabled={disabled} />)}
         </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Subscription Sales Revenue Total',
+            moneyInput(subscriptionSalesRevenueTotal, (v) => { markSettlementEdited(); setSubscriptionSalesRevenueTotal(v); }, 'eb-sub-rev'))}
+          {fieldRow('Season Ticket Sales by IAE',
+            moneyInput(seasonTicketSalesByIae, (v) => { markSettlementEdited(); setSeasonTicketSalesByIae(v); }, 'eb-season-iae'))}
+        </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Season Ticket Funds Transferred',
+            moneyInput(seasonTicketFundsTransferred, (v) => { markSettlementEdited(); setSeasonTicketFundsTransferred(v); }, 'eb-season-transfer'))}
+          {fieldRow('Artist Gross Taxable Compensation',
+            moneyInput(artistGrossTaxableCompensation, (v) => { markSettlementEdited(); setArtistGrossTaxableCompensation(v); }, 'eb-artist-gross-tax'))}
+        </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Amount Due to Dept of Revenue',
+            moneyInput(amountDueToDeptOfRevenue, (v) => { markSettlementEdited(); setAmountDueToDeptOfRevenue(v); }, 'eb-amt-dept-rev'))}
+          {fieldRow('Net Box Office Funds Deposited (Account)',
+            <input className={inputCls} value={netBoxOfficeFundsDepositedAccount} maxLength={255}
+              onChange={(e) => { markSettlementEdited(); setNetBoxOfficeFundsDepositedAccount(e.target.value); }}
+              disabled={disabled} />)}
+        </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Check # / Confirmation of Withholding Payment',
+            <input className={inputCls} value={checkNumberOrConfOfWithholdingPayment} maxLength={100}
+              onChange={(e) => { markSettlementEdited(); setCheckNumberOrConfOfWithholdingPayment(e.target.value); }}
+              disabled={disabled} />)}
+        </div>
+        <div className="flex justify-end pt-2">
+          <Button type="button" className="bg-ems-accent text-white hover:opacity-90"
+            onClick={() => saveSettlementMut.mutate()}
+            disabled={settlementSaveDisabled}>
+            {saveSettlementMut.isPending ? <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving...</span> : 'Save settlement'}
+          </Button>
+        </div>
 
-        {/* ── IAE Event Business ───────────────────────────────────── */}
+        {/* ── IAE Event Business ────────────────────────────────────── */}
         {sectionHeader('IAE Event Business')}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
           {fieldRow('Event Business Manager',
-            <Select2 options={iaeContactOptions} value={eventBusinessManagerContactId}
-              onChange={(v) => { markEventBusinessUserEdited(); setEventBusinessManagerContactId(v); }}
-              placeholder="— not set —" disabled={disabled} />)}
+            <span className="text-sm text-text-primary">
+              {iaeContactsQuery.isLoading ? 'Loading…' :
+                iaeEventBusinessManagers.length > 0
+                  ? iaeEventBusinessManagers.map((c) => c.contactLabel).join(', ')
+                  : <span className="text-text-muted italic">—</span>}
+            </span>)}
           {fieldRow('Event Business Assistant Manager',
-            <Select2 options={iaeContactOptions} value={eventBusinessAssistantManagerContactId}
-              onChange={(v) => { markEventBusinessUserEdited(); setEventBusinessAssistantManagerContactId(v); }}
-              placeholder="— not set —" disabled={disabled} />)}
+            <span className="text-sm text-text-primary">
+              {iaeContactsQuery.isLoading ? 'Loading…' :
+                iaeEventBusinessAssistantManagers.length > 0
+                  ? iaeEventBusinessAssistantManagers.map((c) => c.contactLabel).join(', ')
+                  : <span className="text-text-muted italic">—</span>}
+            </span>)}
         </div>
 
         {/* ── Venue Settlement Manager ─────────────────────────────── */}
         {sectionHeader('Venue Settlement Manager')}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow('Venue Settlement Contact',
-            <Select2 options={iaeContactOptions} value={venueSettlementContactId}
-              onChange={(v) => { markEventBusinessUserEdited(); setVenueSettlementContactId(v); }}
-              placeholder="— not set —" disabled={disabled} />)}
+          {fieldRow('Venue Settlement Manager',
+            <span className="text-sm text-text-primary">
+              {venueCompanyId == null ? <span className="text-text-muted italic">No venue assigned</span> :
+                venueDetailsQuery.isLoading ? 'Loading…' :
+                venueSettlementManagers.length > 0
+                  ? venueSettlementManagers.map((m) => m.fullName).join(', ')
+                  : <span className="text-text-muted italic">—</span>}
+            </span>)}
         </div>
 
         {/* ── Settlement Files ─────────────────────────────────────── */}
@@ -5922,243 +6079,288 @@ function EngagementEventBusinessPanel({
           {fieldRow('Tour Settlement File (SharePoint)',
             <input className={inputCls} value={tourSettlementFileSharePointLink} maxLength={2048}
               placeholder="https://..."
-              onChange={(e) => { markEventBusinessUserEdited(); setTourSettlementFileSharePointLink(e.target.value); }}
+              onChange={(e) => { markSettlementFilesEdited(); setTourSettlementFileSharePointLink(e.target.value); }}
               disabled={disabled} />)}
           {fieldRow('Venue Settlement File (SharePoint)',
             <input className={inputCls} value={venueSettlementFileSharePointLink} maxLength={2048}
               placeholder="https://..."
-              onChange={(e) => { markEventBusinessUserEdited(); setVenueSettlementFileSharePointLink(e.target.value); }}
+              onChange={(e) => { markSettlementFilesEdited(); setVenueSettlementFileSharePointLink(e.target.value); }}
               disabled={disabled} />)}
         </div>
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
           {fieldRow('Partner Settlement File (SharePoint)',
             <input className={inputCls} value={partnerSettlementFileSharePointLink} maxLength={2048}
               placeholder="https://..."
-              onChange={(e) => { markEventBusinessUserEdited(); setPartnerSettlementFileSharePointLink(e.target.value); }}
+              onChange={(e) => { markSettlementFilesEdited(); setPartnerSettlementFileSharePointLink(e.target.value); }}
               disabled={disabled} />)}
+        </div>
+        <div className="flex justify-end pt-2">
+          <Button type="button" className="bg-ems-accent text-white hover:opacity-90" onClick={() => {
+            const urlFields: [string, string][] = [
+              ['Tour Settlement File link', tourSettlementFileSharePointLink],
+              ['Venue Settlement File link', venueSettlementFileSharePointLink],
+              ['Partner Settlement File link', partnerSettlementFileSharePointLink],
+            ];
+            for (const [label, val] of urlFields) {
+              const t = val.trim();
+              if (t && !isValidHttpOrHttpsUrl(t)) { addToast(`${label} must be a valid http(s) URL or empty.`, 'error'); return; }
+            }
+            saveSettlementFilesMut.mutate({
+              venueSettlementFileSharePointLink: trimOrNull(venueSettlementFileSharePointLink, 2048),
+              partnerSettlementFileSharePointLink: trimOrNull(partnerSettlementFileSharePointLink, 2048),
+            });
+          }} disabled={settlementFilesSaveDisabled}>
+            {saveSettlementFilesMut.isPending ? <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving...</span> : 'Save settlement files'}
+          </Button>
         </div>
 
         {/* ── Attraction Terms ─────────────────────────────────────── */}
         {sectionHeader('Attraction Terms')}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow('Guarantee ($)', <span className="text-sm text-text-primary">{d?.artistGuarantee != null ? `$${d.artistGuarantee.toLocaleString()}` : '—'}</span>)}
-          {fieldRow('Overage Amount ($)',
-            moneyInput(artistOverageAmount, (v) => { markEventBusinessUserEdited(); setArtistOverageAmount(v); }, 'eb-artist-overage'))}
-        </div>
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow('Royalty (%)', <span className="text-sm text-text-primary">{d?.artistRoyaltyRatePercent != null ? `${d.artistRoyaltyRatePercent}%` : '—'}</span>)}
-          {fieldRow('Middle Money ($)', <span className="text-sm text-text-primary">{d?.artistMiddleMoney != null ? `$${d.artistMiddleMoney.toLocaleString()}` : '—'}</span>)}
-        </div>
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow('Deposit Required?',
-            <Select2 options={YES_NO_OPTIONS} value={artistDepositRequired}
-              onChange={(v) => { markEventBusinessUserEdited(); setArtistDepositRequired(v); }}
+          {fieldRow('Deal Type',
+            <Select2 options={BOOKING_ATTRACTION_DEAL_TYPE_OPTIONS} value={attrDealType}
+              onChange={(v) => { markAttrTermsEdited(); setAttrDealType(v); }}
               disabled={disabled} />)}
-          {fieldRow('Part of Collateralized Deal?',
-            <Select2 options={YES_NO_OPTIONS} value={artistPartOfCollateralizedDeal}
-              onChange={(v) => { markEventBusinessUserEdited(); setArtistPartOfCollateralizedDeal(v); }}
+          {fieldRow('Part of Collateralized Deal Structure?',
+            <Select2 options={YES_NO_OPTIONS} value={attrCollateralizedDeal}
+              onChange={(v) => { markAttrTermsEdited(); setAttrCollateralizedDeal(v); }}
               disabled={disabled} />)}
         </div>
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow('FEX Performance Agreement Link',
-            <input className={inputCls} value={artistFexPerformanceAgreementLink} maxLength={2048}
-              placeholder="https://..."
-              onChange={(e) => { markEventBusinessUserEdited(); setArtistFexPerformanceAgreementLink(e.target.value); }}
+          {fieldRow('Guarantee ($)',
+            moneyInput(attrGuarantee, (v) => { markAttrTermsEdited(); setAttrGuarantee(v); }, 'attr-guarantee'))}
+          {fieldRow('Overage (%)',
+            moneyInput(attrOveragePercent, (v) => { markAttrTermsEdited(); setAttrOveragePercent(v); }, 'attr-overage'))}
+        </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Royalty (%)',
+            <input className={inputCls} inputMode="decimal" value={attrRoyaltyPercent}
+              onChange={(e) => { markAttrTermsEdited(); setAttrRoyaltyPercent(e.target.value); }}
               disabled={disabled} />)}
-          {fieldRow('Tour Offer Link',
-            <input className={inputCls} value={artistTourOfferLink} maxLength={2048}
-              placeholder="https://..."
-              onChange={(e) => { markEventBusinessUserEdited(); setArtistTourOfferLink(e.target.value); }}
-              disabled={disabled} />)}
+          {fieldRow('Middle Money ($)',
+            moneyInput(attrMiddleMoney, (v) => { markAttrTermsEdited(); setAttrMiddleMoney(v); }, 'attr-middle-money'))}
         </div>
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
           {fieldRow('Buyouts ($)',
-            moneyInput(artistBuyouts, (v) => { markEventBusinessUserEdited(); setArtistBuyouts(v); }, 'eb-artist-buyouts'))}
+            moneyInput(attrBuyouts, (v) => { markAttrTermsEdited(); setAttrBuyouts(v); }, 'attr-buyouts'))}
+          {fieldRow('Tour Offer Link',
+            <input className={inputCls} value={attrTourOfferLink} maxLength={2048}
+              placeholder="https://..."
+              onChange={(e) => { markAttrTermsEdited(); setAttrTourOfferLink(e.target.value); }}
+              disabled={disabled} />)}
+        </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Fully Executed Attraction Contract Link',
+            <input className={inputCls} value={attrFullyExecutedContractLink} maxLength={2048}
+              placeholder="https://..."
+              onChange={(e) => { markAttrTermsEdited(); setAttrFullyExecutedContractLink(e.target.value); }}
+              disabled={disabled} />)}
+        </div>
+        <div className="flex justify-end pt-2">
+          <Button
+            type="button"
+            className="bg-ems-accent text-white hover:opacity-90"
+            onClick={() => saveAttrTermsMut.mutate()}
+            disabled={attrTermsSaveDisabled}
+          >
+            {saveAttrTermsMut.isPending ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Saving…
+              </span>
+            ) : (
+              'Save attraction terms'
+            )}
+          </Button>
         </div>
 
         {/* ── Venue Terms ──────────────────────────────────────────── */}
         {sectionHeader('Venue Terms')}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow('FEX Venue Agreement Link',
-            <input className={inputCls} value={fexVenueAgreementLink} maxLength={2048}
+          {fieldRow('Link to SharePoint of Fully Executed Venue Contract',
+            <input className={inputCls} value={venueTermsFullyExecutedLink} maxLength={2048}
               placeholder="https://..."
-              onChange={(e) => { markEventBusinessUserEdited(); setFexVenueAgreementLink(e.target.value); }}
+              onChange={(e) => { markVenueTermsEdited(); setVenueTermsFullyExecutedLink(e.target.value); }}
               disabled={disabled} />)}
-          {fieldRow('Deposit Required?',
-            <Select2 options={YES_NO_OPTIONS} value={venueDepositRequired}
-              onChange={(v) => { markEventBusinessUserEdited(); setVenueDepositRequired(v); }}
+          {fieldRow('Deal Type',
+            <Select2 options={venueDealTypeOptions} value={venueTermsDealTypeId}
+              onChange={(v) => { markVenueTermsEdited(); setVenueTermsDealTypeId(v); }}
               disabled={disabled} />)}
         </div>
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow('Deal Type', <span className="text-sm text-text-primary">{d?.venueDealType ?? '—'}<span className="text-xs text-text-muted ml-2">(set on Finance tab)</span></span>)}
-          {readOnlyField('Venue Forecast Link', undefined)}
+          {fieldRow('Link to SharePoint Venue Forecast',
+            <input className={inputCls} value={venueTermsForecastLink} maxLength={2048}
+              placeholder="https://..."
+              onChange={(e) => { markVenueTermsEdited(); setVenueTermsForecastLink(e.target.value); }}
+              disabled={disabled} />)}
+        </div>
+        <div className="flex justify-end pt-2">
+          <Button
+            type="button"
+            className="bg-ems-accent text-white hover:opacity-90"
+            onClick={() => saveVenueTermsMut.mutate()}
+            disabled={venueTermsSaveDisabled}
+          >
+            {saveVenueTermsMut.isPending ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Saving…
+              </span>
+            ) : (
+              'Save venue terms'
+            )}
+          </Button>
         </div>
 
-        {/* ── Sales Tax ────────────────────────────────────────────── */}
+        {/* -- Sales Tax -- */}
         {sectionHeader('Sales Tax')}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
           {fieldRow('Sales Tax Remitted By',
             <Select2 options={SALES_TAX_REMITTED_BY_OPTIONS} value={salesTaxRemittedBy}
-              onChange={(v) => { markEventBusinessUserEdited(); setSalesTaxRemittedBy(v); }}
+              onChange={(v) => { markSalesTaxEdited(); setSalesTaxRemittedBy(v); }}
               disabled={disabled} />)}
         </div>
-        <p className="text-xs text-text-muted font-medium uppercase tracking-wide">Canada — HST</p>
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow('HST Collected from Ticket Sales',
-            moneyInput(hstCollectedFromTicketSales, (v) => { markEventBusinessUserEdited(); setHstCollectedFromTicketSales(v); }, 'eb-hst-ticket'))}
-          {fieldRow('HST Paid on Tour Payments',
-            moneyInput(hstPaidOnTourPayments, (v) => { markEventBusinessUserEdited(); setHstPaidOnTourPayments(v); }, 'eb-hst-tour'))}
-        </div>
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow('HST Paid on Show Expenses',
-            moneyInput(hstPaidOnShowExpenses, (v) => { markEventBusinessUserEdited(); setHstPaidOnShowExpenses(v); }, 'eb-hst-show'))}
-          {fieldRow('HST Paid on Venue Expenses',
-            moneyInput(hstPaidOnVenueExpenses, (v) => { markEventBusinessUserEdited(); setHstPaidOnVenueExpenses(v); }, 'eb-hst-venue'))}
-        </div>
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow('Subscription Sales Revenue Total',
-            moneyInput(subscriptionSalesRevenueTotal, (v) => { markEventBusinessUserEdited(); setSubscriptionSalesRevenueTotal(v); }, 'eb-sub-rev'))}
-          {fieldRow('Season Ticket Sales by IAE',
-            moneyInput(seasonTicketSalesByIae, (v) => { markEventBusinessUserEdited(); setSeasonTicketSalesByIae(v); }, 'eb-season-iae'))}
-        </div>
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow('Season Ticket Funds Transferred',
-            moneyInput(seasonTicketFundsTransferred, (v) => { markEventBusinessUserEdited(); setSeasonTicketFundsTransferred(v); }, 'eb-season-transfer'))}
-          {fieldRow('Net Box Office Funds Deposited (Account)',
-            <input className={inputCls} value={netBoxOfficeFundsDepositedAccount} maxLength={255}
-              onChange={(e) => { markEventBusinessUserEdited(); setNetBoxOfficeFundsDepositedAccount(e.target.value); }}
-              disabled={disabled} />)}
+        {(d?.isCanadaEngagement || (financeLookupsQuery.data?.nonResidentWithholdings ?? []).find((r) => r.id === d?.requiredNonResidentWithholdingId)?.canApplyForWaiver != null) && (
+          <>
+            <p className="text-xs text-text-muted font-medium uppercase tracking-wide pt-2">HST (Harmonized Sales Tax) - Canada</p>
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+              {fieldRow('Was HST Remitted to IAE?',
+                <Select2 options={YES_NO_OPTIONS} value={hstRemittedToIae}
+                  onChange={(v) => { markSalesTaxEdited(); setHstRemittedToIae(v); if (v === 'No') setHstCollectedFromTicketSales(''); }}
+                  disabled={disabled} />)}
+              {hstRemittedToIae === 'Yes' && fieldRow('How much? ($)',
+                moneyInput(hstCollectedFromTicketSales, (v) => { markSalesTaxEdited(); setHstCollectedFromTicketSales(v); }, 'eb-hst-ticket'))}
+            </div>
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+              {fieldRow('Was HST Paid to Attraction?',
+                <Select2 options={YES_NO_OPTIONS} value={hstPaidToAttraction}
+                  onChange={(v) => { markSalesTaxEdited(); setHstPaidToAttraction(v); if (v === 'No') setHstPaidOnTourPayments(''); }}
+                  disabled={disabled} />)}
+              {hstPaidToAttraction === 'Yes' && fieldRow('How much? ($)',
+                moneyInput(hstPaidOnTourPayments, (v) => { markSalesTaxEdited(); setHstPaidOnTourPayments(v); }, 'eb-hst-tour'))}
+            </div>
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+              {fieldRow('HST Paid on Show Expenses ($)',
+                moneyInput(hstPaidOnShowExpenses, (v) => { markSalesTaxEdited(); setHstPaidOnShowExpenses(v); }, 'eb-hst-show'))}
+              {fieldRow('HST Paid on Venue Expenses ($)',
+                moneyInput(hstPaidOnVenueExpenses, (v) => { markSalesTaxEdited(); setHstPaidOnVenueExpenses(v); }, 'eb-hst-venue'))}
+            </div>
+          </>
+        )}
+        <div className="flex justify-end pt-2">
+          <Button type="button" className="bg-ems-accent text-white hover:opacity-90"
+            onClick={() => saveSalesTaxMut.mutate()}
+            disabled={salesTaxSaveDisabled}>
+            {saveSalesTaxMut.isPending ? <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving...</span> : 'Save sales tax'}
+          </Button>
         </div>
 
-        {/* ── Non-Resident Withholding Tax ─────────────────────────── */}
+        {/* -- Non-Resident Withholding Tax -- */}
         {sectionHeader('Non-Resident Withholding Tax')}
         {(() => {
           const wid = d?.requiredNonResidentWithholdingId;
           const wrow = wid != null ? (financeLookupsQuery.data?.nonResidentWithholdings ?? []).find((r) => r.id === wid) : undefined;
-          if (!wrow) return null;
+          // Show Canada fields if isCanadaEngagement flag is set OR if the NRW record indicates Canada
+          const isCanada = d?.isCanadaEngagement || (wrow?.canApplyForWaiver != null);
           return (
-            <div className="rounded-md border border-border bg-surface/60 p-3 space-y-2 text-sm">
-              <div className="flex flex-wrap gap-x-6 gap-y-1">
-                {wrow.withholdingTaxRate != null && (
-                  <span><span className="text-text-muted">Rate:</span> <span className="font-medium text-text-primary">{wrow.withholdingTaxRate}%</span></span>
-                )}
-                {wrow.withholdingArea != null && wrow.withholdingArea !== '' && (
-                  <span><span className="text-text-muted">Area:</span> <span className="font-medium text-text-primary">{wrow.withholdingArea}</span></span>
-                )}
-                {wrow.taxAgencyId != null && (
-                  <span><span className="text-text-muted">Tax Agency ID:</span> <span className="font-medium text-text-primary">{wrow.taxAgencyId}</span></span>
-                )}
+            <div className="space-y-5">
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-3 lg:gap-x-10">
+                {fieldRow('Withholding Area',
+                  <input className={inputCls} value={withholdingArea} readOnly disabled />)}
+                {fieldRow('Withholding Rate (%)',
+                  <input className={inputCls} value={withholdingRate} readOnly disabled />)}
+                {fieldRow('Withholding Agency',
+                  <input className={inputCls} value={withholdingAgency} readOnly disabled />)}
               </div>
-              {(wrow.withholdingLink?.linkUrl || wrow.iaeWaiverInstructions?.linkUrl || wrow.artistWaiverInstructions?.linkUrl) && (
-                <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs">
-                  {wrow.withholdingLink?.linkUrl && (
-                    <a href={wrow.withholdingLink.linkUrl} target="_blank" rel="noopener noreferrer" className="text-ems-accent underline">
-                      {wrow.withholdingLink.linkName || 'Withholding Link'}
-                    </a>
-                  )}
-                  {wrow.iaeWaiverInstructions?.linkUrl && (
-                    <a href={wrow.iaeWaiverInstructions.linkUrl} target="_blank" rel="noopener noreferrer" className="text-ems-accent underline">
-                      {wrow.iaeWaiverInstructions.linkName || 'IAE Waiver Instructions'}
-                    </a>
-                  )}
-                  {wrow.artistWaiverInstructions?.linkUrl && (
-                    <a href={wrow.artistWaiverInstructions.linkUrl} target="_blank" rel="noopener noreferrer" className="text-ems-accent underline">
-                      {wrow.artistWaiverInstructions.linkName || 'Artist Waiver Instructions'}
-                    </a>
-                  )}
-                </div>
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+                {fieldRow('Payee',
+                  <input className={inputCls} value={withholdingPayee} readOnly disabled />)}
+                {fieldRow('Payment Method',
+                  <input className={inputCls} value={withholdingPaymentMethod} readOnly disabled />)}
+              </div>
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+                {fieldRow('Form to Attraction Link',
+                  <input className={inputCls} value={withholdingFormToAttractionLink} readOnly disabled />)}
+                {fieldRow('Form to Municipality Link',
+                  <input className={inputCls} value={withholdingFormToMunicipalityLink} readOnly disabled />)}
+              </div>
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+                {fieldRow('QuickBooks Number',
+                  <input className={inputCls} value={withholdingQuickbooksNumber} readOnly disabled />)}
+              </div>
+              {isCanada && (
+                <>
+                  <p className="text-xs text-text-muted font-medium uppercase tracking-wide pt-2">Canada-Specific</p>
+                  <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+                    {fieldRow('Waiver',
+                      <input className={inputCls} value={withholdingWaiver} readOnly disabled />)}
+                    {fieldRow('Completed Waiver Link',
+                      <input className={inputCls} value={withholdingCompletedWaiverLink} readOnly disabled />)}
+                  </div>
+                  <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+                    {fieldRow('Tour Waiver Link',
+                      <input className={inputCls} value={tourWaiverLink} readOnly disabled />)}
+                  </div>
+                  <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+                    {fieldRow('IAE Waiver Submission Date',
+                      <input className={inputCls} value={iaeWaiverSubmissionDate} readOnly disabled />)}
+                    {fieldRow('IAE Waiver Application Number',
+                      <input className={inputCls} value={iaeWaiverAppNumber} readOnly disabled />)}
+                  </div>
+                </>
               )}
+              <div className="grid grid-cols-1">
+                {fieldRow('Exceptions',
+                  <textarea className={`${inputCls} min-h-[88px] resize-y`} value={withholdingExceptions}
+                    readOnly disabled />)}
+              </div>
             </div>
           );
         })()}
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow('Payee',
-            <input className={inputCls} value={withholdingPayee} maxLength={255}
-              onChange={(e) => { markEventBusinessUserEdited(); setWithholdingPayee(e.target.value); }}
-              disabled={disabled} />)}
-          {fieldRow('Payment Method',
-            <Select2 options={WITHHOLDING_PAYMENT_METHOD_OPTIONS} value={withholdingPaymentMethod}
-              onChange={(v) => { markEventBusinessUserEdited(); setWithholdingPaymentMethod(v); }}
-              disabled={disabled} />)}
-        </div>
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow('Form to Attraction Link',
-            <input className={inputCls} value={withholdingFormToAttractionLink} maxLength={2048}
-              placeholder="https://..."
-              onChange={(e) => { markEventBusinessUserEdited(); setWithholdingFormToAttractionLink(e.target.value); }}
-              disabled={disabled} />)}
-          {fieldRow('Form to Municipality Link',
-            <input className={inputCls} value={withholdingFormToMunicipalityLink} maxLength={2048}
-              placeholder="https://..."
-              onChange={(e) => { markEventBusinessUserEdited(); setWithholdingFormToMunicipalityLink(e.target.value); }}
-              disabled={disabled} />)}
-        </div>
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow('QuickBooks Number',
-            <input className={inputCls} value={withholdingQuickbooksNumber} maxLength={100}
-              onChange={(e) => { markEventBusinessUserEdited(); setWithholdingQuickbooksNumber(e.target.value); }}
-              disabled={disabled} />)}
-          {fieldRow('Waiver',
-            <Select2 options={YES_NO_OPTIONS} value={withholdingWaiver}
-              onChange={(v) => { markEventBusinessUserEdited(); setWithholdingWaiver(v); }}
-              disabled={disabled} />)}
-        </div>
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow('Completed Waiver Link',
-            <input className={inputCls} value={withholdingCompletedWaiverLink} maxLength={2048}
-              placeholder="https://..."
-              onChange={(e) => { markEventBusinessUserEdited(); setWithholdingCompletedWaiverLink(e.target.value); }}
-              disabled={disabled} />)}
-          {fieldRow('Tour Waiver Link',
-            <input className={inputCls} value={tourWaiverLink} maxLength={2048}
-              placeholder="https://..."
-              onChange={(e) => { markEventBusinessUserEdited(); setTourWaiverLink(e.target.value); }}
-              disabled={disabled} />)}
-        </div>
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow('Check # / Confirmation of Withholding Payment',
-            <input className={inputCls} value={checkNumberOrConfOfWithholdingPayment} maxLength={100}
-              onChange={(e) => { markEventBusinessUserEdited(); setCheckNumberOrConfOfWithholdingPayment(e.target.value); }}
-              disabled={disabled} />)}
-        </div>
-        <div className="grid grid-cols-1">
-          {fieldRow('Exceptions',
-            <textarea className={`${inputCls} min-h-[88px] resize-y`} value={withholdingExceptions}
-              onChange={(e) => { markEventBusinessUserEdited(); setWithholdingExceptions(e.target.value); }}
-              disabled={disabled} />)}
-        </div>
 
         {/* ── Compensation ─────────────────────────────────────────── */}
-        {sectionHeader('Compensation')}
+        {sectionHeader('Final Attraction Compensation')}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow('Guarantee Amount ($)', <span className="text-sm text-text-primary">{d?.artistGuarantee != null ? `$${d.artistGuarantee.toLocaleString()}` : '—'}<span className="text-xs text-text-muted ml-2">(set on Artist Terms tab)</span></span>)}
+          {fieldRow('Guarantee Amount ($)',
+            moneyInput(finalGuaranteeAmount, (v) => { markFinalCompEdited(); setFinalGuaranteeAmount(v); }, 'eb-final-guarantee'))}
           {fieldRow('Royalty Amount ($)',
-            moneyInput(compensationRoyaltyAmount, (v) => { markEventBusinessUserEdited(); setCompensationRoyaltyAmount(v); }, 'eb-comp-royalty'))}
+            moneyInput(finalRoyaltyAmount, (v) => { markFinalCompEdited(); setFinalRoyaltyAmount(v); }, 'eb-final-royalty'))}
         </div>
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
           {fieldRow('Overage Amount ($)',
-            moneyInput(compensationOverageAmount, (v) => { markEventBusinessUserEdited(); setCompensationOverageAmount(v); }, 'eb-comp-overage'))}
+            moneyInput(finalOverageAmount, (v) => { markFinalCompEdited(); setFinalOverageAmount(v); }, 'eb-final-overage'))}
           {fieldRow('Buyouts ($)',
-            moneyInput(compensationBuyouts, (v) => { markEventBusinessUserEdited(); setCompensationBuyouts(v); }, 'eb-comp-buyouts'))}
+            moneyInput(finalBuyoutAmount, (v) => { markFinalCompEdited(); setFinalBuyoutAmount(v); }, 'eb-final-buyouts'))}
         </div>
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
           {fieldRow('Direct Company Charges ($)',
-            moneyInput(compensationDirectCharges, (v) => { markEventBusinessUserEdited(); setCompensationDirectCharges(v); }, 'eb-comp-direct'))}
+            moneyInput(finalDirectCompanyCharges, (v) => { markFinalCompEdited(); setFinalDirectCompanyCharges(v); }, 'eb-final-direct'))}
           {fieldRow('Reimbursibles ($)',
-            moneyInput(compensationReimbursibles, (v) => { markEventBusinessUserEdited(); setCompensationReimbursibles(v); }, 'eb-comp-reimb'))}
+            moneyInput(finalReimbursables, (v) => { markFinalCompEdited(); setFinalReimbursables(v); }, 'eb-final-reimb'))}
+        </div>
+        <div className="flex justify-end pt-2">
+          <Button
+            type="button"
+            className="bg-ems-accent text-white hover:opacity-90"
+            onClick={() => saveFinalCompMut.mutate()}
+            disabled={finalCompSaveDisabled}
+          >
+            {saveFinalCompMut.isPending ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Saving…
+              </span>
+            ) : (
+              'Save final compensation'
+            )}
+          </Button>
         </div>
 
         {/* ── Finance ──────────────────────────────────────────────── */}
         {sectionHeader('Finance')}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow('Customer',
-            <input className={inputCls} value={financeCustomer} maxLength={255}
-              onChange={(e) => { markEventBusinessUserEdited(); setFinanceCustomer(e.target.value); }}
-              disabled={disabled} />)}
-          {fieldRow('Job',
-            <input className={inputCls} value={financeJob} maxLength={255}
-              onChange={(e) => { markEventBusinessUserEdited(); setFinanceJob(e.target.value); }}
-              disabled={disabled} />)}
+          {fieldRow('Customer', <span className="text-sm text-text-primary">{d?.financeCustomer ?? '—'}</span>)}
+          {fieldRow('Job', <span className="text-sm text-text-primary">{d?.financeJob ?? '—'}</span>)}
         </div>
 
         {/* ── Licensing / Royalties ─────────────────────────────────── */}
@@ -6183,25 +6385,6 @@ function EngagementEventBusinessPanel({
         {/* ── RAMP ────────────────────────────────────────────────── */}
         {sectionHeader('RAMP')}
         <p className="text-sm text-text-muted">RAMP bills and reports will be shown here when available.</p>
-
-        {/* ── Save ────────────────────────────────────────────────── */}
-        <div className="flex justify-end pt-2 border-t border-border">
-          <Button
-            type="button"
-            className="bg-ems-accent text-white hover:opacity-90"
-            onClick={handleSave}
-            disabled={saveDisabled}
-          >
-            {disabled ? (
-              <span className="inline-flex items-center gap-1.5">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Saving…
-              </span>
-            ) : (
-              'Save event business'
-            )}
-          </Button>
-        </div>
       </div>
     </div>
   );
@@ -6246,8 +6429,8 @@ function EngagementMarketingPanel({
   });
 
   const [ticketingStatus, setTicketingStatus] = useState('');
-  const [onSaleDate, setOnSaleDate] = useState(getTodayDateString());
-  const [preSaleDate, setPreSaleDate] = useState(getTodayDateString());
+  const [onSaleDate, setOnSaleDate] = useState('');
+  const [preSaleDate, setPreSaleDate] = useState('');
   const [preSaleEndDate, setPreSaleEndDate] = useState('');
   const [preSaleRegistrationStartDate, setPreSaleRegistrationStartDate] = useState('');
   const [preSaleRegistrationEndDate, setPreSaleRegistrationEndDate] = useState('');
@@ -6300,11 +6483,31 @@ function EngagementMarketingPanel({
     retry: 1,
   });
 
-  // ── IAE Marketing Team ──────────────────────────────────────────────
-  const [iaeMarketingDirectorId, setIaeMarketingDirectorId] = useState('');
-  const [iaeMarketingManagerId, setIaeMarketingManagerId] = useState('');
-  const [iaeMarketingCoordinatorId, setIaeMarketingCoordinatorId] = useState('');
+  // ── IAE Marketing Team (read-only from EngagementIAEContact roles) ─────────────
+  const iaeEngagementContactsQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'iae-contacts'],
+    queryFn: () => fetchEngagementIaeContacts(engagementId),
+    staleTime: 60_000,
+  });
 
+  const iaeMarketingStaffByRole = useMemo(() => {
+    const contacts = iaeEngagementContactsQuery.data ?? [];
+    const roleMap: Record<string, typeof contacts> = {
+      'Marketing Director': [],
+      'Marketing Manager': [],
+      'Marketing Coordinator': [],
+    };
+    const roleKeys = Object.keys(roleMap);
+    for (const c of contacts) {
+      const rn = (c.roleName ?? '').trim();
+      if (!rn) continue;
+      const matched = roleKeys.find((k) => k.toLowerCase() === rn.toLowerCase());
+      if (matched) roleMap[matched].push(c);
+    }
+    return roleMap;
+  }, [iaeEngagementContactsQuery.data]);
+
+  // ── IAE contact lookups (used by Tour Marketing Team) ──────────────
   const iaeContactLookupsQuery = useQuery({
     queryKey: ['engagements', 'iae-contact-lookups'],
     queryFn: fetchEngagementIaeContactLookups,
@@ -6321,35 +6524,6 @@ function EngagementMarketingPanel({
     ],
     [iaeContactLookupsQuery.data],
   );
-
-  useEffect(() => {
-    const d = marketingMetaQuery.data;
-    if (!d) return;
-    setIaeMarketingDirectorId(d.iaeMarketingDirectorContactId != null ? String(d.iaeMarketingDirectorContactId) : '');
-    setIaeMarketingManagerId(d.iaeMarketingManagerContactId != null ? String(d.iaeMarketingManagerContactId) : '');
-    setIaeMarketingCoordinatorId(d.iaeMarketingCoordinatorContactId != null ? String(d.iaeMarketingCoordinatorContactId) : '');
-  }, [marketingMetaQuery.data]);
-
-  const {
-    hasUserEdited: hasIaeMarketingTeamEdited,
-    markUserEdited: markIaeMarketingTeamEdited,
-    clearUserEdited: clearIaeMarketingTeamEdited,
-  } = useUserEditTracker(`iae-marketing-team:${engagementId}`);
-
-  const saveIaeMarketingTeamMut = useMutation({
-    mutationFn: () =>
-      updateIaeMarketingTeam(engagementId, {
-        iaeMarketingDirectorContactId: iaeMarketingDirectorId ? Number(iaeMarketingDirectorId) : null,
-        iaeMarketingManagerContactId: iaeMarketingManagerId ? Number(iaeMarketingManagerId) : null,
-        iaeMarketingCoordinatorContactId: iaeMarketingCoordinatorId ? Number(iaeMarketingCoordinatorId) : null,
-      }),
-    onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'marketing-meta'] });
-      clearIaeMarketingTeamEdited();
-      addToast('IAE Marketing Team saved.', 'success');
-    },
-    onError: (e: unknown) => addToast(friendlyApiError(e, 'Could not save IAE Marketing Team.'), 'error'),
-  });
 
   // ── Tour Marketing Team ──────────────────────────────────────────────
   const [tourMarketingDirectorId, setTourMarketingDirectorId] = useState('');
@@ -6425,6 +6599,9 @@ function EngagementMarketingPanel({
     setTicketingStatus(d.ticketingStatus ?? '');
     setOnSaleDate(d.onSaleDate ?? '');
     setPreSaleDate(d.preSaleDate ?? '');
+    setPreSaleEndDate(d.preSaleEndDate ?? '');
+    setPreSaleRegistrationStartDate(d.preSaleRegistrationStartDate ?? '');
+    setPreSaleRegistrationEndDate(d.preSaleRegistrationEndDate ?? '');
     setVipPackagedOffer(d.vipPackagedOffer ?? '');
     setPreSaleSpecialPrices(d.preSaleSpecialPrices ?? '');
     setKidsTicketsPrices(d.kidsTicketsPrices ?? '');
@@ -6936,10 +7113,6 @@ function EngagementMarketingPanel({
 
         {!ticketingQuery.isLoading && !ticketingQuery.isError && ticketingQuery.data && (
           <>
-            <div className="rounded-md border border-border bg-surface/40 px-3 py-2 text-xs text-text-muted">
-              View full performance schedule in the <strong className="text-text-primary">Performances</strong>{' '}
-              tab. Ticketing fields below are scoped to the selected show.
-            </div>
 
             {/* ── On Sale Dates ── */}
             <div className="rounded-lg border border-border bg-surface/40 p-4">
@@ -7186,206 +7359,37 @@ function EngagementMarketingPanel({
           </>
         )}
 
-        {/* ── Venue Marketing Team (editable, per primary venue) ── */}
-        <div className="rounded-lg border border-border bg-surface/40 p-4">
-          <div className="mb-3 flex items-baseline justify-between gap-2">
-            <h4 className="text-sm font-semibold text-text-primary">Venue Marketing Team</h4>
-            {venueMktVenue?.venueCompanyName && (
-              <span className="text-xs text-text-muted">{venueMktVenue.venueCompanyName}</span>
-            )}
-          </div>
-          {venueMktCompanyId == null ? (
-            <p className="text-sm text-text-muted">No venue is linked to this engagement.</p>
-          ) : (
-            <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <FormField label="Venue Marketing Director">
-                  <Select2
-                    options={venueMktContactOptions}
-                    value={venueMktDirectorId}
-                    onChange={setVenueMktDirectorId}
-                    placeholder="Select contact…"
-                    allowClear
-                    disabled={saveVenueMktMut.isPending}
-                  />
-                </FormField>
-                <FormField label="Venue Marketing Manager">
-                  <Select2
-                    options={venueMktContactOptions}
-                    value={venueMktManagerId}
-                    onChange={setVenueMktManagerId}
-                    placeholder="Select contact…"
-                    allowClear
-                    disabled={saveVenueMktMut.isPending}
-                  />
-                </FormField>
-                <FormField label="Venue Digital Marketing Manager">
-                  <Select2
-                    options={venueMktContactOptions}
-                    value={venueMktDigitalId}
-                    onChange={setVenueMktDigitalId}
-                    placeholder="Select contact…"
-                    allowClear
-                    disabled={saveVenueMktMut.isPending}
-                  />
-                </FormField>
-              </div>
-              <div className="flex justify-end mt-3">
-                <Button
-                  type="button"
-                  size="sm"
-                  className="bg-ems-accent text-white hover:opacity-90"
-                  onClick={() => saveVenueMktMut.mutate()}
-                  disabled={saveVenueMktMut.isPending}
-                >
-                  {saveVenueMktMut.isPending ? (
-                    <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
-                  ) : 'Save venue marketing team'}
-                </Button>
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* ── IAE Marketing Team ── */}
+        {/* ── IAE Marketing Team (read-only from EngagementIAEContact roles) ── */}
         <div className="rounded-lg border border-border bg-surface/40 p-4">
           <h4 className="text-sm font-semibold text-text-primary mb-3">IAE Marketing Team</h4>
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-            {fieldRow(
-              'Marketing Director',
-              <Select2
-                options={iaeMarketingContactOptions}
-                value={iaeMarketingDirectorId}
-                onChange={(v) => { markIaeMarketingTeamEdited(); setIaeMarketingDirectorId(v); }}
-                placeholder="Select contact…"
-                allowClear
-                disabled={saveIaeMarketingTeamMut.isPending}
-              />,
-            )}
-            {fieldRow(
-              'Marketing Manager',
-              <Select2
-                options={iaeMarketingContactOptions}
-                value={iaeMarketingManagerId}
-                onChange={(v) => { markIaeMarketingTeamEdited(); setIaeMarketingManagerId(v); }}
-                placeholder="Select contact…"
-                allowClear
-                disabled={saveIaeMarketingTeamMut.isPending}
-              />,
-            )}
-            {fieldRow(
-              'Marketing Coordinator',
-              <Select2
-                options={iaeMarketingContactOptions}
-                value={iaeMarketingCoordinatorId}
-                onChange={(v) => { markIaeMarketingTeamEdited(); setIaeMarketingCoordinatorId(v); }}
-                placeholder="Select contact…"
-                allowClear
-                disabled={saveIaeMarketingTeamMut.isPending}
-              />,
-            )}
-          </div>
-          <div className="mt-4 flex justify-end border-t border-border pt-3">
-            <Button
-              type="button"
-              className="bg-ems-accent text-white hover:opacity-90"
-              onClick={() => saveIaeMarketingTeamMut.mutate()}
-              disabled={saveIaeMarketingTeamMut.isPending || !hasIaeMarketingTeamEdited}
-            >
-              {saveIaeMarketingTeamMut.isPending ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Saving…
-                </span>
-              ) : (
-                'Save IAE marketing team'
-              )}
-            </Button>
-          </div>
-        </div>
-
-        {/* ── Tour Marketing Team (editable) ── */}
-        <div className="rounded-lg border border-border bg-surface/40 p-4">
-          <h4 className="text-sm font-semibold text-text-primary mb-3">Tour Marketing Team</h4>
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-            {fieldRow(
-              'Marketing Director',
-              <Select2
-                options={iaeMarketingContactOptions}
-                value={tourMarketingDirectorId}
-                onChange={(v) => { markTourMarketingTeamEdited(); setTourMarketingDirectorId(v); }}
-                placeholder="Select contact…"
-                allowClear
-                disabled={saveTourMarketingTeamMut.isPending}
-              />,
-            )}
-            {fieldRow(
-              'Marketing Manager',
-              <Select2
-                options={iaeMarketingContactOptions}
-                value={tourMarketingManagerId}
-                onChange={(v) => { markTourMarketingTeamEdited(); setTourMarketingManagerId(v); }}
-                placeholder="Select contact…"
-                allowClear
-                disabled={saveTourMarketingTeamMut.isPending}
-              />,
-            )}
-          </div>
-          <div className="mt-4 flex justify-end border-t border-border pt-3">
-            <Button
-              type="button"
-              className="bg-ems-accent text-white hover:opacity-90"
-              onClick={() => saveTourMarketingTeamMut.mutate()}
-              disabled={saveTourMarketingTeamMut.isPending || !hasTourMarketingTeamEdited}
-            >
-              {saveTourMarketingTeamMut.isPending ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Saving…
-                </span>
-              ) : (
-                'Save tour marketing team'
-              )}
-            </Button>
-          </div>
-        </div>
-
-        {/* ── Tour Audience Demographic (read-only from dbo.Tour + TourAudienceAgeRange) ── */}
-        <div className="rounded-lg border border-border bg-surface/40 p-4">
-          <h4 className="text-sm font-semibold text-text-primary mb-3">Tour Audience Demographic</h4>
-          {!marketingMetaQuery.isLoading && !marketingMetaQuery.isError && (
-            <div className="space-y-3">
-              {/* General Demographics (gender) */}
-              <div>
-                <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-1">General Demographics</p>
-                {marketingMetaQuery.data?.audienceGender ? (
-                  <span className="rounded-full border border-border bg-surface px-3 py-0.5 text-xs font-medium text-text-primary">
-                    {marketingMetaQuery.data.audienceGender}
-                  </span>
-                ) : (
-                  <p className="text-sm text-text-muted">No gender demographic on file.</p>
-                )}
-              </div>
-              {/* Age Range */}
-              <div>
-                <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-1">Age Range</p>
-                {(marketingMetaQuery.data?.tourAudienceDemographics ?? []).length === 0 ? (
-                  <p className="text-sm text-text-muted">No age range demographics on file.</p>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {[...(marketingMetaQuery.data?.tourAudienceDemographics ?? [])]
-                      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-                      .map((d) => (
-                        <span
-                          key={d.ageRangeId}
-                          className="rounded-full border border-border bg-surface px-3 py-0.5 text-xs font-medium text-text-primary"
-                        >
-                          {d.ageRangeLabel}
-                        </span>
-                      ))}
-                  </div>
-                )}
-              </div>
+          {iaeEngagementContactsQuery.isLoading && (
+            <div className="flex items-center gap-2 text-text-muted text-sm">
+              <Loader2 className="h-4 w-4 animate-spin shrink-0" /> Loading…
+            </div>
+          )}
+          {iaeEngagementContactsQuery.isError && (
+            <div className="text-ems-coral text-sm">{friendlyApiError(iaeEngagementContactsQuery.error)}</div>
+          )}
+          {!iaeEngagementContactsQuery.isLoading && !iaeEngagementContactsQuery.isError && (
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+              {(['Marketing Director', 'Marketing Manager', 'Marketing Coordinator'] as const).map((role) => (
+                <React.Fragment key={role}>
+                  {fieldRow(
+                    role,
+                    (iaeMarketingStaffByRole[role] ?? []).length > 0 ? (
+                      <div className="space-y-1">
+                        {(iaeMarketingStaffByRole[role] ?? []).map((c) => (
+                          <p key={c.engagementIaeContactId} className="text-sm text-text-primary">
+                            {c.contactLabel}
+                          </p>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-text-muted">—</p>
+                    ),
+                  )}
+                </React.Fragment>
+              ))}
             </div>
           )}
         </div>
@@ -7510,76 +7514,189 @@ function EngagementMarketingPanel({
         {/* ── Media Mix ── */}
         <div className="rounded-lg border border-border bg-surface/40 p-4 space-y-4">
           <h4 className="text-sm font-semibold text-text-primary">Media Mix</h4>
+          <p className="text-xs font-semibold text-text-secondary mb-2">Advertising Outlet — Company Types &amp; Sub-types</p>
 
-          {/* Tour-selected media mix (read-only from TourMediaMix) */}
-          {!marketingMetaQuery.isLoading && !marketingMetaQuery.isError && (marketingMetaQuery.data?.mediaMix ?? []).length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-text-secondary mb-2">Selected for this tour</p>
-              <div className="space-y-3">
-                {Object.entries(
-                  (marketingMetaQuery.data?.mediaMix ?? []).reduce<Record<string, typeof marketingMetaQuery.data.mediaMix>>((acc, item) => {
-                    const key = item.parentCategory ?? item.subTypeName;
-                    if (!acc[key]) acc[key] = [];
-                    acc[key].push(item);
-                    return acc;
-                  }, {}),
-                ).map(([category, items]) => (
-                  <div key={category}>
-                    <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-1">{category}</p>
-                    <div className="space-y-1 pl-2">
-                      {items.map((item) => (
-                        <div key={item.tourMediaMixId} className="flex items-baseline gap-2 text-sm">
-                          <span className="text-text-primary">{item.subTypeName}</span>
-                          {item.companyName && (
-                            <span className="text-text-muted text-xs">— {item.companyName}</span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
+          {marketingMetaQuery.isLoading ? (
+            <div className="flex items-center gap-2 text-text-muted text-sm">
+              <Loader2 className="h-4 w-4 animate-spin shrink-0" /> Loading…
+            </div>
+          ) : marketingMetaQuery.isError ? (
+            <div className="text-ems-coral text-sm">{friendlyApiError(marketingMetaQuery.error)}</div>
+          ) : (marketingMetaQuery.data?.mediaMix ?? []).length === 0 ? (
+            <p className="text-sm text-text-muted">No media mix on file for this tour.</p>
+          ) : (
+            <div className="space-y-3">
+              {Object.entries(
+                (marketingMetaQuery.data?.mediaMix ?? []).reduce<Record<string, typeof marketingMetaQuery.data.mediaMix>>((acc, item) => {
+                  const key = item.parentCategory ?? 'Other';
+                  if (!acc[key]) acc[key] = [];
+                  acc[key].push(item);
+                  return acc;
+                }, {}),
+              ).map(([category, items]) => (
+                <div key={category}>
+                  <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-1">{category}</p>
+                  <div className="space-y-1 pl-2">
+                    {items.map((item) => (
+                      <div key={item.tourMediaMixId} className="flex items-baseline gap-2 text-sm">
+                        <span className="text-text-primary">{item.subTypeName}</span>
+                        {item.companyName && (
+                          <span className="text-text-muted text-xs">— {item.companyName}</span>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ── Venue Marketing Team (editable, per primary venue) ── */}
+        <div className="rounded-lg border border-border bg-surface/40 p-4">
+          <div className="mb-3 flex items-baseline justify-between gap-2">
+            <h4 className="text-sm font-semibold text-text-primary">Venue Marketing Team</h4>
+            {venueMktVenue?.venueCompanyName && (
+              <span className="text-xs text-text-muted">{venueMktVenue.venueCompanyName}</span>
+            )}
+          </div>
+          {venueMktCompanyId == null ? (
+            <p className="text-sm text-text-muted">No venue is linked to this engagement.</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <FormField label="Venue Marketing Director">
+                  <Select2
+                    options={venueMktContactOptions}
+                    value={venueMktDirectorId}
+                    onChange={setVenueMktDirectorId}
+                    placeholder="Select contact…"
+                    allowClear
+                    disabled={saveVenueMktMut.isPending}
+                  />
+                </FormField>
+                <FormField label="Venue Marketing Manager">
+                  <Select2
+                    options={venueMktContactOptions}
+                    value={venueMktManagerId}
+                    onChange={setVenueMktManagerId}
+                    placeholder="Select contact…"
+                    allowClear
+                    disabled={saveVenueMktMut.isPending}
+                  />
+                </FormField>
+                <FormField label="Venue Digital Marketing Manager">
+                  <Select2
+                    options={venueMktContactOptions}
+                    value={venueMktDigitalId}
+                    onChange={setVenueMktDigitalId}
+                    placeholder="Select contact…"
+                    allowClear
+                    disabled={saveVenueMktMut.isPending}
+                  />
+                </FormField>
+              </div>
+              <div className="flex justify-end mt-3">
+                <Button
+                  type="button"
+                  size="sm"
+                  className="bg-ems-accent text-white hover:opacity-90"
+                  onClick={() => saveVenueMktMut.mutate()}
+                  disabled={saveVenueMktMut.isPending}
+                >
+                  {saveVenueMktMut.isPending ? (
+                    <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
+                  ) : 'Save venue marketing team'}
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* ── Tour Marketing Team (editable) ── */}
+        <div className="rounded-lg border border-border bg-surface/40 p-4">
+          <h4 className="text-sm font-semibold text-text-primary mb-3">Tour Marketing Team</h4>
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+            {fieldRow(
+              'Marketing Director',
+              <Select2
+                options={iaeMarketingContactOptions}
+                value={tourMarketingDirectorId}
+                onChange={(v) => { markTourMarketingTeamEdited(); setTourMarketingDirectorId(v); }}
+                placeholder="Select contact…"
+                allowClear
+                disabled={saveTourMarketingTeamMut.isPending}
+              />,
+            )}
+            {fieldRow(
+              'Marketing Manager',
+              <Select2
+                options={iaeMarketingContactOptions}
+                value={tourMarketingManagerId}
+                onChange={(v) => { markTourMarketingTeamEdited(); setTourMarketingManagerId(v); }}
+                placeholder="Select contact…"
+                allowClear
+                disabled={saveTourMarketingTeamMut.isPending}
+              />,
+            )}
+          </div>
+          <div className="mt-4 flex justify-end border-t border-border pt-3">
+            <Button
+              type="button"
+              className="bg-ems-accent text-white hover:opacity-90"
+              onClick={() => saveTourMarketingTeamMut.mutate()}
+              disabled={saveTourMarketingTeamMut.isPending || !hasTourMarketingTeamEdited}
+            >
+              {saveTourMarketingTeamMut.isPending ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Saving…
+                </span>
+              ) : (
+                'Save tour marketing team'
+              )}
+            </Button>
+          </div>
+        </div>
+
+        {/* ── Tour Audience Demographic (read-only from dbo.Tour + TourAudienceAgeRange) ── */}
+        <div className="rounded-lg border border-border bg-surface/40 p-4">
+          <h4 className="text-sm font-semibold text-text-primary mb-3">Tour Audience Demographic</h4>
+          {!marketingMetaQuery.isLoading && !marketingMetaQuery.isError && (
+            <div className="space-y-3">
+              {/* General Demographics (gender) */}
+              <div>
+                <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-1">General Demographics</p>
+                {marketingMetaQuery.data?.audienceGender ? (
+                  <span className="rounded-full border border-border bg-surface px-3 py-0.5 text-xs font-medium text-text-primary">
+                    {marketingMetaQuery.data.audienceGender}
+                  </span>
+                ) : (
+                  <p className="text-sm text-text-muted">No gender demographic on file.</p>
+                )}
+              </div>
+              {/* Age Range */}
+              <div>
+                <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-1">Age Range</p>
+                {(marketingMetaQuery.data?.tourAudienceDemographics ?? []).length === 0 ? (
+                  <p className="text-sm text-text-muted">No age range demographics on file.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {[...(marketingMetaQuery.data?.tourAudienceDemographics ?? [])]
+                      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+                      .map((d) => (
+                        <span
+                          key={d.ageRangeId}
+                          className="rounded-full border border-border bg-surface px-3 py-0.5 text-xs font-medium text-text-primary"
+                        >
+                          {d.ageRangeLabel}
+                        </span>
+                      ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
-
-          {/* All Advertising Outlet company types & sub-types (reference catalog) */}
-          <div className="border-t border-border pt-3">
-            <p className="text-xs font-semibold text-text-secondary mb-2">Advertising Outlet — Company Types &amp; Sub-types</p>
-            {marketingMetaQuery.isLoading ? (
-              <div className="flex items-center gap-2 text-text-muted text-sm">
-                <Loader2 className="h-4 w-4 animate-spin shrink-0" /> Loading…
-              </div>
-            ) : marketingMetaQuery.isError ? (
-              <div className="text-ems-coral text-sm">{friendlyApiError(marketingMetaQuery.error)}</div>
-            ) : (marketingMetaQuery.data?.advertisingSubTypes ?? []).length === 0 ? (
-              <p className="text-sm text-text-muted">No Advertising Outlet types on file.</p>
-            ) : (
-              <div className="space-y-3">
-                {Object.entries(
-                  (marketingMetaQuery.data?.advertisingSubTypes ?? []).reduce<Record<string, typeof marketingMetaQuery.data.advertisingSubTypes>>((acc, st) => {
-                    const key = st.parentCategory ?? 'Other';
-                    if (!acc[key]) acc[key] = [];
-                    acc[key].push(st);
-                    return acc;
-                  }, {}),
-                ).map(([category, items]) => (
-                  <div key={category}>
-                    <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-1">{category}</p>
-                    <div className="flex flex-wrap gap-1.5 pl-2">
-                      {items.map((st) => (
-                        <span
-                          key={st.advertisingSubTypeId}
-                          className="rounded-full border border-border bg-surface px-2.5 py-0.5 text-xs text-text-primary"
-                        >
-                          {st.subTypeName}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         </div>
       </div>
     </div>
@@ -7657,7 +7774,7 @@ function EngagementTicketingPanel({
   const [publicSaleSpecialPricePasswordDateEnd, setPublicSaleSpecialPricePasswordDateEnd] = useState('');
   const [publicSaleSpecialPriceDiscountType, setPublicSaleSpecialPriceDiscountType] = useState('');
   const [publicSaleSpecialPriceDiscountAmount, setPublicSaleSpecialPriceDiscountAmount] = useState('');
-  const [selectedPasswordType, setSelectedPasswordType] = useState<'PreSale' | 'PreSaleSpecialPrice' | 'PublicSaleSpecialPrice'>('PreSale');
+  const [selectedPasswordType, setSelectedPasswordType] = useState<'' | 'PreSale' | 'PreSaleSpecialPrice' | 'PublicSaleSpecialPrice'>('');
   const [showPassword, setShowPassword] = useState(false);
   const [vipPackageOffered, setVipPackageOffered] = useState('');
   const [vipPackageName, setVipPackageName] = useState('');
@@ -7858,25 +7975,25 @@ function EngagementTicketingPanel({
       sellableCapacity: d.sellableCapacity ?? null,
       grossPotentialRevenue: d.grossPotentialRevenue ?? null,
       ticketingSystemCompanyId: d.ticketingSystemCompanyId ?? null,
-      ticketingAdministrator: d.ticketingAdministrator ?? null,
+      ticketingAdministrator: (d.ticketingAdministrator ?? '').trim() || null,
       ticketingAdminContactId: d.ticketingAdminContactId ?? null,
       ticketingAdminCompanyId: d.ticketingAdminCompanyId ?? null,
       boxOfficeLaborStaffingRequired: d.ticketingAdministrator === 'IAE Contract' ? (d.boxOfficeLaborStaffingRequired ?? null) : null,
       isIAETMDeal: d.isIAETMDeal ?? null,
-      ticketingLinkUrl: d.ticketingLinkUrl ?? null,
-      publicSaleLinkUrl: d.publicSaleLinkUrl ?? null,
-      preSaleDate: d.preSaleDate ?? null,
-      preSaleEndDate: d.preSaleEndDate ?? null,
-      preSaleRegistrationStartDate: d.preSaleRegistrationStartDate ?? null,
-      preSaleRegistrationEndDate: d.preSaleRegistrationEndDate ?? null,
-      facilityFeeType: d.facilityFeeType ?? null,
+      ticketingLinkUrl: (d.ticketingLinkUrl ?? '').trim() || null,
+      publicSaleLinkUrl: (d.publicSaleLinkUrl ?? '').trim() || null,
+      preSaleDate: d.preSaleDate || null,
+      preSaleEndDate: d.preSaleEndDate || null,
+      preSaleRegistrationStartDate: d.preSaleRegistrationStartDate || null,
+      preSaleRegistrationEndDate: d.preSaleRegistrationEndDate || null,
+      facilityFeeType: (d.facilityFeeType ?? '').trim() || null,
       facilityFeeAmount: d.facilityFeeAmount ?? null,
-      dynamicPricingMode: d.dynamicPricingMode ?? null,
+      dynamicPricingMode: (d.dynamicPricingMode ?? '').trim() || null,
       rebateAmount: d.rebateAmount ?? null,
       bumpAmount: d.bumpAmount ?? null,
-      creditCardFeesType: d.creditCardFeesType ?? null,
+      creditCardFeesType: (d.creditCardFeesType ?? '').trim() || null,
       creditCardFeesAmountPercent: d.creditCardFeesAmountPercent ?? null,
-      kidsTicketsPrices: d.kidsTicketsPrices ?? null,
+      kidsTicketsPrices: (d.kidsTicketsPrices ?? '').trim() || null,
     });
     return cur !== base;
   }, [
@@ -7910,18 +8027,18 @@ function EngagementTicketingPanel({
       publicSaleSpecialPriceDiscountAmount: parseOptionalDecimal(publicSaleSpecialPriceDiscountAmount, '').value,
     });
     const base = JSON.stringify({
-      presalePassword: d.presalePassword ?? null,
-      presalePasswordDateStart: d.presalePasswordDateStart ?? null,
-      presalePasswordDateEnd: d.presalePasswordDateEnd ?? null,
-      presaleSpecialPricePassword: d.presaleSpecialPricePassword ?? null,
-      presaleSpecialPricePasswordDateStart: d.presaleSpecialPricePasswordDateStart ?? null,
-      presaleSpecialPricePasswordDateEnd: d.presaleSpecialPricePasswordDateEnd ?? null,
-      presaleSpecialPriceDiscountType: d.presaleSpecialPriceDiscountType ?? null,
+      presalePassword: (d.presalePassword ?? '').trim() || null,
+      presalePasswordDateStart: d.presalePasswordDateStart || null,
+      presalePasswordDateEnd: d.presalePasswordDateEnd || null,
+      presaleSpecialPricePassword: (d.presaleSpecialPricePassword ?? '').trim() || null,
+      presaleSpecialPricePasswordDateStart: d.presaleSpecialPricePasswordDateStart || null,
+      presaleSpecialPricePasswordDateEnd: d.presaleSpecialPricePasswordDateEnd || null,
+      presaleSpecialPriceDiscountType: d.presaleSpecialPriceDiscountType || null,
       presaleSpecialPriceDiscountAmount: d.presaleSpecialPriceDiscountAmount ?? null,
-      publicSaleSpecialPricePassword: d.publicSaleSpecialPricePassword ?? null,
-      publicSaleSpecialPricePasswordDateStart: d.publicSaleSpecialPricePasswordDateStart ?? null,
-      publicSaleSpecialPricePasswordDateEnd: d.publicSaleSpecialPricePasswordDateEnd ?? null,
-      publicSaleSpecialPriceDiscountType: d.publicSaleSpecialPriceDiscountType ?? null,
+      publicSaleSpecialPricePassword: (d.publicSaleSpecialPricePassword ?? '').trim() || null,
+      publicSaleSpecialPricePasswordDateStart: d.publicSaleSpecialPricePasswordDateStart || null,
+      publicSaleSpecialPricePasswordDateEnd: d.publicSaleSpecialPricePasswordDateEnd || null,
+      publicSaleSpecialPriceDiscountType: d.publicSaleSpecialPriceDiscountType || null,
       publicSaleSpecialPriceDiscountAmount: d.publicSaleSpecialPriceDiscountAmount ?? null,
     });
     return cur !== base;
@@ -7944,7 +8061,7 @@ function EngagementTicketingPanel({
     });
     const base = JSON.stringify({
       vipPackageOffered: d.vipPackageOffered ?? null,
-      vipPackageName: d.vipPackageName ?? null,
+      vipPackageName: (d.vipPackageName ?? '').trim() || null,
       vipPackageBenefits: [...(d.vipPackageBenefits ?? [])].sort(),
     });
     return cur !== base;
@@ -7958,14 +8075,14 @@ function EngagementTicketingPanel({
       salesTaxAmountPercent: salesTaxAmountPercent.trim() ? Number(salesTaxAmountPercent) : null,
     });
     const base = JSON.stringify({
-      salesTaxType: d.salesTaxType ?? null,
+      salesTaxType: (d.salesTaxType ?? '').trim() || null,
       salesTaxAmountPercent: d.salesTaxAmountPercent ?? null,
     });
     return cur !== base;
   }, [ticketingQuery.data, selectedPid, salesTaxType, salesTaxAmountPercent]);
 
   const scalingDirty = useMemo(() => {
-    return (scalingLocal.trim() || null) !== (engagementScaling ?? null);
+    return (scalingLocal.trim() || null) !== ((engagementScaling ?? '').trim() || null);
   }, [scalingLocal, engagementScaling]);
 
   const anyDirty = hasTicketingUserEdited && (ticketingMainDirty || promoPasswordDirty || vipDirty || salesTaxDirty || scalingDirty);
@@ -8374,11 +8491,11 @@ function EngagementTicketingPanel({
               {sectionHeader('Purchase Links')}
               <div className="grid grid-cols-1 gap-4">
                 {fieldRow('Pre-Sale Ticketing Link',
-                  <input className={inputCls} type="url" placeholder="https://…" value={ticketingLinkUrl}
+                  <input className={inputCls} type="url" autoComplete="nope" placeholder="https://…" value={ticketingLinkUrl}
                     onChange={(e) => { markTicketingUserEdited(); setTicketingLinkUrl(e.target.value); }} disabled={disabled} />,
                 )}
                 {fieldRow('Public Sale Ticketing Link',
-                  <input className={inputCls} type="url" placeholder="https://…" value={publicSaleLinkUrl}
+                  <input className={inputCls} type="url" autoComplete="nope" placeholder="https://…" value={publicSaleLinkUrl}
                     onChange={(e) => { markTicketingUserEdited(); setPublicSaleLinkUrl(e.target.value); }} disabled={disabled} />,
                 )}
               </div>
@@ -8410,51 +8527,63 @@ function EngagementTicketingPanel({
                     <tr>
                       <td className="px-3 py-2">
                         <Select2 options={PASSWORD_TYPE_OPTIONS} value={selectedPasswordType}
-                          onChange={(v) => setSelectedPasswordType(v as 'PreSale' | 'PreSaleSpecialPrice' | 'PublicSaleSpecialPrice')}
-                          disabled={disabled} />
+                          onChange={(v) => setSelectedPasswordType(v as '' | 'PreSale' | 'PreSaleSpecialPrice' | 'PublicSaleSpecialPrice')}
+                          placeholder="Select type…" disabled={disabled} />
                       </td>
                       <td className="px-3 py-2">
-                        <div className="relative">
-                          <input type={showPassword ? 'text' : 'password'} autoComplete="off" className={`${inputCls} pr-9 ${!(selectedPasswordType === 'PreSale' ? presalePassword : selectedPasswordType === 'PreSaleSpecialPrice' ? presaleSpecialPricePassword : publicSaleSpecialPricePassword).trim() ? 'border-red-400' : ''}`}
-                            value={selectedPasswordType === 'PreSale' ? presalePassword : selectedPasswordType === 'PreSaleSpecialPrice' ? presaleSpecialPricePassword : publicSaleSpecialPricePassword}
-                            placeholder="Required"
-                            required
+                        {!selectedPasswordType ? (
+                          <span className="text-text-muted text-sm">Select a type first</span>
+                        ) : (
+                          <div className="relative">
+                            <input type="text" autoComplete="new-password" style={showPassword ? undefined : { WebkitTextSecurity: 'disc', textSecurity: 'disc' } as React.CSSProperties} className={`${inputCls} pr-9 ${!(selectedPasswordType === 'PreSale' ? presalePassword : selectedPasswordType === 'PreSaleSpecialPrice' ? presaleSpecialPricePassword : publicSaleSpecialPricePassword).trim() ? 'border-red-400' : ''}`}
+                              value={selectedPasswordType === 'PreSale' ? presalePassword : selectedPasswordType === 'PreSaleSpecialPrice' ? presaleSpecialPricePassword : publicSaleSpecialPricePassword}
+                              placeholder="Required"
+                              required
+                              onChange={(e) => {
+                                markTicketingUserEdited();
+                                if (selectedPasswordType === 'PreSale') setPresalePassword(e.target.value);
+                                else if (selectedPasswordType === 'PreSaleSpecialPrice') setPresaleSpecialPricePassword(e.target.value);
+                                else setPublicSaleSpecialPricePassword(e.target.value);
+                              }} disabled={disabled} />
+                            <button type="button" tabIndex={-1}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+                              onClick={() => setShowPassword((p) => !p)}
+                              title={showPassword ? 'Hide password' : 'Show password'}>
+                              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        {!selectedPasswordType ? (
+                          <span className="text-text-muted">—</span>
+                        ) : (
+                          <input type="date" className={inputCls}
+                            value={selectedPasswordType === 'PreSale' ? presalePasswordDateStart : selectedPasswordType === 'PreSaleSpecialPrice' ? presaleSpecialPricePasswordDateStart : publicSaleSpecialPricePasswordDateStart}
                             onChange={(e) => {
                               markTicketingUserEdited();
-                              if (selectedPasswordType === 'PreSale') setPresalePassword(e.target.value);
-                              else if (selectedPasswordType === 'PreSaleSpecialPrice') setPresaleSpecialPricePassword(e.target.value);
-                              else setPublicSaleSpecialPricePassword(e.target.value);
+                              if (selectedPasswordType === 'PreSale') setPresalePasswordDateStart(e.target.value);
+                              else if (selectedPasswordType === 'PreSaleSpecialPrice') setPresaleSpecialPricePasswordDateStart(e.target.value);
+                              else setPublicSaleSpecialPricePasswordDateStart(e.target.value);
                             }} disabled={disabled} />
-                          <button type="button" tabIndex={-1}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
-                            onClick={() => setShowPassword((p) => !p)}
-                            title={showPassword ? 'Hide password' : 'Show password'}>
-                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                          </button>
-                        </div>
+                        )}
                       </td>
                       <td className="px-3 py-2">
-                        <input type="date" className={inputCls}
-                          value={selectedPasswordType === 'PreSale' ? presalePasswordDateStart : selectedPasswordType === 'PreSaleSpecialPrice' ? presaleSpecialPricePasswordDateStart : publicSaleSpecialPricePasswordDateStart}
-                          onChange={(e) => {
-                            markTicketingUserEdited();
-                            if (selectedPasswordType === 'PreSale') setPresalePasswordDateStart(e.target.value);
-                            else if (selectedPasswordType === 'PreSaleSpecialPrice') setPresaleSpecialPricePasswordDateStart(e.target.value);
-                            else setPublicSaleSpecialPricePasswordDateStart(e.target.value);
-                          }} disabled={disabled} />
+                        {!selectedPasswordType ? (
+                          <span className="text-text-muted">—</span>
+                        ) : (
+                          <input type="date" className={inputCls}
+                            value={selectedPasswordType === 'PreSale' ? presalePasswordDateEnd : selectedPasswordType === 'PreSaleSpecialPrice' ? presaleSpecialPricePasswordDateEnd : publicSaleSpecialPricePasswordDateEnd}
+                            onChange={(e) => {
+                              markTicketingUserEdited();
+                              if (selectedPasswordType === 'PreSale') setPresalePasswordDateEnd(e.target.value);
+                              else if (selectedPasswordType === 'PreSaleSpecialPrice') setPresaleSpecialPricePasswordDateEnd(e.target.value);
+                              else setPublicSaleSpecialPricePasswordDateEnd(e.target.value);
+                            }} disabled={disabled} />
+                        )}
                       </td>
                       <td className="px-3 py-2">
-                        <input type="date" className={inputCls}
-                          value={selectedPasswordType === 'PreSale' ? presalePasswordDateEnd : selectedPasswordType === 'PreSaleSpecialPrice' ? presaleSpecialPricePasswordDateEnd : publicSaleSpecialPricePasswordDateEnd}
-                          onChange={(e) => {
-                            markTicketingUserEdited();
-                            if (selectedPasswordType === 'PreSale') setPresalePasswordDateEnd(e.target.value);
-                            else if (selectedPasswordType === 'PreSaleSpecialPrice') setPresaleSpecialPricePasswordDateEnd(e.target.value);
-                            else setPublicSaleSpecialPricePasswordDateEnd(e.target.value);
-                          }} disabled={disabled} />
-                      </td>
-                      <td className="px-3 py-2">
-                        {selectedPasswordType === 'PreSale' ? (
+                        {!selectedPasswordType || selectedPasswordType === 'PreSale' ? (
                           <span className="text-text-muted">—</span>
                         ) : (
                           <Select2 options={PRESALE_DISCOUNT_TYPE_OPTIONS}
@@ -8468,7 +8597,7 @@ function EngagementTicketingPanel({
                         )}
                       </td>
                       <td className="px-3 py-2">
-                        {selectedPasswordType === 'PreSale' ? (
+                        {!selectedPasswordType || selectedPasswordType === 'PreSale' ? (
                           <span className="text-text-muted">—</span>
                         ) : (
                           <input className={inputCls} inputMode="decimal"
@@ -10969,6 +11098,7 @@ export function EngagementDetailPage({
       {tab === 'Event business' && (
         <EngagementEventBusinessPanel
           engagementId={engagementId}
+          venueCompanyId={row.primaryVenueCompanyId}
           addToast={addToast}
           onDirtyChange={handleEventBusinessDirtyChange}
         />

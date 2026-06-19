@@ -11,9 +11,13 @@ import {
 const clientId = import.meta.env.VITE_ENTRA_CLIENT_ID;
 const tenantId = import.meta.env.VITE_ENTRA_TENANT_ID;
 const apiScope = import.meta.env.VITE_ENTRA_API_SCOPE?.trim();
-const graphScope =
+const graphScopeConfig =
     import.meta.env.VITE_ENTRA_GRAPH_SCOPE?.trim() ||
     "https://graph.microsoft.com/User.Read.All";
+const graphScopes = graphScopeConfig
+    .split(/[\s,]+/)
+    .map((scope) => scope.trim())
+    .filter(Boolean);
 const microsoftGraphAudiences = new Set([
     "00000003-0000-0000-c000-000000000000",
     "https://graph.microsoft.com",
@@ -40,7 +44,7 @@ const msalConfig: Configuration = {
 };
 
 export const loginRequest = {
-    scopes: Array.from(new Set(["openid", "profile", "email", "User.Read", graphScope])),
+    scopes: Array.from(new Set(["openid", "profile", "email", "User.Read", ...graphScopes])),
 };
 
 export const msalInstance = new PublicClientApplication(msalConfig);
@@ -134,6 +138,7 @@ export type GraphTokenDiagnostics = {
     scp: string;
     roles: string[];
     hasUserReadAll: boolean;
+    hasUserReadWriteAll: boolean;
     isGraphAudience: boolean;
 };
 
@@ -143,7 +148,7 @@ export async function acquireGraphAccessToken(
 ): Promise<string> {
     const response = await msalInstance.acquireTokenSilent({
         account,
-        scopes: [graphScope],
+        scopes: graphScopes,
         forceRefresh: options.forceRefresh,
     });
     logGraphTokenDiagnostics(response.accessToken);
@@ -156,7 +161,7 @@ export async function requestGraphAccessToken(
 ): Promise<string> {
     const request = {
         account,
-        scopes: [graphScope],
+        scopes: graphScopes,
         loginHint: account.username,
         forceRefresh: options.forceRefresh,
     };
@@ -187,7 +192,8 @@ export function describeGraphAccessToken(accessToken: string): GraphTokenDiagnos
         tid: tenant,
         scp: scopes.join(" "),
         roles,
-        hasUserReadAll: scopes.includes("User.Read.All"),
+        hasUserReadAll: scopes.includes("User.Read.All") || scopes.includes("User.ReadWrite.All"),
+        hasUserReadWriteAll: scopes.includes("User.ReadWrite.All"),
         isGraphAudience: microsoftGraphAudiences.has(audience),
     };
 }
@@ -198,7 +204,7 @@ function logGraphTokenDiagnostics(accessToken: string): void {
     if (!diagnostics.isGraphAudience || !diagnostics.hasUserReadAll) {
         console.warn("[MSAL] Microsoft Graph token is missing the expected audience or delegated scope.", {
             expectedAudience: "Microsoft Graph",
-            expectedScope: "User.Read.All",
+            expectedScope: "User.Read.All or User.ReadWrite.All",
             aud: diagnostics.aud,
             scp: diagnostics.scp,
             roles: diagnostics.roles,

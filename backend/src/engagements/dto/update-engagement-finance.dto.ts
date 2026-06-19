@@ -543,4 +543,42 @@ export class UpdateEngagementFinanceDto {
   @Transform(({ value }) => toOptionalNumber(value))
   @IsNumber({ maxDecimalPlaces: 2 })
   artistBuyouts?: number | null;
+
+  // ── Final Attraction Compensation — stored on dbo.SettlementFinance ──
+
+  /** dbo.SettlementFinance.FinalGuaranteeAmount */
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  finalGuaranteeAmount?: number | null;
+
+  /** dbo.SettlementFinance.FinalRoyaltyAmount */
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  finalRoyaltyAmount?: number | null;
+
+  /** dbo.SettlementFinance.FinalOverageAmount */
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  finalOverageAmount?: number | null;
+
+  /** dbo.SettlementFinance.FinalBuyoutAmount */
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  finalBuyoutAmount?: number | null;
+
+  /** dbo.SettlementFinance.DirectCompanyCharges */
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  finalDirectCompanyCharges?: number | null;
+
+  /** dbo.SettlementFinance.Reimbursables */
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  finalReimbursables?: number | null;
 }

@@ -11,6 +11,7 @@ import { Engagement } from '../entities/engagement.entity';
 import { EngagementIAEContact } from '../entities/engagement-iae-contact.entity';
 import { Link } from '../entities/link.entity';
 import { EngagementFinances } from '../entities/engagement-finance.entity';
+import { EngagementLink } from '../entities/engagement-link.entity';
 import { EngagementProduction } from '../entities/engagement-production.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { EngagementXref } from '../entities/engagement-xref.entity';
@@ -40,6 +41,7 @@ import { EngagementPartner } from '../entities/engagement-partner.entity';
       Engagement,
       Link,
       EngagementFinances,
+      EngagementLink,
       EngagementVenue,
       EngagementXref,
       EngagementProduction,
