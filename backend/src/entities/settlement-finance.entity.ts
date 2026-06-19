@@ -121,4 +121,58 @@ export class SettlementFinance {
     nullable: true,
   })
   checkNumberOrConfOfWithholdingPayment: string | null;
+
+  @Column({
+    name: 'FinalGuaranteeAmount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
+  finalGuaranteeAmount: string | number | null;
+
+  @Column({
+    name: 'FinalRoyaltyAmount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
+  finalRoyaltyAmount: string | number | null;
+
+  @Column({
+    name: 'FinalOverageAmount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
+  finalOverageAmount: string | number | null;
+
+  @Column({
+    name: 'FinalBuyoutAmount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
+  finalBuyoutAmount: string | number | null;
+
+  @Column({
+    name: 'DirectCompanyCharges',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
+  directCompanyCharges: string | number | null;
+
+  @Column({
+    name: 'Reimbursables',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
+  reimbursables: string | number | null;
 }

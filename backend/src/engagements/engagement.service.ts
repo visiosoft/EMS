@@ -21,6 +21,7 @@ import { ContactInfo } from '../entities/contact-info.entity';
 import { Department } from '../entities/department.entity';
 import { Dma } from '../entities/dma.entity';
 import { Link } from '../entities/link.entity';
+import { EngagementLink } from '../entities/engagement-link.entity';
 import { Engagement } from '../entities/engagement.entity';
 import { EngagementIAEContact } from '../entities/engagement-iae-contact.entity';
 import { EngagementFinances } from '../entities/engagement-finance.entity';
@@ -148,9 +149,42 @@ export interface EngagementVenueRow {
 
 export interface EngagementVenueTabData {
   venues: EngagementVenueRow[];
-  /** From dbo.EngagementFinances */
+  /** From dbo.EngagementFinances.VenueDealTypeID */
+  venueDealTypeId: number | null;
+  /** From dbo.EngagementFinances (legacy text) */
   venueDealType: string | null;
   venueTerms: string | null;
+  /** From dbo.Tour.TechRiderLinkID → dbo.Link.LinkURL */
+  techRiderLinkUrl: string | null;
+  /** dbo.EngagementLink rows for this engagement (contracts/forecast) */
+  engagementLinks: EngagementLinkRow[];
+  /** Role-based contacts per venue (for read-only display sections) */
+  venueRoleContacts: Record<number, VenueRoleContacts>;
+  /** IAE staff assigned to this engagement with role 'Production Manager' */
+  iaeProductionManagers: RoleContactDisplay[];
+}
+
+export interface EngagementLinkRow {
+  engagementLinkId: number;
+  linkId: number;
+  linkPurpose: string | null;
+  linkUrl: string;
+  linkName: string;
+}
+
+export interface VenueRoleContacts {
+  venueTicketingSoftware: RoleContactDisplay[];
+  venueTicketingAdministrator: RoleContactDisplay[];
+  venueProductionManager: RoleContactDisplay[];
+  venueStageLaborCompany: RoleContactDisplay[];
+  attractionTechDirector: RoleContactDisplay[];
+}
+
+export interface RoleContactDisplay {
+  contactId: number;
+  firstName: string;
+  lastName: string;
+  roleName: string;
 }
 
 export interface EngagementTravelCarServiceRow {
@@ -299,6 +333,7 @@ export interface EngagementFinanceRow {
   fundsOwed: number | null;
   receivableBankAccount: string | null;
   requiredNonResidentWithholdingId: number | null;
+  isCanadaEngagement: boolean | null;
   artistFinanceId: number | null;
   settlementFinanceId: number | null;
   /** dbo.SettlementFinance (via EngagementFinances.SettlementFinanceID) */
@@ -386,6 +421,13 @@ export interface EngagementFinanceRow {
   artistTourOfferLink: string | null;
   artistOverageAmount: number | null;
   artistBuyouts: number | null;
+  /** dbo.SettlementFinance — Final Attraction Compensation */
+  finalGuaranteeAmount: number | null;
+  finalRoyaltyAmount: number | null;
+  finalOverageAmount: number | null;
+  finalBuyoutAmount: number | null;
+  finalDirectCompanyCharges: number | null;
+  finalReimbursables: number | null;
 }
 
 export interface FinanceMasterOption {
@@ -395,6 +437,20 @@ export interface FinanceMasterOption {
   withholdingArea?: string | null;
   dmaid?: number | null;
   taxAgencyId?: number | null;
+  withholdingAgencyName?: string | null;
+  withholdingPayee?: string | null;
+  paymentMethod?: string | null;
+  formToAttractionUrl?: string | null;
+  formToMunicipalityUrl?: string | null;
+  quickBooksNumber?: string | null;
+  canApplyForWaiver?: boolean | null;
+  iaeWaiverInstructionsText?: string | null;
+  completedWaiverUrl?: string | null;
+  iaeWaiverSubmissionDate?: string | null;
+  iaeWaiverAppNumber?: string | null;
+  iaeWaiverUrl?: string | null;
+  tourWaiverUrl?: string | null;
+  exceptionsNotes?: string | null;
   withholdingLink?: FinanceLink | null;
   artistWaiverInstructions?: FinanceLink | null;
   iaeWaiverInstructions?: FinanceLink | null;
@@ -632,6 +688,8 @@ export class EngagementService {
     private readonly engagementTravelCarServiceRepo: Repository<EngagementTravelCarService>,
     @InjectRepository(EngagementTravelHotel)
     private readonly engagementTravelHotelRepo: Repository<EngagementTravelHotel>,
+    @InjectRepository(EngagementLink)
+    private readonly engagementLinkRepo: Repository<EngagementLink>,
     private readonly emsCreated: EmsAppCreatedStore,
     private readonly dataSource: DataSource,
     private readonly auditContext: AuditRequestContext,
@@ -975,8 +1033,7 @@ export class EngagementService {
         salesRevenueGoal: this.mapFinanceNumber(srg),
         tourSplitPoint: this.mapFinanceNumber(tsp),
       };
-      // Also probe AnnouncementDate (optional column)
-      return this.mergeFinanceAnnouncementDateFromDb(fid, merged);
+      return merged;
     } catch {
       return base;
     }
@@ -1027,6 +1084,28 @@ export class EngagementService {
     }
   }
 
+  private async mergeAnnouncementDateFromProduction(
+    engagementId: number,
+    base: EngagementFinanceRow,
+  ): Promise<EngagementFinanceRow> {
+    try {
+      const rows = await this.engagementProductionRepo.find({
+        where: { engagementId },
+        order: { productionId: 'DESC' },
+        take: 1,
+      });
+      const prod = rows[0];
+      if (!prod) return base;
+      const ad = prod.announcementDate;
+      return {
+        ...base,
+        announcementDate: ad != null && String(ad).trim() !== '' ? String(ad).slice(0, 10) : null,
+      };
+    } catch {
+      return base;
+    }
+  }
+
   private async tryPersistFinanceMarketingBudget(
     financeId: number | null | undefined,
     dto: UpdateEngagementFinanceDto,
@@ -1040,8 +1119,6 @@ export class EngagementService {
     const wantS = dto.salesRevenueGoal !== undefined;
     const wantT = dto.tourSplitPoint !== undefined;
     if (!wantG && !wantN && !wantS && !wantT) {
-      // Still handle AnnouncementDate separately
-      await this.tryPersistFinanceAnnouncementDate(fid, dto);
       return;
     }
 
@@ -1071,7 +1148,6 @@ export class EngagementService {
         `UPDATE dbo.EngagementFinances SET ${sets.join(', ')} WHERE [FinanceID] = ${fid}`,
       );
     }
-    await this.tryPersistFinanceAnnouncementDate(fid, dto);
   }
 
   private async tryPersistFinanceAnnouncementDate(
@@ -1087,6 +1163,32 @@ export class EngagementService {
     await this.dataSource.query(
       `UPDATE dbo.EngagementFinances SET [AnnouncementDate] = ${val} WHERE [FinanceID] = ${financeId}`,
     );
+  }
+
+  private async tryPersistAnnouncementDateToProduction(
+    engagementId: number,
+    dto: UpdateEngagementFinanceDto,
+  ): Promise<void> {
+    if (dto.announcementDate === undefined) return;
+    const rows = await this.engagementProductionRepo.find({
+      where: { engagementId },
+      order: { productionId: 'DESC' },
+      take: 1,
+    });
+    let prod = rows[0] ?? null;
+    if (!prod) {
+      prod = this.engagementProductionRepo.create({
+        engagementId,
+        rehearsalDate: null,
+        loadInDate: null,
+        announcementDate: null,
+      });
+    }
+    prod.announcementDate =
+      dto.announcementDate == null || dto.announcementDate === ''
+        ? null
+        : this.assertYmdOrNull(dto.announcementDate);
+    await this.engagementProductionRepo.save(prod);
   }
 
   private normalizeVenueDealType(
@@ -1593,9 +1695,6 @@ export class EngagementService {
     intField('EventBusinessManagerContactID', dto.eventBusinessManagerContactId);
     intField('EventBusinessAssistantManagerContactID', dto.eventBusinessAssistantManagerContactId);
     intField('VenueSettlementContactID', dto.venueSettlementContactId);
-    strField('VenueSettlementFileSharePointLink', dto.venueSettlementFileSharePointLink, 2048);
-    strField('PartnerSettlementFileSharePointLink', dto.partnerSettlementFileSharePointLink, 2048);
-    strField('SalesTaxRemittedBy', dto.salesTaxRemittedBy, 100);
     strField('FexVenueAgreementLink', dto.fexVenueAgreementLink, 2048);
     bitField('VenueDepositRequired', dto.venueDepositRequired);
     strField('WithholdingPayee', dto.withholdingPayee, 255);
@@ -2429,7 +2528,7 @@ export class EngagementService {
         await this.dataSource.query(`DELETE FROM dbo.VIPPackageBenefit WHERE [VIPPackageID] = ${vipPkgId}`);
         if (Array.isArray(dto.vipPackageBenefits) && dto.vipPackageBenefits.length > 0) {
           const values = dto.vipPackageBenefits
-            .filter((b) => b != null && String(b).trim() !== '')
+            .filter((b) => b != null && String(b).trim() !== '' && Number.isFinite(Number(b)))
             .map((b) => `(${vipPkgId}, ${Math.trunc(Number(b))})`)
             .filter((_, i, arr) => arr.indexOf(_) === i);
           if (values.length > 0) {
@@ -2605,11 +2704,42 @@ export class EngagementService {
       withholdingLinkId: number | null;
       artistWaiverInstructionsId: number | null;
       iaeWaiverInstructionsId: number | null;
+      withholdingArea: string | null;
+      withholdingAgencyName: string | null;
+      withholdingPayee: string | null;
+      paymentMethod: string | null;
+      formToAttractionUrl: string | null;
+      formToMunicipalityUrl: string | null;
+      quickBooksNumber: string | null;
+      canApplyForWaiver: boolean | null;
+      iaeWaiverInstructionsText: string | null;
+      completedWaiverUrl: string | null;
+      iaeWaiverSubmissionDate: string | null;
+      iaeWaiverAppNumber: string | null;
+      iaeWaiverUrl: string | null;
+      tourWaiverUrl: string | null;
+      exceptionsNotes: string | null;
     }>
   > {
     const manager = em ?? this.dataSource.manager;
     const hasDmaId = await this.nonResidentWithholdingHasDmaId();
     let rows: Record<string, unknown>[] = [];
+    const extraCols = `
+            ,w.WithholdingArea AS withholdingArea
+            ,w.WithholdingAgencyName AS withholdingAgencyName
+            ,w.WithholdingPayee AS withholdingPayee
+            ,w.PaymentMethod AS paymentMethod
+            ,w.FormToAttractionURL AS formToAttractionUrl
+            ,w.FormToMunicipalityURL AS formToMunicipalityUrl
+            ,w.QuickBooksNumber AS quickBooksNumber
+            ,w.CanApplyForWaiver AS canApplyForWaiver
+            ,w.IAEWaiverInstructions AS iaeWaiverInstructionsText
+            ,w.CompletedWaiverURL AS completedWaiverUrl
+            ,w.IAEWaiverSubmissionDate AS iaeWaiverSubmissionDate
+            ,w.IAEWaiverAppNumber AS iaeWaiverAppNumber
+            ,w.IAEWaiverURL AS iaeWaiverUrl
+            ,w.TourWaiverURL AS tourWaiverUrl
+            ,w.ExceptionsNotes AS exceptionsNotes`;
     try {
       rows = await manager.query(
         `
@@ -2621,6 +2751,7 @@ export class EngagementService {
             w.WithholdingLinkID AS withholdingLinkId,
             w.ArtistWaiverInstructionsID AS artistWaiverInstructionsId,
             w.IAEWaiverInstructionsID AS iaeWaiverInstructionsId
+            ${extraCols}
           FROM [dbo].[NonResidentWithholding] w
           ORDER BY w.WithholdingID ASC
         `,
@@ -2637,6 +2768,7 @@ export class EngagementService {
             w.WithholdingLinkID AS withholdingLinkId,
             w.ArtistWaiverInstructionsID AS artistWaiverInstructionsId,
             w.IAEWaiverInstructionsID AS iaeWaiverInstructionsId
+            ${extraCols}
           FROM [dbo].[NonResidentWithholding] w
           ORDER BY w.WithholdingID ASC
         `,
@@ -2652,33 +2784,60 @@ export class EngagementService {
           withholdingTaxRate: String(row.withholdingTaxRate ?? ''),
           dmaid: row.dmaid == null ? null : Number(row.dmaid),
           taxAgencyId: row.taxAgencyId == null ? null : Number(row.taxAgencyId),
-          withholdingLinkId:
-            row.withholdingLinkId == null
-              ? null
-              : Number(row.withholdingLinkId),
-          artistWaiverInstructionsId:
-            row.artistWaiverInstructionsId == null
-              ? null
-              : Number(row.artistWaiverInstructionsId),
-          iaeWaiverInstructionsId:
-            row.iaeWaiverInstructionsId == null
-              ? null
-              : Number(row.iaeWaiverInstructionsId),
+          withholdingLinkId: row.withholdingLinkId == null ? null : Number(row.withholdingLinkId),
+          artistWaiverInstructionsId: row.artistWaiverInstructionsId == null ? null : Number(row.artistWaiverInstructionsId),
+          iaeWaiverInstructionsId: row.iaeWaiverInstructionsId == null ? null : Number(row.iaeWaiverInstructionsId),
+          withholdingArea: row.withholdingArea == null ? null : String(row.withholdingArea),
+          withholdingAgencyName: row.withholdingAgencyName == null ? null : String(row.withholdingAgencyName),
+          withholdingPayee: row.withholdingPayee == null ? null : String(row.withholdingPayee),
+          paymentMethod: row.paymentMethod == null ? null : String(row.paymentMethod),
+          formToAttractionUrl: row.formToAttractionUrl == null ? null : String(row.formToAttractionUrl),
+          formToMunicipalityUrl: row.formToMunicipalityUrl == null ? null : String(row.formToMunicipalityUrl),
+          quickBooksNumber: row.quickBooksNumber == null ? null : String(row.quickBooksNumber),
+          canApplyForWaiver: row.canApplyForWaiver == null ? null : Boolean(row.canApplyForWaiver),
+          iaeWaiverInstructionsText: row.iaeWaiverInstructionsText == null ? null : String(row.iaeWaiverInstructionsText),
+          completedWaiverUrl: row.completedWaiverUrl == null ? null : String(row.completedWaiverUrl),
+          iaeWaiverSubmissionDate: row.iaeWaiverSubmissionDate == null ? null : String(row.iaeWaiverSubmissionDate),
+          iaeWaiverAppNumber: row.iaeWaiverAppNumber == null ? null : String(row.iaeWaiverAppNumber),
+          iaeWaiverUrl: row.iaeWaiverUrl == null ? null : String(row.iaeWaiverUrl),
+          tourWaiverUrl: row.tourWaiverUrl == null ? null : String(row.tourWaiverUrl),
+          exceptionsNotes: row.exceptionsNotes == null ? null : String(row.exceptionsNotes),
         };
       })
-      .filter(
-        (
-          row,
-        ): row is {
-          withholdingId: number;
-          withholdingTaxRate: string;
-          dmaid: number | null;
-          taxAgencyId: number | null;
-          withholdingLinkId: number | null;
-          artistWaiverInstructionsId: number | null;
-          iaeWaiverInstructionsId: number | null;
-        } => row != null,
-      );
+      .filter((row): row is NonNullable<typeof row> => row != null);
+  }
+
+  /**
+   * Update editable fields on dbo.NonResidentWithholding by WithholdingID.
+   */
+  async updateNonResidentWithholding(
+    withholdingId: number,
+    dto: {
+      withholdingArea?: string | null;
+      withholdingTaxRate?: number | null;
+      withholdingAgencyName?: string | null;
+      iaeWaiverSubmissionDate?: string | null;
+      iaeWaiverAppNumber?: string | null;
+    },
+  ): Promise<void> {
+    const id = Math.floor(Number(withholdingId));
+    if (!Number.isInteger(id) || id < 1) return;
+    const sets: string[] = [];
+    const strField = (col: string, v: string | null | undefined, max: number) => {
+      if (v !== undefined) sets.push(`[${col}] = ${v == null || String(v).trim() === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(v).trim().slice(0, max))}`);
+    };
+    const numField = (col: string, v: number | null | undefined) => {
+      if (v !== undefined) sets.push(`[${col}] = ${v == null ? 'NULL' : Number(v)}`);
+    };
+    strField('WithholdingArea', dto.withholdingArea, 100);
+    numField('WithholdingTaxRate', dto.withholdingTaxRate);
+    strField('WithholdingAgencyName', dto.withholdingAgencyName, 200);
+    strField('IAEWaiverSubmissionDate', dto.iaeWaiverSubmissionDate, 10);
+    strField('IAEWaiverAppNumber', dto.iaeWaiverAppNumber, 100);
+    if (sets.length === 0) return;
+    await this.dataSource.query(
+      `UPDATE dbo.NonResidentWithholding SET ${sets.join(', ')} WHERE [WithholdingID] = ${id}`,
+    );
   }
 
   private async findNonResidentWithholdingByIdSafe(
@@ -3057,6 +3216,12 @@ export class EngagementService {
     | 'artistGrossTaxableCompensation'
     | 'amountDueToDeptOfRevenue'
     | 'checkNumberOrConfOfWithholdingPayment'
+    | 'finalGuaranteeAmount'
+    | 'finalRoyaltyAmount'
+    | 'finalOverageAmount'
+    | 'finalBuyoutAmount'
+    | 'finalDirectCompanyCharges'
+    | 'finalReimbursables'
   > {
     if (!settlementRow) {
       return {
@@ -3073,6 +3238,12 @@ export class EngagementService {
         artistGrossTaxableCompensation: null,
         amountDueToDeptOfRevenue: null,
         checkNumberOrConfOfWithholdingPayment: null,
+        finalGuaranteeAmount: null,
+        finalRoyaltyAmount: null,
+        finalOverageAmount: null,
+        finalBuyoutAmount: null,
+        finalDirectCompanyCharges: null,
+        finalReimbursables: null,
       };
     }
     return {
@@ -3109,6 +3280,12 @@ export class EngagementService {
       ),
       checkNumberOrConfOfWithholdingPayment:
         settlementRow.checkNumberOrConfOfWithholdingPayment ?? null,
+      finalGuaranteeAmount: this.mapFinanceNumber(settlementRow.finalGuaranteeAmount),
+      finalRoyaltyAmount: this.mapFinanceNumber(settlementRow.finalRoyaltyAmount),
+      finalOverageAmount: this.mapFinanceNumber(settlementRow.finalOverageAmount),
+      finalBuyoutAmount: this.mapFinanceNumber(settlementRow.finalBuyoutAmount),
+      finalDirectCompanyCharges: this.mapFinanceNumber(settlementRow.directCompanyCharges),
+      finalReimbursables: this.mapFinanceNumber(settlementRow.reimbursables),
     };
   }
 
@@ -3181,6 +3358,7 @@ export class EngagementService {
         fundsOwed: null,
         receivableBankAccount: null,
         requiredNonResidentWithholdingId: null,
+        isCanadaEngagement: null,
         artistFinanceId: null,
         settlementFinanceId: null,
         artistDealType,
@@ -3240,11 +3418,11 @@ export class EngagementService {
         tourSesac: null,
         tourGmr: null,
         artistDepositRequired: null,
-        artistPartOfCollateralizedDeal: null,
+        artistPartOfCollateralizedDeal: artistRow?.isCollateralizedDeal ?? null,
         artistFexPerformanceAgreementLink: null,
         artistTourOfferLink: null,
         artistOverageAmount: null,
-        artistBuyouts: null,
+        artistBuyouts: artistRow ? this.mapFinanceNumber(artistRow.buyoutAmount) : null,
       };
     }
     return {
@@ -3279,6 +3457,7 @@ export class EngagementService {
       fundsOwed: this.mapFinanceNumber(row.fundsOwed),
       receivableBankAccount: row.receivableBankAccount,
       requiredNonResidentWithholdingId: row.requiredNonResidentWithholdingId,
+      isCanadaEngagement: row.isCanadaEngagement ?? null,
       artistFinanceId: row.artistFinanceId,
       settlementFinanceId: row.settlementFinanceId,
       artistDealType,
@@ -3312,9 +3491,9 @@ export class EngagementService {
       eventBusinessAssistantManagerContactName: null,
       venueSettlementContactId: null,
       venueSettlementContactName: null,
-      venueSettlementFileSharePointLink: null,
-      partnerSettlementFileSharePointLink: null,
-      salesTaxRemittedBy: null,
+      venueSettlementFileSharePointLink: row.venueSettlementFileSharePointLink ?? null,
+      partnerSettlementFileSharePointLink: row.partnerSettlementFileSharePointLink ?? null,
+      salesTaxRemittedBy: row.salesTaxRemittedBy ?? null,
       fexVenueAgreementLink: null,
       venueDepositRequired: null,
       withholdingPayee: null,
@@ -3338,11 +3517,11 @@ export class EngagementService {
       tourSesac: null,
       tourGmr: null,
       artistDepositRequired: null,
-      artistPartOfCollateralizedDeal: null,
+      artistPartOfCollateralizedDeal: artistRow?.isCollateralizedDeal ?? null,
       artistFexPerformanceAgreementLink: null,
       artistTourOfferLink: null,
       artistOverageAmount: null,
-      artistBuyouts: null,
+      artistBuyouts: artistRow ? this.mapFinanceNumber(artistRow.buyoutAmount) : null,
     };
   }
 
@@ -3917,6 +4096,12 @@ export class EngagementService {
         where: { artistFinanceId: afId },
       });
     }
+    // Resolve tour offer link URL from Link table
+    let artistTourOfferLinkUrl: string | null = null;
+    if (artistRow?.tourOfferLinkId) {
+      const linkRow = await this.linkRepo.findOne({ where: { linkId: artistRow.tourOfferLinkId } });
+      artistTourOfferLinkUrl = linkRow?.linkUrl ?? null;
+    }
     let settlementRow: SettlementFinance | null = null;
     const sfId = row?.settlementFinanceId ?? null;
     if (sfId != null) {
@@ -3932,7 +4117,8 @@ export class EngagementService {
       settlementRow,
       payableEntity,
     );
-    if (!row?.financeId) return base;
+    base.artistTourOfferLink = artistTourOfferLinkUrl;
+    if (!row?.financeId) return this.mergeAnnouncementDateFromProduction(engagementId, base);
     const withMarketingBudget = await this.mergeFinanceMarketingBudgetFromDb(
       row.financeId,
       base,
@@ -3949,7 +4135,8 @@ export class EngagementService {
     const withEventBusiness = await this.mergeFinanceEventBusinessFieldsFromDb(row.financeId, withBooking);
     const withCustomer = await this.mergeFinanceCustomerFromDb(row.financeId, withEventBusiness);
     const withPromoterCompany = await this.mergeFinancePromoterPartnerCompanyFromDb(row.financeId, withCustomer);
-    return this.mergeFinanceTourLicensingFromDb(engagementId, withPromoterCompany);
+    const withTourLicensing = await this.mergeFinanceTourLicensingFromDb(engagementId, withPromoterCompany);
+    return this.mergeAnnouncementDateFromProduction(engagementId, withTourLicensing);
   }
 
   private async mergeFinanceTourLicensingFromDb(
@@ -4025,9 +4212,23 @@ export class EngagementService {
       id: r.withholdingId,
       label: `Withholding #${r.withholdingId} (rate ${r.withholdingTaxRate})`,
       withholdingTaxRate: String(r.withholdingTaxRate ?? ''),
-      withholdingArea: r.dmaid != null ? (dmaAreaById.get(r.dmaid) ?? null) : null,
+      withholdingArea: r.withholdingArea ?? (r.dmaid != null ? (dmaAreaById.get(r.dmaid) ?? null) : null),
       dmaid: r.dmaid ?? null,
       taxAgencyId: r.taxAgencyId ?? null,
+      withholdingAgencyName: r.withholdingAgencyName ?? null,
+      withholdingPayee: r.withholdingPayee ?? null,
+      paymentMethod: r.paymentMethod ?? null,
+      formToAttractionUrl: r.formToAttractionUrl ?? null,
+      formToMunicipalityUrl: r.formToMunicipalityUrl ?? null,
+      quickBooksNumber: r.quickBooksNumber ?? null,
+      canApplyForWaiver: r.canApplyForWaiver ?? null,
+      iaeWaiverInstructionsText: r.iaeWaiverInstructionsText ?? null,
+      completedWaiverUrl: r.completedWaiverUrl ?? null,
+      iaeWaiverSubmissionDate: r.iaeWaiverSubmissionDate ?? null,
+      iaeWaiverAppNumber: r.iaeWaiverAppNumber ?? null,
+      iaeWaiverUrl: r.iaeWaiverUrl ?? null,
+      tourWaiverUrl: r.tourWaiverUrl ?? null,
+      exceptionsNotes: r.exceptionsNotes ?? null,
       withholdingLink: this.mapFinanceLink(
         r.withholdingLinkId ? linksById.get(r.withholdingLinkId) : null,
       ),
@@ -4411,6 +4612,18 @@ export class EngagementService {
     if (dto.settlementFinanceId !== undefined) {
       row.settlementFinanceId = dto.settlementFinanceId;
     }
+    if (dto.salesTaxRemittedBy !== undefined) {
+      const t = dto.salesTaxRemittedBy;
+      row.salesTaxRemittedBy = t == null || t.trim() === '' ? null : t.trim().slice(0, 100);
+    }
+    if (dto.venueSettlementFileSharePointLink !== undefined) {
+      const t = dto.venueSettlementFileSharePointLink;
+      row.venueSettlementFileSharePointLink = t == null || t.trim() === '' ? null : t.trim().slice(0, 2048);
+    }
+    if (dto.partnerSettlementFileSharePointLink !== undefined) {
+      const t = dto.partnerSettlementFileSharePointLink;
+      row.partnerSettlementFileSharePointLink = t == null || t.trim() === '' ? null : t.trim().slice(0, 2048);
+    }
 
     const touchesArtistMaster =
       dto.artistDealType !== undefined ||
@@ -4422,7 +4635,10 @@ export class EngagementService {
       dto.artistRoyaltyBasedOn !== undefined ||
       dto.artistVersusPercent !== undefined ||
       dto.artistPromoterProfitPercent !== undefined ||
-      dto.artistBackendPercent !== undefined;
+      dto.artistBackendPercent !== undefined ||
+      dto.artistPartOfCollateralizedDeal !== undefined ||
+      dto.artistBuyouts !== undefined ||
+      dto.artistTourOfferLink !== undefined;
 
     if (touchesArtistMaster) {
       let afId = row.artistFinanceId;
@@ -4457,7 +4673,19 @@ export class EngagementService {
             : null,
           royaltyRate: dto.artistRoyaltyRatePercent !== undefined ? dto.artistRoyaltyRatePercent : null,
           royaltyBasis: dto.artistRoyaltyBasedOn !== undefined ? (dto.artistRoyaltyBasedOn?.trim() || null) : null,
+          isCollateralizedDeal: dto.artistPartOfCollateralizedDeal !== undefined
+            ? (dto.artistPartOfCollateralizedDeal ?? null)
+            : null,
+          buyoutAmount: dto.artistBuyouts !== undefined
+            ? (dto.artistBuyouts == null ? null : dto.artistBuyouts)
+            : null,
+          tourOfferLinkId: null,
         });
+        // Handle tour offer link via Link table
+        if (dto.artistTourOfferLink !== undefined) {
+          const linkId = await this.upsertUrlLink(dto.artistTourOfferLink, null, 'Tour Offer');
+          created.tourOfferLinkId = linkId;
+        }
         const savedAf = await this.artistFinanceRepo.save(created);
         afId = savedAf.artistFinanceId;
         row.artistFinanceId = afId;
@@ -4501,6 +4729,16 @@ export class EngagementService {
         if (dto.artistRoyaltyBasedOn !== undefined) {
           af.royaltyBasis = dto.artistRoyaltyBasedOn?.trim() || null;
         }
+        if (dto.artistPartOfCollateralizedDeal !== undefined) {
+          af.isCollateralizedDeal = dto.artistPartOfCollateralizedDeal ?? null;
+        }
+        if (dto.artistBuyouts !== undefined) {
+          af.buyoutAmount = dto.artistBuyouts == null ? null : dto.artistBuyouts;
+        }
+        if (dto.artistTourOfferLink !== undefined) {
+          const linkId = await this.upsertUrlLink(dto.artistTourOfferLink, af.tourOfferLinkId, 'Tour Offer');
+          af.tourOfferLinkId = linkId;
+        }
         await this.artistFinanceRepo.save(af);
       }
     }
@@ -4518,7 +4756,13 @@ export class EngagementService {
       dto.hstPaidOnVenueExpenses !== undefined ||
       dto.artistGrossTaxableCompensation !== undefined ||
       dto.amountDueToDeptOfRevenue !== undefined ||
-      dto.checkNumberOrConfOfWithholdingPayment !== undefined;
+      dto.checkNumberOrConfOfWithholdingPayment !== undefined ||
+      dto.finalGuaranteeAmount !== undefined ||
+      dto.finalRoyaltyAmount !== undefined ||
+      dto.finalOverageAmount !== undefined ||
+      dto.finalBuyoutAmount !== undefined ||
+      dto.finalDirectCompanyCharges !== undefined ||
+      dto.finalReimbursables !== undefined;
 
     if (touchesSettlementMaster) {
       let sfId = row.settlementFinanceId;
@@ -4611,6 +4855,18 @@ export class EngagementService {
                 : String(dto.checkNumberOrConfOfWithholdingPayment)
                     .trim()
                     .slice(0, 100),
+          finalGuaranteeAmount:
+            dto.finalGuaranteeAmount === undefined ? null : dto.finalGuaranteeAmount ?? null,
+          finalRoyaltyAmount:
+            dto.finalRoyaltyAmount === undefined ? null : dto.finalRoyaltyAmount ?? null,
+          finalOverageAmount:
+            dto.finalOverageAmount === undefined ? null : dto.finalOverageAmount ?? null,
+          finalBuyoutAmount:
+            dto.finalBuyoutAmount === undefined ? null : dto.finalBuyoutAmount ?? null,
+          directCompanyCharges:
+            dto.finalDirectCompanyCharges === undefined ? null : dto.finalDirectCompanyCharges ?? null,
+          reimbursables:
+            dto.finalReimbursables === undefined ? null : dto.finalReimbursables ?? null,
         });
         const savedSf = await this.settlementFinanceRepo.save(created);
         sfId = savedSf.settlementFinanceId;
@@ -4706,6 +4962,24 @@ export class EngagementService {
               ? null
               : String(t).trim().slice(0, 100);
         }
+        if (dto.finalGuaranteeAmount !== undefined) {
+          sf.finalGuaranteeAmount = dto.finalGuaranteeAmount ?? null;
+        }
+        if (dto.finalRoyaltyAmount !== undefined) {
+          sf.finalRoyaltyAmount = dto.finalRoyaltyAmount ?? null;
+        }
+        if (dto.finalOverageAmount !== undefined) {
+          sf.finalOverageAmount = dto.finalOverageAmount ?? null;
+        }
+        if (dto.finalBuyoutAmount !== undefined) {
+          sf.finalBuyoutAmount = dto.finalBuyoutAmount ?? null;
+        }
+        if (dto.finalDirectCompanyCharges !== undefined) {
+          sf.directCompanyCharges = dto.finalDirectCompanyCharges ?? null;
+        }
+        if (dto.finalReimbursables !== undefined) {
+          sf.reimbursables = dto.finalReimbursables ?? null;
+        }
         await this.settlementFinanceRepo.save(sf);
       }
     }
@@ -4716,6 +4990,7 @@ export class EngagementService {
     await this.tryPersistFinanceSharePointLinks(row.financeId, dto);
     await this.tryPersistFinanceBookingFields(row.financeId, dto);
     await this.tryPersistFinanceEventBusinessFields(row.financeId, dto);
+    await this.tryPersistAnnouncementDateToProduction(engagementId, dto);
   }
 
   async create(dto: CreateEngagementDto): Promise<{ engagementId: number }> {
@@ -5700,12 +5975,15 @@ export class EngagementService {
   }
 
   async getVenueTabData(engagementId: number): Promise<EngagementVenueTabData> {
-    const [venues, finance] = await Promise.all([
+    const [venues, finance, engagement] = await Promise.all([
       this.listVenues(engagementId),
       this.engagementFinancesRepo.findOne({ where: { engagementId } }),
+      this.engagementRepo.findOne({ where: { engagementId } }),
     ]);
-    // venueDealType is an optional column — read via raw SQL when available
+
+    // venueDealType text (legacy) — read via raw SQL when available
     let venueDealType: string | null = null;
+    let venueDealTypeId: number | null = null;
     if (finance) {
       const cols = await this.engagementFinancesGetDealStructureColumns();
       if (cols.venueDealType) {
@@ -5716,11 +5994,124 @@ export class EngagementService {
           venueDealType = this.normalizeVenueDealType(pickRaw((r as Record<string, unknown>[])?.[0] ?? {}, 'vdt'));
         } catch { /* ignore */ }
       }
+      // VenueDealTypeID (FK to dbo.VenueDealType)
+      if (cols.venueDealTypeId) {
+        try {
+          const r = await this.dataSource.query(
+            `SELECT [VenueDealTypeID] AS vdtid FROM dbo.EngagementFinances WHERE [FinanceID] = ${finance.financeId}`,
+          );
+          const raw = pickRaw((r as Record<string, unknown>[])?.[0] ?? {}, 'vdtid');
+          const parsed = raw != null ? Number(raw) : NaN;
+          venueDealTypeId = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+        } catch { /* ignore */ }
+      }
     }
+
+    // Tech rider link from Tour
+    let techRiderLinkUrl: string | null = null;
+    if (engagement?.tourId) {
+      const tour = await this.tourRepo.findOne({ where: { tourId: engagement.tourId } });
+      if (tour?.techRiderLinkId) {
+        const link = await this.linkRepo.findOne({ where: { linkId: tour.techRiderLinkId } });
+        techRiderLinkUrl = link?.linkUrl ?? null;
+      }
+    }
+
+    // Engagement links (contracts/forecast via dbo.EngagementLink)
+    let engagementLinks: EngagementLinkRow[] = [];
+    try {
+      const elRows = await this.engagementLinkRepo.find({ where: { engagementId }, relations: ['link'] });
+      engagementLinks = elRows.map((el) => ({
+        engagementLinkId: el.engagementLinkId,
+        linkId: el.linkId,
+        linkPurpose: el.linkPurpose,
+        linkUrl: el.link?.linkUrl ?? '',
+        linkName: el.link?.linkName ?? '',
+      }));
+    } catch { /* table may not exist yet */ }
+
+    // Role-based contacts per venue for read-only display sections
+    const venueCompanyIds = venues.map((v) => v.venueCompanyId);
+    const venueRoleContacts: Record<number, VenueRoleContacts> = {};
+    const roleNames = [
+      'Venue Ticketing Software',
+      'Venue Ticketing Administrator',
+      'Venue Production Manager',
+      'Venue Stage Labor',
+      'Attraction Tech Director',
+    ];
+    for (const vid of venueCompanyIds) {
+      const contacts: VenueRoleContacts = {
+        venueTicketingSoftware: [],
+        venueTicketingAdministrator: [],
+        venueProductionManager: [],
+        venueStageLaborCompany: [],
+        attractionTechDirector: [],
+      };
+      try {
+        // Include contacts from the venue company AND any parent complex companies
+        const rows = await this.dataSource.query(
+          `SELECT ca.ContactID AS contactId, ci.FirstName AS firstName, ci.LastName AS lastName, r.RoleName AS roleName
+           FROM dbo.ContactAssignment ca
+           INNER JOIN dbo.Contact ct ON ct.ContactID = ca.ContactID
+           INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = ct.ContactInfoID
+           INNER JOIN dbo.Role r ON r.RoleID = ca.RoleID
+           WHERE ca.CompanyID IN (
+             SELECT @0
+             UNION
+             SELECT vcm.ComplexCompanyID FROM dbo.VenueComplexMember vcm WHERE vcm.VenueCompanyID = @0
+           )
+             AND LOWER(LTRIM(RTRIM(r.RoleName))) IN (@1, @2, @3, @4, @5)`,
+          [vid, ...roleNames.map((n) => n.toLowerCase())],
+        );
+        for (const row of (rows ?? []) as Record<string, unknown>[]) {
+          const contact: RoleContactDisplay = {
+            contactId: Number(row['contactId'] ?? row['contactid'] ?? 0),
+            firstName: String(row['firstName'] ?? row['firstname'] ?? ''),
+            lastName: String(row['lastName'] ?? row['lastname'] ?? ''),
+            roleName: String(row['roleName'] ?? row['rolename'] ?? ''),
+          };
+          const rn = contact.roleName.toLowerCase().trim();
+          if (rn === 'venue ticketing software') contacts.venueTicketingSoftware.push(contact);
+          else if (rn === 'venue ticketing administrator') contacts.venueTicketingAdministrator.push(contact);
+          else if (rn === 'venue production manager') contacts.venueProductionManager.push(contact);
+          else if (rn === 'venue stage labor') contacts.venueStageLaborCompany.push(contact);
+          else if (rn === 'attraction tech director') contacts.attractionTechDirector.push(contact);
+        }
+      } catch { /* ignore if tables unavailable */ }
+      venueRoleContacts[vid] = contacts;
+    }
+
+    // IAE staff with role 'Production Manager' assigned to this engagement
+    let iaeProductionManagers: RoleContactDisplay[] = [];
+    try {
+      const pmRows = await this.dataSource.query(
+        `SELECT eic.[ContactID] AS contactId, ci.[FirstName] AS firstName, ci.[LastName] AS lastName, r.[RoleName] AS roleName
+         FROM dbo.EngagementIAEContact eic
+         INNER JOIN dbo.Contact c ON c.[ContactID] = eic.[ContactID]
+         INNER JOIN dbo.ContactInfo ci ON ci.[ContactInfoID] = c.[ContactInfoID]
+         INNER JOIN dbo.Role r ON r.[RoleID] = eic.[RoleID]
+         WHERE eic.[EngagementID] = @0
+           AND LOWER(LTRIM(RTRIM(r.[RoleName]))) = @1`,
+        [engagementId, 'production manager'],
+      ) as Record<string, unknown>[];
+      iaeProductionManagers = (pmRows ?? []).map((row) => ({
+        contactId: Number(row['contactId'] ?? row['contactid'] ?? 0),
+        firstName: String(row['firstName'] ?? row['firstname'] ?? ''),
+        lastName: String(row['lastName'] ?? row['lastname'] ?? ''),
+        roleName: String(row['roleName'] ?? row['rolename'] ?? ''),
+      }));
+    } catch { /* ignore if table unavailable */ }
+
     return {
       venues,
+      venueDealTypeId,
       venueDealType,
       venueTerms: finance?.venueTerms ?? null,
+      techRiderLinkUrl,
+      engagementLinks,
+      venueRoleContacts,
+      iaeProductionManagers,
     };
   }
 
@@ -5750,6 +6141,20 @@ export class EngagementService {
 
     if (Object.keys(venuePatch).length > 0) {
       await this.venueRepo.update({ companyId: venueCompanyId }, venuePatch);
+    }
+
+    // ── dbo.EngagementFinances.VenueDealTypeID ─────────────────────────────
+    if (dto.venueDealTypeId !== undefined) {
+      const cols = await this.engagementFinancesGetDealStructureColumns();
+      if (cols.venueDealTypeId) {
+        const val = dto.venueDealTypeId == null ? 'NULL' : Math.trunc(Number(dto.venueDealTypeId));
+        await this.dataSource.query(
+          `IF EXISTS (SELECT 1 FROM dbo.EngagementFinances WHERE [EngagementID] = ${engagementId})
+             UPDATE dbo.EngagementFinances SET [VenueDealTypeID] = ${val} WHERE [EngagementID] = ${engagementId}
+           ELSE
+             INSERT INTO dbo.EngagementFinances ([EngagementID],[VenueDealTypeID]) VALUES (${engagementId}, ${val})`,
+        );
+      }
     }
 
     // ── Optional columns via raw SQL ──────────────────────────────────────
@@ -5796,6 +6201,40 @@ export class EngagementService {
         `UPDATE dbo.EngagementVenue SET [TicketingAdminContactID] = ${val}
          WHERE [EngagementID] = ${engagementId} AND [VenueCompanyID] = ${venueCompanyId}`,
       );
+    }
+
+    // ── dbo.Tour.TechRiderLinkID → dbo.Link (tech rider PDF URL) ─────────
+    if (dto.techRiderLinkUrl !== undefined) {
+      const engagement = await this.engagementRepo.findOne({ where: { engagementId } });
+      if (engagement?.tourId) {
+        const tour = await this.tourRepo.findOne({ where: { tourId: engagement.tourId } });
+        if (tour) {
+          const urlVal = dto.techRiderLinkUrl?.trim() || null;
+          if (urlVal) {
+            if (tour.techRiderLinkId) {
+              // Update existing Link row
+              await this.linkRepo.update(tour.techRiderLinkId, { linkUrl: urlVal });
+            } else {
+              // Create a new Link row and assign to Tour
+              const newLink = this.linkRepo.create({
+                linkType: 'URL',
+                linkUrl: urlVal,
+                linkName: 'Tech Rider',
+                linkPath: '',
+              });
+              const saved = await this.linkRepo.save(newLink);
+              tour.techRiderLinkId = saved.linkId;
+              await this.tourRepo.save(tour);
+            }
+          } else {
+            // Clear: set Tour.TechRiderLinkID to NULL
+            if (tour.techRiderLinkId) {
+              tour.techRiderLinkId = null;
+              await this.tourRepo.save(tour);
+            }
+          }
+        }
+      }
     }
 
     // Optional EngagementVenue fields
@@ -5896,6 +6335,58 @@ export class EngagementService {
          WHERE [EngagementID] = ${engagementId} AND [VenueCompanyID] = ${venueCompanyId}`,
       );
     }
+  }
+
+  // ── Engagement Link management (contracts / forecast) ──────────────────────
+
+  async upsertEngagementLink(
+    engagementId: number,
+    dto: { linkUrl: string; linkName?: string; linkPurpose: string },
+  ): Promise<{ engagementLinkId: number; linkId: number }> {
+    await this.assertEngagementExists(engagementId);
+    const url = (dto.linkUrl ?? '').trim();
+    const purpose = (dto.linkPurpose ?? '').trim();
+    if (!url) throw new BadRequestException({ message: 'linkUrl is required.' });
+    if (!purpose) throw new BadRequestException({ message: 'linkPurpose is required.' });
+
+    // Check if an EngagementLink with this purpose already exists
+    let existing: EngagementLink | null = null;
+    try {
+      existing = await this.engagementLinkRepo.findOne({
+        where: { engagementId, linkPurpose: purpose },
+      });
+    } catch { /* table may not exist yet */ }
+
+    if (existing) {
+      // Update the existing Link row URL
+      await this.linkRepo.update({ linkId: existing.linkId }, { linkUrl: url, linkName: dto.linkName?.trim() || purpose });
+      return { engagementLinkId: existing.engagementLinkId, linkId: existing.linkId };
+    }
+
+    // Create new Link + EngagementLink
+    const link = this.linkRepo.create({
+      linkType: 'SharePoint',
+      linkUrl: url,
+      linkName: dto.linkName?.trim() || purpose,
+      linkPath: '',
+    });
+    const savedLink = await this.linkRepo.save(link);
+
+    const engagementLink = this.engagementLinkRepo.create({
+      engagementId,
+      linkId: savedLink.linkId,
+      linkPurpose: purpose,
+    });
+    const savedEl = await this.engagementLinkRepo.save(engagementLink);
+    return { engagementLinkId: savedEl.engagementLinkId, linkId: savedLink.linkId };
+  }
+
+  async removeEngagementLink(engagementId: number, engagementLinkId: number): Promise<void> {
+    const el = await this.engagementLinkRepo.findOne({
+      where: { engagementLinkId, engagementId },
+    });
+    if (!el) throw new NotFoundException({ message: 'Engagement link not found.' });
+    await this.engagementLinkRepo.remove(el);
   }
 
   async addVenue(

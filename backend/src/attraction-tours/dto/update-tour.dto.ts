@@ -12,6 +12,45 @@ import {
   ValidateIf,
 } from 'class-validator';
 
+export interface MediaMixEntry {
+  advertisingSubTypeId: number;
+  companyId: number | null;
+}
+
+function parseMediaMix(value: unknown): MediaMixEntry[] | unknown {
+  if (value === undefined || value === null || value === '') return undefined;
+  let raw: unknown = value;
+  if (typeof value === 'string') {
+    try {
+      raw = JSON.parse(value);
+    } catch {
+      return undefined;
+    }
+  }
+  if (!Array.isArray(raw)) return raw;
+  const out: MediaMixEntry[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const o = item as Record<string, unknown>;
+    const ast = Number(o.advertisingSubTypeId);
+    if (!Number.isInteger(ast) || ast < 1) continue;
+    const cid = Number(o.companyId);
+    const companyId =
+      o.companyId == null ||
+      o.companyId === '' ||
+      !Number.isInteger(cid) ||
+      cid < 1
+        ? null
+        : cid;
+    const key = `${ast}:${companyId ?? 0}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ advertisingSubTypeId: ast, companyId });
+  }
+  return out;
+}
+
 function parsePositiveIdArray(value: unknown): number[] | unknown {
   if (value === undefined || value === null || value === '') return undefined;
   const raw =
@@ -169,6 +208,11 @@ export class UpdateTourDto {
   @Transform(({ value }) => value === true || value === 'true')
   @IsBoolean()
   removeBanner?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => parseMediaMix(value))
+  @IsArray()
+  mediaMix?: MediaMixEntry[];
 
   @IsOptional()
   @IsISO8601()

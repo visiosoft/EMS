@@ -103,6 +103,15 @@ export class EngagementController {
     return this.engagementService.upsertFinance(id, dto);
   }
 
+  @Patch('non-resident-withholding/:nrwId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  updateNonResidentWithholding(
+    @Param('nrwId', ParseIntPipe) nrwId: number,
+    @Body() dto: { withholdingArea?: string | null; withholdingTaxRate?: number | null; withholdingAgencyName?: string | null; iaeWaiverSubmissionDate?: string | null; iaeWaiverAppNumber?: string | null },
+  ) {
+    return this.engagementService.updateNonResidentWithholding(nrwId, dto);
+  }
+
   @Get('paged')
   listPaged(
     @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
@@ -231,6 +240,26 @@ export class EngagementController {
     @Body() dto: UpdateEngagementVenueTabDto,
   ) {
     return this.engagementService.updateVenueTabPerVenue(id, venueCompanyId, dto);
+  }
+
+  /** Upsert an engagement link (for contracts/forecast via dbo.EngagementLink). */
+  @Post(':id/links')
+  @HttpCode(HttpStatus.CREATED)
+  upsertEngagementLink(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: { linkUrl: string; linkName?: string; linkPurpose: string },
+  ) {
+    return this.engagementService.upsertEngagementLink(id, dto);
+  }
+
+  /** Remove an engagement link. */
+  @Delete(':id/links/:engagementLinkId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeEngagementLink(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('engagementLinkId', ParseIntPipe) engagementLinkId: number,
+  ) {
+    return this.engagementService.removeEngagementLink(id, engagementLinkId);
   }
 
   // ─── Service Providers (VenueServiceProvider) ─────────────────────────────

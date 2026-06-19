@@ -25,6 +25,21 @@ import { CreateTourDto } from './dto/create-tour.dto';
 import { UpdateTourDto } from './dto/update-tour.dto';
 import { EmsAppCreatedStore } from './ems-app-created.store';
 
+export interface TourMediaMixRow {
+  tourMediaMixId: number;
+  advertisingSubTypeId: number;
+  subTypeName: string;
+  parentCategory: string | null;
+  companyId: number | null;
+  companyName: string | null;
+}
+
+export interface AdvertisingSubTypeOption {
+  advertisingSubTypeId: number;
+  subTypeName: string;
+  parentCategory: string | null;
+}
+
 export interface TourListRow {
   tourId: number;
   tourName: string;
@@ -56,6 +71,8 @@ export interface TourListRow {
   tourEndDate: string | null;
   /** dbo.Link.LinkURL from Tour.BannerLinkID */
   tourBannerImageUrl: string | null;
+  /** Media mix entries for the tour (dbo.TourMediaMix). */
+  mediaMix: TourMediaMixRow[];
   appCreated: boolean;
 }
 
@@ -450,6 +467,7 @@ export class TourService {
     tourBannerImageUrl: string | null,
     talentAgents?: { ids: number[]; names: string[] },
     ageRanges?: { ids: number[]; labels: string[] },
+    mediaMix?: TourMediaMixRow[],
   ): TourListRow {
     const ageLabels = ageRanges?.labels ?? [];
     return {
@@ -486,8 +504,153 @@ export class TourService {
       tourStartDate: this.dateOnlyString(t.tourStartDate),
       tourEndDate: this.dateOnlyString(t.tourEndDate),
       tourBannerImageUrl,
+      mediaMix: mediaMix ?? [],
       appCreated: this.emsCreated.canDeleteTour(t.tourId),
     };
+  }
+
+  private toPositiveIntOrNull(v: unknown): number | null {
+    const n = Number(v);
+    return v != null && v !== '' && Number.isInteger(n) && n > 0 ? n : null;
+  }
+
+  private toTrimmedOrNull(v: unknown): string | null {
+    return v == null || v === '' ? null : String(v).trim();
+  }
+
+  private async tourMediaMixByTourIds(
+    tourIds: number[],
+  ): Promise<Map<number, TourMediaMixRow[]>> {
+    const uniq = [...new Set(tourIds)].filter(
+      (id) => Number.isInteger(id) && id > 0,
+    );
+    const map = new Map<number, TourMediaMixRow[]>();
+    for (const id of uniq) map.set(id, []);
+    if (!uniq.length) return map;
+
+    const rows = await this.tourRepo.manager.query(
+      `SELECT
+        tmm.[TourMediaMixID] AS mmid,
+        tmm.[TourID] AS tid,
+        tmm.[AdvertisingSubTypeID] AS astid,
+        ast.[SubTypeName] AS astn,
+        ast.[ParentCategory] AS astpc,
+        tmm.[CompanyID] AS cid,
+        c.[CompanyName] AS cname
+       FROM dbo.TourMediaMix tmm
+       LEFT JOIN dbo.AdvertisingSubType ast ON ast.[AdvertisingSubTypeID] = tmm.[AdvertisingSubTypeID]
+       LEFT JOIN dbo.Company c ON c.[CompanyID] = tmm.[CompanyID]
+       WHERE tmm.[TourID] IN (${uniq.join(',')})
+       ORDER BY ast.[ParentCategory], ast.[SubTypeName]`,
+    );
+
+    for (const r of rows) {
+      const tid = Number(r.tid);
+      const bucket = map.get(tid) ?? [];
+      bucket.push({
+        tourMediaMixId: Number(r.mmid),
+        advertisingSubTypeId: Number(r.astid),
+        subTypeName: String(r.astn ?? ''),
+        parentCategory: this.toTrimmedOrNull(r.astpc),
+        companyId: this.toPositiveIntOrNull(r.cid),
+        companyName: this.toTrimmedOrNull(r.cname),
+      });
+      map.set(tid, bucket);
+    }
+    return map;
+  }
+
+  /** Active AdvertisingSubType reference rows for the Media Mix picker. */
+  async listAdvertisingSubTypes(): Promise<AdvertisingSubTypeOption[]> {
+    const rows = await this.tourRepo.manager.query(
+      `SELECT [AdvertisingSubTypeID] AS id, [SubTypeName] AS name, [ParentCategory] AS pc
+       FROM dbo.AdvertisingSubType
+       WHERE [IsActive] = 1
+       ORDER BY [ParentCategory], [SortOrder], [SubTypeName]`,
+    );
+    return rows.map((r) => ({
+      advertisingSubTypeId: Number(r.id),
+      subTypeName: String(r.name ?? ''),
+      parentCategory: this.toTrimmedOrNull(r.pc),
+    }));
+  }
+
+  private normalizeMediaMix(
+    entries:
+      | { advertisingSubTypeId: number; companyId: number | null }[]
+      | null
+      | undefined,
+  ): { advertisingSubTypeId: number; companyId: number | null }[] {
+    const list = Array.isArray(entries) ? entries : [];
+    const out: { advertisingSubTypeId: number; companyId: number | null }[] =
+      [];
+    const seen = new Set<string>();
+    for (const e of list) {
+      const ast = Number(e?.advertisingSubTypeId);
+      if (!Number.isInteger(ast) || ast < 1) continue;
+      const companyId = this.toPositiveIntOrNull(e?.companyId);
+      const key = `${ast}:${companyId ?? 0}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ advertisingSubTypeId: ast, companyId });
+    }
+    return out;
+  }
+
+  private async syncTourMediaMix(
+    tourId: number,
+    entries:
+      | { advertisingSubTypeId: number; companyId: number | null }[]
+      | null
+      | undefined,
+  ): Promise<void> {
+    const normalized = this.normalizeMediaMix(entries);
+
+    if (normalized.length) {
+      const subTypeIds = [
+        ...new Set(normalized.map((e) => e.advertisingSubTypeId)),
+      ];
+      const validRows = await this.tourRepo.manager.query(
+        `SELECT [AdvertisingSubTypeID] AS id FROM dbo.AdvertisingSubType
+         WHERE [IsActive] = 1 AND [AdvertisingSubTypeID] IN (${subTypeIds.join(',')})`,
+      );
+      const validSubTypeIds = new Set(validRows.map((r) => Number(r.id)));
+      if (validSubTypeIds.size !== subTypeIds.length) {
+        throw new BadRequestException({
+          message: 'One or more advertising sub-types are not valid.',
+        });
+      }
+
+      const companyIds = [
+        ...new Set(
+          normalized
+            .map((e) => e.companyId)
+            .filter((id): id is number => id != null),
+        ),
+      ];
+      if (companyIds.length) {
+        const companyCount = await this.companyRepo.count({
+          where: { companyId: In(companyIds) },
+        });
+        if (companyCount !== companyIds.length) {
+          throw new BadRequestException({
+            message:
+              'One or more advertising outlet companies no longer exist.',
+          });
+        }
+      }
+    }
+
+    await this.tourRepo.manager.query(
+      `DELETE FROM dbo.TourMediaMix WHERE [TourID] = ${tourId}`,
+    );
+    for (const e of normalized) {
+      const companyVal = e.companyId == null ? 'NULL' : String(e.companyId);
+      await this.tourRepo.manager.query(
+        `INSERT INTO dbo.TourMediaMix ([TourID], [AdvertisingSubTypeID], [CompanyID])
+         VALUES (${tourId}, ${e.advertisingSubTypeId}, ${companyVal})`,
+      );
+    }
   }
 
   /** Tour names are globally unique (case-insensitive), across all attractions. */
@@ -530,12 +693,16 @@ export class TourService {
       rows.map((t) => t.tourId),
     );
     const ageMap = await this.tourAgeRangesByTourIds(rows.map((t) => t.tourId));
+    const mediaMixMap = await this.tourMediaMixByTourIds(
+      rows.map((t) => t.tourId),
+    );
     return rows.map((t) =>
       this.mapTourEntityToRow(
         t,
         bannerMap.get(t.tourId) ?? null,
         agentMap.get(t.tourId),
         ageMap.get(t.tourId),
+        mediaMixMap.get(t.tourId),
       ),
     );
   }
@@ -597,6 +764,9 @@ export class TourService {
       rows.map((t) => t.tourId),
     );
     const ageMap = await this.tourAgeRangesByTourIds(rows.map((t) => t.tourId));
+    const mediaMixMap = await this.tourMediaMixByTourIds(
+      rows.map((t) => t.tourId),
+    );
     return {
       data: rows.map((t) =>
         this.mapTourEntityToRow(
@@ -604,6 +774,7 @@ export class TourService {
           bannerMap.get(t.tourId) ?? null,
           agentMap.get(t.tourId),
           ageMap.get(t.tourId),
+          mediaMixMap.get(t.tourId),
         ),
       ),
       total,
@@ -645,6 +816,9 @@ export class TourService {
       rows.map((t) => t.tourId),
     );
     const ageMap = await this.tourAgeRangesByTourIds(rows.map((t) => t.tourId));
+    const mediaMixMap = await this.tourMediaMixByTourIds(
+      rows.map((t) => t.tourId),
+    );
 
     return {
       data: rows.map((t) =>
@@ -653,6 +827,7 @@ export class TourService {
           bannerMap.get(t.tourId) ?? null,
           agentMap.get(t.tourId),
           ageMap.get(t.tourId),
+          mediaMixMap.get(t.tourId),
         ),
       ),
       total,
@@ -856,6 +1031,9 @@ export class TourService {
       } else if (agencyChanged) {
         await this.syncTourTalentAgents(id, [], nextTalentAgencyCompanyId);
       }
+      if (dto.mediaMix !== undefined) {
+        await this.syncTourMediaMix(id, dto.mediaMix);
+      }
     } catch (e: unknown) {
       if (e instanceof QueryFailedError) {
         const d = String((e as QueryFailedError).driverError ?? e.message);
@@ -901,11 +1079,13 @@ export class TourService {
     const bannerMap = await this.tourBannerUrlsByTourIds([tourId]);
     const agentMap = await this.tourTalentAgentsByTourIds([tourId]);
     const ageMap = await this.tourAgeRangesByTourIds([tourId]);
+    const mediaMixMap = await this.tourMediaMixByTourIds([tourId]);
     return this.mapTourEntityToRow(
       t,
       bannerMap.get(tourId) ?? null,
       agentMap.get(tourId),
       ageMap.get(tourId),
+      mediaMixMap.get(tourId),
     );
   }
 

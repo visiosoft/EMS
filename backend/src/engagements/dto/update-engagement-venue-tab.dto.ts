@@ -24,6 +24,13 @@ export class UpdateEngagementVenueTabDto {
   @Min(1)
   venueBookingManagerContactId?: number | null;
 
+  /** dbo.EngagementFinances.VenueDealTypeID (FK to dbo.VenueDealType) */
+  @IsOptional()
+  @Transform(({ value }) => toOptionalInt(value))
+  @IsInt()
+  @Min(1)
+  venueDealTypeId?: number | null;
+
   /**
    * dbo.Venue.VenueTypeID — venue-level field, editable here for convenience.
    * Also drives the main venue profile; updates dbo.Venue directly.
@@ -151,4 +158,10 @@ export class UpdateEngagementVenueTabDto {
   @IsString()
   @MaxLength(2048)
   seatingChartUrl?: string | null;
+
+  /** dbo.Tour.TechRiderLinkID → dbo.Link.LinkURL */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  techRiderLinkUrl?: string | null;
 }
