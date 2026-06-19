@@ -1,10 +1,14 @@
-import { Body, Controller, Get, Headers, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Patch, Post, UseGuards } from '@nestjs/common';
 import { AdminUsersService } from './admin-users.service';
 import { EntraAuthGuard } from './entra-auth.guard';
 import {
   ApplyInternalContactSyncDto,
   InternalContactSyncService,
 } from './internal-contact-sync.service';
+import {
+  UpdateMyProfileDto,
+  UserProfileService,
+} from './user-profile.service';
 
 @Controller('admin')
 @UseGuards(EntraAuthGuard)
@@ -12,6 +16,7 @@ export class AdminUsersController {
   constructor(
     private readonly adminUsersService: AdminUsersService,
     private readonly internalContactSyncService: InternalContactSyncService,
+    private readonly userProfileService: UserProfileService,
   ) {}
 
   @Get('users')
@@ -26,6 +31,16 @@ export class AdminUsersController {
     @Headers('x-entra-graph-access-token') graphAccessToken?: string,
   ) {
     return this.adminUsersService.listRawUsers(graphAccessToken);
+  }
+
+  @Get('me/profile')
+  async getMyProfile() {
+    return this.userProfileService.getMyProfile();
+  }
+
+  @Patch('me/profile')
+  async updateMyProfile(@Body() dto: UpdateMyProfileDto) {
+    return this.userProfileService.updateMyProfile(dto);
   }
 
   @Post('internal-contact-sync/preview')

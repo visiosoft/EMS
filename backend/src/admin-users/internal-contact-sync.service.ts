@@ -154,6 +154,57 @@ export class InternalContactSyncService {
     return this.previewEntraToEmsContactSync(graphAccessToken);
   }
 
+  async updateEntraUserByIdentifier(
+    userIdentifier: string,
+    payload: Record<string, unknown>,
+    graphAccessToken?: string,
+  ): Promise<void> {
+    const identifier = cleanText(userIdentifier);
+    if (!identifier) {
+      throw new BadRequestException('Microsoft Entra user identifier is required.');
+    }
+    const cleanedPayload = removeUndefinedValues(payload);
+    if (Object.keys(cleanedPayload).length === 0) return;
+    const delegatedToken = cleanText(graphAccessToken);
+    if (delegatedToken) {
+      try {
+        await this.graphRequest(
+          delegatedToken,
+          'PATCH',
+          `${GRAPH_BASE_URL}/users/${encodeURIComponent(identifier)}`,
+          cleanedPayload,
+        );
+        return;
+      } catch (error) {
+        if (!isGraphAuthorizationDenied(error)) throw error;
+      }
+    }
+
+    await this.graphRequest(
+      await this.getGraphWriteAccessToken(),
+      'PATCH',
+      `${GRAPH_BASE_URL}/users/${encodeURIComponent(identifier)}`,
+      cleanedPayload,
+    );
+  }
+
+  async updateAndVerifyEntraUserByIdentifier(
+    userIdentifier: string,
+    payload: Record<string, unknown>,
+    graphAccessToken?: string,
+  ): Promise<void> {
+    await this.updateEntraUserByIdentifier(
+      userIdentifier,
+      payload,
+      graphAccessToken,
+    );
+    await this.verifyEntraUserPayload(
+      await this.getGraphWriteAccessToken(graphAccessToken),
+      userIdentifier,
+      removeUndefinedValues(payload),
+    );
+  }
+
   async applyInternalContactSync(
     dto: ApplyInternalContactSyncDto,
     graphAccessToken?: string,
@@ -1014,6 +1065,7 @@ export class InternalContactSyncService {
       'Cell Phone',
       contact.cellPhone,
       trimToMax(user.mobilePhone, 30),
+      { compareAsPhone: true },
     );
     addComparableChange(
       changes,
@@ -1021,6 +1073,7 @@ export class InternalContactSyncService {
       'Work Phone',
       contact.workPhone,
       trimToMax(firstBusinessPhone(user), 30),
+      { compareAsPhone: true },
     );
 
     const entraDepartment = normalizeLookupName(user.department);
@@ -1111,6 +1164,7 @@ export class InternalContactSyncService {
       'Mobile Phone',
       user.mobilePhone,
       trimToMax(contact.cellPhone, 30),
+      { compareAsPhone: true },
     );
     addComparableChange(
       changes,
@@ -1118,6 +1172,7 @@ export class InternalContactSyncService {
       'Work Phone',
       firstBusinessPhone(user),
       trimToMax(contact.workPhone, 30),
+      { compareAsPhone: true },
     );
     addComparableChange(
       changes,
@@ -1530,6 +1585,7 @@ export class InternalContactSyncService {
       `${GRAPH_BASE_URL}/users/${encodeURIComponent(entraUserId)}`,
       payload,
     );
+    await this.verifyEntraUserPayload(graphAccessToken, entraUserId, payload);
   }
 
   private async disableEntraUser(
@@ -1682,9 +1738,58 @@ export class InternalContactSyncService {
       body: JSON.stringify(payload),
     });
     if (response.ok) return;
-    throw new BadGatewayException(
-      `Microsoft Graph write request failed with status ${response.status}: ${await readResponseText(response)}`,
-    );
+    const detail = await readResponseText(response);
+    throw new BadGatewayException({
+      message:
+        response.status === 403
+          ? 'Microsoft Entra rejected this update. Assign the EMSEntra Enterprise Application service principal the User Administrator role, and make sure User-Phone.ReadWrite.All application permission is admin-consented for phone updates.'
+          : `Microsoft Entra write request failed with status ${response.status}.`,
+      detail: `Microsoft Graph write request failed with status ${response.status}: ${detail}`,
+    });
+  }
+
+  private async graphGetJson<T>(
+    graphAccessToken: string,
+    url: string,
+  ): Promise<T> {
+    const response = await fetch(url, {
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${graphAccessToken}`,
+      },
+    });
+    if (!response.ok) {
+      const detail = await readResponseText(response);
+      throw new BadGatewayException({
+        message: `Microsoft Entra read-back request failed with status ${response.status}.`,
+        detail: `Microsoft Graph read-back request failed with status ${response.status}: ${detail}`,
+      });
+    }
+    return (await response.json()) as T;
+  }
+
+  private async verifyEntraUserPayload(
+    graphAccessToken: string,
+    userIdentifier: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    if (Object.keys(payload).length === 0) return;
+    const selected =
+      'id,displayName,userPrincipalName,mail,givenName,surname,department,jobTitle,mobilePhone,businessPhones,accountEnabled';
+    let mismatches: string[] = [];
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const user = await this.graphGetJson<Record<string, unknown>>(
+        graphAccessToken,
+        `${GRAPH_BASE_URL}/users/${encodeURIComponent(userIdentifier)}?$select=${selected}`,
+      );
+      mismatches = findGraphPayloadMismatches(payload, user);
+      if (mismatches.length === 0) return;
+      await sleep(350);
+    }
+    throw new BadGatewayException({
+      message: `Microsoft Entra did not persist ${mismatches.map(graphFieldLabel).join(', ')} for this user.`,
+      detail: `Graph read-back mismatch after PATCH. Fields: ${mismatches.join(', ')}`,
+    });
   }
 
   private generateTemporaryPassword(): string {
@@ -1838,15 +1943,19 @@ function addComparableChange(
   label: string,
   from: string | null,
   to: string | null,
-  options?: { compareAsEmail?: boolean },
+  options?: { compareAsEmail?: boolean; compareAsPhone?: boolean },
 ): void {
   const current = nullableText(from);
   const next = nullableText(to);
   const currentComparable = options?.compareAsEmail
     ? normalizeEmail(current)
+    : options?.compareAsPhone
+      ? normalizePhone(current)
     : cleanText(current);
   const nextComparable = options?.compareAsEmail
     ? normalizeEmail(next)
+    : options?.compareAsPhone
+      ? normalizePhone(next)
     : cleanText(next);
 
   if (currentComparable === nextComparable) return;
@@ -1946,6 +2055,84 @@ async function readResponseText(response: Response): Promise<string> {
   }
 }
 
+function findGraphPayloadMismatches(
+  payload: Record<string, unknown>,
+  user: Record<string, unknown>,
+): string[] {
+  const mismatches: string[] = [];
+  for (const [field, expected] of Object.entries(payload)) {
+    if (field === 'passwordProfile') continue;
+    const actual = user[field];
+    if (field === 'businessPhones') {
+      const expectedPhone = Array.isArray(expected)
+        ? normalizePhone(String(expected[0] ?? ''))
+        : '';
+      const actualPhones = Array.isArray(actual) ? actual : [];
+      const actualPhone = normalizePhone(String(actualPhones[0] ?? ''));
+      if (expectedPhone !== actualPhone) mismatches.push('businessPhones');
+      continue;
+    }
+    if (field === 'mobilePhone') {
+      if (normalizePhone(String(expected ?? '')) !== normalizePhone(String(actual ?? ''))) {
+        mismatches.push('mobilePhone');
+      }
+      continue;
+    }
+    if (field === 'userPrincipalName') {
+      const actualUpn = normalizeEmail(String(user.userPrincipalName ?? ''));
+      const actualMail = normalizeEmail(String(user.mail ?? ''));
+      const expectedEmail = normalizeEmail(String(expected ?? ''));
+      if (expectedEmail !== actualUpn && expectedEmail !== actualMail) {
+        mismatches.push('userPrincipalName');
+      }
+      continue;
+    }
+    if (field === 'accountEnabled') {
+      if (Boolean(expected) !== Boolean(actual)) mismatches.push('accountEnabled');
+      continue;
+    }
+    if (cleanText(String(expected ?? '')) !== cleanText(String(actual ?? ''))) {
+      mismatches.push(field);
+    }
+  }
+  return mismatches;
+}
+
+function graphFieldLabel(field: string): string {
+  const labels: Record<string, string> = {
+    displayName: 'Display Name',
+    givenName: 'First Name',
+    surname: 'Last Name',
+    department: 'Department',
+    jobTitle: 'Job Title',
+    mobilePhone: 'Mobile Phone',
+    businessPhones: 'Work Phone',
+    userPrincipalName: 'Email / UPN',
+    accountEnabled: 'Account Status',
+  };
+  return labels[field] ?? field;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isGraphAuthorizationDenied(error: unknown): boolean {
+  const parts: string[] = [];
+  if (error instanceof Error) parts.push(error.message);
+  const response =
+    typeof error === 'object' && error !== null && 'getResponse' in error
+      ? (error as { getResponse?: () => unknown }).getResponse?.()
+      : undefined;
+  if (typeof response === 'string') parts.push(response);
+  if (response && typeof response === 'object') {
+    const value = (response as { message?: unknown }).message;
+    if (typeof value === 'string') parts.push(value);
+  }
+  const text = parts.join('\n');
+  return /status 403|Authorization_RequestDenied|Insufficient privileges/i.test(text);
+}
+
 function formatSyncError(prefix: string, error: unknown): string {
   if (error instanceof Error && error.message) {
     return `${prefix}: ${error.message}`;
@@ -1967,6 +2154,14 @@ function groupBy<T>(items: T[], getKey: (item: T) => string): Map<string, T[]> {
 
 function normalizeEmail(value: string | null | undefined): string {
   return cleanText(value).toLowerCase();
+}
+
+function normalizePhone(value: string | null | undefined): string {
+  const cleaned = cleanText(value);
+  if (!cleaned) return '';
+  let digits = cleaned.replace(/\D/g, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  return digits;
 }
 
 function normalizeLookupName(value: string | null | undefined): string {

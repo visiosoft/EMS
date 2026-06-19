@@ -57,6 +57,7 @@ export interface InternalContactSyncPreview {
 
 export interface ApplyInternalContactSyncRequest {
   selectedActionIds: string[];
+  selectedActionFields?: Record<string, string[]>;
   manualMappings: Array<{
     entraUserId?: string;
     targetEntraUserId?: string;
