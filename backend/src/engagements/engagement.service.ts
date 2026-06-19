@@ -2528,7 +2528,7 @@ export class EngagementService {
         await this.dataSource.query(`DELETE FROM dbo.VIPPackageBenefit WHERE [VIPPackageID] = ${vipPkgId}`);
         if (Array.isArray(dto.vipPackageBenefits) && dto.vipPackageBenefits.length > 0) {
           const values = dto.vipPackageBenefits
-            .filter((b) => b != null && String(b).trim() !== '')
+            .filter((b) => b != null && String(b).trim() !== '' && Number.isFinite(Number(b)))
             .map((b) => `(${vipPkgId}, ${Math.trunc(Number(b))})`)
             .filter((_, i, arr) => arr.indexOf(_) === i);
           if (values.length > 0) {
