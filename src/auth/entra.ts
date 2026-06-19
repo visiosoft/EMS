@@ -11,13 +11,11 @@ import {
 const clientId = import.meta.env.VITE_ENTRA_CLIENT_ID;
 const tenantId = import.meta.env.VITE_ENTRA_TENANT_ID;
 const apiScope = import.meta.env.VITE_ENTRA_API_SCOPE?.trim();
-const graphScopeConfig =
-    import.meta.env.VITE_ENTRA_GRAPH_SCOPE?.trim() ||
-    "https://graph.microsoft.com/User.Read.All";
-const graphScopes = graphScopeConfig
-    .split(/[\s,]+/)
-    .map((scope) => scope.trim())
-    .filter(Boolean);
+const graphScopes =
+    import.meta.env.VITE_ENTRA_GRAPH_SCOPE?.trim()
+        .split(/\s+/)
+        .filter(Boolean) ??
+    ["https://graph.microsoft.com/User.Read.All"];
 const microsoftGraphAudiences = new Set([
     "00000003-0000-0000-c000-000000000000",
     "https://graph.microsoft.com",
@@ -162,6 +160,35 @@ export async function requestGraphAccessToken(
     const request = {
         account,
         scopes: graphScopes,
+        loginHint: account.username,
+        forceRefresh: options.forceRefresh,
+    };
+
+    try {
+        const response = await msalInstance.acquireTokenSilent(request);
+        logGraphTokenDiagnostics(response.accessToken);
+        return response.accessToken;
+    } catch (error) {
+        if (!requiresInteractiveGraphConsent(error)) throw error;
+    }
+
+    const response = await msalInstance.acquireTokenPopup(request);
+    logGraphTokenDiagnostics(response.accessToken);
+    return response.accessToken;
+}
+
+/**
+ * Acquires a Microsoft Graph token scoped for Document Library fetches
+ * (VITE_ENTRA_GRAPH_DOCS_SCOPE), falling back to an interactive prompt when consent is needed.
+ * Kept separate from requestGraphAccessToken so docs access doesn't widen the site-wide login scope.
+ */
+export async function requestDocsGraphAccessToken(
+    account: AccountInfo,
+    options: GraphAccessTokenOptions = {},
+): Promise<string> {
+    const request = {
+        account,
+        scopes: docsGraphScopes,
         loginHint: account.username,
         forceRefresh: options.forceRefresh,
     };
