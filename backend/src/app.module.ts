@@ -20,6 +20,7 @@ import { InternalMarketsModule } from './internal-markets/internal-markets.modul
 import { InternalVenuesModule } from './internal-venues/internal-venues.module';
 import { InternalAttractionsModule } from './internal-attractions/internal-attractions.module';
 import { InternalHandbookModule } from './internal-handbook/internal-handbook.module';
+import { DocumentLibraryModule } from './document-library/document-library.module';
 
 const parseBoolean = (
   value: string | undefined,
@@ -110,6 +111,7 @@ const parseNumber = (value: string | undefined, fallback: number): number => {
     InternalVenuesModule,
     InternalAttractionsModule,
     InternalHandbookModule,
+    DocumentLibraryModule,
   ],
   controllers: [AppController],
   providers: [AppService, AuditSubscriber],
