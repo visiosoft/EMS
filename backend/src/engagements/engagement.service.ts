@@ -1033,8 +1033,7 @@ export class EngagementService {
         salesRevenueGoal: this.mapFinanceNumber(srg),
         tourSplitPoint: this.mapFinanceNumber(tsp),
       };
-      // Also probe AnnouncementDate (optional column)
-      return this.mergeFinanceAnnouncementDateFromDb(fid, merged);
+      return merged;
     } catch {
       return base;
     }
@@ -1085,6 +1084,28 @@ export class EngagementService {
     }
   }
 
+  private async mergeAnnouncementDateFromProduction(
+    engagementId: number,
+    base: EngagementFinanceRow,
+  ): Promise<EngagementFinanceRow> {
+    try {
+      const rows = await this.engagementProductionRepo.find({
+        where: { engagementId },
+        order: { productionId: 'DESC' },
+        take: 1,
+      });
+      const prod = rows[0];
+      if (!prod) return base;
+      const ad = prod.announcementDate;
+      return {
+        ...base,
+        announcementDate: ad != null && String(ad).trim() !== '' ? String(ad).slice(0, 10) : null,
+      };
+    } catch {
+      return base;
+    }
+  }
+
   private async tryPersistFinanceMarketingBudget(
     financeId: number | null | undefined,
     dto: UpdateEngagementFinanceDto,
@@ -1098,8 +1119,6 @@ export class EngagementService {
     const wantS = dto.salesRevenueGoal !== undefined;
     const wantT = dto.tourSplitPoint !== undefined;
     if (!wantG && !wantN && !wantS && !wantT) {
-      // Still handle AnnouncementDate separately
-      await this.tryPersistFinanceAnnouncementDate(fid, dto);
       return;
     }
 
@@ -1129,7 +1148,6 @@ export class EngagementService {
         `UPDATE dbo.EngagementFinances SET ${sets.join(', ')} WHERE [FinanceID] = ${fid}`,
       );
     }
-    await this.tryPersistFinanceAnnouncementDate(fid, dto);
   }
 
   private async tryPersistFinanceAnnouncementDate(
@@ -1145,6 +1163,32 @@ export class EngagementService {
     await this.dataSource.query(
       `UPDATE dbo.EngagementFinances SET [AnnouncementDate] = ${val} WHERE [FinanceID] = ${financeId}`,
     );
+  }
+
+  private async tryPersistAnnouncementDateToProduction(
+    engagementId: number,
+    dto: UpdateEngagementFinanceDto,
+  ): Promise<void> {
+    if (dto.announcementDate === undefined) return;
+    const rows = await this.engagementProductionRepo.find({
+      where: { engagementId },
+      order: { productionId: 'DESC' },
+      take: 1,
+    });
+    let prod = rows[0] ?? null;
+    if (!prod) {
+      prod = this.engagementProductionRepo.create({
+        engagementId,
+        rehearsalDate: null,
+        loadInDate: null,
+        announcementDate: null,
+      });
+    }
+    prod.announcementDate =
+      dto.announcementDate == null || dto.announcementDate === ''
+        ? null
+        : this.assertYmdOrNull(dto.announcementDate);
+    await this.engagementProductionRepo.save(prod);
   }
 
   private normalizeVenueDealType(
@@ -4074,7 +4118,7 @@ export class EngagementService {
       payableEntity,
     );
     base.artistTourOfferLink = artistTourOfferLinkUrl;
-    if (!row?.financeId) return base;
+    if (!row?.financeId) return this.mergeAnnouncementDateFromProduction(engagementId, base);
     const withMarketingBudget = await this.mergeFinanceMarketingBudgetFromDb(
       row.financeId,
       base,
@@ -4091,7 +4135,8 @@ export class EngagementService {
     const withEventBusiness = await this.mergeFinanceEventBusinessFieldsFromDb(row.financeId, withBooking);
     const withCustomer = await this.mergeFinanceCustomerFromDb(row.financeId, withEventBusiness);
     const withPromoterCompany = await this.mergeFinancePromoterPartnerCompanyFromDb(row.financeId, withCustomer);
-    return this.mergeFinanceTourLicensingFromDb(engagementId, withPromoterCompany);
+    const withTourLicensing = await this.mergeFinanceTourLicensingFromDb(engagementId, withPromoterCompany);
+    return this.mergeAnnouncementDateFromProduction(engagementId, withTourLicensing);
   }
 
   private async mergeFinanceTourLicensingFromDb(
@@ -4945,6 +4990,7 @@ export class EngagementService {
     await this.tryPersistFinanceSharePointLinks(row.financeId, dto);
     await this.tryPersistFinanceBookingFields(row.financeId, dto);
     await this.tryPersistFinanceEventBusinessFields(row.financeId, dto);
+    await this.tryPersistAnnouncementDateToProduction(engagementId, dto);
   }
 
   async create(dto: CreateEngagementDto): Promise<{ engagementId: number }> {

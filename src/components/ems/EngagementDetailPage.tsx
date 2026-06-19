@@ -140,7 +140,7 @@ import {
 } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { invalidateSalesCapacityRelatedQueries } from '@/api/cacheHelpers';
-import { fetchIaeStaffEmployees, type IaeEmployee } from '@/api/iaeEmployeesApi';
+// fetchIaeStaffEmployees removed — IAE Marketing Team now uses EngagementIAEContact
 import { formatOpeningDateSafe, formatSqlTimeDisplay } from '@/lib/engagementDisplay';
 import { formatE164ForDisplay } from '@/lib/contactPhoneField';
 import { ENGAGEMENT_STATUS_ENUM } from './engagementFormConstants';
@@ -217,6 +217,7 @@ const PRESALE_DISCOUNT_TYPE_OPTIONS: Select2Option[] = [
 ];
 
 const PASSWORD_TYPE_OPTIONS: Select2Option[] = [
+  { value: '', label: 'Select type…' },
   { value: 'PreSale', label: 'PreSale' },
   { value: 'PreSaleSpecialPrice', label: 'PreSaleSpecialPrice' },
   { value: 'PublicSaleSpecialPrice', label: 'PublicSaleSpecialPrice' },
@@ -6428,8 +6429,8 @@ function EngagementMarketingPanel({
   });
 
   const [ticketingStatus, setTicketingStatus] = useState('');
-  const [onSaleDate, setOnSaleDate] = useState(getTodayDateString());
-  const [preSaleDate, setPreSaleDate] = useState(getTodayDateString());
+  const [onSaleDate, setOnSaleDate] = useState('');
+  const [preSaleDate, setPreSaleDate] = useState('');
   const [preSaleEndDate, setPreSaleEndDate] = useState('');
   const [preSaleRegistrationStartDate, setPreSaleRegistrationStartDate] = useState('');
   const [preSaleRegistrationEndDate, setPreSaleRegistrationEndDate] = useState('');
@@ -6482,26 +6483,29 @@ function EngagementMarketingPanel({
     retry: 1,
   });
 
-  // ── IAE Marketing Team (read-only from IAE staff roles) ─────────────
-  const iaeStaffQuery = useQuery({
-    queryKey: ['iae-staff-employees'],
-    queryFn: fetchIaeStaffEmployees,
-    staleTime: 300_000,
+  // ── IAE Marketing Team (read-only from EngagementIAEContact roles) ─────────────
+  const iaeEngagementContactsQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'iae-contacts'],
+    queryFn: () => fetchEngagementIaeContacts(engagementId),
+    staleTime: 60_000,
   });
 
   const iaeMarketingStaffByRole = useMemo(() => {
-    const staff = iaeStaffQuery.data ?? [];
-    const roleMap: Record<string, IaeEmployee[]> = {
+    const contacts = iaeEngagementContactsQuery.data ?? [];
+    const roleMap: Record<string, typeof contacts> = {
       'Marketing Director': [],
       'Marketing Manager': [],
       'Marketing Coordinator': [],
     };
-    for (const emp of staff) {
-      const role = emp.roleName?.trim() ?? '';
-      if (role in roleMap) roleMap[role].push(emp);
+    const roleKeys = Object.keys(roleMap);
+    for (const c of contacts) {
+      const rn = (c.roleName ?? '').trim();
+      if (!rn) continue;
+      const matched = roleKeys.find((k) => k.toLowerCase() === rn.toLowerCase());
+      if (matched) roleMap[matched].push(c);
     }
     return roleMap;
-  }, [iaeStaffQuery.data]);
+  }, [iaeEngagementContactsQuery.data]);
 
   // ── IAE contact lookups (used by Tour Marketing Team) ──────────────
   const iaeContactLookupsQuery = useQuery({
@@ -6595,6 +6599,9 @@ function EngagementMarketingPanel({
     setTicketingStatus(d.ticketingStatus ?? '');
     setOnSaleDate(d.onSaleDate ?? '');
     setPreSaleDate(d.preSaleDate ?? '');
+    setPreSaleEndDate(d.preSaleEndDate ?? '');
+    setPreSaleRegistrationStartDate(d.preSaleRegistrationStartDate ?? '');
+    setPreSaleRegistrationEndDate(d.preSaleRegistrationEndDate ?? '');
     setVipPackagedOffer(d.vipPackagedOffer ?? '');
     setPreSaleSpecialPrices(d.preSaleSpecialPrices ?? '');
     setKidsTicketsPrices(d.kidsTicketsPrices ?? '');
@@ -7352,18 +7359,18 @@ function EngagementMarketingPanel({
           </>
         )}
 
-        {/* ── IAE Marketing Team (read-only from IAE staff roles) ── */}
+        {/* ── IAE Marketing Team (read-only from EngagementIAEContact roles) ── */}
         <div className="rounded-lg border border-border bg-surface/40 p-4">
           <h4 className="text-sm font-semibold text-text-primary mb-3">IAE Marketing Team</h4>
-          {iaeStaffQuery.isLoading && (
+          {iaeEngagementContactsQuery.isLoading && (
             <div className="flex items-center gap-2 text-text-muted text-sm">
               <Loader2 className="h-4 w-4 animate-spin shrink-0" /> Loading…
             </div>
           )}
-          {iaeStaffQuery.isError && (
-            <div className="text-ems-coral text-sm">{friendlyApiError(iaeStaffQuery.error)}</div>
+          {iaeEngagementContactsQuery.isError && (
+            <div className="text-ems-coral text-sm">{friendlyApiError(iaeEngagementContactsQuery.error)}</div>
           )}
-          {!iaeStaffQuery.isLoading && !iaeStaffQuery.isError && (
+          {!iaeEngagementContactsQuery.isLoading && !iaeEngagementContactsQuery.isError && (
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
               {(['Marketing Director', 'Marketing Manager', 'Marketing Coordinator'] as const).map((role) => (
                 <React.Fragment key={role}>
@@ -7371,10 +7378,9 @@ function EngagementMarketingPanel({
                     role,
                     (iaeMarketingStaffByRole[role] ?? []).length > 0 ? (
                       <div className="space-y-1">
-                        {(iaeMarketingStaffByRole[role] ?? []).map((emp) => (
-                          <p key={emp.contactId} className="text-sm text-text-primary">
-                            {`${emp.firstName} ${emp.lastName}`.trim()}
-                            {emp.email && <span className="ml-2 text-xs text-text-muted">{emp.email}</span>}
+                        {(iaeMarketingStaffByRole[role] ?? []).map((c) => (
+                          <p key={c.engagementIaeContactId} className="text-sm text-text-primary">
+                            {c.contactLabel}
                           </p>
                         ))}
                       </div>
@@ -7508,76 +7514,42 @@ function EngagementMarketingPanel({
         {/* ── Media Mix ── */}
         <div className="rounded-lg border border-border bg-surface/40 p-4 space-y-4">
           <h4 className="text-sm font-semibold text-text-primary">Media Mix</h4>
+          <p className="text-xs font-semibold text-text-secondary mb-2">Advertising Outlet — Company Types &amp; Sub-types</p>
 
-          {/* Tour-selected media mix (read-only from TourMediaMix) */}
-          {!marketingMetaQuery.isLoading && !marketingMetaQuery.isError && (marketingMetaQuery.data?.mediaMix ?? []).length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-text-secondary mb-2">Selected for this tour</p>
-              <div className="space-y-3">
-                {Object.entries(
-                  (marketingMetaQuery.data?.mediaMix ?? []).reduce<Record<string, typeof marketingMetaQuery.data.mediaMix>>((acc, item) => {
-                    const key = item.parentCategory ?? item.subTypeName;
-                    if (!acc[key]) acc[key] = [];
-                    acc[key].push(item);
-                    return acc;
-                  }, {}),
-                ).map(([category, items]) => (
-                  <div key={category}>
-                    <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-1">{category}</p>
-                    <div className="space-y-1 pl-2">
-                      {items.map((item) => (
-                        <div key={item.tourMediaMixId} className="flex items-baseline gap-2 text-sm">
-                          <span className="text-text-primary">{item.subTypeName}</span>
-                          {item.companyName && (
-                            <span className="text-text-muted text-xs">— {item.companyName}</span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
+          {marketingMetaQuery.isLoading ? (
+            <div className="flex items-center gap-2 text-text-muted text-sm">
+              <Loader2 className="h-4 w-4 animate-spin shrink-0" /> Loading…
+            </div>
+          ) : marketingMetaQuery.isError ? (
+            <div className="text-ems-coral text-sm">{friendlyApiError(marketingMetaQuery.error)}</div>
+          ) : (marketingMetaQuery.data?.mediaMix ?? []).length === 0 ? (
+            <p className="text-sm text-text-muted">No media mix on file for this tour.</p>
+          ) : (
+            <div className="space-y-3">
+              {Object.entries(
+                (marketingMetaQuery.data?.mediaMix ?? []).reduce<Record<string, typeof marketingMetaQuery.data.mediaMix>>((acc, item) => {
+                  const key = item.parentCategory ?? 'Other';
+                  if (!acc[key]) acc[key] = [];
+                  acc[key].push(item);
+                  return acc;
+                }, {}),
+              ).map(([category, items]) => (
+                <div key={category}>
+                  <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-1">{category}</p>
+                  <div className="space-y-1 pl-2">
+                    {items.map((item) => (
+                      <div key={item.tourMediaMixId} className="flex items-baseline gap-2 text-sm">
+                        <span className="text-text-primary">{item.subTypeName}</span>
+                        {item.companyName && (
+                          <span className="text-text-muted text-xs">— {item.companyName}</span>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
           )}
-
-          {/* All Advertising Outlet company types & sub-types (reference catalog) */}
-          <div className="border-t border-border pt-3">
-            <p className="text-xs font-semibold text-text-secondary mb-2">Advertising Outlet — Company Types &amp; Sub-types</p>
-            {marketingMetaQuery.isLoading ? (
-              <div className="flex items-center gap-2 text-text-muted text-sm">
-                <Loader2 className="h-4 w-4 animate-spin shrink-0" /> Loading…
-              </div>
-            ) : marketingMetaQuery.isError ? (
-              <div className="text-ems-coral text-sm">{friendlyApiError(marketingMetaQuery.error)}</div>
-            ) : (marketingMetaQuery.data?.advertisingSubTypes ?? []).length === 0 ? (
-              <p className="text-sm text-text-muted">No Advertising Outlet types on file.</p>
-            ) : (
-              <div className="space-y-3">
-                {Object.entries(
-                  (marketingMetaQuery.data?.advertisingSubTypes ?? []).reduce<Record<string, typeof marketingMetaQuery.data.advertisingSubTypes>>((acc, st) => {
-                    const key = st.parentCategory ?? 'Other';
-                    if (!acc[key]) acc[key] = [];
-                    acc[key].push(st);
-                    return acc;
-                  }, {}),
-                ).map(([category, items]) => (
-                  <div key={category}>
-                    <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-1">{category}</p>
-                    <div className="flex flex-wrap gap-1.5 pl-2">
-                      {items.map((st) => (
-                        <span
-                          key={st.advertisingSubTypeId}
-                          className="rounded-full border border-border bg-surface px-2.5 py-0.5 text-xs text-text-primary"
-                        >
-                          {st.subTypeName}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         </div>
 
         {/* ── Venue Marketing Team (editable, per primary venue) ── */}
@@ -7802,7 +7774,7 @@ function EngagementTicketingPanel({
   const [publicSaleSpecialPricePasswordDateEnd, setPublicSaleSpecialPricePasswordDateEnd] = useState('');
   const [publicSaleSpecialPriceDiscountType, setPublicSaleSpecialPriceDiscountType] = useState('');
   const [publicSaleSpecialPriceDiscountAmount, setPublicSaleSpecialPriceDiscountAmount] = useState('');
-  const [selectedPasswordType, setSelectedPasswordType] = useState<'PreSale' | 'PreSaleSpecialPrice' | 'PublicSaleSpecialPrice'>('PreSale');
+  const [selectedPasswordType, setSelectedPasswordType] = useState<'' | 'PreSale' | 'PreSaleSpecialPrice' | 'PublicSaleSpecialPrice'>('');
   const [showPassword, setShowPassword] = useState(false);
   const [vipPackageOffered, setVipPackageOffered] = useState('');
   const [vipPackageName, setVipPackageName] = useState('');
@@ -8003,25 +7975,25 @@ function EngagementTicketingPanel({
       sellableCapacity: d.sellableCapacity ?? null,
       grossPotentialRevenue: d.grossPotentialRevenue ?? null,
       ticketingSystemCompanyId: d.ticketingSystemCompanyId ?? null,
-      ticketingAdministrator: d.ticketingAdministrator ?? null,
+      ticketingAdministrator: (d.ticketingAdministrator ?? '').trim() || null,
       ticketingAdminContactId: d.ticketingAdminContactId ?? null,
       ticketingAdminCompanyId: d.ticketingAdminCompanyId ?? null,
       boxOfficeLaborStaffingRequired: d.ticketingAdministrator === 'IAE Contract' ? (d.boxOfficeLaborStaffingRequired ?? null) : null,
       isIAETMDeal: d.isIAETMDeal ?? null,
-      ticketingLinkUrl: d.ticketingLinkUrl ?? null,
-      publicSaleLinkUrl: d.publicSaleLinkUrl ?? null,
-      preSaleDate: d.preSaleDate ?? null,
-      preSaleEndDate: d.preSaleEndDate ?? null,
-      preSaleRegistrationStartDate: d.preSaleRegistrationStartDate ?? null,
-      preSaleRegistrationEndDate: d.preSaleRegistrationEndDate ?? null,
-      facilityFeeType: d.facilityFeeType ?? null,
+      ticketingLinkUrl: (d.ticketingLinkUrl ?? '').trim() || null,
+      publicSaleLinkUrl: (d.publicSaleLinkUrl ?? '').trim() || null,
+      preSaleDate: d.preSaleDate || null,
+      preSaleEndDate: d.preSaleEndDate || null,
+      preSaleRegistrationStartDate: d.preSaleRegistrationStartDate || null,
+      preSaleRegistrationEndDate: d.preSaleRegistrationEndDate || null,
+      facilityFeeType: (d.facilityFeeType ?? '').trim() || null,
       facilityFeeAmount: d.facilityFeeAmount ?? null,
-      dynamicPricingMode: d.dynamicPricingMode ?? null,
+      dynamicPricingMode: (d.dynamicPricingMode ?? '').trim() || null,
       rebateAmount: d.rebateAmount ?? null,
       bumpAmount: d.bumpAmount ?? null,
-      creditCardFeesType: d.creditCardFeesType ?? null,
+      creditCardFeesType: (d.creditCardFeesType ?? '').trim() || null,
       creditCardFeesAmountPercent: d.creditCardFeesAmountPercent ?? null,
-      kidsTicketsPrices: d.kidsTicketsPrices ?? null,
+      kidsTicketsPrices: (d.kidsTicketsPrices ?? '').trim() || null,
     });
     return cur !== base;
   }, [
@@ -8055,18 +8027,18 @@ function EngagementTicketingPanel({
       publicSaleSpecialPriceDiscountAmount: parseOptionalDecimal(publicSaleSpecialPriceDiscountAmount, '').value,
     });
     const base = JSON.stringify({
-      presalePassword: d.presalePassword ?? null,
-      presalePasswordDateStart: d.presalePasswordDateStart ?? null,
-      presalePasswordDateEnd: d.presalePasswordDateEnd ?? null,
-      presaleSpecialPricePassword: d.presaleSpecialPricePassword ?? null,
-      presaleSpecialPricePasswordDateStart: d.presaleSpecialPricePasswordDateStart ?? null,
-      presaleSpecialPricePasswordDateEnd: d.presaleSpecialPricePasswordDateEnd ?? null,
-      presaleSpecialPriceDiscountType: d.presaleSpecialPriceDiscountType ?? null,
+      presalePassword: (d.presalePassword ?? '').trim() || null,
+      presalePasswordDateStart: d.presalePasswordDateStart || null,
+      presalePasswordDateEnd: d.presalePasswordDateEnd || null,
+      presaleSpecialPricePassword: (d.presaleSpecialPricePassword ?? '').trim() || null,
+      presaleSpecialPricePasswordDateStart: d.presaleSpecialPricePasswordDateStart || null,
+      presaleSpecialPricePasswordDateEnd: d.presaleSpecialPricePasswordDateEnd || null,
+      presaleSpecialPriceDiscountType: d.presaleSpecialPriceDiscountType || null,
       presaleSpecialPriceDiscountAmount: d.presaleSpecialPriceDiscountAmount ?? null,
-      publicSaleSpecialPricePassword: d.publicSaleSpecialPricePassword ?? null,
-      publicSaleSpecialPricePasswordDateStart: d.publicSaleSpecialPricePasswordDateStart ?? null,
-      publicSaleSpecialPricePasswordDateEnd: d.publicSaleSpecialPricePasswordDateEnd ?? null,
-      publicSaleSpecialPriceDiscountType: d.publicSaleSpecialPriceDiscountType ?? null,
+      publicSaleSpecialPricePassword: (d.publicSaleSpecialPricePassword ?? '').trim() || null,
+      publicSaleSpecialPricePasswordDateStart: d.publicSaleSpecialPricePasswordDateStart || null,
+      publicSaleSpecialPricePasswordDateEnd: d.publicSaleSpecialPricePasswordDateEnd || null,
+      publicSaleSpecialPriceDiscountType: d.publicSaleSpecialPriceDiscountType || null,
       publicSaleSpecialPriceDiscountAmount: d.publicSaleSpecialPriceDiscountAmount ?? null,
     });
     return cur !== base;
@@ -8089,7 +8061,7 @@ function EngagementTicketingPanel({
     });
     const base = JSON.stringify({
       vipPackageOffered: d.vipPackageOffered ?? null,
-      vipPackageName: d.vipPackageName ?? null,
+      vipPackageName: (d.vipPackageName ?? '').trim() || null,
       vipPackageBenefits: [...(d.vipPackageBenefits ?? [])].sort(),
     });
     return cur !== base;
@@ -8103,14 +8075,14 @@ function EngagementTicketingPanel({
       salesTaxAmountPercent: salesTaxAmountPercent.trim() ? Number(salesTaxAmountPercent) : null,
     });
     const base = JSON.stringify({
-      salesTaxType: d.salesTaxType ?? null,
+      salesTaxType: (d.salesTaxType ?? '').trim() || null,
       salesTaxAmountPercent: d.salesTaxAmountPercent ?? null,
     });
     return cur !== base;
   }, [ticketingQuery.data, selectedPid, salesTaxType, salesTaxAmountPercent]);
 
   const scalingDirty = useMemo(() => {
-    return (scalingLocal.trim() || null) !== (engagementScaling ?? null);
+    return (scalingLocal.trim() || null) !== ((engagementScaling ?? '').trim() || null);
   }, [scalingLocal, engagementScaling]);
 
   const anyDirty = hasTicketingUserEdited && (ticketingMainDirty || promoPasswordDirty || vipDirty || salesTaxDirty || scalingDirty);
@@ -8519,11 +8491,11 @@ function EngagementTicketingPanel({
               {sectionHeader('Purchase Links')}
               <div className="grid grid-cols-1 gap-4">
                 {fieldRow('Pre-Sale Ticketing Link',
-                  <input className={inputCls} type="url" placeholder="https://…" value={ticketingLinkUrl}
+                  <input className={inputCls} type="url" autoComplete="nope" placeholder="https://…" value={ticketingLinkUrl}
                     onChange={(e) => { markTicketingUserEdited(); setTicketingLinkUrl(e.target.value); }} disabled={disabled} />,
                 )}
                 {fieldRow('Public Sale Ticketing Link',
-                  <input className={inputCls} type="url" placeholder="https://…" value={publicSaleLinkUrl}
+                  <input className={inputCls} type="url" autoComplete="nope" placeholder="https://…" value={publicSaleLinkUrl}
                     onChange={(e) => { markTicketingUserEdited(); setPublicSaleLinkUrl(e.target.value); }} disabled={disabled} />,
                 )}
               </div>
@@ -8555,51 +8527,63 @@ function EngagementTicketingPanel({
                     <tr>
                       <td className="px-3 py-2">
                         <Select2 options={PASSWORD_TYPE_OPTIONS} value={selectedPasswordType}
-                          onChange={(v) => setSelectedPasswordType(v as 'PreSale' | 'PreSaleSpecialPrice' | 'PublicSaleSpecialPrice')}
-                          disabled={disabled} />
+                          onChange={(v) => setSelectedPasswordType(v as '' | 'PreSale' | 'PreSaleSpecialPrice' | 'PublicSaleSpecialPrice')}
+                          placeholder="Select type…" disabled={disabled} />
                       </td>
                       <td className="px-3 py-2">
-                        <div className="relative">
-                          <input type={showPassword ? 'text' : 'password'} autoComplete="off" className={`${inputCls} pr-9 ${!(selectedPasswordType === 'PreSale' ? presalePassword : selectedPasswordType === 'PreSaleSpecialPrice' ? presaleSpecialPricePassword : publicSaleSpecialPricePassword).trim() ? 'border-red-400' : ''}`}
-                            value={selectedPasswordType === 'PreSale' ? presalePassword : selectedPasswordType === 'PreSaleSpecialPrice' ? presaleSpecialPricePassword : publicSaleSpecialPricePassword}
-                            placeholder="Required"
-                            required
+                        {!selectedPasswordType ? (
+                          <span className="text-text-muted text-sm">Select a type first</span>
+                        ) : (
+                          <div className="relative">
+                            <input type="text" autoComplete="new-password" style={showPassword ? undefined : { WebkitTextSecurity: 'disc', textSecurity: 'disc' } as React.CSSProperties} className={`${inputCls} pr-9 ${!(selectedPasswordType === 'PreSale' ? presalePassword : selectedPasswordType === 'PreSaleSpecialPrice' ? presaleSpecialPricePassword : publicSaleSpecialPricePassword).trim() ? 'border-red-400' : ''}`}
+                              value={selectedPasswordType === 'PreSale' ? presalePassword : selectedPasswordType === 'PreSaleSpecialPrice' ? presaleSpecialPricePassword : publicSaleSpecialPricePassword}
+                              placeholder="Required"
+                              required
+                              onChange={(e) => {
+                                markTicketingUserEdited();
+                                if (selectedPasswordType === 'PreSale') setPresalePassword(e.target.value);
+                                else if (selectedPasswordType === 'PreSaleSpecialPrice') setPresaleSpecialPricePassword(e.target.value);
+                                else setPublicSaleSpecialPricePassword(e.target.value);
+                              }} disabled={disabled} />
+                            <button type="button" tabIndex={-1}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+                              onClick={() => setShowPassword((p) => !p)}
+                              title={showPassword ? 'Hide password' : 'Show password'}>
+                              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        {!selectedPasswordType ? (
+                          <span className="text-text-muted">—</span>
+                        ) : (
+                          <input type="date" className={inputCls}
+                            value={selectedPasswordType === 'PreSale' ? presalePasswordDateStart : selectedPasswordType === 'PreSaleSpecialPrice' ? presaleSpecialPricePasswordDateStart : publicSaleSpecialPricePasswordDateStart}
                             onChange={(e) => {
                               markTicketingUserEdited();
-                              if (selectedPasswordType === 'PreSale') setPresalePassword(e.target.value);
-                              else if (selectedPasswordType === 'PreSaleSpecialPrice') setPresaleSpecialPricePassword(e.target.value);
-                              else setPublicSaleSpecialPricePassword(e.target.value);
+                              if (selectedPasswordType === 'PreSale') setPresalePasswordDateStart(e.target.value);
+                              else if (selectedPasswordType === 'PreSaleSpecialPrice') setPresaleSpecialPricePasswordDateStart(e.target.value);
+                              else setPublicSaleSpecialPricePasswordDateStart(e.target.value);
                             }} disabled={disabled} />
-                          <button type="button" tabIndex={-1}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
-                            onClick={() => setShowPassword((p) => !p)}
-                            title={showPassword ? 'Hide password' : 'Show password'}>
-                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                          </button>
-                        </div>
+                        )}
                       </td>
                       <td className="px-3 py-2">
-                        <input type="date" className={inputCls}
-                          value={selectedPasswordType === 'PreSale' ? presalePasswordDateStart : selectedPasswordType === 'PreSaleSpecialPrice' ? presaleSpecialPricePasswordDateStart : publicSaleSpecialPricePasswordDateStart}
-                          onChange={(e) => {
-                            markTicketingUserEdited();
-                            if (selectedPasswordType === 'PreSale') setPresalePasswordDateStart(e.target.value);
-                            else if (selectedPasswordType === 'PreSaleSpecialPrice') setPresaleSpecialPricePasswordDateStart(e.target.value);
-                            else setPublicSaleSpecialPricePasswordDateStart(e.target.value);
-                          }} disabled={disabled} />
+                        {!selectedPasswordType ? (
+                          <span className="text-text-muted">—</span>
+                        ) : (
+                          <input type="date" className={inputCls}
+                            value={selectedPasswordType === 'PreSale' ? presalePasswordDateEnd : selectedPasswordType === 'PreSaleSpecialPrice' ? presaleSpecialPricePasswordDateEnd : publicSaleSpecialPricePasswordDateEnd}
+                            onChange={(e) => {
+                              markTicketingUserEdited();
+                              if (selectedPasswordType === 'PreSale') setPresalePasswordDateEnd(e.target.value);
+                              else if (selectedPasswordType === 'PreSaleSpecialPrice') setPresaleSpecialPricePasswordDateEnd(e.target.value);
+                              else setPublicSaleSpecialPricePasswordDateEnd(e.target.value);
+                            }} disabled={disabled} />
+                        )}
                       </td>
                       <td className="px-3 py-2">
-                        <input type="date" className={inputCls}
-                          value={selectedPasswordType === 'PreSale' ? presalePasswordDateEnd : selectedPasswordType === 'PreSaleSpecialPrice' ? presaleSpecialPricePasswordDateEnd : publicSaleSpecialPricePasswordDateEnd}
-                          onChange={(e) => {
-                            markTicketingUserEdited();
-                            if (selectedPasswordType === 'PreSale') setPresalePasswordDateEnd(e.target.value);
-                            else if (selectedPasswordType === 'PreSaleSpecialPrice') setPresaleSpecialPricePasswordDateEnd(e.target.value);
-                            else setPublicSaleSpecialPricePasswordDateEnd(e.target.value);
-                          }} disabled={disabled} />
-                      </td>
-                      <td className="px-3 py-2">
-                        {selectedPasswordType === 'PreSale' ? (
+                        {!selectedPasswordType || selectedPasswordType === 'PreSale' ? (
                           <span className="text-text-muted">—</span>
                         ) : (
                           <Select2 options={PRESALE_DISCOUNT_TYPE_OPTIONS}
@@ -8613,7 +8597,7 @@ function EngagementTicketingPanel({
                         )}
                       </td>
                       <td className="px-3 py-2">
-                        {selectedPasswordType === 'PreSale' ? (
+                        {!selectedPasswordType || selectedPasswordType === 'PreSale' ? (
                           <span className="text-text-muted">—</span>
                         ) : (
                           <input className={inputCls} inputMode="decimal"
