@@ -1,10 +1,12 @@
 import { IconButton, ContextualMenu } from '@fluentui/react';
 import { useBoolean, useId } from '@fluentui/react-hooks';
 import type { IContextualMenuProps } from '@fluentui/react';
-import type { DocumentItem } from '../types';
+import type { DocumentItem, DocumentSource } from '../types';
+import { downloadFile } from '../services/documentApi';
 
 type FileRowProps = {
   item: DocumentItem;
+  source: DocumentSource;
   formatFileSize: (bytes?: number) => string;
   formatDate: (date?: string) => string;
 };
@@ -41,7 +43,7 @@ function getFileIcon(extension?: string): { icon: string; color: string } {
   return iconMap[ext] || { icon: 'Page', color: '#0078d4' };
 }
 
-export function FileRow({ item, formatFileSize, formatDate }: FileRowProps) {
+export function FileRow({ item, source, formatFileSize, formatDate }: FileRowProps) {
   const [menuVisible, { setTrue: showMenu, setFalse: hideMenu }] = useBoolean(false);
   const buttonId = useId('file-context-menu');
 
@@ -58,11 +60,9 @@ export function FileRow({ item, formatFileSize, formatDate }: FileRowProps) {
         text: 'Download',
         iconProps: { iconName: 'Download' },
         onClick: () => {
-          const a = document.createElement('a');
-          a.href = item.url;
-          a.download = item.name;
-          a.target = '_blank';
-          a.click();
+          void downloadFile(item, source).catch((err) => {
+            console.error('Download failed', err);
+          });
         },
       },
       {

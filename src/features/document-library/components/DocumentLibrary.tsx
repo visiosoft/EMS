@@ -1,4 +1,6 @@
 import { Spinner, SpinnerSize } from '@fluentui/react';
+import { useMemo } from 'react';
+import { getActiveAccount, getAccountOid } from '@/auth/entra';
 import { useDocumentLibrary } from '../hooks/useDocumentLibrary';
 import { DocumentBreadcrumbs } from './Breadcrumbs';
 import { DocumentToolbar } from './Toolbar';
@@ -51,7 +53,17 @@ export function DocumentLibrary() {
     refetch,
     hasHistory,
     goBack,
+    source,
+    setSource,
   } = useDocumentLibrary();
+
+  // The source toggle is a personal/admin control: only the configured account sees it.
+  const isSourceAdmin = useMemo(() => {
+    const allowed = (import.meta.env.VITE_DOCUMENT_TOGGLE_OID as string | undefined)?.trim().toLowerCase();
+    if (!allowed) return false;
+    const oid = getAccountOid(getActiveAccount()).trim().toLowerCase();
+    return Boolean(oid) && oid === allowed;
+  }, []);
 
   if (error) {
     const err = error as Error & { detail?: string; suggestion?: string; status?: number };
@@ -173,6 +185,9 @@ export function DocumentLibrary() {
           onToggleSort={toggleSort}
           onToggleView={() => setViewMode(viewMode === 'list' ? 'grid' : 'list')}
           onRefresh={() => refetch()}
+          source={source}
+          onSourceChange={setSource}
+          showSourceToggle={isSourceAdmin}
         />
         <DocumentBreadcrumbs items={breadcrumbs} onNavigate={navigateToBreadcrumb} />
         {items.length === 0 ? (
@@ -249,6 +264,9 @@ export function DocumentLibrary() {
         onToggleSort={toggleSort}
         onToggleView={() => setViewMode(viewMode === 'list' ? 'grid' : 'list')}
         onRefresh={() => refetch()}
+        source={source}
+        onSourceChange={setSource}
+        showSourceToggle={isSourceAdmin}
       />
       <div style={{ padding: '8px 16px 0' }}>
         <DocumentBreadcrumbs items={breadcrumbs} onNavigate={navigateToBreadcrumb} />
@@ -274,6 +292,7 @@ export function DocumentLibrary() {
               <FileRow
                 key={item.id}
                 item={item}
+                source={source}
                 formatFileSize={formatFileSize}
                 formatDate={formatDate}
               />

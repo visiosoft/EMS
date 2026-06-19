@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState, useMemo, useCallback } from 'react';
 import { fetchFolderContents } from '../services/documentApi';
-import type { DocumentItem, SortField, SortDirection, ViewMode, BreadcrumbItem } from '../types';
+import type { DocumentItem, DocumentSource, SortField, SortDirection, ViewMode, BreadcrumbItem } from '../types';
 
 const ONEDRIVE_BASE_PATH = '';
 
@@ -38,6 +38,7 @@ function compareItems(
 
 export function useDocumentLibrary() {
   const [currentPath, setCurrentPath] = useState<string>(ONEDRIVE_BASE_PATH);
+  const [source, setSourceState] = useState<DocumentSource>('sharepoint');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortField, setSortField] = useState<SortField>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
@@ -45,15 +46,26 @@ export function useDocumentLibrary() {
   const [history, setHistory] = useState<string[]>([]);
 
   const { data: items, isLoading, error, refetch } = useQuery({
-    queryKey: ['onedrive-folder', currentPath],
-    queryFn: () => fetchFolderContents(currentPath),
+    queryKey: ['document-folder', source, currentPath],
+    queryFn: () => fetchFolderContents(currentPath, source),
     staleTime: 30_000,
   });
+
+  const setSource = useCallback((next: DocumentSource) => {
+    setSourceState((prev) => {
+      if (prev === next) return prev;
+      // Switching drives invalidates the current path/history (paths are drive-specific).
+      setCurrentPath(ONEDRIVE_BASE_PATH);
+      setHistory([]);
+      setSearchQuery('');
+      return next;
+    });
+  }, []);
 
   const breadcrumbs = useMemo((): BreadcrumbItem[] => {
     const parts = currentPath.split('/').filter(Boolean);
     const crumbs: BreadcrumbItem[] = [
-      { name: 'My Files', path: '' },
+      { name: source === 'onedrive' ? 'OneDrive' : 'Documents', path: '' },
     ];
     let accumulated = '';
     for (const part of parts) {
@@ -61,7 +73,7 @@ export function useDocumentLibrary() {
       crumbs.push({ name: part, path: accumulated });
     }
     return crumbs;
-  }, [currentPath]);
+  }, [currentPath, source]);
 
   const navigateToFolder = useCallback((folderPath: string) => {
     setHistory((prev) => [...prev, currentPath]);
@@ -140,6 +152,8 @@ export function useDocumentLibrary() {
 
   return {
     currentPath,
+    source,
+    setSource,
     items: filteredAndSorted,
     allItems: items,
     isLoading,

@@ -65,6 +65,43 @@ export async function apiFetchMultipart<T>(
   return handleApiResponse<T>(res);
 }
 
+/** Binary download with auth headers (the backend gates some routes by the Bearer token). */
+export async function apiFetchBlob(
+  path: string,
+): Promise<{ blob: Blob; filename: string }> {
+  const base = getApiBaseUrl();
+  const url = `${base}/api${path.startsWith('/') ? path : `/${path}`}`;
+  const headers = await buildApiHeaders(undefined, undefined);
+  const res = await fetch(url, { headers, cache: 'no-store' });
+  if (!res.ok) {
+    let message = res.statusText;
+    try {
+      const j = (await res.json()) as { message?: string };
+      if (typeof j.message === 'string') message = j.message;
+    } catch {
+      /* ignore non-JSON error bodies */
+    }
+    const err = new Error(message || `Download failed (${res.status})`) as Error & {
+      status?: number;
+    };
+    err.status = res.status;
+    throw err;
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get('content-disposition') ?? '';
+  const match = /filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(disposition);
+  let filename = '';
+  if (match?.[1]) {
+    const raw = match[1].replace(/"/g, '').trim();
+    try {
+      filename = decodeURIComponent(raw);
+    } catch {
+      filename = raw;
+    }
+  }
+  return { blob, filename };
+}
+
 async function buildApiHeaders(
   defaults?: HeadersInit,
   incoming?: HeadersInit,

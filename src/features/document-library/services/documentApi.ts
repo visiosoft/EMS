@@ -1,80 +1,41 @@
-import { apiFetch } from '@/api/config';
-import { requestGraphAccessToken, getActiveAccount, describeGraphAccessToken } from '@/auth/entra';
-import type { DocumentItem } from '../types';
+import { apiFetch, apiFetchBlob } from '@/api/config';
+import type { DocumentItem, DocumentSource } from '../types';
 
-function decodeJwt(token: string): Record<string, unknown> | null {
-    try {
-        const [, payload] = token.split('.');
-        if (!payload) return null;
-        const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
-        const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
-        return JSON.parse(atob(padded)) as Record<string, unknown>;
-    } catch {
-        return null;
-    }
+function buildQuery(path?: string, source?: DocumentSource): string {
+    const params = new URLSearchParams();
+    if (path) params.set('path', path);
+    if (source && source !== 'sharepoint') params.set('source', source);
+    const qs = params.toString();
+    return qs ? `?${qs}` : '';
 }
 
-async function buildGraphHeaders(): Promise<HeadersInit> {
-    const account = getActiveAccount();
-    if (!account) {
-        console.warn('[OneDriveApi] No active account found');
-        return {};
-    }
-
-    console.group('[OneDriveApi] Acquiring Graph token');
-    const token = await requestGraphAccessToken(account);
-    console.log('Token length:', token.length);
-    console.log('Token preview:', token.slice(0, 30) + '...');
-
-    const claims = decodeJwt(token);
-    if (claims) {
-        console.log('JWT aud:', claims.aud);
-        console.log('JWT scp:', claims.scp);
-        console.log('JWT exp:', new Date((claims.exp as number) * 1000).toISOString());
-        console.log('JWT oid:', claims.oid);
-        console.log('JWT idtyp:', claims.idtyp);
-    }
-    console.groupEnd();
-
-    const diagnostics = describeGraphAccessToken(token);
-    console.log('[OneDriveApi] Graph token diagnostics:', diagnostics);
-
-    return {
-        'X-SharePoint-Token': token,
-    } as HeadersInit;
+export async function fetchRootFolder(source?: DocumentSource): Promise<DocumentItem> {
+    return apiFetch<DocumentItem>('/documents/root' + buildQuery(undefined, source));
 }
 
-async function logAndFetch<T>(label: string, url: string, headers: HeadersInit): Promise<T> {
-    console.group(`[OneDriveApi] ${label}`);
-    console.log('URL:', url);
-    console.log('Headers present:', Object.keys(headers));
-    console.log('X-SharePoint-Token length:', (headers as Record<string, string>)['X-SharePoint-Token']?.length ?? 0);
-    const tokenPreview = (headers as Record<string, string>)['X-SharePoint-Token']?.slice(0, 30) ?? '(none)';
-    console.log('X-SharePoint-Token preview:', tokenPreview + '...');
-    console.groupEnd();
-
-    return apiFetch<T>(url, { headers });
+export async function fetchFolders(path?: string, source?: DocumentSource): Promise<DocumentItem[]> {
+    return apiFetch<DocumentItem[]>('/documents/folders' + buildQuery(path, source));
 }
 
-export async function fetchRootFolder(): Promise<DocumentItem> {
-    const graphHeaders = await buildGraphHeaders();
-    return logAndFetch<DocumentItem>('fetchRootFolder', '/documents/root', graphHeaders);
+export async function fetchFiles(path?: string, source?: DocumentSource): Promise<DocumentItem[]> {
+    return apiFetch<DocumentItem[]>('/documents/files' + buildQuery(path, source));
 }
 
-export async function fetchFolders(path?: string): Promise<DocumentItem[]> {
-    const params = path ? `?path=${encodeURIComponent(path)}` : '';
-    const graphHeaders = await buildGraphHeaders();
-    return logAndFetch<DocumentItem[]>('fetchFolders', `/documents/folders${params}`, graphHeaders);
+export async function fetchFolderContents(path?: string, source?: DocumentSource): Promise<DocumentItem[]> {
+    return apiFetch<DocumentItem[]>('/documents/folder' + buildQuery(path, source));
 }
 
-export async function fetchFiles(path?: string): Promise<DocumentItem[]> {
-    const params = path ? `?path=${encodeURIComponent(path)}` : '';
-    const graphHeaders = await buildGraphHeaders();
-    return logAndFetch<DocumentItem[]>('fetchFiles', `/documents/files${params}`, graphHeaders);
-}
-
-export async function fetchFolderContents(path?: string): Promise<DocumentItem[]> {
-    const params = path ? `?path=${encodeURIComponent(path)}` : '';
-    const graphHeaders = await buildGraphHeaders();
-    return logAndFetch<DocumentItem[]>('fetchFolderContents', `/documents/folder${params}`, graphHeaders);
+/** Streams the real file bytes through the backend and triggers a browser save. */
+export async function downloadFile(item: DocumentItem, source?: DocumentSource): Promise<void> {
+    const params = new URLSearchParams({ id: item.id });
+    if (source && source !== 'sharepoint') params.set('source', source);
+    const { blob, filename } = await apiFetchBlob(`/documents/download?${params.toString()}`);
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = filename || item.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(objectUrl);
 }

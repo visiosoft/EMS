@@ -1,7 +1,8 @@
-import { ChevronDown, ChevronLeft, File, Folder, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronLeft, Download, File, Folder, Loader2 } from "lucide-react";
 import { QUICK_LINKS } from "../constants/quickLinks";
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
 import { useSidebarDocuments } from "../../../features/document-library/hooks/useSidebarDocuments";
+import { downloadFile } from "../../../features/document-library/services/documentApi";
 
 function getFileIconColor(name: string): string {
   const ext = name.slice(name.lastIndexOf(".")).toLowerCase();
@@ -61,7 +62,6 @@ export function InternalQuickLinksSidebar() {
 
         <hr className="my-10 border-white/20 lg:my-12" />
 
-        {/* Documents section temporarily hidden */}
         <section className="animate-slide-up">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-xl font-semibold tracking-[0.02em] text-white">Documents</h2>
@@ -90,8 +90,20 @@ export function InternalQuickLinksSidebar() {
                 </button>
               </div>
             ) : items.length === 0 ? (
-              <div className="px-4 py-6 text-center text-sm text-neutral-500">
-                This folder is empty
+              <div>
+                {canGoUp && (
+                  <button
+                    type="button"
+                    onClick={goUp}
+                    className="grid w-full grid-cols-[26px_1fr] items-center border-b border-neutral-100 px-4 py-3 text-left text-[14px] text-neutral-500 transition-colors hover:bg-neutral-100"
+                  >
+                    <ChevronLeft className="h-4 w-4" aria-hidden />
+                    <span>..</span>
+                  </button>
+                )}
+                <div className="px-4 py-6 text-center text-sm text-neutral-500">
+                  {canGoUp ? "No documents in this folder" : "No documents available to you yet"}
+                </div>
               </div>
             ) : (
               <ul>
@@ -109,26 +121,45 @@ export function InternalQuickLinksSidebar() {
                 )}
                 {items.map((item) => {
                   const isFolder = item.type === "folder";
+                  if (isFolder) {
+                    return (
+                      <li key={item.id} className="border-b border-neutral-100 last:border-b-0">
+                        <button
+                          type="button"
+                          onClick={() => navigateToFolder(item.path)}
+                          className="grid w-full grid-cols-[26px_1fr] items-center px-4 py-3 text-left text-[14px] text-neutral-800 transition-colors hover:bg-neutral-100"
+                        >
+                          <Folder className="h-4 w-4 text-amber-500" aria-hidden />
+                          <span className="truncate" title={item.name}>{item.name}</span>
+                        </button>
+                      </li>
+                    );
+                  }
                   return (
                     <li key={item.id} className="border-b border-neutral-100 last:border-b-0">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (isFolder) {
-                            navigateToFolder(item.path);
-                          } else {
-                            window.open(item.url, "_blank");
-                          }
-                        }}
-                        className="grid w-full grid-cols-[26px_1fr] items-center px-4 py-3 text-left text-[14px] text-neutral-800 transition-colors hover:bg-neutral-100"
-                      >
-                        {isFolder ? (
-                          <Folder className="h-4 w-4 text-amber-500" aria-hidden />
-                        ) : (
+                      <div className="grid w-full grid-cols-[1fr_36px] items-center transition-colors hover:bg-neutral-100">
+                        <button
+                          type="button"
+                          onClick={() => window.open(item.url, "_blank")}
+                          className="grid grid-cols-[26px_1fr] items-center px-4 py-3 text-left text-[14px] text-neutral-800"
+                        >
                           <File className={`h-4 w-4 ${getFileIconColor(item.name)}`} aria-hidden />
-                        )}
-                        <span className="truncate" title={item.name}>{item.name}</span>
-                      </button>
+                          <span className="truncate" title={item.name}>{item.name}</span>
+                        </button>
+                        <button
+                          type="button"
+                          title={`Download ${item.name}`}
+                          aria-label={`Download ${item.name}`}
+                          onClick={() => {
+                            void downloadFile(item).catch((err) => {
+                              console.error("Download failed", err);
+                            });
+                          }}
+                          className="flex h-full items-center justify-center text-neutral-400 transition-colors hover:text-neutral-800"
+                        >
+                          <Download className="h-4 w-4" aria-hidden />
+                        </button>
+                      </div>
                     </li>
                   );
                 })}

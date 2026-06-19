@@ -1,5 +1,7 @@
 export type DocumentItemType = 'folder' | 'file';
 
+export type DocumentSource = 'sharepoint' | 'onedrive';
+
 export type DocumentItem = {
   id: string;
   name: string;

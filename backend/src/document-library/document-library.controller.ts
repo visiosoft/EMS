@@ -1,138 +1,207 @@
-import { Controller, Get, Headers, HttpException, HttpStatus, Logger, Query, UnauthorizedException, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  ForbiddenException,
+  Get,
+  HttpException,
+  Logger,
+  Query,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import type { Request, Response } from 'express';
+import { Readable } from 'node:stream';
 import { InternalAccessGuard } from '../internal-access/internal-access.guard';
-import { DocumentLibraryService } from './document-library.service';
-import { FolderQueryDto } from './dto/document-query.dto';
+import {
+  EntraTokenVerifier,
+  getOptionalBearerToken,
+} from '../auth/entra-token-verifier.service';
+import {
+  DocumentLibraryService,
+  type DocumentItem,
+  type DocumentSource,
+} from './document-library.service';
 
-function decodeJwt(token: string): Record<string, unknown> | null {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    const normalized = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
-    return JSON.parse(Buffer.from(padded, 'base64').toString()) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
-function logTokenDiagnostics(logger: Logger, label: string, token: string | undefined): void {
-  if (!token) {
-    logger.warn(`[${label}] No token received`);
-    return;
-  }
-  logger.log(`[${label}] Token length: ${token.length}`);
-  logger.log(`[${label}] Token preview: ${token.slice(0, 30)}...`);
-
-  const claims = decodeJwt(token);
-  if (claims) {
-    logger.log(`[${label}] JWT aud: ${claims.aud}`);
-    logger.log(`[${label}] JWT scp: ${claims.scp}`);
-    logger.log(`[${label}] JWT exp: ${claims.exp ? new Date((claims.exp as number) * 1000).toISOString() : 'unknown'}`);
-    logger.log(`[${label}] JWT oid: ${claims.oid}`);
-    logger.log(`[${label}] JWT idtyp: ${claims.idtyp}`);
-  }
-}
+type OwnerIdentity = { oid?: string; emails: string[] };
+import { DownloadQueryDto, FolderQueryDto } from './dto/document-query.dto';
 
 @UseGuards(InternalAccessGuard)
 @Controller('documents')
 export class DocumentLibraryController {
   private readonly logger = new Logger(DocumentLibraryController.name);
 
-  constructor(private readonly documentLibraryService: DocumentLibraryService) {}
+  constructor(
+    private readonly documentLibraryService: DocumentLibraryService,
+    private readonly tokenVerifier: EntraTokenVerifier,
+    private readonly config: ConfigService,
+  ) {}
 
-  @Get('diag')
-  diag(@Headers('x-sharepoint-token') token: string) {
-    if (!token) return { error: 'Missing X-SharePoint-Token header' };
-    const parts = token.split('.');
-    let claims: Record<string, unknown> = {};
-    if (parts.length === 3) {
-      try {
-        claims = JSON.parse(
-          Buffer.from(parts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString(),
-        ) as Record<string, unknown>;
-      } catch { /* ignore */ }
+  /**
+   * Resolves the effective document source. The OneDrive source is gated to a single
+   * configured identity (DOCUMENT_TOGGLE_USER): any other caller is rejected so the
+   * fixed user's OneDrive can't be reached by hand-crafting `?source=onedrive`.
+   * Verification relies on the signed Entra bearer token, never the spoofable X-User-* headers.
+   */
+  private async resolveSource(req: Request, requested?: DocumentSource): Promise<DocumentSource> {
+    if (requested !== 'onedrive') return 'sharepoint';
+
+    const allowed = (this.config.get<string>('DOCUMENT_TOGGLE_USER') ?? '').trim().toLowerCase();
+    if (!allowed) {
+      throw new ForbiddenException('OneDrive source is not enabled (DOCUMENT_TOGGLE_USER is not configured).');
     }
-    return {
-      tokenLength: token.length,
-      tokenPreview: token.slice(0, 20) + '...',
-      claims: {
-        aud: claims.aud,
-        iss: claims.iss,
-        scp: claims.scp,
-        roles: claims.roles,
-        tid: claims.tid,
-        exp: claims.exp ? new Date((claims.exp as number) * 1000).toISOString() : undefined,
-        nbf: claims.nbf ? new Date((claims.nbf as number) * 1000).toISOString() : undefined,
-      },
-    };
+
+    const token = getOptionalBearerToken(req.headers.authorization);
+    if (!token) {
+      throw new ForbiddenException('Sign-in required to access the OneDrive source.');
+    }
+
+    let identities: string[];
+    try {
+      const user = await this.tokenVerifier.verify(token);
+      identities = [user.oid, user.email, user.preferred_username, user.upn]
+        .filter((v): v is string => typeof v === 'string' && v.length > 0)
+        .map((v) => v.toLowerCase());
+    } catch (error) {
+      // Surface why verification failed (expected vs actual audience/issuer) so it's diagnosable.
+      throw new ForbiddenException({
+        message: 'Invalid or expired token; OneDrive source denied.',
+        detail: this.tokenVerifier.buildTokenValidationDetail(token, error),
+      });
+    }
+
+    if (!identities.includes(allowed)) {
+      throw new ForbiddenException('You are not authorized to use the OneDrive source.');
+    }
+    return 'onedrive';
+  }
+
+  /**
+   * Identifies the caller from their verified Entra token. Returns null when no valid token is
+   * present — callers use that to return an empty SharePoint listing (we can't tell what's "mine").
+   */
+  private async getCallerIdentity(req: Request): Promise<OwnerIdentity | null> {
+    const token = getOptionalBearerToken(req.headers.authorization);
+    if (!token) return null;
+    try {
+      const user = await this.tokenVerifier.verify(token);
+      const emails = [user.email, user.preferred_username, user.upn]
+        .filter((v): v is string => typeof v === 'string' && v.length > 0)
+        .map((v) => v.toLowerCase());
+      return { oid: user.oid?.toLowerCase(), emails };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Keeps all folders (so shared folders stay navigable) and only files the caller created,
+   * matched on the Entra oid (createdBy.user.id) or email.
+   */
+  private filterOwnedFiles(items: DocumentItem[], identity: OwnerIdentity): DocumentItem[] {
+    return items.filter((item) => {
+      if (item.type === 'folder') return true;
+      const ownerId = item.createdById?.toLowerCase();
+      const ownerEmail = item.createdByEmail?.toLowerCase();
+      if (identity.oid && ownerId && ownerId === identity.oid) return true;
+      if (ownerEmail && identity.emails.includes(ownerEmail)) return true;
+      return false;
+    });
+  }
+
+  /**
+   * The shared SharePoint library is always filtered to the caller's own files (folders stay visible).
+   * OneDrive is left untouched — its admin gate already restricts who can read it.
+   */
+  private async applyOwnershipFilter(
+    req: Request,
+    source: DocumentSource,
+    items: DocumentItem[],
+  ): Promise<DocumentItem[]> {
+    if (source !== 'sharepoint') return items;
+    const identity = await this.getCallerIdentity(req);
+    if (!identity) return [];
+    return this.filterOwnedFiles(items, identity);
   }
 
   @Get('root')
-  async getRoot(@Headers('x-sharepoint-token') token: string) {
-    logTokenDiagnostics(this.logger, 'getRoot', token);
-    if (!token) throw new UnauthorizedException('Missing X-SharePoint-Token header');
+  async getRoot(@Req() req: Request, @Query() query: FolderQueryDto) {
     try {
-      return await this.documentLibraryService.getRootFolder(token);
+      const source = await this.resolveSource(req, query.source);
+      return await this.documentLibraryService.getRootFolder(source);
     } catch (error) {
-      this.logger.error(`Error fetching root: ${error instanceof Error ? error.message : String(error)}`);
-      const errResponse = extractErrorDetail(error);
-      throw new HttpException({
-        message: errResponse.message,
-        detail: errResponse.detail,
-        suggestion: errResponse.suggestion,
-      }, errResponse.status);
+      throw this.toHttpException('root', error);
     }
   }
 
   @Get('folders')
-  async getFolders(@Query() query: FolderQueryDto, @Headers('x-sharepoint-token') token: string) {
-    logTokenDiagnostics(this.logger, 'getFolders', token);
-    if (!token) throw new UnauthorizedException('Missing X-SharePoint-Token header');
+  async getFolders(@Req() req: Request, @Query() query: FolderQueryDto) {
     try {
-      return await this.documentLibraryService.getFolders(token, query.path);
+      const source = await this.resolveSource(req, query.source);
+      const items = await this.documentLibraryService.getFolders(query.path, source);
+      return await this.applyOwnershipFilter(req, source, items);
     } catch (error) {
-      this.logger.error(`Error fetching folders: ${error instanceof Error ? error.message : String(error)}`);
-      const errResponse = extractErrorDetail(error);
-      throw new HttpException({
-        message: errResponse.message,
-        detail: errResponse.detail,
-        suggestion: errResponse.suggestion,
-      }, errResponse.status);
+      throw this.toHttpException('folders', error);
     }
   }
 
   @Get('files')
-  async getFiles(@Query() query: FolderQueryDto, @Headers('x-sharepoint-token') token: string) {
-    logTokenDiagnostics(this.logger, 'getFiles', token);
-    if (!token) throw new UnauthorizedException('Missing X-SharePoint-Token header');
+  async getFiles(@Req() req: Request, @Query() query: FolderQueryDto) {
     try {
-      return await this.documentLibraryService.getFiles(token, query.path);
+      const source = await this.resolveSource(req, query.source);
+      const items = await this.documentLibraryService.getFiles(query.path, source);
+      return await this.applyOwnershipFilter(req, source, items);
     } catch (error) {
-      this.logger.error(`Error fetching files: ${error instanceof Error ? error.message : String(error)}`);
-      const errResponse = extractErrorDetail(error);
-      throw new HttpException({
-        message: errResponse.message,
-        detail: errResponse.detail,
-        suggestion: errResponse.suggestion,
-      }, errResponse.status);
+      throw this.toHttpException('files', error);
     }
   }
 
   @Get('folder')
-  async getFolderContents(@Query() query: FolderQueryDto, @Headers('x-sharepoint-token') token: string) {
-    logTokenDiagnostics(this.logger, 'getFolderContents', token);
-    if (!token) throw new UnauthorizedException('Missing X-SharePoint-Token header');
+  async getFolderContents(@Req() req: Request, @Query() query: FolderQueryDto) {
     try {
-      return await this.documentLibraryService.getFolderContents(token, query.path);
+      const source = await this.resolveSource(req, query.source);
+      const items = await this.documentLibraryService.getFolderContents(query.path, source);
+      return await this.applyOwnershipFilter(req, source, items);
     } catch (error) {
-      this.logger.error(`Error fetching folder contents: ${error instanceof Error ? error.message : String(error)}`);
-      const errResponse = extractErrorDetail(error);
-      throw new HttpException({
+      throw this.toHttpException('folder contents', error);
+    }
+  }
+
+  @Get('download')
+  async download(
+    @Req() req: Request,
+    @Res() res: Response,
+    @Query() query: DownloadQueryDto,
+  ) {
+    try {
+      const source = await this.resolveSource(req, query.source);
+      const file = await this.documentLibraryService.downloadItem(query.id, source);
+      res.setHeader('Content-Type', file.contentType);
+      if (file.contentLength) res.setHeader('Content-Length', file.contentLength);
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${file.filename.replace(/"/g, '')}"`,
+      );
+      Readable.fromWeb(file.stream as Parameters<typeof Readable.fromWeb>[0]).pipe(res);
+    } catch (error) {
+      throw this.toHttpException('download', error);
+    }
+  }
+
+  private toHttpException(context: string, error: unknown): HttpException {
+    if (error instanceof HttpException) return error;
+    this.logger.error(
+      `Error fetching ${context}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    const errResponse = extractErrorDetail(error);
+    return new HttpException(
+      {
         message: errResponse.message,
         detail: errResponse.detail,
         suggestion: errResponse.suggestion,
-      }, errResponse.status);
-    }
+      },
+      errResponse.status,
+    );
   }
 }
 
@@ -170,7 +239,6 @@ function extractErrorDetail(error: unknown): ErrorResponse & { status: number } 
     return fallback;
   }
 
-  // Generic non-Graph error (e.g. network timeout, DNS failure)
   if (!('status' in error)) {
     fallback.message = error.message || fallback.message;
     fallback.detail = error.stack || '';
@@ -180,29 +248,15 @@ function extractErrorDetail(error: unknown): ErrorResponse & { status: number } 
   const graphErr = error as Error & { status: number; statusText: string; body: string };
   const status = graphErr.status ?? 500;
 
-  console.error(`[GraphAPI] Raw error body: ${graphErr.body || '(empty)'}`);
-
   const graphError = parseGraphErrorBody(graphErr.body);
 
   switch (status) {
     case 401: {
-      const code = graphError?.code || 'unknown';
-
-      if (code === 'accessDenied' || code === 'InvalidAuthenticationToken') {
-        return {
-          status: 401,
-          title: 'OneDrive not available',
-          message: "Your account doesn't have a OneDrive for Business license, or it hasn't been provisioned yet.",
-          suggestion: 'Contact your IT administrator to get OneDrive for Business enabled for your account.',
-          detail: graphErr.body || '',
-        };
-      }
-
       return {
         status: 401,
-        title: 'Access token issue',
-        message: graphError?.message || 'Your session token could not be authenticated.',
-        suggestion: 'Try refreshing the page. If the issue persists, sign out and sign back in.',
+        title: 'Authentication failed',
+        message: 'The document library service could not authenticate with Microsoft Graph.',
+        suggestion: 'Check that ENTRA_CLIENT_ID and ENTRA_CLIENT_SECRET are configured correctly in the backend environment.',
         detail: graphErr.body || '',
       };
     }
@@ -211,8 +265,8 @@ function extractErrorDetail(error: unknown): ErrorResponse & { status: number } 
       return {
         status: 403,
         title: 'Permission denied',
-        message: graphError?.message || "You don't have permission to access this document library.",
-        suggestion: 'Contact your IT administrator to request access.',
+        message: graphError?.message || "The application doesn't have permission to access this document library.",
+        suggestion: 'Verify that the Files.Read.All (Application) permission is granted and admin-consented in Azure AD.',
         detail: graphErr.body || '',
       };
     }
@@ -220,9 +274,9 @@ function extractErrorDetail(error: unknown): ErrorResponse & { status: number } 
     case 404: {
       return {
         status: 404,
-        title: 'Folder not found',
-        message: 'The requested folder or document library could not be found.',
-        suggestion: 'It may have been moved, renamed, or deleted. Contact your IT administrator if you believe this is an error.',
+        title: 'Document library not found',
+        message: 'The requested document library could not be found.',
+        suggestion: 'Verify the SharePoint site exists and has a default document library.',
         detail: graphErr.body || '',
       };
     }

@@ -1,6 +1,6 @@
 import { CommandBar } from '@fluentui/react';
 import type { ICommandBarItemProps } from '@fluentui/react';
-import type { SortField, SortDirection, ViewMode } from '../types';
+import type { DocumentSource, SortField, SortDirection, ViewMode } from '../types';
 import { DocumentSearchBar } from './SearchBar';
 
 type ToolbarProps = {
@@ -14,6 +14,10 @@ type ToolbarProps = {
   onRefresh: () => void;
   onNewFolder?: () => void;
   onUpload?: () => void;
+  source: DocumentSource;
+  onSourceChange: (source: DocumentSource) => void;
+  /** When true, render the admin-only SharePoint/OneDrive source switch. */
+  showSourceToggle?: boolean;
 };
 
 export function DocumentToolbar({
@@ -25,11 +29,43 @@ export function DocumentToolbar({
   onToggleSort,
   onToggleView,
   onRefresh,
+  source,
+  onSourceChange,
+  showSourceToggle = false,
 }: ToolbarProps) {
   const sortLabel = `Sort by ${sortField === 'name' ? 'Name' : sortField === 'modified' ? 'Date modified' : 'Type'}`;
   const sortIcon = sortDirection === 'asc' ? 'SortUp' : 'SortDown';
 
   const farItems: ICommandBarItemProps[] = [
+    ...(showSourceToggle
+      ? [
+          {
+            key: 'sourceToggle',
+            text: source === 'onedrive' ? 'OneDrive' : 'SharePoint',
+            iconProps: { iconName: source === 'onedrive' ? 'OneDrive' : 'SharepointLogo' },
+            subMenuProps: {
+              items: [
+                {
+                  key: 'sharepoint',
+                  text: 'SharePoint',
+                  iconProps: { iconName: 'SharepointLogo' },
+                  canCheck: true,
+                  isChecked: source === 'sharepoint',
+                  onClick: () => onSourceChange('sharepoint'),
+                },
+                {
+                  key: 'onedrive',
+                  text: 'OneDrive',
+                  iconProps: { iconName: 'OneDrive' },
+                  canCheck: true,
+                  isChecked: source === 'onedrive',
+                  onClick: () => onSourceChange('onedrive'),
+                },
+              ],
+            },
+          } as ICommandBarItemProps,
+        ]
+      : []),
     {
       key: 'viewToggle',
       text: viewMode === 'list' ? 'Grid view' : 'List view',
