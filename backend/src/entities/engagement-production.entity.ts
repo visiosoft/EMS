@@ -14,4 +14,7 @@ export class EngagementProduction {
 
   @Column({ name: 'LoadInDate', type: 'date', nullable: true })
   loadInDate: string | null;
+
+  @Column({ name: 'AnnouncementDate', type: 'date', nullable: true })
+  announcementDate: string | null;
 }

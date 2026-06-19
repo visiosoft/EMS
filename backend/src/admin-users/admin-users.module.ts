@@ -4,11 +4,12 @@ import { AuditModule } from '../audit/audit.module';
 import { AdminUsersController } from './admin-users.controller';
 import { AdminUsersService } from './admin-users.service';
 import { EntraAuthGuard } from './entra-auth.guard';
+import { InternalContactSyncService } from './internal-contact-sync.service';
 
 @Module({
   imports: [ConfigModule, AuditModule],
   controllers: [AdminUsersController],
-  providers: [AdminUsersService, EntraAuthGuard],
+  providers: [AdminUsersService, EntraAuthGuard, InternalContactSyncService],
   exports: [AdminUsersService],
 })
 export class AdminUsersModule {}

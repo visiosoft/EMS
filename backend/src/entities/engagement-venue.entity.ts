@@ -11,4 +11,7 @@ export class EngagementVenue extends AuditColumns {
 
   @Column({ name: 'IsPrimary', type: 'bit' })
   isPrimary: boolean;
+
+  @Column({ name: 'VenueBookingManagerContactID', type: 'int', nullable: true })
+  venueBookingManagerContactId: number | null;
 }

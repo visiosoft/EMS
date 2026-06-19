@@ -1,7 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, RotateCcw, Trash2 } from 'lucide-react';
+import { Info, Loader2, RotateCcw, Trash2 } from 'lucide-react';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import {
   ActionMenu,
   Avatar,
@@ -52,12 +58,23 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import Swal from 'sweetalert2';
 import { Button } from '@/components/ui/button';
 import {
   fetchAdminUsers,
   getGraphRequestErrorDetail,
   type GraphRequestErrorDetail,
 } from '@/api/adminUsersApi';
+import {
+  applyEmsToEntraContactSync,
+  applyEntraToEmsContactSync,
+  previewEmsToEntraContactSync,
+  previewEntraToEmsContactSync,
+  type InternalContactSyncActionType,
+  type InternalContactSyncApplyResult,
+  type InternalContactSyncPreview,
+  type InternalContactSyncRow,
+} from '@/api/internalContactSyncApi';
 import {
   describeGraphAccessToken,
   getActiveAccount,
@@ -71,6 +88,16 @@ interface UserRow {
   name: string;
   role: string;
   email: string;
+  jobTitle?: string;
+  department?: string;
+  employeeType?: string;
+  officeLocation?: string;
+  city?: string;
+  mobilePhone?: string;
+  businessPhones?: string[];
+  companyName?: string;
+  accountEnabled?: boolean;
+  userType?: string;
   lastLogin: string;
   status?: 'Active' | 'Disabled';
 }
@@ -339,6 +366,756 @@ function getDirectoryDiagnosticHint(diagnostics: DirectoryDiagnostics | null): s
   return 'The token has the expected Microsoft Graph audience and delegated scope.';
 }
 
+type InternalContactSyncDirection = 'entraToEms' | 'emsToEntra';
+
+const SELECTABLE_SYNC_TYPES = new Set<InternalContactSyncActionType>([
+  'create',
+  'update',
+  'remove',
+  'disable',
+]);
+
+function syncDirectionLabel(direction: InternalContactSyncDirection): string {
+  return direction === 'entraToEms' ? 'Entra -> EMS' : 'EMS -> Entra';
+}
+
+function syncTypeLabel(type: InternalContactSyncActionType): string {
+  switch (type) {
+    case 'create':
+      return 'Create';
+    case 'update':
+      return 'Update';
+    case 'remove':
+      return 'Remove';
+    case 'disable':
+      return 'Disable';
+    case 'upToDate':
+      return 'Up to date';
+    case 'possibleDuplicate':
+      return 'Possible duplicate';
+    case 'duplicateConflict':
+      return 'Conflict';
+    case 'emsOnly':
+      return 'EMS only';
+    case 'skipped':
+      return 'Skipped';
+    default:
+      return type;
+  }
+}
+
+function syncTypeBadgeClass(type: InternalContactSyncActionType): string {
+  switch (type) {
+    case 'create':
+      return 'bg-ems-accent-dim text-ems-accent border-ems-accent/30';
+    case 'update':
+      return 'bg-ems-blue/10 text-ems-blue border-ems-blue/30';
+    case 'remove':
+    case 'disable':
+      return 'bg-ems-coral-dim text-ems-coral border-ems-coral/30';
+    case 'possibleDuplicate':
+    case 'duplicateConflict':
+      return 'bg-ems-amber/15 text-ems-amber border-ems-amber/30';
+    case 'emsOnly':
+    case 'skipped':
+      return 'bg-ems-coral-dim text-ems-coral border-ems-coral/30';
+    default:
+      return 'bg-elevated text-text-secondary border-border';
+  }
+}
+
+function syncRowPrimaryName(row: InternalContactSyncRow): string {
+  return row.entraName || row.emsName || 'Contact';
+}
+
+function renderSyncChange(
+  change: InternalContactSyncRow['changes'][number],
+  options?: {
+    selectable?: boolean;
+    selected?: boolean;
+    onToggle?: (checked: boolean) => void;
+  }
+) {
+  const isJobTitleWarning = change.reason && change.reason.includes('column has not been added yet');
+  const shortReason = isJobTitleWarning ? 'no column' : change.reason;
+
+  return (
+    <div key={`${change.field}-${change.to ?? ''}`} className="text-xs text-text-secondary flex flex-wrap items-center gap-1.5 leading-relaxed">
+      {options?.selectable && !change.skipped ? (
+        <input
+          type="checkbox"
+          className="h-3.5 w-3.5 accent-ems-accent cursor-pointer"
+          checked={options.selected ?? true}
+          onChange={(e) => options.onToggle?.(e.target.checked)}
+          aria-label={`Sync ${change.label}`}
+        />
+      ) : null}
+      <span className="font-semibold text-text-primary">{change.label}</span>
+      <span className="text-text-muted">{change.skipped ? 'skipped' : '->'}</span>
+      <span className="truncate max-w-[200px]" title={change.to || ''}>{change.to || '—'}</span>
+      {change.reason && (
+        <span
+          className="inline-flex items-center rounded bg-ems-amber/10 border border-ems-amber/20 px-1 py-0.2 text-[10px] font-medium text-ems-amber cursor-help"
+          title={change.reason}
+        >
+          {shortReason}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function SyncPreviewModal({
+  open,
+  direction,
+  loading,
+  error,
+  preview,
+  applying,
+  selectedActionIds,
+  manualMappings,
+  selectedActionFields,
+  onToggleAction,
+  onManualMappingChange,
+  onToggleActionField,
+  onToggleAllActions,
+  onApply,
+  onClose,
+}: {
+  open: boolean;
+  direction: InternalContactSyncDirection;
+  loading: boolean;
+  error: string | null;
+  preview: InternalContactSyncPreview | null;
+  applying: boolean;
+  selectedActionIds: Set<string>;
+  manualMappings: Record<string, string>;
+  selectedActionFields: Record<string, Set<string>>;
+  onToggleAction: (actionId: string, checked: boolean) => void;
+  onManualMappingChange: (actionId: string, contactId: string) => void;
+  onToggleActionField: (actionId: string, field: string, checked: boolean, allFields: string[]) => void;
+  onToggleAllActions: (actionIds: string[], checked: boolean) => void;
+  onApply: () => void;
+  onClose: () => void;
+}) {
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const filteredRows = useMemo(() => {
+    if (!preview) return [];
+    if (!searchQuery.trim()) return preview.rows;
+    const q = searchQuery.toLowerCase();
+    return preview.rows.filter(
+      (r) =>
+        r.entraName?.toLowerCase().includes(q) ||
+        r.entraEmail?.toLowerCase().includes(q) ||
+        r.emsName?.toLowerCase().includes(q) ||
+        r.emsEmail?.toLowerCase().includes(q)
+    );
+  }, [preview, searchQuery]);
+
+  const handleApplyClick = () => {
+    Swal.fire({
+      title: 'Confirm Synchronization',
+      html: `You are about to apply <b>${applyCount}</b> selected action${applyCount !== 1 ? 's' : ''}.<br/>Are you sure you want to proceed?`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, Apply',
+      cancelButtonText: 'Cancel',
+      customClass: {
+        popup: 'rounded-xl border border-border shadow-2xl bg-surface',
+        title: 'text-text-primary text-xl font-semibold',
+        htmlContainer: 'text-text-secondary text-sm',
+        confirmButton: 'bg-ems-accent text-white px-4 py-2 rounded-md font-medium hover:bg-ems-accent/90 transition-colors',
+        cancelButton: 'bg-surface border border-border text-text-primary px-4 py-2 rounded-md font-medium hover:bg-hover transition-colors ml-3'
+      },
+      buttonsStyling: false,
+    }).then((result) => {
+      if (result.isConfirmed) {
+        onApply();
+      }
+    });
+  };
+
+  if (!open) return null;
+
+  const manualMappingCount = preview
+    ? preview.rows.filter((r) => r.type === 'possibleDuplicate' && manualMappings[r.actionId]).length
+    : 0;
+  const applyCount = selectedActionIds.size + manualMappingCount;
+
+  const countItems: Array<[string, number]> = preview
+    ? [
+        ['Updates', preview.counts.update],
+        ['Creates', preview.counts.create],
+        ['Removes', preview.counts.remove],
+        ['Disables', preview.counts.disable],
+        ['Possible duplicates', preview.counts.possibleDuplicate],
+        ['Conflicts', preview.counts.duplicateConflict],
+        ['EMS only', preview.counts.emsOnly],
+        ['Up to date', preview.counts.upToDate],
+        ['Skipped', preview.counts.skipped],
+      ]
+    : [];
+
+  const titleLabel = direction === 'entraToEms' ? 'Entra → EMS' : 'EMS → Entra';
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" aria-hidden />
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="relative z-[1] flex w-full flex-col overflow-hidden rounded-xl border border-border bg-elevated shadow-2xl animate-fade-in"
+        style={{ maxWidth: 'min(1280px, 95vw)', maxHeight: 'min(90dvh, calc(100svh - 2rem))' }}
+      >
+        {/* Full-modal Applying Loader Overlay */}
+        {applying && (
+          <div className="absolute inset-0 z-[50] flex flex-col items-center justify-center bg-elevated/80 backdrop-blur-[2px] animate-in fade-in duration-200">
+            <div className="relative flex h-16 w-16 items-center justify-center">
+              <div className="absolute inset-0 rounded-full border-4 border-ems-accent/20" />
+              <Loader2 className="h-8 w-8 animate-spin text-ems-accent" />
+            </div>
+            <div className="mt-4 text-center px-4">
+              <p className="text-sm font-semibold text-text-primary">Applying changes…</p>
+              <p className="mt-1 text-xs text-text-muted">Updating contact directories. Please do not close this window.</p>
+            </div>
+          </div>
+        )}
+
+        {/* Header */}
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-ems-accent-dim">
+              <svg className="h-4 w-4 text-ems-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold text-text-primary truncate">Contact Sync Preview — {titleLabel}</h2>
+              {preview && (
+                <p className="text-xs text-text-secondary truncate">
+                  {direction === 'entraToEms'
+                    ? `Entra is the source of truth · ${preview.internalCompany.companyName}`
+                    : `EMS is the source of truth · ${preview.internalCompany.companyName}`}
+                </p>
+              )}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={applying}
+            className="shrink-0 flex h-8 w-8 items-center justify-center rounded-lg text-text-muted hover:bg-hover hover:text-text-primary transition-colors disabled:opacity-40"
+            aria-label="Close"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 space-y-4">
+
+          {/* Loading state */}
+          {loading && (
+            <div className="flex flex-col items-center justify-center gap-4 py-20">
+              <div className="relative flex h-16 w-16 items-center justify-center">
+                <div className="absolute inset-0 rounded-full border-4 border-ems-accent/20" />
+                <Loader2 className="h-8 w-8 animate-spin text-ems-accent" />
+              </div>
+              <div className="text-center">
+                <p className="text-sm font-semibold text-text-primary">Fetching sync preview…</p>
+                <p className="mt-1 text-xs text-text-muted">Comparing {titleLabel} contacts. This may take a moment.</p>
+              </div>
+            </div>
+          )}
+
+          {/* Error state (Preview failed) */}
+          {!loading && error && !preview && (
+            <div className="flex flex-col items-center justify-center gap-4 py-16">
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-ems-coral-dim">
+                <svg className="h-7 w-7 text-ems-coral" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
+              </div>
+              <div className="text-center max-w-md">
+                <p className="text-sm font-semibold text-text-primary">Preview failed</p>
+                <p className="mt-1 text-xs text-ems-coral leading-relaxed">{error}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Data state */}
+          {!loading && preview && (
+            <>
+              {/* Apply Error Banner */}
+              {error && (
+                <div className="flex items-start gap-3 rounded-lg border border-ems-coral/30 bg-ems-coral/10 px-4 py-3 shadow-sm animate-in slide-in-from-top-2">
+                  <svg className="h-5 w-5 shrink-0 mt-0.5 text-ems-coral" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                  <div>
+                    <h3 className="text-sm font-semibold text-ems-coral">Sync Application Failed</h3>
+                    <p className="mt-1 text-xs text-ems-coral/90 leading-relaxed">{error}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Warnings */}
+              {preview.warnings.map((w) => (
+                <div key={w} className="flex items-start gap-2.5 rounded-lg border border-ems-amber/30 bg-ems-amber/10 px-3 py-2.5">
+                  <svg className="h-4 w-4 shrink-0 mt-0.5 text-ems-amber" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
+                  <p className="text-xs text-ems-amber leading-relaxed">{w}</p>
+                </div>
+              ))}
+
+              {/* Count chips */}
+              <div className="flex flex-wrap gap-2">
+                {countItems.filter(([, v]) => v > 0).map(([label, value]) => (
+                  <span key={label} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs">
+                    <span className="text-base font-bold text-text-primary tabular-nums">{value}</span>
+                    <span className="text-text-muted">{label}</span>
+                  </span>
+                ))}
+                {countItems.every(([, v]) => v === 0) && (
+                  <div className="flex items-center gap-2 rounded-lg border border-ems-green/30 bg-ems-green/10 px-3 py-2">
+                    <svg className="h-4 w-4 text-ems-green" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                    <p className="text-xs font-medium text-ems-green">Everything is in sync — no changes needed.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Controls */}
+              {preview.rows.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-4 py-2 border-b border-border/60">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder="Search name or email..."
+                      className="w-64 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary focus:border-ems-accent focus:outline-none placeholder:text-text-muted"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="rounded bg-ems-accent/10 px-3 py-1.5 text-xs font-semibold text-ems-accent hover:bg-ems-accent/20 transition-colors"
+                      onClick={() => {
+                        const selectableActionIds = filteredRows.filter(r => SELECTABLE_SYNC_TYPES.has(r.type)).map(r => r.actionId);
+                        onToggleAllActions(selectableActionIds, true);
+                      }}
+                    >
+                      Check All
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded bg-border/50 px-3 py-1.5 text-xs font-semibold text-text-secondary hover:bg-border/70 transition-colors"
+                      onClick={() => {
+                        const selectableActionIds = filteredRows.filter(r => SELECTABLE_SYNC_TYPES.has(r.type)).map(r => r.actionId);
+                        onToggleAllActions(selectableActionIds, false);
+                      }}
+                    >
+                      Uncheck All
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Table */}
+              {filteredRows.length > 0 ? (
+                <div className="overflow-x-auto rounded-lg border border-border">
+                  <table className="w-full min-w-[1100px] text-sm table-fixed">
+                    <colgroup>
+                      <col className="w-[50px]" />
+                      <col className="w-[120px]" />
+                      <col className="w-[210px]" />
+                      <col className="w-[210px]" />
+                      <col className="w-[310px]" />
+                      <col className="w-[200px]" />
+                    </colgroup>
+                    <thead>
+                      <tr className="border-b border-border bg-surface text-xs text-text-muted">
+                        <th className="px-3 py-2.5 text-left">Apply</th>
+                        <th className="px-3 py-2.5 text-left">Action</th>
+                        <th className="px-3 py-2.5 text-left">Entra</th>
+                        <th className="px-3 py-2.5 text-left">EMS</th>
+                        <th className="px-3 py-2.5 text-left">Changes</th>
+                        <th className="px-3 py-2.5 text-left">Duplicate match</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredRows.map((row) => {
+                        const selectable = SELECTABLE_SYNC_TYPES.has(row.type);
+                        const selected = selectedActionIds.has(row.actionId);
+                        return (
+                          <tr
+                            key={row.actionId}
+                            className={`border-b border-border/60 align-top transition-colors ${
+                              selected ? 'bg-ems-accent-dim/30' : 'hover:bg-hover/50'
+                            }`}
+                          >
+                            <td className="px-3 py-2.5">
+                              {selectable ? (
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 accent-ems-accent cursor-pointer"
+                                  checked={selected}
+                                  onChange={(e) => onToggleAction(row.actionId, e.target.checked)}
+                                  aria-label={`Apply ${syncRowPrimaryName(row)}`}
+                                />
+                              ) : (
+                                <span className="text-xs text-text-muted">—</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className={`inline-flex rounded border px-2 py-0.5 text-xs font-medium ${syncTypeBadgeClass(row.type)}`}>
+                                  {syncTypeLabel(row.type)}
+                                </span>
+                                {row.reason && (
+                                  <TooltipProvider delayDuration={100}>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <button
+                                          type="button"
+                                          className="text-text-muted hover:text-text-primary transition-colors focus:outline-none focus:ring-1 focus:ring-ems-accent/30 rounded p-0.5"
+                                        >
+                                          <Info className="h-3.5 w-3.5" />
+                                        </button>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top" align="start" className="max-w-[280px] text-xs leading-normal bg-popover text-popover-foreground border border-border p-2.5 shadow-lg rounded-md">
+                                        {row.reason}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <div className="font-medium text-text-primary">{row.entraName || '—'}</div>
+                              <div className="text-xs text-text-secondary">{row.entraEmail || '—'}</div>
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <div className="font-medium text-text-primary">{row.emsName || '—'}</div>
+                              <div className="text-xs text-text-secondary">{row.emsEmail || '—'}</div>
+                            </td>
+                            <td className="px-3 py-2.5">
+                              {row.changes.length > 0 ? (
+                                <div className="space-y-1">
+                                  {row.changes.map((change) => renderSyncChange(change, {
+                                    selectable: row.type === 'update',
+                                    selected: selectedActionFields[row.actionId] ? selectedActionFields[row.actionId].has(change.field) : true,
+                                    onToggle: (checked) => onToggleActionField(row.actionId, change.field, checked, row.changes.map(c => c.field))
+                                  }))}
+                                </div>
+                              ) : (
+                                <span className="text-xs text-text-muted">No field changes</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5">
+                              {row.type === 'possibleDuplicate' && row.candidateContacts?.length ? (
+                                <div className="relative w-full min-w-[200px] max-w-[280px]">
+                                  <select
+                                    className="w-full appearance-none rounded-md border border-border bg-card py-1.5 pl-2.5 pr-8 text-xs text-text-primary transition-all duration-150 hover:bg-hover hover:border-ems-accent/50 focus:border-ems-accent focus:ring-1 focus:ring-ems-accent/20 cursor-pointer shadow-sm bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2394a3b8%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:0.6rem_auto] bg-[right_0.6rem_center] bg-no-repeat"
+                                    value={manualMappings[row.actionId] ?? ''}
+                                    onChange={(e) => onManualMappingChange(row.actionId, e.target.value)}
+                                  >
+                                    <option value="">
+                                      {direction === 'entraToEms' ? 'Choose EMS contact...' : 'Choose Entra user...'}
+                                    </option>
+                                    {row.candidateContacts.map((c) => {
+                                      const val = String(c.contactId ?? c.entraUserId ?? '');
+                                      return (
+                                        <option key={val} value={val}>
+                                          {c.name} {c.email ? `(${c.email})` : ''}
+                                        </option>
+                                      );
+                                    })}
+                                  </select>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-text-muted">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : preview.rows.length > 0 ? (
+                <div className="py-8 text-center text-sm text-text-muted border border-dashed border-border rounded-lg">
+                  No contacts match your search "{searchQuery}".
+                </div>
+              ) : null}
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        {!loading && preview && (
+          <div className="shrink-0 border-t border-border bg-elevated px-5 py-3 flex items-center justify-between gap-3">
+            <p className="text-xs text-text-muted">
+              {applyCount} action{applyCount !== 1 ? 's' : ''} selected
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleApplyClick}
+                disabled={applying || applyCount === 0}
+              >
+                {applying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {applying ? 'Applying…' : `Apply selected (${applyCount})`}
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function InternalContactSyncPreviewPanel({
+  direction,
+  preview,
+  selectedActionIds,
+  manualMappings,
+  applying,
+  selectedActionFields,
+  onToggleAction,
+  onManualMappingChange,
+  onToggleActionField,
+  onToggleAllActions,
+  onApply,
+}: {
+  direction: InternalContactSyncDirection;
+  preview: InternalContactSyncPreview;
+  selectedActionIds: Set<string>;
+  manualMappings: Record<string, string>;
+  selectedActionFields: Record<string, Set<string>>;
+  applying: boolean;
+  onToggleAction: (actionId: string, checked: boolean) => void;
+  onManualMappingChange: (actionId: string, contactId: string) => void;
+  onToggleActionField: (actionId: string, field: string, checked: boolean, allFields: string[]) => void;
+  onToggleAllActions: (actionIds: string[], checked: boolean) => void;
+  onApply: () => void;
+}) {
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const filteredRows = useMemo(() => {
+    if (!preview) return [];
+    if (!searchQuery.trim()) return preview.rows;
+    const q = searchQuery.toLowerCase();
+    return preview.rows.filter(
+      (r) =>
+        r.entraName?.toLowerCase().includes(q) ||
+        r.entraEmail?.toLowerCase().includes(q) ||
+        r.emsName?.toLowerCase().includes(q) ||
+        r.emsEmail?.toLowerCase().includes(q)
+    );
+  }, [preview, searchQuery]);
+  const manualMappingCount = preview.rows.filter(
+    (row) => row.type === 'possibleDuplicate' && manualMappings[row.actionId],
+  ).length;
+  const applyCount = selectedActionIds.size + manualMappingCount;
+  const countItems: Array<[string, number]> = [
+    ['Updates', preview.counts.update],
+    ['Creates', preview.counts.create],
+    ['Removes', preview.counts.remove],
+    ['Disables', preview.counts.disable],
+    ['Possible duplicates', preview.counts.possibleDuplicate],
+    ['Conflicts', preview.counts.duplicateConflict],
+    ['EMS only', preview.counts.emsOnly],
+    ['Up to date', preview.counts.upToDate],
+    ['Skipped', preview.counts.skipped],
+  ];
+
+  const handleApplyClick = () => {
+    Swal.fire({
+      title: 'Confirm Synchronization',
+      html: `You are about to apply <b>${applyCount}</b> selected action${applyCount !== 1 ? 's' : ''}.<br/>Are you sure you want to proceed?`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, Apply',
+      cancelButtonText: 'Cancel',
+      customClass: {
+        popup: 'rounded-xl border border-border shadow-2xl bg-surface',
+        title: 'text-text-primary text-xl font-semibold',
+        htmlContainer: 'text-text-secondary text-sm',
+        confirmButton: 'bg-ems-accent text-white px-4 py-2 rounded-md font-medium hover:bg-ems-accent/90 transition-colors',
+        cancelButton: 'bg-surface border border-border text-text-primary px-4 py-2 rounded-md font-medium hover:bg-hover transition-colors ml-3'
+      },
+      buttonsStyling: false,
+    }).then((result) => {
+      if (result.isConfirmed) {
+        onApply();
+      }
+    });
+  };
+
+  return (
+    <div className="space-y-3 rounded-md border border-border bg-card p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-text-primary">
+            {syncDirectionLabel(direction)} preview for {preview.internalCompany.companyName}
+          </p>
+          <p className="text-xs text-text-secondary">
+            {direction === 'entraToEms'
+              ? 'Entra is the source of truth. Selected remove rows are removed from this internal company.'
+              : 'EMS is the source of truth. Selected disable rows disable unmatched active Entra accounts.'}
+          </p>
+        </div>
+        <Button type="button" size="sm" onClick={handleApplyClick} disabled={applying || applyCount === 0}>
+          {applying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+          Apply selected ({applyCount})
+        </Button>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {countItems.map(([label, value]) => (
+          <span key={label} className="rounded border border-border bg-surface px-2 py-1 text-xs text-text-secondary">
+            <span className="font-medium text-text-primary">{value}</span> {label}
+          </span>
+        ))}
+      </div>
+
+      {preview.warnings.map((warning) => (
+        <div key={warning} className="rounded-md border border-ems-amber/30 bg-ems-amber/10 px-3 py-2 text-xs text-ems-amber">
+          {warning}
+        </div>
+      ))}
+
+      {preview.rows.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-4 py-2 border-y border-border/60">
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              placeholder="Search name or email..."
+              className="w-64 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary focus:border-ems-accent focus:outline-none placeholder:text-text-muted"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="rounded bg-ems-accent/10 px-3 py-1.5 text-xs font-semibold text-ems-accent hover:bg-ems-accent/20 transition-colors"
+              onClick={() => {
+                const selectableActionIds = filteredRows.filter(r => SELECTABLE_SYNC_TYPES.has(r.type)).map(r => r.actionId);
+                onToggleAllActions(selectableActionIds, true);
+              }}
+            >
+              Check All
+            </button>
+            <button
+              type="button"
+              className="rounded bg-border/50 px-3 py-1.5 text-xs font-semibold text-text-secondary hover:bg-border/70 transition-colors"
+              onClick={() => {
+                const selectableActionIds = filteredRows.filter(r => SELECTABLE_SYNC_TYPES.has(r.type)).map(r => r.actionId);
+                onToggleAllActions(selectableActionIds, false);
+              }}
+            >
+              Uncheck All
+            </button>
+          </div>
+        </div>
+      )}
+
+      {filteredRows.length > 0 ? (
+        <div className="max-h-[420px] overflow-auto rounded-md border border-border">
+          <table className="w-full min-w-[980px] text-sm">
+            <thead>
+              <tr className="border-b border-border bg-surface text-xs text-text-muted">
+                <th className="w-16 px-3 py-2 text-left">Apply</th>
+                <th className="px-3 py-2 text-left">Action</th>
+                <th className="px-3 py-2 text-left">Entra</th>
+                <th className="px-3 py-2 text-left">EMS</th>
+                <th className="px-3 py-2 text-left">Changes</th>
+                <th className="px-3 py-2 text-left">Duplicate match</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredRows.map((row) => {
+              const selectable = SELECTABLE_SYNC_TYPES.has(row.type);
+              const selected = selectedActionIds.has(row.actionId);
+              return (
+                <tr key={row.actionId} className="border-b border-border/60 align-top">
+                  <td className="px-3 py-2">
+                    {selectable ? (
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-ems-accent"
+                        checked={selected}
+                        onChange={(event) => onToggleAction(row.actionId, event.target.checked)}
+                        aria-label={`Apply ${syncRowPrimaryName(row)}`}
+                      />
+                    ) : (
+                      <span className="text-xs text-text-muted">—</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    <span className={`inline-flex rounded border px-2 py-0.5 text-xs font-medium ${syncTypeBadgeClass(row.type)}`}>
+                      {syncTypeLabel(row.type)}
+                    </span>
+                    <p className="mt-1 max-w-[220px] text-xs text-text-muted">{row.reason}</p>
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="font-medium text-text-primary">{row.entraName || '—'}</div>
+                    <div className="text-xs text-text-secondary">{row.entraEmail || '—'}</div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="font-medium text-text-primary">{row.emsName || '—'}</div>
+                    <div className="text-xs text-text-secondary">{row.emsEmail || '—'}</div>
+                  </td>
+                  <td className="px-3 py-2">
+                    {row.changes.length > 0 ? (
+                      <div className="space-y-1">
+                        {row.changes.map((change) => renderSyncChange(change, {
+                          selectable: row.type === 'update',
+                          selected: selectedActionFields[row.actionId] ? selectedActionFields[row.actionId].has(change.field) : true,
+                          onToggle: (checked) => onToggleActionField(row.actionId, change.field, checked, row.changes.map(c => c.field))
+                        }))}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-text-muted">No field changes</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    {row.type === 'possibleDuplicate' && row.candidateContacts?.length ? (
+                      <select
+                        className="w-full rounded border border-border bg-surface px-2 py-1 text-xs text-text-primary"
+                        value={manualMappings[row.actionId] ?? ''}
+                        onChange={(event) => onManualMappingChange(row.actionId, event.target.value)}
+                      >
+                        <option value="">
+                          {direction === 'entraToEms' ? 'Choose EMS contact...' : 'Choose Entra user...'}
+                        </option>
+                        {row.candidateContacts.map((candidate) => {
+                          const value = String(candidate.contactId ?? candidate.entraUserId ?? '');
+                          return (
+                            <option key={value} value={value}>
+                              {candidate.name} {candidate.email ? `(${candidate.email})` : ''}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    ) : (
+                      <span className="text-xs text-text-muted">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      ) : preview.rows.length > 0 ? (
+        <div className="py-8 text-center text-sm text-text-muted border border-dashed border-border rounded-lg">
+          No contacts match your search "{searchQuery}".
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function SettingsPage({
   addToast,
   users,
@@ -373,6 +1150,21 @@ export function SettingsPage({
   const [directoryPermissionBusy, setDirectoryPermissionBusy] = useState(false);
   const [directoryPermissionError, setDirectoryPermissionError] = useState<string | null>(null);
   const [directoryDiagnostics, setDirectoryDiagnostics] = useState<DirectoryDiagnostics | null>(null);
+  const [internalSyncPreview, setInternalSyncPreview] =
+    useState<InternalContactSyncPreview | null>(null);
+  const [internalSyncDirection, setInternalSyncDirection] =
+    useState<InternalContactSyncDirection>('entraToEms');
+  const [internalSyncResult, setInternalSyncResult] =
+    useState<InternalContactSyncApplyResult | null>(null);
+  const [internalSyncBusy, setInternalSyncBusy] = useState(false);
+  const [internalSyncApplying, setInternalSyncApplying] = useState(false);
+  const [internalSyncError, setInternalSyncError] = useState<string | null>(null);
+  const [selectedInternalSyncActions, setSelectedInternalSyncActions] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [selectedInternalSyncFields, setSelectedInternalSyncFields] = useState<Record<string, Set<string>>>({});
+  const [internalSyncMappings, setInternalSyncMappings] = useState<Record<string, string>>({});
+  const [syncPreviewModalOpen, setSyncPreviewModalOpen] = useState(false);
 
   const inputCls =
     'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
@@ -386,7 +1178,6 @@ export function SettingsPage({
       if (!account) {
         throw new Error('Sign in with Microsoft Entra ID to load the user directory.');
       }
-      console.debug(`[Microsoft Graph] Active account: ${account.username}`);
       const baseDiagnostics: DirectoryDiagnostics = {
         accountUsername: account.username,
       };
@@ -445,6 +1236,154 @@ export function SettingsPage({
       );
     } finally {
       setDirectoryPermissionBusy(false);
+    }
+  }
+
+  async function handlePreviewInternalContactSync(direction: InternalContactSyncDirection) {
+    if (!account) return;
+
+    setInternalSyncDirection(direction);
+    setInternalSyncBusy(true);
+    setInternalSyncError(null);
+    setInternalSyncResult(null);
+    setInternalSyncPreview(null);
+    setSelectedInternalSyncActions(new Set());
+    setInternalSyncMappings({});
+    setSyncPreviewModalOpen(true);
+    try {
+      await requestGraphAccessToken(account, { forceRefresh: true });
+      const preview =
+        direction === 'entraToEms'
+          ? await previewEntraToEmsContactSync()
+          : await previewEmsToEntraContactSync();
+      setInternalSyncPreview(preview);
+      setSelectedInternalSyncActions(
+        new Set(
+          preview.rows
+            .filter((row) => SELECTABLE_SYNC_TYPES.has(row.type))
+            .map((row) => row.actionId),
+        ),
+      );
+    } catch (error) {
+      setInternalSyncError(
+        friendlyApiError(error, 'Could not preview the internal contact sync.'),
+      );
+    } finally {
+      setInternalSyncBusy(false);
+    }
+  }
+
+  function toggleInternalSyncAction(actionId: string, checked: boolean) {
+    setSelectedInternalSyncActions((previous) => {
+      const next = new Set(previous);
+      if (checked) next.add(actionId);
+      else next.delete(actionId);
+      return next;
+    });
+  }
+
+  function toggleAllInternalSyncActions(actionIds: string[], checked: boolean) {
+    setSelectedInternalSyncActions((previous) => {
+      const next = new Set(previous);
+      for (const id of actionIds) {
+        if (checked) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }
+
+  function updateInternalSyncMapping(actionId: string, contactId: string) {
+    setInternalSyncMappings((previous) => {
+      const next = { ...previous };
+      if (contactId) next[actionId] = contactId;
+      else delete next[actionId];
+      return next;
+    });
+  }
+
+  const toggleInternalSyncActionField = (actionId: string, field: string, checked: boolean, allFields: string[]) => {
+    setSelectedInternalSyncFields((prev) => {
+      const next = { ...prev };
+      const currentFields = prev[actionId] ? new Set(prev[actionId]) : new Set(allFields);
+      if (checked) {
+        currentFields.add(field);
+      } else {
+        currentFields.delete(field);
+      }
+      next[actionId] = currentFields;
+      return next;
+    });
+  };
+
+  async function handleApplyInternalContactSync() {
+    if (!account || !internalSyncPreview) return;
+
+    const manualMappings = internalSyncPreview.rows
+      .filter((row) => row.type === 'possibleDuplicate' && row.entraUserId)
+      .map((row) => ({
+        entraUserId: row.entraUserId ?? undefined,
+        contactId: Number(internalSyncMappings[row.actionId]),
+      }))
+      .filter((mapping) => mapping.entraUserId && Number.isFinite(mapping.contactId));
+    const emsToEntraManualMappings = internalSyncPreview.rows
+      .filter((row) => row.type === 'possibleDuplicate' && row.contactId)
+      .map((row) => ({
+        contactId: row.contactId,
+        targetEntraUserId: internalSyncMappings[row.actionId],
+      }))
+      .filter((mapping) => mapping.contactId && mapping.targetEntraUserId);
+
+    setInternalSyncApplying(true);
+    setInternalSyncError(null);
+    try {
+      const serializableFields: Record<string, string[]> = {};
+      for (const [actionId, fieldSet] of Object.entries(selectedInternalSyncFields)) {
+        serializableFields[actionId] = Array.from(fieldSet);
+      }
+
+      await requestGraphAccessToken(account, { forceRefresh: true });
+      const result =
+        internalSyncDirection === 'entraToEms'
+          ? await applyEntraToEmsContactSync({
+              selectedActionIds: Array.from(selectedInternalSyncActions),
+              manualMappings,
+              selectedActionFields: serializableFields,
+            })
+          : await applyEmsToEntraContactSync({
+              selectedActionIds: Array.from(selectedInternalSyncActions),
+              manualMappings: emsToEntraManualMappings,
+              selectedActionFields: serializableFields,
+            });
+      addToast(
+        `Internal contact sync complete: ${result.created} created, ${result.updated} updated, ${result.removed} removed, ${result.disabled} disabled.`,
+        'success',
+      );
+      if (result.skippedJobTitleWrites > 0) {
+        addToast(
+          `${result.skippedJobTitleWrites} job title value(s) were skipped because ContactInfo.JobTitle is not added yet.`,
+          'warning',
+        );
+      }
+      if (result.errors.length > 0) {
+        addToast(result.errors.join(' '), 'warning');
+      }
+      setInternalSyncPreview(null);
+      setInternalSyncResult(result);
+      setSelectedInternalSyncActions(new Set());
+      setInternalSyncMappings({});
+      setSyncPreviewModalOpen(false);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['admin-users', account.homeAccountId ?? null] }),
+        qc.invalidateQueries({ queryKey: ['companies'] }),
+        qc.invalidateQueries({ queryKey: ['lookups'] }),
+      ]);
+    } catch (error) {
+      setInternalSyncError(
+        friendlyApiError(error, 'Could not apply the internal contact sync.'),
+      );
+    } finally {
+      setInternalSyncApplying(false);
     }
   }
 
@@ -919,30 +1858,129 @@ export function SettingsPage({
               </div>
             ) : null}
 
+            {account ? (
+              <div className="space-y-3 rounded-md border border-border bg-surface px-3 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+	                  <div>
+	                    <p className="text-sm font-semibold text-text-primary">
+	                      Manual EMS internal contact sync
+	                    </p>
+	                    <p className="text-xs text-text-secondary">
+	                      Choose the source of truth, preview changes, then manually apply selected rows.
+	                    </p>
+	                  </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handlePreviewInternalContactSync('entraToEms')}
+                        disabled={internalSyncBusy || internalSyncApplying}
+                      >
+                        {internalSyncBusy && internalSyncDirection === 'entraToEms' ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : null}
+                        Preview Entra {'->'} EMS
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handlePreviewInternalContactSync('emsToEntra')}
+                        disabled={internalSyncBusy || internalSyncApplying}
+                      >
+                        {internalSyncBusy && internalSyncDirection === 'emsToEntra' ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : null}
+                        Preview EMS {'->'} Entra
+                      </Button>
+                    </div>
+	                </div>
+
+                {internalSyncResult ? (
+                  <div className="space-y-2 rounded-md border border-ems-green/30 bg-ems-green/10 px-3 py-3 text-sm">
+                    <div className="flex items-center gap-2">
+                      <svg className="h-4 w-4 shrink-0 text-ems-green" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                      <p className="font-semibold text-ems-green">
+                        Sync complete — {internalSyncResult.created} created, {internalSyncResult.updated} updated, {internalSyncResult.removed} removed, {internalSyncResult.disabled} disabled.
+                      </p>
+                    </div>
+                    {internalSyncResult.createdEntraUsers?.length ? (
+                      <div className="rounded-md border border-ems-amber/30 bg-ems-amber/10 px-3 py-2 text-xs text-text-secondary">
+                        <p className="mb-2 font-semibold text-ems-amber">One-time temporary passwords for created Entra users</p>
+                        <div className="space-y-1 font-mono">
+                          {internalSyncResult.createdEntraUsers.map((user) => (
+                            <div key={user.userPrincipalName} className="break-all">
+                              {user.userPrincipalName}: {user.temporaryPassword}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                <SyncPreviewModal
+                  open={syncPreviewModalOpen}
+                  direction={internalSyncDirection}
+                  loading={internalSyncBusy}
+                  error={internalSyncError}
+                  preview={internalSyncPreview}
+                  applying={internalSyncApplying}
+                  selectedActionIds={selectedInternalSyncActions}
+                  manualMappings={internalSyncMappings}
+                  selectedActionFields={selectedInternalSyncFields}
+                  onToggleAction={toggleInternalSyncAction}
+                  onManualMappingChange={updateInternalSyncMapping}
+                  onToggleActionField={toggleInternalSyncActionField}
+                  onToggleAllActions={toggleAllInternalSyncActions}
+                  onApply={handleApplyInternalContactSync}
+                  onClose={() => {
+                    if (!internalSyncApplying) setSyncPreviewModalOpen(false);
+                  }}
+                />
+	              </div>
+	            ) : null}
+
             {adminUsersQuery.data ? (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm bg-card border border-border rounded-lg min-w-[550px]">
+                <table className="w-full text-sm bg-card border border-border rounded-lg min-w-[1180px]">
                   <thead>
                     <tr className="text-text-muted text-xs border-b border-border bg-surface">
                       <th className="text-left py-2.5 px-3">Name</th>
                       <th className="text-left py-2.5 px-3">Email</th>
-                      <th className="text-left py-2.5 px-3">Role</th>
-                      <th className="text-left py-2.5 px-3">Last Login</th>
+                      <th className="text-left py-2.5 px-3">Job Title</th>
+                      <th className="text-left py-2.5 px-3">Department</th>
+                      <th className="text-left py-2.5 px-3">Employee Type</th>
+                      <th className="text-left py-2.5 px-3">Office</th>
+                      <th className="text-left py-2.5 px-3">City</th>
+                      <th className="text-left py-2.5 px-3">Mobile</th>
                       <th className="text-left py-2.5 px-3">Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {adminUsersQuery.data.map((u) => (
-                      <tr key={u.id} className="border-b border-border/50">
-                        <td className="py-2.5 px-3 text-text-primary">{u.name}</td>
-                        <td className="py-2.5 px-3 text-ems-blue text-xs">{u.email ? <a href={`mailto:${u.email}`} className="hover:underline">{u.email}</a> : '—'}</td>
-                        <td className="py-2.5 px-3 text-text-secondary">{u.role}</td>
-                        <td className="py-2.5 px-3 text-text-secondary text-xs">{u.lastLogin}</td>
-                        <td className="py-2.5 px-3">
-                          <StatusBadge status={u.status} />
-                        </td>
-                      </tr>
-                    ))}
+                    {adminUsersQuery.data.map((u) => {
+                      const phone = u.mobilePhone || u.businessPhones?.[0] || '';
+                      return (
+                        <tr key={u.id} className="border-b border-border/50">
+                          <td className="py-2.5 px-3 text-text-primary">{u.name}</td>
+                          <td className="py-2.5 px-3 text-ems-blue text-xs">
+                            {u.email ? <a href={`mailto:${u.email}`} className="hover:underline">{u.email}</a> : '—'}
+                          </td>
+                          <td className="py-2.5 px-3 text-text-secondary">
+                            <div className="font-medium text-text-primary">{u.jobTitle || '—'}</div>
+                          </td>
+                          <td className="py-2.5 px-3 text-text-secondary">{u.department || '—'}</td>
+                          <td className="py-2.5 px-3 text-text-secondary">{u.employeeType || '—'}</td>
+                          <td className="py-2.5 px-3 text-text-secondary">{u.officeLocation || '—'}</td>
+                          <td className="py-2.5 px-3 text-text-secondary">{u.city || '—'}</td>
+                          <td className="py-2.5 px-3 text-text-secondary text-xs">{phone || '—'}</td>
+                          <td className="py-2.5 px-3">
+                            <StatusBadge status={u.status ?? 'Active'} />
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

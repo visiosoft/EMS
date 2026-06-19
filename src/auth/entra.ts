@@ -11,11 +11,13 @@ import {
 const clientId = import.meta.env.VITE_ENTRA_CLIENT_ID;
 const tenantId = import.meta.env.VITE_ENTRA_TENANT_ID;
 const apiScope = import.meta.env.VITE_ENTRA_API_SCOPE?.trim();
-const graphScopes =
-    import.meta.env.VITE_ENTRA_GRAPH_SCOPE?.trim()
-        .split(/\s+/)
-        .filter(Boolean) ??
-    ["https://graph.microsoft.com/User.Read.All"];
+const graphScopeConfig =
+    import.meta.env.VITE_ENTRA_GRAPH_SCOPE?.trim() ||
+    "https://graph.microsoft.com/User.Read.All";
+const graphScopes = graphScopeConfig
+    .split(/[\s,]+/)
+    .map((scope) => scope.trim())
+    .filter(Boolean);
 const microsoftGraphAudiences = new Set([
     "00000003-0000-0000-c000-000000000000",
     "https://graph.microsoft.com",
@@ -136,6 +138,7 @@ export type GraphTokenDiagnostics = {
     scp: string;
     roles: string[];
     hasUserReadAll: boolean;
+    hasUserReadWriteAll: boolean;
     isGraphAudience: boolean;
 };
 
@@ -189,7 +192,8 @@ export function describeGraphAccessToken(accessToken: string): GraphTokenDiagnos
         tid: tenant,
         scp: scopes.join(" "),
         roles,
-        hasUserReadAll: scopes.includes("User.Read.All"),
+        hasUserReadAll: scopes.includes("User.Read.All") || scopes.includes("User.ReadWrite.All"),
+        hasUserReadWriteAll: scopes.includes("User.ReadWrite.All"),
         isGraphAudience: microsoftGraphAudiences.has(audience),
     };
 }
@@ -202,6 +206,7 @@ function logGraphTokenDiagnostics(accessToken: string): void {
     if (!diagnostics.isGraphAudience) {
         console.warn("[MSAL] Microsoft Graph token is missing the expected audience.", {
             expectedAudience: "Microsoft Graph",
+            expectedScope: "User.Read.All or User.ReadWrite.All",
             aud: diagnostics.aud,
             scp: diagnostics.scp,
         });

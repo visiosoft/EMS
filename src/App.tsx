@@ -13,6 +13,7 @@ import Login from "./pages/Login.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import AppChooser from "./pages/AppChooser.tsx";
 import InternalApp from "./pages/InternalApp.tsx";
+import EntraUsersJsonPage from "./pages/EntraUsersJsonPage.tsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
 import { getActiveAccount, isMsalBusy } from "./auth/entra.ts";
 import { isEmsEnabled, isInternalEnabled } from "./routing/appSuite.ts";
@@ -100,6 +101,14 @@ const App = () => (
 
               {isEmsEnabled() ? (
                 <>
+                  <Route
+                    path="/entra-users-json"
+                    element={
+                      <ProtectedRoute>
+                        <EntraUsersJsonPage />
+                      </ProtectedRoute>
+                    }
+                  />
                   <Route
                     path={EMS_ROOT}
                     element={

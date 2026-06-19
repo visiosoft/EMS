@@ -50,6 +50,7 @@ import {
   fetchClasses,
   fetchTourEngagements,
   fetchTourAgeRanges,
+  fetchAdvertisingSubTypes,
   fetchTours,
   fetchVenueTypesLookup,
   updateAttraction,
@@ -60,6 +61,7 @@ import {
   type ApiTourEngagementRow,
   type ApiTourListRow,
   type ApiVenueType,
+  type ApiTourMediaMixItem,
 } from '@/api/attractionToursApi';
 import {
   fetchCompanies,
@@ -1014,6 +1016,23 @@ function TourContactForm({
   );
 }
 
+/** One in-progress Media Mix row in the tour editor. */
+type MediaMixDraft = {
+  advertisingSubTypeId: number;
+  subTypeName: string;
+  companyId: number | null;
+  companyName: string | null;
+};
+
+function mediaMixDraftsFromTour(tour: ApiTourListRow): MediaMixDraft[] {
+  return (tour.mediaMix ?? []).map((m: ApiTourMediaMixItem) => ({
+    advertisingSubTypeId: m.advertisingSubTypeId,
+    subTypeName: m.subTypeName,
+    companyId: m.companyId,
+    companyName: m.companyName,
+  }));
+}
+
 function TourDrawer({
   tour,
   attractions,
@@ -1093,6 +1112,11 @@ function TourDrawer({
     () => (tour.audienceAgeRangeIds ?? []).map(String),
   );
   const [jobName, setJobName] = useState(tour.jobName ?? '');
+  const [mediaMix, setMediaMix] = useState<MediaMixDraft[]>(() =>
+    mediaMixDraftsFromTour(tour),
+  );
+  const [mmSubTypeId, setMmSubTypeId] = useState('');
+  const [mmCompanyId, setMmCompanyId] = useState('');
   const [insuranceLanguage, setInsuranceLanguage] = useState(tour.tourInsuranceLanguage ?? '');
   const [ascap, setAscap] = useState(tour.ascap);
   const [bmi, setBmi] = useState(tour.bmi);
@@ -1140,6 +1164,9 @@ function TourDrawer({
     setAudienceGender(tour.audienceGender ?? '');
     setAudienceAgeRangeIds((tour.audienceAgeRangeIds ?? []).map(String));
     setJobName(tour.jobName ?? '');
+    setMediaMix(mediaMixDraftsFromTour(tour));
+    setMmSubTypeId('');
+    setMmCompanyId('');
     setInsuranceLanguage(tour.tourInsuranceLanguage ?? '');
     setAscap(tour.ascap);
     setBmi(tour.bmi);
@@ -1207,6 +1234,72 @@ function TourDrawer({
       tour.tourManagementCompanyName,
     ],
   );
+
+  // Media Mix — Advertising Outlet companies + AdvertisingSubType picker.
+  const advertisingSubTypesQuery = useQuery({
+    queryKey: ['advertising-sub-types'],
+    queryFn: fetchAdvertisingSubTypes,
+    staleTime: 30 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+  const advertisingSubTypeOptions = useMemo<Select2Option[]>(
+    () =>
+      (advertisingSubTypesQuery.data ?? []).map((s) => ({
+        value: String(s.advertisingSubTypeId),
+        label: s.parentCategory
+          ? `${s.parentCategory} — ${s.subTypeName}`
+          : s.subTypeName,
+      })),
+    [advertisingSubTypesQuery.data],
+  );
+  const advertisingOutletOptions = useMemo<Select2Option[]>(
+    () =>
+      companyToSelect2Options(
+        companies.filter(
+          (c) =>
+            (c.companyTypeNames ?? []).some(
+              (name) => name.trim().toLowerCase() === 'advertising outlet',
+            ) ||
+            (c.companyTypeName ?? '').trim().toLowerCase() ===
+              'advertising outlet',
+        ),
+      ),
+    [companies],
+  );
+  const addMediaMixEntry = () => {
+    const astId = Number(mmSubTypeId);
+    if (!Number.isInteger(astId) || astId < 1) return;
+    const companyId = mmCompanyId ? Number(mmCompanyId) : null;
+    const duplicate = mediaMix.some(
+      (m) =>
+        m.advertisingSubTypeId === astId &&
+        (m.companyId ?? 0) === (companyId ?? 0),
+    );
+    if (duplicate) {
+      addToast('That media mix entry is already added.', 'warning');
+      return;
+    }
+    const subTypeName =
+      advertisingSubTypeOptions.find((o) => o.value === mmSubTypeId)?.label ??
+      '';
+    const companyName = companyId
+      ? (advertisingOutletOptions.find((o) => o.value === mmCompanyId)?.label ??
+        null)
+      : null;
+    setMediaMix((prev) => [
+      ...prev,
+      { advertisingSubTypeId: astId, subTypeName, companyId, companyName },
+    ]);
+    setMmSubTypeId('');
+    setMmCompanyId('');
+    setDirty(true);
+  };
+  const removeMediaMixEntry = (index: number) => {
+    setMediaMix((prev) => prev.filter((_, i) => i !== index));
+    setDirty(true);
+  };
+
   const contacts = contactsQuery.data ?? [];
   const talentAgentOptions = useMemo(
     () =>
@@ -1291,6 +1384,10 @@ function TourDrawer({
           audienceGender: audienceGender.trim() || null,
           audienceAgeRangeIds: audienceAgeRangeIds.map(Number),
           jobName: jobName.trim() || null,
+          mediaMix: mediaMix.map((m) => ({
+            advertisingSubTypeId: m.advertisingSubTypeId,
+            companyId: m.companyId,
+          })),
           tourInsuranceLanguage: insuranceLanguage.trim() || null,
           ascap,
           bmi,
@@ -1334,6 +1431,9 @@ function TourDrawer({
     setAudienceGender(tour.audienceGender ?? '');
     setAudienceAgeRangeIds((tour.audienceAgeRangeIds ?? []).map(String));
     setJobName(tour.jobName ?? '');
+    setMediaMix(mediaMixDraftsFromTour(tour));
+    setMmSubTypeId('');
+    setMmCompanyId('');
     setInsuranceLanguage(tour.tourInsuranceLanguage ?? '');
     setAscap(tour.ascap);
     setBmi(tour.bmi);
@@ -1526,6 +1626,84 @@ function TourDrawer({
                 Age range options are not available yet.
               </p>
             )}
+            <div className="rounded-md border border-border/80 bg-surface/50 px-3 py-3 space-y-3">
+              <div>
+                <span className="text-xs font-medium text-text-secondary">Media Mix</span>
+                <p className="text-[11px] text-text-muted mt-0.5">
+                  Pair an Advertising Outlet company with an advertising sub-type, then
+                  add it. Entries are saved with the tour.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 sm:items-end">
+                <FormField label="Advertising Outlet Company">
+                  <Select2
+                    options={advertisingOutletOptions}
+                    value={mmCompanyId}
+                    placeholder={
+                      advertisingOutletOptions.length
+                        ? 'Select company…'
+                        : 'No Advertising Outlet companies'
+                    }
+                    onChange={setMmCompanyId}
+                    allowClear
+                    disabled={saving}
+                  />
+                </FormField>
+                <FormField label="Advertising Sub-Type">
+                  <Select2
+                    options={advertisingSubTypeOptions}
+                    value={mmSubTypeId}
+                    placeholder={
+                      advertisingSubTypesQuery.isLoading
+                        ? 'Loading sub-types…'
+                        : 'Select sub-type…'
+                    }
+                    onChange={setMmSubTypeId}
+                    disabled={saving || advertisingSubTypesQuery.isLoading}
+                  />
+                </FormField>
+                <button
+                  type="button"
+                  disabled={saving || !mmSubTypeId}
+                  onClick={addMediaMixEntry}
+                  className="h-9 px-4 rounded-md text-sm font-medium bg-ems-accent text-background hover:bg-ems-accent/80 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Add
+                </button>
+              </div>
+              {mediaMix.length > 0 ? (
+                <div className="space-y-1.5">
+                  {mediaMix.map((m, index) => (
+                    <div
+                      key={`${m.advertisingSubTypeId}-${m.companyId ?? 0}-${index}`}
+                      className="flex items-center justify-between gap-2 rounded-md border border-border bg-background px-2.5 py-1.5"
+                    >
+                      <span className="text-xs text-text-primary">
+                        <span className="font-medium">
+                          {m.subTypeName || `Sub-type #${m.advertisingSubTypeId}`}
+                        </span>
+                        {m.companyName ? (
+                          <span className="text-text-secondary"> — {m.companyName}</span>
+                        ) : (
+                          <span className="text-text-muted"> — No company</span>
+                        )}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => removeMediaMixEntry(index)}
+                        className="text-text-muted hover:text-ems-coral disabled:opacity-50"
+                        aria-label="Remove media mix entry"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[11px] text-text-muted">No media mix entries yet.</p>
+              )}
+            </div>
             <div className="space-y-2">
               <div>
                 <span className="text-xs text-text-muted">Licensing</span>

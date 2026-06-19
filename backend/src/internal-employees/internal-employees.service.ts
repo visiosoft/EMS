@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
@@ -16,19 +15,14 @@ export type IaeEmployeeRow = {
 @Injectable()
 export class InternalEmployeesService {
   constructor(
-    private readonly configService: ConfigService,
     @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
   /**
-   * All dbo.Contact rows with is_staff = 1, joined to ContactInfo.
-   * Role/title comes from an IAE company assignment when present (optional).
+   * All contacts assigned to at least one company marked dbo.Company.is_internal = 1.
+   * Role/title comes from an internal company assignment when present (optional).
    */
   async listStaffEmployees(): Promise<IaeEmployeeRow[]> {
-    const companyId = Number(
-      this.configService.get<string>('IAE_COMPANY_ID', '35025'),
-    );
-
     const rows = await this.dataSource.query(
       `
       SELECT
@@ -55,19 +49,29 @@ export class InternalEmployeesService {
         FROM dbo.Contact c
         INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
         OUTER APPLY (
-          SELECT TOP 1 r.RoleName AS roleName
-          FROM dbo.ContactAssignment ca
-          INNER JOIN dbo.Role r ON r.RoleID = ca.RoleID
-          WHERE ca.ContactID = c.ContactID
-            AND ca.CompanyID = @0
-          ORDER BY ca.ContactAssignmentID
+          SELECT STUFF((
+            SELECT ', ' + r.RoleName
+            FROM dbo.ContactAssignment ca
+            INNER JOIN dbo.Company internalCompany
+              ON internalCompany.CompanyID = ca.CompanyID
+            INNER JOIN dbo.Role r ON r.RoleID = ca.RoleID
+            WHERE ca.ContactID = c.ContactID
+              AND internalCompany.is_internal = 1
+            FOR XML PATH(''), TYPE
+          ).value('.', 'NVARCHAR(MAX)'), 1, 2, '') AS roleName
         ) rolePick
-        WHERE c.is_staff = 1 OR c.is_staff = CAST(1 AS BIT)
+        WHERE EXISTS (
+          SELECT 1
+          FROM dbo.ContactAssignment caInternal
+          INNER JOIN dbo.Company internalCompany
+            ON internalCompany.CompanyID = caInternal.CompanyID
+          WHERE caInternal.ContactID = c.ContactID
+            AND internalCompany.is_internal = 1
+        )
       ) ranked
       WHERE ranked.rowNum = 1
       ORDER BY ranked.lastName ASC, ranked.firstName ASC
       `,
-      [companyId],
     );
 
     const seenEmails = new Set<string>();

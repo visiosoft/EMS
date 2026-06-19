@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -17,6 +18,10 @@ export class CreateCompanyDto {
   @IsNotEmpty()
   @MaxLength(200)
   companyName: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isInternal?: boolean;
 
   @IsInt()
   @Min(1)

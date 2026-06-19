@@ -402,6 +402,16 @@ function InlineSelectField({
   );
 }
 
+function InternalBadge({ className = "" }: { className?: string }) {
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center rounded border border-ems-accent/30 bg-ems-accent-dim px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-wide text-ems-accent ${className}`.trim()}
+    >
+      internal
+    </span>
+  );
+}
+
 // ─── Inline-editable Overview tab ────────────────────────────────────────────
 
 function InlineEditableOverview({
@@ -424,6 +434,7 @@ function InlineEditableOverview({
   onSaved: (row: ApiCompanyListRow) => void | Promise<void>;
 }) {
   const [name, setName] = useState(company.name);
+  const [isInternal, setIsInternal] = useState(Boolean(company.isInternal));
   const [typeIds, setTypeIds] = useState<string[]>(
     (company.companyTypeIds?.length
       ? company.companyTypeIds
@@ -763,6 +774,7 @@ function InlineEditableOverview({
 
   const discard = () => {
     setName(company.name);
+    setIsInternal(Boolean(company.isInternal));
     setTypeIds(
       (company.companyTypeIds?.length
         ? company.companyTypeIds
@@ -1040,6 +1052,7 @@ function InlineEditableOverview({
       );
       const updated = await updateCompany(Number(company.id), {
         companyName: name.trim().slice(0, M.companyName),
+        isInternal,
         companyTypeIds: typeIds
           .map((id) => Number(id))
           .filter((id) => Number.isInteger(id) && id > 0),
@@ -1470,6 +1483,20 @@ function InlineEditableOverview({
 
         {/* Type + DMA */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
+          <div>
+            <label className="text-xs text-text-muted block mb-1">
+              Internal
+            </label>
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-md py-1 text-sm text-text-primary">
+              <input
+                type="checkbox"
+                checked={isInternal}
+                onChange={(event) => mark(setIsInternal)(event.target.checked)}
+                className="h-4 w-4 rounded border-border text-ems-accent focus:ring-ems-accent"
+              />
+              Internal company
+            </label>
+          </div>
           <div>
             <label className="text-xs text-text-muted block mb-0.5">
               Company Type
@@ -3884,6 +3911,7 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
         return {
           id: row.companyId,
           name,
+          isInternal: Boolean(row.isInternal),
           typeText: typeText || "Not set",
           cityState: cityState || "City / State not set",
           searchableParts,
@@ -4459,8 +4487,9 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                     >
                       <div className="flex min-w-0 items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="truncate font-medium text-text-primary">
-                            {suggestion.name}
+                          <div className="flex min-w-0 items-center gap-2 font-medium text-text-primary">
+                            <span className="truncate">{suggestion.name}</span>
+                            {suggestion.isInternal ? <InternalBadge /> : null}
                           </div>
                           <div className="truncate text-xs text-text-muted mt-0.5">
                             {suggestion.typeText}
@@ -4577,7 +4606,10 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                     className="border-b border-border/50 hover:bg-hover cursor-pointer"
                   >
                     <td className="py-2.5 px-3 text-text-primary font-medium">
-                      {c.name}
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="truncate">{c.name}</span>
+                        {c.isInternal ? <InternalBadge /> : null}
+                      </div>
                     </td>
                     <td className="py-2.5 px-3">
                       <div className="flex flex-wrap gap-1">
@@ -4673,9 +4705,12 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
           <div className="p-4 border-b border-border flex items-center gap-3">
             <Avatar name={selectedCompany.name} size="lg" />
             <div className="flex-1">
-              <h2 className="text-lg font-semibold text-text-primary">
-                {selectedCompany.name}
-              </h2>
+              <div className="flex min-w-0 items-center gap-2">
+                <h2 className="truncate text-lg font-semibold text-text-primary">
+                  {selectedCompany.name}
+                </h2>
+                {selectedCompany.isInternal ? <InternalBadge /> : null}
+              </div>
               <div className="flex flex-wrap items-center gap-1.5 mt-1">
                 {(selectedCompany.companyTypeNames?.length
                   ? selectedCompany.companyTypeNames
@@ -4819,15 +4854,15 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                     </div>
                   )}
                 {companyContacts.length > 0 && (
-                  <table className="w-full text-sm">
+                  <table className="w-full text-sm table-fixed">
                     <thead>
                       <tr className="text-text-muted text-xs border-b border-border">
-                        <th className="text-left py-2">Name</th>
-                        <th className="text-left py-2">Roles</th>
-                        <th className="text-left py-2">Departments</th>
-                        <th className="text-left py-2">Email</th>
-                        <th className="text-left py-2">Phone</th>
-                        <th />
+                        <th className="text-left py-2 w-[20%]">Name</th>
+                        <th className="text-left py-2 w-[18%]">Roles</th>
+                        <th className="text-left py-2 w-[18%]">Departments</th>
+                        <th className="text-left py-2 w-[26%]">Email</th>
+                        <th className="text-left py-2 w-[14%]">Phone</th>
+                        <th className="w-10" />
                       </tr>
                     </thead>
                     <tbody>
@@ -4878,7 +4913,7 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                               ));
                             })()}
                           </td>
-                          <td className="py-2 text-ems-blue text-xs">
+                          <td className="py-2 text-ems-blue text-xs break-all pr-2">
                             {(ct.workEmail || ct.email) ? <a href={`mailto:${ct.workEmail || ct.email}`} className="hover:underline">{ct.workEmail || ct.email}</a> : '—'}
                           </td>
                           <td className="py-2 text-text-secondary text-xs">
@@ -4942,16 +4977,14 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                         <div className="px-3 py-2 border-b border-border bg-elevated/40 text-xs font-medium text-text-secondary">
                           {section.venueCompanyName}
                         </div>
-                        <table className="w-full text-sm">
+                        <table className="w-full text-sm table-fixed">
                           <thead>
                             <tr className="text-text-muted text-xs border-b border-border/60">
-                              <th className="text-left py-2 px-3">Name</th>
-                              <th className="text-left py-2 px-3">Roles</th>
-                              <th className="text-left py-2 px-3">
-                                Departments
-                              </th>
-                              <th className="text-left py-2 px-3">Email</th>
-                              <th className="text-left py-2 px-3">Phone</th>
+                              <th className="text-left py-2 px-3 w-[20%]">Name</th>
+                              <th className="text-left py-2 px-3 w-[20%]">Roles</th>
+                              <th className="text-left py-2 px-3 w-[20%]">Departments</th>
+                              <th className="text-left py-2 px-3 w-[25%]">Email</th>
+                              <th className="text-left py-2 px-3 w-[15%]">Phone</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -5007,7 +5040,7 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                                     ));
                                   })()}
                                 </td>
-                                <td className="py-2 px-3 text-ems-blue text-xs">
+                                <td className="py-2 px-3 text-ems-blue text-xs break-all pr-2">
                                   {(ct.workEmail || ct.email) ? <a href={`mailto:${ct.workEmail || ct.email}`} className="hover:underline">{ct.workEmail || ct.email}</a> : '—'}
                                 </td>
                                 <td className="py-2 px-3 text-text-secondary text-xs">

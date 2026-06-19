@@ -31,6 +31,8 @@ import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { Department } from '../entities/department.entity';
 import { Role } from '../entities/role.entity';
 import { Tour } from '../entities/tour.entity';
+import { EngagementIAEContact } from '../entities/engagement-iae-contact.entity';
+import { TourTalentAgent } from '../entities/tour-talent-agent.entity';
 import { Venue } from '../entities/venue.entity';
 import { VenueBrand } from '../entities/venue-brand.entity';
 import { Brand } from '../entities/brand.entity';
@@ -118,6 +120,10 @@ function pickRawRowValue(row: Record<string, unknown>, key: string): unknown {
   return undefined;
 }
 
+function isTruthyBit(value: unknown): boolean {
+  return value === true || value === 1 || value === '1';
+}
+
 function splitFullName(fullName: string): {
   firstName: string;
   lastName: string;
@@ -141,6 +147,7 @@ function sqlNVarCharLiteral(value: string | null): string {
 export interface CompanyListRow {
   companyId: number;
   companyName: string;
+  isInternal: boolean;
   companyTypeId: number;
   companyTypeName: string;
   companyTypeIds: number[];
@@ -596,6 +603,7 @@ export class CompanyService {
     return {
       companyId: company.companyId,
       companyName: company.companyName,
+      isInternal: Boolean(company.isInternal),
       companyTypeId: primaryTypeId,
       companyTypeName: primaryTypeName,
       companyTypeIds,
@@ -1163,6 +1171,7 @@ export class CompanyService {
     em?: EntityManager,
   ): Promise<
     Array<{
+      contactId: number;
       contactInfoId: number;
       fullName: string;
       email: string;
@@ -1191,6 +1200,7 @@ export class CompanyService {
     const mergedRows: Array<{
       contactAssignmentId: number;
       row: {
+        contactId: number;
         contactInfoId: number;
         fullName: string;
         email: string;
@@ -1215,22 +1225,22 @@ export class CompanyService {
         if (!ci) continue;
         mergedRows.push({
           contactAssignmentId: ca.contactAssignmentId,
-          row: this.mapContactInfoToVenueRoleRow(ci),
+          row: { contactId: ca.contact.contactId, ...this.mapContactInfoToVenueRoleRow(ci) },
         });
       }
     }
     mergedRows.sort((a, b) => a.contactAssignmentId - b.contactAssignmentId);
     const mapped = mergedRows.map((x) => x.row);
-    const dedupedByContactInfo = new Map<number, (typeof mapped)[number]>();
+    const dedupedByContact = new Map<number, (typeof mapped)[number]>();
     for (const row of mapped) {
       // A contact can be assigned both at Venue and Complex company level.
       // We return one row per person (contact identity) so inherited contacts
       // do not duplicate entries in the venue profile UI.
-      if (!dedupedByContactInfo.has(row.contactInfoId)) {
-        dedupedByContactInfo.set(row.contactInfoId, row);
+      if (!dedupedByContact.has(row.contactId)) {
+        dedupedByContact.set(row.contactId, row);
       }
     }
-    return [...dedupedByContactInfo.values()];
+    return [...dedupedByContact.values()];
   }
 
   /**
@@ -2342,6 +2352,7 @@ export class CompanyService {
 
       const company = em.create(Company, {
         companyName: dto.companyName.trim(),
+        isInternal: dto.isInternal ?? false,
         companyTypeId: primaryCompanyTypeId,
         physicalAddressId: savedPhysical.addressId,
         mailingAddressId: mailingId,
@@ -3046,6 +3057,9 @@ export class CompanyService {
     if (dto.companyName !== undefined) {
       existing.companyName = dto.companyName.trim();
     }
+    if (dto.isInternal !== undefined) {
+      existing.isInternal = Boolean(dto.isInternal);
+    }
     const nextCompanyTypeIds =
       dto.companyTypeIds !== undefined
         ? this.normalizeCompanyTypeIds(dto.companyTypeIds, dto.companyTypeId)
@@ -3491,7 +3505,7 @@ export class CompanyService {
     const companyIdNum = Number(companyId ?? 0);
     const hasCompany = Number.isInteger(companyIdNum) && companyIdNum > 0;
     await em.delete(ContactAssignment, { contactId });
-    if (!hasCompany) return true;
+    if (!hasCompany) return false;
 
     const company = await em.getRepository(Company).findOne({
       where: { companyId: companyIdNum },
@@ -3528,7 +3542,7 @@ export class CompanyService {
       }
     }
     await em.save(ContactAssignment, assignments);
-    return false;
+    return Boolean(company.isInternal);
   }
 
   private async getOrCreateManagedContact(
@@ -3622,7 +3636,6 @@ export class CompanyService {
     if (!contact) {
       contact = contactRepo.create({
         contactInfoId: savedInfo.contactInfoId,
-        isStaff: false,
       });
     }
     return contactRepo.save(contact);
@@ -3721,7 +3734,7 @@ export class CompanyService {
         'ci.email AS email',
         'ci.cellPhone AS cellPhone',
         'ci.workPhone AS workPhone',
-        'ct.isStaff AS isStaff',
+        'c.isInternal AS companyIsInternal',
         'c.companyId AS companyId',
         'c.companyName AS companyName',
         'r.roleId AS roleId',
@@ -3757,9 +3770,7 @@ export class CompanyService {
             pickRawRowValue(row, 'workPhone') == null
               ? null
               : String(pickRawRowValue(row, 'workPhone')),
-          isStaff:
-            pickRawRowValue(row, 'isStaff') === true ||
-            pickRawRowValue(row, 'isStaff') === 1,
+          isStaff: isTruthyBit(pickRawRowValue(row, 'companyIsInternal')),
           companyIds: [],
           companyNames: [],
           roleIds: [],
@@ -3771,6 +3782,8 @@ export class CompanyService {
       }
       const companyIdValue = Number(pickRawRowValue(row, 'companyId'));
       if (Number.isInteger(companyIdValue) && companyIdValue > 0) {
+        item.isStaff =
+          item.isStaff || isTruthyBit(pickRawRowValue(row, 'companyIsInternal'));
         pushUnique(item.companyIds, companyIdValue);
         pushUnique(
           item.companyNames,
@@ -3823,7 +3836,7 @@ export class CompanyService {
         'ci.email AS email',
         'ci.cellPhone AS cellPhone',
         'ci.workPhone AS workPhone',
-        'ct.isStaff AS isStaff',
+        'c.isInternal AS companyIsInternal',
         'c.companyId AS companyId',
         'c.companyName AS companyName',
         'r.roleId AS roleId',
@@ -3848,9 +3861,7 @@ export class CompanyService {
         pickRawRowValue(first, 'workPhone') == null
           ? null
           : String(pickRawRowValue(first, 'workPhone')),
-      isStaff:
-        pickRawRowValue(first, 'isStaff') === true ||
-        pickRawRowValue(first, 'isStaff') === 1,
+      isStaff: isTruthyBit(pickRawRowValue(first, 'companyIsInternal')),
       companyIds: [],
       companyNames: [],
       roleIds: [],
@@ -3865,6 +3876,8 @@ export class CompanyService {
     for (const row of raw) {
       const companyIdValue = Number(pickRawRowValue(row, 'companyId'));
       if (Number.isInteger(companyIdValue) && companyIdValue > 0) {
+        out.isStaff =
+          out.isStaff || isTruthyBit(pickRawRowValue(row, 'companyIsInternal'));
         pushUnique(out.companyIds, companyIdValue);
         pushUnique(
           out.companyNames,
@@ -3896,15 +3909,13 @@ export class CompanyService {
   ): Promise<ManagedContactRow> {
     return this.dataSource.transaction(async (em) => {
       const contact = await this.getOrCreateManagedContact(em, dto);
-      const isStaff = await this.ensureManagedContactAssignments(
+      await this.ensureManagedContactAssignments(
         em,
         contact.contactId,
         dto.companyId,
         dto.roleIds,
         dto.departmentIds,
       );
-      contact.isStaff = isStaff;
-      await em.save(Contact, contact);
       const row = await this.getManagedContactRowById(contact.contactId, em);
       if (!row) {
         throw new BadRequestException(
@@ -3929,15 +3940,13 @@ export class CompanyService {
                 where: { contactId },
               })
             )?.companyId ?? null);
-      const isStaff = await this.ensureManagedContactAssignments(
+      await this.ensureManagedContactAssignments(
         em,
         contact.contactId,
         nextCompany,
         dto.roleIds,
         dto.departmentIds,
       );
-      contact.isStaff = isStaff;
-      await em.save(Contact, contact);
       const row = await this.getManagedContactRowById(contact.contactId, em);
       if (!row) {
         throw new BadRequestException(
@@ -3948,6 +3957,41 @@ export class CompanyService {
     });
   }
 
+  async getContactConnections(contactId: number): Promise<{ engagements: { engagementId: number; tourName: string }[]; tours: { tourId: number; tourName: string }[] }> {
+    const contact = await this.contactRepo.findOne({
+      where: { contactId },
+    });
+    if (!contact) {
+      throw new NotFoundException(`Contact ${contactId} was not found.`);
+    }
+
+    const engagements = await this.dataSource.getRepository(EngagementIAEContact)
+      .createQueryBuilder('eic')
+      .innerJoin(Engagement, 'e', 'e.engagementId = eic.engagementId')
+      .innerJoin(Tour, 't', 't.tourId = e.tourId')
+      .where('eic.contactId = :contactId', { contactId })
+      .select(['e.engagementId AS engagementId', 't.tourName AS tourName'])
+      .getRawMany();
+
+    const tours = await this.dataSource.getRepository(TourTalentAgent)
+      .createQueryBuilder('tta')
+      .innerJoin(Tour, 't', 't.tourId = tta.tourId')
+      .where('tta.contactId = :contactId', { contactId })
+      .select(['t.tourId AS tourId', 't.tourName AS tourName'])
+      .getRawMany();
+
+    return {
+      engagements: engagements.map((row) => ({
+        engagementId: Number(pickRawRowValue(row, 'engagementId')),
+        tourName: String(pickRawRowValue(row, 'tourName') ?? ''),
+      })),
+      tours: tours.map((row) => ({
+        tourId: Number(pickRawRowValue(row, 'tourId')),
+        tourName: String(pickRawRowValue(row, 'tourName') ?? ''),
+      })),
+    };
+  }
+
   async removeManagedContact(contactId: number): Promise<void> {
     await this.dataSource.transaction(async (em) => {
       const contact = await em.getRepository(Contact).findOne({
@@ -3955,6 +3999,20 @@ export class CompanyService {
       });
       if (!contact)
         throw new NotFoundException(`Contact ${contactId} was not found.`);
+
+      // Get contact assignment IDs to delete from EmployeePhoneExtension
+      const assignments = await em.getRepository(ContactAssignment).find({
+        where: { contactId },
+      });
+      const assignmentIds = assignments.map((a) => a.contactAssignmentId);
+      if (assignmentIds.length > 0) {
+        await em.query(
+          `DELETE FROM dbo.EmployeePhoneExtension WHERE ContactAssignmentID IN (${assignmentIds.join(',')})`,
+        );
+      }
+
+      await em.getRepository(EngagementIAEContact).delete({ contactId });
+      await em.getRepository(TourTalentAgent).delete({ contactId });
       await em.delete(ContactAssignment, { contactId });
       await em.delete(Contact, { contactId });
       const stillUsed = await em.getRepository(Contact).count({
@@ -4018,13 +4076,8 @@ export class CompanyService {
           Contact,
           em.create(Contact, {
             contactInfoId: savedInfo.contactInfoId,
-            isStaff: false,
           }),
         ));
-      if (savedContact.isStaff !== false) {
-        savedContact.isStaff = false;
-        await em.save(Contact, savedContact);
-      }
 
       const existingAssignment = await em.findOne(ContactAssignment, {
         where: { companyId, contactId: savedContact.contactId },
