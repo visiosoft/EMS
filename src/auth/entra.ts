@@ -11,9 +11,11 @@ import {
 const clientId = import.meta.env.VITE_ENTRA_CLIENT_ID;
 const tenantId = import.meta.env.VITE_ENTRA_TENANT_ID;
 const apiScope = import.meta.env.VITE_ENTRA_API_SCOPE?.trim();
-const graphScope =
-    import.meta.env.VITE_ENTRA_GRAPH_SCOPE?.trim() ||
-    "https://graph.microsoft.com/User.Read.All";
+const graphScopes =
+    import.meta.env.VITE_ENTRA_GRAPH_SCOPE?.trim()
+        .split(/\s+/)
+        .filter(Boolean) ??
+    ["https://graph.microsoft.com/User.Read.All"];
 const microsoftGraphAudiences = new Set([
     "00000003-0000-0000-c000-000000000000",
     "https://graph.microsoft.com",
@@ -40,7 +42,7 @@ const msalConfig: Configuration = {
 };
 
 export const loginRequest = {
-    scopes: Array.from(new Set(["openid", "profile", "email", "User.Read", graphScope])),
+    scopes: Array.from(new Set(["openid", "profile", "email", "User.Read", ...graphScopes])),
 };
 
 export const msalInstance = new PublicClientApplication(msalConfig);
@@ -143,7 +145,7 @@ export async function acquireGraphAccessToken(
 ): Promise<string> {
     const response = await msalInstance.acquireTokenSilent({
         account,
-        scopes: [graphScope],
+        scopes: graphScopes,
         forceRefresh: options.forceRefresh,
     });
     logGraphTokenDiagnostics(response.accessToken);
@@ -156,7 +158,7 @@ export async function requestGraphAccessToken(
 ): Promise<string> {
     const request = {
         account,
-        scopes: [graphScope],
+        scopes: graphScopes,
         loginHint: account.username,
         forceRefresh: options.forceRefresh,
     };
@@ -197,13 +199,11 @@ function logGraphTokenDiagnostics(accessToken: string): void {
 
     console.debug("[MSAL] Microsoft Graph token acquisition succeeded.", diagnostics);
 
-    if (!diagnostics.isGraphAudience || !diagnostics.hasUserReadAll) {
-        console.warn("[MSAL] Microsoft Graph token is missing the expected audience or delegated scope.", {
+    if (!diagnostics.isGraphAudience) {
+        console.warn("[MSAL] Microsoft Graph token is missing the expected audience.", {
             expectedAudience: "Microsoft Graph",
-            expectedScope: "User.Read.All",
             aud: diagnostics.aud,
             scp: diagnostics.scp,
-            roles: diagnostics.roles,
         });
     }
 }

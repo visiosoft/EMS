@@ -117,13 +117,15 @@ async function handleApiResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let userMessage = res.statusText;
     let devDetail: string | undefined;
+    let userSuggestion: string | undefined;
     try {
       const j = (await res.json()) as {
         message?: string | string[];
-        /** Developer-oriented explanation (shown in Network response; also on Error.detail in JS) */
         detail?: string;
+        suggestion?: string;
       };
       devDetail = typeof j.detail === 'string' ? j.detail : undefined;
+      userSuggestion = typeof j.suggestion === 'string' ? j.suggestion : undefined;
       if (typeof j.message === 'string') userMessage = j.message;
       else if (Array.isArray(j.message)) userMessage = j.message.join(', ');
     } catch {
@@ -131,9 +133,10 @@ async function handleApiResponse<T>(res: Response): Promise<T> {
     }
     const err = new Error(
       userMessage || `Request failed (${res.status})`,
-    ) as Error & { detail?: string; status?: number };
+    ) as Error & { detail?: string; status?: number; suggestion?: string };
     err.status = res.status;
     if (devDetail) err.detail = devDetail;
+    if (userSuggestion) err.suggestion = userSuggestion;
     throw err;
   }
   if (res.status === 204) return undefined as T;

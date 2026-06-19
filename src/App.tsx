@@ -1,4 +1,7 @@
+import { initializeIcons } from "@fluentui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+initializeIcons();
 import { useIsAuthenticated, useMsal } from "@azure/msal-react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";

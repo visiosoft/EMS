@@ -16,6 +16,7 @@ import { ProductionPage } from "@/modules/internal/pages/ProductionPage";
 import { TicketingSalesPage } from "@/modules/internal/pages/TicketingSalesPage";
 import { LearningPortalPage } from "@/modules/internal/pages/LearningPortalPage";
 import { LearningAdminPage } from "@/modules/internal/pages/LearningAdminPage";
+import { DocumentLibraryPage } from "@/features/document-library/pages/DocumentLibraryPage";
 
 function InternalAppViews() {
   const { currentView } = useInternalNavigation();
@@ -49,6 +50,8 @@ function InternalAppViews() {
       return <TicketingSalesPage />;
     case "learning-portal":
       return <LearningPortalPage />;
+    case "document-library":
+      return <DocumentLibraryPage />;
     case "home":
     default:
       return <InternalHomePage />;
