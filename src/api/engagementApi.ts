@@ -249,6 +249,7 @@ export interface ApiEngagementFinanceRow {
   fundsOwed: number | null;
   receivableBankAccount: string | null;
   requiredNonResidentWithholdingId: number | null;
+  isCanadaEngagement: boolean | null;
   artistFinanceId: number | null;
   settlementFinanceId: number | null;
   /** dbo.SettlementFinance via SettlementFinanceID */
@@ -335,6 +336,13 @@ export interface ApiEngagementFinanceRow {
   artistTourOfferLink: string | null;
   artistOverageAmount: number | null;
   artistBuyouts: number | null;
+  /** dbo.SettlementFinance — Final Attraction Compensation */
+  finalGuaranteeAmount: number | null;
+  finalRoyaltyAmount: number | null;
+  finalOverageAmount: number | null;
+  finalBuyoutAmount: number | null;
+  finalDirectCompanyCharges: number | null;
+  finalReimbursables: number | null;
 }
 
 export type UpdateEngagementFinancePayload = {
@@ -441,6 +449,13 @@ export type UpdateEngagementFinancePayload = {
   artistTourOfferLink?: string | null;
   artistOverageAmount?: number | null;
   artistBuyouts?: number | null;
+  /** dbo.SettlementFinance — Final Attraction Compensation */
+  finalGuaranteeAmount?: number | null;
+  finalRoyaltyAmount?: number | null;
+  finalOverageAmount?: number | null;
+  finalBuyoutAmount?: number | null;
+  finalDirectCompanyCharges?: number | null;
+  finalReimbursables?: number | null;
 };
 
 export interface ApiEngagementFinanceLookups {
@@ -451,6 +466,20 @@ export interface ApiEngagementFinanceLookups {
     withholdingArea?: string | null;
     dmaid?: number | null;
     taxAgencyId?: number | null;
+    withholdingAgencyName?: string | null;
+    withholdingPayee?: string | null;
+    paymentMethod?: string | null;
+    formToAttractionUrl?: string | null;
+    formToMunicipalityUrl?: string | null;
+    quickBooksNumber?: string | null;
+    canApplyForWaiver?: boolean | null;
+    iaeWaiverInstructionsText?: string | null;
+    completedWaiverUrl?: string | null;
+    iaeWaiverSubmissionDate?: string | null;
+    iaeWaiverAppNumber?: string | null;
+    iaeWaiverUrl?: string | null;
+    tourWaiverUrl?: string | null;
+    exceptionsNotes?: string | null;
     withholdingLink?: ApiFinanceLink | null;
     artistWaiverInstructions?: ApiFinanceLink | null;
     iaeWaiverInstructions?: ApiFinanceLink | null;
@@ -880,6 +909,17 @@ export const fetchEngagementFinance = (id: number) =>
 
 export const updateEngagementFinance = (id: number, body: UpdateEngagementFinancePayload) =>
   apiFetch<void>(`/engagements/${id}/finance`, { method: 'PATCH', body: JSON.stringify(body) });
+
+export type UpdateNonResidentWithholdingPayload = {
+  withholdingArea?: string | null;
+  withholdingTaxRate?: number | null;
+  withholdingAgencyName?: string | null;
+  iaeWaiverSubmissionDate?: string | null;
+  iaeWaiverAppNumber?: string | null;
+};
+
+export const updateNonResidentWithholding = (nrwId: number, body: UpdateNonResidentWithholdingPayload) =>
+  apiFetch<void>(`/engagements/non-resident-withholding/${nrwId}`, { method: 'PATCH', body: JSON.stringify(body) });
 
 export const createEngagementWithholding = (id: number) =>
   apiFetch<{ withholdingId: number }>(`/engagements/${id}/withholding`, {

@@ -103,6 +103,15 @@ export class EngagementController {
     return this.engagementService.upsertFinance(id, dto);
   }
 
+  @Patch('non-resident-withholding/:nrwId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  updateNonResidentWithholding(
+    @Param('nrwId', ParseIntPipe) nrwId: number,
+    @Body() dto: { withholdingArea?: string | null; withholdingTaxRate?: number | null; withholdingAgencyName?: string | null; iaeWaiverSubmissionDate?: string | null; iaeWaiverAppNumber?: string | null },
+  ) {
+    return this.engagementService.updateNonResidentWithholding(nrwId, dto);
+  }
+
   @Get('paged')
   listPaged(
     @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,

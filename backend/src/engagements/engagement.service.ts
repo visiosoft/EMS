@@ -333,6 +333,7 @@ export interface EngagementFinanceRow {
   fundsOwed: number | null;
   receivableBankAccount: string | null;
   requiredNonResidentWithholdingId: number | null;
+  isCanadaEngagement: boolean | null;
   artistFinanceId: number | null;
   settlementFinanceId: number | null;
   /** dbo.SettlementFinance (via EngagementFinances.SettlementFinanceID) */
@@ -420,6 +421,13 @@ export interface EngagementFinanceRow {
   artistTourOfferLink: string | null;
   artistOverageAmount: number | null;
   artistBuyouts: number | null;
+  /** dbo.SettlementFinance — Final Attraction Compensation */
+  finalGuaranteeAmount: number | null;
+  finalRoyaltyAmount: number | null;
+  finalOverageAmount: number | null;
+  finalBuyoutAmount: number | null;
+  finalDirectCompanyCharges: number | null;
+  finalReimbursables: number | null;
 }
 
 export interface FinanceMasterOption {
@@ -429,6 +437,20 @@ export interface FinanceMasterOption {
   withholdingArea?: string | null;
   dmaid?: number | null;
   taxAgencyId?: number | null;
+  withholdingAgencyName?: string | null;
+  withholdingPayee?: string | null;
+  paymentMethod?: string | null;
+  formToAttractionUrl?: string | null;
+  formToMunicipalityUrl?: string | null;
+  quickBooksNumber?: string | null;
+  canApplyForWaiver?: boolean | null;
+  iaeWaiverInstructionsText?: string | null;
+  completedWaiverUrl?: string | null;
+  iaeWaiverSubmissionDate?: string | null;
+  iaeWaiverAppNumber?: string | null;
+  iaeWaiverUrl?: string | null;
+  tourWaiverUrl?: string | null;
+  exceptionsNotes?: string | null;
   withholdingLink?: FinanceLink | null;
   artistWaiverInstructions?: FinanceLink | null;
   iaeWaiverInstructions?: FinanceLink | null;
@@ -1629,9 +1651,6 @@ export class EngagementService {
     intField('EventBusinessManagerContactID', dto.eventBusinessManagerContactId);
     intField('EventBusinessAssistantManagerContactID', dto.eventBusinessAssistantManagerContactId);
     intField('VenueSettlementContactID', dto.venueSettlementContactId);
-    strField('VenueSettlementFileSharePointLink', dto.venueSettlementFileSharePointLink, 2048);
-    strField('PartnerSettlementFileSharePointLink', dto.partnerSettlementFileSharePointLink, 2048);
-    strField('SalesTaxRemittedBy', dto.salesTaxRemittedBy, 100);
     strField('FexVenueAgreementLink', dto.fexVenueAgreementLink, 2048);
     bitField('VenueDepositRequired', dto.venueDepositRequired);
     strField('WithholdingPayee', dto.withholdingPayee, 255);
@@ -2641,11 +2660,42 @@ export class EngagementService {
       withholdingLinkId: number | null;
       artistWaiverInstructionsId: number | null;
       iaeWaiverInstructionsId: number | null;
+      withholdingArea: string | null;
+      withholdingAgencyName: string | null;
+      withholdingPayee: string | null;
+      paymentMethod: string | null;
+      formToAttractionUrl: string | null;
+      formToMunicipalityUrl: string | null;
+      quickBooksNumber: string | null;
+      canApplyForWaiver: boolean | null;
+      iaeWaiverInstructionsText: string | null;
+      completedWaiverUrl: string | null;
+      iaeWaiverSubmissionDate: string | null;
+      iaeWaiverAppNumber: string | null;
+      iaeWaiverUrl: string | null;
+      tourWaiverUrl: string | null;
+      exceptionsNotes: string | null;
     }>
   > {
     const manager = em ?? this.dataSource.manager;
     const hasDmaId = await this.nonResidentWithholdingHasDmaId();
     let rows: Record<string, unknown>[] = [];
+    const extraCols = `
+            ,w.WithholdingArea AS withholdingArea
+            ,w.WithholdingAgencyName AS withholdingAgencyName
+            ,w.WithholdingPayee AS withholdingPayee
+            ,w.PaymentMethod AS paymentMethod
+            ,w.FormToAttractionURL AS formToAttractionUrl
+            ,w.FormToMunicipalityURL AS formToMunicipalityUrl
+            ,w.QuickBooksNumber AS quickBooksNumber
+            ,w.CanApplyForWaiver AS canApplyForWaiver
+            ,w.IAEWaiverInstructions AS iaeWaiverInstructionsText
+            ,w.CompletedWaiverURL AS completedWaiverUrl
+            ,w.IAEWaiverSubmissionDate AS iaeWaiverSubmissionDate
+            ,w.IAEWaiverAppNumber AS iaeWaiverAppNumber
+            ,w.IAEWaiverURL AS iaeWaiverUrl
+            ,w.TourWaiverURL AS tourWaiverUrl
+            ,w.ExceptionsNotes AS exceptionsNotes`;
     try {
       rows = await manager.query(
         `
@@ -2657,6 +2707,7 @@ export class EngagementService {
             w.WithholdingLinkID AS withholdingLinkId,
             w.ArtistWaiverInstructionsID AS artistWaiverInstructionsId,
             w.IAEWaiverInstructionsID AS iaeWaiverInstructionsId
+            ${extraCols}
           FROM [dbo].[NonResidentWithholding] w
           ORDER BY w.WithholdingID ASC
         `,
@@ -2673,6 +2724,7 @@ export class EngagementService {
             w.WithholdingLinkID AS withholdingLinkId,
             w.ArtistWaiverInstructionsID AS artistWaiverInstructionsId,
             w.IAEWaiverInstructionsID AS iaeWaiverInstructionsId
+            ${extraCols}
           FROM [dbo].[NonResidentWithholding] w
           ORDER BY w.WithholdingID ASC
         `,
@@ -2688,33 +2740,60 @@ export class EngagementService {
           withholdingTaxRate: String(row.withholdingTaxRate ?? ''),
           dmaid: row.dmaid == null ? null : Number(row.dmaid),
           taxAgencyId: row.taxAgencyId == null ? null : Number(row.taxAgencyId),
-          withholdingLinkId:
-            row.withholdingLinkId == null
-              ? null
-              : Number(row.withholdingLinkId),
-          artistWaiverInstructionsId:
-            row.artistWaiverInstructionsId == null
-              ? null
-              : Number(row.artistWaiverInstructionsId),
-          iaeWaiverInstructionsId:
-            row.iaeWaiverInstructionsId == null
-              ? null
-              : Number(row.iaeWaiverInstructionsId),
+          withholdingLinkId: row.withholdingLinkId == null ? null : Number(row.withholdingLinkId),
+          artistWaiverInstructionsId: row.artistWaiverInstructionsId == null ? null : Number(row.artistWaiverInstructionsId),
+          iaeWaiverInstructionsId: row.iaeWaiverInstructionsId == null ? null : Number(row.iaeWaiverInstructionsId),
+          withholdingArea: row.withholdingArea == null ? null : String(row.withholdingArea),
+          withholdingAgencyName: row.withholdingAgencyName == null ? null : String(row.withholdingAgencyName),
+          withholdingPayee: row.withholdingPayee == null ? null : String(row.withholdingPayee),
+          paymentMethod: row.paymentMethod == null ? null : String(row.paymentMethod),
+          formToAttractionUrl: row.formToAttractionUrl == null ? null : String(row.formToAttractionUrl),
+          formToMunicipalityUrl: row.formToMunicipalityUrl == null ? null : String(row.formToMunicipalityUrl),
+          quickBooksNumber: row.quickBooksNumber == null ? null : String(row.quickBooksNumber),
+          canApplyForWaiver: row.canApplyForWaiver == null ? null : Boolean(row.canApplyForWaiver),
+          iaeWaiverInstructionsText: row.iaeWaiverInstructionsText == null ? null : String(row.iaeWaiverInstructionsText),
+          completedWaiverUrl: row.completedWaiverUrl == null ? null : String(row.completedWaiverUrl),
+          iaeWaiverSubmissionDate: row.iaeWaiverSubmissionDate == null ? null : String(row.iaeWaiverSubmissionDate),
+          iaeWaiverAppNumber: row.iaeWaiverAppNumber == null ? null : String(row.iaeWaiverAppNumber),
+          iaeWaiverUrl: row.iaeWaiverUrl == null ? null : String(row.iaeWaiverUrl),
+          tourWaiverUrl: row.tourWaiverUrl == null ? null : String(row.tourWaiverUrl),
+          exceptionsNotes: row.exceptionsNotes == null ? null : String(row.exceptionsNotes),
         };
       })
-      .filter(
-        (
-          row,
-        ): row is {
-          withholdingId: number;
-          withholdingTaxRate: string;
-          dmaid: number | null;
-          taxAgencyId: number | null;
-          withholdingLinkId: number | null;
-          artistWaiverInstructionsId: number | null;
-          iaeWaiverInstructionsId: number | null;
-        } => row != null,
-      );
+      .filter((row): row is NonNullable<typeof row> => row != null);
+  }
+
+  /**
+   * Update editable fields on dbo.NonResidentWithholding by WithholdingID.
+   */
+  async updateNonResidentWithholding(
+    withholdingId: number,
+    dto: {
+      withholdingArea?: string | null;
+      withholdingTaxRate?: number | null;
+      withholdingAgencyName?: string | null;
+      iaeWaiverSubmissionDate?: string | null;
+      iaeWaiverAppNumber?: string | null;
+    },
+  ): Promise<void> {
+    const id = Math.floor(Number(withholdingId));
+    if (!Number.isInteger(id) || id < 1) return;
+    const sets: string[] = [];
+    const strField = (col: string, v: string | null | undefined, max: number) => {
+      if (v !== undefined) sets.push(`[${col}] = ${v == null || String(v).trim() === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(String(v).trim().slice(0, max))}`);
+    };
+    const numField = (col: string, v: number | null | undefined) => {
+      if (v !== undefined) sets.push(`[${col}] = ${v == null ? 'NULL' : Number(v)}`);
+    };
+    strField('WithholdingArea', dto.withholdingArea, 100);
+    numField('WithholdingTaxRate', dto.withholdingTaxRate);
+    strField('WithholdingAgencyName', dto.withholdingAgencyName, 200);
+    strField('IAEWaiverSubmissionDate', dto.iaeWaiverSubmissionDate, 10);
+    strField('IAEWaiverAppNumber', dto.iaeWaiverAppNumber, 100);
+    if (sets.length === 0) return;
+    await this.dataSource.query(
+      `UPDATE dbo.NonResidentWithholding SET ${sets.join(', ')} WHERE [WithholdingID] = ${id}`,
+    );
   }
 
   private async findNonResidentWithholdingByIdSafe(
@@ -3093,6 +3172,12 @@ export class EngagementService {
     | 'artistGrossTaxableCompensation'
     | 'amountDueToDeptOfRevenue'
     | 'checkNumberOrConfOfWithholdingPayment'
+    | 'finalGuaranteeAmount'
+    | 'finalRoyaltyAmount'
+    | 'finalOverageAmount'
+    | 'finalBuyoutAmount'
+    | 'finalDirectCompanyCharges'
+    | 'finalReimbursables'
   > {
     if (!settlementRow) {
       return {
@@ -3109,6 +3194,12 @@ export class EngagementService {
         artistGrossTaxableCompensation: null,
         amountDueToDeptOfRevenue: null,
         checkNumberOrConfOfWithholdingPayment: null,
+        finalGuaranteeAmount: null,
+        finalRoyaltyAmount: null,
+        finalOverageAmount: null,
+        finalBuyoutAmount: null,
+        finalDirectCompanyCharges: null,
+        finalReimbursables: null,
       };
     }
     return {
@@ -3145,6 +3236,12 @@ export class EngagementService {
       ),
       checkNumberOrConfOfWithholdingPayment:
         settlementRow.checkNumberOrConfOfWithholdingPayment ?? null,
+      finalGuaranteeAmount: this.mapFinanceNumber(settlementRow.finalGuaranteeAmount),
+      finalRoyaltyAmount: this.mapFinanceNumber(settlementRow.finalRoyaltyAmount),
+      finalOverageAmount: this.mapFinanceNumber(settlementRow.finalOverageAmount),
+      finalBuyoutAmount: this.mapFinanceNumber(settlementRow.finalBuyoutAmount),
+      finalDirectCompanyCharges: this.mapFinanceNumber(settlementRow.directCompanyCharges),
+      finalReimbursables: this.mapFinanceNumber(settlementRow.reimbursables),
     };
   }
 
@@ -3217,6 +3314,7 @@ export class EngagementService {
         fundsOwed: null,
         receivableBankAccount: null,
         requiredNonResidentWithholdingId: null,
+        isCanadaEngagement: null,
         artistFinanceId: null,
         settlementFinanceId: null,
         artistDealType,
@@ -3276,11 +3374,11 @@ export class EngagementService {
         tourSesac: null,
         tourGmr: null,
         artistDepositRequired: null,
-        artistPartOfCollateralizedDeal: null,
+        artistPartOfCollateralizedDeal: artistRow?.isCollateralizedDeal ?? null,
         artistFexPerformanceAgreementLink: null,
         artistTourOfferLink: null,
         artistOverageAmount: null,
-        artistBuyouts: null,
+        artistBuyouts: artistRow ? this.mapFinanceNumber(artistRow.buyoutAmount) : null,
       };
     }
     return {
@@ -3315,6 +3413,7 @@ export class EngagementService {
       fundsOwed: this.mapFinanceNumber(row.fundsOwed),
       receivableBankAccount: row.receivableBankAccount,
       requiredNonResidentWithholdingId: row.requiredNonResidentWithholdingId,
+      isCanadaEngagement: row.isCanadaEngagement ?? null,
       artistFinanceId: row.artistFinanceId,
       settlementFinanceId: row.settlementFinanceId,
       artistDealType,
@@ -3348,9 +3447,9 @@ export class EngagementService {
       eventBusinessAssistantManagerContactName: null,
       venueSettlementContactId: null,
       venueSettlementContactName: null,
-      venueSettlementFileSharePointLink: null,
-      partnerSettlementFileSharePointLink: null,
-      salesTaxRemittedBy: null,
+      venueSettlementFileSharePointLink: row.venueSettlementFileSharePointLink ?? null,
+      partnerSettlementFileSharePointLink: row.partnerSettlementFileSharePointLink ?? null,
+      salesTaxRemittedBy: row.salesTaxRemittedBy ?? null,
       fexVenueAgreementLink: null,
       venueDepositRequired: null,
       withholdingPayee: null,
@@ -3374,11 +3473,11 @@ export class EngagementService {
       tourSesac: null,
       tourGmr: null,
       artistDepositRequired: null,
-      artistPartOfCollateralizedDeal: null,
+      artistPartOfCollateralizedDeal: artistRow?.isCollateralizedDeal ?? null,
       artistFexPerformanceAgreementLink: null,
       artistTourOfferLink: null,
       artistOverageAmount: null,
-      artistBuyouts: null,
+      artistBuyouts: artistRow ? this.mapFinanceNumber(artistRow.buyoutAmount) : null,
     };
   }
 
@@ -3953,6 +4052,12 @@ export class EngagementService {
         where: { artistFinanceId: afId },
       });
     }
+    // Resolve tour offer link URL from Link table
+    let artistTourOfferLinkUrl: string | null = null;
+    if (artistRow?.tourOfferLinkId) {
+      const linkRow = await this.linkRepo.findOne({ where: { linkId: artistRow.tourOfferLinkId } });
+      artistTourOfferLinkUrl = linkRow?.linkUrl ?? null;
+    }
     let settlementRow: SettlementFinance | null = null;
     const sfId = row?.settlementFinanceId ?? null;
     if (sfId != null) {
@@ -3968,6 +4073,7 @@ export class EngagementService {
       settlementRow,
       payableEntity,
     );
+    base.artistTourOfferLink = artistTourOfferLinkUrl;
     if (!row?.financeId) return base;
     const withMarketingBudget = await this.mergeFinanceMarketingBudgetFromDb(
       row.financeId,
@@ -4061,9 +4167,23 @@ export class EngagementService {
       id: r.withholdingId,
       label: `Withholding #${r.withholdingId} (rate ${r.withholdingTaxRate})`,
       withholdingTaxRate: String(r.withholdingTaxRate ?? ''),
-      withholdingArea: r.dmaid != null ? (dmaAreaById.get(r.dmaid) ?? null) : null,
+      withholdingArea: r.withholdingArea ?? (r.dmaid != null ? (dmaAreaById.get(r.dmaid) ?? null) : null),
       dmaid: r.dmaid ?? null,
       taxAgencyId: r.taxAgencyId ?? null,
+      withholdingAgencyName: r.withholdingAgencyName ?? null,
+      withholdingPayee: r.withholdingPayee ?? null,
+      paymentMethod: r.paymentMethod ?? null,
+      formToAttractionUrl: r.formToAttractionUrl ?? null,
+      formToMunicipalityUrl: r.formToMunicipalityUrl ?? null,
+      quickBooksNumber: r.quickBooksNumber ?? null,
+      canApplyForWaiver: r.canApplyForWaiver ?? null,
+      iaeWaiverInstructionsText: r.iaeWaiverInstructionsText ?? null,
+      completedWaiverUrl: r.completedWaiverUrl ?? null,
+      iaeWaiverSubmissionDate: r.iaeWaiverSubmissionDate ?? null,
+      iaeWaiverAppNumber: r.iaeWaiverAppNumber ?? null,
+      iaeWaiverUrl: r.iaeWaiverUrl ?? null,
+      tourWaiverUrl: r.tourWaiverUrl ?? null,
+      exceptionsNotes: r.exceptionsNotes ?? null,
       withholdingLink: this.mapFinanceLink(
         r.withholdingLinkId ? linksById.get(r.withholdingLinkId) : null,
       ),
@@ -4447,6 +4567,18 @@ export class EngagementService {
     if (dto.settlementFinanceId !== undefined) {
       row.settlementFinanceId = dto.settlementFinanceId;
     }
+    if (dto.salesTaxRemittedBy !== undefined) {
+      const t = dto.salesTaxRemittedBy;
+      row.salesTaxRemittedBy = t == null || t.trim() === '' ? null : t.trim().slice(0, 100);
+    }
+    if (dto.venueSettlementFileSharePointLink !== undefined) {
+      const t = dto.venueSettlementFileSharePointLink;
+      row.venueSettlementFileSharePointLink = t == null || t.trim() === '' ? null : t.trim().slice(0, 2048);
+    }
+    if (dto.partnerSettlementFileSharePointLink !== undefined) {
+      const t = dto.partnerSettlementFileSharePointLink;
+      row.partnerSettlementFileSharePointLink = t == null || t.trim() === '' ? null : t.trim().slice(0, 2048);
+    }
 
     const touchesArtistMaster =
       dto.artistDealType !== undefined ||
@@ -4458,7 +4590,10 @@ export class EngagementService {
       dto.artistRoyaltyBasedOn !== undefined ||
       dto.artistVersusPercent !== undefined ||
       dto.artistPromoterProfitPercent !== undefined ||
-      dto.artistBackendPercent !== undefined;
+      dto.artistBackendPercent !== undefined ||
+      dto.artistPartOfCollateralizedDeal !== undefined ||
+      dto.artistBuyouts !== undefined ||
+      dto.artistTourOfferLink !== undefined;
 
     if (touchesArtistMaster) {
       let afId = row.artistFinanceId;
@@ -4493,7 +4628,19 @@ export class EngagementService {
             : null,
           royaltyRate: dto.artistRoyaltyRatePercent !== undefined ? dto.artistRoyaltyRatePercent : null,
           royaltyBasis: dto.artistRoyaltyBasedOn !== undefined ? (dto.artistRoyaltyBasedOn?.trim() || null) : null,
+          isCollateralizedDeal: dto.artistPartOfCollateralizedDeal !== undefined
+            ? (dto.artistPartOfCollateralizedDeal ?? null)
+            : null,
+          buyoutAmount: dto.artistBuyouts !== undefined
+            ? (dto.artistBuyouts == null ? null : dto.artistBuyouts)
+            : null,
+          tourOfferLinkId: null,
         });
+        // Handle tour offer link via Link table
+        if (dto.artistTourOfferLink !== undefined) {
+          const linkId = await this.upsertUrlLink(dto.artistTourOfferLink, null, 'Tour Offer');
+          created.tourOfferLinkId = linkId;
+        }
         const savedAf = await this.artistFinanceRepo.save(created);
         afId = savedAf.artistFinanceId;
         row.artistFinanceId = afId;
@@ -4537,6 +4684,16 @@ export class EngagementService {
         if (dto.artistRoyaltyBasedOn !== undefined) {
           af.royaltyBasis = dto.artistRoyaltyBasedOn?.trim() || null;
         }
+        if (dto.artistPartOfCollateralizedDeal !== undefined) {
+          af.isCollateralizedDeal = dto.artistPartOfCollateralizedDeal ?? null;
+        }
+        if (dto.artistBuyouts !== undefined) {
+          af.buyoutAmount = dto.artistBuyouts == null ? null : dto.artistBuyouts;
+        }
+        if (dto.artistTourOfferLink !== undefined) {
+          const linkId = await this.upsertUrlLink(dto.artistTourOfferLink, af.tourOfferLinkId, 'Tour Offer');
+          af.tourOfferLinkId = linkId;
+        }
         await this.artistFinanceRepo.save(af);
       }
     }
@@ -4554,7 +4711,13 @@ export class EngagementService {
       dto.hstPaidOnVenueExpenses !== undefined ||
       dto.artistGrossTaxableCompensation !== undefined ||
       dto.amountDueToDeptOfRevenue !== undefined ||
-      dto.checkNumberOrConfOfWithholdingPayment !== undefined;
+      dto.checkNumberOrConfOfWithholdingPayment !== undefined ||
+      dto.finalGuaranteeAmount !== undefined ||
+      dto.finalRoyaltyAmount !== undefined ||
+      dto.finalOverageAmount !== undefined ||
+      dto.finalBuyoutAmount !== undefined ||
+      dto.finalDirectCompanyCharges !== undefined ||
+      dto.finalReimbursables !== undefined;
 
     if (touchesSettlementMaster) {
       let sfId = row.settlementFinanceId;
@@ -4647,6 +4810,18 @@ export class EngagementService {
                 : String(dto.checkNumberOrConfOfWithholdingPayment)
                     .trim()
                     .slice(0, 100),
+          finalGuaranteeAmount:
+            dto.finalGuaranteeAmount === undefined ? null : dto.finalGuaranteeAmount ?? null,
+          finalRoyaltyAmount:
+            dto.finalRoyaltyAmount === undefined ? null : dto.finalRoyaltyAmount ?? null,
+          finalOverageAmount:
+            dto.finalOverageAmount === undefined ? null : dto.finalOverageAmount ?? null,
+          finalBuyoutAmount:
+            dto.finalBuyoutAmount === undefined ? null : dto.finalBuyoutAmount ?? null,
+          directCompanyCharges:
+            dto.finalDirectCompanyCharges === undefined ? null : dto.finalDirectCompanyCharges ?? null,
+          reimbursables:
+            dto.finalReimbursables === undefined ? null : dto.finalReimbursables ?? null,
         });
         const savedSf = await this.settlementFinanceRepo.save(created);
         sfId = savedSf.settlementFinanceId;
@@ -4741,6 +4916,24 @@ export class EngagementService {
             t == null || String(t).trim() === ''
               ? null
               : String(t).trim().slice(0, 100);
+        }
+        if (dto.finalGuaranteeAmount !== undefined) {
+          sf.finalGuaranteeAmount = dto.finalGuaranteeAmount ?? null;
+        }
+        if (dto.finalRoyaltyAmount !== undefined) {
+          sf.finalRoyaltyAmount = dto.finalRoyaltyAmount ?? null;
+        }
+        if (dto.finalOverageAmount !== undefined) {
+          sf.finalOverageAmount = dto.finalOverageAmount ?? null;
+        }
+        if (dto.finalBuyoutAmount !== undefined) {
+          sf.finalBuyoutAmount = dto.finalBuyoutAmount ?? null;
+        }
+        if (dto.finalDirectCompanyCharges !== undefined) {
+          sf.directCompanyCharges = dto.finalDirectCompanyCharges ?? null;
+        }
+        if (dto.finalReimbursables !== undefined) {
+          sf.reimbursables = dto.finalReimbursables ?? null;
         }
         await this.settlementFinanceRepo.save(sf);
       }
