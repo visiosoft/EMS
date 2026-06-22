@@ -71,6 +71,7 @@ import {
 import { upsertInList, removeQueriesByPrefix } from "@/api/cacheHelpers";
 import { mapApiCompanyToCompany } from "./companyMapping";
 import { CompanyVenueProfilePanel } from "./CompanyVenueProfilePanel";
+import { VenueMarketingPanel } from "./VenueMarketingPanel";
 import { ContactPhoneRow } from "./ContactPhoneRow";
 import { DEFAULT_PHONE_COUNTRY } from "@/lib/contactPhoneOptions";
 import {
@@ -4067,7 +4068,7 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
 
   const drawerTabs = useMemo(() => {
     const base: string[] = ["Overview", "Contacts", "Engagements"];
-    const withVenue = isVenueCompany ? [...base, "Venue Profile"] : base;
+    const withVenue = isVenueCompany ? [...base, "Venue Profile", "Marketing"] : base;
     return [...withVenue, "Linked Records"];
   }, [isVenueCompany]);
 
@@ -5077,6 +5078,13 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                   addToast={addToast}
                 />
               )}
+
+            {drawerTab === "Marketing" && isVenueCompany && selectedCompanyId && (
+              <VenueMarketingPanel
+                venueCompanyId={Number(selectedCompanyId)}
+                addToast={addToast}
+              />
+            )}
 
             {drawerTab === "Linked Records" && (
               <CompanyLinksSection companyId={String(selectedCompany.id)} />

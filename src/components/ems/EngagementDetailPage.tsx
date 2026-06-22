@@ -139,6 +139,7 @@ import {
   type ApiCompanyContact,
 } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
+import { EngagementMarketingReadOnlySection } from './EngagementMarketingReadOnlySection';
 import { invalidateSalesCapacityRelatedQueries } from '@/api/cacheHelpers';
 // fetchIaeStaffEmployees removed — IAE Marketing Team now uses EngagementIAEContact
 import { formatOpeningDateSafe, formatSqlTimeDisplay } from '@/lib/engagementDisplay';
@@ -11047,11 +11048,17 @@ export function EngagementDetailPage({
 
       {/* ── Marketing (dbo.PerformanceTicketing) ─────────────────────────── */}
       {tab === 'Marketing' && (
-        <EngagementMarketingPanel
-          engagementId={engagementId}
-          addToast={addToast}
-          onDirtyChange={handleMarketingDirtyChange}
-        />
+        <>
+          <EngagementMarketingPanel
+            engagementId={engagementId}
+            addToast={addToast}
+            onDirtyChange={handleMarketingDirtyChange}
+          />
+          <EngagementMarketingReadOnlySection
+            venueCompanyId={row.primaryVenueCompanyId}
+            tourId={row.tourId}
+          />
+        </>
       )}
 
       {/* ── Production (venue-backed) ────────────────────────────────────── */}

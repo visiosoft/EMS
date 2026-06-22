@@ -26,6 +26,7 @@ import {
 } from './Primitives';
 import { Select2, Select2Multi, type Select2Option } from './Select2';
 import { companyToSelect2Options } from './companySelectOptions';
+import { TourMarketingPanel } from './TourMarketingPanel';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -1471,7 +1472,7 @@ function TourDrawer({
         </div>
       </div>
 
-      <TabBar tabs={['Details', 'Contacts', 'Engagements']} active={activeTab} onChange={onTabChange} />
+      <TabBar tabs={['Details', 'Contacts', 'Engagements', 'Marketing']} active={activeTab} onChange={onTabChange} />
 
       <div className="p-4 text-sm relative">
         {activeTab === 'Details' && (
@@ -1941,6 +1942,13 @@ function TourDrawer({
               </div>
             )}
           </div>
+        )}
+
+        {activeTab === 'Marketing' && (
+          <TourMarketingPanel
+            tourId={tour.tourId}
+            addToast={addToast}
+          />
         )}
       </div>
     </Drawer>
