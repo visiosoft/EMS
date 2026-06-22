@@ -8,6 +8,7 @@ export type InternalNavItem = {
 
 export const INTERNAL_NAV_ITEMS: InternalNavItem[] = [
   { key: "employee-services", label: "Employee Services", view: "employee-services" },
+  // { key: "document-library", label: "Documents", view: "document-library" },
   { key: "leadership", label: "Leadership", view: "leadership" },
   { key: "departments", label: "Departments", view: "departments" },
   { key: "markets", label: "Markets", view: "markets" },

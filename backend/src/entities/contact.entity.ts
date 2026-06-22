@@ -1,10 +1,4 @@
-import {
-  Column,
-  Entity,
-  JoinColumn,
-  ManyToOne,
-  PrimaryGeneratedColumn,
-} from 'typeorm';
+import { Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
 import { AuditColumns } from '../audit/audit-columns';
 import { ContactInfo } from './contact-info.entity';
 
@@ -19,7 +13,4 @@ export class Contact extends AuditColumns {
   @ManyToOne(() => ContactInfo, { eager: false })
   @JoinColumn({ name: 'ContactInfoID' })
   contactInfo: ContactInfo;
-
-  @Column({ name: 'is_staff', type: 'bit', nullable: true })
-  isStaff: boolean | null;
 }

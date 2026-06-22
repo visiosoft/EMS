@@ -12,6 +12,7 @@ export function mapApiCompanyToCompany(row: ApiCompanyListRow): Company {
   const mailCountry = toCountryAlpha2FromDisplayString(ma?.country ?? '') || physCountry;
   return {
     id: String(row.companyId),
+    isInternal: Boolean(row.isInternal),
     companyTypeId: row.companyTypeId,
     companyTypeIds: row.companyTypeIds ?? [row.companyTypeId].filter((v): v is number => Number.isFinite(v)),
     companyTypeNames: row.companyTypeNames ?? [row.companyTypeName].filter(Boolean),

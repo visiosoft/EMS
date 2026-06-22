@@ -21,6 +21,7 @@ import { InternalVenuesModule } from './internal-venues/internal-venues.module';
 import { InternalAttractionsModule } from './internal-attractions/internal-attractions.module';
 import { InternalHandbookModule } from './internal-handbook/internal-handbook.module';
 import { HubSpotModule } from './hubspot/hubspot.module';
+import { DocumentLibraryModule } from './document-library/document-library.module';
 
 const parseBoolean = (
   value: string | undefined,
@@ -112,6 +113,7 @@ const parseNumber = (value: string | undefined, fallback: number): number => {
     InternalAttractionsModule,
     InternalHandbookModule,
     HubSpotModule,
+    DocumentLibraryModule,
   ],
   controllers: [AppController],
   providers: [AppService, AuditSubscriber],

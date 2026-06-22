@@ -1,9 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Building2, Loader2, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import Swal from 'sweetalert2';
+import 'sweetalert2/dist/sweetalert2.min.css';
 import {
   createManagedContact,
   deleteManagedContact,
+  fetchContactConnections,
   fetchCompaniesPickerRows,
   fetchLookups,
   fetchManagedContacts,
@@ -12,6 +15,7 @@ import {
   type ApiCompanyListRow,
   type ApiManagedContact,
   type ManagedContactPayload,
+  type ApiContactConnections,
 } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { PAGE_SIZE, getPageParams, getTotalPages, type PageSizeOption } from '@/lib/serverPagination';
@@ -94,6 +98,14 @@ function chip(label: string) {
       className="inline-flex max-w-full items-center rounded-md border border-border bg-elevated px-2 py-0.5 text-[11px] text-text-secondary"
     >
       <span className="truncate">{label}</span>
+    </span>
+  );
+}
+
+function internalStaffChip() {
+  return (
+    <span className="inline-flex max-w-full items-center rounded-md border border-ems-accent/30 bg-ems-accent-dim px-2 py-0.5 text-[11px] font-medium text-ems-accent">
+      <span className="truncate">Internal IAE staff</span>
     </span>
   );
 }
@@ -245,7 +257,7 @@ function ContactDetailDrawer({
   const selectedCompany = hasCompany ? companyById.get(Number(draft.companyId)) : null;
   const companyOptions = useMemo(
     () => [
-      { value: '', label: 'Internal IAE staff' },
+      { value: '', label: 'No company' },
       ...companyToSelect2Options(companies),
     ],
     [companies],
@@ -311,10 +323,11 @@ function ContactDetailDrawer({
                     {selectedCompany.companyTypeName}
                   </span>
                 )}
+                {row.isStaff ? internalStaffChip() : null}
               </>
             ) : (
               <span className="inline-flex items-center rounded-md bg-elevated px-2 py-0.5 text-[11px] font-medium text-text-secondary">
-                Internal IAE staff
+                No company
               </span>
             )}
           </div>
@@ -391,7 +404,7 @@ function ContactDetailDrawer({
                       departmentIds: companyId ? current.departmentIds : [],
                     }))
                   }
-                  placeholder="Internal IAE staff"
+                  placeholder="Select a company"
                   allowClear
                 />
               </FormField>
@@ -406,7 +419,7 @@ function ContactDetailDrawer({
                     </div>
                   </>
                 ) : (
-                  'No company selected. This contact is saved as internal IAE staff.'
+                  'No company selected. Pick a company marked Internal to make this an IAE staff contact.'
                 )}
               </div>
               <FormField label="Roles" required={hasCompany}>
@@ -524,7 +537,7 @@ function ContactModal({
   const hasCompany = Boolean(draft.companyId);
   const companyOptions = useMemo(
     () => [
-      { value: '', label: 'Internal IAE staff' },
+      { value: '', label: 'No company' },
       ...companyToSelect2Options(companies),
     ],
     [companies],
@@ -600,7 +613,7 @@ function ContactModal({
       <div className="space-y-6">
         <div className="rounded-md border border-ems-accent/30 bg-ems-accent-dim px-3 py-2 text-xs text-text-secondary flex items-start gap-2">
           <span className="mt-0.5 shrink-0 text-ems-accent">ⓘ</span>
-          <span>Pick a company for an external company contact. Leave it as internal staff for an IAE staff contact.</span>
+          <span>Pick a company for this contact. Contacts assigned to a company marked Internal are treated as IAE staff.</span>
         </div>
 
         <section className="space-y-4">
@@ -629,7 +642,7 @@ function ContactModal({
                     departmentIds: companyId ? d.departmentIds : [],
                   }))
                 }
-                placeholder="Internal IAE staff"
+                placeholder="Select a company"
                 allowClear
               />
             </FormField>
@@ -888,6 +901,143 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
     }
   };
 
+  const handleDeleteContact = async (contact: ApiManagedContact) => {
+    Swal.fire({
+      title: 'Checking connections...',
+      allowOutsideClick: false,
+      didOpen: () => {
+        Swal.showLoading();
+      },
+      customClass: {
+        popup: 'border border-border bg-card text-text-primary shadow-xl rounded-lg',
+        title: 'text-lg font-semibold text-text-primary pt-4',
+      }
+    });
+
+    try {
+      const connections = await fetchContactConnections(contact.contactId);
+      Swal.close();
+
+      const hasEngagements = connections.engagements && connections.engagements.length > 0;
+      const hasTours = connections.tours && connections.tours.length > 0;
+      if (hasEngagements || hasTours) {
+        let htmlList = `
+          <div class="space-y-3">
+            <p class="text-text-secondary text-sm">
+              This contact is currently connected to the following tables/records:
+            </p>
+            <ul class="list-disc pl-5 space-y-1.5 text-left text-sm max-h-60 overflow-y-auto border border-border p-3 rounded bg-surface">
+        `;
+        
+        if (hasEngagements) {
+          connections.engagements.forEach((e) => {
+            htmlList += `
+              <li class="text-text-primary">
+                <strong>Engagement:</strong> ${e.tourName} (ID: ${e.engagementId})
+              </li>
+            `;
+          });
+        }
+
+        if (hasTours) {
+          connections.tours.forEach((t) => {
+            htmlList += `
+              <li class="text-text-primary">
+                <strong>Tour Talent Agent:</strong> ${t.tourName} (ID: ${t.tourId})
+              </li>
+            `;
+          });
+        }
+
+        htmlList += `
+            </ul>
+            <p class="text-ems-coral font-medium text-sm mt-3">
+              Warning: Deleting this contact will remove all these connections. This action cannot be undone.
+            </p>
+          </div>
+        `;
+
+        const result = await Swal.fire({
+          title: 'Delete Contact & Remove Connections?',
+          html: htmlList,
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonText: 'Yes, delete and remove connections',
+          cancelButtonText: 'Cancel',
+          buttonsStyling: false,
+          showLoaderOnConfirm: true,
+          allowOutsideClick: () => !Swal.isLoading(),
+          preConfirm: async () => {
+            try {
+              await deleteMutation.mutateAsync(contact);
+              return true;
+            } catch (error) {
+              const message = friendlyApiError(error, 'Could not delete contact.');
+              Swal.showValidationMessage(message);
+              return false;
+            }
+          },
+          customClass: {
+            popup: 'border border-border bg-card text-text-primary shadow-xl rounded-lg max-w-lg',
+            title: 'text-lg font-semibold text-text-primary pt-4',
+            htmlContainer: 'text-sm text-text-secondary mt-2 text-left px-6 pb-4',
+            confirmButton: 'bg-ems-coral text-white hover:bg-ems-coral/90 font-medium py-2 px-4 rounded-md shadow-sm mx-1 cursor-pointer transition-colors',
+            cancelButton: 'border border-border bg-elevated text-text-primary hover:bg-hover font-medium py-2 px-4 rounded-md shadow-sm mx-1 cursor-pointer transition-colors'
+          }
+        });
+
+        if (result.isConfirmed) {
+          await qc.invalidateQueries({ queryKey: ['contacts', 'managed'] });
+          setSelectedContact((current) =>
+            current?.contactId === contact.contactId ? null : current,
+          );
+          addToast('Contact deleted.', 'success');
+        }
+      } else {
+        const result = await Swal.fire({
+          title: 'Delete Contact?',
+          text: `Are you sure you want to permanently delete contact ${contact.firstName} ${contact.lastName}?`,
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonText: 'Yes, delete',
+          cancelButtonText: 'Cancel',
+          buttonsStyling: false,
+          showLoaderOnConfirm: true,
+          allowOutsideClick: () => !Swal.isLoading(),
+          preConfirm: async () => {
+            try {
+              await deleteMutation.mutateAsync(contact);
+              return true;
+            } catch (error) {
+              const message = friendlyApiError(error, 'Could not delete contact.');
+              Swal.showValidationMessage(message);
+              return false;
+            }
+          },
+          customClass: {
+            popup: 'border border-border bg-card text-text-primary shadow-xl rounded-lg',
+            title: 'text-lg font-semibold text-text-primary pt-4',
+            htmlContainer: 'text-sm text-text-secondary mt-2 text-center px-6 pb-4',
+            confirmButton: 'bg-ems-coral text-white hover:bg-ems-coral/90 font-medium py-2 px-4 rounded-md shadow-sm mx-1 cursor-pointer transition-colors',
+            cancelButton: 'border border-border bg-elevated text-text-primary hover:bg-hover font-medium py-2 px-4 rounded-md shadow-sm mx-1 cursor-pointer transition-colors'
+          }
+        });
+
+        if (result.isConfirmed) {
+          await qc.invalidateQueries({ queryKey: ['contacts', 'managed'] });
+          setSelectedContact((current) =>
+            current?.contactId === contact.contactId ? null : current,
+          );
+          addToast('Contact deleted.', 'success');
+        }
+      }
+    } catch (err) {
+      Swal.close();
+      const message = friendlyApiError(err, 'Failed to retrieve contact connections.');
+      addToast(message, 'error');
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1020,6 +1170,7 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
                                 {companyDetails.companyTypeName}
                               </span>
                             )}
+                            {row.isStaff ? internalStaffChip() : null}
                             {companyDetails && (companyDetails.physicalCity || companyDetails.physicalStateProvince) && (
                               <span>{[companyDetails.physicalCity, companyDetails.physicalStateProvince].filter(Boolean).join(', ')}</span>
                             )}
@@ -1029,7 +1180,7 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
                           )}
                         </div>
                       ) : (
-                        chip('Internal IAE staff')
+                        chip('No company')
                       )}
                     </td>
                     <td className="px-3 py-2"><div className="flex flex-wrap gap-1.5">{row.roleNames.length ? row.roleNames.map(chip) : '—'}</div></td>
@@ -1052,7 +1203,9 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
           companyById={companyById}
           saving={saveMutation.isPending}
           onClose={() => setSelectedContact(null)}
-          onDelete={() => setPendingDelete(selectedContact)}
+          onDelete={() => {
+            void handleDeleteContact(selectedContact);
+          }}
           onSave={(body) => saveMutation.mutate({ row: selectedContact, body })}
         />
       )}

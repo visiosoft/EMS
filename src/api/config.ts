@@ -1,5 +1,6 @@
 import {
   acquireApiAccessToken,
+  acquireGraphAccessToken,
   getActiveAccount,
   getAccountEmail,
   getAccountName,
@@ -64,6 +65,43 @@ export async function apiFetchMultipart<T>(
   return handleApiResponse<T>(res);
 }
 
+/** Binary download with auth headers (the backend gates some routes by the Bearer token). */
+export async function apiFetchBlob(
+  path: string,
+): Promise<{ blob: Blob; filename: string }> {
+  const base = getApiBaseUrl();
+  const url = `${base}/api${path.startsWith('/') ? path : `/${path}`}`;
+  const headers = await buildApiHeaders(undefined, undefined);
+  const res = await fetch(url, { headers, cache: 'no-store' });
+  if (!res.ok) {
+    let message = res.statusText;
+    try {
+      const j = (await res.json()) as { message?: string };
+      if (typeof j.message === 'string') message = j.message;
+    } catch {
+      /* ignore non-JSON error bodies */
+    }
+    const err = new Error(message || `Download failed (${res.status})`) as Error & {
+      status?: number;
+    };
+    err.status = res.status;
+    throw err;
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get('content-disposition') ?? '';
+  const match = /filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(disposition);
+  let filename = '';
+  if (match?.[1]) {
+    const raw = match[1].replace(/"/g, '').trim();
+    try {
+      filename = decodeURIComponent(raw);
+    } catch {
+      filename = raw;
+    }
+  }
+  return { blob, filename };
+}
+
 async function buildApiHeaders(
   defaults?: HeadersInit,
   incoming?: HeadersInit,
@@ -73,29 +111,8 @@ async function buildApiHeaders(
     new Headers(incoming).forEach((value, key) => headers.set(key, value));
   }
 
-  if (!headers.has('Authorization') && isApiAccessTokenConfigured()) {
-    const account = getActiveAccount();
-    if (account) {
-      const oid = getAccountOid(account);
-      const name = getAccountName(account).trim();
-      const email = getAccountEmail(account).trim().toLowerCase();
-      if (oid && !headers.has('X-User-Oid')) {
-        headers.set('X-User-Oid', oid);
-      }
-      if (name && !headers.has('X-User-Name')) {
-        headers.set('X-User-Name', name);
-      }
-      if (email && email.includes('@') && !headers.has('X-User-Email')) {
-        headers.set('X-User-Email', email);
-      }
-      try {
-        headers.set('Authorization', `Bearer ${await acquireApiAccessToken(account)}`);
-      } catch {
-        headers.delete('Authorization');
-      }
-    }
-  } else {
-    const account = getActiveAccount();
+  const account = getActiveAccount();
+  if (account) {
     const oid = getAccountOid(account);
     const name = getAccountName(account).trim();
     const email = getAccountEmail(account).trim().toLowerCase();
@@ -108,6 +125,25 @@ async function buildApiHeaders(
     if (email && email.includes('@') && !headers.has('X-User-Email')) {
       headers.set('X-User-Email', email);
     }
+
+    if (!headers.has('Authorization') && isApiAccessTokenConfigured()) {
+      try {
+        headers.set('Authorization', `Bearer ${await acquireApiAccessToken(account)}`);
+      } catch {
+        headers.delete('Authorization');
+      }
+    }
+
+    if (!headers.has('x-entra-graph-access-token')) {
+      try {
+        const graphToken = await acquireGraphAccessToken(account);
+        if (graphToken) {
+          headers.set('x-entra-graph-access-token', graphToken);
+        }
+      } catch (err) {
+        // ignore silently
+      }
+    }
   }
 
   return headers;
@@ -117,13 +153,15 @@ async function handleApiResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let userMessage = res.statusText;
     let devDetail: string | undefined;
+    let userSuggestion: string | undefined;
     try {
       const j = (await res.json()) as {
         message?: string | string[];
-        /** Developer-oriented explanation (shown in Network response; also on Error.detail in JS) */
         detail?: string;
+        suggestion?: string;
       };
       devDetail = typeof j.detail === 'string' ? j.detail : undefined;
+      userSuggestion = typeof j.suggestion === 'string' ? j.suggestion : undefined;
       if (typeof j.message === 'string') userMessage = j.message;
       else if (Array.isArray(j.message)) userMessage = j.message.join(', ');
     } catch {
@@ -131,9 +169,10 @@ async function handleApiResponse<T>(res: Response): Promise<T> {
     }
     const err = new Error(
       userMessage || `Request failed (${res.status})`,
-    ) as Error & { detail?: string; status?: number };
+    ) as Error & { detail?: string; status?: number; suggestion?: string };
     err.status = res.status;
     if (devDetail) err.detail = devDetail;
+    if (userSuggestion) err.suggestion = userSuggestion;
     throw err;
   }
   if (res.status === 204) return undefined as T;
