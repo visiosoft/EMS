@@ -51,6 +51,7 @@ export const TIME_ZONE_LOCATIONS = [
 ] as const;
 
 export const DOCUMENT_ITEMS = [
+  { name: "Document Library", type: "folder", colorClass: "text-blue-600", view: "document-library" as const },
   { name: "Employee-Handbook", type: "folder", colorClass: "text-teal-600" },
   { name: "Handbook Images", type: "folder", colorClass: "text-yellow-500" },
   { name: "spx-iae-custom-css.sppkg", type: "file", colorClass: "text-neutral-500" },

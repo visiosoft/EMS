@@ -14,6 +14,7 @@ import { DailySalesPage } from '@/components/ems/DailySalesPage';
 import { SalesSummaryPage } from '@/components/ems/SalesSummaryPage';
 import { EngagementSalesDashboardPanel } from '@/components/ems/EngagementSalesDashboardPanel';
 import { AllVenuesPage } from '@/components/ems/AllVenuesPage';
+import { ProfilePage } from '@/components/ems/ProfilePage';
 import { USERS } from '@/data/constants';
 import type { ToastItem } from '@/components/ems/Primitives';
 import { cn } from '@/lib/utils';
@@ -49,6 +50,7 @@ const VALID_VIEWS = new Set([
   'engagement-sales-dashboard',
   'engagement-detail',
   'settings',
+  'profile',
 ]);
 
 const SALES_SUMMARY_RETURN_VIEWS = new Set(['daily-sales', 'projects', 'engagements', 'sales-summary']);
@@ -542,6 +544,10 @@ const Index = () => {
             initialMainTab="Users"
           />
         )}
+
+        {view === 'profile' && (
+          <ProfilePage addToast={addToast} />
+        )}
       </>
     ),
     [addToast, navigate, setUsers, users],
@@ -563,6 +569,7 @@ const Index = () => {
       'engagement-sales-dashboard': ['Sales Summary', 'Sales trends'],
       'engagement-detail': ['Engagements', 'Engagement detail'],
       settings:           ['Settings'],
+      profile:            ['My Profile'],
     };
     return map[currentView] ?? ['Projects'];
   };
@@ -600,6 +607,7 @@ const Index = () => {
           viewPersistenceEnabled={savedViewsEnabled}
           onEnableViewPersistence={enableSavedViews}
           onResetViewPersistence={resetSavedViews}
+          onOpenProfile={() => navigate('profile')}
         />
         <main className="p-4 lg:p-6">
           {savedViewsEnabled ? (

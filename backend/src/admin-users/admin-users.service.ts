@@ -60,6 +60,21 @@ export type AdminDirectoryUser = {
   status: 'Active' | 'Disabled';
 };
 
+export type AdminDirectorySyncUser = {
+  id: string;
+  displayName: string;
+  email: string;
+  userPrincipalName: string;
+  givenName: string;
+  surname: string;
+  department: string;
+  jobTitle: string;
+  mobilePhone: string;
+  businessPhones: string[];
+  accountEnabled: boolean;
+  userType: string;
+};
+
 type GraphErrorDiagnostics = {
   code: string;
   requestId: string;
@@ -271,6 +286,33 @@ export class AdminUsersService {
     };
   }
 
+  private buildUserForSync(user: GraphUser): AdminDirectorySyncUser {
+    const accountEnabled = user.accountEnabled !== false;
+    const email = user.mail?.trim() || user.userPrincipalName?.trim() || '';
+    const displayName =
+      user.displayName?.trim() ||
+      `${user.givenName ?? ''} ${user.surname ?? ''}`.trim() ||
+      email ||
+      'Entra user';
+
+    return {
+      id: user.id,
+      displayName,
+      email,
+      userPrincipalName: user.userPrincipalName?.trim() || '',
+      givenName: user.givenName?.trim() || '',
+      surname: user.surname?.trim() || '',
+      department: user.department?.trim() || '',
+      jobTitle: user.jobTitle?.trim() || '',
+      mobilePhone: user.mobilePhone?.trim() || '',
+      businessPhones: Array.isArray(user.businessPhones)
+        ? user.businessPhones.filter(Boolean).map((phone) => phone.trim())
+        : [],
+      accountEnabled,
+      userType: user.userType?.trim() || '',
+    };
+  }
+
   async listUsers(graphAccessToken?: string): Promise<AdminDirectoryUser[]> {
     const accessToken = await this.getGraphAccessToken(graphAccessToken);
 
@@ -281,6 +323,16 @@ export class AdminUsersService {
     }
 
     return users.sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  async listUsersForSync(
+    graphAccessToken?: string,
+  ): Promise<AdminDirectorySyncUser[]> {
+    const accessToken = await this.getGraphAccessToken(graphAccessToken);
+
+    return (await this.fetchGraphUsers(accessToken))
+      .map((user) => this.buildUserForSync(user))
+      .sort((left, right) => left.displayName.localeCompare(right.displayName));
   }
 
   async listRawUsers(
