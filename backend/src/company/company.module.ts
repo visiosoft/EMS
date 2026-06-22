@@ -34,6 +34,7 @@ import { VenueServiceProvider } from '../entities/venue-service-provider.entity'
 import { Link } from '../entities/link.entity';
 import { LookupsController } from '../lookups/lookups.controller';
 import { LookupsService } from '../lookups/lookups.service';
+import { HubSpotModule } from '../hubspot/hubspot.module';
 import {
   CompanyController,
   ContactsController,
@@ -78,7 +79,11 @@ const entities = [
 ];
 
 @Module({
-  imports: [TypeOrmModule.forFeature(entities), EngagementsModule],
+  imports: [
+    TypeOrmModule.forFeature(entities),
+    EngagementsModule,
+    HubSpotModule,
+  ],
   controllers: [
     CompanyController,
     ContactsController,
