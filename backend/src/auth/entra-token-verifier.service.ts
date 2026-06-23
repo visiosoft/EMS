@@ -23,7 +23,7 @@ export class EntraTokenVerifier {
   constructor(private readonly configService: ConfigService) {}
 
   async verify(token: string): Promise<EntraRequestUser> {
-    const tenantId = this.getConfigValue('ENTRA_TENANT_ID');
+    const tenantId = this.getTenantId();
     const audiences = this.getAudienceCandidates();
 
     if (!tenantId || audiences.length === 0) {
@@ -77,7 +77,7 @@ export class EntraTokenVerifier {
   }
 
   buildTokenValidationDetail(token: string, error: unknown): string {
-    const tenantId = this.getConfigValue('ENTRA_TENANT_ID');
+    const tenantId = this.getTenantId();
     const expectedAudiences = this.getAudienceCandidates();
     const expectedIssuers = [
       `https://login.microsoftonline.com/${tenantId}/v2.0`,
@@ -129,6 +129,14 @@ export class EntraTokenVerifier {
     return '';
   }
 
+  private getTenantId(): string {
+    return this.getConfigValue('ENTRA_TENANT_ID', 'VITE_ENTRA_TENANT_ID');
+  }
+
+  private getClientId(): string {
+    return this.getConfigValue('ENTRA_CLIENT_ID', 'VITE_ENTRA_CLIENT_ID');
+  }
+
   private getAudienceCandidates(): string[] {
     const values = new Set<string>();
     const add = (value: string) => {
@@ -140,7 +148,7 @@ export class EntraTokenVerifier {
 
     add(this.getConfigValue('ENTRA_API_AUDIENCE'));
 
-    const clientId = this.getConfigValue('ENTRA_CLIENT_ID');
+    const clientId = this.getClientId();
     add(clientId);
     if (clientId) add(`api://${clientId}`);
 
