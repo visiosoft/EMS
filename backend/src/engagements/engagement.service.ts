@@ -93,6 +93,7 @@ export interface EngagementListRow {
   tourManagerContactId: number | null;
   displayTitle: string;
   appCreated: boolean;
+  isCanadaEngagement: boolean | null;
 }
 
 export interface EngagementVenueRow {
@@ -3589,7 +3590,8 @@ export class EngagementService {
       )
       .addSelect(this.engagementRehearsalDateSubquery(), 'rehearsalDate')
       .addSelect(this.engagementLoadInDateSubquery(), 'loadInDate')
-      .addSelect('e.tourManagerContactId', 'tourManagerContactId');
+      .addSelect('e.tourManagerContactId', 'tourManagerContactId')
+      .addSelect('ef.isCanadaEngagement', 'isCanadaEngagement');
 
     if (whereId !== undefined) {
       qb.where('e.engagementId = :id', { id: whereId });
@@ -3714,6 +3716,7 @@ export class EngagementService {
         venueLabel,
       ),
       appCreated: this.emsCreated.canDeleteEngagement(engagementId),
+      isCanadaEngagement: this.mapBit(g('isCanadaEngagement') as boolean | number | Buffer | null | undefined),
     };
   }
 
@@ -5060,6 +5063,21 @@ export class EngagementService {
       );
 
       this.emsCreated.recordEngagement(saved.engagementId);
+
+      // Auto-set IsCanadaEngagement based on primary venue country
+      try {
+        const venueCompany = await manager.findOne(Company, {
+          where: { companyId: dto.primaryVenueCompanyId },
+          relations: ['physicalAddress'],
+        });
+        const country = venueCompany?.physicalAddress?.country?.trim().toLowerCase() ?? '';
+        const finance = manager.create(EngagementFinances, {
+          engagementId: saved.engagementId,
+          isCanadaEngagement: country === 'canada' || country === 'ca' || country === 'can' || country === 'cdn',
+        });
+        await manager.save(EngagementFinances, finance);
+      } catch { /* non-critical — finance row will be created later if needed */ }
+
       return { engagementId: saved.engagementId };
     });
   }
@@ -5143,6 +5161,32 @@ export class EngagementService {
         }
       });
     }
+
+    // Sync IsCanadaEngagement based on primary venue country
+    try {
+      const primaryVenueId = dto.primaryVenueCompanyId
+        ?? (await this.dataSource.getRepository(EngagementVenue).findOne({
+            where: { engagementId: id, isPrimary: true },
+          }))?.venueCompanyId
+        ?? null;
+      if (primaryVenueId != null) {
+        const venueCompany = await this.dataSource.getRepository(Company).findOne({
+          where: { companyId: primaryVenueId },
+          relations: ['physicalAddress'],
+        });
+        const country = venueCompany?.physicalAddress?.country?.trim().toLowerCase() ?? '';
+        const isCanada = country === 'canada' || country === 'ca' || country === 'can' || country === 'cdn';
+        const existingFinance = await this.engagementFinancesRepo.findOne({ where: { engagementId: id } });
+        if (existingFinance) {
+          existingFinance.isCanadaEngagement = isCanada;
+          await this.engagementFinancesRepo.save(existingFinance);
+        } else {
+          await this.engagementFinancesRepo.save(
+            this.engagementFinancesRepo.create({ engagementId: id, isCanadaEngagement: isCanada }),
+          );
+        }
+      }
+    } catch { /* non-critical */ }
 
     if (
       dto.rehearsalDate !== undefined ||

@@ -43,6 +43,7 @@ export interface ApiEngagementListRow {
   tourManagerContactId: number | null;
   displayTitle: string;
   appCreated: boolean;
+  isCanadaEngagement: boolean | null;
 }
 
 export interface ApiEngagementVenueRow {
