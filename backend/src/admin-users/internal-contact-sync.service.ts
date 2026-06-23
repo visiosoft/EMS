@@ -1672,17 +1672,9 @@ export class InternalContactSyncService {
       return this.appGraphTokenCache.accessToken;
     }
 
-    const tenantId = this.getConfigValue('ENTRA_TENANT_ID', 'VITE_ENTRA_TENANT_ID');
-    const clientId = this.getConfigValue(
-      'ENTRA_GRAPH_CLIENT_ID',
-      'ENTRA_CLIENT_ID',
-      'VITE_ENTRA_CLIENT_ID',
-    );
-    const clientSecret = this.getConfigValue(
-      'ENTRA_GRAPH_CLIENT_SECRET',
-      'ENTRA_CLIENT_SECRET',
-      'AZURE_CLIENT_SECRET',
-    );
+    const tenantId = this.getConfigValue('ENTRA_TENANT_ID');
+    const clientId = this.getConfigValue('ENTRA_CLIENT_ID');
+    const clientSecret = this.getConfigValue('ENTRA_CLIENT_SECRET');
     if (!tenantId || !clientId || !clientSecret) return null;
 
     const response = await fetch(

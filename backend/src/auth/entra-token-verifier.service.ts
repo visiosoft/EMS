@@ -23,15 +23,12 @@ export class EntraTokenVerifier {
   constructor(private readonly configService: ConfigService) {}
 
   async verify(token: string): Promise<EntraRequestUser> {
-    const tenantId = this.getConfigValue(
-      'ENTRA_TENANT_ID',
-      'VITE_ENTRA_TENANT_ID',
-    );
+    const tenantId = this.getConfigValue('ENTRA_TENANT_ID');
     const audiences = this.getAudienceCandidates();
 
     if (!tenantId || audiences.length === 0) {
       throw new ServiceUnavailableException(
-        'Entra user directory is not configured. Set ENTRA_TENANT_ID or VITE_ENTRA_TENANT_ID, and ENTRA_API_AUDIENCE or VITE_ENTRA_API_SCOPE on the backend.',
+        'Entra user directory is not configured. Set ENTRA_TENANT_ID and ENTRA_CLIENT_ID on the backend.',
       );
     }
 
@@ -80,10 +77,7 @@ export class EntraTokenVerifier {
   }
 
   buildTokenValidationDetail(token: string, error: unknown): string {
-    const tenantId = this.getConfigValue(
-      'ENTRA_TENANT_ID',
-      'VITE_ENTRA_TENANT_ID',
-    );
+    const tenantId = this.getConfigValue('ENTRA_TENANT_ID');
     const expectedAudiences = this.getAudienceCandidates();
     const expectedIssuers = [
       `https://login.microsoftonline.com/${tenantId}/v2.0`,
@@ -144,17 +138,11 @@ export class EntraTokenVerifier {
       values.add(trimmed.replace(/^api:\/\//, ''));
     };
 
-    add(this.getConfigValue('ENTRA_API_AUDIENCE', 'ENTRA_API_CLIENT_ID'));
+    add(this.getConfigValue('ENTRA_API_AUDIENCE'));
 
-    const apiScope = this.getConfigValue(
-      'ENTRA_API_SCOPE',
-      'VITE_ENTRA_API_SCOPE',
-    );
-    add(apiScope);
-    const scopeAudience = apiScopeToAudience(apiScope);
-    if (scopeAudience) add(scopeAudience);
-
-    add(this.getConfigValue('VITE_ENTRA_CLIENT_ID'));
+    const clientId = this.getConfigValue('ENTRA_CLIENT_ID');
+    add(clientId);
+    if (clientId) add(`api://${clientId}`);
 
     return [...values];
   }
@@ -190,13 +178,4 @@ function getJwks(tenantId: string) {
   );
   jwksCache.set(tenantId, jwks);
   return jwks;
-}
-
-function apiScopeToAudience(scope: string): string {
-  const trimmed = scope.trim();
-  if (!trimmed.startsWith('api://')) return '';
-
-  const parts = trimmed.split('/');
-  if (parts.length <= 3) return trimmed;
-  return parts.slice(0, -1).join('/');
 }

@@ -10,6 +10,8 @@ import {
   fetchEngagementVenueTabData,
   updateEngagementVenueTab,
   updateEngagementFinance,
+  fetchDepositTerms,
+  updateDepositTerms,
   type ApiEngagementVenueTabData,
   type ApiEngagementLinkRow,
   type ApiVenueRoleContacts,
@@ -17,6 +19,7 @@ import {
   type UpdateNonResidentWithholdingPayload,
   type UpdateEngagementVenueTabPayload,
   type UpdateEngagementFinancePayload,
+  type ApiDepositTerms,
 } from './engagementApi';
 
 vi.mock('./config', () => ({
@@ -250,6 +253,69 @@ describe('engagementApi – new functions', () => {
       const callBody = JSON.parse((mockedApiFetch.mock.calls[0][1] as any).body);
       expect(callBody.finalGuaranteeAmount).toBeNull();
       expect(callBody.finalRoyaltyAmount).toBeNull();
+    });
+  });
+
+  // ── Deposit Terms (commit 0c8cf8e) ──────────────────────────────────────
+
+  describe('fetchDepositTerms', () => {
+    it('calls apiFetch with correct endpoint', async () => {
+      const data: ApiDepositTerms = { depositAmount: 5000, depositDueDate: '2026-08-15' };
+      mockedApiFetch.mockResolvedValueOnce(data);
+
+      const result = await fetchDepositTerms(42);
+
+      expect(mockedApiFetch).toHaveBeenCalledOnce();
+      expect(mockedApiFetch).toHaveBeenCalledWith('/engagements/42/deposit-terms');
+      expect(result).toEqual(data);
+    });
+
+    it('returns null values when no deposit terms exist', async () => {
+      const data: ApiDepositTerms = { depositAmount: null, depositDueDate: null };
+      mockedApiFetch.mockResolvedValueOnce(data);
+
+      const result = await fetchDepositTerms(10);
+
+      expect(result.depositAmount).toBeNull();
+      expect(result.depositDueDate).toBeNull();
+    });
+  });
+
+  describe('updateDepositTerms', () => {
+    it('calls apiFetch with PATCH and correct body', async () => {
+      mockedApiFetch.mockResolvedValueOnce(undefined);
+
+      const body = { depositAmount: 3000, depositDueDate: '2026-09-01' };
+      await updateDepositTerms(7, body);
+
+      expect(mockedApiFetch).toHaveBeenCalledOnce();
+      expect(mockedApiFetch).toHaveBeenCalledWith('/engagements/7/deposit-terms', {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+    });
+
+    it('works with partial payload (only amount)', async () => {
+      mockedApiFetch.mockResolvedValueOnce(undefined);
+
+      const body = { depositAmount: 1500 };
+      await updateDepositTerms(3, body);
+
+      expect(mockedApiFetch).toHaveBeenCalledWith('/engagements/3/deposit-terms', {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+    });
+
+    it('can send null values to clear fields', async () => {
+      mockedApiFetch.mockResolvedValueOnce(undefined);
+
+      const body = { depositAmount: null, depositDueDate: null };
+      await updateDepositTerms(1, body);
+
+      const callBody = JSON.parse((mockedApiFetch.mock.calls[0][1] as any).body);
+      expect(callBody.depositAmount).toBeNull();
+      expect(callBody.depositDueDate).toBeNull();
     });
   });
 });

@@ -43,6 +43,7 @@ export interface ApiEngagementListRow {
   tourManagerContactId: number | null;
   displayTitle: string;
   appCreated: boolean;
+  isCanadaEngagement: boolean | null;
 }
 
 export interface ApiEngagementVenueRow {
@@ -128,6 +129,9 @@ export interface ApiVenueRoleContacts {
   venueProductionManager: ApiRoleContactDisplay[];
   venueStageLaborCompany: ApiRoleContactDisplay[];
   attractionTechDirector: ApiRoleContactDisplay[];
+  marketingDirector: ApiRoleContactDisplay[];
+  marketingManager: ApiRoleContactDisplay[];
+  digitalMarketingManager: ApiRoleContactDisplay[];
 }
 
 export interface ApiRoleContactDisplay {
@@ -909,6 +913,18 @@ export const fetchEngagementFinance = (id: number) =>
 
 export const updateEngagementFinance = (id: number, body: UpdateEngagementFinancePayload) =>
   apiFetch<void>(`/engagements/${id}/finance`, { method: 'PATCH', body: JSON.stringify(body) });
+
+// ── Deposit Terms (PerformanceContracts) ────────────────────────────────────
+export interface ApiDepositTerms {
+  depositAmount: number | null;
+  depositDueDate: string | null;
+}
+
+export const fetchDepositTerms = (id: number) =>
+  apiFetch<ApiDepositTerms>(`/engagements/${id}/deposit-terms`);
+
+export const updateDepositTerms = (id: number, body: { depositAmount?: number | null; depositDueDate?: string | null }) =>
+  apiFetch<void>(`/engagements/${id}/deposit-terms`, { method: 'PATCH', body: JSON.stringify(body) });
 
 export type UpdateNonResidentWithholdingPayload = {
   withholdingArea?: string | null;
