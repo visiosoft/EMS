@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useMsal } from '@azure/msal-react';
 import {
   Mail,
   Minus,
@@ -9,40 +10,312 @@ import {
   Search,
   UsersRound,
   X,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import {
-  fetchOrganizationChart,
-  organizationChartQueryKey,
-  type OrganizationChartMember,
+  fetchOrganizationChartHierarchy,
+  organizationChartHierarchyQueryKey,
   type OrganizationChartNode,
+  type HierarchyNode,
+  type HierarchyMember,
 } from '@/api/organizationChartApi';
 import { Avatar } from './Primitives';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { cn } from '@/lib/utils';
+import { getActiveAccount, requestGraphAccessToken } from '@/auth/entra';
 
-type TreeNode = OrganizationChartNode & {
-  children: TreeNode[];
+// ─── Department-mode tree types ───
+type DepTreeNode = OrganizationChartNode & {
+  children: DepTreeNode[];
   depth: number;
 };
 
-const MIN_ZOOM = 0.7;
-const MAX_ZOOM = 1.15;
+// ─── Hierarchy-mode tree types ───
+// We'll augment HierarchyNode for UI state
+type UINode = HierarchyNode & {
+  depth: number;
+  collapsed?: boolean;
+};
+
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 1.3;
 const ZOOM_STEP = 0.15;
 
-function buildForest(nodes: OrganizationChartNode[]): TreeNode[] {
-  const byId = new Map<number, TreeNode>();
+// ─── Shared Helpers ───
+
+function getNodeToneByString(source: string): string {
+  const tones = [
+    'border-l-ems-accent',
+    'border-l-ems-blue',
+    'border-l-ems-amber',
+    'border-l-ems-purple',
+    'border-l-ems-green',
+    'border-l-ems-coral',
+  ];
+  const value = Array.from(source).reduce(
+    (total, character) => total + character.charCodeAt(0),
+    0,
+  );
+  return tones[value % tones.length];
+}
+
+// ─── Hierarchy Mode Logic ───
+
+function flattenHierarchy(roots: UINode[]): UINode[] {
+  const rows: UINode[] = [];
+  const visit = (node: UINode, depth: number) => {
+    node.depth = depth;
+    rows.push(node);
+    node.children.forEach(c => visit(c as UINode, depth + 1));
+  };
+  roots.forEach(r => visit(r, 0));
+  return rows;
+}
+
+function hierarchyMemberMatches(
+  member: HierarchyMember,
+  query: string,
+  departmentFilter: string,
+): boolean {
+  const matchesQuery =
+    !query ||
+    [
+      member.displayName,
+      member.email,
+      member.jobTitle,
+      member.roleName,
+      member.departmentName,
+    ]
+      .join(' ')
+      .toLowerCase()
+      .includes(query);
+  const matchesDepartment =
+    !departmentFilter || member.departmentName === departmentFilter;
+  return matchesQuery && matchesDepartment;
+}
+
+function HierarchyTeamCard({
+  node,
+  query,
+  department,
+  onToggleCollapse,
+}: {
+  node: UINode;
+  query: string;
+  department: string;
+  onToggleCollapse: (nodeId: string) => void;
+}) {
+  const manager = node.member;
+  const leafReports = node.children.filter(c => (c as UINode).children.length === 0) as UINode[];
+  
+  const hasFilter = Boolean(query || department);
+  const managerMatches = hierarchyMemberMatches(manager, query, department);
+  const anyLeafMatches = leafReports.some(c => hierarchyMemberMatches(c.member, query, department));
+  const cardHasMatches = managerMatches || anyLeafMatches;
+  
+  const tone = getNodeToneByString(manager.departmentName || manager.displayName);
+
+  return (
+    <article
+      className={cn(
+        'org-hierarchy-card relative w-[250px] flex-shrink-0 overflow-hidden rounded-xl border border-border border-l-4 bg-card/80 backdrop-blur-md text-left shadow-sm',
+        tone,
+        hasFilter && !cardHasMatches && 'org-search-no-match',
+        cardHasMatches && hasFilter && 'ring-2 ring-ems-accent/25 shadow-md',
+      )}
+    >
+      <div className={cn("flex flex-col gap-2 p-3 transition-colors", 
+          managerMatches && hasFilter && "bg-ems-accent/10",
+          leafReports.length > 0 ? "border-b border-border bg-elevated/40" : "bg-card"
+      )}>
+        {node.children.length > 0 && (
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">
+              Team Lead
+            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="rounded bg-ems-accent/10 px-1.5 py-0.5 text-[10px] font-semibold text-ems-accent">
+                {node.children.length} Reports
+              </span>
+              <button
+                type="button"
+                onClick={() => onToggleCollapse(node.nodeId)}
+                className="flex h-5 w-5 items-center justify-center rounded text-text-muted transition hover:bg-hover hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-border"
+                title={node.collapsed ? 'Expand team' : 'Collapse team'}
+                aria-label={node.collapsed ? 'Expand team' : 'Collapse team'}
+              >
+                {node.collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-start gap-3">
+          <Avatar name={manager.displayName} size="md" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-1">
+              <p className="truncate text-[14px] font-bold tracking-tight text-text-primary">
+                {manager.displayName}
+              </p>
+              {manager.email && (
+                <a
+                  href={`mailto:${manager.email}`}
+                  className="mt-0.5 shrink-0 text-text-muted transition hover:text-ems-accent"
+                  title={`Email ${manager.displayName}`}
+                  aria-label={`Email ${manager.displayName}`}
+                >
+                  <Mail className="h-3.5 w-3.5" aria-hidden />
+                </a>
+              )}
+            </div>
+            <p className="mt-0.5 text-[11px] font-medium leading-tight text-text-secondary line-clamp-2">
+              {manager.jobTitle || manager.roleName || 'Internal staff'}
+            </p>
+            {manager.departmentName && (
+              <p className="mt-1.5 truncate text-[9px] font-bold uppercase tracking-wider text-text-muted">
+                {manager.departmentName}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {leafReports.length > 0 && (
+        <div 
+          className={cn(
+            "org-subtree-content bg-card",
+            node.collapsed && "collapsed"
+          )}
+        >
+          <div className="divide-y divide-border/50">
+            {leafReports.map(child => {
+              const highlighted = hierarchyMemberMatches(child.member, query, department);
+              return (
+                <div
+                  key={child.nodeId}
+                  className={cn(
+                    "group flex items-start gap-2.5 px-3 py-2.5 transition-colors",
+                    highlighted && hasFilter ? "bg-ems-accent/15" : "hover:bg-hover/50"
+                  )}
+                >
+                  <Avatar name={child.member.displayName} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[13px] font-semibold text-text-primary">
+                      {child.member.displayName}
+                    </p>
+                    <p className="mt-0.5 truncate text-[11px] text-text-secondary">
+                      {child.member.jobTitle || child.member.roleName || 'Internal staff'}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      
+      {node.children.filter(c => (c as UINode).children.length > 0).length > 0 && !node.collapsed && (
+        <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-border to-transparent opacity-50" />
+      )}
+    </article>
+  );
+}
+
+function HierarchyBranchContent({
+  node,
+  query,
+  department,
+  onToggleCollapse,
+}: {
+  node: UINode;
+  query: string;
+  department: string;
+  onToggleCollapse: (nodeId: string) => void;
+}) {
+  const managerReports = node.children.filter(c => (c as UINode).children.length > 0) as UINode[];
+
+  return (
+    <div className="relative flex flex-col items-center">
+      {/* Node Content */}
+      <div className="relative z-10 py-6">
+        <HierarchyTeamCard
+          node={node}
+          query={query}
+          department={department}
+          onToggleCollapse={onToggleCollapse}
+        />
+      </div>
+
+      {/* Children Container (Only Manager Reports) */}
+      {managerReports.length > 0 && (
+        <div 
+          className={cn(
+            'org-subtree-content w-full relative pt-6',
+            node.collapsed && 'collapsed'
+          )}
+        >
+          {/* Vertical line dropping from parent */}
+          <div className="org-line-draw absolute left-1/2 top-0 h-6 w-px -translate-x-1/2 bg-border" />
+          
+          <ul className="relative flex justify-center">
+            {managerReports.map((child, index) => {
+              const isFirst = index === 0;
+              const isLast = index === managerReports.length - 1;
+              const isOnlyChild = managerReports.length === 1;
+
+              return (
+                <li key={child.nodeId} className="relative flex flex-col items-center px-3">
+                  {/* Top connector lines for children */}
+                  {!isOnlyChild && (
+                    <>
+                      <div 
+                        className={cn(
+                          'absolute top-0 h-px bg-border org-line-draw',
+                          isFirst ? 'left-1/2 right-0' : 
+                          isLast ? 'left-0 right-1/2' : 
+                          'left-0 right-0'
+                        )} 
+                      />
+                      <div className="absolute left-1/2 top-0 h-6 w-px -translate-x-1/2 bg-border org-line-draw" />
+                    </>
+                  )}
+                  {isOnlyChild && (
+                    <div className="absolute left-1/2 top-0 h-6 w-px -translate-x-1/2 bg-border org-line-draw" />
+                  )}
+
+                  <HierarchyBranchContent
+                    node={child}
+                    query={query}
+                    department={department}
+                    onToggleCollapse={onToggleCollapse}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Department Mode Logic (Fallback) ───
+
+function buildDepForest(nodes: OrganizationChartNode[]): DepTreeNode[] {
+  const byId = new Map<number, DepTreeNode>();
   nodes.forEach((node) => {
     byId.set(node.nodeId, { ...node, children: [], depth: 0 });
   });
 
-  const roots: TreeNode[] = [];
+  const roots: DepTreeNode[] = [];
   for (const node of byId.values()) {
     const parent = node.parentNodeId != null ? byId.get(node.parentNodeId) : null;
     if (parent && parent.nodeId !== node.nodeId) parent.children.push(node);
     else roots.push(node);
   }
 
-  const sortNodes = (items: TreeNode[], depth: number) => {
+  const sortNodes = (items: DepTreeNode[], depth: number) => {
     items.sort(
       (left, right) =>
         left.sortOrder - right.sortOrder || left.nodeId - right.nodeId,
@@ -61,9 +334,9 @@ function buildForest(nodes: OrganizationChartNode[]): TreeNode[] {
   return roots;
 }
 
-function flattenForest(roots: TreeNode[]): TreeNode[] {
-  const rows: TreeNode[] = [];
-  const visit = (node: TreeNode) => {
+function flattenDepForest(roots: DepTreeNode[]): DepTreeNode[] {
+  const rows: DepTreeNode[] = [];
+  const visit = (node: DepTreeNode) => {
     rows.push(node);
     node.children.forEach(visit);
   };
@@ -71,23 +344,8 @@ function flattenForest(roots: TreeNode[]): TreeNode[] {
   return rows;
 }
 
-function nodeSearchText(node: OrganizationChartNode): string {
-  return [
-    node.label,
-    ...node.members.flatMap((member) => [
-      member.displayName,
-      member.email,
-      member.jobTitle,
-      member.roleName,
-      member.departmentName,
-    ]),
-  ]
-    .join(' ')
-    .toLowerCase();
-}
-
-function memberMatches(
-  member: OrganizationChartMember,
+function depMemberMatches(
+  member: { displayName: string; email: string; jobTitle: string; roleName: string; departmentName: string; },
   query: string,
   department: string,
 ): boolean {
@@ -108,27 +366,7 @@ function memberMatches(
   return matchesQuery && matchesDepartment;
 }
 
-function getNodeTone(node: OrganizationChartNode): string {
-  const source =
-    node.members.find((member) => member.departmentName)?.departmentName ||
-    node.label ||
-    String(node.nodeId);
-  const tones = [
-    'border-l-ems-accent',
-    'border-l-ems-blue',
-    'border-l-ems-amber',
-    'border-l-ems-purple',
-    'border-l-ems-green',
-    'border-l-ems-coral',
-  ];
-  const value = Array.from(source).reduce(
-    (total, character) => total + character.charCodeAt(0),
-    0,
-  );
-  return tones[value % tones.length];
-}
-
-function OrgNodeCard({
+function DepNodeCard({
   node,
   query,
   department,
@@ -140,17 +378,18 @@ function OrgNodeCard({
   const hasFilter = Boolean(query || department);
   const matchingMemberIds = new Set(
     node.members
-      .filter((member) => memberMatches(member, query, department))
+      .filter((member) => depMemberMatches(member, query, department))
       .map((member) => member.memberId),
   );
   const labelMatches = Boolean(query && node.label.toLowerCase().includes(query));
   const nodeMatches = labelMatches || matchingMemberIds.size > 0;
+  const tone = getNodeToneByString(node.members[0]?.departmentName || node.label || String(node.nodeId));
 
   return (
     <article
       className={cn(
-        'org-chart-card w-[238px] overflow-hidden rounded-lg border border-border border-l-[3px] bg-card text-left shadow-sm transition duration-200',
-        getNodeTone(node),
+        'org-hierarchy-card w-[238px] overflow-hidden rounded-lg border border-border border-l-[3px] bg-card text-left shadow-sm transition duration-200',
+        tone,
         hasFilter && !nodeMatches && 'opacity-35 grayscale-[0.35]',
         nodeMatches && hasFilter && 'ring-2 ring-ems-accent/25 shadow-md',
       )}
@@ -219,22 +458,22 @@ function OrgNodeCard({
   );
 }
 
-function TreeBranch({
+function DepTreeBranch({
   node,
   query,
   department,
 }: {
-  node: TreeNode;
+  node: DepTreeNode;
   query: string;
   department: string;
 }) {
   return (
     <li>
-      <OrgNodeCard node={node} query={query} department={department} />
+      <DepNodeCard node={node} query={query} department={department} />
       {node.children.length ? (
         <ul>
           {node.children.map((child) => (
-            <TreeBranch
+            <DepTreeBranch
               key={child.nodeId}
               node={child}
               query={query}
@@ -247,102 +486,237 @@ function TreeBranch({
   );
 }
 
+// ─── Main Page Component ───
+
 export function OrganizationalChartPage() {
+  const { instance, accounts } = useMsal();
   const [search, setSearch] = useState('');
-  const [department, setDepartment] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('');
   const [zoom, setZoom] = useState(1);
+  const [graphToken, setGraphToken] = useState<string | null>(null);
+  const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<'auto' | 'hierarchy' | 'department'>('auto');
+
   const query = search.trim().toLowerCase();
 
+  // Try to acquire Graph Token silently to load true hierarchy
+  useEffect(() => {
+    let mounted = true;
+    const fetchToken = async () => {
+      const account = getActiveAccount(instance, accounts);
+      if (!account) return;
+      try {
+        const token = await requestGraphAccessToken(account);
+        if (mounted && token) setGraphToken(token);
+      } catch (err) {
+        console.warn('Failed to acquire Graph token for Org Chart hierarchy', err);
+      }
+    };
+    fetchToken();
+    return () => { mounted = false; };
+  }, [instance, accounts]);
+
   const chartQuery = useQuery({
-    queryKey: organizationChartQueryKey,
-    queryFn: fetchOrganizationChart,
+    queryKey: [...organizationChartHierarchyQueryKey, graphToken],
+    queryFn: () => fetchOrganizationChartHierarchy(graphToken ?? undefined),
     staleTime: 60_000,
   });
 
-  const forest = useMemo(
-    () => buildForest(chartQuery.data?.nodes ?? []),
-    [chartQuery.data?.nodes],
-  );
-  const flatNodes = useMemo(() => flattenForest(forest), [forest]);
-  const members = flatNodes.flatMap((node) => node.members);
-  const departmentCount = flatNodes.filter(
-    (node) => node.parentNodeId != null,
-  ).length;
-  const departments = Array.from(
-    new Set(members.map((member) => member.departmentName).filter(Boolean)),
-  ).sort((left, right) => left.localeCompare(right));
-  const levels = flatNodes.reduce(
-    (maximum, node) => Math.max(maximum, node.depth + 1),
-    0,
-  );
-  const matchingPeople = members.filter((member) =>
-    memberMatches(member, query, department),
-  ).length;
-  const nodesByLevel = Array.from({ length: levels }, (_, depth) =>
-    flatNodes.filter((node) => node.depth === depth),
-  );
+  const data = chartQuery.data;
+  const isHierarchyMode = (viewMode === 'auto' && data?.mode === 'hierarchy') || viewMode === 'hierarchy';
+
+  // State setup based on mode
+  const { 
+    forest, 
+    flatNodes, 
+    members, 
+    departments, 
+    levels, 
+    departmentCount,
+    matchingPeople,
+    looseGroups,
+  } = useMemo(() => {
+    if (!data) return { forest: [], flatNodes: [], members: [], departments: [], levels: 0, departmentCount: 0, matchingPeople: 0, looseGroups: [] };
+
+    if (isHierarchyMode && data.roots) {
+      // Separate real roots (with children) from lone roots (no children)
+      const realRoots = data.roots.filter(r => r.children.length > 0);
+      const loneRoots = data.roots.filter(r => r.children.length === 0);
+
+      // Map roots and inject collapsed state
+      const buildUINodes = (nodes: HierarchyNode[]): UINode[] => {
+        return nodes.map(node => ({
+          ...node,
+          depth: 0,
+          collapsed: collapsedNodes.has(node.nodeId),
+          children: buildUINodes(node.children),
+        }));
+      };
+      
+      const uiRoots = buildUINodes(realRoots);
+      const flat = flattenHierarchy(uiRoots);
+      const allMembers = flat.map(n => n.member);
+      
+      // Unmatched members + lone root members
+      const unmatched = data.unmatched || [];
+      const loneMembers = loneRoots.map(r => r.member);
+      const looseMembers = [...loneMembers, ...unmatched];
+
+      // Group loose members by department for compact rendering
+      const groups = new Map<string, HierarchyMember[]>();
+      looseMembers.forEach(member => {
+        const dept = member.departmentName || 'Unassigned';
+        if (!groups.has(dept)) groups.set(dept, []);
+        groups.get(dept)!.push(member);
+      });
+      
+      const looseGroups = Array.from(groups.entries()).map(([dept, membersList], idx) => ({
+        nodeId: -1000 - idx,
+        parentNodeId: null,
+        label: dept,
+        sortOrder: 0,
+        members: membersList as OrganizationChartMember[],
+      })).sort((a, b) => a.label.localeCompare(b.label));
+
+      const allDisplayMembers = [...allMembers, ...looseMembers];
+
+      const depts = Array.from(new Set(allDisplayMembers.map(m => m.departmentName).filter(Boolean))).sort();
+      const matchCount = allDisplayMembers.filter(m => hierarchyMemberMatches(m, query, departmentFilter)).length;
+
+      return {
+        forest: uiRoots,
+        flatNodes: flat,
+        members: allDisplayMembers,
+        departments: depts,
+        levels: data.stats?.levels || 0,
+        departmentCount: data.stats?.departments || 0,
+        matchingPeople: matchCount,
+        looseGroups,
+      };
+    } else if (data.nodes) {
+      const roots = buildDepForest(data.nodes);
+      const flat = flattenDepForest(roots);
+      const allMembers = flat.flatMap(n => n.members);
+      const depts = Array.from(new Set(allMembers.map(m => m.departmentName).filter(Boolean))).sort();
+      const matchCount = allMembers.filter(m => depMemberMatches(m, query, departmentFilter)).length;
+      
+      return {
+        forest: roots,
+        flatNodes: flat,
+        members: allMembers,
+        departments: depts,
+        levels: flat.reduce((max, node) => Math.max(max, node.depth + 1), 0),
+        departmentCount: flat.filter(node => node.parentNodeId != null).length,
+        matchingPeople: matchCount,
+        looseGroups: [],
+      };
+    }
+
+    return { forest: [], flatNodes: [], members: [], departments: [], levels: 0, departmentCount: 0, matchingPeople: 0, looseGroups: [] };
+  }, [data, isHierarchyMode, collapsedNodes, query, departmentFilter]);
+
+  const toggleCollapse = (nodeId: string) => {
+    setCollapsedNodes(prev => {
+      const next = new Set(prev);
+      if (next.has(nodeId)) next.delete(nodeId);
+      else next.add(nodeId);
+      return next;
+    });
+  };
 
   return (
-    <div className="min-w-0 space-y-4">
+    <div className="min-w-0 flex flex-col h-[calc(100vh-6rem)] gap-4 pb-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-ems-accent/25 bg-ems-accent-dim text-ems-accent">
-              <Network className="h-[18px] w-[18px]" aria-hidden />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-ems-accent/25 bg-ems-accent/10 text-ems-accent shadow-sm">
+              <Network className="h-5 w-5" aria-hidden />
             </div>
             <div>
-              <h1 className="text-xl font-semibold text-text-primary">Organization</h1>
-              <p className="text-xs text-text-secondary">
-                {chartQuery.data?.company?.companyName || 'Internal company'}
+              <h1 className="text-xl font-bold tracking-tight text-text-primary">Organization</h1>
+              <p className="text-xs font-medium text-text-secondary">
+                {data?.company?.companyName || 'Internal company'}
               </p>
             </div>
           </div>
         </div>
 
-        {chartQuery.data?.configured && members.length ? (
-          <div className="flex flex-wrap items-center gap-4 text-xs text-text-secondary">
-            <span><strong className="text-text-primary">{members.length}</strong> people</span>
-            <span><strong className="text-text-primary">{departmentCount}</strong> departments</span>
-            <span><strong className="text-text-primary">{levels}</strong> levels</span>
+        {data?.configured && members.length ? (
+          <div className="flex flex-wrap items-center gap-2 sm:gap-4">
+            {data.mode === 'hierarchy' && (
+              <div className="flex items-center rounded-lg border border-border bg-surface p-1 mr-2 shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('hierarchy')}
+                  className={cn(
+                    "px-3 py-1 text-xs font-semibold rounded-md transition",
+                    isHierarchyMode ? "bg-ems-accent/10 text-ems-accent" : "text-text-muted hover:text-text-primary"
+                  )}
+                >
+                  Hierarchy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('department')}
+                  className={cn(
+                    "px-3 py-1 text-xs font-semibold rounded-md transition",
+                    !isHierarchyMode ? "bg-ems-accent/10 text-ems-accent" : "text-text-muted hover:text-text-primary"
+                  )}
+                >
+                  Departments
+                </button>
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-4 text-xs">
+              <span className="org-stat-badge flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-text-secondary shadow-sm">
+                <strong className="text-text-primary">{members.length}</strong> people
+              </span>
+              <span className="org-stat-badge flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-text-secondary shadow-sm">
+                <strong className="text-text-primary">{departmentCount}</strong> depts
+              </span>
+              <span className="org-stat-badge flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-text-secondary shadow-sm">
+                <strong className="text-text-primary">{levels}</strong> levels
+              </span>
+            </div>
           </div>
         ) : null}
       </div>
 
       {chartQuery.isLoading ? (
-        <div className="space-y-3 rounded-lg border border-border bg-card p-4">
+        <div className="space-y-3 rounded-xl border border-border bg-card p-4 shadow-sm">
           <div className="h-10 animate-pulse rounded-md bg-elevated" />
-          <div className="mx-auto h-28 w-60 animate-pulse rounded-lg bg-elevated" />
+          <div className="mx-auto h-28 w-60 animate-pulse rounded-xl bg-elevated" />
           <div className="grid gap-3 md:grid-cols-3">
-            <div className="h-36 animate-pulse rounded-lg bg-elevated" />
-            <div className="h-36 animate-pulse rounded-lg bg-elevated" />
-            <div className="h-36 animate-pulse rounded-lg bg-elevated" />
+            <div className="h-36 animate-pulse rounded-xl bg-elevated" />
+            <div className="h-36 animate-pulse rounded-xl bg-elevated" />
+            <div className="h-36 animate-pulse rounded-xl bg-elevated" />
           </div>
         </div>
       ) : null}
 
       {chartQuery.isError ? (
-        <div className="rounded-lg border border-ems-coral/30 bg-ems-coral-dim px-4 py-3 text-sm text-ems-coral">
+        <div className="rounded-xl border border-ems-coral/30 bg-ems-coral/5 px-4 py-3 text-sm text-ems-coral shadow-sm">
           {friendlyApiError(chartQuery.error, 'Could not load the organizational chart.')}
         </div>
       ) : null}
 
-      {chartQuery.data && !chartQuery.data.configured ? (
-        <div className="flex min-h-72 flex-col items-center justify-center rounded-lg border border-dashed border-border bg-card px-6 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-elevated text-text-secondary">
+      {data && !data.configured ? (
+        <div className="flex min-h-72 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card/50 px-6 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-elevated text-text-secondary shadow-sm">
             <Network className="h-6 w-6" aria-hidden />
           </div>
           <h2 className="mt-4 text-base font-semibold text-text-primary">
             Internal company needs attention
           </h2>
           <p className="mt-1 max-w-md text-sm text-text-secondary">
-            {chartQuery.data.warnings[0] ||
+            {data.warnings[0] ||
               'Mark exactly one company as internal to publish its contacts here.'}
           </p>
         </div>
       ) : null}
 
-      {chartQuery.data?.configured && !members.length ? (
-        <div className="flex min-h-72 flex-col items-center justify-center rounded-lg border border-dashed border-border bg-card px-6 text-center">
+      {data?.configured && !members.length ? (
+        <div className="flex min-h-72 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card/50 px-6 text-center">
           <UsersRound className="h-8 w-8 text-text-muted" aria-hidden />
           <h2 className="mt-3 text-base font-semibold text-text-primary">No chart entries yet</h2>
           <p className="mt-1 text-sm text-text-secondary">
@@ -351,9 +725,9 @@ export function OrganizationalChartPage() {
         </div>
       ) : null}
 
-      {chartQuery.data?.configured && members.length ? (
+      {data?.configured && members.length ? (
         <>
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2.5 shadow-sm">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
               <label className="relative min-w-[220px] max-w-sm flex-1">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" aria-hidden />
@@ -368,7 +742,7 @@ export function OrganizationalChartPage() {
                   <button
                     type="button"
                     onClick={() => setSearch('')}
-                    className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-text-muted hover:bg-hover hover:text-text-primary"
+                    className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-text-muted hover:bg-hover hover:text-text-primary transition"
                     title="Clear search"
                     aria-label="Clear search"
                   >
@@ -376,28 +750,31 @@ export function OrganizationalChartPage() {
                   </button>
                 ) : null}
               </label>
-              <select
-                value={department}
-                onChange={(event) => setDepartment(event.target.value)}
-                className="h-9 min-w-[180px] rounded-md border border-border bg-surface px-3 text-sm text-text-primary outline-none transition focus:border-ems-accent focus:ring-2 focus:ring-ems-accent/15"
-                aria-label="Highlight department"
-              >
-                <option value="">All departments</option>
-                {departments.map((name) => (
-                  <option key={name} value={name}>{name}</option>
-                ))}
-              </select>
-              {query || department ? (
-                <span className="text-xs text-text-muted">{matchingPeople} matches</span>
+              <div className="relative">
+                <select
+                  value={departmentFilter}
+                  onChange={(event) => setDepartmentFilter(event.target.value)}
+                  className="h-9 min-w-[180px] appearance-none rounded-md border border-border bg-surface pl-3 pr-8 text-sm text-text-primary outline-none transition focus:border-ems-accent focus:ring-2 focus:ring-ems-accent/15"
+                  aria-label="Highlight department"
+                >
+                  <option value="">All departments</option>
+                  {departments.map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+              </div>
+              {query || departmentFilter ? (
+                <span className="text-xs font-medium text-text-muted animate-in fade-in zoom-in px-2">{matchingPeople} matches</span>
               ) : null}
             </div>
 
-            <div className="hidden items-center gap-1 md:flex">
+            <div className="hidden items-center gap-1.5 md:flex">
               <button
                 type="button"
                 onClick={() => setZoom((value) => Math.max(MIN_ZOOM, value - ZOOM_STEP))}
                 disabled={zoom <= MIN_ZOOM}
-                className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-surface text-text-secondary hover:bg-hover hover:text-text-primary disabled:opacity-35"
+                className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-surface text-text-secondary transition hover:bg-hover hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-ems-accent/20 disabled:opacity-35 disabled:hover:bg-surface"
                 title="Zoom out"
                 aria-label="Zoom out"
               >
@@ -406,7 +783,7 @@ export function OrganizationalChartPage() {
               <button
                 type="button"
                 onClick={() => setZoom(1)}
-                className="flex h-8 min-w-12 items-center justify-center rounded-md border border-border bg-surface px-2 text-xs font-medium text-text-secondary hover:bg-hover hover:text-text-primary"
+                className="flex h-8 min-w-14 items-center justify-center rounded-md border border-border bg-surface px-2 text-xs font-semibold text-text-secondary transition hover:bg-hover hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-ems-accent/20"
                 title="Reset zoom"
               >
                 {Math.round(zoom * 100)}%
@@ -415,74 +792,205 @@ export function OrganizationalChartPage() {
                 type="button"
                 onClick={() => setZoom((value) => Math.min(MAX_ZOOM, value + ZOOM_STEP))}
                 disabled={zoom >= MAX_ZOOM}
-                className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-surface text-text-secondary hover:bg-hover hover:text-text-primary disabled:opacity-35"
+                className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-surface text-text-secondary transition hover:bg-hover hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-ems-accent/20 disabled:opacity-35 disabled:hover:bg-surface"
                 title="Zoom in"
                 aria-label="Zoom in"
               >
                 <Plus className="h-4 w-4" aria-hidden />
               </button>
+              <div className="mx-1 h-5 w-px bg-border" />
               <button
                 type="button"
                 onClick={() => {
                   setSearch('');
-                  setDepartment('');
+                  setDepartmentFilter('');
                   setZoom(1);
+                  setCollapsedNodes(new Set());
                 }}
-                className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-surface text-text-secondary hover:bg-hover hover:text-text-primary"
+                className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-surface text-text-secondary transition hover:bg-hover hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-ems-accent/20"
                 title="Reset view"
                 aria-label="Reset view"
               >
-                <RotateCcw className="h-4 w-4" aria-hidden />
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden />
               </button>
             </div>
           </div>
 
-          {chartQuery.data.warnings.map((warning) => (
-            <div key={warning} className="rounded-lg border border-ems-amber/25 bg-ems-amber-dim px-3 py-2 text-xs text-ems-amber">
+          {data.warnings.map((warning) => (
+            <div key={warning} className="rounded-lg border border-ems-amber/30 bg-ems-amber/10 px-4 py-2.5 text-xs font-medium text-ems-amber shadow-sm animate-in slide-in-from-top-2">
               {warning}
             </div>
           ))}
 
-          <div className="hidden min-h-[430px] overflow-auto rounded-lg border border-border bg-surface md:block">
-            <div className="org-chart-viewport min-w-max px-8 py-8" style={{ zoom }}>
-              <div className="org-chart-tree">
-                <ul>
-                  {forest.map((root) => (
-                    <TreeBranch
-                      key={root.nodeId}
-                      node={root}
-                      query={query}
-                      department={department}
-                    />
-                  ))}
-                </ul>
-              </div>
+          {/* Desktop Canvas View */}
+          <div className="hidden flex-1 min-h-0 overflow-auto rounded-xl border border-border bg-surface/50 shadow-inner md:block relative bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCI+CgkJPGNpcmNsZSBjeD0iMSIgY3k9IjEiIHI9IjEiIGZpbGw9InJnYmEoMTUwLDE1MCwxNTAsMC4xKSIvPgoJPC9zdmc+')]">
+            <div className="org-chart-viewport min-w-max px-12 py-16" style={{ transform: `scale(${zoom})`, transformOrigin: 'top center' }}>
+              
+              {isHierarchyMode ? (() => {
+                const hierarchyChildren = [
+                  ...forest.map(root => ({ type: 'hierarchy', data: root as UINode })),
+                  ...looseGroups.map(group => ({ type: 'department', data: group }))
+                ];
+
+                return (
+                  // --- True Hierarchy Rendering (Company Root) ---
+                  <div className="w-full flex justify-center">
+                    <div className="flex flex-col items-center">
+                      
+                      {/* 1. Company Root Card */}
+                      <article className="org-hierarchy-card relative z-10 w-[260px] flex-shrink-0 overflow-hidden rounded-xl border border-border border-l-4 border-l-text-muted bg-card/80 backdrop-blur-md text-center shadow-sm p-5">
+                        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-surface border border-border shadow-sm mb-3 text-text-secondary">
+                          <Network className="h-6 w-6" />
+                        </div>
+                        <h2 className="text-[16px] font-bold tracking-tight text-text-primary">
+                          {data.company?.companyName || 'Internal Company'}
+                        </h2>
+                        <p className="mt-1 text-xs font-semibold text-text-secondary uppercase tracking-widest">Organization</p>
+                      </article>
+
+                      {/* 2. Unified Children Container */}
+                      {hierarchyChildren.length > 0 && (
+                        <div className="w-full relative pt-6">
+                          <div className="org-line-draw absolute left-1/2 top-0 h-6 w-px -translate-x-1/2 bg-border" />
+                          
+                          <ul className="relative flex justify-center">
+                            {hierarchyChildren.map((child, index) => {
+                              const isFirst = index === 0;
+                              const isLast = index === hierarchyChildren.length - 1;
+                              const isOnlyChild = hierarchyChildren.length === 1;
+
+                              return (
+                                <li key={child.type === 'hierarchy' ? (child.data as UINode).nodeId : (child.data as typeof looseGroups[0]).nodeId} className="relative flex flex-col items-center px-4">
+                                  {/* Top connector lines */}
+                                  {!isOnlyChild && (
+                                    <>
+                                      <div className={cn('absolute top-0 h-px bg-border org-line-draw', isFirst ? 'left-1/2 right-0' : isLast ? 'left-0 right-1/2' : 'left-0 right-0')} />
+                                      <div className="absolute left-1/2 top-0 h-6 w-px -translate-x-1/2 bg-border org-line-draw" />
+                                    </>
+                                  )}
+                                  {isOnlyChild && (
+                                    <div className="absolute left-1/2 top-0 h-6 w-px -translate-x-1/2 bg-border org-line-draw" />
+                                  )}
+
+                                  {child.type === 'hierarchy' ? (
+                                    <HierarchyBranchContent
+                                      node={child.data as UINode}
+                                      query={query}
+                                      department={departmentFilter}
+                                      onToggleCollapse={toggleCollapse}
+                                    />
+                                  ) : (
+                                    <div className="relative z-10 py-6">
+                                      <DepNodeCard
+                                        node={child.data as OrganizationChartNode}
+                                        query={query}
+                                        department={departmentFilter}
+                                      />
+                                    </div>
+                                  )}
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </div>
+                      )}
+
+                    </div>
+                  </div>
+                );
+              })() : (
+                // --- Department Fallback Rendering ---
+                <div className="org-chart-tree">
+                  <ul>
+                    {forest.map((root) => (
+                      <DepTreeBranch
+                        key={(root as DepTreeNode).nodeId}
+                        node={root as DepTreeNode}
+                        query={query}
+                        department={departmentFilter}
+                      />
+                    ))}
+                  </ul>
+                </div>
+              )}
+
             </div>
           </div>
 
-          <div className="space-y-5 md:hidden">
-            {nodesByLevel.map((nodes, depth) => (
-              <section key={depth} className="relative pl-5">
-                <div className="absolute bottom-0 left-[5px] top-7 w-px bg-border" aria-hidden />
-                <div className="mb-2 flex items-center gap-2">
-                  <span className="relative z-[1] h-[11px] w-[11px] rounded-full border-2 border-ems-accent bg-background" />
-                  <h2 className="text-[11px] font-semibold uppercase text-text-muted">Level {depth + 1}</h2>
+          {/* Mobile Stacked View */}
+          <div className="space-y-6 md:hidden">
+            {isHierarchyMode ? (
+              // Hierarchy Mobile View
+              <div className="space-y-6">
+                <article className="org-hierarchy-card relative z-10 w-full overflow-hidden rounded-xl border border-border border-l-4 border-l-text-muted bg-card shadow-sm p-4 flex items-center gap-4">
+                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-surface border border-border shadow-sm text-text-secondary shrink-0">
+                     <Network className="h-5 w-5" />
+                   </div>
+                   <div>
+                     <h2 className="text-[15px] font-bold tracking-tight text-text-primary">
+                       {data.company?.companyName || 'Internal Company'}
+                     </h2>
+                     <p className="text-[10px] font-semibold text-text-secondary uppercase tracking-widest">Organization</p>
+                   </div>
+                </article>
+
+                <div className="space-y-4 pl-3 border-l-2 border-border/30 ml-5">
+                  {/* Using flatNodes to map over them vertically for mobile stack */}
+                  {flatNodes.map((node) => {
+                    const uiNode = node as UINode;
+                    
+                    // For the mobile stack, we might only want to show TeamCards for managers.
+                    // Root nodes (depth===0) are also shown here as top-level managers.
+                    const isManagerOrRoot = uiNode.children.length > 0 || uiNode.depth === 0;
+                    if (!isManagerOrRoot) return null;
+
+                    const paddingLeft = Math.min(uiNode.depth * 24, 64);
+                    return (
+                      <div key={uiNode.nodeId} className="relative" style={{ paddingLeft: `${paddingLeft}px` }}>
+                        {uiNode.depth > 0 && (
+                          <div 
+                            className="absolute bottom-1/2 left-0 top-0 border-l-2 border-b-2 border-border/50 rounded-bl-xl" 
+                            style={{ width: '20px', left: `${paddingLeft - 24}px` }}
+                          />
+                        )}
+                        <HierarchyTeamCard
+                          node={uiNode}
+                          query={query}
+                          department={departmentFilter}
+                          onToggleCollapse={toggleCollapse}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
-                <div className="grid gap-2.5 sm:grid-cols-2">
-                  {nodes.map((node) => (
-                    <OrgNodeCard
-                      key={node.nodeId}
-                      node={node}
-                      query={query}
-                      department={department}
-                    />
-                  ))}
-                </div>
-              </section>
-            ))}
+              </div>
+            ) : (
+              // Department Mobile View
+              Array.from({ length: levels }, (_, depth) => flatNodes.filter((node) => (node as DepTreeNode).depth === depth)).map((nodes, depth) => (
+                <section key={depth} className="relative pl-5">
+                  <div className="absolute bottom-0 left-[5px] top-7 w-px bg-border" aria-hidden />
+                  <div className="mb-3 flex items-center gap-2">
+                    <span className="relative z-[1] h-3 w-3 rounded-full border-[3px] border-ems-accent bg-background" />
+                    <h2 className="text-[11px] font-bold uppercase tracking-wider text-text-muted">Level {depth + 1}</h2>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {nodes.map((node) => (
+                      <DepNodeCard
+                        key={(node as DepTreeNode).nodeId}
+                        node={node as DepTreeNode}
+                        query={query}
+                        department={departmentFilter}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ))
+            )}
           </div>
         </>
       ) : null}
     </div>
   );
 }
+
+export default OrganizationalChartPage;

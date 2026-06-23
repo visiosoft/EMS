@@ -33,6 +33,8 @@ import { EngagementTravel } from '../entities/engagement-travel.entity';
 import { EngagementTravelCarService } from '../entities/engagement-travel-car-service.entity';
 import { EngagementTravelHotel } from '../entities/engagement-travel-hotel.entity';
 import { EngagementPartner } from '../entities/engagement-partner.entity';
+import { PerformanceContract } from '../entities/performance-contract.entity';
+import { ContractExtractionService } from './contract-extraction.service';
 
 @Module({
   imports: [
@@ -67,11 +69,12 @@ import { EngagementPartner } from '../entities/engagement-partner.entity';
       EngagementTravelCarService,
       EngagementTravelHotel,
       EngagementPartner,
+      PerformanceContract,
     ]),
     AttractionToursModule,
   ],
   controllers: [EngagementController],
-  providers: [EngagementService],
+  providers: [EngagementService, ContractExtractionService],
   exports: [EngagementService],
 })
 export class EngagementsModule {}
