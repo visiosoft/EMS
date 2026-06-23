@@ -23,6 +23,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  Upload,
 } from 'lucide-react';
 import { Modal, FormField, TabBar } from './Primitives';
 import { EngagementSalesDashboardPanel } from './EngagementSalesDashboardPanel';
@@ -50,6 +51,8 @@ import {
   fetchEngagementVenues,
   fetchEngagementVenueTabData,
   updateEngagementVenueTab,
+  uploadVenueSeatingChart,
+  removeVenueSeatingChart,
   upsertEngagementLink,
   removeEngagementLink,
   fetchEngagementServiceProviders,
@@ -142,6 +145,7 @@ import {
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { cleanDmaMarketLabel } from '@/lib/dmaMarket';
 import { EngagementMarketingReadOnlySection } from './EngagementMarketingReadOnlySection';
+import { EngagementContractPanel } from './EngagementContractPanel';
 import { invalidateSalesCapacityRelatedQueries } from '@/api/cacheHelpers';
 // fetchIaeStaffEmployees removed — IAE Marketing Team now uses EngagementIAEContact
 import { formatOpeningDateSafe, formatSqlTimeDisplay } from '@/lib/engagementDisplay';
@@ -817,6 +821,145 @@ function VenueDetailPanel({
         </div>
       </div>
 
+      {/* Venue Seating */}
+      <VenueSeatingSection
+        engagementId={engagementId}
+        venueCompanyId={venue.venueCompanyId}
+        seatingChartLinkUrl={venue.seatingChartLinkUrl}
+        addToast={addToast}
+        invalidate={invalidate}
+      />
+
+    </div>
+  );
+}
+
+// ─── Venue Seating section (file upload + view) ──────────────────────────────
+
+function VenueSeatingSection({
+  engagementId,
+  venueCompanyId,
+  seatingChartLinkUrl,
+  addToast,
+  invalidate,
+}: {
+  engagementId: number;
+  venueCompanyId: number;
+  seatingChartLinkUrl: string | null;
+  addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  invalidate: () => void;
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const uploadMutation = useMutation({
+    mutationFn: (file: File) => uploadVenueSeatingChart(engagementId, venueCompanyId, file),
+    onSuccess: () => {
+      invalidate();
+      addToast('Seating chart uploaded.', 'success');
+    },
+    onError: (e) => addToast(friendlyApiError(e, 'Could not upload seating chart.'), 'error'),
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: () => removeVenueSeatingChart(engagementId, venueCompanyId),
+    onSuccess: () => {
+      invalidate();
+      addToast('Seating chart removed.', 'success');
+    },
+    onError: (e) => addToast(friendlyApiError(e, 'Could not remove seating chart.'), 'error'),
+  });
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      uploadMutation.mutate(file);
+      e.target.value = '';
+    }
+  };
+
+  const isImage = seatingChartLinkUrl && /\.(jpg|jpeg|png|gif|webp)$/i.test(seatingChartLinkUrl);
+  const isPdf = seatingChartLinkUrl && /\.pdf$/i.test(seatingChartLinkUrl);
+  const sectionCls = 'rounded-md border border-border bg-surface/40 p-4 space-y-4';
+  const labelCls = 'text-xs font-semibold text-text-primary mb-3 block';
+
+  return (
+    <div className={sectionCls}>
+      <span className={labelCls}>Venue Seating</span>
+
+      {seatingChartLinkUrl && (
+        <div className="space-y-3">
+          {isImage ? (
+            <div className="rounded border border-border overflow-hidden bg-background p-2">
+              <img
+                src={seatingChartLinkUrl}
+                alt="Seating Chart"
+                className="max-w-full max-h-64 object-contain mx-auto"
+              />
+            </div>
+          ) : isPdf ? (
+            <div className="rounded border border-border overflow-hidden bg-background">
+              <iframe
+                src={seatingChartLinkUrl}
+                title="Seating Chart PDF"
+                className="w-full h-[400px] border-0"
+              />
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-sm text-text-secondary">
+              <ExternalLink className="h-4 w-4" />
+              <span className="truncate">{seatingChartLinkUrl.split('/').pop()}</span>
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <a
+              href={seatingChartLinkUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded bg-ems-accent/10 px-3 py-1.5 text-xs font-medium text-ems-accent hover:bg-ems-accent/20 transition-colors"
+            >
+              <Eye className="h-3.5 w-3.5" />
+              View
+            </a>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="text-xs text-ems-coral border-ems-coral/30 hover:bg-ems-coral/10"
+              onClick={() => removeMutation.mutate()}
+              disabled={removeMutation.isPending}
+            >
+              {removeMutation.isPending ? (
+                <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Removing…</span>
+              ) : 'Remove'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center gap-3">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif,application/pdf"
+          className="hidden"
+          onChange={handleFileChange}
+        />
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="text-xs"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploadMutation.isPending}
+        >
+          {uploadMutation.isPending ? (
+            <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Uploading…</span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5"><Upload className="h-3.5 w-3.5" />Upload Seating Chart</span>
+          )}
+        </Button>
+        <span className="text-xs text-text-muted">JPEG, PNG, WebP, GIF, or PDF (max 10 MB)</span>
+      </div>
     </div>
   );
 }
@@ -10648,6 +10791,7 @@ export function EngagementDetailPage({
           'Artist terms',
           'Event business',
           'Finance',
+          'Contract',
         ]}
         active={tab}
         onChange={handleTabChange}
@@ -11119,6 +11263,15 @@ export function EngagementDetailPage({
           engagementId={engagementId}
           addToast={addToast}
           onDirtyChange={handleFinanceDirtyChange}
+        />
+      )}
+
+      {/* ── Contract ────────────────────────────────────────────────────── */}
+      {tab === 'Contract' && (
+        <EngagementContractPanel
+          key={engagementId}
+          engagementId={engagementId}
+          addToast={addToast}
         />
       )}
 

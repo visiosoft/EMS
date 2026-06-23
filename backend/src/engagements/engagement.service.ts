@@ -6392,6 +6392,74 @@ export class EngagementService {
     }
   }
 
+  // ── Seating Chart upload (Venue.SeatingChartLinkID → dbo.Link) ──────────────
+
+  async uploadSeatingChart(
+    engagementId: number,
+    venueCompanyId: number,
+    file: Express.Multer.File,
+  ): Promise<{ seatingChartLinkId: number; seatingChartLinkUrl: string }> {
+    await this.assertEngagementExists(engagementId);
+    const ev = await this.engagementVenueRepo.findOne({
+      where: { engagementId, venueCompanyId },
+    });
+    if (!ev) throw new NotFoundException({ message: 'Venue not linked to this engagement.' });
+
+    if (!file?.filename?.trim()) {
+      throw new BadRequestException({ message: 'Upload did not produce a filename.' });
+    }
+
+    const publicPath = `/uploads/seating-charts/${file.filename}`.slice(0, 2048);
+    const safeName = (file.originalname || 'Seating Chart')
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\x00-\x1f]/g, '')
+      .slice(0, 255);
+
+    const venue = await this.venueRepo.findOne({ where: { companyId: venueCompanyId } });
+    if (!venue) throw new NotFoundException({ message: 'Venue not found.' });
+
+    if (venue.seatingChartLinkId) {
+      // Update existing Link row
+      await this.linkRepo.update(venue.seatingChartLinkId, {
+        linkUrl: publicPath,
+        linkPath: publicPath.slice(0, 1024),
+        linkName: safeName || 'Seating Chart',
+      });
+      return { seatingChartLinkId: venue.seatingChartLinkId, seatingChartLinkUrl: publicPath };
+    }
+
+    // Create a new Link row and assign to Venue
+    const newLink = this.linkRepo.create({
+      linkType: 'Image',
+      linkUrl: publicPath,
+      linkPath: publicPath.slice(0, 1024),
+      linkName: safeName || 'Seating Chart',
+    });
+    const savedLink = await this.linkRepo.save(newLink);
+    venue.seatingChartLinkId = savedLink.linkId;
+    await this.venueRepo.save(venue);
+    return { seatingChartLinkId: savedLink.linkId, seatingChartLinkUrl: publicPath };
+  }
+
+  async removeSeatingChart(
+    engagementId: number,
+    venueCompanyId: number,
+  ): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+    const ev = await this.engagementVenueRepo.findOne({
+      where: { engagementId, venueCompanyId },
+    });
+    if (!ev) throw new NotFoundException({ message: 'Venue not linked to this engagement.' });
+
+    const venue = await this.venueRepo.findOne({ where: { companyId: venueCompanyId } });
+    if (!venue) throw new NotFoundException({ message: 'Venue not found.' });
+
+    if (venue.seatingChartLinkId) {
+      venue.seatingChartLinkId = null;
+      await this.venueRepo.save(venue);
+    }
+  }
+
   // ── Engagement Link management (contracts / forecast) ──────────────────────
 
   async upsertEngagementLink(
@@ -8335,5 +8403,178 @@ export class EngagementService {
         `INSERT INTO dbo.PerformanceContracts (${cols.join(', ')}) VALUES (${vals.join(', ')})`,
       );
     }
+  }
+
+  // ── Performance Contracts CRUD ─────────────────────────────────────────────
+
+  async getPerformanceContracts(engagementId: number): Promise<Record<string, unknown>[]> {
+    await this.assertEngagementExists(engagementId);
+    const eid = Math.trunc(engagementId);
+    const rows = await this.dataSource.query(
+      `SELECT [ContractID] AS contractId,
+              [CreatedAt] AS createdAt,
+              [EngagementID] AS engagementId,
+              [Agency] AS agency,
+              [Agent] AS agent,
+              [Attraction] AS attraction,
+              [VenueName] AS venueName,
+              [VenueAddress] AS venueAddress,
+              [VenueCity] AS venueCity,
+              [VenueState] AS venueState,
+              [VenueCountry] AS venueCountry,
+              [Producer] AS producer,
+              [ProducerAddress] AS producerAddress,
+              [ProducerFedID] AS producerFedId,
+              [GuaranteeAmount] AS guaranteeAmount,
+              [GuaranteeCurrency] AS guaranteeCurrency,
+              [DepositAmount] AS depositAmount,
+              CONVERT(varchar(10), [DepositDueDate], 120) AS depositDueDate,
+              [BalanceAmount] AS balanceAmount,
+              CONVERT(varchar(10), [BalanceDueDate], 120) AS balanceDueDate,
+              [RoyaltyDescription] AS royaltyDescription,
+              [OverageDescription] AS overageDescription,
+              [PaymentTerms] AS paymentTerms,
+              [PaymentMethodType] AS paymentMethodType,
+              [PaymentPayableTo] AS paymentPayableTo,
+              [PaymentBankName] AS paymentBankName,
+              [Performances] AS performances,
+              [AdditionallyInsured] AS additionallyInsured,
+              [AnnotatedPdfBlobName] AS annotatedPdfBlobName,
+              [OriginalFilename] AS originalFilename,
+              [OneDrivePdfUrl] AS oneDrivePdfUrl
+       FROM dbo.PerformanceContracts
+       WHERE [EngagementID] = ${eid}
+       ORDER BY [ContractID] DESC`,
+    );
+    return (rows as Record<string, unknown>[]).map((r) => ({
+      ...r,
+      guaranteeAmount: r.guaranteeAmount != null ? Number(r.guaranteeAmount) : null,
+      depositAmount: r.depositAmount != null ? Number(r.depositAmount) : null,
+      balanceAmount: r.balanceAmount != null ? Number(r.balanceAmount) : null,
+    }));
+  }
+
+  async savePerformanceContract(
+    engagementId: number,
+    dto: import('./dto/save-performance-contract.dto').SavePerformanceContractDto,
+  ): Promise<{ contractId: number }> {
+    await this.assertEngagementExists(engagementId);
+    const eid = Math.trunc(engagementId);
+
+    const cols = ['[EngagementID]', '[CreatedAt]'];
+    const vals = [String(eid), 'GETDATE()'];
+
+    const addCol = (col: string, val: string | number | null | undefined, maxLen?: number) => {
+      if (val === undefined) return;
+      if (val === null || (typeof val === 'string' && val.trim() === '')) {
+        cols.push(`[${col}]`);
+        vals.push('NULL');
+      } else if (typeof val === 'number') {
+        cols.push(`[${col}]`);
+        vals.push(String(val));
+      } else {
+        cols.push(`[${col}]`);
+        vals.push(this.escapeSqlNVarCharLiteral(String(val).trim().slice(0, maxLen ?? 2048)));
+      }
+    };
+
+    addCol('Agency', dto.agency, 255);
+    addCol('Agent', dto.agent, 255);
+    addCol('Attraction', dto.attraction, 255);
+    addCol('VenueName', dto.venueName, 255);
+    addCol('VenueAddress', dto.venueAddress, 500);
+    addCol('VenueCity', dto.venueCity, 100);
+    addCol('VenueState', dto.venueState, 100);
+    addCol('VenueCountry', dto.venueCountry, 100);
+    addCol('Producer', dto.producer, 255);
+    addCol('ProducerAddress', dto.producerAddress, 500);
+    addCol('ProducerFedID', dto.producerFedId, 50);
+    addCol('GuaranteeAmount', dto.guaranteeAmount);
+    addCol('GuaranteeCurrency', dto.guaranteeCurrency, 10);
+    addCol('DepositAmount', dto.depositAmount);
+    addCol('DepositDueDate', dto.depositDueDate, 10);
+    addCol('BalanceAmount', dto.balanceAmount);
+    addCol('BalanceDueDate', dto.balanceDueDate, 10);
+    addCol('RoyaltyDescription', dto.royaltyDescription, 8000);
+    addCol('OverageDescription', dto.overageDescription, 8000);
+    addCol('PaymentTerms', dto.paymentTerms, 8000);
+    addCol('PaymentMethodType', dto.paymentMethodType, 100);
+    addCol('PaymentPayableTo', dto.paymentPayableTo, 255);
+    addCol('PaymentBankName', dto.paymentBankName, 255);
+    addCol('Performances', dto.performances, 8000);
+    addCol('AdditionallyInsured', dto.additionallyInsured, 8000);
+    addCol('AnnotatedPdfBlobName', dto.annotatedPdfBlobName, 500);
+    addCol('OriginalFilename', dto.originalFilename, 500);
+    addCol('OneDrivePdfUrl', dto.oneDrivePdfUrl, 1000);
+
+    const result = await this.dataSource.query(
+      `INSERT INTO dbo.PerformanceContracts (${cols.join(', ')}) OUTPUT INSERTED.[ContractID] AS contractId VALUES (${vals.join(', ')})`,
+    );
+    const contractId = (result as Record<string, unknown>[])?.[0]?.contractId;
+    return { contractId: Number(contractId) };
+  }
+
+  async updatePerformanceContract(
+    engagementId: number,
+    contractId: number,
+    dto: import('./dto/save-performance-contract.dto').SavePerformanceContractDto,
+  ): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+    const eid = Math.trunc(engagementId);
+    const cid = Math.trunc(contractId);
+
+    const sets: string[] = [];
+    const addSet = (col: string, val: string | number | null | undefined, maxLen?: number) => {
+      if (val === undefined) return;
+      if (val === null || (typeof val === 'string' && val.trim() === '')) {
+        sets.push(`[${col}] = NULL`);
+      } else if (typeof val === 'number') {
+        sets.push(`[${col}] = ${val}`);
+      } else {
+        sets.push(`[${col}] = ${this.escapeSqlNVarCharLiteral(String(val).trim().slice(0, maxLen ?? 2048))}`);
+      }
+    };
+
+    addSet('Agency', dto.agency, 255);
+    addSet('Agent', dto.agent, 255);
+    addSet('Attraction', dto.attraction, 255);
+    addSet('VenueName', dto.venueName, 255);
+    addSet('VenueAddress', dto.venueAddress, 500);
+    addSet('VenueCity', dto.venueCity, 100);
+    addSet('VenueState', dto.venueState, 100);
+    addSet('VenueCountry', dto.venueCountry, 100);
+    addSet('Producer', dto.producer, 255);
+    addSet('ProducerAddress', dto.producerAddress, 500);
+    addSet('ProducerFedID', dto.producerFedId, 50);
+    addSet('GuaranteeAmount', dto.guaranteeAmount);
+    addSet('GuaranteeCurrency', dto.guaranteeCurrency, 10);
+    addSet('DepositAmount', dto.depositAmount);
+    addSet('DepositDueDate', dto.depositDueDate, 10);
+    addSet('BalanceAmount', dto.balanceAmount);
+    addSet('BalanceDueDate', dto.balanceDueDate, 10);
+    addSet('RoyaltyDescription', dto.royaltyDescription, 8000);
+    addSet('OverageDescription', dto.overageDescription, 8000);
+    addSet('PaymentTerms', dto.paymentTerms, 8000);
+    addSet('PaymentMethodType', dto.paymentMethodType, 100);
+    addSet('PaymentPayableTo', dto.paymentPayableTo, 255);
+    addSet('PaymentBankName', dto.paymentBankName, 255);
+    addSet('Performances', dto.performances, 8000);
+    addSet('AdditionallyInsured', dto.additionallyInsured, 8000);
+    addSet('AnnotatedPdfBlobName', dto.annotatedPdfBlobName, 500);
+    addSet('OriginalFilename', dto.originalFilename, 500);
+    addSet('OneDrivePdfUrl', dto.oneDrivePdfUrl, 1000);
+
+    if (sets.length === 0) return;
+
+    await this.dataSource.query(
+      `UPDATE dbo.PerformanceContracts SET ${sets.join(', ')} WHERE [ContractID] = ${cid} AND [EngagementID] = ${eid}`,
+    );
+  }
+
+  async deletePerformanceContract(engagementId: number, contractId: number): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+    await this.dataSource.query(
+      `DELETE FROM dbo.PerformanceContracts WHERE [ContractID] = ${Math.trunc(contractId)} AND [EngagementID] = ${Math.trunc(engagementId)}`,
+    );
   }
 }
