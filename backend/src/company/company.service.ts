@@ -67,6 +67,7 @@ import {
   type ResolvedVenueTicketingWebsiteColumns,
 } from './venue-ticketing-columns.resolver';
 import { isValidPhoneNumber } from 'libphonenumber-js';
+import { HubSpotService } from '../hubspot/hubspot.service';
 
 /** dbo.CompanyType.CompanyName for companies that may be linked as an entertainment complex (EMS + validation). */
 const ENTERTAINMENT_COMPLEX_COMPANY_TYPE = 'entertainment complex';
@@ -223,6 +224,7 @@ export class CompanyService {
 
   constructor(
     private readonly configService: ConfigService,
+    private readonly hubSpotService: HubSpotService,
     @InjectDataSource() private readonly dataSource: DataSource,
     @InjectRepository(Company)
     private readonly companyRepo: Repository<Company>,
@@ -279,6 +281,39 @@ export class CompanyService {
 
   private safeDbIdentifier(name: string): string {
     return `[${String(name).replace(/\]/g, ']]')}]`;
+  }
+
+  private async assertSingleInternalCompany(
+    manager: EntityManager,
+    excludedCompanyId?: number,
+  ): Promise<void> {
+    const excludeCurrent =
+      excludedCompanyId != null &&
+      Number.isInteger(excludedCompanyId) &&
+      excludedCompanyId > 0;
+    const rows = await manager.query(
+      `
+      SELECT TOP 1 CompanyID AS companyId, CompanyName AS companyName
+      FROM dbo.Company WITH (UPDLOCK, HOLDLOCK)
+      WHERE is_internal = 1
+        ${excludeCurrent ? 'AND CompanyID <> @0' : ''}
+      ORDER BY CompanyID
+      `,
+      excludeCurrent ? [excludedCompanyId] : [],
+    );
+    if (!rows.length) return;
+
+    const existingName = String(rows[0]?.companyName ?? '').trim();
+    throw new ConflictException({
+      statusCode: HttpStatus.CONFLICT,
+      error: 'Conflict',
+      code: 'INTERNAL_COMPANY_ALREADY_EXISTS',
+      message: existingName
+        ? `Only one company can be internal. ${existingName} is already the internal company; unmark it before choosing another.`
+        : 'Only one company can be internal. Unmark the current internal company before choosing another.',
+      suggestion:
+        'Open the current internal company and uncheck “Internal company” before assigning this one.',
+    });
   }
 
   private async canQueryCompanyTypeLinkTable(
@@ -2339,6 +2374,9 @@ export class CompanyService {
     }
 
     const saved = await this.dataSource.transaction(async (em) => {
+      if (dto.isInternal === true) {
+        await this.assertSingleInternalCompany(em);
+      }
       const savedPhysical = await this.getOrCreateAddress(em, dto.physical);
 
       let mailingId = savedPhysical.addressId;
@@ -2384,7 +2422,9 @@ export class CompanyService {
      * Return the full detail row (same shape as GET /companies items) so the
      * frontend can patch its cache in-place without a follow-up fetch.
      */
-    return this.findOne(saved.companyId);
+    const detail = await this.findOne(saved.companyId);
+    this.hubSpotService.queueCompanySync(saved.companyId);
+    return detail;
   }
 
   /** Default dbo.Venue row when registering a company whose type is Venue (1:1 with Company). */
@@ -3168,7 +3208,14 @@ export class CompanyService {
       }
     }
 
-    await this.companyRepo.save(existing);
+    if (existing.isInternal) {
+      await this.dataSource.transaction('SERIALIZABLE', async (em) => {
+        await this.assertSingleInternalCompany(em, companyId);
+        await em.save(Company, existing);
+      });
+    } else {
+      await this.companyRepo.save(existing);
+    }
     if (
       companyTypesChanged ||
       primaryCompanyTypeChanged ||
@@ -3230,7 +3277,9 @@ export class CompanyService {
      * Always return the freshly-joined detail row so the frontend can patch
      * its list cache in place (type name, DMA market name, nested addresses).
      */
-    return this.findOne(companyId);
+    const detail = await this.findOne(companyId);
+    this.hubSpotService.queueCompanySync(companyId);
+    return detail;
   }
 
   async remove(companyId: number): Promise<void> {
@@ -3907,7 +3956,7 @@ export class CompanyService {
   async createManagedContact(
     dto: ManageContactDto,
   ): Promise<ManagedContactRow> {
-    return this.dataSource.transaction(async (em) => {
+    const row = await this.dataSource.transaction(async (em) => {
       const contact = await this.getOrCreateManagedContact(em, dto);
       await this.ensureManagedContactAssignments(
         em,
@@ -3924,13 +3973,15 @@ export class CompanyService {
       }
       return row;
     });
+    this.hubSpotService.queueContactSync(row.contactId);
+    return row;
   }
 
   async updateManagedContact(
     contactId: number,
     dto: UpdateManagedContactDto,
   ): Promise<ManagedContactRow> {
-    return this.dataSource.transaction(async (em) => {
+    const row = await this.dataSource.transaction(async (em) => {
       const contact = await this.getOrCreateManagedContact(em, dto, contactId);
       const nextCompany =
         dto.companyId !== undefined
@@ -3955,6 +4006,8 @@ export class CompanyService {
       }
       return row;
     });
+    this.hubSpotService.queueContactSync(row.contactId);
+    return row;
   }
 
   async getContactConnections(contactId: number): Promise<{ engagements: { engagementId: number; tourName: string }[]; tours: { tourId: number; tourName: string }[] }> {
@@ -4032,7 +4085,7 @@ export class CompanyService {
     assertOptionalE164Phone(dto.workPhone ?? null, 'work phone');
     assertOptionalE164Phone(dto.cellPhone ?? null, 'cell phone');
 
-    return this.dataSource.transaction(async (em) => {
+    const row = await this.dataSource.transaction(async (em) => {
       await this.ensureRole(dto.roleId, em);
       await this.ensureDepartment(dto.departmentId, em);
 
@@ -4133,13 +4186,15 @@ export class CompanyService {
       }
       return row;
     });
+    this.hubSpotService.queueContactSync(row.contactId);
+    return row;
   }
 
   async updateContact(
     contactAssignmentId: number,
     dto: UpdateCompanyContactDto,
   ): Promise<CompanyContactRow> {
-    return this.dataSource.transaction(async (em) => {
+    const row = await this.dataSource.transaction(async (em) => {
       const asgRepo = em.getRepository(ContactAssignment);
       const infoRepo = em.getRepository(ContactInfo);
       const contactRepo = em.getRepository(Contact);
@@ -4344,6 +4399,8 @@ export class CompanyService {
       if (!row) throw new NotFoundException('Contact row missing after update');
       return row;
     });
+    this.hubSpotService.queueContactSync(row.contactId);
+    return row;
   }
 
   async removeContact(contactAssignmentId: number): Promise<void> {
@@ -4465,40 +4522,51 @@ export class CompanyService {
     await this.ensureCompany(companyId);
 
     // Engagement venues (this company is a venue on engagements)
-    const engagementVenueRows: { engagementId: number; attractionName: string | null; tourName: string | null }[] =
-      await this.dataSource.query(
-        `SELECT ev.EngagementID AS engagementId, a.AttractionName AS attractionName, t.TourName AS tourName
+    const engagementVenueRows: {
+      engagementId: number;
+      attractionName: string | null;
+      tourName: string | null;
+    }[] = await this.dataSource.query(
+      `SELECT ev.EngagementID AS engagementId, a.AttractionName AS attractionName, t.TourName AS tourName
          FROM [dbo].[EngagementVenue] ev
          INNER JOIN [dbo].[Engagement] e ON e.EngagementID = ev.EngagementID
          LEFT JOIN [dbo].[Tour] t ON t.TourID = e.TourID
          LEFT JOIN [dbo].[Attraction] a ON a.AttractionID = t.AttractionID
          WHERE ev.VenueCompanyID = @0`,
-        [companyId],
-      );
+      [companyId],
+    );
 
     // Project venues (this company is a venue on projects)
-    const projectVenueRows: { projectId: number; attractionName: string | null; tourName: string | null }[] =
-      await this.dataSource.query(
-        `SELECT pv.EngagementProjectID AS projectId, a.AttractionName AS attractionName, t.TourName AS tourName
+    const projectVenueRows: {
+      projectId: number;
+      attractionName: string | null;
+      tourName: string | null;
+    }[] = await this.dataSource.query(
+      `SELECT pv.EngagementProjectID AS projectId, a.AttractionName AS attractionName, t.TourName AS tourName
          FROM [dbo].[EngagementProjectVenue] pv
          INNER JOIN [dbo].[EngagementProject] p ON p.EngagementProjectID = pv.EngagementProjectID
          LEFT JOIN [dbo].[Tour] t ON t.TourID = p.TourID
          LEFT JOIN [dbo].[Attraction] a ON a.AttractionID = t.AttractionID
          WHERE pv.VenueCompanyID = @0`,
-        [companyId],
-      );
+      [companyId],
+    );
 
     // Tours where this company is talent agency or tour management
-    const tourRows: { tourId: number; tourName: string | null; attractionName: string | null; isTalentAgency: number; isTourManagement: number }[] =
-      await this.dataSource.query(
-        `SELECT t.TourID AS tourId, t.TourName AS tourName, a.AttractionName AS attractionName,
+    const tourRows: {
+      tourId: number;
+      tourName: string | null;
+      attractionName: string | null;
+      isTalentAgency: number;
+      isTourManagement: number;
+    }[] = await this.dataSource.query(
+      `SELECT t.TourID AS tourId, t.TourName AS tourName, a.AttractionName AS attractionName,
                 CASE WHEN t.TalentAgencyCompanyID = @0 THEN 1 ELSE 0 END AS isTalentAgency,
                 CASE WHEN t.TourManagementCompanyID = @0 THEN 1 ELSE 0 END AS isTourManagement
          FROM [dbo].[Tour] t
          LEFT JOIN [dbo].[Attraction] a ON a.AttractionID = t.AttractionID
          WHERE t.TalentAgencyCompanyID = @0 OR t.TourManagementCompanyID = @0`,
-        [companyId],
-      );
+      [companyId],
+    );
 
     // Attractions where this company is attraction management
     const attractionRows = await this.dataSource
@@ -4506,34 +4574,40 @@ export class CompanyService {
       .find({ where: { attractionManagementLinkId: companyId } });
 
     // Service provider links (this company provides services to other venues)
-    const serviceProviderRows: { venueCompanyId: number; venueCompanyName: string | null }[] =
-      await this.dataSource.query(
-        `SELECT DISTINCT vsp.VenueCompanyID AS venueCompanyId, c.CompanyName AS venueCompanyName
+    const serviceProviderRows: {
+      venueCompanyId: number;
+      venueCompanyName: string | null;
+    }[] = await this.dataSource.query(
+      `SELECT DISTINCT vsp.VenueCompanyID AS venueCompanyId, c.CompanyName AS venueCompanyName
          FROM [dbo].[VenueServiceProvider] vsp
          INNER JOIN [dbo].[Company] c ON c.CompanyID = vsp.VenueCompanyID
          WHERE vsp.ProviderCompanyID = @0`,
-        [companyId],
-      );
+      [companyId],
+    );
 
     // Entertainment complex membership (this company is a venue in a complex)
-    const complexMemberRows: { complexCompanyId: number; complexCompanyName: string | null }[] =
-      await this.dataSource.query(
-        `SELECT vcm.ComplexCompanyID AS complexCompanyId, c.CompanyName AS complexCompanyName
+    const complexMemberRows: {
+      complexCompanyId: number;
+      complexCompanyName: string | null;
+    }[] = await this.dataSource.query(
+      `SELECT vcm.ComplexCompanyID AS complexCompanyId, c.CompanyName AS complexCompanyName
          FROM [dbo].[VenueComplexMember] vcm
          INNER JOIN [dbo].[Company] c ON c.CompanyID = vcm.ComplexCompanyID
          WHERE vcm.VenueCompanyID = @0`,
-        [companyId],
-      );
+      [companyId],
+    );
 
     // Venues in this complex (this company IS the complex)
-    const complexVenueRows: { venueCompanyId: number; venueCompanyName: string | null }[] =
-      await this.dataSource.query(
-        `SELECT vcm.VenueCompanyID AS venueCompanyId, c.CompanyName AS venueCompanyName
+    const complexVenueRows: {
+      venueCompanyId: number;
+      venueCompanyName: string | null;
+    }[] = await this.dataSource.query(
+      `SELECT vcm.VenueCompanyID AS venueCompanyId, c.CompanyName AS venueCompanyName
          FROM [dbo].[VenueComplexMember] vcm
          INNER JOIN [dbo].[Company] c ON c.CompanyID = vcm.VenueCompanyID
          WHERE vcm.ComplexCompanyID = @0`,
-        [companyId],
-      );
+      [companyId],
+    );
 
     return {
       engagements: engagementVenueRows.map((r) => {

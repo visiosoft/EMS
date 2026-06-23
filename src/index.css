@@ -198,6 +198,109 @@ html {
 }
 
 @layer components {
+  .org-chart-tree,
+  .org-chart-tree ul {
+    display: flex;
+    justify-content: center;
+    margin: 0;
+    padding: 0;
+    position: relative;
+  }
+
+  .org-chart-tree > ul {
+    align-items: flex-start;
+    gap: 24px;
+  }
+
+  .org-chart-tree ul ul {
+    padding-top: 34px;
+  }
+
+  .org-chart-tree li {
+    align-items: center;
+    display: flex;
+    flex-direction: column;
+    list-style: none;
+    padding: 34px 9px 0;
+    position: relative;
+  }
+
+  .org-chart-tree > ul > li {
+    padding-top: 0;
+  }
+
+  .org-chart-tree ul ul > li::before,
+  .org-chart-tree ul ul > li::after {
+    border-top: 1px solid hsl(var(--border-color));
+    content: '';
+    height: 34px;
+    position: absolute;
+    top: 0;
+    width: 50%;
+  }
+
+  .org-chart-tree ul ul > li::before {
+    border-right: 1px solid hsl(var(--border-color));
+    right: 50%;
+  }
+
+  .org-chart-tree ul ul > li::after {
+    left: 50%;
+  }
+
+  .org-chart-tree ul ul > li:only-child::before,
+  .org-chart-tree ul ul > li:only-child::after {
+    display: none;
+  }
+
+  .org-chart-tree ul ul > li:only-child {
+    padding-top: 34px;
+  }
+
+  .org-chart-tree ul ul > li:first-child::before,
+  .org-chart-tree ul ul > li:last-child::after {
+    border: 0;
+  }
+
+  .org-chart-tree ul ul > li:last-child::before {
+    border-radius: 0 6px 0 0;
+  }
+
+  .org-chart-tree ul ul > li:first-child::after {
+    border-radius: 6px 0 0 0;
+    border-left: 1px solid hsl(var(--border-color));
+  }
+
+  .org-chart-tree li > ul::before {
+    border-left: 1px solid hsl(var(--border-color));
+    content: '';
+    height: 34px;
+    left: 50%;
+    position: absolute;
+    top: 0;
+  }
+
+  .org-chart-card {
+    animation: org-chart-card-in 280ms ease-out both;
+  }
+
+  @keyframes org-chart-card-in {
+    from {
+      opacity: 0;
+      transform: translateY(5px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .org-chart-card {
+      animation: none;
+    }
+  }
+
   .prose-handbook h1 {
     font-weight: 500;
     letter-spacing: -0.02em;

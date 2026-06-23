@@ -16,6 +16,6 @@ import { UserProfileService } from './user-profile.service';
     InternalContactSyncService,
     UserProfileService,
   ],
-  exports: [AdminUsersService],
+  exports: [AdminUsersService, EntraAuthGuard],
 })
 export class AdminUsersModule {}
