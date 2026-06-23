@@ -49,7 +49,60 @@ Expected DB health response:
 }
 ```
 
-## 4) MSSQL access (SQLCMD)
+## 4) HubSpot sandbox contact sync
+
+Configure `backend/.env` with a HubSpot sandbox private app token:
+
+```env
+HUBSPOT_ACCESS_TOKEN=<PASTE_SANDBOX_PRIVATE_APP_TOKEN_HERE>
+HUBSPOT_SYNC_SOURCE=backend_sandbox_test
+```
+
+The HubSpot app/token needs these scopes:
+
+```text
+crm.objects.contacts.read
+crm.objects.contacts.write
+crm.schemas.contacts.read
+crm.schemas.contacts.write
+crm.objects.companies.read
+crm.objects.companies.write
+crm.schemas.companies.read
+crm.schemas.companies.write
+```
+
+Preview eligible external contacts without writing to HubSpot:
+
+```bash
+curl -X POST "http://localhost:3001/api/internal/hubspot/contacts/sync?dryRun=true&limit=1000"
+```
+
+Run the sandbox sync:
+
+```bash
+curl -X POST "http://localhost:3001/api/internal/hubspot/contacts/sync?dryRun=false&limit=1000"
+```
+
+Company/contact creates and updates also enqueue a targeted HubSpot sync after
+the database save commits. Those trigger syncs run in the background and log
+warnings if HubSpot rejects or times out, so normal app saves are not blocked by
+HubSpot availability.
+
+The manual sync creates any missing IAE contact/company properties, upserts all
+companies from `dbo.Company`, upserts contacts by email, and creates HubSpot
+company-contact associations where contact assignments exist.
+Contacts receive `firstname`, `lastname`, `email`, `phone`, `mobilephone`,
+`iae_contact_sync_key`, `iae_contact_id`, `iae_contact_info_id`,
+`iae_is_staff`, `iae_sync_source`, `iae_company_ids`, `iae_company_names`,
+`iae_role_ids`, `iae_role_names`, `iae_department_ids`, and
+`iae_department_names`. Contact upsert uses `iae_contact_sync_key`, not email,
+and duplicate backend email addresses are merged into one HubSpot contact with
+combined company/role/department values.
+Companies receive `name`, `address`, `city`, `state`, `zip`, `country`,
+`iae_company_id`, `iae_company_type_id`, `iae_company_type_name`, `iae_dma_id`,
+`iae_dma_market_name`, and `iae_sync_source`.
+
+## 5) MSSQL access (SQLCMD)
 
 From the DB server itself:
 
@@ -78,7 +131,7 @@ Exit sqlcmd:
 QUIT
 ```
 
-## 5) If remote connection fails
+## 6) If remote connection fails
 
 On DB server, verify SQL Server listens on 1433 and firewall allows inbound 1433.
 
@@ -90,7 +143,7 @@ nc -zv 192.168.100.181 1433
 
 If this is blocked, ask infra team to open TCP port `1433` from app VM to DB VM.
 
-## 6) `EADDRINUSE` (port already in use)
+## 7) `EADDRINUSE` (port already in use)
 
 Usually another Nest (or other) process is still bound to that port—often from a previous run or a second terminal.
 
