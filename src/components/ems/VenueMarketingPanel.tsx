@@ -527,55 +527,35 @@ export function VenueMarketingPanel({ venueCompanyId, addToast }: Props) {
               {/* File Specifications (multi-select checkboxes) */}
               <div>
                 <label className="block text-xs font-medium text-text-muted mb-1">File Specifications</label>
-                <div className="flex flex-wrap gap-2">
-                  {fileSpecOptions
-                    .filter((opt) => !FILE_SPEC_CUSTOM_VALUE_OPTIONS.has(opt.fileSpecName))
-                    .map((opt) => {
-                      const selected = spec.fileSpecs.find((f) => f.fileSpecOptionId === opt.fileSpecOptionId);
-                      return (
-                        <div key={opt.fileSpecOptionId} className="flex items-center gap-1">
-                          <label className="inline-flex items-center gap-1 text-xs cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={!!selected}
-                              onChange={() => toggleFileSpec(spec.tempId, opt.fileSpecOptionId)}
-                              disabled={saveMut.isPending}
-                            />
-                            {opt.fileSpecName}
-                          </label>
-                        </div>
-                      );
-                    })}
-                </div>
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  {fileSpecOptions
-                    .filter((opt) => FILE_SPEC_CUSTOM_VALUE_OPTIONS.has(opt.fileSpecName))
-                    .map((opt) => {
-                      const selected = spec.fileSpecs.find((f) => f.fileSpecOptionId === opt.fileSpecOptionId);
-                      return (
-                        <div key={opt.fileSpecOptionId} className="flex items-center gap-2">
-                          <label className="text-xs text-text-muted whitespace-nowrap w-24">{opt.fileSpecName}</label>
+                <div className="flex flex-wrap gap-x-4 gap-y-2">
+                  {fileSpecOptions.map((opt) => {
+                    const selected = spec.fileSpecs.find((f) => f.fileSpecOptionId === opt.fileSpecOptionId);
+                    const hasCustomField = FILE_SPEC_CUSTOM_VALUE_OPTIONS.has(opt.fileSpecName);
+                    return (
+                      <div key={opt.fileSpecOptionId} className="flex items-center gap-2">
+                        <label className="inline-flex items-center gap-1 text-xs cursor-pointer">
                           <input
-                            className="border border-border rounded px-1.5 py-0.5 text-xs flex-1"
-                            placeholder={`Enter ${opt.fileSpecName.toLowerCase()}…`}
-                            value={selected?.customValue ?? ''}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              if (val && !selected) {
-                                toggleFileSpec(spec.tempId, opt.fileSpecOptionId);
-                              }
-                              setFileSpecCustomValue(spec.tempId, opt.fileSpecOptionId, val);
-                            }}
-                            onBlur={() => {
-                              if (selected && !selected.customValue) {
-                                toggleFileSpec(spec.tempId, opt.fileSpecOptionId);
-                              }
-                            }}
+                            type="checkbox"
+                            checked={!!selected}
+                            onChange={() => toggleFileSpec(spec.tempId, opt.fileSpecOptionId)}
                             disabled={saveMut.isPending}
                           />
-                        </div>
-                      );
-                    })}
+                          {opt.fileSpecName}
+                        </label>
+                        {hasCustomField && selected && (
+                          <input
+                            className="border border-border rounded px-1.5 py-0.5 text-xs w-32"
+                            placeholder={`Enter ${opt.fileSpecName.toLowerCase()}…`}
+                            value={selected.customValue ?? ''}
+                            onChange={(e) =>
+                              setFileSpecCustomValue(spec.tempId, opt.fileSpecOptionId, e.target.value)
+                            }
+                            disabled={saveMut.isPending}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
