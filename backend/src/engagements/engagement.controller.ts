@@ -103,6 +103,20 @@ export class EngagementController {
     return this.engagementService.upsertFinance(id, dto);
   }
 
+  @Get(':id/deposit-terms')
+  getDepositTerms(@Param('id', ParseIntPipe) id: number) {
+    return this.engagementService.getDepositTerms(id);
+  }
+
+  @Patch(':id/deposit-terms')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  updateDepositTerms(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: { depositAmount?: number | null; depositDueDate?: string | null },
+  ) {
+    return this.engagementService.updateDepositTerms(id, dto);
+  }
+
   @Patch('non-resident-withholding/:nrwId')
   @HttpCode(HttpStatus.NO_CONTENT)
   updateNonResidentWithholding(
