@@ -1311,3 +1311,28 @@ export const deletePerformanceContract = (engagementId: number, contractId: numb
     method: 'DELETE',
   });
 
+// ─── SharePoint Folder Management ──────────────────────────────────────────
+
+export interface EngagementSharePointFolderLink {
+  linkUrl: string | null;
+  linkName: string | null;
+  linkPath?: string;
+}
+
+/** Get the SharePoint folder link for an engagement */
+export const fetchEngagementSharePointFolder = (
+  engagementId: number,
+): Promise<EngagementSharePointFolderLink | null> =>
+  apiFetch<EngagementSharePointFolderLink | null>(
+    `/engagements/${engagementId}/sharepoint-folder`,
+  );
+
+/** Manually trigger SharePoint folder structure creation */
+export const createEngagementSharePointFolders = (
+  engagementId: number,
+): Promise<{ rootWebUrl: string }> =>
+  apiFetch<{ rootWebUrl: string }>(
+    `/engagements/${engagementId}/create-sharepoint-folders`,
+    { method: 'POST' },
+  );
+

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuditModule } from '../audit/audit.module';
 import { AttractionToursModule } from '../attraction-tours/attraction-tours.module';
+import { DocumentLibraryModule } from '../document-library/document-library.module';
 import { Attraction } from '../entities/attraction.entity';
 import { Company } from '../entities/company.entity';
 import { Contact } from '../entities/contact.entity';
@@ -72,6 +73,7 @@ import { ContractExtractionService } from './contract-extraction.service';
       PerformanceContract,
     ]),
     AttractionToursModule,
+    DocumentLibraryModule,
   ],
   controllers: [EngagementController],
   providers: [EngagementService, ContractExtractionService],

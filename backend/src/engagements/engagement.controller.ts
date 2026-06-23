@@ -606,4 +606,23 @@ export class EngagementController {
   ) {
     return this.engagementService.deletePerformanceContract(id, contractId);
   }
+
+  // ─── SharePoint Folder Management ──────────────────────────────────────
+
+  /**
+   * Get the SharePoint folder link for an engagement.
+   */
+  @Get(':id/sharepoint-folder')
+  getSharePointFolder(@Param('id', ParseIntPipe) id: number) {
+    return this.engagementService.getSharePointFolderLink(id);
+  }
+
+  /**
+   * Manually trigger SharePoint folder structure creation.
+   */
+  @Post(':id/create-sharepoint-folders')
+  @HttpCode(HttpStatus.CREATED)
+  createSharePointFolders(@Param('id', ParseIntPipe) id: number) {
+    return this.engagementService.ensureSharePointFolders(id);
+  }
 }
