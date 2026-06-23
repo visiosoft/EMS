@@ -13,6 +13,8 @@ describe('EngagementController', () => {
       updateVenueTabPerVenue: jest.fn().mockResolvedValue(undefined),
       upsertEngagementLink: jest.fn().mockResolvedValue({ engagementLinkId: 1, linkId: 10 }),
       removeEngagementLink: jest.fn().mockResolvedValue(undefined),
+      getDepositTerms: jest.fn().mockResolvedValue({ depositAmount: 5000, depositDueDate: '2026-08-15' }),
+      updateDepositTerms: jest.fn().mockResolvedValue(undefined),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -81,6 +83,43 @@ describe('EngagementController', () => {
       await controller.removeEngagementLink(10, 55);
 
       expect(service.removeEngagementLink).toHaveBeenCalledWith(10, 55);
+    });
+  });
+
+  // ── Deposit Terms (commit 0c8cf8e) ──────────────────────────────────────
+
+  describe('getDepositTerms', () => {
+    it('should delegate to service and return deposit terms', async () => {
+      const result = await controller.getDepositTerms(42);
+
+      expect(service.getDepositTerms).toHaveBeenCalledWith(42);
+      expect(result).toEqual({ depositAmount: 5000, depositDueDate: '2026-08-15' });
+    });
+  });
+
+  describe('updateDepositTerms', () => {
+    it('should delegate to service with id and dto', async () => {
+      const dto = { depositAmount: 3000, depositDueDate: '2026-09-01' };
+
+      await controller.updateDepositTerms(7, dto);
+
+      expect(service.updateDepositTerms).toHaveBeenCalledWith(7, dto);
+    });
+
+    it('should handle partial dto with only depositAmount', async () => {
+      const dto = { depositAmount: 1500 };
+
+      await controller.updateDepositTerms(3, dto);
+
+      expect(service.updateDepositTerms).toHaveBeenCalledWith(3, dto);
+    });
+
+    it('should handle null values', async () => {
+      const dto = { depositAmount: null, depositDueDate: null };
+
+      await controller.updateDepositTerms(1, dto);
+
+      expect(service.updateDepositTerms).toHaveBeenCalledWith(1, dto);
     });
   });
 });

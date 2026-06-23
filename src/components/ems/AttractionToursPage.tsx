@@ -26,6 +26,7 @@ import {
 } from './Primitives';
 import { Select2, Select2Multi, type Select2Option } from './Select2';
 import { companyToSelect2Options } from './companySelectOptions';
+import { TourMarketingPanel } from './TourMarketingPanel';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -1471,7 +1472,7 @@ function TourDrawer({
         </div>
       </div>
 
-      <TabBar tabs={['Details', 'Contacts', 'Engagements']} active={activeTab} onChange={onTabChange} />
+      <TabBar tabs={['Details', 'Contacts', 'Engagements', 'Marketing']} active={activeTab} onChange={onTabChange} />
 
       <div className="p-4 text-sm relative">
         {activeTab === 'Details' && (
@@ -1591,27 +1592,6 @@ function TourDrawer({
               allowClear
             />
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <InlineSelectField
-                label="Audience Gender"
-                value={audienceGender}
-                onChange={mark(setAudienceGender)}
-                options={[...AUDIENCE_GENDER_OPTIONS]}
-                allowClear
-                error={tourFieldErrors.audienceGender}
-              />
-              <FormField label="Audience Age Range">
-                <Select2Multi
-                  options={ageRangeOptions}
-                  values={audienceAgeRangeIds}
-                  onChange={(values) => {
-                    setAudienceAgeRangeIds(values);
-                    setTourFieldErrors({});
-                    setDirty(true);
-                  }}
-                  placeholder="Select one or more age ranges…"
-                  disabled={saving}
-                />
-              </FormField>
               <InlineField
                 label="Tour Job"
                 value={jobName}
@@ -1941,6 +1921,13 @@ function TourDrawer({
               </div>
             )}
           </div>
+        )}
+
+        {activeTab === 'Marketing' && (
+          <TourMarketingPanel
+            tourId={tour.tourId}
+            addToast={addToast}
+          />
         )}
       </div>
     </Drawer>
