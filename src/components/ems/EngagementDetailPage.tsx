@@ -145,6 +145,7 @@ import {
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { cleanDmaMarketLabel } from '@/lib/dmaMarket';
 import { EngagementMarketingReadOnlySection } from './EngagementMarketingReadOnlySection';
+import { EngagementContractPanel } from './EngagementContractPanel';
 import { invalidateSalesCapacityRelatedQueries } from '@/api/cacheHelpers';
 // fetchIaeStaffEmployees removed — IAE Marketing Team now uses EngagementIAEContact
 import { formatOpeningDateSafe, formatSqlTimeDisplay } from '@/lib/engagementDisplay';
@@ -877,6 +878,7 @@ function VenueSeatingSection({
   };
 
   const isImage = seatingChartLinkUrl && /\.(jpg|jpeg|png|gif|webp)$/i.test(seatingChartLinkUrl);
+  const isPdf = seatingChartLinkUrl && /\.pdf$/i.test(seatingChartLinkUrl);
   const sectionCls = 'rounded-md border border-border bg-surface/40 p-4 space-y-4';
   const labelCls = 'text-xs font-semibold text-text-primary mb-3 block';
 
@@ -892,6 +894,14 @@ function VenueSeatingSection({
                 src={seatingChartLinkUrl}
                 alt="Seating Chart"
                 className="max-w-full max-h-64 object-contain mx-auto"
+              />
+            </div>
+          ) : isPdf ? (
+            <div className="rounded border border-border overflow-hidden bg-background">
+              <iframe
+                src={seatingChartLinkUrl}
+                title="Seating Chart PDF"
+                className="w-full h-[400px] border-0"
               />
             </div>
           ) : (
@@ -10781,6 +10791,7 @@ export function EngagementDetailPage({
           'Artist terms',
           'Event business',
           'Finance',
+          'Contract',
         ]}
         active={tab}
         onChange={handleTabChange}
@@ -11252,6 +11263,15 @@ export function EngagementDetailPage({
           engagementId={engagementId}
           addToast={addToast}
           onDirtyChange={handleFinanceDirtyChange}
+        />
+      )}
+
+      {/* ── Contract ────────────────────────────────────────────────────── */}
+      {tab === 'Contract' && (
+        <EngagementContractPanel
+          key={engagementId}
+          engagementId={engagementId}
+          addToast={addToast}
         />
       )}
 

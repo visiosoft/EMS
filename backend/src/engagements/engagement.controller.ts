@@ -6,6 +6,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Logger,
   Param,
   ParseIntPipe,
   Patch,
@@ -15,7 +16,11 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { unlink } from 'fs/promises';
 import { seatingChartMulterOptions } from './seating-chart-multer.config';
+import { contractMulterOptions } from './contract-multer.config';
+import { ContractExtractionService } from './contract-extraction.service';
+import { SavePerformanceContractDto } from './dto/save-performance-contract.dto';
 import { AddEngagementVenueDto } from './dto/add-engagement-venue.dto';
 import { UpdateEngagementVenueTabDto } from './dto/update-engagement-venue-tab.dto';
 import { CreateEngagementDto } from './dto/create-engagement.dto';
@@ -35,7 +40,12 @@ import { EngagementService } from './engagement.service';
 
 @Controller('engagements')
 export class EngagementController {
-  constructor(private readonly engagementService: EngagementService) {}
+  private readonly logger = new Logger(EngagementController.name);
+
+  constructor(
+    private readonly engagementService: EngagementService,
+    private readonly contractExtractionService: ContractExtractionService,
+  ) {}
 
   // ─── Engagement CRUD ──────────────────────────────────────────────────────
 
@@ -529,5 +539,71 @@ export class EngagementController {
     @Param('travelId', ParseIntPipe) travelId: number,
   ) {
     return this.engagementService.deleteEngagementTravel(id, travelId);
+  }
+
+  // ─── Performance Contracts ────────────────────────────────────────────────
+
+  /** Get contracts for an engagement. */
+  @Get(':id/contracts')
+  getContracts(@Param('id', ParseIntPipe) id: number) {
+    return this.engagementService.getPerformanceContracts(id);
+  }
+
+  /**
+   * Upload a contract (PDF or .docx) and extract its fields. The file is parsed
+   * immediately and then discarded — only the extracted data is kept, so nothing
+   * needs to persist on disk (important on ephemeral/scaled hosts).
+   */
+  @Post(':id/contracts/upload')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('contractFile', contractMulterOptions()))
+  async uploadContract(
+    @Param('id', ParseIntPipe) id: number,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    try {
+      const extracted = await this.contractExtractionService.extractFromFile(file.path);
+      return {
+        extracted,
+        originalFilename: file.originalname,
+        // File is discarded after extraction, so there is no stored blob to reference.
+        annotatedPdfBlobName: '',
+      };
+    } finally {
+      await unlink(file.path).catch(() => {
+        this.logger.warn(`Failed to delete uploaded contract file: ${file.path}`);
+      });
+    }
+  }
+
+  /** Save (create or update) a contract for an engagement. */
+  @Post(':id/contracts')
+  @HttpCode(HttpStatus.CREATED)
+  saveContract(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SavePerformanceContractDto,
+  ) {
+    return this.engagementService.savePerformanceContract(id, dto);
+  }
+
+  /** Update an existing contract. */
+  @Patch(':id/contracts/:contractId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  updateContract(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('contractId', ParseIntPipe) contractId: number,
+    @Body() dto: SavePerformanceContractDto,
+  ) {
+    return this.engagementService.updatePerformanceContract(id, contractId, dto);
+  }
+
+  /** Delete a contract. */
+  @Delete(':id/contracts/:contractId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  deleteContract(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('contractId', ParseIntPipe) contractId: number,
+  ) {
+    return this.engagementService.deletePerformanceContract(id, contractId);
   }
 }

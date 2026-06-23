@@ -1182,3 +1182,132 @@ export const deleteEngagementTravel = (engagementId: number, travelId: number) =
     method: 'DELETE',
   });
 
+// ─── Performance Contracts ────────────────────────────────────────────────────
+
+export interface ApiPerformanceContractRow {
+  contractId: number;
+  createdAt: string;
+  engagementId: number;
+  agency: string | null;
+  agent: string | null;
+  attraction: string | null;
+  venueName: string | null;
+  venueAddress: string | null;
+  venueCity: string | null;
+  venueState: string | null;
+  venueCountry: string | null;
+  producer: string | null;
+  producerAddress: string | null;
+  producerFedId: string | null;
+  guaranteeAmount: number | null;
+  guaranteeCurrency: string | null;
+  depositAmount: number | null;
+  depositDueDate: string | null;
+  balanceAmount: number | null;
+  balanceDueDate: string | null;
+  royaltyDescription: string | null;
+  overageDescription: string | null;
+  paymentTerms: string | null;
+  paymentMethodType: string | null;
+  paymentPayableTo: string | null;
+  paymentBankName: string | null;
+  performances: string | null;
+  additionallyInsured: string | null;
+  annotatedPdfBlobName: string | null;
+  originalFilename: string | null;
+  oneDrivePdfUrl: string | null;
+}
+
+export interface SavePerformanceContractPayload {
+  agency?: string | null;
+  agent?: string | null;
+  attraction?: string | null;
+  venueName?: string | null;
+  venueAddress?: string | null;
+  venueCity?: string | null;
+  venueState?: string | null;
+  venueCountry?: string | null;
+  producer?: string | null;
+  producerAddress?: string | null;
+  producerFedId?: string | null;
+  guaranteeAmount?: number | null;
+  guaranteeCurrency?: string | null;
+  depositAmount?: number | null;
+  depositDueDate?: string | null;
+  balanceAmount?: number | null;
+  balanceDueDate?: string | null;
+  royaltyDescription?: string | null;
+  overageDescription?: string | null;
+  paymentTerms?: string | null;
+  paymentMethodType?: string | null;
+  paymentPayableTo?: string | null;
+  paymentBankName?: string | null;
+  performances?: string | null;
+  additionallyInsured?: string | null;
+  oneDrivePdfUrl?: string | null;
+  originalFilename?: string | null;
+  annotatedPdfBlobName?: string | null;
+}
+
+export interface ContractUploadResponse {
+  extracted: {
+    agency: string | null;
+    agent: string | null;
+    attraction: string | null;
+    venueName: string | null;
+    venueAddress: string | null;
+    venueCity: string | null;
+    venueState: string | null;
+    venueCountry: string | null;
+    producer: string | null;
+    producerAddress: string | null;
+    producerFedId: string | null;
+    guaranteeAmount: number | null;
+    guaranteeCurrency: string | null;
+    depositAmount: number | null;
+    depositDueDate: string | null;
+    balanceAmount: number | null;
+    balanceDueDate: string | null;
+    royaltyDescription: string | null;
+    overageDescription: string | null;
+    paymentTerms: string | null;
+    paymentMethodType: string | null;
+    paymentPayableTo: string | null;
+    paymentBankName: string | null;
+    performances: string | null;
+    additionallyInsured: string | null;
+    oneDrivePdfUrl: string | null;
+  };
+  originalFilename: string;
+  annotatedPdfBlobName: string;
+}
+
+export const fetchPerformanceContracts = (engagementId: number) =>
+  apiFetch<ApiPerformanceContractRow[]>(`/engagements/${engagementId}/contracts`);
+
+export const uploadContractPdf = (engagementId: number, file: File) => {
+  const fd = new FormData();
+  fd.append('contractFile', file);
+  return apiFetchMultipart<ContractUploadResponse>(
+    `/engagements/${engagementId}/contracts/upload`,
+    { method: 'POST', body: fd },
+  );
+};
+
+export const savePerformanceContract = (engagementId: number, body: SavePerformanceContractPayload) =>
+  apiFetch<{ contractId: number }>(`/engagements/${engagementId}/contracts`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const updatePerformanceContract = (engagementId: number, contractId: number, body: SavePerformanceContractPayload) =>
+  apiFetch<void>(`/engagements/${engagementId}/contracts/${contractId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+
+export const deletePerformanceContract = (engagementId: number, contractId: number) =>
+  apiFetch<void>(`/engagements/${engagementId}/contracts/${contractId}`, {
+    method: 'DELETE',
+  });
+
