@@ -140,6 +140,7 @@ import {
   type ApiCompanyContact,
 } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
+import { cleanDmaMarketLabel } from '@/lib/dmaMarket';
 import { EngagementMarketingReadOnlySection } from './EngagementMarketingReadOnlySection';
 import { invalidateSalesCapacityRelatedQueries } from '@/api/cacheHelpers';
 // fetchIaeStaffEmployees removed — IAE Marketing Team now uses EngagementIAEContact
@@ -1322,7 +1323,9 @@ function VenuesTab({
                       <div className="flex items-center gap-1 text-xs text-text-muted mt-0.5">
                         <MapPin className="h-3 w-3 shrink-0" />
                         {[v.city, v.stateProvince].filter(Boolean).join(', ')}
-                        {v.dmaMarketName ? ` · ${v.dmaMarketName}` : ''}
+                        {v.dmaMarketName
+                          ? ` · ${cleanDmaMarketLabel(v.dmaMarketName)}`
+                          : ''}
                       </div>
                     )}
                   </div>
@@ -3342,10 +3345,16 @@ function EngagementMainInformationPanel({
     const opts = rows
       .slice()
       .sort((a, b) => a.marketName.localeCompare(b.marketName, undefined, { sensitivity: 'base' }))
-      .map((dma) => ({ value: String(dma.dmaid), label: dma.marketName }));
+      .map((dma) => ({
+        value: String(dma.dmaid),
+        label: cleanDmaMarketLabel(dma.marketName),
+      }));
     const current = venueCompanyQuery.data;
     if (current?.dmaId != null && current.dmaMarketName && !opts.some((opt) => opt.value === String(current.dmaId))) {
-      opts.unshift({ value: String(current.dmaId), label: current.dmaMarketName });
+      opts.unshift({
+        value: String(current.dmaId),
+        label: cleanDmaMarketLabel(current.dmaMarketName),
+      });
     }
     return opts;
   }, [dmasQuery.data?.data, venueCompanyQuery.data]);
@@ -10516,7 +10525,9 @@ export function EngagementDetailPage({
               )}
             </div>
             {row.dmaMarketName && (
-              <p className="text-xs text-text-muted">{row.dmaMarketName}</p>
+              <p className="text-xs text-text-muted">
+                {cleanDmaMarketLabel(row.dmaMarketName)}
+              </p>
             )}
           </div>
 
@@ -10583,7 +10594,9 @@ export function EngagementDetailPage({
           </div>
           <div>
             <span className="text-text-muted text-xs block mb-0.5 font-medium">Market (DMA)</span>
-            <span className="text-text-secondary">{row.dmaMarketName ?? '—'}</span>
+            <span className="text-text-secondary">
+              {cleanDmaMarketLabel(row.dmaMarketName) || '—'}
+            </span>
           </div>
           <div>
             <span className="text-text-muted text-xs block mb-0.5 font-medium">

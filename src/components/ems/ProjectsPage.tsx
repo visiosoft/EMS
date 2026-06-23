@@ -38,6 +38,7 @@ import { Select2 } from './Select2';
 import { companyToSelect2Options } from './companySelectOptions';
 import { normalizeSearchText, richTextMatches } from './searchUtils';
 import { friendlyApiError } from '@/lib/friendlyApiError';
+import { cleanDmaMarketLabel } from '@/lib/dmaMarket';
 import {
   deriveValidSelectedDmaIds,
   dmaSelectionKey,
@@ -2065,13 +2066,6 @@ function VenueProposalRow({
 }
 
 // ─── Add Venue form ───────────────────────────────────────────────────────────
-
-function cleanDmaMarketLabel(value: string | null | undefined): string {
-  return String(value ?? '')
-    .trim()
-    .replace(/[.,:;]+$/g, '')
-    .trim();
-}
 
 function dmaMarketFamilyKey(value: string | null | undefined): string {
   return cleanDmaMarketLabel(value)
