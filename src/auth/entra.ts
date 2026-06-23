@@ -10,12 +10,17 @@ import {
 
 const clientId = import.meta.env.VITE_ENTRA_CLIENT_ID;
 const tenantId = import.meta.env.VITE_ENTRA_TENANT_ID;
-const apiScope = import.meta.env.VITE_ENTRA_API_SCOPE?.trim();
+const apiScope = import.meta.env.VITE_ENTRA_API_SCOPE?.trim() || (clientId ? `api://${clientId}/Roles` : undefined);
 const graphScopes =
     import.meta.env.VITE_ENTRA_GRAPH_SCOPE?.trim()
         .split(/\s+/)
         .filter(Boolean) ??
     ["https://graph.microsoft.com/User.Read.All"];
+const docsGraphScopes =
+    import.meta.env.VITE_ENTRA_GRAPH_DOCS_SCOPE?.trim()
+        .split(/\s+/)
+        .filter(Boolean) ??
+    ["https://graph.microsoft.com/Files.ReadWrite.All"];
 const microsoftGraphAudiences = new Set([
     "00000003-0000-0000-c000-000000000000",
     "https://graph.microsoft.com",
