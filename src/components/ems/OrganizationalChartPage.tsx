@@ -23,6 +23,13 @@ import {
 import { Avatar } from './Primitives';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { cn } from '@/lib/utils';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { getActiveAccount, requestGraphAccessToken } from '@/auth/entra';
 
 // ─── Department-mode tree types ───
@@ -736,7 +743,7 @@ export function OrganizationalChartPage() {
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder="Search people, titles, or email"
-                  className="h-9 w-full rounded-md border border-border bg-surface pl-9 pr-9 text-sm text-text-primary outline-none transition focus:border-ems-accent focus:ring-2 focus:ring-ems-accent/15"
+                  className="h-9 w-full rounded-md border border-border bg-surface pl-9 pr-9 text-sm text-text-primary outline-none transition focus:border-ems-accent focus:ring-2 focus:ring-ems-accent/15 [&::-webkit-search-cancel-button]:appearance-none"
                 />
                 {search ? (
                   <button
@@ -750,20 +757,22 @@ export function OrganizationalChartPage() {
                   </button>
                 ) : null}
               </label>
-              <div className="relative">
-                <select
-                  value={departmentFilter}
-                  onChange={(event) => setDepartmentFilter(event.target.value)}
-                  className="h-9 min-w-[180px] appearance-none rounded-md border border-border bg-surface pl-3 pr-8 text-sm text-text-primary outline-none transition focus:border-ems-accent focus:ring-2 focus:ring-ems-accent/15"
-                  aria-label="Highlight department"
-                >
-                  <option value="">All departments</option>
+              <Select
+                value={departmentFilter || "all"}
+                onValueChange={(val) => setDepartmentFilter(val === "all" ? "" : val)}
+              >
+                <SelectTrigger className="h-9 w-[180px] border-border bg-surface text-sm transition focus:border-ems-accent focus:ring-2 focus:ring-ems-accent/15">
+                  <SelectValue placeholder="All departments" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All departments</SelectItem>
                   {departments.map((name) => (
-                    <option key={name} value={name}>{name}</option>
+                    <SelectItem key={name} value={name}>
+                      {name}
+                    </SelectItem>
                   ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-              </div>
+                </SelectContent>
+              </Select>
               {query || departmentFilter ? (
                 <span className="text-xs font-medium text-text-muted animate-in fade-in zoom-in px-2">{matchingPeople} matches</span>
               ) : null}

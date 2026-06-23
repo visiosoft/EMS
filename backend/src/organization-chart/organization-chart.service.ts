@@ -156,6 +156,7 @@ export class OrganizationChartService {
           unmatched: result.unmatched,
           stats: result.stats,
           warnings: [...warnings, ...result.warnings],
+          nodes: this.buildDepartmentNodes(company, rows),
         };
       } catch (error) {
         const msg =
