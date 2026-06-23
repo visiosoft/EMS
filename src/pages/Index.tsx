@@ -15,6 +15,7 @@ import { SalesSummaryPage } from '@/components/ems/SalesSummaryPage';
 import { EngagementSalesDashboardPanel } from '@/components/ems/EngagementSalesDashboardPanel';
 import { AllVenuesPage } from '@/components/ems/AllVenuesPage';
 import { ProfilePage } from '@/components/ems/ProfilePage';
+import { OrganizationalChartPage } from '@/components/ems/OrganizationalChartPage';
 import { USERS } from '@/data/constants';
 import type { ToastItem } from '@/components/ems/Primitives';
 import { cn } from '@/lib/utils';
@@ -38,6 +39,7 @@ const EMS_OPEN_INTENT_KEY = 'iae-ems-open-intent-v1';
 const VALID_VIEWS = new Set([
   'companies',
   'contacts',
+  'organization',
   'all-venues',
   'attraction-tours',
   'attraction-sales-summary',
@@ -405,6 +407,8 @@ const Index = () => {
 
         {view === 'contacts' && <ContactsPage addToast={addToast} />}
 
+        {view === 'organization' && <OrganizationalChartPage />}
+
         {view === 'all-venues' && <AllVenuesPage onNavigate={navigate} />}
 
         {view === 'attraction-tours' && (
@@ -557,6 +561,7 @@ const Index = () => {
     const map: Record<string, string[]> = {
       companies:          ['Companies'],
       contacts:           ['Contacts'],
+      organization:       ['Organization'],
       'all-venues':        ['All Venues'],
       'attraction-tours': ['Attraction Tours'],
       'attraction-sales-summary': ['Daily Sales', 'Attraction sales summary'],

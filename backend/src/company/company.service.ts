@@ -283,6 +283,39 @@ export class CompanyService {
     return `[${String(name).replace(/\]/g, ']]')}]`;
   }
 
+  private async assertSingleInternalCompany(
+    manager: EntityManager,
+    excludedCompanyId?: number,
+  ): Promise<void> {
+    const excludeCurrent =
+      excludedCompanyId != null &&
+      Number.isInteger(excludedCompanyId) &&
+      excludedCompanyId > 0;
+    const rows = await manager.query(
+      `
+      SELECT TOP 1 CompanyID AS companyId, CompanyName AS companyName
+      FROM dbo.Company WITH (UPDLOCK, HOLDLOCK)
+      WHERE is_internal = 1
+        ${excludeCurrent ? 'AND CompanyID <> @0' : ''}
+      ORDER BY CompanyID
+      `,
+      excludeCurrent ? [excludedCompanyId] : [],
+    );
+    if (!rows.length) return;
+
+    const existingName = String(rows[0]?.companyName ?? '').trim();
+    throw new ConflictException({
+      statusCode: HttpStatus.CONFLICT,
+      error: 'Conflict',
+      code: 'INTERNAL_COMPANY_ALREADY_EXISTS',
+      message: existingName
+        ? `Only one company can be internal. ${existingName} is already the internal company; unmark it before choosing another.`
+        : 'Only one company can be internal. Unmark the current internal company before choosing another.',
+      suggestion:
+        'Open the current internal company and uncheck “Internal company” before assigning this one.',
+    });
+  }
+
   private async canQueryCompanyTypeLinkTable(
     manager: EntityManager,
     tableName: string,
@@ -2341,6 +2374,9 @@ export class CompanyService {
     }
 
     const saved = await this.dataSource.transaction(async (em) => {
+      if (dto.isInternal === true) {
+        await this.assertSingleInternalCompany(em);
+      }
       const savedPhysical = await this.getOrCreateAddress(em, dto.physical);
 
       let mailingId = savedPhysical.addressId;
@@ -3172,7 +3208,14 @@ export class CompanyService {
       }
     }
 
-    await this.companyRepo.save(existing);
+    if (existing.isInternal) {
+      await this.dataSource.transaction('SERIALIZABLE', async (em) => {
+        await this.assertSingleInternalCompany(em, companyId);
+        await em.save(Company, existing);
+      });
+    } else {
+      await this.companyRepo.save(existing);
+    }
     if (
       companyTypesChanged ||
       primaryCompanyTypeChanged ||
