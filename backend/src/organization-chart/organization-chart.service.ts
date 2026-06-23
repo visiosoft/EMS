@@ -1,6 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { AuditRequestContext } from '../audit/audit-request-context.service';
+
+/* ─── Department-mode types (existing) ─── */
 
 export type OrganizationChartMember = {
   memberId: number;
@@ -33,14 +36,368 @@ export type OrganizationChartResponse = {
   warnings: string[];
 };
 
+/* ─── Hierarchy-mode types (new) ─── */
+
+export type HierarchyMember = {
+  memberId: number;
+  contactId: number;
+  firstName: string;
+  lastName: string;
+  displayName: string;
+  email: string;
+  cellPhone: string;
+  workPhone: string;
+  jobTitle: string;
+  roleName: string;
+  departmentName: string;
+  entraUserId?: string;
+};
+
+export type HierarchyNode = {
+  nodeId: string;
+  member: HierarchyMember;
+  children: HierarchyNode[];
+};
+
+export type OrganizationChartHierarchyResponse = {
+  mode: 'hierarchy' | 'department';
+  configured: boolean;
+  generatedAt: string;
+  company: { companyId: number; companyName: string } | null;
+  roots: HierarchyNode[];
+  unmatched: HierarchyMember[];
+  stats: { people: number; departments: number; levels: number };
+  warnings: string[];
+  /** Department-mode fallback data (only populated when mode=department) */
+  nodes?: OrganizationChartNode[];
+};
+
 type ChartRow = Record<string, unknown>;
+
+type EntraManagerUser = {
+  id: string;
+  mail: string | null;
+  displayName: string | null;
+  userPrincipalName: string | null;
+  department: string | null;
+  jobTitle: string | null;
+  managerId: string | null;
+};
 
 const COMPANY_NODE_ID = 0;
 const UNASSIGNED_DEPARTMENT_NODE_ID = -1;
 
 @Injectable()
 export class OrganizationChartService {
-  constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
+  private readonly logger = new Logger(OrganizationChartService.name);
+
+  constructor(
+    @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly auditContext: AuditRequestContext,
+  ) {}
+
+  /* ═══════════════════════════════════════════════════
+   *  NEW: Hierarchical chart (person-to-person tree)
+   * ═══════════════════════════════════════════════════ */
+
+  async getHierarchicalChart(
+    graphAccessToken?: string,
+  ): Promise<OrganizationChartHierarchyResponse> {
+    const generatedAt = new Date().toISOString();
+    const internalCompanies = await this.getInternalCompanies();
+
+    if (internalCompanies.length !== 1) {
+      const message =
+        internalCompanies.length === 0
+          ? 'Mark one company as internal to publish its organizational view.'
+          : 'More than one company is marked internal. Keep exactly one internal company.';
+      return {
+        mode: 'department',
+        configured: false,
+        generatedAt,
+        company: internalCompanies[0] ?? null,
+        roots: [],
+        unmatched: [],
+        stats: { people: 0, departments: 0, levels: 0 },
+        warnings: [message],
+      };
+    }
+
+    const company = internalCompanies[0];
+    const jobTitleColumnAvailable = await this.hasContactInfoJobTitleColumn();
+    const rows = await this.loadInternalContacts(
+      company.companyId,
+      jobTitleColumnAvailable,
+    );
+    const warnings: string[] = [];
+    if (!jobTitleColumnAvailable) {
+      warnings.push(
+        'ContactInfo.JobTitle is not installed, so chart titles use existing internal roles.',
+      );
+    }
+
+    // Try to build hierarchy from Entra manager data
+    const accessToken = this.resolveGraphToken(graphAccessToken);
+    if (accessToken) {
+      try {
+        const entraUsers = await this.fetchEntraUsersWithManagers(accessToken);
+        const result = this.buildHierarchyFromEntra(
+          company,
+          rows,
+          entraUsers,
+          jobTitleColumnAvailable,
+        );
+        return {
+          mode: 'hierarchy',
+          configured: true,
+          generatedAt,
+          company,
+          roots: result.roots,
+          unmatched: result.unmatched,
+          stats: result.stats,
+          warnings: [...warnings, ...result.warnings],
+        };
+      } catch (error) {
+        const msg =
+          error instanceof Error ? error.message : String(error ?? '');
+        warnings.push(
+          `Could not fetch Entra manager data — falling back to department view. ${msg}`,
+        );
+      }
+    } else {
+      warnings.push(
+        'No Graph token available — showing department-grouped view. Sign in to see the hierarchical org chart.',
+      );
+    }
+
+    // Fallback to department mode
+    return {
+      mode: 'department',
+      configured: true,
+      generatedAt,
+      company,
+      roots: [],
+      unmatched: [],
+      stats: {
+        people: rows.length,
+        departments: new Set(
+          rows.map((r) => readString(r, 'departmentName', 'DepartmentName')),
+        ).size,
+        levels: 0,
+      },
+      warnings,
+      nodes: this.buildDepartmentNodes(company, rows),
+    };
+  }
+
+  private resolveGraphToken(provided?: string): string | null {
+    const token = String(
+      provided ?? this.auditContext.getGraphAccessToken() ?? '',
+    ).trim();
+    return token || null;
+  }
+
+  private async fetchEntraUsersWithManagers(
+    accessToken: string,
+  ): Promise<EntraManagerUser[]> {
+    const users: EntraManagerUser[] = [];
+    let nextUrl: string | null =
+      'https://graph.microsoft.com/v1.0/users?$select=id,mail,displayName,userPrincipalName,department,jobTitle&$expand=manager($select=id,mail,displayName)&$top=999';
+
+    while (nextUrl) {
+      const response = await fetch(nextUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `Microsoft Graph user+manager request failed with status ${response.status}.`,
+        );
+      }
+
+      const payload = (await response.json()) as {
+        value?: Array<{
+          id?: string;
+          mail?: string;
+          displayName?: string;
+          userPrincipalName?: string;
+          department?: string;
+          jobTitle?: string;
+          manager?: { id?: string; mail?: string; displayName?: string } | null;
+        }>;
+        '@odata.nextLink'?: string;
+      };
+
+      for (const user of payload.value ?? []) {
+        const id = String(user.id ?? '').trim();
+        if (!id) continue;
+        users.push({
+          id,
+          mail: user.mail?.trim() || user.userPrincipalName?.trim() || null,
+          displayName: user.displayName?.trim() || null,
+          userPrincipalName: user.userPrincipalName?.trim() || null,
+          department: user.department?.trim() || null,
+          jobTitle: user.jobTitle?.trim() || null,
+          managerId: user.manager?.id?.trim() || null,
+        });
+      }
+
+      nextUrl = payload['@odata.nextLink'] ?? null;
+    }
+
+    return users;
+  }
+
+  private buildHierarchyFromEntra(
+    company: { companyId: number; companyName: string },
+    rows: ChartRow[],
+    entraUsers: EntraManagerUser[],
+    jobTitleColumnAvailable: boolean,
+  ): {
+    roots: HierarchyNode[];
+    unmatched: HierarchyMember[];
+    stats: { people: number; departments: number; levels: number };
+    warnings: string[];
+  } {
+    const warnings: string[] = [];
+
+    // Build EMS members from rows
+    const emsMembers = this.buildMembersFromRows(rows, jobTitleColumnAvailable);
+    const emsByEmail = new Map<string, HierarchyMember>();
+    for (const member of emsMembers) {
+      const email = normalizeEmail(member.email);
+      if (email) emsByEmail.set(email, member);
+    }
+
+    // Build Entra user lookup by email and ID
+    const entraById = new Map<string, EntraManagerUser>();
+    const entraByEmail = new Map<string, EntraManagerUser>();
+    for (const user of entraUsers) {
+      entraById.set(user.id, user);
+      const email = user.mail ? normalizeEmail(user.mail) : null;
+      if (email && !entraByEmail.has(email)) {
+        entraByEmail.set(email, user);
+      }
+    }
+
+    // Match EMS members to Entra users
+    const matchedMembers: Array<{
+      member: HierarchyMember;
+      entraUser: EntraManagerUser;
+    }> = [];
+    const unmatchedMembers: HierarchyMember[] = [];
+
+    for (const member of emsMembers) {
+      const email = normalizeEmail(member.email);
+      const entraUser = email ? entraByEmail.get(email) : undefined;
+      if (entraUser) {
+        member.entraUserId = entraUser.id;
+        matchedMembers.push({ member, entraUser });
+      } else {
+        unmatchedMembers.push(member);
+      }
+    }
+
+    // Build parent→child relationships using Entra manager data
+    // Map: entraUserId → HierarchyNode
+    const nodeByEntraId = new Map<string, HierarchyNode>();
+    for (const { member, entraUser } of matchedMembers) {
+      nodeByEntraId.set(entraUser.id, {
+        nodeId: `contact:${member.contactId}`,
+        member,
+        children: [],
+      });
+    }
+
+    const roots: HierarchyNode[] = [];
+    for (const { entraUser } of matchedMembers) {
+      const node = nodeByEntraId.get(entraUser.id);
+      if (!node) continue;
+
+      const managerId = entraUser.managerId;
+      const parentNode = managerId ? nodeByEntraId.get(managerId) : null;
+
+      if (parentNode && parentNode !== node) {
+        parentNode.children.push(node);
+      } else {
+        roots.push(node);
+      }
+    }
+
+    // Sort children at each level by roleRank then name
+    const sortChildren = (nodes: HierarchyNode[]) => {
+      nodes.sort(
+        (left, right) =>
+          roleRank(left.member.jobTitle) - roleRank(right.member.jobTitle) ||
+          left.member.displayName.localeCompare(right.member.displayName),
+      );
+      for (const node of nodes) {
+        sortChildren(node.children);
+      }
+    };
+    sortChildren(roots);
+
+    // Compute stats
+    const totalPeople = emsMembers.length;
+    const departments = new Set(
+      emsMembers.map((m) => m.departmentName).filter(Boolean),
+    );
+    const maxDepth = computeMaxDepth(roots);
+
+    return {
+      roots,
+      unmatched: unmatchedMembers,
+      stats: {
+        people: totalPeople,
+        departments: departments.size,
+        levels: maxDepth,
+      },
+      warnings,
+    };
+  }
+
+  private buildMembersFromRows(
+    rows: ChartRow[],
+    jobTitleColumnAvailable: boolean,
+  ): HierarchyMember[] {
+    const seen = new Set<number>();
+    const members: HierarchyMember[] = [];
+
+    for (const row of rows) {
+      const contactId = readNumber(row, 'contactId', 'ContactID');
+      if (!contactId || seen.has(contactId)) continue;
+      seen.add(contactId);
+
+      const firstName = readString(row, 'firstName', 'FirstName');
+      const lastName = readString(row, 'lastName', 'LastName');
+      const rawJobTitle = readString(row, 'jobTitle', 'JobTitle');
+      const roleName = readString(row, 'roleName', 'RoleName');
+      const departmentName = normalizeDepartmentName(
+        readString(row, 'departmentName', 'DepartmentName'),
+      );
+
+      members.push({
+        memberId: contactId,
+        contactId,
+        firstName,
+        lastName,
+        displayName:
+          cleanText(`${firstName} ${lastName}`) || `Contact ${contactId}`,
+        email: readString(row, 'email', 'Email'),
+        cellPhone: readString(row, 'cellPhone', 'CellPhone'),
+        workPhone: readString(row, 'workPhone', 'WorkPhone'),
+        jobTitle: rawJobTitle || roleName || '',
+        roleName,
+        departmentName,
+      });
+    }
+
+    return members;
+  }
+
+  /* ═══════════════════════════════════════════════════
+   *  EXISTING: Department-grouped chart (unchanged)
+   * ═══════════════════════════════════════════════════ */
 
   async getChart(): Promise<OrganizationChartResponse> {
     const generatedAt = new Date().toISOString();
@@ -81,6 +438,8 @@ export class OrganizationChartService {
       warnings,
     };
   }
+
+  /* ─── Shared private helpers ─── */
 
   private async getInternalCompanies(): Promise<
     Array<{ companyId: number; companyName: string }>
@@ -254,6 +613,24 @@ export class OrganizationChartService {
       ...departmentNodes,
     ];
   }
+}
+
+/* ─── Module-level helpers ─── */
+
+function normalizeEmail(value: string | null | undefined): string {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase();
+}
+
+function computeMaxDepth(nodes: HierarchyNode[]): number {
+  if (nodes.length === 0) return 0;
+  let max = 0;
+  for (const node of nodes) {
+    const childDepth = computeMaxDepth(node.children);
+    if (childDepth > max) max = childDepth;
+  }
+  return max + 1;
 }
 
 function normalizeDepartmentName(value: string): string {

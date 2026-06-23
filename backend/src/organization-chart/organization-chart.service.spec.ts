@@ -4,9 +4,10 @@ import { OrganizationChartService } from './organization-chart.service';
 describe('OrganizationChartService', () => {
   it('requires exactly one internal company', async () => {
     const query = jest.fn().mockResolvedValueOnce([]);
-    const service = new OrganizationChartService({
-      query,
-    } as unknown as DataSource);
+    const service = new OrganizationChartService(
+      { query } as unknown as DataSource,
+      { getGraphAccessToken: () => null } as any
+    );
 
     await expect(service.getChart()).resolves.toMatchObject({
       configured: false,
@@ -21,9 +22,10 @@ describe('OrganizationChartService', () => {
       { companyId: 12, companyName: 'IAE' },
       { companyId: 18, companyName: 'Another Company' },
     ]);
-    const service = new OrganizationChartService({
-      query,
-    } as unknown as DataSource);
+    const service = new OrganizationChartService(
+      { query } as unknown as DataSource,
+      { getGraphAccessToken: () => null } as any
+    );
 
     await expect(service.getChart()).resolves.toMatchObject({
       configured: false,
@@ -75,9 +77,10 @@ describe('OrganizationChartService', () => {
           roleName: 'Internal Staff',
         },
       ]);
-    const service = new OrganizationChartService({
-      query,
-    } as unknown as DataSource);
+    const service = new OrganizationChartService(
+      { query } as unknown as DataSource,
+      { getGraphAccessToken: () => null } as any
+    );
 
     const result = await service.getChart();
 
@@ -103,9 +106,10 @@ describe('OrganizationChartService', () => {
       .mockResolvedValueOnce([{ companyId: 12, companyName: 'IAE' }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
-    const service = new OrganizationChartService({
-      query,
-    } as unknown as DataSource);
+    const service = new OrganizationChartService(
+      { query } as unknown as DataSource,
+      { getGraphAccessToken: () => null } as any
+    );
 
     const result = await service.getChart();
 

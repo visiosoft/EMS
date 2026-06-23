@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, UseGuards, Headers } from '@nestjs/common';
 import { EntraAuthGuard } from '../admin-users/entra-auth.guard';
 import { OrganizationChartService } from './organization-chart.service';
 
@@ -12,5 +12,10 @@ export class OrganizationChartController {
   @Get()
   getChart() {
     return this.organizationChartService.getChart();
+  }
+
+  @Get('hierarchy')
+  getHierarchicalChart(@Headers('x-graph-access-token') graphToken?: string) {
+    return this.organizationChartService.getHierarchicalChart(graphToken);
   }
 }
