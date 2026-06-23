@@ -12,6 +12,7 @@ import {
   LineChart,
   LogOut,
   Map,
+  Network,
   Settings,
   Users,
   FolderKanban,
@@ -44,6 +45,7 @@ const NAV_ITEM_ICONS: Record<string, LucideIcon> = {
   'sales-summary': ClipboardList,
   companies: Building2,
   contacts: ContactRound,
+  organization: Network,
   'all-venues': Landmark,
   'attraction-tours': Map,
   calendar: CalendarDays,
@@ -65,6 +67,7 @@ const NAV_SECTIONS = [
     items: [
       { key: 'companies', label: 'Companies', icon: '⬡' },
       { key: 'contacts', label: 'Contacts', icon: '⬡' },
+      { key: 'organization', label: 'Organization', icon: '⬡' },
       { key: 'all-venues', label: 'All Venues', icon: '⬡' },
       { key: 'attraction-tours', label: 'Attraction Tours', icon: '⬡' },
       { key: 'calendar', label: 'Calendar', icon: '⬡' },
