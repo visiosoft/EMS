@@ -86,13 +86,21 @@ export class VenueMarketingService {
     // Style guide is linked through specs — get from the first spec that has one
     const styleGuide = specs.find((s) => s.venueStyleGuide)?.venueStyleGuide ?? null;
 
-    // Logo URL is stored in the Link table, matched by LinkName + LinkPath(=styleGuideId)
+    // Logo URL is stored in the Link table, referenced by VenueStyleGuide.LogoLinkID
     let logoUrl: string | null = null;
     if (styleGuide) {
-      const logoLink = await this.linkRepo.findOne({
-        where: { linkName: 'VenueStyleGuideLogoUrl', linkPath: String(styleGuide.venueStyleGuideId) },
-      });
-      logoUrl = logoLink?.linkUrl ?? null;
+      if (styleGuide.logoLinkId) {
+        const logoLink = await this.linkRepo.findOne({
+          where: { linkId: styleGuide.logoLinkId },
+        });
+        logoUrl = logoLink?.linkUrl ?? null;
+      } else {
+        // Fallback: legacy lookup by LinkName + LinkPath
+        const logoLink = await this.linkRepo.findOne({
+          where: { linkName: 'VenueStyleGuideLogoUrl', linkPath: String(styleGuide.venueStyleGuideId) },
+        });
+        logoUrl = logoLink?.linkUrl ?? null;
+      }
     }
 
     const specIds = specs.map((s) => s.venueMarketingSpecsId);
@@ -360,7 +368,7 @@ export class VenueMarketingService {
 
   // ── Helper: upsert logo in Link table ────────────────────────────────────
   // Uses LinkName='VenueStyleGuideLogoUrl' + LinkPath=<styleGuideId> to identify the row.
-  // TODO: Once LogoLinkID column is added to DB, also update styleGuide.logoLinkId here.
+  // Saves the resulting LinkID back to VenueStyleGuide.LogoLinkID.
 
   private async upsertLogoLink(
     queryRunner: import('typeorm').QueryRunner,
@@ -377,7 +385,8 @@ export class VenueMarketingService {
     if (trimmed) {
       if (existingLink) {
         existingLink.linkUrl = trimmed;
-        await queryRunner.manager.save(existingLink);
+        const savedLink = await queryRunner.manager.save(existingLink);
+        styleGuide.logoLinkId = savedLink.linkId;
       } else {
         const newLink = this.linkRepo.create({
           linkName: 'VenueStyleGuideLogoUrl',
@@ -385,10 +394,16 @@ export class VenueMarketingService {
           linkUrl: trimmed,
           linkPath: styleGuideIdStr,
         });
-        await queryRunner.manager.save(newLink);
+        const savedLink = await queryRunner.manager.save(newLink);
+        styleGuide.logoLinkId = savedLink.linkId;
       }
     } else if (existingLink) {
       await queryRunner.manager.remove(existingLink);
+      styleGuide.logoLinkId = null;
+    } else {
+      styleGuide.logoLinkId = null;
     }
+
+    await queryRunner.manager.save(styleGuide);
   }
 }
