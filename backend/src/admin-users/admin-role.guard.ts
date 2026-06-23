@@ -13,15 +13,11 @@ export class AdminRoleGuard implements CanActivate {
 
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<EntraRequest>();
-    const requiredRole =
+    const configuredRole =
       this.configService.get<string>('ENTRA_ADMIN_ROLE')?.trim() || 'Admin';
     const roles = request.user?.roles ?? [];
 
-    if (
-      roles.some((role) => role.toLowerCase() === requiredRole.toLowerCase())
-    ) {
-      return true;
-    }
+    if (roles.includes(configuredRole)) return true;
 
     throw new ForbiddenException(
       'Only Entra admins can view the full user directory.',

@@ -1,7 +1,8 @@
-import { PenTool } from "lucide-react";
+import { PenTool, Layers, ArrowLeft } from "lucide-react";
 import { TeamMemberAvatar } from "../components/TeamMemberAvatar";
 import { UrgentUpcomingSection } from "../components/UrgentUpcomingSection";
 import { InternalPageFrame } from "../layout/InternalPageFrame";
+import { useInternalNavigation } from "../routing/InternalNavigationContext";
 
 type QuickLinkIconProps = {
   className?: string;
@@ -82,12 +83,22 @@ function YouTubeEmbed() {
 }
 
 export function ArtGraphicDesignPage() {
+  const { navigate } = useInternalNavigation();
+
   return (
     <InternalPageFrame footer={<UrgentUpcomingSection pinned />}>
       <section
         className="relative isolate overflow-hidden bg-[#0b080c] px-4 py-8 text-white sm:px-8 sm:py-10 lg:px-10"
         style={{ backgroundImage: "url('/internal-hub-bg.svg')", backgroundPosition: "center", backgroundRepeat: "no-repeat", backgroundSize: "cover" }}
       >
+        <div className="mx-auto mb-6 max-w-[1120px]">
+          <button
+            onClick={() => navigate("departments")}
+            className="flex items-center text-sm font-semibold text-neutral-400 transition-colors hover:text-white"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" /> Back to Departments
+          </button>
+        </div>
         <div className="mx-auto grid min-h-[300px] max-w-[1120px] items-center gap-8 md:grid-cols-[1fr_0.75fr]">
           <div>
             <h1 className="max-w-[560px] text-[clamp(2.25rem,11vw,4.75rem)] font-bold leading-[1.13] tracking-[-0.025em] text-white">
@@ -150,6 +161,20 @@ export function ArtGraphicDesignPage() {
                   {label}
                 </a>
               ))}
+              <a
+                href="/internal/learning-portal?fromView=department-art-graphic-design&fromTitle=Art+%26+Graphic+Design"
+                target="_blank"
+                rel="noreferrer"
+                className="col-span-1 flex h-[58px] w-full items-center justify-between gap-3 bg-black px-4 text-sm font-semibold text-white transition-colors hover:bg-neutral-800 sm:col-span-2"
+              >
+                <div className="flex items-center gap-3">
+                  <Layers className="h-5 w-5 shrink-0" />
+                  Learning & Certifications Portal
+                </div>
+                <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-black">
+                  NEW
+                </span>
+              </a>
             </div>
           </div>
 

@@ -13,4 +13,5 @@ export class UpdateProjectVenueDto {
   @IsOptional() splitPct?: number | null;
   @IsOptional() breakeven?: number | null;
   @IsOptional() marketingCoOp?: number | null;
+  @IsOptional() engagementId?: number;
 }

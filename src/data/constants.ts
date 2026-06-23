@@ -69,6 +69,8 @@ export interface CompanyTicketing {
 export interface Company {
   id: string;
   name: string;
+  /** dbo.Company.is_internal */
+  isInternal?: boolean;
   type: string;
   types?: string[];
   city: string;
@@ -665,6 +667,7 @@ export function getStatusColor(status: string): { bg: string; text: string } {
     Closed: { bg: 'bg-elevated', text: 'text-text-muted' },
     Cancelled: { bg: 'bg-ems-coral-dim', text: 'text-ems-coral' },
     Active: { bg: 'bg-ems-green-dim', text: 'text-ems-green' },
+    Disabled: { bg: 'bg-elevated', text: 'text-text-muted' },
     ActiveRouting: { bg: 'bg-ems-green-dim', text: 'text-ems-green' },
     Announced: { bg: 'bg-ems-blue-dim', text: 'text-ems-blue' },
     OffersSent: { bg: 'bg-ems-blue-dim', text: 'text-ems-blue' },

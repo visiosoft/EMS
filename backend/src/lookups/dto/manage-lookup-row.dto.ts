@@ -1,5 +1,13 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import {
+  ArrayUnique,
+  IsArray,
+  IsInt,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export class CreateLookupRowDto {
   @IsOptional()
@@ -23,7 +31,21 @@ export class CreateLookupRowDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  companyTypeId?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   serviceProvidedId?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @Type(() => Number)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  serviceProvidedIds?: number[];
 
   @IsOptional()
   @IsString()
@@ -47,7 +69,21 @@ export class UpdateLookupRowDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  companyTypeId?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   serviceProvidedId?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @Type(() => Number)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  serviceProvidedIds?: number[];
 
   @IsOptional()
   @IsString()

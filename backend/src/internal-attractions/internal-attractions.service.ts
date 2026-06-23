@@ -10,7 +10,11 @@ export class InternalAttractionsService {
   ) {}
 
   listAttractions(offset: number, limit: number, query?: string) {
-    return this.attractionService.listPaginated(offset, limit, query?.trim() ?? '');
+    return this.attractionService.listPaginated(
+      offset,
+      limit,
+      query?.trim() ?? '',
+    );
   }
 
   async suggestAttractions(query: string, limit: number) {
@@ -24,6 +28,10 @@ export class InternalAttractionsService {
   }
 
   listTours(attractionId: number, offset: number, limit: number) {
-    return this.tourService.listByAttractionPaginated(attractionId, offset, limit);
+    return this.tourService.listByAttractionPaginated(
+      attractionId,
+      offset,
+      limit,
+    );
   }
 }

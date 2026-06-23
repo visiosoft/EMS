@@ -45,10 +45,14 @@ export class InternalNewsService {
   ) {}
 
   async findAll(limit = 12, skip = 0): Promise<InternalNewsListItem[]> {
-    const safeLimit = Math.min(Math.max(Number(limit) || 12, 1), MAX_NEWS_LIMIT);
+    const safeLimit = Math.min(
+      Math.max(Number(limit) || 12, 1),
+      MAX_NEWS_LIMIT,
+    );
     const safeSkip = Math.max(Number(skip) || 0, 0);
     const flags = await this.getColumnFlags();
-    const rows = await this.dataSource.query<NewsRow[]>(`
+    const rows = await this.dataSource.query<NewsRow[]>(
+      `
       SELECT
         id,
         title,
@@ -61,7 +65,9 @@ export class InternalNewsService {
       FROM dbo.News
       ORDER BY created_at DESC
       OFFSET @1 ROWS FETCH NEXT @0 ROWS ONLY
-    `, [safeLimit, safeSkip]);
+    `,
+      [safeLimit, safeSkip],
+    );
 
     return this.toListItems(rows);
   }
@@ -73,11 +79,15 @@ export class InternalNewsService {
     const bodyText = stripHtml(body);
 
     if (bodyText.length < 20) {
-      throw new BadRequestException('News body must be at least 20 characters.');
+      throw new BadRequestException(
+        'News body must be at least 20 characters.',
+      );
     }
 
     if (bodyText.length > MAX_BODY_LENGTH) {
-      throw new BadRequestException('News body must be 5,000 characters or fewer.');
+      throw new BadRequestException(
+        'News body must be 5,000 characters or fewer.',
+      );
     }
 
     const id = randomUUID();
@@ -111,7 +121,8 @@ export class InternalNewsService {
       );
     }
 
-    const rows = await this.dataSource.query<NewsRow[]>(`
+    const rows = await this.dataSource.query<NewsRow[]>(
+      `
       SELECT TOP (1)
         id,
         title,
@@ -123,14 +134,18 @@ export class InternalNewsService {
         ${flags.modifiedAt ? ', modified_at' : ', CAST(NULL AS datetime) AS modified_at'}
       FROM dbo.News
       WHERE id = @0
-    `, [id]);
+    `,
+      [id],
+    );
 
     const [created] = await this.toListItems(rows);
     return created;
   }
 
   private async toListItems(rows: NewsRow[]): Promise<InternalNewsListItem[]> {
-    const authorNames = await this.getAuthorNames(rows.map((row) => row.created_by));
+    const authorNames = await this.getAuthorNames(
+      rows.map((row) => row.created_by),
+    );
 
     return rows.map((row) => ({
       id: row.id,
@@ -138,16 +153,22 @@ export class InternalNewsService {
       summary: row.summary,
       body: row.body,
       createdBy: row.created_by,
-      createdByName: row.created_by ? authorNames.get(row.created_by) ?? 'Entra user' : 'Unknown user',
+      createdByName: row.created_by
+        ? (authorNames.get(row.created_by) ?? 'Entra user')
+        : 'Unknown user',
       createdAt: toIso(row.created_at),
       modifiedBy: row.modified_by ?? null,
       modifiedAt: toIso(row.modified_at ?? null),
     }));
   }
 
-  private async getAuthorNames(authorIds: Array<string | null>): Promise<Map<string, string>> {
+  private async getAuthorNames(
+    authorIds: Array<string | null>,
+  ): Promise<Map<string, string>> {
     const names = new Map<string, string>();
-    const uniqueIds = Array.from(new Set(authorIds.filter((id): id is string => Boolean(id))));
+    const uniqueIds = Array.from(
+      new Set(authorIds.filter((id): id is string => Boolean(id))),
+    );
     const currentUserOid = this.auditContext.getUserOid();
     const currentUserName = this.auditContext.getUserDisplayName();
 
@@ -189,7 +210,10 @@ export class InternalNewsService {
 }
 
 function stripHtml(html: string): string {
-  return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  return html
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function toIso(value: Date | string | null | undefined): string | null {

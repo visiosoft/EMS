@@ -31,6 +31,8 @@ import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { Department } from '../entities/department.entity';
 import { Role } from '../entities/role.entity';
 import { Tour } from '../entities/tour.entity';
+import { EngagementIAEContact } from '../entities/engagement-iae-contact.entity';
+import { TourTalentAgent } from '../entities/tour-talent-agent.entity';
 import { Venue } from '../entities/venue.entity';
 import { VenueBrand } from '../entities/venue-brand.entity';
 import { Brand } from '../entities/brand.entity';
@@ -39,16 +41,23 @@ import { Tax } from '../entities/tax.entity';
 import { ServiceProvided } from '../entities/service-provided.entity';
 import { CompanyService as CompanyServiceEntity } from '../entities/company-service.entity';
 import { CompanyServiceArea } from '../entities/company-service-area.entity';
+import { CompanyTypeService } from '../entities/company-type-service.entity';
 import { VenueServiceProvider } from '../entities/venue-service-provider.entity';
 import { NonResidentWithholding } from '../entities/non-resident-withholding.entity';
+import {
+  EngagementService,
+  EngagementListRow,
+} from '../engagements/engagement.service';
 import { Link } from '../entities/link.entity';
 import { VenueComplex } from '../entities/venue-complex.entity';
 import { VenueComplexMember } from '../entities/venue-complex-member.entity';
-import { buildEngagementDisplayTitle } from '../engagements/engagement-display.util';
-import { normalizeEngagementStatus } from '../engagements/engagement-status.util';
 import { CreateCompanyContactDto } from './dto/create-company-contact.dto';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyContactDto } from './dto/create-company-contact.dto';
+import {
+  ManageContactDto,
+  UpdateManagedContactDto,
+} from './dto/manage-contact.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { UpdateVenueTicketingDto } from './dto/update-venue-ticketing.dto';
 import { UpdateVenueProfileDto } from './dto/update-venue-profile.dto';
@@ -111,6 +120,10 @@ function pickRawRowValue(row: Record<string, unknown>, key: string): unknown {
   return undefined;
 }
 
+function isTruthyBit(value: unknown): boolean {
+  return value === true || value === 1 || value === '1';
+}
+
 function splitFullName(fullName: string): {
   firstName: string;
   lastName: string;
@@ -134,6 +147,7 @@ function sqlNVarCharLiteral(value: string | null): string {
 export interface CompanyListRow {
   companyId: number;
   companyName: string;
+  isInternal: boolean;
   companyTypeId: number;
   companyTypeName: string;
   companyTypeIds: number[];
@@ -174,19 +188,27 @@ export interface CompanyContactRow {
   departmentName: string;
 }
 
+export interface ManagedContactRow {
+  contactId: number;
+  contactInfoId: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  cellPhone: string | null;
+  workPhone: string | null;
+  isStaff: boolean;
+  companyIds: number[];
+  companyNames: string[];
+  roleIds: number[];
+  roleNames: string[];
+  departmentIds: number[];
+  departmentNames: string[];
+}
+
 export interface CompanyVenueLinkedContactsSection {
   venueCompanyId: number;
   venueCompanyName: string;
   contacts: CompanyContactRow[];
-}
-
-export interface CompanyEngagementRow {
-  engagementId: number;
-  engagementStatus: string;
-  tourName: string | null;
-  attractionName: string | null;
-  /** Same format as the main Engagements list (`attraction — tour @ venue`). */
-  displayTitle: string;
 }
 
 @Injectable()
@@ -232,6 +254,8 @@ export class CompanyService {
     private readonly serviceProvidedRepo: Repository<ServiceProvided>,
     @InjectRepository(CompanyServiceEntity)
     private readonly companyServiceRepo: Repository<CompanyServiceEntity>,
+    @InjectRepository(CompanyTypeService)
+    private readonly companyTypeServiceRepo: Repository<CompanyTypeService>,
     @InjectRepository(CompanyServiceArea)
     private readonly companyServiceAreaRepo: Repository<CompanyServiceArea>,
     @InjectRepository(VenueServiceProvider)
@@ -250,6 +274,7 @@ export class CompanyService {
     private readonly roleRepo: Repository<Role>,
     @InjectRepository(Department)
     private readonly departmentRepo: Repository<Department>,
+    private readonly engagementService: EngagementService,
   ) {}
 
   private safeDbIdentifier(name: string): string {
@@ -298,6 +323,51 @@ export class CompanyService {
       cleaned.push(Number(legacyCompanyTypeId));
     }
     return [...new Set(cleaned)];
+  }
+
+  private async allowedServiceIdsForCompanyTypes(
+    companyTypeIds: number[],
+    em?: EntityManager,
+  ): Promise<Set<number>> {
+    const ids = [...new Set(companyTypeIds)].filter(
+      (id) => Number.isInteger(id) && id > 0,
+    );
+    if (ids.length === 0) return new Set();
+    const repo = em
+      ? em.getRepository(CompanyTypeService)
+      : this.companyTypeServiceRepo;
+    const rows = await repo.find({ where: { companyTypeId: In(ids) } });
+    return new Set(rows.map((row) => row.serviceProvidedId));
+  }
+
+  private async assertCompanyServicesAllowedForTypes(
+    companyTypeIds: number[],
+    serviceProvidedIds: number[],
+    context = 'company services',
+    em?: EntityManager,
+  ): Promise<void> {
+    const requested = [...new Set(serviceProvidedIds)].filter(
+      (id) => Number.isInteger(id) && id > 0,
+    );
+    if (requested.length === 0) return;
+
+    const allowed = await this.allowedServiceIdsForCompanyTypes(
+      companyTypeIds,
+      em,
+    );
+    const blocked = requested.filter((id) => !allowed.has(id));
+    if (blocked.length === 0) return;
+
+    const services = await (
+      em ? em.getRepository(ServiceProvided) : this.serviceProvidedRepo
+    ).find({ where: { serviceProvidedId: In(blocked) } });
+    const names = services
+      .map((service) => service.serviceName)
+      .filter(Boolean)
+      .join(', ');
+    throw new BadRequestException({
+      message: `One or more ${context} are not allowed for the selected company type. Remove ${names || blocked.join(', ')} or update dbo.CompanyTypeService.`,
+    });
   }
 
   private async resolveCompanyTypeLinkTableName(
@@ -533,6 +603,7 @@ export class CompanyService {
     return {
       companyId: company.companyId,
       companyName: company.companyName,
+      isInternal: Boolean(company.isInternal),
       companyTypeId: primaryTypeId,
       companyTypeName: primaryTypeName,
       companyTypeIds,
@@ -673,6 +744,7 @@ export class CompanyService {
       allDmasServiceProvidedId?: number | null;
       serviceAreas?: { dmaid: number; serviceProvidedId: number }[] | null;
     },
+    companyTypeIds?: number[],
   ): Promise<{ allDmas: boolean; allDmasServiceProvidedId: number | null }> {
     const allDmas = Boolean(input.allDmas);
     const allDmasServiceProvidedId =
@@ -693,6 +765,14 @@ export class CompanyService {
         });
       }
       const sid = allDmasServiceProvidedId;
+      if (companyTypeIds) {
+        await this.assertCompanyServicesAllowedForTypes(
+          companyTypeIds,
+          [sid],
+          'service area services',
+          em,
+        );
+      }
       const known = await em.getRepository(ServiceProvided).findOne({
         where: { serviceProvidedId: sid },
       });
@@ -724,6 +804,14 @@ export class CompanyService {
     const serviceAreas = this.normalizeServiceAreas(input.serviceAreas);
     if (serviceAreas.length === 0) {
       return { allDmas: false, allDmasServiceProvidedId: null };
+    }
+    if (companyTypeIds) {
+      await this.assertCompanyServicesAllowedForTypes(
+        companyTypeIds,
+        serviceAreas.map((row) => row.serviceProvidedId),
+        'service area services',
+        em,
+      );
     }
 
     const uniqueDmaids = [...new Set(serviceAreas.map((r) => r.dmaid))];
@@ -1083,6 +1171,7 @@ export class CompanyService {
     em?: EntityManager,
   ): Promise<
     Array<{
+      contactId: number;
       contactInfoId: number;
       fullName: string;
       email: string;
@@ -1111,6 +1200,7 @@ export class CompanyService {
     const mergedRows: Array<{
       contactAssignmentId: number;
       row: {
+        contactId: number;
         contactInfoId: number;
         fullName: string;
         email: string;
@@ -1135,22 +1225,22 @@ export class CompanyService {
         if (!ci) continue;
         mergedRows.push({
           contactAssignmentId: ca.contactAssignmentId,
-          row: this.mapContactInfoToVenueRoleRow(ci),
+          row: { contactId: ca.contact.contactId, ...this.mapContactInfoToVenueRoleRow(ci) },
         });
       }
     }
     mergedRows.sort((a, b) => a.contactAssignmentId - b.contactAssignmentId);
     const mapped = mergedRows.map((x) => x.row);
-    const dedupedByContactInfo = new Map<number, (typeof mapped)[number]>();
+    const dedupedByContact = new Map<number, (typeof mapped)[number]>();
     for (const row of mapped) {
       // A contact can be assigned both at Venue and Complex company level.
       // We return one row per person (contact identity) so inherited contacts
       // do not duplicate entries in the venue profile UI.
-      if (!dedupedByContactInfo.has(row.contactInfoId)) {
-        dedupedByContactInfo.set(row.contactInfoId, row);
+      if (!dedupedByContact.has(row.contactId)) {
+        dedupedByContact.set(row.contactId, row);
       }
     }
-    return [...dedupedByContactInfo.values()];
+    return [...dedupedByContact.values()];
   }
 
   /**
@@ -2003,6 +2093,7 @@ export class CompanyService {
     sortDirRaw?: string,
   ): Promise<{ data: CompanyDetail[]; total: number }> {
     const typeName = (companyType ?? '').trim();
+    const normalizedTypeName = typeName.toLowerCase();
     const qb = this.companyRepo
       .createQueryBuilder('c')
       .leftJoinAndSelect('c.companyType', 'ct')
@@ -2017,19 +2108,19 @@ export class CompanyService {
       qb.addOrderBy('c.companyName', 'ASC').addOrderBy('c.companyId', 'ASC');
 
     if (sortBy === 'type') {
-      qb.addSelect('ISNULL(ct.companyTypeName, \'\')', 'sort_company_type');
+      qb.addSelect("ISNULL(ct.companyTypeName, '')", 'sort_company_type');
       qb.orderBy('sort_company_type', sortDir);
       addStableTieBreak();
     } else if (sortBy === 'city') {
-      qb.addSelect('ISNULL(pa.city, \'\')', 'sort_physical_city');
+      qb.addSelect("ISNULL(pa.city, '')", 'sort_physical_city');
       qb.orderBy('sort_physical_city', sortDir);
       addStableTieBreak();
     } else if (sortBy === 'state' || sortBy === 'stateprovince') {
-      qb.addSelect('ISNULL(pa.stateProvince, \'\')', 'sort_state_province');
+      qb.addSelect("ISNULL(pa.stateProvince, '')", 'sort_state_province');
       qb.orderBy('sort_state_province', sortDir);
       addStableTieBreak();
     } else if (sortBy === 'dma' || sortBy === 'market') {
-      qb.addSelect('ISNULL(d.marketName, \'\')', 'sort_dma_market');
+      qb.addSelect("ISNULL(d.marketName, '')", 'sort_dma_market');
       qb.orderBy('sort_dma_market', sortDir);
       addStableTieBreak();
     } else {
@@ -2038,14 +2129,28 @@ export class CompanyService {
 
     const q = (search ?? '').trim();
     if (q) {
-      const like = `%${q}%`;
-      qb.andWhere(
-        `(LOWER(c.companyName) LIKE LOWER(:like) OR LOWER(ISNULL(pa.city, '')) LIKE LOWER(:like) OR LOWER(ISNULL(pa.stateProvince, '')) LIKE LOWER(:like) OR LOWER(ISNULL(d.marketName, '')) LIKE LOWER(:like))`,
-        { like },
-      );
+      this.searchTokens(q).forEach((token, index) => {
+        const param = `companySearch${index}`;
+        qb.andWhere(
+          `(
+            LOWER(c.companyName) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR LOWER(ISNULL(pa.city, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR LOWER(ISNULL(pa.stateProvince, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR LOWER(ISNULL(d.marketName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR LOWER(ISNULL(ct.companyTypeName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR EXISTS (
+              SELECT 1
+              FROM dbo.CompanyCompanyType cctSearch
+              INNER JOIN dbo.CompanyType ctSearch ON ctSearch.CompanyTypeID = cctSearch.CompanyTypeID
+              WHERE cctSearch.CompanyID = c.CompanyID
+                AND LOWER(ISNULL(ctSearch.CompanyTypeName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            )
+          )`,
+          { [param]: `%${this.escapeLikePattern(token)}%` },
+        );
+      });
     }
     if (typeName && typeName !== 'All') {
-      const normalizedTypeName = typeName.trim().toLowerCase();
       if (normalizedTypeName === 'venue') {
         /**
          * Keep "Companies filtered to Venue" aligned with "All Venues":
@@ -2064,20 +2169,25 @@ export class CompanyService {
           const safeTable = this.safeDbIdentifier(linkTable);
           qb.andWhere(
             `(
-              ct.companyTypeName = :typeName
+              LOWER(LTRIM(RTRIM(ct.companyTypeName))) = :typeNameNormalized
               OR EXISTS (
                 SELECT 1
                 FROM [dbo].${safeTable} ctm
                 INNER JOIN [dbo].[CompanyType] ctt
                   ON ctt.CompanyTypeID = ctm.CompanyTypeID
                 WHERE ctm.CompanyID = c.CompanyID
-                  AND ctt.CompanyTypeName = :typeName
+                  AND LOWER(LTRIM(RTRIM(ctt.CompanyTypeName))) = :typeNameNormalized
               )
             )`,
-            { typeName },
+            { typeNameNormalized: normalizedTypeName },
           );
         } else {
-          qb.andWhere('ct.companyTypeName = :typeName', { typeName });
+          qb.andWhere(
+            'LOWER(LTRIM(RTRIM(ct.companyTypeName))) = :typeNameNormalized',
+            {
+              typeNameNormalized: normalizedTypeName,
+            },
+          );
         }
       }
     }
@@ -2193,6 +2303,25 @@ export class CompanyService {
         });
       }
     }
+    await this.assertCompanyServicesAllowedForTypes(
+      companyTypeIds,
+      serviceProvidedIds,
+      'company services',
+    );
+    const requestedServiceAreas = this.normalizeServiceAreas(
+      (dto as any).serviceAreas,
+    );
+    const serviceAreaServiceIds = [
+      ...requestedServiceAreas.map((row) => row.serviceProvidedId),
+      ...((dto as any).allDmasServiceProvidedId
+        ? [Number((dto as any).allDmasServiceProvidedId)]
+        : []),
+    ];
+    await this.assertCompanyServicesAllowedForTypes(
+      companyTypeIds,
+      serviceAreaServiceIds,
+      'service area services',
+    );
 
     const dmaId =
       dto.dmaId ??
@@ -2223,6 +2352,7 @@ export class CompanyService {
 
       const company = em.create(Company, {
         companyName: dto.companyName.trim(),
+        isInternal: dto.isInternal ?? false,
         companyTypeId: primaryCompanyTypeId,
         physicalAddressId: savedPhysical.addressId,
         mailingAddressId: mailingId,
@@ -2231,11 +2361,16 @@ export class CompanyService {
       const row = await em.save(Company, company);
       await this.syncCompanyTypes(em, row.companyId, companyTypeIds);
       await this.syncCompanyServices(em, row.companyId, serviceProvidedIds);
-      await this.syncCompanyServiceAreas(em, row.companyId, {
-        allDmas: (dto as any).allDmas,
-        allDmasServiceProvidedId: (dto as any).allDmasServiceProvidedId,
-        serviceAreas: (dto as any).serviceAreas,
-      });
+      await this.syncCompanyServiceAreas(
+        em,
+        row.companyId,
+        {
+          allDmas: (dto as any).allDmas,
+          allDmasServiceProvidedId: (dto as any).allDmasServiceProvidedId,
+          serviceAreas: (dto as any).serviceAreas,
+        },
+        companyTypeIds,
+      );
       await this.ensureVenueRowForCompanyTypes(
         em,
         row.companyId,
@@ -2922,6 +3057,9 @@ export class CompanyService {
     if (dto.companyName !== undefined) {
       existing.companyName = dto.companyName.trim();
     }
+    if (dto.isInternal !== undefined) {
+      existing.isInternal = Boolean(dto.isInternal);
+    }
     const nextCompanyTypeIds =
       dto.companyTypeIds !== undefined
         ? this.normalizeCompanyTypeIds(dto.companyTypeIds, dto.companyTypeId)
@@ -2960,6 +3098,33 @@ export class CompanyService {
             'One or more selected company services are not valid. Pick from the company services list.',
         });
       }
+    }
+    if (nextServiceProvidedIds != null) {
+      await this.assertCompanyServicesAllowedForTypes(
+        nextCompanyTypeIds,
+        nextServiceProvidedIds,
+        'company services',
+      );
+    }
+    if (
+      (dto as any).serviceAreas !== undefined ||
+      (dto as any).allDmas !== undefined ||
+      (dto as any).allDmasServiceProvidedId !== undefined
+    ) {
+      const requestedServiceAreas = this.normalizeServiceAreas(
+        (dto as any).serviceAreas,
+      );
+      const serviceAreaServiceIds = [
+        ...requestedServiceAreas.map((row) => row.serviceProvidedId),
+        ...((dto as any).allDmasServiceProvidedId
+          ? [Number((dto as any).allDmasServiceProvidedId)]
+          : []),
+      ];
+      await this.assertCompanyServicesAllowedForTypes(
+        nextCompanyTypeIds,
+        serviceAreaServiceIds,
+        'service area services',
+      );
     }
 
     /** Do not clear DMA: ignore null/0 from client; keep existing when re-resolution fails. */
@@ -3024,6 +3189,20 @@ export class CompanyService {
         }
         if (nextServiceProvidedIds != null) {
           await this.syncCompanyServices(em, companyId, nextServiceProvidedIds);
+        } else if (companyTypesChanged || primaryCompanyTypeChanged) {
+          const allowed = await this.allowedServiceIdsForCompanyTypes(
+            nextCompanyTypeIds,
+            em,
+          );
+          const existingServices = await em
+            .getRepository(CompanyServiceEntity)
+            .find({ where: { companyId } });
+          const filteredServiceIds = existingServices
+            .map((row) => row.serviceProvidedId)
+            .filter((serviceProvidedId) => allowed.has(serviceProvidedId));
+          if (filteredServiceIds.length !== existingServices.length) {
+            await this.syncCompanyServices(em, companyId, filteredServiceIds);
+          }
         }
       });
     }
@@ -3034,11 +3213,16 @@ export class CompanyService {
       (dto as any).allDmasServiceProvidedId !== undefined
     ) {
       await this.dataSource.transaction(async (em) => {
-        await this.syncCompanyServiceAreas(em, companyId, {
-          allDmas: (dto as any).allDmas,
-          allDmasServiceProvidedId: (dto as any).allDmasServiceProvidedId,
-          serviceAreas: (dto as any).serviceAreas,
-        });
+        await this.syncCompanyServiceAreas(
+          em,
+          companyId,
+          {
+            allDmas: (dto as any).allDmas,
+            allDmasServiceProvidedId: (dto as any).allDmasServiceProvidedId,
+            serviceAreas: (dto as any).serviceAreas,
+          },
+          nextCompanyTypeIds,
+        );
       });
     }
 
@@ -3300,6 +3484,546 @@ export class CompanyService {
     };
   }
 
+  private uniquePositiveInts(values: unknown[] | undefined | null): number[] {
+    if (!Array.isArray(values)) return [];
+    return [
+      ...new Set(
+        values
+          .map(Number)
+          .filter((value) => Number.isInteger(value) && value > 0),
+      ),
+    ];
+  }
+
+  private async ensureManagedContactAssignments(
+    em: EntityManager,
+    contactId: number,
+    companyId: number | null | undefined,
+    roleIds: number[] | undefined,
+    departmentIds: number[] | undefined,
+  ): Promise<boolean> {
+    const companyIdNum = Number(companyId ?? 0);
+    const hasCompany = Number.isInteger(companyIdNum) && companyIdNum > 0;
+    await em.delete(ContactAssignment, { contactId });
+    if (!hasCompany) return false;
+
+    const company = await em.getRepository(Company).findOne({
+      where: { companyId: companyIdNum },
+    });
+    if (!company) {
+      throw new NotFoundException(`Company ${companyIdNum} was not found.`);
+    }
+    const roleIdList = this.uniquePositiveInts(roleIds);
+    const departmentIdList = this.uniquePositiveInts(departmentIds);
+    if (roleIdList.length === 0 || departmentIdList.length === 0) {
+      throw new BadRequestException({
+        statusCode: HttpStatus.BAD_REQUEST,
+        error: 'Bad Request',
+        message:
+          'Select at least one role and one department when linking a contact to a company.',
+      });
+    }
+    for (const roleId of roleIdList) await this.ensureRole(roleId, em);
+    for (const departmentId of departmentIdList) {
+      await this.ensureDepartment(departmentId, em);
+    }
+
+    const assignments: ContactAssignment[] = [];
+    for (const roleId of roleIdList) {
+      for (const departmentId of departmentIdList) {
+        assignments.push(
+          em.create(ContactAssignment, {
+            contactId,
+            companyId: companyIdNum,
+            roleId,
+            departmentId,
+          }),
+        );
+      }
+    }
+    await em.save(ContactAssignment, assignments);
+    return Boolean(company.isInternal);
+  }
+
+  private async getOrCreateManagedContact(
+    em: EntityManager,
+    dto: ManageContactDto | UpdateManagedContactDto,
+    existingContactId?: number,
+  ): Promise<Contact> {
+    if (dto.workPhone !== undefined) {
+      assertOptionalE164Phone(dto.workPhone, 'work phone');
+    }
+    if (dto.cellPhone !== undefined) {
+      assertOptionalE164Phone(dto.cellPhone, 'cell phone');
+    }
+
+    const infoRepo = em.getRepository(ContactInfo);
+    const contactRepo = em.getRepository(Contact);
+
+    const existingContact =
+      existingContactId != null
+        ? await contactRepo.findOne({
+            where: { contactId: existingContactId },
+            relations: { contactInfo: true },
+          })
+        : null;
+    if (existingContactId != null && !existingContact) {
+      throw new NotFoundException(
+        `Contact ${existingContactId} was not found.`,
+      );
+    }
+
+    const email = dto.email?.trim();
+    let info = existingContact?.contactInfo ?? null;
+    if (email) {
+      const infoForEmail = await infoRepo
+        .createQueryBuilder('ci')
+        .where('LOWER(ci.email) = LOWER(:email)', { email })
+        .getOne();
+      if (
+        infoForEmail &&
+        info &&
+        infoForEmail.contactInfoId !== info.contactInfoId
+      ) {
+        const contactForEmail = await contactRepo.findOne({
+          where: { contactInfoId: infoForEmail.contactInfoId },
+        });
+        if (
+          contactForEmail &&
+          contactForEmail.contactId !== existingContactId
+        ) {
+          throw new ConflictException({
+            statusCode: HttpStatus.CONFLICT,
+            error: 'Conflict',
+            message: 'A contact already exists for this email address.',
+          });
+        }
+        info = infoForEmail;
+      } else if (infoForEmail) {
+        info = infoForEmail;
+      }
+    }
+
+    if (!info) {
+      info = infoRepo.create({
+        firstName: dto.firstName?.trim() ?? '',
+        lastName: dto.lastName?.trim() ?? '',
+        email: email ?? '',
+        cellPhone: dto.cellPhone?.trim() || null,
+        workPhone: dto.workPhone?.trim() || null,
+      });
+    } else {
+      if (dto.firstName !== undefined) info.firstName = dto.firstName.trim();
+      if (dto.lastName !== undefined) info.lastName = dto.lastName.trim();
+      if (email !== undefined) info.email = email;
+      if (dto.cellPhone !== undefined) {
+        info.cellPhone = dto.cellPhone?.trim() || null;
+      }
+      if (dto.workPhone !== undefined) {
+        info.workPhone = dto.workPhone?.trim() || null;
+      }
+    }
+    const savedInfo = await infoRepo.save(info);
+
+    if (existingContact) {
+      existingContact.contactInfoId = savedInfo.contactInfoId;
+      return contactRepo.save(existingContact);
+    }
+
+    let contact = await contactRepo.findOne({
+      where: { contactInfoId: savedInfo.contactInfoId },
+    });
+    if (!contact) {
+      contact = contactRepo.create({
+        contactInfoId: savedInfo.contactInfoId,
+      });
+    }
+    return contactRepo.save(contact);
+  }
+
+  async listManagedContacts(
+    offset = 0,
+    limit = 25,
+    q?: string,
+    companyId?: number,
+  ): Promise<{ data: ManagedContactRow[]; total: number }> {
+    const safeOffset = Math.max(0, Number(offset) || 0);
+    const safeLimit = Math.min(200, Math.max(1, Number(limit) || 25));
+
+    const baseQb = this.contactRepo
+      .createQueryBuilder('ct')
+      .innerJoin('ct.contactInfo', 'ci')
+      .leftJoin(ContactAssignment, 'ca', 'ca.contactId = ct.contactId')
+      .leftJoin(Company, 'c', 'c.companyId = ca.companyId')
+      .leftJoin(Role, 'rSearch', 'rSearch.roleId = ca.roleId')
+      .leftJoin(Department, 'dSearch', 'dSearch.departmentId = ca.departmentId')
+      .leftJoin('c.physicalAddress', 'paSearch')
+      .leftJoin('c.dma', 'dmaSearch')
+      .leftJoin('c.companyType', 'ctSearch');
+
+    if (companyId != null && Number.isInteger(companyId) && companyId > 0) {
+      baseQb.andWhere('ca.companyId = :companyId', { companyId });
+    }
+    const trimmed = q?.trim();
+    if (trimmed) {
+      this.searchTokens(trimmed).forEach((token, index) => {
+        const param = `contactSearch${index}`;
+        baseQb.andWhere(
+          `(
+            LOWER(ISNULL(ci.firstName, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            LOWER(ISNULL(ci.lastName, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            LOWER(ISNULL(CONCAT(ci.firstName, ' ', ci.lastName), '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            LOWER(ISNULL(ci.email, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            LOWER(ISNULL(ci.workPhone, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            LOWER(ISNULL(ci.cellPhone, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            LOWER(ISNULL(c.companyName, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            LOWER(ISNULL(rSearch.roleName, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            LOWER(ISNULL(dSearch.departmentName, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            LOWER(ISNULL(paSearch.city, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            LOWER(ISNULL(paSearch.stateProvince, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            LOWER(ISNULL(dmaSearch.marketName, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            LOWER(ISNULL(ctSearch.companyTypeName, '')) LIKE LOWER(:${param}) ESCAPE '\\' OR
+            EXISTS (
+              SELECT 1
+              FROM dbo.CompanyCompanyType cctContactSearch
+              INNER JOIN dbo.CompanyType ctContactSearch ON ctContactSearch.CompanyTypeID = cctContactSearch.CompanyTypeID
+              WHERE cctContactSearch.CompanyID = c.CompanyID
+                AND LOWER(ISNULL(ctContactSearch.CompanyTypeName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            )
+          )`,
+          { [param]: `%${this.escapeLikePattern(token)}%` },
+        );
+      });
+    }
+
+    const totalRows = await baseQb
+      .clone()
+      .select('COUNT(DISTINCT ct.contactId)', 'count')
+      .getRawOne<{ count: number | string }>();
+    const total = Number(totalRows?.count ?? 0);
+
+    const idsRaw = await baseQb
+      .clone()
+      .select('ct.contactId', 'contactId')
+      .addSelect('MIN(ci.lastName)', 'lastName')
+      .addSelect('MIN(ci.firstName)', 'firstName')
+      .groupBy('ct.contactId')
+      .orderBy('MIN(ci.lastName)', 'ASC')
+      .addOrderBy('MIN(ci.firstName)', 'ASC')
+      .offset(safeOffset)
+      .limit(safeLimit)
+      .getRawMany<Record<string, unknown>>();
+    const ids = idsRaw
+      .map((row) => Number(pickRawRowValue(row, 'contactId')))
+      .filter((id) => Number.isInteger(id) && id > 0);
+    if (ids.length === 0) return { data: [], total };
+
+    const raw = await this.contactRepo
+      .createQueryBuilder('ct')
+      .innerJoin('ct.contactInfo', 'ci')
+      .leftJoin(ContactAssignment, 'ca', 'ca.contactId = ct.contactId')
+      .leftJoin(Company, 'c', 'c.companyId = ca.companyId')
+      .leftJoin(Role, 'r', 'r.roleId = ca.roleId')
+      .leftJoin(Department, 'd', 'd.departmentId = ca.departmentId')
+      .where('ct.contactId IN (:...ids)', { ids })
+      .select([
+        'ct.contactId AS contactId',
+        'ci.contactInfoId AS contactInfoId',
+        'ci.firstName AS firstName',
+        'ci.lastName AS lastName',
+        'ci.email AS email',
+        'ci.cellPhone AS cellPhone',
+        'ci.workPhone AS workPhone',
+        'c.isInternal AS companyIsInternal',
+        'c.companyId AS companyId',
+        'c.companyName AS companyName',
+        'r.roleId AS roleId',
+        'r.roleName AS roleName',
+        'd.departmentId AS departmentId',
+        'd.departmentName AS departmentName',
+      ])
+      .orderBy('ci.lastName', 'ASC')
+      .addOrderBy('ci.firstName', 'ASC')
+      .getRawMany<Record<string, unknown>>();
+
+    const byContact = new Map<number, ManagedContactRow>();
+    const pushUnique = <T>(list: T[], value: T | null | undefined) => {
+      if (value == null) return;
+      if (!list.includes(value)) list.push(value);
+    };
+    for (const row of raw) {
+      const contactId = Number(pickRawRowValue(row, 'contactId'));
+      if (!Number.isInteger(contactId) || contactId < 1) continue;
+      let item = byContact.get(contactId);
+      if (!item) {
+        item = {
+          contactId,
+          contactInfoId: Number(pickRawRowValue(row, 'contactInfoId')),
+          firstName: String(pickRawRowValue(row, 'firstName') ?? ''),
+          lastName: String(pickRawRowValue(row, 'lastName') ?? ''),
+          email: String(pickRawRowValue(row, 'email') ?? ''),
+          cellPhone:
+            pickRawRowValue(row, 'cellPhone') == null
+              ? null
+              : String(pickRawRowValue(row, 'cellPhone')),
+          workPhone:
+            pickRawRowValue(row, 'workPhone') == null
+              ? null
+              : String(pickRawRowValue(row, 'workPhone')),
+          isStaff: isTruthyBit(pickRawRowValue(row, 'companyIsInternal')),
+          companyIds: [],
+          companyNames: [],
+          roleIds: [],
+          roleNames: [],
+          departmentIds: [],
+          departmentNames: [],
+        };
+        byContact.set(contactId, item);
+      }
+      const companyIdValue = Number(pickRawRowValue(row, 'companyId'));
+      if (Number.isInteger(companyIdValue) && companyIdValue > 0) {
+        item.isStaff =
+          item.isStaff || isTruthyBit(pickRawRowValue(row, 'companyIsInternal'));
+        pushUnique(item.companyIds, companyIdValue);
+        pushUnique(
+          item.companyNames,
+          String(pickRawRowValue(row, 'companyName') ?? '').trim(),
+        );
+      }
+      const roleIdValue = Number(pickRawRowValue(row, 'roleId'));
+      if (Number.isInteger(roleIdValue) && roleIdValue > 0) {
+        pushUnique(item.roleIds, roleIdValue);
+        pushUnique(
+          item.roleNames,
+          String(pickRawRowValue(row, 'roleName') ?? '').trim(),
+        );
+      }
+      const departmentIdValue = Number(pickRawRowValue(row, 'departmentId'));
+      if (Number.isInteger(departmentIdValue) && departmentIdValue > 0) {
+        pushUnique(item.departmentIds, departmentIdValue);
+        pushUnique(
+          item.departmentNames,
+          String(pickRawRowValue(row, 'departmentName') ?? '').trim(),
+        );
+      }
+    }
+
+    return {
+      data: ids
+        .map((id) => byContact.get(id))
+        .filter((row): row is ManagedContactRow => Boolean(row)),
+      total,
+    };
+  }
+
+  private async getManagedContactRowById(
+    contactId: number,
+    em?: EntityManager,
+  ): Promise<ManagedContactRow | null> {
+    const raw = await (em?.getRepository(Contact) ?? this.contactRepo)
+      .createQueryBuilder('ct')
+      .innerJoin('ct.contactInfo', 'ci')
+      .leftJoin(ContactAssignment, 'ca', 'ca.contactId = ct.contactId')
+      .leftJoin(Company, 'c', 'c.companyId = ca.companyId')
+      .leftJoin(Role, 'r', 'r.roleId = ca.roleId')
+      .leftJoin(Department, 'd', 'd.departmentId = ca.departmentId')
+      .where('ct.contactId = :contactId', { contactId })
+      .select([
+        'ct.contactId AS contactId',
+        'ci.contactInfoId AS contactInfoId',
+        'ci.firstName AS firstName',
+        'ci.lastName AS lastName',
+        'ci.email AS email',
+        'ci.cellPhone AS cellPhone',
+        'ci.workPhone AS workPhone',
+        'c.isInternal AS companyIsInternal',
+        'c.companyId AS companyId',
+        'c.companyName AS companyName',
+        'r.roleId AS roleId',
+        'r.roleName AS roleName',
+        'd.departmentId AS departmentId',
+        'd.departmentName AS departmentName',
+      ])
+      .getRawMany<Record<string, unknown>>();
+    if (raw.length === 0) return null;
+    const first = raw[0];
+    const out: ManagedContactRow = {
+      contactId: Number(pickRawRowValue(first, 'contactId')),
+      contactInfoId: Number(pickRawRowValue(first, 'contactInfoId')),
+      firstName: String(pickRawRowValue(first, 'firstName') ?? ''),
+      lastName: String(pickRawRowValue(first, 'lastName') ?? ''),
+      email: String(pickRawRowValue(first, 'email') ?? ''),
+      cellPhone:
+        pickRawRowValue(first, 'cellPhone') == null
+          ? null
+          : String(pickRawRowValue(first, 'cellPhone')),
+      workPhone:
+        pickRawRowValue(first, 'workPhone') == null
+          ? null
+          : String(pickRawRowValue(first, 'workPhone')),
+      isStaff: isTruthyBit(pickRawRowValue(first, 'companyIsInternal')),
+      companyIds: [],
+      companyNames: [],
+      roleIds: [],
+      roleNames: [],
+      departmentIds: [],
+      departmentNames: [],
+    };
+    const pushUnique = <T>(list: T[], value: T | null | undefined) => {
+      if (value == null) return;
+      if (!list.includes(value)) list.push(value);
+    };
+    for (const row of raw) {
+      const companyIdValue = Number(pickRawRowValue(row, 'companyId'));
+      if (Number.isInteger(companyIdValue) && companyIdValue > 0) {
+        out.isStaff =
+          out.isStaff || isTruthyBit(pickRawRowValue(row, 'companyIsInternal'));
+        pushUnique(out.companyIds, companyIdValue);
+        pushUnique(
+          out.companyNames,
+          String(pickRawRowValue(row, 'companyName') ?? '').trim(),
+        );
+      }
+      const roleIdValue = Number(pickRawRowValue(row, 'roleId'));
+      if (Number.isInteger(roleIdValue) && roleIdValue > 0) {
+        pushUnique(out.roleIds, roleIdValue);
+        pushUnique(
+          out.roleNames,
+          String(pickRawRowValue(row, 'roleName') ?? '').trim(),
+        );
+      }
+      const departmentIdValue = Number(pickRawRowValue(row, 'departmentId'));
+      if (Number.isInteger(departmentIdValue) && departmentIdValue > 0) {
+        pushUnique(out.departmentIds, departmentIdValue);
+        pushUnique(
+          out.departmentNames,
+          String(pickRawRowValue(row, 'departmentName') ?? '').trim(),
+        );
+      }
+    }
+    return out;
+  }
+
+  async createManagedContact(
+    dto: ManageContactDto,
+  ): Promise<ManagedContactRow> {
+    return this.dataSource.transaction(async (em) => {
+      const contact = await this.getOrCreateManagedContact(em, dto);
+      await this.ensureManagedContactAssignments(
+        em,
+        contact.contactId,
+        dto.companyId,
+        dto.roleIds,
+        dto.departmentIds,
+      );
+      const row = await this.getManagedContactRowById(contact.contactId, em);
+      if (!row) {
+        throw new BadRequestException(
+          'Contact was saved but could not be loaded.',
+        );
+      }
+      return row;
+    });
+  }
+
+  async updateManagedContact(
+    contactId: number,
+    dto: UpdateManagedContactDto,
+  ): Promise<ManagedContactRow> {
+    return this.dataSource.transaction(async (em) => {
+      const contact = await this.getOrCreateManagedContact(em, dto, contactId);
+      const nextCompany =
+        dto.companyId !== undefined
+          ? dto.companyId
+          : ((
+              await em.getRepository(ContactAssignment).findOne({
+                where: { contactId },
+              })
+            )?.companyId ?? null);
+      await this.ensureManagedContactAssignments(
+        em,
+        contact.contactId,
+        nextCompany,
+        dto.roleIds,
+        dto.departmentIds,
+      );
+      const row = await this.getManagedContactRowById(contact.contactId, em);
+      if (!row) {
+        throw new BadRequestException(
+          'Contact was updated but could not be loaded.',
+        );
+      }
+      return row;
+    });
+  }
+
+  async getContactConnections(contactId: number): Promise<{ engagements: { engagementId: number; tourName: string }[]; tours: { tourId: number; tourName: string }[] }> {
+    const contact = await this.contactRepo.findOne({
+      where: { contactId },
+    });
+    if (!contact) {
+      throw new NotFoundException(`Contact ${contactId} was not found.`);
+    }
+
+    const engagements = await this.dataSource.getRepository(EngagementIAEContact)
+      .createQueryBuilder('eic')
+      .innerJoin(Engagement, 'e', 'e.engagementId = eic.engagementId')
+      .innerJoin(Tour, 't', 't.tourId = e.tourId')
+      .where('eic.contactId = :contactId', { contactId })
+      .select(['e.engagementId AS engagementId', 't.tourName AS tourName'])
+      .getRawMany();
+
+    const tours = await this.dataSource.getRepository(TourTalentAgent)
+      .createQueryBuilder('tta')
+      .innerJoin(Tour, 't', 't.tourId = tta.tourId')
+      .where('tta.contactId = :contactId', { contactId })
+      .select(['t.tourId AS tourId', 't.tourName AS tourName'])
+      .getRawMany();
+
+    return {
+      engagements: engagements.map((row) => ({
+        engagementId: Number(pickRawRowValue(row, 'engagementId')),
+        tourName: String(pickRawRowValue(row, 'tourName') ?? ''),
+      })),
+      tours: tours.map((row) => ({
+        tourId: Number(pickRawRowValue(row, 'tourId')),
+        tourName: String(pickRawRowValue(row, 'tourName') ?? ''),
+      })),
+    };
+  }
+
+  async removeManagedContact(contactId: number): Promise<void> {
+    await this.dataSource.transaction(async (em) => {
+      const contact = await em.getRepository(Contact).findOne({
+        where: { contactId },
+      });
+      if (!contact)
+        throw new NotFoundException(`Contact ${contactId} was not found.`);
+
+      // Get contact assignment IDs to delete from EmployeePhoneExtension
+      const assignments = await em.getRepository(ContactAssignment).find({
+        where: { contactId },
+      });
+      const assignmentIds = assignments.map((a) => a.contactAssignmentId);
+      if (assignmentIds.length > 0) {
+        await em.query(
+          `DELETE FROM dbo.EmployeePhoneExtension WHERE ContactAssignmentID IN (${assignmentIds.join(',')})`,
+        );
+      }
+
+      await em.getRepository(EngagementIAEContact).delete({ contactId });
+      await em.getRepository(TourTalentAgent).delete({ contactId });
+      await em.delete(ContactAssignment, { contactId });
+      await em.delete(Contact, { contactId });
+      const stillUsed = await em.getRepository(Contact).count({
+        where: { contactInfoId: contact.contactInfoId },
+      });
+      if (stillUsed === 0) {
+        await em.delete(ContactInfo, { contactInfoId: contact.contactInfoId });
+      }
+    });
+  }
+
   async addContact(
     companyId: number,
     dto: CreateCompanyContactDto,
@@ -3350,7 +4074,9 @@ export class CompanyService {
         existingContact ??
         (await em.save(
           Contact,
-          em.create(Contact, { contactInfoId: savedInfo.contactInfoId }),
+          em.create(Contact, {
+            contactInfoId: savedInfo.contactInfoId,
+          }),
         ));
 
       const existingAssignment = await em.findOne(ContactAssignment, {
@@ -3644,6 +4370,34 @@ export class CompanyService {
     }
   }
 
+  async removeContactCompletely(contactAssignmentId: number): Promise<void> {
+    const asg = await this.assignmentRepo.findOne({
+      where: { contactAssignmentId },
+      relations: { contact: true },
+    });
+    if (!asg) {
+      throw new NotFoundException(
+        `Contact assignment ${contactAssignmentId} not found`,
+      );
+    }
+
+    const contactId = asg.contactId;
+    const contactInfoId = asg.contact.contactInfoId;
+    const allAsgs = await this.assignmentRepo.find({
+      where: { contactId },
+      select: { contactAssignmentId: true },
+    });
+
+    if (allAsgs.length > 1) {
+      await this.assignmentRepo.delete({ contactId });
+    } else {
+      await this.assignmentRepo.delete({ contactAssignmentId });
+    }
+
+    await this.contactRepo.delete({ contactId });
+    await this.contactInfoRepo.delete({ contactInfoId });
+  }
+
   /**
    * When called inside a transaction, pass `em` so the query sees uncommitted rows.
    */
@@ -3702,52 +4456,151 @@ export class CompanyService {
     };
   }
 
-  async listEngagements(companyId: number): Promise<CompanyEngagementRow[]> {
+  async listEngagements(companyId: number): Promise<EngagementListRow[]> {
     await this.ensureCompany(companyId);
-    const raw = await this.engagementVenueRepo
-      .createQueryBuilder('ev')
-      .innerJoin(Engagement, 'e', 'e.engagementId = ev.engagementId')
-      .leftJoin(Tour, 't', 't.tourId = e.tourId')
-      .leftJoin(Attraction, 'a', 'a.attractionId = t.attractionId')
-      .leftJoin(Company, 'vc', 'vc.companyId = ev.venueCompanyId')
-      .leftJoin(Venue, 'v', 'v.companyId = ev.venueCompanyId')
-      .where('ev.venueCompanyId = :cid', { cid: companyId })
-      .select([
-        'e.engagementId AS engagementId',
-        'e.engagementStatus AS engagementStatus',
-        't.tourName AS tourName',
-        'a.attractionName AS attractionName',
-        'vc.companyName AS venueCompanyName',
-        'v.venueName AS venueName',
-      ])
-      .orderBy('e.engagementId', 'DESC')
-      .getRawMany();
+    return this.engagementService.listByCompany(companyId);
+  }
 
-    return raw.map((r) => {
-      const g = (k: string) =>
-        (r as Record<string, unknown>)[k] ??
-        (r as Record<string, unknown>)[k.toLowerCase()];
-      const tourName = g('tourName') != null ? String(g('tourName')) : null;
-      const attractionName =
-        g('attractionName') != null ? String(g('attractionName')) : null;
-      const venueCompanyName =
-        g('venueCompanyName') != null ? String(g('venueCompanyName')) : null;
-      const venueName = g('venueName') != null ? String(g('venueName')) : null;
-      const venueLabel = venueCompanyName ?? venueName ?? 'TBD';
-      return {
-        engagementId: Number(g('engagementId')),
-        engagementStatus: normalizeEngagementStatus(
-          String(g('engagementStatus')),
-        ),
-        tourName,
-        attractionName,
-        displayTitle: buildEngagementDisplayTitle(
-          attractionName,
-          tourName ?? '',
-          venueLabel,
-        ),
-      };
-    });
+  async getCompanyLinks(companyId: number) {
+    await this.ensureCompany(companyId);
+
+    // Engagement venues (this company is a venue on engagements)
+    const engagementVenueRows: { engagementId: number; attractionName: string | null; tourName: string | null }[] =
+      await this.dataSource.query(
+        `SELECT ev.EngagementID AS engagementId, a.AttractionName AS attractionName, t.TourName AS tourName
+         FROM [dbo].[EngagementVenue] ev
+         INNER JOIN [dbo].[Engagement] e ON e.EngagementID = ev.EngagementID
+         LEFT JOIN [dbo].[Tour] t ON t.TourID = e.TourID
+         LEFT JOIN [dbo].[Attraction] a ON a.AttractionID = t.AttractionID
+         WHERE ev.VenueCompanyID = @0`,
+        [companyId],
+      );
+
+    // Project venues (this company is a venue on projects)
+    const projectVenueRows: { projectId: number; attractionName: string | null; tourName: string | null }[] =
+      await this.dataSource.query(
+        `SELECT pv.EngagementProjectID AS projectId, a.AttractionName AS attractionName, t.TourName AS tourName
+         FROM [dbo].[EngagementProjectVenue] pv
+         INNER JOIN [dbo].[EngagementProject] p ON p.EngagementProjectID = pv.EngagementProjectID
+         LEFT JOIN [dbo].[Tour] t ON t.TourID = p.TourID
+         LEFT JOIN [dbo].[Attraction] a ON a.AttractionID = t.AttractionID
+         WHERE pv.VenueCompanyID = @0`,
+        [companyId],
+      );
+
+    // Tours where this company is talent agency or tour management
+    const tourRows: { tourId: number; tourName: string | null; attractionName: string | null; isTalentAgency: number; isTourManagement: number }[] =
+      await this.dataSource.query(
+        `SELECT t.TourID AS tourId, t.TourName AS tourName, a.AttractionName AS attractionName,
+                CASE WHEN t.TalentAgencyCompanyID = @0 THEN 1 ELSE 0 END AS isTalentAgency,
+                CASE WHEN t.TourManagementCompanyID = @0 THEN 1 ELSE 0 END AS isTourManagement
+         FROM [dbo].[Tour] t
+         LEFT JOIN [dbo].[Attraction] a ON a.AttractionID = t.AttractionID
+         WHERE t.TalentAgencyCompanyID = @0 OR t.TourManagementCompanyID = @0`,
+        [companyId],
+      );
+
+    // Attractions where this company is attraction management
+    const attractionRows = await this.dataSource
+      .getRepository(Attraction)
+      .find({ where: { attractionManagementLinkId: companyId } });
+
+    // Service provider links (this company provides services to other venues)
+    const serviceProviderRows: { venueCompanyId: number; venueCompanyName: string | null }[] =
+      await this.dataSource.query(
+        `SELECT DISTINCT vsp.VenueCompanyID AS venueCompanyId, c.CompanyName AS venueCompanyName
+         FROM [dbo].[VenueServiceProvider] vsp
+         INNER JOIN [dbo].[Company] c ON c.CompanyID = vsp.VenueCompanyID
+         WHERE vsp.ProviderCompanyID = @0`,
+        [companyId],
+      );
+
+    // Entertainment complex membership (this company is a venue in a complex)
+    const complexMemberRows: { complexCompanyId: number; complexCompanyName: string | null }[] =
+      await this.dataSource.query(
+        `SELECT vcm.ComplexCompanyID AS complexCompanyId, c.CompanyName AS complexCompanyName
+         FROM [dbo].[VenueComplexMember] vcm
+         INNER JOIN [dbo].[Company] c ON c.CompanyID = vcm.ComplexCompanyID
+         WHERE vcm.VenueCompanyID = @0`,
+        [companyId],
+      );
+
+    // Venues in this complex (this company IS the complex)
+    const complexVenueRows: { venueCompanyId: number; venueCompanyName: string | null }[] =
+      await this.dataSource.query(
+        `SELECT vcm.VenueCompanyID AS venueCompanyId, c.CompanyName AS venueCompanyName
+         FROM [dbo].[VenueComplexMember] vcm
+         INNER JOIN [dbo].[Company] c ON c.CompanyID = vcm.VenueCompanyID
+         WHERE vcm.ComplexCompanyID = @0`,
+        [companyId],
+      );
+
+    return {
+      engagements: engagementVenueRows.map((r) => {
+        const fallback = `Engagement #${r.engagementId}`;
+        return {
+          engagementId: r.engagementId,
+          title: r.attractionName || r.tourName || fallback,
+          subtitle: r.attractionName ? r.tourName || fallback : null,
+          label: r.attractionName
+            ? `${r.attractionName} — ${r.tourName || fallback}`
+            : r.tourName || fallback,
+        };
+      }),
+      projects: projectVenueRows.map((r) => {
+        const fallback = `Project #${r.projectId}`;
+        return {
+          projectId: r.projectId,
+          title: r.attractionName || r.tourName || fallback,
+          subtitle: r.attractionName ? r.tourName || fallback : null,
+          label: r.attractionName
+            ? `${r.attractionName} — ${r.tourName || fallback}`
+            : r.tourName || fallback,
+        };
+      }),
+      tours: tourRows.map((r) => {
+        const fallback = `Tour #${r.tourId}`;
+        return {
+          tourId: r.tourId,
+          title: r.attractionName || r.tourName || fallback,
+          subtitle: r.attractionName ? r.tourName || fallback : null,
+          label: r.attractionName
+            ? `${r.attractionName} — ${r.tourName || fallback}`
+            : r.tourName || fallback,
+          role:
+            r.isTalentAgency && r.isTourManagement
+              ? 'Talent Agency & Tour Management'
+              : r.isTalentAgency
+                ? 'Talent Agency'
+                : 'Tour Management',
+        };
+      }),
+      attractions: attractionRows.map((r) => ({
+        attractionId: r.attractionId,
+        title: r.attractionName || `Attraction #${r.attractionId}`,
+        subtitle: null,
+        label: r.attractionName || `Attraction #${r.attractionId}`,
+        role: 'Attraction Management',
+      })),
+      serviceProviderFor: serviceProviderRows.map((r) => ({
+        venueCompanyId: r.venueCompanyId,
+        title: r.venueCompanyName || `Company #${r.venueCompanyId}`,
+        subtitle: null,
+        label: r.venueCompanyName || `Company #${r.venueCompanyId}`,
+      })),
+      entertainmentComplexes: complexMemberRows.map((r) => ({
+        complexCompanyId: r.complexCompanyId,
+        title: r.complexCompanyName || `Company #${r.complexCompanyId}`,
+        subtitle: null,
+        label: r.complexCompanyName || `Company #${r.complexCompanyId}`,
+      })),
+      complexVenues: complexVenueRows.map((r) => ({
+        venueCompanyId: r.venueCompanyId,
+        title: r.venueCompanyName || `Company #${r.venueCompanyId}`,
+        subtitle: null,
+        label: r.venueCompanyName || `Company #${r.venueCompanyId}`,
+      })),
+    };
   }
 
   async updateVenueTicketing(
@@ -3789,6 +4642,27 @@ export class CompanyService {
       ticketingSystem: tw.ticketingSystem,
       venueWebsite: tw.venueWebsite,
     };
+  }
+
+  private searchTokens(value: string): string[] {
+    return [
+      ...new Set(
+        String(value ?? '')
+          .trim()
+          .split(/[^a-zA-Z0-9]+/)
+          .map((token) => token.trim())
+          .filter(Boolean),
+      ),
+    ].slice(0, 8);
+  }
+
+  private escapeLikePattern(value: string): string {
+    return String(value)
+      .replace(/\\/g, '\\\\')
+      .replace(/%/g, '\\%')
+      .replace(/_/g, '\\_')
+      .replace(/\[/g, '\\[')
+      .replace(/\]/g, '\\]');
   }
 
   private async ensureCompany(companyId: number): Promise<void> {

@@ -12,6 +12,7 @@ export function mapApiCompanyToCompany(row: ApiCompanyListRow): Company {
   const mailCountry = toCountryAlpha2FromDisplayString(ma?.country ?? '') || physCountry;
   return {
     id: String(row.companyId),
+    isInternal: Boolean(row.isInternal),
     companyTypeId: row.companyTypeId,
     companyTypeIds: row.companyTypeIds ?? [row.companyTypeId].filter((v): v is number => Number.isFinite(v)),
     companyTypeNames: row.companyTypeNames ?? [row.companyTypeName].filter(Boolean),
@@ -20,7 +21,7 @@ export function mapApiCompanyToCompany(row: ApiCompanyListRow): Company {
     serviceAreas: row.serviceAreas ?? [],
     allDmas: row.allDmas ?? false,
     allDmasServiceProvidedId: row.allDmasServiceProvidedId ?? null,
-    dmaId: row.dmaId,
+    dmaId: row.dmaId ?? undefined,
     dmaMarketName: row.dmaMarketName,
     name: row.companyName,
     type:

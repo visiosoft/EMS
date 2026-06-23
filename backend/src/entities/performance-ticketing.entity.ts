@@ -38,7 +38,7 @@ export class PerformanceTicketing {
   @Column({
     name: 'PreSaleSpecialPrices',
     type: 'nvarchar',
-    length: 'max' as any,
+    length: 'max' as string,
     nullable: true,
   })
   preSaleSpecialPrices: string | null;
@@ -46,7 +46,7 @@ export class PerformanceTicketing {
   @Column({
     name: 'KidsTicketsPrices',
     type: 'nvarchar',
-    length: 'max' as any,
+    length: 'max' as string,
     nullable: true,
   })
   kidsTicketsPrices: string | null;

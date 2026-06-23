@@ -23,19 +23,16 @@ export class EntraTokenVerifier {
   constructor(private readonly configService: ConfigService) {}
 
   async verify(token: string): Promise<EntraRequestUser> {
-    const tenantId = this.configService.get<string>('ENTRA_TENANT_ID');
-    const audience = this.configService.get<string>('ENTRA_API_AUDIENCE');
+    const tenantId = this.getTenantId();
+    const audiences = this.getAudienceCandidates();
 
-    if (!tenantId || !audience) {
+    if (!tenantId || audiences.length === 0) {
       throw new ServiceUnavailableException(
-        'Admin user directory is not configured. Set ENTRA_TENANT_ID and ENTRA_API_AUDIENCE on the backend.',
+        'Entra user directory is not configured. Set ENTRA_TENANT_ID and ENTRA_CLIENT_ID on the backend.',
       );
     }
 
     const jwks = getJwks(tenantId);
-    const audiences = [audience, audience.replace(/^api:\/\//, '')].filter(
-      Boolean,
-    );
     const issuers = [
       `https://login.microsoftonline.com/${tenantId}/v2.0`,
       `https://sts.windows.net/${tenantId}/`,
@@ -80,13 +77,12 @@ export class EntraTokenVerifier {
   }
 
   buildTokenValidationDetail(token: string, error: unknown): string {
-    const tenantId = this.configService.get<string>('ENTRA_TENANT_ID', '');
-    const audience = this.configService.get<string>('ENTRA_API_AUDIENCE', '');
+    const tenantId = this.getTenantId();
+    const expectedAudiences = this.getAudienceCandidates();
     const expectedIssuers = [
       `https://login.microsoftonline.com/${tenantId}/v2.0`,
       `https://sts.windows.net/${tenantId}/`,
     ];
-    const expectedAudiences = [audience, audience.replace(/^api:\/\//, '')];
 
     try {
       const decoded = decodeJwt(token) as JWTPayload & {
@@ -123,6 +119,40 @@ export class EntraTokenVerifier {
         `JWT validation error: ${error instanceof Error ? error.message : 'Unknown JWT validation error'}`,
       ].join(' | ');
     }
+  }
+
+  private getConfigValue(...keys: string[]): string {
+    for (const key of keys) {
+      const value = this.configService.get<string>(key)?.trim();
+      if (value) return value;
+    }
+    return '';
+  }
+
+  private getTenantId(): string {
+    return this.getConfigValue('ENTRA_TENANT_ID', 'VITE_ENTRA_TENANT_ID');
+  }
+
+  private getClientId(): string {
+    return this.getConfigValue('ENTRA_CLIENT_ID', 'VITE_ENTRA_CLIENT_ID');
+  }
+
+  private getAudienceCandidates(): string[] {
+    const values = new Set<string>();
+    const add = (value: string) => {
+      const trimmed = value.trim();
+      if (!trimmed) return;
+      values.add(trimmed);
+      values.add(trimmed.replace(/^api:\/\//, ''));
+    };
+
+    add(this.getConfigValue('ENTRA_API_AUDIENCE'));
+
+    const clientId = this.getClientId();
+    add(clientId);
+    if (clientId) add(`api://${clientId}`);
+
+    return [...values];
   }
 }
 

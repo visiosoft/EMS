@@ -46,8 +46,53 @@ export class ArtistFinance {
   @Column({
     name: 'ArtistBackEndTerms',
     type: 'nvarchar',
-    length: 'max' as any,
+    length: 'max' as string,
     nullable: true,
   })
   artistBackEndTerms: string | null;
+
+  @Column({
+    name: 'OveragePercent',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
+  overagePercent: string | number | null;
+
+  @Column({
+    name: 'RoyaltyRate',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
+  royaltyRate: string | number | null;
+
+  @Column({
+    name: 'RoyaltyBasis',
+    type: 'nvarchar',
+    length: 50,
+    nullable: true,
+  })
+  royaltyBasis: string | null;
+
+  @Column({
+    name: 'IsCollateralizedDeal',
+    type: 'bit',
+    nullable: true,
+  })
+  isCollateralizedDeal: boolean | null;
+
+  @Column({
+    name: 'BuyoutAmount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
+  buyoutAmount: string | number | null;
+
+  @Column({ name: 'TourOfferLinkID', type: 'int', nullable: true })
+  tourOfferLinkId: number | null;
 }

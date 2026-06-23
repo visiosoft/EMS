@@ -9,6 +9,7 @@ export type LookupManageTableKey =
   | 'roles'
   | 'brands'
   | 'company-services'
+  | 'company-type-services'
   | 'services-provided'
   | 'dmas';
 
@@ -64,7 +65,9 @@ export type LookupManageCreatePayload = {
   id?: number;
   name?: string;
   companyId?: number;
+  companyTypeId?: number;
   serviceProvidedId?: number;
+  serviceProvidedIds?: number[];
   postalCode?: string;
 };
 
@@ -81,7 +84,9 @@ export function createLookupManageRow(
 export type LookupManageUpdatePayload = {
   name?: string;
   companyId?: number;
+  companyTypeId?: number;
   serviceProvidedId?: number;
+  serviceProvidedIds?: number[];
   postalCode?: string;
 };
 

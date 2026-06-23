@@ -1,4 +1,5 @@
 import { apiFetch, apiFetchMultipart } from './config';
+import type { ApiEngagementListRow } from './engagementApi';
 
 export interface ApiClass {
   classId: number;
@@ -8,6 +9,33 @@ export interface ApiClass {
 export interface ApiVenueType {
   venueTypeId: number;
   venueTypeName: string;
+}
+
+export interface ApiAgeRange {
+  ageRangeId: number;
+  ageRangeLabel: string;
+  sortOrder: number;
+}
+
+export interface ApiAdvertisingSubType {
+  advertisingSubTypeId: number;
+  subTypeName: string;
+  parentCategory: string | null;
+}
+
+export interface ApiTourMediaMixItem {
+  tourMediaMixId: number;
+  advertisingSubTypeId: number;
+  subTypeName: string;
+  parentCategory: string | null;
+  companyId: number | null;
+  companyName: string | null;
+}
+
+/** One Media Mix row to persist — companyId is optional (CompanyID is nullable). */
+export interface TourMediaMixInput {
+  advertisingSubTypeId: number;
+  companyId: number | null;
 }
 
 export interface ApiAttractionListRow {
@@ -28,6 +56,8 @@ export interface ApiTourListRow {
   className: string;
   audienceGender: string | null;
   audienceAgeRange: string | null;
+  audienceAgeRangeIds: number[];
+  audienceAgeRangeLabels: string[];
   ascap: boolean;
   bmi: boolean;
   sesac: boolean;
@@ -35,12 +65,19 @@ export interface ApiTourListRow {
   tourInsuranceLanguage: string | null;
   talentAgencyCompanyId: number | null;
   talentAgencyCompanyName: string | null;
+  tourManagementCompanyId: number | null;
+  tourManagementCompanyName: string | null;
+  jobId: number | null;
+  jobName: string | null;
+  talentAgentContactIds: number[];
+  talentAgentNames: string[];
   techRiderLinkId: number | null;
   venueTypePreferenceId: number | null;
   venueTypePreferenceName: string | null;
   tourStartDate: string | null;
   tourEndDate: string | null;
   tourBannerImageUrl: string | null;
+  mediaMix: ApiTourMediaMixItem[];
   appCreated: boolean;
 }
 
@@ -62,16 +99,22 @@ export interface CreateTourPayload {
   sesac?: boolean;
   gmr?: boolean;
   talentAgencyCompanyId?: number | null;
+  tourManagementCompanyId?: number | null;
+  talentAgentContactIds?: number[];
   audienceGender?: string | null;
   audienceAgeRange?: string | null;
+  audienceAgeRangeIds?: number[];
+  jobName?: string | null;
   tourInsuranceLanguage?: string | null;
   venueTypePreferenceId?: number | null;
   techRiderLinkId?: number | null;
   tourStartDate?: string | null;
   tourEndDate?: string | null;
+  mediaMix?: TourMediaMixInput[];
 }
 
 export type UpdateTourPayload = Partial<CreateTourPayload>;
+export type ApiTourEngagementRow = ApiEngagementListRow;
 
 export interface ApiPaginatedResponse<T> {
   data: T[];
@@ -144,11 +187,23 @@ function buildCreateTourFormData(body: CreateTourPayload): FormData {
   if (body.talentAgencyCompanyId != null && body.talentAgencyCompanyId >= 1) {
     fd.append('talentAgencyCompanyId', String(body.talentAgencyCompanyId));
   }
+  if (body.tourManagementCompanyId != null && body.tourManagementCompanyId >= 1) {
+    fd.append('tourManagementCompanyId', String(body.tourManagementCompanyId));
+  }
+  if (Array.isArray(body.talentAgentContactIds)) {
+    fd.append('talentAgentContactIds', JSON.stringify(body.talentAgentContactIds));
+  }
   if (body.audienceGender != null && body.audienceGender !== '') {
     fd.append('audienceGender', body.audienceGender);
   }
   if (body.audienceAgeRange != null && body.audienceAgeRange !== '') {
     fd.append('audienceAgeRange', body.audienceAgeRange);
+  }
+  if (Array.isArray(body.audienceAgeRangeIds)) {
+    fd.append('audienceAgeRangeIds', JSON.stringify(body.audienceAgeRangeIds));
+  }
+  if (body.jobName != null && body.jobName !== '') {
+    fd.append('jobName', body.jobName);
   }
   if (body.tourInsuranceLanguage != null && body.tourInsuranceLanguage !== '') {
     fd.append('tourInsuranceLanguage', body.tourInsuranceLanguage);
@@ -179,19 +234,28 @@ function buildUpdateTourFormData(body: UpdateTourPayload): FormData {
     'sesac',
     'gmr',
     'talentAgencyCompanyId',
+    'tourManagementCompanyId',
+    'talentAgentContactIds',
     'audienceGender',
     'audienceAgeRange',
+    'audienceAgeRangeIds',
+    'jobName',
     'tourInsuranceLanguage',
     'venueTypePreferenceId',
     'techRiderLinkId',
     'tourStartDate',
     'tourEndDate',
+    'mediaMix',
   ];
   for (const k of keys) {
     const v = body[k];
     if (v === undefined) continue;
     if (v === null) {
       fd.append(k, '');
+      continue;
+    }
+    if (Array.isArray(v)) {
+      fd.append(k, JSON.stringify(v));
       continue;
     }
     if (typeof v === 'boolean') {
@@ -226,6 +290,18 @@ export function updateTour(
 
 export function deleteTour(id: number) {
   return apiFetch<void>(`/tours/${id}`, { method: 'DELETE' });
+}
+
+export function fetchTourEngagements(tourId: number) {
+  return apiFetch<ApiTourEngagementRow[]>(`/engagements/by-tour/${tourId}`);
+}
+
+export function fetchTourAgeRanges() {
+  return apiFetch<ApiAgeRange[]>('/tours/age-ranges');
+}
+
+export function fetchAdvertisingSubTypes() {
+  return apiFetch<ApiAdvertisingSubType[]>('/tours/advertising-sub-types');
 }
 
 export function fetchClasses() {

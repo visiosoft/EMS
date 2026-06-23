@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, Menu, X } from "lucide-react";
+import { ChevronRight, Menu, X, User } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AppSuiteSwitcher } from "@/components/AppSuiteSwitcher";
 import { IaeLogoIcon } from "@/components/brand/IaeBrandMark";
 import { INTERNAL_NAV_ITEMS } from "../constants/navigation";
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
 
 export function InternalHeader() {
-  const { currentView, navigate } = useInternalNavigation();
+  const { currentView, navigate, viewData } = useInternalNavigation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   function isActive(itemKey: string) {
     if (itemKey === "employee-services") return currentView === "employee-services";
+    if (itemKey === "document-library") return currentView === "document-library";
     if (itemKey === "leadership") return currentView === "leadership";
     if (itemKey === "markets") return currentView === "markets";
     if (itemKey === "venues") return currentView === "venues";
@@ -60,18 +62,18 @@ export function InternalHeader() {
 
   return (
     <header className="sticky top-0 z-50 bg-black text-white shadow-[0_1px_0_rgba(255,255,255,0.08)]">
-      <div className="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-[1400px] px-4 sm:px-6 lg:px-8">
         <div className="flex min-h-[56px] items-center justify-between gap-5">
           <button
             type="button"
             onClick={() => navigate("home")}
-            className="shrink-0"
+            className="-ml-10 shrink-0"
             aria-label="iAE Company Hub home"
           >
             <IaeLogoIcon surface="on-dark" className="h-[31px] w-[70px]" />
           </button>
 
-          <nav className="hidden flex-1 items-center justify-center gap-7 xl:flex" aria-label="Primary">
+          <nav className="hidden flex-1 items-center justify-start gap-7 pl-24 xl:flex" aria-label="Primary">
             {INTERNAL_NAV_ITEMS.map((item) => {
               const active = isActive(item.key);
               if (item.view) {
@@ -100,6 +102,18 @@ export function InternalHeader() {
           </nav>
 
           <div className="flex min-w-0 flex-1 items-center justify-end gap-2 xl:hidden">
+            <AppSuiteSwitcher surface="dark" />
+            {currentView === "learning-portal" && (
+              <a
+                href="/internal/admin"
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1.5 rounded-full border border-white/20 bg-neutral-900/80 px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-neutral-800"
+              >
+                <User className="h-3.5 w-3.5 text-white/85" />
+                <span>Admin</span>
+              </a>
+            )}
             <span className="truncate rounded-full border border-white/25 bg-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/90">
               {activeItemLabel}
             </span>
@@ -114,8 +128,21 @@ export function InternalHeader() {
               <span className="sr-only">{mobileMenuOpen ? "Close menu" : "Open menu"}</span>
             </button>
           </div>
-
-          <div className="hidden w-[70px] shrink-0 xl:block" aria-hidden />
+ 
+          <div className="hidden shrink-0 xl:flex xl:items-center xl:gap-3">
+            <AppSuiteSwitcher surface="dark" />
+            {currentView === "learning-portal" && (
+              <a
+                href="/internal/admin"
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-2 rounded-full border border-white/20 bg-neutral-900/80 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-neutral-800"
+              >
+                <User className="h-4 w-4 text-white/85" />
+                <span>Admin</span>
+              </a>
+            )}
+          </div>
         </div>
       </div>
 

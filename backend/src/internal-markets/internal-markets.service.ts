@@ -18,6 +18,10 @@ export class InternalMarketsService {
   }
 
   listPostalCodes(marketName: string, offset: number, limit: number) {
-    return this.lookupsService.findPostalCodesByMarketName(marketName, offset, limit);
+    return this.lookupsService.findPostalCodesByMarketName(
+      marketName,
+      offset,
+      limit,
+    );
   }
 }

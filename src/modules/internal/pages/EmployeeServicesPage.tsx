@@ -5,8 +5,6 @@ import { IaeEmployeesTable } from "../components/IaeEmployeesTable";
 import { EMPLOYEE_SERVICE_ITEMS, type EmployeeServiceItem } from "../constants/pageData";
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
 import {
-  EmployeeHandbookIntroductionPage,
-  EmployeeHandbookPage,
   EmployeeHandbookSectionPage,
   resolveEmployeeHandbookView,
 } from "./EmployeeHandbookPage";
@@ -15,9 +13,10 @@ function resolveHandbookViewFromData(
   handbook?: string,
   handbookHash?: string,
 ): ReturnType<typeof resolveEmployeeHandbookView> {
-  if (handbook === "index" || handbook === "introduction" || handbook === "section" || handbook === "services") {
+  if (handbook === "index" || handbook === "section" || handbook === "services") {
     if (handbook !== "services") return handbook;
   }
+  if (handbook === "introduction") return "section";
   if (handbookHash) return resolveEmployeeHandbookView(`#${handbookHash}`);
   return "services";
 }
@@ -143,16 +142,13 @@ export function EmployeeServicesPage() {
     (item) => !item.handbookIndex && !item.companyMark,
   );
 
-  if (handbookView === "introduction") {
-    return <EmployeeHandbookIntroductionPage handbookHash={viewData.handbookHash} />;
-  }
-
-  if (handbookView === "section") {
-    return <EmployeeHandbookSectionPage handbookHash={viewData.handbookHash} />;
-  }
-
-  if (handbookView === "index") {
-    return <EmployeeHandbookPage />;
+  if (handbookView === "section" || handbookView === "index") {
+    return (
+      <EmployeeHandbookSectionPage
+        handbookHash={handbookView === "index" ? "" : viewData.handbookHash}
+        handbookSubsection={viewData.handbookSubsection}
+      />
+    );
   }
 
   const handleTileClick = (item: EmployeeServiceItem) => {
@@ -161,7 +157,7 @@ export function EmployeeServicesPage() {
       return;
     }
     if (item.handbookHash) {
-      openEmployeeHandbook("section", item.handbookHash);
+      openEmployeeHandbook("section", item.handbookHash, item.handbookSubsection);
       return;
     }
     if (item.internalView) {

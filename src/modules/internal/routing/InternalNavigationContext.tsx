@@ -24,7 +24,7 @@ type InternalNavigationContextValue = {
   viewData: InternalViewData;
   navigate: (view: InternalView, data?: InternalViewData) => void;
   navigateHandbook: (hash: string) => void;
-  openEmployeeHandbook: (handbook?: EmployeeHandbookView, handbookHash?: string) => void;
+  openEmployeeHandbook: (handbook?: EmployeeHandbookView, handbookHash?: string, handbookSubsection?: string) => void;
 };
 
 const InternalNavigationContext = createContext<InternalNavigationContextValue | null>(null);
@@ -34,37 +34,37 @@ export function InternalNavigationProvider({ children }: { children: ReactNode }
   const [legacyConsumed, setLegacyConsumed] = useState(false);
 
   const [currentView, setCurrentView] = useState<InternalView>(() => {
-    const legacy = readLegacyInternalRoute(location.pathname, location.hash);
+    const legacy = readLegacyInternalRoute(location.pathname, location.hash, location.search);
     const stored = readStoredInternalRoute();
-    if (legacy.view !== "home" || location.hash) return legacy.view;
+    if (legacy.view !== "home" || location.hash || location.search) return legacy.view;
     return stored?.view ?? legacy.view;
   });
 
   const [viewData, setViewData] = useState<InternalViewData>(() => {
-    const legacy = readLegacyInternalRoute(location.pathname, location.hash);
+    const legacy = readLegacyInternalRoute(location.pathname, location.hash, location.search);
     const stored = readStoredInternalRoute();
-    if (legacy.view !== "home" || location.hash) return legacy.viewData;
+    if (legacy.view !== "home" || location.hash || location.search) return legacy.viewData;
     return stored?.viewData ?? legacy.viewData;
   });
 
   useEffect(() => {
     if (legacyConsumed) return;
-    const legacy = readLegacyInternalRoute(location.pathname, location.hash);
+    const legacy = readLegacyInternalRoute(location.pathname, location.hash, location.search);
     const hasLegacyPath =
       location.pathname !== "/internal" &&
       location.pathname !== "/internal/" &&
       location.pathname.startsWith("/internal");
-    if (hasLegacyPath || location.hash) {
+    if (hasLegacyPath || location.hash || location.search) {
       setCurrentView(legacy.view);
       setViewData(legacy.viewData);
     }
     setLegacyConsumed(true);
-    normalizeInternalBrowserUrl();
-  }, [legacyConsumed, location.hash, location.pathname]);
+    normalizeInternalBrowserUrl(legacy.view);
+  }, [legacyConsumed, location.hash, location.pathname, location.search]);
 
   useEffect(() => {
     writeStoredInternalRoute(currentView, viewData);
-    normalizeInternalBrowserUrl();
+    normalizeInternalBrowserUrl(currentView);
   }, [currentView, viewData]);
 
   const navigate = useCallback((view: InternalView, data: InternalViewData = {}) => {
@@ -73,9 +73,10 @@ export function InternalNavigationProvider({ children }: { children: ReactNode }
   }, []);
 
   const openEmployeeHandbook = useCallback(
-    (handbook: EmployeeHandbookView = "index", handbookHash?: string) => {
+    (handbook: EmployeeHandbookView = "index", handbookHash?: string, handbookSubsection?: string) => {
       const data: InternalViewData = { handbook };
       if (handbookHash) data.handbookHash = handbookHash.replace(/^#/, "");
+      if (handbookSubsection) data.handbookSubsection = handbookSubsection;
       navigate("employee-services", data);
     },
     [navigate],

@@ -14,6 +14,9 @@ import { AttractionsPage } from "@/modules/internal/pages/AttractionsPage";
 import { MarketingPage } from "@/modules/internal/pages/MarketingPage";
 import { ProductionPage } from "@/modules/internal/pages/ProductionPage";
 import { TicketingSalesPage } from "@/modules/internal/pages/TicketingSalesPage";
+import { LearningPortalPage } from "@/modules/internal/pages/LearningPortalPage";
+import { LearningAdminPage } from "@/modules/internal/pages/LearningAdminPage";
+import { DocumentLibraryPage } from "@/features/document-library/pages/DocumentLibraryPage";
 
 function InternalAppViews() {
   const { currentView } = useInternalNavigation();
@@ -45,6 +48,10 @@ function InternalAppViews() {
       return <ProductionPage />;
     case "department-ticketing-sales":
       return <TicketingSalesPage />;
+    case "learning-portal":
+      return <LearningPortalPage />;
+    case "document-library":
+      return <DocumentLibraryPage />;
     case "home":
     default:
       return <InternalHomePage />;
@@ -61,6 +68,12 @@ export default function InternalApp() {
 }
 
 function InternalAppShell() {
+  const { currentView } = useInternalNavigation();
+  
+  if (currentView === "learning-admin") {
+    return <LearningAdminPage />;
+  }
+
   return (
     <InternalLayout>
       <InternalAppViews />

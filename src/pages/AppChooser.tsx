@@ -11,7 +11,6 @@ import {
 } from "@/auth/entra";
 import { IaeLogoFull } from "@/components/ems/Layout";
 import { IaeBrandMark } from "@/components/brand/IaeBrandMark";
-import { canAccessCompanyHub } from "@/routing/appSuite";
 import { APP_CHOOSER_PATH, EMS_ROOT, INTERNAL_HOME_PATH, LOGIN_PATH } from "@/routing/paths";
 import { rememberWorkspacePath } from "@/routing/workspacePreference";
 
@@ -21,22 +20,15 @@ const AppChooser = () => {
   const account = getActiveAccount() ?? accounts[0] ?? null;
   const displayName = getAccountName(account);
   const email = getAccountEmail(account);
-  const canUseCompanyHub = canAccessCompanyHub(account);
-
   if (!isAuthenticated && !account) {
     return <Navigate to={LOGIN_PATH} replace state={{ from: APP_CHOOSER_PATH }} />;
-  }
-
-  if (!canUseCompanyHub) {
-    rememberWorkspacePath(EMS_ROOT);
-    return <Navigate to={EMS_ROOT} replace />;
   }
 
   return (
     <div className="min-h-screen overflow-hidden bg-background text-foreground">
       <div className="relative flex min-h-screen items-center justify-center px-4 py-12">
         <div
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(3,201,169,0.12),_transparent_32%),radial-gradient(circle_at_bottom_right,_rgba(59,130,246,0.12),_transparent_28%)]"
+          className="pointer-events-none absolute inset-0 bg-muted/30"
           aria-hidden
         />
 
@@ -55,10 +47,10 @@ const AppChooser = () => {
               </Button>
             </div>
             <div>
-              <CardTitle className="text-2xl sm:text-3xl">Choose your workspace</CardTitle>
+              <CardTitle className="text-2xl sm:text-3xl">Welcome to Spotlight</CardTitle>
               <CardDescription className="mt-2 max-w-xl text-sm leading-6">
                 Signed in as {displayName}
-                {email ? ` (${email})` : ""}. Open Event Management for operations data, or the Company Hub for
+                {email ? ` (${email})` : ""}. Choose Event Management for operations data, or the Company Hub for
                 employee resources and intranet content.
               </CardDescription>
             </div>

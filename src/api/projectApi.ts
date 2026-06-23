@@ -24,9 +24,12 @@ import type { ApiPaginatedResponse } from './companyApi';
 export const PROJECT_STAGE_VALUES = [
   'Under Construction',
   'Pending',
+  'Confirmed',
   'Inactive',
 ] as const;
 export type ProjectStage = (typeof PROJECT_STAGE_VALUES)[number];
+
+export const PROJECT_CONVERSION_STAGE: ProjectStage = 'Confirmed';
 
 export interface ProjectStageMeta {
   projectStages: string[];
@@ -111,6 +114,9 @@ export interface ApiProjectVenue {
   /** Display name (denormalised from Company/Venue for convenience) */
   venueCompanyName: string | null;
   venueName: string | null;
+  /** Venue company DMA display data */
+  venueDmaId?: number | null;
+  venueDmaMarketName?: string | null;
   /** NOT NULL in DB */
   venueStatus: VenueStatus;
 
@@ -146,6 +152,7 @@ export interface CreateProjectVenuePayload {
   splitPct?: number | null;
   breakeven?: number | null;
   marketingCoOp?: number | null;
+  engagementId?: number;
 }
 
 export type UpdateProjectVenuePayload = Partial<Omit<CreateProjectVenuePayload, 'venueCompanyId'>>;
@@ -153,6 +160,12 @@ export type UpdateProjectVenuePayload = Partial<Omit<CreateProjectVenuePayload, 
 // ---------------------------------------------------------------------------
 // Project (EngagementProject)
 // ---------------------------------------------------------------------------
+
+export interface ProjectOpeningPerformancePayload {
+  performanceDate: string;
+  performanceTime: string;
+  performanceStatus?: string | null;
+}
 
 export interface ApiProjectListRow {
   /** PK – EngagementProjectID */
@@ -188,6 +201,9 @@ export interface ApiProjectListRow {
   agentContactId?: string | null;
   targetOnSale?: string | null;
   notes?: string | null;
+  /** Set once this project has generated its engagement and becomes view-only. */
+  convertedEngagementId?: number | null;
+  isReadOnly?: boolean;
 }
 
 export interface ApiProjectDetail extends ApiProjectListRow {
@@ -220,6 +236,7 @@ export interface CreateProjectPayload {
 
   /** Venues and per-venue proposed dates (required for create-project wizard). */
   venues: CreateProjectVenuePayload[];
+
 }
 
 export interface UpdateProjectPayload {
@@ -236,6 +253,8 @@ export interface UpdateProjectPayload {
   /** Replaces all project–DMA rows when provided (empty array clears). */
   dmaIds?: number[];
 
+
+
   // FRONTEND-ONLY
   name?: string | null;
   bookerId?: string | null;
@@ -244,11 +263,20 @@ export interface UpdateProjectPayload {
   notes?: string | null;
 }
 
+export interface ProjectConversionResult {
+  engagementId: number | null;
+  converted: boolean;
+}
+
+export interface CreateProjectResult extends ProjectConversionResult {
+  engagementProjectId: number;
+}
+
 // ---------------------------------------------------------------------------
 // API functions
 // ---------------------------------------------------------------------------
 
-/** Fixed list: `Under Construction`, `Pending`, `Inactive` (see `PROJECT_STAGE_VALUES`). */
+/** Fixed list accepted for project writes (see `PROJECT_STAGE_VALUES`). */
 export function fetchProjectStageMeta() {
   return apiFetch<ProjectStageMeta>('/projects/meta/project-stages');
 }
@@ -305,14 +333,14 @@ export function fetchProject(id: number) {
 }
 
 export function createProject(body: CreateProjectPayload) {
-  return apiFetch<{ engagementProjectId: number }>('/projects', {
+  return apiFetch<CreateProjectResult>('/projects', {
     method: 'POST',
     body: JSON.stringify(body),
   });
 }
 
 export function updateProject(id: number, body: UpdateProjectPayload) {
-  return apiFetch<void>(`/projects/${id}`, {
+  return apiFetch<ProjectConversionResult>(`/projects/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(body),
   });

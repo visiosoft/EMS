@@ -1,6 +1,7 @@
 import {
   Injectable,
   BadRequestException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -10,9 +11,11 @@ import { Attraction } from '../entities/attraction.entity';
 import { Class } from '../entities/class.entity';
 import { Company } from '../entities/company.entity';
 import { Contact } from '../entities/contact.entity';
+import { ContactAssignment } from '../entities/contact-assignment.entity';
 import { Engagement } from '../entities/engagement.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { Performance } from '../entities/performance.entity';
+import { PerformanceTicketing } from '../entities/performance-ticketing.entity';
 import { TicketingSales } from '../entities/ticketing-sales.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
@@ -85,7 +88,7 @@ export interface DailySalesRow {
   dmaMarketName: string | null;
 }
 
-/** Row returned by GET /daily-sales/by-performance — one row per Performance */
+/** Row returned by GET /daily-sales/by-performance — one row per Engagement */
 export interface PerformanceSalesRow {
   performanceId: number;
   engagementId: number;
@@ -117,6 +120,16 @@ export interface PerformanceSalesRow {
   /** Engagement baseline (same for every row in this engagement); used for UI hints. */
   engagementSellableCapacity: number | null;
   engagementGrossPotential: number | null;
+  entertainmentComplexNames: string | null;
+}
+
+export interface PerformanceCompanyFilterOption {
+  companyId: number;
+  companyName: string;
+  companyTypeNames: string[];
+  physicalCity: string | null;
+  physicalStateProvince: string | null;
+  dmaMarketName: string | null;
 }
 
 /** Paged by-performance list + global totals (same filter as the table). */
@@ -132,13 +145,15 @@ export interface PerformanceSalesPageResult {
     todayRevenue: number;
     yesterdayTickets: number;
     yesterdayRevenue: number;
+    totalTickets: number;
+    totalRevenue: number;
   };
   /** Distinct attractions in the current report (same filters as the table); used for sales summary links. */
   attractions: Array<{ attractionId: number; attractionName: string }>;
   filterOptions: {
     genres: string[];
     tours: string[];
-    companies: string[];
+    companies: PerformanceCompanyFilterOption[];
     venues: string[];
     contacts: string[];
   };
@@ -151,6 +166,7 @@ export interface EngagementSalesDashboardDto {
   header: {
     attractionName: string | null;
     tourName: string;
+    entertainmentComplexNames: string | null;
     venueLabel: string;
     city: string | null;
     stateProvince: string | null;
@@ -159,6 +175,10 @@ export interface EngagementSalesDashboardDto {
   };
   sellableCapacity: number | null;
   grossPotential: number | null;
+  marketingWindow: {
+    preSaleDate: string | null;
+    onSaleDate: string | null;
+  };
   kpis: {
     totalRevenue: number;
     ticketsDistributed: number;
@@ -266,12 +286,18 @@ function totalsForReportingDay(
   let tickets = 0;
   let revenue = 0;
   for (const pid of perfIds) {
-    const rows = byPerf.get(pid) ?? [];
+    const rows = [...(byPerf.get(pid) ?? [])].sort((a, b) =>
+      a.salesDate.localeCompare(b.salesDate),
+    );
+    let latest: { salesDate: string; tickets: number; revenue: number } | null =
+      null;
     for (const row of rows) {
-      if (row.salesDate <= day) {
-        tickets += row.tickets;
-        revenue += row.revenue;
-      }
+      if (row.salesDate > day) break;
+      latest = row;
+    }
+    if (latest) {
+      tickets += latest.tickets;
+      revenue += latest.revenue;
     }
   }
   return { tickets, revenue };
@@ -297,8 +323,8 @@ function revenueRemainingDisplay(
 /**
  * One point per calendar day from earliest sale to `asOf`.
  * - `totalTickets` / `totalRevenue` = cumulative through this day across the requested performances.
- * - `dailyTickets` / `dailyRevenue` = new sales recorded ON this calendar day only.
- * Each stored dbo.TicketingSales row is the amount for that calendar day only (not a running snapshot).
+ * - `dailyTickets` / `dailyRevenue` = positive change from the previous calendar day.
+ * Each stored dbo.TicketingSales row is the cumulative snapshot as of that sales date.
  */
 function buildDailySeries(
   asOf: string,
@@ -315,22 +341,24 @@ function buildDailySeries(
   dailyRevenue: number;
 }> {
   let minD: string | null = null;
-  const dailyTickets = new Map<string, number>();
-  const dailyRevenue = new Map<string, number>();
+  const cursors = new Map<
+    number,
+    {
+      rows: { salesDate: string; tickets: number; revenue: number }[];
+      index: number;
+      tickets: number;
+      revenue: number;
+    }
+  >();
   for (const pid of perfIds) {
-    const rows = byPerf.get(pid);
+    const rows = [...(byPerf.get(pid) ?? [])].sort((a, b) =>
+      a.salesDate.localeCompare(b.salesDate),
+    );
     if (!rows?.length) continue;
     for (const r of rows) {
       if (!minD || r.salesDate < minD) minD = r.salesDate;
-      dailyTickets.set(
-        r.salesDate,
-        (dailyTickets.get(r.salesDate) ?? 0) + r.tickets,
-      );
-      dailyRevenue.set(
-        r.salesDate,
-        (dailyRevenue.get(r.salesDate) ?? 0) + r.revenue,
-      );
     }
+    cursors.set(pid, { rows, index: 0, tickets: 0, revenue: 0 });
   }
   if (!minD) {
     return [
@@ -350,31 +378,51 @@ function buildDailySeries(
     dailyTickets: number;
     dailyRevenue: number;
   }> = [];
-  let cumTickets = 0;
-  let cumRevenue = 0;
+  let prevTickets = 0;
+  let prevRevenue = 0;
   for (let d = minD; d <= asOf; d = ymdAddDays(d, 1)) {
-    const dayT = dailyTickets.get(d) ?? 0;
-    const dayR = dailyRevenue.get(d) ?? 0;
-    cumTickets += dayT;
-    cumRevenue += dayR;
+    let totalTickets = 0;
+    let totalRevenue = 0;
+    for (const cursor of cursors.values()) {
+      while (
+        cursor.index < cursor.rows.length &&
+        cursor.rows[cursor.index].salesDate <= d
+      ) {
+        const row = cursor.rows[cursor.index];
+        cursor.tickets = row.tickets;
+        cursor.revenue = row.revenue;
+        cursor.index += 1;
+      }
+      totalTickets += cursor.tickets;
+      totalRevenue += cursor.revenue;
+    }
+    const dayT = Math.max(0, totalTickets - prevTickets);
+    const dayR = Math.max(0, totalRevenue - prevRevenue);
     out.push({
       date: d,
-      totalTickets: cumTickets,
-      totalRevenue: cumRevenue,
+      totalTickets,
+      totalRevenue,
       dailyTickets: dayT,
       dailyRevenue: dayR,
     });
+    prevTickets = totalTickets;
+    prevRevenue = totalRevenue;
   }
   return out;
 }
 
 @Injectable()
 export class DailySalesService {
+  private readonly logger = new Logger(DailySalesService.name);
+  private lastConvertedProjectPerformanceRepairAt = 0;
+
   constructor(
     @InjectRepository(TicketingSales)
     private readonly salesRepo: Repository<TicketingSales>,
     @InjectRepository(Performance)
     private readonly performanceRepo: Repository<Performance>,
+    @InjectRepository(PerformanceTicketing)
+    private readonly performanceTicketingRepo: Repository<PerformanceTicketing>,
     @InjectRepository(Engagement)
     private readonly engagementRepo: Repository<Engagement>,
     @InjectRepository(Attraction)
@@ -386,6 +434,158 @@ export class DailySalesService {
   ) {}
 
   /**
+   * Older project conversions can leave Engagement rows without dbo.Performance rows.
+   * Daily Sales and Sales Summary are performance-date driven, so those engagements
+   * are invisible until their saved project show dates are copied into Performance.
+   */
+  private async ensureConvertedProjectPerformancesFromOptions(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastConvertedProjectPerformanceRepairAt < 30_000) return;
+    this.lastConvertedProjectPerformanceRepairAt = now;
+
+    try {
+      const rows = await this.performanceRepo.manager.query(`
+        ;WITH ConvertedProject AS (
+          SELECT
+            e.EngagementID,
+            ep.EngagementProjectID
+          FROM dbo.Engagement e
+          INNER JOIN dbo.EngagementXref x
+            ON x.EngagementID = e.EngagementID
+          INNER JOIN dbo.EngagementProject ep
+            ON x.SourceEngagementID = CONCAT(N'EngagementProject:', CONVERT(nvarchar(30), ep.EngagementProjectID))
+        ),
+        Candidate AS (
+          SELECT DISTINCT
+            cp.EngagementID,
+            CONVERT(date, po.ProposedDate) AS PerformanceDate,
+            COALESCE(CONVERT(time, po.ProposedTime), CONVERT(time, '20:00:00')) AS PerformanceTime,
+            CASE
+              WHEN po.OptionStatus IN (N'Public', N'Private') THEN po.OptionStatus
+              ELSE N'Public'
+            END AS PerformanceStatus
+          FROM ConvertedProject cp
+          INNER JOIN dbo.EngagementProjectPerformanceOption po
+            ON po.EngagementProjectID = cp.EngagementProjectID
+          WHERE po.ProposedDate IS NOT NULL
+            AND (
+              po.EngagementProjectVenueID IS NULL
+              OR EXISTS (
+                SELECT 1
+                FROM dbo.EngagementProjectVenue epv
+                INNER JOIN dbo.EngagementVenue ev
+                  ON ev.EngagementID = cp.EngagementID
+                 AND ev.VenueCompanyID = epv.VenueCompanyID
+                WHERE epv.EngagementProjectVenueID = po.EngagementProjectVenueID
+              )
+            )
+        )
+        INSERT INTO dbo.Performance (
+          EngagementID,
+          PerformanceStatus,
+          PerformanceDate,
+          PerformanceTime,
+          created_by,
+          created_at
+        )
+        SELECT
+          c.EngagementID,
+          c.PerformanceStatus,
+          c.PerformanceDate,
+          c.PerformanceTime,
+          N'system',
+          GETUTCDATE()
+        FROM Candidate c
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM dbo.Performance p
+          WHERE p.EngagementID = c.EngagementID
+            AND CONVERT(date, p.PerformanceDate) = c.PerformanceDate
+            AND CONVERT(time, p.PerformanceTime) = c.PerformanceTime
+        );
+
+        SELECT @@ROWCOUNT AS insertedCount;
+      `);
+      const inserted = Number(rows?.[0]?.insertedCount ?? 0);
+      if (inserted > 0) {
+        this.logger.log(
+          `Backfilled ${inserted} missing performance row(s) for converted project engagement(s).`,
+        );
+      }
+    } catch (error) {
+      this.lastConvertedProjectPerformanceRepairAt = 0;
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Could not repair converted-project performance rows for Daily Sales: ${message}`,
+      );
+    }
+  }
+
+  private async getMarketingWindowForPerformances(perfIds: number[]): Promise<{
+    preSaleDate: string | null;
+    onSaleDate: string | null;
+  }> {
+    if (perfIds.length === 0) {
+      return { preSaleDate: null, onSaleDate: null };
+    }
+
+    const rows: PerformanceTicketing[] = [];
+    const chunkSize = 1000;
+    for (let i = 0; i < perfIds.length; i += chunkSize) {
+      const chunk = perfIds.slice(i, i + chunkSize);
+      const chunkRows = await this.performanceTicketingRepo.find({
+        where: { performanceId: In(chunk) },
+        order: { performanceId: 'ASC', ticketingId: 'ASC' },
+      });
+      rows.push(...chunkRows);
+    }
+    rows.sort((a, b) => {
+      if (a.performanceId !== b.performanceId) {
+        return a.performanceId - b.performanceId;
+      }
+      return a.ticketingId - b.ticketingId;
+    });
+
+    const firstByPerformance = new Map<number, PerformanceTicketing>();
+    for (const row of rows) {
+      if (!firstByPerformance.has(row.performanceId)) {
+        firstByPerformance.set(row.performanceId, row);
+      }
+    }
+
+    const preSaleDates: string[] = [];
+    const onSaleDates: string[] = [];
+    for (const row of firstByPerformance.values()) {
+      const preSaleDate = toYmdString(row.preSaleDate);
+      const onSaleDate = toYmdString(row.onSaleDate);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(preSaleDate)) {
+        preSaleDates.push(preSaleDate);
+      }
+      if (/^\d{4}-\d{2}-\d{2}$/.test(onSaleDate)) {
+        onSaleDates.push(onSaleDate);
+      }
+    }
+
+    return {
+      preSaleDate: preSaleDates.sort()[0] ?? null,
+      onSaleDate: onSaleDates.sort()[0] ?? null,
+    };
+  }
+
+  private searchTokens(value: string | null | undefined): string[] {
+    return [
+      ...new Set(
+        String(value ?? '')
+          .trim()
+          .toLowerCase()
+          .split(/[^a-z0-9]+/)
+          .map((token) => token.trim())
+          .filter(Boolean),
+      ),
+    ].slice(0, 8);
+  }
+
+  /**
    * Map the signed-in Entra user to dbo.Contact via dbo.ContactInfo.Email.
    * IAE staff on engagements are stored as ContactID in dbo.EngagementIAEContact.
    */
@@ -395,7 +595,12 @@ export class DailySalesService {
     const row = await this.contactRepo
       .createQueryBuilder('c')
       .innerJoin('c.contactInfo', 'ci')
+      .innerJoin(ContactAssignment, 'ca', 'ca.contactId = c.contactId')
+      .innerJoin(Company, 'internalCompany', 'internalCompany.companyId = ca.companyId')
       .where('LOWER(LTRIM(RTRIM(ci.email))) = :email', { email })
+      .andWhere('internalCompany.isInternal = :isInternal', {
+        isInternal: true,
+      })
       .select('c.contactId', 'contactId')
       .getRawOne<{ contactId: number | string }>();
     if (row?.contactId == null) return null;
@@ -406,6 +611,8 @@ export class DailySalesService {
   // ─── GET /daily-sales (legacy flat list) ──────────────────────────────────
 
   async findAll(engagementId?: number): Promise<DailySalesRow[]> {
+    await this.ensureConvertedProjectPerformancesFromOptions();
+
     const qb = this.salesRepo
       .createQueryBuilder('ts')
       .innerJoin(Performance, 'p', 'p.performanceId = ts.performanceId')
@@ -484,53 +691,9 @@ export class DailySalesService {
 
   // ─── GET /daily-sales/by-performance (paged) ────────────────────────────
   /**
-   * One page of performances for Daily Sales. Sales columns still respect asOf;
-   * show timing filters which performance rows appear (default: upcoming).
+   * One page of engagements for Daily Sales. Sales columns still respect asOf;
+   * show timing filters still determine which performances make an engagement eligible (default: upcoming).
    */
-  private applyByPerformanceSort(
-    qb: SelectQueryBuilder<Performance>,
-    sortByRaw?: string,
-    sortDirRaw?: string,
-  ): void {
-    const sortBy = (sortByRaw ?? '').trim().toLowerCase();
-    const sortDir =
-      (sortDirRaw ?? '').trim().toLowerCase() === 'desc' ? 'DESC' : 'ASC';
-    const addChronoTie = () => {
-      qb.addOrderBy('p.performanceDate', 'ASC')
-        .addOrderBy('p.performanceTime', 'ASC')
-        .addOrderBy('p.performanceId', 'ASC');
-    };
-    if (sortBy === 'attraction') {
-      qb.orderBy('a.attractionName', sortDir);
-      addChronoTie();
-    } else if (sortBy === 'tour') {
-      qb.orderBy('t.tourName', sortDir);
-      addChronoTie();
-    } else if (sortBy === 'venue') {
-      qb.orderBy('vc.companyName', sortDir).addOrderBy('v.venueName', sortDir);
-      addChronoTie();
-    } else if (sortBy === 'city') {
-      qb.orderBy('addr.city', sortDir);
-      addChronoTie();
-    } else if (sortBy === 'state') {
-      qb.orderBy('addr.stateProvince', sortDir);
-      addChronoTie();
-    } else if (sortBy === 'status' || sortBy === 'engagement') {
-      qb.orderBy('e.engagementStatus', sortDir);
-      addChronoTie();
-    } else if (sortBy === 'todaytickets') {
-      qb.orderBy('ts_today.performanceSalesQuantity', sortDir);
-      addChronoTie();
-    } else if (sortBy === 'todayrevenue') {
-      qb.orderBy('ts_today.performanceSalesRevenue', sortDir);
-      addChronoTie();
-    } else {
-      qb.orderBy('p.performanceDate', sortDir)
-        .addOrderBy('p.performanceTime', sortDir)
-        .addOrderBy('p.performanceId', 'ASC');
-    }
-  }
-
   async findByPerformancePage(
     asOfDateParam: string | undefined,
     pageIn: number,
@@ -560,6 +723,12 @@ export class DailySalesService {
     const performanceDate = this.normalizeOptionalYmd(performanceDateRaw);
     const startDate = this.normalizeOptionalYmd(startDateRaw);
     const endDate = this.normalizeOptionalYmd(endDateRaw);
+    const companyToken = companyRaw?.trim() || undefined;
+    const parsedCompanyId = Number(companyToken);
+    const companyId =
+      companyToken && Number.isInteger(parsedCompanyId) && parsedCompanyId > 0
+        ? parsedCompanyId
+        : undefined;
 
     if (startDate && endDate && endDate < startDate) {
       throw new BadRequestException({
@@ -577,6 +746,8 @@ export class DailySalesService {
           'Single performance day must fall within the selected start and end range.',
       });
     }
+
+    await this.ensureConvertedProjectPerformancesFromOptions();
 
     const yesterdayDate = ymdAddDays(asOf, -1);
     const eventsScope = (eventsScopeRaw ?? '').trim().toLowerCase();
@@ -605,6 +776,8 @@ export class DailySalesService {
             todayRevenue: 0,
             yesterdayTickets: 0,
             yesterdayRevenue: 0,
+            totalTickets: 0,
+            totalRevenue: 0,
           },
           attractions: [],
           filterOptions: await this.getByPerformanceFilterOptions(asOf, {
@@ -624,7 +797,9 @@ export class DailySalesService {
       endDate,
       genre: genreRaw?.trim() || undefined,
       tourName: tourRaw?.trim() || undefined,
-      companyName: companyRaw?.trim() || undefined,
+      companyId,
+      // Keep old bookmarked report URLs working while the UI moves to IDs.
+      companyName: companyId == null ? companyToken : undefined,
       venueName: venueRaw?.trim() || undefined,
       contactName: contactRaw?.trim() || undefined,
       myIaeContactId: myIaeContactId ?? undefined,
@@ -632,84 +807,102 @@ export class DailySalesService {
         explicitIaeContactIds.length > 0 ? explicitIaeContactIds : undefined,
     });
 
-    // Run in parallel: previously (attraction list → count) were sequential, doubling wait time
-    // on large dbo.Performance sets. Count + rollups + page each scan the same join pattern.
-    const [attractions, total, agg, rawItems, filterOptions] =
+    const sortBy = (sortByRaw ?? '').trim().toLowerCase();
+    const sortDir: 'ASC' | 'DESC' =
+      (sortDirRaw ?? '').trim().toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+    const engagementSortQb = baseQb
+      .clone()
+      .select('e.engagementId', 'engagementId')
+      .addSelect('MIN(a.attractionName)', 'sortAttractionName')
+      .addSelect('MIN(t.tourName)', 'sortTourName')
+      .addSelect('MIN(vc.companyName)', 'sortVenueCompanyName')
+      .addSelect('MIN(v.venueName)', 'sortVenueName')
+      .addSelect('MIN(addr.city)', 'sortCity')
+      .addSelect('MIN(addr.stateProvince)', 'sortStateProvince')
+      .addSelect('MIN(e.engagementStatus)', 'sortEngagementStatus')
+      .addSelect(
+        'COALESCE(SUM(CAST(ts_today.performanceSalesQuantity AS BIGINT)), 0)',
+        'sortTodayTickets',
+      )
+      .addSelect(
+        'COALESCE(SUM(CAST(ts_today.performanceSalesRevenue AS decimal(18,2))), 0)',
+        'sortTodayRevenue',
+      )
+      .addSelect('MIN(CONVERT(date, p.performanceDate))', 'sortPerformanceDate')
+      .addSelect('MIN(CONVERT(time, p.performanceTime))', 'sortPerformanceTime')
+      .addSelect('MIN(p.performanceId)', 'sortPerformanceId')
+      .groupBy('e.engagementId');
+
+    if (sortBy === 'attraction') {
+      engagementSortQb
+        .orderBy('sortAttractionName', sortDir)
+        .addOrderBy('sortPerformanceDate', 'ASC')
+        .addOrderBy('sortPerformanceTime', 'ASC')
+        .addOrderBy('sortPerformanceId', 'ASC');
+    } else if (sortBy === 'tour') {
+      engagementSortQb
+        .orderBy('sortTourName', sortDir)
+        .addOrderBy('sortPerformanceDate', 'ASC')
+        .addOrderBy('sortPerformanceTime', 'ASC')
+        .addOrderBy('sortPerformanceId', 'ASC');
+    } else if (sortBy === 'venue') {
+      engagementSortQb
+        .orderBy('sortVenueCompanyName', sortDir)
+        .addOrderBy('sortVenueName', sortDir)
+        .addOrderBy('sortPerformanceDate', 'ASC')
+        .addOrderBy('sortPerformanceTime', 'ASC')
+        .addOrderBy('sortPerformanceId', 'ASC');
+    } else if (sortBy === 'city') {
+      engagementSortQb
+        .orderBy('sortCity', sortDir)
+        .addOrderBy('sortPerformanceDate', 'ASC')
+        .addOrderBy('sortPerformanceTime', 'ASC')
+        .addOrderBy('sortPerformanceId', 'ASC');
+    } else if (sortBy === 'state') {
+      engagementSortQb
+        .orderBy('sortStateProvince', sortDir)
+        .addOrderBy('sortPerformanceDate', 'ASC')
+        .addOrderBy('sortPerformanceTime', 'ASC')
+        .addOrderBy('sortPerformanceId', 'ASC');
+    } else if (sortBy === 'status' || sortBy === 'engagement') {
+      engagementSortQb
+        .orderBy('sortEngagementStatus', sortDir)
+        .addOrderBy('sortPerformanceDate', 'ASC')
+        .addOrderBy('sortPerformanceTime', 'ASC')
+        .addOrderBy('sortPerformanceId', 'ASC');
+    } else if (sortBy === 'todaytickets') {
+      engagementSortQb
+        .orderBy('sortTodayTickets', sortDir)
+        .addOrderBy('sortPerformanceDate', 'ASC')
+        .addOrderBy('sortPerformanceTime', 'ASC')
+        .addOrderBy('sortPerformanceId', 'ASC');
+    } else if (sortBy === 'todayrevenue') {
+      engagementSortQb
+        .orderBy('sortTodayRevenue', sortDir)
+        .addOrderBy('sortPerformanceDate', 'ASC')
+        .addOrderBy('sortPerformanceTime', 'ASC')
+        .addOrderBy('sortPerformanceId', 'ASC');
+    } else {
+      engagementSortQb
+        .orderBy('sortPerformanceDate', sortDir)
+        .addOrderBy('sortPerformanceTime', sortDir)
+        .addOrderBy('sortPerformanceId', 'ASC');
+    }
+
+    // Run in parallel: count + rollups + page each scan the same join pattern.
+    const [attractions, totalRaw, agg, pagedEngagementRows, filterOptions] =
       await Promise.all([
         this.getDistinctAttractionsFromBase(baseQb),
-        baseQb.clone().getCount(),
+        baseQb
+          .clone()
+          .select('COUNT(DISTINCT e.engagementId)', 'total')
+          .getRawOne<{ total: string | number }>(),
         this.sumSalesForByPerformanceQuery(baseQb.clone(), asOf),
-        (async () => {
-          const pageQb = baseQb
-            .clone()
-            .select([
-              'p.performanceId                                         AS performanceId',
-              'p.engagementId                                         AS engagementId',
-              'CONVERT(varchar(10), p.performanceDate, 120)           AS performanceDate',
-              'CONVERT(varchar(8),  p.performanceTime, 108)          AS performanceTime',
-              'p.performanceStatus                                    AS performanceStatus',
-              'e.engagementStatus                                     AS engagementStatus',
-              'e.sellableCapacity                                     AS engagementSellableCapacity',
-              'e.grossPotential                                       AS engagementGrossPotential',
-              'a.attractionId                                         AS attractionId',
-              'a.attractionName                                       AS attractionName',
-              'cls.className                                          AS genre',
-              't.tourName                                             AS tourName',
-              'vc.companyName                                         AS venueCompanyName',
-              'v.venueName                                            AS venueName',
-              'addr.city                                              AS city',
-              'addr.stateProvince                                   AS stateProvince',
-              `(
-              SELECT TOP 1 CONCAT(ci.FirstName, N' ', ci.LastName)
-              FROM dbo.ContactAssignment ca
-              INNER JOIN dbo.Contact c ON c.ContactID = ca.ContactID
-              INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
-              WHERE ca.CompanyID = ev.venueCompanyId
-              ORDER BY ci.FirstName, ci.LastName
-            )                                                       AS contactName`,
-              `(
-              SELECT CONVERT(varchar(10), MIN(CONVERT(date, ts0.SalesDate)), 120)
-              FROM dbo.TicketingSales ts0
-              WHERE ts0.PerformanceID = p.performanceId
-            )                                                       AS firstSalesDate`,
-              'CONVERT(varchar(10), CAST(:asOf AS date), 120)         AS todayDate',
-              'ts_today.performanceSalesQuantity                      AS todayTicketsSold',
-              'ts_today.performanceSalesRevenue                        AS todayRevenue',
-              'CONVERT(varchar(10), DATEADD(day, -1, CAST(:asOf AS date)), 120) AS yesterdayDate',
-              'ts_yesterday.performanceSalesQuantity                  AS yesterdayTicketsSold',
-              'ts_yesterday.performanceSalesRevenue                    AS yesterdayRevenue',
-              `(
-              SELECT COALESCE(SUM(CAST(ts_ca.performanceSalesQuantity AS BIGINT)), 0)
-              FROM dbo.TicketingSales ts_ca
-              WHERE ts_ca.performanceId = p.performanceId
-                AND CONVERT(date, ts_ca.salesDate) <= CAST(:asOf AS date)
-            )                                                       AS cumTicketsThruAsOf`,
-              `(
-              SELECT COALESCE(SUM(ts_cr.performanceSalesRevenue), 0)
-              FROM dbo.TicketingSales ts_cr
-              WHERE ts_cr.performanceId = p.performanceId
-                AND CONVERT(date, ts_cr.salesDate) <= CAST(:asOf AS date)
-            )                                                       AS cumRevenueThruAsOf`,
-              `(
-              SELECT COALESCE(SUM(CAST(ts_cy.performanceSalesQuantity AS BIGINT)), 0)
-              FROM dbo.TicketingSales ts_cy
-              WHERE ts_cy.performanceId = p.performanceId
-                AND CONVERT(date, ts_cy.salesDate) <= DATEADD(day, -1, CAST(:asOf AS date))
-            )                                                       AS cumTicketsThruPrior`,
-              `(
-              SELECT COALESCE(SUM(ts_cy2.performanceSalesRevenue), 0)
-              FROM dbo.TicketingSales ts_cy2
-              WHERE ts_cy2.performanceId = p.performanceId
-                AND CONVERT(date, ts_cy2.salesDate) <= DATEADD(day, -1, CAST(:asOf AS date))
-            )                                                       AS cumRevenueThruPrior`,
-            ])
-            .setParameter('asOf', asOf);
-          this.applyByPerformanceSort(pageQb, sortByRaw, sortDirRaw);
-          return pageQb
-            .skip((page - 1) * pageSize)
-            .take(pageSize)
-            .getRawMany<Record<string, unknown>>();
-        })(),
+        engagementSortQb
+          .clone()
+          .offset((page - 1) * pageSize)
+          .limit(pageSize)
+          .getRawMany<Record<string, unknown>>(),
         this.getByPerformanceFilterOptions(asOf, {
           performanceDate,
           startDate,
@@ -717,7 +910,113 @@ export class DailySalesService {
         }),
       ]);
 
-    const items: PerformanceSalesRow[] = rawItems.map((r) => {
+    const total = Number(totalRaw?.total ?? 0);
+    const pagedEngagementIds = pagedEngagementRows
+      .map((r) => Number(r['engagementId']))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    if (pagedEngagementIds.length === 0) {
+      return {
+        items: [],
+        total,
+        page,
+        pageSize,
+        todayDate: asOf,
+        yesterdayDate,
+        summary: {
+          todayTickets: numOrZero(pickRow(agg, 'sumTixT')),
+          todayRevenue: numOrZero(pickRow(agg, 'sumRevT')),
+          yesterdayTickets: numOrZero(pickRow(agg, 'sumTixY')),
+          yesterdayRevenue: numOrZero(pickRow(agg, 'sumRevY')),
+          totalTickets: numOrZero(pickRow(agg, 'sumTotalTickets')),
+          totalRevenue: numOrZero(pickRow(agg, 'sumTotalRevenue')),
+        },
+        attractions,
+        filterOptions,
+      };
+    }
+
+    const rawItems: Record<string, unknown>[] = [];
+    const chunkSize = 1000;
+    for (let i = 0; i < pagedEngagementIds.length; i += chunkSize) {
+      const chunk = pagedEngagementIds.slice(i, i + chunkSize);
+      const chunkItems = await baseQb
+        .clone()
+        .select([
+          'p.performanceId                                         AS performanceId',
+          'p.engagementId                                         AS engagementId',
+          'CONVERT(varchar(10), p.performanceDate, 120)           AS performanceDate',
+          'CONVERT(varchar(8),  p.performanceTime, 108)          AS performanceTime',
+          'p.performanceStatus                                    AS performanceStatus',
+          'e.engagementStatus                                     AS engagementStatus',
+          'e.sellableCapacity                                     AS engagementSellableCapacity',
+          'e.grossPotential                                       AS engagementGrossPotential',
+          'a.attractionId                                         AS attractionId',
+          'a.attractionName                                       AS attractionName',
+          'cls.className                                          AS genre',
+          't.tourName                                             AS tourName',
+          'vc.companyName                                         AS venueCompanyName',
+          'v.venueName                                            AS venueName',
+          'addr.city                                              AS city',
+          'addr.stateProvince                                   AS stateProvince',
+          `(
+          SELECT STRING_AGG(LTRIM(RTRIM(ccx.CompanyName)), N', ') WITHIN GROUP (ORDER BY LTRIM(RTRIM(ccx.CompanyName)))
+          FROM dbo.VenueComplexMember vcmx
+          INNER JOIN dbo.Company ccx ON ccx.CompanyID = vcmx.ComplexCompanyID
+          WHERE vcmx.VenueCompanyID = ev.venueCompanyId
+        )                                                       AS entertainmentComplexNames`,
+          `(
+          SELECT TOP 1 CONCAT(ci.FirstName, N' ', ci.LastName)
+          FROM dbo.ContactAssignment ca
+          INNER JOIN dbo.Contact c ON c.ContactID = ca.ContactID
+          INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+          WHERE ca.CompanyID = ev.venueCompanyId
+          ORDER BY ci.FirstName, ci.LastName
+        )                                                       AS contactName`,
+          `(
+          SELECT CONVERT(varchar(10), MIN(CONVERT(date, ts0.SalesDate)), 120)
+          FROM dbo.TicketingSales ts0
+          WHERE ts0.PerformanceID = p.performanceId
+        )                                                       AS firstSalesDate`,
+          'CONVERT(varchar(10), CAST(:asOf AS date), 120)         AS todayDate',
+          'ts_today.performanceSalesQuantity                      AS todayTicketsSold',
+          'ts_today.performanceSalesRevenue                        AS todayRevenue',
+          'CONVERT(varchar(10), DATEADD(day, -1, CAST(:asOf AS date)), 120) AS yesterdayDate',
+          'ts_yesterday.performanceSalesQuantity                  AS yesterdayTicketsSold',
+          'ts_yesterday.performanceSalesRevenue                    AS yesterdayRevenue',
+          `(
+          SELECT COALESCE(SUM(CAST(ts_ca.performanceSalesQuantity AS BIGINT)), 0)
+          FROM dbo.TicketingSales ts_ca
+          WHERE ts_ca.performanceId = p.performanceId
+            AND CONVERT(date, ts_ca.salesDate) <= CAST(:asOf AS date)
+        )                                                       AS cumTicketsThruAsOf`,
+          `(
+          SELECT COALESCE(SUM(ts_cr.performanceSalesRevenue), 0)
+          FROM dbo.TicketingSales ts_cr
+          WHERE ts_cr.performanceId = p.performanceId
+            AND CONVERT(date, ts_cr.salesDate) <= CAST(:asOf AS date)
+        )                                                       AS cumRevenueThruAsOf`,
+          `(
+          SELECT COALESCE(SUM(CAST(ts_cy.performanceSalesQuantity AS BIGINT)), 0)
+          FROM dbo.TicketingSales ts_cy
+          WHERE ts_cy.performanceId = p.performanceId
+            AND CONVERT(date, ts_cy.salesDate) <= DATEADD(day, -1, CAST(:asOf AS date))
+        )                                                       AS cumTicketsThruPrior`,
+          `(
+          SELECT COALESCE(SUM(ts_cy2.performanceSalesRevenue), 0)
+          FROM dbo.TicketingSales ts_cy2
+          WHERE ts_cy2.performanceId = p.performanceId
+            AND CONVERT(date, ts_cy2.salesDate) <= DATEADD(day, -1, CAST(:asOf AS date))
+        )                                                       AS cumRevenueThruPrior`,
+        ])
+        .andWhere('e.engagementId IN (:...engagementIds)', {
+          engagementIds: chunk,
+        })
+        .setParameter('asOf', asOf)
+        .getRawMany<Record<string, unknown>>();
+      rawItems.push(...chunkItems);
+    }
+
+    const mappedItems: PerformanceSalesRow[] = rawItems.map((r) => {
       const todayTickets =
         r['todayTicketsSold'] != null ? Number(r['todayTicketsSold']) : null;
       const ydayTickets =
@@ -754,6 +1053,10 @@ export class DailySalesService {
         city: r['city'] != null ? String(r['city']) : null,
         stateProvince:
           r['stateProvince'] != null ? String(r['stateProvince']) : null,
+        entertainmentComplexNames:
+          r['entertainmentComplexNames'] != null
+            ? String(r['entertainmentComplexNames'])
+            : null,
         todayDate: String(r['todayDate'] ?? ''),
         todayTicketsSold: todayTickets,
         todayRevenue: todayRev,
@@ -790,6 +1093,36 @@ export class DailySalesService {
         })(),
       };
     });
+    const engagementOrder = new Map<number, number>(
+      pagedEngagementIds.map((engagementId, idx) => [engagementId, idx]),
+    );
+    const byEngagement = new Map<number, PerformanceSalesRow>();
+    const timeOrMax = (s: string): string =>
+      s && /^\d{2}:\d{2}:\d{2}$/.test(s) ? s : '99:99:99';
+    for (const item of mappedItems) {
+      const existing = byEngagement.get(item.engagementId);
+      if (!existing) {
+        byEngagement.set(item.engagementId, item);
+        continue;
+      }
+      const shouldReplace =
+        item.performanceDate < existing.performanceDate ||
+        (item.performanceDate === existing.performanceDate &&
+          timeOrMax(item.performanceTime) <
+            timeOrMax(existing.performanceTime)) ||
+        (item.performanceDate === existing.performanceDate &&
+          timeOrMax(item.performanceTime) ===
+            timeOrMax(existing.performanceTime) &&
+          item.performanceId < existing.performanceId);
+      if (shouldReplace) {
+        byEngagement.set(item.engagementId, item);
+      }
+    }
+    const items = [...byEngagement.values()].sort((a, b) => {
+      const ai = engagementOrder.get(a.engagementId) ?? Number.MAX_SAFE_INTEGER;
+      const bi = engagementOrder.get(b.engagementId) ?? Number.MAX_SAFE_INTEGER;
+      return ai - bi;
+    });
 
     return {
       items,
@@ -803,6 +1136,8 @@ export class DailySalesService {
         todayRevenue: numOrZero(pickRow(agg, 'sumRevT')),
         yesterdayTickets: numOrZero(pickRow(agg, 'sumTixY')),
         yesterdayRevenue: numOrZero(pickRow(agg, 'sumRevY')),
+        totalTickets: numOrZero(pickRow(agg, 'sumTotalTickets')),
+        totalRevenue: numOrZero(pickRow(agg, 'sumTotalRevenue')),
       },
       attractions,
       filterOptions,
@@ -819,6 +1154,7 @@ export class DailySalesService {
       endDate?: string;
       genre?: string;
       tourName?: string;
+      companyId?: number;
       companyName?: string;
       venueName?: string;
       contactName?: string;
@@ -887,23 +1223,42 @@ export class DailySalesService {
     }
 
     if (options.attractionName) {
-      qb.andWhere('a.attractionName = :attName', {
-        attName: options.attractionName,
-      });
+      qb.andWhere(
+        'LOWER(LTRIM(RTRIM(a.attractionName))) = LOWER(LTRIM(RTRIM(:attName)))',
+        {
+          attName: options.attractionName,
+        },
+      );
     }
     if (options.genre) {
-      qb.andWhere('cls.className = :genreName', { genreName: options.genre });
+      qb.andWhere(
+        'LOWER(LTRIM(RTRIM(cls.className))) = LOWER(LTRIM(RTRIM(:genreName)))',
+        { genreName: options.genre },
+      );
     }
     if (options.tourName) {
-      qb.andWhere('t.tourName = :tourName', { tourName: options.tourName });
+      qb.andWhere(
+        'LOWER(LTRIM(RTRIM(t.tourName))) = LOWER(LTRIM(RTRIM(:tourName)))',
+        { tourName: options.tourName },
+      );
     }
-    if (options.companyName) {
-      qb.andWhere('vc.companyName = :companyName', {
-        companyName: options.companyName,
+    if (options.companyId != null) {
+      qb.andWhere('vc.companyId = :companyId', {
+        companyId: options.companyId,
       });
+    } else if (options.companyName) {
+      qb.andWhere(
+        'LOWER(LTRIM(RTRIM(vc.companyName))) = LOWER(LTRIM(RTRIM(:companyName)))',
+        {
+          companyName: options.companyName,
+        },
+      );
     }
     if (options.venueName) {
-      qb.andWhere('v.venueName = :venueName', { venueName: options.venueName });
+      qb.andWhere(
+        'LOWER(LTRIM(RTRIM(v.venueName))) = LOWER(LTRIM(RTRIM(:venueName)))',
+        { venueName: options.venueName },
+      );
     }
     if (options.contactName) {
       qb.andWhere(
@@ -913,7 +1268,7 @@ export class DailySalesService {
           INNER JOIN dbo.Contact c ON c.ContactID = ca.ContactID
           INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
           WHERE ca.CompanyID = ev.venueCompanyId
-            AND LOWER(CONCAT(ci.FirstName, N' ', ci.LastName)) = LOWER(:contactName)
+            AND LOWER(LTRIM(RTRIM(CONCAT(ci.FirstName, N' ', ci.LastName)))) = LOWER(LTRIM(RTRIM(:contactName)))
         )`,
         { contactName: options.contactName },
       );
@@ -943,11 +1298,11 @@ export class DailySalesService {
       );
     }
 
-    if (options.search) {
-      // Single :searchT bind — repeating the same named param breaks some mssql/TypeORM drivers.
-      const s = options.search.toLowerCase();
+    this.searchTokens(options.search).forEach((token, index) => {
+      // Unique bind names avoid the mssql/TypeORM issue with repeated parameters.
+      const param = `dailySalesSearch${index}`;
       qb.andWhere(
-        `CHARINDEX(:searchT, LOWER(CONCAT(
+        `CHARINDEX(:${param}, LOWER(CONCAT(
           N' ',
           a.attractionName,
           N' ',
@@ -974,9 +1329,9 @@ export class DailySalesService {
           N' ',
           CONVERT(varchar(10), p.performanceDate, 120)
         ))) > 0`,
-        { searchT: s },
+        { [param]: token },
       );
-    }
+    });
 
     return qb;
   }
@@ -987,7 +1342,7 @@ export class DailySalesService {
   ): Promise<{
     genres: string[];
     tours: string[];
-    companies: string[];
+    companies: PerformanceCompanyFilterOption[];
     venues: string[];
     contacts: string[];
   }> {
@@ -1053,11 +1408,45 @@ export class DailySalesService {
         .getRawMany<{ value: string }>(),
       base
         .clone()
-        .select('vc.companyName', 'value')
+        .leftJoin(
+          Address,
+          'companyAddr',
+          'companyAddr.addressId = vc.physicalAddressId',
+        )
+        .leftJoin('vc.companyType', 'legacyCompanyType')
+        .select('vc.companyId', 'companyId')
+        .addSelect('vc.companyName', 'companyName')
+        .addSelect('companyAddr.city', 'physicalCity')
+        .addSelect('companyAddr.stateProvince', 'physicalStateProvince')
+        .addSelect(
+          `COALESCE(
+            NULLIF(
+              STUFF((
+                SELECT DISTINCT N', ' + ct.CompanyTypeName
+                FROM dbo.CompanyCompanyType cct
+                INNER JOIN dbo.CompanyType ct
+                  ON ct.CompanyTypeID = cct.CompanyTypeID
+                WHERE cct.CompanyID = vc.companyId
+                FOR XML PATH(''), TYPE
+              ).value('.', 'nvarchar(max)'), 1, 2, N''),
+              N''
+            ),
+            legacyCompanyType.companyTypeName
+          )`,
+          'companyTypeNames',
+        )
+        .andWhere('vc.companyId IS NOT NULL')
         .andWhere('vc.companyName IS NOT NULL')
         .distinct(true)
         .orderBy('vc.companyName', 'ASC')
-        .getRawMany<{ value: string }>(),
+        .addOrderBy('companyAddr.city', 'ASC')
+        .getRawMany<{
+          companyId: number | string;
+          companyName: string;
+          companyTypeNames: string | null;
+          physicalCity: string | null;
+          physicalStateProvince: string | null;
+        }>(),
       base
         .clone()
         .select('v.venueName', 'value')
@@ -1091,7 +1480,36 @@ export class DailySalesService {
     return {
       genres: mapValues(genres),
       tours: mapValues(tours),
-      companies: mapValues(companies),
+      companies: companies
+        .map((row) => ({
+          companyId: Number(row.companyId),
+          companyName: String(row.companyName ?? '').trim(),
+          companyTypeNames: String(row.companyTypeNames ?? '')
+            .split(',')
+            .map((name) => name.trim())
+            .filter((name, index, list) => {
+              if (!name) return false;
+              const key = name.toLowerCase();
+              return (
+                list.findIndex(
+                  (candidate) => candidate.toLowerCase() === key,
+                ) === index
+              );
+            }),
+          physicalCity:
+            row.physicalCity == null ? null : String(row.physicalCity).trim(),
+          physicalStateProvince:
+            row.physicalStateProvince == null
+              ? null
+              : String(row.physicalStateProvince).trim(),
+          dmaMarketName: null,
+        }))
+        .filter(
+          (company) =>
+            Number.isInteger(company.companyId) &&
+            company.companyId > 0 &&
+            company.companyName.length > 0,
+        ),
       venues: mapValues(venues),
       contacts: mapValues(contacts),
     };
@@ -1106,22 +1524,10 @@ export class DailySalesService {
     asOf: string,
   ): Promise<Record<string, unknown>> {
     const yest = ymdAddDays(asOf, -1);
-    const idRows = await base
+    const subQuery = base
       .clone()
       .select('p.performanceId', 'performanceId')
-      .distinct(true)
-      .getRawMany<{ performanceId: string | number }>();
-    const ids = idRows
-      .map((r) => Number(r.performanceId))
-      .filter((n) => Number.isFinite(n) && n > 0);
-    if (ids.length === 0) {
-      return {
-        sumTixT: 0,
-        sumRevT: 0,
-        sumTixY: 0,
-        sumRevY: 0,
-      };
-    }
+      .orderBy();
 
     const one = await this.salesRepo
       .createQueryBuilder('ts')
@@ -1141,8 +1547,16 @@ export class DailySalesService {
         'COALESCE(SUM(CASE WHEN CONVERT(date, ts.salesDate) = CAST(:yestDay AS date) THEN CAST(ts.performanceSalesRevenue AS decimal(18,2)) ELSE 0 END), 0)',
         'sumRevY',
       )
-      .where('ts.performanceId IN (:...ids)', { ids })
-      .setParameter('asOf', asOf)
+      .addSelect(
+        'COALESCE(SUM(CAST(ts.performanceSalesQuantity AS BIGINT)), 0)',
+        'sumTotalTickets',
+      )
+      .addSelect(
+        'COALESCE(SUM(CAST(ts.performanceSalesRevenue AS decimal(18,2))), 0)',
+        'sumTotalRevenue',
+      )
+      .where(`ts.performanceId IN (${subQuery.getQuery()})`)
+      .setParameters(subQuery.getParameters())
       .setParameter('yestDay', yest)
       .getRawOne<Record<string, unknown>>();
     return (one as Record<string, unknown>) ?? {};
@@ -1172,6 +1586,147 @@ export class DailySalesService {
       );
   }
 
+  async getByPerformanceSuggestions(
+    asOfDateParam: string | undefined,
+    query: string | undefined,
+    performanceDateRaw?: string,
+    startDateRaw?: string,
+    endDateRaw?: string,
+  ): Promise<Array<{ label: string; sublabel: string }>> {
+    const q = (query ?? '').trim().toLowerCase();
+    if (!q) return [];
+    const asOf = await this.resolveAsOfDateString(asOfDateParam);
+    const performanceDate = this.normalizeOptionalYmd(performanceDateRaw);
+    const startDate = this.normalizeOptionalYmd(startDateRaw);
+    const endDate = this.normalizeOptionalYmd(endDateRaw);
+    if (startDate && endDate && endDate < startDate) {
+      throw new BadRequestException({
+        message: 'Performance range end cannot be before range start.',
+      });
+    }
+    const like = `%${q}%`;
+
+    const baseQb = this.performanceRepo
+      .createQueryBuilder('p')
+      .innerJoin(Engagement, 'e', 'e.engagementId = p.engagementId')
+      .leftJoin(Tour, 't', 't.tourId = e.tourId')
+      .leftJoin(Attraction, 'a', 'a.attractionId = t.attractionId')
+      .leftJoin(
+        EngagementVenue,
+        'ev',
+        'ev.engagementId = e.engagementId AND ev.isPrimary = :prim',
+        { prim: true },
+      )
+      .leftJoin(Venue, 'v', 'v.companyId = ev.venueCompanyId')
+      .leftJoin(Company, 'vc', 'vc.companyId = ev.venueCompanyId')
+      .leftJoin(Address, 'addr', 'addr.addressId = vc.physicalAddressId')
+      .setParameter('asOf', asOf);
+
+    const hasExplicitPerfDateFilter = Boolean(
+      performanceDate || startDate || endDate,
+    );
+    if (!hasExplicitPerfDateFilter) {
+      baseQb.andWhere(
+        'CONVERT(date, p.performanceDate) >= CAST(:asOf AS date)',
+      );
+    }
+    if (performanceDate) {
+      baseQb.andWhere(
+        'CONVERT(date, p.performanceDate) = CAST(:perfDay AS date)',
+        {
+          perfDay: performanceDate,
+        },
+      );
+    }
+    if (startDate) {
+      baseQb.andWhere(
+        'CONVERT(date, p.performanceDate) >= CAST(:startDate AS date)',
+        {
+          startDate,
+        },
+      );
+    }
+    if (endDate) {
+      baseQb.andWhere(
+        'CONVERT(date, p.performanceDate) <= CAST(:endDate AS date)',
+        {
+          endDate,
+        },
+      );
+    }
+
+    const limitQb = (qb: SelectQueryBuilder<Performance>) =>
+      qb.addOrderBy('1').limit(6);
+
+    const [attractions, tours, venues, companies, cities] = await Promise.all([
+      limitQb(
+        baseQb
+          .clone()
+          .select('a.attractionName', 'label')
+          .addSelect('t.tourName', 'sublabel')
+          .distinct(true)
+          .andWhere('LOWER(a.attractionName) LIKE :q', { q: like }),
+      ).getRawMany(),
+      limitQb(
+        baseQb
+          .clone()
+          .select('t.tourName', 'label')
+          .addSelect('vc.companyName', 'sublabel')
+          .distinct(true)
+          .andWhere('LOWER(t.tourName) LIKE :q', { q: like }),
+      ).getRawMany(),
+      limitQb(
+        baseQb
+          .clone()
+          .select('v.venueName', 'label')
+          .addSelect('addr.city', 'sublabel')
+          .distinct(true)
+          .andWhere('LOWER(v.venueName) LIKE :q', { q: like }),
+      ).getRawMany(),
+      limitQb(
+        baseQb
+          .clone()
+          .select('vc.companyName', 'label')
+          .addSelect('addr.city', 'sublabel')
+          .distinct(true)
+          .andWhere('LOWER(vc.companyName) LIKE :q', { q: like }),
+      ).getRawMany(),
+      limitQb(
+        baseQb
+          .clone()
+          .select('addr.city', 'label')
+          .addSelect('addr.stateProvince', 'sublabel')
+          .distinct(true)
+          .andWhere('LOWER(addr.city) LIKE :q', { q: like }),
+      ).getRawMany(),
+    ]);
+
+    const clean = (rows: Array<{ label?: unknown; sublabel?: unknown }>) =>
+      rows
+        .map((r) => ({
+          label: String(r.label ?? '').trim(),
+          sublabel: String(r.sublabel ?? '').trim(),
+        }))
+        .filter((r) => r.label.length > 0);
+
+    const all = [
+      ...clean(attractions),
+      ...clean(tours),
+      ...clean(venues),
+      ...clean(companies),
+      ...clean(cities),
+    ];
+    const seen = new Set<string>();
+    return all
+      .filter((r) => {
+        const key = r.label.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 10);
+  }
+
   /** Optional performance calendar day filter (YYYY-MM-DD); invalid values ignored. */
   private normalizeOptionalYmd(raw?: string): string | undefined {
     const s = (raw ?? '').trim();
@@ -1198,8 +1753,8 @@ export class DailySalesService {
 
   /**
    * Sales KPIs, cumulative daily series, and summary rows for performances
-   * under one engagement. Each TicketingSales row = that calendar day's amount;
-   * totals sum through each day. When `performanceId` is provided, the dashboard
+   * under one engagement. Each TicketingSales row = cumulative snapshot as of
+   * that sales date. When `performanceId` is provided, the dashboard
    * is scoped to that single show only (used by Sales Summary row-click → detail);
    * otherwise it rolls up every performance under the engagement.
    */
@@ -1209,6 +1764,8 @@ export class DailySalesService {
     performanceIdFilter?: number,
   ): Promise<EngagementSalesDashboardDto> {
     const asOf = await this.resolveAsOfDateString(asOfDateParam);
+    await this.ensureConvertedProjectPerformancesFromOptions();
+
     let engagement: Awaited<ReturnType<EngagementService['getOne']>>;
     try {
       engagement = await this.engagementService.getOne(engagementId);
@@ -1237,6 +1794,8 @@ export class DailySalesService {
     }
     const perfIds = perfs.map((p) => p.performanceId);
     const performanceCount = perfs.length;
+    const marketingWindow =
+      await this.getMarketingWindowForPerformances(perfIds);
 
     const byPerf = new Map<
       number,
@@ -1245,15 +1804,29 @@ export class DailySalesService {
     for (const id of perfIds) byPerf.set(id, []);
 
     if (perfIds.length > 0) {
-      const rows = await this.salesRepo
-        .createQueryBuilder('ts')
-        .where('ts.performanceId IN (:...ids)', { ids: perfIds })
-        .andWhere('CONVERT(date, ts.salesDate) <= CAST(:asOf AS date)', {
-          asOf,
-        })
-        .orderBy('ts.performanceId', 'ASC')
-        .addOrderBy('ts.salesDate', 'ASC')
-        .getMany();
+      const rows: TicketingSales[] = [];
+      const chunkSize = 1000;
+      for (let i = 0; i < perfIds.length; i += chunkSize) {
+        const chunk = perfIds.slice(i, i + chunkSize);
+        const chunkRows = await this.salesRepo
+          .createQueryBuilder('ts')
+          .where('ts.performanceId IN (:...ids)', { ids: chunk })
+          .andWhere('CONVERT(date, ts.salesDate) <= CAST(:asOf AS date)', {
+            asOf,
+          })
+          .orderBy('ts.performanceId', 'ASC')
+          .addOrderBy('ts.salesDate', 'ASC')
+          .getMany();
+        rows.push(...chunkRows);
+      }
+      rows.sort((a, b) => {
+        if (a.performanceId !== b.performanceId) {
+          return a.performanceId - b.performanceId;
+        }
+        const dateA = a.salesDate ? String(a.salesDate) : '';
+        const dateB = b.salesDate ? String(b.salesDate) : '';
+        return dateA.localeCompare(dateB);
+      });
 
       for (const row of rows) {
         const ymd = toYmdString(row.salesDate);
@@ -1360,6 +1933,7 @@ export class DailySalesService {
       header: {
         attractionName: engagement.attractionName,
         tourName: engagement.tourName ?? '',
+        entertainmentComplexNames: engagement.entertainmentComplexNames,
         venueLabel: venueLabelFromEngagement(engagement),
         city: engagement.city,
         stateProvince: engagement.stateProvince,
@@ -1368,6 +1942,7 @@ export class DailySalesService {
       },
       sellableCapacity: cap,
       grossPotential: grossPotentialNum,
+      marketingWindow,
       kpis: {
         totalRevenue: endTotals.revenue,
         ticketsDistributed: endTotals.tickets,
@@ -1392,6 +1967,8 @@ export class DailySalesService {
     asOfDateParam?: string,
   ): Promise<AttractionSalesDashboardDto> {
     const asOf = await this.resolveAsOfDateString(asOfDateParam);
+    await this.ensureConvertedProjectPerformancesFromOptions();
+
     const att = await this.attractionRepo.findOne({ where: { attractionId } });
     if (!att) {
       throw new NotFoundException({
@@ -1454,14 +2031,32 @@ export class DailySalesService {
     const sellableCapacity = sellableAny ? sellableSum : null;
     const grossPotential = grossAny ? grossSum : null;
 
-    let perfs: Performance[] = [];
+    const perfs: Performance[] = [];
     if (engagementIds.length > 0) {
-      perfs = await this.performanceRepo.find({
-        where: { engagementId: In(engagementIds) },
-        order: { performanceDate: 'ASC', performanceTime: 'ASC' },
+      const chunkSize = 1000;
+      for (let i = 0; i < engagementIds.length; i += chunkSize) {
+        const chunk = engagementIds.slice(i, i + chunkSize);
+        const chunkPerfs = await this.performanceRepo.find({
+          where: { engagementId: In(chunk) },
+          order: { performanceDate: 'ASC', performanceTime: 'ASC' },
+        });
+        perfs.push(...chunkPerfs);
+      }
+      perfs.sort((a, b) => {
+        const dateA = a.performanceDate ? String(a.performanceDate) : '';
+        const dateB = b.performanceDate ? String(b.performanceDate) : '';
+        if (dateA !== dateB) return dateA.localeCompare(dateB);
+
+        const timeA = a.performanceTime ? String(a.performanceTime) : '';
+        const timeB = b.performanceTime ? String(b.performanceTime) : '';
+        if (timeA !== timeB) return timeA.localeCompare(timeB);
+
+        return a.performanceId - b.performanceId;
       });
     }
     const perfIds = perfs.map((p) => p.performanceId);
+    const marketingWindow =
+      await this.getMarketingWindowForPerformances(perfIds);
 
     const byPerf = new Map<
       number,
@@ -1470,15 +2065,29 @@ export class DailySalesService {
     for (const id of perfIds) byPerf.set(id, []);
 
     if (perfIds.length > 0) {
-      const rows = await this.salesRepo
-        .createQueryBuilder('ts')
-        .where('ts.performanceId IN (:...ids)', { ids: perfIds })
-        .andWhere('CONVERT(date, ts.salesDate) <= CAST(:asOf AS date)', {
-          asOf,
-        })
-        .orderBy('ts.performanceId', 'ASC')
-        .addOrderBy('ts.salesDate', 'ASC')
-        .getMany();
+      const rows: TicketingSales[] = [];
+      const chunkSize = 1000;
+      for (let i = 0; i < perfIds.length; i += chunkSize) {
+        const chunk = perfIds.slice(i, i + chunkSize);
+        const chunkRows = await this.salesRepo
+          .createQueryBuilder('ts')
+          .where('ts.performanceId IN (:...ids)', { ids: chunk })
+          .andWhere('CONVERT(date, ts.salesDate) <= CAST(:asOf AS date)', {
+            asOf,
+          })
+          .orderBy('ts.performanceId', 'ASC')
+          .addOrderBy('ts.salesDate', 'ASC')
+          .getMany();
+        rows.push(...chunkRows);
+      }
+      rows.sort((a, b) => {
+        if (a.performanceId !== b.performanceId) {
+          return a.performanceId - b.performanceId;
+        }
+        const dateA = a.salesDate ? String(a.salesDate) : '';
+        const dateB = b.salesDate ? String(b.salesDate) : '';
+        return dateA.localeCompare(dateB);
+      });
 
       for (const row of rows) {
         const ymd = toYmdString(row.salesDate);
@@ -1570,6 +2179,7 @@ export class DailySalesService {
       header: {
         attractionName: att.attractionName,
         tourName: tourNameLabel,
+        entertainmentComplexNames: null,
         venueLabel: 'Roll-up (all engagements)',
         city: null,
         stateProvince: null,
@@ -1578,6 +2188,7 @@ export class DailySalesService {
       },
       sellableCapacity: cap,
       grossPotential: potential,
+      marketingWindow,
       kpis: {
         totalRevenue: endTotals.revenue,
         ticketsDistributed: endTotals.tickets,
@@ -1624,8 +2235,7 @@ export class DailySalesService {
   // ─── PATCH — upsert sales for a specific performance + date ──────────────
   /**
    * Creates or updates the single dbo.TicketingSales row for (PerformanceID, SalesDate).
-   * Each row holds tickets/revenue for that calendar SalesDate only (daily amounts). Dashboards
-   * sum rows through a date to get cumulative totals.
+   * Each row stores the cumulative ticket/revenue snapshot as of that sales date.
    */
   async updateSales(
     performanceId: number,
@@ -1693,6 +2303,55 @@ export class DailySalesService {
         : row.performanceSalesRevenue != null
           ? Number(Number(row.performanceSalesRevenue).toFixed(2))
           : 0;
+
+    const engagement = await this.engagementRepo.findOne({
+      where: { engagementId: perf.engagementId },
+      select: {
+        engagementId: true,
+        sellableCapacity: true,
+        grossPotential: true,
+      },
+    });
+
+    const rawSellableCapacity = Number(engagement?.sellableCapacity ?? 0);
+    const engagementSellableCapacity =
+      Number.isFinite(rawSellableCapacity) && rawSellableCapacity > 0
+        ? Math.floor(rawSellableCapacity)
+        : 0;
+    const engagementGrossPotential = (() => {
+      const n = Number(engagement?.grossPotential ?? 0);
+      return Number.isFinite(n) && n > 0 ? Number(n.toFixed(2)) : 0;
+    })();
+
+    const formatMoney = (value: number) =>
+      value.toLocaleString(undefined, {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+      });
+
+    const violations: string[] = [];
+    if (mergedTickets > engagementSellableCapacity) {
+      violations.push(
+        engagementSellableCapacity > 0
+          ? `Tickets sold exceed the engagement sellable capacity (${mergedTickets.toLocaleString()} of ${engagementSellableCapacity.toLocaleString()}).`
+          : 'Set engagement sellable capacity before saving tickets sold.',
+      );
+    }
+    if (mergedRevenue > engagementGrossPotential) {
+      violations.push(
+        engagementGrossPotential > 0
+          ? `Revenue exceeds the engagement gross potential (${formatMoney(mergedRevenue)} of ${formatMoney(engagementGrossPotential)}).`
+          : 'Set engagement gross potential before saving revenue.',
+      );
+    }
+
+    if (violations.length > 0) {
+      throw new BadRequestException({
+        message: `Daily sales cannot be saved. ${violations.join(' ')}`,
+      });
+    }
 
     if (body.ticketsSold !== undefined) {
       row.performanceSalesQuantity = body.ticketsSold;

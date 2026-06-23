@@ -1,6 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, RotateCcw } from 'lucide-react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowDown, ArrowUp, RotateCcw } from "lucide-react";
 import {
   Avatar,
   TabBar,
@@ -9,20 +15,23 @@ import {
   FormField,
   ActionMenu,
   StatusBadge,
-} from './Primitives';
-import { Select2, Select2Multi, toOptions } from './Select2';
-import type { Company, Contact } from '@/data/constants';
-import { useAddressAutofill } from '@/hooks/useAddressAutofill';
-import { clearFormFieldError, clearFormFieldErrors } from '@/lib/clearFormFieldError';
+} from "./Primitives";
+import { Select2, Select2Multi, toOptions } from "./Select2";
+import type { Company, Contact } from "@/data/constants";
+import { useAddressAutofill } from "@/hooks/useAddressAutofill";
+import {
+  clearFormFieldError,
+  clearFormFieldErrors,
+} from "@/lib/clearFormFieldError";
 import {
   COUNTRY_NAME_FORMAT_USER_MESSAGE,
   isValidAddressNameText,
   isValidCountryName,
   sanitizeCityStateInput,
   sanitizeCountryInput,
-} from '@/lib/countryField';
-import { useCompanyPlaceSearch } from '@/hooks/useCompanyPlaceSearch';
-import type { PlaceDetailsResult } from '@/lib/googlePlaces';
+} from "@/lib/countryField";
+import { useCompanyPlaceSearch } from "@/hooks/useCompanyPlaceSearch";
+import type { PlaceDetailsResult } from "@/lib/googlePlaces";
 import {
   createCompany,
   createCompanyContact,
@@ -38,9 +47,12 @@ import {
   fetchCompanyContacts,
   fetchCompanyLinkedVenueContacts,
   fetchCompanyEngagements,
+  fetchCompanyLinks,
+  type ApiCompanyLinks,
   fetchDmaByPostal,
   fetchDmaMarketsPage,
   fetchLookups,
+  fetchServicesAllowedForCompanyTypes,
   updateCompany,
   updateContactAssignment,
   type ApiCompanyListRow,
@@ -52,28 +64,40 @@ import {
   type ApiTax,
   type ApiServiceProvided,
   type ApiDmaMarket,
+  type ApiEngagementRow,
   type CreateCompanyPayload,
   type UpdateCompanyPayload,
-} from '@/api/companyApi';
-import {
-  upsertInList,
-  removeFromList,
-  removeQueriesByPrefix,
-} from '@/api/cacheHelpers';
-import { mapApiCompanyToCompany } from './companyMapping';
-import { CompanyVenueProfilePanel } from './CompanyVenueProfilePanel';
-import { ContactPhoneRow } from './ContactPhoneRow';
-import { DEFAULT_PHONE_COUNTRY } from '@/lib/contactPhoneOptions';
+} from "@/api/companyApi";
+import { upsertInList, removeQueriesByPrefix } from "@/api/cacheHelpers";
+import { mapApiCompanyToCompany } from "./companyMapping";
+import { CompanyVenueProfilePanel } from "./CompanyVenueProfilePanel";
+import { VenueMarketingPanel } from "./VenueMarketingPanel";
+import { ContactPhoneRow } from "./ContactPhoneRow";
+import { DEFAULT_PHONE_COUNTRY } from "@/lib/contactPhoneOptions";
 import {
   type PhoneCountrySelection,
   formatE164ForDisplay,
   parsePhoneFieldValue,
   tryE164FromDisplay,
   PHONE_INVALID_MESSAGE,
-} from '@/lib/contactPhoneField';
-import { Loader2, Pencil, Trash2, Check, X } from 'lucide-react';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Button } from '@/components/ui/button';
+} from "@/lib/contactPhoneField";
+import {
+  Loader2,
+  Pencil,
+  Trash2,
+  Check,
+  X,
+  Link2,
+  MapPin,
+  CalendarRange,
+  FolderKanban,
+  Sparkles,
+  Wrench,
+  Building2,
+  Building,
+} from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -82,8 +106,8 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { friendlyApiError } from '@/lib/friendlyApiError';
+} from "@/components/ui/alert-dialog";
+import { friendlyApiError } from "@/lib/friendlyApiError";
 import {
   getPageParams,
   getTotalPages,
@@ -91,27 +115,28 @@ import {
   PAGE_SIZE,
   type PageSizeOption,
   isAllPageSize,
-} from '@/lib/serverPagination';
-import { PageSizeSelect } from './PageSizeSelect';
-import { clampToMaxLen, COMPANY_FORM } from '@/lib/companyFormLimits';
+} from "@/lib/serverPagination";
+import { PageSizeSelect } from "./PageSizeSelect";
+import { clampToMaxLen, COMPANY_FORM } from "@/lib/companyFormLimits";
 import {
   toCountryAlpha2FromDisplayString,
   toStateProvinceAbbrevForDisplay,
-} from '@/lib/addressAbbrev';
+} from "@/lib/addressAbbrev";
+import { normalizeSearchText, richTextMatches } from "./searchUtils";
 
 interface Props {
   onNavigate?: (view: string, data?: unknown) => void;
   initialSelectedCompanyId?: string | number | null;
   addToast: (
     msg: string,
-    type: 'success' | 'error' | 'warning' | 'info',
+    type: "success" | "error" | "warning" | "info",
   ) => void;
 }
 
-const overviewLabelCls = 'text-text-muted text-xs';
-const overviewValueCls = 'text-text-primary mt-0.5';
-const COMPANIES_SORT_STATE_STORAGE_KEY = 'iae-companies-sort-state-v1';
-const EMS_SAVED_VIEWS_ENABLED_KEY = 'iae-ems-saved-views-enabled-v1';
+const overviewLabelCls = "text-text-muted text-xs";
+const overviewValueCls = "text-text-primary mt-0.5";
+const COMPANIES_SORT_STATE_STORAGE_KEY = "iae-companies-sort-state-v1";
+const EMS_SAVED_VIEWS_ENABLED_KEY = "iae-ems-saved-views-enabled-v1";
 
 function renderPhysicalAddressValue(c: Company) {
   const hasPhysical = !!(
@@ -122,8 +147,10 @@ function renderPhysicalAddressValue(c: Company) {
     c.physicalCountry
   );
   if (hasPhysical) {
-    const cityState = [c.physicalCity, c.physicalState].filter(Boolean).join(', ');
-    const line2 = [cityState, c.physicalPostalCode].filter(Boolean).join(' ');
+    const cityState = [c.physicalCity, c.physicalState]
+      .filter(Boolean)
+      .join(", ");
+    const line2 = [cityState, c.physicalPostalCode].filter(Boolean).join(" ");
     return (
       <div className={overviewValueCls}>
         {c.physicalStreet ? (
@@ -145,7 +172,7 @@ function renderPhysicalAddressValue(c: Company) {
   if (c.city || c.state) {
     return (
       <div className={overviewValueCls}>
-        {[c.city, c.state].filter(Boolean).join(', ')}
+        {[c.city, c.state].filter(Boolean).join(", ")}
       </div>
     );
   }
@@ -161,8 +188,10 @@ function renderMailingAddressValue(c: Company) {
     c.mailingCountry
   );
   if (hasMailing) {
-    const cityState = [c.mailingCity, c.mailingState].filter(Boolean).join(', ');
-    const line2 = [cityState, c.mailingPostalCode].filter(Boolean).join(' ');
+    const cityState = [c.mailingCity, c.mailingState]
+      .filter(Boolean)
+      .join(", ");
+    const line2 = [cityState, c.mailingPostalCode].filter(Boolean).join(" ");
     return (
       <div className={overviewValueCls}>
         {c.mailingStreet ? (
@@ -188,15 +217,24 @@ function renderMailingAddressValue(c: Company) {
 
 /** Google place line: undefined/null/whitespace → "" (no carry-over of old company data). */
 function placeAddressField(v: string | undefined | null): string {
-  if (v == null) return '';
+  if (v == null) return "";
   return v.trim();
 }
 
 function InlineEditField({
-  label, value, onChange, placeholder = '—', multiline = false, required, maxLength,
+  label,
+  value,
+  onChange,
+  placeholder = "—",
+  multiline = false,
+  required,
+  maxLength,
 }: {
-  label: string; value: string; onChange: (v: string) => void;
-  placeholder?: string; multiline?: boolean;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  multiline?: boolean;
   required?: boolean;
   maxLength?: number;
 }) {
@@ -208,8 +246,15 @@ function InlineEditField({
     setDraft(value);
   }, [value]);
 
-  const start = () => { setDraft(value); setEditing(true); setTimeout(() => ref.current?.focus(), 0); };
-  const commit = () => { if (draft !== value) onChange(draft); setEditing(false); };
+  const start = () => {
+    setDraft(value);
+    setEditing(true);
+    setTimeout(() => ref.current?.focus(), 0);
+  };
+  const commit = () => {
+    if (draft !== value) onChange(draft);
+    setEditing(false);
+  };
   const cancel = () => setEditing(false);
 
   if (editing) {
@@ -228,11 +273,11 @@ function InlineEditField({
               maxLength={maxLength}
               onChange={(e) => {
                 const v = e.target.value;
-                setDraft(
-                  maxLength != null ? clampToMaxLen(v, maxLength) : v,
-                );
+                setDraft(maxLength != null ? clampToMaxLen(v, maxLength) : v);
               }}
-              onKeyDown={e => { if (e.key === 'Escape') cancel(); }}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") cancel();
+              }}
               className="flex-1 bg-surface border border-ems-accent rounded px-2 py-1 text-sm text-text-primary focus:outline-none resize-none"
             />
           ) : (
@@ -242,17 +287,30 @@ function InlineEditField({
               maxLength={maxLength}
               onChange={(e) => {
                 const v = e.target.value;
-                setDraft(
-                  maxLength != null ? clampToMaxLen(v, maxLength) : v,
-                );
+                setDraft(maxLength != null ? clampToMaxLen(v, maxLength) : v);
               }}
-              onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') cancel(); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commit();
+                if (e.key === "Escape") cancel();
+              }}
               className="flex-1 bg-surface border border-ems-accent rounded px-2 py-1 text-sm text-text-primary focus:outline-none"
             />
           )}
           <div className="flex gap-0.5 mt-0.5 shrink-0">
-            <button onClick={commit} title="Save field" className="p-1 text-ems-accent hover:bg-elevated rounded transition-colors"><Check className="h-3.5 w-3.5" /></button>
-            <button onClick={cancel} title="Cancel" className="p-1 text-text-muted hover:bg-elevated rounded transition-colors"><X className="h-3.5 w-3.5" /></button>
+            <button
+              onClick={commit}
+              title="Save field"
+              className="p-1 text-ems-accent hover:bg-elevated rounded transition-colors"
+            >
+              <Check className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={cancel}
+              title="Cancel"
+              className="p-1 text-text-muted hover:bg-elevated rounded transition-colors"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           </div>
         </div>
       </div>
@@ -270,7 +328,9 @@ function InlineEditField({
         className="group flex items-start gap-2 cursor-pointer py-0.5 px-1.5 -mx-1.5 rounded-md hover:bg-elevated transition-colors"
         title="Click to edit"
       >
-        <span className={`text-sm flex-1 ${value ? 'text-text-primary' : 'text-text-muted italic'}`}>
+        <span
+          className={`text-sm flex-1 ${value ? "text-text-primary" : "text-text-muted italic"}`}
+        >
           {value || placeholder}
         </span>
         <Pencil className="h-3 w-3 text-text-muted opacity-0 group-hover:opacity-50 transition-opacity shrink-0 mt-0.5" />
@@ -280,14 +340,21 @@ function InlineEditField({
 }
 
 function InlineSelectField({
-  label, value, onChange, options, required,
+  label,
+  value,
+  onChange,
+  options,
+  required,
 }: {
-  label: string; value: string; onChange: (v: string) => void;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
   options: { value: string; label: string }[];
   required?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
-  const display = (options.find(o => o.value === value)?.label ?? value) || '—';
+  const display =
+    (options.find((o) => o.value === value)?.label ?? value) || "—";
 
   if (editing) {
     return (
@@ -298,9 +365,21 @@ function InlineSelectField({
         </label>
         <div className="flex items-center gap-1.5">
           <div className="flex-1">
-            <Select2 options={options} value={value} onChange={v => { onChange(v); setEditing(false); }} />
+            <Select2
+              options={options}
+              value={value}
+              onChange={(v) => {
+                onChange(v);
+                setEditing(false);
+              }}
+            />
           </div>
-          <button onClick={() => setEditing(false)} className="p-1 text-text-muted hover:bg-elevated rounded"><X className="h-3.5 w-3.5" /></button>
+          <button
+            onClick={() => setEditing(false)}
+            className="p-1 text-text-muted hover:bg-elevated rounded"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
       </div>
     );
@@ -324,21 +403,40 @@ function InlineSelectField({
   );
 }
 
+function InternalBadge({ className = "" }: { className?: string }) {
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center rounded border border-ems-accent/30 bg-ems-accent-dim px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-wide text-ems-accent ${className}`.trim()}
+    >
+      internal
+    </span>
+  );
+}
+
 // ─── Inline-editable Overview tab ────────────────────────────────────────────
 
 function InlineEditableOverview({
-  company, companyTypes, servicesProvided, dmaMarkets, addToast, onSaved,
+  company,
+  companyTypes,
+  servicesProvided,
+  dmaMarkets,
+  addToast,
+  onSaved,
 }: {
   company: Company;
   companyTypes: { companyTypeId: number; companyTypeName: string }[];
   servicesProvided: ApiServiceProvided[];
   dmaMarkets: ApiDmaMarket[];
-  addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  addToast: (
+    msg: string,
+    type: "success" | "error" | "warning" | "info",
+  ) => void;
   /** Receives the fresh list row returned by PATCH /companies/:id so the parent can patch its cache. */
   onSaved: (row: ApiCompanyListRow) => void | Promise<void>;
 }) {
-  const [name, setName]             = useState(company.name);
-  const [typeIds, setTypeIds]       = useState<string[]>(
+  const [name, setName] = useState(company.name);
+  const [isInternal, setIsInternal] = useState(Boolean(company.isInternal));
+  const [typeIds, setTypeIds] = useState<string[]>(
     (company.companyTypeIds?.length
       ? company.companyTypeIds
       : company.companyTypeId != null
@@ -352,41 +450,90 @@ function InlineEditableOverview({
       .filter((id) => id.trim().length > 0),
   );
   const [allDmas, setAllDmas] = useState<boolean>(Boolean(company.allDmas));
-  const [allDmasServiceProvidedId, setAllDmasServiceProvidedId] = useState<string>(
-    company.allDmasServiceProvidedId != null ? String(company.allDmasServiceProvidedId) : '',
-  );
+  const [allDmasServiceProvidedId, setAllDmasServiceProvidedId] =
+    useState<string>(
+      company.allDmasServiceProvidedId != null
+        ? String(company.allDmasServiceProvidedId)
+        : "",
+    );
   const [serviceAreas, setServiceAreas] = useState<
     { dmaid: string; serviceProvidedId: string }[]
   >(
     (company.serviceAreas ?? [])
       .filter((r) => {
-        const n = (r.dmaMarketName ?? '').trim().toLowerCase();
-        return !(n === 'all' || n === 'all dmas' || n === 'nationwide' || n === 'national' || n === 'all markets');
+        const n = (r.dmaMarketName ?? "").trim().toLowerCase();
+        return !(
+          n === "all" ||
+          n === "all dmas" ||
+          n === "nationwide" ||
+          n === "national" ||
+          n === "all markets"
+        );
       })
       .map((r) => ({
         dmaid: String(r.dmaid),
         serviceProvidedId: String(r.serviceProvidedId),
       })),
   );
-  const [physStreet, setPhysStreet] = useState(company.physicalStreet ?? '');
-  const [physCity, setPhysCity]     = useState(company.physicalCity ?? company.city ?? '');
-  const [physState, setPhysState]   = useState(company.physicalState ?? company.state ?? '');
-  const [physPostal, setPhysPostal] = useState(company.physicalPostalCode ?? '');
-  const [physCountry, setPhysCountry] = useState(company.physicalCountry ?? 'US');
-  const [mailStreet, setMailStreet] = useState(company.mailingStreet ?? '');
-  const [mailCity, setMailCity]     = useState(company.mailingCity ?? '');
-  const [mailState, setMailState]   = useState(company.mailingState ?? '');
-  const [mailPostal, setMailPostal] = useState(company.mailingPostalCode ?? '');
-  const [mailCountry, setMailCountry] = useState(
-    company.mailingCountry ?? company.physicalCountry ?? 'US',
+  const [serviceAreaEditorOpen, setServiceAreaEditorOpen] = useState(false);
+  const [serviceAreaDraftAllDmas, setServiceAreaDraftAllDmas] =
+    useState<boolean>(Boolean(company.allDmas));
+  const [
+    serviceAreaDraftAllDmasServiceProvidedId,
+    setServiceAreaDraftAllDmasServiceProvidedId,
+  ] = useState<string>(
+    company.allDmasServiceProvidedId != null
+      ? String(company.allDmasServiceProvidedId)
+      : "",
   );
-  const [dirty, setDirty]           = useState(false);
-  const [saving, setSaving]         = useState(false);
+  const [serviceAreaDraftRows, setServiceAreaDraftRows] = useState<
+    { dmaid: string; serviceProvidedId: string }[]
+  >(
+    (company.serviceAreas ?? [])
+      .filter((r) => {
+        const n = (r.dmaMarketName ?? "").trim().toLowerCase();
+        return !(
+          n === "all" ||
+          n === "all dmas" ||
+          n === "nationwide" ||
+          n === "national" ||
+          n === "all markets"
+        );
+      })
+      .map((r) => ({
+        dmaid: String(r.dmaid),
+        serviceProvidedId: String(r.serviceProvidedId),
+      })),
+  );
+  const [physStreet, setPhysStreet] = useState(company.physicalStreet ?? "");
+  const [physCity, setPhysCity] = useState(
+    company.physicalCity ?? company.city ?? "",
+  );
+  const [physState, setPhysState] = useState(
+    company.physicalState ?? company.state ?? "",
+  );
+  const [physPostal, setPhysPostal] = useState(
+    company.physicalPostalCode ?? "",
+  );
+  const [physCountry, setPhysCountry] = useState(
+    company.physicalCountry ?? "US",
+  );
+  const [mailStreet, setMailStreet] = useState(company.mailingStreet ?? "");
+  const [mailCity, setMailCity] = useState(company.mailingCity ?? "");
+  const [mailState, setMailState] = useState(company.mailingState ?? "");
+  const [mailPostal, setMailPostal] = useState(company.mailingPostalCode ?? "");
+  const [mailCountry, setMailCountry] = useState(
+    company.mailingCountry ?? company.physicalCountry ?? "US",
+  );
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [nameEditing, setNameEditing] = useState(false);
   const [inlineSaveErrors, setInlineSaveErrors] = useState<string[]>([]);
   const [confirmVenueTypeRemovalOpen, setConfirmVenueTypeRemovalOpen] =
     useState(false);
-  const [resolvedDma, setResolvedDma] = useState<string | null>(company.dmaMarketName ?? null);
+  const [resolvedDma, setResolvedDma] = useState<string | null>(
+    company.dmaMarketName ?? null,
+  );
   const [dmaLookupBusy, setDmaLookupBusy] = useState(false);
 
   /** True only when the effective mailing line differs from physical and needs its own full row + validation. */
@@ -401,17 +548,27 @@ function InlineEditableOverview({
       pick(mailCountry, physCountry) === t0(physCountry)
     );
   }, [
-    physStreet, physCity, physState, physPostal, physCountry,
-    mailStreet, mailCity, mailState, mailPostal, mailCountry,
+    physStreet,
+    physCity,
+    physState,
+    physPostal,
+    physCountry,
+    mailStreet,
+    mailCity,
+    mailState,
+    mailPostal,
+    mailCountry,
   ]);
 
   const separateMailing = !sameMailingAsPhysical;
 
-  const mark = <T,>(setter: (v: T) => void) => (v: T) => {
-    setter(v);
-    setDirty(true);
-    setInlineSaveErrors([]);
-  };
+  const mark =
+    <T,>(setter: (v: T) => void) =>
+    (v: T) => {
+      setter(v);
+      setDirty(true);
+      setInlineSaveErrors([]);
+    };
 
   // Google Places: replace the whole address from the new place only. Per-field
   // empties (no street, no postal, etc.) render as empty fields, not prior company data.
@@ -423,14 +580,11 @@ function InlineEditableOverview({
       clampToMaxLen(placeAddressField(details.physical.street), M.addressLine1),
     );
     setPhysCity(
-      sanitizeCityStateInput(
-        placeAddressField(details.physical.city),
-        M.city,
-      ),
+      sanitizeCityStateInput(placeAddressField(details.physical.city), M.city),
     );
     const pCountry = toCountryAlpha2FromDisplayString(
       sanitizeCountryInput(
-        placeAddressField(details.physical.country) || '',
+        placeAddressField(details.physical.country) || "",
         M.country,
       ),
     );
@@ -445,20 +599,20 @@ function InlineEditableOverview({
       ),
     );
     setPhysPostal(
-      clampToMaxLen(placeAddressField(details.physical.postalCode), M.postalCode),
+      clampToMaxLen(
+        placeAddressField(details.physical.postalCode),
+        M.postalCode,
+      ),
     );
     setMailStreet(
       clampToMaxLen(placeAddressField(details.mailing.street), M.addressLine1),
     );
     setMailCity(
-      sanitizeCityStateInput(
-        placeAddressField(details.mailing.city),
-        M.city,
-      ),
+      sanitizeCityStateInput(placeAddressField(details.mailing.city), M.city),
     );
     const mCountry = toCountryAlpha2FromDisplayString(
       sanitizeCountryInput(
-        placeAddressField(details.mailing.country) || '',
+        placeAddressField(details.mailing.country) || "",
         M.country,
       ),
     );
@@ -473,7 +627,10 @@ function InlineEditableOverview({
       ),
     );
     setMailPostal(
-      clampToMaxLen(placeAddressField(details.mailing.postalCode), M.postalCode),
+      clampToMaxLen(
+        placeAddressField(details.mailing.postalCode),
+        M.postalCode,
+      ),
     );
     setDirty(true);
     setNameEditing(false);
@@ -503,29 +660,98 @@ function InlineEditableOverview({
       }
     };
     void run();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [physPostal, physCountry]);
 
-  const typeOptions = companyTypes.map(t => ({ value: String(t.companyTypeId), label: t.companyTypeName }));
-  const serviceOptions = servicesProvided.map((service) => ({
-    value: String(service.serviceProvidedId),
-    label: service.serviceName,
+  const typeOptions = companyTypes.map((t) => ({
+    value: String(t.companyTypeId),
+    label: t.companyTypeName,
   }));
+  const selectedCompanyTypeIds = useMemo(
+    () => typeIds.map(Number).filter((id) => Number.isInteger(id) && id > 0),
+    [typeIds],
+  );
+  const allowedServicesQuery = useQuery({
+    queryKey: [
+      "lookups",
+      "company-type-services",
+      "allowed",
+      selectedCompanyTypeIds.join(","),
+    ],
+    queryFn: () => fetchServicesAllowedForCompanyTypes(selectedCompanyTypeIds),
+    enabled: selectedCompanyTypeIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+  });
+  const serviceOptions = useMemo(
+    () =>
+      (selectedCompanyTypeIds.length > 0
+        ? (allowedServicesQuery.data ?? [])
+        : []
+      ).map((service) => ({
+        value: String(service.serviceProvidedId),
+        label: service.serviceName,
+      })),
+    [allowedServicesQuery.data, selectedCompanyTypeIds.length],
+  );
+  const allowedServiceIdSet = useMemo(
+    () => new Set(serviceOptions.map((option) => option.value)),
+    [serviceOptions],
+  );
+  useEffect(() => {
+    if (selectedCompanyTypeIds.length === 0 || allowedServicesQuery.isFetching)
+      return;
+    setServiceProvidedIds((ids) =>
+      ids.filter((id) => allowedServiceIdSet.has(id)),
+    );
+    setServiceAreas((rows) =>
+      rows.map((row) =>
+        row.serviceProvidedId && !allowedServiceIdSet.has(row.serviceProvidedId)
+          ? { ...row, serviceProvidedId: "" }
+          : row,
+      ),
+    );
+    setAllDmasServiceProvidedId((id) =>
+      id && !allowedServiceIdSet.has(id) ? "" : id,
+    );
+  }, [
+    allowedServiceIdSet,
+    allowedServicesQuery.isFetching,
+    selectedCompanyTypeIds.length,
+  ]);
   const dmaMarketOptions = useMemo(
     () =>
       (dmaMarkets ?? [])
         .slice()
         .sort((a, b) =>
-          a.marketName.localeCompare(b.marketName, undefined, { sensitivity: 'base' }),
+          a.marketName.localeCompare(b.marketName, undefined, {
+            sensitivity: "base",
+          }),
         )
         .map((d) => ({ value: String(d.dmaid), label: d.marketName })),
     [dmaMarkets],
   );
+  const serviceLabelById = useMemo(
+    () => new Map(serviceOptions.map((option) => [option.value, option.label])),
+    [serviceOptions],
+  );
+  const dmaLabelById = useMemo(
+    () =>
+      new Map(dmaMarketOptions.map((option) => [option.value, option.label])),
+    [dmaMarketOptions],
+  );
+  const serviceAreaPreviewRows = useMemo(
+    () => serviceAreas.slice(0, 3),
+    [serviceAreas],
+  );
+  const hasMoreServiceAreaRows =
+    serviceAreas.length > serviceAreaPreviewRows.length;
   const venueTypeIds = useMemo(
     () =>
       new Set(
         companyTypes
-          .filter((t) => t.companyTypeName.trim().toLowerCase() === 'venue')
+          .filter((t) => t.companyTypeName.trim().toLowerCase() === "venue")
           .map((t) => t.companyTypeId),
       ),
     [companyTypes],
@@ -536,7 +762,7 @@ function InlineEditableOverview({
       .filter((id) => Number.isInteger(id) && id > 0);
     if (beforeIds.some((id) => venueTypeIds.has(id))) return true;
     return (company.companyTypeNames ?? []).some(
-      (name) => name.trim().toLowerCase() === 'venue',
+      (name) => name.trim().toLowerCase() === "venue",
     );
   }, [company.companyTypeIds, company.companyTypeNames, venueTypeIds]);
   const hasVenueTypeAfter = useMemo(() => {
@@ -549,6 +775,7 @@ function InlineEditableOverview({
 
   const discard = () => {
     setName(company.name);
+    setIsInternal(Boolean(company.isInternal));
     setTypeIds(
       (company.companyTypeIds?.length
         ? company.companyTypeIds
@@ -564,102 +791,221 @@ function InlineEditableOverview({
     );
     setAllDmas(Boolean(company.allDmas));
     setAllDmasServiceProvidedId(
-      company.allDmasServiceProvidedId != null ? String(company.allDmasServiceProvidedId) : '',
+      company.allDmasServiceProvidedId != null
+        ? String(company.allDmasServiceProvidedId)
+        : "",
     );
     setServiceAreas(
       (company.serviceAreas ?? [])
         .filter((r) => {
-          const n = (r.dmaMarketName ?? '').trim().toLowerCase();
-          return !(n === 'all' || n === 'all dmas' || n === 'nationwide' || n === 'national' || n === 'all markets');
+          const n = (r.dmaMarketName ?? "").trim().toLowerCase();
+          return !(
+            n === "all" ||
+            n === "all dmas" ||
+            n === "nationwide" ||
+            n === "national" ||
+            n === "all markets"
+          );
         })
-        .map((r) => ({ dmaid: String(r.dmaid), serviceProvidedId: String(r.serviceProvidedId) })),
+        .map((r) => ({
+          dmaid: String(r.dmaid),
+          serviceProvidedId: String(r.serviceProvidedId),
+        })),
     );
-    setPhysStreet(company.physicalStreet ?? ''); setPhysCity(company.physicalCity ?? company.city ?? '');
-    setPhysState(company.physicalState ?? company.state ?? ''); setPhysPostal(company.physicalPostalCode ?? '');
-    setPhysCountry(company.physicalCountry ?? 'US'); setMailStreet(company.mailingStreet ?? '');
-    setMailCity(company.mailingCity ?? ''); setMailState(company.mailingState ?? '');
-    setMailPostal(company.mailingPostalCode ?? ''); setMailCountry(company.mailingCountry ?? company.physicalCountry ?? 'US');
+    setPhysStreet(company.physicalStreet ?? "");
+    setPhysCity(company.physicalCity ?? company.city ?? "");
+    setPhysState(company.physicalState ?? company.state ?? "");
+    setPhysPostal(company.physicalPostalCode ?? "");
+    setPhysCountry(company.physicalCountry ?? "US");
+    setMailStreet(company.mailingStreet ?? "");
+    setMailCity(company.mailingCity ?? "");
+    setMailState(company.mailingState ?? "");
+    setMailPostal(company.mailingPostalCode ?? "");
+    setMailCountry(company.mailingCountry ?? company.physicalCountry ?? "US");
     setResolvedDma(company.dmaMarketName ?? null);
+    setServiceAreaEditorOpen(false);
+    setServiceAreaDraftAllDmas(Boolean(company.allDmas));
+    setServiceAreaDraftAllDmasServiceProvidedId(
+      company.allDmasServiceProvidedId != null
+        ? String(company.allDmasServiceProvidedId)
+        : "",
+    );
+    setServiceAreaDraftRows(
+      (company.serviceAreas ?? [])
+        .filter((r) => {
+          const n = (r.dmaMarketName ?? "").trim().toLowerCase();
+          return !(
+            n === "all" ||
+            n === "all dmas" ||
+            n === "nationwide" ||
+            n === "national" ||
+            n === "all markets"
+          );
+        })
+        .map((r) => ({
+          dmaid: String(r.dmaid),
+          serviceProvidedId: String(r.serviceProvidedId),
+        })),
+    );
     setDirty(false);
     setInlineSaveErrors([]);
+  };
+
+  const openServiceAreaEditor = () => {
+    setServiceAreaDraftAllDmas(allDmas);
+    setServiceAreaDraftAllDmasServiceProvidedId(allDmasServiceProvidedId);
+    setServiceAreaDraftRows(serviceAreas.map((row) => ({ ...row })));
+    setServiceAreaEditorOpen(true);
+  };
+
+  const applyServiceAreaEditorChanges = () => {
+    const normalizedAllDmasServiceId =
+      serviceAreaDraftAllDmasServiceProvidedId &&
+      allowedServiceIdSet.has(serviceAreaDraftAllDmasServiceProvidedId)
+        ? serviceAreaDraftAllDmasServiceProvidedId
+        : "";
+    const normalizedRows = serviceAreaDraftRows.map((row) =>
+      row.serviceProvidedId && !allowedServiceIdSet.has(row.serviceProvidedId)
+        ? { ...row, serviceProvidedId: "" }
+        : row,
+    );
+    mark(setAllDmas)(serviceAreaDraftAllDmas);
+    mark(setAllDmasServiceProvidedId)(
+      serviceAreaDraftAllDmas ? normalizedAllDmasServiceId : "",
+    );
+    mark(setServiceAreas)(
+      serviceAreaDraftAllDmas ? [] : normalizedRows.map((row) => ({ ...row })),
+    );
+    setServiceAreaEditorOpen(false);
   };
 
   const collectEditCompanyErrors = useCallback((): string[] => {
     const M = COMPANY_FORM;
     const e: string[] = [];
     const n = name.trim();
-    if (!n) e.push('Company name is required.');
-    else if (n.length > M.companyName) e.push(`Company name must be ${M.companyName} characters or fewer.`);
+    if (!n) e.push("Company name is required.");
+    else if (n.length > M.companyName)
+      e.push(`Company name must be ${M.companyName} characters or fewer.`);
     if (
       typeIds
         .map((id) => Number(id))
         .filter((id) => Number.isInteger(id) && id > 0).length === 0
     ) {
-      e.push('Company type is required.');
+      e.push("Company type is required.");
     }
-    if (!physStreet.trim()) e.push('Physical street is required.');
-    else if (physStreet.trim().length > M.addressLine1) e.push(`Physical street must be ${M.addressLine1} characters or fewer.`);
-    if (!physCity.trim()) e.push('Physical city is required.');
-    else if (physCity.trim().length > M.city) e.push(`Physical city must be ${M.city} characters or fewer.`);
+    if (!physStreet.trim()) e.push("Physical street is required.");
+    else if (physStreet.trim().length > M.addressLine1)
+      e.push(`Physical street must be ${M.addressLine1} characters or fewer.`);
+    if (!physCity.trim()) e.push("Physical city is required.");
+    else if (physCity.trim().length > M.city)
+      e.push(`Physical city must be ${M.city} characters or fewer.`);
     else if (!isValidAddressNameText(physCity, M.city)) {
       e.push(`Physical city: ${COUNTRY_NAME_FORMAT_USER_MESSAGE}`);
     }
-    if (!physState.trim()) e.push('Physical state or province is required.');
-    else if (physState.trim().length > M.stateProvince) e.push(`Physical state or province must be ${M.stateProvince} characters or fewer.`);
+    if (!physState.trim()) e.push("Physical state or province is required.");
+    else if (physState.trim().length > M.stateProvince)
+      e.push(
+        `Physical state or province must be ${M.stateProvince} characters or fewer.`,
+      );
     else if (!isValidAddressNameText(physState, M.stateProvince)) {
       e.push(`Physical state or province: ${COUNTRY_NAME_FORMAT_USER_MESSAGE}`);
     }
-    if (!physPostal.trim()) e.push('Physical postal code is required.');
-    else if (physPostal.trim().length > M.postalCode) e.push(`Physical postal code must be ${M.postalCode} characters or fewer.`);
-    if (!physCountry.trim()) e.push('Physical country is required.');
-    else if (physCountry.trim().length > M.country) e.push(`Physical country must be ${M.country} characters or fewer.`);
+    if (!physPostal.trim()) e.push("Physical postal code is required.");
+    else if (physPostal.trim().length > M.postalCode)
+      e.push(
+        `Physical postal code must be ${M.postalCode} characters or fewer.`,
+      );
+    if (!physCountry.trim()) e.push("Physical country is required.");
+    else if (physCountry.trim().length > M.country)
+      e.push(`Physical country must be ${M.country} characters or fewer.`);
     else if (!isValidCountryName(physCountry)) {
       e.push(`Physical country: ${COUNTRY_NAME_FORMAT_USER_MESSAGE}`);
     }
     // DMA* is shown as required: block save when nothing resolves and we cannot keep dbo.dmaid.
     const pTrim = physPostal.trim();
-    const samePostalAsLoaded = pTrim === (company.physicalPostalCode ?? '').trim();
+    const samePostalAsLoaded =
+      pTrim === (company.physicalPostalCode ?? "").trim();
     const canKeepExistingDma =
       samePostalAsLoaded &&
-      typeof company.dmaId === 'number' &&
+      typeof company.dmaId === "number" &&
       company.dmaId > 0;
     if (pTrim.length >= 3) {
       if (!dmaLookupBusy && !resolvedDma && !canKeepExistingDma) {
         e.push(
-          'DMA is required: this physical postal code does not match any market in the DMA data. Use a different postal (as in the DMA list), or leave the physical postal code unchanged to keep this company’s existing DMA (when it has one).',
+          "DMA is required: this physical postal code does not match any market in the DMA data. Use a different postal (as in the DMA list), or leave the physical postal code unchanged to keep this company’s existing DMA (when it has one).",
         );
       }
     } else if (pTrim.length > 0 && !canKeepExistingDma) {
       e.push(
-        'Use a physical postal code of at least 3 characters so a DMA can be found, or leave the postal code unchanged to keep the existing DMA.',
+        "Use a physical postal code of at least 3 characters so a DMA can be found, or leave the postal code unchanged to keep the existing DMA.",
       );
     }
     if (separateMailing) {
-      if (!mailStreet.trim()) e.push('Mailing street is required when a separate mailing address is used.');
-      else if (mailStreet.trim().length > M.addressLine1) e.push(`Mailing street must be ${M.addressLine1} characters or fewer.`);
-      if (!mailCity.trim()) e.push('Mailing city is required when a separate mailing address is used.');
-      else if (mailCity.trim().length > M.city) e.push(`Mailing city must be ${M.city} characters or fewer.`);
+      if (!mailStreet.trim())
+        e.push(
+          "Mailing street is required when a separate mailing address is used.",
+        );
+      else if (mailStreet.trim().length > M.addressLine1)
+        e.push(`Mailing street must be ${M.addressLine1} characters or fewer.`);
+      if (!mailCity.trim())
+        e.push(
+          "Mailing city is required when a separate mailing address is used.",
+        );
+      else if (mailCity.trim().length > M.city)
+        e.push(`Mailing city must be ${M.city} characters or fewer.`);
       else if (!isValidAddressNameText(mailCity, M.city)) {
         e.push(`Mailing city: ${COUNTRY_NAME_FORMAT_USER_MESSAGE}`);
       }
-      if (!mailState.trim()) e.push('Mailing state or province is required when a separate mailing address is used.');
-      else if (mailState.trim().length > M.stateProvince) e.push(`Mailing state or province must be ${M.stateProvince} characters or fewer.`);
+      if (!mailState.trim())
+        e.push(
+          "Mailing state or province is required when a separate mailing address is used.",
+        );
+      else if (mailState.trim().length > M.stateProvince)
+        e.push(
+          `Mailing state or province must be ${M.stateProvince} characters or fewer.`,
+        );
       else if (!isValidAddressNameText(mailState, M.stateProvince)) {
-        e.push(`Mailing state or province: ${COUNTRY_NAME_FORMAT_USER_MESSAGE}`);
+        e.push(
+          `Mailing state or province: ${COUNTRY_NAME_FORMAT_USER_MESSAGE}`,
+        );
       }
-      if (!mailPostal.trim()) e.push('Mailing postal code is required when a separate mailing address is used.');
-      else if (mailPostal.trim().length > M.postalCode) e.push(`Mailing postal code must be ${M.postalCode} characters or fewer.`);
-      if (!mailCountry.trim()) e.push('Mailing country is required when a separate mailing address is used.');
-      else if (mailCountry.trim().length > M.country) e.push(`Mailing country must be ${M.country} characters or fewer.`);
+      if (!mailPostal.trim())
+        e.push(
+          "Mailing postal code is required when a separate mailing address is used.",
+        );
+      else if (mailPostal.trim().length > M.postalCode)
+        e.push(
+          `Mailing postal code must be ${M.postalCode} characters or fewer.`,
+        );
+      if (!mailCountry.trim())
+        e.push(
+          "Mailing country is required when a separate mailing address is used.",
+        );
+      else if (mailCountry.trim().length > M.country)
+        e.push(`Mailing country must be ${M.country} characters or fewer.`);
       else if (!isValidCountryName(mailCountry)) {
         e.push(`Mailing country: ${COUNTRY_NAME_FORMAT_USER_MESSAGE}`);
       }
     }
     return e;
   }, [
-    name, typeIds, physStreet, physCity, physState, physPostal, physCountry,
-    separateMailing, mailStreet, mailCity, mailState, mailPostal, mailCountry,
-    company.dmaId, company.physicalPostalCode, resolvedDma, dmaLookupBusy,
+    name,
+    typeIds,
+    physStreet,
+    physCity,
+    physState,
+    physPostal,
+    physCountry,
+    separateMailing,
+    mailStreet,
+    mailCity,
+    mailState,
+    mailPostal,
+    mailCountry,
+    company.dmaId,
+    company.physicalPostalCode,
+    resolvedDma,
+    dmaLookupBusy,
   ]);
 
   const saveCompanyChanges = async () => {
@@ -668,18 +1014,24 @@ function InlineEditableOverview({
     try {
       const pc = physPostal.trim();
       const dmaFromLookup = pc.length >= 3 ? await fetchDmaByPostal(pc) : null;
-      const previousPostal = (company.physicalPostalCode ?? '').trim();
+      const previousPostal = (company.physicalPostalCode ?? "").trim();
       const postalUnchanged = pc === previousPostal;
       const dmaIdToSend =
         dmaFromLookup?.dmaid != null
           ? dmaFromLookup.dmaid
-          : postalUnchanged && typeof company.dmaId === 'number' && company.dmaId > 0
+          : postalUnchanged &&
+              typeof company.dmaId === "number" &&
+              company.dmaId > 0
             ? company.dmaId
             : undefined;
 
-      if (dmaIdToSend == null || !Number.isFinite(dmaIdToSend) || dmaIdToSend <= 0) {
+      if (
+        dmaIdToSend == null ||
+        !Number.isFinite(dmaIdToSend) ||
+        dmaIdToSend <= 0
+      ) {
         setInlineSaveErrors([
-          'A valid DMA is required. The physical postal code and country did not match any DMA, and there is no stored DMA to keep. Use a combination that exists in the DMA data, or leave the physical postal code unchanged to keep the company’s current DMA (when it has one).',
+          "A valid DMA is required. The physical postal code and country did not match any DMA, and there is no stored DMA to keep. Use a combination that exists in the DMA data, or leave the physical postal code unchanged to keep the company’s current DMA (when it has one).",
         ]);
         return;
       }
@@ -701,6 +1053,7 @@ function InlineEditableOverview({
       );
       const updated = await updateCompany(Number(company.id), {
         companyName: name.trim().slice(0, M.companyName),
+        isInternal,
         companyTypeIds: typeIds
           .map((id) => Number(id))
           .filter((id) => Number.isInteger(id) && id > 0),
@@ -721,7 +1074,10 @@ function InlineEditableOverview({
         serviceAreas: allDmas
           ? []
           : serviceAreas
-              .map((r) => ({ dmaid: Number(r.dmaid), serviceProvidedId: Number(r.serviceProvidedId) }))
+              .map((r) => ({
+                dmaid: Number(r.dmaid),
+                serviceProvidedId: Number(r.serviceProvidedId),
+              }))
               .filter(
                 (r) =>
                   Number.isInteger(r.dmaid) &&
@@ -739,22 +1095,26 @@ function InlineEditableOverview({
           country: physC.slice(0, M.country),
         },
         mailingSameAsPhysical: !separateMailing,
-        mailing: separateMailing ? {
-          addressLine1: mailStreet.trim().slice(0, M.addressLine1),
-          addressLine2: null,
-          city: mailCity.trim().slice(0, M.city),
-          stateProvince: mailS.slice(0, M.stateProvince),
-          postalCode: mailPostal.trim().slice(0, M.postalCode),
-          country: mailC.slice(0, M.country),
-        } : undefined,
+        mailing: separateMailing
+          ? {
+              addressLine1: mailStreet.trim().slice(0, M.addressLine1),
+              addressLine2: null,
+              city: mailCity.trim().slice(0, M.city),
+              stateProvince: mailS.slice(0, M.stateProvince),
+              postalCode: mailPostal.trim().slice(0, M.postalCode),
+              country: mailC.slice(0, M.country),
+            }
+          : undefined,
       });
       await Promise.resolve(onSaved(updated));
       setDirty(false);
       setInlineSaveErrors([]);
-      addToast('Company updated successfully.', 'success');
+      addToast("Company updated successfully.", "success");
     } catch (e) {
-      addToast(friendlyApiError(e, 'Could not update company.'), 'error');
-    } finally { setSaving(false); }
+      addToast(friendlyApiError(e, "Could not update company."), "error");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSave = async () => {
@@ -784,7 +1144,9 @@ function InlineEditableOverview({
               Remove Venue type?
             </AlertDialogTitle>
             <AlertDialogDescription className="text-text-secondary text-sm leading-relaxed">
-              Removing Venue type will delete this company&apos;s venue profile data. If this company is linked to projects or engagements, the switch will be blocked and nothing will be deleted.
+              Removing Venue type will delete this company&apos;s venue profile
+              data. If this company is linked to projects or engagements, the
+              switch will be blocked and nothing will be deleted.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="gap-2 sm:gap-2">
@@ -802,8 +1164,8 @@ function InlineEditableOverview({
               onClick={() => {
                 setConfirmVenueTypeRemovalOpen(false);
                 addToast(
-                  'If allowed, venue profile data will be deleted after this change.',
-                  'warning',
+                  "If allowed, venue profile data will be deleted after this change.",
+                  "warning",
                 );
                 void saveCompanyChanges();
               }}
@@ -814,12 +1176,173 @@ function InlineEditableOverview({
                   Saving…
                 </>
               ) : (
-                'Yes, continue'
+                "Yes, continue"
               )}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {serviceAreaEditorOpen && (
+        <Modal
+          title="Manage Service Areas"
+          onClose={() => setServiceAreaEditorOpen(false)}
+          width={980}
+          allowContentOverflow
+        >
+          <div className="space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+                  Service Area
+                </h4>
+                <p className="text-[11px] text-text-muted mt-1">
+                  Configure all DMA coverage and service mappings for this
+                  company.
+                </p>
+              </div>
+              <label className="text-xs text-text-secondary flex items-center gap-2 select-none">
+                <input
+                  type="checkbox"
+                  checked={serviceAreaDraftAllDmas}
+                  onChange={(e) => setServiceAreaDraftAllDmas(e.target.checked)}
+                />
+                All DMAs (Nationwide)
+              </label>
+            </div>
+
+            {serviceAreaDraftAllDmas ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+                <div>
+                  <label className="text-xs text-text-muted block mb-0.5">
+                    Service (Nationwide)
+                    <span className="text-ems-coral ml-0.5">*</span>
+                  </label>
+                  <Select2
+                    options={serviceOptions}
+                    value={serviceAreaDraftAllDmasServiceProvidedId}
+                    onChange={setServiceAreaDraftAllDmasServiceProvidedId}
+                    placeholder={
+                      selectedCompanyTypeIds.length === 0
+                        ? "Select company type first…"
+                        : allowedServicesQuery.isFetching
+                          ? "Loading services…"
+                          : "Select service…"
+                    }
+                    disabled={
+                      selectedCompanyTypeIds.length === 0 ||
+                      allowedServicesQuery.isFetching
+                    }
+                  />
+                </div>
+                <div className="text-[11px] text-text-muted">
+                  Selected Area: All
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {serviceAreaDraftRows.length === 0 ? (
+                  <div className="text-sm text-text-muted">
+                    No service areas added yet.
+                  </div>
+                ) : null}
+                {serviceAreaDraftRows.map((row, idx) => (
+                  <div
+                    key={`sa-editor-${idx}`}
+                    className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end"
+                  >
+                    <div>
+                      <label className="text-xs text-text-muted block mb-0.5">
+                        DMA
+                      </label>
+                      <Select2
+                        options={dmaMarketOptions}
+                        value={row.dmaid}
+                        onChange={(v) => {
+                          const next = [...serviceAreaDraftRows];
+                          next[idx] = { ...next[idx], dmaid: v };
+                          setServiceAreaDraftRows(next);
+                        }}
+                        placeholder="Select DMA…"
+                      />
+                    </div>
+                    <div className="flex items-end gap-2">
+                      <div className="flex-1">
+                        <label className="text-xs text-text-muted block mb-0.5">
+                          Service
+                        </label>
+                        <Select2
+                          options={serviceOptions}
+                          value={row.serviceProvidedId}
+                          onChange={(v) => {
+                            const next = [...serviceAreaDraftRows];
+                            next[idx] = { ...next[idx], serviceProvidedId: v };
+                            setServiceAreaDraftRows(next);
+                          }}
+                          placeholder={
+                            selectedCompanyTypeIds.length === 0
+                              ? "Select company type first…"
+                              : allowedServicesQuery.isFetching
+                                ? "Loading services…"
+                                : "Select service…"
+                          }
+                          disabled={
+                            selectedCompanyTypeIds.length === 0 ||
+                            allowedServicesQuery.isFetching
+                          }
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="text-xs text-text-muted hover:text-ems-coral hover:underline pb-2"
+                        onClick={() =>
+                          setServiceAreaDraftRows(
+                            serviceAreaDraftRows.filter((_, i) => i !== idx),
+                          )
+                        }
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <div>
+                  <button
+                    type="button"
+                    className="text-sm text-ems-accent hover:underline"
+                    onClick={() =>
+                      setServiceAreaDraftRows([
+                        ...serviceAreaDraftRows,
+                        { dmaid: "", serviceProvidedId: "" },
+                      ])
+                    }
+                  >
+                    + Add DMA Service Area
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 border-t border-border/80 pt-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 px-4"
+                onClick={() => setServiceAreaEditorOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                className="h-9 px-4"
+                onClick={applyServiceAreaEditorChanges}
+              >
+                Apply changes
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Edit hint */}
       <p className="flex items-center gap-1.5 text-[11px] text-text-muted mb-4 select-none">
@@ -832,7 +1355,9 @@ function InlineEditableOverview({
           className="mb-4 text-sm bg-ems-coral-dim border border-ems-coral/20 rounded-md px-3 py-2 text-ems-coral"
           role="alert"
         >
-          <p className="text-xs font-medium text-text-primary mb-1.5">Please correct the following:</p>
+          <p className="text-xs font-medium text-text-primary mb-1.5">
+            Please correct the following:
+          </p>
           <ul className="list-disc pl-4 space-y-0.5 text-xs">
             {inlineSaveErrors.map((msg, i) => (
               <li key={`${i}-${msg}`}>{msg}</li>
@@ -856,7 +1381,9 @@ function InlineEditableOverview({
                   value={name}
                   maxLength={COMPANY_FORM.companyName}
                   onChange={(e) => {
-                    setName(clampToMaxLen(e.target.value, COMPANY_FORM.companyName));
+                    setName(
+                      clampToMaxLen(e.target.value, COMPANY_FORM.companyName),
+                    );
                     setDirty(true);
                     setInlineSaveErrors([]);
                     companyPlace.onNameInput();
@@ -887,11 +1414,12 @@ function InlineEditableOverview({
                         Searching…
                       </div>
                     )}
-                    {!companyPlace.loading && companyPlace.suggestions.length === 0 && (
-                      <div className="px-3 py-2 text-xs text-text-muted">
-                        No matching places — try a different name.
-                      </div>
-                    )}
+                    {!companyPlace.loading &&
+                      companyPlace.suggestions.length === 0 && (
+                        <div className="px-3 py-2 text-xs text-text-muted">
+                          No matching places — try a different name.
+                        </div>
+                      )}
                     {!companyPlace.loading &&
                       companyPlace.suggestions.map((s) => (
                         <button
@@ -913,9 +1441,18 @@ function InlineEditableOverview({
                 Search for a venue/address to auto-fill all address fields.
               </p>
               <div className="flex gap-0.5 mt-2">
-                <button onClick={() => setNameEditing(false)} title="Done" className="p-1 text-ems-accent hover:bg-elevated rounded transition-colors"><Check className="h-3.5 w-3.5" /></button>
                 <button
-                  onClick={() => { setName(company.name); setNameEditing(false); }}
+                  onClick={() => setNameEditing(false)}
+                  title="Done"
+                  className="p-1 text-ems-accent hover:bg-elevated rounded transition-colors"
+                >
+                  <Check className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => {
+                    setName(company.name);
+                    setNameEditing(false);
+                  }}
                   title="Cancel"
                   className="p-1 text-text-muted hover:bg-elevated rounded transition-colors"
                 >
@@ -934,8 +1471,10 @@ function InlineEditableOverview({
                 className="group flex items-start gap-2 cursor-pointer py-0.5 px-1.5 -mx-1.5 rounded-md hover:bg-elevated transition-colors"
                 title="Click to edit"
               >
-                <span className={`text-sm flex-1 ${name ? 'text-text-primary' : 'text-text-muted italic'}`}>
-                  {name || '—'}
+                <span
+                  className={`text-sm flex-1 ${name ? "text-text-primary" : "text-text-muted italic"}`}
+                >
+                  {name || "—"}
                 </span>
                 <Pencil className="h-3 w-3 text-text-muted opacity-0 group-hover:opacity-50 transition-opacity shrink-0 mt-0.5" />
               </div>
@@ -945,6 +1484,20 @@ function InlineEditableOverview({
 
         {/* Type + DMA */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
+          <div>
+            <label className="text-xs text-text-muted block mb-1">
+              Internal
+            </label>
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-md py-1 text-sm text-text-primary">
+              <input
+                type="checkbox"
+                checked={isInternal}
+                onChange={(event) => mark(setIsInternal)(event.target.checked)}
+                className="h-4 w-4 rounded border-border text-ems-accent focus:ring-ems-accent"
+              />
+              Internal company
+            </label>
+          </div>
           <div>
             <label className="text-xs text-text-muted block mb-0.5">
               Company Type
@@ -958,7 +1511,8 @@ function InlineEditableOverview({
             />
             {removingVenueType && (
               <p className="text-[11px] text-amber-600 mt-1.5">
-                Warning: removing Venue type deletes this company&apos;s venue profile (and is blocked when linked to projects/engagements).
+                Warning: removing Venue type deletes this company&apos;s venue
+                profile (and is blocked when linked to projects/engagements).
               </p>
             )}
           </div>
@@ -970,8 +1524,35 @@ function InlineEditableOverview({
               options={serviceOptions}
               values={serviceProvidedIds}
               onChange={mark(setServiceProvidedIds)}
-              placeholder="Select one or more services…"
+              placeholder={
+                selectedCompanyTypeIds.length === 0
+                  ? "Select company type first…"
+                  : allowedServicesQuery.isFetching
+                    ? "Loading allowed services…"
+                    : serviceOptions.length === 0
+                      ? "No services mapped for this type"
+                      : "Select one or more services…"
+              }
+              disabled={
+                selectedCompanyTypeIds.length === 0 ||
+                allowedServicesQuery.isFetching
+              }
             />
+            {selectedCompanyTypeIds.length > 0 &&
+            allowedServicesQuery.isFetching ? (
+              <p className="mt-1 flex items-center gap-1.5 text-[11px] text-text-muted">
+                <Loader2 className="h-3 w-3 animate-spin text-ems-accent" />
+                Loading allowed services…
+              </p>
+            ) : null}
+            {selectedCompanyTypeIds.length > 0 &&
+            !allowedServicesQuery.isFetching &&
+            serviceOptions.length === 0 ? (
+              <p className="mt-1 text-[11px] text-amber-600">
+                No services are mapped for the selected company type. Add
+                mappings in Settings → Lookup Tables → CompanyTypeService.
+              </p>
+            ) : null}
           </div>
           <div>
             <span className="text-xs text-text-muted">
@@ -979,10 +1560,14 @@ function InlineEditableOverview({
               <span className="text-ems-coral ml-0.5">*</span>
             </span>
             <div className="text-sm text-text-primary mt-0.5 flex items-center gap-1.5">
-              {dmaLookupBusy && <Loader2 className="h-3 w-3 animate-spin text-text-muted" />}
-              {resolvedDma ?? '—'}
+              {dmaLookupBusy && (
+                <Loader2 className="h-3 w-3 animate-spin text-text-muted" />
+              )}
+              {resolvedDma ?? "—"}
             </div>
-            <p className="text-[11px] text-text-muted mt-1">Auto-resolved from postal code.</p>
+            <p className="text-[11px] text-text-muted mt-1">
+              Auto-resolved from postal code.
+            </p>
           </div>
         </div>
 
@@ -994,100 +1579,84 @@ function InlineEditableOverview({
                 Service Area
               </h4>
               <p className="text-[11px] text-text-muted mt-1">
-                Select DMAs where this company provides services, and which service is provided in each DMA.
+                Select DMAs where this company provides services, and which
+                service is provided in each DMA.
               </p>
             </div>
-            <label className="text-xs text-text-secondary flex items-center gap-2 select-none">
-              <input
-                type="checkbox"
-                checked={allDmas}
-                onChange={(e) => mark(setAllDmas)(e.target.checked)}
-              />
-              All DMAs (Nationwide)
-            </label>
+            <div className="text-xs text-text-secondary">
+              {allDmas ? "All DMAs (Nationwide)" : "Selected DMAs"}
+            </div>
           </div>
 
           {allDmas ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
-              <div>
-                <label className="text-xs text-text-muted block mb-0.5">
-                  Service (Nationwide)
-                  <span className="text-ems-coral ml-0.5">*</span>
-                </label>
-                <Select2
-                  options={serviceOptions}
-                  value={allDmasServiceProvidedId}
-                  onChange={mark(setAllDmasServiceProvidedId)}
-                  placeholder="Select service…"
-                />
-              </div>
-              <div className="text-[11px] text-text-muted">
-                Selected Area: All
-              </div>
+            <div className="rounded-md border border-border bg-surface px-3 py-2.5">
+              <p className="text-xs text-text-muted">Coverage</p>
+              <p className="text-sm text-text-primary mt-1">
+                All DMAs (Nationwide)
+              </p>
+              <p className="text-xs text-text-muted mt-2">Service</p>
+              <p className="text-sm text-text-primary mt-1">
+                {serviceLabelById.get(allDmasServiceProvidedId) || "Not set"}
+              </p>
             </div>
           ) : (
             <div className="space-y-2">
               {serviceAreas.length === 0 ? (
-                <div className="text-sm text-text-muted">No service areas added yet.</div>
+                <div className="text-sm text-text-muted">
+                  No service areas added yet.
+                </div>
               ) : null}
-              {serviceAreas.map((row, idx) => (
-                <div key={`sa-${idx}`} className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+              {serviceAreaPreviewRows.map((row, idx) => (
+                <div
+                  key={`sa-preview-${idx}`}
+                  className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-md border border-border bg-surface px-3 py-2.5"
+                >
                   <div>
-                    <label className="text-xs text-text-muted block mb-0.5">DMA</label>
-                    <Select2
-                      options={dmaMarketOptions}
-                      value={row.dmaid}
-                      onChange={(v) => {
-                        const next = [...serviceAreas];
-                        next[idx] = { ...next[idx], dmaid: v };
-                        mark(setServiceAreas)(next);
-                      }}
-                      placeholder="Select DMA…"
-                    />
+                    <p className="text-[11px] text-text-muted">DMA</p>
+                    <p className="text-sm text-text-primary mt-1">
+                      {dmaLabelById.get(row.dmaid) || "Not set"}
+                    </p>
                   </div>
-                  <div className="flex items-end gap-2">
-                    <div className="flex-1">
-                      <label className="text-xs text-text-muted block mb-0.5">Service</label>
-                      <Select2
-                        options={serviceOptions}
-                        value={row.serviceProvidedId}
-                        onChange={(v) => {
-                          const next = [...serviceAreas];
-                          next[idx] = { ...next[idx], serviceProvidedId: v };
-                          mark(setServiceAreas)(next);
-                        }}
-                        placeholder="Select service…"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      className="text-xs text-text-muted hover:text-ems-coral hover:underline pb-2"
-                      onClick={() => {
-                        const next = serviceAreas.filter((_, i) => i !== idx);
-                        mark(setServiceAreas)(next);
-                      }}
-                    >
-                      Remove
-                    </button>
+                  <div>
+                    <p className="text-[11px] text-text-muted">Service</p>
+                    <p className="text-sm text-text-primary mt-1">
+                      {serviceLabelById.get(row.serviceProvidedId) || "Not set"}
+                    </p>
                   </div>
                 </div>
               ))}
+              {hasMoreServiceAreaRows ? (
+                <p className="text-[11px] text-text-muted">
+                  Showing 3 of {serviceAreas.length} service areas.
+                </p>
+              ) : null}
               <div>
-                <button
+                <Button
                   type="button"
-                  className="text-sm text-ems-accent hover:underline"
-                  onClick={() => {
-                    mark(setServiceAreas)([
-                      ...serviceAreas,
-                      { dmaid: '', serviceProvidedId: '' },
-                    ]);
-                  }}
+                  variant="outline"
+                  className="h-9 px-4"
+                  onClick={openServiceAreaEditor}
                 >
-                  + Add DMA Service Area
-                </button>
+                  <Pencil className="h-3.5 w-3.5" aria-hidden />
+                  Manage service areas
+                </Button>
               </div>
             </div>
           )}
+
+          {allDmas ? (
+            <div className="pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 px-4"
+                onClick={openServiceAreaEditor}
+              >
+                <Pencil className="h-3.5 w-3.5" aria-hidden />
+                Manage service areas
+              </Button>
+            </div>
+          ) : null}
         </div>
 
         {/* Physical Address */}
@@ -1150,12 +1719,15 @@ function InlineEditableOverview({
         <div className="space-y-3">
           <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wide border-b border-border/60 pb-1.5">
             Mailing Address
-            {separateMailing && <span className="text-ems-coral font-normal normal-case"> *</span>}
+            {separateMailing && (
+              <span className="text-ems-coral font-normal normal-case"> *</span>
+            )}
           </h4>
           {separateMailing && (
             <p className="text-[11px] text-text-muted -mt-1">
-              This mailing line differs from physical: fill all fields. Empty fields inherit the physical line for
-              comparison; matching physical on every line stays a single address.
+              This mailing line differs from physical: fill all fields. Empty
+              fields inherit the physical line for comparison; matching physical
+              on every line stays a single address.
             </p>
           )}
           <InlineEditField
@@ -1220,13 +1792,17 @@ function InlineEditableOverview({
           </span>
           <div className="flex gap-2">
             <button
-              type="button" onClick={discard} disabled={saving}
+              type="button"
+              onClick={discard}
+              disabled={saving}
               className="text-text-secondary text-xs px-3 py-1.5 hover:text-text-primary rounded-md hover:bg-elevated transition-colors disabled:opacity-50"
             >
               Discard
             </button>
             <button
-              type="button" onClick={() => void handleSave()} disabled={saving}
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={saving}
               className="inline-flex items-center gap-1.5 bg-ems-accent hover:bg-ems-accent/80 text-background text-xs px-4 py-1.5 rounded-md font-medium disabled:opacity-60 transition-colors"
             >
               {saving && <Loader2 className="h-3 w-3 animate-spin" />}
@@ -1239,63 +1815,346 @@ function InlineEditableOverview({
   );
 }
 
-function EngagementsTab({ companyId }: { companyId: string }) {
+const engagementMoneyFmt = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  maximumFractionDigits: 0,
+});
+
+function formatEngagementDate(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const date = match
+    ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+    : new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw;
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+}
+
+function formatEngagementTime(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const match = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return raw;
+  const hour = Math.min(23, Math.max(0, Number(match[1])));
+  const minute = match[2];
+  const period = hour >= 12 ? "PM" : "AM";
+  const displayHour = hour % 12 || 12;
+  return `${displayHour}:${minute} ${period}`;
+}
+
+function formatEngagementOpening(
+  e: ApiEngagementRow,
+): string {
+  const date = formatEngagementDate(e.openingPerformanceDate);
+  const time = formatEngagementTime(e.openingPerformanceTime);
+  return [date, time].filter(Boolean).join(" · ") || "Opening show not set";
+}
+
+function formatNumber(value: number | null | undefined): string {
+  return value == null ? "—" : value.toLocaleString();
+}
+
+function formatMoney(value: number | null | undefined): string {
+  return value == null ? "—" : engagementMoneyFmt.format(value);
+}
+
+function engagementVenueLabel(e: ApiEngagementRow): string {
+  return e.venueCompanyName?.trim() || e.venueName?.trim() || "Venue not set";
+}
+
+function engagementLocationLabel(e: ApiEngagementRow): string {
+  const location = [e.city, e.stateProvince].filter(Boolean).join(", ");
+  return location || e.dmaMarketName || "Location not set";
+}
+
+// ─── Company Linked Records Section ─────────────────────────────────────────
+
+type LinkedRecord = { title: string; subtitle: string | null; role?: string };
+
+/** Saturated avatar tones (white text), picked deterministically from the title. */
+const LINKED_AVATAR_TONES = [
+  "bg-ems-blue",
+  "bg-ems-amber",
+  "bg-ems-green",
+  "bg-ems-purple",
+  "bg-ems-accent",
+  "bg-ems-coral",
+];
+
+function linkedRecordInitials(title: string): string {
+  const cleaned = title.trim();
+  if (!cleaned) return "—";
+  const letters = cleaned
+    .split(/\s+/)
+    .map((w) => w[0])
+    .join("");
+  return letters.slice(0, 2).toUpperCase();
+}
+
+function LinkedRecordRow({ item }: { item: LinkedRecord }) {
+  const toneIdx =
+    item.title.split("").reduce((sum, ch) => sum + ch.charCodeAt(0), 0) %
+    LINKED_AVATAR_TONES.length;
+  return (
+    <li className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-hover/40">
+      <div
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white ${LINKED_AVATAR_TONES[toneIdx]}`}
+        aria-hidden
+      >
+        {linkedRecordInitials(item.title)}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-semibold text-text-primary">
+          {item.title}
+        </div>
+        {item.subtitle && (
+          <div className="mt-0.5 truncate text-xs font-medium text-ems-accent">
+            {item.subtitle}
+          </div>
+        )}
+      </div>
+      {item.role && (
+        <span className="shrink-0 whitespace-nowrap rounded-full border border-border bg-surface/60 px-2.5 py-1 text-[11px] font-medium text-text-secondary">
+          {item.role}
+        </span>
+      )}
+    </li>
+  );
+}
+
+function LinkGroup({
+  title,
+  icon: Icon,
+  items,
+}: {
+  title: string;
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+  items: LinkedRecord[];
+}) {
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 border-b border-border/60 bg-surface/40 px-4 py-2">
+        <Icon className="h-3.5 w-3.5 text-text-muted" aria-hidden />
+        <span className="text-xs font-semibold text-text-secondary">{title}</span>
+      </div>
+      <ul className="divide-y divide-border/50">
+        {items.map((item, i) => (
+          <LinkedRecordRow key={`${item.title}-${item.subtitle ?? ""}-${i}`} item={item} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function CompanyLinksSection({ companyId }: { companyId: string }) {
   const q = useQuery({
-    queryKey: ['companies', companyId, 'engagements'],
+    queryKey: ["companies", companyId, "links"],
+    queryFn: () => fetchCompanyLinks(Number(companyId)),
+    enabled: Number.isFinite(Number(companyId)),
+    staleTime: 60_000,
+  });
+
+  if (q.isLoading) {
+    return (
+      <div className="mt-4 rounded-xl border border-border bg-card p-4 shadow-sm">
+        <div className="flex items-center gap-2 text-sm text-text-muted">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          Loading linked records…
+        </div>
+      </div>
+    );
+  }
+  if (q.isError) return null;
+
+  const data = q.data;
+  if (!data) return null;
+
+  const groups: {
+    key: string;
+    title: string;
+    icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+    items: LinkedRecord[];
+  }[] = [
+    { key: "engagements", title: "Engagements", icon: CalendarRange, items: data.engagements },
+    { key: "projects", title: "Projects", icon: FolderKanban, items: data.projects },
+    { key: "tours", title: "Tours", icon: MapPin, items: data.tours },
+    { key: "attractions", title: "Attractions", icon: Sparkles, items: data.attractions },
+    { key: "serviceProviderFor", title: "Service Provider for", icon: Wrench, items: data.serviceProviderFor },
+    { key: "entertainmentComplexes", title: "Member of Complex", icon: Building2, items: data.entertainmentComplexes },
+    { key: "complexVenues", title: "Complex Venues", icon: Building, items: data.complexVenues },
+  ].filter((g) => g.items.length > 0);
+
+  const totalLinks = groups.reduce((sum, g) => sum + g.items.length, 0);
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+        <Link2 className="h-4 w-4 text-text-muted" aria-hidden />
+        <h4 className="text-xs font-bold uppercase tracking-wide text-text-secondary">
+          Linked Records
+        </h4>
+        <span className="rounded-full bg-elevated px-2 py-0.5 text-[11px] font-semibold tabular-nums text-text-secondary">
+          {totalLinks}
+        </span>
+      </div>
+
+      {totalLinks === 0 ? (
+        <p className="px-4 py-6 text-sm text-text-muted">
+          This company is not linked to any engagements, tours, projects, or other records.
+        </p>
+      ) : (
+        <div className="divide-y divide-border">
+          {groups.map((g) => (
+            <LinkGroup key={g.key} title={g.title} icon={g.icon} items={g.items} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EngagementsTab({
+  companyId,
+  onNavigate,
+}: {
+  companyId: string;
+  onNavigate?: (view: string, data?: unknown) => void;
+}) {
+  const q = useQuery({
+    queryKey: ["companies", companyId, "engagements"],
     queryFn: () => fetchCompanyEngagements(Number(companyId)),
     enabled: Number.isFinite(Number(companyId)),
   });
   if (q.isLoading) {
     return (
       <div
-        className="flex items-center gap-2 text-sm text-text-muted py-2"
+        className="flex flex-col items-center justify-center py-16 text-center"
         role="status"
         aria-live="polite"
       >
-        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-ems-accent" aria-hidden />
-        <span>Loading engagements…</span>
+        <Loader2
+          className="h-7 w-7 animate-spin text-ems-accent"
+          aria-hidden
+        />
+        <p className="mt-3 text-sm text-text-secondary">
+          Loading engagements…
+        </p>
       </div>
     );
   }
   if (q.isError) {
     return (
-      <p className="text-sm text-ems-coral">{(q.error as Error).message}</p>
+      <div className="rounded-lg border border-ems-coral/30 bg-ems-coral-dim px-4 py-3">
+        <div className="flex items-start gap-2">
+          <span className="text-ems-coral mt-0.5 shrink-0">⚠</span>
+          <p className="text-sm text-ems-coral">
+            {(q.error as Error).message}
+          </p>
+        </div>
+      </div>
     );
   }
   const rows = q.data ?? [];
   if (rows.length === 0) {
     return (
-      <p className="text-sm text-text-secondary">
-        No engagements are linked to this company yet.
-      </p>
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <div className="text-3xl mb-3 opacity-60">📅</div>
+        <p className="text-sm font-medium text-text-primary">
+          No Engagements
+        </p>
+        <p className="text-xs text-text-muted mt-1 max-w-xs">
+          There are no engagements linked to this company yet. Engagements will
+          appear here once this company is added as a venue.
+        </p>
+      </div>
     );
   }
   return (
-    <ul className="space-y-2 text-sm">
-      {rows.map((r) => (
-        <li key={r.engagementId} className="border border-border rounded-md p-3">
-          <div
-            className="font-medium text-text-primary"
-            title={r.displayTitle}
+    <div className="space-y-2.5">
+      {rows.map((r) => {
+        const title =
+          r.displayTitle ||
+          r.attractionName ||
+          `Engagement #${r.engagementId}`;
+        return (
+          <button
+            key={r.engagementId}
+            type="button"
+            onClick={() =>
+              onNavigate?.("engagement-detail", {
+                engagementId: r.engagementId,
+              })
+            }
+            className="w-full text-left bg-elevated border border-border rounded-lg px-4 py-3.5 hover:bg-hover/60 hover:shadow-sm transition-all active:scale-[0.99]"
+            title={`Open engagement: ${title}`}
           >
-            {r.displayTitle}
-          </div>
-          {r.engagementStatus && r.engagementStatus.toLowerCase() !== 'unknown' && (
-            <div className="text-xs text-text-muted mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-              <StatusBadge status={r.engagementStatus} />
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold text-text-primary leading-snug break-words">
+                  {title}
+                </div>
+                <div className="mt-1.5 text-xs text-text-secondary">
+                  {r.attractionName ?? "Attraction not set"}
+                </div>
+                <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-text-secondary">
+                  <div className="truncate">
+                    <span className="text-text-muted">Opening:</span>{" "}
+                    <span className="text-text-primary font-medium">
+                      {formatEngagementOpening(r)}
+                    </span>
+                  </div>
+                  <div className="truncate">
+                    <span className="text-text-muted">Venue:</span>{" "}
+                    <span className="text-text-primary font-medium">
+                      {engagementVenueLabel(r)}
+                    </span>
+                  </div>
+                  <div className="truncate">
+                    <span className="text-text-muted">Market:</span>{" "}
+                    <span className="text-text-primary font-medium">
+                      {r.dmaMarketName || "—"}
+                    </span>
+                  </div>
+                  <div className="truncate">
+                    <span className="text-text-muted">Location:</span>{" "}
+                    <span className="text-text-primary font-medium">
+                      {engagementLocationLabel(r)}
+                    </span>
+                  </div>
+                </div>
+                <div className="mt-1.5 text-xs text-text-secondary">
+                  <span className="text-text-muted">Capacity:</span>{" "}
+                  <span className="text-text-primary font-medium">
+                    {formatNumber(r.sellableCapacity)}
+                  </span>
+                  <span className="text-text-muted mx-1">·</span>
+                  <span className="text-text-muted">Gross potential:</span>{" "}
+                  <span className="text-text-primary font-medium">
+                    {formatMoney(r.grossPotential)}
+                  </span>
+                </div>
+              </div>
+              <div className="shrink-0 pt-0.5">
+                <StatusBadge status={r.engagementStatus || "Unknown"} />
+              </div>
             </div>
-          )}
-        </li>
-      ))}
-    </ul>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
 /** Legacy ContactInfo rows used an em dash as a NOT NULL placeholder for an empty name part. */
 function cleanContactNamePart(s: string | null | undefined): string {
-  const t = String(s ?? '').trim();
-  if (!t) return '';
-  if (/^[—–\u2013\u2014\-−\s]+$/u.test(t)) return '';
+  const t = String(s ?? "").trim();
+  if (!t) return "";
+  if (/^[—–\u2013\u2014\-−\s]+$/u.test(t)) return "";
   return t;
 }
 
@@ -1325,14 +2184,14 @@ function mapContactRow(
     firstName,
     lastName,
     roles: (() => {
-      const t = String(row.roleName ?? '').trim();
+      const t = String(row.roleName ?? "").trim();
       return t.length > 0 ? [t] : [];
     })(),
     email: row.email,
-    phone: row.workPhone || '',
-    status: 'Active',
+    phone: row.workPhone || "",
+    status: "Active",
     workEmail: row.email,
-    workPhone: row.workPhone || '',
+    workPhone: row.workPhone || "",
     cellPhone: row.cellPhone || undefined,
     roleId: row.roleId,
     departmentId: row.departmentId,
@@ -1362,29 +2221,43 @@ function ContactFormDb({
   onCancel: () => void;
   initial?: Contact;
 }) {
-  const [firstName, setFirstName] = useState(initial?.firstName || '');
-  const [lastName, setLastName] = useState(initial?.lastName || '');
-  const [email, setEmail] = useState(initial?.email || '');
-  const [workPhoneCountry, setWorkPhoneCountry] = useState<PhoneCountrySelection>(() => {
-    const workRaw = initial?.workPhone ?? initial?.phone;
-    const w = parsePhoneFieldValue(workRaw || undefined, DEFAULT_PHONE_COUNTRY, {
-      noCountryWhenEmpty: true,
+  const [firstName, setFirstName] = useState(initial?.firstName || "");
+  const [lastName, setLastName] = useState(initial?.lastName || "");
+  const [email, setEmail] = useState(initial?.email || "");
+  const [workPhoneCountry, setWorkPhoneCountry] =
+    useState<PhoneCountrySelection>(() => {
+      const workRaw = initial?.workPhone ?? initial?.phone;
+      const w = parsePhoneFieldValue(
+        workRaw || undefined,
+        DEFAULT_PHONE_COUNTRY,
+        {
+          noCountryWhenEmpty: true,
+        },
+      );
+      return (w.country || DEFAULT_PHONE_COUNTRY) as PhoneCountrySelection;
     });
-    return (w.country || DEFAULT_PHONE_COUNTRY) as PhoneCountrySelection;
-  });
   const [workPhoneDisplay, setWorkPhoneDisplay] = useState(() => {
     const workRaw = initial?.workPhone ?? initial?.phone;
-    const w = parsePhoneFieldValue(workRaw || undefined, DEFAULT_PHONE_COUNTRY, {
-      noCountryWhenEmpty: true,
-    });
+    const w = parsePhoneFieldValue(
+      workRaw || undefined,
+      DEFAULT_PHONE_COUNTRY,
+      {
+        noCountryWhenEmpty: true,
+      },
+    );
     return w.display;
   });
-  const [cellPhoneCountry, setCellPhoneCountry] = useState<PhoneCountrySelection>(() => {
-    const c = parsePhoneFieldValue(initial?.cellPhone, DEFAULT_PHONE_COUNTRY, {
-      noCountryWhenEmpty: true,
+  const [cellPhoneCountry, setCellPhoneCountry] =
+    useState<PhoneCountrySelection>(() => {
+      const c = parsePhoneFieldValue(
+        initial?.cellPhone,
+        DEFAULT_PHONE_COUNTRY,
+        {
+          noCountryWhenEmpty: true,
+        },
+      );
+      return (c.country || DEFAULT_PHONE_COUNTRY) as PhoneCountrySelection;
     });
-    return (c.country || DEFAULT_PHONE_COUNTRY) as PhoneCountrySelection;
-  });
   const [cellPhoneDisplay, setCellPhoneDisplay] = useState(() => {
     const c = parsePhoneFieldValue(initial?.cellPhone, DEFAULT_PHONE_COUNTRY, {
       noCountryWhenEmpty: true,
@@ -1394,10 +2267,10 @@ function ContactFormDb({
   const [workPhoneError, setWorkPhoneError] = useState<string | undefined>();
   const [cellPhoneError, setCellPhoneError] = useState<string | undefined>();
   const [roleId, setRoleId] = useState(
-    initial?.roleId != null ? String(initial.roleId) : '',
+    initial?.roleId != null ? String(initial.roleId) : "",
   );
   const [departmentId, setDepartmentId] = useState(
-    initial?.departmentId != null ? String(initial.departmentId) : '',
+    initial?.departmentId != null ? String(initial.departmentId) : "",
   );
   const [fieldErrors, setFieldErrors] = useState<{
     firstName?: string;
@@ -1411,9 +2284,9 @@ function ContactFormDb({
     setWorkPhoneError(undefined);
     setCellPhoneError(undefined);
     setFieldErrors({});
-    setFirstName(initial?.firstName || '');
-    setLastName(initial?.lastName || '');
-    setEmail(initial?.email || '');
+    setFirstName(initial?.firstName || "");
+    setLastName(initial?.lastName || "");
+    setEmail(initial?.email || "");
     const workRaw = initial?.workPhone ?? initial?.phone;
     const w = parsePhoneFieldValue(
       workRaw || undefined,
@@ -1429,18 +2302,21 @@ function ContactFormDb({
     });
     setCellPhoneCountry(c.country || DEFAULT_PHONE_COUNTRY);
     setCellPhoneDisplay(c.display);
-    setRoleId(initial?.roleId != null ? String(initial.roleId) : '');
+    setRoleId(initial?.roleId != null ? String(initial.roleId) : "");
     setDepartmentId(
-      initial?.departmentId != null ? String(initial.departmentId) : '',
+      initial?.departmentId != null ? String(initial.departmentId) : "",
     );
   }, [initial]);
 
   const inputCls =
-    'w-full min-w-0 cursor-text bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
+    "w-full min-w-0 cursor-text bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent";
 
   const roleOpts = useMemo(
     () =>
-      (roles ?? []).map((r) => ({ value: String(r.roleId), label: r.roleName })),
+      (roles ?? []).map((r) => ({
+        value: String(r.roleId),
+        label: r.roleName,
+      })),
     [roles],
   );
   const deptOpts = useMemo(
@@ -1521,7 +2397,7 @@ function ContactFormDb({
         />
         <FormField label="Role" required error={fieldErrors.role}>
           <Select2
-            options={[{ value: '', label: 'Select role…' }, ...roleOpts]}
+            options={[{ value: "", label: "Select role…" }, ...roleOpts]}
             value={roleId}
             onChange={(v) => {
               setRoleId(v);
@@ -1532,7 +2408,10 @@ function ContactFormDb({
         <div className="sm:col-span-2">
           <FormField label="Department" required error={fieldErrors.department}>
             <Select2
-              options={[{ value: '', label: 'Select department…' }, ...deptOpts]}
+              options={[
+                { value: "", label: "Select department…" },
+                ...deptOpts,
+              ]}
               value={departmentId}
               onChange={(v) => {
                 setDepartmentId(v);
@@ -1562,11 +2441,11 @@ function ContactFormDb({
               role?: string;
               department?: string;
             } = {};
-            if (!firstName.trim()) next.firstName = 'First name is required.';
-            if (!lastName.trim()) next.lastName = 'Last name is required.';
-            if (!email.trim()) next.email = 'Email is required.';
-            if (!roleId) next.role = 'Select a role.';
-            if (!departmentId) next.department = 'Select a department.';
+            if (!firstName.trim()) next.firstName = "First name is required.";
+            if (!lastName.trim()) next.lastName = "Last name is required.";
+            if (!email.trim()) next.email = "Email is required.";
+            if (!roleId) next.role = "Select a role.";
+            if (!departmentId) next.department = "Select a department.";
             if (Object.keys(next).length > 0) {
               setFieldErrors(next);
               return;
@@ -1575,12 +2454,10 @@ function ContactFormDb({
             let wErr: string | undefined;
             let cErr: string | undefined;
             if (workPhoneDisplay.trim() && !workPhoneCountry) {
-              wErr =
-                'Select a country for work phone, or clear the number.';
+              wErr = "Select a country for work phone, or clear the number.";
             }
             if (cellPhoneDisplay.trim() && !cellPhoneCountry) {
-              cErr =
-                'Select a country for cell phone, or clear the number.';
+              cErr = "Select a country for cell phone, or clear the number.";
             }
             if (wErr || cErr) {
               setWorkPhoneError(wErr);
@@ -1607,16 +2484,8 @@ function ContactFormDb({
                 firstName: firstName.trim(),
                 lastName: lastName.trim(),
                 email: email.trim(),
-                workPhone: hasWork
-                  ? wE!
-                  : isEditing
-                    ? null
-                    : undefined,
-                cellPhone: hasCell
-                  ? cE!
-                  : isEditing
-                    ? null
-                    : undefined,
+                workPhone: hasWork ? wE! : isEditing ? null : undefined,
+                cellPhone: hasCell ? cE! : isEditing ? null : undefined,
                 roleId: Number(roleId),
                 departmentId: Number(departmentId),
               });
@@ -1632,7 +2501,7 @@ function ContactFormDb({
               Saving…
             </>
           ) : (
-            'Save Contact'
+            "Save Contact"
           )}
         </button>
       </div>
@@ -1641,19 +2510,19 @@ function ContactFormDb({
 }
 
 const COMPANY_FORM_PHYS_ERR_KEYS = [
-  'physicalStreet',
-  'physicalCity',
-  'physicalState',
-  'physicalPostal',
-  'physicalCountry',
+  "physicalStreet",
+  "physicalCity",
+  "physicalState",
+  "physicalPostal",
+  "physicalCountry",
 ] as const;
 
 const COMPANY_FORM_MAIL_ERR_KEYS = [
-  'mailingStreet',
-  'mailingCity',
-  'mailingState',
-  'mailingPostal',
-  'mailingCountry',
+  "mailingStreet",
+  "mailingCity",
+  "mailingState",
+  "mailingPostal",
+  "mailingCountry",
 ] as const;
 
 function CompanyFormDb({
@@ -1668,10 +2537,12 @@ function CompanyFormDb({
   servicesProvided: ApiServiceProvided[];
   dmaMarkets: ApiDmaMarket[];
   initial?: Company;
-  onSubmit: (payload: CreateCompanyPayload | UpdateCompanyPayload) => Promise<void>;
+  onSubmit: (
+    payload: CreateCompanyPayload | UpdateCompanyPayload,
+  ) => Promise<void>;
   onCancel: () => void;
 }) {
-  const [companyName, setCompanyName] = useState(initial?.name || '');
+  const [companyName, setCompanyName] = useState(initial?.name || "");
   const [companyTypeIds, setCompanyTypeIds] = useState<string[]>(
     (initial?.companyTypeIds?.length
       ? initial.companyTypeIds
@@ -1684,16 +2555,25 @@ function CompanyFormDb({
     (initial?.serviceProvidedIds ?? []).map((id) => String(id)),
   );
   const [allDmas, setAllDmas] = useState<boolean>(Boolean(initial?.allDmas));
-  const [allDmasServiceProvidedId, setAllDmasServiceProvidedId] = useState<string>(
-    initial?.allDmasServiceProvidedId != null ? String(initial.allDmasServiceProvidedId) : '',
-  );
+  const [allDmasServiceProvidedId, setAllDmasServiceProvidedId] =
+    useState<string>(
+      initial?.allDmasServiceProvidedId != null
+        ? String(initial.allDmasServiceProvidedId)
+        : "",
+    );
   const [serviceAreas, setServiceAreas] = useState<
     { dmaid: string; serviceProvidedId: string }[]
   >(
     (initial?.serviceAreas ?? [])
       .filter((r) => {
-        const n = (r.dmaMarketName ?? '').trim().toLowerCase();
-        return !(n === 'all' || n === 'all dmas' || n === 'nationwide' || n === 'national' || n === 'all markets');
+        const n = (r.dmaMarketName ?? "").trim().toLowerCase();
+        return !(
+          n === "all" ||
+          n === "all dmas" ||
+          n === "nationwide" ||
+          n === "national" ||
+          n === "all markets"
+        );
       })
       .map((r) => ({
         dmaid: String(r.dmaid),
@@ -1705,43 +2585,43 @@ function CompanyFormDb({
   );
   const [dmaLookupBusy, setDmaLookupBusy] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [fieldErrors, setFieldErrors] = useState<Partial<Record<string, string>>>({});
+  const [fieldErrors, setFieldErrors] = useState<
+    Partial<Record<string, string>>
+  >({});
 
   const clearError = useCallback((key: string) => {
     setFieldErrors((e) => clearFormFieldError(e, key));
   }, []);
 
   const [physicalStreet, setPhysicalStreet] = useState(
-    initial?.physicalStreet || '',
+    initial?.physicalStreet || "",
   );
-  const [physicalCity, setPhysicalCity] = useState(initial?.physicalCity || '');
+  const [physicalCity, setPhysicalCity] = useState(initial?.physicalCity || "");
   const [physicalState, setPhysicalState] = useState(
-    initial?.physicalState || '',
+    initial?.physicalState || "",
   );
   const [physicalPostalCode, setPhysicalPostalCode] = useState(
-    initial?.physicalPostalCode || '',
+    initial?.physicalPostalCode || "",
   );
   const [physicalCountry, setPhysicalCountry] = useState(
-    initial?.physicalCountry || '',
+    initial?.physicalCountry || "",
   );
   const [lastGoogleFormattedMailing, setLastGoogleFormattedMailing] =
-    useState('');
+    useState("");
 
   const [mailingEnabled, setMailingEnabled] = useState(
     !!(initial?.mailingStreet || initial?.mailingCity),
   );
   const [mailingStreet, setMailingStreet] = useState(
-    initial?.mailingStreet || '',
+    initial?.mailingStreet || "",
   );
-  const [mailingCity, setMailingCity] = useState(initial?.mailingCity || '');
-  const [mailingState, setMailingState] = useState(
-    initial?.mailingState || '',
-  );
+  const [mailingCity, setMailingCity] = useState(initial?.mailingCity || "");
+  const [mailingState, setMailingState] = useState(initial?.mailingState || "");
   const [mailingPostalCode, setMailingPostalCode] = useState(
-    initial?.mailingPostalCode || '',
+    initial?.mailingPostalCode || "",
   );
   const [mailingCountry, setMailingCountry] = useState(
-    initial?.mailingCountry || '',
+    initial?.mailingCountry || "",
   );
 
   useEffect(() => {
@@ -1755,35 +2635,48 @@ function CompanyFormDb({
           : []
       ).map((id) => String(id)),
     );
-    setServiceProvidedIds((initial.serviceProvidedIds ?? []).map((id) => String(id)));
+    setServiceProvidedIds(
+      (initial.serviceProvidedIds ?? []).map((id) => String(id)),
+    );
     setAllDmas(Boolean(initial.allDmas));
     setAllDmasServiceProvidedId(
-      initial.allDmasServiceProvidedId != null ? String(initial.allDmasServiceProvidedId) : '',
+      initial.allDmasServiceProvidedId != null
+        ? String(initial.allDmasServiceProvidedId)
+        : "",
     );
     setServiceAreas(
       (initial.serviceAreas ?? [])
         .filter((r) => {
-          const n = (r.dmaMarketName ?? '').trim().toLowerCase();
-          return !(n === 'all' || n === 'all dmas' || n === 'nationwide' || n === 'national' || n === 'all markets');
+          const n = (r.dmaMarketName ?? "").trim().toLowerCase();
+          return !(
+            n === "all" ||
+            n === "all dmas" ||
+            n === "nationwide" ||
+            n === "national" ||
+            n === "all markets"
+          );
         })
-        .map((r) => ({ dmaid: String(r.dmaid), serviceProvidedId: String(r.serviceProvidedId) })),
+        .map((r) => ({
+          dmaid: String(r.dmaid),
+          serviceProvidedId: String(r.serviceProvidedId),
+        })),
     );
-    setPhysicalStreet(initial.physicalStreet || '');
-    setPhysicalCity(initial.physicalCity || '');
-    setPhysicalState(initial.physicalState || '');
-    setPhysicalPostalCode(initial.physicalPostalCode || '');
-    setPhysicalCountry(initial.physicalCountry || '');
+    setPhysicalStreet(initial.physicalStreet || "");
+    setPhysicalCity(initial.physicalCity || "");
+    setPhysicalState(initial.physicalState || "");
+    setPhysicalPostalCode(initial.physicalPostalCode || "");
+    setPhysicalCountry(initial.physicalCountry || "");
     const hasMailing = !!(
       initial.mailingStreet &&
       (initial.mailingStreet !== initial.physicalStreet ||
         initial.mailingCity !== initial.physicalCity)
     );
     setMailingEnabled(hasMailing);
-    setMailingStreet(initial.mailingStreet || '');
-    setMailingCity(initial.mailingCity || '');
-    setMailingState(initial.mailingState || '');
-    setMailingPostalCode(initial.mailingPostalCode || '');
-    setMailingCountry(initial.mailingCountry || '');
+    setMailingStreet(initial.mailingStreet || "");
+    setMailingCity(initial.mailingCity || "");
+    setMailingState(initial.mailingState || "");
+    setMailingPostalCode(initial.mailingPostalCode || "");
+    setMailingCountry(initial.mailingCountry || "");
     setResolvedDma(initial.dmaMarketName ?? null);
     setFieldErrors({});
   }, [initial, companyTypes]);
@@ -1816,20 +2709,22 @@ function CompanyFormDb({
   }, [physicalPostalCode, physicalCountry]);
 
   const patchPhysicalAddress = useCallback(
-    (patch: Partial<{
-      street: string;
-      city: string;
-      state: string;
-      postalCode: string;
-      country: string;
-    }>) => {
+    (
+      patch: Partial<{
+        street: string;
+        city: string;
+        state: string;
+        postalCode: string;
+        country: string;
+      }>,
+    ) => {
       if (patch.street !== undefined) {
-        setPhysicalStreet(clampToMaxLen(patch.street, COMPANY_FORM.addressLine1));
+        setPhysicalStreet(
+          clampToMaxLen(patch.street, COMPANY_FORM.addressLine1),
+        );
       }
       if (patch.city !== undefined) {
-        setPhysicalCity(
-          sanitizeCityStateInput(patch.city, COMPANY_FORM.city),
-        );
+        setPhysicalCity(sanitizeCityStateInput(patch.city, COMPANY_FORM.city));
       }
       if (patch.state !== undefined) {
         setPhysicalState(
@@ -1837,33 +2732,39 @@ function CompanyFormDb({
         );
       }
       if (patch.postalCode !== undefined) {
-        setPhysicalPostalCode(clampToMaxLen(patch.postalCode, COMPANY_FORM.postalCode));
+        setPhysicalPostalCode(
+          clampToMaxLen(patch.postalCode, COMPANY_FORM.postalCode),
+        );
       }
       if (patch.country !== undefined) {
         setPhysicalCountry(sanitizeCountryInput(patch.country));
       }
       if (Object.keys(patch).length > 0) {
-        setFieldErrors((e) => clearFormFieldErrors(e, [...COMPANY_FORM_PHYS_ERR_KEYS]));
+        setFieldErrors((e) =>
+          clearFormFieldErrors(e, [...COMPANY_FORM_PHYS_ERR_KEYS]),
+        );
       }
     },
     [],
   );
 
   const patchMailingAddress = useCallback(
-    (patch: Partial<{
-      street: string;
-      city: string;
-      state: string;
-      postalCode: string;
-      country: string;
-    }>) => {
+    (
+      patch: Partial<{
+        street: string;
+        city: string;
+        state: string;
+        postalCode: string;
+        country: string;
+      }>,
+    ) => {
       if (patch.street !== undefined) {
-        setMailingStreet(clampToMaxLen(patch.street, COMPANY_FORM.addressLine1));
+        setMailingStreet(
+          clampToMaxLen(patch.street, COMPANY_FORM.addressLine1),
+        );
       }
       if (patch.city !== undefined) {
-        setMailingCity(
-          sanitizeCityStateInput(patch.city, COMPANY_FORM.city),
-        );
+        setMailingCity(sanitizeCityStateInput(patch.city, COMPANY_FORM.city));
       }
       if (patch.state !== undefined) {
         setMailingState(
@@ -1871,13 +2772,17 @@ function CompanyFormDb({
         );
       }
       if (patch.postalCode !== undefined) {
-        setMailingPostalCode(clampToMaxLen(patch.postalCode, COMPANY_FORM.postalCode));
+        setMailingPostalCode(
+          clampToMaxLen(patch.postalCode, COMPANY_FORM.postalCode),
+        );
       }
       if (patch.country !== undefined) {
         setMailingCountry(sanitizeCountryInput(patch.country));
       }
       if (Object.keys(patch).length > 0) {
-        setFieldErrors((e) => clearFormFieldErrors(e, [...COMPANY_FORM_MAIL_ERR_KEYS]));
+        setFieldErrors((e) =>
+          clearFormFieldErrors(e, [...COMPANY_FORM_MAIL_ERR_KEYS]),
+        );
       }
     },
     [],
@@ -1889,34 +2794,34 @@ function CompanyFormDb({
       const name = details.placeName?.trim();
       if (name) setCompanyName(clampToMaxLen(name, M.companyName));
       const pCountry = toCountryAlpha2FromDisplayString(
-        sanitizeCountryInput(details.physical.country || '', M.country),
+        sanitizeCountryInput(details.physical.country || "", M.country),
       );
       const mCountry = toCountryAlpha2FromDisplayString(
-        sanitizeCountryInput(details.mailing.country || '', M.country),
+        sanitizeCountryInput(details.mailing.country || "", M.country),
       );
       patchPhysicalAddress({
-        street: details.physical.street || '',
-        city: details.physical.city || '',
+        street: details.physical.street || "",
+        city: details.physical.city || "",
         state: toStateProvinceAbbrevForDisplay(
-          details.physical.state || '',
+          details.physical.state || "",
           pCountry,
         ),
-        postalCode: details.physical.postalCode || '',
+        postalCode: details.physical.postalCode || "",
         country: pCountry,
       });
       patchMailingAddress({
-        street: details.mailing.street || '',
-        city: details.mailing.city || '',
+        street: details.mailing.street || "",
+        city: details.mailing.city || "",
         state: toStateProvinceAbbrevForDisplay(
-          details.mailing.state || '',
+          details.mailing.state || "",
           mCountry,
         ),
-        postalCode: details.mailing.postalCode || '',
+        postalCode: details.mailing.postalCode || "",
         country: mCountry,
       });
       setLastGoogleFormattedMailing(
         clampToMaxLen(
-          details.formattedAddress?.trim() || '',
+          details.formattedAddress?.trim() || "",
           M.googleFormattedMailingDisplay,
         ),
       );
@@ -1955,7 +2860,7 @@ function CompanyFormDb({
   });
 
   const inputCls =
-    'w-full min-w-0 cursor-text bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted';
+    "w-full min-w-0 cursor-text bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted";
 
   const typeOpts = useMemo(
     () =>
@@ -1965,21 +2870,67 @@ function CompanyFormDb({
       })),
     [companyTypes],
   );
+  const selectedCompanyTypeIds = useMemo(
+    () =>
+      companyTypeIds.map(Number).filter((id) => Number.isInteger(id) && id > 0),
+    [companyTypeIds],
+  );
+  const allowedServicesQuery = useQuery({
+    queryKey: [
+      "lookups",
+      "company-type-services",
+      "allowed",
+      selectedCompanyTypeIds.join(","),
+    ],
+    queryFn: () => fetchServicesAllowedForCompanyTypes(selectedCompanyTypeIds),
+    enabled: selectedCompanyTypeIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+  });
   const serviceOpts = useMemo(
     () =>
-      servicesProvided.map((service) => ({
+      (selectedCompanyTypeIds.length > 0
+        ? (allowedServicesQuery.data ?? [])
+        : []
+      ).map((service) => ({
         value: String(service.serviceProvidedId),
         label: service.serviceName,
       })),
-    [servicesProvided],
+    [allowedServicesQuery.data, selectedCompanyTypeIds.length],
   );
+  const allowedServiceIdSet = useMemo(
+    () => new Set(serviceOpts.map((option) => option.value)),
+    [serviceOpts],
+  );
+  useEffect(() => {
+    if (selectedCompanyTypeIds.length === 0 || allowedServicesQuery.isFetching)
+      return;
+    setServiceProvidedIds((ids) =>
+      ids.filter((id) => allowedServiceIdSet.has(id)),
+    );
+    setServiceAreas((rows) =>
+      rows.map((row) =>
+        row.serviceProvidedId && !allowedServiceIdSet.has(row.serviceProvidedId)
+          ? { ...row, serviceProvidedId: "" }
+          : row,
+      ),
+    );
+    setAllDmasServiceProvidedId((id) =>
+      id && !allowedServiceIdSet.has(id) ? "" : id,
+    );
+  }, [
+    allowedServiceIdSet,
+    allowedServicesQuery.isFetching,
+    selectedCompanyTypeIds.length,
+  ]);
 
   const dmaMarketOpts = useMemo(
     () =>
       (dmaMarkets ?? [])
         .slice()
         .sort((a, b) =>
-          a.marketName.localeCompare(b.marketName, undefined, { sensitivity: 'base' }),
+          a.marketName.localeCompare(b.marketName, undefined, {
+            sensitivity: "base",
+          }),
         )
         .map((d) => ({ value: String(d.dmaid), label: d.marketName })),
     [dmaMarkets],
@@ -1989,7 +2940,7 @@ function CompanyFormDb({
     const M = COMPANY_FORM;
     const next: Partial<Record<string, string>> = {};
     const n = companyName.trim();
-    if (!n) next.companyName = 'Company name is required.';
+    if (!n) next.companyName = "Company name is required.";
     else if (n.length > M.companyName) {
       next.companyName = `Company name must be ${M.companyName} characters or fewer.`;
     }
@@ -1998,30 +2949,34 @@ function CompanyFormDb({
         .map((id) => Number(id))
         .filter((id) => Number.isInteger(id) && id > 0).length === 0
     ) {
-      next.companyType = 'Select at least one company type.';
+      next.companyType = "Select at least one company type.";
     }
 
-    if (!physicalStreet.trim()) next.physicalStreet = 'Physical street is required.';
+    if (!physicalStreet.trim())
+      next.physicalStreet = "Physical street is required.";
     else if (physicalStreet.trim().length > M.addressLine1) {
       next.physicalStreet = `Physical street must be ${M.addressLine1} characters or fewer.`;
     }
-    if (!physicalCity.trim()) next.physicalCity = 'Physical city is required.';
+    if (!physicalCity.trim()) next.physicalCity = "Physical city is required.";
     else if (physicalCity.trim().length > M.city) {
       next.physicalCity = `Physical city must be ${M.city} characters or fewer.`;
     } else if (!isValidAddressNameText(physicalCity, M.city)) {
       next.physicalCity = `Physical city: ${COUNTRY_NAME_FORMAT_USER_MESSAGE}`;
     }
-    if (!physicalState.trim()) next.physicalState = 'Physical state or province is required.';
+    if (!physicalState.trim())
+      next.physicalState = "Physical state or province is required.";
     else if (physicalState.trim().length > M.stateProvince) {
       next.physicalState = `Physical state or province must be ${M.stateProvince} characters or fewer.`;
     } else if (!isValidAddressNameText(physicalState, M.stateProvince)) {
       next.physicalState = `Physical state or province: ${COUNTRY_NAME_FORMAT_USER_MESSAGE}`;
     }
-    if (!physicalPostalCode.trim()) next.physicalPostal = 'Physical postal code is required.';
+    if (!physicalPostalCode.trim())
+      next.physicalPostal = "Physical postal code is required.";
     else if (physicalPostalCode.trim().length > M.postalCode) {
       next.physicalPostal = `Physical postal code must be ${M.postalCode} characters or fewer.`;
     }
-    if (!physicalCountry.trim()) next.physicalCountry = 'Physical country is required.';
+    if (!physicalCountry.trim())
+      next.physicalCountry = "Physical country is required.";
     else if (physicalCountry.trim().length > M.country) {
       next.physicalCountry = `Physical country must be ${M.country} characters or fewer.`;
     } else if (!isValidCountryName(physicalCountry)) {
@@ -2032,34 +2987,38 @@ function CompanyFormDb({
     if (pc.length >= 3) {
       if (!dmaLookupBusy && !resolvedDma) {
         next.dma =
-          'This physical postal code does not match any market in the DMA data. Use a different postal code.';
+          "This physical postal code does not match any market in the DMA data. Use a different postal code.";
       }
     } else if (pc.length > 0) {
       next.dma = `Use a physical postal code of at least 3 characters so a DMA can be found.`;
     }
 
     if (mailingEnabled) {
-      if (!mailingStreet.trim()) next.mailingStreet = 'Mailing street is required.';
+      if (!mailingStreet.trim())
+        next.mailingStreet = "Mailing street is required.";
       else if (mailingStreet.trim().length > M.addressLine1) {
         next.mailingStreet = `Mailing street must be ${M.addressLine1} characters or fewer.`;
       }
-      if (!mailingCity.trim()) next.mailingCity = 'Mailing city is required.';
+      if (!mailingCity.trim()) next.mailingCity = "Mailing city is required.";
       else if (mailingCity.trim().length > M.city) {
         next.mailingCity = `Mailing city must be ${M.city} characters or fewer.`;
       } else if (!isValidAddressNameText(mailingCity, M.city)) {
         next.mailingCity = `Mailing city: ${COUNTRY_NAME_FORMAT_USER_MESSAGE}`;
       }
-      if (!mailingState.trim()) next.mailingState = 'Mailing state or province is required.';
+      if (!mailingState.trim())
+        next.mailingState = "Mailing state or province is required.";
       else if (mailingState.trim().length > M.stateProvince) {
         next.mailingState = `Mailing state or province must be ${M.stateProvince} characters or fewer.`;
       } else if (!isValidAddressNameText(mailingState, M.stateProvince)) {
         next.mailingState = `Mailing state or province: ${COUNTRY_NAME_FORMAT_USER_MESSAGE}`;
       }
-      if (!mailingPostalCode.trim()) next.mailingPostal = 'Mailing postal code is required.';
+      if (!mailingPostalCode.trim())
+        next.mailingPostal = "Mailing postal code is required.";
       else if (mailingPostalCode.trim().length > M.postalCode) {
         next.mailingPostal = `Mailing postal code must be ${M.postalCode} characters or fewer.`;
       }
-      if (!mailingCountry.trim()) next.mailingCountry = 'Mailing country is required.';
+      if (!mailingCountry.trim())
+        next.mailingCountry = "Mailing country is required.";
       else if (mailingCountry.trim().length > M.country) {
         next.mailingCountry = `Mailing country must be ${M.country} characters or fewer.`;
       } else if (!isValidCountryName(mailingCountry)) {
@@ -2125,7 +3084,10 @@ function CompanyFormDb({
       serviceAreas: allDmas
         ? []
         : serviceAreas
-            .map((r) => ({ dmaid: Number(r.dmaid), serviceProvidedId: Number(r.serviceProvidedId) }))
+            .map((r) => ({
+              dmaid: Number(r.dmaid),
+              serviceProvidedId: Number(r.serviceProvidedId),
+            }))
             .filter(
               (r) =>
                 Number.isInteger(r.dmaid) &&
@@ -2150,13 +3112,17 @@ function CompanyFormDb({
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <FormField label="Company Type" required error={fieldErrors.companyType}>
+        <FormField
+          label="Company Type"
+          required
+          error={fieldErrors.companyType}
+        >
           <Select2Multi
             options={typeOpts}
             values={companyTypeIds}
             onChange={(values) => {
               setCompanyTypeIds(values);
-              clearError('companyType');
+              clearError("companyType");
             }}
             placeholder="Select one or more company types…"
           />
@@ -2166,8 +3132,35 @@ function CompanyFormDb({
             options={serviceOpts}
             values={serviceProvidedIds}
             onChange={setServiceProvidedIds}
-            placeholder="Select one or more services…"
+            placeholder={
+              selectedCompanyTypeIds.length === 0
+                ? "Select company type first…"
+                : allowedServicesQuery.isFetching
+                  ? "Loading allowed services…"
+                  : serviceOpts.length === 0
+                    ? "No services mapped for this type"
+                    : "Select one or more services…"
+            }
+            disabled={
+              selectedCompanyTypeIds.length === 0 ||
+              allowedServicesQuery.isFetching
+            }
           />
+          {selectedCompanyTypeIds.length > 0 &&
+          allowedServicesQuery.isFetching ? (
+            <p className="mt-1 flex items-center gap-1.5 text-[11px] text-text-muted">
+              <Loader2 className="h-3 w-3 animate-spin text-ems-accent" />
+              Loading allowed services…
+            </p>
+          ) : null}
+          {selectedCompanyTypeIds.length > 0 &&
+          !allowedServicesQuery.isFetching &&
+          serviceOpts.length === 0 ? (
+            <p className="mt-1 text-[11px] text-amber-600">
+              No services are mapped for the selected company type. Add mappings
+              in Settings → Lookup Tables → CompanyTypeService.
+            </p>
+          ) : null}
         </FormField>
       </div>
 
@@ -2181,7 +3174,7 @@ function CompanyFormDb({
               setCompanyName(
                 clampToMaxLen(e.target.value, COMPANY_FORM.companyName),
               );
-              clearError('companyName');
+              clearError("companyName");
               companyPlace.onNameInput();
             }}
             onFocus={companyPlace.onNameFocus}
@@ -2190,42 +3183,46 @@ function CompanyFormDb({
             autoComplete="off"
             spellCheck={false}
           />
-            {companyPlace.listVisible && (
-              <div
-                className="absolute z-30 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-52 overflow-auto"
-                onMouseDown={(e) => e.preventDefault()}
-                role="listbox"
-                aria-label="Place suggestions"
-              >
-                {companyPlace.loading && (
-                  <div
-                    className="px-3 py-2.5 text-xs text-text-muted flex items-center gap-2"
-                    role="status"
-                    aria-live="polite"
-                  >
-                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-ems-accent" aria-hidden />
-                    Searching…
-                  </div>
-                )}
-                {!companyPlace.loading && companyPlace.suggestions.length === 0 && (
+          {companyPlace.listVisible && (
+            <div
+              className="absolute z-30 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-52 overflow-auto"
+              onMouseDown={(e) => e.preventDefault()}
+              role="listbox"
+              aria-label="Place suggestions"
+            >
+              {companyPlace.loading && (
+                <div
+                  className="px-3 py-2.5 text-xs text-text-muted flex items-center gap-2"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <Loader2
+                    className="h-3.5 w-3.5 shrink-0 animate-spin text-ems-accent"
+                    aria-hidden
+                  />
+                  Searching…
+                </div>
+              )}
+              {!companyPlace.loading &&
+                companyPlace.suggestions.length === 0 && (
                   <div className="px-3 py-2 text-xs text-text-muted">
                     No matching places — try a different name.
                   </div>
                 )}
-                {!companyPlace.loading &&
-                  companyPlace.suggestions.map((s) => (
-                    <button
-                      key={s.placeId}
-                      type="button"
-                      className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        companyPlace.selectPrediction(s);
-                      }}
-                    >
-                      {s.description}
-                    </button>
-                  ))}
+              {!companyPlace.loading &&
+                companyPlace.suggestions.map((s) => (
+                  <button
+                    key={s.placeId}
+                    type="button"
+                    className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      companyPlace.selectPrediction(s);
+                    }}
+                  >
+                    {s.description}
+                  </button>
+                ))}
             </div>
           )}
         </div>
@@ -2241,7 +3238,11 @@ function CompanyFormDb({
           <h3 className="text-sm font-semibold text-text-primary border-b border-border pb-2">
             Physical Address
           </h3>
-          <FormField label="Street Address" required error={fieldErrors.physicalStreet}>
+          <FormField
+            label="Street Address"
+            required
+            error={fieldErrors.physicalStreet}
+          >
             <input
               className={inputCls}
               maxLength={COMPANY_FORM.addressLine1}
@@ -2250,7 +3251,7 @@ function CompanyFormDb({
                 setPhysicalStreet(
                   clampToMaxLen(e.target.value, COMPANY_FORM.addressLine1),
                 );
-                clearError('physicalStreet');
+                clearError("physicalStreet");
               }}
               placeholder="Street line 1"
             />
@@ -2263,17 +3264,18 @@ function CompanyFormDb({
                 value={physicalCity}
                 onChange={(e) => {
                   setPhysicalCity(
-                    sanitizeCityStateInput(
-                      e.target.value,
-                      COMPANY_FORM.city,
-                    ),
+                    sanitizeCityStateInput(e.target.value, COMPANY_FORM.city),
                   );
-                  clearError('physicalCity');
+                  clearError("physicalCity");
                 }}
                 autoComplete="address-level2"
               />
             </FormField>
-            <FormField label="State / Province" required error={fieldErrors.physicalState}>
+            <FormField
+              label="State / Province"
+              required
+              error={fieldErrors.physicalState}
+            >
               <input
                 className={inputCls}
                 maxLength={COMPANY_FORM.stateProvince}
@@ -2285,14 +3287,18 @@ function CompanyFormDb({
                       COMPANY_FORM.stateProvince,
                     ),
                   );
-                  clearError('physicalState');
+                  clearError("physicalState");
                 }}
                 autoComplete="address-level1"
               />
             </FormField>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <FormField label="Postal Code" required error={fieldErrors.physicalPostal}>
+            <FormField
+              label="Postal Code"
+              required
+              error={fieldErrors.physicalPostal}
+            >
               <input
                 className={inputCls}
                 maxLength={COMPANY_FORM.postalCode}
@@ -2301,22 +3307,26 @@ function CompanyFormDb({
                   setPhysicalPostalCode(
                     clampToMaxLen(e.target.value, COMPANY_FORM.postalCode),
                   );
-                  clearError('physicalPostal');
-                  clearError('dma');
+                  clearError("physicalPostal");
+                  clearError("dma");
                 }}
                 onBlur={physicalAutofill.resolveByPostalCode}
                 placeholder="ZIP / postal"
               />
             </FormField>
-            <FormField label="Country" required error={fieldErrors.physicalCountry}>
+            <FormField
+              label="Country"
+              required
+              error={fieldErrors.physicalCountry}
+            >
               <input
                 className={inputCls}
                 maxLength={COMPANY_FORM.country}
                 value={physicalCountry}
                 onChange={(e) => {
                   setPhysicalCountry(sanitizeCountryInput(e.target.value));
-                  clearError('physicalCountry');
-                  clearError('dma');
+                  clearError("physicalCountry");
+                  clearError("dma");
                 }}
                 placeholder="Country name"
                 autoComplete="country-name"
@@ -2330,29 +3340,35 @@ function CompanyFormDb({
           <div className="flex items-center justify-between border-b border-border pb-2">
             <h3 className="text-sm font-semibold text-text-primary">
               Mailing Address
-              {mailingEnabled && <span className="text-ems-coral font-normal"> *</span>}
+              {mailingEnabled && (
+                <span className="text-ems-coral font-normal"> *</span>
+              )}
             </h3>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => {
-                  setFieldErrors((e) => clearFormFieldErrors(e, [...COMPANY_FORM_MAIL_ERR_KEYS]));
+                  setFieldErrors((e) =>
+                    clearFormFieldErrors(e, [...COMPANY_FORM_MAIL_ERR_KEYS]),
+                  );
                   setMailingEnabled((v) => !v);
                 }}
-                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${mailingEnabled ? 'bg-ems-accent' : 'bg-elevated border border-border'}`}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${mailingEnabled ? "bg-ems-accent" : "bg-elevated border border-border"}`}
               >
                 <span
-                  className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow ${mailingEnabled ? 'translate-x-4' : 'translate-x-0.5'}`}
+                  className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow ${mailingEnabled ? "translate-x-4" : "translate-x-0.5"}`}
                 />
               </button>
-              <span className="text-xs text-text-secondary">
-                Edit
-              </span>
+              <span className="text-xs text-text-secondary">Edit</span>
             </div>
           </div>
           {mailingEnabled ? (
             <>
-              <FormField label="Street Address" required error={fieldErrors.mailingStreet}>
+              <FormField
+                label="Street Address"
+                required
+                error={fieldErrors.mailingStreet}
+              >
                 <div className="relative">
                   <input
                     className={inputCls}
@@ -2360,9 +3376,12 @@ function CompanyFormDb({
                     value={mailingStreet}
                     onChange={(e) => {
                       setMailingStreet(
-                        clampToMaxLen(e.target.value, COMPANY_FORM.addressLine1),
+                        clampToMaxLen(
+                          e.target.value,
+                          COMPANY_FORM.addressLine1,
+                        ),
                       );
-                      clearError('mailingStreet');
+                      clearError("mailingStreet");
                     }}
                     onFocus={mailingAutofill.onStreetFocus}
                     onBlur={mailingAutofill.onStreetBlur}
@@ -2388,7 +3407,11 @@ function CompanyFormDb({
                 </div>
               </FormField>
               <div className="grid grid-cols-2 gap-3">
-                <FormField label="City" required error={fieldErrors.mailingCity}>
+                <FormField
+                  label="City"
+                  required
+                  error={fieldErrors.mailingCity}
+                >
                   <input
                     className={inputCls}
                     maxLength={COMPANY_FORM.city}
@@ -2400,12 +3423,16 @@ function CompanyFormDb({
                           COMPANY_FORM.city,
                         ),
                       );
-                      clearError('mailingCity');
+                      clearError("mailingCity");
                     }}
                     autoComplete="address-level2"
                   />
                 </FormField>
-                <FormField label="State / Province" required error={fieldErrors.mailingState}>
+                <FormField
+                  label="State / Province"
+                  required
+                  error={fieldErrors.mailingState}
+                >
                   <input
                     className={inputCls}
                     maxLength={COMPANY_FORM.stateProvince}
@@ -2417,14 +3444,18 @@ function CompanyFormDb({
                           COMPANY_FORM.stateProvince,
                         ),
                       );
-                      clearError('mailingState');
+                      clearError("mailingState");
                     }}
                     autoComplete="address-level1"
                   />
                 </FormField>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <FormField label="Postal Code" required error={fieldErrors.mailingPostal}>
+                <FormField
+                  label="Postal Code"
+                  required
+                  error={fieldErrors.mailingPostal}
+                >
                   <input
                     className={inputCls}
                     maxLength={COMPANY_FORM.postalCode}
@@ -2433,19 +3464,23 @@ function CompanyFormDb({
                       setMailingPostalCode(
                         clampToMaxLen(e.target.value, COMPANY_FORM.postalCode),
                       );
-                      clearError('mailingPostal');
+                      clearError("mailingPostal");
                     }}
                     onBlur={mailingAutofill.resolveByPostalCode}
                   />
                 </FormField>
-                <FormField label="Country" required error={fieldErrors.mailingCountry}>
+                <FormField
+                  label="Country"
+                  required
+                  error={fieldErrors.mailingCountry}
+                >
                   <input
                     className={inputCls}
                     maxLength={COMPANY_FORM.country}
                     value={mailingCountry}
                     onChange={(e) => {
                       setMailingCountry(sanitizeCountryInput(e.target.value));
-                      clearError('mailingCountry');
+                      clearError("mailingCountry");
                     }}
                     placeholder="Country name"
                     autoComplete="country-name"
@@ -2457,7 +3492,8 @@ function CompanyFormDb({
           ) : (
             <div className="min-h-[120px] bg-surface rounded-lg border border-dashed border-border p-3 flex items-center">
               <p className="text-xs text-text-secondary leading-relaxed break-words w-full">
-                {lastGoogleFormattedMailing || 'Uses the same mailing address as physical when saved.'}
+                {lastGoogleFormattedMailing ||
+                  "Uses the same mailing address as physical when saved."}
               </p>
             </div>
           )}
@@ -2466,7 +3502,7 @@ function CompanyFormDb({
 
       <div>
         <label className="text-xs font-medium text-text-secondary block mb-2">
-          {`Primary DMA for ${companyName.trim() || 'Company'}`}
+          {`Primary DMA for ${companyName.trim() || "Company"}`}
           <span className="text-ems-coral ml-0.5">*</span>
         </label>
         <div
@@ -2487,7 +3523,7 @@ function CompanyFormDb({
           ) : (
             <span>
               {resolvedDma ??
-                'Enter a postal code that matches a known DMA to resolve it when you save.'}
+                "Enter a postal code that matches a known DMA to resolve it when you save."}
             </span>
           )}
         </div>
@@ -2501,7 +3537,9 @@ function CompanyFormDb({
       <div className="bg-elevated border border-border rounded-lg p-4 space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="text-sm font-semibold text-text-primary">Service Area</div>
+            <div className="text-sm font-semibold text-text-primary">
+              Service Area
+            </div>
             <div className="mt-0.5 text-xs font-medium text-ems-accent">
               additional service areas outside of the primary DMA
             </div>
@@ -2527,8 +3565,18 @@ function CompanyFormDb({
                 options={serviceOpts}
                 value={allDmasServiceProvidedId}
                 onChange={setAllDmasServiceProvidedId}
-                placeholder="Select service…"
-                disabled={saving}
+                placeholder={
+                  selectedCompanyTypeIds.length === 0
+                    ? "Select company type first…"
+                    : allowedServicesQuery.isFetching
+                      ? "Loading services…"
+                      : "Select service…"
+                }
+                disabled={
+                  saving ||
+                  selectedCompanyTypeIds.length === 0 ||
+                  allowedServicesQuery.isFetching
+                }
               />
             </div>
             <div className="text-[11px] text-text-muted">
@@ -2538,12 +3586,19 @@ function CompanyFormDb({
         ) : (
           <div className="space-y-2">
             {serviceAreas.length === 0 ? (
-              <div className="text-sm text-text-muted">No service areas added yet.</div>
+              <div className="text-sm text-text-muted">
+                No service areas added yet.
+              </div>
             ) : null}
             {serviceAreas.map((row, idx) => (
-              <div key={`sa-create-${idx}`} className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+              <div
+                key={`sa-create-${idx}`}
+                className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end"
+              >
                 <div>
-                  <label className="text-xs text-text-muted block mb-0.5">DMA</label>
+                  <label className="text-xs text-text-muted block mb-0.5">
+                    DMA
+                  </label>
                   <Select2
                     options={dmaMarketOpts}
                     value={row.dmaid}
@@ -2558,7 +3613,9 @@ function CompanyFormDb({
                 </div>
                 <div className="flex items-end gap-2">
                   <div className="flex-1">
-                    <label className="text-xs text-text-muted block mb-0.5">Service</label>
+                    <label className="text-xs text-text-muted block mb-0.5">
+                      Service
+                    </label>
                     <Select2
                       options={serviceOpts}
                       value={row.serviceProvidedId}
@@ -2567,14 +3624,26 @@ function CompanyFormDb({
                         next[idx] = { ...next[idx], serviceProvidedId: v };
                         setServiceAreas(next);
                       }}
-                      placeholder="Select service…"
-                      disabled={saving}
+                      placeholder={
+                        selectedCompanyTypeIds.length === 0
+                          ? "Select company type first…"
+                          : allowedServicesQuery.isFetching
+                            ? "Loading services…"
+                            : "Select service…"
+                      }
+                      disabled={
+                        saving ||
+                        selectedCompanyTypeIds.length === 0 ||
+                        allowedServicesQuery.isFetching
+                      }
                     />
                   </div>
                   <button
                     type="button"
                     className="text-xs text-text-muted hover:text-ems-coral hover:underline pb-2"
-                    onClick={() => setServiceAreas(serviceAreas.filter((_, i) => i !== idx))}
+                    onClick={() =>
+                      setServiceAreas(serviceAreas.filter((_, i) => i !== idx))
+                    }
                     disabled={saving}
                   >
                     Remove
@@ -2585,7 +3654,12 @@ function CompanyFormDb({
             <button
               type="button"
               className="text-sm text-ems-accent hover:underline"
-              onClick={() => setServiceAreas([...serviceAreas, { dmaid: '', serviceProvidedId: '' }])}
+              onClick={() =>
+                setServiceAreas([
+                  ...serviceAreas,
+                  { dmaid: "", serviceProvidedId: "" },
+                ])
+              }
               disabled={saving}
             >
               + Add DMA Service Area
@@ -2615,7 +3689,7 @@ function CompanyFormDb({
               Saving…
             </>
           ) : (
-            'Save'
+            "Save"
           )}
         </button>
       </div>
@@ -2641,7 +3715,8 @@ function CompaniesTableSkeleton({ rows = PAGE_SIZE }: { rows?: number }) {
             Loading companies
           </p>
           <p className="text-xs text-text-muted leading-relaxed">
-            Fetching records from the database. This may take a moment on large lists.
+            Fetching records from the database. This may take a moment on large
+            lists.
           </p>
         </div>
       </div>
@@ -2679,71 +3754,87 @@ function CompaniesTableSkeleton({ rows = PAGE_SIZE }: { rows?: number }) {
   );
 }
 
-export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
+export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }: Props) {
   const qc = useQueryClient();
-  const [searchInput, setSearchInput] = useState('');
-  const [activeSearch, setActiveSearch] = useState('');
+  const [searchInput, setSearchInput] = useState("");
+  const [activeSearch, setActiveSearch] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
   const searchWrapperRef = useRef<HTMLDivElement>(null);
-  const [typeFilter, setTypeFilter] = useState('All');
+  const [typeFilter, setTypeFilter] = useState("All");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE);
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [drawerTab, setDrawerTab] = useState('Overview');
-  const [showAddContact, setShowAddContact] = useState(false);
-  const [editContact, setEditContact] = useState<Contact | null>(null);
-  const [contactPendingDelete, setContactPendingDelete] = useState<Contact | null>(null);
-  const [companyPendingDelete, setCompanyPendingDelete] = useState<Company | null>(
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(
     null,
   );
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [drawerTab, setDrawerTab] = useState("Overview");
+  const [showAddContact, setShowAddContact] = useState(false);
+  const [editContact, setEditContact] = useState<Contact | null>(null);
+  const [contactPendingDelete, setContactPendingDelete] =
+    useState<Contact | null>(null);
+  const [isContactDeleteWorkflowPending, setIsContactDeleteWorkflowPending] =
+    useState(false);
+  const [companyPendingDelete, setCompanyPendingDelete] =
+    useState<Company | null>(null);
 
-  type CompanySortCol = 'name' | 'type' | 'city' | 'dma';
+  type CompanySortCol = "name" | "type" | "city" | "dma";
   const SORT_API_BY_COL: Record<CompanySortCol, string> = {
-    name: 'name',
-    type: 'type',
-    city: 'city',
-    dma: 'dma',
+    name: "name",
+    type: "type",
+    city: "city",
+    dma: "dma",
   };
   const [sortState, setSortState] = useState<{
     col: CompanySortCol | null;
-    dir: 'asc' | 'desc';
+    dir: "asc" | "desc";
   }>(() => {
-    if (typeof window === 'undefined') return { col: 'name', dir: 'asc' };
+    if (typeof window === "undefined") return { col: "name", dir: "asc" };
     try {
-      if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') {
-        return { col: 'name', dir: 'asc' };
+      if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== "1") {
+        return { col: "name", dir: "asc" };
       }
       const raw = localStorage.getItem(COMPANIES_SORT_STATE_STORAGE_KEY);
-      if (!raw) return { col: 'name', dir: 'asc' };
+      if (!raw) return { col: "name", dir: "asc" };
       const parsed = JSON.parse(raw) as { col?: unknown; dir?: unknown };
-      const validCols = new Set<CompanySortCol>(['name', 'type', 'city', 'dma']);
+      const validCols = new Set<CompanySortCol>([
+        "name",
+        "type",
+        "city",
+        "dma",
+      ]);
       const col =
-        typeof parsed.col === 'string' && validCols.has(parsed.col as CompanySortCol)
+        typeof parsed.col === "string" &&
+        validCols.has(parsed.col as CompanySortCol)
           ? (parsed.col as CompanySortCol)
-          : 'name';
-      const dir = parsed.dir === 'desc' ? 'desc' : 'asc';
+          : "name";
+      const dir = parsed.dir === "desc" ? "desc" : "asc";
       return { col, dir };
     } catch {
-      return { col: 'name', dir: 'asc' };
+      return { col: "name", dir: "asc" };
     }
   });
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (searchWrapperRef.current && !searchWrapperRef.current.contains(e.target as Node)) {
+      if (
+        searchWrapperRef.current &&
+        !searchWrapperRef.current.contains(e.target as Node)
+      ) {
         setShowSuggestions(false);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   useEffect(() => {
     try {
-      if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') return;
-      localStorage.setItem(COMPANIES_SORT_STATE_STORAGE_KEY, JSON.stringify(sortState));
+      if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== "1") return;
+      localStorage.setItem(
+        COMPANIES_SORT_STATE_STORAGE_KEY,
+        JSON.stringify(sortState),
+      );
     } catch {
       /* ignore */
     }
@@ -2754,10 +3845,10 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
     const nextId = String(initialSelectedCompanyId).trim();
     if (!nextId) return;
     setSelectedCompanyId(nextId);
-    setDrawerTab('Overview');
+    setDrawerTab("Overview");
   }, [initialSelectedCompanyId]);
 
-  const companyTypeParam = typeFilter !== 'All' ? typeFilter : undefined;
+  const companyTypeParam = typeFilter !== "All" ? typeFilter : undefined;
   const listOpts = useMemo(
     () => ({
       q: activeSearch.trim() || undefined,
@@ -2801,36 +3892,38 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
   }, [companiesPickerQuery.data, companyTypeParam]);
 
   const searchSuggestions = useMemo(() => {
-    const q = searchInput.trim().toLowerCase();
+    const q = normalizeSearchText(searchInput);
     if (!q) return [];
     const normalized = pickerCompanies
       .map((row) => {
         const name = row.companyName.trim();
         const typeText = (
-          row.companyTypeNames?.length ? row.companyTypeNames : [row.companyTypeName]
+          row.companyTypeNames?.length
+            ? row.companyTypeNames
+            : [row.companyTypeName]
         )
           .filter(Boolean)
-          .join(', ');
-        const city = String(row.physicalCity ?? '').trim();
-        const state = String(row.physicalStateProvince ?? '').trim();
-        const cityState = [city, state].filter(Boolean).join(', ');
-        const searchableText = [name, typeText, cityState]
-          .join(' ')
-          .toLowerCase();
-        const startsWithName = name.toLowerCase().startsWith(q);
+          .join(", ");
+        const city = String(row.physicalCity ?? "").trim();
+        const state = String(row.physicalStateProvince ?? "").trim();
+        const cityState = [city, state].filter(Boolean).join(", ");
+        const searchableParts = [name, typeText, cityState, row.dmaMarketName];
+        const startsWithName = normalizeSearchText(name).startsWith(q);
         return {
           id: row.companyId,
           name,
-          typeText: typeText || 'Not set',
-          cityState: cityState || 'City / State not set',
-          searchableText,
+          isInternal: Boolean(row.isInternal),
+          typeText: typeText || "Not set",
+          cityState: cityState || "City / State not set",
+          searchableParts,
           startsWithName,
         };
       })
-      .filter((row) => row.name && row.searchableText.includes(q))
+      .filter((row) => row.name && richTextMatches(row.searchableParts, q))
       .sort((a, b) => {
-        if (a.startsWithName !== b.startsWithName) return a.startsWithName ? -1 : 1;
-        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+        if (a.startsWithName !== b.startsWithName)
+          return a.startsWithName ? -1 : 1;
+        return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
       })
       .slice(0, 10);
     return normalized;
@@ -2874,12 +3967,12 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
   const hasActiveCompanyFilters =
     searchInput.trim().length > 0 ||
     activeSearch.trim().length > 0 ||
-    typeFilter !== 'All';
+    typeFilter !== "All";
 
   const resetCompanyFilters = useCallback(() => {
-    setSearchInput('');
-    setActiveSearch('');
-    setTypeFilter('All');
+    setSearchInput("");
+    setActiveSearch("");
+    setTypeFilter("All");
     setShowSuggestions(false);
     setActiveSuggestionIndex(-1);
     setPage(1);
@@ -2893,32 +3986,38 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
 
   const toggleColumnSort = useCallback((col: CompanySortCol) => {
     setSortState((s) => {
-      if (s.col === col) return { col, dir: s.dir === 'asc' ? 'desc' : 'asc' };
-      return { col, dir: 'asc' };
+      if (s.col === col) return { col, dir: s.dir === "asc" ? "desc" : "asc" };
+      return { col, dir: "asc" };
     });
     setPage(1);
   }, []);
 
   const upsertCompanyInCache = useCallback(() => {
-    void qc.invalidateQueries({ queryKey: ['companies', 'list'], exact: false });
+    void qc.invalidateQueries({
+      queryKey: ["companies", "list"],
+      exact: false,
+    });
     void qc.invalidateQueries({ queryKey: companiesPickerQueryKey() });
   }, [qc]);
 
   const removeCompanyFromCache = useCallback(() => {
-    void qc.invalidateQueries({ queryKey: ['companies', 'list'], exact: false });
+    void qc.invalidateQueries({
+      queryKey: ["companies", "list"],
+      exact: false,
+    });
     void qc.invalidateQueries({ queryKey: companiesPickerQueryKey() });
   }, [qc]);
 
   const lookupsQuery = useQuery({
-    queryKey: ['lookups'],
+    queryKey: ["lookups"],
     queryFn: fetchLookups,
     staleTime: 30 * 60 * 1000,
     gcTime: 60 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
   const dmaMarketsQuery = useQuery({
-    queryKey: ['lookups', 'dma-markets', 0, 500, ''],
-    queryFn: () => fetchDmaMarketsPage(0, 500, ''),
+    queryKey: ["lookups", "dma-markets", 0, 500, ""],
+    queryFn: () => fetchDmaMarketsPage(0, 500, ""),
     staleTime: 30 * 60 * 1000,
     gcTime: 60 * 60 * 1000,
     refetchOnWindowFocus: false,
@@ -2930,20 +4029,21 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
   const servicesProvided: ApiServiceProvided[] =
     lookupsQuery.data?.servicesProvided ?? [];
   const dmaMarkets: ApiDmaMarket[] = dmaMarketsQuery.data?.data ?? [];
-  const nonResidentWithholdings = lookupsQuery.data?.nonResidentWithholdings ?? [];
+  const nonResidentWithholdings =
+    lookupsQuery.data?.nonResidentWithholdings ?? [];
   const roles: ApiRole[] = lookupsQuery.data?.roles ?? [];
   const departments: ApiDepartment[] = lookupsQuery.data?.departments ?? [];
 
   const typeOptions = useMemo(() => {
     const lookupTypes = lookupsQuery.data?.companyTypes ?? [];
     if (lookupTypes.length > 0) {
-      return ['All', ...lookupTypes.map((t) => t.companyTypeName)];
+      return ["All", ...lookupTypes.map((t) => t.companyTypeName)];
     }
-    return ['All'];
+    return ["All"];
   }, [lookupsQuery.data?.companyTypes]);
 
   const companyDetailQuery = useQuery({
-    queryKey: ['companies', 'detail', selectedCompanyId],
+    queryKey: ["companies", "detail", selectedCompanyId],
     queryFn: () => fetchCompany(Number(selectedCompanyId)),
     enabled:
       !!selectedCompanyId &&
@@ -2952,49 +4052,56 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
   });
 
   const selectedCompany = selectedCompanyId
-    ? displayList.find((c) => c.id === selectedCompanyId) ??
+    ? (displayList.find((c) => c.id === selectedCompanyId) ??
       (companyDetailQuery.data
         ? mapApiCompanyToCompany(companyDetailQuery.data)
-        : null)
+        : null))
     : null;
 
   const selectedCompanyTypesLower = (selectedCompany?.companyTypeNames ?? [])
     .map((t) => t.trim().toLowerCase())
     .filter(Boolean);
-  const isVenueCompany = selectedCompanyTypesLower.includes('venue');
+  const isVenueCompany = selectedCompanyTypesLower.includes("venue");
   const isEntertainmentComplexCompany = selectedCompanyTypesLower.includes(
-    'entertainment complex',
+    "entertainment complex",
   );
 
   const drawerTabs = useMemo(() => {
-    const base: string[] = ['Overview', 'Contacts', 'Engagements', 'Documents'];
-    return isVenueCompany ? [...base, 'Venue Profile'] : base;
+    const base: string[] = ["Overview", "Contacts", "Engagements"];
+    const withVenue = isVenueCompany ? [...base, "Venue Profile", "Marketing"] : base;
+    return [...withVenue, "Linked Records"];
   }, [isVenueCompany]);
 
   useEffect(() => {
-    if (!isVenueCompany && drawerTab === 'Venue Profile') {
-      setDrawerTab('Overview');
+    if (!drawerTabs.includes(drawerTab)) {
+      setDrawerTab("Overview");
     }
-  }, [isVenueCompany, drawerTab]);
+  }, [drawerTabs, drawerTab]);
 
   const contactsQuery = useQuery({
-    queryKey: ['companies', selectedCompanyId, 'contacts'],
+    queryKey: ["companies", selectedCompanyId, "contacts"],
     queryFn: async () => {
       const id = Number(selectedCompanyId);
       const rows = await fetchCompanyContacts(id);
       const list = Array.isArray(rows) ? rows : [];
       return list.map((r) => mapContactRow(r, String(id)));
     },
-    enabled: !!selectedCompanyId && drawerTab === 'Contacts',
+    enabled: !!selectedCompanyId && drawerTab === "Contacts",
   });
 
-  const companyContacts: Contact[] = Array.isArray(contactsQuery.data) ? contactsQuery.data : [];
+  const companyContacts: Contact[] = Array.isArray(contactsQuery.data)
+    ? contactsQuery.data
+    : [];
   const linkedVenueContactsQuery = useQuery({
-    queryKey: ['companies', selectedCompanyId, 'contacts', 'linked-venues'],
+    queryKey: ["companies", selectedCompanyId, "contacts", "linked-venues"],
     queryFn: async () => {
       const id = Number(selectedCompanyId);
       const sections = await fetchCompanyLinkedVenueContacts(id);
-      const safe: ApiCompanyVenueLinkedContactsSection[] = Array.isArray(sections) ? sections : [];
+      const safe: ApiCompanyVenueLinkedContactsSection[] = Array.isArray(
+        sections,
+      )
+        ? sections
+        : [];
       return safe.map((section) => ({
         ...section,
         contacts: (section.contacts ?? []).map((r) =>
@@ -3004,10 +4111,12 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
     },
     enabled:
       !!selectedCompanyId &&
-      drawerTab === 'Contacts' &&
+      drawerTab === "Contacts" &&
       isEntertainmentComplexCompany,
   });
-  const linkedVenueContactSections = Array.isArray(linkedVenueContactsQuery.data)
+  const linkedVenueContactSections = Array.isArray(
+    linkedVenueContactsQuery.data,
+  )
     ? linkedVenueContactsQuery.data
     : [];
 
@@ -3031,41 +4140,54 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
 
   const deleteMut = useMutation({
     mutationFn: async (id: number) => deleteCompany(id),
-    onSuccess: (_, id) => {
-      removeCompanyFromCache(id);
+    onSuccess: () => {
+      removeCompanyFromCache();
     },
   });
 
   const deleteContactMut = useMutation({
-    mutationFn: (contactAssignmentId: number) => deleteContactAssignment(contactAssignmentId),
+    mutationFn: (contactAssignmentId: number) =>
+      deleteContactAssignment(contactAssignmentId),
   });
 
+  const closeContactDeleteDialogBeforeFeedback = () =>
+    new Promise<void>((resolve) => {
+      setContactPendingDelete(null);
+      window.setTimeout(resolve, 260);
+    });
+
   const confirmDeleteContact = async () => {
-    if (contactPendingDelete?.contactAssignmentId == null || selectedCompanyId == null) {
+    const pendingContact = contactPendingDelete;
+    if (
+      pendingContact?.contactAssignmentId == null ||
+      selectedCompanyId == null
+    ) {
       return;
     }
-    const assignmentId = contactPendingDelete.contactAssignmentId;
+    if (deleteContactMut.isPending || isContactDeleteWorkflowPending) {
+      return;
+    }
+    const assignmentId = pendingContact.contactAssignmentId;
+    setIsContactDeleteWorkflowPending(true);
     try {
       await deleteContactMut.mutateAsync(assignmentId);
-      /**
-       * Surgical patch instead of invalidate: drop just this contact row from the
-       * per-company contacts cache. No refetch, list stays fresh for 30 min.
-       */
-      removeFromList<Contact>(
-        qc,
-        ['companies', selectedCompanyId, 'contacts'],
-        (c) => c.contactAssignmentId === assignmentId,
-      );
       await qc.invalidateQueries({
-        queryKey: ['companies', selectedCompanyId, 'contacts'],
+        queryKey: ["companies", selectedCompanyId, "contacts"],
         exact: true,
       });
-      setContactPendingDelete(null);
-      addToast('Contact removed from this company.', 'warning');
+      await closeContactDeleteDialogBeforeFeedback();
+      setIsContactDeleteWorkflowPending(false);
+      addToast("Contact removed from this company.", "success");
     } catch (e) {
-      addToast(friendlyApiError(e, 'Could not remove the contact.'), 'error');
+      const message = friendlyApiError(e, "Could not remove the contact.");
+      await closeContactDeleteDialogBeforeFeedback();
+      setIsContactDeleteWorkflowPending(false);
+      addToast(message, "error");
     }
   };
+
+  const isContactDeletePending =
+    deleteContactMut.isPending || isContactDeleteWorkflowPending;
 
   const confirmDeleteCompany = async () => {
     if (!companyPendingDelete) return;
@@ -3074,9 +4196,9 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
       await deleteMut.mutateAsync(Number(c.id));
       if (selectedCompanyId === c.id) setSelectedCompanyId(null);
       setCompanyPendingDelete(null);
-      addToast('Company removed from the list.', 'warning');
+      addToast("Company removed from the list.", "success");
     } catch (e) {
-      addToast(friendlyApiError(e, 'Could not delete the company.'), 'error');
+      addToast(friendlyApiError(e, "Could not delete the company."), "error");
     }
   };
 
@@ -3094,12 +4216,12 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
               Remove this company?
             </AlertDialogTitle>
             <AlertDialogDescription className="text-text-secondary text-sm leading-relaxed">
-              You’re about to remove{' '}
+              You’re about to remove{" "}
               <span className="font-medium text-text-primary">
-                {companyPendingDelete?.name ?? 'this company'}
-              </span>{' '}
-              from your list. If something blocks the removal, you’ll see a short
-              explanation right after you confirm.
+                {companyPendingDelete?.name ?? "this company"}
+              </span>{" "}
+              from your list. If something blocks the removal, you’ll see a
+              short explanation right after you confirm.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {deleteMut.isPending && (
@@ -3135,7 +4257,7 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                   Removing…
                 </>
               ) : (
-                'Yes, remove company'
+                "Yes, remove company"
               )}
             </Button>
           </AlertDialogFooter>
@@ -3145,7 +4267,7 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
       <AlertDialog
         open={contactPendingDelete !== null}
         onOpenChange={(open) => {
-          if (!open && !deleteContactMut.isPending) setContactPendingDelete(null);
+          if (!open && !isContactDeletePending) setContactPendingDelete(null);
         }}
       >
         <AlertDialogContent className="z-[340] border-border bg-card text-text-primary shadow-xl sm:max-w-md">
@@ -3154,16 +4276,17 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
               Remove this contact?
             </AlertDialogTitle>
             <AlertDialogDescription className="text-text-secondary text-sm leading-relaxed">
-              You’re about to remove{' '}
+              You’re about to remove{" "}
               <span className="font-medium text-text-primary">
                 {contactPendingDelete
-                  ? `${contactPendingDelete.firstName} ${contactPendingDelete.lastName}`.trim() || 'this contact'
-                  : 'this contact'}
-              </span>{' '}
+                  ? `${contactPendingDelete.firstName} ${contactPendingDelete.lastName}`.trim() ||
+                    "this contact"
+                  : "this contact"}
+              </span>{" "}
               from this company. They can be added again later if needed.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {deleteContactMut.isPending && (
+          {isContactDeletePending && (
             <div
               className="flex items-center gap-2.5 rounded-lg border border-border border-dashed bg-surface/60 px-3 py-2.5 text-sm text-text-secondary"
               role="status"
@@ -3178,7 +4301,7 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
           )}
           <AlertDialogFooter className="gap-2 sm:gap-2">
             <AlertDialogCancel
-              disabled={deleteContactMut.isPending}
+              disabled={isContactDeletePending}
               className="border-border bg-elevated text-text-primary hover:bg-hover mt-0"
             >
               Cancel
@@ -3186,17 +4309,17 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
             <Button
               type="button"
               variant="destructive"
-              disabled={deleteContactMut.isPending}
+              disabled={isContactDeletePending}
               className="bg-ems-coral text-white hover:bg-ems-coral/90 sm:ml-0"
               onClick={() => void confirmDeleteContact()}
             >
-              {deleteContactMut.isPending ? (
+              {isContactDeletePending ? (
                 <>
                   <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
                   Removing…
                 </>
               ) : (
-                'Yes, remove contact'
+                "Yes, remove contact"
               )}
             </Button>
           </AlertDialogFooter>
@@ -3204,8 +4327,9 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
       </AlertDialog>
       {companiesListQuery.isError && (
         <div className="text-sm text-ems-coral border border-ems-coral/30 rounded-md px-3 py-2 bg-ems-coral-dim">
-          Could not load companies: {(companiesListQuery.error as Error).message}. Is
-          the API running at <code className="text-xs">/api</code> (see Vite proxy)?
+          Could not load companies:{" "}
+          {(companiesListQuery.error as Error).message}. Is the API running at{" "}
+          <code className="text-xs">/api</code> (see Vite proxy)?
         </div>
       )}
 
@@ -3231,7 +4355,10 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        <div className="relative w-full min-w-0 sm:w-80 lg:w-[28rem]" ref={searchWrapperRef}>
+        <div
+          className="relative w-full min-w-0 sm:w-80 lg:w-[28rem]"
+          ref={searchWrapperRef}
+        >
           <div className="flex min-w-0 items-center border border-border rounded-md bg-surface overflow-hidden focus-within:border-ems-accent transition-colors">
             <input
               type="text"
@@ -3249,7 +4376,7 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                 // If the user clears the box, drop the committed filter so the list shows
                 // everything again; otherwise the table stayed stuck on the old search.
                 if (!v.trim()) {
-                  setActiveSearch('');
+                  setActiveSearch("");
                 }
               }}
               onFocus={() => {
@@ -3257,34 +4384,40 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
               }}
               onBlur={() => setShowSuggestions(false)}
               onKeyDown={(e) => {
-                if (e.key === 'ArrowDown') {
-                  if (!searchSuggestPanelOpen || searchSuggestions.length === 0) return;
+                if (e.key === "ArrowDown") {
+                  if (!searchSuggestPanelOpen || searchSuggestions.length === 0)
+                    return;
                   e.preventDefault();
                   setActiveSuggestionIndex((prev) =>
-                    prev < 0 ? 0 : Math.min(prev + 1, searchSuggestions.length - 1),
+                    prev < 0
+                      ? 0
+                      : Math.min(prev + 1, searchSuggestions.length - 1),
                   );
                   return;
                 }
-                if (e.key === 'ArrowUp') {
-                  if (!searchSuggestPanelOpen || searchSuggestions.length === 0) return;
+                if (e.key === "ArrowUp") {
+                  if (!searchSuggestPanelOpen || searchSuggestions.length === 0)
+                    return;
                   e.preventDefault();
                   setActiveSuggestionIndex((prev) => Math.max(prev - 1, 0));
                   return;
                 }
-                if (e.key === 'Enter') {
+                if (e.key === "Enter") {
                   if (
                     searchSuggestPanelOpen &&
                     activeSuggestionIndex >= 0 &&
                     activeSuggestionIndex < searchSuggestions.length
                   ) {
                     e.preventDefault();
-                    applySearchSuggestion(searchSuggestions[activeSuggestionIndex]);
+                    applySearchSuggestion(
+                      searchSuggestions[activeSuggestionIndex],
+                    );
                     return;
                   }
                   commitSearch();
                   return;
                 }
-                if (e.key === 'Escape') {
+                if (e.key === "Escape") {
                   setShowSuggestions(false);
                   setActiveSuggestionIndex(-1);
                 }
@@ -3296,9 +4429,18 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
               className="shrink-0 cursor-pointer px-2.5 py-1.5 text-text-muted hover:text-ems-accent transition-colors"
               title="Search"
             >
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
                 <circle cx="11" cy="11" r="8" strokeWidth="2" />
-                <path d="m21 21-4.35-4.35" strokeWidth="2" strokeLinecap="round" />
+                <path
+                  d="m21 21-4.35-4.35"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
               </svg>
             </button>
           </div>
@@ -3313,7 +4455,8 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                   Could not load company directory for suggestions.
                 </div>
               ) : null}
-              {!companiesPickerQuery.isError && companiesPickerQuery.isFetching ? (
+              {!companiesPickerQuery.isError &&
+              companiesPickerQuery.isFetching ? (
                 <div
                   className="flex items-center gap-2 px-3 py-2.5 text-sm text-text-muted"
                   role="status"
@@ -3335,8 +4478,8 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                       type="button"
                       className={`w-full text-left px-3 py-2.5 text-sm transition-colors ${
                         i === activeSuggestionIndex
-                          ? 'bg-hover text-text-primary'
-                          : 'text-text-secondary hover:bg-hover hover:text-text-primary'
+                          ? "bg-hover text-text-primary"
+                          : "text-text-secondary hover:bg-hover hover:text-text-primary"
                       }`}
                       onMouseDown={(e) => {
                         e.preventDefault();
@@ -3345,8 +4488,9 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                     >
                       <div className="flex min-w-0 items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="truncate font-medium text-text-primary">
-                            {suggestion.name}
+                          <div className="flex min-w-0 items-center gap-2 font-medium text-text-primary">
+                            <span className="truncate">{suggestion.name}</span>
+                            {suggestion.isInternal ? <InternalBadge /> : null}
                           </div>
                           <div className="truncate text-xs text-text-muted mt-0.5">
                             {suggestion.typeText}
@@ -3363,7 +4507,9 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
               !companiesPickerQuery.isFetching &&
               companiesPickerQuery.isFetched &&
               searchSuggestions.length === 0 ? (
-                <div className="px-3 py-2.5 text-sm text-text-muted">No matching companies</div>
+                <div className="px-3 py-2.5 text-sm text-text-muted">
+                  No matching companies
+                </div>
               ) : null}
             </div>
           ) : null}
@@ -3392,7 +4538,9 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
       </div>
 
       {isLoadingCompanies ? (
-        <CompaniesTableSkeleton rows={isAllPageSize(pageSize) ? PAGE_SIZE : pageSize} />
+        <CompaniesTableSkeleton
+          rows={isAllPageSize(pageSize) ? PAGE_SIZE : pageSize}
+        />
       ) : (
         <>
           <div className="relative bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip">
@@ -3401,10 +4549,10 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                 <tr className="text-text-muted text-xs border-b border-border bg-surface">
                   {(
                     [
-                      { col: 'name' as const, label: 'Company Name' },
-                      { col: 'type' as const, label: 'Type' },
-                      { col: 'city' as const, label: 'City, State' },
-                      { col: 'dma' as const, label: 'DMA' },
+                      { col: "name" as const, label: "Company Name" },
+                      { col: "type" as const, label: "Type" },
+                      { col: "city" as const, label: "City, State" },
+                      { col: "dma" as const, label: "DMA" },
                     ] as const
                   ).map(({ col, label }) => {
                     const sortActive = sortState.col === col;
@@ -3417,10 +4565,16 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                         >
                           {label}
                           {sortActive &&
-                            (sortState.dir === 'asc' ? (
-                              <ArrowUp className="h-3.5 w-3.5 shrink-0 text-ems-accent" aria-hidden />
+                            (sortState.dir === "asc" ? (
+                              <ArrowUp
+                                className="h-3.5 w-3.5 shrink-0 text-ems-accent"
+                                aria-hidden
+                              />
                             ) : (
-                              <ArrowDown className="h-3.5 w-3.5 shrink-0 text-ems-accent" aria-hidden />
+                              <ArrowDown
+                                className="h-3.5 w-3.5 shrink-0 text-ems-accent"
+                                aria-hidden
+                              />
                             ))}
                         </button>
                       </th>
@@ -3435,9 +4589,11 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                       colSpan={4}
                       className="py-12 px-3 text-center text-sm text-text-muted"
                     >
-                      {serverTotal === 0 && !activeSearch.trim() && typeFilter === 'All'
-                        ? 'No companies returned from the database.'
-                        : 'No companies match your search or filters.'}
+                      {serverTotal === 0 &&
+                      !activeSearch.trim() &&
+                      typeFilter === "All"
+                        ? "No companies returned from the database."
+                        : "No companies match your search or filters."}
                     </td>
                   </tr>
                 )}
@@ -3446,12 +4602,15 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                     key={c.id}
                     onClick={() => {
                       setSelectedCompanyId(c.id);
-                      setDrawerTab('Overview');
+                      setDrawerTab("Overview");
                     }}
                     className="border-b border-border/50 hover:bg-hover cursor-pointer"
                   >
                     <td className="py-2.5 px-3 text-text-primary font-medium">
-                      {c.name}
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="truncate">{c.name}</span>
+                        {c.isInternal ? <InternalBadge /> : null}
+                      </div>
                     </td>
                     <td className="py-2.5 px-3">
                       <div className="flex flex-wrap gap-1">
@@ -3472,7 +4631,7 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                       {c.city}, {c.state}
                     </td>
                     <td className="py-2.5 px-3 text-xs text-text-secondary">
-                      {c.dmaMarketName ?? '—'}
+                      {c.dmaMarketName ?? "—"}
                     </td>
                   </tr>
                 ))}
@@ -3498,11 +4657,14 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
           {serverTotal > 0 && (
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-text-secondary px-1">
               <p className="tabular-nums">
-                Showing{' '}
+                Showing{" "}
                 <span className="text-text-primary font-medium">
                   {rangeStart}–{rangeEnd}
-                </span>{' '}
-                of <span className="text-text-primary font-medium">{serverTotal.toLocaleString()}</span>
+                </span>{" "}
+                of{" "}
+                <span className="text-text-primary font-medium">
+                  {serverTotal.toLocaleString()}
+                </span>
                 <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-text-muted">
                   <span aria-hidden>·</span>
                   <PageSizeSelect
@@ -3540,16 +4702,16 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
       )}
 
       {selectedCompany && (
-        <Drawer
-          onClose={() => setSelectedCompanyId(null)}
-          width={1080}
-        >
+        <Drawer onClose={() => setSelectedCompanyId(null)} width={1080}>
           <div className="p-4 border-b border-border flex items-center gap-3">
             <Avatar name={selectedCompany.name} size="lg" />
             <div className="flex-1">
-              <h2 className="text-lg font-semibold text-text-primary">
-                {selectedCompany.name}
-              </h2>
+              <div className="flex min-w-0 items-center gap-2">
+                <h2 className="truncate text-lg font-semibold text-text-primary">
+                  {selectedCompany.name}
+                </h2>
+                {selectedCompany.isInternal ? <InternalBadge /> : null}
+              </div>
               <div className="flex flex-wrap items-center gap-1.5 mt-1">
                 {(selectedCompany.companyTypeNames?.length
                   ? selectedCompany.companyTypeNames
@@ -3582,24 +4744,30 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
             </button>
           </div>
 
-          <TabBar tabs={drawerTabs} active={drawerTab} onChange={setDrawerTab} />
+          <TabBar
+            tabs={drawerTabs}
+            active={drawerTab}
+            onChange={setDrawerTab}
+          />
 
           <div className="p-4">
-            {drawerTab === 'Overview' && lookupsQuery.data && (
-              <InlineEditableOverview
-                key={String(selectedCompany.id)}
-                company={selectedCompany}
-                companyTypes={lookupsQuery.data.companyTypes}
-                servicesProvided={servicesProvided}
-                dmaMarkets={dmaMarkets}
-                addToast={addToast}
-                onSaved={(row) => {
-                  upsertCompanyInCache();
-                }}
-              />
+            {drawerTab === "Overview" && lookupsQuery.data && (
+              <>
+                <InlineEditableOverview
+                  key={String(selectedCompany.id)}
+                  company={selectedCompany}
+                  companyTypes={lookupsQuery.data.companyTypes}
+                  servicesProvided={servicesProvided}
+                  dmaMarkets={dmaMarkets}
+                  addToast={addToast}
+                  onSaved={(row) => {
+                    upsertCompanyInCache();
+                  }}
+                />
+              </>
             )}
 
-            {drawerTab === 'Contacts' && (
+            {drawerTab === "Contacts" && (
               <div className="space-y-3">
                 <button
                   type="button"
@@ -3629,20 +4797,26 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                         );
                         upsertInList<Contact>(
                           qc,
-                          ['companies', selectedCompany.id, 'contacts'],
+                          ["companies", selectedCompany.id, "contacts"],
                           mapped,
-                          (c) => c.contactAssignmentId === mapped.contactAssignmentId,
+                          (c) =>
+                            c.contactAssignmentId ===
+                            mapped.contactAssignmentId,
                         );
                         await qc.invalidateQueries({
-                          queryKey: ['companies', selectedCompany.id, 'contacts'],
+                          queryKey: [
+                            "companies",
+                            selectedCompany.id,
+                            "contacts",
+                          ],
                           exact: true,
                         });
                         setShowAddContact(false);
-                        addToast('Contact added to this company.', 'success');
+                        addToast("Contact added to this company.", "success");
                       } catch (e) {
                         addToast(
-                          friendlyApiError(e, 'Could not add the contact.'),
-                          'error',
+                          friendlyApiError(e, "Could not add the contact."),
+                          "error",
                         );
                       }
                     }}
@@ -3666,86 +4840,106 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                     {(contactsQuery.error as Error).message}
                   </p>
                 )}
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-text-muted text-xs border-b border-border">
-                      <th className="text-left py-2">Name</th>
-                      <th className="text-left py-2">Roles</th>
-                      <th className="text-left py-2">Departments</th>
-                      <th className="text-left py-2">Email</th>
-                      <th className="text-left py-2">Phone</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {companyContacts.map((ct) => (
-                      <tr key={ct.id} className="border-b border-border/50">
-                        <td className="py-2 text-text-primary">
-                          {ct.firstName} {ct.lastName}
-                        </td>
-                        <td className="py-2">
-                          {(() => {
-                            const fromRoles = (ct.roles ?? [])
-                              .flatMap((s) => String(s).split(','))
-                              .map((s) => s.trim())
-                              .filter(Boolean);
-                            if (fromRoles.length === 0) {
-                              return <span className="text-text-muted">—</span>;
-                            }
-                            return fromRoles.map((r, i) => (
-                              <span
-                                key={`${r}-${i}`}
-                                className="text-xs bg-elevated px-1 py-0.5 rounded text-text-secondary mr-1 inline-block mb-1"
-                              >
-                                {r}
-                              </span>
-                            ));
-                          })()}
-                        </td>
-                        <td className="py-2">
-                          {(() => {
-                            const fromDepts = (ct.departmentName || '')
-                              .split(',')
-                              .map((s) => s.trim())
-                              .filter(Boolean);
-                            if (fromDepts.length === 0) {
-                              return <span className="text-text-muted">—</span>;
-                            }
-                            return fromDepts.map((d, i) => (
-                              <span
-                                key={`${d}-${i}`}
-                                className="text-xs bg-elevated px-1 py-0.5 rounded text-text-secondary mr-1 inline-block mb-1"
-                              >
-                                {d}
-                              </span>
-                            ));
-                          })()}
-                        </td>
-                        <td className="py-2 text-ems-blue text-xs">
-                          {ct.workEmail || ct.email}
-                        </td>
-                        <td className="py-2 text-text-secondary text-xs">
-                          {formatE164ForDisplay(ct.workPhone || ct.phone) || '—'}
-                        </td>
-                        <td className="py-2 text-right">
-                          <ActionMenu
-                            items={[
-                              {
-                                label: 'Edit',
-                                onClick: () => setEditContact(ct),
-                              },
-                              {
-                                label: 'Delete',
-                                onClick: () => setContactPendingDelete(ct),
-                                danger: true,
-                              },
-                            ]}
-                          />
-                        </td>
+                {!contactsQuery.isLoading &&
+                  !contactsQuery.isError &&
+                  companyContacts.length === 0 && (
+                    <div className="flex flex-col items-center justify-center py-16 text-center">
+                      <div className="text-4xl mb-3 opacity-70">📋</div>
+                      <p className="text-sm font-medium text-text-primary">
+                        No Contacts
+                      </p>
+                      <p className="text-xs text-text-muted mt-1 max-w-xs">
+                        There are no contacts associated with this company yet.
+                        Click "Add Contact" above to get started.
+                      </p>
+                    </div>
+                  )}
+                {companyContacts.length > 0 && (
+                  <table className="w-full text-sm table-fixed">
+                    <thead>
+                      <tr className="text-text-muted text-xs border-b border-border">
+                        <th className="text-left py-2 w-[20%]">Name</th>
+                        <th className="text-left py-2 w-[18%]">Roles</th>
+                        <th className="text-left py-2 w-[18%]">Departments</th>
+                        <th className="text-left py-2 w-[26%]">Email</th>
+                        <th className="text-left py-2 w-[14%]">Phone</th>
+                        <th className="w-10" />
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {companyContacts.map((ct) => (
+                        <tr key={ct.id} className="border-b border-border/50">
+                          <td className="py-2 text-text-primary">
+                            {ct.firstName} {ct.lastName}
+                          </td>
+                          <td className="py-2">
+                            {(() => {
+                              const fromRoles = (ct.roles ?? [])
+                                .flatMap((s) => String(s).split(","))
+                                .map((s) => s.trim())
+                                .filter(Boolean);
+                              if (fromRoles.length === 0) {
+                                return (
+                                  <span className="text-text-muted">—</span>
+                                );
+                              }
+                              return fromRoles.map((r, i) => (
+                                <span
+                                  key={`${r}-${i}`}
+                                  className="text-xs bg-elevated px-1 py-0.5 rounded text-text-secondary mr-1 inline-block mb-1"
+                                >
+                                  {r}
+                                </span>
+                              ));
+                            })()}
+                          </td>
+                          <td className="py-2">
+                            {(() => {
+                              const fromDepts = (ct.departmentName || "")
+                                .split(",")
+                                .map((s) => s.trim())
+                                .filter(Boolean);
+                              if (fromDepts.length === 0) {
+                                return (
+                                  <span className="text-text-muted">—</span>
+                                );
+                              }
+                              return fromDepts.map((d, i) => (
+                                <span
+                                  key={`${d}-${i}`}
+                                  className="text-xs bg-elevated px-1 py-0.5 rounded text-text-secondary mr-1 inline-block mb-1"
+                                >
+                                  {d}
+                                </span>
+                              ));
+                            })()}
+                          </td>
+                          <td className="py-2 text-ems-blue text-xs break-all pr-2">
+                            {(ct.workEmail || ct.email) ? <a href={`mailto:${ct.workEmail || ct.email}`} className="hover:underline">{ct.workEmail || ct.email}</a> : '—'}
+                          </td>
+                          <td className="py-2 text-text-secondary text-xs">
+                            {(ct.workPhone || ct.phone) ? <a href={`tel:${ct.workPhone || ct.phone}`} className="hover:underline">{formatE164ForDisplay(ct.workPhone || ct.phone)}</a> : '—'}
+                          </td>
+                          <td className="py-2 text-right">
+                            <ActionMenu
+                              items={[
+                                {
+                                  label: "Edit",
+                                  onClick: () => setEditContact(ct),
+                                },
+                                {
+                                  label: "Delete",
+                                  onClick: () => setContactPendingDelete(ct),
+                                  danger: true,
+                                },
+                              ]}
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
                 {isEntertainmentComplexCompany && (
                   <div className="pt-3 border-t border-border/60 space-y-3">
                     <h4 className="text-sm font-medium text-text-primary">
@@ -3757,7 +4951,10 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                         role="status"
                         aria-live="polite"
                       >
-                        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-ems-accent" aria-hidden />
+                        <Loader2
+                          className="h-4 w-4 shrink-0 animate-spin text-ems-accent"
+                          aria-hidden
+                        />
                         <span>Loading linked venue contacts…</span>
                       </div>
                     )}
@@ -3766,39 +4963,52 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                         {(linkedVenueContactsQuery.error as Error).message}
                       </p>
                     )}
-                    {!linkedVenueContactsQuery.isLoading && !linkedVenueContactsQuery.isError && linkedVenueContactSections.length === 0 && (
-                      <p className="text-sm text-text-muted">
-                        No linked venue contacts found.
-                      </p>
-                    )}
+                    {!linkedVenueContactsQuery.isLoading &&
+                      !linkedVenueContactsQuery.isError &&
+                      linkedVenueContactSections.length === 0 && (
+                        <p className="text-sm text-text-muted">
+                          No linked venue contacts found.
+                        </p>
+                      )}
                     {linkedVenueContactSections.map((section) => (
-                      <div key={section.venueCompanyId} className="rounded-md border border-border bg-surface overflow-hidden">
+                      <div
+                        key={section.venueCompanyId}
+                        className="rounded-md border border-border bg-surface overflow-hidden"
+                      >
                         <div className="px-3 py-2 border-b border-border bg-elevated/40 text-xs font-medium text-text-secondary">
                           {section.venueCompanyName}
                         </div>
-                        <table className="w-full text-sm">
+                        <table className="w-full text-sm table-fixed">
                           <thead>
                             <tr className="text-text-muted text-xs border-b border-border/60">
-                              <th className="text-left py-2 px-3">Name</th>
-                              <th className="text-left py-2 px-3">Roles</th>
-                              <th className="text-left py-2 px-3">Departments</th>
-                              <th className="text-left py-2 px-3">Email</th>
-                              <th className="text-left py-2 px-3">Phone</th>
+                              <th className="text-left py-2 px-3 w-[20%]">Name</th>
+                              <th className="text-left py-2 px-3 w-[20%]">Roles</th>
+                              <th className="text-left py-2 px-3 w-[20%]">Departments</th>
+                              <th className="text-left py-2 px-3 w-[25%]">Email</th>
+                              <th className="text-left py-2 px-3 w-[15%]">Phone</th>
                             </tr>
                           </thead>
                           <tbody>
                             {section.contacts.map((ct) => (
-                              <tr key={ct.id} className="border-b border-border/50 last:border-b-0">
+                              <tr
+                                key={ct.id}
+                                className="border-b border-border/50 last:border-b-0"
+                              >
                                 <td className="py-2 px-3 text-text-primary">
                                   {ct.firstName} {ct.lastName}
                                 </td>
                                 <td className="py-2 px-3">
                                   {(() => {
                                     const fromRoles = (ct.roles ?? [])
-                                      .flatMap((s) => String(s).split(','))
+                                      .flatMap((s) => String(s).split(","))
                                       .map((s) => s.trim())
                                       .filter(Boolean);
-                                    if (fromRoles.length === 0) return <span className="text-text-muted">—</span>;
+                                    if (fromRoles.length === 0)
+                                      return (
+                                        <span className="text-text-muted">
+                                          —
+                                        </span>
+                                      );
                                     return fromRoles.map((r, i) => (
                                       <span
                                         key={`${r}-${i}`}
@@ -3811,11 +5021,16 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                                 </td>
                                 <td className="py-2 px-3">
                                   {(() => {
-                                    const fromDepts = (ct.departmentName || '')
-                                      .split(',')
+                                    const fromDepts = (ct.departmentName || "")
+                                      .split(",")
                                       .map((s) => s.trim())
                                       .filter(Boolean);
-                                    if (fromDepts.length === 0) return <span className="text-text-muted">—</span>;
+                                    if (fromDepts.length === 0)
+                                      return (
+                                        <span className="text-text-muted">
+                                          —
+                                        </span>
+                                      );
                                     return fromDepts.map((d, i) => (
                                       <span
                                         key={`${d}-${i}`}
@@ -3826,9 +5041,11 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                                     ));
                                   })()}
                                 </td>
-                                <td className="py-2 px-3 text-ems-blue text-xs">{ct.workEmail || ct.email}</td>
+                                <td className="py-2 px-3 text-ems-blue text-xs break-all pr-2">
+                                  {(ct.workEmail || ct.email) ? <a href={`mailto:${ct.workEmail || ct.email}`} className="hover:underline">{ct.workEmail || ct.email}</a> : '—'}
+                                </td>
                                 <td className="py-2 px-3 text-text-secondary text-xs">
-                                  {formatE164ForDisplay(ct.workPhone || ct.phone) || '—'}
+                                  {(ct.workPhone || ct.phone) ? <a href={`tel:${ct.workPhone || ct.phone}`} className="hover:underline">{formatE164ForDisplay(ct.workPhone || ct.phone)}</a> : '—'}
                                 </td>
                               </tr>
                             ))}
@@ -3841,38 +5058,34 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
               </div>
             )}
 
-            {drawerTab === 'Engagements' && selectedCompanyId && (
-              <EngagementsTab companyId={selectedCompanyId} />
+            {drawerTab === "Engagements" && selectedCompanyId && (
+              <EngagementsTab companyId={selectedCompanyId} onNavigate={onNavigate} />
             )}
 
-            {drawerTab === 'Documents' && (
-              <div className="space-y-3">
-                <button
-                  type="button"
-                  onClick={() =>
-                    addToast('Document upload is not available in this app yet.', 'info')
-                  }
-                  className="text-ems-accent text-sm hover:underline"
-                >
-                  + Upload Document
-                </button>
-                <div className="text-sm text-text-muted">
-                  No documents — file attachments are not stored yet (optional / future).
-                </div>
-              </div>
-            )}
+            {drawerTab === "Venue Profile" &&
+              isVenueCompany &&
+              lookupsQuery.data && (
+                <CompanyVenueProfilePanel
+                  company={selectedCompany}
+                  venueTypes={venueTypes}
+                  seatingTypes={seatingTypes}
+                  brands={brands}
+                  taxes={taxes}
+                  servicesProvided={servicesProvided}
+                  nonResidentWithholdings={nonResidentWithholdings}
+                  addToast={addToast}
+                />
+              )}
 
-            {drawerTab === 'Venue Profile' && isVenueCompany && lookupsQuery.data && (
-              <CompanyVenueProfilePanel
-                company={selectedCompany}
-                venueTypes={venueTypes}
-                seatingTypes={seatingTypes}
-                brands={brands}
-                taxes={taxes}
-                servicesProvided={servicesProvided}
-                nonResidentWithholdings={nonResidentWithholdings}
+            {drawerTab === "Marketing" && isVenueCompany && selectedCompanyId && (
+              <VenueMarketingPanel
+                venueCompanyId={Number(selectedCompanyId)}
                 addToast={addToast}
               />
+            )}
+
+            {drawerTab === "Linked Records" && (
+              <CompanyLinksSection companyId={String(selectedCompany.id)} />
             )}
           </div>
         </Drawer>
@@ -3893,12 +5106,20 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
             onCancel={() => setShowAddModal(false)}
             onSubmit={async (payload) => {
               try {
-                const created = await createCompany(payload as CreateCompanyPayload);
+                const created = await createCompany(
+                  payload as CreateCompanyPayload,
+                );
                 upsertCompanyInCache();
                 setShowAddModal(false);
-                addToast('Company saved. You can find it in the list.', 'success');
+                addToast(
+                  "Company saved. You can find it in the list.",
+                  "success",
+                );
               } catch (e) {
-                addToast(friendlyApiError(e, 'Could not save the company.'), 'error');
+                addToast(
+                  friendlyApiError(e, "Could not save the company."),
+                  "error",
+                );
               }
             }}
           />
@@ -3931,20 +5152,20 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                 );
                 upsertInList<Contact>(
                   qc,
-                  ['companies', selectedCompany.id, 'contacts'],
+                  ["companies", selectedCompany.id, "contacts"],
                   mapped,
                   (c) => c.contactAssignmentId === mapped.contactAssignmentId,
                 );
                 await qc.invalidateQueries({
-                  queryKey: ['companies', selectedCompany.id, 'contacts'],
+                  queryKey: ["companies", selectedCompany.id, "contacts"],
                   exact: true,
                 });
                 setEditContact(null);
-                addToast('Contact updated.', 'success');
+                addToast("Contact updated.", "success");
               } catch (e) {
                 addToast(
-                  friendlyApiError(e, 'Could not update the contact.'),
-                  'error',
+                  friendlyApiError(e, "Could not update the contact."),
+                  "error",
                 );
               }
             }}

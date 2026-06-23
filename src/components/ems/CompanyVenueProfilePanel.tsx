@@ -4,6 +4,7 @@ import { Loader2, Plus, X } from 'lucide-react';
 import { ContactPhoneRow } from './ContactPhoneRow';
 import { FormField } from './Primitives';
 import { Select2 } from './Select2';
+import { companyToSelect2Options } from './companySelectOptions';
 import { DEFAULT_PHONE_COUNTRY } from '@/lib/contactPhoneOptions';
 import {
   parsePhoneFieldValue,
@@ -558,10 +559,7 @@ export function CompanyVenueProfilePanel({
   /** Single-select list: all entertainment-complex companies except this venue. */
   const entertainmentComplexSelectOptions = useMemo(() => {
     const rows = entertainmentComplexPickerQ.data ?? [];
-    const opts = rows
-      .filter((r) => r.companyId !== companyId)
-      .map((r) => ({ value: String(r.companyId), label: r.companyName }))
-      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+    const opts = companyToSelect2Options(rows.filter((r) => r.companyId !== companyId));
     const sel = entertainmentComplexCompanyId;
     if (
       sel != null &&

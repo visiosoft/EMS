@@ -2,8 +2,6 @@ import type { AccountInfo } from "@azure/msal-browser";
 import { describe, expect, it } from "vitest";
 import { isSafeAppPath, resolvePostLoginPath } from "./postLogin";
 
-const hubAccountEmail = ["safyan.ashraf", "nkutechnologies.com"].join("@");
-
 function mockAccount(username: string): AccountInfo {
   return {
     homeAccountId: "test-home-account-id",
@@ -30,34 +28,25 @@ describe("isSafeAppPath", () => {
 });
 
 describe("resolvePostLoginPath", () => {
-  it("defaults the permitted hub account to the app chooser", () => {
-    const account = mockAccount(hubAccountEmail);
+  it("defaults any authenticated user to the app chooser", () => {
+    const account = mockAccount("person@example.test");
     expect(resolvePostLoginPath(undefined, account)).toBe("/apps");
     expect(resolvePostLoginPath("//example.test", account)).toBe("/apps");
   });
 
-  it("defaults a regular account to EMS", () => {
+  it("returns authenticated users to the chooser even when they started from a deep link", () => {
     const account = mockAccount("person@example.test");
-    expect(resolvePostLoginPath(undefined, account)).toBe("/");
-    expect(resolvePostLoginPath("//example.test", account)).toBe("/");
-    expect(resolvePostLoginPath()).toBe("/");
-  });
-
-  it("keeps internal deep links available for the permitted hub account", () => {
-    const account = mockAccount(hubAccountEmail);
-    expect(resolvePostLoginPath("/internal", account)).toBe("/internal");
-    expect(resolvePostLoginPath("/internal/news", account)).toBe("/internal");
-    expect(resolvePostLoginPath("/internal/employee-services#handbook", account)).toBe("/internal");
-  });
-
-  it("returns EMS for internal deep links from a regular account", () => {
-    const account = mockAccount("person@example.test");
-    expect(resolvePostLoginPath("/internal", account)).toBe("/");
-    expect(resolvePostLoginPath("/internal/news", account)).toBe("/");
-    expect(resolvePostLoginPath("/internal/employee-services#handbook", account)).toBe("/");
+    expect(resolvePostLoginPath("/internal", account)).toBe("/apps");
+    expect(resolvePostLoginPath("/internal/news", account)).toBe("/apps");
+    expect(resolvePostLoginPath("/internal/employee-services#handbook", account)).toBe("/apps");
+    expect(resolvePostLoginPath("/", account)).toBe("/apps");
   });
 
   it("preserves EMS root", () => {
     expect(resolvePostLoginPath("/")).toBe("/");
+  });
+
+  it("falls back to EMS_ROOT when no account is provided", () => {
+    expect(resolvePostLoginPath()).toBe("/");
   });
 });

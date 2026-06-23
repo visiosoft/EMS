@@ -15,6 +15,7 @@ interface Props {
   initialAsOf?: string;
   backTitle?: string;
   onBack: () => void;
+  showBackButton?: boolean;
 }
 
 function isYmd(s: string | undefined): s is string {
@@ -27,6 +28,7 @@ export function EngagementSalesDashboardPanel({
   initialAsOf,
   backTitle = 'Back to engagement',
   onBack,
+  showBackButton = true,
 }: Props) {
   const [asOf, setAsOf] = useState(() =>
     isYmd(initialAsOf) ? initialAsOf : format(new Date(), 'yyyy-MM-dd'),
@@ -53,6 +55,7 @@ export function EngagementSalesDashboardPanel({
       error={q.isError ? q.error : undefined}
       onRetry={() => void q.refetch()}
       data={q.data}
+      showBackButton={showBackButton}
     />
   );
 }

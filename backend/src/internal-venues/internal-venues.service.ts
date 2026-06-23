@@ -15,11 +15,15 @@ export class InternalVenuesService {
 
   async suggestVenues(query: string, limit: number) {
     const safeLimit = Math.min(20, Math.max(1, Math.floor(limit)));
-    const { data } = await this.venueDirectoryService.listAllVenues(0, safeLimit, {
-      q: query.trim(),
-      sortBy: 'venue',
-      sortDir: 'asc',
-    });
+    const { data } = await this.venueDirectoryService.listAllVenues(
+      0,
+      safeLimit,
+      {
+        q: query.trim(),
+        sortBy: 'venue',
+        sortDir: 'asc',
+      },
+    );
     return data;
   }
 }

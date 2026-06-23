@@ -1,4 +1,7 @@
+import { initializeIcons } from "@fluentui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+initializeIcons();
 import { useIsAuthenticated, useMsal } from "@azure/msal-react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -10,11 +13,13 @@ import Login from "./pages/Login.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import AppChooser from "./pages/AppChooser.tsx";
 import InternalApp from "./pages/InternalApp.tsx";
+import EntraUsersJsonPage from "./pages/EntraUsersJsonPage.tsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
 import { getActiveAccount, isMsalBusy } from "./auth/entra.ts";
-import { canAccessCompanyHub, isEmsEnabled, isInternalEnabled } from "./routing/appSuite.ts";
+import { isEmsEnabled, isInternalEnabled } from "./routing/appSuite.ts";
 import { APP_CHOOSER_PATH, EMS_ROOT, INTERNAL_ROOT, LOGIN_PATH } from "./routing/paths.ts";
 import "./contact-polish.css";
+import "./project-venue-status-default.ts";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -55,25 +60,6 @@ function ProtectedRoute({ children }: { children: JSX.Element }) {
   return children;
 }
 
-function CompanyHubRoute({ children }: { children: JSX.Element }) {
-  const isAuthenticated = useIsAuthenticated();
-  const { accounts, inProgress } = useMsal();
-  const location = useLocation();
-  const account = getActiveAccount() ?? accounts[0] ?? null;
-
-  if (isMsalBusy(inProgress)) return <LoadingAuthState />;
-
-  if (!isAuthenticated && !account) {
-    return <Navigate to={LOGIN_PATH} replace state={{ from: `${location.pathname}${location.search}${location.hash}` }} />;
-  }
-
-  if (!canAccessCompanyHub(account)) {
-    return <Navigate to={EMS_ROOT} replace />;
-  }
-
-  return children;
-}
-
 const App = () => (
   <ThemeProvider
     attribute="data-theme"
@@ -95,9 +81,9 @@ const App = () => (
                 <Route
                   path={APP_CHOOSER_PATH}
                   element={
-                    <CompanyHubRoute>
+                    <ProtectedRoute>
                       <AppChooser />
-                    </CompanyHubRoute>
+                    </ProtectedRoute>
                   }
                 />
               ) : null}
@@ -106,15 +92,23 @@ const App = () => (
                 <Route
                   path={`${INTERNAL_ROOT}/*`}
                   element={
-                    <CompanyHubRoute>
+                    <ProtectedRoute>
                       <InternalApp />
-                    </CompanyHubRoute>
+                    </ProtectedRoute>
                   }
                 />
               ) : null}
 
               {isEmsEnabled() ? (
                 <>
+                  <Route
+                    path="/entra-users-json"
+                    element={
+                      <ProtectedRoute>
+                        <EntraUsersJsonPage />
+                      </ProtectedRoute>
+                    }
+                  />
                   <Route
                     path={EMS_ROOT}
                     element={

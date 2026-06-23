@@ -42,10 +42,24 @@ export function ToastContainer({ toasts, onDismiss }: { toasts: ToastItem[]; onD
 }
 
 function Toast({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => void }) {
+  const dismissTimeoutRef = useRef<number | null>(null);
+
+  const clearDismissTimer = useCallback(() => {
+    if (dismissTimeoutRef.current != null) {
+      window.clearTimeout(dismissTimeoutRef.current);
+      dismissTimeoutRef.current = null;
+    }
+  }, []);
+
+  const startDismissTimer = useCallback(() => {
+    clearDismissTimer();
+    dismissTimeoutRef.current = window.setTimeout(onDismiss, 4000);
+  }, [clearDismissTimer, onDismiss]);
+
   useEffect(() => {
-    const timer = setTimeout(onDismiss, 4000);
-    return () => clearTimeout(timer);
-  }, [onDismiss]);
+    startDismissTimer();
+    return clearDismissTimer;
+  }, [clearDismissTimer, startDismissTimer]);
 
   const colors = {
     success: 'border-l-4 border-l-ems-green',
@@ -55,7 +69,13 @@ function Toast({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => void }
   };
 
   return (
-    <div className={`animate-slide-up bg-elevated border border-border rounded-lg p-3 shadow-lg ${colors[toast.type]}`}>
+    <div
+      className={`animate-slide-up bg-elevated border border-border rounded-lg p-3 shadow-lg ${colors[toast.type]}`}
+      onMouseEnter={() => clearDismissTimer()}
+      onMouseLeave={() => startDismissTimer()}
+      onFocus={() => clearDismissTimer()}
+      onBlur={() => startDismissTimer()}
+    >
       <div className="flex items-start gap-2">
         <span className="text-text-primary text-sm flex-1">{toast.message}</span>
         <button onClick={onDismiss} className="text-text-muted hover:text-text-secondary text-xs">✕</button>
@@ -79,6 +99,7 @@ export function Modal({
   title,
   children,
   onClose,
+  footer,
   width = 600,
   /**
    * Kept for backward compatibility. Scroll + layout are the same for all modals: the
@@ -93,6 +114,7 @@ export function Modal({
   title: string;
   children: React.ReactNode;
   onClose: () => void;
+  footer?: React.ReactNode;
   width?: number;
   allowContentOverflow?: boolean;
 }) {
@@ -133,6 +155,11 @@ export function Modal({
             {children}
           </div>
         </EmsModalBodyScrollElementRef.Provider>
+        {footer && (
+          <div className="shrink-0 border-t border-border bg-elevated px-4 py-3 sm:px-5">
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -241,7 +268,7 @@ export function FilterChips({
   onChange: (v: string) => void;
   disabled?: boolean;
 }) {
-  const normalized = (options as any[]).map(o =>
+  const normalized = (options as Array<string | { value: string; label: string }>).map(o =>
     typeof o === 'string' ? { value: o, label: o } : o
   );
   return (

@@ -5,13 +5,16 @@ import { AttractionToursModule } from '../attraction-tours/attraction-tours.modu
 import { Attraction } from '../entities/attraction.entity';
 import { Company } from '../entities/company.entity';
 import { Contact } from '../entities/contact.entity';
+import { ContactInfo } from '../entities/contact-info.entity';
 import { Department } from '../entities/department.entity';
 import { Engagement } from '../entities/engagement.entity';
 import { EngagementIAEContact } from '../entities/engagement-iae-contact.entity';
 import { Link } from '../entities/link.entity';
 import { EngagementFinances } from '../entities/engagement-finance.entity';
+import { EngagementLink } from '../entities/engagement-link.entity';
 import { EngagementProduction } from '../entities/engagement-production.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
+import { EngagementXref } from '../entities/engagement-xref.entity';
 import { NonResidentWithholding } from '../entities/non-resident-withholding.entity';
 import { ArtistFinance } from '../entities/artist-finance.entity';
 import { SettlementFinance } from '../entities/settlement-finance.entity';
@@ -26,6 +29,10 @@ import { ServiceProvided } from '../entities/service-provided.entity';
 import { CompanyService as CompanyServiceEntity } from '../entities/company-service.entity';
 import { EngagementController } from './engagement.controller';
 import { EngagementService } from './engagement.service';
+import { EngagementTravel } from '../entities/engagement-travel.entity';
+import { EngagementTravelCarService } from '../entities/engagement-travel-car-service.entity';
+import { EngagementTravelHotel } from '../entities/engagement-travel-hotel.entity';
+import { EngagementPartner } from '../entities/engagement-partner.entity';
 
 @Module({
   imports: [
@@ -34,7 +41,9 @@ import { EngagementService } from './engagement.service';
       Engagement,
       Link,
       EngagementFinances,
+      EngagementLink,
       EngagementVenue,
+      EngagementXref,
       EngagementProduction,
       Performance,
       PerformanceTicketing,
@@ -51,8 +60,13 @@ import { EngagementService } from './engagement.service';
       SettlementFinance,
       EngagementIAEContact,
       Contact,
+      ContactInfo,
       Role,
       Department,
+      EngagementTravel,
+      EngagementTravelCarService,
+      EngagementTravelHotel,
+      EngagementPartner,
     ]),
     AttractionToursModule,
   ],

@@ -45,7 +45,7 @@ export class EngagementFinances {
   @Column({
     name: 'VenueTerms',
     type: 'nvarchar',
-    length: 'max' as any,
+    length: 'max' as string,
     nullable: true,
   })
   venueTerms: string | null;
@@ -126,4 +126,31 @@ export class EngagementFinances {
 
   @Column({ name: 'SettlementFinanceID', type: 'int', nullable: true })
   settlementFinanceId: number | null;
+
+  @Column({ name: 'IsCanadaEngagement', type: 'bit', nullable: true })
+  isCanadaEngagement: boolean | null;
+
+  @Column({
+    name: 'SalesTaxRemittedBy',
+    type: 'nvarchar',
+    length: 100,
+    nullable: true,
+  })
+  salesTaxRemittedBy: string | null;
+
+  @Column({
+    name: 'VenueSettlementFileSharePointLink',
+    type: 'nvarchar',
+    length: 2048,
+    nullable: true,
+  })
+  venueSettlementFileSharePointLink: string | null;
+
+  @Column({
+    name: 'PartnerSettlementFileSharePointLink',
+    type: 'nvarchar',
+    length: 2048,
+    nullable: true,
+  })
+  partnerSettlementFileSharePointLink: string | null;
 }

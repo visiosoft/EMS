@@ -14,7 +14,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, Check, GripVertical, Loader2, Pencil, RotateCcw, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, ExternalLink, GripVertical, Loader2, Lock, Pencil, Plus, RotateCcw, Trash2, X } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import {
@@ -35,7 +35,10 @@ import {
   TabBar,
 } from './Primitives';
 import { Select2 } from './Select2';
+import { companyToSelect2Options } from './companySelectOptions';
+import { normalizeSearchText, richTextMatches } from './searchUtils';
 import { friendlyApiError } from '@/lib/friendlyApiError';
+import { cleanDmaMarketLabel } from '@/lib/dmaMarket';
 import {
   deriveValidSelectedDmaIds,
   dmaSelectionKey,
@@ -70,6 +73,7 @@ import {
   fetchProjects,
   fetchOptionStatusMeta,
   fetchVenueStatusMeta,
+
   PROJECT_STAGE_VALUES,
   projectStageDisplayLabel,
   updatePerformanceOption,
@@ -84,8 +88,11 @@ import type {
   ApiProjectListRow,
   ApiProjectVenue,
   OptionStatus,
+
   ProjectStage,
   VenueStatus,
+  CreateProjectResult,
+  ProjectOpeningPerformancePayload,
 } from '@/api/projectApi';
 import type { ApiPaginatedResponse } from '@/api/companyApi';
 import {
@@ -102,17 +109,36 @@ import type {
   ApiVenueType,
 } from '@/api/attractionToursApi';
 import {
+  fetchCompaniesPickerRows,
   fetchCompanyContacts,
   fetchDmaMarketsPaged,
   fetchTalentAgencyCompanyRows,
   talentAgencyCompaniesQueryKey,
+  type ApiCompanyListRow,
   type ApiCompanyContact,
   type ApiDmaMarket,
 } from '@/api/companyApi';
 import { fetchAllVenues, type ApiAllVenueRow } from '@/api/venueDirectoryApi';
 import { AddTourForm } from './AddTourForm';
+import { ENGAGEMENT_STATUS_ENUM } from './engagementFormConstants';
+import { createEngagement } from '@/api/engagementApi';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
+
+const getTodayDateString = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getCurrentTimeString = () => {
+  const d = new Date();
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+};
 
 function projectDetailToListRow(p: ApiProjectDetail): ApiProjectListRow {
   return {
@@ -143,6 +169,8 @@ const EMPTY_TOURS: ApiTourListRow[] = [];
 const EMPTY_CLASSES: ApiClass[] = [];
 const EMPTY_VENUE_TYPES: ApiVenueType[] = [];
 const EMPTY_TOUR_LIST: ApiTourListRow[] = [];
+const ENGAGEMENT_STATUS_OPTIONS = ENGAGEMENT_STATUS_ENUM.map((s) => ({ value: s, label: s }));
+
 
 /** API returns one row per market name; label is market name only (no postal in UI). */
 function formatDmaPickerLabel(r: { dmaid?: number; marketName?: string | null }): string {
@@ -156,6 +184,57 @@ function formatVenueCapacity(cap: unknown): string {
   if (!Number.isFinite(n) || n < 0) return '—';
   return n.toLocaleString();
 }
+
+function formatEmsShortWeekdayDateTime(value: string | null | undefined): string {
+  if (!value) return '—';
+  const raw = String(value).trim();
+  if (!raw) return '—';
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00` : raw;
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return '—';
+  const datePart = new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date);
+  const timePart = new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(date);
+  return `${datePart} · ${timePart}`;
+}
+
+function formatEmsShortWeekdayDate(value: string | null | undefined): string {
+  if (!value) return '—';
+  const raw = String(value).trim();
+  if (!raw) return '—';
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00` : raw;
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date);
+}
+
+function formatProjectOptionDateTime(dateValue: string | null | undefined, timeValue?: string | null): string {
+  if (!dateValue) return '—';
+  const cleanDate = String(dateValue).trim();
+  const cleanTime = String(timeValue ?? '').trim();
+  if (!cleanDate) return '—';
+  return formatEmsShortWeekdayDateTime(cleanTime ? `${cleanDate}T${cleanTime}` : cleanDate);
+}
+
+function formatProjectDateRange(startDate: string | null | undefined, endDate: string | null | undefined): string {
+  if (!startDate || !endDate) return '—';
+  return `${formatEmsShortWeekdayDate(startDate)} to ${formatEmsShortWeekdayDate(endDate)}`;
+}
+
+
 
 class CreateProjectWizardErrorBoundary extends React.Component<
   { children: React.ReactNode; step: number; onRecover: () => void; onClose?: () => void },
@@ -355,6 +434,7 @@ function ProjectInlineOverview({
   dmaMarkets,
   onUpdated,
   onGoToVenues,
+  onOpenEngagement,
   addToast,
 }: {
   project: ApiProjectDetail;
@@ -362,14 +442,16 @@ function ProjectInlineOverview({
   dmaMarkets: ApiDmaMarket[];
   onUpdated: () => void | Promise<void>;
   onGoToVenues: () => void;
+  onOpenEngagement: (engagementId: number) => void;
   addToast: Props['addToast'];
 }) {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+
   const [tourId, setTourId] = useState(project.tourId);
   const [projectStage, setProjectStage] = useState(project.projectStage);
-  const [tourStartDate, setTourStartDate] = useState(project.tourStartDate ?? '');
-  const [tourEndDate, setTourEndDate] = useState(project.tourEndDate ?? '');
+  const [tourStartDate, setTourStartDate] = useState(project.tourStartDate ?? getTodayDateString());
+  const [tourEndDate, setTourEndDate] = useState(project.tourEndDate ?? getTodayDateString());
   const [talentAgencyCompanyId, setTalentAgencyCompanyId] = useState<number | null>(
     project.talentAgencyCompanyId ?? null,
   );
@@ -387,8 +469,8 @@ function ProjectInlineOverview({
   useEffect(() => {
     setTourId(project.tourId);
     setProjectStage(project.projectStage);
-    setTourStartDate(project.tourStartDate ?? '');
-    setTourEndDate(project.tourEndDate ?? '');
+    setTourStartDate(project.tourStartDate ?? getTodayDateString());
+    setTourEndDate(project.tourEndDate ?? getTodayDateString());
     setTalentAgencyCompanyId(project.talentAgencyCompanyId ?? null);
     setSelectedDmaIds(project.dmaIds ?? []);
     setDmaDraftIds(project.dmaIds ?? []);
@@ -434,14 +516,11 @@ function ProjectInlineOverview({
   });
   const talentAgencyOptions = useMemo(() => {
     const rows = talentAgencyPickerQuery.data ?? [];
-    return rows
-      .map((c) => ({ value: String(c.companyId), label: c.companyName }))
-      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+    return companyToSelect2Options(rows);
   }, [talentAgencyPickerQuery.data]);
   const talentAgentContactsQuery = useQuery({
-    queryKey: ['company', talentAgencyCompanyId ?? 0, 'contacts', 'talent-agent-role'],
-    queryFn: () =>
-      fetchCompanyContacts(talentAgencyCompanyId as number, { roleName: 'Talent Agent' }),
+    queryKey: ['company', talentAgencyCompanyId ?? 0, 'contacts'],
+    queryFn: () => fetchCompanyContacts(talentAgencyCompanyId as number),
     enabled: talentAgencyCompanyId != null && talentAgencyCompanyId >= 1,
     staleTime: 60_000,
   });
@@ -458,8 +537,8 @@ function ProjectInlineOverview({
     const nextTourId = v ? Number(v) : 0;
     setTourId(nextTourId);
     const nextTour = tours.find((t) => t.tourId === nextTourId);
-    setTourStartDate(nextTour?.tourStartDate ?? '');
-    setTourEndDate(nextTour?.tourEndDate ?? '');
+    setTourStartDate(nextTour?.tourStartDate ?? getTodayDateString());
+    setTourEndDate(nextTour?.tourEndDate ?? getTodayDateString());
     setTalentAgencyCompanyId(
       nextTour?.talentAgencyCompanyId != null && nextTour.talentAgencyCompanyId >= 1
         ? nextTour.talentAgencyCompanyId
@@ -484,14 +563,37 @@ function ProjectInlineOverview({
     selectedTour?.talentAgencyCompanyName?.trim()
     || talentAgencyOptions.find((o) => o.value === String(effectiveTalentAgencyId))?.label
     || '—';
+  const selectedTourTalentAgentIds = useMemo(
+    () =>
+      [...new Set((selectedTour?.talentAgentContactIds ?? []).map((id) => String(id).trim()))].filter(
+        (id) => id.length > 0,
+      ),
+    [selectedTour?.talentAgentContactIds],
+  );
+  const selectedTourTalentAgentLabels = useMemo(() => {
+    const labels: string[] = [];
+    const seen = new Set<string>();
+    const push = (value: string) => {
+      const label = value.trim();
+      if (!label) return;
+      const key = label.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      labels.push(label);
+    };
+    const optionById = new Map(talentAgentOptions.map((opt) => [opt.value, opt.label]));
+    selectedTourTalentAgentIds.forEach((id) => push(optionById.get(id) ?? `Contact #${id}`));
+    (selectedTour?.talentAgentNames ?? []).forEach((name) => push(name));
+    return labels;
+  }, [talentAgentOptions, selectedTour?.talentAgentNames, selectedTourTalentAgentIds]);
 
   const stageOptions = useMemo(() => editProjectStageSelectOptions(project.projectStage), [project.projectStage]);
 
   const discard = () => {
     setTourId(project.tourId);
     setProjectStage(project.projectStage);
-    setTourStartDate(project.tourStartDate ?? '');
-    setTourEndDate(project.tourEndDate ?? '');
+    setTourStartDate(project.tourStartDate ?? getTodayDateString());
+    setTourEndDate(project.tourEndDate ?? getTodayDateString());
     setTalentAgencyCompanyId(project.talentAgencyCompanyId ?? null);
     setSelectedDmaIds(project.dmaIds ?? []);
     setDmaDraftIds(project.dmaIds ?? []);
@@ -501,9 +603,11 @@ function ProjectInlineOverview({
   };
 
   const filteredDmaMarkets = useMemo(() => {
-    const q = dmaModalSearch.trim().toLowerCase();
+    const q = dmaModalSearch.trim();
     if (!q) return dmaMarkets;
-    return dmaMarkets.filter((row) => formatDmaPickerLabel(row).toLowerCase().includes(q));
+    return dmaMarkets.filter((row) =>
+      richTextMatches([formatDmaPickerLabel(row), row.marketName, row.dmaid], q),
+    );
   }, [dmaMarkets, dmaModalSearch]);
 
   const toggleDmaDraft = (dmaid: number) => {
@@ -527,7 +631,7 @@ function ProjectInlineOverview({
     if (changed) setDirty(true);
   };
 
-  const handleSave = async () => {
+  const handleSave = async (openingPerformances?: ProjectOpeningPerformancePayload[]) => {
     if (!tourId || !tourBelongsToAttraction) {
       addToast('Select a tour that belongs to the selected attraction before saving.', 'warning');
       return;
@@ -553,7 +657,7 @@ function ProjectInlineOverview({
     setSaving(true);
     let savedOk = false;
     try {
-      await updateProject(project.engagementProjectId, {
+      const result = await updateProject(project.engagementProjectId, {
         tourId,
         talentAgencyCompanyId: effectiveTalentAgencyId,
         tourStartDate: tourStartDate.trim(),
@@ -561,7 +665,7 @@ function ProjectInlineOverview({
         projectStage: projectStage as ProjectStage,
         dmaIds: selectedDmaIds,
       });
-      setDirty(false);
+
       if (scopeChanged) {
         onGoToVenues();
       }
@@ -580,6 +684,11 @@ function ProjectInlineOverview({
       }
     }
   };
+
+  const requestSave = () => {
+    void handleSave();
+  };
+
 
   return (
     <div className="relative">
@@ -629,20 +738,42 @@ function ProjectInlineOverview({
                 ? 'Choose talent agency first'
                 : talentAgentContactsQuery.isPending
                   ? 'Loading contacts…'
-                  : talentAgentOptions.length > 0
-                    ? (
-                      <div className="flex flex-wrap gap-2">
-                        {talentAgentOptions.map((o) => (
-                          <span
-                            key={o.value}
-                            className="inline-flex items-center rounded-md border border-border bg-background px-2 py-1 text-xs text-text-primary"
-                          >
-                            {o.label}
-                          </span>
-                        ))}
+                  : (
+                    <div className="space-y-2">
+                      <p className="text-[11px] text-text-secondary">
+                        Selected for this tour:{' '}
+                        <span className="font-medium text-text-primary">
+                          {selectedTourTalentAgentLabels.length}
+                        </span>{' '}
+                        of{' '}
+                        <span className="font-medium text-text-primary">
+                          {talentAgentOptions.length}
+                        </span>{' '}
+                        agency contact{talentAgentOptions.length === 1 ? '' : 's'}.
+                      </p>
+                      <div>
+                        <p className="text-[11px] font-medium text-text-secondary mb-1">
+                          Tour-selected talent agents
+                        </p>
+                        {selectedTourTalentAgentLabels.length > 0 ? (
+                          <div className="flex max-h-28 flex-wrap gap-2 overflow-y-auto pr-1">
+                            {selectedTourTalentAgentLabels.map((label, index) => (
+                              <span
+                                key={`tour-agent-edit-${index}-${label}`}
+                                className="inline-flex items-center rounded-md border border-ems-accent/35 bg-ems-accent/10 px-2 py-1 text-xs text-text-primary"
+                              >
+                                {label}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-text-muted">
+                            No specific talent agents are selected on this tour.
+                          </p>
+                        )}
                       </div>
-                    )
-                    : 'No talent agents found for this agency'}
+                    </div>
+                  )}
             </div>
           </FormField>
           <FormField label="Tour Start Date" required>
@@ -734,7 +865,7 @@ function ProjectInlineOverview({
           <div>
             <span className="text-xs text-text-muted">Created date</span>
             <div className="text-sm text-text-primary mt-0.5">
-              {project.createdDate ? new Date(project.createdDate).toLocaleDateString() : '—'}
+              {formatEmsShortWeekdayDateTime(project.createdDate)}
             </div>
           </div>
           <div>
@@ -861,7 +992,7 @@ function ProjectInlineOverview({
             </button>
             <button
               type="button"
-              onClick={() => void handleSave()}
+              onClick={requestSave}
               disabled={saving}
               className="inline-flex items-center gap-1.5 bg-ems-accent hover:bg-ems-accent/80 text-background text-xs px-4 py-1.5 rounded-md font-medium disabled:opacity-60 transition-colors"
             >
@@ -871,6 +1002,7 @@ function ProjectInlineOverview({
           </div>
         </div>
       )}
+
     </div>
   );
 }
@@ -1126,7 +1258,7 @@ function renderProjectListCell(slot: ProjectMovableColumnId | 'stage', p: ApiPro
     case 'created':
       return (
         <td key="created" className="py-2.5 px-3 text-xs text-text-muted tabular-nums">
-          {p.createdDate ? new Date(p.createdDate).toLocaleDateString() : '—'}
+          {formatEmsShortWeekdayDateTime(p.createdDate)}
         </td>
       );
     default:
@@ -1263,8 +1395,7 @@ function PerformanceOptionRow({
 
   return (
     <div className="relative flex items-center gap-3 bg-elevated/50 rounded px-2 py-1.5 text-xs group min-h-[2.25rem]">
-      <span className="text-text-primary font-medium">{opt.proposedDate}</span>
-      {opt.proposedTime && <span className="text-text-muted">· {opt.proposedTime}</span>}
+      <span className="text-text-primary font-medium">{formatProjectOptionDateTime(opt.proposedDate, opt.proposedTime)}</span>
       <span className="ml-auto"><StatusBadge status={opt.optionStatus} /></span>
       <button
         type="button"
@@ -1313,8 +1444,8 @@ function AddPerformanceOptionForm({
   onCancel: () => void;
   addToast: Props['addToast'];
 }) {
-  const [date, setDate] = useState('');
-  const [time, setTime] = useState('');
+  const [date, setDate] = useState(getTodayDateString);
+  const [time, setTime] = useState(getCurrentTimeString);
   const [status, setStatus] = useState<OptionStatus>('Pending');
   const [saving, setSaving] = useState(false);
   const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
@@ -1331,6 +1462,12 @@ function AddPerformanceOptionForm({
       setStatus(optionStatusOptions[0].value as OptionStatus);
     }
   }, [optionStatusOptions, status]);
+
+  useEffect(() => {
+    setDate(getTodayDateString());
+    setTime(getCurrentTimeString());
+    setStatus('Pending');
+  }, [engagementProjectVenueId]);
 
   const handleSave = async () => {
     if (!date) { addToast('Date is required.', 'warning'); return; }
@@ -1391,36 +1528,326 @@ function AddPerformanceOptionForm({
 
 // ─── Venue Proposal Row ───────────────────────────────────────────────────────
 
+// ─── Venue → Engagement confirmation modal ───────────────────────────────────
+
+// ─── Venue → Engagement confirmation modal ───────────────────────────────────
+
+function VenueConfirmEngagementModal({
+  venue,
+  projectId,
+  attractionId,
+  attractionName,
+  tourId,
+  tourName,
+  onCreated,
+  onCancel,
+  addToast,
+}: {
+  venue: ApiProjectVenue;
+  projectId: number;
+  attractionId?: number | null;
+  attractionName: string | null;
+  tourId: number;
+  tourName: string | null;
+  onCreated: (engagementId: number) => void;
+  onCancel: () => void;
+  addToast: Props['addToast'];
+}) {
+  const [engagementStatus, setEngagementStatus] = useState('Unknown');
+  const [openingDate, setOpeningDate] = useState(getTodayDateString());
+  const [openingTime, setOpeningTime] = useState('20:00');
+  const [submitting, setSubmitting] = useState(false);
+
+  const [selectedAttractionId, setSelectedAttractionId] = useState<string>(
+    attractionId ? String(attractionId) : '',
+  );
+  const [selectedTourId, setSelectedTourId] = useState<string>(
+    tourId ? String(tourId) : '',
+  );
+  const [attractionChanged, setAttractionChanged] = useState(false);
+
+  const lookupLimit = 8000;
+  const attractionsQuery = useQuery({
+    queryKey: ['attractions', 'picker', 0, lookupLimit],
+    queryFn: async () => (await fetchAttractions(0, lookupLimit)).data,
+    staleTime: 60_000,
+  });
+
+  const toursQuery = useQuery({
+    queryKey: ['tours', 'picker', 0, lookupLimit],
+    queryFn: async () => (await fetchTours(0, lookupLimit)).data,
+    staleTime: 60_000,
+  });
+
+  const attractionOptions = useMemo(() => {
+    const list = attractionsQuery.data ?? [];
+    return list.map((a) => ({
+      value: String(a.attractionId),
+      label: a.attractionName ?? `Attraction #${a.attractionId}`,
+    }));
+  }, [attractionsQuery.data]);
+
+  const toursOptions = useMemo(() => {
+    const list = toursQuery.data ?? [];
+    const filtered = selectedAttractionId
+      ? list.filter((t) => String(t.attractionId) === selectedAttractionId)
+      : list;
+    return filtered.map((t) => ({
+      value: String(t.tourId),
+      label: t.tourName ?? `Tour #${t.tourId}`,
+    }));
+  }, [toursQuery.data, selectedAttractionId]);
+
+  const handleAttractionChange = (newAttractionId: string) => {
+    setSelectedAttractionId(newAttractionId);
+    setAttractionChanged(true);
+    const toursList = toursQuery.data ?? [];
+    const tourObj = toursList.find((t) => String(t.tourId) === selectedTourId);
+    if (!tourObj || String(tourObj.attractionId) !== newAttractionId) {
+      const firstTour = toursList.find((t) => String(t.attractionId) === newAttractionId);
+      setSelectedTourId(firstTour ? String(firstTour.tourId) : '');
+    }
+  };
+
+  const venueDisplayName = venue.venueCompanyName ?? venue.venueName ?? 'Unknown venue';
+  const venueDmaLabel = venue.venueDmaMarketName?.trim() || 'Not set';
+
+  const canSubmit =
+    !attractionsQuery.isPending &&
+    !toursQuery.isPending &&
+    openingDate.trim().length > 0 &&
+    openingTime.trim().length > 0 &&
+    engagementStatus.trim().length > 0 &&
+    selectedTourId.trim().length > 0;
+
+  const handleSubmit = async () => {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    try {
+      // 1. Create engagement
+      const { engagementId } = await createEngagement({
+        engagementStatus,
+        openingShowDate: openingDate.trim(),
+        openingShowTime: openingTime.trim(),
+        tourId: Number(selectedTourId),
+        primaryVenueCompanyId: venue.venueCompanyId,
+      });
+
+      // 2. Confirm venue status
+      try {
+        await updateProjectVenue(projectId, venue.engagementProjectVenueId, {
+          venueStatus: 'Confirmed' as VenueStatus,
+        });
+      } catch (statusErr) {
+        // Engagement was created but venue status update failed — still report success for engagement
+        addToast(
+          'Engagement created but venue status could not be updated. Please update manually.',
+          'warning',
+        );
+      }
+
+      addToast('Engagement created and venue confirmed successfully.', 'success');
+      onCreated(engagementId);
+    } catch (e) {
+      addToast(friendlyApiError(e, 'Could not create engagement.'), 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const inputCls =
+    'w-full min-w-0 rounded-md border border-border bg-background px-3 py-2 text-sm text-text-primary shadow-sm outline-none transition-colors focus:border-ems-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+  return (
+    <Modal
+      title="Create Engagement"
+      onClose={() => !submitting && onCancel()}
+      width={640}
+      allowContentOverflow
+    >
+      <div className="space-y-5">
+        <p className="text-xs text-text-secondary leading-relaxed">
+          Confirming this venue will create a new engagement. Please fill in the opening show details below.
+        </p>
+
+        {/* Pre-populated venue & DMA */}
+        <div className="rounded-lg border border-ems-accent/20 bg-ems-accent/5 px-4 py-3 space-y-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">Venue</span>
+              <p className="text-sm font-medium text-text-primary mt-0.5">{venueDisplayName}</p>
+            </div>
+            <div>
+              <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">DMA Market</span>
+              <p className="text-sm font-medium text-text-primary mt-0.5">{venueDmaLabel}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Attraction & Tour Selection (editable) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Attraction" required>
+            <Select2
+              options={attractionOptions}
+              value={selectedAttractionId}
+              onChange={handleAttractionChange}
+              placeholder="Select attraction…"
+              disabled={submitting}
+              loading={attractionsQuery.isPending}
+            />
+          </FormField>
+          <FormField label="Tour" required>
+            <Select2
+              options={toursOptions}
+              value={selectedTourId}
+              onChange={setSelectedTourId}
+              placeholder="Select tour…"
+              disabled={submitting || !attractionChanged}
+              loading={toursQuery.isPending}
+            />
+          </FormField>
+        </div>
+
+        {/* Opening show date & time */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Opening Show Date" required>
+            <input
+              type="date"
+              className={inputCls}
+              value={openingDate}
+              onChange={(e) => setOpeningDate(e.target.value)}
+              disabled={submitting}
+            />
+          </FormField>
+          <FormField label="Opening Show Time" required>
+            <input
+              type="time"
+              className={inputCls}
+              value={openingTime}
+              onChange={(e) => setOpeningTime(e.target.value)}
+              disabled={submitting}
+            />
+          </FormField>
+        </div>
+
+        {/* Engagement status */}
+        <FormField label="Engagement Status" required>
+          <Select2
+            options={ENGAGEMENT_STATUS_OPTIONS}
+            value={engagementStatus}
+            onChange={setEngagementStatus}
+            placeholder="Select status…"
+            disabled={submitting}
+          />
+        </FormField>
+
+        {/* Actions */}
+        <div className="flex justify-end gap-3 border-t border-border pt-4">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={submitting}
+            className="rounded-md px-4 py-2 text-sm text-text-secondary transition-colors hover:bg-hover hover:text-text-primary disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSubmit()}
+            disabled={!canSubmit || submitting}
+            className="inline-flex min-w-[10rem] items-center justify-center gap-2 rounded-md bg-ems-accent px-5 py-2 text-sm font-medium text-background transition-colors hover:bg-ems-accent/90 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {submitting ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                Creating…
+              </>
+            ) : (
+              'Create Engagement'
+            )}
+          </button>
+        </div>
+
+        {/* Full overlay loader */}
+        {submitting && (
+          <div
+            className="absolute inset-0 z-[1] flex flex-col items-center justify-center gap-3 rounded-lg bg-card/95 backdrop-blur-[2px]"
+            role="status"
+            aria-live="polite"
+          >
+            <Loader2 className="h-8 w-8 animate-spin text-ems-accent" aria-hidden />
+            <div className="text-center">
+              <p className="text-sm font-medium text-text-primary">Creating engagement…</p>
+              <p className="text-xs text-text-secondary">Confirming venue and setting up the engagement.</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+// ─── Venue Proposal Row ───────────────────────────────────────────────────────
+
 function VenueProposalRow({
   venue,
   projectId,
   onRefresh,
   addToast,
   scopeMismatchReason,
+  readOnly = false,
+  attractionId,
+  attractionName,
+  tourId,
+  tourName,
+  onOpenEngagement,
 }: {
   venue: ApiProjectVenue;
   projectId: number;
   onRefresh: () => void | Promise<void>;
   addToast: Props['addToast'];
   scopeMismatchReason?: string;
+  readOnly?: boolean;
+  attractionId?: number | null;
+  attractionName?: string | null;
+  tourId?: number;
+  tourName?: string | null;
+  onOpenEngagement?: (engagementId: number) => void;
 }) {
   const [showAddOpt, setShowAddOpt] = useState(false);
   const [editingStatus, setEditingStatus] = useState(false);
   const [venueStatus, setVenueStatus] = useState<string>(venue.venueStatus);
   const [statusSaving, setStatusSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
+  const [showEngagementModal, setShowEngagementModal] = useState(false);
 
   const venueStatusStrings = useResolvedVenueStatusStrings(venueStatus);
   const venueStatusOptions = useMemo(
     () => toSelectOptionsFromStrings(venueStatusStrings),
     [venueStatusStrings],
   );
+  const venueDisplayName = venue.venueCompanyName ?? venue.venueName ?? 'Unknown venue';
+  const venueDmaLabel = venue.venueDmaMarketName?.trim() || 'Not set';
 
   useEffect(() => {
     setVenueStatus(venue.venueStatus);
   }, [venue.venueStatus]);
 
   const handleStatusSave = async () => {
+    if (venue.venueStatus === 'Confirmed' && venueStatus !== 'Confirmed') {
+      addToast("Once confirmed, a venue's status cannot be changed.", 'error');
+      setVenueStatus('Confirmed');
+      setEditingStatus(false);
+      return;
+    }
+
+    // Intercept "Confirmed" status → open engagement creation modal
+    if (venueStatus === 'Confirmed' && venue.venueStatus !== 'Confirmed' && tourId != null) {
+      setShowEngagementModal(true);
+      return;
+    }
+
     setStatusSaving(true);
     let ok = false;
     try {
@@ -1447,114 +1874,212 @@ function VenueProposalRow({
       addToast(friendlyApiError(e, 'Could not remove venue.'), 'error');
     } finally {
       setDeleting(false);
+      setConfirmRemoveOpen(false);
     }
     if (ok) addToast('Venue proposal removed.', 'warning');
   };
 
   return (
-    <div className="bg-card border border-border rounded-lg overflow-hidden">
-      <div className="p-4 space-y-3">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <span className="text-text-primary font-medium text-sm">
-              {venue.venueCompanyName ?? venue.venueName ?? 'Unknown venue'}
+    <>
+      <div className="relative bg-card border border-border rounded-lg overflow-hidden">
+        {venue.venueStatus === 'Confirmed' && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/50 backdrop-blur-[1px]">
+            <span className="text-xs font-medium italic text-emerald-600 dark:text-emerald-400 px-3 py-1 rounded bg-background/80 shadow-sm">
+              Engagement created (locked)
             </span>
-            {venue.venueName && venue.venueName !== venue.venueCompanyName && (
-              <div className="text-xs text-text-secondary">{venue.venueName}</div>
-            )}
-            {scopeMismatchReason && (
-              <div className="mt-1 text-[11px] text-amber-500">
-                Out of current filters: {scopeMismatchReason}
-              </div>
-            )}
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {editingStatus ? (
-              <div className="flex items-center gap-1">
-                <div className="w-36">
-                  <Select2
-                    options={venueStatusOptions}
-                    value={venueStatus}
-                    onChange={setVenueStatus}
-                    disabled={venueStatusOptions.length === 0}
-                    placeholder={venueStatusOptions.length ? 'Select…' : 'Loading…'}
-                  />
+        )}
+        <div className="p-4 space-y-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="text-text-primary font-medium text-sm">
+                  {venueDisplayName}
+                </span>
+                <span className="inline-flex max-w-full items-center rounded border border-border bg-elevated px-2 py-0.5 text-[11px] font-medium text-text-secondary">
+                  DMA: {venueDmaLabel}
+                </span>
+              </div>
+              {venue.venueName && venue.venueName !== venue.venueCompanyName && (
+                <div className="text-xs text-text-secondary">{venue.venueName}</div>
+              )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {!readOnly && editingStatus ? (
+                <div className="flex items-center gap-1">
+                  <div className="w-36">
+                    <Select2
+                      options={venueStatusOptions}
+                      value={venueStatus}
+                      onChange={setVenueStatus}
+                      disabled={venueStatusOptions.length === 0}
+                      placeholder={venueStatusOptions.length ? 'Select…' : 'Loading…'}
+                    />
+                  </div>
+                  <button type="button" onClick={() => void handleStatusSave()} disabled={statusSaving}
+                    className="inline-flex items-center gap-1 bg-ems-accent text-background text-xs px-2 py-1 rounded disabled:opacity-60">
+                    {statusSaving && <Loader2 className="h-3 w-3 animate-spin" />}Save
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVenueStatus(venue.venueStatus);
+                      setEditingStatus(false);
+                    }}
+                    className="text-text-muted text-xs px-1 hover:text-text-primary"
+                  >
+                    ✕
+                  </button>
                 </div>
-                <button type="button" onClick={() => void handleStatusSave()} disabled={statusSaving}
-                  className="inline-flex items-center gap-1 bg-ems-accent text-background text-xs px-2 py-1 rounded disabled:opacity-60">
-                  {statusSaving && <Loader2 className="h-3 w-3 animate-spin" />}Save
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setVenueStatus(venue.venueStatus);
-                    setEditingStatus(false);
-                  }}
-                  className="text-text-muted text-xs px-1 hover:text-text-primary"
+              ) : !readOnly ? (
+                <div className="flex items-center gap-1.5">
+                  {(statusSaving || showEngagementModal) && (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-ems-accent" />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVenueStatus(venue.venueStatus);
+                      setEditingStatus(true);
+                    }}
+                    title="Click to change status"
+                    disabled={venue.venueStatus === 'Confirmed'}
+                  >
+                    <StatusBadge status={venue.venueStatus} />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  {(statusSaving || showEngagementModal) && (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-ems-accent" />
+                  )}
+                  <StatusBadge status={venue.venueStatus} />
+                </div>
+              )}
+              {!readOnly && venue.venueStatus !== 'Confirmed' && (
+                <button type="button" onClick={() => setConfirmRemoveOpen(true)} disabled={deleting}
+                  className="text-text-muted hover:text-ems-coral text-xs disabled:opacity-50 px-1"
+                  aria-label={`Remove ${venueDisplayName}`}
                 >
-                  ✕
+                  {deleting ? <Loader2 className="h-3 w-3 animate-spin" /> : '✕'}
                 </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  setVenueStatus(venue.venueStatus);
-                  setEditingStatus(true);
-                }}
-                title="Click to change status"
-              >
-                <StatusBadge status={venue.venueStatus} />
-              </button>
-            )}
-            <button type="button" onClick={() => void handleDelete()} disabled={deleting}
-              className="text-text-muted hover:text-ems-coral text-xs disabled:opacity-50 px-1">
-              {deleting ? <Loader2 className="h-3 w-3 animate-spin" /> : '✕'}
-            </button>
+              )}
+            </div>
           </div>
-        </div>
 
-        <div className="border-t border-border/60 pt-2 space-y-1">
-          <div className="flex items-center justify-between mb-1.5">
-            <p className="text-[11px] text-text-muted font-medium">Proposed Dates</p>
-            <button type="button" onClick={() => setShowAddOpt(!showAddOpt)} className="text-ems-accent text-[11px] hover:underline">+ Add date</button>
+          <div className="border-t border-border/60 pt-2 space-y-1">
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-[11px] text-text-muted font-medium">Proposed Dates</p>
+              {!readOnly && venue.venueStatus !== 'Confirmed' && (
+                <button type="button" onClick={() => setShowAddOpt(!showAddOpt)} className="text-ems-accent text-[11px] hover:underline">+ Add date</button>
+              )}
+            </div>
+            {venue.performanceOptions.length === 0 && !showAddOpt && (
+              <p className="text-xs text-text-muted">No date options yet.</p>
+            )}
+            {venue.performanceOptions.map((opt) =>
+              readOnly ? (
+                <div key={opt.performanceOptionId} className="flex items-center gap-3 rounded bg-elevated/50 px-2 py-1.5 text-xs">
+                  <span className="font-medium text-text-primary">{formatProjectOptionDateTime(opt.proposedDate, opt.proposedTime)}</span>
+                  <span className="ml-auto"><StatusBadge status={opt.optionStatus} /></span>
+                </div>
+              ) : (
+                <PerformanceOptionRow
+                  key={opt.performanceOptionId}
+                  opt={opt}
+                  projectId={projectId}
+                  onRefresh={onRefresh}
+                  addToast={addToast}
+                />
+              ),
+            )}
+            {!readOnly && showAddOpt && (
+              <AddPerformanceOptionForm
+                projectId={projectId}
+                engagementProjectVenueId={venue.engagementProjectVenueId}
+                onAdded={async () => {
+                  await onRefresh();
+                  setShowAddOpt(false);
+                }}
+                onCancel={() => setShowAddOpt(false)}
+                addToast={addToast}
+              />
+            )}
           </div>
-          {venue.performanceOptions.length === 0 && !showAddOpt && (
-            <p className="text-xs text-text-muted">No date options yet.</p>
-          )}
-          {venue.performanceOptions.map((opt) => (
-            <PerformanceOptionRow
-              key={opt.performanceOptionId}
-              opt={opt}
-              projectId={projectId}
-              onRefresh={onRefresh}
-              addToast={addToast}
-            />
-          ))}
-          {showAddOpt && (
-            <AddPerformanceOptionForm
-              projectId={projectId}
-              engagementProjectVenueId={venue.engagementProjectVenueId}
-              onAdded={async () => {
-                await onRefresh();
-                setShowAddOpt(false);
-              }}
-              onCancel={() => setShowAddOpt(false)}
-              addToast={addToast}
-            />
-          )}
         </div>
       </div>
-    </div>
+      <AlertDialog
+        open={confirmRemoveOpen}
+        onOpenChange={(open) => {
+          if (!deleting) setConfirmRemoveOpen(open);
+        }}
+      >
+        <AlertDialogContent className="z-[360] border-border bg-card text-text-primary shadow-xl sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-text-primary font-semibold text-lg">
+              Remove this venue?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-text-secondary text-sm leading-relaxed">
+              {venueDisplayName} will be removed from this project, including any proposed dates for this venue.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:gap-2">
+            <AlertDialogCancel disabled={deleting} className="border-border bg-elevated text-text-primary hover:bg-hover mt-0">
+              Cancel
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              disabled={deleting}
+              className="bg-ems-coral text-white hover:bg-ems-coral/90 sm:ml-0"
+              onClick={() => void handleDelete()}
+            >
+              {deleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Remove venue
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {showEngagementModal && tourId != null && (
+        <VenueConfirmEngagementModal
+          venue={venue}
+          projectId={projectId}
+          attractionId={attractionId}
+          attractionName={attractionName ?? null}
+          tourId={tourId}
+          tourName={tourName ?? null}
+          onCreated={(engagementId) => {
+            setShowEngagementModal(false);
+            setEditingStatus(false);
+            onOpenEngagement?.(engagementId);
+            void onRefresh();
+          }}
+          onCancel={() => {
+            setShowEngagementModal(false);
+            setVenueStatus(venue.venueStatus);
+          }}
+          addToast={addToast}
+        />
+      )}
+    </>
   );
 }
 
 // ─── Add Venue form ───────────────────────────────────────────────────────────
 
+function dmaMarketFamilyKey(value: string | null | undefined): string {
+  return cleanDmaMarketLabel(value)
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
 function AddVenueForm({
   projectId,
   existingIds,
   availableVenueRows,
+  marketNames,
+  loadingMarkets = false,
+  loadingVenues = false,
   onSaved,
   onCancel,
   addToast,
@@ -1562,52 +2087,81 @@ function AddVenueForm({
   projectId: number;
   existingIds: Set<number>;
   availableVenueRows: ApiAllVenueRow[];
+  marketNames: string[];
+  loadingMarkets?: boolean;
+  loadingVenues?: boolean;
   onSaved: () => void | Promise<void>;
   onCancel: () => void;
   addToast: Props['addToast'];
 }) {
+  const [selectedMarket, setSelectedMarket] = useState('');
   const [venueId, setVenueId] = useState('');
-  const [venueStatus, setVenueStatus] = useState<string>('');
   const [saving, setSaving] = useState(false);
 
-  const venueStatusStrings = useResolvedVenueStatusStrings(venueStatus);
-  const venueStatusOptions = useMemo(
-    () => toSelectOptionsFromStrings(venueStatusStrings),
-    [venueStatusStrings],
-  );
-
-  useEffect(() => {
-    if (venueStatus) return;
-    const first = venueStatusOptions[0]?.value;
-    if (first) setVenueStatus(first);
-  }, [venueStatus, venueStatusOptions]);
+  const marketOptions = useMemo(() => {
+    const byKey = new Map<string, string>();
+    for (const marketName of marketNames) {
+      const label = cleanDmaMarketLabel(marketName);
+      const key = dmaMarketFamilyKey(marketName);
+      if (!key || !label) continue;
+      const existing = byKey.get(key);
+      if (!existing || label.localeCompare(existing, undefined, { sensitivity: 'base' }) < 0) {
+        byKey.set(key, label);
+      }
+    }
+    return [...byKey.entries()]
+      .sort(([, a], [, b]) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+      .map(([key, label]) => ({
+        value: key,
+        label,
+        searchText: label,
+      }));
+  }, [marketNames]);
 
   const venueOptions = useMemo(() => {
+    if (!selectedMarket) return [];
     return availableVenueRows
-      .filter((v) => !existingIds.has(v.companyId))
+      .filter((v) => !existingIds.has(v.companyId) && dmaMarketFamilyKey(v.dmaMarketName) === selectedMarket)
       .sort((a, b) => (a.venueName ?? '').localeCompare(b.venueName ?? '', undefined, { sensitivity: 'base' }))
       .map((v) => {
         const complex = (v.entertainmentComplexNames ?? '').trim();
-        const market = (v.dmaMarketName ?? '').trim();
+        const market = cleanDmaMarketLabel(v.dmaMarketName);
         const details = [
-          market ? `DMA: ${market}` : null,
           complex ? `Complex: ${complex}` : null,
           Number.isFinite(v.seatingCapacity) ? `Capacity: ${v.seatingCapacity.toLocaleString()}` : null,
         ].filter(Boolean).join(' · ');
         return {
           value: String(v.companyId),
-          label: details ? `${v.venueName} (${details})` : v.venueName,
+          label: v.venueName,
+          description: details || undefined,
+          rightText: market ? `DMA: ${market}` : undefined,
+          searchText: [v.venueName, complex, market, v.venueTypeName].filter(Boolean).join(' '),
         };
       });
-  }, [availableVenueRows, existingIds]);
+  }, [availableVenueRows, existingIds, selectedMarket]);
+
+  useEffect(() => {
+    if (!selectedMarket) return;
+    if (!marketOptions.some((option) => option.value === selectedMarket)) {
+      setSelectedMarket('');
+      setVenueId('');
+    }
+  }, [marketOptions, selectedMarket]);
+
+  useEffect(() => {
+    if (!venueId) return;
+    if (!venueOptions.some((option) => option.value === venueId)) {
+      setVenueId('');
+    }
+  }, [venueId, venueOptions]);
 
   const handleSave = async () => {
+    if (!selectedMarket) { addToast('Select a market.', 'warning'); return; }
     if (!venueId) { addToast('Select a venue.', 'warning'); return; }
-    if (!venueStatus) { addToast('Select a venue status.', 'warning'); return; }
     setSaving(true);
     let ok = false;
     try {
-      await createProjectVenue(projectId, { venueCompanyId: Number(venueId), venueStatus: venueStatus as VenueStatus });
+      await createProjectVenue(projectId, { venueCompanyId: Number(venueId), venueStatus: 'Pending' as VenueStatus });
       await onSaved();
       ok = true;
     } catch (e) {
@@ -1621,22 +2175,34 @@ function AddVenueForm({
   return (
     <div className="relative bg-elevated border border-border rounded-lg p-4 space-y-3">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <FormField label="Venue" required>
+        <FormField label="Market (DMA)" required>
           <Select2
-            options={[{ value: '', label: 'Select venue…' }, ...venueOptions]}
-            value={venueId}
-            onChange={setVenueId}
-            placeholder={venueOptions.length ? 'Select venue…' : 'No eligible venues in current filters'}
-            disabled={venueOptions.length === 0 || saving}
+            options={marketOptions}
+            value={selectedMarket}
+            onChange={(val) => {
+              setSelectedMarket(val);
+              setVenueId('');
+            }}
+            placeholder={loadingMarkets ? 'Loading markets…' : 'Select market…'}
+            disabled={saving || loadingMarkets}
           />
         </FormField>
-        <FormField label="Venue Status" required>
+        <FormField label="Venue" required>
           <Select2
-            options={venueStatusOptions}
-            value={venueStatus}
-            onChange={setVenueStatus}
-            disabled={venueStatusOptions.length === 0 || saving}
-            placeholder={venueStatusOptions.length ? 'Select status' : 'Loading…'}
+            key={selectedMarket || 'no-market-selected'}
+            options={venueOptions}
+            value={venueId}
+            onChange={setVenueId}
+            placeholder={
+              !selectedMarket
+                ? 'Select a market first…'
+                : loadingVenues
+                  ? 'Loading venues…'
+                : venueOptions.length
+                  ? 'Select venue…'
+                  : 'No venues found in this market'
+            }
+            disabled={!selectedMarket || loadingVenues || saving}
           />
         </FormField>
       </div>
@@ -1667,11 +2233,13 @@ function ProjectDetailDrawer({
   projectId,
   onClose,
   onRequestDelete,
+  onOpenEngagement,
   addToast,
 }: {
   projectId: number;
   onClose: () => void;
   onRequestDelete: (row: ApiProjectListRow) => void;
+  onOpenEngagement: (engagementId: number) => void;
   addToast: Props['addToast'];
 }) {
   const qc = useQueryClient();
@@ -1699,15 +2267,15 @@ function ProjectDetailDrawer({
   }, [qc, projectId]);
 
   const project = detailQuery.data;
-  const venues = project?.venues ?? [];
-  const existingVenueIds = useMemo(() => new Set(venues.map((v) => v.venueCompanyId)), [venues]);
+  const venues = useMemo(() => project?.venues ?? [], [project?.venues]);
+  const existingVenueIds = useMemo(() => new Set(venues.filter((v) => v.venueStatus !== 'Confirmed').map((v) => v.venueCompanyId)), [venues]);
   const selectedTourForProject = useMemo(
     () => (project ? (toursQuery.data ?? []).find((t) => t.tourId === project.tourId) : undefined),
     [project, toursQuery.data],
   );
   const preferredVenueTypeId = selectedTourForProject?.venueTypePreferenceId ?? null;
   const preferredVenueTypeName = selectedTourForProject?.venueTypePreferenceName ?? null;
-  const projectDmaIds = project?.dmaIds ?? [];
+  const projectDmaIds = useMemo(() => project?.dmaIds ?? [], [project?.dmaIds]);
   const projectDmaKey = useMemo(
     () => [...projectDmaIds].sort((a, b) => a - b).join(','),
     [projectDmaIds],
@@ -1724,11 +2292,38 @@ function ProjectDetailDrawer({
     enabled: Boolean(project) && (activeTab === 'Venues' || showAddVenue) && projectDmaIds.length > 0,
     staleTime: 30_000,
   });
-  const eligibleVenueRows = useMemo(() => {
-    const all = scopedVenuesQuery.data ?? [];
-    if (preferredVenueTypeId == null || preferredVenueTypeId < 1) return all;
-    return all.filter((v) => v.venueTypeId != null && v.venueTypeId === preferredVenueTypeId);
-  }, [scopedVenuesQuery.data, preferredVenueTypeId]);
+  const addVenueMarketsQuery = useQuery({
+    queryKey: PROJECT_WIZARD_DMA_QUERY_KEY,
+    queryFn: fetchAllDmaMarketsForWizard,
+    enabled: Boolean(project) && activeTab === 'Venues' && showAddVenue && !project?.isReadOnly,
+    staleTime: 60_000,
+  });
+  const eligibleVenueRows = scopedVenuesQuery.data ?? [];
+  const addVenueMarketNames = useMemo(() => {
+    const byKey = new Map<string, string>();
+    const registerMarket = (marketName: string | null | undefined) => {
+      const label = cleanDmaMarketLabel(marketName);
+      const key = dmaMarketFamilyKey(marketName);
+      if (!key || !label) return;
+      const existing = byKey.get(key);
+      if (!existing || label.localeCompare(existing, undefined, { sensitivity: 'base' }) < 0) {
+        byKey.set(key, label);
+      }
+    };
+
+    const marketCatalog = addVenueMarketsQuery.data ?? [];
+    const selectedCanonicalIds = new Set(mapSelectionToCanonicalDmaIds(projectDmaIds, marketCatalog));
+    for (const market of marketCatalog) {
+      if (selectedCanonicalIds.has(market.dmaid)) registerMarket(market.marketName);
+    }
+
+    // If the market lookup is still loading or unavailable, keep the Add Venue form usable from the scoped venues.
+    if (byKey.size === 0) {
+      for (const venue of eligibleVenueRows) registerMarket(venue.dmaMarketName);
+    }
+
+    return [...byKey.values()].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  }, [addVenueMarketsQuery.data, eligibleVenueRows, projectDmaIds]);
   const eligibleVenueIdSet = useMemo(
     () => new Set(eligibleVenueRows.map((v) => v.companyId)),
     [eligibleVenueRows],
@@ -1761,7 +2356,7 @@ function ProjectDetailDrawer({
             </>
           )}
         </div>
-        {project && !detailQuery.isLoading && (
+        {project && !project.isReadOnly && !detailQuery.isLoading && (
           <button
             type="button"
             onClick={() => onRequestDelete(projectDetailToListRow(project))}
@@ -1804,6 +2399,7 @@ function ProjectDetailDrawer({
               await qc.invalidateQueries({ queryKey: ['projects', 'suggestion-cache'], exact: false });
             }}
             onGoToVenues={() => setActiveTab('Venues')}
+            onOpenEngagement={onOpenEngagement}
             addToast={addToast}
           />
         )}
@@ -1812,36 +2408,49 @@ function ProjectDetailDrawer({
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium text-text-primary">Venue Proposals</h3>
-              <button type="button" onClick={() => setShowAddVenue(!showAddVenue)} className="text-ems-accent text-sm hover:underline">
-                + Add Venue
-              </button>
+              {!project.isReadOnly && (
+                <button type="button" onClick={() => setShowAddVenue(!showAddVenue)} className="text-ems-accent text-sm hover:underline">
+                  + Add Venue
+                </button>
+              )}
             </div>
+
+            {project.isReadOnly && project.convertedEngagementId != null && (
+              <div className="flex flex-col gap-2 rounded-md border border-ems-accent/30 bg-ems-accent/5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="inline-flex items-center gap-2 text-xs text-text-secondary">
+                  <Lock className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
+                  Venue proposals are view-only after engagement creation.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => onOpenEngagement(project.convertedEngagementId as number)}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-ems-accent hover:underline"
+                >
+                  Open engagement <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                </button>
+              </div>
+            )}
 
             <div className="rounded-md border border-border bg-surface px-3 py-2">
               <p className="text-[11px] text-text-muted leading-relaxed">
-                Scope for this project: {projectDmaIds.length} market{projectDmaIds.length === 1 ? '' : 's'} selected
-                {preferredVenueTypeId != null && preferredVenueTypeId >= 1
-                  ? ` · Preferred type: ${preferredVenueTypeName ?? `Type #${preferredVenueTypeId}`}`
-                  : ' · Preferred type: not set'}.
+                Scope for this project: {projectDmaIds.length} market{projectDmaIds.length === 1 ? '' : 's'} selected.
               </p>
               {scopedVenuesQuery.isPending ? (
                 <p className="text-[11px] text-text-muted mt-1">Loading eligible venues…</p>
               ) : (
                 <p className="text-[11px] text-text-muted mt-1">
-                  Eligible venues for Add Venue: {eligibleVenueRows.length.toLocaleString()}.
+                  Project-scoped venue matches: {eligibleVenueRows.length.toLocaleString()}.
                 </p>
               )}
             </div>
-            {!scopedVenuesQuery.isPending && outOfScopeVenueCount > 0 && (
-              <p className="text-xs text-amber-500">
-                {outOfScopeVenueCount} venue{outOfScopeVenueCount === 1 ? '' : 's'} out of scope — update/remove to avoid discard.
-              </p>
-            )}
-            {showAddVenue && (
+            {!project.isReadOnly && showAddVenue && (
               <AddVenueForm
                 projectId={projectId}
                 existingIds={existingVenueIds}
-                availableVenueRows={eligibleVenueRows}
+                availableVenueRows={scopedVenuesQuery.data ?? []}
+                marketNames={addVenueMarketNames}
+                loadingMarkets={addVenueMarketsQuery.isPending}
+                loadingVenues={scopedVenuesQuery.isPending}
                 onSaved={async () => {
                   await refresh();
                   setShowAddVenue(false);
@@ -1858,15 +2467,14 @@ function ProjectDetailDrawer({
                 key={v.engagementProjectVenueId}
                 venue={v}
                 projectId={projectId}
-                scopeMismatchReason={
-                  scopedVenuesQuery.isPending
-                    ? undefined
-                    : eligibleVenueIdSet.has(v.venueCompanyId)
-                      ? undefined
-                      : 'not in current DMA/preferred-type scope'
-                }
                 onRefresh={() => refresh()}
                 addToast={addToast}
+                readOnly={Boolean(project.isReadOnly)}
+                attractionId={project.attractionId}
+                attractionName={project.attractionName}
+                tourId={project.tourId}
+                tourName={project.tourName}
+                onOpenEngagement={onOpenEngagement}
               />
             ))}
           </div>
@@ -1952,7 +2560,9 @@ function WizardStepIndicator({ currentStep }: { currentStep: number }) {
 function CreateProjectForm({
   onSaved, onCancel, addToast,
 }: {
-  onSaved: (id: number) => void; onCancel: () => void; addToast: Props['addToast'];
+  onSaved: (result: CreateProjectResult) => void;
+  onCancel: () => void;
+  addToast: Props['addToast'];
 }) {
   const qc = useQueryClient();
   const projectWizardLookupLimit = 8000;
@@ -1974,6 +2584,11 @@ function CreateProjectForm({
     queryFn: fetchTalentAgencyCompanyRows,
     staleTime: 60_000,
   });
+  const companyPickerQuery = useQuery({
+    queryKey: ['companies', 'picker', 'project-add-tour', 0, 5000],
+    queryFn: fetchCompaniesPickerRows,
+    staleTime: 60_000,
+  });
   const venueTypesQuery = useQuery({
     queryKey: ['lookups', 'venue-types'],
     queryFn: fetchVenueTypesLookup,
@@ -1992,8 +2607,8 @@ function CreateProjectForm({
   const [selectedAttractionId, setSelectedAttractionId] = useState<number | null>(null);
   const [selectedTourId, setSelectedTourId] = useState<number | null>(null);
   const [tourSearch, setTourSearch] = useState('');
-  const [dateRangeStart, setDateRangeStart] = useState('');
-  const [dateRangeEnd, setDateRangeEnd] = useState('');
+  const [dateRangeStart, setDateRangeStart] = useState(getTodayDateString());
+  const [dateRangeEnd, setDateRangeEnd] = useState(getTodayDateString());
   const [selectedPreferredVenueTypeIds, setSelectedPreferredVenueTypeIds] = useState<number[]>([]);
   const [preferredVenueTypeSearch, setPreferredVenueTypeSearch] = useState('');
 
@@ -2043,9 +2658,8 @@ function CreateProjectForm({
   const [showAddTourModal, setShowAddTourModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const talentAgentContactsQuery = useQuery({
-    queryKey: ['company', projectTourMgmtCompanyId ?? 0, 'contacts', 'talent-agent-role'],
-    queryFn: () =>
-      fetchCompanyContacts(projectTourMgmtCompanyId as number, { roleName: 'Talent Agent' }),
+    queryKey: ['company', projectTourMgmtCompanyId ?? 0, 'contacts'],
+    queryFn: () => fetchCompanyContacts(projectTourMgmtCompanyId as number),
     enabled: projectTourMgmtCompanyId != null && projectTourMgmtCompanyId >= 1 && step >= 2,
     staleTime: 60_000,
   });
@@ -2059,10 +2673,12 @@ function CreateProjectForm({
   const managementCompanyOptions = useMemo(() => {
     const rows = talentAgencyPickerQuery.data;
     if (!rows?.length) return [];
-    return rows
-      .map((c) => ({ value: String(c.companyId), label: c.companyName }))
-      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+    return companyToSelect2Options(rows);
   }, [talentAgencyPickerQuery.data]);
+  const companyOptions = useMemo(
+    () => companyToSelect2Options((companyPickerQuery.data ?? []) as ApiCompanyListRow[]),
+    [companyPickerQuery.data],
+  );
   const venueTypes = useMemo(
     () => venueTypesQuery.data ?? EMPTY_VENUE_TYPES,
     [venueTypesQuery.data],
@@ -2083,11 +2699,9 @@ function CreateProjectForm({
     [venueTypes],
   );
   const filteredPreferredVenueTypeOptions = useMemo(() => {
-    const q = preferredVenueTypeSearch.trim().toLowerCase();
+    const q = preferredVenueTypeSearch.trim();
     if (!q) return preferredVenueTypeOptions;
-    return preferredVenueTypeOptions.filter((opt) =>
-      opt.label.toLowerCase().includes(q),
-    );
+    return preferredVenueTypeOptions.filter((opt) => richTextMatches([opt.label], q));
   }, [preferredVenueTypeOptions, preferredVenueTypeSearch]);
   const dmaFlatRows = useMemo(
     () => dmaMarketsQuery.data ?? EMPTY_DMA_MARKETS,
@@ -2121,19 +2735,23 @@ function CreateProjectForm({
     [venuesWizardQuery.data],
   );
   const venueRowsFiltered = useMemo(() => {
-    const q = venueSearch.trim().toLowerCase();
+    const q = venueSearch.trim();
     return venueRowsAll.filter((r) => {
-      const blob = [
-        r.venueName,
-        r.entertainmentComplexNames,
-        r.dmaMarketName,
-        String(r.companyId),
-        r.venueTypeName,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      if (q && !blob.includes(q)) return false;
+      if (
+        q &&
+        !richTextMatches(
+          [
+            r.venueName,
+            r.entertainmentComplexNames,
+            r.dmaMarketName,
+            String(r.companyId),
+            r.venueTypeName,
+          ],
+          q,
+        )
+      ) {
+        return false;
+      }
       if (selectedPreferredVenueTypeIds.length === 0) return true;
       return (
         r.venueTypeId != null &&
@@ -2162,9 +2780,9 @@ function CreateProjectForm({
   }, [tours]);
 
   const filteredAttractions = useMemo(() => {
-    const q = attractionSearch.trim().toLowerCase();
+    const q = attractionSearch.trim();
     return attractions
-      .filter((a) => !q || (a.attractionName ?? '').toLowerCase().includes(q))
+      .filter((a) => !q || richTextMatches([a.attractionName, a.attractionId], q))
       .sort((a, b) =>
         (a.attractionName ?? '').localeCompare(b.attractionName ?? '', undefined, { sensitivity: 'base' }),
       );
@@ -2180,12 +2798,19 @@ function CreateProjectForm({
   }, [selectedAttractionId, toursByAttraction]);
 
   const filteredToursForAttraction = useMemo(() => {
-    const q = tourSearch.trim().toLowerCase();
+    const q = tourSearch.trim();
     if (!q) return toursForSelectedAttraction;
-    return toursForSelectedAttraction.filter(
-      (t) =>
-        (t.tourName ?? '').toLowerCase().includes(q) ||
-        String(t.tourId).includes(q),
+    return toursForSelectedAttraction.filter((t) =>
+      richTextMatches(
+        [
+          t.tourName,
+          t.tourId,
+          t.attractionName,
+          t.className,
+          t.talentAgencyCompanyName,
+        ],
+        q,
+      ),
     );
   }, [toursForSelectedAttraction, tourSearch]);
 
@@ -2195,16 +2820,16 @@ function CreateProjectForm({
 
   const clearTourDerivedFields = useCallback(() => {
     setProjectTourMgmtCompanyId(null);
-    setDateRangeStart('');
-    setDateRangeEnd('');
+    setDateRangeStart(getTodayDateString());
+    setDateRangeEnd(getTodayDateString());
     setSelectedPreferredVenueTypeIds(EMPTY_PREFERRED_VENUE_TYPE_IDS);
     lastSyncedTourRef.current = null;
   }, []);
 
   const applyTourFields = useCallback((t: ApiTourListRow) => {
     setProjectTourMgmtCompanyId(t.talentAgencyCompanyId ?? null);
-    setDateRangeStart(t.tourStartDate ?? '');
-    setDateRangeEnd(t.tourEndDate ?? '');
+    setDateRangeStart(t.tourStartDate ?? getTodayDateString());
+    setDateRangeEnd(t.tourEndDate ?? getTodayDateString());
     setSelectedPreferredVenueTypeIds(
       t.venueTypePreferenceId != null && t.venueTypePreferenceId >= 1
         ? [t.venueTypePreferenceId]
@@ -2275,9 +2900,33 @@ function CreateProjectForm({
     toursQuery.isPending ||
     classesQuery.isPending ||
     talentAgencyPickerQuery.isPending ||
+    companyPickerQuery.isPending ||
     venueTypesQuery.isPending;
 
   const selectedTour = selectedTourId ? tours.find((t) => t.tourId === selectedTourId) : null;
+  const selectedTourTalentAgentIds = useMemo(
+    () =>
+      [...new Set((selectedTour?.talentAgentContactIds ?? []).map((id) => String(id).trim()))].filter(
+        (id) => id.length > 0,
+      ),
+    [selectedTour?.talentAgentContactIds],
+  );
+  const selectedTourTalentAgentLabels = useMemo(() => {
+    const labels: string[] = [];
+    const seen = new Set<string>();
+    const push = (value: string) => {
+      const label = value.trim();
+      if (!label) return;
+      const key = label.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      labels.push(label);
+    };
+    const optionById = new Map(talentAgentOptions.map((opt) => [opt.value, opt.label]));
+    selectedTourTalentAgentIds.forEach((id) => push(optionById.get(id) ?? `Contact #${id}`));
+    (selectedTour?.talentAgentNames ?? []).forEach((name) => push(name));
+    return labels;
+  }, [selectedTour?.talentAgentNames, selectedTourTalentAgentIds, talentAgentOptions]);
   const tourDatesLockedReason = 'Dates already exist on this tour, so they are locked.';
   const tourDatesLockedInCreate = Boolean(
     selectedTour?.tourStartDate?.trim() && selectedTour?.tourEndDate?.trim(),
@@ -2424,7 +3073,7 @@ function CreateProjectForm({
         dmaIds: validSelectedDmaIds,
         venues: venuesPayload,
       });
-      onSaved(res.engagementProjectId);
+      onSaved(res);
     } catch (e) {
       addToast(friendlyApiError(e, 'Could not create project.'), 'error');
     } finally {
@@ -2593,20 +3242,42 @@ function CreateProjectForm({
                   <div className="w-full min-w-0 bg-surface border border-border rounded px-3 py-2 text-sm text-text-primary">
                     {talentAgentContactsQuery.isPending
                       ? 'Loading contacts…'
-                      : talentAgentOptions.length > 0
-                        ? (
-                          <div className="flex flex-wrap gap-2">
-                            {talentAgentOptions.map((o) => (
-                              <span
-                                key={o.value}
-                                className="inline-flex items-center rounded-md border border-border bg-background px-2 py-1 text-xs text-text-primary"
-                              >
-                                {o.label}
-                              </span>
-                            ))}
+                      : (
+                        <div className="space-y-2">
+                          <p className="text-[11px] text-text-secondary">
+                            Selected for this tour:{' '}
+                            <span className="font-medium text-text-primary">
+                              {selectedTourTalentAgentLabels.length}
+                            </span>{' '}
+                            of{' '}
+                            <span className="font-medium text-text-primary">
+                              {talentAgentOptions.length}
+                            </span>{' '}
+                            agency contact{talentAgentOptions.length === 1 ? '' : 's'}.
+                          </p>
+                          <div>
+                            <p className="text-[11px] font-medium text-text-secondary mb-1">
+                              Tour-selected talent agents
+                            </p>
+                            {selectedTourTalentAgentLabels.length > 0 ? (
+                              <div className="flex flex-wrap gap-2">
+                                {selectedTourTalentAgentLabels.map((label, index) => (
+                                  <span
+                                    key={`wizard-tour-agent-${index}-${label}`}
+                                    className="inline-flex items-center rounded-md border border-ems-accent/35 bg-ems-accent/10 px-2 py-1 text-xs text-text-primary"
+                                  >
+                                    {label}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-[11px] text-text-muted">
+                                No specific talent agents are selected on this tour.
+                              </p>
+                            )}
                           </div>
-                        )
-                        : 'No talent agents found for this agency'}
+                        </div>
+                      )}
                   </div>
                 </FormField>
               </>
@@ -2955,7 +3626,7 @@ function CreateProjectForm({
             </div>
             <FormField label="Date Range">
               <div className="text-sm text-text-primary bg-surface px-3 py-1.5 rounded border border-border">
-                {dateRangeStart && dateRangeEnd ? `${dateRangeStart} to ${dateRangeEnd}` : '—'}
+                {formatProjectDateRange(dateRangeStart, dateRangeEnd)}
               </div>
             </FormField>
             <FormField label="Preferred Venue Type">
@@ -2989,20 +3660,37 @@ function CreateProjectForm({
                   ? '—'
                   : talentAgentContactsQuery.isPending
                     ? 'Loading contacts…'
-                    : talentAgentOptions.length > 0
-                      ? (
-                        <div className="flex flex-wrap gap-2">
-                          {talentAgentOptions.map((o) => (
-                            <span
-                              key={o.value}
-                              className="inline-flex items-center rounded-md border border-border bg-background px-2 py-1 text-xs text-text-primary"
-                            >
-                              {o.label}
-                            </span>
-                          ))}
-                        </div>
-                      )
-                      : 'No talent agents found for this agency'}
+                    : (
+                      <div className="space-y-2">
+                        <p className="text-[11px] text-text-secondary">
+                          Selected for this tour:{' '}
+                          <span className="font-medium text-text-primary">
+                            {selectedTourTalentAgentLabels.length}
+                          </span>{' '}
+                          of{' '}
+                          <span className="font-medium text-text-primary">
+                            {talentAgentOptions.length}
+                          </span>{' '}
+                          agency contact{talentAgentOptions.length === 1 ? '' : 's'}.
+                        </p>
+                        {selectedTourTalentAgentLabels.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {selectedTourTalentAgentLabels.map((label, index) => (
+                              <span
+                                key={`summary-tour-agent-${index}-${label}`}
+                                className="inline-flex items-center rounded-md border border-ems-accent/35 bg-ems-accent/10 px-2 py-1 text-xs text-text-primary"
+                              >
+                                {label}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-text-muted">
+                            No specific talent agents are selected on this tour.
+                          </p>
+                        )}
+                      </div>
+                    )}
               </div>
             </FormField>
             <FormField label="Markets (DMAs)">
@@ -3050,7 +3738,7 @@ function CreateProjectForm({
               <p className="text-xs text-text-muted">
                 Choose{' '}
                 <span className="font-medium">Under Construction</span>, <span className="font-medium">Pending</span>, or{' '}
-                <span className="font-medium">Inactive</span>, then click Create Project.
+                <span className="font-medium">Confirmed</span>.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField label="Project Stage">
@@ -3115,6 +3803,7 @@ function CreateProjectForm({
           )}
         </div>
       </div>
+
     </div>
     </CreateProjectWizardErrorBoundary>
 
@@ -3122,7 +3811,7 @@ function CreateProjectForm({
       <Modal
         title="Add Tour"
         onClose={() => !createTourMut.isPending && setShowAddTourModal(false)}
-        width={600}
+        width={760}
         allowContentOverflow
       >
         <AddTourForm
@@ -3130,6 +3819,7 @@ function CreateProjectForm({
           attractions={attractions}
           classes={classes}
           managementCompanyOptions={managementCompanyOptions}
+          addToast={addToast}
           lockAttractionId={selectedAttractionId}
           submitting={createTourMut.isPending}
           onCancel={() => setShowAddTourModal(false)}
@@ -3152,7 +3842,7 @@ function projectListSuggestionLabel(row: ApiProjectListRow): string {
   return a || t || `Project #${row.engagementProjectId}`;
 }
 
-export function ProjectsPage({ addToast }: Props) {
+export function ProjectsPage({ addToast, onNavigate }: Props) {
   const qc = useQueryClient();
   const [searchInput, setSearchInput] = useState('');
   const [searchCommitted, setSearchCommitted] = useState('');
@@ -3231,7 +3921,7 @@ export function ProjectsPage({ addToast }: Props) {
   });
 
   const projectSearchSuggestions = useMemo(() => {
-    const q = searchInput.trim().toLowerCase();
+    const q = normalizeSearchText(searchInput);
     if (!q) return [] as Array<{ label: string; query: string }>;
     const rows = projectsSuggestionQuery.data ?? [];
     const labels: Array<{ label: string; query: string }> = [];
@@ -3246,16 +3936,9 @@ export function ProjectsPage({ addToast }: Props) {
       ]
         .map((v) => String(v ?? '').trim())
         .filter(Boolean);
-      const hay = [
-        primary,
-        ...candidates,
-      ]
-        .filter(Boolean)
-        .map((s) => String(s).toLowerCase())
-        .some((s) => s.includes(q));
-      if (!hay) continue;
+      if (!richTextMatches([primary, ...candidates], q)) continue;
       const query =
-        candidates.find((c) => c.toLowerCase().includes(q)) ??
+        candidates.find((c) => richTextMatches([c], q)) ??
         candidates[0] ??
         '';
       if (!query) continue;
@@ -3667,6 +4350,10 @@ export function ProjectsPage({ addToast }: Props) {
             setSelectedProjectId(null);
             setPendingDelete(row);
           }}
+          onOpenEngagement={(engagementId) => {
+            setSelectedProjectId(null);
+            onNavigate?.('engagement-detail', { engagementId });
+          }}
           addToast={addToast}
         />
       )}
@@ -3676,11 +4363,16 @@ export function ProjectsPage({ addToast }: Props) {
         <Modal title="Create Project" onClose={() => setShowCreateModal(false)} width={700} allowContentOverflow>
           <CreateProjectForm
             key="create-project"
-            onSaved={async (id) => {
+            onSaved={async (result) => {
               await refetchProjectList();
               setShowCreateModal(false);
-              addToast('Project created successfully.', 'success');
-              setSelectedProjectId(id);
+              if (result.converted && result.engagementId != null) {
+                addToast('Project and engagement created successfully.', 'success');
+                onNavigate?.('engagement-detail', { engagementId: result.engagementId });
+              } else {
+                addToast('Project created successfully.', 'success');
+                setSelectedProjectId(result.engagementProjectId);
+              }
             }}
             onCancel={() => setShowCreateModal(false)}
             addToast={addToast}

@@ -28,6 +28,14 @@ export class Venue {
   seatingCapacity: number;
 
   @Column({
+    name: 'SalesTaxType',
+    type: 'nvarchar',
+    length: 50,
+    nullable: true,
+  })
+  salesTaxType: string | null;
+
+  @Column({
     name: 'SalesTaxRate',
     type: 'decimal',
     precision: 18,
@@ -79,4 +87,16 @@ export class Venue {
   @ManyToOne(() => NonResidentWithholding)
   @JoinColumn({ name: 'NonResidentWithholdingID' })
   nonResidentWithholding: NonResidentWithholding | null;
+
+  @Column({ name: 'StageDimensions', type: 'nvarchar', length: 500, nullable: true })
+  stageDimensions: string | null;
+
+  @Column({ name: 'FlySystemSpecs', type: 'nvarchar', length: 500, nullable: true })
+  flySystemSpecs: string | null;
+
+  @Column({ name: 'StageType', type: 'nvarchar', length: 100, nullable: true })
+  stageType: string | null;
+
+  @Column({ name: 'SeatingChartLinkID', type: 'int', nullable: true })
+  seatingChartLinkId: number | null;
 }

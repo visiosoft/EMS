@@ -15,16 +15,24 @@ import {
   Repository,
 } from 'typeorm';
 import { AdminUsersService } from '../admin-users/admin-users.service';
+import { EmsAppCreatedStore } from '../attraction-tours/ems-app-created.store';
+import { Engagement } from '../entities/engagement.entity';
 import { EngagementProject } from '../entities/engagement-project.entity';
 import { EngagementProjectDma } from '../entities/engagement-project-dma.entity';
 import { EngagementProjectVenue } from '../entities/engagement-project-venue.entity';
 import { EngagementProjectPerformanceOption } from '../entities/engagement-project-performance-option.entity';
+import { EngagementVenue } from '../entities/engagement-venue.entity';
+import { EngagementXref } from '../entities/engagement-xref.entity';
 import { Attraction } from '../entities/attraction.entity';
 import { Company } from '../entities/company.entity';
 import { Dma } from '../entities/dma.entity';
+import { Performance } from '../entities/performance.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
-import { CreateProjectDto } from './dto/create-project.dto';
+import {
+  CreateProjectDto,
+  type ProjectOpeningPerformanceDto,
+} from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { AddProjectVenueDto } from './dto/add-project-venue.dto';
 import { UpdateProjectVenueDto } from './dto/update-project-venue.dto';
@@ -34,6 +42,7 @@ import { AuditRequestContext } from '../audit/audit-request-context.service';
 import {
   isAllowedProjectStage,
   PROJECT_STAGE_VALUES,
+  isProjectConversionStage,
 } from './project-stage.constants';
 
 const ENGAGEMENT_VENUE_OPTION_STATUS_ALLOWLIST = [
@@ -92,6 +101,7 @@ export class ProjectService {
     private readonly dataSource: DataSource,
     private readonly auditContext: AuditRequestContext,
     private readonly adminUsersService: AdminUsersService,
+    private readonly emsCreated: EmsAppCreatedStore,
   ) {}
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -135,8 +145,8 @@ export class ProjectService {
   }
 
   /**
-   * Project stages are fixed in this application: Under Construction, Pending, Inactive
-   * (aligned with dbo.EngagementProject.ProjectStage CHECK; DTOs validate with @IsIn).
+   * Project stages accepted for writes while confirmation conversion is pending DB support.
+   * DTOs validate these values with `@IsIn`.
    */
   async getProjectStageMeta(): Promise<{
     projectStages: string[];
@@ -544,6 +554,211 @@ export class ProjectService {
     return project;
   }
 
+  private projectXrefKey(projectId: number): string {
+    return `EngagementProject:${projectId}`;
+  }
+
+  private async getConvertedEngagementId(
+    projectId: number,
+    manager: EntityManager = this.dataSource.manager,
+  ): Promise<number | null> {
+    const xref = await manager.findOne(EngagementXref, {
+      where: { sourceEngagementId: this.projectXrefKey(projectId) },
+    });
+    return xref?.engagementId ?? null;
+  }
+
+  private async assertProjectEditable(projectId: number): Promise<void> {
+    const convertedEngagementId =
+      await this.getConvertedEngagementId(projectId);
+    if (convertedEngagementId != null) {
+      throw new ConflictException({
+        message:
+          'This project has already been converted into an engagement and is view-only. Open the engagement to make further changes.',
+        engagementId: convertedEngagementId,
+      });
+    }
+  }
+
+  /**
+   * Converts a finalized project into its persisted engagement once. A project
+   * contains venue proposals but does not identify a primary venue, so the
+   * earliest selected venue becomes primary and the rest remain associated.
+   */
+  private async convertProjectToEngagement(
+    manager: EntityManager,
+    project: EngagementProject,
+    openingPerformances: ProjectOpeningPerformanceDto[] = [],
+  ): Promise<number | null> {
+    const existing = await this.getConvertedEngagementId(
+      project.engagementProjectId,
+      manager,
+    );
+    if (existing != null) return existing;
+
+    const venues = await manager.find(EngagementProjectVenue, {
+      where: { engagementProjectId: project.engagementProjectId },
+      order: { engagementProjectVenueId: 'ASC' },
+    });
+    if (venues.length === 0) {
+      throw new BadRequestException({
+        message:
+          'Add at least one venue proposal before converting this project into an engagement.',
+      });
+    }
+    const venueCompanyIds = new Set<number>();
+    for (const venue of venues) {
+      if (venueCompanyIds.has(venue.venueCompanyId)) {
+        throw new BadRequestException({
+          message:
+            'A venue has been proposed more than once. Remove the duplicate venue before converting this project into an engagement.',
+        });
+      }
+      venueCompanyIds.add(venue.venueCompanyId);
+    }
+
+    let firstEngagementId: number | null = null;
+
+    for (const venue of venues) {
+      // Check if this venue was already converted
+      const existingVenueXref = await manager.findOne(EngagementXref, {
+        where: {
+          sourceEngagementId: `EngagementProjectVenue:${venue.engagementProjectVenueId}`,
+        },
+      });
+      if (existingVenueXref) {
+        if (firstEngagementId === null) {
+          firstEngagementId = existingVenueXref.engagementId;
+        }
+        continue;
+      }
+
+      const performanceRows: Array<{
+        date: string;
+        time: string;
+        status: string;
+      }> = [];
+      const showDateTimes = new Set<string>();
+
+      const addPerformanceRow = (
+        dateRaw: string | Date | null | undefined,
+        timeRaw: string | null | undefined,
+        statusRaw: string | null | undefined,
+        missingMessage: string,
+      ) => {
+        const date = this.normalizeDateOnly(dateRaw);
+        const time = this.normalizeTime(timeRaw);
+        if (!date || !time) {
+          throw new BadRequestException({
+            message: missingMessage,
+          });
+        }
+        const key = `${date}T${time}`;
+        if (showDateTimes.has(key)) {
+          throw new BadRequestException({
+            message:
+              'Two proposed performances for a venue use the same date and time. Change one before converting this project.',
+          });
+        }
+        showDateTimes.add(key);
+        performanceRows.push({
+          date,
+          time,
+          status: (statusRaw ?? '').trim() || 'Public',
+        });
+      };
+
+      for (const opening of openingPerformances ?? []) {
+        addPerformanceRow(
+          opening.performanceDate,
+          opening.performanceTime,
+          opening.performanceStatus,
+          'Every opening show needs both a date and time before this project can be converted into an engagement.',
+        );
+      }
+
+      const options = await manager.find(EngagementProjectPerformanceOption, {
+        where: {
+          engagementProjectId: project.engagementProjectId,
+          engagementProjectVenueId: venue.engagementProjectVenueId,
+        },
+        order: { proposedDate: 'ASC', performanceOptionId: 'ASC' },
+      });
+      for (const option of options) {
+        addPerformanceRow(
+          option.proposedDate,
+          option.proposedTime,
+          'Private',
+          'Every proposed performance needs both a date and time before this project can be converted into an engagement.',
+        );
+      }
+
+      if (performanceRows.length === 0) {
+        throw new BadRequestException({
+          message:
+            'Add at least one opening show or proposed performance for each venue before converting this project into an engagement.',
+        });
+      }
+
+      const savedEngagement = await manager.save(
+        Engagement,
+        manager.create(Engagement, {
+          engagementStatus: 'Unknown',
+          engagementScaling: null,
+          tourId: project.tourId,
+          sellableCapacity: null,
+          grossPotential: null,
+        }),
+      );
+
+      if (firstEngagementId === null) {
+        firstEngagementId = savedEngagement.engagementId;
+      }
+
+      await manager.save(
+        EngagementVenue,
+        manager.create(EngagementVenue, {
+          engagementId: savedEngagement.engagementId,
+          venueCompanyId: venue.venueCompanyId,
+          isPrimary: true,
+        }),
+      );
+
+      for (const row of performanceRows) {
+        await manager.save(
+          Performance,
+          manager.create(Performance, {
+            engagementId: savedEngagement.engagementId,
+            performanceStatus: row.status,
+            performanceDate: row.date,
+            performanceTime: row.time,
+          }),
+        );
+      }
+
+      await manager.save(
+        EngagementXref,
+        manager.create(EngagementXref, {
+          sourceEngagementId: `EngagementProjectVenue:${venue.engagementProjectVenueId}`,
+          engagementId: savedEngagement.engagementId,
+        }),
+      );
+      this.emsCreated.recordEngagement(savedEngagement.engagementId);
+    }
+
+    if (firstEngagementId !== null) {
+      await manager.save(
+        EngagementXref,
+        manager.create(EngagementXref, {
+          sourceEngagementId: this.projectXrefKey(project.engagementProjectId),
+          engagementId: firstEngagementId,
+        }),
+      );
+    }
+
+    return firstEngagementId;
+  }
+
   private isOidLike(value: string | null | undefined): boolean {
     const trimmed = String(value ?? '').trim();
     return GUID_RE.test(trimmed);
@@ -583,7 +798,9 @@ export class ProjectService {
   }
 
   private rememberCreatedByName(oid: string, name: string): void {
-    const key = String(oid ?? '').trim().toLowerCase();
+    const key = String(oid ?? '')
+      .trim()
+      .toLowerCase();
     const value = String(name ?? '').trim();
     if (!key || !value) return;
     const now = Date.now();
@@ -830,6 +1047,9 @@ export class ProjectService {
     const agentContactId = await this.getProjectAgentContactId(
       project.engagementProjectId,
     );
+    const convertedEngagementId = await this.getConvertedEngagementId(
+      project.engagementProjectId,
+    );
 
     const firstVenueId = dbVenues[0]?.engagementProjectVenueId;
     const optionsForVenue = (venueRowId: number) => {
@@ -844,42 +1064,86 @@ export class ProjectService {
       return [];
     };
 
-    const venuesWithDetails = await Promise.all(
-      dbVenues.map(async (v) => {
-        const company = await this.companyRepo.findOne({
-          where: { companyId: v.venueCompanyId },
-        });
-        const venue = await this.venueRepo.findOne({
-          where: { companyId: v.venueCompanyId },
-        });
-        return {
-          engagementProjectVenueId: v.engagementProjectVenueId,
-          engagementProjectId: v.engagementProjectId,
-          venueCompanyId: v.venueCompanyId,
-          venueCompanyName: company?.companyName ?? null,
-          venueName: venue?.venueName ?? null,
-          venueStatus: v.venueStatus,
-          // Frontend-only fields returned as null (Option A — we never persisted them)
-          configName: null,
-          dealType: null,
-          guarantee: null,
-          splitPct: null,
-          breakeven: null,
-          marketingCoOp: null,
-          engagementId: null,
-          performanceOptions: optionsForVenue(v.engagementProjectVenueId).map(
-            (o) => ({
-              performanceOptionId: o.performanceOptionId,
-              engagementProjectId: o.engagementProjectId,
-              engagementProjectVenueId: o.engagementProjectVenueId ?? null,
-              proposedDate: o.proposedDate,
-              proposedTime: this.formatTime(o.proposedTime),
-              optionStatus: o.optionStatus,
+    const venueCompanyIds = [
+      ...new Set(
+        dbVenues
+          .map((v) => Number(v.venueCompanyId))
+          .filter((id) => Number.isInteger(id) && id > 0),
+      ),
+    ];
+    const [venueCompanies, venueRows] =
+      venueCompanyIds.length > 0
+        ? await Promise.all([
+            this.companyRepo.find({
+              where: { companyId: In(venueCompanyIds) },
+              relations: { dma: true },
             }),
-          ),
-        };
+            this.venueRepo.find({
+              where: { companyId: In(venueCompanyIds) },
+            }),
+          ])
+        : [[], []];
+    const venueCompanyById = new Map(
+      venueCompanies.map((company) => [company.companyId, company]),
+    );
+    const venueByCompanyId = new Map(
+      venueRows.map((venue) => [venue.companyId, venue]),
+    );
+
+    const venueRowIds = dbVenues.map((v) => v.engagementProjectVenueId);
+    const venueXrefs =
+      venueRowIds.length > 0
+        ? await this.dataSource.manager.find(EngagementXref, {
+            where: {
+              sourceEngagementId: In(
+                venueRowIds.map((id) => `EngagementProjectVenue:${id}`),
+              ),
+            },
+          })
+        : [];
+
+    const engagementIdByVenueRowId = new Map<number, number>(
+      venueXrefs.map((xref) => {
+        const parts = xref.sourceEngagementId.split(':');
+        const rowId = Number(parts[1]);
+        return [rowId, xref.engagementId];
       }),
     );
+
+    const venuesWithDetails = dbVenues.map((v) => {
+      const company = venueCompanyById.get(v.venueCompanyId);
+      const venue = venueByCompanyId.get(v.venueCompanyId);
+      return {
+        engagementProjectVenueId: v.engagementProjectVenueId,
+        engagementProjectId: v.engagementProjectId,
+        venueCompanyId: v.venueCompanyId,
+        venueCompanyName: company?.companyName ?? null,
+        venueName: venue?.venueName ?? null,
+        venueDmaId: company?.dmaid ?? null,
+        venueDmaMarketName: company?.dma?.marketName ?? null,
+        venueStatus: v.venueStatus,
+        // Frontend-only fields returned as null (Option A — we never persisted them)
+        configName: null,
+        dealType: null,
+        guarantee: null,
+        splitPct: null,
+        breakeven: null,
+        marketingCoOp: null,
+        engagementId:
+          engagementIdByVenueRowId.get(v.engagementProjectVenueId) ??
+          (v.venueStatus === 'Confirmed' ? convertedEngagementId : null),
+        performanceOptions: optionsForVenue(v.engagementProjectVenueId).map(
+          (o) => ({
+            performanceOptionId: o.performanceOptionId,
+            engagementProjectId: o.engagementProjectId,
+            engagementProjectVenueId: o.engagementProjectVenueId ?? null,
+            proposedDate: o.proposedDate,
+            proposedTime: this.formatTime(o.proposedTime),
+            optionStatus: o.optionStatus,
+          }),
+        ),
+      };
+    });
 
     const createdBy = await this.resolveCreatedByDisplayValue(
       project.createdBy,
@@ -904,15 +1168,19 @@ export class ProjectService {
       dmaIds: projectDmas.map((d) => d.dmaid),
       targetOnSale: null,
       notes: null,
+      convertedEngagementId,
+      isReadOnly: false,
       venues: venuesWithDetails,
     };
   }
 
   // ─── Project CRUD ─────────────────────────────────────────────────────────
 
-  async create(
-    dto: CreateProjectDto,
-  ): Promise<{ engagementProjectId: number }> {
+  async create(dto: CreateProjectDto): Promise<{
+    engagementProjectId: number;
+    engagementId: number | null;
+    converted: boolean;
+  }> {
     const tourRow = await this.assertTourExists(dto.tourId);
     await this.assertCompanyIsTalentAgency(dto.talentAgencyCompanyId);
     if (
@@ -1000,7 +1268,19 @@ export class ProjectService {
           normalizedAgentContactId,
         );
 
-        return { engagementProjectId: savedProject.engagementProjectId };
+        const engagementId = isProjectConversionStage(dto.projectStage)
+          ? await this.convertProjectToEngagement(
+              manager,
+              savedProject,
+              dto.openingPerformances,
+            )
+          : null;
+
+        return {
+          engagementProjectId: savedProject.engagementProjectId,
+          engagementId,
+          converted: engagementId != null,
+        };
       });
     } catch (err) {
       if (err instanceof QueryFailedError) {
@@ -1023,8 +1303,16 @@ export class ProjectService {
     }
   }
 
-  async update(id: number, dto: UpdateProjectDto): Promise<void> {
+  async update(
+    id: number,
+    dto: UpdateProjectDto,
+  ): Promise<{ engagementId: number | null; converted: boolean }> {
     const project = await this.assertProjectExists(id);
+
+    const shouldConvert =
+      dto.projectStage !== undefined &&
+      isProjectConversionStage(dto.projectStage);
+
     if (dto.projectStage !== undefined) {
       this.assertValidProjectStage(dto.projectStage);
       project.projectStage = dto.projectStage;
@@ -1050,84 +1338,100 @@ export class ProjectService {
         ? this.parseAgentContactId(dto.agentContactId)
         : undefined;
     try {
-      await this.dataSource.transaction(async (manager) => {
-        if (dto.dmaIds !== undefined) {
-          await manager.delete(EngagementProjectDma, {
-            engagementProjectId: id,
-          });
-          const normalized = this.normalizeDmaIds(dto.dmaIds);
-          if (normalized.length > 0) {
-            await this.assertDmasExist(manager, normalized);
-            for (const dmaid of normalized) {
-              await manager.save(
-                EngagementProjectDma,
-                manager.create(EngagementProjectDma, {
-                  engagementProjectId: id,
-                  dmaid,
-                }),
-              );
+      const engagementId = await this.dataSource.transaction(
+        async (manager) => {
+          if (dto.dmaIds !== undefined) {
+            await manager.delete(EngagementProjectDma, {
+              engagementProjectId: id,
+            });
+            const normalized = this.normalizeDmaIds(dto.dmaIds);
+            if (normalized.length > 0) {
+              await this.assertDmasExist(manager, normalized);
+              for (const dmaid of normalized) {
+                await manager.save(
+                  EngagementProjectDma,
+                  manager.create(EngagementProjectDma, {
+                    engagementProjectId: id,
+                    dmaid,
+                  }),
+                );
+              }
             }
           }
-        }
-        if (dto.talentAgencyCompanyId !== undefined) {
-          const effectiveTourId = dto.tourId ?? project.tourId;
-          await manager.update(
-            Tour,
-            { tourId: effectiveTourId },
-            { talentAgencyCompanyId: dto.talentAgencyCompanyId },
-          );
-        }
-        if (
-          normalizedTourStartDate !== undefined ||
-          normalizedTourEndDate !== undefined
-        ) {
-          const effectiveTourId = dto.tourId ?? project.tourId;
-          const tourRow = await manager.findOne(Tour, {
-            where: { tourId: effectiveTourId },
-          });
-          if (!tourRow) {
-            throw new BadRequestException({
-              message: 'Selected tour was not found.',
-            });
+          if (dto.talentAgencyCompanyId !== undefined) {
+            const effectiveTourId = dto.tourId ?? project.tourId;
+            await manager.update(
+              Tour,
+              { tourId: effectiveTourId },
+              { talentAgencyCompanyId: dto.talentAgencyCompanyId },
+            );
           }
-          const mergedStart =
-            normalizedTourStartDate !== undefined
-              ? normalizedTourStartDate
-              : this.normalizeDateOnly(
-                  (tourRow.tourStartDate as string | Date | null | undefined) ??
-                    null,
-                );
-          const mergedEnd =
+          if (
+            normalizedTourStartDate !== undefined ||
             normalizedTourEndDate !== undefined
-              ? normalizedTourEndDate
-              : this.normalizeDateOnly(
-                  (tourRow.tourEndDate as string | Date | null | undefined) ??
-                    null,
-                );
-          this.assertValidTourDateRange(mergedStart, mergedEnd);
-          await manager.update(
-            Tour,
-            { tourId: effectiveTourId },
-            { tourStartDate: mergedStart, tourEndDate: mergedEnd },
-          );
-        }
-        if (normalizedAgentContactId !== undefined) {
-          await this.setProjectAgentContactId(
-            manager,
-            id,
-            normalizedAgentContactId,
-          );
-        }
-        await manager.save(EngagementProject, project);
-      });
+          ) {
+            const effectiveTourId = dto.tourId ?? project.tourId;
+            const tourRow = await manager.findOne(Tour, {
+              where: { tourId: effectiveTourId },
+            });
+            if (!tourRow) {
+              throw new BadRequestException({
+                message: 'Selected tour was not found.',
+              });
+            }
+            const mergedStart =
+              normalizedTourStartDate !== undefined
+                ? normalizedTourStartDate
+                : this.normalizeDateOnly(
+                    (tourRow.tourStartDate as
+                      | string
+                      | Date
+                      | null
+                      | undefined) ?? null,
+                  );
+            const mergedEnd =
+              normalizedTourEndDate !== undefined
+                ? normalizedTourEndDate
+                : this.normalizeDateOnly(
+                    (tourRow.tourEndDate as string | Date | null | undefined) ??
+                      null,
+                  );
+            this.assertValidTourDateRange(mergedStart, mergedEnd);
+            await manager.update(
+              Tour,
+              { tourId: effectiveTourId },
+              { tourStartDate: mergedStart, tourEndDate: mergedEnd },
+            );
+          }
+          if (normalizedAgentContactId !== undefined) {
+            await this.setProjectAgentContactId(
+              manager,
+              id,
+              normalizedAgentContactId,
+            );
+          }
+          await manager.save(EngagementProject, project);
+          return shouldConvert
+            ? await this.convertProjectToEngagement(
+                manager,
+                project,
+                dto.openingPerformances,
+              )
+            : null;
+        },
+      );
+      return { engagementId, converted: engagementId != null };
     } catch (e: unknown) {
       if (e instanceof BadRequestException) throw e;
       if (e instanceof QueryFailedError) {
         const d = String((e as QueryFailedError).driverError ?? e.message);
         this.logger.warn(`Update project failed (id=${id}): ${d}`);
+        const isStageCheck =
+          /CHECK constraint/i.test(d) && /ProjectStage/i.test(d);
         throw new BadRequestException({
-          message:
-            'Could not update the project. Check the information you entered, or ask your administrator if something is blocked by your system’s rules.',
+          message: isStageCheck
+            ? `This project stage isn’t accepted by the database. Use one of: ${PROJECT_STAGE_VALUES.join(', ')}.`
+            : 'Could not update the project. Check the information you entered, or ask your administrator if something is blocked by your system’s rules.',
           detail: d,
         });
       }
@@ -1137,6 +1441,7 @@ export class ProjectService {
 
   async remove(id: number): Promise<void> {
     await this.assertProjectExists(id);
+
     try {
       await this.dataSource.transaction(async (manager) => {
         await manager.delete(EngagementProjectPerformanceOption, {
@@ -1206,32 +1511,42 @@ export class ProjectService {
 
     const q = (search ?? '').trim();
     if (q) {
-      const like = `%${q}%`;
-      qb.andWhere(
-        new Brackets((w) => {
-          w.where('CAST(ep.engagementProjectId AS VARCHAR(20)) LIKE :like', {
-            like,
-          })
-            .orWhere("LOWER(ISNULL(t.tourName, '')) LIKE LOWER(:like)", {
-              like,
-            })
-            .orWhere("LOWER(ISNULL(a.attractionName, '')) LIKE LOWER(:like)", {
-              like,
-            })
-            .orWhere("LOWER(ISNULL(tmg.companyName, '')) LIKE LOWER(:like)", {
-              like,
-            })
-            .orWhere("LOWER(ISNULL(ep.projectStage, '')) LIKE LOWER(:like)", {
-              like,
-            })
-            .orWhere("LOWER(ISNULL(ep.createdBy, '')) LIKE LOWER(:like)", {
-              like,
-            })
-            .orWhere('CONVERT(VARCHAR(30), ep.createdDate, 126) LIKE :like', {
-              like,
-            });
-        }),
-      );
+      this.searchTokens(q).forEach((token, index) => {
+        const param = `projectSearch${index}`;
+        const like = `%${this.escapeLikePattern(token)}%`;
+        qb.andWhere(
+          new Brackets((w) => {
+            w.where(
+              `CAST(ep.engagementProjectId AS VARCHAR(20)) LIKE :${param} ESCAPE '\\'`,
+              { [param]: like },
+            )
+              .orWhere(
+                `LOWER(ISNULL(t.tourName, '')) LIKE LOWER(:${param}) ESCAPE '\\'`,
+                { [param]: like },
+              )
+              .orWhere(
+                `LOWER(ISNULL(a.attractionName, '')) LIKE LOWER(:${param}) ESCAPE '\\'`,
+                { [param]: like },
+              )
+              .orWhere(
+                `LOWER(ISNULL(tmg.companyName, '')) LIKE LOWER(:${param}) ESCAPE '\\'`,
+                { [param]: like },
+              )
+              .orWhere(
+                `LOWER(ISNULL(ep.projectStage, '')) LIKE LOWER(:${param}) ESCAPE '\\'`,
+                { [param]: like },
+              )
+              .orWhere(
+                `LOWER(ISNULL(ep.createdBy, '')) LIKE LOWER(:${param}) ESCAPE '\\'`,
+                { [param]: like },
+              )
+              .orWhere(
+                `CONVERT(VARCHAR(30), ep.createdDate, 126) LIKE :${param} ESCAPE '\\'`,
+                { [param]: like },
+              );
+          }),
+        );
+      });
     }
 
     const sortBy = (sortByRaw ?? '').trim().toLowerCase();
@@ -1331,6 +1646,7 @@ export class ProjectService {
     dto: AddProjectVenueDto,
   ): Promise<{ engagementProjectVenueId: number }> {
     await this.assertProjectExists(projectId);
+
     await this.assertVenueCompany(dto.venueCompanyId);
     await this.assertValidVenueStatus(dto.venueStatus);
 
@@ -1403,6 +1719,23 @@ export class ProjectService {
       pv.venueStatus = dto.venueStatus;
     }
     await this.projectVenueRepo.save(pv);
+
+    if (dto.engagementId) {
+      const xrefKey = `EngagementProjectVenue:${venueId}`;
+      const xrefRepo = this.dataSource.manager.getRepository(EngagementXref);
+      let xref = await xrefRepo.findOne({
+        where: { sourceEngagementId: xrefKey },
+      });
+      if (!xref) {
+        xref = xrefRepo.create({
+          sourceEngagementId: xrefKey,
+          engagementId: dto.engagementId,
+        });
+      } else {
+        xref.engagementId = dto.engagementId;
+      }
+      await xrefRepo.save(xref);
+    }
   }
 
   async removeVenue(projectId: number, venueId: number): Promise<void> {
@@ -1423,6 +1756,7 @@ export class ProjectService {
     dto: AddPerformanceOptionDto,
   ): Promise<{ performanceOptionId: number }> {
     await this.assertProjectExists(projectId);
+
     await this.assertValidOptionStatus(dto.optionStatus);
     await this.assertVenueInProject(projectId, dto.engagementProjectVenueId);
     const opt = this.optionRepo.create({
@@ -1461,5 +1795,26 @@ export class ProjectService {
       engagementProjectId: projectId,
       performanceOptionId: optionId,
     });
+  }
+
+  private searchTokens(raw: string): string[] {
+    return [
+      ...new Set(
+        String(raw ?? '')
+          .trim()
+          .split(/[^a-zA-Z0-9]+/)
+          .map((token) => token.trim())
+          .filter(Boolean),
+      ),
+    ].slice(0, 8);
+  }
+
+  private escapeLikePattern(raw: string): string {
+    return String(raw)
+      .replace(/\\/g, '\\\\')
+      .replace(/%/g, '\\%')
+      .replace(/_/g, '\\_')
+      .replace(/\[/g, '\\[')
+      .replace(/\]/g, '\\]');
   }
 }

@@ -1,77 +1,1199 @@
 import React, { useMemo, useState } from 'react';
 import { format, parseISO } from 'date-fns';
 import {
+  AlertCircle,
   ArrowLeft,
   Loader2,
-  AlertCircle,
+  Maximize2,
   RefreshCw,
-  ChevronDown,
-  ChevronUp,
 } from 'lucide-react';
 import {
-  LineChart,
+  Area,
+  Bar,
+  CartesianGrid,
+  ComposedChart,
   Line,
-  LabelList,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
 } from 'recharts';
 import type { ApiSalesDashboardBody } from '@/api/dailySalesApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
-import { IaeLogoFull } from '@/components/ems/Layout';
-import { formatOpeningDateSafe, formatSqlTimeDisplay } from '@/lib/engagementDisplay';
+import { formatSqlTimeDisplay } from '@/lib/engagementDisplay';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
-/** Theme-aware chart colors (match CSS variables in index.css) */
-const CHART_LINE = 'hsl(var(--ems-accent))';
-const CHART_SOLD = 'hsl(var(--ems-accent))';
-/** “Remaining” slice — theme secondary, readable on card in light and dark */
-const CHART_OPEN = 'hsl(var(--text-secondary))';
-const CHART_GRID = 'hsl(var(--border) / 0.45)';
+const EMPTY = '-';
+const CHART_GRID = 'hsl(var(--border) / 0.5)';
 const CHART_AXIS = 'hsl(var(--text-muted))';
+const CHART_TOOLTIP_BG = 'hsl(var(--card))';
+const CHART_TOOLTIP_BORDER = 'hsl(var(--border))';
 
-function money(n: number) {
+type SeriesPoint = ApiSalesDashboardBody['series'][number];
+type SummaryPoint = ApiSalesDashboardBody['summary'][number];
+type MarketingWindow = ApiSalesDashboardBody['marketingWindow'];
+type ChartUnit = 'date' | 'week' | 'month' | 'lifetime';
+
+type ChartValueKey =
+  | 'totalTickets'
+  | 'dailyTickets'
+  | 'totalRevenue'
+  | 'dailyRevenue'
+  | 'trailingTickets7'
+  | 'trailingRevenue7'
+  | 'remainingInventory'
+  | 'anticipatedMarketingSpend'
+  | 'averageTicketPrice'
+  | 'averageDailySales';
+
+type ChartKind = 'line' | 'bar' | 'area';
+
+interface SalesChartPoint {
+  date: string;
+  label: string;
+  tooltipLabel: string;
+  periodStart?: string;
+  periodEnd?: string;
+  calendarDays?: number;
+  salesDays?: number;
+  totalTickets: number;
+  dailyTickets: number;
+  totalRevenue: number;
+  dailyRevenue: number;
+  trailingTickets7: number;
+  trailingRevenue7: number;
+  remainingInventory: number | null;
+  anticipatedMarketingSpend: number | null;
+  averageTicketPrice: number | null;
+  averageDailySales: number | null;
+}
+
+interface ChartConfig {
+  id: string;
+  number: string;
+  title: string;
+  valueLabel: string;
+  yAxisLabel: string;
+  dataKey: ChartValueKey;
+  kind: ChartKind;
+  color: string;
+  formatter: (value: number | null | undefined) => string;
+  axisFormatter: (value: number | null | undefined) => string;
+}
+
+interface AuditCell {
+  label: string;
+  value: string;
+  note?: string;
+}
+
+interface AuditGroup {
+  title: string;
+  shade: string;
+  cells: AuditCell[];
+}
+
+interface ChartMarker {
+  date: string;
+  label: string;
+  color: string;
+}
+
+const CHART_UNIT_OPTIONS: Array<{ id: ChartUnit; label: string }> = [
+  { id: 'date', label: 'Date' },
+  { id: 'week', label: 'Week' },
+  { id: 'month', label: 'Month' },
+  { id: 'lifetime', label: 'Lifetime' },
+];
+
+const CHART_CONFIGS: ChartConfig[] = [
+  {
+    id: 'total-cumulative-sales',
+    number: 'Chart 1',
+    title: 'Total Cumulative Sales',
+    valueLabel: '# of Total Tix Sold To Date',
+    yAxisLabel: '# of Total Tix Sold To Date',
+    dataKey: 'totalTickets',
+    kind: 'line',
+    color: 'hsl(var(--ems-accent))',
+    formatter: countOrDash,
+    axisFormatter: compactCountOrDash,
+  },
+  {
+    id: 'ticket-sales-pace',
+    number: 'Chart 2',
+    title: 'Ticket Sales Pace',
+    valueLabel: '# sold each Unit',
+    yAxisLabel: '# sold each Unit',
+    dataKey: 'dailyTickets',
+    kind: 'bar',
+    color: 'hsl(var(--ems-blue))',
+    formatter: countOrDash,
+    axisFormatter: compactCountOrDash,
+  },
+  {
+    id: 'total-dollar-sales',
+    number: 'Chart 3',
+    title: 'Total $ Sales',
+    valueLabel: 'Total $ sold to date',
+    yAxisLabel: 'Total $ sold to date',
+    dataKey: 'totalRevenue',
+    kind: 'line',
+    color: 'hsl(var(--ems-green))',
+    formatter: moneyOrDash,
+    axisFormatter: compactMoneyOrDash,
+  },
+  {
+    id: 'daily-dollar-sales-pace',
+    number: 'Chart 4',
+    title: 'Daily $ Sales Pace',
+    valueLabel: 'Amount of $ sold each unit',
+    yAxisLabel: 'Amount of $ sold each unit',
+    dataKey: 'dailyRevenue',
+    kind: 'bar',
+    color: 'hsl(var(--ems-amber))',
+    formatter: moneyOrDash,
+    axisFormatter: compactMoneyOrDash,
+  },
+  {
+    id: 'trailing-seven-day-ticket-sales',
+    number: 'Chart 5',
+    title: 'Trailing 7 Day Ticket Sales',
+    valueLabel: 'Cumulative # of Tix sold over Previous Seven Days',
+    yAxisLabel: 'Cumulative # of Tix sold over Previous Seven Days',
+    dataKey: 'trailingTickets7',
+    kind: 'area',
+    color: 'hsl(var(--ems-purple))',
+    formatter: countOrDash,
+    axisFormatter: compactCountOrDash,
+  },
+  {
+    id: 'trailing-seven-day-revenue',
+    number: 'Chart 6',
+    title: 'Trailing 7 Day Revenue',
+    valueLabel: 'Cumulative $ sold over Previous Seven Days',
+    yAxisLabel: 'Cumulative $ sold over Previous Seven Days',
+    dataKey: 'trailingRevenue7',
+    kind: 'area',
+    color: 'hsl(var(--ems-coral))',
+    formatter: moneyOrDash,
+    axisFormatter: compactMoneyOrDash,
+  },
+  {
+    id: 'remaining-inventory',
+    number: 'Chart 7',
+    title: 'Remaining Inventory',
+    valueLabel: 'Value of Unsold Inventory',
+    yAxisLabel: 'Value of Unsold Inventory',
+    dataKey: 'remainingInventory',
+    kind: 'line',
+    color: 'hsl(var(--text-secondary))',
+    formatter: moneyOrDash,
+    axisFormatter: compactMoneyOrDash,
+  },
+  {
+    id: 'anticipated-marketing-spend',
+    number: 'Chart 8',
+    title: 'Anticipated Marketing Spend',
+    valueLabel: '10% of the Value of the Unsold Inventory',
+    yAxisLabel: '10% of the Value of the Unsold Inventory',
+    dataKey: 'anticipatedMarketingSpend',
+    kind: 'line',
+    color: 'hsl(var(--ems-amber))',
+    formatter: moneyOrDash,
+    axisFormatter: compactMoneyOrDash,
+  },
+  {
+    id: 'average-ticket-price',
+    number: 'Chart 9',
+    title: 'Average Ticket Price',
+    valueLabel: 'Total $ sold to date divided by total Tix sold to date',
+    yAxisLabel: 'Total $ sold to date divided by total Tix sold to date',
+    dataKey: 'averageTicketPrice',
+    kind: 'line',
+    color: 'hsl(var(--ems-blue))',
+    formatter: moneyDecimalOrDash,
+    axisFormatter: compactMoneyOrDash,
+  },
+  {
+    id: 'average-daily-sales',
+    number: 'Chart 10',
+    title: 'Average Daily Sales',
+    valueLabel: 'Total $ sold that day divided by the total sold that date',
+    yAxisLabel: 'Total $ sold that day divided by the total sold that date',
+    dataKey: 'averageDailySales',
+    kind: 'line',
+    color: 'hsl(var(--ems-accent))',
+    formatter: moneyDecimalOrDash,
+    axisFormatter: compactMoneyOrDash,
+  },
+];
+
+function finiteNumber(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function safeNonNegative(value: number | null | undefined): number | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  return Math.max(0, value);
+}
+
+function countOrDash(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return EMPTY;
+  return Math.round(value).toLocaleString();
+}
+
+function moneyOrDash(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return EMPTY;
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
     maximumFractionDigits: 0,
-  }).format(n);
+  }).format(value);
 }
 
-function moneyFull(n: number) {
+function moneyDecimalOrDash(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return EMPTY;
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
-    minimumFractionDigits: 0,
+    minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(n);
+  }).format(value);
 }
 
-function pctDisplay(n: number | null | undefined) {
-  if (n == null || !Number.isFinite(n)) return '—';
-  if (n > 100) return `${n.toFixed(1)}%`;
-  return `${n.toFixed(n >= 100 ? 0 : 1)}%`;
+function pctDisplay(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return EMPTY;
+  if (Math.abs(value) >= 100) return `${value.toFixed(1)}%`;
+  return `${value.toFixed(1)}%`;
 }
 
-interface KpiCardProps {
-  label: string;
-  value: React.ReactNode;
+function compactNumber(value: number) {
+  const abs = Math.abs(value);
+  const sign = value < 0 ? '-' : '';
+  if (abs >= 1_000_000_000) return `${sign}${trimDecimal(abs / 1_000_000_000)}B`;
+  if (abs >= 1_000_000) return `${sign}${trimDecimal(abs / 1_000_000)}M`;
+  if (abs >= 1_000) return `${sign}${trimDecimal(abs / 1_000)}k`;
+  return `${sign}${Math.round(abs).toLocaleString()}`;
 }
 
-function KpiCard({ label, value }: KpiCardProps) {
+function compactCountOrDash(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return EMPTY;
+  return compactNumber(value);
+}
+
+function compactMoneyOrDash(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return EMPTY;
+  const sign = value < 0 ? '-' : '';
+  return `${sign}$${compactNumber(Math.abs(value))}`;
+}
+
+function trimDecimal(value: number) {
+  return value.toFixed(value >= 10 ? 0 : 1).replace(/\.0$/, '');
+}
+
+function textOrDash(value: string | null | undefined) {
+  const s = value?.trim();
+  return s || EMPTY;
+}
+
+function formatDateLabel(ymd: string | null | undefined, pattern: string) {
+  if (!ymd) return EMPTY;
+  try {
+    return format(parseISO(ymd), pattern);
+  } catch {
+    return ymd;
+  }
+}
+
+function toYmd(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function ymdAddDays(ymd: string, delta: number) {
+  const [year, month, day] = ymd.split('-').map(Number);
+  if (!year || !month || !day) return ymd;
+  const d = new Date(year, month - 1, day);
+  d.setDate(d.getDate() + delta);
+  return toYmd(d);
+}
+
+function startOfWeekYmd(ymd: string) {
+  try {
+    const d = parseISO(ymd);
+    const offset = (d.getDay() + 6) % 7;
+    d.setDate(d.getDate() - offset);
+    return toYmd(d);
+  } catch {
+    return ymd;
+  }
+}
+
+function startOfMonthYmd(ymd: string) {
+  try {
+    const d = parseISO(ymd);
+    return toYmd(new Date(d.getFullYear(), d.getMonth(), 1));
+  } catch {
+    return ymd;
+  }
+}
+
+function sortedSeries(series: SeriesPoint[] | undefined) {
+  return [...(series ?? [])]
+    .filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.date))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function isUnreportedSeriesRow(row: SeriesPoint) {
   return (
-    <div className="rounded-xl border border-border bg-card shadow-sm px-4 py-4 flex flex-col min-h-[5.5rem]">
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+    (finiteNumber(row.totalTickets) ?? 0) === 0 &&
+    (finiteNumber(row.totalRevenue) ?? 0) === 0 &&
+    (finiteNumber(row.dailyTickets) ?? 0) === 0 &&
+    (finiteNumber(row.dailyRevenue) ?? 0) === 0
+  );
+}
+
+function trimLeadingQuietDays(rows: SeriesPoint[]) {
+  const firstActive = rows.findIndex(
+    (row) =>
+      (finiteNumber(row.dailyTickets) ?? 0) !== 0 ||
+      (finiteNumber(row.dailyRevenue) ?? 0) !== 0 ||
+      (finiteNumber(row.totalTickets) ?? 0) !== 0 ||
+      (finiteNumber(row.totalRevenue) ?? 0) !== 0,
+  );
+  if (firstActive <= 0) return rows;
+  return rows.slice(Math.max(0, firstActive - 1));
+}
+
+function buildDailyChartPoints(
+  series: SeriesPoint[] | undefined,
+  grossPotential: number | null | undefined,
+  marketingWindow: MarketingWindow | undefined,
+  asOfDate: string | undefined,
+): SalesChartPoint[] {
+  const rawRows = trimLeadingQuietDays(sortedSeries(series));
+  const rows = rawRows.map((row, index) => {
+    const previous = index > 0 ? rawRows[index - 1] : undefined;
+    const totalTickets = finiteNumber(row.totalTickets) ?? 0;
+    const totalRevenue = finiteNumber(row.totalRevenue) ?? 0;
+    const prevTickets = finiteNumber(previous?.totalTickets) ?? 0;
+    const prevRevenue = finiteNumber(previous?.totalRevenue) ?? 0;
+    return {
+      ...row,
+      totalTickets,
+      totalRevenue,
+      dailyTickets:
+        finiteNumber(row.dailyTickets) ?? Math.max(0, totalTickets - prevTickets),
+      dailyRevenue:
+        finiteNumber(row.dailyRevenue) ?? Math.max(0, totalRevenue - prevRevenue),
+    };
+  });
+  const rowByDate = new Map(rows.map((row) => [row.date, row]));
+  const validMarketingDates = [
+    marketingWindow?.preSaleDate,
+    marketingWindow?.onSaleDate,
+  ].filter((date): date is string => !!date && /^\d{4}-\d{2}-\d{2}$/.test(date));
+  const startCandidates = [
+    rows[0]?.date,
+    ...validMarketingDates.filter((date) => !asOfDate || date <= asOfDate),
+  ].filter((date): date is string => !!date);
+  const boundedMarketingDates = validMarketingDates.filter(
+    (date) => !asOfDate || date <= asOfDate,
+  );
+  const endCandidates = [
+    rows[rows.length - 1]?.date,
+    asOfDate,
+    ...boundedMarketingDates,
+  ].filter((date): date is string => !!date && /^\d{4}-\d{2}-\d{2}$/.test(date));
+  if (startCandidates.length === 0 || endCandidates.length === 0) return [];
+
+  const start = startCandidates.sort()[0];
+  const end = endCandidates.sort()[endCandidates.length - 1];
+  const reportedDates = new Set(
+    rows.filter((row) => !isUnreportedSeriesRow(row)).map((row) => row.date),
+  );
+  const expandedRows: SeriesPoint[] = [];
+  let carryTotalTickets = 0;
+  let carryTotalRevenue = 0;
+  for (let date = start; date <= end; date = ymdAddDays(date, 1)) {
+    const row = rowByDate.get(date);
+    if (row && reportedDates.has(date)) {
+      carryTotalTickets = finiteNumber(row.totalTickets) ?? 0;
+      carryTotalRevenue = finiteNumber(row.totalRevenue) ?? 0;
+      expandedRows.push(row);
+    } else {
+      expandedRows.push({
+        date,
+        totalTickets: carryTotalTickets,
+        totalRevenue: carryTotalRevenue,
+        dailyTickets: 0,
+        dailyRevenue: 0,
+      });
+    }
+  }
+
+  // UI-only autofill: a day with no report (omitted from the series, or all
+  // zeros) inherits the next reported day's results, so e.g. an unreported
+  // Saturday and Sunday show Monday's report. Trailing days with no later
+  // report keep their carried-forward placeholder (nothing to carry back from).
+  let nextReported: SeriesPoint | null = null;
+  for (let i = expandedRows.length - 1; i >= 0; i -= 1) {
+    const row = expandedRows[i];
+    if (reportedDates.has(row.date)) {
+      nextReported = row;
+    } else if (nextReported) {
+      expandedRows[i] = {
+        ...row,
+        totalTickets: nextReported.totalTickets,
+        totalRevenue: nextReported.totalRevenue,
+        dailyTickets: nextReported.dailyTickets,
+        dailyRevenue: nextReported.dailyRevenue,
+      };
+    }
+  }
+
+  return expandedRows.map((row, index) => {
+    const totalTickets = finiteNumber(row.totalTickets) ?? 0;
+    const dailyTickets = finiteNumber(row.dailyTickets) ?? 0;
+    const totalRevenue = finiteNumber(row.totalRevenue) ?? 0;
+    const dailyRevenue = finiteNumber(row.dailyRevenue) ?? 0;
+    const trailingWindow = expandedRows.slice(Math.max(0, index - 6), index + 1);
+    const trailingTickets7 = trailingWindow.reduce(
+      (sum, pt) => sum + (finiteNumber(pt.dailyTickets) ?? 0),
+      0,
+    );
+    const trailingRevenue7 = trailingWindow.reduce(
+      (sum, pt) => sum + (finiteNumber(pt.dailyRevenue) ?? 0),
+      0,
+    );
+    const remainingInventory =
+      grossPotential != null ? safeNonNegative(grossPotential - totalRevenue) : null;
+
+    return {
+      date: row.date,
+      label: formatDateLabel(row.date, 'MMM d'),
+      tooltipLabel: formatDateLabel(row.date, 'EEE, MMM d, yyyy'),
+      totalTickets,
+      dailyTickets,
+      totalRevenue,
+      dailyRevenue,
+      trailingTickets7,
+      trailingRevenue7,
+      remainingInventory,
+      anticipatedMarketingSpend:
+        remainingInventory != null ? remainingInventory * 0.1 : null,
+      averageTicketPrice: totalTickets > 0 ? totalRevenue / totalTickets : null,
+      averageDailySales: dailyTickets > 0 ? dailyRevenue / dailyTickets : null,
+    };
+  });
+}
+
+function markerDateForUnit(ymd: string, unit: ChartUnit) {
+  if (unit === 'lifetime') return null;
+  if (unit === 'week') return startOfWeekYmd(ymd);
+  if (unit === 'month') return startOfMonthYmd(ymd);
+  return ymd;
+}
+
+function buildChartMarkers(
+  marketingWindow: MarketingWindow | undefined,
+  unit: ChartUnit,
+  points: SalesChartPoint[],
+): ChartMarker[] {
+  const availableDates = new Set(points.map((point) => point.date));
+  return [
+    {
+      sourceDate: marketingWindow?.preSaleDate,
+      label: 'Pre-sale',
+      color: 'hsl(var(--ems-purple))',
+    },
+    {
+      sourceDate: marketingWindow?.onSaleDate,
+      label: 'Public sale',
+      color: 'hsl(var(--ems-accent))',
+    },
+  ]
+    .map((marker) => {
+      if (!marker.sourceDate || !/^\d{4}-\d{2}-\d{2}$/.test(marker.sourceDate)) {
+        return null;
+      }
+      const date = markerDateForUnit(marker.sourceDate, unit);
+      if (!date || !availableDates.has(date)) return null;
+      return { date, label: marker.label, color: marker.color };
+    })
+    .filter((marker): marker is ChartMarker => marker != null);
+}
+
+function salePeriodLabel(
+  ymd: string,
+  marketingWindow: MarketingWindow | undefined,
+) {
+  const preSaleDate = marketingWindow?.preSaleDate;
+  const onSaleDate = marketingWindow?.onSaleDate;
+  const hasPreSaleDate = !!preSaleDate && /^\d{4}-\d{2}-\d{2}$/.test(preSaleDate);
+  const hasOnSaleDate = !!onSaleDate && /^\d{4}-\d{2}-\d{2}$/.test(onSaleDate);
+  if (hasOnSaleDate && ymd >= onSaleDate) return 'Public Sale';
+  if (hasPreSaleDate && ymd >= preSaleDate && (!hasOnSaleDate || ymd < onSaleDate)) {
+    return 'Pre-Sale';
+  }
+  return EMPTY;
+}
+
+function buildBucketedChartPoints(
+  daily: SalesChartPoint[],
+  unit: Exclude<ChartUnit, 'date' | 'lifetime'>,
+) {
+  const buckets = new Map<
+    string,
+    {
+      start: string;
+      dailyTickets: number;
+      dailyRevenue: number;
+      last: SalesChartPoint;
+    }
+  >();
+
+  for (const point of daily) {
+    const start = unit === 'week' ? startOfWeekYmd(point.date) : startOfMonthYmd(point.date);
+    const bucket = buckets.get(start);
+    if (bucket) {
+      bucket.dailyTickets += point.dailyTickets;
+      bucket.dailyRevenue += point.dailyRevenue;
+      bucket.last = point;
+    } else {
+      buckets.set(start, {
+        start,
+        dailyTickets: point.dailyTickets,
+        dailyRevenue: point.dailyRevenue,
+        last: point,
+      });
+    }
+  }
+
+  return [...buckets.values()]
+    .sort((a, b) => a.start.localeCompare(b.start))
+    .map((bucket) => {
+      const tooltipLabel =
+        unit === 'week'
+          ? `${formatDateLabel(bucket.start, 'MMM d')} - ${formatDateLabel(ymdAddDays(bucket.start, 6), 'MMM d, yyyy')}`
+          : formatDateLabel(bucket.start, 'MMMM yyyy');
+      return {
+        ...bucket.last,
+        date: bucket.start,
+        label:
+          unit === 'week'
+            ? formatDateLabel(bucket.start, 'MMM d')
+            : formatDateLabel(bucket.start, 'MMM yyyy'),
+        tooltipLabel,
+        dailyTickets: bucket.dailyTickets,
+        dailyRevenue: bucket.dailyRevenue,
+        averageDailySales:
+          bucket.dailyTickets > 0 ? bucket.dailyRevenue / bucket.dailyTickets : null,
+      };
+    });
+}
+
+function buildLifetimeChartPoint(daily: SalesChartPoint[]) {
+  const latest = daily[daily.length - 1];
+  if (!latest) return [];
+  const first = daily[0];
+  const salesDays = daily.filter(
+    (point) => point.dailyTickets > 0 || point.dailyRevenue > 0,
+  ).length;
+  return [
+    {
+      ...latest,
+      label: 'Lifetime',
+      tooltipLabel: `Through ${formatDateLabel(latest.date, 'MMM d, yyyy')}`,
+      periodStart: first?.date ?? latest.date,
+      periodEnd: latest.date,
+      calendarDays: daily.length,
+      salesDays,
+      dailyTickets: latest.totalTickets,
+      dailyRevenue: latest.totalRevenue,
+      averageDailySales:
+        latest.totalTickets > 0 ? latest.totalRevenue / latest.totalTickets : null,
+    },
+  ];
+}
+
+function chartPointsForUnit(daily: SalesChartPoint[], unit: ChartUnit) {
+  if (unit === 'date') return daily;
+  if (unit === 'lifetime') return buildLifetimeChartPoint(daily);
+  return buildBucketedChartPoints(daily, unit);
+}
+
+function hasChartValues(points: SalesChartPoint[], config: ChartConfig) {
+  return points.some((point) => {
+    const value = point[config.dataKey];
+    return value != null && Number.isFinite(value);
+  });
+}
+
+function xAxisInterval(length: number, expanded: boolean) {
+  if (expanded) {
+    if (length <= 18) return 0;
+    if (length <= 36) return 1;
+    return Math.max(1, Math.floor(length / 18));
+  }
+  if (length <= 7) return 0;
+  if (length <= 14) return 1;
+  return Math.max(1, Math.floor(length / 6));
+}
+
+function currentUnitLabel(unit: ChartUnit) {
+  return CHART_UNIT_OPTIONS.find((option) => option.id === unit)?.label ?? 'Date';
+}
+
+function buildAuditGroups(
+  data: ApiSalesDashboardBody,
+  dailyPoints: SalesChartPoint[],
+): AuditGroup[] {
+  const asOf = data.asOfDate;
+  const yesterday = ymdAddDays(asOf, -1);
+  const hasActivity = (point: SalesChartPoint | undefined) =>
+    !!point &&
+    ((finiteNumber(point.dailyTickets) ?? 0) > 0 ||
+      (finiteNumber(point.dailyRevenue) ?? 0) > 0);
+  const yesterdayPoint = dailyPoints.find((point) => point.date === yesterday);
+  // When yesterday has no report of its own (and no later report to backfill
+  // from — e.g. the reporting date is past the last daily-sales entry), fall
+  // back to the most recent reported day on or before the reporting date so
+  // the wrap still shows the latest numbers we have.
+  const wrapPoint = hasActivity(yesterdayPoint)
+    ? yesterdayPoint
+    : [...dailyPoints]
+        .reverse()
+        .find((point) => point.date <= asOf && hasActivity(point)) ?? yesterdayPoint;
+  const wrapNote =
+    wrapPoint && wrapPoint.date !== yesterday
+      ? `As of ${formatDateLabel(wrapPoint.date, 'EEE, MMM d, yyyy')}`
+      : undefined;
+  const totalTickets = finiteNumber(data.kpis.ticketsDistributed) ?? 0;
+  const totalRevenue = finiteNumber(data.kpis.totalRevenue) ?? 0;
+  const sellableCapacity = data.sellableCapacity;
+  const grossPotential = data.grossPotential;
+  const unsoldTickets =
+    sellableCapacity != null ? safeNonNegative(sellableCapacity - totalTickets) : null;
+  const unsoldRevenue =
+    grossPotential != null ? safeNonNegative(grossPotential - totalRevenue) : null;
+
+  return [
+    {
+      title: 'Total Inventory',
+      shade: 'bg-elevated/45',
+      cells: [
+        { label: 'Sellable Capacity', value: countOrDash(sellableCapacity) },
+        { label: 'Gross Potential $', value: moneyOrDash(grossPotential) },
+      ],
+    },
+    {
+      title: "Yesterday's Wrap",
+      shade: 'bg-card',
+      cells: [
+        {
+          label: 'Total Tickets Sold Yesterday',
+          value: countOrDash(finiteNumber(wrapPoint?.dailyTickets) ?? 0),
+          note: wrapNote,
+        },
+        {
+          label: 'Total $ Sold Yesterday',
+          value: moneyOrDash(finiteNumber(wrapPoint?.dailyRevenue) ?? 0),
+          note: wrapNote,
+        },
+      ],
+    },
+    {
+      title: 'Unsold Inventory & Value',
+      shade: 'bg-elevated/35',
+      cells: [
+        { label: 'Total Unsold Tickets', value: countOrDash(unsoldTickets) },
+        { label: 'Total Unsold $', value: moneyOrDash(unsoldRevenue) },
+      ],
+    },
+    {
+      title: 'Lifetime',
+      shade: 'bg-card',
+      cells: [
+        { label: 'Total Tickets Sold To Date', value: countOrDash(totalTickets) },
+        { label: 'Total Sales $ To Date', value: moneyOrDash(totalRevenue) },
+        { label: '% of Seats Sold', value: pctDisplay(data.kpis.pctSold) },
+        {
+          label: '% of $ Potential Sold',
+          value: pctDisplay(data.kpis.pctRevenueVsPotential),
+        },
+        {
+          label: 'Goal Revenue',
+          value: moneyOrDash(grossPotential),
+          note: 'Static Number posted by Booking Dept',
+        },
+        {
+          label: 'Left to Reach Goal',
+          value: moneyOrDash(unsoldRevenue),
+          note: '=Goal Revenue-Total Sales $ To Date',
+        },
+      ],
+    },
+  ];
+}
+
+function isUnreportedSummaryRow(row: SummaryPoint) {
+  return (
+    (finiteNumber(row.totalTicketsSold) ?? 0) === 0 &&
+    (finiteNumber(row.totalValueSold) ?? 0) === 0 &&
+    (finiteNumber(row.dailyTicketsSold) ?? 0) === 0 &&
+    (finiteNumber(row.dailyValueSold) ?? 0) === 0
+  );
+}
+
+/**
+ * UI-only autofill: when a day has no reported sales (the API returns 0 for
+ * every value), backfill it from the next calendar day that does have a
+ * report. e.g. if Saturday and Sunday have no reported sales, Monday's report
+ * fills the Saturday and Sunday cells. Trailing days with no later report stay
+ * as-is since there is nothing to carry back from.
+ */
+function autofillUnreportedSummaryRows(summary: SummaryPoint[] | undefined) {
+  const rows = [...(summary ?? [])]
+    .filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.date))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  let nextReported: SummaryPoint | null = null;
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const row = rows[i];
+    if (isUnreportedSummaryRow(row)) {
+      if (nextReported) {
+        rows[i] = {
+          ...row,
+          totalTicketsSold: nextReported.totalTicketsSold,
+          totalValueSold: nextReported.totalValueSold,
+          dailyTicketsSold: nextReported.dailyTicketsSold,
+          dailyValueSold: nextReported.dailyValueSold,
+          seatsSoldPct: nextReported.seatsSoldPct,
+          seatsRemaining: nextReported.seatsRemaining,
+          revenueRemaining: nextReported.revenueRemaining,
+        };
+      }
+    } else {
+      nextReported = row;
+    }
+  }
+  return rows;
+}
+
+function summaryRowsNewestFirst(summary: SummaryPoint[] | undefined) {
+  return autofillUnreportedSummaryRows(summary).sort((a, b) =>
+    b.date.localeCompare(a.date),
+  );
+}
+
+interface InfoCellProps {
+  label: string;
+  children: React.ReactNode;
+}
+
+function InfoCell({ label, children }: InfoCellProps) {
+  return (
+    <div className="min-h-[5rem] border-b border-border/70 px-4 py-3 sm:border-r sm:[&:nth-child(2n)]:border-r-0 xl:[&:nth-child(2n)]:border-r xl:[&:nth-child(3n)]:border-r-0">
+      <dt className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
         {label}
-      </span>
-      <div className="flex-1 flex items-center justify-center text-center text-lg font-semibold text-text-primary tabular-nums">
-        {value}
+      </dt>
+      <dd className="mt-1.5 min-w-0 text-sm font-semibold leading-snug text-text-primary">
+        {children}
+      </dd>
+    </div>
+  );
+}
+
+interface LifetimeMetric {
+  label: string;
+  value: string;
+}
+
+function pluralizeDays(days: number | null | undefined) {
+  if (days == null || !Number.isFinite(days)) return EMPTY;
+  return `${Math.round(days).toLocaleString()} day${Math.round(days) === 1 ? '' : 's'}`;
+}
+
+function lifetimePeriodLabel(point: SalesChartPoint) {
+  const start = point.periodStart;
+  const end = point.periodEnd ?? point.date;
+  if (!start || start === end) {
+    return `Through ${formatDateLabel(end, 'MMM d, yyyy')}`;
+  }
+  return `${formatDateLabel(start, 'MMM d, yyyy')} - ${formatDateLabel(end, 'MMM d, yyyy')}`;
+}
+
+function buildLifetimeMetrics(point: SalesChartPoint): LifetimeMetric[] {
+  return [
+    { label: 'Tickets sold', value: countOrDash(point.totalTickets) },
+    { label: 'Sales revenue', value: moneyOrDash(point.totalRevenue) },
+    { label: 'Avg ticket price', value: moneyDecimalOrDash(point.averageTicketPrice) },
+    { label: 'Tickets last 7 days', value: countOrDash(point.trailingTickets7) },
+    { label: 'Revenue last 7 days', value: moneyOrDash(point.trailingRevenue7) },
+    { label: 'Remaining inventory', value: moneyOrDash(point.remainingInventory) },
+    { label: 'Marketing spend guide', value: moneyOrDash(point.anticipatedMarketingSpend) },
+    { label: 'Active sales days', value: pluralizeDays(point.salesDays) },
+    { label: 'Calendar days tracked', value: pluralizeDays(point.calendarDays) },
+  ];
+}
+
+interface LifetimeChartSummaryProps {
+  config: ChartConfig;
+  point: SalesChartPoint;
+  expanded?: boolean;
+  className?: string;
+}
+
+function LifetimeChartSummary({
+  config,
+  point,
+  expanded = false,
+  className,
+}: LifetimeChartSummaryProps) {
+  const chartValue = finiteNumber(point[config.dataKey]);
+  const metrics = buildLifetimeMetrics(point);
+  const visibleMetrics = expanded ? metrics : metrics.slice(0, 6);
+
+  return (
+    <div
+      className={cn(
+        'flex h-[13.5rem] w-full flex-col rounded-md border border-border/70 bg-elevated/20',
+        expanded && 'h-full min-h-[22rem]',
+        className,
+      )}
+    >
+      <div className="border-b border-border/70 px-4 py-3">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+          Lifetime Snapshot
+        </div>
+        <div className="mt-1 flex flex-wrap items-end justify-between gap-2">
+          <div className="min-w-0">
+            <div className="truncate text-2xl font-bold tabular-nums text-text-primary">
+              {config.formatter(chartValue)}
+            </div>
+            <div className="mt-0.5 text-xs leading-snug text-text-secondary">
+              {config.valueLabel}
+            </div>
+          </div>
+          <div className="shrink-0 text-right text-xs font-medium text-text-muted">
+            {lifetimePeriodLabel(point)}
+          </div>
+        </div>
       </div>
+      <div
+        className={cn(
+          'grid min-h-0 flex-1 grid-cols-2 overflow-hidden text-xs sm:grid-cols-3',
+          expanded && 'md:grid-cols-4',
+        )}
+      >
+        {visibleMetrics.map((metric) => (
+          <div
+            key={metric.label}
+            className="min-w-0 border-b border-r border-border/60 px-3 py-2.5"
+          >
+            <div className="truncate font-semibold uppercase tracking-wide text-text-muted">
+              {metric.label}
+            </div>
+            <div className="mt-1 truncate text-sm font-semibold tabular-nums text-text-primary">
+              {metric.value}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+interface SalesTrendChartProps {
+  config: ChartConfig;
+  points: SalesChartPoint[];
+  markers?: ChartMarker[];
+  expanded?: boolean;
+  className?: string;
+}
+
+function SalesTrendChart({
+  config,
+  points,
+  markers = [],
+  expanded = false,
+  className,
+}: SalesTrendChartProps) {
+  const hasValues = hasChartValues(points, config);
+  const lifetimePoint =
+    points.length === 1 && points[0]?.label === 'Lifetime' ? points[0] : null;
+  if (lifetimePoint) {
+    return (
+      <LifetimeChartSummary
+        config={config}
+        point={lifetimePoint}
+        expanded={expanded}
+        className={className}
+      />
+    );
+  }
+
+  if (!hasValues) {
+    return (
+      <div
+        className={cn(
+          'flex h-[13.5rem] items-center justify-center rounded-md border border-dashed border-border/70 bg-elevated/20 px-4 text-center text-sm text-text-muted',
+          className,
+        )}
+      >
+        No chart data available.
+      </div>
+    );
+  }
+
+  const interval = xAxisInterval(points.length, expanded);
+  const angled = points.length > (expanded ? 12 : 6);
+  const pointLabelByDate = new Map(points.map((point) => [point.date, point.label]));
+  const commonGraphProps = {
+    dataKey: config.dataKey,
+    name: config.valueLabel,
+    isAnimationActive: points.length <= 80,
+  };
+
+  return (
+    <div className={cn('h-[13.5rem] w-full', className)}>
+      <ResponsiveContainer width="100%" height="100%">
+        <ComposedChart
+          data={points}
+          margin={{
+            top: expanded ? 28 : 18,
+            right: expanded ? 28 : 12,
+            left: expanded ? 12 : 0,
+            bottom: angled ? 54 : 28,
+          }}
+        >
+          <CartesianGrid
+            stroke={CHART_GRID}
+            strokeDasharray="3 3"
+            vertical={false}
+          />
+          <XAxis
+            dataKey="date"
+            interval={interval}
+            tick={{ fill: CHART_AXIS, fontSize: expanded ? 12 : 10 }}
+            tickLine={{ stroke: CHART_GRID }}
+            axisLine={{ stroke: CHART_GRID }}
+            tickFormatter={(value) => pointLabelByDate.get(String(value)) ?? String(value)}
+            angle={angled ? -35 : 0}
+            textAnchor={angled ? 'end' : 'middle'}
+            height={angled ? 54 : 28}
+            minTickGap={4}
+            padding={{ left: 12, right: 12 }}
+          />
+          <YAxis
+            orientation="right"
+            width={expanded ? 76 : 56}
+            tick={{ fill: CHART_AXIS, fontSize: expanded ? 12 : 10 }}
+            tickLine={false}
+            axisLine={false}
+            tickFormatter={(value) => config.axisFormatter(finiteNumber(value))}
+          />
+          {markers.map((marker) => (
+            <ReferenceLine
+              key={`${marker.label}-${marker.date}`}
+              x={marker.date}
+              stroke={marker.color}
+              strokeDasharray="4 3"
+              strokeOpacity={expanded ? 0.75 : 0.45}
+              ifOverflow="extendDomain"
+              label={
+                expanded
+                  ? {
+                      value: marker.label,
+                      position: 'insideTop',
+                      fill: marker.color,
+                      fontSize: 11,
+                      fontWeight: 700,
+                    }
+                  : undefined
+              }
+            />
+          ))}
+          <Tooltip
+            cursor={{ stroke: CHART_GRID, strokeWidth: 1 }}
+            contentStyle={{
+              borderRadius: '8px',
+              border: `1px solid ${CHART_TOOLTIP_BORDER}`,
+              background: CHART_TOOLTIP_BG,
+              boxShadow: '0 12px 30px hsl(0 0% 0% / 0.16)',
+            }}
+            labelStyle={{
+              color: 'hsl(var(--text-primary))',
+              fontWeight: 700,
+              marginBottom: 4,
+            }}
+            itemStyle={{ color: 'hsl(var(--text-secondary))' }}
+            formatter={(value) => [
+              config.formatter(finiteNumber(value)),
+              config.valueLabel,
+            ]}
+            labelFormatter={(_label, payload) => {
+              const first = payload?.[0]?.payload as SalesChartPoint | undefined;
+              return first?.tooltipLabel ?? '';
+            }}
+          />
+          {config.kind === 'bar' ? (
+            <Bar
+              {...commonGraphProps}
+              fill={config.color}
+              radius={[4, 4, 0, 0]}
+              maxBarSize={expanded ? 56 : 34}
+            />
+          ) : config.kind === 'area' ? (
+            <Area
+              {...commonGraphProps}
+              type="monotone"
+              connectNulls
+              stroke={config.color}
+              strokeWidth={expanded ? 2.5 : 2}
+              fill={config.color}
+              fillOpacity={0.16}
+              dot={
+                expanded || points.length <= 18
+                  ? {
+                      r: expanded ? 3.5 : 2.5,
+                      strokeWidth: 1.5,
+                      stroke: config.color,
+                      fill: 'hsl(var(--card))',
+                    }
+                  : false
+              }
+              activeDot={{
+                r: expanded ? 7 : 5,
+                strokeWidth: 2,
+                stroke: 'hsl(var(--card))',
+                fill: config.color,
+              }}
+            />
+          ) : (
+            <Line
+              {...commonGraphProps}
+              type="monotone"
+              connectNulls
+              stroke={config.color}
+              strokeWidth={expanded ? 2.5 : 2}
+              dot={
+                expanded || points.length <= 18
+                  ? {
+                      r: expanded ? 3.5 : 2.5,
+                      strokeWidth: 1.5,
+                      stroke: config.color,
+                      fill: 'hsl(var(--card))',
+                    }
+                  : false
+              }
+              activeDot={{
+                r: expanded ? 7 : 5,
+                strokeWidth: 2,
+                stroke: 'hsl(var(--card))',
+                fill: config.color,
+              }}
+            />
+          )}
+        </ComposedChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+interface ChartCardProps {
+  config: ChartConfig;
+  points: SalesChartPoint[];
+  markers: ChartMarker[];
+  unit: ChartUnit;
+  onExpand: (chartId: string) => void;
+}
+
+function ChartCard({ config, points, markers, unit, onExpand }: ChartCardProps) {
+  return (
+    <button
+      type="button"
+      onClick={() => onExpand(config.id)}
+      className="group flex min-h-[20rem] w-full flex-col rounded-lg border border-border bg-card p-4 text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-ems-accent/55 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent"
+      aria-label={`Open ${config.title} chart`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+            {config.number}
+          </div>
+          <h3 className="mt-1 text-sm font-semibold leading-snug text-text-primary">
+            {config.title}
+          </h3>
+          <p className="mt-1 line-clamp-2 text-xs leading-snug text-text-secondary">
+            {config.yAxisLabel}
+          </p>
+        </div>
+        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-elevated text-text-muted transition group-hover:border-ems-accent/50 group-hover:text-ems-accent">
+          <Maximize2 className="h-4 w-4" aria-hidden />
+        </span>
+      </div>
+      <SalesTrendChart
+        config={config}
+        points={points}
+        markers={markers}
+        className="mt-4 flex-1"
+      />
+      <div className="mt-3 flex items-center justify-between gap-3 border-t border-border/70 pt-3 text-[11px] text-text-muted">
+        <span>Units: {currentUnitLabel(unit)}</span>
+        <span className="font-medium text-text-secondary">Open</span>
+      </div>
+    </button>
+  );
+}
+
+interface ChartUnitTabsProps {
+  unit: ChartUnit;
+  onChange: (unit: ChartUnit) => void;
+  className?: string;
+}
+
+function ChartUnitTabs({ unit, onChange, className }: ChartUnitTabsProps) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Chart horizontal unit"
+      className={cn(
+        'grid grid-cols-2 rounded-md border border-border bg-elevated p-1 text-xs sm:inline-grid sm:grid-cols-4',
+        className,
+      )}
+    >
+      {CHART_UNIT_OPTIONS.map((option) => {
+        const active = unit === option.id;
+        return (
+          <button
+            key={option.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(option.id)}
+            className={cn(
+              'rounded px-3 py-1.5 font-semibold transition',
+              active
+                ? 'bg-card text-ems-accent shadow-sm'
+                : 'text-text-secondary hover:bg-hover hover:text-text-primary',
+            )}
+          >
+            {option.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -80,18 +1202,17 @@ export interface SalesDashboardViewProps {
   asOf: string;
   onAsOfChange: (ymd: string) => void;
   onBack: () => void;
-  /** Shown as title on the round back control */
   backTitle?: string;
   loading: boolean;
   error: unknown;
   onRetry: () => void;
   data: ApiSalesDashboardBody | undefined;
-  /** Shown when sellable capacity is missing (donut + progress context) */
   capacityHint?: string;
+  showBackButton?: boolean;
 }
 
 const DEFAULT_CAPACITY_HINT =
-  'Set sellable capacity on the engagement to see capacity breakdown.';
+  'Set sellable capacity and gross potential on the engagement to complete the inventory audit.';
 
 export function SalesDashboardView({
   asOf,
@@ -103,234 +1224,71 @@ export function SalesDashboardView({
   onRetry,
   data,
   capacityHint = DEFAULT_CAPACITY_HINT,
+  showBackButton = true,
 }: SalesDashboardViewProps) {
-  /**
-   * Bucket mode for the daily-sales chart.
-   * - `day`: render every SalesDate row as its own point.
-   * - `week`: sum dailyTickets into Monday-start weeks.
-   * - `month`: sum dailyTickets into calendar months (default — cleanest for typical
-   *   on-sale windows that span several months).
-   */
-  type ChartGranularity = 'day' | 'week' | 'month';
-  const [granularityMode, setGranularityMode] = useState<ChartGranularity>('month');
+  const [chartUnit, setChartUnit] = useState<ChartUnit>('date');
+  const [expandedChartId, setExpandedChartId] = useState<string | null>(null);
 
-  const trimmedSeries = useMemo(() => {
-    const rows = data?.series ?? [];
-    if (rows.length === 0) return rows;
-    const firstNonZero = rows.findIndex((r) => (r.dailyTickets ?? 0) > 0);
-    if (firstNonZero < 0) return rows;
-    return rows.slice(firstNonZero);
-  }, [data?.series]);
+  const dailyChartPoints = useMemo(
+    () =>
+      buildDailyChartPoints(
+        data?.series,
+        data?.grossPotential,
+        data?.marketingWindow,
+        data?.asOfDate,
+      ),
+    [data?.asOfDate, data?.grossPotential, data?.marketingWindow, data?.series],
+  );
 
-  /** Final data passed to recharts. One entry per visible point. */
-  const chartData = useMemo(() => {
-    if (granularityMode === 'day') {
-      return trimmedSeries.map((r) => ({
-        date: r.date,
-        value: r.dailyTickets ?? 0,
-        label: (() => {
-          try {
-            return format(parseISO(r.date), 'MMM d');
-          } catch {
-            return r.date;
-          }
-        })(),
-        tooltipLabel: (() => {
-          try {
-            return format(parseISO(r.date), 'EEE, MMM d, yyyy');
-          } catch {
-            return r.date;
-          }
-        })(),
-      }));
-    }
+  const chartPoints = useMemo(
+    () => chartPointsForUnit(dailyChartPoints, chartUnit),
+    [chartUnit, dailyChartPoints],
+  );
 
-    if (granularityMode === 'week') {
-      const buckets = new Map<
-        string,
-        { date: string; value: number; label: string; tooltipLabel: string }
-      >();
-      for (const r of trimmedSeries) {
-        let monday: Date;
-        try {
-          const d = parseISO(r.date);
-          const dow = d.getDay();
-          const offset = (dow + 6) % 7;
-          monday = new Date(d);
-          monday.setDate(d.getDate() - offset);
-        } catch {
-          continue;
-        }
-        const key = format(monday, 'yyyy-MM-dd');
-        const sunday = new Date(monday);
-        sunday.setDate(monday.getDate() + 6);
-        const tip = `${format(monday, 'MMM d')} – ${format(sunday, 'MMM d, yyyy')}`;
-        const existing = buckets.get(key);
-        if (existing) {
-          existing.value += r.dailyTickets ?? 0;
-        } else {
-          buckets.set(key, {
-            date: key,
-            value: r.dailyTickets ?? 0,
-            label: format(monday, 'MMM d'),
-            tooltipLabel: tip,
-          });
-        }
-      }
-      return Array.from(buckets.values()).sort((a, b) =>
-        a.date.localeCompare(b.date),
-      );
-    }
+  const chartMarkers = useMemo(
+    () => buildChartMarkers(data?.marketingWindow, chartUnit, chartPoints),
+    [chartPoints, chartUnit, data?.marketingWindow],
+  );
 
-    // month
-    const buckets = new Map<
-      string,
-      { date: string; value: number; label: string; tooltipLabel: string; year: number; monthIdx: number }
-    >();
-    for (const r of trimmedSeries) {
-      let monthStart: Date;
-      try {
-        const d = parseISO(r.date);
-        monthStart = new Date(d.getFullYear(), d.getMonth(), 1);
-      } catch {
-        continue;
-      }
-      const key = format(monthStart, 'yyyy-MM');
-      const existing = buckets.get(key);
-      if (existing) {
-        existing.value += r.dailyTickets ?? 0;
-      } else {
-        buckets.set(key, {
-          date: format(monthStart, 'yyyy-MM-dd'),
-          value: r.dailyTickets ?? 0,
-          label: format(monthStart, 'MMM'),
-          tooltipLabel: format(monthStart, 'MMMM yyyy'),
-          year: monthStart.getFullYear(),
-          monthIdx: monthStart.getMonth(),
-        });
-      }
-    }
-    const sorted = Array.from(buckets.values()).sort((a, b) =>
-      a.date.localeCompare(b.date),
-    );
-    // Show the year on the very first bucket and any bucket that starts a new year,
-    // so a multi-year series doesn't lose context once labels are shortened to "MMM".
-    let prevYear: number | null = null;
-    return sorted.map((b) => {
-      const showYear = prevYear == null || b.year !== prevYear;
-      prevYear = b.year;
-      return {
-        date: b.date,
-        value: b.value,
-        label: showYear ? `${b.label} ’${String(b.year).slice(-2)}` : b.label,
-        tooltipLabel: b.tooltipLabel,
-      };
-    });
-  }, [trimmedSeries, granularityMode]);
+  const auditGroups = useMemo(
+    () => (data ? buildAuditGroups(data, dailyChartPoints) : []),
+    [data, dailyChartPoints],
+  );
 
-  const granularityLabel: { title: string; subtitle: string; tooltipName: string } =
-    granularityMode === 'month'
-      ? {
-          title: 'Monthly sales',
-          subtitle: 'Tickets sold per month',
-          tooltipName: 'Tickets this month',
-        }
-      : granularityMode === 'week'
-      ? {
-          title: 'Weekly sales',
-          subtitle: 'Tickets sold per week (Mon–Sun)',
-          tooltipName: 'Tickets this week',
-        }
-      : {
-          title: 'Daily sales',
-          subtitle: 'Tickets sold per day',
-          tooltipName: 'Tickets this day',
-        };
+  const summaryRows = useMemo(
+    () => summaryRowsNewestFirst(data?.summary),
+    [data?.summary],
+  );
 
-  const donutData = useMemo(() => {
-    const cap = data?.sellableCapacity;
-    const sold = data?.kpis.ticketsDistributed ?? 0;
-    if (cap == null || cap <= 0) {
-      return null;
-    }
-    const over = Math.max(0, sold - cap);
-    const soldToCap = Math.min(sold, cap);
-    const open = Math.max(0, cap - sold);
-    const segments: Array<{ name: string; value: number; fill: string }> = [];
-    if (soldToCap > 0) {
-      segments.push({ name: 'Sold', value: soldToCap, fill: CHART_SOLD });
-    }
-    if (over > 0) {
-      segments.push({
-        name: 'Over capacity',
-        value: over,
-        fill: 'hsl(var(--destructive) / 0.88)',
-      });
-    }
-    if (open > 0) {
-      segments.push({ name: 'Open', value: open, fill: CHART_OPEN });
-    }
-    if (segments.length === 0) {
-      return [{ name: 'Open', value: cap, fill: CHART_OPEN }];
-    }
-    return segments;
-  }, [data?.sellableCapacity, data?.kpis.ticketsDistributed]);
-
-  /** Fewer X labels when the series is long (readability) */
-  const xAxisInterval = useMemo(() => {
-    const n = chartData.length;
-    if (n <= 10) return 0;
-    if (n <= 20) return 1;
-    if (n <= 40) return 2;
-    return Math.max(1, Math.floor(n / 12));
-  }, [chartData.length]);
-
-  const summaryDesc = useMemo(() => {
-    const s = data?.summary ?? [];
-    return [...s].reverse();
-  }, [data?.summary]);
-
-  const [engagementGoalsExpanded, setEngagementGoalsExpanded] = useState(false);
-
-  const ticketsBarPct = useMemo(() => {
-    const cap = data?.sellableCapacity;
-    const sold = data?.kpis.ticketsDistributed ?? 0;
-    if (cap != null && cap > 0) {
-      return Math.min(100, (sold / cap) * 100);
-    }
-    return 0;
-  }, [data?.sellableCapacity, data?.kpis.ticketsDistributed]);
-
-  const revenueBarPct = useMemo(() => {
-    const p = data?.kpis.pctRevenueVsPotential;
-    if (p != null && Number.isFinite(p)) return Math.min(100, p);
-    return 0;
-  }, [data?.kpis.pctRevenueVsPotential]);
+  const expandedChart = useMemo(
+    () => CHART_CONFIGS.find((chart) => chart.id === expandedChartId) ?? null,
+    [expandedChartId],
+  );
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 gap-3 text-text-muted">
+      <div className="flex flex-col items-center justify-center gap-3 py-24 text-text-muted">
         <Loader2 className="h-8 w-8 animate-spin text-ems-accent" aria-hidden />
-        <p className="text-sm">Loading sales summary…</p>
+        <p className="text-sm">Loading sales summary...</p>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-6 space-y-3">
-        <div className="flex items-center gap-2 text-destructive font-medium">
+      <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-6">
+        <div className="flex items-center gap-2 font-medium text-destructive">
           <AlertCircle className="h-5 w-5 shrink-0" aria-hidden />
           Could not load sales summary
         </div>
-        <p className="text-sm text-text-secondary">{friendlyApiError(error)}</p>
-        <div className="flex gap-2">
+        <p className="mt-3 text-sm text-text-secondary">{friendlyApiError(error)}</p>
+        <div className="mt-4 flex gap-2">
           <Button type="button" variant="outline" size="sm" onClick={onBack}>
-            <ArrowLeft className="h-4 w-4 mr-1" aria-hidden />
+            <ArrowLeft className="mr-1 h-4 w-4" aria-hidden />
             Back
           </Button>
           <Button type="button" size="sm" onClick={onRetry}>
-            <RefreshCw className="h-4 w-4 mr-1" aria-hidden />
+            <RefreshCw className="mr-1 h-4 w-4" aria-hidden />
             Retry
           </Button>
         </div>
@@ -343,502 +1301,299 @@ export function SalesDashboardView({
   }
 
   const d = data;
+  const attractionTour = [d.header.attractionName, d.header.tourName]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+    .join(' / ');
+  const pageTitle = d.header.attractionName?.trim() || d.header.tourName?.trim() || 'Sales Summary Page';
+  const cityState = [d.header.city, d.header.stateProvince].filter(Boolean).join(', ');
+  const openingDate = d.header.showDate
+    ? formatDateLabel(d.header.showDate, 'EEEE, MMM d, yyyy')
+    : EMPTY;
+  const openingTime = d.header.showTime
+    ? formatSqlTimeDisplay(d.header.showTime)
+    : '';
+  const openingDisplay = openingTime ? `${openingDate} | ${openingTime}` : openingDate;
+  const hasMissingCapacityContext =
+    d.sellableCapacity == null || d.grossPotential == null;
   const baselines = d.engagementBaselines ?? [];
-  const loc =
-    [d.header.city, d.header.stateProvince].filter(Boolean).join(', ') || '—';
-  const showWhen =
-    d.header.showDate && d.header.showTime
-      ? `${formatOpeningDateSafe(d.header.showDate)} · ${formatSqlTimeDisplay(d.header.showTime)}`
-      : d.header.showDate
-        ? formatOpeningDateSafe(d.header.showDate)
-        : '—';
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-3">
-        <IaeLogoFull height={28} />
-        <div className="flex-1 min-w-[12rem]" />
-        <label className="flex items-center gap-2 text-xs text-text-muted shrink-0">
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-sm xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          {showBackButton ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onBack}
+              className="h-9 shrink-0 border-border bg-elevated text-text-primary hover:bg-hover"
+              title={backTitle}
+            >
+              <ArrowLeft className="mr-1.5 h-4 w-4" aria-hidden />
+              {backTitle}
+            </Button>
+          ) : null}
+          <div className="min-w-0">
+            <h1 className="truncate text-xl font-bold tracking-tight text-text-primary md:text-2xl">
+              Sales Summary Page
+            </h1>
+            <p className="truncate text-sm text-text-secondary">{pageTitle}</p>
+          </div>
+        </div>
+        <label className="flex w-full items-center justify-between gap-3 rounded-md border border-border bg-elevated px-3 py-2 text-xs font-medium uppercase tracking-wide text-text-muted sm:w-auto">
           <span>Reporting as of</span>
           <input
             type="date"
-            className="rounded-md border border-border bg-elevated px-2 py-1.5 text-sm text-text-primary"
+            className="w-[9.25rem] rounded-md border border-border bg-card px-2 py-1.5 text-sm font-medium normal-case tracking-normal text-text-primary"
             value={asOf}
-            onChange={(e) => onAsOfChange(e.target.value)}
+            onChange={(event) => onAsOfChange(event.target.value)}
           />
         </label>
       </div>
 
-      <div className="rounded-xl border border-border bg-card shadow-sm p-4 md:p-6">
-        <div className="flex flex-col lg:flex-row lg:items-start gap-4 lg:gap-8">
-          <button
-            type="button"
-            onClick={onBack}
-            className="shrink-0 w-10 h-10 rounded-full border border-border bg-elevated flex items-center justify-center text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
-            title={backTitle}
-            aria-label={backTitle}
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </button>
-          <div className="flex-1 min-w-0">
-            <h1 className="text-2xl md:text-3xl font-bold text-text-primary tracking-tight">
-              {d.header.attractionName ?? 'Show'}
-            </h1>
-            {d.header.tourName ? (
-              <p className="text-sm md:text-base text-text-muted mt-1">{d.header.tourName}</p>
-            ) : null}
-          </div>
-          <dl className="grid grid-cols-1 sm:grid-cols-3 gap-x-8 gap-y-2 text-sm shrink-0 lg:text-right">
-            <div>
-              <dt className="text-text-muted text-xs uppercase tracking-wide">Venue</dt>
-              <dd className="font-medium text-text-primary">{d.header.venueLabel}</dd>
-            </div>
-            <div>
-              <dt className="text-text-muted text-xs uppercase tracking-wide">Location</dt>
-              <dd className="text-text-secondary">{loc}</dd>
-            </div>
-            <div>
-              <dt className="text-text-muted text-xs uppercase tracking-wide">Show date</dt>
-              <dd className="text-text-secondary">{showWhen}</dd>
-            </div>
-          </dl>
+      <dl className="grid overflow-hidden rounded-lg border border-border bg-card shadow-sm sm:grid-cols-2 xl:grid-cols-3">
+        <InfoCell label="Attraction/Tour">
+          <span title={attractionTour || EMPTY}>{attractionTour || EMPTY}</span>
+        </InfoCell>
+        <InfoCell label="Entertainment Complex">
+          <span title={d.header.entertainmentComplexNames ?? ''}>
+            {textOrDash(d.header.entertainmentComplexNames)}
+          </span>
+        </InfoCell>
+        <InfoCell label="Opening Day of the Week, and Date">
+          {openingDisplay}
+        </InfoCell>
+        <InfoCell label="City, State">{cityState || EMPTY}</InfoCell>
+        <InfoCell label="Venue">
+          <span title={d.header.venueLabel}>{textOrDash(d.header.venueLabel)}</span>
+        </InfoCell>
+        <InfoCell label="# Days Till Opening Performance">
+          {countOrDash(d.kpis.daysUntilOpening)}
+        </InfoCell>
+      </dl>
+
+      <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+        <div className="border-b border-border bg-surface/70 px-4 py-3 text-center">
+          <h2 className="text-base font-semibold text-text-primary">Event Audit</h2>
         </div>
-      </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-        <KpiCard label="Total revenue" value={moneyFull(d.kpis.totalRevenue)} />
-        <KpiCard
-          label="Tickets distributed"
-          value={d.kpis.ticketsDistributed.toLocaleString()}
-        />
-        <KpiCard label="% sold" value={pctDisplay(d.kpis.pctSold)} />
-        <KpiCard
-          label="Revenue last 7 days"
-          value={moneyFull(d.kpis.revenueLast7Days)}
-        />
-        <KpiCard
-          label="Tickets sold last 7 days"
-          value={d.kpis.ticketsLast7Days.toLocaleString()}
-        />
-        <KpiCard
-          label="Days until engagement"
-          value={d.kpis.daysUntilOpening.toLocaleString()}
-        />
-      </div>
-
-      {baselines.length > 0 && (
-        <div className="rounded-xl border border-border bg-surface/50 shadow-sm overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setEngagementGoalsExpanded((v) => !v)}
-            className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-hover/40 transition-colors"
-            aria-expanded={engagementGoalsExpanded}
-          >
-            <span className="font-medium text-text-primary text-sm">
-              Engagement goals included in this roll-up
-            </span>
-            <span className="inline-flex items-center gap-1.5 text-xs text-text-muted shrink-0">
-              {engagementGoalsExpanded ? 'Hide' : 'Show'}
-              {engagementGoalsExpanded ? (
-                <ChevronUp className="h-4 w-4" aria-hidden />
-              ) : (
-                <ChevronDown className="h-4 w-4" aria-hidden />
-              )}
-            </span>
-          </button>
-          {engagementGoalsExpanded && (
-            <div className="px-4 pb-3 pt-0 text-sm space-y-2.5 border-t border-border/70">
-              <p className="text-xs text-text-secondary leading-relaxed pt-3">
-                This summary rolls up every engagement for this attraction. Each engagement can have its own sellable
-                capacity and gross potential; those values are <strong>added together</strong> for the capacity and
-                revenue KPIs at the top of the page.
-              </p>
-              <ul className="text-xs text-text-secondary divide-y divide-border/70 border border-border/70 rounded-md overflow-hidden bg-card/60">
-            {baselines.map((row) => (
-              <li
-                key={row.engagementId}
-                className="flex flex-wrap justify-between gap-x-4 gap-y-1 px-3 py-2.5"
-              >
-                <span className="font-medium text-text-primary min-w-0 truncate pr-2" title={row.tourName}>
-                  {row.tourName}
-                </span>
-                <span className="tabular-nums text-text-secondary shrink-0 text-right">
-                  {row.sellableCapacity != null
-                    ? `${row.sellableCapacity.toLocaleString()} seats`
-                    : '— seats'}
-                  <span className="text-text-muted"> · </span>
-                  {row.grossPotential != null ? `${moneyFull(row.grossPotential)} goal` : '— money goal'}
-                </span>
-              </li>
-            ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <div className="rounded-xl border border-border bg-card shadow-sm p-4 md:p-5 xl:col-span-1 min-h-0">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-            <div className="flex items-baseline gap-2 min-w-0">
-              <h2 className="text-sm font-semibold text-text-primary">
-                {granularityLabel.title}
-              </h2>
-              <span
-                className="text-[11px] text-text-muted tabular-nums hidden sm:inline leading-snug cursor-help"
-                title={
-                  granularityMode === 'month'
-                    ? 'Each point sums the tickets sold during that calendar month from dbo.TicketingSales.'
-                    : granularityMode === 'week'
-                    ? 'Each point sums the tickets sold during that week (Mon–Sun) from dbo.TicketingSales.'
-                    : 'Each point shows the tickets sold on that specific SalesDate from dbo.TicketingSales (per-day delta, not running total).'
-                }
-              >
-                {granularityLabel.subtitle}
-              </span>
-            </div>
-            <div
-              role="tablist"
-              aria-label="Chart granularity"
-              className="inline-flex rounded-md border border-border bg-elevated/50 p-0.5 text-[11px]"
-            >
-              {(
-                [
-                  { id: 'day', label: 'Day' },
-                  { id: 'week', label: 'Week' },
-                  { id: 'month', label: 'Month' },
-                ] as Array<{ id: ChartGranularity; label: string }>
-              ).map((opt) => {
-                const active = granularityMode === opt.id;
-                return (
-                  <button
-                    key={opt.id}
-                    role="tab"
-                    aria-selected={active}
-                    type="button"
-                    onClick={() => setGranularityMode(opt.id)}
-                    className={[
-                      'px-2.5 py-1 rounded-[5px] font-medium transition-colors',
-                      active
-                        ? 'bg-ems-accent text-ems-accent-foreground shadow-sm'
-                        : 'text-text-muted hover:text-text-primary hover:bg-hover/60',
-                    ].join(' ')}
-                  >
-                    {opt.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          {chartData.length === 0 ? (
-            <div className="h-[min(22rem,55vh)] w-full min-h-[240px] flex items-center justify-center text-sm text-text-muted">
-              No sales recorded in this date range yet.
-            </div>
-          ) : (
-            <div className="h-[min(22rem,55vh)] w-full min-h-[240px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart
-                  data={chartData}
-                  margin={{
-                    top: 22,
-                    right: 16,
-                    left: 8,
-                    bottom: chartData.length > 6 ? 56 : 28,
-                  }}
-                >
-                  <CartesianGrid stroke={CHART_GRID} strokeDasharray="3 3" vertical={false} />
-                  <XAxis
-                    dataKey="label"
-                    interval={xAxisInterval}
-                    tick={{ fill: CHART_AXIS, fontSize: 11 }}
-                    tickLine={{ stroke: CHART_GRID }}
-                    axisLine={{ stroke: CHART_GRID }}
-                    angle={chartData.length > 6 ? -35 : 0}
-                    textAnchor={chartData.length > 6 ? 'end' : 'middle'}
-                    height={chartData.length > 6 ? 52 : 28}
-                    dy={chartData.length > 6 ? 6 : 0}
-                    minTickGap={4}
-                    padding={{ left: 12, right: 12 }}
-                  />
-                  <YAxis
-                    orientation="right"
-                    width={44}
-                    tick={{ fill: CHART_AXIS, fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={(v) =>
-                      typeof v === 'number' && Math.abs(v) >= 1000
-                        ? `${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k`
-                        : String(v)
-                    }
-                  />
-                  <Tooltip
-                    cursor={{ stroke: CHART_GRID, strokeWidth: 1 }}
-                    contentStyle={{
-                      borderRadius: 'var(--radius, 8px)',
-                      border: '1px solid hsl(var(--border))',
-                      background: 'hsl(var(--card))',
-                      boxShadow: '0 4px 12px hsl(0 0% 0% / 0.12)',
-                    }}
-                    labelStyle={{
-                      color: 'hsl(var(--text-primary))',
-                      fontWeight: 600,
-                      marginBottom: 4,
-                    }}
-                    itemStyle={{ color: 'hsl(var(--text-secondary))' }}
-                    formatter={(v: number) => [v.toLocaleString(), granularityLabel.tooltipName]}
-                    labelFormatter={(_, p) => {
-                      const tip = p?.[0]?.payload?.tooltipLabel;
-                      if (tip) return String(tip);
-                      const x = p?.[0]?.payload?.date;
-                      return x ? formatOpeningDateSafe(String(x)) : '';
-                    }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="value"
-                    name="Tickets"
-                    stroke={CHART_LINE}
-                    strokeWidth={2}
-                    dot={
-                      chartData.length <= 80
-                        ? {
-                            r: 3.5,
-                            strokeWidth: 1.5,
-                            stroke: CHART_LINE,
-                            fill: 'hsl(var(--card))',
-                          }
-                        : false
-                    }
-                    activeDot={{
-                      r: 6,
-                      strokeWidth: 2,
-                      stroke: 'hsl(var(--card))',
-                      fill: CHART_LINE,
-                    }}
-                    isAnimationActive={chartData.length <= 60}
-                  >
-                    {chartData.length <= 16 && (
-                      <LabelList
-                        dataKey="value"
-                        position="top"
-                        offset={10}
-                        style={{
-                          fill: CHART_AXIS,
-                          fontSize: 11,
-                          fontWeight: 500,
-                        }}
-                        formatter={(v: unknown) =>
-                          typeof v === 'number' ? v.toLocaleString() : ''
-                        }
-                      />
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1120px] border-collapse text-sm">
+            <thead>
+              <tr className="text-center text-[11px] font-semibold text-text-primary">
+                {auditGroups.map((group, groupIndex) => (
+                  <th
+                    key={group.title}
+                    colSpan={group.cells.length}
+                    className={cn(
+                      'border-b border-r border-border px-3 py-2',
+                      group.shade,
+                      groupIndex > 0 && 'border-l-2 border-l-border',
                     )}
-                  </Line>
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-xl border border-border bg-card shadow-sm p-4 md:p-5 space-y-6">
-          <div>
-            <div className="flex justify-between items-baseline gap-2 mb-1">
-              <span className="text-sm font-semibold text-text-primary">Tickets vs capacity</span>
-              <span className="text-sm font-semibold text-ems-accent tabular-nums">
-                {pctDisplay(d.kpis.pctSold)}
-              </span>
-            </div>
-            <p className="text-xs text-text-secondary mb-3 leading-relaxed">
-              <span className="font-medium text-text-primary tabular-nums">
-                {d.kpis.ticketsDistributed.toLocaleString()}
-              </span>
-              {d.sellableCapacity != null ? (
-                <>
-                  {' '}
-                  <span className="text-text-muted">/</span>{' '}
-                  <span className="tabular-nums">{d.sellableCapacity.toLocaleString()}</span>
-                  <span className="text-text-muted"> sellable seats</span>
-                </>
-              ) : (
-                <span className="text-text-muted"> — add sellable capacity to see % sold</span>
-              )}
-            </p>
-            <div
-              className="h-3.5 rounded-full bg-muted/80 overflow-hidden ring-1 ring-inset ring-border/40"
-              role="progressbar"
-              aria-valuenow={Math.round(ticketsBarPct)}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-label="Share of sellable capacity sold"
-            >
-              <div
-                className="h-full rounded-full bg-ems-accent transition-[width] duration-500 ease-out"
-                style={{ width: `${ticketsBarPct}%` }}
-              />
-            </div>
-          </div>
-          <div>
-            <div className="flex justify-between items-baseline gap-2 mb-1">
-              <span className="text-sm font-semibold text-text-primary">Revenue vs potential</span>
-              <span className="text-sm font-semibold text-ems-accent tabular-nums">
-                {pctDisplay(d.kpis.pctRevenueVsPotential)}
-              </span>
-            </div>
-            <p className="text-xs text-text-secondary mb-3 leading-relaxed">
-              <span className="font-medium text-text-primary tabular-nums">{moneyFull(d.kpis.totalRevenue)}</span>
-              {d.grossPotential != null ? (
-                <>
-                  {' '}
-                  <span className="text-text-muted">/</span> {moneyFull(d.grossPotential)}
-                  <span className="text-text-muted"> gross potential</span>
-                </>
-              ) : (
-                <span className="text-text-muted"> — add gross potential to see % realized</span>
-              )}
-            </p>
-            <div
-              className="h-3.5 rounded-full bg-muted/80 overflow-hidden ring-1 ring-inset ring-border/40"
-              role="progressbar"
-              aria-valuenow={Math.round(revenueBarPct)}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-label="Share of gross potential realized"
-            >
-              <div
-                className="h-full rounded-full bg-ems-accent transition-[width] duration-500 ease-out"
-                style={{ width: `${revenueBarPct}%` }}
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-border bg-card shadow-sm p-4 md:p-5">
-          <h2 className="text-sm font-semibold text-text-primary mb-4">Capacity</h2>
-          {donutData && d.sellableCapacity != null ? (
-            <div className="flex flex-col sm:flex-row sm:items-center gap-5 sm:gap-6">
-              <div className="relative mx-auto sm:mx-0 w-[220px] h-[220px] shrink-0">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
-                    <Pie
-                      data={donutData}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={72}
-                      outerRadius={104}
-                      paddingAngle={donutData.length > 1 ? 2 : 0}
-                      stroke="hsl(var(--card))"
-                      strokeWidth={2}
-                    >
-                      {donutData.map((entry, i) => (
-                        <Cell key={i} fill={entry.fill} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      formatter={(v: number, name: string) => [v.toLocaleString(), name]}
-                      contentStyle={{
-                        borderRadius: 'var(--radius, 8px)',
-                        border: '1px solid hsl(var(--border))',
-                        background: 'hsl(var(--card))',
-                        boxShadow: '0 4px 12px hsl(0 0% 0% / 0.12)',
-                      }}
-                      labelStyle={{ color: 'hsl(var(--text-primary))', fontWeight: 600 }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div
-                  className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center"
-                  aria-hidden
-                >
-                  <span className="text-[11px] font-medium uppercase tracking-wider text-text-muted">
-                    Capacity
-                  </span>
-                  <span className="text-2xl font-bold text-text-primary tabular-nums tracking-tight leading-none mt-1">
-                    {d.sellableCapacity.toLocaleString()}
-                  </span>
-                </div>
-              </div>
-              <ul
-                className="flex-1 flex flex-col justify-center gap-2.5 min-w-0"
-                aria-label="Sold and remaining seats"
-              >
-                {donutData.map((seg) => (
-                  <li
-                    key={seg.name}
-                    className="flex items-center justify-between gap-3"
                   >
-                    <span className="flex items-center gap-2 min-w-0">
-                      <span
-                        className="h-2.5 w-2.5 rounded-full shrink-0"
-                        style={{ backgroundColor: seg.fill }}
-                        aria-hidden
-                      />
-                      <span className="text-sm text-text-secondary">{seg.name}</span>
-                    </span>
-                    <span className="text-sm tabular-nums text-text-primary font-medium">
-                      {seg.value.toLocaleString()}
-                    </span>
-                  </li>
+                    {group.title}
+                  </th>
                 ))}
-              </ul>
-            </div>
-          ) : (
-            <p className="text-sm text-text-secondary py-6 text-center leading-relaxed">{capacityHint}</p>
-          )}
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-border bg-surface/50 flex items-baseline justify-between gap-3">
-          <h2 className="text-sm font-semibold text-text-primary">Summary</h2>
-        </div>
-        <div className="max-h-[min(24rem,50vh)] overflow-y-auto overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-card z-10 shadow-sm">
-              <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-text-muted">
-                <th className="px-4 py-2 font-semibold">Date</th>
-                <th className="px-4 py-2 font-semibold text-right">Total tickets sold</th>
-                <th className="px-4 py-2 font-semibold text-right">Total value sold</th>
-                <th className="px-4 py-2 font-semibold text-right">Seats sold %</th>
-                <th className="px-4 py-2 font-semibold text-right">Seats remaining</th>
-                <th className="px-4 py-2 font-semibold text-right">Revenue remaining</th>
+              </tr>
+              <tr className="text-center text-[11px] font-semibold text-text-primary">
+                {auditGroups.map((group, groupIndex) =>
+                  group.cells.map((cell, cellIndex) => (
+                    <th
+                      key={`${group.title}-${cell.label}`}
+                      className={cn(
+                        'h-14 border-b border-r border-border/80 px-3 py-2 align-middle leading-tight',
+                        group.shade,
+                        groupIndex > 0 && cellIndex === 0 && 'border-l-2 border-l-border',
+                      )}
+                    >
+                      {cell.label}
+                    </th>
+                  )),
+                )}
               </tr>
             </thead>
             <tbody>
-              {summaryDesc.map((row) => {
-                const dailyTickets = row.dailyTicketsSold ?? 0;
-                const dailyValue = row.dailyValueSold ?? 0;
-                const cap = data?.sellableCapacity ?? null;
-                const dailyPct =
-                  cap != null && cap > 0 ? (dailyTickets / cap) * 100 : null;
-                return (
-                  <tr key={row.date} className="border-b border-border/80 hover:bg-hover/40">
-                    <td className="px-4 py-2 text-text-primary whitespace-nowrap">
-                      {formatOpeningDateSafe(row.date)}
+              <tr>
+                {auditGroups.map((group, groupIndex) =>
+                  group.cells.map((cell, cellIndex) => (
+                    <td
+                      key={`${group.title}-${cell.label}-value`}
+                      className={cn(
+                        'h-20 border-r border-border/70 px-3 py-3 text-right align-top tabular-nums text-text-primary',
+                        group.shade,
+                        groupIndex > 0 && cellIndex === 0 && 'border-l-2 border-l-border',
+                      )}
+                    >
+                      <div className="text-base font-semibold">{cell.value}</div>
+                      {cell.note ? (
+                        <div className="mt-2 whitespace-normal text-left text-[11px] font-medium leading-snug text-text-muted">
+                          {cell.note}
+                        </div>
+                      ) : null}
                     </td>
-                    <td className="px-4 py-2 text-right tabular-nums">
-                      {dailyTickets.toLocaleString()}
-                    </td>
-                    <td className="px-4 py-2 text-right tabular-nums text-ems-accent font-medium">
-                      {money(dailyValue)}
-                    </td>
-                    <td className="px-4 py-2 text-right tabular-nums">
-                      {dailyPct != null ? pctDisplay(dailyPct) : '—'}
-                    </td>
-                    <td className="px-4 py-2 text-right tabular-nums text-text-muted">
-                      —
-                    </td>
-                    <td className="px-4 py-2 text-right tabular-nums text-text-muted">
-                      —
-                    </td>
-                  </tr>
-                );
-              })}
+                  )),
+                )}
+              </tr>
             </tbody>
           </table>
         </div>
-      </div>
+        {hasMissingCapacityContext ? (
+          <div className="border-t border-border bg-elevated/30 px-4 py-2 text-xs text-text-secondary">
+            {capacityHint}
+          </div>
+        ) : null}
+      </section>
+
+      {baselines.length > 0 ? (
+        <details className="rounded-lg border border-border bg-card p-4 shadow-sm">
+          <summary className="cursor-pointer text-sm font-semibold text-text-primary">
+            Engagement goals included in this roll-up
+          </summary>
+          <ul className="mt-3 divide-y divide-border/70 overflow-hidden rounded-md border border-border/70 text-sm">
+            {baselines.map((row) => (
+              <li
+                key={row.engagementId}
+                className="flex flex-wrap items-center justify-between gap-3 bg-elevated/25 px-3 py-2"
+              >
+                <span className="font-medium text-text-primary">{row.tourName}</span>
+                <span className="tabular-nums text-text-secondary">
+                  {countOrDash(row.sellableCapacity)} seats | {moneyOrDash(row.grossPotential)} goal
+                </span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+
+      <section className="space-y-3">
+        <div className="flex flex-col gap-3 rounded-lg border border-border bg-card px-4 py-3 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-text-primary">Charts</h2>
+            <p className="text-sm text-text-secondary">
+              {CHART_CONFIGS.length} sales views for {attractionTour || pageTitle}
+            </p>
+          </div>
+          <ChartUnitTabs unit={chartUnit} onChange={setChartUnit} />
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+          {CHART_CONFIGS.map((config) => (
+            <ChartCard
+              key={config.id}
+              config={config}
+              points={chartPoints}
+              markers={chartMarkers}
+              unit={chartUnit}
+              onExpand={setExpandedChartId}
+            />
+          ))}
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+        <div className="grid gap-3 border-b border-border bg-surface/70 px-4 py-3 lg:grid-cols-[1fr_minmax(18rem,34rem)] lg:items-start">
+          <div>
+            <h2 className="text-base font-semibold text-text-primary">Summary</h2>
+            <p className="text-sm text-text-secondary">
+              Daily sales rows through {formatDateLabel(d.asOfDate, 'MMM d, yyyy')}
+            </p>
+          </div>
+        </div>
+        <div className="max-h-[28rem] overflow-auto">
+          <table className="w-full min-w-[760px] text-sm">
+            <thead className="sticky top-0 z-10 bg-card shadow-sm">
+              <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-text-muted">
+                <th className="px-4 py-3 font-semibold">Date</th>
+                <th className="px-4 py-3 font-semibold">Pre-Sale or Public Sale</th>
+                <th className="px-4 py-3 text-right font-semibold">Total Sold</th>
+                <th className="px-4 py-3 text-right font-semibold">Total Value Sold</th>
+                <th className="px-4 py-3 text-right font-semibold">Seats Remaining</th>
+                <th className="px-4 py-3 text-right font-semibold">Revenue Remaining</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summaryRows.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={6}
+                    className="px-4 py-10 text-center text-sm text-text-muted"
+                  >
+                    No summary rows available.
+                  </td>
+                </tr>
+              ) : (
+                summaryRows.map((row) => (
+                  <tr
+                    key={row.date}
+                    className="border-b border-border/70 transition hover:bg-hover/35"
+                  >
+                    <td className="whitespace-nowrap px-4 py-3 font-medium text-text-primary">
+                      {formatDateLabel(row.date, 'EEE, MMM d, yyyy')}
+                    </td>
+                    <td className="px-4 py-3 text-text-secondary">
+                      {salePeriodLabel(row.date, d.marketingWindow)}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-text-primary">
+                      {countOrDash(row.totalTicketsSold)}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums font-medium text-ems-accent">
+                      {moneyOrDash(row.totalValueSold)}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-text-primary">
+                      {countOrDash(row.seatsRemaining)}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-text-primary">
+                      {moneyOrDash(row.revenueRemaining)}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <Dialog
+        open={expandedChart != null}
+        onOpenChange={(open) => {
+          if (!open) setExpandedChartId(null);
+        }}
+      >
+        {expandedChart ? (
+          <DialogContent className="z-[360] grid h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-none grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden border-border bg-card p-0 shadow-2xl sm:h-[calc(100vh-3rem)] sm:w-[calc(100vw-3rem)]">
+            <DialogHeader className="border-b border-border bg-surface/70 px-5 py-4 pr-14">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+                    {expandedChart.number} | Units: {currentUnitLabel(chartUnit)}
+                  </div>
+                  <DialogTitle className="mt-2 text-xl text-text-primary">
+                    {expandedChart.title}
+                  </DialogTitle>
+                  <DialogDescription className="mt-2 text-sm text-text-secondary">
+                    {expandedChart.yAxisLabel}
+                  </DialogDescription>
+                </div>
+                <ChartUnitTabs
+                  unit={chartUnit}
+                  onChange={setChartUnit}
+                  className="w-full lg:w-auto"
+                />
+              </div>
+            </DialogHeader>
+            <div className="min-h-0 p-4">
+              <SalesTrendChart
+                config={expandedChart}
+                points={chartPoints}
+                markers={chartMarkers}
+                expanded
+                className="h-full min-h-[22rem]"
+              />
+            </div>
+          </DialogContent>
+        ) : null}
+      </Dialog>
     </div>
   );
 }

@@ -33,6 +33,16 @@ export class TourController {
     return this.tourService.listPaginated(offset, limit, q, sortBy, sortDir);
   }
 
+  @Get('age-ranges')
+  listAgeRanges() {
+    return this.tourService.listAgeRanges();
+  }
+
+  @Get('advertising-sub-types')
+  listAdvertisingSubTypes() {
+    return this.tourService.listAdvertisingSubTypes();
+  }
+
   @Post()
   @UseInterceptors(FileInterceptor('bannerImage', tourBannerMulterOptions()))
   create(

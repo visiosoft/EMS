@@ -18,11 +18,17 @@ export type InternalView =
   | "department-event-business"
   | "department-marketing"
   | "department-production"
-  | "department-ticketing-sales";
+  | "department-ticketing-sales"
+  | "learning-portal"
+  | "learning-admin"
+  | "document-library";
 
 export type InternalViewData = {
   handbook?: EmployeeHandbookView;
   handbookHash?: string;
+  handbookSubsection?: string;
+  fromView?: InternalView;
+  fromTitle?: string;
 };
 
 const VALID_VIEWS = new Set<string>([
@@ -40,11 +46,15 @@ const VALID_VIEWS = new Set<string>([
   "department-marketing",
   "department-production",
   "department-ticketing-sales",
+  "learning-portal",
+  "learning-admin",
+  "document-library",
 ]);
 
 const LEGACY_PATH_TO_VIEW: Record<string, InternalView> = {
   "/internal": "home",
   "/internal/": "home",
+  "/internal/admin": "learning-admin",
   "/internal/company-news": "company-news",
   "/internal/news": "company-news",
   "/internal/employee-services": "employee-services",
@@ -59,6 +69,7 @@ const LEGACY_PATH_TO_VIEW: Record<string, InternalView> = {
   "/internal/departments/marketing": "department-marketing",
   "/internal/departments/production": "department-production",
   "/internal/departments/ticketing-sales": "department-ticketing-sales",
+  "/internal/learning-portal": "learning-portal",
 };
 
 const DEPARTMENT_TITLE_TO_VIEW: Record<string, InternalView> = {
@@ -91,29 +102,23 @@ function handbookDataFromHash(hash: string): InternalViewData {
   if (normalized === "handbook") {
     return { handbook: "index", handbookHash: "handbook" };
   }
-  const introductionIds = new Set([
-    "handbook-introduction",
-    "message-from-ceo",
-    "the-company",
-    "change-in-policy",
-  ]);
-  if (introductionIds.has(normalized) || normalized.startsWith("handbook-introduction")) {
-    return { handbook: "introduction", handbookHash: normalized };
-  }
-  if (normalized.startsWith("handbook-")) {
-    return { handbook: "section", handbookHash: normalized };
-  }
-  return {};
+  return { handbook: "section", handbookHash: normalized };
 }
 
 function sanitizeViewData(view: InternalView, raw: unknown): InternalViewData {
   const obj = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   const out: InternalViewData = {};
 
+  if (view === "learning-portal" || view === "learning-admin") {
+    if (typeof obj.fromView === "string") out.fromView = obj.fromView as InternalView;
+    if (typeof obj.fromTitle === "string") out.fromTitle = obj.fromTitle;
+    return out;
+  }
+
   if (view !== "employee-services") return out;
 
   const handbook = typeof obj.handbook === "string" ? obj.handbook.trim() : "";
-  if (handbook === "services" || handbook === "index" || handbook === "introduction" || handbook === "section") {
+  if (handbook === "services" || handbook === "index" || handbook === "section") {
     out.handbook = handbook;
   }
 
@@ -141,22 +146,37 @@ export function handbookHashToViewData(hash: string): InternalViewData {
 }
 
 /** One-time read of a legacy deep link before the address bar is normalized to `/internal`. */
-export function readLegacyInternalRoute(pathname: string, hash: string): {
+export function readLegacyInternalRoute(pathname: string, hash: string, search: string = ""): {
   view: InternalView;
   viewData: InternalViewData;
 } {
   const pathView = LEGACY_PATH_TO_VIEW[pathname];
   const hashData = handbookDataFromHash(hash);
+  const searchParams = new URLSearchParams(search);
+  const viewData: InternalViewData = { ...hashData };
+
+  if (searchParams.has("fromView")) {
+    viewData.fromView = searchParams.get("fromView") as InternalView;
+  }
+  if (searchParams.has("fromTitle")) {
+    viewData.fromTitle = searchParams.get("fromTitle") as string;
+  }
+
+  // Handle ?view= query param (used for new-tab views like learning-admin)
+  const viewParam = searchParams.get("view");
+  if (viewParam && VALID_VIEWS.has(viewParam)) {
+    return { view: viewParam as InternalView, viewData };
+  }
 
   if (pathView === "employee-services") {
     return {
       view: "employee-services",
-      viewData: { ...hashData },
+      viewData,
     };
   }
 
   if (pathView) {
-    return { view: pathView, viewData: {} };
+    return { view: pathView, viewData };
   }
 
   return { view: "home", viewData: {} };
@@ -192,9 +212,9 @@ export function writeStoredInternalRoute(view: InternalView, viewData: InternalV
 }
 
 /** Keep the browser on the hub root only — no child paths or hash fragments. */
-export function normalizeInternalBrowserUrl() {
+export function normalizeInternalBrowserUrl(view?: InternalView) {
   if (typeof window === "undefined") return;
-  const target = INTERNAL_ROOT;
+  const target = view === "learning-admin" ? "/internal/admin" : INTERNAL_ROOT;
   if (window.location.pathname !== target || window.location.search || window.location.hash) {
     window.history.replaceState({}, document.title, target);
   }

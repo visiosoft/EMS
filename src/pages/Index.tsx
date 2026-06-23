@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Sidebar, Header } from '@/components/ems/Layout';
 import { ToastContainer } from '@/components/ems/Primitives';
 import { CompaniesPage } from '@/components/ems/CompaniesPage';
+import { ContactsPage } from '@/components/ems/ContactsPage';
 import { AttractionToursPage } from '@/components/ems/AttractionToursPage';
 import { AttractionSalesDashboardPage } from '@/components/ems/AttractionSalesDashboardPage';
 import { CalendarPage } from '@/components/ems/CalendarPage';
@@ -13,6 +14,7 @@ import { DailySalesPage } from '@/components/ems/DailySalesPage';
 import { SalesSummaryPage } from '@/components/ems/SalesSummaryPage';
 import { EngagementSalesDashboardPanel } from '@/components/ems/EngagementSalesDashboardPanel';
 import { AllVenuesPage } from '@/components/ems/AllVenuesPage';
+import { ProfilePage } from '@/components/ems/ProfilePage';
 import { USERS } from '@/data/constants';
 import type { ToastItem } from '@/components/ems/Primitives';
 import { cn } from '@/lib/utils';
@@ -35,6 +37,7 @@ const EMS_OPEN_INTENT_KEY = 'iae-ems-open-intent-v1';
 
 const VALID_VIEWS = new Set([
   'companies',
+  'contacts',
   'all-venues',
   'attraction-tours',
   'attraction-sales-summary',
@@ -47,6 +50,7 @@ const VALID_VIEWS = new Set([
   'engagement-sales-dashboard',
   'engagement-detail',
   'settings',
+  'profile',
 ]);
 
 const SALES_SUMMARY_RETURN_VIEWS = new Set(['daily-sales', 'projects', 'engagements', 'sales-summary']);
@@ -343,9 +347,9 @@ const Index = () => {
     };
   }, [currentView, viewData.createEngagement]);
 
-  const navigate = useCallback((view: string, data?: Record<string, unknown>) => {
+  const navigate = useCallback((view: string, data?: unknown) => {
     setCurrentView(view);
-    setViewData(data ?? {});
+    setViewData((data as Record<string, unknown>) ?? {});
   }, []);
 
   const addToast = useCallback((
@@ -392,16 +396,19 @@ const Index = () => {
         {view === 'companies' && (
           <CompaniesPage
             addToast={addToast}
+            onNavigate={navigate}
             initialSelectedCompanyId={
               (data.selectedCompanyId as string | number | undefined) ?? null
             }
           />
         )}
 
+        {view === 'contacts' && <ContactsPage addToast={addToast} />}
+
         {view === 'all-venues' && <AllVenuesPage onNavigate={navigate} />}
 
         {view === 'attraction-tours' && (
-          <AttractionToursPage addToast={addToast} />
+          <AttractionToursPage addToast={addToast} onNavigate={navigate} />
         )}
 
         {view === 'attraction-sales-summary' && (() => {
@@ -537,6 +544,10 @@ const Index = () => {
             initialMainTab="Users"
           />
         )}
+
+        {view === 'profile' && (
+          <ProfilePage addToast={addToast} />
+        )}
       </>
     ),
     [addToast, navigate, setUsers, users],
@@ -545,6 +556,7 @@ const Index = () => {
   const getBreadcrumb = (): string[] => {
     const map: Record<string, string[]> = {
       companies:          ['Companies'],
+      contacts:           ['Contacts'],
       'all-venues':        ['All Venues'],
       'attraction-tours': ['Attraction Tours'],
       'attraction-sales-summary': ['Daily Sales', 'Attraction sales summary'],
@@ -557,6 +569,7 @@ const Index = () => {
       'engagement-sales-dashboard': ['Sales Summary', 'Sales trends'],
       'engagement-detail': ['Engagements', 'Engagement detail'],
       settings:           ['Settings'],
+      profile:            ['My Profile'],
     };
     return map[currentView] ?? ['Projects'];
   };
@@ -594,6 +607,7 @@ const Index = () => {
           viewPersistenceEnabled={savedViewsEnabled}
           onEnableViewPersistence={enableSavedViews}
           onResetViewPersistence={resetSavedViews}
+          onOpenProfile={() => navigate('profile')}
         />
         <main className="p-4 lg:p-6">
           {savedViewsEnabled ? (

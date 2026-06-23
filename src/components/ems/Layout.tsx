@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  ContactRound,
   Landmark,
   LineChart,
   LogOut,
@@ -21,6 +22,7 @@ import type { LucideIcon } from 'lucide-react';
 import { Avatar } from './Primitives';
 import { getAccountEmail, getAccountInitials, getAccountName, getActiveAccount } from '@/auth/entra';
 import { IaeBrandMark } from '@/components/brand/IaeBrandMark';
+import { AppSuiteSwitcher } from '@/components/AppSuiteSwitcher';
 import { cn } from '@/lib/utils';
 
 export { IaeLogoFull } from '@/components/brand/IaeBrandMark';
@@ -41,6 +43,7 @@ const NAV_ITEM_ICONS: Record<string, LucideIcon> = {
   'daily-sales': LineChart,
   'sales-summary': ClipboardList,
   companies: Building2,
+  contacts: ContactRound,
   'all-venues': Landmark,
   'attraction-tours': Map,
   calendar: CalendarDays,
@@ -61,6 +64,7 @@ const NAV_SECTIONS = [
     label: 'Primary Data Library',
     items: [
       { key: 'companies', label: 'Companies', icon: '⬡' },
+      { key: 'contacts', label: 'Contacts', icon: '⬡' },
       { key: 'all-venues', label: 'All Venues', icon: '⬡' },
       { key: 'attraction-tours', label: 'Attraction Tours', icon: '⬡' },
       { key: 'calendar', label: 'Calendar', icon: '⬡' },
@@ -327,6 +331,7 @@ interface HeaderProps {
   viewPersistenceEnabled?: boolean;
   onEnableViewPersistence?: () => void;
   onResetViewPersistence?: () => void;
+  onOpenProfile?: () => void;
 }
 
 function getGreeting(): string {
@@ -342,6 +347,7 @@ export function Header({
   viewPersistenceEnabled = false,
   onEnableViewPersistence,
   onResetViewPersistence,
+  onOpenProfile,
 }: HeaderProps) {
   const { accounts } = useMsal();
   const account = getActiveAccount() ?? accounts[0] ?? null;
@@ -374,6 +380,7 @@ export function Header({
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        <AppSuiteSwitcher surface="light" />
         <button
           type="button"
           onClick={onEnableViewPersistence}
@@ -407,9 +414,15 @@ export function Header({
           </div>
         </div>
         <ThemeToggle />
-        <div className="w-8 h-8 rounded-full bg-ems-accent-dim border border-ems-accent/30 flex items-center justify-center text-ems-accent text-xs font-bold select-none">
+        <button
+          type="button"
+          onClick={onOpenProfile}
+          className="w-8 h-8 rounded-full bg-ems-accent-dim border border-ems-accent/30 flex items-center justify-center text-ems-accent text-xs font-bold select-none transition hover:bg-ems-accent/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/35"
+          title="Open my profile"
+          aria-label="Open my profile"
+        >
           {getAccountInitials(account)}
-        </div>
+        </button>
       </div>
     </div>
   );

@@ -33,11 +33,19 @@ export function TourForm({
   wizardMode = false,
   onChange,
 }: TourFormProps) {
+  const getTodayDateString = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const [name, setName] = useState(initial?.name || '');
   const [attractionId, setAttractionId] = useState(initial?.attractionId || attractions[0]?.id || '');
   const [status, setStatus] = useState(initial?.status || 'ActiveRouting');
-  const [startDate, setStartDate] = useState(initial?.startDate || '');
-  const [endDate, setEndDate] = useState(initial?.endDate || '');
+  const [startDate, setStartDate] = useState(initial?.startDate || getTodayDateString());
+  const [endDate, setEndDate] = useState(initial?.endDate || getTodayDateString());
 
   const talentPool = contacts.filter((c) =>
     companies.find((co) => co.id === c.companyId && co.type === 'TalentAgency'),

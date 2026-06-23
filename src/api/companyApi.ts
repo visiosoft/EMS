@@ -1,4 +1,5 @@
 import { apiFetch } from './config';
+import type { ApiEngagementListRow } from './engagementApi';
 
 export interface ApiAddress {
   addressId: number;
@@ -13,6 +14,7 @@ export interface ApiAddress {
 export interface ApiCompanyListRow {
   companyId: number;
   companyName: string;
+  isInternal: boolean;
   companyTypeId: number;
   companyTypeName: string;
   companyTypeIds: number[];
@@ -43,7 +45,15 @@ export interface ApiVenueType { venueTypeId: number; venueTypeName: string; }
 export interface ApiBrand { brandId: number; brandName: string; }
 export interface ApiTax { taxId: number; taxName: string; taxRate: string; taxJurisdictionType: string; }
 export interface ApiServiceProvided { serviceProvidedId: number; serviceName: string; }
-export interface ApiStagehandProviderCompany { companyId: number; companyName: string; }
+export interface ApiStagehandProviderCompany {
+  companyId: number;
+  companyName: string;
+  companyTypeName?: string | null;
+  companyTypeNames?: string[];
+  physicalCity?: string | null;
+  physicalStateProvince?: string | null;
+  dmaMarketName?: string | null;
+}
 export interface ApiNonResidentWithholdingOption { withholdingId: number; withholdingTaxRate: string; dmaid: number | null; taxAgencyId: number | null; }
 
 export type ApiVenueProfileResponse =
@@ -85,19 +95,30 @@ export interface ApiCompanyContact {
   departmentName: string;
 }
 
+export interface ApiManagedContact {
+  contactId: number;
+  contactInfoId: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  cellPhone: string | null;
+  workPhone: string | null;
+  isStaff: boolean;
+  companyIds: number[];
+  companyNames: string[];
+  roleIds: number[];
+  roleNames: string[];
+  departmentIds: number[];
+  departmentNames: string[];
+}
+
 export interface ApiCompanyVenueLinkedContactsSection {
   venueCompanyId: number;
   venueCompanyName: string;
   contacts: ApiCompanyContact[];
 }
 
-export interface ApiEngagementRow {
-  engagementId: number;
-  engagementStatus: string;
-  tourName: string | null;
-  attractionName: string | null;
-  displayTitle: string;
-}
+export type { ApiEngagementListRow as ApiEngagementRow };
 
 export interface ApiVenueTicketing {
   seatingTypeId: number | null;
@@ -107,6 +128,7 @@ export interface ApiVenueTicketing {
 }
 
 export type ApiVenueRoleContact = {
+  contactId: number;
   contactInfoId: number;
   fullName: string;
   email: string;
@@ -148,6 +170,7 @@ export type ApiVenueDetailsResponse =
 
 export interface CreateCompanyPayload {
   companyName: string;
+  isInternal?: boolean;
   companyTypeIds: number[];
   companyTypeId?: number;
   serviceProvidedIds?: number[];
@@ -162,6 +185,7 @@ export interface CreateCompanyPayload {
 
 export interface UpdateCompanyPayload {
   companyName?: string;
+  isInternal?: boolean;
   companyTypeIds?: number[];
   companyTypeId?: number;
   serviceProvidedIds?: number[];
@@ -328,7 +352,23 @@ export const TALENT_AGENCY_COMPANY_TYPE = 'Talent Agency';
 export function companiesPickerQueryKey() { return ['companies', 'picker', 0, COMPANIES_PICKER_LIMIT] as const; }
 export async function fetchCompaniesPickerRows(): Promise<ApiCompanyListRow[]> { const res = await fetchCompanies(0, COMPANIES_PICKER_LIMIT); return res.data ?? []; }
 export function entertainmentComplexCompaniesQueryKey() { return ['companies', 'picker', 'entertainment-complex', 0, COMPANIES_PICKER_LIMIT] as const; }
-export async function fetchEntertainmentComplexCompanyRows(): Promise<ApiCompanyListRow[]> { const res = await fetchCompanies(0, COMPANIES_PICKER_LIMIT, { companyType: ENTERTAINMENT_COMPLEX_COMPANY_TYPE }); return res.data ?? []; }
+export async function fetchEntertainmentComplexCompanyRows(): Promise<ApiCompanyListRow[]> {
+  const pageSize = COMPANIES_PICKER_LIMIT;
+  const out: ApiCompanyListRow[] = [];
+  let offset = 0;
+  let total = Infinity;
+  while (offset < total && out.length < 100_000) {
+    const res = await fetchCompanies(offset, pageSize, {
+      companyType: ENTERTAINMENT_COMPLEX_COMPANY_TYPE,
+    });
+    const rows = res.data ?? [];
+    out.push(...rows);
+    total = Number.isFinite(res.total) ? Number(res.total) : out.length;
+    offset += rows.length;
+    if (rows.length === 0) break;
+  }
+  return out;
+}
 export function talentAgencyCompaniesQueryKey() { return ['companies', 'picker', 'talent-agency', 0, COMPANIES_PICKER_LIMIT] as const; }
 export async function fetchTalentAgencyCompanyRows(): Promise<ApiCompanyListRow[]> { const res = await fetchCompanies(0, COMPANIES_PICKER_LIMIT, { companyType: TALENT_AGENCY_COMPANY_TYPE }); return res.data ?? []; }
 export function fetchCompany(id: number) { return apiFetch<ApiCompanyListRow>(`/companies/${id}`); }
@@ -398,7 +438,70 @@ export function updateContactAssignment(assignmentId: number, body: Partial<{ fi
   }).finally(clearStoredContactIds);
 }
 export function deleteContactAssignment(assignmentId: number) { return apiFetch<void>(`/contact-assignments/${assignmentId}`, { method: 'DELETE' }); }
-export function fetchCompanyEngagements(companyId: number) { return apiFetch<ApiEngagementRow[]>(`/companies/${companyId}/engagements`); }
+
+export type ManagedContactsQueryOpts = { q?: string; companyId?: number };
+export type ManagedContactPayload = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  cellPhone?: string | null;
+  workPhone?: string | null;
+  companyId?: number | null;
+  roleIds?: number[];
+  departmentIds?: number[];
+};
+export function managedContactsQueryKey(offset: number, limit: number, opts?: ManagedContactsQueryOpts) {
+  return ['contacts', 'managed', offset, limit, opts?.q ?? '', opts?.companyId ?? ''] as const;
+}
+export function fetchManagedContacts(offset = 0, limit = 25, opts?: ManagedContactsQueryOpts) {
+  const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+  if (opts?.q?.trim()) params.set('q', opts.q.trim());
+  if (opts?.companyId != null && opts.companyId > 0) params.set('companyId', String(opts.companyId));
+  return apiFetch<ApiPaginatedResponse<ApiManagedContact>>(`/contacts?${params}`);
+}
+export function createManagedContact(body: ManagedContactPayload) {
+  return apiFetch<ApiManagedContact>('/contacts', { method: 'POST', body: JSON.stringify(body) });
+}
+export function updateManagedContact(contactId: number, body: Partial<ManagedContactPayload>) {
+  return apiFetch<ApiManagedContact>(`/contacts/${contactId}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+export interface ApiContactConnections {
+  engagements: { engagementId: number; tourName: string }[];
+  tours: { tourId: number; tourName: string }[];
+}
+
+export function fetchContactConnections(contactId: number) {
+  return apiFetch<ApiContactConnections>(`/contacts/${contactId}/connections`);
+}
+
+export function deleteManagedContact(contactId: number) {
+  return apiFetch<void>(`/contacts/${contactId}`, { method: 'DELETE' });
+}
+export function fetchCompanyEngagements(companyId: number) {
+  return apiFetch<ApiEngagementListRow[]>(`/companies/${companyId}/engagements`);
+}
+
+/** Shared shape for one linked record. `title` is the headline, `subtitle` an
+ *  optional second line (e.g. tour name); `label` is the combined "Title — Subtitle". */
+export interface ApiCompanyLinkItem {
+  title: string;
+  subtitle: string | null;
+  label: string;
+}
+
+export interface ApiCompanyLinks {
+  engagements: (ApiCompanyLinkItem & { engagementId: number })[];
+  projects: (ApiCompanyLinkItem & { projectId: number })[];
+  tours: (ApiCompanyLinkItem & { tourId: number; role: string })[];
+  attractions: (ApiCompanyLinkItem & { attractionId: number; role: string })[];
+  serviceProviderFor: (ApiCompanyLinkItem & { venueCompanyId: number })[];
+  entertainmentComplexes: (ApiCompanyLinkItem & { complexCompanyId: number })[];
+  complexVenues: (ApiCompanyLinkItem & { venueCompanyId: number })[];
+}
+
+export function fetchCompanyLinks(companyId: number) {
+  return apiFetch<ApiCompanyLinks>(`/companies/${companyId}/links`);
+}
 export function fetchVenueTicketing(companyId: number) { return apiFetch<ApiVenueTicketing | null>(`/companies/${companyId}/venue-ticketing`); }
 export function fetchVenueProfile(companyId: number) { return apiFetch<ApiVenueProfileResponse>(`/companies/${companyId}/venue-profile`); }
 export function provisionVenueProfile(companyId: number) { return apiFetch<{ created: boolean }>(`/companies/${companyId}/venue-profile/provision`, { method: 'POST' }); }
@@ -420,6 +523,21 @@ export function fetchLookups() {
     apiFetch<ApiStagehandProviderCompany[]>('/lookups/stagehand-providers'),
     apiFetch<ApiNonResidentWithholdingOption[]>('/lookups/non-resident-withholdings'),
   ]).then(([companyTypes, roles, departments, seatingTypes, venueTypes, brands, taxes, servicesProvided, stagehandProviders, nonResidentWithholdings]) => ({ companyTypes, roles, departments, seatingTypes, venueTypes, brands, taxes, servicesProvided, stagehandProviders, nonResidentWithholdings }));
+}
+
+export function fetchServicesAllowedForCompanyTypes(companyTypeIds: number[]) {
+  const ids = Array.from(
+    new Set(
+      companyTypeIds
+        .map(Number)
+        .filter((id) => Number.isInteger(id) && id > 0),
+    ),
+  );
+  if (ids.length === 0) return Promise.resolve<ApiServiceProvided[]>([]);
+  const params = new URLSearchParams({ companyTypeIds: ids.join(',') });
+  return apiFetch<ApiServiceProvided[]>(
+    `/lookups/company-type-services/allowed?${params.toString()}`,
+  );
 }
 export function fetchStagehandProviderCompanies() { return apiFetch<ApiStagehandProviderCompany[]>('/lookups/stagehand-providers').then((data) => (Array.isArray(data) ? data : [])); }
 export function fetchVenueDetails(companyId: number) { return apiFetch<ApiVenueDetailsResponse>(`/companies/${companyId}/venue-details`); }

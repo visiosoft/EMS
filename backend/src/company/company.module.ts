@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { EngagementsModule } from '../engagements/engagements.module';
 import { Address } from '../entities/address.entity';
 import { Attraction } from '../entities/attraction.entity';
 import { CompanyType } from '../entities/company-type.entity';
@@ -28,12 +29,14 @@ import { VenueTax } from '../entities/venue-tax.entity';
 import { ServiceProvided } from '../entities/service-provided.entity';
 import { CompanyService as CompanyServiceEntity } from '../entities/company-service.entity';
 import { CompanyServiceArea } from '../entities/company-service-area.entity';
+import { CompanyTypeService } from '../entities/company-type-service.entity';
 import { VenueServiceProvider } from '../entities/venue-service-provider.entity';
 import { Link } from '../entities/link.entity';
 import { LookupsController } from '../lookups/lookups.controller';
 import { LookupsService } from '../lookups/lookups.service';
 import {
   CompanyController,
+  ContactsController,
   ContactAssignmentsController,
 } from './company.controller';
 import { CompanyContactBulkController } from './company-contact-bulk.controller';
@@ -60,6 +63,7 @@ const entities = [
   VenueTax,
   ServiceProvided,
   CompanyServiceEntity,
+  CompanyTypeService,
   CompanyServiceArea,
   VenueServiceProvider,
   EngagementVenue,
@@ -74,9 +78,10 @@ const entities = [
 ];
 
 @Module({
-  imports: [TypeOrmModule.forFeature(entities)],
+  imports: [TypeOrmModule.forFeature(entities), EngagementsModule],
   controllers: [
     CompanyController,
+    ContactsController,
     ContactAssignmentsController,
     CompanyContactBulkController,
     ContactAssignmentBulkUpdateController,

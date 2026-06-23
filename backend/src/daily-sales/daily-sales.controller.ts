@@ -133,6 +133,28 @@ export class DailySalesController {
   }
 
   /**
+   * GET /api/daily-sales/by-performance/suggestions?q=...
+   * Server-side search suggestions for the by-performance search bar.
+   * Returns distinct matching labels (attractions, tours, venues, companies, cities).
+   */
+  @Get('by-performance/suggestions')
+  getByPerformanceSuggestions(
+    @Query('asOfDate') asOfDate?: string,
+    @Query('q') q?: string,
+    @Query('performanceDate') performanceDate?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return this.dailySalesService.getByPerformanceSuggestions(
+      asOfDate,
+      q,
+      performanceDate,
+      startDate,
+      endDate,
+    );
+  }
+
+  /**
    * GET /api/daily-sales
    * Legacy flat list — optional: ?engagementId=472
    */

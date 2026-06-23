@@ -1,6 +1,7 @@
 import {
     EventType,
     InteractionStatus,
+    InteractionRequiredAuthError,
     type AccountInfo,
     type AuthenticationResult,
     type Configuration,
@@ -9,7 +10,25 @@ import {
 
 const clientId = import.meta.env.VITE_ENTRA_CLIENT_ID;
 const tenantId = import.meta.env.VITE_ENTRA_TENANT_ID;
-const apiScope = import.meta.env.VITE_ENTRA_API_SCOPE?.trim();
+const apiScope = import.meta.env.VITE_ENTRA_API_SCOPE?.trim() || (clientId ? `api://${clientId}/Roles` : undefined);
+const configuredGraphScopes =
+    import.meta.env.VITE_ENTRA_GRAPH_SCOPE?.trim()
+        .split(/\s+/)
+        .filter(Boolean) ?? [];
+const graphScopes = configuredGraphScopes.length > 0
+    ? configuredGraphScopes
+    : ["https://graph.microsoft.com/User.Read.All"];
+const configuredDocsGraphScopes =
+    import.meta.env.VITE_ENTRA_GRAPH_DOCS_SCOPE?.trim()
+        .split(/\s+/)
+        .filter(Boolean) ?? [];
+const docsGraphScopes = configuredDocsGraphScopes.length > 0
+    ? configuredDocsGraphScopes
+    : ["https://graph.microsoft.com/Files.ReadWrite.All"];
+const microsoftGraphAudiences = new Set([
+    "00000003-0000-0000-c000-000000000000",
+    "https://graph.microsoft.com",
+]);
 const redirectUriOverride = import.meta.env.VITE_ENTRA_REDIRECT_URI;
 const redirectPath = import.meta.env.VITE_ENTRA_REDIRECT_PATH ?? "/login";
 
@@ -28,11 +47,11 @@ const msalConfig: Configuration = {
     cache: {
         cacheLocation: "localStorage",
         storeAuthStateInCookie: false,
-    },
+    } as any,
 };
 
 export const loginRequest = {
-    scopes: ["openid", "profile", "email", "User.Read"],
+    scopes: Array.from(new Set(["openid", "profile", "email", "User.Read", ...graphScopes])),
 };
 
 export const msalInstance = new PublicClientApplication(msalConfig);
@@ -114,6 +133,140 @@ export async function acquireApiAccessToken(account: AccountInfo): Promise<strin
         scopes: [apiScope],
     });
     return response.accessToken;
+}
+
+type GraphAccessTokenOptions = {
+    forceRefresh?: boolean;
+};
+
+export type GraphTokenDiagnostics = {
+    aud: string;
+    tid: string;
+    scp: string;
+    roles: string[];
+    hasUserReadAll: boolean;
+    hasUserReadWriteAll: boolean;
+    isGraphAudience: boolean;
+};
+
+export async function acquireGraphAccessToken(
+    account: AccountInfo,
+    options: GraphAccessTokenOptions = {},
+): Promise<string> {
+    const response = await msalInstance.acquireTokenSilent({
+        account,
+        scopes: graphScopes,
+        forceRefresh: options.forceRefresh,
+    });
+    logGraphTokenDiagnostics(response.accessToken);
+    return response.accessToken;
+}
+
+export async function requestGraphAccessToken(
+    account: AccountInfo,
+    options: GraphAccessTokenOptions = {},
+): Promise<string> {
+    const request = {
+        account,
+        scopes: graphScopes,
+        loginHint: account.username,
+        forceRefresh: options.forceRefresh,
+    };
+
+    try {
+        const response = await msalInstance.acquireTokenSilent(request);
+        logGraphTokenDiagnostics(response.accessToken);
+        return response.accessToken;
+    } catch (error) {
+        if (!requiresInteractiveGraphConsent(error)) throw error;
+    }
+
+    const response = await msalInstance.acquireTokenPopup(request);
+    logGraphTokenDiagnostics(response.accessToken);
+    return response.accessToken;
+}
+
+/**
+ * Acquires a Microsoft Graph token scoped for Document Library fetches
+ * (VITE_ENTRA_GRAPH_DOCS_SCOPE), falling back to an interactive prompt when consent is needed.
+ * Kept separate from requestGraphAccessToken so docs access doesn't widen the site-wide login scope.
+ */
+export async function requestDocsGraphAccessToken(
+    account: AccountInfo,
+    options: GraphAccessTokenOptions = {},
+): Promise<string> {
+    const request = {
+        account,
+        scopes: docsGraphScopes,
+        loginHint: account.username,
+        forceRefresh: options.forceRefresh,
+    };
+
+    try {
+        const response = await msalInstance.acquireTokenSilent(request);
+        logGraphTokenDiagnostics(response.accessToken);
+        return response.accessToken;
+    } catch (error) {
+        if (!requiresInteractiveGraphConsent(error)) throw error;
+    }
+
+    const response = await msalInstance.acquireTokenPopup(request);
+    logGraphTokenDiagnostics(response.accessToken);
+    return response.accessToken;
+}
+
+export function describeGraphAccessToken(accessToken: string): GraphTokenDiagnostics {
+    const claims = decodeJwtPayload(accessToken);
+    const scopes = typeof claims?.scp === "string" ? claims.scp.split(/\s+/).filter(Boolean) : [];
+    const roles = Array.isArray(claims?.roles)
+        ? claims.roles.filter((role): role is string => typeof role === "string")
+        : [];
+    const audience = typeof claims?.aud === "string" ? claims.aud : "";
+    const tenant = typeof claims?.tid === "string" ? claims.tid : "";
+    return {
+        aud: audience,
+        tid: tenant,
+        scp: scopes.join(" "),
+        roles,
+        hasUserReadAll: scopes.includes("User.Read.All") || scopes.includes("User.ReadWrite.All"),
+        hasUserReadWriteAll: scopes.includes("User.ReadWrite.All"),
+        isGraphAudience: microsoftGraphAudiences.has(audience),
+    };
+}
+
+function logGraphTokenDiagnostics(accessToken: string): void {
+    const diagnostics = describeGraphAccessToken(accessToken);
+
+    if (!diagnostics.isGraphAudience || !diagnostics.hasUserReadAll) {
+        console.warn("[MSAL] Microsoft Graph token is missing the expected audience or delegated scope.", {
+            expectedAudience: "Microsoft Graph",
+            expectedScope: "User.Read.All or User.ReadWrite.All",
+            aud: diagnostics.aud,
+            scp: diagnostics.scp,
+            roles: diagnostics.roles,
+        });
+    }
+}
+
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+    try {
+        const [, payload] = token.split(".");
+        if (!payload) return null;
+        const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+        const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+        return JSON.parse(atob(padded)) as Record<string, unknown>;
+    } catch {
+        return null;
+    }
+}
+
+function requiresInteractiveGraphConsent(error: unknown): boolean {
+    if (error instanceof InteractionRequiredAuthError) return true;
+    if (!(error instanceof Error)) return false;
+
+    return /interaction_required|consent_required|login_required|no_account|invalid_grant/i.test(
+        error.message,
+    );
 }
 
 export function isApiAccessTokenConfigured(): boolean {

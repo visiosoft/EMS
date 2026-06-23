@@ -9,7 +9,17 @@ import {
   Patch,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { ArrayMinSize, IsArray, IsEmail, IsInt, IsNotEmpty, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import {
+  ArrayMinSize,
+  IsArray,
+  IsEmail,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { DataSource, EntityManager, In } from 'typeorm';
 import { isValidPhoneNumber } from 'libphonenumber-js';
@@ -62,7 +72,10 @@ class UpdateContactAssignmentBulkDto {
   departmentIds: number[];
 }
 
-function assertOptionalE164Phone(value: string | null | undefined, field: 'work phone' | 'cell phone') {
+function assertOptionalE164Phone(
+  value: string | null | undefined,
+  field: 'work phone' | 'cell phone',
+) {
   if (value == null) return;
   const t = String(value).trim();
   if (!t) return;
@@ -76,13 +89,18 @@ function assertOptionalE164Phone(value: string | null | undefined, field: 'work 
 }
 
 function uniquePositiveInts(values: number[]): number[] {
-  return Array.from(new Set((values ?? []).map(Number).filter((n) => Number.isInteger(n) && n > 0)));
+  return Array.from(
+    new Set(
+      (values ?? []).map(Number).filter((n) => Number.isInteger(n) && n > 0),
+    ),
+  );
 }
 
 function getRaw(row: Record<string, unknown>, key: string): unknown {
   if (row[key] !== undefined && row[key] !== null) return row[key];
   const lower = key.toLowerCase();
-  for (const k of Object.keys(row)) if (k.toLowerCase() === lower) return row[k];
+  for (const k of Object.keys(row))
+    if (k.toLowerCase() === lower) return row[k];
   return undefined;
 }
 
@@ -97,8 +115,12 @@ export class ContactAssignmentBulkUpdateController {
   ) {
     const roleIds = uniquePositiveInts(dto.roleIds);
     const departmentIds = uniquePositiveInts(dto.departmentIds);
-    if (roleIds.length === 0) throw new BadRequestException({ message: 'Select at least one role.' });
-    if (departmentIds.length === 0) throw new BadRequestException({ message: 'Select at least one department.' });
+    if (roleIds.length === 0)
+      throw new BadRequestException({ message: 'Select at least one role.' });
+    if (departmentIds.length === 0)
+      throw new BadRequestException({
+        message: 'Select at least one department.',
+      });
     assertOptionalE164Phone(dto.workPhone ?? null, 'work phone');
     assertOptionalE164Phone(dto.cellPhone ?? null, 'cell phone');
 
@@ -111,22 +133,34 @@ export class ContactAssignmentBulkUpdateController {
         where: { contactAssignmentId: assignmentId },
         relations: { contact: { contactInfo: true } },
       });
-      if (!currentAssignment) throw new NotFoundException(`Contact assignment ${assignmentId} not found`);
+      if (!currentAssignment)
+        throw new NotFoundException(
+          `Contact assignment ${assignmentId} not found`,
+        );
 
       const [roles, departments] = await Promise.all([
         em.find(Role, { where: { roleId: In(roleIds) } }),
         em.find(Department, { where: { departmentId: In(departmentIds) } }),
       ]);
-      if (roles.length !== roleIds.length) throw new BadRequestException({ message: 'One or more selected roles are invalid.' });
-      if (departments.length !== departmentIds.length) throw new BadRequestException({ message: 'One or more selected departments are invalid.' });
+      if (roles.length !== roleIds.length)
+        throw new BadRequestException({
+          message: 'One or more selected roles are invalid.',
+        });
+      if (departments.length !== departmentIds.length)
+        throw new BadRequestException({
+          message: 'One or more selected departments are invalid.',
+        });
 
       const companyId = currentAssignment.companyId;
       const oldContactId = currentAssignment.contactId;
       const oldContactInfoId = currentAssignment.contact.contactInfoId;
       const currentInfo = currentAssignment.contact.contactInfo;
-      const currentEmail = String(currentInfo.email ?? '').trim().toLowerCase();
+      const currentEmail = String(currentInfo.email ?? '')
+        .trim()
+        .toLowerCase();
       const nextEmail = dto.email?.trim();
-      const emailChanged = nextEmail !== undefined && nextEmail.toLowerCase() !== currentEmail;
+      const emailChanged =
+        nextEmail !== undefined && nextEmail.toLowerCase() !== currentEmail;
 
       let targetContactId = oldContactId;
       let targetInfo = currentInfo;
@@ -138,34 +172,62 @@ export class ContactAssignmentBulkUpdateController {
           .getOne();
         if (existingInfo) {
           targetInfo = existingInfo;
-          if (dto.firstName !== undefined) targetInfo.firstName = dto.firstName.trim();
-          if (dto.lastName !== undefined) targetInfo.lastName = dto.lastName.trim();
+          if (dto.firstName !== undefined)
+            targetInfo.firstName = dto.firstName.trim();
+          if (dto.lastName !== undefined)
+            targetInfo.lastName = dto.lastName.trim();
           targetInfo.email = nextEmail;
-          if (dto.cellPhone !== undefined) targetInfo.cellPhone = dto.cellPhone?.trim() || null;
-          if (dto.workPhone !== undefined) targetInfo.workPhone = dto.workPhone?.trim() || null;
+          if (dto.cellPhone !== undefined)
+            targetInfo.cellPhone = dto.cellPhone?.trim() || null;
+          if (dto.workPhone !== undefined)
+            targetInfo.workPhone = dto.workPhone?.trim() || null;
           await infoRepo.save(targetInfo);
-          let targetContact = await contactRepo.findOne({ where: { contactInfoId: targetInfo.contactInfoId } });
+          let targetContact = await contactRepo.findOne({
+            where: { contactInfoId: targetInfo.contactInfoId },
+          });
           if (!targetContact) {
-            targetContact = await contactRepo.save(contactRepo.create({ contactInfoId: targetInfo.contactInfoId }));
+            targetContact = await contactRepo.save(
+              contactRepo.create({ contactInfoId: targetInfo.contactInfoId }),
+            );
           }
           targetContactId = targetContact.contactId;
         } else {
-          targetInfo = await infoRepo.save(infoRepo.create({
-            firstName: dto.firstName !== undefined ? dto.firstName.trim() : currentInfo.firstName,
-            lastName: dto.lastName !== undefined ? dto.lastName.trim() : currentInfo.lastName,
-            email: nextEmail,
-            cellPhone: dto.cellPhone !== undefined ? dto.cellPhone?.trim() || null : currentInfo.cellPhone,
-            workPhone: dto.workPhone !== undefined ? dto.workPhone?.trim() || null : currentInfo.workPhone,
-          }));
-          const targetContact = await contactRepo.save(contactRepo.create({ contactInfoId: targetInfo.contactInfoId }));
+          targetInfo = await infoRepo.save(
+            infoRepo.create({
+              firstName:
+                dto.firstName !== undefined
+                  ? dto.firstName.trim()
+                  : currentInfo.firstName,
+              lastName:
+                dto.lastName !== undefined
+                  ? dto.lastName.trim()
+                  : currentInfo.lastName,
+              email: nextEmail,
+              cellPhone:
+                dto.cellPhone !== undefined
+                  ? dto.cellPhone?.trim() || null
+                  : currentInfo.cellPhone,
+              workPhone:
+                dto.workPhone !== undefined
+                  ? dto.workPhone?.trim() || null
+                  : currentInfo.workPhone,
+            }),
+          );
+          const targetContact = await contactRepo.save(
+            contactRepo.create({ contactInfoId: targetInfo.contactInfoId }),
+          );
           targetContactId = targetContact.contactId;
         }
       } else {
-        if (dto.firstName !== undefined) targetInfo.firstName = dto.firstName.trim();
-        if (dto.lastName !== undefined) targetInfo.lastName = dto.lastName.trim();
+        if (dto.firstName !== undefined)
+          targetInfo.firstName = dto.firstName.trim();
+        if (dto.lastName !== undefined)
+          targetInfo.lastName = dto.lastName.trim();
         if (dto.email !== undefined) targetInfo.email = dto.email.trim();
-        if (dto.cellPhone !== undefined) targetInfo.cellPhone = dto.cellPhone?.trim() || null;
-        if (dto.workPhone !== undefined) targetInfo.workPhone = dto.workPhone?.trim() || null;
+        if (dto.cellPhone !== undefined)
+          targetInfo.cellPhone = dto.cellPhone?.trim() || null;
+        if (dto.workPhone !== undefined)
+          targetInfo.workPhone = dto.workPhone?.trim() || null;
         await infoRepo.save(targetInfo);
       }
 
@@ -177,22 +239,29 @@ export class ContactAssignmentBulkUpdateController {
       const createdIds: number[] = [];
       for (const roleId of roleIds) {
         for (const departmentId of departmentIds) {
-          const saved = await assignmentRepo.save(assignmentRepo.create({
-            companyId,
-            contactId: targetContactId,
-            roleId,
-            departmentId,
-          }));
+          const saved = await assignmentRepo.save(
+            assignmentRepo.create({
+              companyId,
+              contactId: targetContactId,
+              roleId,
+              departmentId,
+            }),
+          );
           createdIds.push(saved.contactAssignmentId);
         }
       }
 
       if (targetContactId !== oldContactId) {
-        const remainingForOldContact = await assignmentRepo.count({ where: { contactId: oldContactId } });
+        const remainingForOldContact = await assignmentRepo.count({
+          where: { contactId: oldContactId },
+        });
         if (remainingForOldContact === 0) {
           await contactRepo.delete({ contactId: oldContactId });
-          const stillUsesOldInfo = await contactRepo.count({ where: { contactInfoId: oldContactInfoId } });
-          if (stillUsesOldInfo === 0) await infoRepo.delete({ contactInfoId: oldContactInfoId });
+          const stillUsesOldInfo = await contactRepo.count({
+            where: { contactInfoId: oldContactInfoId },
+          });
+          if (stillUsesOldInfo === 0)
+            await infoRepo.delete({ contactInfoId: oldContactInfoId });
         }
       }
 
@@ -233,8 +302,14 @@ export class ContactAssignmentBulkUpdateController {
       firstName: String(getRaw(row, 'firstName') ?? ''),
       lastName: String(getRaw(row, 'lastName') ?? ''),
       email: String(getRaw(row, 'email') ?? ''),
-      cellPhone: getRaw(row, 'cellPhone') == null ? null : String(getRaw(row, 'cellPhone')),
-      workPhone: getRaw(row, 'workPhone') == null ? null : String(getRaw(row, 'workPhone')),
+      cellPhone:
+        getRaw(row, 'cellPhone') == null
+          ? null
+          : String(getRaw(row, 'cellPhone')),
+      workPhone:
+        getRaw(row, 'workPhone') == null
+          ? null
+          : String(getRaw(row, 'workPhone')),
       roleId: Number(getRaw(row, 'roleId')),
       roleName: String(getRaw(row, 'roleName') ?? ''),
       departmentId: Number(getRaw(row, 'departmentId')),

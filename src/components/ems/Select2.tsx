@@ -8,12 +8,80 @@ import React, {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { Loader2 } from 'lucide-react';
 import { EmsModalBodyScrollElementRef } from './Primitives';
+import { richSearchText, richTextMatches } from './searchUtils';
 
 export interface Select2Option {
   value: string;
   label: string;
   disabled?: boolean;
+  description?: string;
+  rightText?: string;
+  searchText?: string;
+}
+
+function optionSearchText(option: Select2Option): string {
+  return richSearchText([
+    option.label,
+    option.description,
+    option.rightText,
+    option.searchText,
+  ]);
+}
+
+function Select2OptionContent({
+  option,
+  selected,
+}: {
+  option: Select2Option;
+  selected: boolean;
+}) {
+  const secondaryClass = selected ? 'text-ems-accent/75' : 'text-text-muted';
+  return (
+    <>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">{option.label}</span>
+        {option.description && (
+          <span className={`mt-0.5 block truncate text-xs font-normal ${secondaryClass}`}>
+            {option.description}
+          </span>
+        )}
+      </span>
+      {option.rightText && (
+        <span className={`ml-3 shrink-0 text-xs font-normal ${secondaryClass}`}>
+          {option.rightText}
+        </span>
+      )}
+    </>
+  );
+}
+
+function dedupeSelectOptions(options: Select2Option[]): Select2Option[] {
+  const seen = new Set<string>();
+  const out: Select2Option[] = [];
+  for (const opt of options) {
+    const valueKey = String(opt.value ?? '').trim().toLowerCase();
+    const key = valueKey || String(opt.label ?? '').trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(opt);
+  }
+  return out;
+}
+
+function sameMenuStyle(a: React.CSSProperties | null, b: React.CSSProperties) {
+  if (!a) return false;
+  return (
+    a.position === b.position &&
+    a.left === b.left &&
+    a.top === b.top &&
+    a.bottom === b.bottom &&
+    a.width === b.width &&
+    a.minWidth === b.minWidth &&
+    a.maxHeight === b.maxHeight &&
+    a.zIndex === b.zIndex
+  );
 }
 
 interface Select2Props {
@@ -27,6 +95,7 @@ interface Select2Props {
   searchPlaceholder?: string;
   filterQuery?: string;
   onFilterChange?: (q: string) => void;
+  loading?: boolean;
 }
 
 type ContactMultiKind = 'role' | 'department' | null;
@@ -49,6 +118,7 @@ const CONTACT_MULTI_STORAGE = {
   role: 'iae.contactDraft.roleIds',
   department: 'iae.contactDraft.departmentIds',
 } as const;
+const PROJECT_WIZARD_DEFAULT_VENUE_STATUS = 'Pending';
 
 function contactMultiKindFromOptions(options: Select2Option[]): ContactMultiKind {
   const firstLabel = String(options?.[0]?.label ?? '').trim().toLowerCase();
@@ -180,7 +250,7 @@ function useMenuPosition(open: boolean, containerRef: React.RefObject<HTMLDivEle
     const needHeight = 300;
     const spaceBelow = window.innerHeight - r.bottom;
     const openUp = spaceBelow < needHeight && r.top > needHeight;
-    setMenuStyle({
+    const nextStyle: React.CSSProperties = {
       position: 'fixed',
       left: r.left,
       width: r.width,
@@ -188,7 +258,8 @@ function useMenuPosition(open: boolean, containerRef: React.RefObject<HTMLDivEle
       zIndex: 2000,
       maxHeight: 'min(360px, 80dvh)',
       ...(openUp ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }),
-    });
+    };
+    setMenuStyle((prev) => (sameMenuStyle(prev, nextStyle) ? prev : nextStyle));
   }, [containerRef, open]);
 
   useLayoutEffect(() => {
@@ -201,11 +272,9 @@ function useMenuPosition(open: boolean, containerRef: React.RefObject<HTMLDivEle
     window.addEventListener('resize', onReposition);
     const scrollHost = modalBodyScrollElementRef?.current;
     scrollHost?.addEventListener('scroll', onReposition, { passive: true });
-    const tick = window.setInterval(onReposition, 100);
     return () => {
       window.removeEventListener('resize', onReposition);
       scrollHost?.removeEventListener('scroll', onReposition);
-      window.clearInterval(tick);
     };
   }, [modalBodyScrollElementRef, open, updateMenuPosition]);
 
@@ -223,13 +292,22 @@ export function Select2({
   searchPlaceholder = 'Search...',
   filterQuery,
   onFilterChange,
+  loading = false,
 }: Select2Props) {
   useEffect(installContactBridge, []);
-  const optionsSafe = options ?? [];
+  const optionsSafe = useMemo(
+    () => dedupeSelectOptions(options ?? []),
+    [options],
+  );
   const contactMultiKind = contactMultiKindFromOptions(optionsSafe);
   const contactMultiMode = contactMultiKind != null;
-  const visibleOptions = contactMultiMode ? optionsSafe.filter((o) => o.value !== '') : optionsSafe;
+  const visibleOptions = useMemo(
+    () => contactMultiMode ? optionsSafe.filter((o) => o.value !== '') : optionsSafe,
+    [contactMultiMode, optionsSafe],
+  );
   const parentFiltersOptions = onFilterChange != null;
+  const shouldDefaultProjectVenueStatus =
+    !contactMultiMode && String(placeholder ?? '').toLowerCase().includes('selected venues');
 
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -245,9 +323,20 @@ export function Select2({
 
   const displayFilter = parentFiltersOptions ? (filterQuery ?? '') : search;
   const selected = visibleOptions.find((o) => o.value === value);
-  const filtered = parentFiltersOptions
-    ? visibleOptions
-    : visibleOptions.filter((o) => String(o.label ?? '').toLowerCase().includes(String(search ?? '').toLowerCase()));
+  const filtered = useMemo(
+    () => parentFiltersOptions
+      ? visibleOptions
+      : visibleOptions.filter((o) => richTextMatches([optionSearchText(o)], search)),
+    [parentFiltersOptions, search, visibleOptions],
+  );
+
+  useEffect(() => {
+    if (!shouldDefaultProjectVenueStatus || value.trim().length > 0) return;
+    const pending = visibleOptions.find(
+      (option) => option.value.trim().toLowerCase() === PROJECT_WIZARD_DEFAULT_VENUE_STATUS.toLowerCase(),
+    );
+    if (pending && !pending.disabled) onChange(pending.value);
+  }, [onChange, shouldDefaultProjectVenueStatus, value, visibleOptions]);
 
   useEffect(() => {
     if (!contactMultiMode || !contactMultiKind) return;
@@ -340,8 +429,15 @@ export function Select2({
   }, [filtered, handleSelect, highlightedIndex, open, parentFiltersOptions]);
 
   const summary = contactMultiMode
-    ? selectedValues.length === 0 ? placeholder : selectedValues.map((v) => visibleOptions.find((o) => o.value === v)?.label || v).join(', ')
-    : selected ? selected.label : placeholder;
+    ? (() => {
+        const labels = selectedValues
+          .map((v) => visibleOptions.find((o) => o.value === v)?.label ?? '')
+          .filter((label) => label.trim().length > 0);
+        return labels.length === 0 ? placeholder : labels.join(', ');
+      })()
+    : selected
+      ? selected.label
+      : placeholder;
 
   const dropdown = open && menuStyle && (
     <div ref={menuRef} className="select2-dropdown bg-elevated border border-border rounded-md shadow-xl overflow-hidden w-full" style={menuStyle}>
@@ -382,13 +478,15 @@ export function Select2({
               onClick={() => !opt.disabled && handleSelect(opt.value)}
               onMouseEnter={() => setHighlightedIndex(idx)}
               className={[
-                'select2-results__option px-3 py-2 text-sm transition-colors select-none',
+                'select2-results__option flex items-start gap-1.5 px-3 py-2 text-sm transition-colors select-none',
                 opt.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer',
                 isSelected ? 'select2-results__option--selected bg-ems-accent-dim text-ems-accent font-medium' : idx === highlightedIndex ? 'select2-results__option--highlighted bg-hover text-text-primary' : 'text-text-primary hover:bg-hover',
               ].filter(Boolean).join(' ')}
             >
-              {isSelected && <span className="mr-1.5 text-ems-accent text-xs">✓</span>}
-              {opt.label}
+              <span className="mt-0.5 inline-block w-3 shrink-0 text-center text-xs text-ems-accent">
+                {isSelected ? '✓' : ''}
+              </span>
+              <Select2OptionContent option={opt} selected={isSelected} />
             </li>
           );
         })}
@@ -405,17 +503,20 @@ export function Select2({
     <div ref={containerRef} className={`select2 relative ${className}`} onKeyDown={handleKeyDown}>
       <button
         type="button"
-        disabled={disabled}
-        onClick={() => { if (!disabled) setOpen((o) => !o); }}
+        disabled={disabled || loading}
+        onClick={() => { if (!disabled && !loading) setOpen((o) => !o); }}
         className={[
           'select2-selection w-full flex items-center justify-between gap-2 bg-surface border border-border rounded px-3 py-1.5 text-sm text-left transition-colors',
-          disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-ems-accent/60',
+          (disabled || loading) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-ems-accent/60',
           open ? 'border-ems-accent ring-1 ring-ems-accent/30' : '',
         ].filter(Boolean).join(' ')}
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span className={`min-w-0 flex-1 truncate ${contactMultiMode ? (selectedValues.length ? 'text-text-primary' : 'text-text-muted') : (selected ? 'text-text-primary' : 'text-text-muted')}`}>{summary}</span>
+        <span className={`min-w-0 flex-1 truncate flex items-center gap-2 ${contactMultiMode ? (selectedValues.length ? 'text-text-primary' : 'text-text-muted') : (selected ? 'text-text-primary' : 'text-text-muted')}`}>
+          {loading && <Loader2 className="h-3.5 w-3.5 animate-spin text-ems-accent shrink-0" />}
+          {loading ? 'Loading...' : summary}
+        </span>
         <span className="select2-arrow ml-2 flex-shrink-0 text-text-muted transition-transform duration-150" style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)', fontSize: 10 }}>▼</span>
       </button>
       {open && menuStyle && typeof document !== 'undefined' && createPortal(dropdown, document.body)}
@@ -441,7 +542,10 @@ interface Select2MultiProps {
 }
 
 export function Select2Multi({ options, values, onChange, placeholder = 'Select...', className = '', disabled = false }: Select2MultiProps) {
-  const optionsSafe = options ?? [];
+  const optionsSafe = useMemo(
+    () => dedupeSelectOptions(options ?? []),
+    [options],
+  );
   const valuesSafe = values ?? [];
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -449,8 +553,16 @@ export function Select2Multi({ options, values, onChange, placeholder = 'Select.
   const menuRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const menuStyle = useMenuPosition(open, containerRef);
-  const filtered = useMemo(() => optionsSafe.filter((o) => String(o.label ?? '').toLowerCase().includes(search.toLowerCase())), [optionsSafe, search]);
-  const summary = valuesSafe.length === 0 ? placeholder : valuesSafe.map((v) => optionsSafe.find((o) => o.value === v)?.label || v).join(', ');
+  const filtered = useMemo(
+    () => optionsSafe.filter((o) => richTextMatches([optionSearchText(o)], search)),
+    [optionsSafe, search],
+  );
+  const summary = (() => {
+    const labels = valuesSafe
+      .map((v) => optionsSafe.find((o) => o.value === v)?.label ?? '')
+      .filter((label) => label.trim().length > 0);
+    return labels.length === 0 ? placeholder : labels.join(', ');
+  })();
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -482,9 +594,9 @@ export function Select2Multi({ options, values, onChange, placeholder = 'Select.
         {filtered.length === 0 ? <li className="select2-results__option px-3 py-2 text-sm text-text-muted text-center">No results found</li> : filtered.map((opt) => {
           const selected = valuesSafe.includes(opt.value);
           return (
-            <li key={opt.value} role="option" aria-selected={selected} aria-disabled={opt.disabled} onClick={() => !opt.disabled && toggle(opt.value)} className={['select2-results__option px-3 py-2 text-sm transition-colors select-none', opt.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer', selected ? 'bg-ems-accent-dim text-ems-accent font-medium' : 'text-text-primary hover:bg-hover'].filter(Boolean).join(' ')}>
-              <span className="mr-2 text-xs w-4 inline-block text-center">{selected ? '✓' : ''}</span>
-              {opt.label}
+            <li key={opt.value} role="option" aria-selected={selected} aria-disabled={opt.disabled} onClick={() => !opt.disabled && toggle(opt.value)} className={['select2-results__option flex items-start gap-1.5 px-3 py-2 text-sm transition-colors select-none', opt.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer', selected ? 'bg-ems-accent-dim text-ems-accent font-medium' : 'text-text-primary hover:bg-hover'].filter(Boolean).join(' ')}>
+              <span className="mt-0.5 inline-block w-3 shrink-0 text-center text-xs text-ems-accent">{selected ? '✓' : ''}</span>
+              <Select2OptionContent option={opt} selected={selected} />
             </li>
           );
         })}

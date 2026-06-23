@@ -12,7 +12,9 @@ import { InternalMarketsService } from './internal-markets.service';
 @UseGuards(InternalAccessGuard)
 @Controller('internal/markets')
 export class InternalMarketsController {
-  constructor(private readonly internalMarketsService: InternalMarketsService) {}
+  constructor(
+    private readonly internalMarketsService: InternalMarketsService,
+  ) {}
 
   @Get('suggestions')
   suggest(
@@ -30,7 +32,11 @@ export class InternalMarketsController {
     @Query('limit', new DefaultValuePipe(25), ParseIntPipe) limit: number,
   ) {
     const safeLimit = Math.min(100, Math.max(1, limit));
-    return this.internalMarketsService.listPostalCodes(market ?? '', Math.max(0, offset), safeLimit);
+    return this.internalMarketsService.listPostalCodes(
+      market ?? '',
+      Math.max(0, offset),
+      safeLimit,
+    );
   }
 
   @Get()
@@ -40,6 +46,10 @@ export class InternalMarketsController {
     @Query('q') query?: string,
   ) {
     const safeLimit = Math.min(50, Math.max(1, limit));
-    return this.internalMarketsService.listMarkets(Math.max(0, offset), safeLimit, query);
+    return this.internalMarketsService.listMarkets(
+      Math.max(0, offset),
+      safeLimit,
+      query,
+    );
   }
 }

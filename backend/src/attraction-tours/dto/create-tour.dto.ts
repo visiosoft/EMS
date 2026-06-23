@@ -3,12 +3,39 @@ import {
   IsBoolean,
   IsInt,
   IsISO8601,
+  IsArray,
   IsNotEmpty,
   IsOptional,
   IsString,
   MaxLength,
   Min,
+  IsIn,
 } from 'class-validator';
+
+function parseOptionalPositiveId(value: unknown): unknown {
+  if (value === undefined || value === '' || value === null) return value;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : value;
+}
+
+function parsePositiveIdArray(value: unknown): number[] | unknown {
+  if (value === undefined || value === null || value === '') return undefined;
+  const raw =
+    typeof value === 'string'
+      ? (() => {
+          try {
+            const parsed = JSON.parse(value) as unknown;
+            return Array.isArray(parsed) ? parsed : value.split(',');
+          } catch {
+            return value.split(',');
+          }
+        })()
+      : value;
+  if (!Array.isArray(raw)) return raw;
+  return [
+    ...new Set(raw.map(Number).filter((n) => Number.isInteger(n) && n > 0)),
+  ];
+}
 
 export class CreateTourDto {
   @IsString()
@@ -67,14 +94,17 @@ export class CreateTourDto {
   gmr?: boolean;
 
   /** Required on create; multipart sends numbers as strings. */
-  @Transform(({ value }) => {
-    if (value === undefined || value === '' || value === null) return value;
-    const n = Number(value);
-    return Number.isFinite(n) ? n : value;
-  })
+  @Transform(({ value }) => parseOptionalPositiveId(value))
   @IsInt()
   @Min(1)
   talentAgencyCompanyId: number;
+
+  @IsOptional()
+  @Transform(({ value }) => parsePositiveIdArray(value))
+  @IsArray()
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  talentAgentContactIds?: number[];
 
   @IsOptional()
   @IsISO8601()
@@ -83,4 +113,37 @@ export class CreateTourDto {
   @IsOptional()
   @IsISO8601()
   tourEndDate?: string;
+
+  @IsOptional()
+  @IsIn(['All', 'Male', 'Female'])
+  audienceGender?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => parsePositiveIdArray(value))
+  @IsArray()
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  audienceAgeRangeIds?: number[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  jobName?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  tourInsuranceLanguage?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => parseOptionalPositiveId(value))
+  @IsInt()
+  @Min(1)
+  venueTypePreferenceId?: number | null;
+
+  @IsOptional()
+  @Transform(({ value }) => parseOptionalPositiveId(value))
+  @IsInt()
+  @Min(1)
+  techRiderLinkId?: number | null;
 }
