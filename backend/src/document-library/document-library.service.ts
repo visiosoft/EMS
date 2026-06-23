@@ -18,6 +18,13 @@ export type DocumentItem = {
   createdByEmail?: string;
 };
 
+export type CreateFolderResult = {
+  id: string;
+  name: string;
+  webUrl: string;
+  path: string;
+};
+
 type GraphDriveItem = {
   id: string;
   name: string;
@@ -48,16 +55,34 @@ export class DocumentLibraryService {
   private readonly clientId: string;
   private readonly clientSecret: string;
   private readonly oneDriveUser: string;
+  private readonly sharePointSiteHostname: string;
+  private readonly sharePointSitePath: string;
+  private readonly engagementsRootFolder: string;
   private tokenCache: { token: string; expiry: number } | null = null;
+  private sharePointSiteId: string | null = null;
 
   constructor(config: ConfigService) {
     this.tenantId = config.get<string>('ENTRA_TENANT_ID') ?? '';
     this.clientId = config.get<string>('ENTRA_CLIENT_ID') ?? '';
     this.clientSecret = config.get<string>('ENTRA_CLIENT_SECRET') ?? '';
     this.oneDriveUser = config.get<string>('ONEDRIVE_USER') ?? '';
+    this.sharePointSiteHostname = config.get<string>('SHAREPOINT_SITE_HOSTNAME') ?? '';
+    this.sharePointSitePath = config.get<string>('SHAREPOINT_SITE_PATH') ?? '';
+    this.engagementsRootFolder = config.get<string>('SHAREPOINT_ENGAGEMENTS_ROOT_FOLDER') ?? 'Engagements';
   }
 
-  private driveBase(source: DocumentSource): string {
+  private async resolveSiteId(): Promise<string> {
+    if (this.sharePointSiteId) return this.sharePointSiteId;
+    if (this.sharePointSiteHostname && this.sharePointSitePath) {
+      const url = `${GRAPH_BASE}/sites/${this.sharePointSiteHostname}:${this.sharePointSitePath}`;
+      const data = await this.graphGet<{ id: string }>(url);
+      this.sharePointSiteId = data.id;
+      return this.sharePointSiteId;
+    }
+    return 'root';
+  }
+
+  private async driveBase(source: DocumentSource): Promise<string> {
     if (source === 'onedrive') {
       if (!this.oneDriveUser) {
         throw new Error(
@@ -66,7 +91,8 @@ export class DocumentLibraryService {
       }
       return `${GRAPH_BASE}/users/${encodeURIComponent(this.oneDriveUser)}/drive`;
     }
-    return `${GRAPH_BASE}/sites/root/drive`;
+    const siteId = await this.resolveSiteId();
+    return `${GRAPH_BASE}/sites/${siteId}/drive`;
   }
 
   private getCacheKey(endpoint: string): string {
@@ -152,8 +178,8 @@ export class DocumentLibraryService {
     return (await response.json()) as T;
   }
 
-  private buildChildrenUrl(source: DocumentSource, relativePath?: string): string {
-    const base = this.driveBase(source);
+  private async buildChildrenUrl(source: DocumentSource, relativePath?: string): Promise<string> {
+    const base = await this.driveBase(source);
     if (!relativePath || relativePath === '') {
       return `${base}/root/children?${DRIVE_ITEM_SELECT}`;
     }
@@ -167,7 +193,7 @@ export class DocumentLibraryService {
     if (cached) return cached;
 
     try {
-      const data = await this.graphGet<GraphDriveItem>(`${this.driveBase(source)}/root?${DRIVE_ITEM_SELECT}`);
+      const data = await this.graphGet<GraphDriveItem>(`${await this.driveBase(source)}/root?${DRIVE_ITEM_SELECT}`);
       const result = this.normalizeItem(data, '');
       this.setCache(cacheKey, result);
       return result;
@@ -214,7 +240,7 @@ export class DocumentLibraryService {
     const cached = this.getFromCache<DocumentItem[]>(cacheKey);
     if (cached) return cached;
 
-    const url = this.buildChildrenUrl(source, relativePath);
+    const url = await this.buildChildrenUrl(source, relativePath);
     this.logger.log(`[GraphAPI] getFolderContents URL: ${url}`);
     try {
       const data = await this.graphGet<GraphChildrenResponse>(url);
@@ -232,7 +258,7 @@ export class DocumentLibraryService {
     source: DocumentSource = 'sharepoint',
   ): Promise<{ stream: ReadableStream<Uint8Array>; contentType: string; contentLength: string | null; filename: string }> {
     const token = await this.acquireAppToken();
-    const url = `${this.driveBase(source)}/items/${encodeURIComponent(id)}/content`;
+    const url = `${await this.driveBase(source)}/items/${encodeURIComponent(id)}/content`;
     this.logger.log(`[GraphAPI] downloadItem URL: ${url}`);
 
     // `fetch` follows the 302 Graph returns to the pre-authenticated download URL.
@@ -282,6 +308,128 @@ export class DocumentLibraryService {
       }
     });
     keysToDelete.forEach((key) => this.cache.delete(key));
+  }
+
+  // ─── Folder creation ────────────────────────────────────────────────────
+
+  /**
+   * Create (or retrieve existing) folder at the given path.
+   * Uses PUT which is idempotent — returns the existing folder if already present.
+   */
+  async createFolder(
+    parentPath: string,
+    folderName: string,
+    source: DocumentSource = 'sharepoint',
+  ): Promise<CreateFolderResult> {
+    const token = await this.acquireAppToken();
+    const base = await this.driveBase(source);
+    const encodedName = encodeURIComponent(folderName);
+    const encodedParent = parentPath.split('/').filter(Boolean).map(s => encodeURIComponent(s)).join('/');
+    const url = encodedParent
+      ? `${base}/root:/${encodedParent}/${encodedName}:`
+      : `${base}/root:/${encodedName}:`;
+
+    const body = JSON.stringify({ name: folderName, folder: {} });
+    this.logger.log(`[GraphAPI] createFolder PUT ${url}`);
+
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '(failed to read body)');
+      let graphMessage = errorText;
+      try {
+        const parsed = JSON.parse(errorText) as { error?: { message?: string } };
+        if (parsed?.error?.message) graphMessage = parsed.error.message;
+      } catch { /* use raw text */ }
+
+      if (response.status === 409) {
+        this.logger.log(`[GraphAPI] Folder "${folderName}" already exists, fetching existing item`);
+        const getUrl = encodedParent
+          ? `${base}/root:/${encodedParent}/${encodedName}`
+          : `${base}/root:/${encodedName}`;
+        const getRes = await fetch(getUrl, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!getRes.ok) {
+          this.logger.error(`[GraphAPI] Failed to fetch existing folder (${getRes.status}): ${await getRes.text().catch(() => '')}`);
+          const err = new Error(graphMessage);
+          (err as any).status = response.status;
+          (err as any).statusText = response.statusText;
+          (err as any).body = errorText;
+          throw err;
+        }
+        const existing = (await getRes.json()) as GraphDriveItem;
+        const fullPath = parentPath ? `${parentPath}/${folderName}` : folderName;
+        this.logger.log(`[GraphAPI] Using existing folder: ${existing.webUrl}`);
+        this.invalidateCache(parentPath);
+        return {
+          id: existing.id,
+          name: existing.name,
+          webUrl: existing.webUrl ?? '',
+          path: fullPath,
+        };
+      }
+
+      this.logger.error(`[GraphAPI] createFolder failed (${response.status}): ${errorText}`);
+      const err = new Error(graphMessage);
+      (err as any).status = response.status;
+      (err as any).statusText = response.statusText;
+      (err as any).body = errorText;
+      throw err;
+    }
+
+    const data = (await response.json()) as GraphDriveItem;
+    const fullPath = parentPath ? `${parentPath}/${folderName}` : folderName;
+    this.logger.log(`[GraphAPI] Folder created: ${data.webUrl}`);
+
+    this.invalidateCache(parentPath);
+
+    return {
+      id: data.id,
+      name: data.name,
+      webUrl: data.webUrl ?? '',
+      path: fullPath,
+    };
+  }
+
+  /**
+   * Ensures an entire folder hierarchy exists, creating each missing level.
+   * Example: ensureFolderHierarchy(["2026", "New York", "Coldplay", "Contracts", "Tour"])
+   * will create each segment if it doesn't already exist.
+   */
+  async ensureFolderHierarchy(
+    hierarchy: string[],
+    source: DocumentSource = 'sharepoint',
+  ): Promise<{ path: string; id: string; webUrl: string }> {
+    let accumulatedPath = '';
+    let lastResult: { id: string; name: string; webUrl: string; path: string } | null = null;
+
+    for (const segment of hierarchy) {
+      const folderName = segment.trim();
+      if (!folderName) continue;
+      try {
+        lastResult = await this.createFolder(accumulatedPath, folderName, source);
+        accumulatedPath = lastResult.path;
+      } catch (err) {
+        this.logger.error(
+          `[GraphAPI] Failed to create folder "${folderName}" under "${accumulatedPath || 'root'}": ${err instanceof Error ? err.message : String(err)}`,
+        );
+        throw err;
+      }
+    }
+
+    return {
+      path: lastResult?.path ?? '',
+      id: lastResult?.id ?? '',
+      webUrl: lastResult?.webUrl ?? '',
+    };
   }
 
   private normalizeItem(item: GraphDriveItem, parentPath: string): DocumentItem {

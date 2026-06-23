@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { Modal, FormField, TabBar } from './Primitives';
 import { EngagementSalesDashboardPanel } from './EngagementSalesDashboardPanel';
+import { EngagementDocumentsTab } from './EngagementDocumentsTab';
 import { Select2, type Select2Option } from './Select2';
 import { SeatingChartDiagram } from './SeatingChartDiagram';
 import { companyToSelect2Option, companyToSelect2Options } from './companySelectOptions';
@@ -10433,6 +10434,7 @@ export function EngagementDetailPage({
 
   const handleTabChange = (nextTab: string) => {
     if (nextTab === tab) return;
+    if (nextTab === 'Documents' && row?.engagementStatus !== 'Confirmed') return;
     if (currentTabHasUnsavedChanges) {
       setPendingTab(nextTab);
       setShowUnsavedTabAlert(true);
@@ -10780,6 +10782,7 @@ export function EngagementDetailPage({
           'Main Information',
           'Booking',
           'Venues',
+          { label: 'Documents', disabled: row?.engagementStatus !== 'Confirmed', disabledReason: 'SharePoint folders are only available for Confirmed engagements.' },
           'Service Providers',
           'Contacts',
           'Performances',
@@ -11045,6 +11048,16 @@ export function EngagementDetailPage({
             engagementId={engagementId}
             addToast={addToast}
             onNavigate={onNavigate}
+          />
+        </div>
+      )}
+
+      {/* ── Documents (SharePoint) ───────────────────────────────────────── */}
+      {tab === 'Documents' && (
+        <div className="bg-card border border-border rounded-lg p-5">
+          <EngagementDocumentsTab
+            engagementId={engagementId}
+            addToast={addToast}
           />
         </div>
       )}
