@@ -7,16 +7,21 @@ import * as path from 'path';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { TOUR_BANNER_UPLOAD_DIR } from './attraction-tours/tour-banner-multer.config';
+import { SEATING_CHART_UPLOAD_DIR } from './engagements/seating-chart-multer.config';
 
 const DEFAULT_PORT = 3001;
 
 async function bootstrap() {
   fs.mkdirSync(TOUR_BANNER_UPLOAD_DIR, { recursive: true });
+  fs.mkdirSync(SEATING_CHART_UPLOAD_DIR, { recursive: true });
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const logger = new Logger('Bootstrap');
 
   app.useStaticAssets(TOUR_BANNER_UPLOAD_DIR, {
     prefix: '/uploads/tour-banners/',
+  });
+  app.useStaticAssets(SEATING_CHART_UPLOAD_DIR, {
+    prefix: '/uploads/seating-charts/',
   });
   app.enableCors();
   app.setGlobalPrefix('api');

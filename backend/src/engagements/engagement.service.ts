@@ -6392,6 +6392,74 @@ export class EngagementService {
     }
   }
 
+  // ── Seating Chart upload (Venue.SeatingChartLinkID → dbo.Link) ──────────────
+
+  async uploadSeatingChart(
+    engagementId: number,
+    venueCompanyId: number,
+    file: Express.Multer.File,
+  ): Promise<{ seatingChartLinkId: number; seatingChartLinkUrl: string }> {
+    await this.assertEngagementExists(engagementId);
+    const ev = await this.engagementVenueRepo.findOne({
+      where: { engagementId, venueCompanyId },
+    });
+    if (!ev) throw new NotFoundException({ message: 'Venue not linked to this engagement.' });
+
+    if (!file?.filename?.trim()) {
+      throw new BadRequestException({ message: 'Upload did not produce a filename.' });
+    }
+
+    const publicPath = `/uploads/seating-charts/${file.filename}`.slice(0, 2048);
+    const safeName = (file.originalname || 'Seating Chart')
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\x00-\x1f]/g, '')
+      .slice(0, 255);
+
+    const venue = await this.venueRepo.findOne({ where: { companyId: venueCompanyId } });
+    if (!venue) throw new NotFoundException({ message: 'Venue not found.' });
+
+    if (venue.seatingChartLinkId) {
+      // Update existing Link row
+      await this.linkRepo.update(venue.seatingChartLinkId, {
+        linkUrl: publicPath,
+        linkPath: publicPath.slice(0, 1024),
+        linkName: safeName || 'Seating Chart',
+      });
+      return { seatingChartLinkId: venue.seatingChartLinkId, seatingChartLinkUrl: publicPath };
+    }
+
+    // Create a new Link row and assign to Venue
+    const newLink = this.linkRepo.create({
+      linkType: 'Image',
+      linkUrl: publicPath,
+      linkPath: publicPath.slice(0, 1024),
+      linkName: safeName || 'Seating Chart',
+    });
+    const savedLink = await this.linkRepo.save(newLink);
+    venue.seatingChartLinkId = savedLink.linkId;
+    await this.venueRepo.save(venue);
+    return { seatingChartLinkId: savedLink.linkId, seatingChartLinkUrl: publicPath };
+  }
+
+  async removeSeatingChart(
+    engagementId: number,
+    venueCompanyId: number,
+  ): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+    const ev = await this.engagementVenueRepo.findOne({
+      where: { engagementId, venueCompanyId },
+    });
+    if (!ev) throw new NotFoundException({ message: 'Venue not linked to this engagement.' });
+
+    const venue = await this.venueRepo.findOne({ where: { companyId: venueCompanyId } });
+    if (!venue) throw new NotFoundException({ message: 'Venue not found.' });
+
+    if (venue.seatingChartLinkId) {
+      venue.seatingChartLinkId = null;
+      await this.venueRepo.save(venue);
+    }
+  }
+
   // ── Engagement Link management (contracts / forecast) ──────────────────────
 
   async upsertEngagementLink(

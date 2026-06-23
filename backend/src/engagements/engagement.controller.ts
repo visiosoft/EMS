@@ -11,7 +11,11 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { seatingChartMulterOptions } from './seating-chart-multer.config';
 import { AddEngagementVenueDto } from './dto/add-engagement-venue.dto';
 import { UpdateEngagementVenueTabDto } from './dto/update-engagement-venue-tab.dto';
 import { CreateEngagementDto } from './dto/create-engagement.dto';
@@ -254,6 +258,28 @@ export class EngagementController {
     @Body() dto: UpdateEngagementVenueTabDto,
   ) {
     return this.engagementService.updateVenueTabPerVenue(id, venueCompanyId, dto);
+  }
+
+  /** Upload a seating chart file/image for a venue (stored via dbo.Link + Venue.SeatingChartLinkID). */
+  @Post(':id/venues/:venueCompanyId/seating-chart')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('seatingChart', seatingChartMulterOptions()))
+  uploadSeatingChart(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('venueCompanyId', ParseIntPipe) venueCompanyId: number,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.engagementService.uploadSeatingChart(id, venueCompanyId, file);
+  }
+
+  /** Remove the seating chart from a venue (clears Venue.SeatingChartLinkID). */
+  @Delete(':id/venues/:venueCompanyId/seating-chart')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeSeatingChart(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('venueCompanyId', ParseIntPipe) venueCompanyId: number,
+  ) {
+    return this.engagementService.removeSeatingChart(id, venueCompanyId);
   }
 
   /** Upsert an engagement link (for contracts/forecast via dbo.EngagementLink). */

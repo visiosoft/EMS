@@ -9,7 +9,7 @@
  *
  * dbo.EngagementVenue: EngagementID, VenueCompanyID, IsPrimary
  */
-import { apiFetch } from './config';
+import { apiFetch, apiFetchMultipart } from './config';
 
 export interface ApiEngagementListRow {
   engagementId: number;
@@ -790,6 +790,16 @@ export const fetchEngagementVenues = (id: number) => apiFetch<ApiEngagementVenue
 export const fetchEngagementVenueTabData = (id: number) => apiFetch<ApiEngagementVenueTabData>(`/engagements/${id}/venue-tab-data`);
 export const updateEngagementVenueTab = (id: number, venueCompanyId: number, body: UpdateEngagementVenueTabPayload) =>
   apiFetch<void>(`/engagements/${id}/venues/${venueCompanyId}/tab`, { method: 'PATCH', body: JSON.stringify(body) });
+export const uploadVenueSeatingChart = (id: number, venueCompanyId: number, file: File) => {
+  const fd = new FormData();
+  fd.append('seatingChart', file);
+  return apiFetchMultipart<{ seatingChartLinkId: number; seatingChartLinkUrl: string }>(
+    `/engagements/${id}/venues/${venueCompanyId}/seating-chart`,
+    { method: 'POST', body: fd },
+  );
+};
+export const removeVenueSeatingChart = (id: number, venueCompanyId: number) =>
+  apiFetch<void>(`/engagements/${id}/venues/${venueCompanyId}/seating-chart`, { method: 'DELETE' });
 export const upsertEngagementLink = (id: number, body: { linkUrl: string; linkName?: string; linkPurpose: string }) =>
   apiFetch<{ engagementLinkId: number; linkId: number }>(`/engagements/${id}/links`, { method: 'POST', body: JSON.stringify(body) });
 export const removeEngagementLink = (id: number, engagementLinkId: number) =>
