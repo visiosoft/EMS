@@ -1592,27 +1592,6 @@ function TourDrawer({
               allowClear
             />
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <InlineSelectField
-                label="Audience Gender"
-                value={audienceGender}
-                onChange={mark(setAudienceGender)}
-                options={[...AUDIENCE_GENDER_OPTIONS]}
-                allowClear
-                error={tourFieldErrors.audienceGender}
-              />
-              <FormField label="Audience Age Range">
-                <Select2Multi
-                  options={ageRangeOptions}
-                  values={audienceAgeRangeIds}
-                  onChange={(values) => {
-                    setAudienceAgeRangeIds(values);
-                    setTourFieldErrors({});
-                    setDirty(true);
-                  }}
-                  placeholder="Select one or more age ranges…"
-                  disabled={saving}
-                />
-              </FormField>
               <InlineField
                 label="Tour Job"
                 value={jobName}

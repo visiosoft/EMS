@@ -75,7 +75,6 @@ import {
   deleteRetailPartner,
   fetchMarketingMeta,
   updateIaeMarketingTeam,
-  updateTourMarketingTeam,
   fetchEngagementTravel,
   addEngagementTravelHotel,
   updateEngagementTravelHotel,
@@ -3746,6 +3745,9 @@ function EngagementMainInformationPanel({
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performances'] });
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'iae-contacts'] });
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'service-providers'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venue-tab-data'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venue-details'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'marketing-meta'] });
       await qc.invalidateQueries({ queryKey: ['companies'] });
       if (selectedVenueId != null) {
         await qc.invalidateQueries({ queryKey: ['companies', 'detail', selectedVenueId] });
@@ -4783,12 +4785,12 @@ function EngagementBookingPanel({
   // Only IAE staff assigned to this engagement (Overview → staff assignments)
   // with the matching role appear in each picker.
   const iaeRowsByKey = useMemo(() => {
-    const result: Partial<Record<'talentBuyer' | 'bookingManager', typeof iaeContactsQuery.data extends (infer U)[] | undefined ? U : never>> = {};
+    const result: Record<'talentBuyer' | 'bookingManager', string> = { talentBuyer: '', bookingManager: '' };
     for (const field of BOOKING_IAE_STAFF_FIELDS) {
       const roleId = roleIdsByKey[field.key];
       if (roleId == null) continue;
-      const match = (iaeContactsQuery.data ?? []).find((r) => r.roleId === roleId);
-      if (match) result[field.key] = match;
+      const matches = (iaeContactsQuery.data ?? []).filter((r) => r.roleId === roleId);
+      result[field.key] = matches.map((r) => r.contactLabel).join(', ');
     }
     return result;
   }, [iaeContactsQuery.data, roleIdsByKey]);
@@ -4895,10 +4897,13 @@ function EngagementBookingPanel({
   const venueBookingProgrammingContacts = useMemo(() => {
     const d = venueDetailsQuery.data;
     if (!d || d.missing) return [];
-    const entries: { role: string; name: string }[] = [];
-    for (const c of d.rentalManagers ?? []) entries.push({ role: 'Rental Manager', name: c.fullName });
-    for (const c of d.calendarManagers ?? []) entries.push({ role: 'Calendar Manager', name: c.fullName });
-    for (const c of d.contractManagers ?? []) entries.push({ role: 'Contracts Manager', name: c.fullName });
+    const entries: { role: string; names: string }[] = [];
+    const rentalNames = (d.rentalManagers ?? []).map((c) => c.fullName).filter(Boolean);
+    const calendarNames = (d.calendarManagers ?? []).map((c) => c.fullName).filter(Boolean);
+    const contractNames = (d.contractManagers ?? []).map((c) => c.fullName).filter(Boolean);
+    if (rentalNames.length) entries.push({ role: 'Rental Manager', names: rentalNames.join(', ') });
+    if (calendarNames.length) entries.push({ role: 'Calendar Manager', names: calendarNames.join(', ') });
+    if (contractNames.length) entries.push({ role: 'Contracts Manager', names: contractNames.join(', ') });
     return entries;
   }, [venueDetailsQuery.data]
   );
@@ -5097,11 +5102,11 @@ function EngagementBookingPanel({
           {sectionTitle('IAE Booking')}
           {fieldRow(
             'IAE Talent Buyer',
-            <span className="text-sm text-text-primary">{iaeRowsByKey.talentBuyer?.contactLabel ?? '— not set —'}</span>,
+            <span className="text-sm text-text-primary">{iaeRowsByKey.talentBuyer || '— not set —'}</span>,
           )}
           {fieldRow(
             'IAE Booking Manager',
-            <span className="text-sm text-text-primary">{iaeRowsByKey.bookingManager?.contactLabel ?? '— not set —'}</span>,
+            <span className="text-sm text-text-primary">{iaeRowsByKey.bookingManager || '— not set —'}</span>,
           )}
           <p className="text-xs text-text-muted">Managed in the Main Information tab under "Innovation Arts Staff Assignments".</p>
         </div>
@@ -5122,7 +5127,7 @@ function EngagementBookingPanel({
               {venueBookingProgrammingContacts.map((c, i) => (
                 <div key={i} className="flex items-center gap-2 text-sm">
                   <span className="text-text-muted min-w-[140px]">{c.role}:</span>
-                  <span className="text-text-primary">{c.name}</span>
+                  <span className="text-text-primary">{c.names}</span>
                 </div>
               ))}
             </div>
@@ -6508,54 +6513,16 @@ function EngagementMarketingPanel({
     return roleMap;
   }, [iaeEngagementContactsQuery.data]);
 
-  // ── IAE contact lookups (used by Tour Marketing Team) ──────────────
-  const iaeContactLookupsQuery = useQuery({
-    queryKey: ['engagements', 'iae-contact-lookups'],
-    queryFn: fetchEngagementIaeContactLookups,
-    staleTime: 300_000,
-  });
-
-  const iaeMarketingContactOptions = useMemo<Select2Option[]>(
-    () => [
-      { value: '', label: 'Not set' },
-      ...(iaeContactLookupsQuery.data?.contacts ?? []).map((c) => ({
-        value: String(c.id),
-        label: c.label,
-      })),
-    ],
-    [iaeContactLookupsQuery.data],
-  );
-
-  // ── Tour Marketing Team ──────────────────────────────────────────────
-  const [tourMarketingDirectorId, setTourMarketingDirectorId] = useState('');
-  const [tourMarketingManagerId, setTourMarketingManagerId] = useState('');
-
-  useEffect(() => {
-    const d = marketingMetaQuery.data;
-    if (!d) return;
-    setTourMarketingDirectorId(d.tourMarketingDirectorContactId != null ? String(d.tourMarketingDirectorContactId) : '');
-    setTourMarketingManagerId(d.tourMarketingManagerContactId != null ? String(d.tourMarketingManagerContactId) : '');
-  }, [marketingMetaQuery.data]);
-
-  const {
-    hasUserEdited: hasTourMarketingTeamEdited,
-    markUserEdited: markTourMarketingTeamEdited,
-    clearUserEdited: clearTourMarketingTeamEdited,
-  } = useUserEditTracker(`tour-marketing-team:${engagementId}`);
-
-  const saveTourMarketingTeamMut = useMutation({
-    mutationFn: () =>
-      updateTourMarketingTeam(engagementId, {
-        tourMarketingDirectorContactId: tourMarketingDirectorId ? Number(tourMarketingDirectorId) : null,
-        tourMarketingManagerContactId: tourMarketingManagerId ? Number(tourMarketingManagerId) : null,
-      }),
-    onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'marketing-meta'] });
-      clearTourMarketingTeamEdited();
-      addToast('Tour Marketing Team saved.', 'success');
-    },
-    onError: (e: unknown) => addToast(friendlyApiError(e, 'Could not save Tour Marketing Team.'), 'error'),
-  });
+  // ── Tour Marketing Team (read-only from tour contacts) ─────────────────────
+  const tourMarketingContacts = useMemo(() => {
+    const contacts = marketingMetaQuery.data?.tourMarketingContacts ?? [];
+    const entries: { role: string; names: string }[] = [];
+    const directors = contacts.filter((c) => (c.roleName ?? '').toLowerCase() === 'marketing director').map((c) => c.contactName).filter(Boolean);
+    const managers = contacts.filter((c) => (c.roleName ?? '').toLowerCase() === 'marketing manager').map((c) => c.contactName).filter(Boolean);
+    if (directors.length) entries.push({ role: 'Marketing Director', names: directors.join(', ') });
+    if (managers.length) entries.push({ role: 'Marketing Manager', names: managers.join(', ') });
+    return entries;
+  }, [marketingMetaQuery.data?.tourMarketingContacts]);
 
   const [newRetailPartnerCompanyId, setNewRetailPartnerCompanyId] = useState('');
   const [newRetailPartnerCompanyTypeId, setNewRetailPartnerCompanyTypeId] = useState('');
@@ -6880,7 +6847,7 @@ function EngagementMarketingPanel({
   const marketingBudgetSaveDisabled =
     saveBudgetMut.isPending || financeQuery.isLoading || !marketingBudgetDirty;
 
-  // ── Venue Marketing Team (moved here from the Venues tab) ─────────────────
+  // ── Venue Marketing Team (read-only from venue-details) ─────────────────
   const venueMktVenue = useMemo(
     () =>
       (venueTabQuery.data?.venues ?? []).find((v) => v.isPrimary) ??
@@ -6889,46 +6856,21 @@ function EngagementMarketingPanel({
     [venueTabQuery.data?.venues],
   );
   const venueMktCompanyId = venueMktVenue?.venueCompanyId ?? null;
-  const venueMktContactsQuery = useQuery({
-    queryKey: ['company-contacts', venueMktCompanyId],
-    queryFn: () => fetchCompanyContacts(venueMktCompanyId!),
-    enabled: venueMktCompanyId != null && venueMktCompanyId > 0,
-    staleTime: 60_000,
-  });
-  const venueMktContactOptions = useMemo<Select2Option[]>(
-    () => [
-      { value: '', label: 'Not set' },
-      ...(venueMktContactsQuery.data ?? []).map((c) => ({
-        value: String(c.contactId),
-        label: `${c.firstName} ${c.lastName}`.trim() || c.contactId.toString(),
-      })),
-    ],
-    [venueMktContactsQuery.data],
-  );
-  const [venueMktDirectorId, setVenueMktDirectorId] = useState('');
-  const [venueMktManagerId, setVenueMktManagerId] = useState('');
-  const [venueMktDigitalId, setVenueMktDigitalId] = useState('');
-  useEffect(() => {
-    const v = venueMktVenue;
-    setVenueMktDirectorId(v?.venueMarketingDirectorContactId != null ? String(v.venueMarketingDirectorContactId) : '');
-    setVenueMktManagerId(v?.venueMarketingManagerContactId != null ? String(v.venueMarketingManagerContactId) : '');
-    setVenueMktDigitalId(v?.venueDigitalMarketingManagerContactId != null ? String(v.venueDigitalMarketingManagerContactId) : '');
-  }, [venueMktVenue]);
-  const saveVenueMktMut = useMutation({
-    mutationFn: () => {
-      if (venueMktCompanyId == null) throw new Error('No venue linked to this engagement.');
-      return updateEngagementVenueTab(engagementId, venueMktCompanyId, {
-        venueMarketingDirectorContactId: venueMktDirectorId ? Number(venueMktDirectorId) : null,
-        venueMarketingManagerContactId: venueMktManagerId ? Number(venueMktManagerId) : null,
-        venueDigitalMarketingManagerContactId: venueMktDigitalId ? Number(venueMktDigitalId) : null,
-      });
-    },
-    onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venue-tab-data'] });
-      addToast('Venue marketing team saved.', 'success');
-    },
-    onError: (e) => addToast(friendlyApiError(e, 'Could not save venue marketing team.'), 'error'),
-  });
+  const venueMarketingContacts = useMemo(() => {
+    if (venueMktCompanyId == null) return [];
+    const rc = venueTabQuery.data?.venueRoleContacts?.[venueMktCompanyId];
+    if (!rc) return [];
+    const entries: { role: string; names: string }[] = [];
+    const toNames = (list: { firstName: string; lastName: string }[]) =>
+      list.map((c) => `${c.firstName} ${c.lastName}`.trim()).filter(Boolean);
+    const directors = toNames(rc.marketingDirector ?? []);
+    const managers = toNames(rc.marketingManager ?? []);
+    const digitalManagers = toNames(rc.digitalMarketingManager ?? []);
+    if (directors.length) entries.push({ role: 'Marketing Director', names: directors.join(', ') });
+    if (managers.length) entries.push({ role: 'Marketing Manager', names: managers.join(', ') });
+    if (digitalManagers.length) entries.push({ role: 'Digital Marketing Manager', names: digitalManagers.join(', ') });
+    return entries;
+  }, [venueTabQuery.data?.venueRoleContacts, venueMktCompanyId]);
 
   const fieldRow = (label: string, control: React.ReactNode) => (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-6 min-w-0">
@@ -7553,9 +7495,9 @@ function EngagementMarketingPanel({
           )}
         </div>
 
-        {/* ── Venue Marketing Team (editable, per primary venue) ── */}
-        <div className="rounded-lg border border-border bg-surface/40 p-4">
-          <div className="mb-3 flex items-baseline justify-between gap-2">
+        {/* ── Venue Marketing Team (read-only, from venue company profile) ── */}
+        <div className="rounded-lg border border-border bg-surface/40 p-4 space-y-3">
+          <div className="flex items-baseline justify-between gap-2">
             <h4 className="text-sm font-semibold text-text-primary">Venue Marketing Team</h4>
             {venueMktVenue?.venueCompanyName && (
               <span className="text-xs text-text-muted">{venueMktVenue.venueCompanyName}</span>
@@ -7563,101 +7505,45 @@ function EngagementMarketingPanel({
           </div>
           {venueMktCompanyId == null ? (
             <p className="text-sm text-text-muted">No venue is linked to this engagement.</p>
+          ) : venueTabQuery.isLoading ? (
+            <div className="flex items-center gap-2 text-sm text-text-muted">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading venue contacts…
+            </div>
+          ) : venueMarketingContacts.length === 0 ? (
+            <p className="text-sm text-text-muted">No marketing contacts set on this venue.</p>
           ) : (
-            <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <FormField label="Venue Marketing Director">
-                  <Select2
-                    options={venueMktContactOptions}
-                    value={venueMktDirectorId}
-                    onChange={setVenueMktDirectorId}
-                    placeholder="Select contact…"
-                    allowClear
-                    disabled={saveVenueMktMut.isPending}
-                  />
-                </FormField>
-                <FormField label="Venue Marketing Manager">
-                  <Select2
-                    options={venueMktContactOptions}
-                    value={venueMktManagerId}
-                    onChange={setVenueMktManagerId}
-                    placeholder="Select contact…"
-                    allowClear
-                    disabled={saveVenueMktMut.isPending}
-                  />
-                </FormField>
-                <FormField label="Venue Digital Marketing Manager">
-                  <Select2
-                    options={venueMktContactOptions}
-                    value={venueMktDigitalId}
-                    onChange={setVenueMktDigitalId}
-                    placeholder="Select contact…"
-                    allowClear
-                    disabled={saveVenueMktMut.isPending}
-                  />
-                </FormField>
-              </div>
-              <div className="flex justify-end mt-3">
-                <Button
-                  type="button"
-                  size="sm"
-                  className="bg-ems-accent text-white hover:opacity-90"
-                  onClick={() => saveVenueMktMut.mutate()}
-                  disabled={saveVenueMktMut.isPending}
-                >
-                  {saveVenueMktMut.isPending ? (
-                    <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
-                  ) : 'Save venue marketing team'}
-                </Button>
-              </div>
-            </>
+            <div className="space-y-1">
+              {venueMarketingContacts.map((c, i) => (
+                <div key={i} className="flex items-center gap-2 text-sm">
+                  <span className="text-text-muted min-w-[220px]">{c.role}:</span>
+                  <span className="text-text-primary">{c.names}</span>
+                </div>
+              ))}
+            </div>
           )}
+          <p className="text-xs text-text-muted">Managed in the venue's company profile.</p>
         </div>
 
-        {/* ── Tour Marketing Team (editable) ── */}
-        <div className="rounded-lg border border-border bg-surface/40 p-4">
-          <h4 className="text-sm font-semibold text-text-primary mb-3">Tour Marketing Team</h4>
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-            {fieldRow(
-              'Marketing Director',
-              <Select2
-                options={iaeMarketingContactOptions}
-                value={tourMarketingDirectorId}
-                onChange={(v) => { markTourMarketingTeamEdited(); setTourMarketingDirectorId(v); }}
-                placeholder="Select contact…"
-                allowClear
-                disabled={saveTourMarketingTeamMut.isPending}
-              />,
-            )}
-            {fieldRow(
-              'Marketing Manager',
-              <Select2
-                options={iaeMarketingContactOptions}
-                value={tourMarketingManagerId}
-                onChange={(v) => { markTourMarketingTeamEdited(); setTourMarketingManagerId(v); }}
-                placeholder="Select contact…"
-                allowClear
-                disabled={saveTourMarketingTeamMut.isPending}
-              />,
-            )}
-          </div>
-          <div className="mt-4 flex justify-end border-t border-border pt-3">
-            <Button
-              type="button"
-              className="bg-ems-accent text-white hover:opacity-90"
-              onClick={() => saveTourMarketingTeamMut.mutate()}
-              disabled={saveTourMarketingTeamMut.isPending || !hasTourMarketingTeamEdited}
-            >
-              {saveTourMarketingTeamMut.isPending ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Saving…
-                </span>
-              ) : (
-                'Save tour marketing team'
-              )}
-            </Button>
-          </div>
+        {/* ── Tour Marketing Team (read-only from tour contacts) ── */}
+        <div className="rounded-lg border border-border bg-surface/40 p-4 space-y-3">
+          <h4 className="text-sm font-semibold text-text-primary">Tour Marketing Team</h4>
+          {marketingMetaQuery.isLoading ? (
+            <div className="flex items-center gap-2 text-sm text-text-muted">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+            </div>
+          ) : tourMarketingContacts.length === 0 ? (
+            <p className="text-sm text-text-muted">No marketing contacts assigned to this tour.</p>
+          ) : (
+            <div className="space-y-1">
+              {tourMarketingContacts.map((c, i) => (
+                <div key={i} className="flex items-center gap-2 text-sm">
+                  <span className="text-text-muted min-w-[220px]">{c.role}:</span>
+                  <span className="text-text-primary">{c.names}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-text-muted">Managed in the tour's talent agency company contacts.</p>
         </div>
 
         {/* ── Tour Audience Demographic (read-only from dbo.Tour + TourAudienceAgeRange) ── */}
@@ -7685,9 +7571,9 @@ function EngagementMarketingPanel({
                   <div className="flex flex-wrap gap-2">
                     {[...(marketingMetaQuery.data?.tourAudienceDemographics ?? [])]
                       .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-                      .map((d) => (
+                      .map((d, i) => (
                         <span
-                          key={d.ageRangeId}
+                          key={d.ageRangeId ?? i}
                           className="rounded-full border border-border bg-surface px-3 py-0.5 text-xs font-medium text-text-primary"
                         >
                           {d.ageRangeLabel}
@@ -7954,7 +7840,7 @@ function EngagementTicketingPanel({
       ticketingSystemCompanyId: fkIdStringToNumber(ticketingSystemCompanyId),
       ticketingAdministrator: ticketingAdministrator.trim() || null,
       ticketingAdminContactId: fkIdStringToNumber(ticketingAdminContactId),
-      ticketingAdminCompanyId: fkIdStringToNumber(ticketingAdminCompanyId),
+      ticketingAdminCompanyId: fkIdStringToNumber(ticketingSystemCompanyId),
       boxOfficeLaborStaffingRequired: ticketingAdministrator === 'IAE Contract' ? boolStr(boxOfficeLaborStaffingRequired) : null,
       isIAETMDeal: boolStr(isIAETMDeal),
       ticketingLinkUrl: ticketingLinkUrl.trim() || null,
@@ -7978,7 +7864,7 @@ function EngagementTicketingPanel({
       ticketingSystemCompanyId: d.ticketingSystemCompanyId ?? null,
       ticketingAdministrator: (d.ticketingAdministrator ?? '').trim() || null,
       ticketingAdminContactId: d.ticketingAdminContactId ?? null,
-      ticketingAdminCompanyId: d.ticketingAdminCompanyId ?? null,
+      ticketingAdminCompanyId: d.ticketingSystemCompanyId ?? null,
       boxOfficeLaborStaffingRequired: d.ticketingAdministrator === 'IAE Contract' ? (d.boxOfficeLaborStaffingRequired ?? null) : null,
       isIAETMDeal: d.isIAETMDeal ?? null,
       ticketingLinkUrl: (d.ticketingLinkUrl ?? '').trim() || null,
@@ -8126,7 +8012,7 @@ function EngagementTicketingPanel({
         ticketingSystemCompanyId: fkIdStringToNumber(ticketingSystemCompanyId),
         ticketingAdministrator: ticketingAdministrator.trim() ? (ticketingAdministrator as 'Venue' | 'Partner' | 'IAE Contract') : null,
         ticketingAdminContactId: fkIdStringToNumber(ticketingAdminContactId),
-        ticketingAdminCompanyId: fkIdStringToNumber(ticketingAdminCompanyId),
+        ticketingAdminCompanyId: fkIdStringToNumber(ticketingSystemCompanyId),
         boxOfficeLaborStaffingRequired: ticketingAdministrator === 'IAE Contract' ? boolStr(boxOfficeLaborStaffingRequired) : null,
         isIAETMDeal: boolStr(isIAETMDeal),
         ticketingLinkUrl: ticketingLinkUrl.trim() || null,
@@ -8784,8 +8670,13 @@ function EngagementOverviewIaeStaffSection({
   }, [lookupsQuery.data?.departments]);
 
   const invalidateList = async () => {
-    await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'iae-contacts'] });
-    await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'iae-contacts'] }),
+      qc.invalidateQueries({ queryKey: ['engagements', engagementId] }),
+      qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'marketing-meta'] }),
+      qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venue-tab-data'] }),
+      qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] }),
+    ]);
   };
 
   const addMut = useMutation({

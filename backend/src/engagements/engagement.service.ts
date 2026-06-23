@@ -178,6 +178,9 @@ export interface VenueRoleContacts {
   venueProductionManager: RoleContactDisplay[];
   venueStageLaborCompany: RoleContactDisplay[];
   attractionTechDirector: RoleContactDisplay[];
+  marketingDirector: RoleContactDisplay[];
+  marketingManager: RoleContactDisplay[];
+  digitalMarketingManager: RoleContactDisplay[];
 }
 
 export interface RoleContactDisplay {
@@ -266,8 +269,8 @@ export interface EngagementMarketingMeta {
   tourMarketingContacts: TourMarketingContactRow[];
   /** Tour audience gender (read-only, from dbo.Tour.AudienceGender) */
   audienceGender: string | null;
-  /** Tour audience age range labels (read-only, from dbo.TourAudienceAgeRange + dbo.AgeRange) */
-  tourAudienceDemographics: string[];
+  /** Tour audience age range (read-only, from dbo.TourAudienceAgeRange + dbo.AgeRange) */
+  tourAudienceDemographics: { ageRangeId: number; ageRangeLabel: string; sortOrder: number | null }[];
   /** Tour audience age range as combined string */
   tourAudienceAgeRange: string | null;
   /** Media mix entries for the tour (read-only, from dbo.TourMediaMix) */
@@ -2437,8 +2440,7 @@ export class EngagementService {
            UPDATE dbo.PerformanceTicketing SET [PublicSaleLinkID] = @lnkId WHERE [TicketingID] = ${ticketingId};
            SELECT @lnkId AS lid`,
         );
-        const newId = pickRaw((linkR as Record<string, unknown>[])?.[0] ?? {}, 'lid');
-        if (newId != null) return; // already updated above
+        // PublicSaleLinkID already updated in the SQL above — no need to add to sets
       }
     }
     if (dto.preSaleEndDate !== undefined) {
@@ -6039,6 +6041,9 @@ export class EngagementService {
       'Venue Production Manager',
       'Venue Stage Labor',
       'Attraction Tech Director',
+      'Marketing Director',
+      'Marketing Manager',
+      'Digital Marketing Manager',
     ];
     for (const vid of venueCompanyIds) {
       const contacts: VenueRoleContacts = {
@@ -6047,6 +6052,9 @@ export class EngagementService {
         venueProductionManager: [],
         venueStageLaborCompany: [],
         attractionTechDirector: [],
+        marketingDirector: [],
+        marketingManager: [],
+        digitalMarketingManager: [],
       };
       try {
         // Include contacts from the venue company AND any parent complex companies
@@ -6061,7 +6069,7 @@ export class EngagementService {
              UNION
              SELECT vcm.ComplexCompanyID FROM dbo.VenueComplexMember vcm WHERE vcm.VenueCompanyID = @0
            )
-             AND LOWER(LTRIM(RTRIM(r.RoleName))) IN (@1, @2, @3, @4, @5)`,
+             AND LOWER(LTRIM(RTRIM(r.RoleName))) IN (@1, @2, @3, @4, @5, @6, @7, @8)`,
           [vid, ...roleNames.map((n) => n.toLowerCase())],
         );
         for (const row of (rows ?? []) as Record<string, unknown>[]) {
@@ -6077,6 +6085,9 @@ export class EngagementService {
           else if (rn === 'venue production manager') contacts.venueProductionManager.push(contact);
           else if (rn === 'venue stage labor') contacts.venueStageLaborCompany.push(contact);
           else if (rn === 'attraction tech director') contacts.attractionTechDirector.push(contact);
+          else if (rn === 'marketing director') contacts.marketingDirector.push(contact);
+          else if (rn === 'marketing manager') contacts.marketingManager.push(contact);
+          else if (rn === 'digital marketing manager') contacts.digitalMarketingManager.push(contact);
         }
       } catch { /* ignore if tables unavailable */ }
       venueRoleContacts[vid] = contacts;
@@ -7546,35 +7557,45 @@ export class EngagementService {
     const engagement = await this.assertEngagementExists(engagementId);
     const tourId = engagement.tourId;
 
-    // 1. Tour marketing contacts (RoleName LIKE '%Marketing%')
+    // 1. Tour marketing contacts (from talent agency company's ContactAssignment,
+    //    same source as the Tour screen "Contacts" tab)
     let tourMarketingContacts: TourMarketingContactRow[] = [];
     try {
-      const rows = await this.dataSource.query(
-        `SELECT
-          tc.[TourContactID] AS tcid,
-          tc.[ContactID] AS cid,
-          ci.[FirstName] + N' ' + ci.[LastName] AS cname,
-          tc.[RoleID] AS rid,
-          r.[RoleName] AS rname,
-          tc.[IsPrimary] AS isp
-         FROM dbo.TourContact tc
-         LEFT JOIN dbo.Contact con ON con.[ContactID] = tc.[ContactID]
-         LEFT JOIN dbo.ContactInfo ci ON ci.[ContactInfoID] = con.[ContactInfoID]
-         LEFT JOIN dbo.Role r ON r.[RoleID] = tc.[RoleID]
-         WHERE tc.[TourID] = ${tourId}
-           AND r.[RoleName] LIKE N'%Marketing%'
-         ORDER BY tc.[IsPrimary] DESC, r.[RoleName]`,
+      // Get the tour's talent agency company ID
+      const tourRows = await this.dataSource.query(
+        `SELECT [TalentAgencyCompanyID] AS agencyId FROM dbo.Tour WHERE [TourID] = @0`,
+        [tourId],
       ) as Record<string, unknown>[];
-      const toInt = (v: unknown) => { const n = Number(v); return v != null && v !== '' && Number.isFinite(n) && n > 0 ? n : null; };
-      const toStr = (v: unknown) => (v == null || v === '' ? null : String(v).trim());
-      tourMarketingContacts = rows.map((r) => ({
-        tourContactId: Number(pickRaw(r, 'tcid')),
-        contactId: Number(pickRaw(r, 'cid')),
-        contactName: toStr(pickRaw(r, 'cname')),
-        roleId: toInt(pickRaw(r, 'rid')),
-        roleName: toStr(pickRaw(r, 'rname')),
-        isPrimary: pickRaw(r, 'isp') === true || pickRaw(r, 'isp') === 1 || pickRaw(r, 'isp') === '1',
-      }));
+      const agencyId = tourRows?.[0] ? Number(pickRaw(tourRows[0], 'agencyId')) || null : null;
+
+      if (agencyId) {
+        const rows = await this.dataSource.query(
+          `SELECT
+            ca.[ContactAssignmentID] AS tcid,
+            ca.[ContactID] AS cid,
+            ci.[FirstName] + N' ' + ci.[LastName] AS cname,
+            ca.[RoleID] AS rid,
+            r.[RoleName] AS rname
+           FROM dbo.ContactAssignment ca
+           INNER JOIN dbo.Contact con ON con.[ContactID] = ca.[ContactID]
+           INNER JOIN dbo.ContactInfo ci ON ci.[ContactInfoID] = con.[ContactInfoID]
+           INNER JOIN dbo.Role r ON r.[RoleID] = ca.[RoleID]
+           WHERE ca.[CompanyID] = @0
+             AND LOWER(r.[RoleName]) IN (N'marketing director', N'marketing manager')
+           ORDER BY r.[RoleName]`,
+          [agencyId],
+        ) as Record<string, unknown>[];
+        const toInt = (v: unknown) => { const n = Number(v); return v != null && v !== '' && Number.isFinite(n) && n > 0 ? n : null; };
+        const toStr = (v: unknown) => (v == null || v === '' ? null : String(v).trim());
+        tourMarketingContacts = rows.map((r) => ({
+          tourContactId: Number(pickRaw(r, 'tcid')),
+          contactId: Number(pickRaw(r, 'cid')),
+          contactName: toStr(pickRaw(r, 'cname')),
+          roleId: toInt(pickRaw(r, 'rid')),
+          roleName: toStr(pickRaw(r, 'rname')),
+          isPrimary: false,
+        }));
+      }
     } catch { /* ignore */ }
 
     // 2. Tour general demographics (AudienceGender from dbo.Tour)
@@ -7588,18 +7609,22 @@ export class EngagementService {
     } catch { /* ignore */ }
 
     // 3. Tour audience age-range demographics
-    let tourAudienceDemographics: string[] = [];
+    let tourAudienceDemographics: { ageRangeId: number; ageRangeLabel: string; sortOrder: number | null }[] = [];
     let tourAudienceAgeRange: string | null = null;
     try {
       const demoRows = await this.dataSource.query(
-        `SELECT ar.[AgeRangeLabel] AS label
+        `SELECT ar.[AgeRangeID] AS ageRangeId, ar.[AgeRangeLabel] AS label, ar.[SortOrder] AS sortOrder
          FROM dbo.TourAudienceAgeRange tar
          INNER JOIN dbo.AgeRange ar ON ar.[AgeRangeID] = tar.[AgeRangeID]
          WHERE tar.[TourID] = ${tourId}
          ORDER BY ar.[SortOrder], ar.[AgeRangeLabel]`,
       ) as Record<string, unknown>[];
-      tourAudienceDemographics = demoRows.map((r) => String(pickRaw(r, 'label') ?? '').trim()).filter(Boolean);
-      tourAudienceAgeRange = tourAudienceDemographics.length > 0 ? tourAudienceDemographics.join(', ') : null;
+      tourAudienceDemographics = demoRows.map((r) => ({
+        ageRangeId: Number(pickRaw(r, 'ageRangeId') ?? 0),
+        ageRangeLabel: String(pickRaw(r, 'label') ?? '').trim(),
+        sortOrder: pickRaw(r, 'sortOrder') != null ? Number(pickRaw(r, 'sortOrder')) : null,
+      })).filter((d) => d.ageRangeLabel);
+      tourAudienceAgeRange = tourAudienceDemographics.length > 0 ? tourAudienceDemographics.map((d) => d.ageRangeLabel).join(', ') : null;
     } catch { /* ignore */ }
 
     // 4. Media Mix (from Tour)

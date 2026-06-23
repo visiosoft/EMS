@@ -147,6 +147,18 @@ export class TourMarketingService {
             [tourId, ageRangeId],
           );
         }
+        // Keep denormalized dbo.Tour.AudienceAgeRange in sync (same as Details tab)
+        const labelRows = dto.audienceAgeRangeIds.length
+          ? await queryRunner.query(
+              `SELECT [AgeRangeLabel] AS label FROM dbo.AgeRange WHERE [AgeRangeID] IN (${dto.audienceAgeRangeIds.map((_, i) => `@${i}`).join(',')}) ORDER BY [SortOrder]`,
+              dto.audienceAgeRangeIds,
+            ) as { label: string }[]
+          : [];
+        const ageRangeStr = labelRows.map((r) => r.label).filter(Boolean).join(', ') || null;
+        await queryRunner.query(
+          `UPDATE dbo.Tour SET [AudienceAgeRange] = @0 WHERE [TourID] = @1`,
+          [ageRangeStr, tourId],
+        );
       }
 
       // Media Mix

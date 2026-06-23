@@ -128,6 +128,9 @@ export interface ApiVenueRoleContacts {
   venueProductionManager: ApiRoleContactDisplay[];
   venueStageLaborCompany: ApiRoleContactDisplay[];
   attractionTechDirector: ApiRoleContactDisplay[];
+  marketingDirector: ApiRoleContactDisplay[];
+  marketingManager: ApiRoleContactDisplay[];
+  digitalMarketingManager: ApiRoleContactDisplay[];
 }
 
 export interface ApiRoleContactDisplay {
