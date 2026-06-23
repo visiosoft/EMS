@@ -914,6 +914,18 @@ export const fetchEngagementFinance = (id: number) =>
 export const updateEngagementFinance = (id: number, body: UpdateEngagementFinancePayload) =>
   apiFetch<void>(`/engagements/${id}/finance`, { method: 'PATCH', body: JSON.stringify(body) });
 
+// ── Deposit Terms (PerformanceContracts) ────────────────────────────────────
+export interface ApiDepositTerms {
+  depositAmount: number | null;
+  depositDueDate: string | null;
+}
+
+export const fetchDepositTerms = (id: number) =>
+  apiFetch<ApiDepositTerms>(`/engagements/${id}/deposit-terms`);
+
+export const updateDepositTerms = (id: number, body: { depositAmount?: number | null; depositDueDate?: string | null }) =>
+  apiFetch<void>(`/engagements/${id}/deposit-terms`, { method: 'PATCH', body: JSON.stringify(body) });
+
 export type UpdateNonResidentWithholdingPayload = {
   withholdingArea?: string | null;
   withholdingTaxRate?: number | null;

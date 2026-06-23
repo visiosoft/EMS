@@ -8268,4 +8268,72 @@ export class EngagementService {
       );
     }
   }
+
+  // ── Deposit Terms (PerformanceContracts) ───────────────────────────────────
+
+  async getDepositTerms(engagementId: number): Promise<{ depositAmount: number | null; depositDueDate: string | null }> {
+    await this.assertEngagementExists(engagementId);
+    try {
+      const rows = await this.dataSource.query(
+        `SELECT TOP 1 pc.[DepositAmount] AS depositAmount,
+                CONVERT(varchar(10), pc.[DepositDueDate], 120) AS depositDueDate
+         FROM dbo.PerformanceContracts pc
+         WHERE pc.EngagementID = ${Math.trunc(engagementId)}
+         ORDER BY pc.[ContractID] DESC`,
+      );
+      const row = (rows as Record<string, unknown>[])?.[0];
+      if (!row) return { depositAmount: null, depositDueDate: null };
+      const rawAmt = row.depositAmount ?? row.DepositAmount ?? null;
+      const rawDate = row.depositDueDate ?? row.DepositDueDate ?? null;
+      return {
+        depositAmount: rawAmt != null && rawAmt !== '' ? Number(rawAmt) : null,
+        depositDueDate: rawDate != null && rawDate !== '' ? String(rawDate).trim().slice(0, 10) : null,
+      };
+    } catch {
+      return { depositAmount: null, depositDueDate: null };
+    }
+  }
+
+  async updateDepositTerms(
+    engagementId: number,
+    dto: { depositAmount?: number | null; depositDueDate?: string | null },
+  ): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+    const eid = Math.trunc(engagementId);
+
+    // Check if a PerformanceContracts row exists for this engagement
+    const existing = await this.dataSource.query(
+      `SELECT TOP 1 [ContractID] FROM dbo.PerformanceContracts WHERE [EngagementID] = ${eid}`,
+    );
+    const exists = (existing as unknown[])?.length > 0;
+
+    const sets: string[] = [];
+    if (dto.depositAmount !== undefined) {
+      sets.push(`[DepositAmount] = ${dto.depositAmount == null ? 'NULL' : Number(dto.depositAmount)}`);
+    }
+    if (dto.depositDueDate !== undefined) {
+      sets.push(`[DepositDueDate] = ${dto.depositDueDate == null || dto.depositDueDate.trim() === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(dto.depositDueDate.trim().slice(0, 10))}`);
+    }
+    if (!sets.length) return;
+
+    if (exists) {
+      await this.dataSource.query(
+        `UPDATE dbo.PerformanceContracts SET ${sets.join(', ')} WHERE [EngagementID] = ${eid}`,
+      );
+    } else {
+      const cols = ['[EngagementID]'];
+      const vals = [String(eid)];
+      if (dto.depositAmount !== undefined) {
+        cols.push('[DepositAmount]');
+        vals.push(dto.depositAmount == null ? 'NULL' : String(Number(dto.depositAmount)));
+      }
+      if (dto.depositDueDate !== undefined) {
+        cols.push('[DepositDueDate]');
+        vals.push(dto.depositDueDate == null || dto.depositDueDate.trim() === '' ? 'NULL' : this.escapeSqlNVarCharLiteral(dto.depositDueDate.trim().slice(0, 10)));
+      }
+      await this.dataSource.query(
+        `INSERT INTO dbo.PerformanceContracts (${cols.join(', ')}) VALUES (${vals.join(', ')})`,
+      );
+    }
+  }
 }

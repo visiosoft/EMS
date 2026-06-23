@@ -84,6 +84,8 @@ import {
   TRAVEL_BOOKED_BY_OPTIONS,
   fetchEngagementPartner,
   updateEngagementPartner,
+  fetchDepositTerms,
+  updateDepositTerms,
   type ApiRetailPartnerRow,
   type ApiMarketingMeta,
   type CreateRetailPartnerPayload,
@@ -5441,6 +5443,12 @@ function EngagementEventBusinessPanel({
     staleTime: 120_000,
   });
 
+  // ── Deposit Terms (PerformanceContracts) ─────────────────────────────────
+  const depositTermsQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'deposit-terms'],
+    queryFn: () => fetchDepositTerms(engagementId),
+  });
+
   // Derive IAE staff by role from engagement IAE contacts
   const iaeEventBusinessManagers = useMemo(() =>
     (iaeContactsQuery.data ?? []).filter((c) => c.roleName === 'Event Business Manager'),
@@ -5489,6 +5497,10 @@ function EngagementEventBusinessPanel({
   const [attrCollateralizedDeal, setAttrCollateralizedDeal] = useState('');
   const [attrTourOfferLink, setAttrTourOfferLink] = useState('');
   const [attrFullyExecutedContractLink, setAttrFullyExecutedContractLink] = useState('');
+
+  // ── Deposit Terms (separate save) ─────────────────────────────────────────────
+  const [depositAmount, setDepositAmount] = useState('');
+  const [depositDueDate, setDepositDueDate] = useState('');
 
   // ── Venue Terms (separate save) ─────────────────────────────────────────────
   const [venueTermsDealTypeId, setVenueTermsDealTypeId] = useState('');
@@ -5764,6 +5776,37 @@ function EngagementEventBusinessPanel({
     clearUserEdited: clearAttrTermsEdited,
   } = useUserEditTracker(`attr-terms:${engagementId}`);
 
+  // Deposit Terms — separate save ─────────────────────────────────────────────
+  const {
+    hasUserEdited: hasDepositEdited,
+    markUserEdited: markDepositEdited,
+    clearUserEdited: clearDepositEdited,
+  } = useUserEditTracker(`deposit-terms:${engagementId}`);
+
+  useEffect(() => {
+    const d = depositTermsQuery.data;
+    if (!d) return;
+    setDepositAmount(d.depositAmount != null ? String(d.depositAmount) : '');
+    setDepositDueDate(d.depositDueDate ?? '');
+  }, [depositTermsQuery.data]);
+
+  const saveDepositTermsMut = useMutation({
+    mutationFn: async () => {
+      const amt = parseOptionalDecimal(depositAmount, 'Deposit Amount');
+      if (!amt.ok) throw new Error((amt as { ok: false; message: string }).message);
+      await updateDepositTerms(engagementId, {
+        depositAmount: (amt as { ok: true; value: number | null }).value,
+        depositDueDate: depositDueDate.trim() || null,
+      });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'deposit-terms'] });
+    },
+    onSuccess: () => {
+      clearDepositEdited();
+      addToast('Deposit terms saved.', 'success');
+    },
+    onError: (e: unknown) => addToast(e instanceof Error ? e.message : friendlyApiError(e), 'error'),
+  });
+
   const saveAttrTermsMut = useMutation({
     mutationFn: async () => {
       // Validate URL fields
@@ -5913,7 +5956,7 @@ function EngagementEventBusinessPanel({
     return () => onDirtyChange?.(false);
   }, [settlementDirty, settlementFilesDirty, salesTaxDirty, withholdingDirty, attrTermsDirty, venueTermsDirty, finalCompDirty, onDirtyChange]);
 
-  const disabled = saveSettlementMut.isPending || saveSettlementFilesMut.isPending || saveSalesTaxMut.isPending || saveWithholdingMut.isPending || saveAttrTermsMut.isPending || saveVenueTermsMut.isPending || saveFinalCompMut.isPending;
+  const disabled = saveSettlementMut.isPending || saveSettlementFilesMut.isPending || saveSalesTaxMut.isPending || saveWithholdingMut.isPending || saveAttrTermsMut.isPending || saveVenueTermsMut.isPending || saveFinalCompMut.isPending || saveDepositTermsMut.isPending;
   const settlementSaveDisabled = disabled || !settlementDirty;
   const settlementFilesSaveDisabled = disabled || !settlementFilesDirty;
   const salesTaxSaveDisabled = disabled || !salesTaxDirty;
@@ -6180,9 +6223,63 @@ function EngagementEventBusinessPanel({
           </Button>
         </div>
 
+        {/* ── Deposit Terms ────────────────────────────────────────── */}
+        {sectionHeader('Deposit Terms')}
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Deposit Amount ($)',
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-text-muted">$</span>
+              <input
+                className={`${inputCls} pl-8`}
+                inputMode="decimal"
+                value={depositAmount}
+                onChange={(e) => { markDepositEdited(); setDepositAmount(e.target.value); }}
+                disabled={disabled}
+              />
+            </div>,
+          )}
+          {fieldRow('Deposit Due Date',
+            <input
+              type="date"
+              className={inputCls}
+              value={depositDueDate}
+              onChange={(e) => { markDepositEdited(); setDepositDueDate(e.target.value); }}
+              disabled={disabled}
+            />,
+          )}
+        </div>
+        <div className="flex justify-end pt-2">
+          <Button
+            type="button"
+            className="bg-ems-accent text-white hover:opacity-90"
+            onClick={() => saveDepositTermsMut.mutate()}
+            disabled={disabled || !hasDepositEdited || saveDepositTermsMut.isPending}
+          >
+            {saveDepositTermsMut.isPending ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Saving…
+              </span>
+            ) : (
+              'Save deposit terms'
+            )}
+          </Button>
+        </div>
+
         {/* ── Venue Terms ──────────────────────────────────────────── */}
         {sectionHeader('Venue Terms')}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Deposit Amount Paid',
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-text-muted">$</span>
+              <input
+                className={`${inputCls} pl-8 bg-muted/40`}
+                value={depositTermsQuery.data?.depositAmount != null ? String(depositTermsQuery.data.depositAmount) : ''}
+                readOnly
+                disabled
+              />
+            </div>,
+          )}
           {fieldRow('Link to SharePoint of Fully Executed Venue Contract',
             <input className={inputCls} value={venueTermsFullyExecutedLink} maxLength={2048}
               placeholder="https://..."
