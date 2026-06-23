@@ -188,23 +188,34 @@ export function Drawer({ title, children, onClose, width = 600 }: { title?: stri
   );
 }
 
-export function TabBar({ tabs, active, onChange }: { tabs: string[]; active: string; onChange: (t: string) => void }) {
+export type TabDef = string | { label: string; disabled?: boolean; disabledReason?: string };
+
+export function TabBar({ tabs, active, onChange }: { tabs: TabDef[]; active: string; onChange: (t: string) => void }) {
   const list = Array.isArray(tabs) ? tabs : [];
   return (
     <div className="flex border-b border-border overflow-x-auto">
-      {list.map(t => (
-        <button
-          key={t}
-          onClick={() => onChange(t)}
-          className={`px-4 py-2.5 text-sm font-medium transition-colors relative whitespace-nowrap ${
-            active === t
-              ? 'text-ems-accent after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-ems-accent'
-              : 'text-text-secondary hover:text-text-primary'
-          }`}
-        >
-          {t}
-        </button>
-      ))}
+      {list.map(t => {
+        const label = typeof t === 'string' ? t : t.label;
+        const disabled = typeof t !== 'string' && t.disabled;
+        const disabledReason = typeof t !== 'string' ? t.disabledReason : undefined;
+        return (
+          <button
+            key={label}
+            onClick={() => { if (!disabled) onChange(label); }}
+            disabled={disabled}
+            title={disabled ? (disabledReason ?? '') : undefined}
+            className={`px-4 py-2.5 text-sm font-medium transition-colors relative whitespace-nowrap ${
+              active === label
+                ? 'text-ems-accent after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-ems-accent'
+                : disabled
+                  ? 'text-text-muted cursor-not-allowed'
+                  : 'text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            {label}
+          </button>
+        );
+      })}
     </div>
   );
 }

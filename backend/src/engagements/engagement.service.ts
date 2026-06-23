@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -41,6 +42,8 @@ import { TicketingSales } from '../entities/ticketing-sales.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
 import { EmsAppCreatedStore } from '../attraction-tours/ems-app-created.store';
+import { DocumentLibraryService } from '../document-library/document-library.service';
+import { buildEngagementFolderHierarchies } from './engagement-folder-structure';
 import { CreateEngagementDto } from './dto/create-engagement.dto';
 import { CreatePerformanceDto } from './dto/create-performance.dto';
 import { UpdateEngagementDto } from './dto/update-engagement.dto';
@@ -597,6 +600,8 @@ function pickRaw(r: Record<string, unknown>, key: string): unknown {
 
 @Injectable()
 export class EngagementService {
+  private readonly logger = new Logger(EngagementService.name);
+
   /**
    * When dbo.EngagementFinances has optional SharePoint link columns, read/write them via raw SQL.
    * `null` = not yet probed; avoids repeated metadata queries once resolved.
@@ -697,6 +702,7 @@ export class EngagementService {
     private readonly emsCreated: EmsAppCreatedStore,
     private readonly dataSource: DataSource,
     private readonly auditContext: AuditRequestContext,
+    private readonly documentLibrary: DocumentLibraryService,
   ) {}
 
   private async getPrimaryVenueCompanyIdForEngagement(
@@ -4999,8 +5005,11 @@ export class EngagementService {
   }
 
   async create(dto: CreateEngagementDto): Promise<{ engagementId: number }> {
-    // Validate tour
-    const tour = await this.tourRepo.findOne({ where: { tourId: dto.tourId } });
+    // Validate tour — load attraction name for later folder naming
+    const tour = await this.tourRepo.findOne({
+      where: { tourId: dto.tourId },
+      relations: ['attraction'],
+    });
     if (!tour) {
       throw new BadRequestException({
         message: `Tour #${dto.tourId} does not exist.`,
@@ -5020,7 +5029,7 @@ export class EngagementService {
       }
     }
 
-    return await this.dataSource.transaction(async (manager) => {
+    const result = await this.dataSource.transaction(async (manager) => {
       const row = manager.create(Engagement, {
         engagementStatus: dto.engagementStatus.trim(),
         engagementScaling: null,
@@ -5080,6 +5089,121 @@ export class EngagementService {
 
       return { engagementId: saved.engagementId };
     });
+
+    // If status is Confirmed, create SharePoint folder structure
+    if (dto.engagementStatus === 'Confirmed') {
+      const engagementId = result.engagementId;
+      try {
+        const primaryVenue = await this.companyRepo.findOne({
+          where: { companyId: dto.primaryVenueCompanyId },
+          relations: ['dma'],
+        });
+        const year = (dto.openingShowDate || new Date().toISOString().slice(0, 10)).slice(0, 4);
+        const marketName = primaryVenue?.dma?.marketName ?? null;
+        const attractionName = tour.attraction?.attractionName ?? null;
+
+        const hierarchies = buildEngagementFolderHierarchies(year, marketName, attractionName);
+
+        let rootWebUrl = '';
+        for (const hierarchy of hierarchies) {
+          const folder = await this.documentLibrary.ensureFolderHierarchy(hierarchy);
+          if (!rootWebUrl) {
+            rootWebUrl = folder.webUrl;
+          }
+        }
+
+        // Store the root folder link
+        if (rootWebUrl) {
+          const rootSegments = hierarchies[0]?.slice(0, -1) ?? [];
+          const folderPath = rootSegments.length > 0 ? rootSegments.join('/') : 'Engagements';
+          await this.upsertEngagementLink(engagementId, {
+            linkUrl: rootWebUrl,
+            linkName: `Engagement #${engagementId} Files`,
+            linkPurpose: 'EngagementFolder',
+            linkPath: folderPath,
+          });
+        }
+
+        this.logger.log(`[SharePoint] Created folder structure for engagement ${engagementId}: ${rootWebUrl}`);
+      } catch (err) {
+        this.logger.error(
+          `[SharePoint] Failed to create folders for engagement ${engagementId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Returns the SharePoint folder link for an engagement, if one exists.
+   */
+  async getSharePointFolderLink(engagementId: number): Promise<{ linkUrl: string | null; linkName: string | null }> {
+    const el = await this.engagementLinkRepo.findOne({
+      where: { engagementId, linkPurpose: 'EngagementFolder' },
+      relations: ['link'],
+    });
+    if (!el?.link) return { linkUrl: null, linkName: null };
+    return { linkUrl: el.link.linkUrl, linkName: el.link.linkName };
+  }
+
+  /**
+   * Ensures the SharePoint folder structure exists for a given engagement.
+   * Can be called manually to retry if folder creation failed during initial creation.
+   */
+  async ensureSharePointFolders(engagementId: number): Promise<{ rootWebUrl: string }> {
+    const engagement = await this.assertEngagementExists(engagementId);
+    const tour = await this.tourRepo.findOne({
+      where: { tourId: engagement.tourId },
+      relations: ['attraction'],
+    });
+    if (!tour) {
+      throw new BadRequestException({ message: `Tour #${engagement.tourId} for engagement ${engagementId} not found.` });
+    }
+
+    const primaryVenue = await this.engagementVenueRepo.findOne({
+      where: { engagementId, isPrimary: true },
+    });
+    let marketName: string | null = null;
+    if (primaryVenue) {
+      const company = await this.companyRepo.findOne({
+        where: { companyId: primaryVenue.venueCompanyId },
+        relations: ['dma'],
+      });
+      marketName = company?.dma?.marketName ?? null;
+    }
+
+    // Get the opening performance date for the year
+    const openingPerf = await this.performanceRepo.findOne({
+      where: { engagementId },
+      order: { performanceDate: 'ASC' },
+    });
+    const year = openingPerf?.performanceDate
+      ? String(openingPerf.performanceDate).slice(0, 4)
+      : new Date().getFullYear().toString();
+
+    const attractionName = tour.attraction?.attractionName ?? null;
+    const hierarchies = buildEngagementFolderHierarchies(year, marketName, attractionName);
+
+    let rootWebUrl = '';
+    for (const hierarchy of hierarchies) {
+      const folder = await this.documentLibrary.ensureFolderHierarchy(hierarchy);
+      if (!rootWebUrl) {
+        rootWebUrl = folder.webUrl;
+      }
+    }
+
+    // Upsert the root folder link
+    if (rootWebUrl) {
+      await this.upsertEngagementLink(engagementId, {
+        linkUrl: rootWebUrl,
+        linkName: `Engagement #${engagementId} Files`,
+        linkPurpose: 'EngagementFolder',
+      });
+    }
+
+    this.logger.log(`[SharePoint] Folder structure for engagement ${engagementId}: ${rootWebUrl}`);
+    return { rootWebUrl };
   }
 
   async update(id: number, dto: UpdateEngagementDto): Promise<void> {
@@ -5221,6 +5345,18 @@ export class EngagementService {
       }
       const savedProd = await this.engagementProductionRepo.save(prod);
       await this.tryPersistEngagementProductionTimes(savedProd.productionId, dto);
+    }
+
+    // Trigger SharePoint folder creation when status transitions to Confirmed
+    if (
+      dto.engagementStatus === 'Confirmed' &&
+      existing.engagementStatus !== 'Confirmed'
+    ) {
+      void this.ensureSharePointFolders(id).catch((err) => {
+        this.logger.error(
+          `[SharePoint] Failed to create folders on status update for engagement ${id}: ${err.message}`,
+        );
+      });
     }
   }
 
@@ -6464,7 +6600,7 @@ export class EngagementService {
 
   async upsertEngagementLink(
     engagementId: number,
-    dto: { linkUrl: string; linkName?: string; linkPurpose: string },
+    dto: { linkUrl: string; linkName?: string; linkPurpose: string; linkPath?: string },
   ): Promise<{ engagementLinkId: number; linkId: number }> {
     await this.assertEngagementExists(engagementId);
     const url = (dto.linkUrl ?? '').trim();
@@ -6482,7 +6618,11 @@ export class EngagementService {
 
     if (existing) {
       // Update the existing Link row URL
-      await this.linkRepo.update({ linkId: existing.linkId }, { linkUrl: url, linkName: dto.linkName?.trim() || purpose });
+      await this.linkRepo.update({ linkId: existing.linkId }, {
+        linkUrl: url,
+        linkName: dto.linkName?.trim() || purpose,
+        linkPath: dto.linkPath?.trim() ?? '',
+      });
       return { engagementLinkId: existing.engagementLinkId, linkId: existing.linkId };
     }
 
@@ -6491,7 +6631,7 @@ export class EngagementService {
       linkType: 'SharePoint',
       linkUrl: url,
       linkName: dto.linkName?.trim() || purpose,
-      linkPath: '',
+      linkPath: dto.linkPath?.trim() ?? '',
     });
     const savedLink = await this.linkRepo.save(link);
 
