@@ -30,7 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { getActiveAccount, requestGraphAccessToken } from '@/auth/entra';
+import { getActiveAccount, acquireGraphAccessToken } from '@/auth/entra';
 
 // ─── Department-mode tree types ───
 type DepTreeNode = OrganizationChartNode & {
@@ -513,7 +513,7 @@ export function OrganizationalChartPage() {
       const account = getActiveAccount(instance, accounts);
       if (!account) return;
       try {
-        const token = await requestGraphAccessToken(account);
+        const token = await acquireGraphAccessToken(account);
         if (mounted && token) setGraphToken(token);
       } catch (err) {
         console.warn('Failed to acquire Graph token for Org Chart hierarchy', err);

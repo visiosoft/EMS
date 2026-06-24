@@ -20,6 +20,7 @@ import { isEmsEnabled, isInternalEnabled } from "./routing/appSuite.ts";
 import { APP_CHOOSER_PATH, EMS_ROOT, INTERNAL_ROOT, LOGIN_PATH } from "./routing/paths.ts";
 import "./contact-polish.css";
 import "./project-venue-status-default.ts";
+import PoweredByWatermark from "./components/PoweredByWatermark";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -140,6 +141,7 @@ const App = () => (
 
               <Route path="*" element={<NotFound />} />
             </Routes>
+            <PoweredByWatermark />
             </div>
           </ErrorBoundary>
         </BrowserRouter>

@@ -264,7 +264,7 @@ function requiresInteractiveGraphConsent(error: unknown): boolean {
     if (error instanceof InteractionRequiredAuthError) return true;
     if (!(error instanceof Error)) return false;
 
-    return /interaction_required|consent_required|login_required|no_account|invalid_grant/i.test(
+    return /interaction_required|consent_required|login_required|no_account|invalid_grant|timed_out/i.test(
         error.message,
     );
 }
