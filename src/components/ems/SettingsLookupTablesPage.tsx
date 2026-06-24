@@ -79,6 +79,7 @@ import {
   describeGraphAccessToken,
   getActiveAccount,
   type GraphTokenDiagnostics,
+  acquireGraphAccessToken,
   requestGraphAccessToken,
 } from '@/auth/entra';
 import { richTextMatches } from './searchUtils';
@@ -330,7 +331,7 @@ function getDirectoryUsersErrorMessage(error: unknown): string {
     return 'Unable to read Microsoft Entra users. Please confirm delegated Microsoft Graph permission User.Read.All is granted with admin consent.';
   }
 
-  if (/token|interaction_required|consent_required|login_required|no_account/i.test(message)) {
+  if (/token|interaction_required|consent_required|login_required|no_account|timed_out/i.test(message)) {
     return 'Unable to acquire Microsoft Graph token. Please sign in again.';
   }
 
@@ -1122,7 +1123,7 @@ export function SettingsPage({
   onUpdateUsers,
   initialMainTab = 'Users',
 }: Props) {
-  const { accounts } = useMsal();
+  const { instance, accounts } = useMsal();
   const account = getActiveAccount() ?? accounts[0] ?? null;
   const qc = useQueryClient();
   const [tab, setTab] = useState<'Users' | 'Lookup Tables' | 'System'>(initialMainTab);
@@ -1183,8 +1184,18 @@ export function SettingsPage({
       };
       let graphAccessToken: string;
       try {
-        graphAccessToken = await requestGraphAccessToken(account, { forceRefresh: true });
+        graphAccessToken = await acquireGraphAccessToken(account);
       } catch (error) {
+        try {
+          await instance.acquireTokenRedirect({
+            account,
+            scopes: ["https://graph.microsoft.com/User.Read.All"],
+          });
+          return new Promise<never>(() => {});
+        } catch {
+          // ignore synchronous redirect errors and fallback to UI
+        }
+        
         setDirectoryDiagnostics(baseDiagnostics);
         const tokenError = new Error('Unable to acquire Microsoft Graph token. Please sign in again.') as Error & {
           cause?: unknown;
@@ -1251,7 +1262,7 @@ export function SettingsPage({
     setInternalSyncMappings({});
     setSyncPreviewModalOpen(true);
     try {
-      await requestGraphAccessToken(account, { forceRefresh: true });
+      await requestGraphAccessToken(account);
       const preview =
         direction === 'entraToEms'
           ? await previewEntraToEmsContactSync()
@@ -1342,7 +1353,7 @@ export function SettingsPage({
         serializableFields[actionId] = Array.from(fieldSet);
       }
 
-      await requestGraphAccessToken(account, { forceRefresh: true });
+      await requestGraphAccessToken(account);
       const result =
         internalSyncDirection === 'entraToEms'
           ? await applyEntraToEmsContactSync({
