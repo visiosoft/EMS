@@ -1,5 +1,13 @@
-import { Body, Controller, Get, Headers, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { AdminUsersService } from './admin-users.service';
+import {
+  EmployeeEmploymentService,
+  UpdateEmployeeEmploymentProfileDto,
+} from './employee-employment.service';
+import {
+  EmployeeProfileService,
+  UpdateEmployeePersonalProfileDto,
+} from './employee-profile.service';
 import { EntraAuthGuard } from './entra-auth.guard';
 import {
   ApplyInternalContactSyncDto,
@@ -15,6 +23,8 @@ import {
 export class AdminUsersController {
   constructor(
     private readonly adminUsersService: AdminUsersService,
+    private readonly employeeEmploymentService: EmployeeEmploymentService,
+    private readonly employeeProfileService: EmployeeProfileService,
     private readonly internalContactSyncService: InternalContactSyncService,
     private readonly userProfileService: UserProfileService,
   ) {}
@@ -41,6 +51,63 @@ export class AdminUsersController {
   @Patch('me/profile')
   async updateMyProfile(@Body() dto: UpdateMyProfileDto) {
     return this.userProfileService.updateMyProfile(dto);
+  }
+
+  @Get('users/:email/personal-profile')
+  async getPersonalProfile(@Param('email') email: string) {
+    return this.employeeProfileService.getPersonalProfile(email);
+  }
+
+  @Patch('users/:email/personal-profile')
+  async updatePersonalProfile(
+    @Param('email') email: string,
+    @Body() dto: UpdateEmployeePersonalProfileDto,
+  ) {
+    return this.employeeProfileService.updatePersonalProfile(email, dto);
+  }
+
+  @Get('users/:email/employment-profile')
+  async getEmploymentProfile(@Param('email') email: string) {
+    return this.employeeEmploymentService.getEmploymentProfile(email);
+  }
+
+  @Patch('users/:email/employment-profile')
+  async updateEmploymentProfile(
+    @Param('email') email: string,
+    @Body() dto: UpdateEmployeeEmploymentProfileDto,
+  ) {
+    return this.employeeEmploymentService.updateEmploymentProfile(email, dto);
+  }
+
+  @Get('workstations')
+  async listWorkstations() {
+    return this.employeeEmploymentService.listWorkstations();
+  }
+
+  @Get('phone-extensions')
+  async listPhoneExtensions() {
+    return this.employeeEmploymentService.listPhoneExtensions();
+  }
+
+  @Get('phone-devices')
+  async listPhoneDevices() {
+    return this.employeeEmploymentService.listPhoneDevices();
+  }
+
+  @Get('users/:email/licenses')
+  async getUserLicenses(
+    @Param('email') email: string,
+    @Headers('x-entra-graph-access-token') graphAccessToken?: string,
+  ) {
+    return this.adminUsersService.getUserLicenses(email, graphAccessToken);
+  }
+
+  @Get('users/:email/groups')
+  async getUserGroups(
+    @Param('email') email: string,
+    @Headers('x-entra-graph-access-token') graphAccessToken?: string,
+  ) {
+    return this.adminUsersService.getUserGroups(email, graphAccessToken);
   }
 
   @Post('internal-contact-sync/preview')
