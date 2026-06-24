@@ -1,5 +1,25 @@
-import { useState } from 'react';
-import { ArrowLeft, User, Briefcase, Heart, Star, Award, Lock, MapPin } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, User, Briefcase, Heart, Star, Award, Lock, MapPin, Loader2, Save } from 'lucide-react';
+import {
+  fetchEmployeePersonalProfile,
+  updateEmployeePersonalProfile,
+  type EmployeePersonalProfile,
+  type UpdateEmployeePersonalProfileRequest,
+} from '@/api/employeeProfileApi';
+import {
+  fetchEmployeeEmploymentProfile,
+  updateEmployeeEmploymentProfile,
+  fetchWorkstations,
+  fetchPhoneExtensions,
+  fetchPhoneDevices,
+  fetchUserLicenses,
+  fetchUserGroups,
+  type EmployeeEmploymentProfile,
+  type UpdateEmployeeEmploymentProfileRequest,
+} from '@/api/employeeEmploymentApi';
+import { friendlyApiError } from '@/lib/friendlyApiError';
+import { useAddressAutofill } from '@/hooks/useAddressAutofill';
 import { TabBar } from './Primitives';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -195,6 +215,17 @@ function SectionCard({ title, icon, children }: { title: string; icon: React.Rea
 // ─── Personal Tab ─────────────────────────────────────────────────────────────
 
 function PersonalTab({ user }: { user: UserProfileUser }) {
+  const qc = useQueryClient();
+
+  // ── Fetch existing profile ────────────────────────────────────────────────
+  const profileQuery = useQuery({
+    queryKey: ['employee-personal-profile', user.email],
+    queryFn: () => fetchEmployeePersonalProfile(user.email),
+    enabled: !!user.email,
+    staleTime: 30_000,
+  });
+
+  // ── Local form state ──────────────────────────────────────────────────────
   const [middleName, setMiddleName] = useState('');
   const [personalEmail, setPersonalEmail] = useState('');
   const [birthDate, setBirthDate] = useState('');
@@ -213,8 +244,102 @@ function PersonalTab({ user }: { user: UserProfileUser }) {
     email: '',
     cellPhone: '',
   });
+  const [saveMessage, setSaveMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  // ── Sync fetched data into form state ─────────────────────────────────────
+  const populateForm = useCallback((data: EmployeePersonalProfile) => {
+    setMiddleName(data.middleName || '');
+    setPersonalEmail(data.personalEmail || '');
+    setBirthDate(data.birthDate || '');
+    setSsn(data.ssn || '');
+    setHomeAddress({
+      street: data.homeStreet || '',
+      address2: data.homeAddress2 || '',
+      city: data.homeCity || '',
+      state: data.homeState || '',
+      postalCode: data.homePostalCode || '',
+      country: data.homeCountry || '',
+    });
+    setEmergencyContact({
+      firstName: data.emergencyFirstName || '',
+      lastName: data.emergencyLastName || '',
+      email: data.emergencyEmail || '',
+      cellPhone: data.emergencyCellPhone || '',
+    });
+  }, []);
+
+  useEffect(() => {
+    if (profileQuery.data) populateForm(profileQuery.data);
+  }, [profileQuery.data, populateForm]);
+
+  // ── Save mutation ─────────────────────────────────────────────────────────
+  const saveMutation = useMutation({
+    mutationFn: (payload: UpdateEmployeePersonalProfileRequest) =>
+      updateEmployeePersonalProfile(user.email, payload),
+    onSuccess: (data) => {
+      qc.setQueryData(['employee-personal-profile', user.email], data);
+      populateForm(data);
+      setSaveMessage({ text: 'Personal profile saved.', type: 'success' });
+      setTimeout(() => setSaveMessage(null), 4000);
+    },
+    onError: (error) => {
+      setSaveMessage({ text: friendlyApiError(error, 'Could not save profile.'), type: 'error' });
+      setTimeout(() => setSaveMessage(null), 6000);
+    },
+  });
+
+  const handleSave = () => {
+    saveMutation.mutate({
+      middleName: middleName || null,
+      personalEmail: personalEmail || null,
+      birthDate: birthDate || null,
+      ssn: ssn || null,
+      homeStreet: homeAddress.street || null,
+      homeAddress2: homeAddress.address2 || null,
+      homeCity: homeAddress.city || null,
+      homeState: homeAddress.state || null,
+      homePostalCode: homeAddress.postalCode || null,
+      homeCountry: homeAddress.country || null,
+      emergencyFirstName: emergencyContact.firstName || null,
+      emergencyLastName: emergencyContact.lastName || null,
+      emergencyEmail: emergencyContact.email || null,
+      emergencyCellPhone: emergencyContact.cellPhone || null,
+    });
+  };
 
   const age = birthDate ? calculateAge(birthDate) : null;
+
+  // ── Address autofill (Google Places) ──────────────────────────────────────
+  const homeAutofill = useAddressAutofill({
+    value: {
+      street: homeAddress.street,
+      city: homeAddress.city,
+      state: homeAddress.state,
+      postalCode: homeAddress.postalCode,
+      country: '', // keep unrestricted — allow searching any country
+    },
+    onPatch: (patch) => {
+      setHomeAddress((prev) => ({ ...prev, ...patch }));
+    },
+  });
+
+  // ── Loading / error states ────────────────────────────────────────────────
+  if (profileQuery.isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16 text-text-muted">
+        <Loader2 className="h-5 w-5 animate-spin mr-2" />
+        Loading personal profile…
+      </div>
+    );
+  }
+
+  if (profileQuery.isError && !profileQuery.data) {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20 px-4 py-6 text-center text-sm text-red-700 dark:text-red-300">
+        {friendlyApiError(profileQuery.error, 'Could not load personal profile.')}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -239,13 +364,41 @@ function PersonalTab({ user }: { user: UserProfileUser }) {
       {/* Home Address */}
       <SectionCard title="Home Address" icon={<MapPin className="h-4 w-4 text-ems-accent" />}>
         <div className="grid gap-4 md:grid-cols-2">
-          <EditableField
-            label="Street Address"
-            value={homeAddress.street}
-            onChange={(v) => setHomeAddress((prev) => ({ ...prev, street: v }))}
-            placeholder="Start typing to search…"
-            source="google"
-          />
+          {/* Street Address with Google Places autocomplete */}
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5">
+              <label className="text-xs font-medium text-text-muted">Street Address</label>
+              <SourceBadge source="google" />
+            </div>
+            <div className="relative">
+              <input
+                type="text"
+                value={homeAddress.street}
+                onChange={(e) => setHomeAddress((prev) => ({ ...prev, street: e.target.value }))}
+                onFocus={homeAutofill.onStreetFocus}
+                onBlur={homeAutofill.onStreetBlur}
+                placeholder="Start typing to search…"
+                className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none"
+              />
+              {homeAutofill.showSuggestions && (
+                <div className="absolute z-20 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-48 overflow-auto">
+                  {homeAutofill.suggestions.map((suggestion) => (
+                    <button
+                      key={suggestion.placeId}
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        homeAutofill.selectSuggestion(suggestion);
+                      }}
+                    >
+                      {suggestion.description}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
           <EditableField
             label="Address Line 2"
             value={homeAddress.address2}
@@ -310,6 +463,28 @@ function PersonalTab({ user }: { user: UserProfileUser }) {
           />
         </div>
       </SectionCard>
+
+      {/* Save Bar */}
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saveMutation.isPending}
+          className="inline-flex items-center gap-2 rounded-md bg-ems-accent px-4 py-2 text-sm font-medium text-white hover:bg-ems-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {saveMutation.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Save className="h-4 w-4" />
+          )}
+          {saveMutation.isPending ? 'Saving…' : 'Save Personal Info'}
+        </button>
+        {saveMessage && (
+          <span className={`text-sm ${saveMessage.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+            {saveMessage.text}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -317,6 +492,53 @@ function PersonalTab({ user }: { user: UserProfileUser }) {
 // ─── Employment Tab ───────────────────────────────────────────────────────────
 
 function EmploymentTab({ user }: { user: UserProfileUser }) {
+  const qc = useQueryClient();
+
+  // ── Fetch existing employment profile ─────────────────────────────────────
+  const profileQuery = useQuery({
+    queryKey: ['employee-employment-profile', user.email],
+    queryFn: () => fetchEmployeeEmploymentProfile(user.email),
+    enabled: !!user.email,
+    staleTime: 30_000,
+  });
+
+  // ── Fetch workstation options ─────────────────────────────────────────────
+  const workstationsQuery = useQuery({
+    queryKey: ['workstations'],
+    queryFn: fetchWorkstations,
+    staleTime: 60_000,
+  });
+
+  // ── Fetch phone extension options ─────────────────────────────────────────
+  const phoneExtensionsQuery = useQuery({
+    queryKey: ['phone-extensions'],
+    queryFn: fetchPhoneExtensions,
+    staleTime: 60_000,
+  });
+
+  // ── Fetch phone device options ────────────────────────────────────────────
+  const phoneDevicesQuery = useQuery({
+    queryKey: ['phone-devices'],
+    queryFn: fetchPhoneDevices,
+    staleTime: 60_000,
+  });
+
+  // ── Fetch Entra licenses & group membership ───────────────────────────────
+  const licensesQuery = useQuery({
+    queryKey: ['user-licenses', user.email],
+    queryFn: () => fetchUserLicenses(user.email),
+    enabled: !!user.email,
+    staleTime: 60_000,
+  });
+
+  const groupsQuery = useQuery({
+    queryKey: ['user-groups', user.email],
+    queryFn: () => fetchUserGroups(user.email),
+    enabled: !!user.email,
+    staleTime: 60_000,
+  });
+
+  // ── Local form state ──────────────────────────────────────────────────────
   const [accessLevel, setAccessLevel] = useState('Employee');
   const [workAuthorization, setWorkAuthorization] = useState('');
   const [workstation, setWorkstation] = useState('');
@@ -343,8 +565,111 @@ function EmploymentTab({ user }: { user: UserProfileUser }) {
   const [employmentAgreement, setEmploymentAgreement] = useState('');
   const [rampAccount, setRampAccount] = useState('');
   const [rampCreditCard, setRampCreditCard] = useState('');
+  const [saveMessage, setSaveMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  // ── Sync fetched data into form ───────────────────────────────────────────
+  const populateForm = useCallback((data: EmployeeEmploymentProfile) => {
+    setAccessLevel(data.accessLevel || 'Employee');
+    setWorkAuthorization(data.workAuthorization || '');
+    setWorkstation(data.workstation || '');
+    setStartDate(data.startDate || '');
+    setSupervisor(data.supervisor || '');
+    setPtoAccrualRate(data.ptoAccrualRate || '');
+    setEmploymentAgreement(data.employmentAgreement || '');
+    setRampAccount(data.rampAccount || '');
+    setRampCreditCard(data.rampCreditCard || '');
+    setOfficeAddress({
+      street: data.officeStreet || '',
+      address2: data.officeAddress2 || '',
+      city: data.officeCity || '',
+      state: data.officeState || '',
+      postalCode: data.officePostalCode || '',
+      country: data.officeCountry || '',
+    });
+    setDeskPhoneExtension(data.deskPhoneExtension || '');
+    setDeskPhoneMac(data.deskPhoneMac || '');
+    setDeskPhoneBrand(data.deskPhoneBrand || '');
+    setDeskPhoneModel(data.deskPhoneModel || '');
+    setPcBrand(data.pcBrand || '');
+    setPcModel(data.pcModel || '');
+    setPcServiceTag(data.pcServiceTag || '');
+    setBluetoothStatus(data.bluetoothStatus || '');
+    setPcWindowsName(data.pcWindowsName || '');
+  }, []);
+
+  useEffect(() => {
+    if (profileQuery.data) populateForm(profileQuery.data);
+  }, [profileQuery.data, populateForm]);
+
+  // ── Address autofill ──────────────────────────────────────────────────────
+  const officeAutofill = useAddressAutofill({
+    value: {
+      street: officeAddress.street,
+      city: officeAddress.city,
+      state: officeAddress.state,
+      postalCode: officeAddress.postalCode,
+      country: '',
+    },
+    onPatch: (patch) => {
+      setOfficeAddress((prev) => ({ ...prev, ...patch }));
+    },
+  });
+
+  // ── Save mutation ─────────────────────────────────────────────────────────
+  const saveMutation = useMutation({
+    mutationFn: (payload: UpdateEmployeeEmploymentProfileRequest) =>
+      updateEmployeeEmploymentProfile(user.email, payload),
+    onSuccess: (data) => {
+      qc.setQueryData(['employee-employment-profile', user.email], data);
+      populateForm(data);
+      setSaveMessage({ text: 'Employment profile saved.', type: 'success' });
+      setTimeout(() => setSaveMessage(null), 4000);
+    },
+    onError: (error) => {
+      setSaveMessage({ text: friendlyApiError(error, 'Could not save employment profile.'), type: 'error' });
+      setTimeout(() => setSaveMessage(null), 6000);
+    },
+  });
+
+  const handleSave = () => {
+    saveMutation.mutate({
+      accessLevel: accessLevel || null,
+      workAuthorization: workAuthorization || null,
+      workstation: workstation || null,
+      startDate: startDate || null,
+      supervisor: supervisor || null,
+      ptoAccrualRate: ptoAccrualRate || null,
+      employmentAgreement: employmentAgreement || null,
+      rampAccount: rampAccount || null,
+      rampCreditCard: rampCreditCard || null,
+      officeStreet: officeAddress.street || null,
+      officeAddress2: officeAddress.address2 || null,
+      officeCity: officeAddress.city || null,
+      officeState: officeAddress.state || null,
+      officePostalCode: officeAddress.postalCode || null,
+      officeCountry: officeAddress.country || null,
+    });
+  };
 
   const yearsOfService = startDate ? calculateYearsOfService(startDate) : null;
+
+  // ── Loading / error states ────────────────────────────────────────────────
+  if (profileQuery.isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16 text-text-muted">
+        <Loader2 className="h-5 w-5 animate-spin mr-2" />
+        Loading employment profile…
+      </div>
+    );
+  }
+
+  if (profileQuery.isError && !profileQuery.data) {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20 px-4 py-6 text-center text-sm text-red-700 dark:text-red-300">
+        {friendlyApiError(profileQuery.error, 'Could not load employment profile.')}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -354,9 +679,17 @@ function EmploymentTab({ user }: { user: UserProfileUser }) {
           <ReadOnlyField label="Title" value={user.jobTitle || ''} source="entra" />
           <ReadOnlyField label="Work Email" value={user.email} source="entra" />
           <ReadOnlyField label="Office" value={user.officeLocation || ''} source="entra" />
-          <ReadOnlyField label="Microsoft Office License" value="—" source="entra" />
+          <ReadOnlyField
+            label="Microsoft Office License"
+            value={licensesQuery.isLoading ? 'Loading…' : licensesQuery.data?.length ? licensesQuery.data.join(', ') : 'None'}
+            source="entra"
+          />
           <div className="md:col-span-2">
-            <ReadOnlyField label="Microsoft Group Membership" value="—" source="entra" />
+            <ReadOnlyField
+              label="Microsoft Group Membership"
+              value={groupsQuery.isLoading ? 'Loading…' : groupsQuery.data?.length ? groupsQuery.data.join(', ') : 'None'}
+              source="entra"
+            />
           </div>
         </div>
       </SectionCard>
@@ -384,7 +717,33 @@ function EmploymentTab({ user }: { user: UserProfileUser }) {
             ]}
             source="admin"
           />
-          <EditableField label="Workstation" value={workstation} onChange={setWorkstation} placeholder="Select from office list" source="inventory" />
+          {/* Workstation grouped select */}
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-medium text-text-muted">Workstation</label>
+              <SourceBadge source="inventory" />
+            </div>
+            <select
+              value={workstation}
+              onChange={(e) => setWorkstation(e.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue"
+            >
+              <option value="">Select workstation…</option>
+              {workstationsQuery.data?.offices.map((office) => (
+                <optgroup key={office.officeCode} label={office.officeCode}>
+                  {office.workstations.map((ws) => (
+                    <option
+                      key={ws.workLocationId}
+                      value={ws.locationCode}
+                      disabled={ws.isAssigned}
+                    >
+                      {ws.locationCode}{ws.isAssigned ? ' (assigned)' : ''}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </div>
           <EditableField label="Start Date at IAE" value={startDate} onChange={setStartDate} type="date" source="admin" />
           {yearsOfService !== null ? (
             <ReadOnlyField label="Years of Service" value={yearsOfService} source="calculated" />
@@ -420,13 +779,41 @@ function EmploymentTab({ user }: { user: UserProfileUser }) {
       {/* Office Address */}
       <SectionCard title="Office Address" icon={<MapPin className="h-4 w-4 text-ems-accent" />}>
         <div className="grid gap-4 md:grid-cols-2">
-          <EditableField
-            label="Street Address"
-            value={officeAddress.street}
-            onChange={(v) => setOfficeAddress((prev) => ({ ...prev, street: v }))}
-            placeholder="Start typing to search…"
-            source="google"
-          />
+          {/* Street Address with Google Places autocomplete */}
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5">
+              <label className="text-xs font-medium text-text-muted">Street Address</label>
+              <SourceBadge source="google" />
+            </div>
+            <div className="relative">
+              <input
+                type="text"
+                value={officeAddress.street}
+                onChange={(e) => setOfficeAddress((prev) => ({ ...prev, street: e.target.value }))}
+                onFocus={officeAutofill.onStreetFocus}
+                onBlur={officeAutofill.onStreetBlur}
+                placeholder="Start typing to search…"
+                className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none"
+              />
+              {officeAutofill.showSuggestions && (
+                <div className="absolute z-20 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-48 overflow-auto">
+                  {officeAutofill.suggestions.map((suggestion) => (
+                    <button
+                      key={suggestion.placeId}
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        officeAutofill.selectSuggestion(suggestion);
+                      }}
+                    >
+                      {suggestion.description}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
           <EditableField
             label="Address Line 2"
             value={officeAddress.address2}
@@ -461,21 +848,87 @@ function EmploymentTab({ user }: { user: UserProfileUser }) {
         </div>
       </SectionCard>
 
-      {/* Desk Phone & Equipment */}
+      {/* Desk Phone & Equipment (read-only from inventory) */}
       <SectionCard title="Desk Phone & Equipment" icon={<Briefcase className="h-4 w-4 text-ems-green" />}>
         <div className="grid gap-4 md:grid-cols-2">
           <ReadOnlyField label="Desk Phone Number" value="(312) 274-1800" source="admin" />
-          <EditableField label="Desk Phone Extension" value={deskPhoneExtension} onChange={setDeskPhoneExtension} placeholder="Choose from extension list" source="inventory" />
-          <EditableField label="Desk Phone MAC Address" value={deskPhoneMac} onChange={setDeskPhoneMac} placeholder="Choose from Phone Inventory" source="inventory" />
-          <EditableField label="Desk Phone Brand" value={deskPhoneBrand} onChange={setDeskPhoneBrand} source="admin" />
-          <EditableField label="Desk Phone Model" value={deskPhoneModel} onChange={setDeskPhoneModel} source="admin" />
-          <EditableField label="PC Brand" value={pcBrand} onChange={setPcBrand} source="admin" />
-          <EditableField label="PC Model" value={pcModel} onChange={setPcModel} source="admin" />
-          <EditableField label="PC Service Tag" value={pcServiceTag} onChange={setPcServiceTag} placeholder="Choose from PC Inventory" source="inventory" />
-          <EditableField label="Bluetooth Status" value={bluetoothStatus} onChange={setBluetoothStatus} source="admin" />
-          <EditableField label="PC Windows Name" value={pcWindowsName} onChange={setPcWindowsName} source="admin" />
+          {/* Desk Phone Extension dropdown */}
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-medium text-text-muted">Desk Phone Extension</label>
+              <SourceBadge source="inventory" />
+            </div>
+            <select
+              value={deskPhoneExtension}
+              onChange={(e) => setDeskPhoneExtension(e.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue"
+            >
+              <option value="">Select extension…</option>
+              {phoneExtensionsQuery.data?.extensions.map((ext) => (
+                <option
+                  key={ext.extensionId}
+                  value={ext.extensionNumber}
+                  disabled={ext.isAssigned}
+                >
+                  {ext.extensionNumber}{ext.isAssigned ? ' (assigned)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          {/* Desk Phone MAC dropdown */}
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-medium text-text-muted">Desk Phone MAC Address</label>
+              <SourceBadge source="inventory" />
+            </div>
+            <select
+              value={deskPhoneMac}
+              onChange={(e) => setDeskPhoneMac(e.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue"
+            >
+              <option value="">Select phone…</option>
+              {phoneDevicesQuery.data?.phones.map((phone) => (
+                <option
+                  key={phone.phoneId}
+                  value={phone.macAddress}
+                  disabled={phone.isAssigned}
+                >
+                  {phone.macAddress} — {phone.make} {phone.model}{phone.isAssigned ? ' (assigned)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          <ReadOnlyField label="Desk Phone Brand" value={deskPhoneBrand || '—'} source="inventory" />
+          <ReadOnlyField label="Desk Phone Model" value={deskPhoneModel || '—'} source="inventory" />
+          <ReadOnlyField label="PC Brand" value={pcBrand || '—'} source="inventory" />
+          <ReadOnlyField label="PC Model" value={pcModel || '—'} source="inventory" />
+          <ReadOnlyField label="PC Service Tag" value={pcServiceTag || '—'} source="inventory" />
+          <ReadOnlyField label="Bluetooth Status" value={bluetoothStatus || '—'} source="inventory" />
+          <ReadOnlyField label="PC Windows Name" value={pcWindowsName || '—'} source="inventory" />
         </div>
       </SectionCard>
+
+      {/* Save Bar */}
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saveMutation.isPending}
+          className="inline-flex items-center gap-2 rounded-md bg-ems-accent px-4 py-2 text-sm font-medium text-white hover:bg-ems-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {saveMutation.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Save className="h-4 w-4" />
+          )}
+          {saveMutation.isPending ? 'Saving…' : 'Save Employment Info'}
+        </button>
+        {saveMessage && (
+          <span className={`text-sm ${saveMessage.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+            {saveMessage.text}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
