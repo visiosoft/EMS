@@ -71,6 +71,7 @@ import {
 import { upsertInList, removeQueriesByPrefix } from "@/api/cacheHelpers";
 import { mapApiCompanyToCompany } from "./companyMapping";
 import { CompanyVenueProfilePanel } from "./CompanyVenueProfilePanel";
+import { VenueMarketingPanel } from "./VenueMarketingPanel";
 import { ContactPhoneRow } from "./ContactPhoneRow";
 import { DEFAULT_PHONE_COUNTRY } from "@/lib/contactPhoneOptions";
 import {
@@ -91,6 +92,7 @@ import {
   CalendarRange,
   FolderKanban,
   Sparkles,
+  ShieldAlert,
   Wrench,
   Building2,
   Building,
@@ -1110,7 +1112,9 @@ function InlineEditableOverview({
       setInlineSaveErrors([]);
       addToast("Company updated successfully.", "success");
     } catch (e) {
-      addToast(friendlyApiError(e, "Could not update company."), "error");
+      const message = friendlyApiError(e, "Could not update company.");
+      setInlineSaveErrors([message]);
+      addToast(message, "error");
     } finally {
       setSaving(false);
     }
@@ -1351,17 +1355,20 @@ function InlineEditableOverview({
 
       {inlineSaveErrors.length > 0 && (
         <div
-          className="mb-4 text-sm bg-ems-coral-dim border border-ems-coral/20 rounded-md px-3 py-2 text-ems-coral"
+          className="mb-4 flex items-start gap-2.5 rounded-md border border-ems-coral/25 bg-ems-coral-dim px-3 py-2.5 text-ems-coral shadow-sm"
           role="alert"
         >
-          <p className="text-xs font-medium text-text-primary mb-1.5">
-            Please correct the following:
-          </p>
-          <ul className="list-disc pl-4 space-y-0.5 text-xs">
-            {inlineSaveErrors.map((msg, i) => (
-              <li key={`${i}-${msg}`}>{msg}</li>
-            ))}
-          </ul>
+          <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-text-primary">
+              These changes need a quick check
+            </p>
+            <ul className="mt-1 space-y-0.5 text-xs leading-relaxed">
+              {inlineSaveErrors.map((msg, i) => (
+                <li key={`${i}-${msg}`}>{msg}</li>
+              ))}
+            </ul>
+          </div>
         </div>
       )}
 
@@ -4067,7 +4074,7 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
 
   const drawerTabs = useMemo(() => {
     const base: string[] = ["Overview", "Contacts", "Engagements"];
-    const withVenue = isVenueCompany ? [...base, "Venue Profile"] : base;
+    const withVenue = isVenueCompany ? [...base, "Venue Profile", "Marketing"] : base;
     return [...withVenue, "Linked Records"];
   }, [isVenueCompany]);
 
@@ -5075,6 +5082,13 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                   addToast={addToast}
                 />
               )}
+
+            {drawerTab === "Marketing" && isVenueCompany && selectedCompanyId && (
+              <VenueMarketingPanel
+                venueCompanyId={Number(selectedCompanyId)}
+                addToast={addToast}
+              />
+            )}
 
             {drawerTab === "Linked Records" && (
               <CompanyLinksSection companyId={String(selectedCompany.id)} />

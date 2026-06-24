@@ -6,12 +6,21 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Logger,
   Param,
   ParseIntPipe,
   Patch,
   Post,
   Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { unlink } from 'fs/promises';
+import { seatingChartMulterOptions } from './seating-chart-multer.config';
+import { contractMulterOptions } from './contract-multer.config';
+import { ContractExtractionService } from './contract-extraction.service';
+import { SavePerformanceContractDto } from './dto/save-performance-contract.dto';
 import { AddEngagementVenueDto } from './dto/add-engagement-venue.dto';
 import { UpdateEngagementVenueTabDto } from './dto/update-engagement-venue-tab.dto';
 import { CreateEngagementDto } from './dto/create-engagement.dto';
@@ -31,7 +40,12 @@ import { EngagementService } from './engagement.service';
 
 @Controller('engagements')
 export class EngagementController {
-  constructor(private readonly engagementService: EngagementService) {}
+  private readonly logger = new Logger(EngagementController.name);
+
+  constructor(
+    private readonly engagementService: EngagementService,
+    private readonly contractExtractionService: ContractExtractionService,
+  ) {}
 
   // ─── Engagement CRUD ──────────────────────────────────────────────────────
 
@@ -101,6 +115,20 @@ export class EngagementController {
     @Body() dto: UpdateEngagementFinanceDto,
   ) {
     return this.engagementService.upsertFinance(id, dto);
+  }
+
+  @Get(':id/deposit-terms')
+  getDepositTerms(@Param('id', ParseIntPipe) id: number) {
+    return this.engagementService.getDepositTerms(id);
+  }
+
+  @Patch(':id/deposit-terms')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  updateDepositTerms(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: { depositAmount?: number | null; depositDueDate?: string | null },
+  ) {
+    return this.engagementService.updateDepositTerms(id, dto);
   }
 
   @Patch('non-resident-withholding/:nrwId')
@@ -240,6 +268,28 @@ export class EngagementController {
     @Body() dto: UpdateEngagementVenueTabDto,
   ) {
     return this.engagementService.updateVenueTabPerVenue(id, venueCompanyId, dto);
+  }
+
+  /** Upload a seating chart file/image for a venue (stored via dbo.Link + Venue.SeatingChartLinkID). */
+  @Post(':id/venues/:venueCompanyId/seating-chart')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('seatingChart', seatingChartMulterOptions()))
+  uploadSeatingChart(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('venueCompanyId', ParseIntPipe) venueCompanyId: number,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.engagementService.uploadSeatingChart(id, venueCompanyId, file);
+  }
+
+  /** Remove the seating chart from a venue (clears Venue.SeatingChartLinkID). */
+  @Delete(':id/venues/:venueCompanyId/seating-chart')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeSeatingChart(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('venueCompanyId', ParseIntPipe) venueCompanyId: number,
+  ) {
+    return this.engagementService.removeSeatingChart(id, venueCompanyId);
   }
 
   /** Upsert an engagement link (for contracts/forecast via dbo.EngagementLink). */
@@ -489,5 +539,90 @@ export class EngagementController {
     @Param('travelId', ParseIntPipe) travelId: number,
   ) {
     return this.engagementService.deleteEngagementTravel(id, travelId);
+  }
+
+  // ─── Performance Contracts ────────────────────────────────────────────────
+
+  /** Get contracts for an engagement. */
+  @Get(':id/contracts')
+  getContracts(@Param('id', ParseIntPipe) id: number) {
+    return this.engagementService.getPerformanceContracts(id);
+  }
+
+  /**
+   * Upload a contract (PDF or .docx) and extract its fields. The file is parsed
+   * immediately and then discarded — only the extracted data is kept, so nothing
+   * needs to persist on disk (important on ephemeral/scaled hosts).
+   */
+  @Post(':id/contracts/upload')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('contractFile', contractMulterOptions()))
+  async uploadContract(
+    @Param('id', ParseIntPipe) id: number,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    try {
+      const extracted = await this.contractExtractionService.extractFromFile(file.path);
+      return {
+        extracted,
+        originalFilename: file.originalname,
+        // File is discarded after extraction, so there is no stored blob to reference.
+        annotatedPdfBlobName: '',
+      };
+    } finally {
+      await unlink(file.path).catch(() => {
+        this.logger.warn(`Failed to delete uploaded contract file: ${file.path}`);
+      });
+    }
+  }
+
+  /** Save (create or update) a contract for an engagement. */
+  @Post(':id/contracts')
+  @HttpCode(HttpStatus.CREATED)
+  saveContract(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SavePerformanceContractDto,
+  ) {
+    return this.engagementService.savePerformanceContract(id, dto);
+  }
+
+  /** Update an existing contract. */
+  @Patch(':id/contracts/:contractId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  updateContract(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('contractId', ParseIntPipe) contractId: number,
+    @Body() dto: SavePerformanceContractDto,
+  ) {
+    return this.engagementService.updatePerformanceContract(id, contractId, dto);
+  }
+
+  /** Delete a contract. */
+  @Delete(':id/contracts/:contractId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  deleteContract(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('contractId', ParseIntPipe) contractId: number,
+  ) {
+    return this.engagementService.deletePerformanceContract(id, contractId);
+  }
+
+  // ─── SharePoint Folder Management ──────────────────────────────────────
+
+  /**
+   * Get the SharePoint folder link for an engagement.
+   */
+  @Get(':id/sharepoint-folder')
+  getSharePointFolder(@Param('id', ParseIntPipe) id: number) {
+    return this.engagementService.getSharePointFolderLink(id);
+  }
+
+  /**
+   * Manually trigger SharePoint folder structure creation.
+   */
+  @Post(':id/create-sharepoint-folders')
+  @HttpCode(HttpStatus.CREATED)
+  createSharePointFolders(@Param('id', ParseIntPipe) id: number) {
+    return this.engagementService.ensureSharePointFolders(id);
   }
 }

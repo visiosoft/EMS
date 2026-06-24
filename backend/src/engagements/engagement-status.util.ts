@@ -3,6 +3,7 @@ export const ENGAGEMENT_STATUS_VALUES = [
   'Unknown',
   'Private',
   'Public',
+  'Confirmed',
 ] as const;
 
 export type EngagementStatusCanonical =
@@ -15,6 +16,6 @@ export function normalizeEngagementStatus(
   raw: string,
 ): EngagementStatusCanonical {
   const s = raw.trim();
-  if (s === 'Unknown' || s === 'Private' || s === 'Public') return s;
+  if (s === 'Unknown' || s === 'Private' || s === 'Public' || s === 'Confirmed') return s;
   return 'Unknown';
 }

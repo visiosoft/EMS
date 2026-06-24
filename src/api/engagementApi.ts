@@ -9,7 +9,7 @@
  *
  * dbo.EngagementVenue: EngagementID, VenueCompanyID, IsPrimary
  */
-import { apiFetch } from './config';
+import { apiFetch, apiFetchMultipart } from './config';
 
 export interface ApiEngagementListRow {
   engagementId: number;
@@ -43,6 +43,7 @@ export interface ApiEngagementListRow {
   tourManagerContactId: number | null;
   displayTitle: string;
   appCreated: boolean;
+  isCanadaEngagement: boolean | null;
 }
 
 export interface ApiEngagementVenueRow {
@@ -128,6 +129,9 @@ export interface ApiVenueRoleContacts {
   venueProductionManager: ApiRoleContactDisplay[];
   venueStageLaborCompany: ApiRoleContactDisplay[];
   attractionTechDirector: ApiRoleContactDisplay[];
+  marketingDirector: ApiRoleContactDisplay[];
+  marketingManager: ApiRoleContactDisplay[];
+  digitalMarketingManager: ApiRoleContactDisplay[];
 }
 
 export interface ApiRoleContactDisplay {
@@ -786,6 +790,16 @@ export const fetchEngagementVenues = (id: number) => apiFetch<ApiEngagementVenue
 export const fetchEngagementVenueTabData = (id: number) => apiFetch<ApiEngagementVenueTabData>(`/engagements/${id}/venue-tab-data`);
 export const updateEngagementVenueTab = (id: number, venueCompanyId: number, body: UpdateEngagementVenueTabPayload) =>
   apiFetch<void>(`/engagements/${id}/venues/${venueCompanyId}/tab`, { method: 'PATCH', body: JSON.stringify(body) });
+export const uploadVenueSeatingChart = (id: number, venueCompanyId: number, file: File) => {
+  const fd = new FormData();
+  fd.append('seatingChart', file);
+  return apiFetchMultipart<{ seatingChartLinkId: number; seatingChartLinkUrl: string }>(
+    `/engagements/${id}/venues/${venueCompanyId}/seating-chart`,
+    { method: 'POST', body: fd },
+  );
+};
+export const removeVenueSeatingChart = (id: number, venueCompanyId: number) =>
+  apiFetch<void>(`/engagements/${id}/venues/${venueCompanyId}/seating-chart`, { method: 'DELETE' });
 export const upsertEngagementLink = (id: number, body: { linkUrl: string; linkName?: string; linkPurpose: string }) =>
   apiFetch<{ engagementLinkId: number; linkId: number }>(`/engagements/${id}/links`, { method: 'POST', body: JSON.stringify(body) });
 export const removeEngagementLink = (id: number, engagementLinkId: number) =>
@@ -909,6 +923,18 @@ export const fetchEngagementFinance = (id: number) =>
 
 export const updateEngagementFinance = (id: number, body: UpdateEngagementFinancePayload) =>
   apiFetch<void>(`/engagements/${id}/finance`, { method: 'PATCH', body: JSON.stringify(body) });
+
+// ── Deposit Terms (PerformanceContracts) ────────────────────────────────────
+export interface ApiDepositTerms {
+  depositAmount: number | null;
+  depositDueDate: string | null;
+}
+
+export const fetchDepositTerms = (id: number) =>
+  apiFetch<ApiDepositTerms>(`/engagements/${id}/deposit-terms`);
+
+export const updateDepositTerms = (id: number, body: { depositAmount?: number | null; depositDueDate?: string | null }) =>
+  apiFetch<void>(`/engagements/${id}/deposit-terms`, { method: 'PATCH', body: JSON.stringify(body) });
 
 export type UpdateNonResidentWithholdingPayload = {
   withholdingArea?: string | null;
@@ -1155,4 +1181,158 @@ export const deleteEngagementTravel = (engagementId: number, travelId: number) =
   apiFetch<void>(`/engagements/${engagementId}/travel/${travelId}`, {
     method: 'DELETE',
   });
+
+// ─── Performance Contracts ────────────────────────────────────────────────────
+
+export interface ApiPerformanceContractRow {
+  contractId: number;
+  createdAt: string;
+  engagementId: number;
+  agency: string | null;
+  agent: string | null;
+  attraction: string | null;
+  venueName: string | null;
+  venueAddress: string | null;
+  venueCity: string | null;
+  venueState: string | null;
+  venueCountry: string | null;
+  producer: string | null;
+  producerAddress: string | null;
+  producerFedId: string | null;
+  guaranteeAmount: number | null;
+  guaranteeCurrency: string | null;
+  depositAmount: number | null;
+  depositDueDate: string | null;
+  balanceAmount: number | null;
+  balanceDueDate: string | null;
+  royaltyDescription: string | null;
+  overageDescription: string | null;
+  paymentTerms: string | null;
+  paymentMethodType: string | null;
+  paymentPayableTo: string | null;
+  paymentBankName: string | null;
+  performances: string | null;
+  additionallyInsured: string | null;
+  annotatedPdfBlobName: string | null;
+  originalFilename: string | null;
+  oneDrivePdfUrl: string | null;
+}
+
+export interface SavePerformanceContractPayload {
+  agency?: string | null;
+  agent?: string | null;
+  attraction?: string | null;
+  venueName?: string | null;
+  venueAddress?: string | null;
+  venueCity?: string | null;
+  venueState?: string | null;
+  venueCountry?: string | null;
+  producer?: string | null;
+  producerAddress?: string | null;
+  producerFedId?: string | null;
+  guaranteeAmount?: number | null;
+  guaranteeCurrency?: string | null;
+  depositAmount?: number | null;
+  depositDueDate?: string | null;
+  balanceAmount?: number | null;
+  balanceDueDate?: string | null;
+  royaltyDescription?: string | null;
+  overageDescription?: string | null;
+  paymentTerms?: string | null;
+  paymentMethodType?: string | null;
+  paymentPayableTo?: string | null;
+  paymentBankName?: string | null;
+  performances?: string | null;
+  additionallyInsured?: string | null;
+  oneDrivePdfUrl?: string | null;
+  originalFilename?: string | null;
+  annotatedPdfBlobName?: string | null;
+}
+
+export interface ContractUploadResponse {
+  extracted: {
+    agency: string | null;
+    agent: string | null;
+    attraction: string | null;
+    venueName: string | null;
+    venueAddress: string | null;
+    venueCity: string | null;
+    venueState: string | null;
+    venueCountry: string | null;
+    producer: string | null;
+    producerAddress: string | null;
+    producerFedId: string | null;
+    guaranteeAmount: number | null;
+    guaranteeCurrency: string | null;
+    depositAmount: number | null;
+    depositDueDate: string | null;
+    balanceAmount: number | null;
+    balanceDueDate: string | null;
+    royaltyDescription: string | null;
+    overageDescription: string | null;
+    paymentTerms: string | null;
+    paymentMethodType: string | null;
+    paymentPayableTo: string | null;
+    paymentBankName: string | null;
+    performances: string | null;
+    additionallyInsured: string | null;
+    oneDrivePdfUrl: string | null;
+  };
+  originalFilename: string;
+  annotatedPdfBlobName: string;
+}
+
+export const fetchPerformanceContracts = (engagementId: number) =>
+  apiFetch<ApiPerformanceContractRow[]>(`/engagements/${engagementId}/contracts`);
+
+export const uploadContractPdf = (engagementId: number, file: File) => {
+  const fd = new FormData();
+  fd.append('contractFile', file);
+  return apiFetchMultipart<ContractUploadResponse>(
+    `/engagements/${engagementId}/contracts/upload`,
+    { method: 'POST', body: fd },
+  );
+};
+
+export const savePerformanceContract = (engagementId: number, body: SavePerformanceContractPayload) =>
+  apiFetch<{ contractId: number }>(`/engagements/${engagementId}/contracts`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const updatePerformanceContract = (engagementId: number, contractId: number, body: SavePerformanceContractPayload) =>
+  apiFetch<void>(`/engagements/${engagementId}/contracts/${contractId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+
+export const deletePerformanceContract = (engagementId: number, contractId: number) =>
+  apiFetch<void>(`/engagements/${engagementId}/contracts/${contractId}`, {
+    method: 'DELETE',
+  });
+
+// ─── SharePoint Folder Management ──────────────────────────────────────────
+
+export interface EngagementSharePointFolderLink {
+  linkUrl: string | null;
+  linkName: string | null;
+  linkPath?: string;
+}
+
+/** Get the SharePoint folder link for an engagement */
+export const fetchEngagementSharePointFolder = (
+  engagementId: number,
+): Promise<EngagementSharePointFolderLink | null> =>
+  apiFetch<EngagementSharePointFolderLink | null>(
+    `/engagements/${engagementId}/sharepoint-folder`,
+  );
+
+/** Manually trigger SharePoint folder structure creation */
+export const createEngagementSharePointFolders = (
+  engagementId: number,
+): Promise<{ rootWebUrl: string }> =>
+  apiFetch<{ rootWebUrl: string }>(
+    `/engagements/${engagementId}/create-sharepoint-folders`,
+    { method: 'POST' },
+  );
 

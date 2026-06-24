@@ -299,4 +299,199 @@ describe('EngagementService – new methods', () => {
       expect(existingProd.announcementDate).toBeNull();
     });
   });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // Deposit Terms (commit 0c8cf8e)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  describe('getDepositTerms', () => {
+    beforeEach(() => {
+      (service as any).assertEngagementExists = jest.fn().mockResolvedValue({ engagementId: 1 });
+    });
+
+    it('should return deposit data when row exists', async () => {
+      (dataSource.query as jest.Mock).mockResolvedValueOnce([
+        { depositAmount: 5000, depositDueDate: '2026-08-15' },
+      ]);
+
+      const result = await service.getDepositTerms(1);
+
+      expect(result).toEqual({ depositAmount: 5000, depositDueDate: '2026-08-15' });
+    });
+
+    it('should return nulls when no row exists', async () => {
+      (dataSource.query as jest.Mock).mockResolvedValueOnce([]);
+
+      const result = await service.getDepositTerms(1);
+
+      expect(result).toEqual({ depositAmount: null, depositDueDate: null });
+    });
+
+    it('should return nulls on query error', async () => {
+      (dataSource.query as jest.Mock).mockRejectedValueOnce(new Error('DB error'));
+
+      const result = await service.getDepositTerms(1);
+
+      expect(result).toEqual({ depositAmount: null, depositDueDate: null });
+    });
+
+    it('should truncate engagementId to integer', async () => {
+      (dataSource.query as jest.Mock).mockResolvedValueOnce([]);
+
+      await service.getDepositTerms(42.9);
+
+      const sql = (dataSource.query as jest.Mock).mock.calls[0][0] as string;
+      expect(sql).toContain('42');
+      expect(sql).not.toContain('42.9');
+    });
+
+    it('should query PerformanceContracts directly by EngagementID', async () => {
+      (dataSource.query as jest.Mock).mockResolvedValueOnce([]);
+
+      await service.getDepositTerms(10);
+
+      const sql = (dataSource.query as jest.Mock).mock.calls[0][0] as string;
+      expect(sql).toContain('pc.EngagementID = 10');
+      expect(sql).not.toContain('INNER JOIN dbo.Performance');
+    });
+
+    it('should convert depositAmount to number', async () => {
+      (dataSource.query as jest.Mock).mockResolvedValueOnce([
+        { depositAmount: '2500.50', depositDueDate: null },
+      ]);
+
+      const result = await service.getDepositTerms(1);
+
+      expect(result.depositAmount).toBe(2500.50);
+      expect(typeof result.depositAmount).toBe('number');
+    });
+
+    it('should slice depositDueDate to 10 chars (YYYY-MM-DD)', async () => {
+      (dataSource.query as jest.Mock).mockResolvedValueOnce([
+        { depositAmount: null, depositDueDate: '2026-08-15T00:00:00' },
+      ]);
+
+      const result = await service.getDepositTerms(1);
+
+      expect(result.depositDueDate).toBe('2026-08-15');
+    });
+  });
+
+  describe('updateDepositTerms', () => {
+    beforeEach(() => {
+      (service as any).assertEngagementExists = jest.fn().mockResolvedValue({ engagementId: 1 });
+    });
+
+    it('should UPDATE when contract row exists', async () => {
+      (dataSource.query as jest.Mock)
+        .mockResolvedValueOnce([{ ContractID: 1 }]) // existing check
+        .mockResolvedValueOnce(undefined); // update
+
+      await service.updateDepositTerms(1, { depositAmount: 3000 });
+
+      const updateSql = (dataSource.query as jest.Mock).mock.calls[1][0] as string;
+      expect(updateSql).toContain('UPDATE dbo.PerformanceContracts');
+      expect(updateSql).toContain('[DepositAmount] = 3000');
+      expect(updateSql).toContain('WHERE [EngagementID] = 1');
+    });
+
+    it('should INSERT when no contract row exists', async () => {
+      (dataSource.query as jest.Mock)
+        .mockResolvedValueOnce([]) // no existing row
+        .mockResolvedValueOnce(undefined); // insert
+
+      await service.updateDepositTerms(5, { depositAmount: 1000 });
+
+      const insertSql = (dataSource.query as jest.Mock).mock.calls[1][0] as string;
+      expect(insertSql).toContain('INSERT INTO dbo.PerformanceContracts');
+      expect(insertSql).toContain('[EngagementID]');
+      expect(insertSql).toContain('5');
+    });
+
+    it('should set NULL for null depositAmount', async () => {
+      (dataSource.query as jest.Mock)
+        .mockResolvedValueOnce([{ ContractID: 1 }])
+        .mockResolvedValueOnce(undefined);
+
+      await service.updateDepositTerms(1, { depositAmount: null });
+
+      const sql = (dataSource.query as jest.Mock).mock.calls[1][0] as string;
+      expect(sql).toContain('[DepositAmount] = NULL');
+    });
+
+    it('should set NULL for empty depositDueDate', async () => {
+      (dataSource.query as jest.Mock)
+        .mockResolvedValueOnce([{ ContractID: 1 }])
+        .mockResolvedValueOnce(undefined);
+
+      await service.updateDepositTerms(1, { depositDueDate: '' });
+
+      const sql = (dataSource.query as jest.Mock).mock.calls[1][0] as string;
+      expect(sql).toContain('[DepositDueDate] = NULL');
+    });
+
+    it('should not execute any query when dto is empty', async () => {
+      (dataSource.query as jest.Mock).mockResolvedValueOnce([{ ContractID: 1 }]);
+
+      await service.updateDepositTerms(1, {});
+
+      // Only the existence check should have been called
+      expect(dataSource.query).toHaveBeenCalledTimes(1);
+    });
+
+    it('should escape depositDueDate value', async () => {
+      (dataSource.query as jest.Mock)
+        .mockResolvedValueOnce([{ ContractID: 1 }])
+        .mockResolvedValueOnce(undefined);
+
+      await service.updateDepositTerms(1, { depositDueDate: '2026-09-01' });
+
+      const sql = (dataSource.query as jest.Mock).mock.calls[1][0] as string;
+      expect(sql).toContain("N'2026-09-01'");
+    });
+
+    it('should truncate depositDueDate to 10 chars', async () => {
+      (dataSource.query as jest.Mock)
+        .mockResolvedValueOnce([{ ContractID: 1 }])
+        .mockResolvedValueOnce(undefined);
+
+      await service.updateDepositTerms(1, { depositDueDate: '2026-09-01T12:00:00Z' });
+
+      const sql = (dataSource.query as jest.Mock).mock.calls[1][0] as string;
+      expect(sql).toContain("N'2026-09-01'");
+      expect(sql).not.toContain('T12:00:00Z');
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // IsCanadaEngagement (commit 614af4e)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  describe('mapRaw – isCanadaEngagement in list row', () => {
+    it('should map isCanadaEngagement boolean true', () => {
+      const mapBit = (service as any).mapBit.bind(service);
+      expect(mapBit(true)).toBe(true);
+      expect(mapBit(1)).toBe(true);
+    });
+
+    it('should map isCanadaEngagement boolean false', () => {
+      const mapBit = (service as any).mapBit.bind(service);
+      expect(mapBit(false)).toBe(false);
+      expect(mapBit(0)).toBe(false);
+    });
+
+    it('should map isCanadaEngagement null', () => {
+      const mapBit = (service as any).mapBit.bind(service);
+      expect(mapBit(null)).toBeNull();
+      expect(mapBit(undefined)).toBeNull();
+    });
+
+    it('should handle Buffer values (SQL Server bit)', () => {
+      const mapBit = (service as any).mapBit.bind(service);
+      const bufTrue = Buffer.from([1]);
+      const bufFalse = Buffer.from([0]);
+      expect(mapBit(bufTrue)).toBe(true);
+      expect(mapBit(bufFalse)).toBe(false);
+    });
+  });
 });
