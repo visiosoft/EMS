@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMsal } from '@azure/msal-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Info, Loader2, RotateCcw, Trash2 } from 'lucide-react';
+import { UserProfileDetail, type UserProfileUser } from './UserProfileDetail';
 import {
   Tooltip,
   TooltipContent,
@@ -79,6 +80,7 @@ import {
   describeGraphAccessToken,
   getActiveAccount,
   type GraphTokenDiagnostics,
+  acquireGraphAccessToken,
   requestGraphAccessToken,
 } from '@/auth/entra';
 import { richTextMatches } from './searchUtils';
@@ -330,7 +332,7 @@ function getDirectoryUsersErrorMessage(error: unknown): string {
     return 'Unable to read Microsoft Entra users. Please confirm delegated Microsoft Graph permission User.Read.All is granted with admin consent.';
   }
 
-  if (/token|interaction_required|consent_required|login_required|no_account/i.test(message)) {
+  if (/token|interaction_required|consent_required|login_required|no_account|timed_out/i.test(message)) {
     return 'Unable to acquire Microsoft Graph token. Please sign in again.';
   }
 
@@ -1122,10 +1124,11 @@ export function SettingsPage({
   onUpdateUsers,
   initialMainTab = 'Users',
 }: Props) {
-  const { accounts } = useMsal();
+  const { instance, accounts } = useMsal();
   const account = getActiveAccount() ?? accounts[0] ?? null;
   const qc = useQueryClient();
   const [tab, setTab] = useState<'Users' | 'Lookup Tables' | 'System'>(initialMainTab);
+  const [selectedUser, setSelectedUser] = useState<UserProfileUser | null>(null);
   const [lookupTab, setLookupTab] = useState(LOOKUP_TABLES[0].label);
   const [showInvite, setShowInvite] = useState(false);
   const [email, setEmail] = useState('');
@@ -1183,8 +1186,18 @@ export function SettingsPage({
       };
       let graphAccessToken: string;
       try {
-        graphAccessToken = await requestGraphAccessToken(account, { forceRefresh: true });
+        graphAccessToken = await acquireGraphAccessToken(account);
       } catch (error) {
+        try {
+          await instance.acquireTokenRedirect({
+            account,
+            scopes: ["https://graph.microsoft.com/User.Read.All"],
+          });
+          return new Promise<never>(() => {});
+        } catch {
+          // ignore synchronous redirect errors and fallback to UI
+        }
+        
         setDirectoryDiagnostics(baseDiagnostics);
         const tokenError = new Error('Unable to acquire Microsoft Graph token. Please sign in again.') as Error & {
           cause?: unknown;
@@ -1251,7 +1264,7 @@ export function SettingsPage({
     setInternalSyncMappings({});
     setSyncPreviewModalOpen(true);
     try {
-      await requestGraphAccessToken(account, { forceRefresh: true });
+      await requestGraphAccessToken(account);
       const preview =
         direction === 'entraToEms'
           ? await previewEntraToEmsContactSync()
@@ -1342,7 +1355,7 @@ export function SettingsPage({
         serializableFields[actionId] = Array.from(fieldSet);
       }
 
-      await requestGraphAccessToken(account, { forceRefresh: true });
+      await requestGraphAccessToken(account);
       const result =
         internalSyncDirection === 'entraToEms'
           ? await applyEntraToEmsContactSync({
@@ -1389,6 +1402,7 @@ export function SettingsPage({
 
   useEffect(() => {
     setTab(initialMainTab);
+    setSelectedUser(null);
   }, [initialMainTab]);
 
   const activeLookupConfig =
@@ -1728,6 +1742,10 @@ export function SettingsPage({
 
   return (
     <div className="space-y-4">
+      {selectedUser ? (
+        <UserProfileDetail user={selectedUser} onBack={() => setSelectedUser(null)} />
+      ) : (
+      <>
       <h1 className="text-xl font-semibold text-text-primary">Settings</h1>
       <TabBar
         tabs={['Users', 'Lookup Tables', 'System']}
@@ -1950,7 +1968,25 @@ export function SettingsPage({
                     {adminUsersQuery.data.map((u) => {
                       const phone = u.mobilePhone || u.businessPhones?.[0] || '';
                       return (
-                        <tr key={u.id} className="border-b border-border/50">
+                        <tr
+                          key={u.id}
+                          className="border-b border-border/50 cursor-pointer hover:bg-hover/60 transition-colors"
+                          onClick={() => setSelectedUser({
+                            id: u.id,
+                            name: u.name,
+                            email: u.email,
+                            jobTitle: u.jobTitle,
+                            department: u.department,
+                            employeeType: u.employeeType,
+                            officeLocation: u.officeLocation,
+                            city: u.city,
+                            mobilePhone: u.mobilePhone,
+                            businessPhones: u.businessPhones,
+                            companyName: u.companyName,
+                            accountEnabled: u.accountEnabled,
+                            status: u.status,
+                          })}
+                        >
                           <td className="py-2.5 px-3 text-text-primary">{u.name}</td>
                           <td className="py-2.5 px-3 text-ems-blue text-xs">
                             {u.email ? <a href={`mailto:${u.email}`} className="hover:underline">{u.email}</a> : '—'}
@@ -2413,6 +2449,8 @@ export function SettingsPage({
             />
           </div>
         </Drawer>
+      )}
+      </>
       )}
     </div>
   );

@@ -464,6 +464,63 @@ export class AdminUsersService {
     return null;
   }
 
+  async getUserLicenses(
+    userId: string,
+    graphAccessToken?: string,
+  ): Promise<string[]> {
+    const accessToken = await this.getGraphAccessToken(graphAccessToken);
+    const encodedId = encodeURIComponent(userId);
+    type LicenseDetail = { skuPartNumber?: string };
+    type LicenseResponse = { value?: LicenseDetail[] };
+
+    try {
+      const data = await this.graphGetJson<LicenseResponse>(
+        accessToken,
+        `https://graph.microsoft.com/v1.0/users/${encodedId}/licenseDetails`,
+        true,
+      );
+      return (
+        data?.value
+          ?.map((l) => l.skuPartNumber ?? '')
+          .filter(Boolean) ?? []
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  async getUserGroups(
+    userId: string,
+    graphAccessToken?: string,
+  ): Promise<string[]> {
+    const accessToken = await this.getGraphAccessToken(graphAccessToken);
+    const encodedId = encodeURIComponent(userId);
+    type GroupEntry = { displayName?: string | null };
+    type GroupsResponse = { value?: GroupEntry[]; '@odata.nextLink'?: string };
+
+    const groups: string[] = [];
+    let nextUrl: string | null =
+      `https://graph.microsoft.com/v1.0/users/${encodedId}/memberOf/microsoft.graph.group?$select=id,displayName&$top=999`;
+
+    try {
+      while (nextUrl) {
+        const payload = await this.graphGetJson<GroupsResponse>(
+          accessToken,
+          nextUrl,
+        );
+        for (const g of payload?.value ?? []) {
+          const name = g.displayName?.trim();
+          if (name) groups.push(name);
+        }
+        nextUrl = payload?.['@odata.nextLink'] ?? null;
+      }
+    } catch {
+      // return whatever we collected so far
+    }
+
+    return groups.sort((a, b) => a.localeCompare(b));
+  }
+
   private async fetchGraphUsers(accessToken: string): Promise<GraphUser[]> {
     return this.fetchGraphUsersWithSelect(
       accessToken,

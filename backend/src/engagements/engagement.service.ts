@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -41,6 +42,8 @@ import { TicketingSales } from '../entities/ticketing-sales.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
 import { EmsAppCreatedStore } from '../attraction-tours/ems-app-created.store';
+import { DocumentLibraryService } from '../document-library/document-library.service';
+import { buildEngagementFolderHierarchies } from './engagement-folder-structure';
 import { CreateEngagementDto } from './dto/create-engagement.dto';
 import { CreatePerformanceDto } from './dto/create-performance.dto';
 import { UpdateEngagementDto } from './dto/update-engagement.dto';
@@ -597,6 +600,8 @@ function pickRaw(r: Record<string, unknown>, key: string): unknown {
 
 @Injectable()
 export class EngagementService {
+  private readonly logger = new Logger(EngagementService.name);
+
   /**
    * When dbo.EngagementFinances has optional SharePoint link columns, read/write them via raw SQL.
    * `null` = not yet probed; avoids repeated metadata queries once resolved.
@@ -697,6 +702,7 @@ export class EngagementService {
     private readonly emsCreated: EmsAppCreatedStore,
     private readonly dataSource: DataSource,
     private readonly auditContext: AuditRequestContext,
+    private readonly documentLibrary: DocumentLibraryService,
   ) {}
 
   private async getPrimaryVenueCompanyIdForEngagement(
@@ -4999,8 +5005,11 @@ export class EngagementService {
   }
 
   async create(dto: CreateEngagementDto): Promise<{ engagementId: number }> {
-    // Validate tour
-    const tour = await this.tourRepo.findOne({ where: { tourId: dto.tourId } });
+    // Validate tour — load attraction name for later folder naming
+    const tour = await this.tourRepo.findOne({
+      where: { tourId: dto.tourId },
+      relations: ['attraction'],
+    });
     if (!tour) {
       throw new BadRequestException({
         message: `Tour #${dto.tourId} does not exist.`,
@@ -5020,7 +5029,7 @@ export class EngagementService {
       }
     }
 
-    return await this.dataSource.transaction(async (manager) => {
+    const result = await this.dataSource.transaction(async (manager) => {
       const row = manager.create(Engagement, {
         engagementStatus: dto.engagementStatus.trim(),
         engagementScaling: null,
@@ -5080,6 +5089,121 @@ export class EngagementService {
 
       return { engagementId: saved.engagementId };
     });
+
+    // If status is Confirmed, create SharePoint folder structure
+    if (dto.engagementStatus === 'Confirmed') {
+      const engagementId = result.engagementId;
+      try {
+        const primaryVenue = await this.companyRepo.findOne({
+          where: { companyId: dto.primaryVenueCompanyId },
+          relations: ['dma'],
+        });
+        const year = (dto.openingShowDate || new Date().toISOString().slice(0, 10)).slice(0, 4);
+        const marketName = primaryVenue?.dma?.marketName ?? null;
+        const attractionName = tour.attraction?.attractionName ?? null;
+
+        const hierarchies = buildEngagementFolderHierarchies(year, marketName, attractionName);
+
+        let rootWebUrl = '';
+        for (const hierarchy of hierarchies) {
+          const folder = await this.documentLibrary.ensureFolderHierarchy(hierarchy);
+          if (!rootWebUrl) {
+            rootWebUrl = folder.webUrl;
+          }
+        }
+
+        // Store the root folder link
+        if (rootWebUrl) {
+          const rootSegments = hierarchies[0]?.slice(0, -1) ?? [];
+          const folderPath = rootSegments.length > 0 ? rootSegments.join('/') : 'Engagements';
+          await this.upsertEngagementLink(engagementId, {
+            linkUrl: rootWebUrl,
+            linkName: `Engagement #${engagementId} Files`,
+            linkPurpose: 'EngagementFolder',
+            linkPath: folderPath,
+          });
+        }
+
+        this.logger.log(`[SharePoint] Created folder structure for engagement ${engagementId}: ${rootWebUrl}`);
+      } catch (err) {
+        this.logger.error(
+          `[SharePoint] Failed to create folders for engagement ${engagementId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Returns the SharePoint folder link for an engagement, if one exists.
+   */
+  async getSharePointFolderLink(engagementId: number): Promise<{ linkUrl: string | null; linkName: string | null }> {
+    const el = await this.engagementLinkRepo.findOne({
+      where: { engagementId, linkPurpose: 'EngagementFolder' },
+      relations: ['link'],
+    });
+    if (!el?.link) return { linkUrl: null, linkName: null };
+    return { linkUrl: el.link.linkUrl, linkName: el.link.linkName };
+  }
+
+  /**
+   * Ensures the SharePoint folder structure exists for a given engagement.
+   * Can be called manually to retry if folder creation failed during initial creation.
+   */
+  async ensureSharePointFolders(engagementId: number): Promise<{ rootWebUrl: string }> {
+    const engagement = await this.assertEngagementExists(engagementId);
+    const tour = await this.tourRepo.findOne({
+      where: { tourId: engagement.tourId },
+      relations: ['attraction'],
+    });
+    if (!tour) {
+      throw new BadRequestException({ message: `Tour #${engagement.tourId} for engagement ${engagementId} not found.` });
+    }
+
+    const primaryVenue = await this.engagementVenueRepo.findOne({
+      where: { engagementId, isPrimary: true },
+    });
+    let marketName: string | null = null;
+    if (primaryVenue) {
+      const company = await this.companyRepo.findOne({
+        where: { companyId: primaryVenue.venueCompanyId },
+        relations: ['dma'],
+      });
+      marketName = company?.dma?.marketName ?? null;
+    }
+
+    // Get the opening performance date for the year
+    const openingPerf = await this.performanceRepo.findOne({
+      where: { engagementId },
+      order: { performanceDate: 'ASC' },
+    });
+    const year = openingPerf?.performanceDate
+      ? String(openingPerf.performanceDate).slice(0, 4)
+      : new Date().getFullYear().toString();
+
+    const attractionName = tour.attraction?.attractionName ?? null;
+    const hierarchies = buildEngagementFolderHierarchies(year, marketName, attractionName);
+
+    let rootWebUrl = '';
+    for (const hierarchy of hierarchies) {
+      const folder = await this.documentLibrary.ensureFolderHierarchy(hierarchy);
+      if (!rootWebUrl) {
+        rootWebUrl = folder.webUrl;
+      }
+    }
+
+    // Upsert the root folder link
+    if (rootWebUrl) {
+      await this.upsertEngagementLink(engagementId, {
+        linkUrl: rootWebUrl,
+        linkName: `Engagement #${engagementId} Files`,
+        linkPurpose: 'EngagementFolder',
+      });
+    }
+
+    this.logger.log(`[SharePoint] Folder structure for engagement ${engagementId}: ${rootWebUrl}`);
+    return { rootWebUrl };
   }
 
   async update(id: number, dto: UpdateEngagementDto): Promise<void> {
@@ -5221,6 +5345,18 @@ export class EngagementService {
       }
       const savedProd = await this.engagementProductionRepo.save(prod);
       await this.tryPersistEngagementProductionTimes(savedProd.productionId, dto);
+    }
+
+    // Trigger SharePoint folder creation when status transitions to Confirmed
+    if (
+      dto.engagementStatus === 'Confirmed' &&
+      existing.engagementStatus !== 'Confirmed'
+    ) {
+      void this.ensureSharePointFolders(id).catch((err) => {
+        this.logger.error(
+          `[SharePoint] Failed to create folders on status update for engagement ${id}: ${err.message}`,
+        );
+      });
     }
   }
 
@@ -6392,11 +6528,79 @@ export class EngagementService {
     }
   }
 
+  // ── Seating Chart upload (Venue.SeatingChartLinkID → dbo.Link) ──────────────
+
+  async uploadSeatingChart(
+    engagementId: number,
+    venueCompanyId: number,
+    file: Express.Multer.File,
+  ): Promise<{ seatingChartLinkId: number; seatingChartLinkUrl: string }> {
+    await this.assertEngagementExists(engagementId);
+    const ev = await this.engagementVenueRepo.findOne({
+      where: { engagementId, venueCompanyId },
+    });
+    if (!ev) throw new NotFoundException({ message: 'Venue not linked to this engagement.' });
+
+    if (!file?.filename?.trim()) {
+      throw new BadRequestException({ message: 'Upload did not produce a filename.' });
+    }
+
+    const publicPath = `/uploads/seating-charts/${file.filename}`.slice(0, 2048);
+    const safeName = (file.originalname || 'Seating Chart')
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\x00-\x1f]/g, '')
+      .slice(0, 255);
+
+    const venue = await this.venueRepo.findOne({ where: { companyId: venueCompanyId } });
+    if (!venue) throw new NotFoundException({ message: 'Venue not found.' });
+
+    if (venue.seatingChartLinkId) {
+      // Update existing Link row
+      await this.linkRepo.update(venue.seatingChartLinkId, {
+        linkUrl: publicPath,
+        linkPath: publicPath.slice(0, 1024),
+        linkName: safeName || 'Seating Chart',
+      });
+      return { seatingChartLinkId: venue.seatingChartLinkId, seatingChartLinkUrl: publicPath };
+    }
+
+    // Create a new Link row and assign to Venue
+    const newLink = this.linkRepo.create({
+      linkType: 'Image',
+      linkUrl: publicPath,
+      linkPath: publicPath.slice(0, 1024),
+      linkName: safeName || 'Seating Chart',
+    });
+    const savedLink = await this.linkRepo.save(newLink);
+    venue.seatingChartLinkId = savedLink.linkId;
+    await this.venueRepo.save(venue);
+    return { seatingChartLinkId: savedLink.linkId, seatingChartLinkUrl: publicPath };
+  }
+
+  async removeSeatingChart(
+    engagementId: number,
+    venueCompanyId: number,
+  ): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+    const ev = await this.engagementVenueRepo.findOne({
+      where: { engagementId, venueCompanyId },
+    });
+    if (!ev) throw new NotFoundException({ message: 'Venue not linked to this engagement.' });
+
+    const venue = await this.venueRepo.findOne({ where: { companyId: venueCompanyId } });
+    if (!venue) throw new NotFoundException({ message: 'Venue not found.' });
+
+    if (venue.seatingChartLinkId) {
+      venue.seatingChartLinkId = null;
+      await this.venueRepo.save(venue);
+    }
+  }
+
   // ── Engagement Link management (contracts / forecast) ──────────────────────
 
   async upsertEngagementLink(
     engagementId: number,
-    dto: { linkUrl: string; linkName?: string; linkPurpose: string },
+    dto: { linkUrl: string; linkName?: string; linkPurpose: string; linkPath?: string },
   ): Promise<{ engagementLinkId: number; linkId: number }> {
     await this.assertEngagementExists(engagementId);
     const url = (dto.linkUrl ?? '').trim();
@@ -6414,7 +6618,11 @@ export class EngagementService {
 
     if (existing) {
       // Update the existing Link row URL
-      await this.linkRepo.update({ linkId: existing.linkId }, { linkUrl: url, linkName: dto.linkName?.trim() || purpose });
+      await this.linkRepo.update({ linkId: existing.linkId }, {
+        linkUrl: url,
+        linkName: dto.linkName?.trim() || purpose,
+        linkPath: dto.linkPath?.trim() ?? '',
+      });
       return { engagementLinkId: existing.engagementLinkId, linkId: existing.linkId };
     }
 
@@ -6423,7 +6631,7 @@ export class EngagementService {
       linkType: 'SharePoint',
       linkUrl: url,
       linkName: dto.linkName?.trim() || purpose,
-      linkPath: '',
+      linkPath: dto.linkPath?.trim() ?? '',
     });
     const savedLink = await this.linkRepo.save(link);
 
@@ -8335,5 +8543,178 @@ export class EngagementService {
         `INSERT INTO dbo.PerformanceContracts (${cols.join(', ')}) VALUES (${vals.join(', ')})`,
       );
     }
+  }
+
+  // ── Performance Contracts CRUD ─────────────────────────────────────────────
+
+  async getPerformanceContracts(engagementId: number): Promise<Record<string, unknown>[]> {
+    await this.assertEngagementExists(engagementId);
+    const eid = Math.trunc(engagementId);
+    const rows = await this.dataSource.query(
+      `SELECT [ContractID] AS contractId,
+              [CreatedAt] AS createdAt,
+              [EngagementID] AS engagementId,
+              [Agency] AS agency,
+              [Agent] AS agent,
+              [Attraction] AS attraction,
+              [VenueName] AS venueName,
+              [VenueAddress] AS venueAddress,
+              [VenueCity] AS venueCity,
+              [VenueState] AS venueState,
+              [VenueCountry] AS venueCountry,
+              [Producer] AS producer,
+              [ProducerAddress] AS producerAddress,
+              [ProducerFedID] AS producerFedId,
+              [GuaranteeAmount] AS guaranteeAmount,
+              [GuaranteeCurrency] AS guaranteeCurrency,
+              [DepositAmount] AS depositAmount,
+              CONVERT(varchar(10), [DepositDueDate], 120) AS depositDueDate,
+              [BalanceAmount] AS balanceAmount,
+              CONVERT(varchar(10), [BalanceDueDate], 120) AS balanceDueDate,
+              [RoyaltyDescription] AS royaltyDescription,
+              [OverageDescription] AS overageDescription,
+              [PaymentTerms] AS paymentTerms,
+              [PaymentMethodType] AS paymentMethodType,
+              [PaymentPayableTo] AS paymentPayableTo,
+              [PaymentBankName] AS paymentBankName,
+              [Performances] AS performances,
+              [AdditionallyInsured] AS additionallyInsured,
+              [AnnotatedPdfBlobName] AS annotatedPdfBlobName,
+              [OriginalFilename] AS originalFilename,
+              [OneDrivePdfUrl] AS oneDrivePdfUrl
+       FROM dbo.PerformanceContracts
+       WHERE [EngagementID] = ${eid}
+       ORDER BY [ContractID] DESC`,
+    );
+    return (rows as Record<string, unknown>[]).map((r) => ({
+      ...r,
+      guaranteeAmount: r.guaranteeAmount != null ? Number(r.guaranteeAmount) : null,
+      depositAmount: r.depositAmount != null ? Number(r.depositAmount) : null,
+      balanceAmount: r.balanceAmount != null ? Number(r.balanceAmount) : null,
+    }));
+  }
+
+  async savePerformanceContract(
+    engagementId: number,
+    dto: import('./dto/save-performance-contract.dto').SavePerformanceContractDto,
+  ): Promise<{ contractId: number }> {
+    await this.assertEngagementExists(engagementId);
+    const eid = Math.trunc(engagementId);
+
+    const cols = ['[EngagementID]', '[CreatedAt]'];
+    const vals = [String(eid), 'GETDATE()'];
+
+    const addCol = (col: string, val: string | number | null | undefined, maxLen?: number) => {
+      if (val === undefined) return;
+      if (val === null || (typeof val === 'string' && val.trim() === '')) {
+        cols.push(`[${col}]`);
+        vals.push('NULL');
+      } else if (typeof val === 'number') {
+        cols.push(`[${col}]`);
+        vals.push(String(val));
+      } else {
+        cols.push(`[${col}]`);
+        vals.push(this.escapeSqlNVarCharLiteral(String(val).trim().slice(0, maxLen ?? 2048)));
+      }
+    };
+
+    addCol('Agency', dto.agency, 255);
+    addCol('Agent', dto.agent, 255);
+    addCol('Attraction', dto.attraction, 255);
+    addCol('VenueName', dto.venueName, 255);
+    addCol('VenueAddress', dto.venueAddress, 500);
+    addCol('VenueCity', dto.venueCity, 100);
+    addCol('VenueState', dto.venueState, 100);
+    addCol('VenueCountry', dto.venueCountry, 100);
+    addCol('Producer', dto.producer, 255);
+    addCol('ProducerAddress', dto.producerAddress, 500);
+    addCol('ProducerFedID', dto.producerFedId, 50);
+    addCol('GuaranteeAmount', dto.guaranteeAmount);
+    addCol('GuaranteeCurrency', dto.guaranteeCurrency, 10);
+    addCol('DepositAmount', dto.depositAmount);
+    addCol('DepositDueDate', dto.depositDueDate, 10);
+    addCol('BalanceAmount', dto.balanceAmount);
+    addCol('BalanceDueDate', dto.balanceDueDate, 10);
+    addCol('RoyaltyDescription', dto.royaltyDescription, 8000);
+    addCol('OverageDescription', dto.overageDescription, 8000);
+    addCol('PaymentTerms', dto.paymentTerms, 8000);
+    addCol('PaymentMethodType', dto.paymentMethodType, 100);
+    addCol('PaymentPayableTo', dto.paymentPayableTo, 255);
+    addCol('PaymentBankName', dto.paymentBankName, 255);
+    addCol('Performances', dto.performances, 8000);
+    addCol('AdditionallyInsured', dto.additionallyInsured, 8000);
+    addCol('AnnotatedPdfBlobName', dto.annotatedPdfBlobName, 500);
+    addCol('OriginalFilename', dto.originalFilename, 500);
+    addCol('OneDrivePdfUrl', dto.oneDrivePdfUrl, 1000);
+
+    const result = await this.dataSource.query(
+      `INSERT INTO dbo.PerformanceContracts (${cols.join(', ')}) OUTPUT INSERTED.[ContractID] AS contractId VALUES (${vals.join(', ')})`,
+    );
+    const contractId = (result as Record<string, unknown>[])?.[0]?.contractId;
+    return { contractId: Number(contractId) };
+  }
+
+  async updatePerformanceContract(
+    engagementId: number,
+    contractId: number,
+    dto: import('./dto/save-performance-contract.dto').SavePerformanceContractDto,
+  ): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+    const eid = Math.trunc(engagementId);
+    const cid = Math.trunc(contractId);
+
+    const sets: string[] = [];
+    const addSet = (col: string, val: string | number | null | undefined, maxLen?: number) => {
+      if (val === undefined) return;
+      if (val === null || (typeof val === 'string' && val.trim() === '')) {
+        sets.push(`[${col}] = NULL`);
+      } else if (typeof val === 'number') {
+        sets.push(`[${col}] = ${val}`);
+      } else {
+        sets.push(`[${col}] = ${this.escapeSqlNVarCharLiteral(String(val).trim().slice(0, maxLen ?? 2048))}`);
+      }
+    };
+
+    addSet('Agency', dto.agency, 255);
+    addSet('Agent', dto.agent, 255);
+    addSet('Attraction', dto.attraction, 255);
+    addSet('VenueName', dto.venueName, 255);
+    addSet('VenueAddress', dto.venueAddress, 500);
+    addSet('VenueCity', dto.venueCity, 100);
+    addSet('VenueState', dto.venueState, 100);
+    addSet('VenueCountry', dto.venueCountry, 100);
+    addSet('Producer', dto.producer, 255);
+    addSet('ProducerAddress', dto.producerAddress, 500);
+    addSet('ProducerFedID', dto.producerFedId, 50);
+    addSet('GuaranteeAmount', dto.guaranteeAmount);
+    addSet('GuaranteeCurrency', dto.guaranteeCurrency, 10);
+    addSet('DepositAmount', dto.depositAmount);
+    addSet('DepositDueDate', dto.depositDueDate, 10);
+    addSet('BalanceAmount', dto.balanceAmount);
+    addSet('BalanceDueDate', dto.balanceDueDate, 10);
+    addSet('RoyaltyDescription', dto.royaltyDescription, 8000);
+    addSet('OverageDescription', dto.overageDescription, 8000);
+    addSet('PaymentTerms', dto.paymentTerms, 8000);
+    addSet('PaymentMethodType', dto.paymentMethodType, 100);
+    addSet('PaymentPayableTo', dto.paymentPayableTo, 255);
+    addSet('PaymentBankName', dto.paymentBankName, 255);
+    addSet('Performances', dto.performances, 8000);
+    addSet('AdditionallyInsured', dto.additionallyInsured, 8000);
+    addSet('AnnotatedPdfBlobName', dto.annotatedPdfBlobName, 500);
+    addSet('OriginalFilename', dto.originalFilename, 500);
+    addSet('OneDrivePdfUrl', dto.oneDrivePdfUrl, 1000);
+
+    if (sets.length === 0) return;
+
+    await this.dataSource.query(
+      `UPDATE dbo.PerformanceContracts SET ${sets.join(', ')} WHERE [ContractID] = ${cid} AND [EngagementID] = ${eid}`,
+    );
+  }
+
+  async deletePerformanceContract(engagementId: number, contractId: number): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+    await this.dataSource.query(
+      `DELETE FROM dbo.PerformanceContracts WHERE [ContractID] = ${Math.trunc(contractId)} AND [EngagementID] = ${Math.trunc(engagementId)}`,
+    );
   }
 }

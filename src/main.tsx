@@ -3,6 +3,7 @@ import { MsalProvider } from "@azure/msal-react";
 import App from "./App.tsx";
 import { initializeMsal, msalInstance } from "./auth/entra.ts";
 import "./index.css";
+import "./watermark.css";
 
 async function bootstrap() {
     try {

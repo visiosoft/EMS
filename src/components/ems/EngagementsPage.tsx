@@ -1309,6 +1309,7 @@ function CreateEngagementModal({
   const [tourId, setTourId] = useState<string>('');
   const [primaryVenueId, setPrimaryVenueId] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
   // Field-level errors
   const [errors, setErrors] = useState<Partial<Record<string, string>>>({});
@@ -1359,11 +1360,7 @@ function CreateEngagementModal({
     return Object.keys(next).length === 0;
   };
 
-  const handleSubmit = async () => {
-    if (!validate()) {
-      addToast('Please fill in all required fields.', 'warning');
-      return;
-    }
+  const doCreate = async () => {
     setSubmitting(true);
     try {
       const opening = parseOpeningDateTimeLocal(openingShowDateTime);
@@ -1385,6 +1382,18 @@ function CreateEngagementModal({
       addToast(friendlyApiError(e), 'error');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleSubmit = () => {
+    if (!validate()) {
+      addToast('Please fill in all required fields.', 'warning');
+      return;
+    }
+    if (recordStatus === 'Confirmed') {
+      setShowConfirmDialog(true);
+    } else {
+      void doCreate();
     }
   };
 
@@ -1516,6 +1525,64 @@ function CreateEngagementModal({
           </button>
         </div>
       </div>
+
+      {/* Confirmation dialog for Confirmed status */}
+      {showConfirmDialog && (
+        <Modal title="Confirm Engagement Creation" onClose={() => setShowConfirmDialog(false)} width={540}>
+          <div className="space-y-4">
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+              <p className="font-medium mb-2">SharePoint folder structure will be created</p>
+              <p>
+                This engagement will be created with status <strong>Confirmed</strong>.
+                The system will automatically create a folder structure in SharePoint under:
+              </p>
+              <div className="mt-3 pl-4 text-amber-700 font-mono text-xs leading-relaxed">
+                Engagements / {openingShowDateTime.slice(0, 4)} /{' '}
+                {selectedVenueDma || 'Market'} / {attractionOptions.find(a => a.value === attractionId)?.label || 'Attraction'}
+                <br />
+                ├── Contracts / (Tour, Venue, Partner)
+                <br />
+                ├── Booking / (Tour, Venue)
+                <br />
+                ├── Ticketing
+                <br />
+                ├── Marketing
+                <br />
+                ├── Advance / (Tour, Venue)
+                <br />
+                └── Settlement / (Tour, Venue, Partner)
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowConfirmDialog(false)}
+                className="text-text-secondary text-sm px-4 py-2 rounded-md hover:text-text-primary hover:bg-hover transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowConfirmDialog(false);
+                  void doCreate();
+                }}
+                disabled={submitting}
+                className="inline-flex items-center justify-center gap-2 min-w-[8rem] bg-ems-accent text-background text-sm px-5 py-2 rounded-md font-medium disabled:opacity-60 disabled:cursor-not-allowed hover:bg-ems-accent/90 transition-colors"
+              >
+                {submitting ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                    Creating…
+                  </>
+                ) : (
+                  'Create & Create Folders'
+                )}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </Modal>
   );
 }

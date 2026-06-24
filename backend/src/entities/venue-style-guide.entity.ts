@@ -18,6 +18,6 @@ export class VenueStyleGuide extends AuditColumns {
   @Column({ name: 'Notes', type: 'nvarchar', length: 'max', nullable: true })
   notes: string | null;
 
-  @Column({ name: 'LogoLinkID', type: 'int', nullable: true, select: false, insert: false, update: false })
+  @Column({ name: 'LogoLinkID', type: 'int', nullable: true })
   logoLinkId: number | null;
 }

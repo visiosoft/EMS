@@ -1,0 +1,427 @@
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import { AuditRequestContext } from '../audit/audit-request-context.service';
+
+// ─── Response / DTO Types ─────────────────────────────────────────────────────
+
+export type EmployeePersonalProfileResponse = {
+  contactId: number;
+  contactInfoId: number;
+  /** Entra-sourced fields (read-only echoes) */
+  firstName: string;
+  lastName: string;
+  email: string;
+  cellPhone: string;
+  /** Editable employee-owned fields */
+  middleName: string;
+  personalEmail: string;
+  birthDate: string | null;
+  ssn: string;
+  /** Home address */
+  homeAddressId: number | null;
+  homeStreet: string;
+  homeAddress2: string;
+  homeCity: string;
+  homeState: string;
+  homePostalCode: string;
+  homeCountry: string;
+  /** Emergency contact */
+  emergencyContactId: number | null;
+  emergencyFirstName: string;
+  emergencyLastName: string;
+  emergencyEmail: string;
+  emergencyCellPhone: string;
+};
+
+export class UpdateEmployeePersonalProfileDto {
+  middleName?: string | null;
+  personalEmail?: string | null;
+  birthDate?: string | null;
+  ssn?: string | null;
+  homeStreet?: string | null;
+  homeAddress2?: string | null;
+  homeCity?: string | null;
+  homeState?: string | null;
+  homePostalCode?: string | null;
+  homeCountry?: string | null;
+  emergencyFirstName?: string | null;
+  emergencyLastName?: string | null;
+  emergencyEmail?: string | null;
+  emergencyCellPhone?: string | null;
+}
+
+// ─── Service ──────────────────────────────────────────────────────────────────
+
+@Injectable()
+export class EmployeeProfileService {
+  constructor(
+    @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly auditContext: AuditRequestContext,
+  ) {}
+
+  /** Fetch personal profile for a user identified by email. */
+  async getPersonalProfile(
+    userEmail: string,
+  ): Promise<EmployeePersonalProfileResponse> {
+    const email = normalizeEmail(userEmail);
+    if (!email) {
+      throw new BadRequestException('A valid email address is required.');
+    }
+    return this.loadPersonalProfile(email);
+  }
+
+  /** Update personal (non-Entra) fields for a user identified by email. */
+  async updatePersonalProfile(
+    userEmail: string,
+    dto: UpdateEmployeePersonalProfileDto,
+  ): Promise<EmployeePersonalProfileResponse> {
+    const email = normalizeEmail(userEmail);
+    if (!email) {
+      throw new BadRequestException('A valid email address is required.');
+    }
+    const current = await this.loadPersonalProfile(email);
+    const modifiedBy =
+      this.auditContext.getUserEmail() ?? 'employee-profile';
+
+    await this.dataSource.transaction(async (manager) => {
+      // 1. Upsert EmployeeProfile row
+      const epExists = await manager.query(
+        `SELECT 1 AS found FROM dbo.EmployeeProfile WHERE ContactID = @0`,
+        [current.contactId],
+      );
+      if (epExists.length > 0) {
+        await manager.query(
+          `
+          UPDATE dbo.EmployeeProfile
+          SET MiddleName     = @0,
+              PersonalEmail  = @1,
+              BirthDate      = @2,
+              SSN            = @3,
+              modified_by    = @4,
+              modified_at    = SYSUTCDATETIME()
+          WHERE ContactID = @5
+          `,
+          [
+            nullableText(dto.middleName),
+            nullableText(dto.personalEmail),
+            nullableDate(dto.birthDate),
+            nullableText(dto.ssn),
+            modifiedBy,
+            current.contactId,
+          ],
+        );
+      } else {
+        await manager.query(
+          `
+          INSERT INTO dbo.EmployeeProfile
+            (ContactID, MiddleName, PersonalEmail, BirthDate, SSN, created_by, created_at, modified_by, modified_at)
+          VALUES
+            (@0, @1, @2, @3, @4, @5, SYSUTCDATETIME(), @5, SYSUTCDATETIME())
+          `,
+          [
+            current.contactId,
+            nullableText(dto.middleName),
+            nullableText(dto.personalEmail),
+            nullableDate(dto.birthDate),
+            nullableText(dto.ssn),
+            modifiedBy,
+          ],
+        );
+      }
+
+      // 2. Upsert home address
+      const hasAddressFields =
+        dto.homeStreet != null ||
+        dto.homeAddress2 != null ||
+        dto.homeCity != null ||
+        dto.homeState != null ||
+        dto.homePostalCode != null ||
+        dto.homeCountry != null;
+
+      if (hasAddressFields) {
+        if (current.homeAddressId) {
+          await manager.query(
+            `
+            UPDATE dbo.Address
+            SET AddressLine1  = @0,
+                AddressLine2  = @1,
+                City          = @2,
+                StateProvince = @3,
+                PostalCode    = @4,
+                Country       = @5
+            WHERE AddressID = @6
+            `,
+            [
+              cleanText(dto.homeStreet) || current.homeStreet || '',
+              nullableText(dto.homeAddress2),
+              cleanText(dto.homeCity) || current.homeCity || '',
+              cleanText(dto.homeState) || current.homeState || '',
+              cleanText(dto.homePostalCode) || current.homePostalCode || '',
+              cleanText(dto.homeCountry) || current.homeCountry || '',
+              current.homeAddressId,
+            ],
+          );
+        } else {
+          const rows = await manager.query(
+            `
+            INSERT INTO dbo.Address (AddressLine1, AddressLine2, City, StateProvince, PostalCode, Country)
+            OUTPUT INSERTED.AddressID AS addressId
+            VALUES (@0, @1, @2, @3, @4, @5)
+            `,
+            [
+              cleanText(dto.homeStreet) || '',
+              nullableText(dto.homeAddress2),
+              cleanText(dto.homeCity) || '',
+              cleanText(dto.homeState) || '',
+              cleanText(dto.homePostalCode) || '',
+              cleanText(dto.homeCountry) || '',
+            ],
+          );
+          const newAddressId = readNumber(rows[0], 'addressId', 'AddressID');
+          if (newAddressId) {
+            await manager.query(
+              `UPDATE dbo.EmployeeProfile SET HomeAddressID = @0 WHERE ContactID = @1`,
+              [newAddressId, current.contactId],
+            );
+          }
+        }
+      }
+
+      // 3. Upsert emergency contact
+      const hasEmergencyFields =
+        dto.emergencyFirstName != null ||
+        dto.emergencyLastName != null ||
+        dto.emergencyEmail != null ||
+        dto.emergencyCellPhone != null;
+
+      if (hasEmergencyFields) {
+        if (current.emergencyContactId) {
+          await manager.query(
+            `
+            UPDATE dbo.EmergencyContact
+            SET FirstName   = @0,
+                LastName    = @1,
+                Email       = @2,
+                CellPhone   = @3,
+                modified_by = @4,
+                modified_at = SYSUTCDATETIME()
+            WHERE EmergencyContactID = @5
+            `,
+            [
+              cleanText(dto.emergencyFirstName) || current.emergencyFirstName || '',
+              cleanText(dto.emergencyLastName) || current.emergencyLastName || '',
+              nullableText(dto.emergencyEmail),
+              nullableText(dto.emergencyCellPhone),
+              modifiedBy,
+              current.emergencyContactId,
+            ],
+          );
+        } else {
+          const rows = await manager.query(
+            `
+            INSERT INTO dbo.EmergencyContact
+              (ContactID, FirstName, LastName, Email, CellPhone, created_by, created_at, modified_by, modified_at)
+            OUTPUT INSERTED.EmergencyContactID AS emergencyContactId
+            VALUES (@0, @1, @2, @3, @4, @5, SYSUTCDATETIME(), @5, SYSUTCDATETIME())
+            `,
+            [
+              current.contactId,
+              cleanText(dto.emergencyFirstName) || '',
+              cleanText(dto.emergencyLastName) || '',
+              nullableText(dto.emergencyEmail),
+              nullableText(dto.emergencyCellPhone),
+              modifiedBy,
+            ],
+          );
+          // emergencyContactId is auto-linked via ContactID FK
+          void rows;
+        }
+      }
+    });
+
+    return this.loadPersonalProfile(email);
+  }
+
+  // ─── Private Loaders ────────────────────────────────────────────────────────
+
+  private async loadPersonalProfile(
+    email: string,
+  ): Promise<EmployeePersonalProfileResponse> {
+    const hasEpTable = await this.tableExists('EmployeeProfile');
+    const hasEcTable = await this.tableExists('EmergencyContact');
+
+    // Build the SELECT dynamically based on which tables exist
+    let epJoin = '';
+    let epSelect =
+      "CAST('' AS nvarchar(100)) AS middleName, CAST('' AS nvarchar(254)) AS personalEmail, CAST(NULL AS date) AS birthDate, CAST('' AS nvarchar(20)) AS ssn, CAST(NULL AS int) AS homeAddressId";
+    if (hasEpTable) {
+      epJoin =
+        'LEFT JOIN dbo.EmployeeProfile ep ON ep.ContactID = c.ContactID';
+      epSelect =
+        "COALESCE(ep.MiddleName, '') AS middleName, COALESCE(ep.PersonalEmail, '') AS personalEmail, ep.BirthDate AS birthDate, COALESCE(ep.SSN, '') AS ssn, ep.HomeAddressID AS homeAddressId";
+    }
+
+    let ecJoin = '';
+    let ecSelect =
+      "CAST(NULL AS int) AS emergencyContactId, CAST('' AS nvarchar(100)) AS emergencyFirstName, CAST('' AS nvarchar(100)) AS emergencyLastName, CAST('' AS nvarchar(254)) AS emergencyEmail, CAST('' AS nvarchar(30)) AS emergencyCellPhone";
+    if (hasEcTable) {
+      ecJoin =
+        'LEFT JOIN dbo.EmergencyContact ec ON ec.ContactID = c.ContactID';
+      ecSelect =
+        "ec.EmergencyContactID AS emergencyContactId, COALESCE(ec.FirstName, '') AS emergencyFirstName, COALESCE(ec.LastName, '') AS emergencyLastName, COALESCE(ec.Email, '') AS emergencyEmail, COALESCE(ec.CellPhone, '') AS emergencyCellPhone";
+    }
+
+    const rows = await this.dataSource.query(
+      `
+      SELECT TOP 1
+        c.ContactID AS contactId,
+        ci.ContactInfoID AS contactInfoId,
+        ci.FirstName AS firstName,
+        ci.LastName AS lastName,
+        ci.Email AS email,
+        COALESCE(ci.CellPhone, '') AS cellPhone,
+        ${epSelect},
+        ${ecSelect},
+        ${hasEpTable
+          ? "COALESCE(ha.AddressLine1, '') AS homeStreet, COALESCE(ha.AddressLine2, '') AS homeAddress2, COALESCE(ha.City, '') AS homeCity, COALESCE(ha.StateProvince, '') AS homeState, COALESCE(ha.PostalCode, '') AS homePostalCode, COALESCE(ha.Country, '') AS homeCountry"
+          : "CAST('' AS nvarchar(200)) AS homeStreet, CAST('' AS nvarchar(200)) AS homeAddress2, CAST('' AS nvarchar(100)) AS homeCity, CAST('' AS nvarchar(100)) AS homeState, CAST('' AS nvarchar(20)) AS homePostalCode, CAST('' AS nvarchar(100)) AS homeCountry"
+        }
+      FROM dbo.Contact c
+      INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+      INNER JOIN dbo.ContactAssignment ca ON ca.ContactID = c.ContactID
+      INNER JOIN dbo.Company co ON co.CompanyID = ca.CompanyID AND co.is_internal = 1
+      ${epJoin}
+      ${hasEpTable ? 'LEFT JOIN dbo.Address ha ON ha.AddressID = ep.HomeAddressID' : ''}
+      ${ecJoin}
+      WHERE LOWER(LTRIM(RTRIM(ci.Email))) = LOWER(LTRIM(RTRIM(@0)))
+      `,
+      [email],
+    );
+
+    if (rows.length === 0) {
+      throw new NotFoundException(
+        `No internal employee profile found for ${email}. Run Entra → EMS sync first.`,
+      );
+    }
+
+    const r = rows[0] as Record<string, unknown>;
+    return {
+      contactId: readNumber(r, 'contactId', 'ContactID') ?? 0,
+      contactInfoId: readNumber(r, 'contactInfoId', 'ContactInfoID') ?? 0,
+      firstName: readString(r, 'firstName', 'FirstName'),
+      lastName: readString(r, 'lastName', 'LastName'),
+      email: readString(r, 'email', 'Email'),
+      cellPhone: readString(r, 'cellPhone', 'CellPhone'),
+      middleName: readString(r, 'middleName', 'MiddleName'),
+      personalEmail: readString(r, 'personalEmail', 'PersonalEmail'),
+      birthDate: readDateString(r, 'birthDate', 'BirthDate'),
+      ssn: readString(r, 'ssn', 'SSN'),
+      homeAddressId: readNumber(r, 'homeAddressId', 'HomeAddressID'),
+      homeStreet: readString(r, 'homeStreet'),
+      homeAddress2: readString(r, 'homeAddress2'),
+      homeCity: readString(r, 'homeCity'),
+      homeState: readString(r, 'homeState'),
+      homePostalCode: readString(r, 'homePostalCode'),
+      homeCountry: readString(r, 'homeCountry'),
+      emergencyContactId: readNumber(
+        r,
+        'emergencyContactId',
+        'EmergencyContactID',
+      ),
+      emergencyFirstName: readString(r, 'emergencyFirstName'),
+      emergencyLastName: readString(r, 'emergencyLastName'),
+      emergencyEmail: readString(r, 'emergencyEmail'),
+      emergencyCellPhone: readString(r, 'emergencyCellPhone'),
+    };
+  }
+
+  private async tableExists(tableName: string): Promise<boolean> {
+    const rows = await this.dataSource.query(
+      `
+      SELECT 1 AS found
+      FROM INFORMATION_SCHEMA.TABLES
+      WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = @0
+      `,
+      [tableName],
+    );
+    return rows.length > 0;
+  }
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function normalizeEmail(value: string | null | undefined): string {
+  const email = cleanText(value).toLowerCase();
+  return email.includes('@') ? email : '';
+}
+
+function cleanText(value: string | null | undefined): string {
+  return String(value ?? '')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function nullableText(value: string | null | undefined): string | null {
+  const cleaned = cleanText(value);
+  return cleaned || null;
+}
+
+function nullableDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const cleaned = cleanText(value);
+  if (!cleaned) return null;
+  // Validate ISO date format
+  const d = new Date(cleaned);
+  if (isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+function readString(
+  row: Record<string, unknown> | undefined,
+  ...keys: string[]
+): string {
+  if (!row) return '';
+  for (const key of keys) {
+    const value = row[key];
+    if (value !== undefined && value !== null) return cleanText(String(value));
+  }
+  return '';
+}
+
+function readNumber(
+  row: Record<string, unknown> | undefined,
+  ...keys: string[]
+): number | null {
+  if (!row) return null;
+  for (const key of keys) {
+    const value = row[key];
+    const numberValue = Number(value);
+    if (Number.isFinite(numberValue)) return numberValue;
+  }
+  return null;
+}
+
+function readDateString(
+  row: Record<string, unknown> | undefined,
+  ...keys: string[]
+): string | null {
+  if (!row) return null;
+  for (const key of keys) {
+    const value = row[key];
+    if (value === null || value === undefined) continue;
+    if (value instanceof Date) {
+      return isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
+    }
+    const str = String(value).trim();
+    if (!str) continue;
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  }
+  return null;
+}

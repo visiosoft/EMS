@@ -198,6 +198,211 @@ html {
 }
 
 @layer components {
+  .org-chart-tree,
+  .org-chart-tree ul {
+    display: flex;
+    justify-content: center;
+    margin: 0;
+    padding: 0;
+    position: relative;
+  }
+
+  .org-chart-tree > ul {
+    align-items: flex-start;
+    gap: 24px;
+  }
+
+  .org-chart-tree ul ul {
+    padding-top: 34px;
+  }
+
+  .org-chart-tree li {
+    align-items: center;
+    display: flex;
+    flex-direction: column;
+    list-style: none;
+    padding: 34px 9px 0;
+    position: relative;
+  }
+
+  .org-chart-tree > ul > li {
+    padding-top: 0;
+  }
+
+  .org-chart-tree ul ul > li::before,
+  .org-chart-tree ul ul > li::after {
+    border-top: 1px solid hsl(var(--border-color));
+    content: '';
+    height: 34px;
+    position: absolute;
+    top: 0;
+    width: 50%;
+  }
+
+  .org-chart-tree ul ul > li::before {
+    border-right: 1px solid hsl(var(--border-color));
+    right: 50%;
+  }
+
+  .org-chart-tree ul ul > li::after {
+    left: 50%;
+  }
+
+  .org-chart-tree ul ul > li:only-child::before,
+  .org-chart-tree ul ul > li:only-child::after {
+    display: none;
+  }
+
+  .org-chart-tree ul ul > li:only-child {
+    padding-top: 34px;
+  }
+
+  .org-chart-tree ul ul > li:first-child::before,
+  .org-chart-tree ul ul > li:last-child::after {
+    border: 0;
+  }
+
+  .org-chart-tree ul ul > li:last-child::before {
+    border-radius: 0 6px 0 0;
+  }
+
+  .org-chart-tree ul ul > li:first-child::after {
+    border-radius: 6px 0 0 0;
+    border-left: 1px solid hsl(var(--border-color));
+  }
+
+  .org-chart-tree li > ul::before {
+    border-left: 1px solid hsl(var(--border-color));
+    content: '';
+    height: 34px;
+    left: 50%;
+    position: absolute;
+    top: 0;
+    transition: height 0.3s ease;
+  }
+
+  .org-chart-viewport {
+    transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  /* ─────────────── New Rich Animations ─────────────── */
+
+  /* Staggered card entrance */
+  .org-hierarchy-card {
+    animation: org-hierarchy-card-in 400ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    will-change: transform, opacity;
+  }
+
+  @keyframes org-hierarchy-card-in {
+    0% {
+      opacity: 0;
+      transform: translateY(-10px) scale(0.95);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  /* Card hover glow & lift */
+  .org-hierarchy-card {
+    transition: transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1),
+                box-shadow 200ms ease,
+                border-color 200ms ease;
+  }
+
+  .org-hierarchy-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  }
+
+  /* Search match pulse */
+  .org-search-match {
+    animation: org-search-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    position: relative;
+  }
+
+  @keyframes org-search-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 hsl(var(--ems-accent) / 0); }
+    50% { box-shadow: 0 0 0 4px hsl(var(--ems-accent) / 0.3); }
+  }
+
+  /* Non-match fade */
+  .org-search-no-match {
+    opacity: 0.35;
+    filter: grayscale(0.8);
+    transition: opacity 0.3s ease, filter 0.3s ease;
+  }
+
+  /* Stat shimmer */
+  .org-stat-badge {
+    position: relative;
+    overflow: hidden;
+  }
+  
+  .org-stat-badge::after {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: linear-gradient(to right, transparent, hsl(var(--text-primary) / 0.1), transparent);
+    transform: rotate(30deg) translateX(-100%);
+    animation: org-stat-shimmer 3s infinite linear;
+  }
+
+  @keyframes org-stat-shimmer {
+    0% { transform: rotate(30deg) translateX(-100%); }
+    20%, 100% { transform: rotate(30deg) translateX(100%); }
+  }
+
+  /* Connector line draw-in */
+  .org-line-draw::before,
+  .org-line-draw::after {
+    animation: org-line-draw-in 0.6s ease-out forwards;
+    transform-origin: top;
+  }
+
+  @keyframes org-line-draw-in {
+    from { transform: scaleY(0); }
+    to { transform: scaleY(1); }
+  }
+
+  /* Subtree collapse/expand */
+  .org-subtree-content {
+    overflow: hidden;
+    max-height: 8000px;
+    transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+  }
+  .org-subtree-content.collapsed {
+    max-height: 0 !important;
+    opacity: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .org-hierarchy-card {
+      animation: none;
+      transition: none;
+    }
+    .org-hierarchy-card:hover {
+      transform: none;
+    }
+    .org-search-match {
+      animation: none;
+    }
+    .org-stat-badge::after {
+      display: none;
+    }
+    .org-line-draw::before,
+    .org-line-draw::after {
+      animation: none;
+    }
+    .org-subtree-content {
+      transition: none;
+    }
+  }
+
   .prose-handbook h1 {
     font-weight: 500;
     letter-spacing: -0.02em;
