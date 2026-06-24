@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { AlertCircle, Banknote, BookOpen, ChevronLeft, ChevronRight, ClipboardCheck, Home, Lectern, Star, UserRoundCog, X } from "lucide-react";
+import { AlertCircle, Banknote, ChevronDown,BookOpen, ChevronLeft, ChevronRight, ClipboardCheck, Home, Lectern, Star, UserRoundCog, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { ReactFlipBook } from "@vuvandinh203/react-flipbook";
@@ -473,7 +473,12 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
     totalInChapter?: number;
     blocks?: HandbookContentBlock[];
     subsectionTitle?: string;
-    tocSections?: { number: number; title: string; pageIndex: number }[];
+    tocSections?: {
+      number: number;
+      title: string;
+      pageIndex: number;
+      subsections?: { label: string; title: string; pageIndex: number }[];
+    }[];
   };
 
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -481,6 +486,16 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
   const navLabel = isIndex ? "Index" : (section?.heroTitle ?? "Handbook");
   const [currentPage, setCurrentPage] = useState(0);
   const [stage, setStage] = useState({ w: 0, h: 0 });
+  const [expandedChapters, setExpandedChapters] = useState<Set<number>>(new Set());
+
+  const toggleChapter = (num: number) => {
+    setExpandedChapters((prev) => {
+      const next = new Set(prev);
+      if (next.has(num)) next.delete(num);
+      else next.add(num);
+      return next;
+    });
+  };
 
   useLayoutEffect(() => {
     if (!stageRef.current) return;
@@ -519,12 +534,18 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
     const result: BookPage[] = [];
 
     const buildSections = (sectionsList: HandbookDetailSection[]) => {
-      const sectionPageEntries: { number: number; title: string; pageIndex: number }[] = [];
+      const sectionPageEntries: {
+        number: number;
+        title: string;
+        pageIndex: number;
+        subsections: { label: string; title: string; pageIndex: number }[];
+      }[] = [];
 
       sectionsList.forEach((sec, si) => {
         const pageIndex = result.length;
         const number = si + 1;
-        sectionPageEntries.push({ number, title: sec.heroTitle, pageIndex });
+        const subsectionEntries: { label: string; title: string; pageIndex: number }[] = [];
+        sectionPageEntries.push({ number, title: sec.heroTitle, pageIndex, subsections: subsectionEntries });
 
         result.push({
           kind: "chapter-intro",
@@ -536,6 +557,11 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
 
         for (const sub of sec.subsections) {
           const pageBlocks = splitPages(sub.blocks, contentHeight);
+          const firstPageIndex = result.length;
+          const numMatch = sub.title.match(/^(\d+\.\d+)/);
+          const label = numMatch ? numMatch[1] : sub.title;
+          subsectionEntries.push({ label, title: sub.title, pageIndex: firstPageIndex });
+
           pageBlocks.forEach((chunk, ci) => {
             result.push({
               kind: "content",
@@ -560,12 +586,25 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
       const sectionsList = Object.values(handbookData);
       const tocEntries = buildSections(sectionsList);
       result.splice(1, 0, { kind: "toc", theme: "paper", tocSections: tocEntries });
-      tocEntries.forEach(entry => { entry.pageIndex += 1; });
+      tocEntries.forEach(entry => {
+        entry.pageIndex += 1;
+        entry.subsections?.forEach(sub => { sub.pageIndex += 1; });
+      });
       result.push({ kind: "back-cover", theme: "ink" });
     } else if (section) {
       result.push({ kind: "cover", theme: "ink" });
-      result.push({ kind: "toc", theme: "paper", tocSections: [{ number: 1, title: section.heroTitle, pageIndex: 2 }] });
-      buildSections([section]);
+      const singleSectionEntries = buildSections([section]);
+      result.splice(1, 0, {
+        kind: "toc",
+        theme: "paper",
+        tocSections: singleSectionEntries[0]
+          ? [{ number: singleSectionEntries[0].number, title: singleSectionEntries[0].title, pageIndex: singleSectionEntries[0].pageIndex, subsections: singleSectionEntries[0].subsections }]
+          : [{ number: 1, title: section.heroTitle, pageIndex: 1, subsections: [] }],
+      });
+      singleSectionEntries.forEach(entry => {
+        entry.pageIndex += 1;
+        entry.subsections?.forEach(sub => { sub.pageIndex += 1; });
+      });
       result.push({ kind: "back-cover", theme: "ink" });
     }
 
@@ -573,8 +612,38 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
       result.splice(result.length - 1, 0, { kind: "content", theme: "paper", blocks: [] });
     }
 
+    // Recalculate ToC page indices after all pages are finalized
+    const tocPage = result.find((p) => p.kind === "toc") as BookPage | undefined;
+    if (tocPage?.tocSections) {
+      for (const entry of tocPage.tocSections) {
+        const actualIdx = result.findIndex(
+          (p) => p.kind === "chapter-intro" && p.chapterTitle === entry.title,
+        );
+        if (actualIdx >= 0) {
+          entry.pageIndex = actualIdx;
+        }
+        if (entry.subsections) {
+          for (const sub of entry.subsections) {
+            const actualSubIdx = result.findIndex(
+              (p) => p.kind === "content" && p.subsectionTitle === sub.title,
+            );
+            if (actualSubIdx >= 0) {
+              sub.pageIndex = actualSubIdx;
+            }
+          }
+        }
+      }
+    }
+
     return result;
   }, [isIndex, section, handbookData, contentHeight]);
+
+  useEffect(() => {
+    const tocPageIdx = bookPages.findIndex((p) => p.kind === "toc");
+    if (currentPage !== tocPageIdx && expandedChapters.size > 0) {
+      setExpandedChapters(new Set());
+    }
+  }, [currentPage, bookPages, expandedChapters.size]);
 
   const currentPageInfo = bookPages[currentPage];
   const currentChapterIdx = currentPageInfo?.chapterIdx ?? -1;
@@ -584,12 +653,12 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
 
   const chapterSubsections = useMemo(() => {
     if (currentChapterIdx < 0) return [];
-    const entries: { label: string; pageIndex: number }[] = [];
+    const entries: { label: string; fullTitle: string; pageIndex: number }[] = [];
     bookPages.forEach((page, i) => {
       if (page.chapterIdx === currentChapterIdx && page.subsectionTitle) {
         const numMatch = page.subsectionTitle.match(/^(\d+\.\d+)/);
         const label = numMatch ? numMatch[1] : page.subsectionTitle;
-        entries.push({ label, pageIndex: i });
+        entries.push({ label, fullTitle: page.subsectionTitle, pageIndex: i });
       }
     });
     return entries;
@@ -653,25 +722,57 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
       const sectionIcons = [Lectern, UserRoundCog, Home, Banknote, Star, BookOpen, ClipboardCheck];
       return (
         <div className={`flex h-full w-full flex-col ${themeClasses} ${isMobile ? "" : "page-edge"}`}>
-          <div className="flex-1 overflow-hidden p-8 md:p-10">
+          <div className="flex-1 overflow-y-auto p-8 md:p-10">
             <h2 className="font-display text-xl tracking-tight mb-4">Contents</h2>
             <div className="h-px w-8 bg-current/20 mb-5" />
             <nav className="space-y-[3px]">
               {page.tocSections.map((sec) => {
                 const Icon = sectionIcons[sec.number - 1] || BookOpen;
+                const isExpanded = expandedChapters.has(sec.number);
+                const hasSubsections = sec.subsections && sec.subsections.length > 0;
                 return (
-                  <button
-                    key={sec.number}
-                    type="button"
-                    onClick={() => bookRef.current?.flip(Math.min(sec.pageIndex, totalPages - 1))}
-                    className="group flex h-[44px] w-full items-center gap-3 border-t border-neutral-200 px-0 text-left text-[12px] text-black-500 transition-colors hover:text-neutral-900 focus-visible:outline-none"
-                  >
-                    <span className="w-5 text-[10px] font-medium text-black-300 group-hover:text-neutral-500">
-                      {String(sec.number).padStart(2, "0")}
-                    </span>
-                    <Icon className="size-[16px] shrink-0 text-black-300 transition-colors group-hover:text-neutral-500" strokeWidth={1.5} aria-hidden />
-                    <span className="leading-tight">{sec.title}</span>
-                  </button>
+                  <div key={sec.number}>
+                    <div className="group flex h-[44px] w-full items-center gap-3 border-t border-neutral-200 text-left text-[12px] text-black-500 transition-colors hover:text-neutral-900">
+                      <button
+                        type="button"
+                        onClick={() => bookRef.current?.flip(Math.min(sec.pageIndex, totalPages - 1))}
+                        className="flex flex-1 items-center gap-3 py-0 focus-visible:outline-none"
+                      >
+                        <span className="w-5 text-[10px] font-medium text-black-300 group-hover:text-neutral-500">
+                          {String(sec.number).padStart(2, "0")}
+                        </span>
+                        <Icon className="size-[16px] shrink-0 text-black-300 transition-colors group-hover:text-neutral-500" strokeWidth={1.5} aria-hidden />
+                        <span className="leading-tight">{sec.title}</span>
+                      </button>
+                      {hasSubsections && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleChapter(sec.number);
+                          }}
+                          className="flex size-[28px] shrink-0 items-center justify-center rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400"
+                          aria-label={isExpanded ? "Collapse subsections" : "Expand subsections"}
+                        >
+                          <ChevronDown
+                            className={`size-3.5 text-black-300 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
+                            strokeWidth={2}
+                          />
+                        </button>
+                      )}
+                    </div>
+                    {isExpanded && hasSubsections && sec.subsections!.map((sub) => (
+                      <button
+                        key={sub.label}
+                        type="button"
+                        onClick={() => bookRef.current?.flip(Math.min(sub.pageIndex, totalPages - 1))}
+                        className="flex h-[32px] w-full items-center gap-3 pl-[52px] pr-0 text-left text-[11px] text-black-400 transition-colors hover:text-neutral-900 focus-visible:outline-none"
+                      >
+                        <span className="shrink-0 font-medium">{sub.label}</span>
+                        <span className="truncate opacity-70">{sub.title.replace(/^\d+\.\d+\s*/, "")}</span>
+                      </button>
+                    ))}
+                  </div>
                 );
               })}
             </nav>
@@ -881,15 +982,19 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
 
               {chapterSubsections.length > 0 && (
                 <div className="flex flex-col gap-1">
+                  <span className="text-center text-[7px] font-medium uppercase tracking-[0.15em] text-white/40">
+                    Ch. {currentPageInfo?.chapterNumber}
+                  </span>
                   {chapterSubsections.map((sub) => (
                     <button
                       key={sub.label}
                       type="button"
                       onClick={() => bookRef.current?.flip(sub.pageIndex)}
-                      className="flex h-6 items-center justify-center rounded-full border border-white/[0.50] bg-neutral-950/70 px-2 text-[8px] font-medium uppercase tracking-[0.1em] text-white/70 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
-                      title={sub.label}
+                      className="flex h-7 w-full items-center gap-1.5 rounded-md border border-white/[0.50] bg-neutral-950/70 px-2 text-left text-[8px] font-medium text-white/70 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
+                      title={sub.fullTitle}
                     >
-                      {sub.label}
+                      <span className="shrink-0 font-semibold tracking-[0.1em]">{sub.label}</span>
+                      <span className="truncate opacity-75">{sub.fullTitle.replace(/^\d+\.\d+\s*/, "")}</span>
                     </button>
                   ))}
                 </div>
@@ -912,16 +1017,20 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
           </button>
 
           {chapterSubsections.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap items-center justify-center gap-1.5">
+              <span className="w-full text-center text-[7px] font-medium uppercase tracking-[0.15em] text-white/40">
+                Ch. {currentPageInfo?.chapterNumber}
+              </span>
               {chapterSubsections.map((sub) => (
                 <button
                   key={sub.label}
                   type="button"
                   onClick={() => bookRef.current?.flip(sub.pageIndex)}
-                  className="flex h-6 items-center justify-center rounded-full border border-white/[0.50] bg-neutral-950/70 px-2.5 text-[8px] font-medium uppercase tracking-[0.1em] text-white/70 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
-                  title={sub.label}
+                  className="flex h-7 items-center gap-1 rounded-md border border-white/[0.50] bg-neutral-950/70 px-2.5 text-[8px] font-medium text-white/70 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
+                  title={sub.fullTitle}
                 >
-                  {sub.label}
+                  <span className="shrink-0 font-semibold tracking-[0.1em]">{sub.label}</span>
+                  <span className="truncate opacity-75">{sub.fullTitle.replace(/^\d+\.\d+\s*/, "")}</span>
                 </button>
               ))}
             </div>
