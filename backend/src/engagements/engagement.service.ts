@@ -539,7 +539,8 @@ export interface PerformanceTicketingRow {
   vipPackageOffered: boolean | null;
   vipPackageName: string | null;
   vipPackageBenefits: string[] | null;
-  compTicketRequestLink: string | null;
+  compTicketForm: string | null;
+  compTicketExcelSheet: string | null;
 }
 
 export interface PerformanceTicketingSummaryRow {
@@ -2095,7 +2096,9 @@ export class EngagementService {
           [ServiceChargeRebateAmount] AS ra,
           [ServiceChargeBumpAmount] AS ba,
           [CreditCardFeePlacement] AS ccft,
-          [CreditCardFeePercent] AS ccfap
+          [CreditCardFeePercent] AS ccfap,
+          [CompTicketForm] AS ctf,
+          [CompTicketExcelSheet] AS ctes
          FROM dbo.PerformanceTicketing WHERE [TicketingID] = ${tid}`,
       );
       const row0 = (r as Record<string, unknown>[])?.[0];
@@ -2147,6 +2150,8 @@ export class EngagementService {
         creditCardFeesAmountPercent: this.mapFinanceNumber(
           pickRaw(row0, 'ccfap') as string | number | null | undefined,
         ),
+        compTicketForm: pickRaw(row0, 'ctf') != null && pickRaw(row0, 'ctf') !== '' ? String(pickRaw(row0, 'ctf')).trim() : null,
+        compTicketExcelSheet: pickRaw(row0, 'ctes') != null && pickRaw(row0, 'ctes') !== '' ? String(pickRaw(row0, 'ctes')).trim() : null,
         salesTaxType: null,
         salesTaxAmountPercent: null,
       };
@@ -2316,7 +2321,8 @@ export class EngagementService {
         vipPackageOffered,
         vipPackageName,
         vipPackageBenefits,
-        compTicketRequestLink: null,
+        compTicketForm: null,
+        compTicketExcelSheet: null,
       };
     } catch {
       return base;
@@ -2407,6 +2413,16 @@ export class EngagementService {
     if (dto.creditCardFeesAmountPercent !== undefined) {
       sets.push(
         `[CreditCardFeePercent] = ${dto.creditCardFeesAmountPercent == null ? 'NULL' : Number(dto.creditCardFeesAmountPercent)}`,
+      );
+    }
+    if (dto.compTicketForm !== undefined) {
+      sets.push(
+        `[CompTicketForm] = ${dto.compTicketForm == null ? 'NULL' : this.escapeSqlNVarCharLiteral(String(dto.compTicketForm).trim())}`,
+      );
+    }
+    if (dto.compTicketExcelSheet !== undefined) {
+      sets.push(
+        `[CompTicketExcelSheet] = ${dto.compTicketExcelSheet == null ? 'NULL' : this.escapeSqlNVarCharLiteral(String(dto.compTicketExcelSheet).trim())}`,
       );
     }
 
@@ -7377,7 +7393,8 @@ export class EngagementService {
         vipPackageOffered: null,
         vipPackageName: null,
         vipPackageBenefits: null,
-        compTicketRequestLink: null,
+        compTicketForm: null,
+        compTicketExcelSheet: null,
       };
       return this.mergeSalesTaxFromVenue(engagementId, blankRow);
     }
@@ -7443,7 +7460,8 @@ export class EngagementService {
       vipPackageOffered: null,
       vipPackageName: null,
       vipPackageBenefits: null,
-      compTicketRequestLink: null,
+      compTicketForm: null,
+      compTicketExcelSheet: null,
     };
     const merged = await this.mergePerformanceTicketingAdvancedFromDb(row.ticketingId, base);
     return this.mergeSalesTaxFromVenue(engagementId, merged);
