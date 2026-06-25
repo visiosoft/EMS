@@ -1,14 +1,42 @@
 import { ChevronRight, Medal, ArrowLeft, ChevronDown, Loader2, Paperclip, Plus, Star, User, AlertTriangle, X } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { InternalPageFrame } from "../layout/InternalPageFrame";
 import { UrgentUpcomingSection } from "../components/UrgentUpcomingSection";
-
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
+import {
+  fetchLearningCertifications,
+  fetchLearningSubmissions,
+  fetchMyLearningScore,
+  fetchLearningProgress,
+  fetchLearningEmployeeScores,
+  fetchLearningPointTiers,
+  createLearningSubmission,
+  type LearningCertification,
+  type LearningSubmission,
+  type LearningMyScore,
+  type LearningProgressResponse,
+  type LearningEmployeeScore,
+  type LearningPointTier,
+} from "@/api/learningApi";
+
+// Department name → DepartmentID mapping (matches dbo.Department)
+const DEPARTMENT_ID_MAP: Record<string, number> = {
+  "Art & Graphic Design": 65,
+  "Marketing": 30,
+  "Finance": 35,
+  "Booking": 47,
+  "Production": 46,
+  "Ticketing & Sales": 63,
+};
+
+// Placeholder contactId — in production, resolve from auth context
+const CURRENT_USER_CONTACT_ID = 3; // Alex Abalo for demo
 
 export function LearningPortalPage() {
   const { navigate, viewData } = useInternalNavigation();
   const departmentName = viewData?.fromTitle || "Art & Graphic Design";
   const departmentView = viewData?.fromView || "department-art-graphic-design";
+  const departmentId = DEPARTMENT_ID_MAP[departmentName] || 65;
 
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("BROWSE");
@@ -16,10 +44,27 @@ export function LearningPortalPage() {
   const [showDiscardAlert, setShowDiscardAlert] = useState(false);
   const [pendingTab, setPendingTab] = useState<string | null>(null);
 
+  // Shared data from API
+  const [myScore, setMyScore] = useState<LearningMyScore | null>(null);
+  const [progress, setProgress] = useState<LearningProgressResponse | null>(null);
+
   useEffect(() => {
-    const timer = setTimeout(() => setIsLoading(false), 800);
-    return () => clearTimeout(timer);
-  }, []);
+    const load = async () => {
+      try {
+        const [score, prog] = await Promise.all([
+          fetchMyLearningScore(CURRENT_USER_CONTACT_ID, departmentId),
+          fetchLearningProgress(CURRENT_USER_CONTACT_ID, departmentId),
+        ]);
+        setMyScore(score);
+        setProgress(prog);
+      } catch (e) {
+        console.error("Failed to load learning portal data:", e);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    load();
+  }, [departmentId]);
 
   const handleTabChange = (newTab: string) => {
     if (activeTab === "SUBMIT" && isDirty && newTab !== "SUBMIT") {
@@ -29,6 +74,15 @@ export function LearningPortalPage() {
     }
     setActiveTab(newTab);
   };
+
+  const refreshMyData = useCallback(async () => {
+    const [score, prog] = await Promise.all([
+      fetchMyLearningScore(CURRENT_USER_CONTACT_ID, departmentId),
+      fetchLearningProgress(CURRENT_USER_CONTACT_ID, departmentId),
+    ]);
+    setMyScore(score);
+    setProgress(prog);
+  }, [departmentId]);
 
   return (
     <InternalPageFrame footer={<UrgentUpcomingSection pinned />}>
@@ -62,13 +116,13 @@ export function LearningPortalPage() {
           </div>
 
           <div className="flex shrink-0 flex-col items-center justify-center rounded-lg bg-white px-8 py-5 text-black">
-            <div className="text-4xl font-black leading-none">340</div>
+            <div className="text-4xl font-black leading-none">{myScore?.totalPoints ?? 0}</div>
             <div className="mt-1 text-xs font-bold uppercase tracking-wider text-neutral-500">
               Your Points
             </div>
             <div className="mt-3 flex items-center gap-1.5 text-xs font-semibold text-neutral-700">
               <Medal className="h-4 w-4 text-amber-500" />
-              Rank #3 in Dept
+              Rank #{myScore?.rank ?? "—"} in Dept
             </div>
           </div>
         </div>
@@ -78,11 +132,11 @@ export function LearningPortalPage() {
       <section className="border-b border-neutral-200 bg-white px-4 py-6 sm:px-8 lg:px-10">
         <div className="mx-auto max-w-[1120px]">
           <div className="flex items-center justify-between text-xs font-semibold text-neutral-500">
-            <span>Certification Progress — 3 of 8 completed</span>
-            <span className="font-bold text-neutral-900">37%</span>
+            <span>Certification Progress — {progress?.summary.completed ?? 0} of {progress?.summary.total ?? 0} completed</span>
+            <span className="font-bold text-neutral-900">{progress?.summary.percent ?? 0}%</span>
           </div>
           <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-neutral-100">
-            <div className="h-full rounded-full bg-black" style={{ width: "37%" }} />
+            <div className="h-full rounded-full bg-black" style={{ width: `${progress?.summary.percent ?? 0}%` }} />
           </div>
         </div>
       </section>
@@ -118,19 +172,30 @@ export function LearningPortalPage() {
         </div>
 
         {activeTab === "BROWSE" && (
-          <BrowseCertifications isLoading={isLoading} />
+          <BrowseCertifications departmentId={departmentId} />
         )}
         
         {activeTab === "SUBMIT" && (
-          <SubmitCertificate setIsDirty={setIsDirty} />
+          <SubmitCertificate
+            departmentId={departmentId}
+            contactId={CURRENT_USER_CONTACT_ID}
+            setIsDirty={setIsDirty}
+            onSubmitted={refreshMyData}
+          />
         )}
         
         {activeTab === "MY" && (
-          <MyCertificates onNavigateToSubmit={() => handleTabChange("SUBMIT")} />
+          <MyCertificates
+            departmentId={departmentId}
+            contactId={CURRENT_USER_CONTACT_ID}
+            myScore={myScore}
+            progress={progress}
+            onNavigateToSubmit={() => handleTabChange("SUBMIT")}
+          />
         )}
         
         {activeTab === "LEADERBOARD" && (
-          <Leaderboard departmentName={departmentName} />
+          <Leaderboard departmentId={departmentId} departmentName={departmentName} myScore={myScore} />
         )}
       </main>
 
@@ -172,6 +237,9 @@ export function LearningPortalPage() {
   );
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// CUSTOM DROPDOWN
+// ═══════════════════════════════════════════════════════════════════════════
 function CustomDropdown({
   options,
   value,
@@ -190,9 +258,7 @@ function CustomDropdown({
 
   useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
+      if (!ref.current?.contains(e.target as Node)) setIsOpen(false);
     };
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
@@ -210,17 +276,13 @@ function CustomDropdown({
         <span className="truncate">{selectedOption ? selectedOption.label : placeholder}</span>
         <ChevronDown className={`h-4 w-4 shrink-0 text-neutral-500 transition-transform ${isOpen ? "rotate-180" : ""}`} />
       </button>
-
       {isOpen && (
         <ul className="absolute left-0 right-0 z-50 mt-1 max-h-72 overflow-y-auto rounded-md border border-neutral-300 bg-white py-1 shadow-lg">
           {options.map((opt) => (
             <li key={opt.value}>
               <button
                 type="button"
-                onClick={() => {
-                  onChange(opt.value);
-                  setIsOpen(false);
-                }}
+                onClick={() => { onChange(opt.value); setIsOpen(false); }}
                 className={`flex w-full items-center px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none ${opt.value === value ? "bg-neutral-100 font-bold text-black" : "font-semibold text-neutral-700 hover:bg-neutral-50 hover:text-black"}`}
               >
                 {opt.label}
@@ -233,9 +295,27 @@ function CustomDropdown({
   );
 }
 
-function BrowseCertifications({ isLoading }: { isLoading: boolean }) {
+// ═══════════════════════════════════════════════════════════════════════════
+// BROWSE CERTIFICATIONS
+// ═══════════════════════════════════════════════════════════════════════════
+function BrowseCertifications({ departmentId }: { departmentId: number }) {
   const [level, setLevel] = useState("all");
   const [platform, setPlatform] = useState("all");
+  const [certifications, setCertifications] = useState<LearningCertification[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    setIsLoading(true);
+    fetchLearningCertifications({
+      departmentId,
+      status: "Active",
+      level: level !== "all" ? level : undefined,
+      platformId: platform !== "all" ? Number(platform) : undefined,
+    })
+      .then(setCertifications)
+      .catch(console.error)
+      .finally(() => setIsLoading(false));
+  }, [departmentId, level, platform]);
 
   return (
     <>
@@ -253,9 +333,9 @@ function BrowseCertifications({ isLoading }: { isLoading: boolean }) {
             onChange={setLevel}
             options={[
               { label: "All Levels", value: "all" },
-              { label: "Beginner", value: "beginner" },
-              { label: "Intermediate", value: "intermediate" },
-              { label: "Advanced", value: "advanced" }
+              { label: "Beginner", value: "Beginner" },
+              { label: "Intermediate", value: "Intermediate" },
+              { label: "Advanced", value: "Advanced" }
             ]}
           />
           <CustomDropdown 
@@ -264,9 +344,9 @@ function BrowseCertifications({ isLoading }: { isLoading: boolean }) {
             onChange={setPlatform}
             options={[
               { label: "All Platforms", value: "all" },
-              { label: "Adobe", value: "adobe" },
-              { label: "Coursera", value: "coursera" },
-              { label: "LinkedIn Learning", value: "linkedin" }
+              { label: "Adobe", value: "1" },
+              { label: "Coursera", value: "2" },
+              { label: "LinkedIn Learning", value: "3" }
             ]}
           />
         </div>
@@ -275,41 +355,45 @@ function BrowseCertifications({ isLoading }: { isLoading: boolean }) {
       {isLoading ? (
         <div className="mt-10 flex min-h-[200px] items-center justify-center rounded-xl border border-neutral-200 bg-neutral-50">
           <Loader2 className="h-8 w-8 animate-spin text-neutral-500" aria-hidden />
-          <span className="sr-only">Loading courses</span>
+        </div>
+      ) : certifications.length === 0 ? (
+        <div className="mt-10 flex min-h-[200px] flex-col items-center justify-center rounded-xl border border-neutral-200 bg-neutral-50 text-neutral-400">
+          <span className="text-sm font-semibold">No certifications found</span>
         </div>
       ) : (
         <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {COURSES.map((course, idx) => (
+          {certifications.map((cert) => (
             <div
-              key={idx}
+              key={cert.certificationId}
               className="group flex flex-col overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-neutral-300 hover:shadow-[0_14px_36px_rgba(0,0,0,0.1)]"
             >
               <div className="flex items-center justify-between bg-black px-4 py-3 text-xs font-bold text-white">
-                <span className="uppercase tracking-wider">{course.platform}</span>
+                <span className="uppercase tracking-wider">{cert.platformName}</span>
                 <span className="rounded-full bg-white px-2 py-0.5 text-[10px] text-black">
-                  +{course.points} pts
+                  +{cert.pointsAwarded} pts
                 </span>
               </div>
               <div className="flex flex-1 flex-col p-5">
-                <h3 className="text-base font-bold leading-tight text-black">
-                  {course.title}
-                </h3>
-                <p className="mt-2 text-sm text-neutral-500">{course.description}</p>
-                
+                <h3 className="text-base font-bold leading-tight text-black">{cert.title}</h3>
+                <p className="mt-2 text-sm text-neutral-500">{cert.description}</p>
                 <div className="mt-4 flex flex-wrap gap-2">
-                  {course.tags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="rounded bg-neutral-100 px-2 py-1 text-xs font-semibold text-neutral-600"
-                    >
+                  <span className="rounded bg-neutral-100 px-2 py-1 text-xs font-semibold text-neutral-600">
+                    {cert.difficultyLevel}
+                  </span>
+                  {cert.estimatedDuration && (
+                    <span className="rounded bg-neutral-100 px-2 py-1 text-xs font-semibold text-neutral-600">
+                      {cert.estimatedDuration}
+                    </span>
+                  )}
+                  {cert.tags.map((tag) => (
+                    <span key={tag} className="rounded bg-neutral-100 px-2 py-1 text-xs font-semibold text-neutral-600">
                       {tag}
                     </span>
                   ))}
                 </div>
-
                 <div className="mt-auto pt-6 flex items-center gap-3">
                   <a
-                    href="https://google.com"
+                    href={cert.externalCourseUrl || "#"}
                     target="_blank"
                     rel="noreferrer"
                     className="flex h-10 items-center justify-center rounded-md bg-black px-4 text-xs font-bold tracking-wider text-white transition-colors hover:bg-neutral-800"
@@ -326,8 +410,81 @@ function BrowseCertifications({ isLoading }: { isLoading: boolean }) {
   );
 }
 
-function SubmitCertificate({ setIsDirty }: { setIsDirty: (dirty: boolean) => void }) {
+// ═══════════════════════════════════════════════════════════════════════════
+// SUBMIT CERTIFICATE
+// ═══════════════════════════════════════════════════════════════════════════
+function SubmitCertificate({
+  departmentId,
+  contactId,
+  setIsDirty,
+  onSubmitted,
+}: {
+  departmentId: number;
+  contactId: number;
+  setIsDirty: (dirty: boolean) => void;
+  onSubmitted: () => void;
+}) {
   const [platform, setPlatform] = useState("");
+  const [certName, setCertName] = useState("");
+  const [dateCompleted, setDateCompleted] = useState(new Date().toISOString().split("T")[0]);
+  const [credentialUrl, setCredentialUrl] = useState("");
+  const [notes, setNotes] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitSuccess, setSubmitSuccess] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!certName.trim()) return;
+    setIsSubmitting(true);
+    try {
+      await createLearningSubmission({
+        certificationId: 0, // Will match by name if no specific cert selected
+        departmentId,
+        contactId,
+        certificationName: certName,
+        issuingOrganization: platform || undefined,
+        dateCompleted,
+        credentialUrl: credentialUrl || undefined,
+        additionalNotes: notes || undefined,
+        certificateFile: file || undefined,
+      });
+      setIsDirty(false);
+      setSubmitSuccess(true);
+      onSubmitted();
+      // Reset form
+      setCertName("");
+      setPlatform("");
+      setCredentialUrl("");
+      setNotes("");
+      setFile(null);
+    } catch (err) {
+      console.error("Submit failed:", err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (submitSuccess) {
+    return (
+      <div className="mt-8 flex flex-col items-center justify-center rounded-xl border border-neutral-200 bg-white p-12 text-center">
+        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
+          <Star className="h-8 w-8 text-emerald-600" />
+        </div>
+        <h3 className="text-xl font-bold text-black">Submission Received!</h3>
+        <p className="mt-2 text-sm font-medium text-neutral-500">
+          Your certificate has been submitted for admin review. Points will be awarded upon approval.
+        </p>
+        <button
+          onClick={() => setSubmitSuccess(false)}
+          className="mt-6 rounded-md bg-black px-6 py-2.5 text-xs font-bold tracking-wider text-white hover:bg-neutral-800"
+        >
+          SUBMIT ANOTHER
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="mt-8 max-w-[800px] animate-slide-up">
@@ -336,59 +493,103 @@ function SubmitCertificate({ setIsDirty }: { setIsDirty: (dirty: boolean) => voi
         Completed a certification? Submit your proof below. Your submission will be reviewed by the department admin. Once approved, the points will be added to your score automatically.
       </p>
 
-      <form className="mt-8 flex flex-col gap-6" onChange={() => setIsDirty(true)}>
+      <form className="mt-8 flex flex-col gap-6" onSubmit={handleSubmit} onChange={() => setIsDirty(true)}>
         <div className="grid gap-6 sm:grid-cols-2">
           <div>
             <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-neutral-700">Certification Name *</label>
-            <input type="text" placeholder="e.g. Adobe Certified Professional" className="h-10 w-full rounded-md border border-neutral-300 px-3 text-sm font-semibold focus:border-black focus:outline-none focus:ring-1 focus:ring-black" />
+            <input
+              type="text"
+              required
+              value={certName}
+              onChange={(e) => setCertName(e.target.value)}
+              placeholder="e.g. Adobe Certified Professional"
+              className="h-10 w-full rounded-md border border-neutral-300 px-3 text-sm font-semibold focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+            />
           </div>
           <div>
             <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-neutral-700">Issuing Organization *</label>
             <CustomDropdown 
               placeholder="Select platform..."
               value={platform}
-              onChange={(val) => {
-                setPlatform(val);
-                setIsDirty(true);
-              }}
+              onChange={(val) => { setPlatform(val); setIsDirty(true); }}
               options={[
-                { label: "Adobe", value: "adobe" },
-                { label: "Coursera", value: "coursera" }
+                { label: "Adobe", value: "Adobe" },
+                { label: "Coursera", value: "Coursera" },
+                { label: "LinkedIn Learning", value: "LinkedIn Learning" },
+                { label: "Skillshare", value: "Skillshare" },
+                { label: "Meta", value: "Meta" },
+                { label: "Canva", value: "Canva" },
+                { label: "Awwwards", value: "Awwwards" },
               ]}
             />
           </div>
           <div>
             <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-neutral-700">Date Completed *</label>
-            <input type="date" defaultValue={new Date().toISOString().split('T')[0]} className="h-10 w-full rounded-md border border-neutral-300 px-3 text-sm font-semibold text-neutral-500 focus:border-black focus:outline-none focus:ring-1 focus:ring-black" />
+            <input
+              type="date"
+              required
+              value={dateCompleted}
+              onChange={(e) => setDateCompleted(e.target.value)}
+              className="h-10 w-full rounded-md border border-neutral-300 px-3 text-sm font-semibold text-neutral-500 focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+            />
           </div>
           <div>
             <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-neutral-700">Certificate ID / Credential URL</label>
-            <input type="text" placeholder="https://credential.net/..." className="h-10 w-full rounded-md border border-neutral-300 px-3 text-sm font-semibold focus:border-black focus:outline-none focus:ring-1 focus:ring-black" />
+            <input
+              type="text"
+              value={credentialUrl}
+              onChange={(e) => setCredentialUrl(e.target.value)}
+              placeholder="https://credential.net/..."
+              className="h-10 w-full rounded-md border border-neutral-300 px-3 text-sm font-semibold focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+            />
           </div>
         </div>
 
         <div>
           <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-neutral-700">Upload Certificate Document *</label>
-          <div className="flex h-32 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-neutral-300 bg-neutral-50/50 transition-colors hover:bg-neutral-50">
-            <Paperclip className="mb-3 h-6 w-6 -rotate-45 text-neutral-400" />
-            <p className="text-sm font-semibold text-neutral-500">Drag & drop your certificate here, or <span className="text-black">browse files</span></p>
-            <p className="mt-1 text-xs text-neutral-400">Accepted: PDF, JPG, PNG — Max 10 MB</p>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.jpg,.jpeg,.png"
+            className="hidden"
+            onChange={(e) => { if (e.target.files?.[0]) setFile(e.target.files[0]); }}
+          />
+          <div
+            onClick={() => fileInputRef.current?.click()}
+            className="flex h-32 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-neutral-300 bg-neutral-50/50 transition-colors hover:bg-neutral-50"
+          >
+            {file ? (
+              <div className="flex items-center gap-2 text-sm font-semibold text-black">
+                <Paperclip className="h-5 w-5" />
+                {file.name} ({(file.size / 1024 / 1024).toFixed(1)} MB)
+              </div>
+            ) : (
+              <>
+                <Paperclip className="mb-3 h-6 w-6 -rotate-45 text-neutral-400" />
+                <p className="text-sm font-semibold text-neutral-500">Drag & drop your certificate here, or <span className="text-black">browse files</span></p>
+                <p className="mt-1 text-xs text-neutral-400">Accepted: PDF, JPG, PNG — Max 10 MB</p>
+              </>
+            )}
           </div>
         </div>
 
         <div>
           <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-neutral-700">Additional Notes</label>
-          <textarea placeholder="Any extra context for the admin reviewing this submission..." className="h-24 w-full rounded-md border border-neutral-300 p-3 text-sm font-semibold focus:border-black focus:outline-none focus:ring-1 focus:ring-black"></textarea>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Any extra context for the admin reviewing this submission..."
+            className="h-24 w-full rounded-md border border-neutral-300 p-3 text-sm font-semibold focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+          />
         </div>
 
         <div className="flex items-center gap-3">
           <button 
-            type="button" 
-            onClick={() => {
-              setIsDirty(false);
-            }}
-            className="flex h-10 items-center justify-center rounded-md bg-black px-6 text-xs font-bold tracking-wider text-white transition-colors hover:bg-neutral-800"
+            type="submit"
+            disabled={isSubmitting}
+            className="flex h-10 items-center justify-center gap-2 rounded-md bg-black px-6 text-xs font-bold tracking-wider text-white transition-colors hover:bg-neutral-800 disabled:opacity-50"
           >
+            {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
             SUBMIT FOR REVIEW
           </button>
         </div>
@@ -397,67 +598,44 @@ function SubmitCertificate({ setIsDirty }: { setIsDirty: (dirty: boolean) => voi
   );
 }
 
-const MY_CERTIFICATES_DATA = [
-  {
-    name: "Adobe Certified Professional – Visual Design",
-    credential: "Credential #ADC-2024-8821",
-    platform: "Adobe",
-    submitted: "Mar 12, 2025",
-    status: "✓ VERIFIED",
-    statusColor: "text-neutral-700",
-    points: "+120",
-    pointsColor: "text-black",
-  },
-  {
-    name: "Google UX Design Certificate",
-    credential: "Credential #GUX-2024-4412",
-    platform: "Coursera",
-    submitted: "Jan 5, 2025",
-    status: "✓ VERIFIED",
-    statusColor: "text-neutral-700",
-    points: "+80",
-    pointsColor: "text-black",
-  },
-  {
-    name: "Brand Identity & Typography Essentials",
-    credential: "Credential #LI-2024-8901",
-    platform: "LinkedIn Learning",
-    submitted: "Dec 20, 2024",
-    status: "✓ VERIFIED",
-    statusColor: "text-neutral-700",
-    points: "+60",
-    pointsColor: "text-black",
-  },
-  {
-    name: "Motion Design & After Effects Fundamentals",
-    credential: "Awaiting admin review",
-    platform: "Skillshare",
-    submitted: "Jun 1, 2025",
-    status: "⏳ PENDING",
-    statusColor: "text-amber-600",
-    points: "+50?",
-    pointsColor: "text-neutral-400",
-  }
-];
-
-function MyCertificates({ onNavigateToSubmit }: { onNavigateToSubmit: () => void }) {
-  const [selectedCert, setSelectedCert] = useState<typeof MY_CERTIFICATES_DATA[0] | null>(null);
+// ═══════════════════════════════════════════════════════════════════════════
+// MY CERTIFICATES
+// ═══════════════════════════════════════════════════════════════════════════
+function MyCertificates({
+  departmentId,
+  contactId,
+  myScore,
+  progress,
+  onNavigateToSubmit,
+}: {
+  departmentId: number;
+  contactId: number;
+  myScore: LearningMyScore | null;
+  progress: LearningProgressResponse | null;
+  onNavigateToSubmit: () => void;
+}) {
+  const [submissions, setSubmissions] = useState<LearningSubmission[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedSub, setSelectedSub] = useState<LearningSubmission | null>(null);
 
   useEffect(() => {
     setIsLoading(true);
-    const timer = setTimeout(() => setIsLoading(false), 800);
-    return () => clearTimeout(timer);
-  }, []);
+    fetchLearningSubmissions({ departmentId, contactId })
+      .then(setSubmissions)
+      .catch(console.error)
+      .finally(() => setIsLoading(false));
+  }, [departmentId, contactId]);
 
   if (isLoading) {
     return (
       <div className="mt-10 flex min-h-[200px] items-center justify-center rounded-xl border border-neutral-200 bg-neutral-50">
         <Loader2 className="h-8 w-8 animate-spin text-neutral-500" aria-hidden />
-        <span className="sr-only">Loading certificates</span>
       </div>
     );
   }
+
+  const approved = submissions.filter((s) => s.status === "VERIFIED").length;
+  const pending = submissions.filter((s) => s.status === "PENDING").length;
 
   return (
     <div className="mt-8 animate-slide-up">
@@ -465,7 +643,7 @@ function MyCertificates({ onNavigateToSubmit }: { onNavigateToSubmit: () => void
         <div>
           <h2 className="text-xl font-bold text-black">My Submitted Certificates</h2>
           <p className="mt-1 text-sm font-medium text-neutral-500">
-            3 approved • 1 pending review • 340 total points earned
+            {approved} approved • {pending} pending review • {myScore?.totalPoints ?? 0} total points earned
           </p>
         </div>
         <button 
@@ -480,23 +658,20 @@ function MyCertificates({ onNavigateToSubmit }: { onNavigateToSubmit: () => void
       <div className="mt-6 grid gap-4 sm:grid-cols-4">
         <div className="flex flex-col rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
           <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">Total Points</span>
-          <span className="mt-1 text-3xl font-black text-black">340</span>
-          <span className="mt-1 text-xs font-medium text-neutral-400">+120 this month</span>
+          <span className="mt-1 text-3xl font-black text-black">{myScore?.totalPoints ?? 0}</span>
         </div>
         <div className="flex flex-col rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
           <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">Certs Approved</span>
-          <span className="mt-1 text-3xl font-black text-black">3</span>
-          <span className="mt-1 text-xs font-medium text-neutral-400">of 4 submitted</span>
+          <span className="mt-1 text-3xl font-black text-black">{myScore?.certsApproved ?? 0}</span>
+          <span className="mt-1 text-xs font-medium text-neutral-400">of {myScore?.certsSubmitted ?? 0} submitted</span>
         </div>
         <div className="flex flex-col rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
           <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">Dept Rank</span>
-          <span className="mt-1 text-3xl font-black text-black">#3</span>
-          <span className="mt-1 text-xs font-medium text-neutral-400">out of 12 members</span>
+          <span className="mt-1 text-3xl font-black text-black">#{myScore?.rank ?? "—"}</span>
         </div>
         <div className="flex flex-col rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">Next Milestone</span>
-          <span className="mt-1 text-3xl font-black text-black">160 pts</span>
-          <span className="mt-1 text-xs font-medium text-neutral-400">to reach Gold level</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">Current Tier</span>
+          <span className="mt-1 text-3xl font-black text-black">{myScore?.currentTier ?? "Unranked"}</span>
         </div>
       </div>
 
@@ -514,19 +689,29 @@ function MyCertificates({ onNavigateToSubmit }: { onNavigateToSubmit: () => void
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-100">
-              {MY_CERTIFICATES_DATA.map((cert, idx) => (
-                <tr key={idx}>
+              {submissions.map((sub) => (
+                <tr key={sub.submissionId}>
                   <td className="px-6 py-4">
-                    <div className="font-bold text-neutral-900">{cert.name}</div>
-                    <div className="text-xs text-neutral-400">{cert.credential}</div>
+                    <div className="font-bold text-neutral-900">{sub.certificationName}</div>
+                    <div className="text-xs text-neutral-400">{sub.credentialId || sub.credentialUrl || "—"}</div>
                   </td>
-                  <td className="px-6 py-4 font-semibold text-neutral-700">{cert.platform}</td>
-                  <td className="px-6 py-4 font-semibold text-neutral-700">{cert.submitted}</td>
-                  <td className="px-6 py-4"><span className={`inline-flex items-center gap-1.5 text-xs font-bold ${cert.statusColor}`}>{cert.status}</span></td>
-                  <td className={`px-6 py-4 text-center font-bold ${cert.pointsColor}`}>{cert.points}</td>
+                  <td className="px-6 py-4 font-semibold text-neutral-700">{sub.platformName || sub.issuingOrganization || "—"}</td>
+                  <td className="px-6 py-4 font-semibold text-neutral-700">{new Date(sub.submittedAt).toLocaleDateString()}</td>
+                  <td className="px-6 py-4">
+                    <span className={`inline-flex items-center gap-1.5 text-xs font-bold ${
+                      sub.status === "VERIFIED" ? "text-neutral-700" : sub.status === "PENDING" ? "text-amber-600" : "text-red-600"
+                    }`}>
+                      {sub.status === "VERIFIED" && "✓ VERIFIED"}
+                      {sub.status === "PENDING" && "⏳ PENDING"}
+                      {sub.status === "REJECTED" && "❌ REJECTED"}
+                    </span>
+                  </td>
+                  <td className={`px-6 py-4 text-center font-bold ${sub.status === "REJECTED" ? "text-neutral-400" : "text-black"}`}>
+                    {sub.status === "REJECTED" ? "—" : `+${sub.pointsAwarded}`}
+                  </td>
                   <td className="px-6 py-4 text-center">
-                    <button 
-                      onClick={() => setSelectedCert(cert)}
+                    <button
+                      onClick={() => setSelectedSub(sub)}
                       className="rounded-md border border-neutral-200 px-3 py-1.5 text-xs font-semibold text-neutral-500 transition-colors hover:bg-neutral-50 hover:text-black"
                     >
                       View
@@ -534,55 +719,54 @@ function MyCertificates({ onNavigateToSubmit }: { onNavigateToSubmit: () => void
                   </td>
                 </tr>
               ))}
+              {submissions.length === 0 && (
+                <tr><td colSpan={6} className="px-6 py-12 text-center text-sm text-neutral-400">No submissions yet. Submit your first certificate!</td></tr>
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {selectedCert && (
+      {selectedSub && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl animate-in zoom-in-95">
             <div className="mb-4 flex items-center justify-between">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-100">
                 <Star className="h-6 w-6 text-black" />
               </div>
-              <button 
-                onClick={() => setSelectedCert(null)}
-                className="rounded-full p-2 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-black"
-              >
+              <button onClick={() => setSelectedSub(null)} className="rounded-full p-2 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-black">
                 <X className="h-5 w-5" />
               </button>
             </div>
-            
-            <h3 className="text-xl font-black text-black">{selectedCert.name}</h3>
-            <p className="mt-1 text-sm font-medium text-neutral-500">{selectedCert.credential}</p>
-            
+            <h3 className="text-xl font-black text-black">{selectedSub.certificationName}</h3>
+            <p className="mt-1 text-sm font-medium text-neutral-500">{selectedSub.credentialId || selectedSub.credentialUrl || "—"}</p>
             <div className="mt-6 rounded-xl border border-neutral-100 bg-neutral-50 p-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">Platform</div>
-                  <div className="mt-1 font-semibold text-black">{selectedCert.platform}</div>
+                  <div className="mt-1 font-semibold text-black">{selectedSub.platformName || "—"}</div>
                 </div>
                 <div>
                   <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">Submitted</div>
-                  <div className="mt-1 font-semibold text-black">{selectedCert.submitted}</div>
+                  <div className="mt-1 font-semibold text-black">{new Date(selectedSub.submittedAt).toLocaleDateString()}</div>
                 </div>
                 <div>
                   <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">Status</div>
-                  <div className={`mt-1 font-bold ${selectedCert.statusColor}`}>{selectedCert.status}</div>
+                  <div className="mt-1 font-bold">{selectedSub.status}</div>
                 </div>
                 <div>
                   <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">Points</div>
-                  <div className={`mt-1 font-black ${selectedCert.pointsColor} text-lg`}>{selectedCert.points}</div>
+                  <div className="mt-1 font-black text-lg text-black">+{selectedSub.pointsAwarded}</div>
                 </div>
               </div>
             </div>
-            
+            {selectedSub.adminNotes && (
+              <div className="mt-4 rounded-lg bg-amber-50 p-3 text-xs font-medium text-amber-800">
+                <strong>Admin Note:</strong> {selectedSub.adminNotes}
+              </div>
+            )}
             <div className="mt-6 flex justify-end">
-              <button 
-                onClick={() => setSelectedCert(null)}
-                className="rounded-md bg-black px-6 py-2.5 text-xs font-bold uppercase tracking-wider text-white transition-colors hover:bg-neutral-800"
-              >
+              <button onClick={() => setSelectedSub(null)} className="rounded-md bg-black px-6 py-2.5 text-xs font-bold uppercase tracking-wider text-white hover:bg-neutral-800">
                 Close Details
               </button>
             </div>
@@ -593,23 +777,42 @@ function MyCertificates({ onNavigateToSubmit }: { onNavigateToSubmit: () => void
   );
 }
 
-function Leaderboard({ departmentName }: { departmentName: string }) {
+// ═══════════════════════════════════════════════════════════════════════════
+// LEADERBOARD
+// ═══════════════════════════════════════════════════════════════════════════
+function Leaderboard({
+  departmentId,
+  departmentName,
+  myScore,
+}: {
+  departmentId: number;
+  departmentName: string;
+  myScore: LearningMyScore | null;
+}) {
+  const [scores, setScores] = useState<LearningEmployeeScore[]>([]);
+  const [tiers, setTiers] = useState<LearningPointTier[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     setIsLoading(true);
-    const timer = setTimeout(() => setIsLoading(false), 800);
-    return () => clearTimeout(timer);
-  }, []);
+    Promise.all([
+      fetchLearningEmployeeScores(departmentId),
+      fetchLearningPointTiers(),
+    ])
+      .then(([s, t]) => { setScores(s); setTiers(t); })
+      .catch(console.error)
+      .finally(() => setIsLoading(false));
+  }, [departmentId]);
 
   if (isLoading) {
     return (
       <div className="mt-10 flex min-h-[200px] items-center justify-center rounded-xl border border-neutral-200 bg-neutral-50">
         <Loader2 className="h-8 w-8 animate-spin text-neutral-500" aria-hidden />
-        <span className="sr-only">Loading leaderboard</span>
       </div>
     );
   }
+
+  const maxPoints = scores.length > 0 ? scores[0].totalPoints : 1;
 
   return (
     <div className="mt-8 grid items-start gap-8 lg:grid-cols-[1fr_300px] animate-slide-up">
@@ -621,30 +824,28 @@ function Leaderboard({ departmentName }: { departmentName: string }) {
             {departmentName} — All Time Rankings
           </div>
           <div className="divide-y divide-neutral-100">
-            {[
-              { rank: 1, name: "Sarah Mitchell", title: "Senior Designer · 6 certs", points: 620 },
-              { rank: 2, name: "Marcus Wren", title: "Graphic Designer · 5 certs", points: 460 },
-              { rank: 3, name: "You (Alex Abalo)", title: "Graphic Designer · 3 certs", points: 340, highlight: true },
-              { rank: 4, name: "Priya Kapoor", title: "Art Director · 3 certs", points: 280 },
-              { rank: 5, name: "Chauncey Hopewell", title: "Graphic Designer · 2 certs", points: 220 },
-              { rank: 6, name: "Ben Viette", title: "Art Director · 2 certs", points: 180 },
-            ].map((user) => (
-              <div key={user.rank} className={`flex items-center px-5 py-4 ${user.highlight ? "bg-neutral-50" : ""}`}>
+            {scores.map((user) => (
+              <div key={user.contactId} className={`flex items-center px-5 py-4 ${user.contactId === CURRENT_USER_CONTACT_ID ? "bg-neutral-50" : ""}`}>
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-xs font-bold text-white">
                   {user.rank}
                 </div>
                 <div className="ml-4 flex-1">
-                  <div className="font-bold text-neutral-900">{user.name}</div>
-                  <div className="text-xs text-neutral-500">{user.title}</div>
+                  <div className="font-bold text-neutral-900">
+                    {user.contactId === CURRENT_USER_CONTACT_ID ? `You (${user.employeeName})` : user.employeeName}
+                  </div>
+                  <div className="text-xs text-neutral-500">{user.employeeRole || "Employee"} · {user.certsApproved} certs</div>
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="h-1.5 w-24 overflow-hidden rounded-full bg-neutral-100 sm:w-32">
-                     <div className="h-full bg-black" style={{ width: `${Math.min((user.points / 620) * 100, 100)}%` }} />
+                    <div className="h-full bg-black" style={{ width: `${Math.min((user.totalPoints / maxPoints) * 100, 100)}%` }} />
                   </div>
-                  <div className="w-16 text-right text-sm font-bold text-black">{user.points} pts</div>
+                  <div className="w-16 text-right text-sm font-bold text-black">{user.totalPoints} pts</div>
                 </div>
               </div>
             ))}
+            {scores.length === 0 && (
+              <div className="px-5 py-8 text-center text-sm text-neutral-400">No scores yet for this department</div>
+            )}
           </div>
         </div>
       </div>
@@ -652,91 +853,38 @@ function Leaderboard({ departmentName }: { departmentName: string }) {
       <div>
         <h2 className="text-xl font-bold text-black">Point Milestones</h2>
         <div className="mt-6 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
-          <div className="bg-black px-5 py-4 text-sm font-bold text-white">
-            Reward Tiers
-          </div>
+          <div className="bg-black px-5 py-4 text-sm font-bold text-white">Reward Tiers</div>
           <div className="divide-y divide-neutral-100 p-5">
-            <div className="pb-3">
-              <div className="flex items-center justify-between text-sm font-bold">
-                <span className="flex items-center gap-2">🥉 Bronze <span className="text-xs font-medium text-neutral-400">0-200 pts</span></span>
-                <span className="text-xs font-semibold text-emerald-600">✓ Achieved</span>
-              </div>
-              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-neutral-100"><div className="h-full w-full bg-black" /></div>
-            </div>
-            <div className="py-3">
-              <div className="flex items-center justify-between text-sm font-bold">
-                <span className="flex items-center gap-2">🥈 Silver <span className="text-xs font-medium text-neutral-400">201-400 pts</span></span>
-                <span className="text-xs font-semibold text-emerald-600">✓ Achieved</span>
-              </div>
-              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-neutral-100"><div className="h-full w-full bg-black" /></div>
-            </div>
-            <div className="py-3">
-              <div className="flex items-center justify-between text-sm font-bold">
-                <span className="flex items-center gap-2">🥇 Gold <span className="text-xs font-medium text-neutral-400">401-600 pts</span></span>
-                <span className="text-xs font-semibold text-neutral-400">340/600</span>
-              </div>
-              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-neutral-100"><div className="h-full bg-black" style={{width: '85%'}} /></div>
-            </div>
-            <div className="pt-3">
-              <div className="flex items-center justify-between text-sm font-bold">
-                <span className="flex items-center gap-2 text-neutral-400">💎 Platinum <span className="text-xs font-medium text-neutral-400">601+ pts</span></span>
-                <span className="text-xs font-semibold text-neutral-400">Locked</span>
-              </div>
-            </div>
+            {tiers.map((tier) => {
+              const userPts = myScore?.totalPoints ?? 0;
+              const achieved = userPts >= tier.minPoints;
+              const progress = tier.maxPoints
+                ? Math.min(((userPts - tier.minPoints) / (tier.maxPoints - tier.minPoints)) * 100, 100)
+                : 100;
+              return (
+                <div key={tier.tierId} className="py-3">
+                  <div className="flex items-center justify-between text-sm font-bold">
+                    <span className="flex items-center gap-2">
+                      {tier.displayIcon} {tier.tierName}
+                      <span className="text-xs font-medium text-neutral-400">
+                        {tier.minPoints}-{tier.maxPoints ?? "∞"} pts
+                      </span>
+                    </span>
+                    <span className={`text-xs font-semibold ${achieved ? "text-emerald-600" : "text-neutral-400"}`}>
+                      {achieved ? "✓ Achieved" : `${userPts}/${tier.minPoints}`}
+                    </span>
+                  </div>
+                  {achieved && (
+                    <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-neutral-100">
+                      <div className="h-full w-full bg-black" />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
     </div>
   );
 }
-
-const COURSES = [
-  {
-    platform: "Adobe",
-    points: 120,
-    title: "Adobe Certified Professional – Visual Design",
-    description:
-      "Master Adobe XD, Illustrator and Photoshop workflows to earn this globally recognized credential.",
-    tags: ["Intermediate", "40 hrs", "Design Tools"],
-  },
-  {
-    platform: "Coursera",
-    points: 80,
-    title: "Google UX Design Certificate",
-    description:
-      "A foundational certification covering the full UX design process from research to high-fidelity prototypes.",
-    tags: ["Beginner", "6 months", "UX / UI"],
-  },
-  {
-    platform: "LinkedIn Learning",
-    points: 60,
-    title: "Brand Identity & Typography Essentials",
-    description:
-      "Build strong typographic systems and develop a cohesive brand identity from scratch with industry best practices.",
-    tags: ["Beginner", "8 hrs", "Branding"],
-  },
-  {
-    platform: "Skillshare",
-    points: 50,
-    title: "Motion Design & After Effects Fundamentals",
-    description:
-      "Learn to create animated graphics, transitions, and visual effects using Adobe After Effects for broadcast and digital media.",
-    tags: ["Intermediate", "12 hrs", "Motion"],
-  },
-  {
-    platform: "Canva",
-    points: 40,
-    title: "Canva Certified Creator Program",
-    description:
-      "Demonstrate your ability to produce compelling visual content using Canva's full professional design suite.",
-    tags: ["Beginner", "4 hrs", "Digital Media"],
-  },
-  {
-    platform: "Awwwards",
-    points: 100,
-    title: "Advanced Web Design & Interaction",
-    description:
-      "Explore advanced interaction patterns, scroll animations, and award-worthy layout techniques as judged by Awwwards.",
-    tags: ["Advanced", "20 hrs", "Web Design"],
-  },
-];
