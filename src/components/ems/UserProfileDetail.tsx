@@ -18,6 +18,16 @@ import {
   type EmployeeEmploymentProfile,
   type UpdateEmployeeEmploymentProfileRequest,
 } from '@/api/employeeEmploymentApi';
+import {
+  fetchEmployeeHealthInsurance,
+  updateEmployeeHealthInsurance,
+  type EmployeeHealthInsurance,
+  type UpdateEmployeeHealthInsuranceRequest,
+  type HealthPlanOption,
+} from '@/api/employeeHealthInsuranceApi';
+import {
+  fetchEmployeeExperience,
+} from '@/api/employeeExperienceApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { useAddressAutofill } from '@/hooks/useAddressAutofill';
 import { TabBar } from './Primitives';
@@ -103,8 +113,8 @@ export function UserProfileDetail({ user, onBack }: UserProfileDetailProps) {
       {/* Tab Content */}
       {profileTab === 'Personal' && <PersonalTab user={user} />}
       {profileTab === 'Employment' && <EmploymentTab user={user} />}
-      {profileTab === 'Health Insurance' && <HealthInsuranceTab />}
-      {profileTab === 'Experience' && <ExperienceTab />}
+      {profileTab === 'Health Insurance' && <HealthInsuranceTab user={user} />}
+      {profileTab === 'Experience' && <ExperienceTab user={user} />}
       {profileTab === 'Certifications' && <CertificationsTab />}
     </div>
   );
@@ -935,53 +945,76 @@ function EmploymentTab({ user }: { user: UserProfileUser }) {
 
 // ─── Health Insurance Tab ─────────────────────────────────────────────────────
 
-function HealthInsuranceTab() {
-  const [healthOptIn, setHealthOptIn] = useState('');
-  const [healthPlan, setHealthPlan] = useState('');
-  const [dentalOptIn, setDentalOptIn] = useState('');
-  const [dentalPlan, setDentalPlan] = useState('');
-  const [visionOptIn, setVisionOptIn] = useState('');
-  const [visionPlan, setVisionPlan] = useState('');
-  const [additionalInsureds, setAdditionalInsureds] = useState('');
-
+function InsuranceSection({
+  title,
+  icon,
+  insuranceType,
+  optIn,
+  setOptIn,
+  planId,
+  setPlanId,
+  plans,
+  additionalInsureds,
+  setAdditionalInsureds,
+  planPrice,
+  planBenefits,
+  monthlyRate,
+  payrollDeduction,
+  showAdditional,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  insuranceType: string;
+  optIn: string;
+  setOptIn: (v: string) => void;
+  planId: string;
+  setPlanId: (v: string) => void;
+  plans: HealthPlanOption[];
+  additionalInsureds?: string;
+  setAdditionalInsureds?: (v: string) => void;
+  planPrice: string;
+  planBenefits: string;
+  monthlyRate?: string;
+  payrollDeduction?: string;
+  showAdditional?: boolean;
+}) {
+  const typePlans = plans.filter((p) => p.planType === insuranceType);
   return (
-    <div className="space-y-4">
-      {/* Health Insurance */}
-      <SectionCard title="Health Insurance" icon={<Heart className="h-4 w-4 text-ems-coral" />}>
-        <div className="grid gap-4 md:grid-cols-2">
-          <ReadOnlyField label="Health Insurance Status" value="—" source="calculated" />
-          <SelectField
-            label="Health Insurance Opt-In / Opt-Out"
-            value={healthOptIn}
-            onChange={(v) => {
-              setHealthOptIn(v);
-              if (v === 'Opt-Out') setHealthPlan('Declined');
-            }}
-            options={[
-              { value: 'Opt-In', label: 'Opt-In' },
-              { value: 'Opt-Out', label: 'Opt-Out' },
-            ]}
-            source="admin"
-          />
-          <SelectField
-            label="Chosen Plan"
-            value={healthPlan}
-            onChange={setHealthPlan}
-            disabled={healthOptIn === 'Opt-Out'}
-            options={[
-              { value: 'Plan A', label: 'Plan A' },
-              { value: 'Plan B', label: 'Plan B' },
-              { value: 'Plan C', label: 'Plan C' },
-              { value: 'Declined', label: 'Declined' },
-            ]}
-            source="admin"
-          />
-          <ReadOnlyField label="Chosen Plan Price" value={healthOptIn === 'Opt-Out' ? '—' : '— From Pricing Table —'} source="calculated" />
-          <ReadOnlyField label="Benefits of Chosen Plan" value={healthOptIn === 'Opt-Out' ? '—' : '— From Benefits Table —'} source="calculated" />
-          <ReadOnlyField label="Monthly Rate (based on Age)" value="— From Rate Table —" source="calculated" />
+    <SectionCard title={title} icon={icon}>
+      <div className="grid gap-4 md:grid-cols-2">
+        <SelectField
+          label={`${insuranceType} Insurance Opt-In / Opt-Out`}
+          value={optIn}
+          onChange={(v) => {
+            setOptIn(v);
+            if (v === 'Opt-Out') setPlanId('');
+          }}
+          options={[
+            { value: 'Opt-In', label: 'Opt-In' },
+            { value: 'Opt-Out', label: 'Opt-Out' },
+          ]}
+          source="admin"
+        />
+        <SelectField
+          label="Chosen Plan"
+          value={planId}
+          onChange={setPlanId}
+          disabled={optIn === 'Opt-Out'}
+          options={[
+            ...typePlans.map((p) => ({ value: String(p.healthPlanId), label: p.planName })),
+            { value: '', label: 'Declined' },
+          ]}
+          source="admin"
+        />
+        <ReadOnlyField label="Plan Price" value={optIn === 'Opt-Out' ? '—' : (planPrice || '— From Pricing Table —')} source="calculated" />
+        <ReadOnlyField label="Plan Benefits" value={optIn === 'Opt-Out' ? '—' : (planBenefits || '— From Benefits Table —')} source="calculated" />
+        {monthlyRate !== undefined && (
+          <ReadOnlyField label="Monthly Rate (based on Age)" value={optIn === 'Opt-Out' ? '—' : (monthlyRate || '— From Rate Table —')} source="calculated" />
+        )}
+        {showAdditional && setAdditionalInsureds && (
           <SelectField
             label="Additional Insureds"
-            value={additionalInsureds}
+            value={additionalInsureds || ''}
             onChange={setAdditionalInsureds}
             options={[
               { value: 'Spouse', label: 'Spouse' },
@@ -991,90 +1024,262 @@ function HealthInsuranceTab() {
             ]}
             source="admin"
           />
-          <ReadOnlyField label="Payroll Deduction" value="— Calculation stub (TBD) —" source="calculated" />
-        </div>
-      </SectionCard>
+        )}
+        {showAdditional && (
+          <ReadOnlyField label="Payroll Deduction" value={optIn === 'Opt-Out' ? '—' : (payrollDeduction || '—')} source="calculated" />
+        )}
+      </div>
+    </SectionCard>
+  );
+}
 
-      {/* Dental */}
-      <SectionCard title="Dental Insurance" icon={<Heart className="h-4 w-4 text-ems-blue" />}>
-        <div className="grid gap-4 md:grid-cols-2">
-          <SelectField
-            label="Dental Insurance Opt-In / Opt-Out"
-            value={dentalOptIn}
-            onChange={(v) => {
-              setDentalOptIn(v);
-              if (v === 'Opt-Out') setDentalPlan('Declined');
-            }}
-            options={[
-              { value: 'Opt-In', label: 'Opt-In' },
-              { value: 'Opt-Out', label: 'Opt-Out' },
-            ]}
-            source="admin"
-          />
-          <SelectField
-            label="Chosen Plan"
-            value={dentalPlan}
-            onChange={setDentalPlan}
-            disabled={dentalOptIn === 'Opt-Out'}
-            options={[
-              { value: 'Dental Plan A', label: 'Dental Plan A' },
-              { value: 'Dental Plan B', label: 'Dental Plan B' },
-              { value: 'Declined', label: 'Declined' },
-            ]}
-            source="admin"
-          />
-          <ReadOnlyField label="Plan Benefits" value={dentalOptIn === 'Opt-Out' ? '—' : '— From Benefits Table —'} source="calculated" />
-          <ReadOnlyField label="Plan Price" value={dentalOptIn === 'Opt-Out' ? '—' : '— From Pricing Table —'} source="calculated" />
-        </div>
-      </SectionCard>
+function HealthInsuranceTab({ user }: { user: UserProfileUser }) {
+  const qc = useQueryClient();
 
-      {/* Vision */}
-      <SectionCard title="Vision Insurance" icon={<Heart className="h-4 w-4 text-ems-green" />}>
-        <div className="grid gap-4 md:grid-cols-2">
-          <SelectField
-            label="Vision Insurance Opt-In / Opt-Out"
-            value={visionOptIn}
-            onChange={(v) => {
-              setVisionOptIn(v);
-              if (v === 'Opt-Out') setVisionPlan('Declined');
-            }}
-            options={[
-              { value: 'Opt-In', label: 'Opt-In' },
-              { value: 'Opt-Out', label: 'Opt-Out' },
-            ]}
-            source="admin"
-          />
-          <SelectField
-            label="Chosen Plan"
-            value={visionPlan}
-            onChange={setVisionPlan}
-            disabled={visionOptIn === 'Opt-Out'}
-            options={[
-              { value: 'Vision Plan A', label: 'Vision Plan A' },
-              { value: 'Vision Plan B', label: 'Vision Plan B' },
-              { value: 'Declined', label: 'Declined' },
-            ]}
-            source="admin"
-          />
-          <ReadOnlyField label="Plan Benefits" value={visionOptIn === 'Opt-Out' ? '—' : '— From Benefits Table —'} source="calculated" />
-          <ReadOnlyField label="Plan Price" value={visionOptIn === 'Opt-Out' ? '—' : '— From Pricing Table —'} source="calculated" />
-        </div>
-      </SectionCard>
+  const insuranceQuery = useQuery({
+    queryKey: ['employee-health-insurance', user.email],
+    queryFn: () => fetchEmployeeHealthInsurance(user.email),
+    enabled: !!user.email,
+    staleTime: 30_000,
+  });
+
+  // Local form state per insurance type
+  const [healthOptIn, setHealthOptIn] = useState('');
+  const [healthPlanId, setHealthPlanId] = useState('');
+  const [additionalInsureds, setAdditionalInsureds] = useState('');
+  const [dentalOptIn, setDentalOptIn] = useState('');
+  const [dentalPlanId, setDentalPlanId] = useState('');
+  const [visionOptIn, setVisionOptIn] = useState('');
+  const [visionPlanId, setVisionPlanId] = useState('');
+  const [saveMessage, setSaveMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  // Derived from fetched data
+  const [healthPrice, setHealthPrice] = useState('');
+  const [healthBenefits, setHealthBenefits] = useState('');
+  const [healthRate, setHealthRate] = useState('');
+  const [healthDeduction, setHealthDeduction] = useState('');
+  const [dentalPrice, setDentalPrice] = useState('');
+  const [dentalBenefits, setDentalBenefits] = useState('');
+  const [visionPrice, setVisionPrice] = useState('');
+  const [visionBenefits, setVisionBenefits] = useState('');
+
+  const populateForm = useCallback((data: EmployeeHealthInsurance) => {
+    const health = data.elections.find((e) => e.insuranceType === 'Health');
+    const dental = data.elections.find((e) => e.insuranceType === 'Dental');
+    const vision = data.elections.find((e) => e.insuranceType === 'Vision');
+
+    setHealthOptIn(health?.optInStatus || '');
+    setHealthPlanId(health?.healthPlanId ? String(health.healthPlanId) : '');
+    setAdditionalInsureds(health?.additionalInsureds || '');
+    setHealthPrice(health?.planPrice || '');
+    setHealthBenefits(health?.planBenefits || '');
+    setHealthRate(health?.monthlyRate || '');
+    setHealthDeduction(health?.payrollDeduction || '');
+
+    setDentalOptIn(dental?.optInStatus || '');
+    setDentalPlanId(dental?.healthPlanId ? String(dental.healthPlanId) : '');
+    setDentalPrice(dental?.planPrice || '');
+    setDentalBenefits(dental?.planBenefits || '');
+
+    setVisionOptIn(vision?.optInStatus || '');
+    setVisionPlanId(vision?.healthPlanId ? String(vision.healthPlanId) : '');
+    setVisionPrice(vision?.planPrice || '');
+    setVisionBenefits(vision?.planBenefits || '');
+  }, []);
+
+  useEffect(() => {
+    if (insuranceQuery.data) populateForm(insuranceQuery.data);
+  }, [insuranceQuery.data, populateForm]);
+
+  const saveMutation = useMutation({
+    mutationFn: (payload: UpdateEmployeeHealthInsuranceRequest) =>
+      updateEmployeeHealthInsurance(user.email, payload),
+    onSuccess: (data) => {
+      qc.setQueryData(['employee-health-insurance', user.email], data);
+      populateForm(data);
+      setSaveMessage({ text: 'Health insurance saved.', type: 'success' });
+      setTimeout(() => setSaveMessage(null), 4000);
+    },
+    onError: (error) => {
+      setSaveMessage({ text: friendlyApiError(error, 'Could not save health insurance.'), type: 'error' });
+      setTimeout(() => setSaveMessage(null), 6000);
+    },
+  });
+
+  const handleSave = async () => {
+    const saves: UpdateEmployeeHealthInsuranceRequest[] = [
+      {
+        insuranceType: 'Health',
+        optInStatus: healthOptIn || null,
+        healthPlanId: healthPlanId ? Number(healthPlanId) : null,
+        additionalInsureds: additionalInsureds || null,
+      },
+      {
+        insuranceType: 'Dental',
+        optInStatus: dentalOptIn || null,
+        healthPlanId: dentalPlanId ? Number(dentalPlanId) : null,
+      },
+      {
+        insuranceType: 'Vision',
+        optInStatus: visionOptIn || null,
+        healthPlanId: visionPlanId ? Number(visionPlanId) : null,
+      },
+    ];
+    for (const payload of saves) {
+      saveMutation.mutate(payload);
+    }
+  };
+
+  if (insuranceQuery.isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16 text-text-muted">
+        <Loader2 className="h-5 w-5 animate-spin mr-2" />
+        Loading health insurance…
+      </div>
+    );
+  }
+
+  if (insuranceQuery.isError && !insuranceQuery.data) {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20 px-4 py-6 text-center text-sm text-red-700 dark:text-red-300">
+        {friendlyApiError(insuranceQuery.error, 'Could not load health insurance.')}
+      </div>
+    );
+  }
+
+  const plans = insuranceQuery.data?.plans ?? [];
+
+  return (
+    <div className="space-y-4">
+      <InsuranceSection
+        title="Health Insurance"
+        icon={<Heart className="h-4 w-4 text-ems-coral" />}
+        insuranceType="Health"
+        optIn={healthOptIn}
+        setOptIn={setHealthOptIn}
+        planId={healthPlanId}
+        setPlanId={setHealthPlanId}
+        plans={plans}
+        additionalInsureds={additionalInsureds}
+        setAdditionalInsureds={setAdditionalInsureds}
+        planPrice={healthPrice}
+        planBenefits={healthBenefits}
+        monthlyRate={healthRate}
+        payrollDeduction={healthDeduction}
+        showAdditional
+      />
+
+      <InsuranceSection
+        title="Dental Insurance"
+        icon={<Heart className="h-4 w-4 text-ems-blue" />}
+        insuranceType="Dental"
+        optIn={dentalOptIn}
+        setOptIn={setDentalOptIn}
+        planId={dentalPlanId}
+        setPlanId={setDentalPlanId}
+        plans={plans}
+        planPrice={dentalPrice}
+        planBenefits={dentalBenefits}
+      />
+
+      <InsuranceSection
+        title="Vision Insurance"
+        icon={<Heart className="h-4 w-4 text-ems-green" />}
+        insuranceType="Vision"
+        optIn={visionOptIn}
+        setOptIn={setVisionOptIn}
+        planId={visionPlanId}
+        setPlanId={setVisionPlanId}
+        plans={plans}
+        planPrice={visionPrice}
+        planBenefits={visionBenefits}
+      />
+
+      {/* Save Bar */}
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saveMutation.isPending}
+          className="inline-flex items-center gap-2 rounded-md bg-ems-accent px-4 py-2 text-sm font-medium text-white hover:bg-ems-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {saveMutation.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Save className="h-4 w-4" />
+          )}
+          {saveMutation.isPending ? 'Saving…' : 'Save Health Insurance'}
+        </button>
+        {saveMessage && (
+          <span className={`text-sm ${saveMessage.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+            {saveMessage.text}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
 
 // ─── Experience Tab ───────────────────────────────────────────────────────────
 
-function ExperienceTab() {
+function NameList({ items }: { items: string[] }) {
+  if (items.length === 0) {
+    return <p className="text-sm text-text-muted italic">None</p>;
+  }
+  return (
+    <ul className="space-y-1">
+      {items.map((name) => (
+        <li key={name} className="flex items-center gap-2 text-sm text-text-primary">
+          <span className="h-1.5 w-1.5 rounded-full bg-ems-accent shrink-0" />
+          {name}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ExperienceTab({ user }: { user: UserProfileUser }) {
+  const experienceQuery = useQuery({
+    queryKey: ['employee-experience', user.email],
+    queryFn: () => fetchEmployeeExperience(user.email),
+    enabled: !!user.email,
+    staleTime: 30_000,
+  });
+
+  if (experienceQuery.isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16 text-text-muted">
+        <Loader2 className="h-5 w-5 animate-spin mr-2" />
+        Loading experience…
+      </div>
+    );
+  }
+
+  if (experienceQuery.isError && !experienceQuery.data) {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20 px-4 py-6 text-center text-sm text-red-700 dark:text-red-300">
+        {friendlyApiError(experienceQuery.error, 'Could not load experience data.')}
+      </div>
+    );
+  }
+
+  const data = experienceQuery.data;
+
   return (
     <div className="space-y-4">
-      <SectionCard title="Experience (from EMS)" icon={<Star className="h-4 w-4 text-ems-amber" />}>
-        <div className="grid gap-4 md:grid-cols-1">
-          <ReadOnlyField label="Engagements Assigned To" value="— Pulled from EMS —" source="ems" />
-          <ReadOnlyField label="Engagements Worked On" value="— Pulled from EMS —" source="ems" />
-          <ReadOnlyField label="Markets Worked In" value="— Pulled from EMS —" source="ems" />
-        </div>
+      {/* Engagements Assigned To */}
+      <SectionCard title="Engagements Assigned To" icon={<Star className="h-4 w-4 text-ems-amber" />}>
+        <NameList items={data?.engagementsAssignedTo ?? []} />
+      </SectionCard>
+
+      {/* Engagements Worked On */}
+      <SectionCard title="Engagements Worked On" icon={<Star className="h-4 w-4 text-ems-green" />}>
+        <NameList items={data?.engagementsWorkedOn ?? []} />
+      </SectionCard>
+
+      {/* Markets Worked In */}
+      <SectionCard title="Markets Worked In" icon={<MapPin className="h-4 w-4 text-ems-blue" />}>
+        <NameList items={data?.marketsWorkedIn ?? []} />
       </SectionCard>
     </div>
   );

@@ -5,6 +5,13 @@ import {
   UpdateEmployeeEmploymentProfileDto,
 } from './employee-employment.service';
 import {
+  EmployeeExperienceService,
+} from './employee-experience.service';
+import {
+  EmployeeHealthInsuranceService,
+  UpdateEmployeeHealthInsuranceDto,
+} from './employee-health-insurance.service';
+import {
   EmployeeProfileService,
   UpdateEmployeePersonalProfileDto,
 } from './employee-profile.service';
@@ -24,6 +31,8 @@ export class AdminUsersController {
   constructor(
     private readonly adminUsersService: AdminUsersService,
     private readonly employeeEmploymentService: EmployeeEmploymentService,
+    private readonly employeeExperienceService: EmployeeExperienceService,
+    private readonly employeeHealthInsuranceService: EmployeeHealthInsuranceService,
     private readonly employeeProfileService: EmployeeProfileService,
     private readonly internalContactSyncService: InternalContactSyncService,
     private readonly userProfileService: UserProfileService,
@@ -77,6 +86,24 @@ export class AdminUsersController {
     @Body() dto: UpdateEmployeeEmploymentProfileDto,
   ) {
     return this.employeeEmploymentService.updateEmploymentProfile(email, dto);
+  }
+
+  @Get('users/:email/experience')
+  async getExperience(@Param('email') email: string) {
+    return this.employeeExperienceService.getExperience(email);
+  }
+
+  @Get('users/:email/health-insurance')
+  async getHealthInsurance(@Param('email') email: string) {
+    return this.employeeHealthInsuranceService.getHealthInsurance(email);
+  }
+
+  @Patch('users/:email/health-insurance')
+  async updateHealthInsurance(
+    @Param('email') email: string,
+    @Body() dto: UpdateEmployeeHealthInsuranceDto,
+  ) {
+    return this.employeeHealthInsuranceService.updateHealthInsurance(email, dto);
   }
 
   @Get('workstations')
