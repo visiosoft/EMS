@@ -117,6 +117,15 @@ import {
   type UpdateEngagementPayload,
 } from '@/api/engagementApi';
 import {
+  fetchRampStatus,
+  fetchRampTransactions,
+  fetchRampBills,
+  fetchRampVendors,
+  fetchRampUsers,
+  fetchRampDepartments,
+  fetchRampSpendPrograms,
+} from '@/api/rampApi';
+import {
   fetchAttractions,
   fetchTours,
   fetchVenueTypesLookup,
@@ -6640,8 +6649,310 @@ function EngagementEventBusinessPanel({
 
         {/* ── RAMP ────────────────────────────────────────────────── */}
         {sectionHeader('RAMP')}
-        <p className="text-sm text-text-muted">RAMP bills and reports will be shown here when available.</p>
+        <RampSection engagementId={engagementId} />
       </div>
+    </div>
+  );
+}
+
+// ─── Ramp API Section ─────────────────────────────────────────────────────────
+
+function RampSection({ engagementId }: { engagementId: number }) {
+  const [activeTab, setActiveTab] = useState<'transactions' | 'bills' | 'vendors' | 'users' | 'departments' | 'spend-programs'>('transactions');
+
+  const statusQuery = useQuery({
+    queryKey: ['ramp', 'status'],
+    queryFn: () => fetchRampStatus(),
+    staleTime: 300_000,
+  });
+
+  const transactionsQuery = useQuery({
+    queryKey: ['ramp', 'transactions', engagementId],
+    queryFn: () => fetchRampTransactions({ page_size: 20 }),
+    enabled: statusQuery.data?.configured === true && activeTab === 'transactions',
+    staleTime: 60_000,
+  });
+
+  const billsQuery = useQuery({
+    queryKey: ['ramp', 'bills', engagementId],
+    queryFn: () => fetchRampBills({ page_size: 20 }),
+    enabled: statusQuery.data?.configured === true && activeTab === 'bills',
+    staleTime: 60_000,
+  });
+
+  const vendorsQuery = useQuery({
+    queryKey: ['ramp', 'vendors'],
+    queryFn: () => fetchRampVendors({ page_size: 50 }),
+    enabled: statusQuery.data?.configured === true && activeTab === 'vendors',
+    staleTime: 120_000,
+  });
+
+  const usersQuery = useQuery({
+    queryKey: ['ramp', 'users'],
+    queryFn: () => fetchRampUsers({ page_size: 50 }),
+    enabled: statusQuery.data?.configured === true && activeTab === 'users',
+    staleTime: 120_000,
+  });
+
+  const departmentsQuery = useQuery({
+    queryKey: ['ramp', 'departments'],
+    queryFn: () => fetchRampDepartments({ page_size: 50 }),
+    enabled: statusQuery.data?.configured === true && activeTab === 'departments',
+    staleTime: 120_000,
+  });
+
+  const spendProgramsQuery = useQuery({
+    queryKey: ['ramp', 'spend-programs'],
+    queryFn: () => fetchRampSpendPrograms({ page_size: 50 }),
+    enabled: statusQuery.data?.configured === true && activeTab === 'spend-programs',
+    staleTime: 120_000,
+  });
+
+  if (statusQuery.isLoading) {
+    return <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Checking Ramp connection…</div>;
+  }
+
+  if (!statusQuery.data?.configured) {
+    return (
+      <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
+        <p className="text-sm text-amber-800">Ramp API is not configured. Set <code className="text-xs bg-amber-100 px-1 rounded">RAMP_CLIENT_ID</code> and <code className="text-xs bg-amber-100 px-1 rounded">RAMP_CLIENT_SECRET</code> in the backend environment.</p>
+      </div>
+    );
+  }
+
+  const tabs = [
+    { key: 'transactions' as const, label: 'Transactions' },
+    { key: 'bills' as const, label: 'Bills' },
+    { key: 'vendors' as const, label: 'Vendors' },
+    { key: 'users' as const, label: 'Users' },
+    { key: 'departments' as const, label: 'Departments' },
+    { key: 'spend-programs' as const, label: 'Spend Programs' },
+  ];
+
+  const formatCurrency = (amount: number | null | undefined, currency = 'USD') => {
+    if (amount == null) return '—';
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount / 100);
+  };
+
+  const formatDate = (iso: string | null | undefined) => {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* Sub-tabs */}
+      <div className="flex flex-wrap gap-1 border-b border-border pb-1">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setActiveTab(t.key)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-t transition-colors ${
+              activeTab === t.key
+                ? 'bg-ems-accent text-white'
+                : 'text-text-muted hover:text-text-primary hover:bg-muted'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Transactions tab */}
+      {activeTab === 'transactions' && (
+        <div className="space-y-2">
+          {transactionsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading transactions…</div>}
+          {transactionsQuery.isError && <p className="text-sm text-red-600">Failed to load transactions.</p>}
+          {transactionsQuery.data && (
+            transactionsQuery.data.data.length === 0
+              ? <p className="text-sm text-text-muted">No transactions found.</p>
+              : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border text-left">
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Date</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Merchant</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Cardholder</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Category</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted text-right">Amount</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted">State</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Memo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {transactionsQuery.data.data.map((tx) => (
+                        <tr key={tx.id} className="border-b border-border/50 hover:bg-muted/40">
+                          <td className="py-1.5 px-2 whitespace-nowrap">{formatDate(tx.user_transaction_time)}</td>
+                          <td className="py-1.5 px-2">{tx.merchant_name ?? tx.merchant_descriptor ?? '—'}</td>
+                          <td className="py-1.5 px-2 whitespace-nowrap">{tx.card_holder ? `${tx.card_holder.first_name} ${tx.card_holder.last_name}` : '—'}</td>
+                          <td className="py-1.5 px-2">{tx.sk_category_name ?? '—'}</td>
+                          <td className="py-1.5 px-2 text-right font-mono">{formatCurrency(tx.amount, tx.currency_code ?? 'USD')}</td>
+                          <td className="py-1.5 px-2">
+                            <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                              tx.state === 'CLEARED' ? 'bg-green-100 text-green-700' :
+                              tx.state === 'PENDING' ? 'bg-yellow-100 text-yellow-700' :
+                              tx.state === 'DECLINED' ? 'bg-red-100 text-red-700' :
+                              'bg-gray-100 text-gray-600'
+                            }`}>{tx.state ?? '—'}</span>
+                          </td>
+                          <td className="py-1.5 px-2 max-w-[150px] truncate">{tx.memo ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+          )}
+        </div>
+      )}
+
+      {/* Bills tab */}
+      {activeTab === 'bills' && (
+        <div className="space-y-2">
+          {billsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading bills…</div>}
+          {billsQuery.isError && <p className="text-sm text-red-600">Failed to load bills.</p>}
+          {billsQuery.data && (
+            billsQuery.data.data.length === 0
+              ? <p className="text-sm text-text-muted">No bills found.</p>
+              : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border text-left">
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Invoice #</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Vendor</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Due Date</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted text-right">Amount</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Status</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Memo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {billsQuery.data.data.map((bill) => (
+                        <tr key={bill.id} className="border-b border-border/50 hover:bg-muted/40">
+                          <td className="py-1.5 px-2">{bill.invoice_number ?? '—'}</td>
+                          <td className="py-1.5 px-2">{bill.vendor?.name ?? '—'}</td>
+                          <td className="py-1.5 px-2 whitespace-nowrap">{formatDate(bill.due_at)}</td>
+                          <td className="py-1.5 px-2 text-right font-mono">{bill.amount ? formatCurrency(bill.amount.amount, bill.amount.currency_code) : '—'}</td>
+                          <td className="py-1.5 px-2">
+                            <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                              bill.status_summary === 'PAID' ? 'bg-green-100 text-green-700' :
+                              bill.status_summary === 'OPEN' ? 'bg-blue-100 text-blue-700' :
+                              bill.status_summary === 'OVERDUE' ? 'bg-red-100 text-red-700' :
+                              'bg-gray-100 text-gray-600'
+                            }`}>{bill.status_summary ?? bill.status ?? '—'}</span>
+                          </td>
+                          <td className="py-1.5 px-2 max-w-[150px] truncate">{bill.memo ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+          )}
+        </div>
+      )}
+
+      {/* Vendors tab */}
+      {activeTab === 'vendors' && (
+        <div className="space-y-2">
+          {vendorsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading vendors…</div>}
+          {vendorsQuery.isError && <p className="text-sm text-red-600">Failed to load vendors.</p>}
+          {vendorsQuery.data && (
+            vendorsQuery.data.data.length === 0
+              ? <p className="text-sm text-text-muted">No vendors found.</p>
+              : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {vendorsQuery.data.data.map((v) => (
+                    <div key={v.id} className="rounded border border-border p-2 text-xs">
+                      <p className="font-medium text-text-primary">{v.name}</p>
+                      <p className="text-text-muted">{[v.city, v.state, v.country].filter(Boolean).join(', ') || '—'}</p>
+                    </div>
+                  ))}
+                </div>
+              )
+          )}
+        </div>
+      )}
+
+      {/* Users tab */}
+      {activeTab === 'users' && (
+        <div className="space-y-2">
+          {usersQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading users…</div>}
+          {usersQuery.isError && <p className="text-sm text-red-600">Failed to load users.</p>}
+          {usersQuery.data && (
+            usersQuery.data.data.length === 0
+              ? <p className="text-sm text-text-muted">No users found.</p>
+              : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border text-left">
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Name</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Email</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Role</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {usersQuery.data.data.map((u) => (
+                        <tr key={u.id} className="border-b border-border/50 hover:bg-muted/40">
+                          <td className="py-1.5 px-2">{u.first_name} {u.last_name}</td>
+                          <td className="py-1.5 px-2">{u.email}</td>
+                          <td className="py-1.5 px-2">{u.role ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+          )}
+        </div>
+      )}
+
+      {/* Departments tab */}
+      {activeTab === 'departments' && (
+        <div className="space-y-2">
+          {departmentsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading departments…</div>}
+          {departmentsQuery.isError && <p className="text-sm text-red-600">Failed to load departments.</p>}
+          {departmentsQuery.data && (
+            departmentsQuery.data.data.length === 0
+              ? <p className="text-sm text-text-muted">No departments found.</p>
+              : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {departmentsQuery.data.data.map((dept) => (
+                    <div key={dept.id} className="rounded border border-border p-2 text-xs">
+                      <p className="font-medium text-text-primary">{dept.name}</p>
+                    </div>
+                  ))}
+                </div>
+              )
+          )}
+        </div>
+      )}
+
+      {/* Spend Programs tab */}
+      {activeTab === 'spend-programs' && (
+        <div className="space-y-2">
+          {spendProgramsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading spend programs…</div>}
+          {spendProgramsQuery.isError && <p className="text-sm text-red-600">Failed to load spend programs.</p>}
+          {spendProgramsQuery.data && (
+            spendProgramsQuery.data.data.length === 0
+              ? <p className="text-sm text-text-muted">No spend programs found.</p>
+              : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {spendProgramsQuery.data.data.map((sp) => (
+                    <div key={sp.id} className="rounded border border-border p-2 text-xs">
+                      <p className="font-medium text-text-primary">{sp.name}</p>
+                      {sp.description && <p className="text-text-muted mt-0.5">{sp.description}</p>}
+                    </div>
+                  ))}
+                </div>
+              )
+          )}
+        </div>
+      )}
     </div>
   );
 }
