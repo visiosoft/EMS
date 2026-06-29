@@ -442,25 +442,12 @@ function buildDailyChartPoints(
     }
   }
 
-  // UI-only autofill: a day with no report (omitted from the series, or all
-  // zeros) inherits the next reported day's results, so e.g. an unreported
-  // Saturday and Sunday show Monday's report. Trailing days with no later
-  // report keep their carried-forward placeholder (nothing to carry back from).
-  let nextReported: SeriesPoint | null = null;
-  for (let i = expandedRows.length - 1; i >= 0; i -= 1) {
-    const row = expandedRows[i];
-    if (reportedDates.has(row.date)) {
-      nextReported = row;
-    } else if (nextReported) {
-      expandedRows[i] = {
-        ...row,
-        totalTickets: nextReported.totalTickets,
-        totalRevenue: nextReported.totalRevenue,
-        dailyTickets: nextReported.dailyTickets,
-        dailyRevenue: nextReported.dailyRevenue,
-      };
-    }
-  }
+  // Fill-forward: a day with no report (omitted from the series, or all zeros)
+  // keeps the previous reported day's cumulative totals — already carried into
+  // its placeholder above — with zero daily movement (no new sales that day).
+  // So an unreported Saturday/Sunday holds Friday's cumulative rather than
+  // jumping ahead to Monday's. Leading days before the first sale stay at zero
+  // (no prior sales to carry forward), which is the only time a 0 is shown.
 
   return expandedRows.map((row, index) => {
     const totalTickets = finiteNumber(row.totalTickets) ?? 0;
@@ -640,6 +627,29 @@ function hasChartValues(points: SalesChartPoint[], config: ChartConfig) {
   });
 }
 
+// The daily-pace charts (Ticket Sales Pace, Daily $ Sales Pace) should not drop
+// to zero on quiet days. A day with no sales (0) inherits the previous day's
+// value so the pace stays flat across consecutive no-sale days instead of
+// reading as a dip. Leading days before the first sale stay empty.
+const CARRY_FORWARD_DATA_KEYS: ReadonlySet<string> = new Set([
+  'dailyTickets',
+  'dailyRevenue',
+]);
+
+function carryForwardZeros(points: SalesChartPoint[], config: ChartConfig) {
+  if (!CARRY_FORWARD_DATA_KEYS.has(config.dataKey)) return points;
+  let last: number | null = null;
+  return points.map((point) => {
+    const value = finiteNumber(point[config.dataKey]);
+    if (value != null && value > 0) {
+      last = value;
+      return point;
+    }
+    if (last == null) return point;
+    return { ...point, [config.dataKey]: last };
+  });
+}
+
 function xAxisInterval(length: number, expanded: boolean) {
   if (expanded) {
     if (length <= 18) return 0;
@@ -666,15 +676,12 @@ function buildAuditGroups(
     ((finiteNumber(point.dailyTickets) ?? 0) > 0 ||
       (finiteNumber(point.dailyRevenue) ?? 0) > 0);
   const yesterdayPoint = dailyPoints.find((point) => point.date === yesterday);
-  // When yesterday has no report of its own (and no later report to backfill
-  // from — e.g. the reporting date is past the last daily-sales entry), fall
-  // back to the most recent reported day on or before the reporting date so
-  // the wrap still shows the latest numbers we have.
-  const wrapPoint = hasActivity(yesterdayPoint)
-    ? yesterdayPoint
-    : [...dailyPoints]
-        .reverse()
-        .find((point) => point.date <= asOf && hasActivity(point)) ?? yesterdayPoint;
+  // Show the most recent day sales actually occurred (day-over-day movement),
+  // not necessarily the previous calendar day. When recent days had no sales we
+  // keep walking backward through the series so the wrap reflects the latest
+  // real sales activity instead of showing zeros after consecutive quiet days.
+  const wrapPoint =
+    [...dailyPoints].reverse().find((point) => hasActivity(point)) ?? yesterdayPoint;
   const wrapNote =
     wrapPoint && wrapPoint.date !== yesterday
       ? `As of ${formatDateLabel(wrapPoint.date, 'EEE, MMM d, yyyy')}`
@@ -757,35 +764,38 @@ function isUnreportedSummaryRow(row: SummaryPoint) {
 }
 
 /**
- * UI-only autofill: when a day has no reported sales (the API returns 0 for
- * every value), backfill it from the next calendar day that does have a
- * report. e.g. if Saturday and Sunday have no reported sales, Monday's report
- * fills the Saturday and Sunday cells. Trailing days with no later report stay
- * as-is since there is nothing to carry back from.
+ * UI-only fill-forward: when a day has no reported sales (the API returns 0 for
+ * every value), carry forward the previous reported day's cumulative values so
+ * the day reflects the latest known totals instead of dropping to $0. e.g. if
+ * Saturday and Sunday have no reported sales, Friday's cumulative fills the
+ * Saturday and Sunday cells (with zero daily movement, since no new sales
+ * happened). The only days left at 0 are leading days before the first sale —
+ * there is nothing prior to carry forward.
  */
 function autofillUnreportedSummaryRows(summary: SummaryPoint[] | undefined) {
   const rows = [...(summary ?? [])]
     .filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.date))
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  let nextReported: SummaryPoint | null = null;
-  for (let i = rows.length - 1; i >= 0; i -= 1) {
+  let prevReported: SummaryPoint | null = null;
+  for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i];
     if (isUnreportedSummaryRow(row)) {
-      if (nextReported) {
+      if (prevReported) {
         rows[i] = {
           ...row,
-          totalTicketsSold: nextReported.totalTicketsSold,
-          totalValueSold: nextReported.totalValueSold,
-          dailyTicketsSold: nextReported.dailyTicketsSold,
-          dailyValueSold: nextReported.dailyValueSold,
-          seatsSoldPct: nextReported.seatsSoldPct,
-          seatsRemaining: nextReported.seatsRemaining,
-          revenueRemaining: nextReported.revenueRemaining,
+          totalTicketsSold: prevReported.totalTicketsSold,
+          totalValueSold: prevReported.totalValueSold,
+          // No new sales on a carried-forward day.
+          dailyTicketsSold: 0,
+          dailyValueSold: 0,
+          seatsSoldPct: prevReported.seatsSoldPct,
+          seatsRemaining: prevReported.seatsRemaining,
+          revenueRemaining: prevReported.revenueRemaining,
         };
       }
     } else {
-      nextReported = row;
+      prevReported = row;
     }
   }
   return rows;
@@ -930,7 +940,8 @@ function SalesTrendChart({
   expanded = false,
   className,
 }: SalesTrendChartProps) {
-  const hasValues = hasChartValues(points, config);
+  const renderPoints = carryForwardZeros(points, config);
+  const hasValues = hasChartValues(renderPoints, config);
   const lifetimePoint =
     points.length === 1 && points[0]?.label === 'Lifetime' ? points[0] : null;
   if (lifetimePoint) {
@@ -957,20 +968,22 @@ function SalesTrendChart({
     );
   }
 
-  const interval = xAxisInterval(points.length, expanded);
-  const angled = points.length > (expanded ? 12 : 6);
-  const pointLabelByDate = new Map(points.map((point) => [point.date, point.label]));
+  const interval = xAxisInterval(renderPoints.length, expanded);
+  const angled = renderPoints.length > (expanded ? 12 : 6);
+  const pointLabelByDate = new Map(
+    renderPoints.map((point) => [point.date, point.label]),
+  );
   const commonGraphProps = {
     dataKey: config.dataKey,
     name: config.valueLabel,
-    isAnimationActive: points.length <= 80,
+    isAnimationActive: renderPoints.length <= 80,
   };
 
   return (
     <div className={cn('h-[13.5rem] w-full', className)}>
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart
-          data={points}
+          data={renderPoints}
           margin={{
             top: expanded ? 28 : 18,
             right: expanded ? 28 : 12,

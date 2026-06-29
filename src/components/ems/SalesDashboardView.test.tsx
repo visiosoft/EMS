@@ -150,9 +150,9 @@ describe('SalesDashboardView', () => {
     expect(within(publicSaleRow as HTMLTableRowElement).queryByText('$50')).not.toBeInTheDocument();
   });
 
-  it("backfills an unreported day's audit wrap from the next reported day", () => {
-    // asOf is May 22; May 21 has no report, so Yesterday's Wrap should reflect
-    // May 22's report (5 tickets / $50) rather than 0.
+  it("shows the most recent sales day in the audit wrap when yesterday had no sales", () => {
+    // asOf is May 22; May 21 has no sales, so Yesterday's Wrap reflects the most
+    // recent day sales actually occurred — May 22's report (5 tickets / $50).
     renderDashboard();
 
     const wrapRow = screen.getByText('Total Tickets Sold Yesterday').closest('th');
@@ -179,9 +179,9 @@ describe('SalesDashboardView', () => {
     expect(screen.queryByText('No chart data available.')).not.toBeInTheDocument();
   });
 
-  it('backfills unreported weekend days in the summary table from the next reported day', () => {
+  it('fills forward unreported weekend days in the summary table from the previous reported day', () => {
     // Simulate: May 20 has real sales, May 21 has no report (zeros), May 22 has real sales.
-    // May 21 should be autofilled from May 22's values.
+    // May 21 should carry forward May 20's cumulative values (fill-forward).
     const data = dashboard();
     data.summary = [
       {
@@ -228,17 +228,17 @@ describe('SalesDashboardView', () => {
       />,
     );
 
-    // May 21 row should show May 22's total values (backfilled)
+    // May 21 row should carry forward May 20's total values (fill-forward)
     const may21Row = screen.getByText('Thu, May 21, 2026').closest('tr');
     expect(may21Row).not.toBeNull();
-    // Backfilled from May 22: totalTicketsSold=25, totalValueSold=$250
-    expect(within(may21Row as HTMLTableRowElement).getByText('25')).toBeVisible();
-    expect(within(may21Row as HTMLTableRowElement).getByText('$250')).toBeVisible();
+    // Carried forward from May 20: totalTicketsSold=15, totalValueSold=$150
+    expect(within(may21Row as HTMLTableRowElement).getByText('15')).toBeVisible();
+    expect(within(may21Row as HTMLTableRowElement).getByText('$150')).toBeVisible();
   });
 
-  it('does not backfill trailing unreported days that have no later report', () => {
-    // May 22 is the last day and has no report — nothing later to backfill from,
-    // so it stays at 0.
+  it('fills trailing unreported days forward from the previous reported day', () => {
+    // May 22 is the last day and has no report — it carries forward the previous
+    // reported day (May 20) instead of dropping to 0.
     const data = dashboard();
     data.summary = [
       {
@@ -275,12 +275,62 @@ describe('SalesDashboardView', () => {
       />,
     );
 
-    // May 22 is trailing and unreported — stays at 0 (no backfill source)
+    // May 22 is trailing and unreported — carries forward May 20's cumulative
     const may22Row = screen.getByText('Fri, May 22, 2026').closest('tr');
     expect(may22Row).not.toBeNull();
-    // countOrDash(0) returns "0", moneyOrDash(0) returns "$0" — values remain zeroed
-    const cells = within(may22Row as HTMLTableRowElement).getAllByText('0');
-    expect(cells.length).toBeGreaterThanOrEqual(2);
+    // Carried forward from May 20: totalTicketsSold=15, totalValueSold=$150
+    expect(within(may22Row as HTMLTableRowElement).getByText('15')).toBeVisible();
+    expect(within(may22Row as HTMLTableRowElement).getByText('$150')).toBeVisible();
+  });
+
+  it('leaves leading days before the first sale at 0 (nothing to carry forward)', () => {
+    // May 20 and May 21 precede the first reported sale (May 22). With no prior
+    // day to carry forward, they remain at 0 — the only time 0 is displayed.
+    const data = dashboard();
+    data.summary = [
+      {
+        date: '2026-05-20',
+        totalTicketsSold: 0,
+        totalValueSold: 0,
+        dailyTicketsSold: 0,
+        dailyValueSold: 0,
+        seatsSoldPct: 0,
+        seatsRemaining: 0,
+        revenueRemaining: 0,
+      },
+      {
+        date: '2026-05-22',
+        totalTicketsSold: 15,
+        totalValueSold: 150,
+        dailyTicketsSold: 15,
+        dailyValueSold: 150,
+        seatsSoldPct: 0.3,
+        seatsRemaining: 4985,
+        revenueRemaining: 49850,
+      },
+    ];
+
+    render(
+      <SalesDashboardView
+        asOf="2026-05-22"
+        onAsOfChange={vi.fn()}
+        onBack={vi.fn()}
+        loading={false}
+        error={null}
+        onRetry={vi.fn()}
+        data={data}
+      />,
+    );
+
+    // May 20 precedes the first sale — stays zeroed (no prior day to carry).
+    const may20Row = screen.getByText('Wed, May 20, 2026').closest('tr');
+    expect(may20Row).not.toBeNull();
+    expect(
+      within(may20Row as HTMLTableRowElement).getAllByText('0').length,
+    ).toBeGreaterThanOrEqual(1);
+    expect(
+      within(may20Row as HTMLTableRowElement).getAllByText('$0').length,
+    ).toBeGreaterThanOrEqual(1);
   });
 
   it('renders audit wrap fallback note when yesterday has no report', () => {
