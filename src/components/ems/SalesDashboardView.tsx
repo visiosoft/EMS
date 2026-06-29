@@ -671,20 +671,37 @@ function buildAuditGroups(
 ): AuditGroup[] {
   const asOf = data.asOfDate;
   const yesterday = ymdAddDays(asOf, -1);
-  const hasActivity = (point: SalesChartPoint | undefined) =>
-    !!point &&
-    ((finiteNumber(point.dailyTickets) ?? 0) > 0 ||
-      (finiteNumber(point.dailyRevenue) ?? 0) > 0);
-  const yesterdayPoint = dailyPoints.find((point) => point.date === yesterday);
-  // Show the most recent day sales actually occurred (day-over-day movement),
-  // not necessarily the previous calendar day. When recent days had no sales we
-  // keep walking backward through the series so the wrap reflects the latest
-  // real sales activity instead of showing zeros after consecutive quiet days.
-  const wrapPoint =
-    [...dailyPoints].reverse().find((point) => hasActivity(point)) ?? yesterdayPoint;
+  // Walk backward to the most recent day whose cumulative totals rose above the
+  // prior day — that's the latest day ticket sales actually occurred. We derive
+  // the amount sold from the cumulative totals (totalTickets / totalRevenue)
+  // rather than any precomputed daily field, so the wrap shows that day's
+  // increase (e.g. 37 / $2,764), never the running cumulative or a stale 0.
+  // Consecutive no-sale days are skipped until a day with an increase is found.
+  const chronological = [...dailyPoints].sort((a, b) =>
+    a.date.localeCompare(b.date),
+  );
+  let wrapTickets = 0;
+  let wrapRevenue = 0;
+  let wrapDate: string | undefined;
+  for (let i = chronological.length - 1; i >= 0; i -= 1) {
+    const point = chronological[i];
+    const prev = i > 0 ? chronological[i - 1] : undefined;
+    const ticketsSold =
+      (finiteNumber(point.totalTickets) ?? 0) -
+      (finiteNumber(prev?.totalTickets) ?? 0);
+    const revenueSold =
+      (finiteNumber(point.totalRevenue) ?? 0) -
+      (finiteNumber(prev?.totalRevenue) ?? 0);
+    if (ticketsSold > 0 || revenueSold > 0) {
+      wrapTickets = Math.max(0, ticketsSold);
+      wrapRevenue = Math.max(0, revenueSold);
+      wrapDate = point.date;
+      break;
+    }
+  }
   const wrapNote =
-    wrapPoint && wrapPoint.date !== yesterday
-      ? `As of ${formatDateLabel(wrapPoint.date, 'EEE, MMM d, yyyy')}`
+    wrapDate && wrapDate !== yesterday
+      ? `As of ${formatDateLabel(wrapDate, 'EEE, MMM d, yyyy')}`
       : undefined;
   const totalTickets = finiteNumber(data.kpis.ticketsDistributed) ?? 0;
   const totalRevenue = finiteNumber(data.kpis.totalRevenue) ?? 0;
@@ -694,6 +711,34 @@ function buildAuditGroups(
     sellableCapacity != null ? safeNonNegative(sellableCapacity - totalTickets) : null;
   const unsoldRevenue =
     grossPotential != null ? safeNonNegative(grossPotential - totalRevenue) : null;
+
+  // Lifetime "to date" figures: when the as-of KPIs come back as 0 (e.g. the
+  // reporting day has no record), carry forward the most recent day in the
+  // series that actually has cumulative totals so the snapshot reflects the
+  // latest known data instead of dropping to 0. The percentages are recomputed
+  // from the carried-forward cumulative so they stay consistent with the
+  // tickets/revenue shown beside them.
+  const latestWithData = [...dailyPoints]
+    .reverse()
+    .find(
+      (point) =>
+        (finiteNumber(point.totalTickets) ?? 0) > 0 ||
+        (finiteNumber(point.totalRevenue) ?? 0) > 0,
+    );
+  const lifetimeTickets =
+    totalTickets > 0 ? totalTickets : finiteNumber(latestWithData?.totalTickets) ?? 0;
+  const lifetimeRevenue =
+    totalRevenue > 0 ? totalRevenue : finiteNumber(latestWithData?.totalRevenue) ?? 0;
+  const pctOf = (numerator: number, denom: number | null | undefined) =>
+    denom != null && denom > 0 ? (numerator / denom) * 100 : null;
+  const lifetimePctSold =
+    (finiteNumber(data.kpis.pctSold) ?? 0) !== 0
+      ? data.kpis.pctSold
+      : pctOf(lifetimeTickets, sellableCapacity);
+  const lifetimePctPotential =
+    (finiteNumber(data.kpis.pctRevenueVsPotential) ?? 0) !== 0
+      ? data.kpis.pctRevenueVsPotential
+      : pctOf(lifetimeRevenue, grossPotential);
 
   return [
     {
@@ -710,12 +755,12 @@ function buildAuditGroups(
       cells: [
         {
           label: 'Total Tickets Sold Yesterday',
-          value: countOrDash(finiteNumber(wrapPoint?.dailyTickets) ?? 0),
+          value: countOrDash(wrapTickets),
           note: wrapNote,
         },
         {
           label: 'Total $ Sold Yesterday',
-          value: moneyOrDash(finiteNumber(wrapPoint?.dailyRevenue) ?? 0),
+          value: moneyOrDash(wrapRevenue),
           note: wrapNote,
         },
       ],
@@ -732,12 +777,12 @@ function buildAuditGroups(
       title: 'Lifetime',
       shade: 'bg-card',
       cells: [
-        { label: 'Total Tickets Sold To Date', value: countOrDash(totalTickets) },
-        { label: 'Total Sales $ To Date', value: moneyOrDash(totalRevenue) },
-        { label: '% of Seats Sold', value: pctDisplay(data.kpis.pctSold) },
+        { label: 'Total Tickets Sold To Date', value: countOrDash(lifetimeTickets) },
+        { label: 'Total Sales $ To Date', value: moneyOrDash(lifetimeRevenue) },
+        { label: '% of Seats Sold', value: pctDisplay(lifetimePctSold) },
         {
           label: '% of $ Potential Sold',
-          value: pctDisplay(data.kpis.pctRevenueVsPotential),
+          value: pctDisplay(lifetimePctPotential),
         },
         {
           label: 'Goal Revenue',

@@ -167,6 +167,85 @@ describe('SalesDashboardView', () => {
     expect(within(valuesRow as HTMLElement).getByText('$50')).toBeVisible();
   });
 
+  it('derives the wrap delta from cumulative totals after consecutive no-sale days', () => {
+    // Mirrors a real dataset: flat cumulative days (Jun 26–28) then an increase
+    // on Jun 29. The daily* fields are deliberately set to the cumulative value
+    // to prove the wrap recomputes the delta from totalTickets/totalRevenue
+    // (37 / $2,764) rather than echoing the cumulative (1312 / $111,424).
+    const data = dashboard();
+    data.asOfDate = '2026-06-29';
+    data.series = [
+      { date: '2026-06-25', totalTickets: 1248, totalRevenue: 106432, dailyTickets: 1248, dailyRevenue: 106432 },
+      { date: '2026-06-26', totalTickets: 1275, totalRevenue: 108660, dailyTickets: 1275, dailyRevenue: 108660 },
+      { date: '2026-06-27', totalTickets: 1275, totalRevenue: 108660, dailyTickets: 1275, dailyRevenue: 108660 },
+      { date: '2026-06-28', totalTickets: 1275, totalRevenue: 108660, dailyTickets: 1275, dailyRevenue: 108660 },
+      { date: '2026-06-29', totalTickets: 1312, totalRevenue: 111424, dailyTickets: 1312, dailyRevenue: 111424 },
+    ];
+
+    render(
+      <SalesDashboardView
+        asOf="2026-06-29"
+        onAsOfChange={vi.fn()}
+        onBack={vi.fn()}
+        loading={false}
+        error={null}
+        onRetry={vi.fn()}
+        data={data}
+      />,
+    );
+
+    const valuesRow = screen
+      .getByText("Yesterday's Wrap")
+      .closest('table')
+      ?.querySelector('tbody tr');
+    expect(valuesRow).not.toBeNull();
+    // Jun 29 delta: 1312 - 1275 = 37 tickets, 111424 - 108660 = $2,764
+    expect(within(valuesRow as HTMLElement).getByText('37')).toBeVisible();
+    expect(within(valuesRow as HTMLElement).getByText('$2,764')).toBeVisible();
+    // Must not echo the cumulative total.
+    expect(within(valuesRow as HTMLElement).queryByText('1,312')).not.toBeInTheDocument();
+    expect(within(valuesRow as HTMLElement).queryByText('$111,424')).not.toBeInTheDocument();
+  });
+
+  it('carries forward the latest day with data for the Lifetime to-date figures when KPIs are 0', () => {
+    // The as-of KPIs come back as 0, but the series still has cumulative data
+    // through Jun 29. The Lifetime section should reflect the latest day with
+    // data (2,500 / $25,000 / 50% / 50%) instead of dropping to 0.
+    const data = dashboard();
+    data.asOfDate = '2026-06-29';
+    data.sellableCapacity = 5000;
+    data.grossPotential = 50000;
+    data.kpis = {
+      ...data.kpis,
+      totalRevenue: 0,
+      ticketsDistributed: 0,
+      pctSold: 0,
+      pctRevenueVsPotential: 0,
+    };
+    data.series = [
+      { date: '2026-06-28', totalTickets: 2400, totalRevenue: 24000, dailyTickets: 100, dailyRevenue: 1000 },
+      { date: '2026-06-29', totalTickets: 2500, totalRevenue: 25000, dailyTickets: 100, dailyRevenue: 1000 },
+    ];
+
+    render(
+      <SalesDashboardView
+        asOf="2026-06-29"
+        onAsOfChange={vi.fn()}
+        onBack={vi.fn()}
+        loading={false}
+        error={null}
+        onRetry={vi.fn()}
+        data={data}
+      />,
+    );
+
+    // Carried forward from Jun 29 instead of the zeroed KPI snapshot.
+    expect(screen.getByText('2,500')).toBeVisible();
+    expect(screen.getByText('$25,000')).toBeVisible();
+    // % of Seats Sold and % of $ Potential Sold, recomputed from the carry.
+    expect(screen.getAllByText('50.0%').length).toBeGreaterThanOrEqual(2);
+  });
+
   it('shows informative lifetime snapshots instead of one-point charts', () => {
     renderDashboard();
 
