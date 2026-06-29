@@ -61,7 +61,7 @@ export class LearningController {
   @Get('certifications')
   getCertifications(
     @Query('departmentId', new DefaultValuePipe(0), ParseIntPipe) departmentId: number,
-    @Query('status', new DefaultValuePipe('Active')) status: string,
+    @Query('status', new DefaultValuePipe('all')) status: string,
     @Query('level', new DefaultValuePipe('all')) level: string,
     @Query('platformId', new DefaultValuePipe(0), ParseIntPipe) platformId: number,
   ) {
