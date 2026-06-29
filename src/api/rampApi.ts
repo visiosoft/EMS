@@ -67,6 +67,18 @@ export interface RampReceipt {
   receipt_url: string | null;
 }
 
+export interface RampEngagementReceipt extends RampReceipt {
+  merchant_name: string | null;
+  amount: number | null;
+}
+
+export interface RampEngagementMapping {
+  customerFieldOptionId: string | null;
+  jobFieldOptionId: string | null;
+  customerName: string | null;
+  jobName: string | null;
+}
+
 export interface RampSpendProgram {
   id: string;
   name: string;
@@ -163,18 +175,32 @@ export function fetchRampSpendPrograms(params?: {
 
 export function fetchEngagementRampTransactions(
   engagementId: number,
-  params?: { from_date?: string; to_date?: string; page_size?: number },
-): Promise<{ data: RampTransaction[] }> {
+  params?: { from_date?: string; to_date?: string; page_size?: number; start?: string },
+): Promise<RampPagedResponse<RampTransaction>> {
   const qs = buildQuery(params);
-  return apiFetch<{ data: RampTransaction[] }>(`/ramp/engagement/${engagementId}/transactions${qs}`);
+  return apiFetch<RampPagedResponse<RampTransaction>>(`/ramp/engagement/${engagementId}/transactions${qs}`);
 }
 
 export function fetchEngagementRampBills(
   engagementId: number,
-  params?: { from_due_date?: string; to_due_date?: string; page_size?: number },
-): Promise<{ data: RampBill[] }> {
+  params?: { from_due_date?: string; to_due_date?: string; page_size?: number; start?: string },
+): Promise<RampPagedResponse<RampBill>> {
   const qs = buildQuery(params);
-  return apiFetch<{ data: RampBill[] }>(`/ramp/engagement/${engagementId}/bills${qs}`);
+  return apiFetch<RampPagedResponse<RampBill>>(`/ramp/engagement/${engagementId}/bills${qs}`);
+}
+
+export function fetchEngagementRampReceipts(
+  engagementId: number,
+  params?: { from_date?: string; to_date?: string; page_size?: number; start?: string },
+): Promise<RampPagedResponse<RampEngagementReceipt>> {
+  const qs = buildQuery(params);
+  return apiFetch<RampPagedResponse<RampEngagementReceipt>>(`/ramp/engagement/${engagementId}/receipts${qs}`);
+}
+
+export function fetchEngagementRampMapping(
+  engagementId: number,
+): Promise<RampEngagementMapping> {
+  return apiFetch<RampEngagementMapping>(`/ramp/engagement/${engagementId}/mapping`);
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

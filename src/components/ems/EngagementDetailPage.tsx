@@ -8,7 +8,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Engagement } from '@/data/constants';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Loader2,
   Building2,
@@ -124,6 +124,8 @@ import {
   fetchRampSpendPrograms,
   fetchEngagementRampTransactions,
   fetchEngagementRampBills,
+  fetchEngagementRampReceipts,
+  fetchEngagementRampMapping,
 } from '@/api/rampApi';
 import {
   fetchAttractions,
@@ -6657,8 +6659,140 @@ function EngagementEventBusinessPanel({
 
 // ─── Ramp API Section ─────────────────────────────────────────────────────────
 
+// Scope description + EMS intent (from the Ramp API Scopes sheet) shown as a
+// caption on each tab, so the data is presented per its scope + comment.
+const RAMP_TAB_META: Record<string, { scope: string; description: string; intent: string }> = {
+  transactions: {
+    scope: 'transactions:read',
+    description: 'Card transactions, sorted by most recent. Each links to a user, card, merchant, optional receipts, and accounting field selections.',
+    intent: 'IAE card payments linked to this EMS engagement.',
+  },
+  bills: {
+    scope: 'bills:read',
+    description: 'Bills track the AP workflow — vendors, line items, payment details, due dates.',
+    intent: 'IAE bills linked to this EMS engagement.',
+  },
+  receipts: {
+    scope: 'receipts:read',
+    description: 'Digital copies of business receipts and invoices, fetched from the receipt attached to each transaction.',
+    intent: 'IAE receipts/transactions connected to this engagement.',
+  },
+  vendors: {
+    scope: 'vendors:read',
+    description: 'Bill-pay payees you pay via ACH, check, or wire. Vendors carry contacts, bank accounts, and addresses.',
+    intent: 'Vendors that map to companies in the EMS (org-wide list).',
+  },
+  users: {
+    scope: 'users:read',
+    description: 'People on the Ramp account. Each user connects to departments, entities, cards, and transactions.',
+    intent: 'IAE internal users — link to individual employees (org-wide list).',
+  },
+  departments: {
+    scope: 'departments:read',
+    description: 'Departments represent an organizational division or cost center within the business.',
+    intent: 'Connect to IAE departments in the EMS (org-wide list).',
+  },
+  'spend-programs': {
+    scope: 'spend_programs:read',
+    description: 'Templates that mass-produce funds with consistent policy — offsites, stipends, allowances.',
+    intent: 'Hotel/Travel spend programs within Ramp (org-wide list).',
+  },
+};
+
+/**
+ * Presents a cursor-paginated useInfiniteQuery one page at a time. Ramp's API is
+ * cursor-based (no total count / random access), so Next fetches the next cursor
+ * page and Previous walks back through already-cached pages.
+ */
+function usePagedRamp<T>(
+  query: {
+    data?: { pages: { data: T[] }[] };
+    hasNextPage: boolean;
+    isFetchingNextPage: boolean;
+    fetchNextPage: () => Promise<{ data?: { pages: unknown[] } | undefined }>;
+  },
+  resetKey: unknown,
+) {
+  const [pageIndex, setPageIndex] = useState(0);
+  useEffect(() => {
+    setPageIndex(0);
+  }, [resetKey]);
+
+  const pages = query.data?.pages ?? [];
+  const rows = pages[pageIndex]?.data ?? [];
+  const loadedCount = pages.length;
+  const canPrev = pageIndex > 0;
+  const canNext = pageIndex < loadedCount - 1 || query.hasNextPage;
+
+  const goNext = async () => {
+    if (pageIndex + 1 < pages.length) {
+      setPageIndex(pageIndex + 1);
+      return;
+    }
+    if (query.hasNextPage) {
+      const res = await query.fetchNextPage();
+      const newLen = res.data?.pages.length ?? pages.length;
+      if (newLen > pages.length) setPageIndex(pages.length);
+    }
+  };
+  const goPrev = () => setPageIndex((i) => Math.max(0, i - 1));
+
+  return {
+    rows,
+    page: pageIndex + 1,
+    loadedCount,
+    canPrev,
+    canNext,
+    hasNextPage: query.hasNextPage,
+    isPaging: query.isFetchingNextPage,
+    goNext,
+    goPrev,
+  };
+}
+
+function RampPager({
+  pager,
+}: {
+  pager: {
+    rows: unknown[];
+    page: number;
+    loadedCount: number;
+    canPrev: boolean;
+    canNext: boolean;
+    hasNextPage: boolean;
+    isPaging: boolean;
+    goNext: () => void;
+    goPrev: () => void;
+  };
+}) {
+  if (pager.rows.length === 0 && !pager.canNext && !pager.canPrev) return null;
+  return (
+    <div className="flex items-center justify-end gap-2 pt-1">
+      <span className="tabular-nums text-text-muted text-xs mr-1">
+        Page {pager.page}{!pager.hasNextPage ? ` / ${pager.loadedCount}` : ''} · {pager.rows.length} shown
+      </span>
+      <button
+        type="button"
+        disabled={!pager.canPrev}
+        onClick={pager.goPrev}
+        className="px-3 py-1.5 rounded border border-border bg-elevated hover:bg-hover disabled:opacity-40 text-xs font-medium"
+      >
+        Previous
+      </button>
+      <button
+        type="button"
+        disabled={!pager.canNext || pager.isPaging}
+        onClick={pager.goNext}
+        className="px-3 py-1.5 rounded border border-border bg-elevated hover:bg-hover disabled:opacity-40 text-xs font-medium"
+      >
+        {pager.isPaging ? 'Loading…' : 'Next'}
+      </button>
+    </div>
+  );
+}
+
 function RampSection({ engagementId }: { engagementId: number }) {
-  const [activeTab, setActiveTab] = useState<'transactions' | 'bills' | 'vendors' | 'users' | 'departments' | 'spend-programs'>('transactions');
+  const [activeTab, setActiveTab] = useState<'transactions' | 'bills' | 'receipts' | 'vendors' | 'users' | 'departments' | 'spend-programs'>('transactions');
 
   const statusQuery = useQuery({
     queryKey: ['ramp', 'status'],
@@ -6666,47 +6800,94 @@ function RampSection({ engagementId }: { engagementId: number }) {
     staleTime: 300_000,
   });
 
-  const transactionsQuery = useQuery({
+  const mappingQuery = useQuery({
+    queryKey: ['ramp', 'mapping', engagementId],
+    queryFn: () => fetchEngagementRampMapping(engagementId),
+    enabled: statusQuery.data?.configured === true,
+    staleTime: 300_000,
+  });
+
+  const configured = statusQuery.data?.configured === true;
+
+  const transactionsQuery = useInfiniteQuery({
     queryKey: ['ramp', 'transactions', engagementId],
-    queryFn: () => fetchEngagementRampTransactions(engagementId, { page_size: 20 }),
-    enabled: statusQuery.data?.configured === true && activeTab === 'transactions',
+    queryFn: ({ pageParam }) => fetchEngagementRampTransactions(engagementId, { page_size: 20, start: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.page?.next ?? undefined,
+    enabled: configured && activeTab === 'transactions',
     staleTime: 60_000,
   });
 
-  const billsQuery = useQuery({
+  const billsQuery = useInfiniteQuery({
     queryKey: ['ramp', 'bills', engagementId],
-    queryFn: () => fetchEngagementRampBills(engagementId, { page_size: 20 }),
-    enabled: statusQuery.data?.configured === true && activeTab === 'bills',
+    queryFn: ({ pageParam }) => fetchEngagementRampBills(engagementId, { page_size: 20, start: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.page?.next ?? undefined,
+    enabled: configured && activeTab === 'bills',
     staleTime: 60_000,
   });
 
-  const vendorsQuery = useQuery({
+  const receiptsQuery = useInfiniteQuery({
+    queryKey: ['ramp', 'receipts', engagementId],
+    queryFn: ({ pageParam }) => fetchEngagementRampReceipts(engagementId, { page_size: 50, start: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.page?.next ?? undefined,
+    enabled: configured && activeTab === 'receipts',
+    staleTime: 60_000,
+  });
+
+  const vendorsQuery = useInfiniteQuery({
     queryKey: ['ramp', 'vendors'],
-    queryFn: () => fetchRampVendors({ page_size: 50 }),
-    enabled: statusQuery.data?.configured === true && activeTab === 'vendors',
+    queryFn: ({ pageParam }) => fetchRampVendors({ page_size: 50, start: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.page?.next ?? undefined,
+    enabled: configured && activeTab === 'vendors',
     staleTime: 120_000,
   });
 
-  const usersQuery = useQuery({
+  const usersQuery = useInfiniteQuery({
     queryKey: ['ramp', 'users'],
-    queryFn: () => fetchRampUsers({ page_size: 50 }),
-    enabled: statusQuery.data?.configured === true && activeTab === 'users',
+    queryFn: ({ pageParam }) => fetchRampUsers({ page_size: 50, start: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.page?.next ?? undefined,
+    enabled: configured && activeTab === 'users',
     staleTime: 120_000,
   });
 
-  const departmentsQuery = useQuery({
+  const departmentsQuery = useInfiniteQuery({
     queryKey: ['ramp', 'departments'],
-    queryFn: () => fetchRampDepartments({ page_size: 50 }),
-    enabled: statusQuery.data?.configured === true && activeTab === 'departments',
+    queryFn: ({ pageParam }) => fetchRampDepartments({ page_size: 50, start: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.page?.next ?? undefined,
+    enabled: configured && activeTab === 'departments',
     staleTime: 120_000,
   });
 
-  const spendProgramsQuery = useQuery({
+  const spendProgramsQuery = useInfiniteQuery({
     queryKey: ['ramp', 'spend-programs'],
-    queryFn: () => fetchRampSpendPrograms({ page_size: 50 }),
-    enabled: statusQuery.data?.configured === true && activeTab === 'spend-programs',
+    queryFn: ({ pageParam }) => fetchRampSpendPrograms({ page_size: 50, start: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.page?.next ?? undefined,
+    enabled: configured && activeTab === 'spend-programs',
     staleTime: 120_000,
   });
+
+  // One cached page shown at a time, with Previous/Next over the cursor pages.
+  const txPaged = usePagedRamp(transactionsQuery, engagementId);
+  const billsPaged = usePagedRamp(billsQuery, engagementId);
+  const receiptsPaged = usePagedRamp(receiptsQuery, engagementId);
+  const vendorsPaged = usePagedRamp(vendorsQuery, 'vendors');
+  const usersPaged = usePagedRamp(usersQuery, 'users');
+  const departmentsPaged = usePagedRamp(departmentsQuery, 'departments');
+  const spendProgramsPaged = usePagedRamp(spendProgramsQuery, 'spend-programs');
+
+  const transactions = txPaged.rows;
+  const bills = billsPaged.rows;
+  const receipts = receiptsPaged.rows;
+  const vendors = vendorsPaged.rows;
+  const users = usersPaged.rows;
+  const departments = departmentsPaged.rows;
+  const spendPrograms = spendProgramsPaged.rows;
 
   if (statusQuery.isLoading) {
     return <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Checking Ramp connection…</div>;
@@ -6723,6 +6904,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
   const tabs = [
     { key: 'transactions' as const, label: 'Transactions' },
     { key: 'bills' as const, label: 'Bills' },
+    { key: 'receipts' as const, label: 'Receipts' },
     { key: 'vendors' as const, label: 'Vendors' },
     { key: 'users' as const, label: 'Users' },
     { key: 'departments' as const, label: 'Departments' },
@@ -6739,8 +6921,27 @@ function RampSection({ engagementId }: { engagementId: number }) {
     return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
+  const isEngagementScoped = activeTab === 'transactions' || activeTab === 'bills' || activeTab === 'receipts';
+  const tabMeta = RAMP_TAB_META[activeTab];
+
   return (
     <div className="space-y-3">
+      {/* Engagement → Ramp linkage banner (accounting:read — Customer/Job mapping) */}
+      {mappingQuery.data && (mappingQuery.data.customerName || mappingQuery.data.jobName) && (
+        <div className="rounded-md border border-ems-accent/30 bg-ems-accent/5 px-3 py-2 text-xs text-text-secondary">
+          <span className="font-medium text-text-primary">Linked to Ramp via</span>{' '}
+          {mappingQuery.data.customerName && (
+            <>Customer = <span className="font-mono">{mappingQuery.data.customerName}</span>
+              {mappingQuery.data.customerFieldOptionId ? '' : ' (no match)'}</>
+          )}
+          {mappingQuery.data.customerName && mappingQuery.data.jobName && ' · '}
+          {mappingQuery.data.jobName && (
+            <>Job = <span className="font-mono">{mappingQuery.data.jobName}</span>
+              {mappingQuery.data.jobFieldOptionId ? '' : ' (no match)'}</>
+          )}
+        </div>
+      )}
+
       {/* Sub-tabs */}
       <div className="flex flex-wrap gap-1 border-b border-border pb-1">
         {tabs.map((t) => (
@@ -6759,13 +6960,24 @@ function RampSection({ engagementId }: { engagementId: number }) {
         ))}
       </div>
 
+      {/* Scope description + EMS intent caption (from the Ramp API Scopes sheet) */}
+      {tabMeta && (
+        <div className="text-xs text-text-muted">
+          <span className="font-mono text-[10px] bg-muted px-1 py-0.5 rounded mr-1.5">{tabMeta.scope}</span>
+          {tabMeta.description} <span className="text-text-secondary">— {tabMeta.intent}</span>
+          {!isEngagementScoped && (
+            <span className="ml-1 italic">Org-wide reference data, not filtered by engagement.</span>
+          )}
+        </div>
+      )}
+
       {/* Transactions tab */}
       {activeTab === 'transactions' && (
         <div className="space-y-2">
           {transactionsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading transactions…</div>}
           {transactionsQuery.isError && <p className="text-sm text-red-600">Failed to load transactions.</p>}
-          {transactionsQuery.data && (
-            transactionsQuery.data.data.length === 0
+          {transactionsQuery.isSuccess && (
+            transactions.length === 0
               ? <p className="text-sm text-text-muted">No transactions found.</p>
               : (
                 <div className="overflow-x-auto">
@@ -6779,10 +6991,11 @@ function RampSection({ engagementId }: { engagementId: number }) {
                         <th className="py-1.5 px-2 font-medium text-text-muted text-right">Amount</th>
                         <th className="py-1.5 px-2 font-medium text-text-muted">State</th>
                         <th className="py-1.5 px-2 font-medium text-text-muted">Memo</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted text-center">Receipts</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {transactionsQuery.data.data.map((tx) => (
+                      {transactions.map((tx) => (
                         <tr key={tx.id} className="border-b border-border/50 hover:bg-muted/40">
                           <td className="py-1.5 px-2 whitespace-nowrap">{formatDate(tx.user_transaction_time)}</td>
                           <td className="py-1.5 px-2">{tx.merchant_name ?? tx.merchant_descriptor ?? '—'}</td>
@@ -6798,12 +7011,16 @@ function RampSection({ engagementId }: { engagementId: number }) {
                             }`}>{tx.state ?? '—'}</span>
                           </td>
                           <td className="py-1.5 px-2 max-w-[150px] truncate">{tx.memo ?? '—'}</td>
+                          <td className="py-1.5 px-2 text-center">{tx.receipts && tx.receipts.length > 0 ? `📎 ${tx.receipts.length}` : '—'}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
               )
+          )}
+          {transactionsQuery.isSuccess && (
+            <RampPager pager={txPaged} />
           )}
         </div>
       )}
@@ -6813,8 +7030,8 @@ function RampSection({ engagementId }: { engagementId: number }) {
         <div className="space-y-2">
           {billsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading bills…</div>}
           {billsQuery.isError && <p className="text-sm text-red-600">Failed to load bills.</p>}
-          {billsQuery.data && (
-            billsQuery.data.data.length === 0
+          {billsQuery.isSuccess && (
+            bills.length === 0
               ? <p className="text-sm text-text-muted">No bills found.</p>
               : (
                 <div className="overflow-x-auto">
@@ -6830,7 +7047,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {billsQuery.data.data.map((bill) => (
+                      {bills.map((bill) => (
                         <tr key={bill.id} className="border-b border-border/50 hover:bg-muted/40">
                           <td className="py-1.5 px-2">{bill.invoice_number ?? '—'}</td>
                           <td className="py-1.5 px-2">{bill.vendor?.name ?? '—'}</td>
@@ -6852,6 +7069,39 @@ function RampSection({ engagementId }: { engagementId: number }) {
                 </div>
               )
           )}
+          {billsQuery.isSuccess && (
+            <RampPager pager={billsPaged} />
+          )}
+        </div>
+      )}
+
+      {/* Receipts tab */}
+      {activeTab === 'receipts' && (
+        <div className="space-y-2">
+          {receiptsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading receipts…</div>}
+          {receiptsQuery.isError && <p className="text-sm text-red-600">Failed to load receipts.</p>}
+          {receiptsQuery.isSuccess && (
+            receipts.length === 0
+              ? <p className="text-sm text-text-muted">No receipts found for this engagement's transactions.</p>
+              : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {receipts.map((r) => (
+                    <div key={r.id} className="rounded border border-border p-2 text-xs flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-medium text-text-primary truncate">{r.merchant_name ?? 'Receipt'}</p>
+                        <p className="text-text-muted">{formatCurrency(r.amount)} · {formatDate(r.created_at)}</p>
+                      </div>
+                      {r.receipt_url
+                        ? <a href={r.receipt_url} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:underline whitespace-nowrap">View</a>
+                        : <span className="shrink-0 text-text-muted">—</span>}
+                    </div>
+                  ))}
+                </div>
+              )
+          )}
+          {receiptsQuery.isSuccess && (
+            <RampPager pager={receiptsPaged} />
+          )}
         </div>
       )}
 
@@ -6860,12 +7110,12 @@ function RampSection({ engagementId }: { engagementId: number }) {
         <div className="space-y-2">
           {vendorsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading vendors…</div>}
           {vendorsQuery.isError && <p className="text-sm text-red-600">Failed to load vendors.</p>}
-          {vendorsQuery.data && (
-            vendorsQuery.data.data.length === 0
+          {vendorsQuery.isSuccess && (
+            vendors.length === 0
               ? <p className="text-sm text-text-muted">No vendors found.</p>
               : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                  {vendorsQuery.data.data.map((v) => (
+                  {vendors.map((v) => (
                     <div key={v.id} className="rounded border border-border p-2 text-xs">
                       <p className="font-medium text-text-primary">{v.name}</p>
                       <p className="text-text-muted">{[v.city, v.state, v.country].filter(Boolean).join(', ') || '—'}</p>
@@ -6873,6 +7123,9 @@ function RampSection({ engagementId }: { engagementId: number }) {
                   ))}
                 </div>
               )
+          )}
+          {vendorsQuery.isSuccess && (
+            <RampPager pager={vendorsPaged} />
           )}
         </div>
       )}
@@ -6882,8 +7135,8 @@ function RampSection({ engagementId }: { engagementId: number }) {
         <div className="space-y-2">
           {usersQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading users…</div>}
           {usersQuery.isError && <p className="text-sm text-red-600">Failed to load users.</p>}
-          {usersQuery.data && (
-            usersQuery.data.data.length === 0
+          {usersQuery.isSuccess && (
+            users.length === 0
               ? <p className="text-sm text-text-muted">No users found.</p>
               : (
                 <div className="overflow-x-auto">
@@ -6896,7 +7149,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {usersQuery.data.data.map((u) => (
+                      {users.map((u) => (
                         <tr key={u.id} className="border-b border-border/50 hover:bg-muted/40">
                           <td className="py-1.5 px-2">{u.first_name} {u.last_name}</td>
                           <td className="py-1.5 px-2">{u.email}</td>
@@ -6908,6 +7161,9 @@ function RampSection({ engagementId }: { engagementId: number }) {
                 </div>
               )
           )}
+          {usersQuery.isSuccess && (
+            <RampPager pager={usersPaged} />
+          )}
         </div>
       )}
 
@@ -6916,18 +7172,21 @@ function RampSection({ engagementId }: { engagementId: number }) {
         <div className="space-y-2">
           {departmentsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading departments…</div>}
           {departmentsQuery.isError && <p className="text-sm text-red-600">Failed to load departments.</p>}
-          {departmentsQuery.data && (
-            departmentsQuery.data.data.length === 0
+          {departmentsQuery.isSuccess && (
+            departments.length === 0
               ? <p className="text-sm text-text-muted">No departments found.</p>
               : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                  {departmentsQuery.data.data.map((dept) => (
+                  {departments.map((dept) => (
                     <div key={dept.id} className="rounded border border-border p-2 text-xs">
                       <p className="font-medium text-text-primary">{dept.name}</p>
                     </div>
                   ))}
                 </div>
               )
+          )}
+          {departmentsQuery.isSuccess && (
+            <RampPager pager={departmentsPaged} />
           )}
         </div>
       )}
@@ -6937,12 +7196,12 @@ function RampSection({ engagementId }: { engagementId: number }) {
         <div className="space-y-2">
           {spendProgramsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading spend programs…</div>}
           {spendProgramsQuery.isError && <p className="text-sm text-red-600">Failed to load spend programs.</p>}
-          {spendProgramsQuery.data && (
-            spendProgramsQuery.data.data.length === 0
+          {spendProgramsQuery.isSuccess && (
+            spendPrograms.length === 0
               ? <p className="text-sm text-text-muted">No spend programs found.</p>
               : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {spendProgramsQuery.data.data.map((sp) => (
+                  {spendPrograms.map((sp) => (
                     <div key={sp.id} className="rounded border border-border p-2 text-xs">
                       <p className="font-medium text-text-primary">{sp.name}</p>
                       {sp.description && <p className="text-text-muted mt-0.5">{sp.description}</p>}
@@ -6950,6 +7209,9 @@ function RampSection({ engagementId }: { engagementId: number }) {
                   ))}
                 </div>
               )
+          )}
+          {spendProgramsQuery.isSuccess && (
+            <RampPager pager={spendProgramsPaged} />
           )}
         </div>
       )}

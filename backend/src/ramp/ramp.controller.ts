@@ -176,11 +176,13 @@ export class RampController {
     @Query('from_date') fromDate?: string,
     @Query('to_date') toDate?: string,
     @Query('page_size') pageSize?: string,
+    @Query('start') start?: string,
   ) {
     return this.rampService.getEngagementTransactions(engagementId, {
       from_date: fromDate,
       to_date: toDate,
       page_size: pageSize ? Number(pageSize) : undefined,
+      start,
     });
   }
 
@@ -190,10 +192,29 @@ export class RampController {
     @Query('from_due_date') fromDueDate?: string,
     @Query('to_due_date') toDueDate?: string,
     @Query('page_size') pageSize?: string,
+    @Query('start') start?: string,
   ) {
     return this.rampService.getEngagementBills(engagementId, {
       from_due_date: fromDueDate,
       to_due_date: toDueDate,
       page_size: pageSize ? Number(pageSize) : undefined,
+      start,
     });
-  }}
+  }
+
+  @Get('engagement/:engagementId/receipts')
+  getEngagementReceipts(
+    @Param('engagementId', ParseIntPipe) engagementId: number,
+    @Query('from_date') fromDate?: string,
+    @Query('to_date') toDate?: string,
+    @Query('page_size') pageSize?: string,
+    @Query('start') start?: string,
+  ) {
+    return this.rampService.getEngagementReceipts(engagementId, {
+      from_date: fromDate,
+      to_date: toDate,
+      page_size: pageSize ? Number(pageSize) : undefined,
+      start,
+    });
+  }
+}

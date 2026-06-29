@@ -191,6 +191,38 @@ export class RampService {
     return { Authorization: `Bearer ${token}`, Accept: 'application/json' };
   }
 
+  // ─── Pagination helpers ───────────────────────────────────────────────────
+
+  /**
+   * Ramp returns `page.next` as a full URL (`<BASE_URL>?...&start=<cursor>`),
+   * but the `start` query param expects only the bare cursor. Normalize it so
+   * the value can be passed straight back into a follow-up request.
+   */
+  private normalizeCursor(next: string | null | undefined): string | null {
+    if (!next) return null;
+    if (!next.includes('?') && !next.includes('://')) return next; // already a bare cursor
+    try {
+      const url = new URL(next, RAMP_API_BASE);
+      return url.searchParams.get('start');
+    } catch {
+      return next;
+    }
+  }
+
+  /** GET a Ramp list endpoint and return the response with a normalized cursor. */
+  private async getList<T>(
+    path: string,
+    params?: Record<string, unknown>,
+  ): Promise<RampPagedResponse<T>> {
+    const headers = await this.authHeaders();
+    const res = await this.http.get(path, { headers, params });
+    const body = res.data as RampPagedResponse<T>;
+    return {
+      data: body.data ?? [],
+      page: { next: this.normalizeCursor(body.page?.next) },
+    };
+  }
+
   // ─── Transactions ─────────────────────────────────────────────────────────
 
   async listTransactions(params?: {
@@ -202,9 +234,7 @@ export class RampService {
     page_size?: number;
     start?: string;
   }): Promise<RampPagedResponse<RampTransaction>> {
-    const headers = await this.authHeaders();
-    const res = await this.http.get('/transactions', { headers, params });
-    return res.data;
+    return this.getList<RampTransaction>('/transactions', params);
   }
 
   // ─── Bills ────────────────────────────────────────────────────────────────
@@ -217,9 +247,7 @@ export class RampService {
     page_size?: number;
     start?: string;
   }): Promise<RampPagedResponse<RampBill>> {
-    const headers = await this.authHeaders();
-    const res = await this.http.get('/bills', { headers, params });
-    return res.data;
+    return this.getList<RampBill>('/bills', params);
   }
 
   // ─── Departments ──────────────────────────────────────────────────────────
@@ -228,9 +256,7 @@ export class RampService {
     page_size?: number;
     start?: string;
   }): Promise<RampPagedResponse<RampDepartment>> {
-    const headers = await this.authHeaders();
-    const res = await this.http.get('/departments', { headers, params });
-    return res.data;
+    return this.getList<RampDepartment>('/departments', params);
   }
 
   // ─── Users ────────────────────────────────────────────────────────────────
@@ -240,9 +266,7 @@ export class RampService {
     page_size?: number;
     start?: string;
   }): Promise<RampPagedResponse<RampUser>> {
-    const headers = await this.authHeaders();
-    const res = await this.http.get('/users', { headers, params });
-    return res.data;
+    return this.getList<RampUser>('/users', params);
   }
 
   // ─── Vendors ──────────────────────────────────────────────────────────────
@@ -251,9 +275,7 @@ export class RampService {
     page_size?: number;
     start?: string;
   }): Promise<RampPagedResponse<RampVendor>> {
-    const headers = await this.authHeaders();
-    const res = await this.http.get('/vendors', { headers, params });
-    return res.data;
+    return this.getList<RampVendor>('/vendors', params);
   }
 
   // ─── Receipts ─────────────────────────────────────────────────────────────
@@ -265,9 +287,7 @@ export class RampService {
     page_size?: number;
     start?: string;
   }): Promise<RampPagedResponse<RampReceipt>> {
-    const headers = await this.authHeaders();
-    const res = await this.http.get('/receipts', { headers, params });
-    return res.data;
+    return this.getList<RampReceipt>('/receipts', params);
   }
 
   // ─── Spend Programs ───────────────────────────────────────────────────────
@@ -276,9 +296,7 @@ export class RampService {
     page_size?: number;
     start?: string;
   }): Promise<RampPagedResponse<RampSpendProgram>> {
-    const headers = await this.authHeaders();
-    const res = await this.http.get('/spend-programs', { headers, params });
-    return res.data;
+    return this.getList<RampSpendProgram>('/spend-programs', params);
   }
 
   // ─── Memos ────────────────────────────────────────────────────────────────
@@ -291,9 +309,7 @@ export class RampService {
     page_size?: number;
     start?: string;
   }): Promise<RampPagedResponse<RampMemo>> {
-    const headers = await this.authHeaders();
-    const res = await this.http.get('/memos', { headers, params });
-    return res.data;
+    return this.getList<RampMemo>('/memos', params);
   }
 
   // ─── Accounting ───────────────────────────────────────────────────────────
@@ -302,9 +318,7 @@ export class RampService {
     page_size?: number;
     start?: string;
   }): Promise<RampPagedResponse<Record<string, unknown>>> {
-    const headers = await this.authHeaders();
-    const res = await this.http.get('/accounting', { headers, params });
-    return res.data;
+    return this.getList<Record<string, unknown>>('/accounting', params);
   }
 
   // ─── Accounting Fields ────────────────────────────────────────────────────
@@ -313,9 +327,7 @@ export class RampService {
     page_size?: number;
     start?: string;
   }): Promise<RampPagedResponse<RampAccountingField>> {
-    const headers = await this.authHeaders();
-    const res = await this.http.get('/accounting/fields', { headers, params });
-    return res.data;
+    return this.getList<RampAccountingField>('/accounting/fields', params);
   }
 
   async getAllAccountingFields(): Promise<RampAccountingField[]> {
@@ -337,12 +349,10 @@ export class RampService {
     fieldId: string,
     params?: { page_size?: number; start?: string },
   ): Promise<RampPagedResponse<RampAccountingFieldOption>> {
-    const headers = await this.authHeaders();
-    const res = await this.http.get('/accounting/field-options', {
-      headers,
-      params: { field_id: fieldId, ...params },
+    return this.getList<RampAccountingFieldOption>('/accounting/field-options', {
+      field_id: fieldId,
+      ...params,
     });
-    return res.data;
   }
 
   async getAllAccountingFieldOptions(fieldId: string): Promise<RampAccountingFieldOption[]> {
@@ -462,11 +472,11 @@ export class RampService {
 
   async getEngagementTransactions(
     engagementId: number,
-    params?: { from_date?: string; to_date?: string; page_size?: number },
-  ): Promise<{ data: RampTransaction[] }> {
+    params?: { from_date?: string; to_date?: string; page_size?: number; start?: string },
+  ): Promise<RampPagedResponse<RampTransaction>> {
     const ids = await this.resolveEngagementRampIds(engagementId);
     if (!ids.customerFieldOptionId && !ids.jobFieldOptionId) {
-      return { data: [] };
+      return { data: [], page: { next: null } };
     }
 
     const primaryId = ids.customerFieldOptionId ?? ids.jobFieldOptionId!;
@@ -477,8 +487,8 @@ export class RampService {
 
     const targetSize = params?.page_size ?? 20;
     const filtered: RampTransaction[] = [];
-    let cursor: string | undefined;
-    const headers = await this.authHeaders();
+    let cursor: string | undefined = params?.start;
+    let next: string | null = null;
 
     for (let page = 0; page < 10 && filtered.length < targetSize; page++) {
       const apiParams: Record<string, unknown> = {
@@ -489,9 +499,7 @@ export class RampService {
       if (params?.to_date) apiParams.to_date = params.to_date;
       if (cursor) apiParams.start = cursor;
 
-      const res = await this.http.get('/transactions', { headers, params: apiParams });
-      const result = res.data as RampPagedResponse<RampTransaction>;
-
+      const result = await this.getList<RampTransaction>('/transactions', apiParams);
       for (const tx of result.data) {
         if (secondaryId) {
           if (this.hasAccountingFieldSelection(tx, secondaryId)) filtered.push(tx);
@@ -500,20 +508,23 @@ export class RampService {
         }
       }
 
-      cursor = result.page.next ?? undefined;
-      if (!cursor) break;
+      next = result.page.next;
+      cursor = next ?? undefined;
+      if (!next) break;
     }
 
-    return { data: filtered.slice(0, targetSize) };
+    // Note: data may exceed page_size (a full Ramp page is filtered each loop);
+    // the cursor resumes after the last fetched page so no records are lost.
+    return { data: filtered, page: { next } };
   }
 
   async getEngagementBills(
     engagementId: number,
-    params?: { from_due_date?: string; to_due_date?: string; page_size?: number },
-  ): Promise<{ data: RampBill[] }> {
+    params?: { from_due_date?: string; to_due_date?: string; page_size?: number; start?: string },
+  ): Promise<RampPagedResponse<RampBill>> {
     const ids = await this.resolveEngagementRampIds(engagementId);
     if (!ids.customerFieldOptionId && !ids.jobFieldOptionId) {
-      return { data: [] };
+      return { data: [], page: { next: null } };
     }
 
     // Filter server-side on the primary field option; if both customer and job
@@ -526,8 +537,8 @@ export class RampService {
 
     const targetSize = params?.page_size ?? 20;
     const filtered: RampBill[] = [];
-    let cursor: string | undefined;
-    const headers = await this.authHeaders();
+    let cursor: string | undefined = params?.start;
+    let next: string | null = null;
 
     for (let page = 0; page < 10 && filtered.length < targetSize; page++) {
       const apiParams: Record<string, unknown> = {
@@ -538,9 +549,7 @@ export class RampService {
       if (params?.to_due_date) apiParams.to_due_date = params.to_due_date;
       if (cursor) apiParams.start = cursor;
 
-      const res = await this.http.get('/bills', { headers, params: apiParams });
-      const result = res.data as RampPagedResponse<RampBill>;
-
+      const result = await this.getList<RampBill>('/bills', apiParams);
       for (const bill of result.data) {
         if (secondaryId) {
           if (this.hasAccountingFieldSelection(bill, secondaryId)) filtered.push(bill);
@@ -549,11 +558,53 @@ export class RampService {
         }
       }
 
-      cursor = result.page.next ?? undefined;
-      if (!cursor) break;
+      next = result.page.next;
+      cursor = next ?? undefined;
+      if (!next) break;
     }
 
-    return { data: filtered.slice(0, targetSize) };
+    return { data: filtered, page: { next } };
+  }
+
+  async getReceipt(receiptId: string): Promise<RampReceipt> {
+    const headers = await this.authHeaders();
+    const res = await this.http.get(`/receipts/${receiptId}`, { headers });
+    return res.data;
+  }
+
+  /**
+   * Receipts attached to the engagement's card transactions. Ramp receipts are
+   * not tagged with accounting fields directly, so we resolve them via the
+   * engagement's transactions (receipts:read → "Connect to IAE receipts/transactions").
+   */
+  async getEngagementReceipts(
+    engagementId: number,
+    params?: { from_date?: string; to_date?: string; page_size?: number; start?: string },
+  ): Promise<RampPagedResponse<RampReceipt & { merchant_name: string | null; amount: number | null }>> {
+    const txResult = await this.getEngagementTransactions(engagementId, {
+      from_date: params?.from_date,
+      to_date: params?.to_date,
+      page_size: params?.page_size ?? 50,
+      start: params?.start,
+    });
+
+    const out: Array<RampReceipt & { merchant_name: string | null; amount: number | null }> = [];
+    for (const tx of txResult.data) {
+      for (const receiptId of tx.receipts ?? []) {
+        try {
+          const receipt = await this.getReceipt(receiptId);
+          out.push({
+            ...receipt,
+            merchant_name: tx.merchant_name ?? tx.merchant_descriptor ?? null,
+            amount: tx.amount ?? null,
+          });
+        } catch (err) {
+          this.logger.warn(`Failed to fetch receipt ${receiptId}: ${String(err)}`);
+        }
+      }
+    }
+    // Cursor follows the underlying transactions page so "load more" continues.
+    return { data: out, page: { next: txResult.page.next } };
   }
 
   // ─── Health check ─────────────────────────────────────────────────────────
