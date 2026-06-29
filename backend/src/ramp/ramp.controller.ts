@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Param, ParseIntPipe, Query } from '@nestjs/common';
 import { RampService } from './ramp.service';
 
 @Controller('ramp')
@@ -101,7 +101,6 @@ export class RampController {
   @Get('receipts')
   listReceipts(
     @Query('transaction_id') transactionId?: string,
-    @Query('user_id') userId?: string,
     @Query('from_date') fromDate?: string,
     @Query('to_date') toDate?: string,
     @Query('page_size') pageSize?: string,
@@ -109,7 +108,6 @@ export class RampController {
   ) {
     return this.rampService.listReceipts({
       transaction_id: transactionId,
-      user_id: userId,
       from_date: fromDate,
       to_date: toDate,
       page_size: pageSize ? Number(pageSize) : undefined,
@@ -134,12 +132,18 @@ export class RampController {
 
   @Get('memos')
   listMemos(
-    @Query('transaction_id') transactionId?: string,
+    @Query('user_id') userId?: string,
+    @Query('department_id') departmentId?: string,
+    @Query('from_date') fromDate?: string,
+    @Query('to_date') toDate?: string,
     @Query('page_size') pageSize?: string,
     @Query('start') start?: string,
   ) {
     return this.rampService.listMemos({
-      transaction_id: transactionId,
+      user_id: userId,
+      department_id: departmentId,
+      from_date: fromDate,
+      to_date: toDate,
       page_size: pageSize ? Number(pageSize) : undefined,
       start,
     });
@@ -157,4 +161,39 @@ export class RampController {
       start,
     });
   }
-}
+  // ─── Engagement-scoped Ramp data ──────────────────────────────────────
+
+  @Get('engagement/:engagementId/mapping')
+  getEngagementMapping(
+    @Param('engagementId', ParseIntPipe) engagementId: number,
+  ) {
+    return this.rampService.resolveEngagementRampIds(engagementId);
+  }
+
+  @Get('engagement/:engagementId/transactions')
+  getEngagementTransactions(
+    @Param('engagementId', ParseIntPipe) engagementId: number,
+    @Query('from_date') fromDate?: string,
+    @Query('to_date') toDate?: string,
+    @Query('page_size') pageSize?: string,
+  ) {
+    return this.rampService.getEngagementTransactions(engagementId, {
+      from_date: fromDate,
+      to_date: toDate,
+      page_size: pageSize ? Number(pageSize) : undefined,
+    });
+  }
+
+  @Get('engagement/:engagementId/bills')
+  getEngagementBills(
+    @Param('engagementId', ParseIntPipe) engagementId: number,
+    @Query('from_due_date') fromDueDate?: string,
+    @Query('to_due_date') toDueDate?: string,
+    @Query('page_size') pageSize?: string,
+  ) {
+    return this.rampService.getEngagementBills(engagementId, {
+      from_due_date: fromDueDate,
+      to_due_date: toDueDate,
+      page_size: pageSize ? Number(pageSize) : undefined,
+    });
+  }}

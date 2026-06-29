@@ -118,12 +118,12 @@ import {
 } from '@/api/engagementApi';
 import {
   fetchRampStatus,
-  fetchRampTransactions,
-  fetchRampBills,
   fetchRampVendors,
   fetchRampUsers,
   fetchRampDepartments,
   fetchRampSpendPrograms,
+  fetchEngagementRampTransactions,
+  fetchEngagementRampBills,
 } from '@/api/rampApi';
 import {
   fetchAttractions,
@@ -6668,14 +6668,14 @@ function RampSection({ engagementId }: { engagementId: number }) {
 
   const transactionsQuery = useQuery({
     queryKey: ['ramp', 'transactions', engagementId],
-    queryFn: () => fetchRampTransactions({ page_size: 20 }),
+    queryFn: () => fetchEngagementRampTransactions(engagementId, { page_size: 20 }),
     enabled: statusQuery.data?.configured === true && activeTab === 'transactions',
     staleTime: 60_000,
   });
 
   const billsQuery = useQuery({
     queryKey: ['ramp', 'bills', engagementId],
-    queryFn: () => fetchRampBills({ page_size: 20 }),
+    queryFn: () => fetchEngagementRampBills(engagementId, { page_size: 20 }),
     enabled: statusQuery.data?.configured === true && activeTab === 'bills',
     staleTime: 60_000,
   });

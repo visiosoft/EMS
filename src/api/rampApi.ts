@@ -159,6 +159,24 @@ export function fetchRampSpendPrograms(params?: {
   return apiFetch<RampPagedResponse<RampSpendProgram>>(`/ramp/spend-programs${qs}`);
 }
 
+// ─── Engagement-scoped Ramp data ────────────────────────────────────────────
+
+export function fetchEngagementRampTransactions(
+  engagementId: number,
+  params?: { from_date?: string; to_date?: string; page_size?: number },
+): Promise<{ data: RampTransaction[] }> {
+  const qs = buildQuery(params);
+  return apiFetch<{ data: RampTransaction[] }>(`/ramp/engagement/${engagementId}/transactions${qs}`);
+}
+
+export function fetchEngagementRampBills(
+  engagementId: number,
+  params?: { from_due_date?: string; to_due_date?: string; page_size?: number },
+): Promise<{ data: RampBill[] }> {
+  const qs = buildQuery(params);
+  return apiFetch<{ data: RampBill[] }>(`/ramp/engagement/${engagementId}/bills${qs}`);
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function buildQuery(params?: Record<string, unknown>): string {
