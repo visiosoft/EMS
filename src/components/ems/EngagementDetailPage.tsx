@@ -7916,7 +7916,8 @@ function EngagementTicketingPanel({
   const [vipPackageOffered, setVipPackageOffered] = useState('');
   const [vipPackageName, setVipPackageName] = useState('');
   const [vipPackageBenefits, setVipPackageBenefits] = useState<string[]>([]);
-  const [compTicketRequestLink, setCompTicketRequestLink] = useState('');
+  const [compTicketForm, setCompTicketForm] = useState('');
+  const [compTicketExcelSheet, setCompTicketExcelSheet] = useState('');
   const [facilityFeeType, setFacilityFeeType] = useState('');
   const [facilityFeeAmount, setFacilityFeeAmount] = useState('');
   const [dynamicPricingMode, setDynamicPricingMode] = useState('');
@@ -8050,7 +8051,8 @@ function EngagementTicketingPanel({
     setVipPackageOffered(d.vipPackageOffered == null ? '' : d.vipPackageOffered ? 'Yes' : 'No');
     setVipPackageName(d.vipPackageName ?? '');
     setVipPackageBenefits(d.vipPackageBenefits ?? []);
-    setCompTicketRequestLink(d.compTicketRequestLink ?? '');
+    setCompTicketForm(d.compTicketForm ?? '');
+    setCompTicketExcelSheet(d.compTicketExcelSheet ?? '');
     setFacilityFeeType(d.facilityFeeType ?? '');
     setFacilityFeeAmount(numFieldToString(d.facilityFeeAmount));
     setDynamicPricingMode(d.dynamicPricingMode ?? '');
@@ -8107,6 +8109,8 @@ function EngagementTicketingPanel({
       creditCardFeesType: creditCardFeesType.trim() || null,
       creditCardFeesAmountPercent: parseOptionalDecimal(creditCardFeesAmountPercent, '').value,
       kidsTicketsPrices: kidsTicketsPrices.trim() || null,
+      compTicketForm: compTicketForm.trim() || null,
+      compTicketExcelSheet: compTicketExcelSheet.trim() || null,
     });
     const base = JSON.stringify({
       sellableCapacity: d.sellableCapacity ?? null,
@@ -8131,6 +8135,8 @@ function EngagementTicketingPanel({
       creditCardFeesType: (d.creditCardFeesType ?? '').trim() || null,
       creditCardFeesAmountPercent: d.creditCardFeesAmountPercent ?? null,
       kidsTicketsPrices: (d.kidsTicketsPrices ?? '').trim() || null,
+      compTicketForm: (d.compTicketForm ?? '').trim() || null,
+      compTicketExcelSheet: (d.compTicketExcelSheet ?? '').trim() || null,
     });
     return cur !== base;
   }, [
@@ -8142,7 +8148,7 @@ function EngagementTicketingPanel({
     preSaleDate, preSaleEndDate, preSaleRegistrationStartDate, preSaleRegistrationEndDate,
     facilityFeeType, facilityFeeAmount, dynamicPricingMode,
     rebateAmount, bumpAmount, creditCardFeesType, creditCardFeesAmountPercent,
-    kidsTicketsPrices,
+    kidsTicketsPrices, compTicketForm, compTicketExcelSheet,
   ]);
 
   const promoPasswordDirty = useMemo(() => {
@@ -8279,6 +8285,8 @@ function EngagementTicketingPanel({
         creditCardFeesType: creditCardFeesType.trim() ? (creditCardFeesType as 'Inside Service Charge' | 'Budget Line Item') : null,
         creditCardFeesAmountPercent: ccf.value,
         kidsTicketsPrices: kidsTicketsPrices.trim() || null,
+        compTicketForm: compTicketForm.trim() || null,
+        compTicketExcelSheet: compTicketExcelSheet.trim() || null,
       });
     },
     onSuccess: async () => {
@@ -8634,6 +8642,21 @@ function EngagementTicketingPanel({
                 {fieldRow('Public Sale Ticketing Link',
                   <input className={inputCls} type="url" autoComplete="nope" placeholder="https://…" value={publicSaleLinkUrl}
                     onChange={(e) => { markTicketingUserEdited(); setPublicSaleLinkUrl(e.target.value); }} disabled={disabled} />,
+                )}
+              </div>
+            </div>
+
+            {/* ── COMPLIMENTARY TICKET REQUEST ── */}
+            <div className="space-y-4">
+              {sectionHeader('Complimentary Ticket Request')}
+              <div className="grid grid-cols-1 gap-4">
+                {fieldRow('Complimentary Ticket Request Form',
+                  <input className={inputCls} type="url" autoComplete="nope" placeholder="https://…" value={compTicketForm}
+                    onChange={(e) => { markTicketingUserEdited(); setCompTicketForm(e.target.value); }} disabled={disabled} />,
+                )}
+                {fieldRow('Complimentary Ticket Request Submissions',
+                  <input className={inputCls} type="url" autoComplete="nope" placeholder="https://…" value={compTicketExcelSheet}
+                    onChange={(e) => { markTicketingUserEdited(); setCompTicketExcelSheet(e.target.value); }} disabled={disabled} />,
                 )}
               </div>
               <div className="flex justify-end pt-2 border-t border-border">
