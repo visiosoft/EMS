@@ -569,7 +569,8 @@ export interface ApiPerformanceTicketingRow {
   vipPackageOffered: boolean | null;
   vipPackageName: string | null;
   vipPackageBenefits: string[] | null;
-  compTicketRequestLink: string | null;
+  compTicketForm: string | null;
+  compTicketExcelSheet: string | null;
 }
 
 export interface ApiPerformanceTicketingSummaryRow {
@@ -637,7 +638,8 @@ export type UpdatePerformanceTicketingPayload = {
   vipPackageOffered?: boolean | null;
   vipPackageName?: string | null;
   vipPackageBenefits?: string[] | null;
-  compTicketRequestLink?: string | null;
+  compTicketForm?: string | null;
+  compTicketExcelSheet?: string | null;
 };
 
 export type UpdateNonResidentWithholdingLinksPayload = {

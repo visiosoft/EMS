@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMsal } from '@azure/msal-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Info, Loader2, RotateCcw, Trash2 } from 'lucide-react';
+import { UserProfileDetail, type UserProfileUser } from './UserProfileDetail';
 import {
   Tooltip,
   TooltipContent,
@@ -1127,6 +1128,7 @@ export function SettingsPage({
   const account = getActiveAccount() ?? accounts[0] ?? null;
   const qc = useQueryClient();
   const [tab, setTab] = useState<'Users' | 'Lookup Tables' | 'System'>(initialMainTab);
+  const [selectedUser, setSelectedUser] = useState<UserProfileUser | null>(null);
   const [lookupTab, setLookupTab] = useState(LOOKUP_TABLES[0].label);
   const [showInvite, setShowInvite] = useState(false);
   const [email, setEmail] = useState('');
@@ -1400,6 +1402,7 @@ export function SettingsPage({
 
   useEffect(() => {
     setTab(initialMainTab);
+    setSelectedUser(null);
   }, [initialMainTab]);
 
   const activeLookupConfig =
@@ -1739,6 +1742,10 @@ export function SettingsPage({
 
   return (
     <div className="space-y-4">
+      {selectedUser ? (
+        <UserProfileDetail user={selectedUser} onBack={() => setSelectedUser(null)} />
+      ) : (
+      <>
       <h1 className="text-xl font-semibold text-text-primary">Settings</h1>
       <TabBar
         tabs={['Users', 'Lookup Tables', 'System']}
@@ -1961,7 +1968,25 @@ export function SettingsPage({
                     {adminUsersQuery.data.map((u) => {
                       const phone = u.mobilePhone || u.businessPhones?.[0] || '';
                       return (
-                        <tr key={u.id} className="border-b border-border/50">
+                        <tr
+                          key={u.id}
+                          className="border-b border-border/50 cursor-pointer hover:bg-hover/60 transition-colors"
+                          onClick={() => setSelectedUser({
+                            id: u.id,
+                            name: u.name,
+                            email: u.email,
+                            jobTitle: u.jobTitle,
+                            department: u.department,
+                            employeeType: u.employeeType,
+                            officeLocation: u.officeLocation,
+                            city: u.city,
+                            mobilePhone: u.mobilePhone,
+                            businessPhones: u.businessPhones,
+                            companyName: u.companyName,
+                            accountEnabled: u.accountEnabled,
+                            status: u.status,
+                          })}
+                        >
                           <td className="py-2.5 px-3 text-text-primary">{u.name}</td>
                           <td className="py-2.5 px-3 text-ems-blue text-xs">
                             {u.email ? <a href={`mailto:${u.email}`} className="hover:underline">{u.email}</a> : '—'}
@@ -2424,6 +2449,8 @@ export function SettingsPage({
             />
           </div>
         </Drawer>
+      )}
+      </>
       )}
     </div>
   );
