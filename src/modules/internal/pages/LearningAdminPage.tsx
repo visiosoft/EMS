@@ -11,6 +11,7 @@ import {
   fetchLearningEmployeeScores,
   fetchLearningOverview,
   fetchLearningPlatforms,
+  fetchLearningDepartments,
   createLearningCertification,
   toggleLearningCertificationStatus,
   reviewLearningSubmission,
@@ -19,17 +20,8 @@ import {
   type LearningEmployeeScore,
   type LearningOverview,
   type LearningPlatform,
+  type LearningDepartment,
 } from "@/api/learningApi";
-
-// Department name → DepartmentID mapping (matches dbo.Department)
-const DEPARTMENTS = [
-  { id: 65, name: "Art & Graphic Design" },
-  { id: 30, name: "Marketing" },
-  { id: 35, name: "Finance" },
-  { id: 47, name: "Booking" },
-  { id: 46, name: "Production" },
-  { id: 63, name: "Ticketing & Sales" },
-];
 
 export function LearningAdminPage() {
   const { viewData } = useInternalNavigation();
@@ -50,7 +42,15 @@ export function LearningAdminPage() {
     return viewData?.fromTitle || "Art & Graphic Design";
   });
 
-  const activeDeptId = DEPARTMENTS.find((d) => d.name === activeDept)?.id || 65;
+  // Data state
+  const [overview, setOverview] = useState<LearningOverview | null>(null);
+  const [submissions, setSubmissions] = useState<LearningSubmission[]>([]);
+  const [certifications, setCertifications] = useState<LearningCertification[]>([]);
+  const [employees, setEmployees] = useState<LearningEmployeeScore[]>([]);
+  const [platforms, setPlatforms] = useState<LearningPlatform[]>([]);
+  const [departments, setDepartments] = useState<{ id: number; name: string }[]>([]);
+
+  const activeDeptId = departments.find((d) => d.name === activeDept)?.id || 65;
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -58,13 +58,6 @@ export function LearningAdminPage() {
       localStorage.setItem("iae_admin_active_dept", activeDept);
     }
   }, [activeTab, activeDept]);
-
-  // Data state
-  const [overview, setOverview] = useState<LearningOverview | null>(null);
-  const [submissions, setSubmissions] = useState<LearningSubmission[]>([]);
-  const [certifications, setCertifications] = useState<LearningCertification[]>([]);
-  const [employees, setEmployees] = useState<LearningEmployeeScore[]>([]);
-  const [platforms, setPlatforms] = useState<LearningPlatform[]>([]);
 
   // Loading states
   const [isLoadingOverview, setIsLoadingOverview] = useState(false);
@@ -94,10 +87,23 @@ export function LearningAdminPage() {
   const [formUrl, setFormUrl] = useState("");
   const [formTags, setFormTags] = useState("");
   const [formDescription, setFormDescription] = useState("");
+  const [formDepartment, setFormDepartment] = useState(String(activeDeptId));
   const [isPublishing, setIsPublishing] = useState(false);
 
-  // Load platforms once
-  useEffect(() => { fetchLearningPlatforms().then(setPlatforms).catch(console.error); }, []);
+  // Load platforms & departments once
+  useEffect(() => {
+    fetchLearningPlatforms().then(setPlatforms).catch(console.error);
+    fetchLearningDepartments()
+      .then((depts) => {
+        const mapped = depts.map((d) => ({ id: d.departmentId, name: d.departmentName }));
+        setDepartments(mapped);
+        // Set default formDepartment to the active department or first available
+        const match = mapped.find((d) => d.name === activeDept);
+        if (match) setFormDepartment(String(match.id));
+        else if (mapped.length > 0) setFormDepartment(String(mapped[0].id));
+      })
+      .catch(console.error);
+  }, []);
 
   // Load data per tab
   const loadOverview = useCallback(async () => {
@@ -185,23 +191,26 @@ export function LearningAdminPage() {
     if (!formName.trim()) { showToast("Certification Title is required", "error"); return; }
     if (!formPlatform) { showToast("Platform / Issuer is required", "error"); return; }
     if (!formUrl.trim()) { showToast("External Course URL is required", "error"); return; }
+    if (!formDepartment || Number(formDepartment) === 0) { showToast("Department is required", "error"); return; }
 
     setIsPublishing(true);
     try {
-      await createLearningCertification({
+      const payload = {
         title: formName.trim(),
         platformId: Number(formPlatform),
-        departmentId: activeDeptId,
+        departmentId: Number(formDepartment),
         difficultyLevel: formLevel,
         pointsAwarded: parseInt(formPoints) || 0,
         estimatedDuration: formDuration.trim() || undefined,
         externalCourseUrl: formUrl.trim(),
         description: formDescription.trim() || undefined,
         tags: formTags.trim() || undefined,
-      });
+      };
+      console.log('[DEBUG] Publishing certification payload:', JSON.stringify(payload));
+      await createLearningCertification(payload);
       showToast("Successfully published certification!");
       setFormName(""); setFormPlatform(""); setFormPoints(""); setFormLevel("Beginner");
-      setFormDuration(""); setFormUrl(""); setFormTags(""); setFormDescription("");
+      setFormDuration(""); setFormUrl(""); setFormTags(""); setFormDescription(""); setFormDepartment(String(activeDeptId));
       setActiveTab("manage");
     } catch (e) { showToast("Failed to publish certification", "error"); }
     finally { setIsPublishing(false); }
@@ -293,7 +302,7 @@ export function LearningAdminPage() {
 
             <div className="mt-8 mb-3 px-2 text-[10px] font-bold uppercase tracking-wider text-white/40">Department</div>
             <nav className="space-y-1">
-              {DEPARTMENTS.map((dept) => (
+              {departments.map((dept) => (
                 <button
                   key={dept.id}
                   onClick={() => { setActiveDept(dept.name); showToast(`Switched to ${dept.name}.`, "info"); }}
@@ -483,7 +492,7 @@ export function LearningAdminPage() {
                     </div>
                     <div>
                       <label className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-neutral-700">Assign to Department</label>
-                      <CustomDropdown value={String(activeDeptId)} onChange={() => {}} options={DEPARTMENTS.map((d) => ({ label: d.name, value: String(d.id) }))} />
+                      <CustomDropdown value={formDepartment} onChange={setFormDepartment} options={departments.map((d) => ({ label: d.name, value: String(d.id) }))} />
                     </div>
                   </div>
                   <div className="pt-4 flex items-center gap-3">
