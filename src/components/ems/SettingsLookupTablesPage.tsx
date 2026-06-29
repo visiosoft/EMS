@@ -1970,22 +1970,7 @@ export function SettingsPage({
                       return (
                         <tr
                           key={u.id}
-                          className="border-b border-border/50 cursor-pointer hover:bg-hover/60 transition-colors"
-                          onClick={() => setSelectedUser({
-                            id: u.id,
-                            name: u.name,
-                            email: u.email,
-                            jobTitle: u.jobTitle,
-                            department: u.department,
-                            employeeType: u.employeeType,
-                            officeLocation: u.officeLocation,
-                            city: u.city,
-                            mobilePhone: u.mobilePhone,
-                            businessPhones: u.businessPhones,
-                            companyName: u.companyName,
-                            accountEnabled: u.accountEnabled,
-                            status: u.status,
-                          })}
+                          className="border-b border-border/50 transition-colors"
                         >
                           <td className="py-2.5 px-3 text-text-primary">{u.name}</td>
                           <td className="py-2.5 px-3 text-ems-blue text-xs">

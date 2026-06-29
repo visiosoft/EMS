@@ -28,6 +28,12 @@ import {
 import {
   fetchEmployeeExperience,
 } from '@/api/employeeExperienceApi';
+import {
+  fetchMyProfile,
+  updateMyProfile,
+  type MyProfile,
+  type UpdateMyProfileRequest,
+} from '@/api/myProfileApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { useAddressAutofill } from '@/hooks/useAddressAutofill';
 import { TabBar } from './Primitives';
@@ -52,10 +58,10 @@ export interface UserProfileUser {
 
 interface UserProfileDetailProps {
   user: UserProfileUser;
-  onBack: () => void;
+  onBack?: () => void;
 }
 
-type ProfileTab = 'Personal' | 'Employment' | 'Health Insurance' | 'Experience' | 'Certifications';
+type ProfileTab = 'Overview' | 'Personal' | 'Employment' | 'Health Insurance' | 'Experience' | 'Certifications';
 
 // ─── Source Badges ────────────────────────────────────────────────────────────
 
@@ -83,20 +89,22 @@ function SourceBadge({ source }: { source: DataSource }) {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function UserProfileDetail({ user, onBack }: UserProfileDetailProps) {
-  const [profileTab, setProfileTab] = useState<ProfileTab>('Personal');
+  const [profileTab, setProfileTab] = useState<ProfileTab>('Overview');
 
   return (
     <div className="space-y-4">
       {/* Header with back button */}
       <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={onBack}
-          className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back
-        </button>
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </button>
+        )}
         <div className="min-w-0">
           <h1 className="text-xl font-semibold text-text-primary truncate">{user.name}</h1>
           <p className="text-sm text-text-secondary truncate">{user.email}</p>
@@ -105,12 +113,13 @@ export function UserProfileDetail({ user, onBack }: UserProfileDetailProps) {
 
       {/* Profile Tabs */}
       <TabBar
-        tabs={['Personal', 'Employment', 'Health Insurance', 'Experience', 'Certifications']}
+        tabs={['Overview', 'Personal', 'Employment', 'Health Insurance', 'Experience', 'Certifications']}
         active={profileTab}
         onChange={(t) => setProfileTab(t as ProfileTab)}
       />
 
       {/* Tab Content */}
+      {profileTab === 'Overview' && <OverviewTab user={user} />}
       {profileTab === 'Personal' && <PersonalTab user={user} />}
       {profileTab === 'Employment' && <EmploymentTab user={user} />}
       {profileTab === 'Health Insurance' && <HealthInsuranceTab user={user} />}
@@ -217,6 +226,119 @@ function SectionCard({ title, icon, children }: { title: string; icon: React.Rea
       </div>
       <div className="px-4 py-4">
         {children}
+      </div>
+    </div>
+  );
+}
+
+// ─── Overview Tab ─────────────────────────────────────────────────────────────
+
+function OverviewTab({ user }: { user: UserProfileUser }) {
+  const qc = useQueryClient();
+
+  const profileQuery = useQuery({
+    queryKey: ['my-profile'],
+    queryFn: fetchMyProfile,
+    staleTime: 30_000,
+  });
+
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [department, setDepartment] = useState('');
+  const [mobilePhone, setMobilePhone] = useState('');
+  const [workPhone, setWorkPhone] = useState('');
+  const [saveMessage, setSaveMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  const populateForm = useCallback((data: MyProfile) => {
+    setFirstName(data.firstName || '');
+    setLastName(data.lastName || '');
+    setDepartment(data.departmentName || '');
+    setMobilePhone(data.cellPhone || '');
+    setWorkPhone(data.workPhone || '');
+  }, []);
+
+  useEffect(() => {
+    if (profileQuery.data) populateForm(profileQuery.data);
+  }, [profileQuery.data, populateForm]);
+
+  const saveMutation = useMutation({
+    mutationFn: (payload: UpdateMyProfileRequest) => updateMyProfile(payload),
+    onSuccess: (data) => {
+      qc.setQueryData(['my-profile'], data);
+      populateForm(data);
+      setSaveMessage({ text: 'Profile saved.', type: 'success' });
+      setTimeout(() => setSaveMessage(null), 4000);
+    },
+    onError: (error) => {
+      setSaveMessage({ text: friendlyApiError(error, 'Could not save profile.'), type: 'error' });
+      setTimeout(() => setSaveMessage(null), 6000);
+    },
+  });
+
+  const handleSave = () => {
+    saveMutation.mutate({
+      firstName,
+      lastName,
+      cellPhone: mobilePhone,
+      workPhone,
+      departmentName: department,
+    });
+  };
+
+  const handleReset = () => {
+    if (profileQuery.data) populateForm(profileQuery.data);
+  };
+
+  if (profileQuery.isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16 text-text-muted">
+        <Loader2 className="h-5 w-5 animate-spin mr-2" />
+        Loading profile…
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <SectionCard title="Profile" icon={<User className="h-4 w-4 text-ems-accent" />}>
+        <div className="grid gap-4 md:grid-cols-2">
+          <EditableField label="First Name *" value={firstName} onChange={setFirstName} source="ems" />
+          <EditableField label="Last Name" value={lastName} onChange={setLastName} source="ems" />
+          <ReadOnlyField label="Email" value={user.email} source="entra" />
+          <EditableField label="Department *" value={department} onChange={setDepartment} source="ems" />
+          <ReadOnlyField label="Roles" value={profileQuery.data?.roleNames?.join(', ') || ''} source="ems" />
+          <EditableField label="Mobile Phone" value={mobilePhone} onChange={setMobilePhone} source="ems" />
+          <EditableField label="Work Phone" value={workPhone} onChange={setWorkPhone} source="ems" />
+        </div>
+      </SectionCard>
+
+      {/* Save / Reset Bar */}
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleReset}
+          className="inline-flex items-center gap-2 rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium text-text-secondary hover:bg-hover transition-colors"
+        >
+          Reset
+        </button>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saveMutation.isPending}
+          className="inline-flex items-center gap-2 rounded-md bg-ems-accent px-4 py-2 text-sm font-medium text-white hover:bg-ems-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {saveMutation.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Save className="h-4 w-4" />
+          )}
+          {saveMutation.isPending ? 'Saving…' : 'Save Profile'}
+        </button>
+        {saveMessage && (
+          <span className={`text-sm ${saveMessage.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+            {saveMessage.text}
+          </span>
+        )}
       </div>
     </div>
   );

@@ -95,8 +95,8 @@ export class EmployeeHealthInsuranceService {
           SET OptInStatus        = @0,
               HealthPlanID       = @1,
               AdditionalInsureds = @2,
-              modified_by        = @3,
-              modified_at        = SYSUTCDATETIME()
+              UpdatedBy          = @3,
+              UpdatedAt          = SYSUTCDATETIME()
           WHERE ContactID = @4 AND InsuranceType = @5
           `,
           [
@@ -113,7 +113,7 @@ export class EmployeeHealthInsuranceService {
           `
           INSERT INTO dbo.EmployeeHealthInsurance
             (ContactID, InsuranceType, OptInStatus, HealthPlanID, AdditionalInsureds,
-             created_by, created_at, modified_by, modified_at)
+             CreatedBy, CreatedAt, UpdatedBy, UpdatedAt)
           VALUES
             (@0, @1, @2, @3, @4, @5, SYSUTCDATETIME(), @5, SYSUTCDATETIME())
           `,
