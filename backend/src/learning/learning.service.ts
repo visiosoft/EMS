@@ -154,6 +154,7 @@ export class LearningService {
 
   async createCertification(dto: CreateCertificationDto) {
     const userDisplayName = this.auditContext.getUserDisplayName() || 'System';
+    const userId = this.auditContext.getUserOid() || userDisplayName;
 
     // Insert certification
     const result = await this.dataSource.query(
@@ -170,8 +171,8 @@ export class LearningService {
         dto.difficultyLevel,
         dto.pointsAwarded,
         dto.estimatedDuration || null,
-        dto.externalCourseUrl,
-        userDisplayName,
+        dto.externalCourseUrl || null,
+        userId,
       ],
     );
 
@@ -200,7 +201,7 @@ export class LearningService {
     await this.dataSource.query(
       `INSERT INTO dbo.LearningAuditLog (ActionType, EntityType, EntityID, PerformedBy, Details)
        VALUES ('CERT_PUBLISHED', 'Certification', @0, @1, @2)`,
-      [certId, userDisplayName, JSON.stringify({ title: dto.title })],
+      [certId, userId, JSON.stringify({ title: dto.title })],
     );
 
     return this.getCertificationById(certId);
@@ -208,6 +209,7 @@ export class LearningService {
 
   async updateCertification(id: number, dto: UpdateCertificationDto) {
     const userDisplayName = this.auditContext.getUserDisplayName() || 'System';
+    const userId = this.auditContext.getUserOid() || userDisplayName;
 
     const sets: string[] = [];
     const params: any[] = [];
@@ -225,7 +227,7 @@ export class LearningService {
 
     sets.push(`UpdatedAt = GETUTCDATE()`);
     sets.push(`UpdatedBy = @${idx}`);
-    params.push(userDisplayName);
+    params.push(userId);
     idx++;
 
     params.push(id); // last param is the ID
@@ -263,6 +265,7 @@ export class LearningService {
 
   async toggleCertificationStatus(id: number) {
     const userDisplayName = this.auditContext.getUserDisplayName() || 'System';
+    const userId = this.auditContext.getUserOid() || userDisplayName;
     const rows = await this.dataSource.query(
       `SELECT Status FROM dbo.LearningCertification WHERE CertificationID = @0`,
       [id],
@@ -274,7 +277,7 @@ export class LearningService {
       `UPDATE dbo.LearningCertification
        SET Status = @0, UpdatedAt = GETUTCDATE(), UpdatedBy = @1
        WHERE CertificationID = @2`,
-      [newStatus, userDisplayName, id],
+      [newStatus, userId, id],
     );
 
     await this.dataSource.query(
@@ -283,7 +286,7 @@ export class LearningService {
       [
         newStatus === 'Archived' ? 'CERT_ARCHIVED' : 'CERT_PUBLISHED',
         id,
-        userDisplayName,
+        userId,
         JSON.stringify({ newStatus }),
       ],
     );
@@ -431,20 +434,52 @@ export class LearningService {
   async createSubmission(dto: CreateSubmissionDto, file?: Express.Multer.File) {
     const userDisplayName = this.auditContext.getUserDisplayName() || 'System';
     const userOid = this.auditContext.getUserOid();
+    const userId = userOid || userDisplayName;
 
     // Resolve ContactID from current user's OID — for now use the passed contactId
     // In production, look up ContactID from userOid via ContactAssignment
+
+    // Resolve CertificationID: column is NOT NULL with FK, so look up by name if not provided
+    let certificationId = dto.certificationId && dto.certificationId > 0 ? dto.certificationId : null;
+    if (!certificationId && dto.certificationName) {
+      const match = await this.dataSource.query(
+        `SELECT TOP 1 CertificationID FROM dbo.LearningCertification
+         WHERE Title = @0 AND DepartmentID = @1 AND Status = 'Active'`,
+        [dto.certificationName, dto.departmentId],
+      );
+      if (match.length > 0) certificationId = match[0].CertificationID;
+    }
+    // If still no match, create an ad-hoc certification so the FK is satisfied
+    if (!certificationId) {
+      // Try to find a platform by issuing organization name, otherwise use first active platform
+      let platformId = 1;
+      if (dto.issuingOrganization) {
+        const platMatch = await this.dataSource.query(
+          `SELECT TOP 1 PlatformID FROM dbo.LearningPlatform WHERE PlatformName = @0 AND IsActive = 1`,
+          [dto.issuingOrganization],
+        );
+        if (platMatch.length > 0) platformId = platMatch[0].PlatformID;
+      }
+      const inserted = await this.dataSource.query(
+        `INSERT INTO dbo.LearningCertification
+          (Title, PlatformID, DepartmentID, DifficultyLevel, PointsAwarded, Status, CreatedBy, UpdatedBy)
+         OUTPUT INSERTED.CertificationID
+         VALUES (@0, @1, @2, 'Beginner', 0, 'Active', @3, @3)`,
+        [dto.certificationName, platformId, dto.departmentId, userId],
+      );
+      certificationId = inserted[0].CertificationID;
+    }
 
     const result = await this.dataSource.query(
       `INSERT INTO dbo.LearningSubmission
         (CertificationID, ContactID, DepartmentID, CertificationName,
          IssuingOrganization, DateCompleted, CredentialId, CredentialUrl,
-         AdditionalNotes, Status, PointsAwarded, CreatedBy, UpdatedBy)
+         AdditionalNotes, Status, PointsAwarded, SubmittedAt, CreatedBy, UpdatedBy)
        OUTPUT INSERTED.SubmissionID
-       VALUES (@0, @1, @2, @3, @4, @5, @6, @7, @8, 'PENDING', 0, @9, @9)`,
+       VALUES (@0, @1, @2, @3, @4, @5, @6, @7, @8, 'PENDING', 0, GETUTCDATE(), @9, @9)`,
       [
-        dto.certificationId,
-        dto.contactId || 0, // Passed from frontend (current user's contactId)
+        certificationId,
+        dto.contactId,
         dto.departmentId,
         dto.certificationName,
         dto.issuingOrganization || null,
@@ -452,7 +487,7 @@ export class LearningService {
         dto.credentialId || null,
         dto.credentialUrl || null,
         dto.additionalNotes || null,
-        userDisplayName,
+        userId,
       ],
     );
 
@@ -470,7 +505,7 @@ export class LearningService {
           file.originalname.split('.').pop()?.toUpperCase() || 'PDF',
           file.size,
           file.path,
-          userDisplayName,
+          userId,
         ],
       );
     }
@@ -482,9 +517,9 @@ export class LearningService {
          SET CertsSubmitted = CertsSubmitted + 1, LastActivityAt = GETUTCDATE(), UpdatedAt = GETUTCDATE()
          WHERE ContactID = @0 AND DepartmentID = @1
        ELSE
-         INSERT INTO dbo.LearningEmployeeScore (ContactID, DepartmentID, CertsSubmitted, LastActivityAt)
-         VALUES (@0, @1, 1, GETUTCDATE())`,
-      [dto.contactId || 0, dto.departmentId],
+         INSERT INTO dbo.LearningEmployeeScore (ContactID, DepartmentID, TotalPoints, CertsSubmitted, CertsApproved, CurrentTier, LastActivityAt)
+         VALUES (@0, @1, 0, 1, 0, 'Unranked', GETUTCDATE())`,
+      [dto.contactId, dto.departmentId],
     );
 
     return this.getSubmissionById(submissionId);
@@ -492,6 +527,7 @@ export class LearningService {
 
   async reviewSubmission(id: number, dto: ReviewSubmissionDto) {
     const userDisplayName = this.auditContext.getUserDisplayName() || 'System';
+    const userId = this.auditContext.getUserOid() || userDisplayName;
 
     if (!['VERIFIED', 'REJECTED'].includes(dto.action)) {
       throw new BadRequestException('Action must be VERIFIED or REJECTED');
@@ -520,7 +556,7 @@ export class LearningService {
       [
         dto.action,
         pointsToAward,
-        userDisplayName,
+        userId,
         dto.adminNotes || null,
         dto.rejectionReason || null,
         id,
@@ -566,7 +602,7 @@ export class LearningService {
       [
         dto.action === 'VERIFIED' ? 'SUBMISSION_APPROVED' : 'SUBMISSION_REJECTED',
         id,
-        userDisplayName,
+        userId,
         JSON.stringify({ pointsAwarded: pointsToAward, adminNotes: dto.adminNotes }),
       ],
     );
@@ -719,7 +755,8 @@ export class LearningService {
     const [empCount] = await this.dataSource.query(
       `SELECT COUNT(DISTINCT ca.ContactID) AS Total
        FROM dbo.ContactAssignment ca
-       WHERE ca.DepartmentID = @0`,
+       JOIN dbo.Company company ON company.CompanyID = ca.CompanyID
+       WHERE ca.DepartmentID = @0 AND company.is_internal = 1`,
       [departmentId],
     );
 

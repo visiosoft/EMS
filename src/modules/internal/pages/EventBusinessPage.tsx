@@ -1,6 +1,7 @@
-import { Calendar, Megaphone } from "lucide-react";
+import { Calendar, Megaphone, ArrowLeft, Layers } from "lucide-react";
 import { UrgentUpcomingSection } from "../components/UrgentUpcomingSection";
 import { InternalPageFrame } from "../layout/InternalPageFrame";
+import { useInternalNavigation } from "../routing/InternalNavigationContext";
 
 type IconProps = { className?: string };
 
@@ -196,12 +197,21 @@ function BusinessCard({
 }
 
 export function EventBusinessPage() {
+  const { navigate } = useInternalNavigation();
   return (
     <InternalPageFrame footer={<UrgentUpcomingSection pinned />}>
       <section
         className="relative isolate overflow-hidden bg-[#0b080c] px-4 py-8 text-white sm:px-8 sm:py-9 lg:px-10"
         style={{ backgroundImage: "url('/internal-hub-bg.svg')", backgroundPosition: "center", backgroundRepeat: "no-repeat", backgroundSize: "cover" }}
       >
+        <div className="mx-auto mb-6 max-w-[1080px]">
+          <button
+            onClick={() => navigate("departments")}
+            className="flex items-center text-sm font-semibold text-neutral-400 transition-colors hover:text-white"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" /> Back to Departments
+          </button>
+        </div>
         <div className="mx-auto grid min-h-[276px] max-w-[1080px] items-center gap-10 md:grid-cols-[1fr_0.65fr]">
           <div>
             <h1 className="text-[clamp(2.25rem,11vw,4.25rem)] font-bold leading-[1.05] tracking-[-0.025em] text-white">Event Business</h1>
@@ -224,6 +234,21 @@ export function EventBusinessPage() {
             <BusinessCard key={card.label} label={card.label} icon={card.icon} href={card.href} index={index} />
           ))}
         </section>
+
+        <a
+          href="/internal/learning-portal?fromView=department-event-business&fromTitle=Event+Business&departmentId=62"
+          target="_blank"
+          rel="noreferrer"
+          className="mt-8 flex h-[58px] w-full items-center justify-between gap-3 bg-black px-4 text-sm font-semibold text-white transition-colors hover:bg-neutral-800"
+        >
+          <div className="flex items-center gap-3">
+            <Layers className="h-5 w-5 shrink-0" />
+            Learning & Certifications Portal
+          </div>
+          <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-black">
+            NEW
+          </span>
+        </a>
       </main>
     </InternalPageFrame>
   );

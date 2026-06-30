@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { InternalAccessGuard } from '../internal-access/internal-access.guard';
 import { InternalEmployeesService } from './internal-employees.service';
 
@@ -10,7 +10,10 @@ export class InternalEmployeesController {
   ) {}
 
   @Get()
-  findStaff() {
+  findStaff(@Query('departmentId') departmentId?: string) {
+    if (departmentId) {
+      return this.internalEmployeesService.listEmployeesByDepartment(Number(departmentId));
+    }
     return this.internalEmployeesService.listStaffEmployees();
   }
 }

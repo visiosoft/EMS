@@ -5,6 +5,7 @@ import { UrgentUpcomingSection } from "../components/UrgentUpcomingSection";
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
 import {
   fetchLearningCertifications,
+  fetchLearningPlatforms,
   fetchLearningSubmissions,
   fetchMyLearningScore,
   fetchLearningProgress,
@@ -12,32 +13,22 @@ import {
   fetchLearningPointTiers,
   createLearningSubmission,
   type LearningCertification,
+  type LearningPlatform,
   type LearningSubmission,
   type LearningMyScore,
   type LearningProgressResponse,
   type LearningEmployeeScore,
   type LearningPointTier,
 } from "@/api/learningApi";
-
-// Department name → DepartmentID mapping (matches dbo.Department)
-const DEPARTMENT_ID_MAP: Record<string, number> = {
-  "Art & Graphic Design": 65,
-  "Marketing": 30,
-  "Finance": 35,
-  "Booking": 47,
-  "Production": 46,
-  "Ticketing & Sales": 63,
-};
-
-// Placeholder contactId — in production, resolve from auth context
-const CURRENT_USER_CONTACT_ID = 3; // Alex Abalo for demo
+import { fetchMyProfile } from "@/api/myProfileApi";
 
 export function LearningPortalPage() {
   const { navigate, viewData } = useInternalNavigation();
   const departmentName = viewData?.fromTitle || "Art & Graphic Design";
   const departmentView = viewData?.fromView || "department-art-graphic-design";
-  const departmentId = DEPARTMENT_ID_MAP[departmentName] || 65;
+  const departmentId = viewData?.departmentId || 65;
 
+  const [currentContactId, setCurrentContactId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("BROWSE");
   const [isDirty, setIsDirty] = useState(false);
@@ -51,9 +42,11 @@ export function LearningPortalPage() {
   useEffect(() => {
     const load = async () => {
       try {
+        const profile = await fetchMyProfile();
+        setCurrentContactId(profile.contactId);
         const [score, prog] = await Promise.all([
-          fetchMyLearningScore(CURRENT_USER_CONTACT_ID, departmentId),
-          fetchLearningProgress(CURRENT_USER_CONTACT_ID, departmentId),
+          fetchMyLearningScore(profile.contactId, departmentId),
+          fetchLearningProgress(profile.contactId, departmentId),
         ]);
         setMyScore(score);
         setProgress(prog);
@@ -76,13 +69,14 @@ export function LearningPortalPage() {
   };
 
   const refreshMyData = useCallback(async () => {
+    if (!currentContactId) return;
     const [score, prog] = await Promise.all([
-      fetchMyLearningScore(CURRENT_USER_CONTACT_ID, departmentId),
-      fetchLearningProgress(CURRENT_USER_CONTACT_ID, departmentId),
+      fetchMyLearningScore(currentContactId, departmentId),
+      fetchLearningProgress(currentContactId, departmentId),
     ]);
     setMyScore(score);
     setProgress(prog);
-  }, [departmentId]);
+  }, [currentContactId, departmentId]);
 
   return (
     <InternalPageFrame footer={<UrgentUpcomingSection pinned />}>
@@ -175,19 +169,19 @@ export function LearningPortalPage() {
           <BrowseCertifications departmentId={departmentId} />
         )}
         
-        {activeTab === "SUBMIT" && (
+        {activeTab === "SUBMIT" && currentContactId && (
           <SubmitCertificate
             departmentId={departmentId}
-            contactId={CURRENT_USER_CONTACT_ID}
+            contactId={currentContactId}
             setIsDirty={setIsDirty}
             onSubmitted={refreshMyData}
           />
         )}
         
-        {activeTab === "MY" && (
+        {activeTab === "MY" && currentContactId && (
           <MyCertificates
             departmentId={departmentId}
-            contactId={CURRENT_USER_CONTACT_ID}
+            contactId={currentContactId}
             myScore={myScore}
             progress={progress}
             onNavigateToSubmit={() => handleTabChange("SUBMIT")}
@@ -195,7 +189,7 @@ export function LearningPortalPage() {
         )}
         
         {activeTab === "LEADERBOARD" && (
-          <Leaderboard departmentId={departmentId} departmentName={departmentName} myScore={myScore} />
+          <Leaderboard departmentId={departmentId} departmentName={departmentName} myScore={myScore} currentContactId={currentContactId} />
         )}
       </main>
 
@@ -302,7 +296,12 @@ function BrowseCertifications({ departmentId }: { departmentId: number }) {
   const [level, setLevel] = useState("all");
   const [platform, setPlatform] = useState("all");
   const [certifications, setCertifications] = useState<LearningCertification[]>([]);
+  const [platforms, setPlatforms] = useState<LearningPlatform[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    fetchLearningPlatforms().then(setPlatforms).catch(console.error);
+  }, []);
 
   useEffect(() => {
     setIsLoading(true);
@@ -344,9 +343,7 @@ function BrowseCertifications({ departmentId }: { departmentId: number }) {
             onChange={setPlatform}
             options={[
               { label: "All Platforms", value: "all" },
-              { label: "Adobe", value: "1" },
-              { label: "Coursera", value: "2" },
-              { label: "LinkedIn Learning", value: "3" }
+              ...platforms.map((p) => ({ label: p.platformName, value: String(p.platformId) }))
             ]}
           />
         </div>
@@ -433,6 +430,17 @@ function SubmitCertificate({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [certOptions, setCertOptions] = useState<{ label: string; value: string }[]>([]);
+  const [certList, setCertList] = useState<LearningCertification[]>([]);
+
+  useEffect(() => {
+    fetchLearningCertifications({ departmentId, status: "Active" })
+      .then((certs) => {
+        setCertList(certs);
+        setCertOptions(certs.map((c) => ({ label: c.title, value: c.title })));
+      })
+      .catch(console.error);
+  }, [departmentId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -440,7 +448,6 @@ function SubmitCertificate({
     setIsSubmitting(true);
     try {
       await createLearningSubmission({
-        certificationId: 0, // Will match by name if no specific cert selected
         departmentId,
         contactId,
         certificationName: certName,
@@ -497,30 +504,26 @@ function SubmitCertificate({
         <div className="grid gap-6 sm:grid-cols-2">
           <div>
             <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-neutral-700">Certification Name *</label>
-            <input
-              type="text"
-              required
+            <CustomDropdown
+              placeholder="Select certification..."
               value={certName}
-              onChange={(e) => setCertName(e.target.value)}
-              placeholder="e.g. Adobe Certified Professional"
-              className="h-10 w-full rounded-md border border-neutral-300 px-3 text-sm font-semibold focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+              onChange={(val) => {
+                setCertName(val);
+                setIsDirty(true);
+                const matched = certList.find((c) => c.title === val);
+                if (matched?.platformName) setPlatform(matched.platformName);
+              }}
+              options={certOptions}
             />
           </div>
           <div>
-            <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-neutral-700">Issuing Organization *</label>
-            <CustomDropdown 
-              placeholder="Select platform..."
+            <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-neutral-700">Issuing Organization</label>
+            <input
+              type="text"
+              readOnly
               value={platform}
-              onChange={(val) => { setPlatform(val); setIsDirty(true); }}
-              options={[
-                { label: "Adobe", value: "Adobe" },
-                { label: "Coursera", value: "Coursera" },
-                { label: "LinkedIn Learning", value: "LinkedIn Learning" },
-                { label: "Skillshare", value: "Skillshare" },
-                { label: "Meta", value: "Meta" },
-                { label: "Canva", value: "Canva" },
-                { label: "Awwwards", value: "Awwwards" },
-              ]}
+              placeholder="Auto-filled from certification"
+              className="h-10 w-full rounded-md border border-neutral-300 bg-neutral-50 px-3 text-sm font-semibold text-neutral-700 focus:outline-none"
             />
           </div>
           <div>
@@ -671,7 +674,7 @@ function MyCertificates({
         </div>
         <div className="flex flex-col rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
           <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">Current Tier</span>
-          <span className="mt-1 text-3xl font-black text-black">{myScore?.currentTier ?? "Unranked"}</span>
+          <span className="mt-1 text-3xl font-black text-black">{myScore?.currentTier ?? ""}</span>
         </div>
       </div>
 
@@ -784,10 +787,12 @@ function Leaderboard({
   departmentId,
   departmentName,
   myScore,
+  currentContactId,
 }: {
   departmentId: number;
   departmentName: string;
   myScore: LearningMyScore | null;
+  currentContactId: number | null;
 }) {
   const [scores, setScores] = useState<LearningEmployeeScore[]>([]);
   const [tiers, setTiers] = useState<LearningPointTier[]>([]);
@@ -825,13 +830,13 @@ function Leaderboard({
           </div>
           <div className="divide-y divide-neutral-100">
             {scores.map((user) => (
-              <div key={user.contactId} className={`flex items-center px-5 py-4 ${user.contactId === CURRENT_USER_CONTACT_ID ? "bg-neutral-50" : ""}`}>
+              <div key={user.contactId} className={`flex items-center px-5 py-4 ${user.contactId === currentContactId ? "bg-neutral-50" : ""}`}>
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-xs font-bold text-white">
                   {user.rank}
                 </div>
                 <div className="ml-4 flex-1">
                   <div className="font-bold text-neutral-900">
-                    {user.contactId === CURRENT_USER_CONTACT_ID ? `You (${user.employeeName})` : user.employeeName}
+                    {user.contactId === currentContactId ? `You (${user.employeeName})` : user.employeeName}
                   </div>
                   <div className="text-xs text-neutral-500">{user.employeeRole || "Employee"} · {user.certsApproved} certs</div>
                 </div>

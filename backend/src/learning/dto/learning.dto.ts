@@ -6,6 +6,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateCertificationDto {
   @IsString()
@@ -38,9 +39,9 @@ export class CreateCertificationDto {
   estimatedDuration?: string;
 
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   @MaxLength(1000)
-  externalCourseUrl: string;
+  externalCourseUrl?: string;
 
   @IsString()
   @IsOptional()
@@ -95,12 +96,16 @@ export class UpdateCertificationDto {
 }
 
 export class CreateSubmissionDto {
+  @Type(() => Number)
   @IsNumber()
-  certificationId: number;
+  @IsOptional()
+  certificationId?: number;
 
+  @Type(() => Number)
   @IsNumber()
   departmentId: number;
 
+  @Type(() => Number)
   @IsNumber()
   contactId: number;
 

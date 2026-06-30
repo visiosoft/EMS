@@ -77,6 +77,7 @@ export function LearningAdminPage() {
   // Review modal
   const [reviewingSubmission, setReviewingSubmission] = useState<LearningSubmission | null>(null);
   const [reviewNotes, setReviewNotes] = useState("");
+  const [isReviewing, setIsReviewing] = useState(false);
 
   // Publish form
   const [formName, setFormName] = useState("");
@@ -166,6 +167,7 @@ export function LearningAdminPage() {
 
   // ─── Actions ────────────────────────────────────────────────────────────
   const handleApprove = async (sub: LearningSubmission) => {
+    setIsReviewing(true);
     try {
       await reviewLearningSubmission(sub.submissionId, { action: "VERIFIED", adminNotes: reviewNotes || undefined });
       showToast(`Approved certification for ${sub.employeeName}. +${sub.pointsAwarded || "?"} pts awarded!`);
@@ -174,9 +176,11 @@ export function LearningAdminPage() {
       loadSubmissions();
       if (activeTab === "overview") loadOverview();
     } catch (e) { showToast("Failed to approve", "error"); }
+    finally { setIsReviewing(false); }
   };
 
   const handleReject = async (sub: LearningSubmission) => {
+    setIsReviewing(true);
     try {
       await reviewLearningSubmission(sub.submissionId, { action: "REJECTED", adminNotes: reviewNotes || undefined });
       showToast(`Rejected submission from ${sub.employeeName}.`, "error");
@@ -184,6 +188,7 @@ export function LearningAdminPage() {
       setReviewNotes("");
       loadSubmissions();
     } catch (e) { showToast("Failed to reject", "error"); }
+    finally { setIsReviewing(false); }
   };
 
   const handlePublish = async (e: React.FormEvent) => {
@@ -726,10 +731,12 @@ export function LearningAdminPage() {
 
             {reviewingSubmission.status === "PENDING" && (
               <div className="mt-6 flex gap-3">
-                <button onClick={() => handleApprove(reviewingSubmission)} className="flex-1 rounded-full bg-black py-2.5 text-[10px] font-bold tracking-widest text-white hover:bg-neutral-800">
+                <button disabled={isReviewing} onClick={() => handleApprove(reviewingSubmission)} className="flex-1 items-center justify-center gap-2 rounded-full bg-black py-2.5 text-[10px] font-bold tracking-widest text-white hover:bg-neutral-800 disabled:opacity-50 flex">
+                  {isReviewing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   APPROVE & AWARD POINTS
                 </button>
-                <button onClick={() => handleReject(reviewingSubmission)} className="flex-1 rounded-full border border-neutral-300 bg-white py-2.5 text-[10px] font-bold tracking-widest text-black hover:bg-neutral-50">
+                <button disabled={isReviewing} onClick={() => handleReject(reviewingSubmission)} className="flex-1 items-center justify-center gap-2 rounded-full border border-neutral-300 bg-white py-2.5 text-[10px] font-bold tracking-widest text-black hover:bg-neutral-50 disabled:opacity-50 flex">
+                  {isReviewing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   REJECT
                 </button>
               </div>

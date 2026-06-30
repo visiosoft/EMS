@@ -29,7 +29,7 @@ export type LearningCertification = {
 
 export type LearningSubmission = {
   submissionId: number;
-  certificationId: number;
+  certificationId: number | null;
   contactId: number;
   departmentId: number;
   certificationName: string;
@@ -232,7 +232,7 @@ export function fetchLearningSubmissionById(id: number): Promise<LearningSubmiss
 }
 
 export function createLearningSubmission(data: {
-  certificationId: number;
+  certificationId?: number;
   departmentId: number;
   certificationName: string;
   issuingOrganization?: string;
@@ -244,7 +244,7 @@ export function createLearningSubmission(data: {
   certificateFile?: File;
 }): Promise<LearningSubmissionDetail> {
   const formData = new FormData();
-  formData.append('certificationId', String(data.certificationId));
+  if (data.certificationId) formData.append('certificationId', String(data.certificationId));
   formData.append('departmentId', String(data.departmentId));
   formData.append('certificationName', data.certificationName);
   formData.append('dateCompleted', data.dateCompleted);
