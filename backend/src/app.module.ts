@@ -26,6 +26,7 @@ import { TourMarketingModule } from './tour-marketing/tour-marketing.module';
 import { DocumentLibraryModule } from './document-library/document-library.module';
 import { OrganizationChartModule } from './organization-chart/organization-chart.module';
 import { RampModule } from './ramp/ramp.module';
+import { LearningModule } from './learning/learning.module';
 
 const parseBoolean = (
   value: string | undefined,
@@ -122,6 +123,7 @@ const parseNumber = (value: string | undefined, fallback: number): number => {
     DocumentLibraryModule,
     OrganizationChartModule,
     RampModule,
+    LearningModule,
   ],
   controllers: [AppController],
   providers: [AppService, AuditSubscriber],

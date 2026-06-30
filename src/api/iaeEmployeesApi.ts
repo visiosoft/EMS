@@ -13,3 +13,7 @@ export type IaeEmployee = {
 export function fetchIaeStaffEmployees(): Promise<IaeEmployee[]> {
   return apiFetch<IaeEmployee[]>('/internal/iae-employees');
 }
+
+export function fetchDepartmentEmployees(departmentId: number): Promise<IaeEmployee[]> {
+  return apiFetch<IaeEmployee[]>(`/internal/iae-employees?departmentId=${departmentId}`);
+}

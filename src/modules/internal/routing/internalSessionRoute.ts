@@ -29,6 +29,7 @@ export type InternalViewData = {
   handbookSubsection?: string;
   fromView?: InternalView;
   fromTitle?: string;
+  departmentId?: number;
 };
 
 const VALID_VIEWS = new Set<string>([
@@ -112,6 +113,7 @@ function sanitizeViewData(view: InternalView, raw: unknown): InternalViewData {
   if (view === "learning-portal" || view === "learning-admin") {
     if (typeof obj.fromView === "string") out.fromView = obj.fromView as InternalView;
     if (typeof obj.fromTitle === "string") out.fromTitle = obj.fromTitle;
+    if (typeof obj.departmentId === "number" && obj.departmentId > 0) out.departmentId = obj.departmentId;
     return out;
   }
 
@@ -160,6 +162,10 @@ export function readLegacyInternalRoute(pathname: string, hash: string, search: 
   }
   if (searchParams.has("fromTitle")) {
     viewData.fromTitle = searchParams.get("fromTitle") as string;
+  }
+  if (searchParams.has("departmentId")) {
+    const parsed = Number(searchParams.get("departmentId"));
+    if (Number.isFinite(parsed) && parsed > 0) viewData.departmentId = parsed;
   }
 
   // Handle ?view= query param (used for new-tab views like learning-admin)
