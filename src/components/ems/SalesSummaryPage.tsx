@@ -109,8 +109,17 @@ function lastDailyMovement(rows: LedgerRow[] | undefined, cutoff: string): Snaps
   if (!rows?.length) return { tickets: 0, revenue: 0 };
   let idx = -1; for (let i = 0; i < rows.length; i++) { if (rows[i].salesDate <= cutoff) idx = i; else break; }
   if (idx < 0) return { tickets: 0, revenue: 0 };
-  const cur = rows[idx]; const prev = idx > 0 ? rows[idx - 1] : null;
-  return { tickets: delta(cur.tickets, prev?.tickets ?? 0), revenue: delta(cur.revenue, prev?.revenue ?? 0) };
+  // Walk backwards to find the most recent day with non-zero movement,
+  // matching the engagement dashboard behaviour.
+  while (idx > 0) {
+    const cur = rows[idx]; const prev = rows[idx - 1];
+    const t = delta(cur.tickets, prev.tickets);
+    const r = delta(cur.revenue, prev.revenue);
+    if (t > 0 || r > 0) return { tickets: t, revenue: r };
+    idx--;
+  }
+  // Only one entry — treat its cumulative as the initial movement.
+  return { tickets: rows[0].tickets, revenue: rows[0].revenue };
 }
 function aggregateLastDailyMovement(ledger: Ledger, cutoff: string): Snapshot {
   let tickets = 0, revenue = 0;
@@ -123,11 +132,23 @@ function metricsFor(r: ApiPerformanceSalesRow, ledger: Ledger, reportDate: strin
   const prev7 = ready ? snap(ledger, r.performanceId, ymdAddBusinessDays(reportDate, -7)) : null;
   const prev14 = ready ? snap(ledger, r.performanceId, ymdAddBusinessDays(reportDate, -14)) : null;
   const cap = num(r.engagementSellableCapacity), potential = num(r.engagementGrossPotential);
+  // Use lastDailyMovement when the ledger is ready — it finds the most recent
+  // day with actual cumulative movement, so weekends / days with no new sales
+  // rows still reflect the last reported day correctly.
+  const movement = ready
+    ? lastDailyMovement(ledger.get(r.performanceId), reportDate)
+    : null;
+  const ticketsSoldYesterday = movement
+    ? movement.tickets
+    : delta(current.tickets, prev?.tickets ?? 0);
+  const yesterdayRevenue = movement
+    ? movement.revenue
+    : delta(current.revenue, prev?.revenue ?? 0);
   return {
     currentTickets: current.tickets,
     currentRevenue: current.revenue,
-    ticketsSoldYesterday: delta(current.tickets, prev?.tickets ?? 0),
-    yesterdayRevenue: delta(current.revenue, prev?.revenue ?? 0),
+    ticketsSoldYesterday,
+    yesterdayRevenue,
     grossSales7Days: delta(current.revenue, prev7?.revenue ?? 0),
     ticketsSoldPrevious7Days: delta(current.tickets, prev7?.tickets ?? 0),
     grossSales14Days: delta(current.revenue, prev14?.revenue ?? 0),
