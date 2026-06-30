@@ -105,6 +105,9 @@ function snap(ledger: Ledger, performanceId: number, cutoff: string): Snapshot |
 // latest report's cumulative minus the report before it). Lets "yesterday"
 // figures fall back to the last day that actually had sales when yesterday
 // itself had none reported.
+// "Unreported" rows (where both cumulative values are zero after previously
+// being non-zero) are skipped — the Sales Trends view carries forward the
+// prior reported value for such days, so we skip them here to stay aligned.
 function lastDailyMovement(rows: LedgerRow[] | undefined, cutoff: string): Snapshot {
   if (!rows?.length) return { tickets: 0, revenue: 0 };
   let idx = -1; for (let i = 0; i < rows.length; i++) { if (rows[i].salesDate <= cutoff) idx = i; else break; }
@@ -112,14 +115,20 @@ function lastDailyMovement(rows: LedgerRow[] | undefined, cutoff: string): Snaps
   // Walk backwards to find the most recent day with non-zero movement,
   // matching the engagement dashboard behaviour.
   while (idx > 0) {
-    const cur = rows[idx]; const prev = rows[idx - 1];
+    const cur = rows[idx];
+    // Skip unreported gap rows (NULL coerced to 0 in the DB).
+    if (cur.tickets === 0 && cur.revenue === 0) { idx--; continue; }
+    // Find the nearest prior row that isn't an unreported gap.
+    let pi = idx - 1;
+    while (pi > 0 && rows[pi].tickets === 0 && rows[pi].revenue === 0) pi--;
+    const prev = rows[pi];
     const t = delta(cur.tickets, prev.tickets);
     const r = delta(cur.revenue, prev.revenue);
     if (t > 0 || r > 0) return { tickets: t, revenue: r };
-    idx--;
+    idx = pi;
   }
-  // Only one entry — treat its cumulative as the initial movement.
-  return { tickets: rows[0].tickets, revenue: rows[0].revenue };
+  // Only one reported entry — treat its cumulative as the initial movement.
+  return { tickets: rows[idx].tickets, revenue: rows[idx].revenue };
 }
 function aggregateLastDailyMovement(ledger: Ledger, cutoff: string): Snapshot {
   let tickets = 0, revenue = 0;
