@@ -1,8 +1,9 @@
-import { Cog, Landmark, Layers, ArrowLeft } from "lucide-react";
+import { Cog, Landmark, Layers, ArrowLeft, Loader2 } from "lucide-react";
 import { TeamMemberAvatar } from "../components/TeamMemberAvatar";
 import { UrgentUpcomingSection } from "../components/UrgentUpcomingSection";
 import { InternalPageFrame } from "../layout/InternalPageFrame";
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
+import { useDepartmentTeam } from "../hooks/useDepartmentTeam";
 
 import type { ComponentType } from "react";
 
@@ -15,17 +16,6 @@ type DepartmentQuickLink = {
   href: string;
   icon: ComponentType<QuickLinkIconProps>;
 };
-
-type TeamMember = {
-  name: string;
-  title: string;
-};
-
-const PRODUCTION_TEAM_MEMBERS: TeamMember[] = [
-  { name: "Amy Lord", title: "Production Manager" },
-  { name: "Delilah Bestler", title: "Production Manager" },
-  { name: "Kim Grose", title: "Director of Production" },
-];
 
 function DepartmentListIcon({ className }: QuickLinkIconProps) {
   return (
@@ -50,7 +40,6 @@ const PRODUCTION_PAGE = {
   title: "Production",
   overviewLabel: "Department Overview",
   overview: "A central hub for managing financial records, budgets, and accounting resources with clarity and control.",
-  teamMembers: PRODUCTION_TEAM_MEMBERS,
   quickLinks: PRODUCTION_QUICK_LINKS,
   funCornerVideoUrl: "https://www.youtube.com/embed/v0BrTJHoYC0?rel=0",
 };
@@ -90,32 +79,42 @@ function ProductionHero() {
   );
 }
 
-function TeamMembersSection({ members }: { members: TeamMember[] }) {
+function TeamMembersSection() {
+  const { teamMembers, currentContactId, isLoading } = useDepartmentTeam(46);
   return (
     <section>
       <h2 className="text-2xl font-semibold">Team Members</h2>
       <div className="mt-7 border-t border-neutral-600">
         <div className="mt-5 max-h-[248px] overflow-y-auto pr-2 [scrollbar-color:#9ca3af_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-neutral-400 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-1.5">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="h-6 w-6 animate-spin text-neutral-400" />
+            </div>
+          ) : (
           <table className="w-full text-left text-sm">
             <thead className="sticky top-0 z-10 bg-white">
               <tr className="border-b border-neutral-200 text-xs font-semibold text-neutral-900">
                 <th className="w-[150px] px-4 py-3">Picture</th>
                 <th className="px-4 py-3">Name</th>
-                <th className="px-4 py-3">Title</th>
+                <th className="px-4 py-3">Role</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-100">
-              {members.map((member) => (
-                <tr key={member.name} className="relative">
+              {teamMembers.map((member) => (
+                <tr key={member.contactId} className={`relative ${member.contactId === currentContactId ? "bg-blue-50" : ""}`}>
                   <td className="relative px-4 py-4 before:absolute before:left-0 before:top-1/2 before:h-10 before:w-1 before:-translate-y-1/2 before:rounded-full before:bg-neutral-300">
                     <TeamMemberAvatar />
                   </td>
-                  <td className="px-4 py-4 text-sm text-neutral-700">{member.name}</td>
-                  <td className="px-4 py-4 text-sm font-semibold text-neutral-900">{member.title}</td>
+                  <td className="px-4 py-4 text-sm text-neutral-700">
+                    {member.firstName} {member.lastName}
+                    {member.contactId === currentContactId && <span className="ml-2 text-xs font-bold text-blue-600">(You)</span>}
+                  </td>
+                  <td className="px-4 py-4 text-sm font-semibold text-neutral-900">{member.roleName || "—"}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          )}
         </div>
       </div>
     </section>
@@ -142,7 +141,7 @@ function QuickLinksSection({ links }: { links: DepartmentQuickLink[] }) {
             </a>
           ))}
           <a
-            href="/internal/learning-portal?fromView=department-production&fromTitle=Production"
+            href="/internal/learning-portal?fromView=department-production&fromTitle=Production&departmentId=46"
             target="_blank"
             rel="noreferrer"
             className="col-span-1 flex h-[58px] w-full items-center justify-between gap-3 bg-black px-4 text-sm font-semibold text-white transition-colors hover:bg-neutral-800 sm:col-span-2"
@@ -184,7 +183,7 @@ export function ProductionPage() {
       <ProductionHero />
 
       <main className="mx-auto grid max-w-[1120px] gap-10 px-4 py-6 sm:px-8 lg:grid-cols-[1.05fr_1fr] lg:px-0">
-        <TeamMembersSection members={PRODUCTION_PAGE.teamMembers} />
+        <TeamMembersSection />
         <div>
           <QuickLinksSection links={PRODUCTION_PAGE.quickLinks} />
           <FunCornerSection videoUrl={PRODUCTION_PAGE.funCornerVideoUrl} />

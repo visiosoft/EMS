@@ -99,4 +99,39 @@ export class InternalEmployeesService {
       })(),
     }));
   }
+
+  async listEmployeesByDepartment(departmentId: number): Promise<IaeEmployeeRow[]> {
+    const rows = await this.dataSource.query(
+      `SELECT DISTINCT
+         c.ContactID AS contactId,
+         ci.FirstName AS firstName,
+         ci.LastName AS lastName,
+         ci.Email AS email,
+         ci.CellPhone AS cellPhone,
+         ci.WorkPhone AS workPhone,
+         r.RoleName AS roleName
+       FROM dbo.ContactAssignment ca
+       JOIN dbo.Contact c ON c.ContactID = ca.ContactID
+       JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+       JOIN dbo.Company company ON company.CompanyID = ca.CompanyID
+       LEFT JOIN dbo.Role r ON r.RoleID = ca.RoleID
+       WHERE ca.DepartmentID = @0
+         AND company.is_internal = 1
+       ORDER BY ci.LastName ASC, ci.FirstName ASC`,
+      [departmentId],
+    );
+
+    return rows.map((row: any) => ({
+      contactId: Number(row.contactId),
+      firstName: String(row.firstName ?? '').trim(),
+      lastName: String(row.lastName ?? '').trim(),
+      email: String(row.email ?? '').trim(),
+      cellPhone: row.cellPhone != null ? String(row.cellPhone).trim() : null,
+      workPhone: row.workPhone != null ? String(row.workPhone).trim() : null,
+      roleName: (() => {
+        const name = String(row.roleName ?? '').trim();
+        return name && name.toLowerCase() !== 'unknown' ? name : null;
+      })(),
+    }));
+  }
 }
