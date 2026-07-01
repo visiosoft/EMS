@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { IsOptional, IsString, IsNumber } from 'class-validator';
 import { AuditRequestContext } from '../audit/audit-request-context.service';
 
 // ─── Response / DTO Types ─────────────────────────────────────────────────────
@@ -21,22 +22,42 @@ export type InsuranceElection = {
   payrollDeduction: string;
 };
 
+export type HealthPlanPricingInfo = {
+  coverageType: string;
+  monthlyPremium: number;
+};
+
+export type HealthPlanAgeRateInfo = {
+  ageMin: number;
+  ageMax: number;
+  monthlyRate: number;
+};
+
 export type HealthPlanOption = {
   healthPlanId: number;
   planName: string;
   planType: string;
+  benefits: string[];
+  pricing: HealthPlanPricingInfo[];
+  ageRates: HealthPlanAgeRateInfo[];
 };
 
 export type EmployeeHealthInsuranceResponse = {
   contactId: number;
+  employeeAge: number | null;
+  insuranceEligibility: string;
   elections: InsuranceElection[];
   plans: HealthPlanOption[];
 };
 
 export class UpdateEmployeeHealthInsuranceDto {
+  @IsString()
   insuranceType!: string;   // 'Health' | 'Dental' | 'Vision'
+  @IsOptional() @IsString()
   optInStatus?: string | null;         // 'Opt-In' | 'Opt-Out'
+  @IsOptional() @IsNumber()
   healthPlanId?: number | null;
+  @IsOptional() @IsString()
   additionalInsureds?: string | null;  // 'Spouse' | 'Child' | 'Family' | 'N/A' (Health only)
 }
 
@@ -235,21 +256,137 @@ export class EmployeeHealthInsuranceService {
       }
     }
 
-    // 3. Load available plans
+    // 3. Load available plans with benefits and pricing
     let plans: HealthPlanOption[] = [];
     if (hasPlanTable) {
       const planRows = await this.dataSource.query(
         `SELECT HealthPlanID AS healthPlanId, PlanName AS planName, PlanType AS planType
          FROM dbo.HealthPlan WHERE IsActive = 1 ORDER BY PlanType, PlanName`,
       );
-      plans = planRows.map((r: Record<string, unknown>) => ({
-        healthPlanId: readNumber(r, 'healthPlanId', 'HealthPlanID') ?? 0,
-        planName: readString(r, 'planName', 'PlanName'),
-        planType: readString(r, 'planType', 'PlanType'),
-      }));
+
+      // Load benefits per plan
+      let benefitsByPlan = new Map<number, string[]>();
+      if (hasBenefitTable) {
+        const benefitRows = await this.dataSource.query(
+          `SELECT HealthPlanID, BenefitDescription FROM dbo.HealthPlanBenefit ORDER BY HealthPlanID, SortOrder`,
+        );
+        for (const b of benefitRows as Record<string, unknown>[]) {
+          const pid = readNumber(b, 'HealthPlanID') ?? 0;
+          const desc = String(b.BenefitDescription ?? '').trim();
+          if (!benefitsByPlan.has(pid)) benefitsByPlan.set(pid, []);
+          if (desc) benefitsByPlan.get(pid)!.push(desc);
+        }
+      }
+
+      // Load pricing per plan
+      let pricingByPlan = new Map<number, { coverageType: string; monthlyPremium: number }[]>();
+      if (hasPricingTable) {
+        const pricingRows = await this.dataSource.query(
+          `SELECT HealthPlanID, CoverageType, MonthlyPremium FROM dbo.HealthPlanPricing
+           WHERE (EndDate IS NULL OR EndDate >= CAST(GETUTCDATE() AS date))
+           ORDER BY HealthPlanID, CoverageType`,
+        );
+        for (const p of pricingRows as Record<string, unknown>[]) {
+          const pid = readNumber(p, 'HealthPlanID') ?? 0;
+          const ct = String(p.CoverageType ?? '').trim();
+          const mp = Number(p.MonthlyPremium ?? 0);
+          if (!pricingByPlan.has(pid)) pricingByPlan.set(pid, []);
+          pricingByPlan.get(pid)!.push({ coverageType: ct, monthlyPremium: mp });
+        }
+      }
+
+      // Load age rates per plan
+      const hasAgeRateTable = await this.tableExists('HealthPlanAgeRate');
+      let ageRatesByPlan = new Map<number, { ageMin: number; ageMax: number; monthlyRate: number }[]>();
+      if (hasAgeRateTable) {
+        const ageRateRows = await this.dataSource.query(
+          `SELECT HealthPlanID, AgeMin, AgeMax, MonthlyRate FROM dbo.HealthPlanAgeRate
+           WHERE (EndDate IS NULL OR EndDate >= CAST(GETUTCDATE() AS date))
+           ORDER BY HealthPlanID, AgeMin`,
+        );
+        for (const ar of ageRateRows as Record<string, unknown>[]) {
+          const pid = readNumber(ar, 'HealthPlanID') ?? 0;
+          const ageMin = Number(ar.AgeMin ?? 0);
+          const ageMax = Number(ar.AgeMax ?? 999);
+          const mr = Number(ar.MonthlyRate ?? 0);
+          if (!ageRatesByPlan.has(pid)) ageRatesByPlan.set(pid, []);
+          ageRatesByPlan.get(pid)!.push({ ageMin, ageMax, monthlyRate: mr });
+        }
+      }
+
+      plans = planRows.map((r: Record<string, unknown>) => {
+        const pid = readNumber(r, 'healthPlanId', 'HealthPlanID') ?? 0;
+        return {
+          healthPlanId: pid,
+          planName: readString(r, 'planName', 'PlanName'),
+          planType: readString(r, 'planType', 'PlanType'),
+          benefits: benefitsByPlan.get(pid) ?? [],
+          pricing: pricingByPlan.get(pid) ?? [],
+          ageRates: ageRatesByPlan.get(pid) ?? [],
+        };
+      });
     }
 
-    return { contactId, elections, plans };
+    // 4. Calculate employee age from EmployeeProfile.DateOfBirth and insurance eligibility from StartDate
+    let employeeAge: number | null = null;
+    let insuranceEligibility = 'Ineligible';
+    const hasEpTable = await this.tableExists('EmployeeProfile');
+    if (hasEpTable) {
+      const profileRows = await this.dataSource.query(
+        `SELECT DateOfBirth, StartDate FROM dbo.EmployeeProfile WHERE ContactID = @0`,
+        [contactId],
+      );
+      if (profileRows.length > 0) {
+        const row = profileRows[0];
+        // Age
+        if (row.DateOfBirth) {
+          const dob = new Date(row.DateOfBirth);
+          if (!isNaN(dob.getTime())) {
+            const today = new Date();
+            employeeAge = today.getFullYear() - dob.getFullYear();
+            const monthDiff = today.getMonth() - dob.getMonth();
+            if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+              employeeAge--;
+            }
+          }
+        }
+        // Insurance eligibility based on months since StartDate
+        if (row.StartDate) {
+          const start = new Date(row.StartDate);
+          if (!isNaN(start.getTime())) {
+            const today = new Date();
+            const monthsSinceStart =
+              (today.getFullYear() - start.getFullYear()) * 12 +
+              (today.getMonth() - start.getMonth()) +
+              (today.getDate() >= start.getDate() ? 0 : -1);
+            if (monthsSinceStart >= 12) {
+              insuranceEligibility = 'Eligible – Full Coverage';
+            } else if (monthsSinceStart >= 3) {
+              insuranceEligibility = 'Eligible – 50% Coverage';
+            } else {
+              insuranceEligibility = 'Ineligible';
+            }
+          }
+        }
+      }
+    }
+
+    // 5. Enrich monthlyRate on Health elections using age rates
+    if (employeeAge !== null) {
+      for (const election of elections) {
+        if (election.insuranceType !== 'Health' || !election.healthPlanId) continue;
+        const plan = plans.find((p) => p.healthPlanId === election.healthPlanId);
+        if (!plan) continue;
+        const ageRate = plan.ageRates.find(
+          (ar) => employeeAge! >= ar.ageMin && employeeAge! <= ar.ageMax,
+        );
+        if (ageRate) {
+          election.monthlyRate = `$${ageRate.monthlyRate.toFixed(2)}/mo`;
+        }
+      }
+    }
+
+    return { contactId, employeeAge, insuranceEligibility, elections, plans };
   }
 
   private async tableExists(tableName: string): Promise<boolean> {

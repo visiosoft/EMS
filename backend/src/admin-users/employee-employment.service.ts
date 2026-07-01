@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { IsOptional, IsString, IsNumber } from 'class-validator';
 import { AuditRequestContext } from '../audit/audit-request-context.service';
 
 // ─── Response / DTO Types ─────────────────────────────────────────────────────
@@ -48,6 +49,21 @@ export type PhoneDeviceListResponse = {
   phones: PhoneDeviceOption[];
 };
 
+export type PcDeviceOption = {
+  computerId: number;
+  pcName: string;
+  make: string;
+  model: string;
+  serviceTag: string;
+  bluetoothStatus: string;
+  isAssigned: boolean;
+  assignedToEmail: string | null;
+};
+
+export type PcDeviceListResponse = {
+  computers: PcDeviceOption[];
+};
+
 export type EmployeeEmploymentProfileResponse = {
   contactId: number;
   contactAssignmentId: number;
@@ -82,21 +98,43 @@ export type EmployeeEmploymentProfileResponse = {
 };
 
 export class UpdateEmployeeEmploymentProfileDto {
+  @IsOptional() @IsString()
   accessLevel?: string | null;
+  @IsOptional() @IsString()
   workAuthorization?: string | null;
+  @IsOptional() @IsString()
   workstation?: string | null;
+  @IsOptional() @IsString()
   startDate?: string | null;
+  @IsOptional() @IsString()
   supervisor?: string | null;
+  @IsOptional() @IsString()
   ptoAccrualRate?: string | null;
+  @IsOptional() @IsString()
   employmentAgreement?: string | null;
+  @IsOptional() @IsString()
   rampAccount?: string | null;
+  @IsOptional() @IsString()
   rampCreditCard?: string | null;
+  @IsOptional() @IsString()
   officeStreet?: string | null;
+  @IsOptional() @IsString()
   officeAddress2?: string | null;
+  @IsOptional() @IsString()
   officeCity?: string | null;
+  @IsOptional() @IsString()
   officeState?: string | null;
+  @IsOptional() @IsString()
   officePostalCode?: string | null;
+  @IsOptional() @IsString()
   officeCountry?: string | null;
+  /** Equipment assignment fields */
+  @IsOptional() @IsNumber()
+  deskPhoneExtensionId?: number | null;
+  @IsOptional() @IsNumber()
+  deskPhoneId?: number | null;
+  @IsOptional() @IsNumber()
+  pcComputerId?: number | null;
 }
 
 // ─── Service ──────────────────────────────────────────────────────────────────
@@ -144,8 +182,10 @@ export class EmployeeEmploymentService {
         [current.contactId],
       );
 
+      console.log('[EmpProfile] epExists:', epExists, 'contactId:', current.contactId, 'dto:', JSON.stringify(dto));
+
       if (epExists.length > 0) {
-        await manager.query(
+        const updateResult = await manager.query(
           `
           UPDATE dbo.EmployeeProfile
           SET AccessLevel          = @0,
@@ -175,6 +215,7 @@ export class EmployeeEmploymentService {
             current.contactId,
           ],
         );
+        console.log('[EmpProfile] UPDATE result:', updateResult);
       } else {
         await manager.query(
           `
@@ -183,7 +224,8 @@ export class EmployeeEmploymentService {
              PTOAccrualRate, EmploymentAgreement, RampAccount, RampCreditCard, Workstation,
              created_by, created_at, modified_by, modified_at)
           VALUES
-            (@0, @1, @2, @3, @4, @5, @6, @7, @8, @9, @10, SYSUTCDATETIME(), @10, SYSUTCDATETIME())
+            (@0, @1, @2, @3, @4, @5, @6, @7, @8, @9,
+             @10, SYSUTCDATETIME(), @10, SYSUTCDATETIME())
           `,
           [
             current.contactId,
@@ -256,6 +298,72 @@ export class EmployeeEmploymentService {
               [newAddressId, current.contactId],
             );
           }
+        }
+      }
+
+      // 3. Assign phone extension (if changed)
+      if (dto.deskPhoneExtensionId !== undefined) {
+        // Unassign current extension
+        await manager.query(
+          `UPDATE dbo.EmployeePhoneExtension SET IsCurrent = 0, UnassignedDate = CAST(SYSUTCDATETIME() AS date)
+           WHERE ContactAssignmentID = @0 AND IsCurrent = 1`,
+          [current.contactAssignmentId],
+        );
+        // Assign new extension
+        if (dto.deskPhoneExtensionId) {
+          await manager.query(
+            `INSERT INTO dbo.EmployeePhoneExtension (ContactAssignmentID, ExtensionID, AssignedDate, IsCurrent, AssignedBy)
+             VALUES (@0, @1, CAST(SYSUTCDATETIME() AS date), 1, @2)`,
+            [current.contactAssignmentId, dto.deskPhoneExtensionId, modifiedBy],
+          );
+        }
+      }
+
+      // 4. Assign phone device (if changed)
+      if (dto.deskPhoneId !== undefined) {
+        // Find the current active extension for this employee to link the device
+        const activeExtRows = await manager.query(
+          `SELECT ExtensionID FROM dbo.EmployeePhoneExtension
+           WHERE ContactAssignmentID = @0 AND IsCurrent = 1`,
+          [current.contactAssignmentId],
+        );
+        const activeExtId = activeExtRows.length > 0
+          ? readNumber(activeExtRows[0], 'ExtensionID')
+          : null;
+
+        if (activeExtId) {
+          // Unassign current phone device link
+          await manager.query(
+            `UPDATE dbo.PhoneExtensionDevice SET IsCurrent = 0, UnassignedDate = CAST(SYSUTCDATETIME() AS date)
+             WHERE ExtensionID = @0 AND IsCurrent = 1`,
+            [activeExtId],
+          );
+          // Assign new phone to extension
+          if (dto.deskPhoneId) {
+            await manager.query(
+              `INSERT INTO dbo.PhoneExtensionDevice (ExtensionID, PhoneID, AssignedDate, IsCurrent, AssignedBy)
+               VALUES (@0, @1, CAST(SYSUTCDATETIME() AS date), 1, @2)`,
+              [activeExtId, dto.deskPhoneId, modifiedBy],
+            );
+          }
+        }
+      }
+
+      // 5. Assign computer (if changed)
+      if (dto.pcComputerId !== undefined) {
+        // Unassign current computer
+        await manager.query(
+          `UPDATE dbo.EmployeeComputer SET IsCurrent = 0, UnassignedDate = CAST(SYSUTCDATETIME() AS date)
+           WHERE ContactAssignmentID = @0 AND IsCurrent = 1`,
+          [current.contactAssignmentId],
+        );
+        // Assign new computer
+        if (dto.pcComputerId) {
+          await manager.query(
+            `INSERT INTO dbo.EmployeeComputer (ContactAssignmentID, ComputerID, AssignedDate, IsCurrent, AssignedBy)
+             VALUES (@0, @1, CAST(SYSUTCDATETIME() AS date), 1, @2)`,
+            [current.contactAssignmentId, dto.pcComputerId, modifiedBy],
+          );
         }
       }
     });
@@ -425,6 +533,62 @@ export class EmployeeEmploymentService {
     });
 
     return { phones };
+  }
+
+  /** List all active PC/computer devices with assignment status. */
+  async listPcDevices(
+    currentUserEmail?: string,
+  ): Promise<PcDeviceListResponse> {
+    const rows = await this.dataSource.query(
+      `
+      SELECT
+        eqc.ComputerID AS computerId,
+        eqc.PCName AS pcName,
+        COALESCE(eqc.Make, '') AS make,
+        COALESCE(eqc.Model, '') AS model,
+        COALESCE(eqc.AssetID, '') AS serviceTag,
+        COALESCE(eqc.BluetoothStatus, '') AS bluetoothStatus,
+        CASE WHEN ec.EmployeeComputerID IS NOT NULL THEN 1 ELSE 0 END AS isAssigned,
+        ci.Email AS assignedToEmail
+      FROM dbo.EquipmentComputer eqc
+      LEFT JOIN dbo.EmployeeComputer ec ON ec.ComputerID = eqc.ComputerID AND ec.IsCurrent = 1
+      LEFT JOIN dbo.ContactAssignment ca ON ca.ContactAssignmentID = ec.ContactAssignmentID
+      LEFT JOIN dbo.Contact c ON c.ContactID = ca.ContactID
+      LEFT JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+      WHERE eqc.EquipmentStatus = 'Active'
+      ORDER BY eqc.PCName
+      `,
+    );
+
+    const normalizedCurrent = currentUserEmail
+      ? normalizeEmail(currentUserEmail)
+      : '';
+
+    const computers: PcDeviceOption[] = (
+      rows as Record<string, unknown>[]
+    ).map((row) => {
+      const assignedEmail = readString(row, 'assignedToEmail');
+      const isAssignedRaw = Number(row['isAssigned'] ?? 0) === 1;
+      const isAssigned =
+        isAssignedRaw &&
+        normalizedCurrent !== '' &&
+        assignedEmail.toLowerCase() === normalizedCurrent
+          ? false
+          : isAssignedRaw;
+
+      return {
+        computerId: readNumber(row, 'computerId') ?? 0,
+        pcName: readString(row, 'pcName'),
+        make: readString(row, 'make'),
+        model: readString(row, 'model'),
+        serviceTag: readString(row, 'serviceTag'),
+        bluetoothStatus: readString(row, 'bluetoothStatus'),
+        isAssigned,
+        assignedToEmail: isAssignedRaw ? assignedEmail || null : null,
+      };
+    });
+
+    return { computers };
   }
 
   // ─── Private ────────────────────────────────────────────────────────────────
