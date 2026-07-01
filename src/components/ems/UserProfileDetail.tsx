@@ -919,11 +919,14 @@ function EmploymentTab({ user }: { user: UserProfileUser }) {
               <option value="">Select supervisor…</option>
               {employeesQuery.data
                 ?.filter((emp) => emp.email.toLowerCase() !== user.email.toLowerCase())
-                .map((emp) => (
-                  <option key={emp.contactId} value={`${emp.firstName} ${emp.lastName}`}>
-                    {emp.firstName} {emp.lastName}{emp.roleName ? ` — ${emp.roleName}` : ''}
-                  </option>
-                ))}
+                .map((emp) => {
+                  const fullName = `${emp.firstName} ${emp.lastName}`.trim();
+                  return (
+                    <option key={emp.contactId} value={fullName}>
+                      {fullName}{emp.roleName ? ` — ${emp.roleName}` : ''}
+                    </option>
+                  );
+                })}
             </select>
           </div>
           <EditableField label="Paid Time Off Accrual Rate (days/year)" value={ptoAccrualRate} onChange={setPtoAccrualRate} type="number" placeholder="e.g. 15" source="admin" />
@@ -971,6 +974,9 @@ function EmploymentTab({ user }: { user: UserProfileUser }) {
             <div className="relative">
               <input
                 type="text"
+                value={officeAddress.street}
+                onChange={(e) => setOfficeAddress((prev) => ({ ...prev, street: e.target.value }))}
+                onFocus={officeAutofill.onStreetFocus}
                 onBlur={officeAutofill.onStreetBlur}
                 placeholder="Start typing to search…"
                 className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none"
