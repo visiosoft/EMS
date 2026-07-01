@@ -121,6 +121,11 @@ export class AdminUsersController {
     return this.employeeEmploymentService.listPhoneDevices();
   }
 
+  @Get('pc-devices')
+  async listPcDevices() {
+    return this.employeeEmploymentService.listPcDevices();
+  }
+
   @Get('users/:email/licenses')
   async getUserLicenses(
     @Param('email') email: string,

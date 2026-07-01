@@ -13,6 +13,7 @@ import {
   fetchWorkstations,
   fetchPhoneExtensions,
   fetchPhoneDevices,
+  fetchPcDevices,
   fetchUserLicenses,
   fetchUserGroups,
   type EmployeeEmploymentProfile,
@@ -28,6 +29,7 @@ import {
 import {
   fetchEmployeeExperience,
 } from '@/api/employeeExperienceApi';
+import { fetchIaeStaffEmployees } from '@/api/iaeEmployeesApi';
 import {
   fetchMyProfile,
   updateMyProfile,
@@ -132,14 +134,15 @@ export function UserProfileDetail({ user, onBack }: UserProfileDetailProps) {
 // ─── Shared Field Components ──────────────────────────────────────────────────
 
 function ReadOnlyField({ label, value, source }: { label: string; value: string; source?: DataSource }) {
+  const isEntra = source === 'entra';
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-1.5">
         <label className="text-xs font-medium text-text-muted">{label}</label>
-        {source && <SourceBadge source={source} />}
+        {isEntra && <SourceBadge source={source!} />}
         <Lock className="h-3 w-3 text-text-muted/50" />
       </div>
-      <div className="rounded-md border border-border bg-elevated px-3 py-2 text-sm text-text-secondary">
+      <div className={`rounded-md border border-border px-3 py-2 text-sm text-text-secondary ${isEntra ? 'bg-gray-100 dark:bg-gray-800' : 'bg-white dark:bg-white/5'}`}>
         {value || '—'}
       </div>
     </div>
@@ -163,11 +166,12 @@ function EditableField({
   disabled?: boolean;
   source?: DataSource;
 }) {
+  const isEntra = source === 'entra';
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-1.5">
         <label className="text-xs font-medium text-text-muted">{label}</label>
-        {source && <SourceBadge source={source} />}
+        {isEntra && <SourceBadge source={source!} />}
       </div>
       <input
         type={type}
@@ -175,7 +179,7 @@ function EditableField({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         disabled={disabled}
-        className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+        className={`w-full rounded-md border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${isEntra ? 'bg-gray-100 dark:bg-gray-800' : 'bg-white dark:bg-white/5'}`}
       />
     </div>
   );
@@ -196,17 +200,18 @@ function SelectField({
   disabled?: boolean;
   source?: DataSource;
 }) {
+  const isEntra = source === 'entra';
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-1.5">
         <label className="text-xs font-medium text-text-muted">{label}</label>
-        {source && <SourceBadge source={source} />}
+        {isEntra && <SourceBadge source={source!} />}
       </div>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
-        className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:border-ems-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+        className={`w-full rounded-md border border-border px-3 py-2 text-sm text-text-primary focus:border-ems-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${isEntra ? 'bg-gray-100 dark:bg-gray-800' : 'bg-white dark:bg-white/5'}`}
       >
         <option value="">— Select —</option>
         {options.map((opt) => (
@@ -500,7 +505,6 @@ function PersonalTab({ user }: { user: UserProfileUser }) {
           <div className="space-y-1">
             <div className="flex items-center gap-1.5">
               <label className="text-xs font-medium text-text-muted">Street Address</label>
-              <SourceBadge source="google" />
             </div>
             <div className="relative">
               <input
@@ -510,7 +514,7 @@ function PersonalTab({ user }: { user: UserProfileUser }) {
                 onFocus={homeAutofill.onStreetFocus}
                 onBlur={homeAutofill.onStreetBlur}
                 placeholder="Start typing to search…"
-                className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none"
+                className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none"
               />
               {homeAutofill.showSuggestions && (
                 <div className="absolute z-20 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-48 overflow-auto">
@@ -655,6 +659,20 @@ function EmploymentTab({ user }: { user: UserProfileUser }) {
     staleTime: 60_000,
   });
 
+  // ── Fetch PC device options ───────────────────────────────────────────────
+  const pcDevicesQuery = useQuery({
+    queryKey: ['pc-devices'],
+    queryFn: fetchPcDevices,
+    staleTime: 60_000,
+  });
+
+  // ── Fetch internal employees (for Supervisor dropdown) ────────────────────
+  const employeesQuery = useQuery({
+    queryKey: ['iae-staff-employees'],
+    queryFn: fetchIaeStaffEmployees,
+    staleTime: 60_000,
+  });
+
   // ── Fetch Entra licenses & group membership ───────────────────────────────
   const licensesQuery = useQuery({
     queryKey: ['user-licenses', user.email],
@@ -698,6 +716,10 @@ function EmploymentTab({ user }: { user: UserProfileUser }) {
   const [rampAccount, setRampAccount] = useState('');
   const [rampCreditCard, setRampCreditCard] = useState('');
   const [saveMessage, setSaveMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  // Track selected equipment IDs for save
+  const [selectedExtensionId, setSelectedExtensionId] = useState<number | null>(null);
+  const [selectedPhoneId, setSelectedPhoneId] = useState<number | null>(null);
+  const [selectedComputerId, setSelectedComputerId] = useState<number | null>(null);
 
   // ── Sync fetched data into form ───────────────────────────────────────────
   const populateForm = useCallback((data: EmployeeEmploymentProfile) => {
@@ -780,6 +802,9 @@ function EmploymentTab({ user }: { user: UserProfileUser }) {
       officeState: officeAddress.state || null,
       officePostalCode: officeAddress.postalCode || null,
       officeCountry: officeAddress.country || null,
+      deskPhoneExtensionId: selectedExtensionId,
+      deskPhoneId: selectedPhoneId,
+      pcComputerId: selectedComputerId,
     });
   };
 
@@ -853,12 +878,11 @@ function EmploymentTab({ user }: { user: UserProfileUser }) {
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <label className="text-xs font-medium text-text-muted">Workstation</label>
-              <SourceBadge source="inventory" />
             </div>
             <select
               value={workstation}
               onChange={(e) => setWorkstation(e.target.value)}
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue"
+              className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue"
             >
               <option value="">Select workstation…</option>
               {workstationsQuery.data?.offices.map((office) => (
@@ -882,9 +906,37 @@ function EmploymentTab({ user }: { user: UserProfileUser }) {
           ) : (
             <ReadOnlyField label="Years of Service" value="Enter start date" source="calculated" />
           )}
-          <EditableField label="Supervisor" value={supervisor} onChange={setSupervisor} source="admin" />
-          <EditableField label="Paid Time Off Accrual Rate" value={ptoAccrualRate} onChange={setPtoAccrualRate} source="admin" />
-          <EditableField label="Employment Agreement Fully Executed" value={employmentAgreement} onChange={setEmploymentAgreement} source="admin" />
+          {/* Supervisor dropdown from employee list */}
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-medium text-text-muted">Supervisor</label>
+            </div>
+            <select
+              value={supervisor}
+              onChange={(e) => setSupervisor(e.target.value)}
+              className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue"
+            >
+              <option value="">Select supervisor…</option>
+              {employeesQuery.data
+                ?.filter((emp) => emp.email.toLowerCase() !== user.email.toLowerCase())
+                .map((emp) => (
+                  <option key={emp.contactId} value={`${emp.firstName} ${emp.lastName}`}>
+                    {emp.firstName} {emp.lastName}{emp.roleName ? ` — ${emp.roleName}` : ''}
+                  </option>
+                ))}
+            </select>
+          </div>
+          <EditableField label="Paid Time Off Accrual Rate (days/year)" value={ptoAccrualRate} onChange={setPtoAccrualRate} type="number" placeholder="e.g. 15" source="admin" />
+          <SelectField
+            label="Employment Agreement Fully Executed"
+            value={employmentAgreement}
+            onChange={setEmploymentAgreement}
+            options={[
+              { value: 'Yes', label: 'Yes' },
+              { value: 'No', label: 'No' },
+            ]}
+            source="admin"
+          />
           <SelectField
             label="Ramp Account"
             value={rampAccount}
@@ -915,17 +967,13 @@ function EmploymentTab({ user }: { user: UserProfileUser }) {
           <div className="space-y-1">
             <div className="flex items-center gap-1.5">
               <label className="text-xs font-medium text-text-muted">Street Address</label>
-              <SourceBadge source="google" />
             </div>
             <div className="relative">
               <input
                 type="text"
-                value={officeAddress.street}
-                onChange={(e) => setOfficeAddress((prev) => ({ ...prev, street: e.target.value }))}
-                onFocus={officeAutofill.onStreetFocus}
                 onBlur={officeAutofill.onStreetBlur}
                 placeholder="Start typing to search…"
-                className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none"
+                className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none"
               />
               {officeAutofill.showSuggestions && (
                 <div className="absolute z-20 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-48 overflow-auto">
@@ -988,12 +1036,18 @@ function EmploymentTab({ user }: { user: UserProfileUser }) {
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <label className="text-xs font-medium text-text-muted">Desk Phone Extension</label>
-              <SourceBadge source="inventory" />
             </div>
             <select
               value={deskPhoneExtension}
-              onChange={(e) => setDeskPhoneExtension(e.target.value)}
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue"
+              onChange={(e) => {
+                const extNumber = e.target.value;
+                setDeskPhoneExtension(extNumber);
+                const ext = phoneExtensionsQuery.data?.extensions.find(
+                  (x) => x.extensionNumber === extNumber,
+                );
+                setSelectedExtensionId(ext?.extensionId ?? null);
+              }}
+              className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue"
             >
               <option value="">Select extension…</option>
               {phoneExtensionsQuery.data?.extensions.map((ext) => (
@@ -1011,12 +1065,26 @@ function EmploymentTab({ user }: { user: UserProfileUser }) {
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <label className="text-xs font-medium text-text-muted">Desk Phone MAC Address</label>
-              <SourceBadge source="inventory" />
             </div>
             <select
               value={deskPhoneMac}
-              onChange={(e) => setDeskPhoneMac(e.target.value)}
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue"
+              onChange={(e) => {
+                const mac = e.target.value;
+                setDeskPhoneMac(mac);
+                const phone = phoneDevicesQuery.data?.phones.find(
+                  (p) => p.macAddress === mac,
+                );
+                if (phone) {
+                  setDeskPhoneBrand(phone.make || '');
+                  setDeskPhoneModel(phone.model || '');
+                  setSelectedPhoneId(phone.phoneId);
+                } else {
+                  setDeskPhoneBrand('');
+                  setDeskPhoneModel('');
+                  setSelectedPhoneId(null);
+                }
+              }}
+              className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue"
             >
               <option value="">Select phone…</option>
               {phoneDevicesQuery.data?.phones.map((phone) => (
@@ -1032,9 +1100,49 @@ function EmploymentTab({ user }: { user: UserProfileUser }) {
           </div>
           <ReadOnlyField label="Desk Phone Brand" value={deskPhoneBrand || '—'} source="inventory" />
           <ReadOnlyField label="Desk Phone Model" value={deskPhoneModel || '—'} source="inventory" />
+          {/* PC Service Tag dropdown */}
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-medium text-text-muted">PC Service Tag</label>
+            </div>
+            <select
+              value={pcServiceTag}
+              onChange={(e) => {
+                const tag = e.target.value;
+                setPcServiceTag(tag);
+                const pc = pcDevicesQuery.data?.computers.find(
+                  (c) => c.serviceTag === tag,
+                );
+                if (pc) {
+                  setPcBrand(pc.make || '');
+                  setPcModel(pc.model || '');
+                  setBluetoothStatus(pc.bluetoothStatus || '');
+                  setPcWindowsName(pc.pcName || '');
+                  setSelectedComputerId(pc.computerId);
+                } else {
+                  setPcBrand('');
+                  setPcModel('');
+                  setBluetoothStatus('');
+                  setPcWindowsName('');
+                  setSelectedComputerId(null);
+                }
+              }}
+              className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue"
+            >
+              <option value="">Select PC…</option>
+              {pcDevicesQuery.data?.computers.map((pc) => (
+                <option
+                  key={pc.computerId}
+                  value={pc.serviceTag}
+                  disabled={pc.isAssigned}
+                >
+                  {pc.serviceTag} — {pc.pcName}{pc.isAssigned ? ' (assigned)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
           <ReadOnlyField label="PC Brand" value={pcBrand || '—'} source="inventory" />
           <ReadOnlyField label="PC Model" value={pcModel || '—'} source="inventory" />
-          <ReadOnlyField label="PC Service Tag" value={pcServiceTag || '—'} source="inventory" />
           <ReadOnlyField label="Bluetooth Status" value={bluetoothStatus || '—'} source="inventory" />
           <ReadOnlyField label="PC Windows Name" value={pcWindowsName || '—'} source="inventory" />
         </div>
@@ -1079,9 +1187,14 @@ function InsuranceSection({
   additionalInsureds,
   setAdditionalInsureds,
   planPrice,
+  setPlanPrice,
   planBenefits,
+  setPlanBenefits,
   monthlyRate,
+  setMonthlyRate,
   payrollDeduction,
+  setPayrollDeduction,
+  employeeAge,
   showAdditional,
 }: {
   title: string;
@@ -1095,12 +1208,65 @@ function InsuranceSection({
   additionalInsureds?: string;
   setAdditionalInsureds?: (v: string) => void;
   planPrice: string;
+  setPlanPrice?: (v: string) => void;
   planBenefits: string;
+  setPlanBenefits?: (v: string) => void;
   monthlyRate?: string;
+  setMonthlyRate?: (v: string) => void;
   payrollDeduction?: string;
+  setPayrollDeduction?: (v: string) => void;
+  employeeAge?: number | null;
   showAdditional?: boolean;
 }) {
   const typePlans = plans.filter((p) => p.planType === insuranceType);
+
+  const recalcPricing = useCallback((currentPlanId: string, currentAdditionalInsureds?: string) => {
+    if (!currentPlanId) {
+      setPlanPrice?.('');
+      setPlanBenefits?.('');
+      setPayrollDeduction?.('');
+      setMonthlyRate?.('');
+      return;
+    }
+    const plan = plans.find((p) => String(p.healthPlanId) === currentPlanId);
+    if (plan) {
+      // Set benefits
+      setPlanBenefits?.(plan.benefits.join('; '));
+      // Determine coverage type from additionalInsureds
+      let coverageType = 'Employee Only';
+      if (currentAdditionalInsureds === 'Spouse') coverageType = 'Employee + Spouse';
+      else if (currentAdditionalInsureds === 'Family' || currentAdditionalInsureds === 'Child') coverageType = 'Employee + Family';
+      const priceEntry = plan.pricing.find((p) => p.coverageType === coverageType);
+      if (priceEntry) {
+        setPlanPrice?.(`$${priceEntry.monthlyPremium.toFixed(2)}/mo`);
+        const biweekly = (priceEntry.monthlyPremium * 12) / 26;
+        setPayrollDeduction?.(`$${biweekly.toFixed(2)}/pay period`);
+      } else {
+        setPlanPrice?.('');
+        setPayrollDeduction?.('');
+      }
+      // Set age-based monthly rate (Health plans only)
+      if (employeeAge != null && plan.ageRates.length > 0) {
+        const ageRate = plan.ageRates.find(
+          (ar) => employeeAge >= ar.ageMin && employeeAge <= ar.ageMax,
+        );
+        setMonthlyRate?.(ageRate ? `$${ageRate.monthlyRate.toFixed(2)}/mo` : '');
+      } else {
+        setMonthlyRate?.('');
+      }
+    }
+  }, [plans, employeeAge, setPlanPrice, setPlanBenefits, setPayrollDeduction, setMonthlyRate]);
+
+  // Recalculate pricing when additionalInsureds changes
+  useEffect(() => {
+    if (planId) recalcPricing(planId, additionalInsureds);
+  }, [additionalInsureds]);
+
+  const handlePlanChange = (newPlanId: string) => {
+    setPlanId(newPlanId);
+    recalcPricing(newPlanId, additionalInsureds);
+  };
+
   return (
     <SectionCard title={title} icon={icon}>
       <div className="grid gap-4 md:grid-cols-2">
@@ -1120,7 +1286,7 @@ function InsuranceSection({
         <SelectField
           label="Chosen Plan"
           value={planId}
-          onChange={setPlanId}
+          onChange={handlePlanChange}
           disabled={optIn === 'Opt-Out'}
           options={[
             ...typePlans.map((p) => ({ value: String(p.healthPlanId), label: p.planName })),
@@ -1240,11 +1406,13 @@ function HealthInsuranceTab({ user }: { user: UserProfileUser }) {
         insuranceType: 'Dental',
         optInStatus: dentalOptIn || null,
         healthPlanId: dentalPlanId ? Number(dentalPlanId) : null,
+        additionalInsureds: additionalInsureds || null,
       },
       {
         insuranceType: 'Vision',
         optInStatus: visionOptIn || null,
         healthPlanId: visionPlanId ? Number(visionPlanId) : null,
+        additionalInsureds: additionalInsureds || null,
       },
     ];
     for (const payload of saves) {
@@ -1270,9 +1438,16 @@ function HealthInsuranceTab({ user }: { user: UserProfileUser }) {
   }
 
   const plans = insuranceQuery.data?.plans ?? [];
+  const insuranceEligibility = insuranceQuery.data?.insuranceEligibility ?? 'Ineligible';
 
   return (
     <div className="space-y-4">
+      <SectionCard title="Health Insurance Information" icon={<Heart className="h-4 w-4 text-ems-coral" />}>
+        <div className="grid gap-4 md:grid-cols-2">
+          <ReadOnlyField label="Health Insurance Status" value={insuranceEligibility} source="calculated" />
+        </div>
+      </SectionCard>
+
       <InsuranceSection
         title="Health Insurance"
         icon={<Heart className="h-4 w-4 text-ems-coral" />}
@@ -1285,9 +1460,14 @@ function HealthInsuranceTab({ user }: { user: UserProfileUser }) {
         additionalInsureds={additionalInsureds}
         setAdditionalInsureds={setAdditionalInsureds}
         planPrice={healthPrice}
+        setPlanPrice={setHealthPrice}
         planBenefits={healthBenefits}
+        setPlanBenefits={setHealthBenefits}
         monthlyRate={healthRate}
+        setMonthlyRate={setHealthRate}
         payrollDeduction={healthDeduction}
+        setPayrollDeduction={setHealthDeduction}
+        employeeAge={insuranceQuery.data?.employeeAge ?? null}
         showAdditional
       />
 
@@ -1300,8 +1480,11 @@ function HealthInsuranceTab({ user }: { user: UserProfileUser }) {
         planId={dentalPlanId}
         setPlanId={setDentalPlanId}
         plans={plans}
+        additionalInsureds={additionalInsureds}
         planPrice={dentalPrice}
+        setPlanPrice={setDentalPrice}
         planBenefits={dentalBenefits}
+        setPlanBenefits={setDentalBenefits}
       />
 
       <InsuranceSection
@@ -1313,8 +1496,11 @@ function HealthInsuranceTab({ user }: { user: UserProfileUser }) {
         planId={visionPlanId}
         setPlanId={setVisionPlanId}
         plans={plans}
+        additionalInsureds={additionalInsureds}
         planPrice={visionPrice}
+        setPlanPrice={setVisionPrice}
         planBenefits={visionBenefits}
+        setPlanBenefits={setVisionBenefits}
       />
 
       {/* Save Bar */}
@@ -1417,10 +1603,6 @@ function CertificationsTab() {
     <div className="space-y-4">
       <SectionCard title="Completed / Awarded Credentials & Certifications" icon={<Award className="h-4 w-4 text-ems-accent" />}>
         <div className="space-y-3">
-          <div className="flex items-center gap-1.5 mb-2">
-            <span className="text-xs text-text-muted">Data entry:</span>
-            <SourceBadge source="admin" />
-          </div>
 
           {certifications.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border bg-elevated/50 px-6 py-10 text-center">
