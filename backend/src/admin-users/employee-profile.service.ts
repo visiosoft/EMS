@@ -105,13 +105,17 @@ export class EmployeeProfileService {
           UPDATE dbo.EmployeeProfile
           SET DateOfBirth   = @0,
               SSNLast4      = @1,
-              UpdatedBy     = @2,
+              MiddleName    = @2,
+              PersonalEmail = @3,
+              UpdatedBy     = @4,
               UpdatedAt     = SYSUTCDATETIME()
-          WHERE ContactID = @3
+          WHERE ContactID = @5
           `,
           [
             nullableDate(dto.birthDate),
             ssnLast4(dto.ssn),
+            nullableText(dto.middleName),
+            nullableText(dto.personalEmail),
             modifiedBy,
             current.contactId,
           ],
@@ -120,20 +124,78 @@ export class EmployeeProfileService {
         await manager.query(
           `
           INSERT INTO dbo.EmployeeProfile
-            (ContactID, DateOfBirth, SSNLast4, CreatedBy, CreatedAt, UpdatedBy, UpdatedAt)
+            (ContactID, DateOfBirth, SSNLast4, MiddleName, PersonalEmail, CreatedBy, CreatedAt, UpdatedBy, UpdatedAt)
           VALUES
-            (@0, @1, @2, @3, SYSUTCDATETIME(), @3, SYSUTCDATETIME())
+            (@0, @1, @2, @3, @4, @5, SYSUTCDATETIME(), @5, SYSUTCDATETIME())
           `,
           [
             current.contactId,
             nullableDate(dto.birthDate),
             ssnLast4(dto.ssn),
+            nullableText(dto.middleName),
+            nullableText(dto.personalEmail),
             modifiedBy,
           ],
         );
       }
 
-      // 2. Home address – skipped (no HomeAddressID FK on EmployeeProfile table)
+      // 2. Home address upsert
+      const hasHomeAddressFields =
+        dto.homeStreet != null ||
+        dto.homeAddress2 != null ||
+        dto.homeCity != null ||
+        dto.homeState != null ||
+        dto.homePostalCode != null ||
+        dto.homeCountry != null;
+
+      if (hasHomeAddressFields) {
+        if (current.homeAddressId) {
+          await manager.query(
+            `
+            UPDATE dbo.Address
+            SET AddressLine1  = @0,
+                AddressLine2  = @1,
+                City          = @2,
+                StateProvince = @3,
+                PostalCode    = @4,
+                Country       = @5
+            WHERE AddressID = @6
+            `,
+            [
+              cleanText(dto.homeStreet) || current.homeStreet || '',
+              nullableText(dto.homeAddress2),
+              cleanText(dto.homeCity) || current.homeCity || '',
+              cleanText(dto.homeState) || current.homeState || '',
+              cleanText(dto.homePostalCode) || current.homePostalCode || '',
+              cleanText(dto.homeCountry) || current.homeCountry || '',
+              current.homeAddressId,
+            ],
+          );
+        } else {
+          const addrRows = await manager.query(
+            `
+            INSERT INTO dbo.Address (AddressLine1, AddressLine2, City, StateProvince, PostalCode, Country)
+            OUTPUT INSERTED.AddressID AS addressId
+            VALUES (@0, @1, @2, @3, @4, @5)
+            `,
+            [
+              cleanText(dto.homeStreet) || '',
+              nullableText(dto.homeAddress2),
+              cleanText(dto.homeCity) || '',
+              cleanText(dto.homeState) || '',
+              cleanText(dto.homePostalCode) || '',
+              cleanText(dto.homeCountry) || '',
+            ],
+          );
+          const newAddressId = readNumber(addrRows[0], 'addressId', 'AddressID');
+          if (newAddressId) {
+            await manager.query(
+              `UPDATE dbo.EmployeeProfile SET HomeAddressID = @0 WHERE ContactID = @1`,
+              [newAddressId, current.contactId],
+            );
+          }
+        }
+      }
 
       // 3. Upsert emergency contact
       const hasEmergencyFields =
@@ -203,9 +265,9 @@ export class EmployeeProfileService {
       "CAST('' AS nvarchar(100)) AS middleName, CAST('' AS nvarchar(254)) AS personalEmail, CAST(NULL AS date) AS birthDate, CAST('' AS nvarchar(20)) AS ssn, CAST(NULL AS int) AS homeAddressId";
     if (hasEpTable) {
       epJoin =
-        'LEFT JOIN dbo.EmployeeProfile ep ON ep.ContactID = c.ContactID';
+        'LEFT JOIN dbo.EmployeeProfile ep ON ep.ContactID = c.ContactID LEFT JOIN dbo.Address ha ON ha.AddressID = ep.HomeAddressID';
       epSelect =
-        "CAST('' AS nvarchar(100)) AS middleName, CAST('' AS nvarchar(254)) AS personalEmail, ep.DateOfBirth AS birthDate, COALESCE(ep.SSNLast4, '') AS ssn, CAST(NULL AS int) AS homeAddressId";
+        "COALESCE(ep.MiddleName, '') AS middleName, COALESCE(ep.PersonalEmail, '') AS personalEmail, ep.DateOfBirth AS birthDate, COALESCE(ep.SSNLast4, '') AS ssn, ep.HomeAddressID AS homeAddressId";
     }
 
     let ecJoin = '';
@@ -233,7 +295,7 @@ export class EmployeeProfileService {
         COALESCE(ci.CellPhone, '') AS cellPhone,
         ${epSelect},
         ${ecSelect},
-        CAST('' AS nvarchar(200)) AS homeStreet, CAST('' AS nvarchar(200)) AS homeAddress2, CAST('' AS nvarchar(100)) AS homeCity, CAST('' AS nvarchar(100)) AS homeState, CAST('' AS nvarchar(20)) AS homePostalCode, CAST('' AS nvarchar(100)) AS homeCountry
+        ${hasEpTable ? "COALESCE(ha.AddressLine1, '') AS homeStreet, COALESCE(ha.AddressLine2, '') AS homeAddress2, COALESCE(ha.City, '') AS homeCity, COALESCE(ha.StateProvince, '') AS homeState, COALESCE(ha.PostalCode, '') AS homePostalCode, COALESCE(ha.Country, '') AS homeCountry" : "CAST('' AS nvarchar(200)) AS homeStreet, CAST('' AS nvarchar(200)) AS homeAddress2, CAST('' AS nvarchar(100)) AS homeCity, CAST('' AS nvarchar(100)) AS homeState, CAST('' AS nvarchar(20)) AS homePostalCode, CAST('' AS nvarchar(100)) AS homeCountry"}
       FROM dbo.Contact c
       INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
       INNER JOIN dbo.ContactAssignment ca ON ca.ContactID = c.ContactID
