@@ -25,12 +25,19 @@ import {
   UpdateMyProfileDto,
   UserProfileService,
 } from './user-profile.service';
+import { AccessLevelService } from '../common/access-level.service';
+import { AccessLevelGuard } from '../common/access-level.guard';
+import { AccessLevel } from '../common/access-level.enum';
+import { RequireAccessLevel } from '../common/require-access-level.decorator';
+import { AuditRequestContext } from '../audit/audit-request-context.service';
 
 @Controller('admin')
-@UseGuards(EntraAuthGuard)
+@UseGuards(EntraAuthGuard, AccessLevelGuard)
 export class AdminUsersController {
   constructor(
+    private readonly accessLevelService: AccessLevelService,
     private readonly adminUsersService: AdminUsersService,
+    private readonly auditContext: AuditRequestContext,
     private readonly employeeCertificationsService: EmployeeCertificationsService,
     private readonly employeeEmploymentService: EmployeeEmploymentService,
     private readonly employeeExperienceService: EmployeeExperienceService,
@@ -40,7 +47,15 @@ export class AdminUsersController {
     private readonly userProfileService: UserProfileService,
   ) {}
 
+  @Get('me/access-level')
+  async getMyAccessLevel() {
+    const email = this.auditContext.getUserEmail();
+    const accessLevel = await this.accessLevelService.resolveAccessLevel(email);
+    return { accessLevel };
+  }
+
   @Get('users')
+  @RequireAccessLevel(AccessLevel.Administrator)
   async listUsers(
     @Headers('x-entra-graph-access-token') graphAccessToken?: string,
   ) {
@@ -48,6 +63,7 @@ export class AdminUsersController {
   }
 
   @Get('users/entra-raw')
+  @RequireAccessLevel(AccessLevel.Administrator)
   async listRawUsers(
     @Headers('x-entra-graph-access-token') graphAccessToken?: string,
   ) {
@@ -83,6 +99,7 @@ export class AdminUsersController {
   }
 
   @Get('access-levels')
+  @RequireAccessLevel(AccessLevel.Administrator)
   async getAllAccessLevels() {
     return this.employeeEmploymentService.getAllAccessLevels();
   }
@@ -119,26 +136,31 @@ export class AdminUsersController {
   }
 
   @Get('workstations')
+  @RequireAccessLevel(AccessLevel.Administrator)
   async listWorkstations() {
     return this.employeeEmploymentService.listWorkstations();
   }
 
   @Get('phone-extensions')
+  @RequireAccessLevel(AccessLevel.Administrator)
   async listPhoneExtensions() {
     return this.employeeEmploymentService.listPhoneExtensions();
   }
 
   @Get('phone-devices')
+  @RequireAccessLevel(AccessLevel.Administrator)
   async listPhoneDevices() {
     return this.employeeEmploymentService.listPhoneDevices();
   }
 
   @Get('pc-devices')
+  @RequireAccessLevel(AccessLevel.Administrator)
   async listPcDevices() {
     return this.employeeEmploymentService.listPcDevices();
   }
 
   @Get('users/:email/licenses')
+  @RequireAccessLevel(AccessLevel.Administrator)
   async getUserLicenses(
     @Param('email') email: string,
     @Headers('x-entra-graph-access-token') graphAccessToken?: string,
@@ -147,6 +169,7 @@ export class AdminUsersController {
   }
 
   @Get('users/:email/groups')
+  @RequireAccessLevel(AccessLevel.Administrator)
   async getUserGroups(
     @Param('email') email: string,
     @Headers('x-entra-graph-access-token') graphAccessToken?: string,
@@ -155,6 +178,7 @@ export class AdminUsersController {
   }
 
   @Post('internal-contact-sync/preview')
+  @RequireAccessLevel(AccessLevel.Administrator)
   async previewInternalContactSync(
     @Headers('x-entra-graph-access-token') graphAccessToken?: string,
   ) {
@@ -164,6 +188,7 @@ export class AdminUsersController {
   }
 
   @Post('internal-contact-sync/entra-to-ems/preview')
+  @RequireAccessLevel(AccessLevel.Administrator)
   async previewEntraToEmsContactSync(
     @Headers('x-entra-graph-access-token') graphAccessToken?: string,
   ) {
@@ -173,6 +198,7 @@ export class AdminUsersController {
   }
 
   @Post('internal-contact-sync/entra-to-ems/apply')
+  @RequireAccessLevel(AccessLevel.Administrator)
   async applyEntraToEmsContactSync(
     @Body() dto: ApplyInternalContactSyncDto,
     @Headers('x-entra-graph-access-token') graphAccessToken?: string,
@@ -184,6 +210,7 @@ export class AdminUsersController {
   }
 
   @Post('internal-contact-sync/ems-to-entra/preview')
+  @RequireAccessLevel(AccessLevel.Administrator)
   async previewEmsToEntraContactSync(
     @Headers('x-entra-graph-access-token') graphAccessToken?: string,
   ) {
@@ -193,6 +220,7 @@ export class AdminUsersController {
   }
 
   @Post('internal-contact-sync/ems-to-entra/apply')
+  @RequireAccessLevel(AccessLevel.Administrator)
   async applyEmsToEntraContactSync(
     @Body() dto: ApplyInternalContactSyncDto,
     @Headers('x-entra-graph-access-token') graphAccessToken?: string,
@@ -204,6 +232,7 @@ export class AdminUsersController {
   }
 
   @Post('internal-contact-sync/apply')
+  @RequireAccessLevel(AccessLevel.Administrator)
   async applyInternalContactSync(
     @Body() dto: ApplyInternalContactSyncDto,
     @Headers('x-entra-graph-access-token') graphAccessToken?: string,

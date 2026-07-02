@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AuditModule } from '../audit/audit.module';
 import { EngagementsModule } from '../engagements/engagements.module';
 import { Address } from '../entities/address.entity';
 import { Attraction } from '../entities/attraction.entity';
@@ -34,6 +35,7 @@ import { VenueServiceProvider } from '../entities/venue-service-provider.entity'
 import { Link } from '../entities/link.entity';
 import { LookupsController } from '../lookups/lookups.controller';
 import { LookupsService } from '../lookups/lookups.service';
+import { EntraAuthGuard } from '../admin-users/entra-auth.guard';
 import { HubSpotModule } from '../hubspot/hubspot.module';
 import {
   CompanyController,
@@ -81,6 +83,7 @@ const entities = [
 @Module({
   imports: [
     TypeOrmModule.forFeature(entities),
+    AuditModule,
     EngagementsModule,
     HubSpotModule,
   ],
@@ -92,7 +95,7 @@ const entities = [
     ContactAssignmentBulkUpdateController,
     LookupsController,
   ],
-  providers: [CompanyService, LookupsService],
+  providers: [CompanyService, LookupsService, EntraAuthGuard],
   exports: [CompanyService, LookupsService],
 })
 export class CompanyModule {}
