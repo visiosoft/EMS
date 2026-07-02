@@ -145,6 +145,8 @@ import {
 } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { cleanDmaMarketLabel } from '@/lib/dmaMarket';
+import { fetchDailySales, type ApiDailySalesRow } from '@/api/dailySalesApi';
+import { calculateRoyalties } from '@/lib/royaltiesCalculation';
 import { EngagementMarketingReadOnlySection } from './EngagementMarketingReadOnlySection';
 import { EngagementContractPanel } from './EngagementContractPanel';
 import { invalidateSalesCapacityRelatedQueries } from '@/api/cacheHelpers';
@@ -5602,6 +5604,17 @@ function EngagementEventBusinessPanel({
     queryFn: () => fetchDepositTerms(engagementId),
   });
 
+  // ── Daily sales (for SESAC royalty — most recent entry by salesDate) ─────
+  const dailySalesQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'daily-sales'],
+    queryFn: () => fetchDailySales(engagementId),
+    staleTime: 60_000,
+  });
+  const mostRecentDailySales = useMemo(() => {
+    const rows = dailySalesQuery.data ?? [];
+    return rows.reduce<ApiDailySalesRow | null>((latest, r) => (!latest || r.salesDate > latest.salesDate ? r : latest), null);
+  }, [dailySalesQuery.data]);
+
   // Derive IAE staff by role from engagement IAE contacts
   const iaeEventBusinessManagers = useMemo(() =>
     (iaeContactsQuery.data ?? []).filter((c) => c.roleName === 'Event Business Manager'),
@@ -6170,6 +6183,18 @@ function EngagementEventBusinessPanel({
 
   const d = financeQuery.data;
 
+  const royalties = calculateRoyalties({
+    totalSeatingCapacity: d?.sellableCapacity ?? null,
+    grossPotential: d?.grossPotential ?? null,
+    mostRecentPaidTicketQuantity: mostRecentDailySales?.ticketsSold ?? null,
+    tourAscap: d?.tourAscap ?? null,
+    tourBmi: d?.tourBmi ?? null,
+    tourSesac: d?.tourSesac ?? null,
+    tourGmr: d?.tourGmr ?? null,
+  });
+  const formatRoyaltyCurrency = (n: number | null): string =>
+    n == null ? '—' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+
   const sectionHeader = (title: string) => (
     <h4 className="text-sm font-semibold text-text-primary uppercase tracking-wide pt-2 pb-1 border-b border-border">{title}</h4>
   );
@@ -6621,22 +6646,52 @@ function EngagementEventBusinessPanel({
 
         {/* ── Licensing / Royalties ─────────────────────────────────── */}
         {sectionHeader('Licensing / Royalties')}
-        <div className="flex flex-wrap gap-3">
-          {(['ASCAP', 'BMI', 'SESAC', 'GMR'] as const).map((org) => {
-            const flag = org === 'ASCAP' ? d?.tourAscap : org === 'BMI' ? d?.tourBmi : org === 'SESAC' ? d?.tourSesac : d?.tourGmr;
-            return (
-              <span key={org} className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${
-                flag === true ? 'bg-green-100 text-green-800 ring-1 ring-green-300' :
-                flag === false ? 'bg-gray-100 text-gray-400' :
-                'bg-gray-100 text-gray-400'
-              }`}>{org}</span>
-            );
-          })}
-          {d?.tourAscap == null && d?.tourBmi == null && d?.tourSesac == null && d?.tourGmr == null && (
-            <span className="text-sm text-text-muted">Licensing flags are set on the Tour record.</span>
-          )}
-        </div>
-        <p className="text-xs text-text-muted mt-1">Fee amounts are calculated from licensing rates — rate data is managed on the Tour record.</p>
+        {(() => {
+          // Only PROs selected on the tour (flag === true) are shown. Order fixed: ASCAP, BMI, SESAC, GMR.
+          const selectedOrgs = ([
+            { org: 'ASCAP', selected: d?.tourAscap === true, line: royalties.ascap },
+            { org: 'BMI', selected: d?.tourBmi === true, line: royalties.bmi },
+            { org: 'SESAC', selected: d?.tourSesac === true, line: royalties.sesac },
+            { org: 'GMR', selected: d?.tourGmr === true, line: royalties.gmr },
+          ] as const).filter((o) => o.selected);
+
+          if (selectedOrgs.length === 0) {
+            return <p className="text-sm text-text-muted">No royalties selected for this tour.</p>;
+          }
+
+          const hasCalculatedOrg = selectedOrgs.some((o) => o.org !== 'GMR');
+          const gmrSelected = selectedOrgs.some((o) => o.org === 'GMR');
+
+          return (
+            <>
+              <div className="flex flex-col gap-3">
+                {selectedOrgs.map(({ org, line }) => (
+                  <div key={org} className="flex flex-col gap-0.5">
+                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 ring-1 ring-green-300">{org}</span>
+                      <span className="text-sm text-text-primary font-medium">
+                        {org === 'GMR' ? 'Not calculated' : line.applicable ? formatRoyaltyCurrency(line.amount) : '—'}
+                      </span>
+                      <span className="text-xs text-text-muted">{line.tierLabel}</span>
+                    </div>
+                    {line.formula && (
+                      <span className="text-xs text-text-muted italic pl-1">{line.formula}</span>
+                    )}
+                  </div>
+                ))}
+                {hasCalculatedOrg && (
+                  <div className="flex items-baseline gap-3 pt-1 border-t border-border">
+                    <span className="text-sm font-semibold text-text-primary">Total royalties (ASCAP + BMI + SESAC)</span>
+                    <span className="text-sm font-semibold text-text-primary">{formatRoyaltyCurrency(royalties.totalRoyalties)}</span>
+                  </div>
+                )}
+              </div>
+              {gmrSelected && (
+                <p className="text-xs text-text-muted mt-1">GMR royalty is determined outside the portal and excluded from the total above.</p>
+              )}
+            </>
+          );
+        })()}
 
         {/* ── RAMP ────────────────────────────────────────────────── */}
         {sectionHeader('RAMP')}
