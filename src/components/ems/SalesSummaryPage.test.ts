@@ -18,8 +18,10 @@ const num = (v: number | null | undefined) => (v != null && Number.isFinite(v) ?
 const delta = (a: number, b: number) => Math.max(0, Number.isFinite(a - b) ? a - b : 0);
 
 /**
- * Replication of `lastDailyMovement` from SalesSummaryPage.tsx (a9dc86e).
+ * Replication of `lastDailyMovement` from SalesSummaryPage.tsx.
  * Returns the daily movement for the most recent reported day at or before cutoff.
+ * Skips "unreported" rows (both values zero after a prior non-zero) to match
+ * the Sales Trends view's fill-forward semantics.
  */
 function lastDailyMovement(rows: LedgerRow[] | undefined, cutoff: string): Snapshot {
   if (!rows?.length) return { tickets: 0, revenue: 0 };
@@ -29,12 +31,18 @@ function lastDailyMovement(rows: LedgerRow[] | undefined, cutoff: string): Snaps
     else break;
   }
   if (idx < 0) return { tickets: 0, revenue: 0 };
-  const cur = rows[idx];
-  const prev = idx > 0 ? rows[idx - 1] : null;
-  return {
-    tickets: delta(cur.tickets, prev?.tickets ?? 0),
-    revenue: delta(cur.revenue, prev?.revenue ?? 0),
-  };
+  while (idx > 0) {
+    const cur = rows[idx];
+    if (cur.tickets === 0 && cur.revenue === 0) { idx--; continue; }
+    let pi = idx - 1;
+    while (pi > 0 && rows[pi].tickets === 0 && rows[pi].revenue === 0) pi--;
+    const prev = rows[pi];
+    const t = delta(cur.tickets, prev.tickets);
+    const r = delta(cur.revenue, prev.revenue);
+    if (t > 0 || r > 0) return { tickets: t, revenue: r };
+    idx = pi;
+  }
+  return { tickets: rows[idx].tickets, revenue: rows[idx].revenue };
 }
 
 /**
@@ -92,13 +100,29 @@ describe('lastDailyMovement (SalesSummaryPage backfill)', () => {
     expect(lastDailyMovement(rows, '2026-05-19')).toEqual({ tickets: 0, revenue: 0 });
   });
 
-  it('clamps negative deltas to zero', () => {
-    // Edge case: cumulative went down (data correction)
+  it('clamps negative deltas to zero and falls back to first row', () => {
+    // Edge case: cumulative went down (data correction). Walk-backward finds
+    // no positive delta, so returns the first row's cumulative (matching the
+    // Sales Trends view which computes chronological[0] - 0 = first row).
     const rows: LedgerRow[] = [
       { salesDate: '2026-05-20', tickets: 20, revenue: 200 },
       { salesDate: '2026-05-21', tickets: 15, revenue: 150 },
     ];
-    expect(lastDailyMovement(rows, '2026-05-21')).toEqual({ tickets: 0, revenue: 0 });
+    expect(lastDailyMovement(rows, '2026-05-21')).toEqual({ tickets: 20, revenue: 200 });
+  });
+
+  it('skips unreported zero rows to match Sales Trends fill-forward', () => {
+    // A row with both values at 0 after previously non-zero data is treated as
+    // unreported (NULL coerced to 0 in the DB). The Sales Trends view carries
+    // forward the prior cumulative for such days. The delta should be computed
+    // against the last reported row before the gap, not against the zero row.
+    const rows: LedgerRow[] = [
+      { salesDate: '2026-05-20', tickets: 1000, revenue: 10000 },
+      { salesDate: '2026-05-21', tickets: 0, revenue: 0 },     // unreported gap
+      { salesDate: '2026-05-22', tickets: 1020, revenue: 10200 },
+    ];
+    // Should be 1020 - 1000 = 20 (skipping the zero row), NOT 1020 - 0 = 1020
+    expect(lastDailyMovement(rows, '2026-05-22')).toEqual({ tickets: 20, revenue: 200 });
   });
 });
 

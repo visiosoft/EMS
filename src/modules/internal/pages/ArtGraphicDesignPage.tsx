@@ -1,24 +1,13 @@
-import { PenTool, Layers, ArrowLeft } from "lucide-react";
+import { PenTool, Layers, ArrowLeft, Loader2 } from "lucide-react";
 import { TeamMemberAvatar } from "../components/TeamMemberAvatar";
 import { UrgentUpcomingSection } from "../components/UrgentUpcomingSection";
 import { InternalPageFrame } from "../layout/InternalPageFrame";
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
+import { useDepartmentTeam } from "../hooks/useDepartmentTeam";
 
 type QuickLinkIconProps = {
   className?: string;
 };
-
-const TEAM_MEMBERS = [
-  { name: "Ben Viette", title: "Art Director" },
-  { name: "Alex Abalo", title: "Graphic Designer" },
-  { name: "Chauncey Hopewell", title: "Graphic Designer" },
-  { name: "Amy Lord", title: "Graphic Designer" },
-  { name: "Autumn Wieske", title: "Production Artist" },
-  { name: "Rebecca Pepe", title: "Creative Director" },
-  { name: "Nichole Beeler", title: "Marketing Designer" },
-  { name: "Andrew Turbiville", title: "Event Designer" },
-  { name: "George Wood", title: "Operations Support" },
-];
 
 function DesignResourcesIcon({ className }: QuickLinkIconProps) {
   return (
@@ -84,6 +73,7 @@ function YouTubeEmbed() {
 
 export function ArtGraphicDesignPage() {
   const { navigate } = useInternalNavigation();
+  const { teamMembers, currentContactId, isLoading, departmentId } = useDepartmentTeam(65);
 
   return (
     <InternalPageFrame footer={<UrgentUpcomingSection pinned />}>
@@ -121,26 +111,35 @@ export function ArtGraphicDesignPage() {
           <h2 className="text-2xl font-semibold">Team Members</h2>
           <div className="mt-7 border-t border-neutral-600">
             <div className="mt-5 max-h-[248px] overflow-y-auto pr-2 [scrollbar-color:#9ca3af_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-neutral-400 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-1.5">
+              {isLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <Loader2 className="h-6 w-6 animate-spin text-neutral-400" />
+                </div>
+              ) : (
               <table className="w-full text-left text-sm">
                 <thead className="sticky top-0 z-10 bg-white">
                   <tr className="border-b border-neutral-200 text-xs font-semibold text-neutral-900">
                     <th className="w-[150px] px-4 py-3">Picture</th>
                     <th className="px-4 py-3">Name</th>
-                    <th className="px-4 py-3">Title</th>
+                    <th className="px-4 py-3">Role</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-100">
-                  {TEAM_MEMBERS.map((member) => (
-                    <tr key={member.name} className="relative">
+                  {teamMembers.map((member) => (
+                    <tr key={member.contactId} className={`relative ${member.contactId === currentContactId ? "bg-blue-50" : ""}`}>
                       <td className="relative px-4 py-4 before:absolute before:left-0 before:top-1/2 before:h-10 before:w-1 before:-translate-y-1/2 before:rounded-full before:bg-neutral-300">
                         <TeamMemberAvatar />
                       </td>
-                      <td className="px-4 py-4 text-sm text-neutral-700">{member.name}</td>
-                      <td className="px-4 py-4 text-sm font-semibold text-neutral-900">{member.title}</td>
+                      <td className="px-4 py-4 text-sm text-neutral-700">
+                        {member.firstName} {member.lastName}
+                        {member.contactId === currentContactId && <span className="ml-2 text-xs font-bold text-blue-600">(You)</span>}
+                      </td>
+                      <td className="px-4 py-4 text-sm font-semibold text-neutral-900">{member.roleName || "—"}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              )}
             </div>
           </div>
         </section>
@@ -162,7 +161,7 @@ export function ArtGraphicDesignPage() {
                 </a>
               ))}
               <a
-                href="/internal/learning-portal?fromView=department-art-graphic-design&fromTitle=Art+%26+Graphic+Design"
+                href={`/internal/learning-portal?fromView=department-art-graphic-design&fromTitle=Art+%26+Graphic+Design&departmentId=${departmentId}`}
                 target="_blank"
                 rel="noreferrer"
                 className="col-span-1 flex h-[58px] w-full items-center justify-between gap-3 bg-black px-4 text-sm font-semibold text-white transition-colors hover:bg-neutral-800 sm:col-span-2"
