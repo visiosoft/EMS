@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, User, Briefcase, Heart, Star, Award, Lock, MapPin, Loader2, Save } from 'lucide-react';
+import { ArrowLeft, User, Briefcase, Heart, Star, Award, Lock, MapPin, Loader2, Save, Eye, EyeOff } from 'lucide-react';
 import {
   fetchEmployeePersonalProfile,
   updateEmployeePersonalProfile,
@@ -38,6 +38,7 @@ import {
 } from '@/api/myProfileApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { useAddressAutofill } from '@/hooks/useAddressAutofill';
+import { getActiveAccount, getAccountEmail } from '@/auth/entra';
 import { TabBar } from './Primitives';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -93,6 +94,18 @@ function SourceBadge({ source }: { source: DataSource }) {
 export function UserProfileDetail({ user, onBack }: UserProfileDetailProps) {
   const [profileTab, setProfileTab] = useState<ProfileTab>('Overview');
 
+  // Determine current viewer's access level from their own employment profile
+  const currentUserEmail = getAccountEmail(getActiveAccount()) || '';
+  const viewerProfileQuery = useQuery({
+    queryKey: ['employee-employment-profile', currentUserEmail],
+    queryFn: () => fetchEmployeeEmploymentProfile(currentUserEmail),
+    enabled: !!currentUserEmail,
+    staleTime: 60_000,
+  });
+  // Grant admin visibility to 'Administrator' and 'Super Admin' roles
+  const viewerAccessLevel = viewerProfileQuery.data?.accessLevel || '';
+  const isAdmin = viewerAccessLevel === 'Administrator' || viewerAccessLevel === 'Super Admin';
+
   return (
     <div className="space-y-4">
       {/* Header with back button */}
@@ -122,9 +135,9 @@ export function UserProfileDetail({ user, onBack }: UserProfileDetailProps) {
 
       {/* Tab Content */}
       {profileTab === 'Overview' && <OverviewTab user={user} />}
-      {profileTab === 'Personal' && <PersonalTab user={user} />}
-      {profileTab === 'Employment' && <EmploymentTab user={user} />}
-      {profileTab === 'Health Insurance' && <HealthInsuranceTab user={user} />}
+      {profileTab === 'Personal' && <PersonalTab user={user} isAdmin={isAdmin} />}
+      {profileTab === 'Employment' && <EmploymentTab user={user} isAdmin={isAdmin} />}
+      {profileTab === 'Health Insurance' && <HealthInsuranceTab user={user} isAdmin={isAdmin} />}
       {profileTab === 'Experience' && <ExperienceTab user={user} />}
       {profileTab === 'Certifications' && <CertificationsTab />}
     </div>
@@ -231,6 +244,80 @@ function SectionCard({ title, icon, children }: { title: string; icon: React.Rea
       </div>
       <div className="px-4 py-4">
         {children}
+      </div>
+    </div>
+  );
+}
+
+/** A field that hashes its value with a Show/Hide toggle button (for SSN, Age, etc.) */
+function HashedField({ label, value, source }: { label: string; value: string; source?: DataSource }) {
+  const [revealed, setRevealed] = useState(false);
+  const masked = value ? '••••••••' : '—';
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-1.5">
+        <label className="text-xs font-medium text-text-muted">{label}</label>
+        {source && <SourceBadge source={source} />}
+        <Lock className="h-3 w-3 text-text-muted/50" />
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="flex-1 rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-secondary">
+          {revealed ? (value || '—') : masked}
+        </div>
+        {value && (
+          <button
+            type="button"
+            onClick={() => setRevealed(!revealed)}
+            className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-2 text-xs font-medium text-text-secondary hover:bg-hover transition-colors"
+            title={revealed ? 'Hide' : 'Show'}
+          >
+            {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            {revealed ? 'Hide' : 'Show'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** An editable field that masks its value by default with a Show/Hide toggle button */
+function HashedEditableField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  source,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  source?: DataSource;
+}) {
+  const [revealed, setRevealed] = useState(false);
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-1.5">
+        <label className="text-xs font-medium text-text-muted">{label}</label>
+        {source && <SourceBadge source={source} />}
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          type={revealed ? 'text' : 'password'}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="flex-1 rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none"
+        />
+        <button
+          type="button"
+          onClick={() => setRevealed(!revealed)}
+          className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-2 text-xs font-medium text-text-secondary hover:bg-hover transition-colors"
+          title={revealed ? 'Hide' : 'Show'}
+        >
+          {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+          {revealed ? 'Hide' : 'Show'}
+        </button>
       </div>
     </div>
   );
@@ -351,7 +438,7 @@ function OverviewTab({ user }: { user: UserProfileUser }) {
 
 // ─── Personal Tab ─────────────────────────────────────────────────────────────
 
-function PersonalTab({ user }: { user: UserProfileUser }) {
+function PersonalTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolean }) {
   const qc = useQueryClient();
 
   // ── Fetch existing profile ────────────────────────────────────────────────
@@ -486,19 +573,26 @@ function PersonalTab({ user }: { user: UserProfileUser }) {
           <ReadOnlyField label="First Name" value={user.name.split(' ')[0] || ''} source="entra" />
           <EditableField label="Middle Name" value={middleName} onChange={setMiddleName} placeholder="Enter middle name" source="employee" />
           <ReadOnlyField label="Last Name" value={user.name.split(' ').slice(1).join(' ') || ''} source="entra" />
-          <EditableField label="Personal Email" value={personalEmail} onChange={setPersonalEmail} type="email" placeholder="personal@example.com" source="employee" />
+          {isAdmin && (
+            <EditableField label="Personal Email" value={personalEmail} onChange={setPersonalEmail} type="email" placeholder="personal@example.com" source="employee" />
+          )}
           <ReadOnlyField label="Cell Phone Number" value={user.mobilePhone || ''} source="entra" />
           <EditableField label="Birth Date" value={birthDate} onChange={setBirthDate} type="date" source="employee" />
-          <EditableField label="Social Security Number" value={ssn} onChange={setSsn} placeholder="•••-••-••••" source="employee" />
-          {age !== null ? (
-            <ReadOnlyField label="Age" value={`${age} years`} source="calculated" />
-          ) : (
-            <ReadOnlyField label="Age" value="Enter birth date" source="calculated" />
+          {isAdmin && (
+            <HashedEditableField label="Social Security Number" value={ssn} onChange={setSsn} placeholder="•••-••-••••" source="employee" />
+          )}
+          {isAdmin && (
+            age !== null ? (
+              <HashedField label="Age" value={`${age} years`} source="calculated" />
+            ) : (
+              <ReadOnlyField label="Age" value="Enter birth date" source="calculated" />
+            )
           )}
         </div>
       </SectionCard>
 
-      {/* Home Address */}
+      {/* Home Address (Admin Only) */}
+      {isAdmin && (
       <SectionCard title="Home Address" icon={<MapPin className="h-4 w-4 text-ems-accent" />}>
         <div className="grid gap-4 md:grid-cols-2">
           {/* Street Address with Google Places autocomplete */}
@@ -568,8 +662,10 @@ function PersonalTab({ user }: { user: UserProfileUser }) {
           />
         </div>
       </SectionCard>
+      )}
 
-      {/* Emergency Contact */}
+      {/* Emergency Contact (Admin Only) */}
+      {isAdmin && (
       <SectionCard title="Emergency Contact" icon={<User className="h-4 w-4 text-ems-coral" />}>
         <div className="grid gap-4 md:grid-cols-2">
           <EditableField
@@ -599,6 +695,7 @@ function PersonalTab({ user }: { user: UserProfileUser }) {
           />
         </div>
       </SectionCard>
+      )}
 
       {/* Save Bar */}
       <div className="flex items-center gap-3">
@@ -627,7 +724,7 @@ function PersonalTab({ user }: { user: UserProfileUser }) {
 
 // ─── Employment Tab ───────────────────────────────────────────────────────────
 
-function EmploymentTab({ user }: { user: UserProfileUser }) {
+function EmploymentTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolean }) {
   const qc = useQueryClient();
 
   // ── Fetch existing employment profile ─────────────────────────────────────
@@ -836,11 +933,13 @@ function EmploymentTab({ user }: { user: UserProfileUser }) {
           <ReadOnlyField label="Title" value={user.jobTitle || ''} source="entra" />
           <ReadOnlyField label="Work Email" value={user.email} source="entra" />
           <ReadOnlyField label="Office" value={user.officeLocation || ''} source="entra" />
-          <ReadOnlyField
-            label="Microsoft Office License"
-            value={licensesQuery.isLoading ? 'Loading…' : licensesQuery.data?.length ? licensesQuery.data.join(', ') : 'None'}
-            source="entra"
-          />
+          {isAdmin && (
+            <ReadOnlyField
+              label="Microsoft Office License"
+              value={licensesQuery.isLoading ? 'Loading…' : licensesQuery.data?.length ? licensesQuery.data.join(', ') : 'None'}
+              source="entra"
+            />
+          )}
           <div className="md:col-span-2">
             <ReadOnlyField
               label="Microsoft Group Membership"
@@ -854,26 +953,30 @@ function EmploymentTab({ user }: { user: UserProfileUser }) {
       {/* Admin-entered fields */}
       <SectionCard title="Employment Details" icon={<Briefcase className="h-4 w-4 text-ems-blue" />}>
         <div className="grid gap-4 md:grid-cols-2">
-          <SelectField
-            label="Access Level"
-            value={accessLevel}
-            onChange={setAccessLevel}
-            options={[
-              { value: 'Administrator', label: 'Administrator' },
-              { value: 'Employee', label: 'Employee' },
-            ]}
-            source="admin"
-          />
-          <SelectField
-            label="Work Authorization"
-            value={workAuthorization}
-            onChange={setWorkAuthorization}
-            options={[
-              { value: 'US Citizen', label: 'US Citizen' },
-              { value: 'Foreign National with Work Authorization', label: 'Foreign National with Work Authorization' },
-            ]}
-            source="admin"
-          />
+          {isAdmin && (
+            <SelectField
+              label="Access Level"
+              value={accessLevel}
+              onChange={setAccessLevel}
+              options={[
+                { value: 'Administrator', label: 'Administrator' },
+                { value: 'Employee', label: 'Employee' },
+              ]}
+              source="admin"
+            />
+          )}
+          {isAdmin && (
+            <SelectField
+              label="Work Authorization"
+              value={workAuthorization}
+              onChange={setWorkAuthorization}
+              options={[
+                { value: 'US Citizen', label: 'US Citizen' },
+                { value: 'Foreign National with Work Authorization', label: 'Foreign National with Work Authorization' },
+              ]}
+              source="admin"
+            />
+          )}
           {/* Workstation grouped select */}
           <div className="space-y-1">
             <div className="flex items-center gap-2">
@@ -929,37 +1032,45 @@ function EmploymentTab({ user }: { user: UserProfileUser }) {
                 })}
             </select>
           </div>
-          <EditableField label="Paid Time Off Accrual Rate (days/year)" value={ptoAccrualRate} onChange={setPtoAccrualRate} type="number" placeholder="e.g. 15" source="admin" />
-          <SelectField
-            label="Employment Agreement Fully Executed"
-            value={employmentAgreement}
-            onChange={setEmploymentAgreement}
-            options={[
-              { value: 'Yes', label: 'Yes' },
-              { value: 'No', label: 'No' },
-            ]}
-            source="admin"
-          />
-          <SelectField
-            label="Ramp Account"
-            value={rampAccount}
-            onChange={setRampAccount}
-            options={[
-              { value: 'Yes', label: 'Yes' },
-              { value: 'No', label: 'No' },
-            ]}
-            source="admin"
-          />
-          <SelectField
-            label="Ramp Credit Card"
-            value={rampCreditCard}
-            onChange={setRampCreditCard}
-            options={[
-              { value: 'Assigned', label: 'Assigned' },
-              { value: 'Unassigned', label: 'Unassigned' },
-            ]}
-            source="admin"
-          />
+          {isAdmin && (
+            <EditableField label="Paid Time Off Accrual Rate (days/year)" value={ptoAccrualRate} onChange={setPtoAccrualRate} type="number" placeholder="e.g. 15" source="admin" />
+          )}
+          {isAdmin && (
+            <SelectField
+              label="Employment Agreement Fully Executed"
+              value={employmentAgreement}
+              onChange={setEmploymentAgreement}
+              options={[
+                { value: 'Yes', label: 'Yes' },
+                { value: 'No', label: 'No' },
+              ]}
+              source="admin"
+            />
+          )}
+          {isAdmin && (
+            <SelectField
+              label="Ramp Account"
+              value={rampAccount}
+              onChange={setRampAccount}
+              options={[
+                { value: 'Yes', label: 'Yes' },
+                { value: 'No', label: 'No' },
+              ]}
+              source="admin"
+            />
+          )}
+          {isAdmin && (
+            <SelectField
+              label="Ramp Credit Card"
+              value={rampCreditCard}
+              onChange={setRampCreditCard}
+              options={[
+                { value: 'Assigned', label: 'Assigned' },
+                { value: 'Unassigned', label: 'Unassigned' },
+              ]}
+              source="admin"
+            />
+          )}
         </div>
       </SectionCard>
 
@@ -1034,7 +1145,7 @@ function EmploymentTab({ user }: { user: UserProfileUser }) {
         </div>
       </SectionCard>
 
-      {/* Desk Phone & Equipment (read-only from inventory) */}
+      {/* Desk Phone & Equipment */}
       <SectionCard title="Desk Phone & Equipment" icon={<Briefcase className="h-4 w-4 text-ems-green" />}>
         <div className="grid gap-4 md:grid-cols-2">
           <ReadOnlyField label="Desk Phone Number" value="(312) 274-1800" source="admin" />
@@ -1067,90 +1178,94 @@ function EmploymentTab({ user }: { user: UserProfileUser }) {
               ))}
             </select>
           </div>
-          {/* Desk Phone MAC dropdown */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <label className="text-xs font-medium text-text-muted">Desk Phone MAC Address</label>
+          {/* Admin-only: Desk Phone MAC dropdown */}
+          {isAdmin && (
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-medium text-text-muted">Desk Phone MAC Address</label>
+              </div>
+              <select
+                value={deskPhoneMac}
+                onChange={(e) => {
+                  const mac = e.target.value;
+                  setDeskPhoneMac(mac);
+                  const phone = phoneDevicesQuery.data?.phones.find(
+                    (p) => p.macAddress === mac,
+                  );
+                  if (phone) {
+                    setDeskPhoneBrand(phone.make || '');
+                    setDeskPhoneModel(phone.model || '');
+                    setSelectedPhoneId(phone.phoneId);
+                  } else {
+                    setDeskPhoneBrand('');
+                    setDeskPhoneModel('');
+                    setSelectedPhoneId(null);
+                  }
+                }}
+                className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue"
+              >
+                <option value="">Select phone…</option>
+                {phoneDevicesQuery.data?.phones.map((phone) => (
+                  <option
+                    key={phone.phoneId}
+                    value={phone.macAddress}
+                    disabled={phone.isAssigned}
+                  >
+                    {phone.macAddress} — {phone.make} {phone.model}{phone.isAssigned ? ' (assigned)' : ''}
+                  </option>
+                ))}
+              </select>
             </div>
-            <select
-              value={deskPhoneMac}
-              onChange={(e) => {
-                const mac = e.target.value;
-                setDeskPhoneMac(mac);
-                const phone = phoneDevicesQuery.data?.phones.find(
-                  (p) => p.macAddress === mac,
-                );
-                if (phone) {
-                  setDeskPhoneBrand(phone.make || '');
-                  setDeskPhoneModel(phone.model || '');
-                  setSelectedPhoneId(phone.phoneId);
-                } else {
-                  setDeskPhoneBrand('');
-                  setDeskPhoneModel('');
-                  setSelectedPhoneId(null);
-                }
-              }}
-              className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue"
-            >
-              <option value="">Select phone…</option>
-              {phoneDevicesQuery.data?.phones.map((phone) => (
-                <option
-                  key={phone.phoneId}
-                  value={phone.macAddress}
-                  disabled={phone.isAssigned}
-                >
-                  {phone.macAddress} — {phone.make} {phone.model}{phone.isAssigned ? ' (assigned)' : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-          <ReadOnlyField label="Desk Phone Brand" value={deskPhoneBrand || '—'} source="inventory" />
-          <ReadOnlyField label="Desk Phone Model" value={deskPhoneModel || '—'} source="inventory" />
-          {/* PC Service Tag dropdown */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <label className="text-xs font-medium text-text-muted">PC Service Tag</label>
+          )}
+          {isAdmin && <ReadOnlyField label="Desk Phone Brand" value={deskPhoneBrand || '—'} source="inventory" />}
+          {isAdmin && <ReadOnlyField label="Desk Phone Model" value={deskPhoneModel || '—'} source="inventory" />}
+          {/* Admin-only: PC Service Tag dropdown */}
+          {isAdmin && (
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-medium text-text-muted">PC Service Tag</label>
+              </div>
+              <select
+                value={pcServiceTag}
+                onChange={(e) => {
+                  const tag = e.target.value;
+                  setPcServiceTag(tag);
+                  const pc = pcDevicesQuery.data?.computers.find(
+                    (c) => c.serviceTag === tag,
+                  );
+                  if (pc) {
+                    setPcBrand(pc.make || '');
+                    setPcModel(pc.model || '');
+                    setBluetoothStatus(pc.bluetoothStatus || '');
+                    setPcWindowsName(pc.pcName || '');
+                    setSelectedComputerId(pc.computerId);
+                  } else {
+                    setPcBrand('');
+                    setPcModel('');
+                    setBluetoothStatus('');
+                    setPcWindowsName('');
+                    setSelectedComputerId(null);
+                  }
+                }}
+                className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue"
+              >
+                <option value="">Select PC…</option>
+                {pcDevicesQuery.data?.computers.map((pc) => (
+                  <option
+                    key={pc.computerId}
+                    value={pc.serviceTag}
+                    disabled={pc.isAssigned}
+                  >
+                    {pc.serviceTag} — {pc.pcName}{pc.isAssigned ? ' (assigned)' : ''}
+                  </option>
+                ))}
+              </select>
             </div>
-            <select
-              value={pcServiceTag}
-              onChange={(e) => {
-                const tag = e.target.value;
-                setPcServiceTag(tag);
-                const pc = pcDevicesQuery.data?.computers.find(
-                  (c) => c.serviceTag === tag,
-                );
-                if (pc) {
-                  setPcBrand(pc.make || '');
-                  setPcModel(pc.model || '');
-                  setBluetoothStatus(pc.bluetoothStatus || '');
-                  setPcWindowsName(pc.pcName || '');
-                  setSelectedComputerId(pc.computerId);
-                } else {
-                  setPcBrand('');
-                  setPcModel('');
-                  setBluetoothStatus('');
-                  setPcWindowsName('');
-                  setSelectedComputerId(null);
-                }
-              }}
-              className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue"
-            >
-              <option value="">Select PC…</option>
-              {pcDevicesQuery.data?.computers.map((pc) => (
-                <option
-                  key={pc.computerId}
-                  value={pc.serviceTag}
-                  disabled={pc.isAssigned}
-                >
-                  {pc.serviceTag} — {pc.pcName}{pc.isAssigned ? ' (assigned)' : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-          <ReadOnlyField label="PC Brand" value={pcBrand || '—'} source="inventory" />
-          <ReadOnlyField label="PC Model" value={pcModel || '—'} source="inventory" />
-          <ReadOnlyField label="Bluetooth Status" value={bluetoothStatus || '—'} source="inventory" />
-          <ReadOnlyField label="PC Windows Name" value={pcWindowsName || '—'} source="inventory" />
+          )}
+          {isAdmin && <ReadOnlyField label="PC Brand" value={pcBrand || '—'} source="inventory" />}
+          {isAdmin && <ReadOnlyField label="PC Model" value={pcModel || '—'} source="inventory" />}
+          {isAdmin && <ReadOnlyField label="Bluetooth Status" value={bluetoothStatus || '—'} source="inventory" />}
+          {isAdmin && <ReadOnlyField label="PC Windows Name" value={pcWindowsName || '—'} source="inventory" />}
         </div>
       </SectionCard>
 
@@ -1327,7 +1442,7 @@ function InsuranceSection({
   );
 }
 
-function HealthInsuranceTab({ user }: { user: UserProfileUser }) {
+function HealthInsuranceTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolean }) {
   const qc = useQueryClient();
 
   const insuranceQuery = useQuery({
@@ -1445,6 +1560,19 @@ function HealthInsuranceTab({ user }: { user: UserProfileUser }) {
 
   const plans = insuranceQuery.data?.plans ?? [];
   const insuranceEligibility = insuranceQuery.data?.insuranceEligibility ?? 'Ineligible';
+
+  // Non-admin users only see Health Insurance Status
+  if (!isAdmin) {
+    return (
+      <div className="space-y-4">
+        <SectionCard title="Health Insurance Information" icon={<Heart className="h-4 w-4 text-ems-coral" />}>
+          <div className="grid gap-4 md:grid-cols-2">
+            <ReadOnlyField label="Health Insurance Status" value={insuranceEligibility} source="calculated" />
+          </div>
+        </SectionCard>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
