@@ -55,46 +55,78 @@ export class EmployeeExperienceService {
 
     const contactId = Number(contactRows[0].contactId ?? contactRows[0].ContactID);
 
-    // 1. Engagements Assigned To — distinct tour names for all assignments
+    // 1. Engagements Assigned To — display titles for all assignments
     const assignedRows = await this.dataSource.query(
       `
-      SELECT DISTINCT t.TourName AS tourName
+      SELECT DISTINCT
+        CASE
+          WHEN a.AttractionName IS NOT NULL AND vc.CompanyName IS NOT NULL
+            THEN a.AttractionName + N' — ' + t.TourName + N' @ ' + vc.CompanyName
+          WHEN a.AttractionName IS NOT NULL
+            THEN a.AttractionName + N' — ' + t.TourName
+          WHEN vc.CompanyName IS NOT NULL
+            THEN t.TourName + N' @ ' + vc.CompanyName
+          ELSE t.TourName
+        END AS displayTitle
       FROM dbo.EngagementIAEContact eic
       INNER JOIN dbo.Engagement e ON e.EngagementID = eic.EngagementID
       INNER JOIN dbo.Tour t ON t.TourID = e.TourID
+      LEFT JOIN dbo.Attraction a ON a.AttractionID = t.AttractionID
+      LEFT JOIN dbo.EngagementVenue ev ON ev.EngagementID = e.EngagementID AND ev.IsPrimary = 1
+      LEFT JOIN dbo.Company vc ON vc.CompanyID = ev.VenueCompanyID
       WHERE eic.ContactID = @0
-      ORDER BY t.TourName
+      ORDER BY displayTitle
       `,
       [contactId],
     );
 
-    // 2. Engagements Worked On — distinct tour names with at least one past performance
+    // 2. Engagements Worked On — display titles with at least one past performance
     const workedRows = await this.dataSource.query(
       `
-      SELECT DISTINCT t.TourName AS tourName
+      SELECT DISTINCT
+        CASE
+          WHEN a.AttractionName IS NOT NULL AND vc.CompanyName IS NOT NULL
+            THEN a.AttractionName + N' — ' + t.TourName + N' @ ' + vc.CompanyName
+          WHEN a.AttractionName IS NOT NULL
+            THEN a.AttractionName + N' — ' + t.TourName
+          WHEN vc.CompanyName IS NOT NULL
+            THEN t.TourName + N' @ ' + vc.CompanyName
+          ELSE t.TourName
+        END AS displayTitle
       FROM dbo.EngagementIAEContact eic
       INNER JOIN dbo.Engagement e ON e.EngagementID = eic.EngagementID
       INNER JOIN dbo.Tour t ON t.TourID = e.TourID
+      LEFT JOIN dbo.Attraction a ON a.AttractionID = t.AttractionID
+      LEFT JOIN dbo.EngagementVenue ev ON ev.EngagementID = e.EngagementID AND ev.IsPrimary = 1
+      LEFT JOIN dbo.Company vc ON vc.CompanyID = ev.VenueCompanyID
       WHERE eic.ContactID = @0
         AND EXISTS (
           SELECT 1 FROM dbo.Performance p
           WHERE p.EngagementID = e.EngagementID
             AND p.PerformanceDate < CAST(GETUTCDATE() AS date)
         )
-      ORDER BY t.TourName
+      ORDER BY displayTitle
       `,
       [contactId],
     );
 
-    // 3. Markets Worked In — distinct DMA market names
+    // 3. Markets Worked In — distinct DMA market names from all engagements
+    //    on tours where the employee has at least one IAE contact assignment
     const marketRows = await this.dataSource.query(
       `
       SELECT DISTINCT d.MarketName AS marketName
-      FROM dbo.EngagementIAEContact eic
-      INNER JOIN dbo.EngagementVenue ev ON ev.EngagementID = eic.EngagementID
+      FROM dbo.Engagement e
+      INNER JOIN dbo.EngagementVenue ev ON ev.EngagementID = e.EngagementID AND ev.IsPrimary = 1
       INNER JOIN dbo.Company co ON co.CompanyID = ev.VenueCompanyID
       INNER JOIN dbo.DMA d ON d.DMAID = co.DMAID
-      WHERE eic.ContactID = @0
+      WHERE e.TourID IN (
+        SELECT DISTINCT e2.TourID
+        FROM dbo.EngagementIAEContact eic2
+        INNER JOIN dbo.Engagement e2 ON e2.EngagementID = eic2.EngagementID
+        WHERE eic2.ContactID = @0
+      )
+        AND d.MarketName IS NOT NULL
+        AND d.MarketName <> ''
       ORDER BY d.MarketName
       `,
       [contactId],
@@ -102,8 +134,8 @@ export class EmployeeExperienceService {
 
     return {
       contactId,
-      engagementsAssignedTo: extractStrings(assignedRows, 'tourName', 'TourName'),
-      engagementsWorkedOn: extractStrings(workedRows, 'tourName', 'TourName'),
+      engagementsAssignedTo: extractStrings(assignedRows, 'displayTitle', 'DisplayTitle'),
+      engagementsWorkedOn: extractStrings(workedRows, 'displayTitle', 'DisplayTitle'),
       marketsWorkedIn: extractStrings(marketRows, 'marketName', 'MarketName'),
     };
   }

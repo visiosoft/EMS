@@ -29,6 +29,7 @@ import {
 import {
   fetchEmployeeExperience,
 } from '@/api/employeeExperienceApi';
+import { fetchEmployeeCertifications } from '@/api/employeeCertificationsApi';
 import { fetchIaeStaffEmployees } from '@/api/iaeEmployeesApi';
 import {
   fetchMyProfile,
@@ -144,7 +145,7 @@ export function UserProfileDetail({ user, onBack, addToast }: UserProfileDetailP
       {profileTab === 'Employment' && <EmploymentTab user={user} isAdmin={isAdmin} addToast={addToast} />}
       {profileTab === 'Health Insurance' && <HealthInsuranceTab user={user} isAdmin={isAdmin} addToast={addToast} />}
       {profileTab === 'Experience' && <ExperienceTab user={user} />}
-      {profileTab === 'Certifications' && <CertificationsTab />}
+      {profileTab === 'Certifications' && <CertificationsTab user={user} />}
     </div>
   );
 }
@@ -1745,9 +1746,50 @@ function ExperienceTab({ user }: { user: UserProfileUser }) {
 
 // ─── Certifications Tab ───────────────────────────────────────────────────────
 
-function CertificationsTab() {
-  // Placeholder certifications — will be admin-entered in future
-  const certifications: { id: string; name: string; issuer: string; dateAwarded: string; tags: string[] }[] = [];
+/** Platform brand colors for logo backgrounds */
+const PLATFORM_COLORS: Record<string, { bg: string; text: string }> = {
+  adobe: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-600 dark:text-red-400' },
+  coursera: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-600 dark:text-blue-400' },
+  'linkedin learning': { bg: 'bg-sky-100 dark:bg-sky-900/30', text: 'text-sky-600 dark:text-sky-400' },
+  skillshare: { bg: 'bg-emerald-100 dark:bg-emerald-900/30', text: 'text-emerald-600 dark:text-emerald-400' },
+  canva: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-600 dark:text-purple-400' },
+  awwwards: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-600 dark:text-amber-400' },
+  google: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-600 dark:text-green-400' },
+  meta: { bg: 'bg-indigo-100 dark:bg-indigo-900/30', text: 'text-indigo-600 dark:text-indigo-400' },
+  cfi: { bg: 'bg-slate-100 dark:bg-slate-900/30', text: 'text-slate-600 dark:text-slate-400' },
+};
+
+function getPlatformStyle(platform: string) {
+  const key = platform.toLowerCase();
+  return PLATFORM_COLORS[key] || { bg: 'bg-ems-accent/10', text: 'text-ems-accent' };
+}
+
+function CertificationsTab({ user }: { user: UserProfileUser }) {
+  const certificationsQuery = useQuery({
+    queryKey: ['employee-certifications', user.email],
+    queryFn: () => fetchEmployeeCertifications(user.email),
+    enabled: !!user.email,
+    staleTime: 30_000,
+  });
+
+  if (certificationsQuery.isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16 text-text-muted">
+        <Loader2 className="h-5 w-5 animate-spin mr-2" />
+        Loading certifications…
+      </div>
+    );
+  }
+
+  if (certificationsQuery.isError && !certificationsQuery.data) {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20 px-4 py-6 text-center text-sm text-red-700 dark:text-red-300">
+        {friendlyApiError(certificationsQuery.error, 'Could not load certifications.')}
+      </div>
+    );
+  }
+
+  const certifications = certificationsQuery.data?.certifications ?? [];
 
   return (
     <div className="space-y-4">
@@ -1759,37 +1801,56 @@ function CertificationsTab() {
               <Award className="mx-auto h-10 w-10 text-text-muted/40" />
               <p className="mt-3 text-sm font-medium text-text-secondary">No certifications on file</p>
               <p className="mt-1 text-xs text-text-muted">
-                Certifications and credentials will appear here as cards once entered by an administrator.
+                Certifications and credentials will appear here once verified through the Learning Portal.
               </p>
             </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {certifications.map((cert) => (
-                <div
-                  key={cert.id}
-                  className="rounded-lg border border-border bg-surface p-4 shadow-sm hover:shadow-md transition-shadow"
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-ems-accent/10 text-ems-accent">
-                      <Award className="h-5 w-5" />
+              {certifications.map((cert) => {
+                const style = getPlatformStyle(cert.platformName);
+                return (
+                  <div
+                    key={cert.submissionId}
+                    className="rounded-lg border border-border bg-surface p-4 shadow-sm hover:shadow-md transition-shadow"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${style.bg}`}>
+                        <Award className={`h-5 w-5 ${style.text}`} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h4 className="text-sm font-semibold text-text-primary leading-tight">{cert.certificationName}</h4>
+                        <p className="text-xs text-text-secondary mt-0.5">{cert.platformName}</p>
+                        {cert.dateCompleted && (
+                          <p className="mt-1 text-xs text-text-muted">Awarded: {cert.dateCompleted}</p>
+                        )}
+                      </div>
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <h4 className="text-sm font-semibold text-text-primary truncate">{cert.name}</h4>
-                      <p className="text-xs text-text-secondary">{cert.issuer}</p>
-                      <p className="mt-1 text-xs text-text-muted">Awarded: {cert.dateAwarded}</p>
+                    <div className="mt-3 flex items-center justify-between">
+                      <div className="flex flex-wrap gap-1">
+                        {cert.tags.map((tag) => (
+                          <span key={tag} className="inline-flex rounded-full bg-ems-accent/10 px-2 py-0.5 text-[10px] font-medium text-ems-accent">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                      {cert.pointsAwarded > 0 && (
+                        <span className="text-[10px] font-bold text-ems-amber">{cert.pointsAwarded} pts</span>
+                      )}
                     </div>
+                    {cert.credentialUrl && (
+                      <a
+                        href={cert.credentialUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 inline-flex items-center gap-1 text-xs text-ems-blue hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        View Credential →
+                      </a>
+                    )}
                   </div>
-                  {cert.tags.length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-1">
-                      {cert.tags.map((tag) => (
-                        <span key={tag} className="inline-flex rounded-full bg-ems-accent/10 px-2 py-0.5 text-[10px] font-medium text-ems-accent">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

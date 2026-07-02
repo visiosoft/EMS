@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Headers, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { AdminUsersService } from './admin-users.service';
+import { EmployeeCertificationsService } from './employee-certifications.service';
 import {
   EmployeeEmploymentService,
   UpdateEmployeeEmploymentProfileDto,
@@ -30,6 +31,7 @@ import {
 export class AdminUsersController {
   constructor(
     private readonly adminUsersService: AdminUsersService,
+    private readonly employeeCertificationsService: EmployeeCertificationsService,
     private readonly employeeEmploymentService: EmployeeEmploymentService,
     private readonly employeeExperienceService: EmployeeExperienceService,
     private readonly employeeHealthInsuranceService: EmployeeHealthInsuranceService,
@@ -96,6 +98,11 @@ export class AdminUsersController {
   @Get('users/:email/experience')
   async getExperience(@Param('email') email: string) {
     return this.employeeExperienceService.getExperience(email);
+  }
+
+  @Get('users/:email/certifications')
+  async getCertifications(@Param('email') email: string) {
+    return this.employeeCertificationsService.getCertifications(email);
   }
 
   @Get('users/:email/health-insurance')
