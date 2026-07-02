@@ -80,6 +80,11 @@ export class AdminUsersController {
     return this.employeeEmploymentService.getEmploymentProfile(email);
   }
 
+  @Get('access-levels')
+  async getAllAccessLevels() {
+    return this.employeeEmploymentService.getAllAccessLevels();
+  }
+
   @Patch('users/:email/employment-profile')
   async updateEmploymentProfile(
     @Param('email') email: string,

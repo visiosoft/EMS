@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { IsOptional, IsString } from 'class-validator';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
 import { AuditRequestContext } from '../audit/audit-request-context.service';
 
 // ─── Response / DTO Types ─────────────────────────────────────────────────────
@@ -41,7 +41,7 @@ export type EmployeePersonalProfileResponse = {
 };
 
 export class UpdateEmployeePersonalProfileDto {
-  @IsOptional() @IsString() middleName?: string | null;
+  @IsOptional() @IsString() @MaxLength(100) middleName?: string | null;
   @IsOptional() @IsString() personalEmail?: string | null;
   @IsOptional() @IsString() birthDate?: string | null;
   @IsOptional() @IsString() ssn?: string | null;
@@ -172,22 +172,42 @@ export class EmployeeProfileService {
             ],
           );
         } else {
-          const addrRows = await manager.query(
-            `
-            INSERT INTO dbo.Address (AddressLine1, AddressLine2, City, StateProvince, PostalCode, Country)
-            OUTPUT INSERTED.AddressID AS addressId
-            VALUES (@0, @1, @2, @3, @4, @5)
-            `,
-            [
-              cleanText(dto.homeStreet) || '',
-              nullableText(dto.homeAddress2),
-              cleanText(dto.homeCity) || '',
-              cleanText(dto.homeState) || '',
-              cleanText(dto.homePostalCode) || '',
-              cleanText(dto.homeCountry) || '',
-            ],
+          // Check if this address already exists (unique index on Address table)
+          const street = cleanText(dto.homeStreet) || '';
+          const city = cleanText(dto.homeCity) || '';
+          const state = cleanText(dto.homeState) || '';
+          const postalCode = cleanText(dto.homePostalCode) || '';
+          const country = cleanText(dto.homeCountry) || '';
+          const address2 = nullableText(dto.homeAddress2);
+
+          const existingAddr = await manager.query(
+            `SELECT TOP 1 AddressID AS addressId FROM dbo.Address
+             WHERE AddressLine1 = @0 AND City = @1 AND StateProvince = @2 AND Country = @3 AND PostalCode = @4`,
+            [street, city, state, country, postalCode],
           );
-          const newAddressId = readNumber(addrRows[0], 'addressId', 'AddressID');
+
+          let newAddressId: number | null = null;
+          if (existingAddr.length > 0) {
+            newAddressId = readNumber(existingAddr[0], 'addressId', 'AddressID');
+            // Update address line 2 if needed
+            if (newAddressId) {
+              await manager.query(
+                `UPDATE dbo.Address SET AddressLine2 = @0 WHERE AddressID = @1`,
+                [address2, newAddressId],
+              );
+            }
+          } else {
+            const addrRows = await manager.query(
+              `
+              INSERT INTO dbo.Address (AddressLine1, AddressLine2, City, StateProvince, PostalCode, Country)
+              OUTPUT INSERTED.AddressID AS addressId
+              VALUES (@0, @1, @2, @3, @4, @5)
+              `,
+              [street, address2, city, state, postalCode, country],
+            );
+            newAddressId = readNumber(addrRows[0], 'addressId', 'AddressID');
+          }
+
           if (newAddressId) {
             await manager.query(
               `UPDATE dbo.EmployeeProfile SET HomeAddressID = @0 WHERE ContactID = @1`,
@@ -425,12 +445,23 @@ function readDateString(
     const value = row[key];
     if (value === null || value === undefined) continue;
     if (value instanceof Date) {
-      return isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
+      if (isNaN(value.getTime())) return null;
+      // Use local date parts to avoid timezone shift
+      const y = value.getFullYear();
+      const m = String(value.getMonth() + 1).padStart(2, '0');
+      const d = String(value.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
     }
     const str = String(value).trim();
     if (!str) continue;
-    const d = new Date(str);
-    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    // For string dates, parse and use local parts
+    const parsed = new Date(str + 'T00:00:00');
+    if (!isNaN(parsed.getTime())) {
+      const y = parsed.getFullYear();
+      const m = String(parsed.getMonth() + 1).padStart(2, '0');
+      const d = String(parsed.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
   }
   return null;
 }

@@ -75,6 +75,10 @@ export function fetchEmployeeEmploymentProfile(
   );
 }
 
+export function fetchAllAccessLevels(): Promise<{ email: string; accessLevel: string }[]> {
+  return apiFetch<{ email: string; accessLevel: string }[]>('/admin/access-levels');
+}
+
 export function updateEmployeeEmploymentProfile(
   email: string,
   request: UpdateEmployeeEmploymentProfileRequest,

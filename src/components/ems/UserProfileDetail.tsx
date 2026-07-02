@@ -62,6 +62,7 @@ export interface UserProfileUser {
 interface UserProfileDetailProps {
   user: UserProfileUser;
   onBack?: () => void;
+  addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 }
 
 type ProfileTab = 'Overview' | 'Personal' | 'Employment' | 'Health Insurance' | 'Experience' | 'Certifications';
@@ -91,8 +92,12 @@ function SourceBadge({ source }: { source: DataSource }) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function UserProfileDetail({ user, onBack }: UserProfileDetailProps) {
-  const [profileTab, setProfileTab] = useState<ProfileTab>('Overview');
+export function UserProfileDetail({ user, onBack, addToast }: UserProfileDetailProps) {
+  // When opened from Settings (onBack present), skip Overview tab
+  const availableTabs = onBack
+    ? ['Personal', 'Employment', 'Health Insurance', 'Experience', 'Certifications'] as const
+    : ['Overview', 'Personal', 'Employment', 'Health Insurance', 'Experience', 'Certifications'] as const;
+  const [profileTab, setProfileTab] = useState<ProfileTab>(availableTabs[0]);
 
   // Determine current viewer's access level from their own employment profile
   const currentUserEmail = getAccountEmail(getActiveAccount()) || '';
@@ -128,16 +133,16 @@ export function UserProfileDetail({ user, onBack }: UserProfileDetailProps) {
 
       {/* Profile Tabs */}
       <TabBar
-        tabs={['Overview', 'Personal', 'Employment', 'Health Insurance', 'Experience', 'Certifications']}
+        tabs={availableTabs as unknown as string[]}
         active={profileTab}
         onChange={(t) => setProfileTab(t as ProfileTab)}
       />
 
       {/* Tab Content */}
-      {profileTab === 'Overview' && <OverviewTab user={user} />}
-      {profileTab === 'Personal' && <PersonalTab user={user} isAdmin={isAdmin} />}
-      {profileTab === 'Employment' && <EmploymentTab user={user} isAdmin={isAdmin} />}
-      {profileTab === 'Health Insurance' && <HealthInsuranceTab user={user} isAdmin={isAdmin} />}
+      {profileTab === 'Overview' && !onBack && <OverviewTab user={user} addToast={addToast} />}
+      {profileTab === 'Personal' && <PersonalTab user={user} isAdmin={isAdmin} addToast={addToast} />}
+      {profileTab === 'Employment' && <EmploymentTab user={user} isAdmin={isAdmin} addToast={addToast} />}
+      {profileTab === 'Health Insurance' && <HealthInsuranceTab user={user} isAdmin={isAdmin} addToast={addToast} />}
       {profileTab === 'Experience' && <ExperienceTab user={user} />}
       {profileTab === 'Certifications' && <CertificationsTab />}
     </div>
@@ -192,6 +197,7 @@ function EditableField({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         disabled={disabled}
+        autoComplete="off"
         className={`w-full rounded-md border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${isEntra ? 'bg-gray-100 dark:bg-gray-800' : 'bg-white dark:bg-white/5'}`}
       />
     </div>
@@ -231,6 +237,19 @@ function SelectField({
           <option key={opt.value} value={opt.value}>{opt.label}</option>
         ))}
       </select>
+    </div>
+  );
+}
+
+/** Full-screen saving overlay */
+function SavingOverlay({ visible }: { visible: boolean }) {
+  if (!visible) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+      <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-6 py-4 shadow-xl">
+        <Loader2 className="h-5 w-5 animate-spin text-ems-accent" />
+        <span className="text-sm font-medium text-text-primary">Saving…</span>
+      </div>
     </div>
   );
 }
@@ -302,13 +321,24 @@ function HashedEditableField({
         {source && <SourceBadge source={source} />}
       </div>
       <div className="flex items-center gap-2">
-        <input
-          type={revealed ? 'text' : 'password'}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          className="flex-1 rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none"
-        />
+        {revealed ? (
+          <input
+            type="text"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={placeholder}
+            autoComplete="one-time-code"
+            name="ssn_field_no_autofill"
+            className="flex-1 rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none"
+          />
+        ) : (
+          <div
+            className="flex-1 rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-secondary cursor-text"
+            onClick={() => setRevealed(true)}
+          >
+            {value ? '••••••••' : <span className="text-text-muted">{placeholder || '—'}</span>}
+          </div>
+        )}
         <button
           type="button"
           onClick={() => setRevealed(!revealed)}
@@ -325,7 +355,7 @@ function HashedEditableField({
 
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 
-function OverviewTab({ user }: { user: UserProfileUser }) {
+function OverviewTab({ user, addToast }: { user: UserProfileUser; addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void }) {
   const qc = useQueryClient();
 
   const profileQuery = useQuery({
@@ -339,7 +369,6 @@ function OverviewTab({ user }: { user: UserProfileUser }) {
   const [department, setDepartment] = useState('');
   const [mobilePhone, setMobilePhone] = useState('');
   const [workPhone, setWorkPhone] = useState('');
-  const [saveMessage, setSaveMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   const populateForm = useCallback((data: MyProfile) => {
     setFirstName(data.firstName || '');
@@ -358,12 +387,10 @@ function OverviewTab({ user }: { user: UserProfileUser }) {
     onSuccess: (data) => {
       qc.setQueryData(['my-profile'], data);
       populateForm(data);
-      setSaveMessage({ text: 'Profile saved.', type: 'success' });
-      setTimeout(() => setSaveMessage(null), 4000);
+      addToast?.('Profile saved.', 'success');
     },
     onError: (error) => {
-      setSaveMessage({ text: friendlyApiError(error, 'Could not save profile.'), type: 'error' });
-      setTimeout(() => setSaveMessage(null), 6000);
+      addToast?.(friendlyApiError(error, 'Could not save profile.'), 'error');
     },
   });
 
@@ -392,6 +419,7 @@ function OverviewTab({ user }: { user: UserProfileUser }) {
 
   return (
     <div className="space-y-4">
+      <SavingOverlay visible={saveMutation.isPending} />
       <SectionCard title="Profile" icon={<User className="h-4 w-4 text-ems-accent" />}>
         <div className="grid gap-4 md:grid-cols-2">
           <EditableField label="First Name *" value={firstName} onChange={setFirstName} source="ems" />
@@ -426,11 +454,6 @@ function OverviewTab({ user }: { user: UserProfileUser }) {
           )}
           {saveMutation.isPending ? 'Saving…' : 'Save Profile'}
         </button>
-        {saveMessage && (
-          <span className={`text-sm ${saveMessage.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
-            {saveMessage.text}
-          </span>
-        )}
       </div>
     </div>
   );
@@ -438,8 +461,13 @@ function OverviewTab({ user }: { user: UserProfileUser }) {
 
 // ─── Personal Tab ─────────────────────────────────────────────────────────────
 
-function PersonalTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolean }) {
+function PersonalTab({ user, isAdmin, addToast }: { user: UserProfileUser; isAdmin: boolean; addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void }) {
   const qc = useQueryClient();
+
+  // Determine if the logged-in user is viewing their own profile
+  const currentUserEmail = getAccountEmail(getActiveAccount()) || '';
+  const isSelf = currentUserEmail.toLowerCase() === user.email.toLowerCase();
+  const canEditPersonal = isAdmin || isSelf;
 
   // ── Fetch existing profile ────────────────────────────────────────────────
   const profileQuery = useQuery({
@@ -468,7 +496,6 @@ function PersonalTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolea
     email: '',
     cellPhone: '',
   });
-  const [saveMessage, setSaveMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   // ── Sync fetched data into form state ─────────────────────────────────────
   const populateForm = useCallback((data: EmployeePersonalProfile) => {
@@ -503,12 +530,10 @@ function PersonalTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolea
     onSuccess: (data) => {
       qc.setQueryData(['employee-personal-profile', user.email], data);
       populateForm(data);
-      setSaveMessage({ text: 'Personal profile saved.', type: 'success' });
-      setTimeout(() => setSaveMessage(null), 4000);
+      addToast?.('Personal profile saved.', 'success');
     },
     onError: (error) => {
-      setSaveMessage({ text: friendlyApiError(error, 'Could not save profile.'), type: 'error' });
-      setTimeout(() => setSaveMessage(null), 6000);
+      addToast?.(friendlyApiError(error, 'Could not save profile.'), 'error');
     },
   });
 
@@ -567,18 +592,19 @@ function PersonalTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolea
 
   return (
     <div className="space-y-4">
+      <SavingOverlay visible={saveMutation.isPending} />
       {/* Basic Info */}
       <SectionCard title="Basic Information" icon={<User className="h-4 w-4 text-ems-accent" />}>
         <div className="grid gap-4 md:grid-cols-3">
           <ReadOnlyField label="First Name" value={user.name.split(' ')[0] || ''} source="entra" />
           <EditableField label="Middle Name" value={middleName} onChange={setMiddleName} placeholder="Enter middle name" source="employee" />
           <ReadOnlyField label="Last Name" value={user.name.split(' ').slice(1).join(' ') || ''} source="entra" />
-          {isAdmin && (
-            <EditableField label="Personal Email" value={personalEmail} onChange={setPersonalEmail} type="email" placeholder="personal@example.com" source="employee" />
+          {canEditPersonal && (
+            <EditableField label="Personal Email" value={personalEmail} onChange={setPersonalEmail} type="text" placeholder="personal@example.com" source="employee" />
           )}
           <ReadOnlyField label="Cell Phone Number" value={user.mobilePhone || ''} source="entra" />
           <EditableField label="Birth Date" value={birthDate} onChange={setBirthDate} type="date" source="employee" />
-          {isAdmin && (
+          {canEditPersonal && (
             <HashedEditableField label="Social Security Number" value={ssn} onChange={setSsn} placeholder="•••-••-••••" source="employee" />
           )}
           {isAdmin && (
@@ -591,8 +617,8 @@ function PersonalTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolea
         </div>
       </SectionCard>
 
-      {/* Home Address (Admin Only) */}
-      {isAdmin && (
+      {/* Home Address (Admin or Self) */}
+      {canEditPersonal && (
       <SectionCard title="Home Address" icon={<MapPin className="h-4 w-4 text-ems-accent" />}>
         <div className="grid gap-4 md:grid-cols-2">
           {/* Street Address with Google Places autocomplete */}
@@ -664,8 +690,8 @@ function PersonalTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolea
       </SectionCard>
       )}
 
-      {/* Emergency Contact (Admin Only) */}
-      {isAdmin && (
+      {/* Emergency Contact (Admin or Self) */}
+      {canEditPersonal && (
       <SectionCard title="Emergency Contact" icon={<User className="h-4 w-4 text-ems-coral" />}>
         <div className="grid gap-4 md:grid-cols-2">
           <EditableField
@@ -712,11 +738,6 @@ function PersonalTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolea
           )}
           {saveMutation.isPending ? 'Saving…' : 'Save Personal Info'}
         </button>
-        {saveMessage && (
-          <span className={`text-sm ${saveMessage.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
-            {saveMessage.text}
-          </span>
-        )}
       </div>
     </div>
   );
@@ -724,7 +745,7 @@ function PersonalTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolea
 
 // ─── Employment Tab ───────────────────────────────────────────────────────────
 
-function EmploymentTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolean }) {
+function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isAdmin: boolean; addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void }) {
   const qc = useQueryClient();
 
   // ── Fetch existing employment profile ─────────────────────────────────────
@@ -786,7 +807,7 @@ function EmploymentTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: bool
   });
 
   // ── Local form state ──────────────────────────────────────────────────────
-  const [accessLevel, setAccessLevel] = useState('Employee');
+  const [accessLevel, setAccessLevel] = useState('');
   const [workAuthorization, setWorkAuthorization] = useState('');
   const [workstation, setWorkstation] = useState('');
   const [officeAddress, setOfficeAddress] = useState({
@@ -812,7 +833,6 @@ function EmploymentTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: bool
   const [employmentAgreement, setEmploymentAgreement] = useState('');
   const [rampAccount, setRampAccount] = useState('');
   const [rampCreditCard, setRampCreditCard] = useState('');
-  const [saveMessage, setSaveMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   // Track selected equipment IDs for save
   const [selectedExtensionId, setSelectedExtensionId] = useState<number | null>(null);
   const [selectedPhoneId, setSelectedPhoneId] = useState<number | null>(null);
@@ -820,7 +840,7 @@ function EmploymentTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: bool
 
   // ── Sync fetched data into form ───────────────────────────────────────────
   const populateForm = useCallback((data: EmployeeEmploymentProfile) => {
-    setAccessLevel(data.accessLevel || 'Employee');
+    setAccessLevel(data.accessLevel || '');
     setWorkAuthorization(data.workAuthorization || '');
     setWorkstation(data.workstation || '');
     setStartDate(data.startDate || '');
@@ -873,12 +893,10 @@ function EmploymentTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: bool
     onSuccess: (data) => {
       qc.setQueryData(['employee-employment-profile', user.email], data);
       populateForm(data);
-      setSaveMessage({ text: 'Employment profile saved.', type: 'success' });
-      setTimeout(() => setSaveMessage(null), 4000);
+      addToast?.('Employment profile saved.', 'success');
     },
     onError: (error) => {
-      setSaveMessage({ text: friendlyApiError(error, 'Could not save employment profile.'), type: 'error' });
-      setTimeout(() => setSaveMessage(null), 6000);
+      addToast?.(friendlyApiError(error, 'Could not save employment profile.'), 'error');
     },
   });
 
@@ -927,6 +945,7 @@ function EmploymentTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: bool
 
   return (
     <div className="space-y-4">
+      <SavingOverlay visible={saveMutation.isPending} />
       {/* Entra-fed fields */}
       <SectionCard title="Entra Directory Info (Read-Only)" icon={<Briefcase className="h-4 w-4 text-ems-accent" />}>
         <div className="grid gap-4 md:grid-cols-2">
@@ -985,7 +1004,8 @@ function EmploymentTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: bool
             <select
               value={workstation}
               onChange={(e) => setWorkstation(e.target.value)}
-              className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue"
+              disabled={!isAdmin}
+              className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue disabled:cursor-not-allowed disabled:opacity-50"
             >
               <option value="">Select workstation…</option>
               {workstationsQuery.data?.offices.map((office) => (
@@ -1003,7 +1023,7 @@ function EmploymentTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: bool
               ))}
             </select>
           </div>
-          <EditableField label="Start Date at IAE" value={startDate} onChange={setStartDate} type="date" source="admin" />
+          <EditableField label="Start Date at IAE" value={startDate} onChange={setStartDate} type="date" source="admin" disabled={!isAdmin} />
           {yearsOfService !== null ? (
             <ReadOnlyField label="Years of Service" value={yearsOfService} source="calculated" />
           ) : (
@@ -1017,7 +1037,8 @@ function EmploymentTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: bool
             <select
               value={supervisor}
               onChange={(e) => setSupervisor(e.target.value)}
-              className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue"
+              disabled={!isAdmin}
+              className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue disabled:cursor-not-allowed disabled:opacity-50"
             >
               <option value="">Select supervisor…</option>
               {employeesQuery.data
@@ -1090,7 +1111,8 @@ function EmploymentTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: bool
                 onFocus={officeAutofill.onStreetFocus}
                 onBlur={officeAutofill.onStreetBlur}
                 placeholder="Start typing to search…"
-                className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none"
+                disabled={!isAdmin}
+                className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
               />
               {officeAutofill.showSuggestions && (
                 <div className="absolute z-20 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-48 overflow-auto">
@@ -1116,30 +1138,35 @@ function EmploymentTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: bool
             value={officeAddress.address2}
             onChange={(v) => setOfficeAddress((prev) => ({ ...prev, address2: v }))}
             placeholder="Suite, floor, etc."
+            disabled={!isAdmin}
             source="google"
           />
           <EditableField
             label="City"
             value={officeAddress.city}
             onChange={(v) => setOfficeAddress((prev) => ({ ...prev, city: v }))}
+            disabled={!isAdmin}
             source="google"
           />
           <EditableField
             label="State"
             value={officeAddress.state}
             onChange={(v) => setOfficeAddress((prev) => ({ ...prev, state: v }))}
+            disabled={!isAdmin}
             source="google"
           />
           <EditableField
             label="Postal Code"
             value={officeAddress.postalCode}
             onChange={(v) => setOfficeAddress((prev) => ({ ...prev, postalCode: v }))}
+            disabled={!isAdmin}
             source="google"
           />
           <EditableField
             label="Country"
             value={officeAddress.country}
             onChange={(v) => setOfficeAddress((prev) => ({ ...prev, country: v }))}
+            disabled={!isAdmin}
             source="google"
           />
         </div>
@@ -1164,7 +1191,8 @@ function EmploymentTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: bool
                 );
                 setSelectedExtensionId(ext?.extensionId ?? null);
               }}
-              className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue"
+              disabled={!isAdmin}
+              className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue disabled:cursor-not-allowed disabled:opacity-50"
             >
               <option value="">Select extension…</option>
               {phoneExtensionsQuery.data?.extensions.map((ext) => (
@@ -1284,11 +1312,6 @@ function EmploymentTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: bool
           )}
           {saveMutation.isPending ? 'Saving…' : 'Save Employment Info'}
         </button>
-        {saveMessage && (
-          <span className={`text-sm ${saveMessage.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
-            {saveMessage.text}
-          </span>
-        )}
       </div>
     </div>
   );
@@ -1442,7 +1465,7 @@ function InsuranceSection({
   );
 }
 
-function HealthInsuranceTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolean }) {
+function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser; isAdmin: boolean; addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void }) {
   const qc = useQueryClient();
 
   const insuranceQuery = useQuery({
@@ -1460,7 +1483,6 @@ function HealthInsuranceTab({ user, isAdmin }: { user: UserProfileUser; isAdmin:
   const [dentalPlanId, setDentalPlanId] = useState('');
   const [visionOptIn, setVisionOptIn] = useState('');
   const [visionPlanId, setVisionPlanId] = useState('');
-  const [saveMessage, setSaveMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   // Derived from fetched data
   const [healthPrice, setHealthPrice] = useState('');
@@ -1506,12 +1528,10 @@ function HealthInsuranceTab({ user, isAdmin }: { user: UserProfileUser; isAdmin:
     onSuccess: (data) => {
       qc.setQueryData(['employee-health-insurance', user.email], data);
       populateForm(data);
-      setSaveMessage({ text: 'Health insurance saved.', type: 'success' });
-      setTimeout(() => setSaveMessage(null), 4000);
+      addToast?.('Health insurance saved.', 'success');
     },
     onError: (error) => {
-      setSaveMessage({ text: friendlyApiError(error, 'Could not save health insurance.'), type: 'error' });
-      setTimeout(() => setSaveMessage(null), 6000);
+      addToast?.(friendlyApiError(error, 'Could not save health insurance.'), 'error');
     },
   });
 
@@ -1576,6 +1596,7 @@ function HealthInsuranceTab({ user, isAdmin }: { user: UserProfileUser; isAdmin:
 
   return (
     <div className="space-y-4">
+      <SavingOverlay visible={saveMutation.isPending} />
       <SectionCard title="Health Insurance Information" icon={<Heart className="h-4 w-4 text-ems-coral" />}>
         <div className="grid gap-4 md:grid-cols-2">
           <ReadOnlyField label="Health Insurance Status" value={insuranceEligibility} source="calculated" />
@@ -1652,11 +1673,6 @@ function HealthInsuranceTab({ user, isAdmin }: { user: UserProfileUser; isAdmin:
           )}
           {saveMutation.isPending ? 'Saving…' : 'Save Health Insurance'}
         </button>
-        {saveMessage && (
-          <span className={`text-sm ${saveMessage.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
-            {saveMessage.text}
-          </span>
-        )}
       </div>
     </div>
   );

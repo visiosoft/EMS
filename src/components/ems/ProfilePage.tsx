@@ -47,7 +47,7 @@ export function ProfilePage({ addToast }: ProfilePageProps) {
           {friendlyApiError(profileQuery.error, 'Could not load profile.')}
         </div>
       ) : loggedInUser ? (
-        <UserProfileDetail user={loggedInUser} />
+        <UserProfileDetail user={loggedInUser} addToast={addToast} />
       ) : null}
     </div>
   );

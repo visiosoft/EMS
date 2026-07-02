@@ -156,6 +156,27 @@ export class EmployeeEmploymentService {
     return this.loadEmploymentProfile(email);
   }
 
+  /** Returns access levels for all internal employees in a single query. */
+  async getAllAccessLevels(): Promise<{ email: string; accessLevel: string }[]> {
+    const hasEpTable = await this.tableExists('EmployeeProfile');
+    if (!hasEpTable) return [];
+
+    const rows = await this.dataSource.query(`
+      SELECT
+        LOWER(LTRIM(RTRIM(ci.Email))) AS email,
+        COALESCE(ep.AccessLevel, '') AS accessLevel
+      FROM dbo.EmployeeProfile ep
+      INNER JOIN dbo.Contact c ON c.ContactID = ep.ContactID
+      INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+      WHERE ci.Email IS NOT NULL AND ci.Email <> ''
+    `);
+
+    return rows.map((r: Record<string, unknown>) => ({
+      email: readString(r, 'email'),
+      accessLevel: readString(r, 'accessLevel'),
+    }));
+  }
+
   async updateEmploymentProfile(
     userEmail: string,
     dto: UpdateEmployeeEmploymentProfileDto,
@@ -185,37 +206,30 @@ export class EmployeeEmploymentService {
       console.log('[EmpProfile] epExists:', epExists, 'contactId:', current.contactId, 'dto:', JSON.stringify(dto));
 
       if (epExists.length > 0) {
-        const updateResult = await manager.query(
-          `
-          UPDATE dbo.EmployeeProfile
-          SET AccessLevel          = @0,
-              WorkAuthorization    = @1,
-              StartDate            = @2,
-              Supervisor           = @3,
-              PTOAccrualRate       = @4,
-              EmploymentAgreement  = @5,
-              RampAccount          = @6,
-              RampCreditCard       = @7,
-              Workstation          = @8,
-              modified_by          = @9,
-              modified_at          = SYSUTCDATETIME()
-          WHERE ContactID = @10
-          `,
-          [
-            nullableText(dto.accessLevel),
-            nullableText(dto.workAuthorization),
-            nullableDate(dto.startDate),
-            nullableText(dto.supervisor),
-            nullableText(dto.ptoAccrualRate),
-            nullableText(dto.employmentAgreement),
-            nullableText(dto.rampAccount),
-            nullableText(dto.rampCreditCard),
-            nullableText(dto.workstation),
-            modifiedBy,
-            current.contactId,
-          ],
-        );
-        console.log('[EmpProfile] UPDATE result:', updateResult);
+        // Only update fields that are explicitly provided (not undefined)
+        const setClauses: string[] = [];
+        const params: (string | null)[] = [];
+        let paramIdx = 0;
+
+        if (dto.accessLevel !== undefined) { setClauses.push(`AccessLevel = @${paramIdx}`); params.push(nullableText(dto.accessLevel)); paramIdx++; }
+        if (dto.workAuthorization !== undefined) { setClauses.push(`WorkAuthorization = @${paramIdx}`); params.push(nullableText(dto.workAuthorization)); paramIdx++; }
+        if (dto.startDate !== undefined) { setClauses.push(`StartDate = @${paramIdx}`); params.push(nullableDate(dto.startDate)); paramIdx++; }
+        if (dto.supervisor !== undefined) { setClauses.push(`Supervisor = @${paramIdx}`); params.push(nullableText(dto.supervisor)); paramIdx++; }
+        if (dto.ptoAccrualRate !== undefined) { setClauses.push(`PTOAccrualRate = @${paramIdx}`); params.push(nullableText(dto.ptoAccrualRate)); paramIdx++; }
+        if (dto.employmentAgreement !== undefined) { setClauses.push(`EmploymentAgreement = @${paramIdx}`); params.push(nullableText(dto.employmentAgreement)); paramIdx++; }
+        if (dto.rampAccount !== undefined) { setClauses.push(`RampAccount = @${paramIdx}`); params.push(nullableText(dto.rampAccount)); paramIdx++; }
+        if (dto.rampCreditCard !== undefined) { setClauses.push(`RampCreditCard = @${paramIdx}`); params.push(nullableText(dto.rampCreditCard)); paramIdx++; }
+        if (dto.workstation !== undefined) { setClauses.push(`Workstation = @${paramIdx}`); params.push(nullableText(dto.workstation)); paramIdx++; }
+
+        if (setClauses.length > 0) {
+          setClauses.push(`modified_by = @${paramIdx}`); params.push(modifiedBy); paramIdx++;
+          setClauses.push(`modified_at = SYSUTCDATETIME()`);
+          const updateResult = await manager.query(
+            `UPDATE dbo.EmployeeProfile SET ${setClauses.join(', ')} WHERE ContactID = @${paramIdx}`,
+            [...params, current.contactId],
+          );
+          console.log('[EmpProfile] UPDATE result:', updateResult);
+        }
       } else {
         await manager.query(
           `
@@ -276,22 +290,41 @@ export class EmployeeEmploymentService {
             ],
           );
         } else {
-          const rows = await manager.query(
-            `
-            INSERT INTO dbo.Address (AddressLine1, AddressLine2, City, StateProvince, PostalCode, Country)
-            OUTPUT INSERTED.AddressID AS addressId
-            VALUES (@0, @1, @2, @3, @4, @5)
-            `,
-            [
-              cleanText(dto.officeStreet) || '',
-              nullableText(dto.officeAddress2),
-              cleanText(dto.officeCity) || '',
-              cleanText(dto.officeState) || '',
-              cleanText(dto.officePostalCode) || '',
-              cleanText(dto.officeCountry) || '',
-            ],
+          // Check if this address already exists (unique index on Address table)
+          const street = cleanText(dto.officeStreet) || '';
+          const city = cleanText(dto.officeCity) || '';
+          const state = cleanText(dto.officeState) || '';
+          const postalCode = cleanText(dto.officePostalCode) || '';
+          const country = cleanText(dto.officeCountry) || '';
+          const address2 = nullableText(dto.officeAddress2);
+
+          const existingAddr = await manager.query(
+            `SELECT TOP 1 AddressID AS addressId FROM dbo.Address
+             WHERE AddressLine1 = @0 AND City = @1 AND StateProvince = @2 AND Country = @3 AND PostalCode = @4`,
+            [street, city, state, country, postalCode],
           );
-          const newAddressId = readNumber(rows[0], 'addressId', 'AddressID');
+
+          let newAddressId: number | null = null;
+          if (existingAddr.length > 0) {
+            newAddressId = readNumber(existingAddr[0], 'addressId', 'AddressID');
+            if (newAddressId) {
+              await manager.query(
+                `UPDATE dbo.Address SET AddressLine2 = @0 WHERE AddressID = @1`,
+                [address2, newAddressId],
+              );
+            }
+          } else {
+            const rows = await manager.query(
+              `
+              INSERT INTO dbo.Address (AddressLine1, AddressLine2, City, StateProvince, PostalCode, Country)
+              OUTPUT INSERTED.AddressID AS addressId
+              VALUES (@0, @1, @2, @3, @4, @5)
+              `,
+              [street, address2, city, state, postalCode, country],
+            );
+            newAddressId = readNumber(rows[0], 'addressId', 'AddressID');
+          }
+
           if (newAddressId) {
             await manager.query(
               `UPDATE dbo.EmployeeProfile SET OfficeAddressID = @0 WHERE ContactID = @1`,
@@ -786,12 +819,21 @@ function readDateString(
     const value = row[key];
     if (value === null || value === undefined) continue;
     if (value instanceof Date) {
-      return isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
+      if (isNaN(value.getTime())) return null;
+      const y = value.getFullYear();
+      const m = String(value.getMonth() + 1).padStart(2, '0');
+      const d = String(value.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
     }
     const str = String(value).trim();
     if (!str) continue;
-    const d = new Date(str);
-    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    const parsed = new Date(str + 'T00:00:00');
+    if (!isNaN(parsed.getTime())) {
+      const y = parsed.getFullYear();
+      const m = String(parsed.getMonth() + 1).padStart(2, '0');
+      const d = String(parsed.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
   }
   return null;
 }
