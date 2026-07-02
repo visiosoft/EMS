@@ -762,6 +762,7 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
     queryKey: ['workstations'],
     queryFn: fetchWorkstations,
     staleTime: 60_000,
+    enabled: isAdmin,
   });
 
   // ── Fetch phone extension options ─────────────────────────────────────────
@@ -769,6 +770,7 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
     queryKey: ['phone-extensions'],
     queryFn: fetchPhoneExtensions,
     staleTime: 60_000,
+    enabled: isAdmin,
   });
 
   // ── Fetch phone device options ────────────────────────────────────────────
@@ -776,6 +778,7 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
     queryKey: ['phone-devices'],
     queryFn: fetchPhoneDevices,
     staleTime: 60_000,
+    enabled: isAdmin,
   });
 
   // ── Fetch PC device options ───────────────────────────────────────────────
@@ -783,6 +786,7 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
     queryKey: ['pc-devices'],
     queryFn: fetchPcDevices,
     staleTime: 60_000,
+    enabled: isAdmin,
   });
 
   // ── Fetch internal employees (for Supervisor dropdown) ────────────────────
@@ -790,6 +794,7 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
     queryKey: ['iae-staff-employees'],
     queryFn: fetchIaeStaffEmployees,
     staleTime: 60_000,
+    enabled: isAdmin,
   });
 
   // ── Fetch Entra licenses & group membership ───────────────────────────────

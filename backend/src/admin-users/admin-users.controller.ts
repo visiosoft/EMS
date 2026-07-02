@@ -29,6 +29,7 @@ import { AccessLevelService } from '../common/access-level.service';
 import { AccessLevelGuard } from '../common/access-level.guard';
 import { AccessLevel } from '../common/access-level.enum';
 import { RequireAccessLevel } from '../common/require-access-level.decorator';
+import { AdminOrSelfGuard } from '../common/admin-or-self.guard';
 import { AuditRequestContext } from '../audit/audit-request-context.service';
 
 @Controller('admin')
@@ -81,11 +82,13 @@ export class AdminUsersController {
   }
 
   @Get('users/:email/personal-profile')
+  @UseGuards(AdminOrSelfGuard)
   async getPersonalProfile(@Param('email') email: string) {
     return this.employeeProfileService.getPersonalProfile(email);
   }
 
   @Patch('users/:email/personal-profile')
+  @UseGuards(AdminOrSelfGuard)
   async updatePersonalProfile(
     @Param('email') email: string,
     @Body() dto: UpdateEmployeePersonalProfileDto,
@@ -94,6 +97,7 @@ export class AdminUsersController {
   }
 
   @Get('users/:email/employment-profile')
+  @UseGuards(AdminOrSelfGuard)
   async getEmploymentProfile(@Param('email') email: string) {
     return this.employeeEmploymentService.getEmploymentProfile(email);
   }
@@ -105,6 +109,7 @@ export class AdminUsersController {
   }
 
   @Patch('users/:email/employment-profile')
+  @RequireAccessLevel(AccessLevel.Administrator)
   async updateEmploymentProfile(
     @Param('email') email: string,
     @Body() dto: UpdateEmployeeEmploymentProfileDto,
@@ -113,21 +118,25 @@ export class AdminUsersController {
   }
 
   @Get('users/:email/experience')
+  @UseGuards(AdminOrSelfGuard)
   async getExperience(@Param('email') email: string) {
     return this.employeeExperienceService.getExperience(email);
   }
 
   @Get('users/:email/certifications')
+  @UseGuards(AdminOrSelfGuard)
   async getCertifications(@Param('email') email: string) {
     return this.employeeCertificationsService.getCertifications(email);
   }
 
   @Get('users/:email/health-insurance')
+  @UseGuards(AdminOrSelfGuard)
   async getHealthInsurance(@Param('email') email: string) {
     return this.employeeHealthInsuranceService.getHealthInsurance(email);
   }
 
   @Patch('users/:email/health-insurance')
+  @UseGuards(AdminOrSelfGuard)
   async updateHealthInsurance(
     @Param('email') email: string,
     @Body() dto: UpdateEmployeeHealthInsuranceDto,
@@ -160,7 +169,7 @@ export class AdminUsersController {
   }
 
   @Get('users/:email/licenses')
-  @RequireAccessLevel(AccessLevel.Administrator)
+  @UseGuards(AdminOrSelfGuard)
   async getUserLicenses(
     @Param('email') email: string,
     @Headers('x-entra-graph-access-token') graphAccessToken?: string,
@@ -169,7 +178,7 @@ export class AdminUsersController {
   }
 
   @Get('users/:email/groups')
-  @RequireAccessLevel(AccessLevel.Administrator)
+  @UseGuards(AdminOrSelfGuard)
   async getUserGroups(
     @Param('email') email: string,
     @Headers('x-entra-graph-access-token') graphAccessToken?: string,
