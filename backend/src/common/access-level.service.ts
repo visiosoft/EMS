@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AccessLevel } from './access-level.enum';
@@ -14,6 +14,8 @@ import { AccessLevel } from './access-level.enum';
  */
 @Injectable()
 export class AccessLevelService {
+  private readonly logger = new Logger(AccessLevelService.name);
+
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
@@ -42,8 +44,10 @@ export class AccessLevelService {
         if (lower === 'employee') return AccessLevel.Employee;
         // Non-empty but unrecognized → treat as Employee
       }
-    } catch {
-      // Table might not exist yet; default to Employee
+    } catch (error) {
+      this.logger.warn(
+        `Failed to resolve access level for "${normalized}": ${error instanceof Error ? error.message : error}`,
+      );
     }
 
     return AccessLevel.Employee;
