@@ -17,25 +17,19 @@ export interface HealthPlanPricingInfo {
   monthlyPremium: number;
 }
 
-export interface HealthPlanAgeRateInfo {
-  ageMin: number;
-  ageMax: number;
-  monthlyRate: number;
-}
-
 export interface HealthPlanOption {
   healthPlanId: number;
   planName: string;
   planType: string;
   benefits: string[];
   pricing: HealthPlanPricingInfo[];
-  ageRates: HealthPlanAgeRateInfo[];
 }
 
 export interface EmployeeHealthInsurance {
   contactId: number;
-  employeeAge: number | null;
   insuranceEligibility: string;
+  tenureTier: '<1 yr' | '1+ yr' | null;
+  companyContributionPerPayPeriod: number;
   elections: InsuranceElection[];
   plans: HealthPlanOption[];
 }

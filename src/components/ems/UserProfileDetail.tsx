@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, User, Briefcase, Heart, Star, Award, Lock, MapPin, Loader2, Save, Eye, EyeOff } from 'lucide-react';
 import {
@@ -176,6 +176,7 @@ function EditableField({
   placeholder,
   disabled,
   source,
+  maxLength,
 }: {
   label: string;
   value: string;
@@ -184,6 +185,7 @@ function EditableField({
   placeholder?: string;
   disabled?: boolean;
   source?: DataSource;
+  maxLength?: number;
 }) {
   const isEntra = source === 'entra';
   return (
@@ -198,6 +200,7 @@ function EditableField({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         disabled={disabled}
+        maxLength={maxLength}
         autoComplete="off"
         className={`w-full rounded-md border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${isEntra ? 'bg-gray-100 dark:bg-gray-800' : 'bg-white dark:bg-white/5'}`}
       />
@@ -307,12 +310,14 @@ function HashedEditableField({
   onChange,
   placeholder,
   source,
+  maxLength,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   source?: DataSource;
+  maxLength?: number;
 }) {
   const [revealed, setRevealed] = useState(false);
   return (
@@ -328,6 +333,7 @@ function HashedEditableField({
             value={value}
             onChange={(e) => onChange(e.target.value)}
             placeholder={placeholder}
+            maxLength={maxLength}
             autoComplete="one-time-code"
             name="ssn_field_no_autofill"
             className="flex-1 rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none"
@@ -423,13 +429,13 @@ function OverviewTab({ user, addToast }: { user: UserProfileUser; addToast?: (me
       <SavingOverlay visible={saveMutation.isPending} />
       <SectionCard title="Profile" icon={<User className="h-4 w-4 text-ems-accent" />}>
         <div className="grid gap-4 md:grid-cols-2">
-          <EditableField label="First Name *" value={firstName} onChange={setFirstName} source="ems" />
-          <EditableField label="Last Name" value={lastName} onChange={setLastName} source="ems" />
+          <EditableField label="First Name *" value={firstName} onChange={setFirstName} source="ems" maxLength={100} />
+          <EditableField label="Last Name" value={lastName} onChange={setLastName} source="ems" maxLength={100} />
           <ReadOnlyField label="Email" value={user.email} source="entra" />
-          <EditableField label="Department *" value={department} onChange={setDepartment} source="ems" />
+          <EditableField label="Department *" value={department} onChange={setDepartment} source="ems" maxLength={100} />
           <ReadOnlyField label="Roles" value={profileQuery.data?.roleNames?.join(', ') || ''} source="ems" />
-          <EditableField label="Mobile Phone" value={mobilePhone} onChange={setMobilePhone} source="ems" />
-          <EditableField label="Work Phone" value={workPhone} onChange={setWorkPhone} source="ems" />
+          <EditableField label="Mobile Phone" value={mobilePhone} onChange={setMobilePhone} source="ems" maxLength={30} />
+          <EditableField label="Work Phone" value={workPhone} onChange={setWorkPhone} source="ems" maxLength={30} />
         </div>
       </SectionCard>
 
@@ -598,15 +604,15 @@ function PersonalTab({ user, isAdmin, addToast }: { user: UserProfileUser; isAdm
       <SectionCard title="Basic Information" icon={<User className="h-4 w-4 text-ems-accent" />}>
         <div className="grid gap-4 md:grid-cols-3">
           <ReadOnlyField label="First Name" value={user.name.split(' ')[0] || ''} source="entra" />
-          <EditableField label="Middle Name" value={middleName} onChange={setMiddleName} placeholder="Enter middle name" source="employee" />
+          <EditableField label="Middle Name" value={middleName} onChange={setMiddleName} placeholder="Enter middle name" source="employee" maxLength={100} />
           <ReadOnlyField label="Last Name" value={user.name.split(' ').slice(1).join(' ') || ''} source="entra" />
           {canEditPersonal && (
-            <EditableField label="Personal Email" value={personalEmail} onChange={setPersonalEmail} type="text" placeholder="personal@example.com" source="employee" />
+            <EditableField label="Personal Email" value={personalEmail} onChange={setPersonalEmail} type="text" placeholder="personal@example.com" source="employee" maxLength={254} />
           )}
           <ReadOnlyField label="Cell Phone Number" value={user.mobilePhone || ''} source="entra" />
           <EditableField label="Birth Date" value={birthDate} onChange={setBirthDate} type="date" source="employee" />
           {canEditPersonal && (
-            <HashedEditableField label="Social Security Number" value={ssn} onChange={setSsn} placeholder="•••-••-••••" source="employee" />
+            <HashedEditableField label="Social Security Number" value={ssn} onChange={setSsn} placeholder="•••-••-••••" source="employee" maxLength={11} />
           )}
           {isAdmin && (
             age !== null ? (
@@ -662,30 +668,35 @@ function PersonalTab({ user, isAdmin, addToast }: { user: UserProfileUser; isAdm
             onChange={(v) => setHomeAddress((prev) => ({ ...prev, address2: v }))}
             placeholder="Apartment, unit, etc."
             source="google"
+            maxLength={200}
           />
           <EditableField
             label="City"
             value={homeAddress.city}
             onChange={(v) => setHomeAddress((prev) => ({ ...prev, city: v }))}
             source="google"
+            maxLength={100}
           />
           <EditableField
             label="State"
             value={homeAddress.state}
             onChange={(v) => setHomeAddress((prev) => ({ ...prev, state: v }))}
             source="google"
+            maxLength={100}
           />
           <EditableField
             label="Postal Code"
             value={homeAddress.postalCode}
             onChange={(v) => setHomeAddress((prev) => ({ ...prev, postalCode: v }))}
             source="google"
+            maxLength={20}
           />
           <EditableField
             label="Country"
             value={homeAddress.country}
             onChange={(v) => setHomeAddress((prev) => ({ ...prev, country: v }))}
             source="google"
+            maxLength={100}
           />
         </div>
       </SectionCard>
@@ -700,12 +711,14 @@ function PersonalTab({ user, isAdmin, addToast }: { user: UserProfileUser; isAdm
             value={emergencyContact.firstName}
             onChange={(v) => setEmergencyContact((prev) => ({ ...prev, firstName: v }))}
             source="employee"
+            maxLength={100}
           />
           <EditableField
             label="Last Name"
             value={emergencyContact.lastName}
             onChange={(v) => setEmergencyContact((prev) => ({ ...prev, lastName: v }))}
             source="employee"
+            maxLength={100}
           />
           <EditableField
             label="Email"
@@ -713,12 +726,14 @@ function PersonalTab({ user, isAdmin, addToast }: { user: UserProfileUser; isAdm
             onChange={(v) => setEmergencyContact((prev) => ({ ...prev, email: v }))}
             type="email"
             source="employee"
+            maxLength={200}
           />
           <EditableField
             label="Cell Phone"
             value={emergencyContact.cellPhone}
             onChange={(v) => setEmergencyContact((prev) => ({ ...prev, cellPhone: v }))}
             source="employee"
+            maxLength={30}
           />
         </div>
       </SectionCard>
@@ -1060,7 +1075,7 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
             </select>
           </div>
           {isAdmin && (
-            <EditableField label="Paid Time Off Accrual Rate (days/year)" value={ptoAccrualRate} onChange={setPtoAccrualRate} type="number" placeholder="e.g. 15" source="admin" />
+            <EditableField label="Paid Time Off Accrual Rate (days/year)" value={ptoAccrualRate} onChange={setPtoAccrualRate} type="number" placeholder="e.g. 15" source="admin" maxLength={100} />
           )}
           {isAdmin && (
             <SelectField
@@ -1146,6 +1161,7 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
             placeholder="Suite, floor, etc."
             disabled={!isAdmin}
             source="google"
+            maxLength={200}
           />
           <EditableField
             label="City"
@@ -1153,6 +1169,7 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
             onChange={(v) => setOfficeAddress((prev) => ({ ...prev, city: v }))}
             disabled={!isAdmin}
             source="google"
+            maxLength={100}
           />
           <EditableField
             label="State"
@@ -1160,6 +1177,7 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
             onChange={(v) => setOfficeAddress((prev) => ({ ...prev, state: v }))}
             disabled={!isAdmin}
             source="google"
+            maxLength={100}
           />
           <EditableField
             label="Postal Code"
@@ -1167,6 +1185,7 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
             onChange={(v) => setOfficeAddress((prev) => ({ ...prev, postalCode: v }))}
             disabled={!isAdmin}
             source="google"
+            maxLength={20}
           />
           <EditableField
             label="Country"
@@ -1174,6 +1193,7 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
             onChange={(v) => setOfficeAddress((prev) => ({ ...prev, country: v }))}
             disabled={!isAdmin}
             source="google"
+            maxLength={100}
           />
         </div>
       </SectionCard>
@@ -1344,7 +1364,8 @@ function InsuranceSection({
   setMonthlyRate,
   payrollDeduction,
   setPayrollDeduction,
-  employeeAge,
+  tenureTier,
+  companyContribPP,
   showAdditional,
 }: {
   title: string;
@@ -1365,10 +1386,25 @@ function InsuranceSection({
   setMonthlyRate?: (v: string) => void;
   payrollDeduction?: string;
   setPayrollDeduction?: (v: string) => void;
-  employeeAge?: number | null;
+  tenureTier?: '<1 yr' | '1+ yr' | null;
+  companyContribPP?: number;
   showAdditional?: boolean;
 }) {
   const typePlans = plans.filter((p) => p.planType === insuranceType);
+
+  // Derive coverage options dynamically from the selected plan's pricing data
+  const coverageOptions = useMemo(() => {
+    if (!planId) return [];
+    const plan = plans.find((p) => String(p.healthPlanId) === planId);
+    if (!plan) return [];
+    // Extract base coverage types (strip tenure suffix for Health plans)
+    const bases = new Set<string>();
+    for (const p of plan.pricing) {
+      const base = p.coverageType.replace(/\s*\(<1 yr\)|\s*\(1\+ yr\)/g, '');
+      bases.add(base);
+    }
+    return Array.from(bases).sort();
+  }, [planId, plans]);
 
   const recalcPricing = useCallback((currentPlanId: string, currentAdditionalInsureds?: string) => {
     if (!currentPlanId) {
@@ -1380,32 +1416,35 @@ function InsuranceSection({
     }
     const plan = plans.find((p) => String(p.healthPlanId) === currentPlanId);
     if (plan) {
-      // Set benefits
       setPlanBenefits?.(plan.benefits.join('; '));
-      // Determine coverage type from additionalInsureds
-      let coverageType = 'Employee Only';
-      if (currentAdditionalInsureds === 'Spouse') coverageType = 'Employee + Spouse';
-      else if (currentAdditionalInsureds === 'Family' || currentAdditionalInsureds === 'Child') coverageType = 'Employee + Family';
+
+      // Build coverage type: use selected value directly as base
+      let base = currentAdditionalInsureds || 'Employee';
+      // Support legacy stored values
+      if (base === 'Spouse') base = 'Employee + Spouse';
+      else if (base === 'Child' || base === 'Children') base = 'Employee + Child(ren)';
+      else if (base === 'Family') base = 'Employee + Family';
+      else if (base === 'N/A') base = 'Employee';
+      // For Health plans, append tenure suffix
+      const coverageType = tenureTier ? `${base} (${tenureTier})` : base;
+
       const priceEntry = plan.pricing.find((p) => p.coverageType === coverageType);
       if (priceEntry) {
-        setPlanPrice?.(`$${priceEntry.monthlyPremium.toFixed(2)}/mo`);
-        const biweekly = (priceEntry.monthlyPremium * 12) / 26;
-        setPayrollDeduction?.(`$${biweekly.toFixed(2)}/pay period`);
+        const empMonthly = priceEntry.monthlyPremium;
+        const empPP = (empMonthly * 12) / 26;
+
+        // Plan Price and Monthly Rate both show MonthlyPremium from pricing table
+        setPlanPrice?.(`$${empMonthly.toFixed(2)}/mo`);
+        setMonthlyRate?.(`$${empMonthly.toFixed(2)}/mo`);
+        // Payroll Deduction = per pay period cost
+        setPayrollDeduction?.(`$${empPP.toFixed(2)}/pay period`);
       } else {
         setPlanPrice?.('');
+        setMonthlyRate?.('');
         setPayrollDeduction?.('');
       }
-      // Set age-based monthly rate (Health plans only)
-      if (employeeAge != null && plan.ageRates.length > 0) {
-        const ageRate = plan.ageRates.find(
-          (ar) => employeeAge >= ar.ageMin && employeeAge <= ar.ageMax,
-        );
-        setMonthlyRate?.(ageRate ? `$${ageRate.monthlyRate.toFixed(2)}/mo` : '');
-      } else {
-        setMonthlyRate?.('');
-      }
     }
-  }, [plans, employeeAge, setPlanPrice, setPlanBenefits, setPayrollDeduction, setMonthlyRate]);
+  }, [plans, tenureTier, companyContribPP, setPlanPrice, setPlanBenefits, setPayrollDeduction, setMonthlyRate]);
 
   // Recalculate pricing when additionalInsureds changes
   useEffect(() => {
@@ -1447,19 +1486,14 @@ function InsuranceSection({
         <ReadOnlyField label="Plan Price" value={optIn === 'Opt-Out' ? '—' : (planPrice || '— From Pricing Table —')} source="calculated" />
         <ReadOnlyField label="Plan Benefits" value={optIn === 'Opt-Out' ? '—' : (planBenefits || '— From Benefits Table —')} source="calculated" />
         {monthlyRate !== undefined && (
-          <ReadOnlyField label="Monthly Rate (based on Age)" value={optIn === 'Opt-Out' ? '—' : (monthlyRate || '— From Rate Table —')} source="calculated" />
+          <ReadOnlyField label="Monthly Rate" value={optIn === 'Opt-Out' ? '—' : (monthlyRate || '— From Pricing Table —')} source="calculated" />
         )}
         {showAdditional && setAdditionalInsureds && (
           <SelectField
             label="Additional Insureds"
             value={additionalInsureds || ''}
-            onChange={setAdditionalInsureds}
-            options={[
-              { value: 'Spouse', label: 'Spouse' },
-              { value: 'Child', label: 'Child' },
-              { value: 'Family', label: 'Family' },
-              { value: 'N/A', label: 'N/A' },
-            ]}
+            onChange={(v) => { setAdditionalInsureds(v); }}
+            options={coverageOptions.map((ct) => ({ value: ct, label: ct }))}
             source="admin"
           />
         )}
@@ -1497,8 +1531,10 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
   const [healthDeduction, setHealthDeduction] = useState('');
   const [dentalPrice, setDentalPrice] = useState('');
   const [dentalBenefits, setDentalBenefits] = useState('');
+  const [dentalDeduction, setDentalDeduction] = useState('');
   const [visionPrice, setVisionPrice] = useState('');
   const [visionBenefits, setVisionBenefits] = useState('');
+  const [visionDeduction, setVisionDeduction] = useState('');
 
   const populateForm = useCallback((data: EmployeeHealthInsurance) => {
     const health = data.elections.find((e) => e.insuranceType === 'Health');
@@ -1517,11 +1553,13 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
     setDentalPlanId(dental?.healthPlanId ? String(dental.healthPlanId) : '');
     setDentalPrice(dental?.planPrice || '');
     setDentalBenefits(dental?.planBenefits || '');
+    setDentalDeduction(dental?.payrollDeduction || '');
 
     setVisionOptIn(vision?.optInStatus || '');
     setVisionPlanId(vision?.healthPlanId ? String(vision.healthPlanId) : '');
     setVisionPrice(vision?.planPrice || '');
     setVisionBenefits(vision?.planBenefits || '');
+    setVisionDeduction(vision?.payrollDeduction || '');
   }, []);
 
   useEffect(() => {
@@ -1586,6 +1624,8 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
 
   const plans = insuranceQuery.data?.plans ?? [];
   const insuranceEligibility = insuranceQuery.data?.insuranceEligibility ?? 'Ineligible';
+  const tenureTier = insuranceQuery.data?.tenureTier ?? null;
+  const companyContribPP = insuranceQuery.data?.companyContributionPerPayPeriod ?? 0;
 
   // Non-admin users only see Health Insurance Status
   if (!isAdmin) {
@@ -1606,6 +1646,7 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
       <SectionCard title="Health Insurance Information" icon={<Heart className="h-4 w-4 text-ems-coral" />}>
         <div className="grid gap-4 md:grid-cols-2">
           <ReadOnlyField label="Health Insurance Status" value={insuranceEligibility} source="calculated" />
+          <ReadOnlyField label="Company Contribution Per Pay Period" value={`$${companyContribPP.toFixed(2)}`} source="calculated" />
         </div>
       </SectionCard>
 
@@ -1628,7 +1669,8 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
         setMonthlyRate={setHealthRate}
         payrollDeduction={healthDeduction}
         setPayrollDeduction={setHealthDeduction}
-        employeeAge={insuranceQuery.data?.employeeAge ?? null}
+        tenureTier={tenureTier}
+        companyContribPP={companyContribPP}
         showAdditional
       />
 
@@ -1646,6 +1688,9 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
         setPlanPrice={setDentalPrice}
         planBenefits={dentalBenefits}
         setPlanBenefits={setDentalBenefits}
+        payrollDeduction={dentalDeduction}
+        setPayrollDeduction={setDentalDeduction}
+        showAdditional
       />
 
       <InsuranceSection
@@ -1662,6 +1707,9 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
         setPlanPrice={setVisionPrice}
         planBenefits={visionBenefits}
         setPlanBenefits={setVisionBenefits}
+        payrollDeduction={visionDeduction}
+        setPayrollDeduction={setVisionDeduction}
+        showAdditional
       />
 
       {/* Save Bar */}
@@ -1751,22 +1799,51 @@ function ExperienceTab({ user }: { user: UserProfileUser }) {
 
 // ─── Certifications Tab ───────────────────────────────────────────────────────
 
-/** Platform brand colors for logo backgrounds */
-const PLATFORM_COLORS: Record<string, { bg: string; text: string }> = {
-  adobe: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-600 dark:text-red-400' },
-  coursera: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-600 dark:text-blue-400' },
-  'linkedin learning': { bg: 'bg-sky-100 dark:bg-sky-900/30', text: 'text-sky-600 dark:text-sky-400' },
-  skillshare: { bg: 'bg-emerald-100 dark:bg-emerald-900/30', text: 'text-emerald-600 dark:text-emerald-400' },
-  canva: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-600 dark:text-purple-400' },
-  awwwards: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-600 dark:text-amber-400' },
-  google: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-600 dark:text-green-400' },
-  meta: { bg: 'bg-indigo-100 dark:bg-indigo-900/30', text: 'text-indigo-600 dark:text-indigo-400' },
-  cfi: { bg: 'bg-slate-100 dark:bg-slate-900/30', text: 'text-slate-600 dark:text-slate-400' },
+/** Platform brand colors and logos */
+const PLATFORM_BRANDS: Record<string, { bg: string; text: string; logo: string; img?: string }> = {
+  adobe: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-600 dark:text-red-400', logo: 'Ai', img: '/images/platforms/adobe.png' },
+  coursera: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-600 dark:text-blue-400', logo: 'C', img: '/images/platforms/coursera.png' },
+  'linkedin learning': { bg: 'bg-sky-100 dark:bg-sky-900/30', text: 'text-sky-600 dark:text-sky-400', logo: 'in', img: '/images/platforms/linkedin.png' },
+  linkedin: { bg: 'bg-sky-100 dark:bg-sky-900/30', text: 'text-sky-600 dark:text-sky-400', logo: 'in', img: '/images/platforms/linkedin.png' },
+  skillshare: { bg: 'bg-emerald-100 dark:bg-emerald-900/30', text: 'text-emerald-600 dark:text-emerald-400', logo: 'Sk', img: '/images/platforms/skillshare.png' },
+  canva: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-600 dark:text-purple-400', logo: 'Cv', img: '/images/platforms/canva.png' },
+  awwwards: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-600 dark:text-amber-400', logo: 'Aw', img: '/images/platforms/awwwards.png' },
+  google: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-600 dark:text-green-400', logo: 'G', img: '/images/platforms/google.png' },
+  meta: { bg: 'bg-indigo-100 dark:bg-indigo-900/30', text: 'text-indigo-600 dark:text-indigo-400', logo: 'M', img: '/images/platforms/meta.png' },
+  cfi: { bg: 'bg-slate-100 dark:bg-slate-900/30', text: 'text-slate-600 dark:text-slate-400', logo: 'CFI', img: '/images/platforms/cfi.png' },
+  udemy: { bg: 'bg-violet-100 dark:bg-violet-900/30', text: 'text-violet-600 dark:text-violet-400', logo: 'U', img: '/images/platforms/udemy.png' },
+  hubspot: { bg: 'bg-orange-100 dark:bg-orange-900/30', text: 'text-orange-600 dark:text-orange-400', logo: 'HS', img: '/images/platforms/hubspot.png' },
+  microsoft: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-600 dark:text-blue-400', logo: 'MS', img: '/images/platforms/microsoft.png' },
+  aws: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-400', logo: 'AWS', img: '/images/platforms/aws.png' },
 };
 
 function getPlatformStyle(platform: string) {
   const key = platform.toLowerCase();
-  return PLATFORM_COLORS[key] || { bg: 'bg-ems-accent/10', text: 'text-ems-accent' };
+  return PLATFORM_BRANDS[key] || { bg: 'bg-ems-accent/10', text: 'text-ems-accent', logo: platform.slice(0, 2).toUpperCase() };
+}
+
+function PlatformLogo({ platform }: { platform: string }) {
+  const style = getPlatformStyle(platform);
+  const [imgError, setImgError] = useState(false);
+
+  if (style.img && !imgError) {
+    return (
+      <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${style.bg} overflow-hidden`}>
+        <img
+          src={style.img}
+          alt={platform}
+          className="h-7 w-7 object-contain"
+          onError={() => setImgError(true)}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${style.bg}`}>
+      <span className={`text-xs font-bold leading-none ${style.text}`}>{style.logo}</span>
+    </div>
+  );
 }
 
 function CertificationsTab({ user }: { user: UserProfileUser }) {
@@ -1812,21 +1889,21 @@ function CertificationsTab({ user }: { user: UserProfileUser }) {
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {certifications.map((cert) => {
-                const style = getPlatformStyle(cert.platformName);
                 return (
                   <div
                     key={cert.submissionId}
                     className="rounded-lg border border-border bg-surface p-4 shadow-sm hover:shadow-md transition-shadow"
                   >
                     <div className="flex items-start gap-3">
-                      <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${style.bg}`}>
-                        <Award className={`h-5 w-5 ${style.text}`} />
-                      </div>
+                      <PlatformLogo platform={cert.platformName} />
                       <div className="min-w-0 flex-1">
                         <h4 className="text-sm font-semibold text-text-primary leading-tight">{cert.certificationName}</h4>
                         <p className="text-xs text-text-secondary mt-0.5">{cert.platformName}</p>
                         {cert.dateCompleted && (
-                          <p className="mt-1 text-xs text-text-muted">Awarded: {cert.dateCompleted}</p>
+                          <p className="mt-1 text-xs text-text-muted flex items-center gap-1">
+                            <Award className="h-3 w-3" />
+                            Awarded: {cert.dateCompleted}
+                          </p>
                         )}
                       </div>
                     </div>
@@ -1839,7 +1916,9 @@ function CertificationsTab({ user }: { user: UserProfileUser }) {
                         ))}
                       </div>
                       {cert.pointsAwarded > 0 && (
-                        <span className="text-[10px] font-bold text-ems-amber">{cert.pointsAwarded} pts</span>
+                        <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-ems-amber">
+                          <Star className="h-3 w-3 fill-ems-amber" />{cert.pointsAwarded} pts
+                        </span>
                       )}
                     </div>
                     {cert.credentialUrl && (
