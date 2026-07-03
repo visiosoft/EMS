@@ -99,7 +99,7 @@ describe('calculateRoyalties — formula strings', () => {
 
   it('shows a generic SESAC formula label', () => {
     const r = calculateRoyalties(baseInput({ mostRecentPaidTicketQuantity: 1324 }));
-    expect(r.sesac.formula).toBe('Calculation = Paid Ticket Quantity × $0.0327');
+    expect(r.sesac.formula).toBe('Calculation = Paid Ticket Quantity (based on the most recent daily sales entry) × $0.0327');
   });
 
   it('has no formula when a line is not applicable', () => {
