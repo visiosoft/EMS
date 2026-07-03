@@ -124,7 +124,7 @@ describe('SalesDashboardView', () => {
   it('keeps chart unit tabs visible in the expanded chart screen', () => {
     renderDashboard();
 
-    fireEvent.click(screen.getByRole('button', { name: /open total cumulative sales chart/i }));
+    fireEvent.click(screen.getByRole('button', { name: /open cumulative sales chart/i }));
 
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByRole('tab', { name: 'Date' })).toBeVisible();
