@@ -9,6 +9,7 @@ import { Class } from '../entities/class.entity';
 import { CompanyType } from '../entities/company-type.entity';
 import { Department } from '../entities/department.entity';
 import { Dma } from '../entities/dma.entity';
+import { dmaMarketNameNormSql } from './dma-normalization.util';
 import { Role } from '../entities/role.entity';
 import { SeatingType } from '../entities/seating-type.entity';
 import { VenueType } from '../entities/venue-type.entity';
@@ -372,24 +373,35 @@ export class LookupsService {
   }
 
   /**
-   * One row per MarketName: all postal variants for a market collapse to MIN(DMAID) and a sample postal.
-   * Pickers show a single entry per market (e.g. one "ABILENE-SWEETWATER" row).
+   * One row per logical market: postal rows collapse per raw MarketName first (cheap
+   * pass over the ~900k-row table), then name variants ("ABILENE-SWEETWATER" vs
+   * "Abilene-Sweetwater.") merge via {@link dmaMarketNameNormSql} over the ~200
+   * distinct names. Pickers and the hub list show a single entry per market.
    */
   private buildDmaMarketsGroupedSubquery(
     query: string,
     includePostalCount = false,
   ) {
-    const qb = this.dmaRepo
+    const rawGrouped = this.dmaRepo
       .createQueryBuilder('d')
       .select('MIN(d.dmaid)', 'dmaid')
       .addSelect('d.marketName', 'marketName')
-      .addSelect('MIN(d.postalCode)', 'postalCode');
-    if (includePostalCount) {
-      qb.addSelect('COUNT(*)', 'postalCount');
-    }
-    qb.groupBy('d.marketName');
+      .addSelect('MIN(d.postalCode)', 'postalCode')
+      .addSelect('COUNT(*)', 'cnt')
+      .groupBy('d.marketName');
+    this.applyDmaMarketSearchFilter(rawGrouped, query);
 
-    this.applyDmaMarketSearchFilter(qb, query);
+    const qb = this.dmaRepo.manager
+      .createQueryBuilder()
+      .select('MIN(g.dmaid)', 'dmaid')
+      .addSelect('MIN(g.marketName)', 'marketName')
+      .addSelect('MIN(g.postalCode)', 'postalCode');
+    if (includePostalCount) {
+      qb.addSelect('SUM(g.cnt)', 'postalCount');
+    }
+    qb.from(`(${rawGrouped.getQuery()})`, 'g')
+      .setParameters(rawGrouped.getParameters())
+      .groupBy(dmaMarketNameNormSql('g.marketName'));
     return qb;
   }
 
@@ -556,42 +568,6 @@ export class LookupsService {
     const safeLimit = Math.min(20, Math.max(1, Math.floor(limit)));
     const { data } = await this.findDmaHubMarketsPaginated(0, safeLimit, query);
     return data;
-  }
-
-  /** All postal codes for a single market name (lazy-loaded in hub UI). */
-  async findPostalCodesByMarketName(
-    marketName: string,
-    offset: number,
-    limit: number,
-  ): Promise<{
-    data: { dmaid: number; postalCode: string }[];
-    total: number;
-  }> {
-    const name = marketName.trim();
-    if (!name) {
-      return { data: [], total: 0 };
-    }
-
-    const qb = this.dmaRepo
-      .createQueryBuilder('d')
-      .where('d.marketName = :marketName', { marketName: name })
-      .orderBy('d.postalCode', 'ASC')
-      .addOrderBy('d.dmaid', 'ASC');
-
-    const total = await qb.clone().getCount();
-
-    const rows = await qb
-      .offset(Math.max(0, offset))
-      .limit(Math.max(1, limit))
-      .getMany();
-
-    return {
-      data: rows.map((r) => ({
-        dmaid: r.dmaid,
-        postalCode: r.postalCode,
-      })),
-      total,
-    };
   }
 
   private resolveManagedLookupTable(raw: string): ManagedLookupTable {

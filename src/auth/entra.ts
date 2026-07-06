@@ -135,6 +135,34 @@ export async function acquireApiAccessToken(account: AccountInfo): Promise<strin
     return response.accessToken;
 }
 
+/**
+ * Acquires an API access token, falling back to an interactive popup when silent acquisition fails
+ * (e.g. expired refresh token, interaction required).
+ */
+export async function requestApiAccessToken(account: AccountInfo): Promise<string> {
+    if (!apiScope) {
+        throw new Error('Set VITE_ENTRA_API_SCOPE to request an access token for the backend admin users API.');
+    }
+
+    const request = {
+        account,
+        scopes: [apiScope],
+        loginHint: account.username,
+    };
+
+    try {
+        const response = await msalInstance.acquireTokenSilent(request);
+        return response.accessToken;
+    } catch (error) {
+        if (error instanceof InteractionRequiredAuthError ||
+            (error instanceof Error && /interaction_required|consent_required|login_required|no_account|invalid_grant/i.test(error.message))) {
+            const response = await msalInstance.acquireTokenPopup(request);
+            return response.accessToken;
+        }
+        throw error;
+    }
+}
+
 type GraphAccessTokenOptions = {
     forceRefresh?: boolean;
 };

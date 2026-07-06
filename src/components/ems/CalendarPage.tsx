@@ -47,9 +47,11 @@ function cfgFor(status: string) {
 function engagementVisibilityKey(p: ApiPerformanceCalendarRow): string {
   const raw = (p.engagementStatus || p.performanceStatus || 'Unknown').trim();
   const lower = raw.toLowerCase();
-  if (lower === 'private') return 'Private';
-  if (lower === 'public') return 'Public';
-  if (lower === 'unknown') return 'Unknown';
+  // TicketingStatus values are now long (e.g. "Private (Not Announced)",
+  // "Public (On-Sale)"); match by prefix so both legacy and new values resolve.
+  if (lower.startsWith('private')) return 'Private';
+  if (lower.startsWith('public')) return 'Public';
+  if (lower.startsWith('unknown') || lower === '') return 'Unknown';
   return 'Unknown';
 }
 

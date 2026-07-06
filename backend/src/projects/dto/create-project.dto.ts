@@ -12,7 +12,10 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { PROJECT_STAGE_VALUES } from '../project-stage.constants';
+import {
+  PROJECT_STAGE_VALUES,
+  OFFER_REVIEW_STATUS_VALUES,
+} from '../project-stage.constants';
 
 /** Documented parity with `dbo.EngagementProjectVenue.VenueStatus` product allowlist. */
 export const VENUE_STATUS_VALUES = [
@@ -92,6 +95,15 @@ export class CreateProjectDto {
   projectStage: string;
 
   /**
+   * OfferReviewStatus — only applicable once OfferCreationStatus = 'Submitted'.
+   * When set to 'Confirmed', the project is converted into an engagement.
+   */
+  @IsOptional()
+  @IsString()
+  @IsIn([...OFFER_REVIEW_STATUS_VALUES])
+  offerReviewStatus?: string | null;
+
+  /**
    * Talent agency for this project — must match the tour when the tour already has
    * `TalentAgencyCompanyID` set. On create, persisted to `dbo.Tour.TalentAgencyCompanyID`.
    */
@@ -126,8 +138,9 @@ export class CreateProjectDto {
   dmaIds: number[];
 
   /**
-   * Actual opening/show rows to create when ProjectStage = Confirmed.
-   * These become dbo.Performance rows for the generated engagement.
+   * Actual opening/show rows to create when the offer is Confirmed
+   * (OfferReviewStatus = 'Confirmed'). These become dbo.Performance rows for
+   * the generated engagement.
    */
   @IsOptional()
   @IsArray()

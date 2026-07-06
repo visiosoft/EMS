@@ -41,6 +41,11 @@ EMS_DATABASE_ARCHITECTURE.md
 EMS/EMS_DATABASE_ARCHITECTURE.md
 docs/database-schema.md
 
+# AI assistant/agent workspaces (local only, never committed)
+.claude/
+.agents/
+.codex/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

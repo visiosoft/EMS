@@ -61,6 +61,11 @@ interface Props {
   onNavigate: (view: string, data?: Record<string, unknown>) => void;
   statusFilter?: string;
   timingFilter?: EngagementTimingFilter;
+  /** Start with the "My engagements" (IAE contact) filter enabled. */
+  mineOnly?: boolean;
+  /** YYYY-MM-DD — include only engagements with at least one performance in [dateFrom, dateTo]. */
+  dateFrom?: string;
+  dateTo?: string;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 }
 
@@ -405,7 +410,7 @@ function EngagementsTilesSkeleton({ tileCount = 6 }: { tileCount?: number }) {
 // ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
-export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFilter: initTimingFilter, addToast }: Props) {
+export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFilter: initTimingFilter, mineOnly: initMineOnly, dateFrom: initDateFrom, dateTo: initDateTo, addToast }: Props) {
   const qc = useQueryClient();
   const [searchInput, setSearchInput] = useState('');
   const [searchCommitted, setSearchCommitted] = useState('');
@@ -419,6 +424,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
   const [timingFilter, setTimingFilter] = useState<EngagementTimingFilter>(
     initTimingFilter || DEFAULT_ENGAGEMENT_TIMING_FILTER,
   );
+  const [mineOnly, setMineOnly] = useState(Boolean(initMineOnly));
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE);
   const [showCreate, setShowCreate] = useState(false);
@@ -465,6 +471,10 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
   }, [initTimingFilter]);
 
   useEffect(() => {
+    if (initMineOnly) setMineOnly(true);
+  }, [initMineOnly]);
+
+  useEffect(() => {
     saveEngagementsSortState(sortState);
   }, [sortState]);
 
@@ -488,8 +498,11 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
     dma: dmaFilter || undefined,
     venue: venueFilter || undefined,
     timing: timingFilter,
+    mine: mineOnly || undefined,
     sortBy: sortState.col ? SORT_API_BY_MOVABLE[sortState.col] : undefined,
     sortDir: sortState.col ? sortState.dir : undefined,
+    dateFrom: initDateFrom,
+    dateTo: initDateTo,
   };
 
   const engagementSuggestionFetchOpts = useMemo(
@@ -499,10 +512,13 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
       dma: dmaFilter || undefined,
       venue: venueFilter || undefined,
       timing: timingFilter,
+      mine: mineOnly || undefined,
       sortBy: sortState.col ? SORT_API_BY_MOVABLE[sortState.col] : undefined,
       sortDir: sortState.col ? sortState.dir : undefined,
+      dateFrom: initDateFrom,
+      dateTo: initDateTo,
     }),
-    [statusFilter, attractionFilter, dmaFilter, venueFilter, timingFilter, sortState.col, sortState.dir],
+    [statusFilter, attractionFilter, dmaFilter, venueFilter, timingFilter, mineOnly, sortState.col, sortState.dir],
   );
 
   const engagementsSuggestionQuery = useQuery({
@@ -642,7 +658,8 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
     !!attractionFilter ||
     !!dmaFilter ||
     !!venueFilter ||
-    timingFilter !== DEFAULT_ENGAGEMENT_TIMING_FILTER;
+    timingFilter !== DEFAULT_ENGAGEMENT_TIMING_FILTER ||
+    mineOnly;
 
   const hasResettableFilters = hasActiveFilters || !!searchInput.trim();
 
@@ -656,12 +673,13 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
     setDmaFilter('');
     setVenueFilter('');
     setTimingFilter(DEFAULT_ENGAGEMENT_TIMING_FILTER);
+    setMineOnly(false);
     setPage(1);
   }, []);
 
   useEffect(() => {
     setPage(1);
-  }, [searchCommitted, selectedSearchEngagementId, statusFilter, attractionFilter, dmaFilter, venueFilter, timingFilter]);
+  }, [searchCommitted, selectedSearchEngagementId, statusFilter, attractionFilter, dmaFilter, venueFilter, timingFilter, mineOnly]);
 
   useEffect(() => {
     setPage(1);
@@ -948,6 +966,21 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => setMineOnly((prev) => !prev)}
+            aria-pressed={mineOnly}
+            title="Only engagements where you are an IAE contact"
+            className={[
+              'inline-flex h-[34px] shrink-0 items-center rounded-md border border-border px-3 text-xs font-medium transition-colors disabled:opacity-50',
+              mineOnly
+                ? 'bg-ems-accent text-background'
+                : 'bg-card text-text-secondary hover:bg-hover',
+            ].join(' ')}
+          >
+            My engagements
+          </button>
           {hasResettableFilters ? (
             <button
               type="button"
@@ -1061,7 +1094,9 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
                 {rows.length === 0 && !engagementsPagedQuery.isError && (
                   <tr>
                     <td colSpan={6} className="py-12 px-3 text-center text-sm text-text-muted">
-                      {serverTotal === 0 && !hasActiveFilters
+                      {mineOnly && serverTotal === 0
+                        ? 'No engagements are assigned to you as an IAE contact.'
+                        : serverTotal === 0 && !hasActiveFilters
                         ? 'No engagements loaded yet.'
                         : 'No engagements match your search or filters.'}
                     </td>
@@ -1083,7 +1118,9 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
             <div className="space-y-3">
               {rows.length === 0 && !engagementsPagedQuery.isError ? (
                 <div className="rounded-lg border border-border bg-card py-12 px-3 text-center text-sm text-text-muted">
-                  {serverTotal === 0 && !hasActiveFilters
+                  {mineOnly && serverTotal === 0
+                    ? 'No engagements are assigned to you as an IAE contact.'
+                    : serverTotal === 0 && !hasActiveFilters
                     ? 'No engagements loaded yet.'
                     : 'No engagements match your search or filters.'}
                 </div>

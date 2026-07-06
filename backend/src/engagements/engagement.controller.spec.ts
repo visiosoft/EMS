@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ContractExtractionService } from './contract-extraction.service';
 import { EngagementController } from './engagement.controller';
 import { EngagementService } from './engagement.service';
 
@@ -21,6 +22,7 @@ describe('EngagementController', () => {
       controllers: [EngagementController],
       providers: [
         { provide: EngagementService, useValue: service },
+        { provide: ContractExtractionService, useValue: { extractFromFile: jest.fn() } },
       ],
     }).compile();
 

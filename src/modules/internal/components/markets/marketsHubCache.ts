@@ -17,7 +17,7 @@ export const marketsHubFreshCache = {
 export const internalMarketsQueryKeys = {
   markets: (appliedQuery: string) => ['internal-markets', appliedQuery] as const,
   suggestions: (debouncedDraft: string) => ['internal-markets-suggestions', debouncedDraft] as const,
-  postals: (marketName: string) => ['internal-market-postals', marketName] as const,
+  venues: (dmaid: number) => ['internal-market-venues', dmaid] as const,
 };
 
 export function normalizeMarketsSearchQuery(value: string): string {

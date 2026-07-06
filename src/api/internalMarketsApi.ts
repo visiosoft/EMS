@@ -12,16 +12,6 @@ export type InternalMarketsPage = {
   total: number;
 };
 
-export type InternalMarketPostalRow = {
-  dmaid: number;
-  postalCode: string;
-};
-
-export type InternalMarketPostalsPage = {
-  data: InternalMarketPostalRow[];
-  total: number;
-};
-
 export function fetchInternalMarkets(offset: number, limit: number, q?: string) {
   const params = new URLSearchParams({
     offset: String(Math.max(0, offset)),
@@ -39,11 +29,30 @@ export function fetchInternalMarketSuggestions(q: string, limit = 8) {
   return apiFetch<InternalHubMarket[]>(`/internal/markets/suggestions?${params}`);
 }
 
-export function fetchInternalMarketPostals(marketName: string, offset: number, limit: number) {
+export type InternalMarketVenue = {
+  companyId: number;
+  entertainmentComplexNames: string | null;
+  venueName: string;
+  seatingCapacity: number;
+  venueTypeId: number | null;
+  venueTypeName: string | null;
+  dmaId: number | null;
+  dmaMarketName: string | null;
+  city: string | null;
+  stateProvince: string | null;
+};
+
+export type InternalMarketVenuesPage = {
+  data: InternalMarketVenue[];
+  total: number;
+};
+
+/** Complexes and venues within a market (any DMAID of the market family), sorted by city. */
+export function fetchInternalMarketVenues(dmaid: number, offset: number, limit: number) {
   const params = new URLSearchParams({
-    market: marketName,
+    dmaid: String(dmaid),
     offset: String(Math.max(0, offset)),
     limit: String(Math.max(1, limit)),
   });
-  return apiFetch<InternalMarketPostalsPage>(`/internal/markets/postal-codes?${params}`);
+  return apiFetch<InternalMarketVenuesPage>(`/internal/markets/venues?${params}`);
 }

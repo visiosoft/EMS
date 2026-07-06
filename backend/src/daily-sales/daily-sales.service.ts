@@ -461,9 +461,10 @@ export class DailySalesService {
             CONVERT(date, po.ProposedDate) AS PerformanceDate,
             COALESCE(CONVERT(time, po.ProposedTime), CONVERT(time, '20:00:00')) AS PerformanceTime,
             CASE
-              WHEN po.OptionStatus IN (N'Public', N'Private') THEN po.OptionStatus
-              ELSE N'Public'
-            END AS PerformanceStatus
+              WHEN po.OptionStatus = N'Private' THEN N'Private (Not Announced)'
+              WHEN po.OptionStatus = N'Public' THEN N'Public (Not On Sale)'
+              ELSE N'Public (Not On Sale)'
+            END AS TicketingStatus
           FROM ConvertedProject cp
           INNER JOIN dbo.EngagementProjectPerformanceOption po
             ON po.EngagementProjectID = cp.EngagementProjectID
@@ -482,7 +483,7 @@ export class DailySalesService {
         )
         INSERT INTO dbo.Performance (
           EngagementID,
-          PerformanceStatus,
+          TicketingStatus,
           PerformanceDate,
           PerformanceTime,
           created_by,
@@ -490,7 +491,7 @@ export class DailySalesService {
         )
         SELECT
           c.EngagementID,
-          c.PerformanceStatus,
+          c.TicketingStatus,
           c.PerformanceDate,
           c.PerformanceTime,
           N'system',
@@ -590,14 +591,17 @@ export class DailySalesService {
    * IAE staff on engagements are stored as ContactID in dbo.EngagementIAEContact.
    */
   private async resolveIaeContactIdForSignedInUser(): Promise<number | null> {
-    const email = this.auditContext.getUserEmail()?.trim().toLowerCase();
-    if (!email) return null;
+    const emails = this.auditContext
+      .getUserEmailCandidates()
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean);
+    if (emails.length === 0) return null;
     const row = await this.contactRepo
       .createQueryBuilder('c')
       .innerJoin('c.contactInfo', 'ci')
       .innerJoin(ContactAssignment, 'ca', 'ca.contactId = c.contactId')
       .innerJoin(Company, 'internalCompany', 'internalCompany.companyId = ca.companyId')
-      .where('LOWER(LTRIM(RTRIM(ci.email))) = :email', { email })
+      .where('LOWER(LTRIM(RTRIM(ci.email))) IN (:...emails)', { emails })
       .andWhere('internalCompany.isInternal = :isInternal', {
         isInternal: true,
       })

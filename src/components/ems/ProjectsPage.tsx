@@ -75,6 +75,7 @@ import {
   fetchVenueStatusMeta,
 
   PROJECT_STAGE_VALUES,
+  OFFER_REVIEW_STATUS_VALUES,
   projectStageDisplayLabel,
   updatePerformanceOption,
   updateProject,
@@ -90,6 +91,7 @@ import type {
   OptionStatus,
 
   ProjectStage,
+  OfferReviewStatus,
   VenueStatus,
   CreateProjectResult,
   ProjectOpeningPerformancePayload,
@@ -152,6 +154,7 @@ function projectDetailToListRow(p: ApiProjectDetail): ApiProjectListRow {
     talentAgencyCompanyId: p.talentAgencyCompanyId ?? null,
     talentAgencyCompanyName: p.talentAgencyCompanyName ?? null,
     projectStage: p.projectStage,
+    offerReviewStatus: p.offerReviewStatus ?? null,
     createdDate: p.createdDate,
     createdBy: p.createdBy,
     dmaIds: p.dmaIds ?? [],
@@ -450,6 +453,9 @@ function ProjectInlineOverview({
 
   const [tourId, setTourId] = useState(project.tourId);
   const [projectStage, setProjectStage] = useState(project.projectStage);
+  const [offerReviewStatus, setOfferReviewStatus] = useState<string | null>(
+    project.offerReviewStatus ?? null,
+  );
   const [tourStartDate, setTourStartDate] = useState(project.tourStartDate ?? getTodayDateString());
   const [tourEndDate, setTourEndDate] = useState(project.tourEndDate ?? getTodayDateString());
   const [talentAgencyCompanyId, setTalentAgencyCompanyId] = useState<number | null>(
@@ -469,6 +475,7 @@ function ProjectInlineOverview({
   useEffect(() => {
     setTourId(project.tourId);
     setProjectStage(project.projectStage);
+    setOfferReviewStatus(project.offerReviewStatus ?? null);
     setTourStartDate(project.tourStartDate ?? getTodayDateString());
     setTourEndDate(project.tourEndDate ?? getTodayDateString());
     setTalentAgencyCompanyId(project.talentAgencyCompanyId ?? null);
@@ -483,6 +490,7 @@ function ProjectInlineOverview({
     project.tourStartDate,
     project.tourEndDate,
     project.projectStage,
+    project.offerReviewStatus,
     project.createdBy,
     project.talentAgencyCompanyId,
     project.dmaIds,
@@ -592,6 +600,7 @@ function ProjectInlineOverview({
   const discard = () => {
     setTourId(project.tourId);
     setProjectStage(project.projectStage);
+    setOfferReviewStatus(project.offerReviewStatus ?? null);
     setTourStartDate(project.tourStartDate ?? getTodayDateString());
     setTourEndDate(project.tourEndDate ?? getTodayDateString());
     setTalentAgencyCompanyId(project.talentAgencyCompanyId ?? null);
@@ -657,15 +666,34 @@ function ProjectInlineOverview({
     setSaving(true);
     let savedOk = false;
     try {
-      const result = await updateProject(project.engagementProjectId, {
+      const payload: {
+        tourId: number;
+        talentAgencyCompanyId: number;
+        tourStartDate: string;
+        tourEndDate: string;
+        dmaIds: number[];
+        projectStage?: ProjectStage;
+        offerReviewStatus?: OfferReviewStatus | null;
+      } = {
         tourId,
         talentAgencyCompanyId: effectiveTalentAgencyId,
         tourStartDate: tourStartDate.trim(),
         tourEndDate: tourEndDate.trim(),
-        projectStage: projectStage as ProjectStage,
         dmaIds: selectedDmaIds,
-      });
+      };
+      // Only send stage/ review status when changed — avoids forcing a re-map
+      // of legacy DB values on every unrelated save.
+      if (projectStage !== project.projectStage) {
+        payload.projectStage = projectStage as ProjectStage;
+      }
+      if ((offerReviewStatus ?? null) !== (project.offerReviewStatus ?? null)) {
+        payload.offerReviewStatus = (offerReviewStatus ?? null) as OfferReviewStatus | null;
+      }
+      const result = await updateProject(project.engagementProjectId, payload);
 
+      if (result.converted && result.engagementId) {
+        addToast('Offer confirmed — engagement created.', 'success');
+      }
       if (scopeChanged) {
         onGoToVenues();
       }
@@ -848,7 +876,7 @@ function ProjectInlineOverview({
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
           <InlineSelectField
-            label="Project stage"
+            label="Offer creation status"
             value={projectStage}
             onChange={mark(setProjectStage)}
             options={stageOptions}
@@ -858,6 +886,32 @@ function ProjectInlineOverview({
             <div className="mt-0.5 w-full min-w-0 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary">
               {project.createdBy ?? '—'}
             </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
+          {projectStage === 'Submitted' ? (
+            <InlineSelectField
+              label="Offer review status"
+              value={offerReviewStatus ?? ''}
+              onChange={(v) => mark(setOfferReviewStatus)(v ? (v as OfferReviewStatus) : null)}
+              options={OFFER_REVIEW_STATUS_OPTIONS}
+            />
+          ) : (
+            <div>
+              <span className="text-xs text-text-muted">Offer review status</span>
+              <div className="mt-0.5 w-full min-w-0 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-muted">
+                {offerReviewStatus ?? '—'}
+              </div>
+              <p className="mt-0.5 text-[11px] text-text-muted">Available once the offer is Submitted.</p>
+            </div>
+          )}
+          <div>
+            <span className="text-xs text-text-muted">Conversion</span>
+            <div className="mt-0.5 w-full min-w-0 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary">
+              {offerReviewStatus === 'Confirmed' ? 'Engagement created' : '—'}
+            </div>
+            <p className="mt-0.5 text-[11px] text-text-muted">Setting review status to Confirmed creates the engagement.</p>
           </div>
         </div>
 
@@ -1009,16 +1063,36 @@ function ProjectInlineOverview({
 
 /** Extra display names for common DB literals (any other value still renders via `projectStageDisplayLabel`). */
 const CANONICAL_PROJECT_STAGE_LABEL: Record<string, string> = {
+  Requested: 'Requested',
+  Drafted: 'Drafted',
+  Submitted: 'Submitted',
+  /** Legacy project rows predating the OfferCreationStatus rename */
   'Under Construction': 'Under Construction',
   Pending: 'Pending',
   Inactive: 'Inactive',
-  /** Legacy project rows predating CHECK update */
   Confirmed: 'Confirmed',
   OffersSent: 'Offers Sent',
   PartiallyBooked: 'Partially Booked',
   FullyBooked: 'Fully Booked',
   Dead: 'Inactive',
 };
+
+const CANONICAL_OFFER_REVIEW_STATUS_LABEL: Record<string, string> = {
+  'In Consideration': 'In Consideration',
+  Declined: 'Declined',
+  Confirmed: 'Confirmed',
+};
+
+function offerReviewStatusSelectOptions(values: string[]) {
+  return values.map((value) => ({
+    value,
+    label: CANONICAL_OFFER_REVIEW_STATUS_LABEL[value] ?? value,
+  }));
+}
+
+const OFFER_REVIEW_STATUS_OPTIONS = offerReviewStatusSelectOptions([
+  ...OFFER_REVIEW_STATUS_VALUES,
+]);
 
 function projectStageSelectOptions(stages: string[]) {
   return stages.map((value) => ({
@@ -2649,7 +2723,7 @@ function CreateProjectForm({
     staleTime: 60_000,
   });
 
-  const [projectStage, setProjectStage] = useState<ProjectStage>('Pending');
+  const [projectStage, setProjectStage] = useState<ProjectStage>('Requested');
   const { accounts } = useMsal();
   const activeAccount = getActiveAccount() ?? accounts[0] ?? null;
   const createdByDisplayName = getAccountName(activeAccount);
@@ -3737,16 +3811,16 @@ function CreateProjectForm({
             <div className="border-t border-border pt-3 space-y-3">
               <p className="text-xs text-text-muted">
                 Choose{' '}
-                <span className="font-medium">Under Construction</span>, <span className="font-medium">Pending</span>, or{' '}
-                <span className="font-medium">Confirmed</span>.
+                <span className="font-medium">Requested</span>, <span className="font-medium">Drafted</span>, or{' '}
+                <span className="font-medium">Submitted</span>. Offer review (and engagement conversion) happens after submission.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <FormField label="Project Stage">
+                <FormField label="Offer Creation Status">
                   <Select2
                     options={CREATE_PROJECT_STAGE_OPTIONS}
                     value={projectStage}
                     onChange={(v) => setProjectStage(v as ProjectStage)}
-                    placeholder="Select project stage"
+                    placeholder="Select offer creation status"
                   />
                 </FormField>
                 <FormField label="Created By (optional)">

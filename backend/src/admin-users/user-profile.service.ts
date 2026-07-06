@@ -46,13 +46,13 @@ export class UserProfileService {
   ) {}
 
   async getMyProfile(): Promise<MyProfileResponse> {
-    const email = this.getSignedInEmail();
-    return this.loadMyInternalProfile(email);
+    const emails = this.getSignedInEmailCandidates();
+    return this.loadMyInternalProfile(emails);
   }
 
   async updateMyProfile(dto: UpdateMyProfileDto): Promise<MyProfileResponse> {
-    const email = this.getSignedInEmail();
-    const current = await this.loadMyInternalProfile(email);
+    const emails = this.getSignedInEmailCandidates();
+    const current = await this.loadMyInternalProfile(emails);
     const next = normalizeProfileUpdate(dto, current);
     const profilePayload: Record<string, unknown> = {
       displayName: `${next.firstName} ${next.lastName}`.trim() || current.email,
@@ -137,7 +137,7 @@ export class UserProfileService {
       { ...profilePayload, ...phonePayload },
     );
     return {
-      ...(await this.loadMyInternalProfile(next.email)),
+      ...(await this.loadMyInternalProfile([next.email])),
       ...(entraSyncWarnings.length ? { entraSyncWarnings } : {}),
     };
   }
@@ -164,21 +164,34 @@ export class UserProfileService {
     return warnings;
   }
 
-  private getSignedInEmail(): string {
-    const email = normalizeEmail(this.auditContext.getUserEmail());
-    if (!email) {
+  /**
+   * Entra's `email`, `preferred_username`, and `upn` claims can each carry a different
+   * address for the same signed-in account. Return every candidate so the internal contact
+   * lookup can match on whichever one EMS has on file, instead of a single collapsed value.
+   */
+  private getSignedInEmailCandidates(): string[] {
+    const emails = Array.from(
+      new Set(
+        this.auditContext
+          .getUserEmailCandidates()
+          .map(normalizeEmail)
+          .filter(Boolean),
+      ),
+    );
+    if (emails.length === 0) {
       throw new UnauthorizedException('Signed-in user email was not found.');
     }
-    return email;
+    return emails;
   }
 
   private async loadMyInternalProfile(
-    email: string,
+    emails: string[],
   ): Promise<InternalProfileRow> {
     const jobTitleColumnAvailable = await this.hasContactInfoJobTitleColumn();
     const jobTitleSelect = jobTitleColumnAvailable
       ? 'ci.JobTitle AS jobTitle'
       : "CAST('' AS nvarchar(150)) AS jobTitle";
+    const placeholders = emails.map((_, index) => `@${index}`).join(', ');
     const rows = await this.dataSource.query(
       `
       SELECT
@@ -199,10 +212,10 @@ export class UserProfileService {
       INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
       LEFT JOIN dbo.Department d ON d.DepartmentID = ca.DepartmentID
       LEFT JOIN dbo.Role r ON r.RoleID = ca.RoleID
-      WHERE LOWER(LTRIM(RTRIM(ci.Email))) = LOWER(LTRIM(RTRIM(@0)))
+      WHERE LOWER(LTRIM(RTRIM(ci.Email))) IN (${placeholders})
       ORDER BY ca.ContactAssignmentID
       `,
-      [email],
+      emails,
     );
 
     if (rows.length === 0) {

@@ -16,6 +16,9 @@ import { ProductionPage } from "@/modules/internal/pages/ProductionPage";
 import { TicketingSalesPage } from "@/modules/internal/pages/TicketingSalesPage";
 import { LearningPortalPage } from "@/modules/internal/pages/LearningPortalPage";
 import { LearningAdminPage } from "@/modules/internal/pages/LearningAdminPage";
+import { MyProfilePage } from "@/modules/internal/pages/MyProfilePage";
+import { PayrollSchedulePage } from "@/modules/internal/pages/PayrollSchedulePage";
+import { HealthInsurancePage } from "@/modules/internal/pages/HealthInsurancePage";
 import { DocumentLibraryPage } from "@/features/document-library/pages/DocumentLibraryPage";
 
 function InternalAppViews() {
@@ -52,6 +55,12 @@ function InternalAppViews() {
       return <LearningPortalPage />;
     case "document-library":
       return <DocumentLibraryPage />;
+    case "my-profile":
+      return <MyProfilePage />;
+    case "payroll-schedule":
+      return <PayrollSchedulePage />;
+    case "health-insurance":
+      return <HealthInsurancePage />;
     case "home":
     default:
       return <InternalHomePage />;

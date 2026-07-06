@@ -61,6 +61,10 @@ export interface UpdateEmployeeEmploymentProfileRequest {
   officeState?: string | null;
   officePostalCode?: string | null;
   officeCountry?: string | null;
+  /** Equipment assignment fields */
+  deskPhoneExtensionId?: number | null;
+  deskPhoneId?: number | null;
+  pcComputerId?: number | null;
 }
 
 export function fetchEmployeeEmploymentProfile(
@@ -69,6 +73,10 @@ export function fetchEmployeeEmploymentProfile(
   return apiFetch<EmployeeEmploymentProfile>(
     `/admin/users/${encodeURIComponent(email)}/employment-profile`,
   );
+}
+
+export function fetchAllAccessLevels(): Promise<{ email: string; accessLevel: string }[]> {
+  return apiFetch<{ email: string; accessLevel: string }[]>('/admin/access-levels');
 }
 
 export function updateEmployeeEmploymentProfile(
@@ -118,6 +126,25 @@ export interface PhoneDeviceListResponse {
 
 export function fetchPhoneDevices(): Promise<PhoneDeviceListResponse> {
   return apiFetch<PhoneDeviceListResponse>('/admin/phone-devices');
+}
+
+export interface PcDeviceOption {
+  computerId: number;
+  pcName: string;
+  make: string;
+  model: string;
+  serviceTag: string;
+  bluetoothStatus: string;
+  isAssigned: boolean;
+  assignedToEmail: string | null;
+}
+
+export interface PcDeviceListResponse {
+  computers: PcDeviceOption[];
+}
+
+export function fetchPcDevices(): Promise<PcDeviceListResponse> {
+  return apiFetch<PcDeviceListResponse>('/admin/pc-devices');
 }
 
 export function fetchUserLicenses(email: string): Promise<string[]> {
