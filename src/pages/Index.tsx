@@ -3,6 +3,7 @@ import { Sidebar, Header } from '@/components/ems/Layout';
 import { ToastContainer } from '@/components/ems/Primitives';
 import { CompaniesPage } from '@/components/ems/CompaniesPage';
 import { ContactsPage } from '@/components/ems/ContactsPage';
+import { useAccessLevel } from '@/hooks/useAccessLevel';
 import { AttractionToursPage } from '@/components/ems/AttractionToursPage';
 import { AttractionSalesDashboardPage } from '@/components/ems/AttractionSalesDashboardPage';
 import { CalendarPage } from '@/components/ems/CalendarPage';
@@ -280,6 +281,7 @@ const Index = () => {
   const [savedViewCache, setSavedViewCache] = useState<ViewCacheEntry[]>([]);
   const [viewRenderEpoch, setViewRenderEpoch] = useState(0);
   const autoCreateEngagementHandledRef = useRef(false);
+  const { isAdministrator, isLoading: accessLevelLoading } = useAccessLevel();
 
   useEffect(() => {
     try {
@@ -559,7 +561,7 @@ const Index = () => {
           return <div className="text-text-muted text-sm">Engagement not found</div>;
         })()}
 
-        {view === 'settings' && (
+        {view === 'settings' && isAdministrator && (
           <SettingsPage
             addToast={addToast}
             users={users}
@@ -568,12 +570,18 @@ const Index = () => {
           />
         )}
 
+        {view === 'settings' && !isAdministrator && !accessLevelLoading && (
+          <div className="flex items-center justify-center h-64 text-text-muted text-sm">
+            You do not have permission to access Settings. Administrator access is required.
+          </div>
+        )}
+
         {view === 'profile' && (
           <ProfilePage addToast={addToast} />
         )}
       </>
     ),
-    [addToast, navigate, setUsers, users],
+    [addToast, navigate, setUsers, users, isAdministrator, accessLevelLoading],
   );
 
   const getBreadcrumb = (): string[] => {

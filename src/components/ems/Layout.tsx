@@ -25,6 +25,7 @@ import { getAccountEmail, getAccountInitials, getAccountName, getActiveAccount }
 import { IaeBrandMark } from '@/components/brand/IaeBrandMark';
 import { AppSuiteSwitcher } from '@/components/AppSuiteSwitcher';
 import { cn } from '@/lib/utils';
+import { useAccessLevel } from '@/hooks/useAccessLevel';
 
 export { IaeLogoFull } from '@/components/brand/IaeBrandMark';
 
@@ -91,6 +92,7 @@ export function Sidebar({
   const account = getActiveAccount() ?? accounts[0] ?? null;
   const displayName = getAccountName(account);
   const email = getAccountEmail(account) || 'Signed in with Microsoft Entra ID';
+  const { isAdministrator } = useAccessLevel();
 
   const handleNav = (key: string) => {
     onNavigate(key);
@@ -98,6 +100,15 @@ export function Sidebar({
   };
 
   const desktopCollapsed = Boolean(collapsed);
+
+  // Filter nav sections based on access level
+  const filteredSections = NAV_SECTIONS.map(section => ({
+    ...section,
+    items: section.items.filter(item => {
+      if (item.key === 'settings') return isAdministrator;
+      return true;
+    }),
+  })).filter(section => section.items.length > 0);
 
   return (
     <>
@@ -163,7 +174,7 @@ export function Sidebar({
             desktopCollapsed && 'lg:px-1.5',
           )}
         >
-          {NAV_SECTIONS.map(section => (
+          {filteredSections.map(section => (
             <div key={section.label} className="mb-1">
               <div
                 className={cn(

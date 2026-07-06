@@ -11,12 +11,17 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import { LookupsService } from './lookups.service';
 import {
   CreateLookupRowDto,
   UpdateLookupRowDto,
 } from './dto/manage-lookup-row.dto';
+import { EntraAuthGuard } from '../admin-users/entra-auth.guard';
+import { AccessLevelGuard } from '../common/access-level.guard';
+import { AccessLevel } from '../common/access-level.enum';
+import { RequireAccessLevel } from '../common/require-access-level.decorator';
 
 @Controller('lookups')
 export class LookupsController {
@@ -131,6 +136,8 @@ export class LookupsController {
   }
 
   @Get('manage/:table')
+  @UseGuards(EntraAuthGuard, AccessLevelGuard)
+  @RequireAccessLevel(AccessLevel.Administrator)
   listManagedLookupRows(
     @Param('table') table: string,
     @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
@@ -153,6 +160,8 @@ export class LookupsController {
   }
 
   @Post('manage/:table')
+  @UseGuards(EntraAuthGuard, AccessLevelGuard)
+  @RequireAccessLevel(AccessLevel.Administrator)
   createManagedLookupRow(
     @Param('table') table: string,
     @Body() dto: CreateLookupRowDto,
@@ -161,6 +170,8 @@ export class LookupsController {
   }
 
   @Patch('manage/:table/:id')
+  @UseGuards(EntraAuthGuard, AccessLevelGuard)
+  @RequireAccessLevel(AccessLevel.Administrator)
   updateManagedLookupRow(
     @Param('table') table: string,
     @Param('id', ParseIntPipe) id: number,
@@ -170,6 +181,8 @@ export class LookupsController {
   }
 
   @Delete('manage/:table/:id')
+  @UseGuards(EntraAuthGuard, AccessLevelGuard)
+  @RequireAccessLevel(AccessLevel.Administrator)
   @HttpCode(HttpStatus.NO_CONTENT)
   removeManagedLookupRow(
     @Param('table') table: string,

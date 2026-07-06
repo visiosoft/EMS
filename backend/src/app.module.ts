@@ -27,6 +27,7 @@ import { TourMarketingModule } from './tour-marketing/tour-marketing.module';
 import { DocumentLibraryModule } from './document-library/document-library.module';
 import { OrganizationChartModule } from './organization-chart/organization-chart.module';
 import { LearningModule } from './learning/learning.module';
+import { CommonModule } from './common/common.module';
 
 const parseBoolean = (
   value: string | undefined,
@@ -103,6 +104,7 @@ const parseNumber = (value: string | undefined, fallback: number): number => {
       }),
     }),
     AuditModule,
+    CommonModule,
     CompanyModule,
     AttractionToursModule,
     EngagementsModule,
