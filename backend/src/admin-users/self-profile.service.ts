@@ -2,6 +2,15 @@ import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AuditRequestContext } from '../audit/audit-request-context.service';
+import { AdminUsersService } from './admin-users.service';
+import {
+  EmployeeExperienceService,
+  type EmployeeExperienceResponse,
+} from './employee-experience.service';
+import {
+  EmployeeHealthInsuranceService,
+  type EmployeeHealthInsuranceResponse,
+} from './employee-health-insurance.service';
 
 /**
  * Aggregate self-service profile for the signed-in internal employee. Resolves the user
@@ -27,14 +36,6 @@ type EmergencyContactEntry = {
   isPrimary: boolean;
 };
 
-type HealthInsuranceEntry = {
-  insuranceType: string;
-  optInStatus: string;
-  planName: string;
-  planType: string;
-  additionalInsureds: string;
-};
-
 export type MyFullProfileResponse =
   | { linked: false }
   | {
@@ -58,6 +59,7 @@ export type MyFullProfileResponse =
       };
       personal: {
         dateOfBirth: string | null;
+        age: number | null;
         gender: string;
         maritalStatus: string;
         ethnicity: string;
@@ -66,9 +68,12 @@ export type MyFullProfileResponse =
       homeAddress: ProfileAddress | null;
       emergencyContacts: EmergencyContactEntry[];
       employment: {
+        title: string;
+        office: string;
         accessLevel: string;
         workAuthorization: string;
         startDate: string | null;
+        yearsOfService: string;
         hireDate: string | null;
         terminationDate: string | null;
         employmentStatus: string;
@@ -84,6 +89,7 @@ export type MyFullProfileResponse =
       };
       officeAddress: ProfileAddress | null;
       equipment: {
+        deskPhoneNumber: string;
         deskPhoneExtension: string;
         deskPhoneMac: string;
         deskPhoneBrand: string;
@@ -94,14 +100,25 @@ export type MyFullProfileResponse =
         bluetoothStatus: string;
         pcWindowsName: string;
       };
-      healthInsurance: HealthInsuranceEntry[];
+      entra: {
+        microsoftOfficeLicenses: string[];
+        microsoftGroups: string[];
+      };
+      healthInsurance: EmployeeHealthInsuranceResponse | null;
+      experience: EmployeeExperienceResponse | null;
     };
+
+/** Company main desk line — static per spec ("Administrator Entered and static as (312) 274-1800"). */
+const STATIC_DESK_PHONE_NUMBER = '(312) 274-1800';
 
 @Injectable()
 export class SelfProfileService {
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly auditContext: AuditRequestContext,
+    private readonly healthInsuranceService: EmployeeHealthInsuranceService,
+    private readonly experienceService: EmployeeExperienceService,
+    private readonly adminUsersService: AdminUsersService,
   ) {}
 
   async getMyFullProfile(): Promise<MyFullProfileResponse> {
@@ -130,8 +147,30 @@ export class SelfProfileService {
       readNumber(profileRow, 'OfficeAddressID'),
     );
     const emergencyContacts = await this.loadEmergencyContacts(contactId);
-    const healthInsurance = await this.loadHealthInsurance(contactId);
     const equipment = await this.loadEquipment(contactAssignmentId);
+
+    // Rich sections reuse the exact EMS services (health-insurance formulas, experience SQL).
+    // Each is best-effort so a missing table or edge case never fails the whole profile.
+    const healthInsurance = await this.safe(() =>
+      this.healthInsuranceService.getHealthInsurance(base.email),
+    );
+    const experience = await this.safe(() =>
+      this.experienceService.getExperience(base.email),
+    );
+
+    // Entra-sourced fields (Title, Office, Microsoft licenses & groups). Delegated Graph token
+    // arrives via the x-entra-graph-access-token header; absent it, these degrade to empty.
+    const entraJob = await this.loadEntraJobInfo();
+    const microsoftOfficeLicenses =
+      (await this.safe(() =>
+        this.adminUsersService.getUserLicenses(base.email),
+      )) ?? [];
+    const microsoftGroups =
+      (await this.safe(() => this.adminUsersService.getUserGroups(base.email))) ??
+      [];
+
+    const dateOfBirth = readDateString(profileRow, 'DateOfBirth');
+    const startDate = readDateString(profileRow, 'StartDate');
 
     return {
       linked: true,
@@ -153,7 +192,8 @@ export class SelfProfileService {
         company: base.company,
       },
       personal: {
-        dateOfBirth: readDateString(profileRow, 'DateOfBirth'),
+        dateOfBirth,
+        age: computeAge(dateOfBirth),
         gender: readString(profileRow, 'Gender'),
         maritalStatus: readString(profileRow, 'MaritalStatus'),
         ethnicity: readString(profileRow, 'Ethnicity'),
@@ -162,9 +202,12 @@ export class SelfProfileService {
       homeAddress,
       emergencyContacts,
       employment: {
+        title: entraJob.title,
+        office: entraJob.office,
         accessLevel: readString(profileRow, 'AccessLevel'),
         workAuthorization: readString(profileRow, 'WorkAuthorization'),
-        startDate: readDateString(profileRow, 'StartDate'),
+        startDate,
+        yearsOfService: computeYearsOfService(startDate),
         hireDate: readDateString(profileRow, 'HireDate'),
         terminationDate: readDateString(profileRow, 'TerminationDate'),
         employmentStatus: readString(profileRow, 'EmploymentStatus'),
@@ -179,9 +222,43 @@ export class SelfProfileService {
         workstation: readString(profileRow, 'Workstation'),
       },
       officeAddress,
-      equipment,
+      equipment: { deskPhoneNumber: STATIC_DESK_PHONE_NUMBER, ...equipment },
+      entra: { microsoftOfficeLicenses, microsoftGroups },
       healthInsurance,
+      experience,
     };
+  }
+
+  /** Run a best-effort loader; swallow failures so one bad section can't fail the profile. */
+  private async safe<T>(fn: () => Promise<T>): Promise<T | null> {
+    try {
+      return await fn();
+    } catch {
+      return null;
+    }
+  }
+
+  /** Fetch the signed-in user's Entra job title & office via the delegated Graph `/me` call. */
+  private async loadEntraJobInfo(): Promise<{ title: string; office: string }> {
+    const token = this.auditContext.getGraphAccessToken();
+    if (!token) return { title: '', office: '' };
+    try {
+      const res = await fetch(
+        'https://graph.microsoft.com/v1.0/me?$select=jobTitle,officeLocation',
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!res.ok) return { title: '', office: '' };
+      const data = (await res.json()) as {
+        jobTitle?: string | null;
+        officeLocation?: string | null;
+      };
+      return {
+        title: String(data.jobTitle ?? '').trim(),
+        office: String(data.officeLocation ?? '').trim(),
+      };
+    } catch {
+      return { title: '', office: '' };
+    }
   }
 
   private signedInEmailCandidates(): string[] {
@@ -297,40 +374,6 @@ export class SelfProfileService {
       phoneNumber: readString(r, 'PhoneNumber'),
       email: readString(r, 'Email'),
       isPrimary: Boolean(r['IsPrimary']),
-    }));
-  }
-
-  private async loadHealthInsurance(
-    contactId: number,
-  ): Promise<HealthInsuranceEntry[]> {
-    if (!(await this.tableExists('EmployeeHealthInsurance'))) return [];
-    const hasPlan = await this.tableExists('HealthPlan');
-    const planSelect = hasPlan
-      ? "COALESCE(hp.PlanName, '') AS planName, COALESCE(hp.PlanType, '') AS planType"
-      : "CAST('' AS nvarchar(200)) AS planName, CAST('' AS nvarchar(50)) AS planType";
-    const planJoin = hasPlan
-      ? 'LEFT JOIN dbo.HealthPlan hp ON hp.HealthPlanID = ehi.HealthPlanID'
-      : '';
-    const rows = (await this.dataSource.query(
-      `
-      SELECT
-        ehi.InsuranceType AS insuranceType,
-        COALESCE(ehi.OptInStatus, '') AS optInStatus,
-        COALESCE(ehi.AdditionalInsureds, '') AS additionalInsureds,
-        ${planSelect}
-      FROM dbo.EmployeeHealthInsurance ehi
-      ${planJoin}
-      WHERE ehi.ContactID = @0
-      ORDER BY ehi.InsuranceType
-      `,
-      [contactId],
-    )) as Record<string, unknown>[];
-    return rows.map((r) => ({
-      insuranceType: readString(r, 'insuranceType'),
-      optInStatus: readString(r, 'optInStatus'),
-      planName: readString(r, 'planName'),
-      planType: readString(r, 'planType'),
-      additionalInsureds: readString(r, 'additionalInsureds'),
     }));
   }
 
@@ -483,4 +526,37 @@ function formatLocalYmd(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+/** Whole years between a birth date (YYYY-MM-DD) and today. */
+function computeAge(dateOfBirth: string | null): number | null {
+  if (!dateOfBirth) return null;
+  const dob = new Date(`${dateOfBirth}T00:00:00`);
+  if (isNaN(dob.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - dob.getFullYear();
+  const monthDelta = now.getMonth() - dob.getMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && now.getDate() < dob.getDate())) {
+    age -= 1;
+  }
+  return age >= 0 && age < 150 ? age : null;
+}
+
+/** Tenure since start date, rendered as "X years Y months". */
+function computeYearsOfService(startDate: string | null): string {
+  if (!startDate) return '';
+  const start = new Date(`${startDate}T00:00:00`);
+  if (isNaN(start.getTime())) return '';
+  const now = new Date();
+  let months =
+    (now.getFullYear() - start.getFullYear()) * 12 +
+    (now.getMonth() - start.getMonth());
+  if (now.getDate() < start.getDate()) months -= 1;
+  if (months < 0) return '';
+  const years = Math.floor(months / 12);
+  const remMonths = months % 12;
+  const parts: string[] = [];
+  if (years > 0) parts.push(`${years} year${years === 1 ? '' : 's'}`);
+  parts.push(`${remMonths} month${remMonths === 1 ? '' : 's'}`);
+  return parts.join(' ');
 }

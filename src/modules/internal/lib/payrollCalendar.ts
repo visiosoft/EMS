@@ -4,11 +4,11 @@ import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
  * Biweekly ADP payroll: every other Friday is payday, covering the two-week
  * period that ends the previous Friday (per Adam Epstein's formula).
  *
- * TODO(verify): confirm this anchor against the ADP "2026 Payroll Schedule
- * (Revised)" PDF before release. Any confirmed payday works — the whole
- * schedule is derived from it in 14-day steps.
+ * Anchored to the first payday of the 2026 ADP schedule (Fri Jan 2, 2026).
+ * The whole calendar — every year, past and future — is derived from this one
+ * date in continuous 14-day steps, so correcting the anchor fixes all years.
  */
-export const ANCHOR_PAYDAY = "2026-01-09";
+export const ANCHOR_PAYDAY = "2026-01-02";
 
 export type PayPeriod = {
   /** Payday Friday (YYYY-MM-DD). */

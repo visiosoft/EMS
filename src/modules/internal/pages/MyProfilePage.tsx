@@ -1,19 +1,28 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import {
   BadgeCheck,
   Briefcase,
+  Eye,
+  EyeOff,
   HeartPulse,
   Home,
+  KeyRound,
   Laptop,
   Loader2,
+  Map,
   MapPin,
   ShieldAlert,
+  Ticket,
   Users,
   UserRound,
 } from "lucide-react";
-import { fetchMySelfProfile, type SelfProfileAddress } from "@/api/selfProfileApi";
+import {
+  fetchMySelfProfile,
+  type SelfProfileAddress,
+  type SelfProfileInsuranceElection,
+} from "@/api/selfProfileApi";
 import { formatE164ForDisplay } from "@/lib/contactPhoneField";
 import { InternalPageHero } from "../components/InternalPageHero";
 import { InternalPageFrame } from "../layout/InternalPageFrame";
@@ -36,11 +45,6 @@ function phoneOrDash(value: string | null | undefined): string {
   const trimmed = (value ?? "").trim();
   if (!trimmed) return "—";
   return formatE164ForDisplay(trimmed) || trimmed;
-}
-
-function maskedSsn(last4: string | null | undefined): string {
-  const trimmed = (last4 ?? "").trim();
-  return trimmed ? `•••-••-${trimmed.slice(-4)}` : "—";
 }
 
 function formatAddress(address: SelfProfileAddress | null): string {
@@ -67,6 +71,33 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
+/** Field masked by default with a Show/Hide toggle — for SSN and Age (spec: hashed with show button). */
+function RevealField({ label, value }: { label: string; value: string }) {
+  const [shown, setShown] = useState(false);
+  const hasValue = value.trim() !== "" && value !== "—";
+  return (
+    <div>
+      <dt className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">
+        {label}
+        {hasValue ? (
+          <button
+            type="button"
+            onClick={() => setShown((prev) => !prev)}
+            className="inline-flex items-center gap-1 rounded-full border border-neutral-300 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-neutral-600 transition-colors hover:bg-neutral-100"
+            aria-label={shown ? `Hide ${label}` : `Show ${label}`}
+          >
+            {shown ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+            {shown ? "Hide" : "Show"}
+          </button>
+        ) : null}
+      </dt>
+      <dd className="mt-1 break-words text-sm font-medium text-neutral-900">
+        {hasValue ? (shown ? value : "••••••") : "—"}
+      </dd>
+    </div>
+  );
+}
+
 function ProfileCard({
   title,
   icon,
@@ -89,6 +120,80 @@ function ProfileCard({
   );
 }
 
+function TagList({ items, empty }: { items: string[]; empty: string }) {
+  if (items.length === 0) {
+    return <p className="text-sm font-medium text-neutral-500">{empty}</p>;
+  }
+  return (
+    <ul className="flex flex-wrap gap-2">
+      {items.map((item, index) => (
+        <li
+          key={`${item}-${index}`}
+          className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-[13px] font-medium text-neutral-800"
+        >
+          {item}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+const currency = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+function InsuranceCard({ election }: { election: SelfProfileInsuranceElection }) {
+  const optedIn = election.optInStatus.toLowerCase().includes("opt-in");
+  const benefits = election.planBenefits
+    .split(";")
+    .map((b) => b.trim())
+    .filter(Boolean);
+  return (
+    <div className="rounded-md border border-neutral-100 bg-neutral-50/60 p-4">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <h3 className="text-sm font-semibold text-neutral-950">{textOrDash(election.insuranceType)}</h3>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+            optedIn ? "bg-emerald-600 text-white" : "bg-neutral-300 text-neutral-800"
+          }`}
+        >
+          {textOrDash(election.optInStatus)}
+        </span>
+      </div>
+      {optedIn ? (
+        <>
+          <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+            <Field label="Chosen Plan" value={textOrDash(election.planName)} />
+            <Field label="Additional Insureds" value={textOrDash(election.additionalInsureds)} />
+            <Field label="Plan Price" value={textOrDash(election.planPrice)} />
+            <Field label="Monthly Rate" value={textOrDash(election.monthlyRate)} />
+            <Field label="Payroll Deduction" value={textOrDash(election.payrollDeduction)} />
+          </dl>
+          {benefits.length > 0 ? (
+            <div className="mt-4">
+              <dt className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">
+                Plan Benefits
+              </dt>
+              <ul className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2">
+                {benefits.map((benefit, index) => (
+                  <li key={`${benefit}-${index}`} className="text-[13px] font-medium text-neutral-800">
+                    • {benefit}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <p className="text-sm font-medium text-neutral-500">Not enrolled.</p>
+      )}
+    </div>
+  );
+}
+
 export function MyProfilePage() {
   const profileQuery = useQuery({
     queryKey: ["self-profile"],
@@ -106,6 +211,9 @@ export function MyProfilePage() {
         .filter(Boolean)
         .join(" ")
     : "";
+
+  const health = profile?.healthInsurance ?? null;
+  const experience = profile?.experience ?? null;
 
   return (
     <InternalPageFrame>
@@ -146,23 +254,25 @@ export function MyProfilePage() {
 
         {profile ? (
           <div className="space-y-5">
-            <ProfileCard title="Basics" icon={<UserRound className="h-4 w-4" />}>
-              <Field label="Name" value={textOrDash(fullName)} />
-              <Field label="Department" value={textOrDash(profile.basics.department)} />
-              <Field label="Role" value={textOrDash(profile.basics.role)} />
-              <Field label="Company" value={textOrDash(profile.basics.company)} />
-              <Field label="Work Email" value={textOrDash(profile.basics.email)} />
+            {/* ── Personal ─────────────────────────────────────────────── */}
+            <ProfileCard title="Personal Information" icon={<UserRound className="h-4 w-4" />}>
+              <Field label="First Name" value={textOrDash(profile.basics.firstName)} />
+              <Field label="Middle Name" value={textOrDash(profile.basics.middleName)} />
+              <Field label="Last Name" value={textOrDash(profile.basics.lastName)} />
               <Field label="Personal Email" value={textOrDash(profile.basics.personalEmail)} />
-              <Field label="Cell Phone" value={phoneOrDash(profile.basics.cellPhone)} />
-              <Field label="Work Phone" value={phoneOrDash(profile.basics.workPhone)} />
-            </ProfileCard>
-
-            <ProfileCard title="Personal" icon={<BadgeCheck className="h-4 w-4" />}>
-              <Field label="Date of Birth" value={formatDate(profile.personal.dateOfBirth)} />
+              <Field label="Cell Phone Number" value={phoneOrDash(profile.basics.cellPhone)} />
+              <Field label="Birth Date" value={formatDate(profile.personal.dateOfBirth)} />
+              <RevealField
+                label="Social Security Number"
+                value={profile.personal.ssnLast4 ? `•••-••-${profile.personal.ssnLast4}` : "—"}
+              />
+              <RevealField
+                label="Age"
+                value={profile.personal.age != null ? String(profile.personal.age) : "—"}
+              />
               <Field label="Gender" value={textOrDash(profile.personal.gender)} />
               <Field label="Marital Status" value={textOrDash(profile.personal.maritalStatus)} />
               <Field label="Ethnicity" value={textOrDash(profile.personal.ethnicity)} />
-              <Field label="SSN" value={maskedSsn(profile.personal.ssnLast4)} />
             </ProfileCard>
 
             <ProfileCard title="Home Address" icon={<Home className="h-4 w-4" />}>
@@ -204,22 +314,27 @@ export function MyProfilePage() {
               )}
             </section>
 
-            <ProfileCard title="Employment" icon={<Briefcase className="h-4 w-4" />}>
+            {/* ── Employment ───────────────────────────────────────────── */}
+            <ProfileCard title="Employment Information" icon={<Briefcase className="h-4 w-4" />}>
+              <Field label="Title" value={textOrDash(profile.employment.title)} />
               <Field label="Access Level" value={textOrDash(profile.employment.accessLevel)} />
+              <Field label="Work Email" value={textOrDash(profile.basics.email)} />
+              <Field label="Office" value={textOrDash(profile.employment.office)} />
+              <Field label="Workstation" value={textOrDash(profile.employment.workstation)} />
               <Field label="Work Authorization" value={textOrDash(profile.employment.workAuthorization)} />
-              <Field label="Employment Status" value={textOrDash(profile.employment.employmentStatus)} />
-              <Field label="Employment Type" value={textOrDash(profile.employment.employmentType)} />
-              <Field label="Start Date" value={formatDate(profile.employment.startDate)} />
-              <Field label="Hire Date" value={formatDate(profile.employment.hireDate)} />
-              <Field label="Termination Date" value={formatDate(profile.employment.terminationDate)} />
+              <Field label="Department" value={textOrDash(profile.basics.department)} />
+              <Field label="Role" value={textOrDash(profile.basics.role)} />
+              <Field label="Company" value={textOrDash(profile.basics.company)} />
+              <Field label="Start Date at IAE" value={formatDate(profile.employment.startDate)} />
+              <Field label="Years of Service" value={textOrDash(profile.employment.yearsOfService)} />
               <Field label="Supervisor" value={textOrDash(profile.employment.supervisor)} />
-              <Field label="Pay Type" value={textOrDash(profile.employment.payType)} />
-              <Field label="Pay Rate" value={textOrDash(profile.employment.payRate)} />
-              <Field label="PTO Accrual Rate" value={textOrDash(profile.employment.ptoAccrualRate)} />
-              <Field label="Employment Agreement" value={textOrDash(profile.employment.employmentAgreement)} />
+              <Field label="Paid Time Off Accrual Rate" value={textOrDash(profile.employment.ptoAccrualRate)} />
+              <Field
+                label="Employment Agreement Fully Executed"
+                value={textOrDash(profile.employment.employmentAgreement)}
+              />
               <Field label="Ramp Account" value={textOrDash(profile.employment.rampAccount)} />
               <Field label="Ramp Credit Card" value={textOrDash(profile.employment.rampCreditCard)} />
-              <Field label="Workstation" value={textOrDash(profile.employment.workstation)} />
             </ProfileCard>
 
             <ProfileCard title="Office Address" icon={<MapPin className="h-4 w-4" />}>
@@ -228,18 +343,43 @@ export function MyProfilePage() {
               </div>
             </ProfileCard>
 
-            <ProfileCard title="Equipment" icon={<Laptop className="h-4 w-4" />}>
+            <ProfileCard title="Desk Phone & Computer" icon={<Laptop className="h-4 w-4" />}>
+              <Field label="Desk Phone Number" value={textOrDash(profile.equipment.deskPhoneNumber)} />
               <Field label="Desk Phone Extension" value={textOrDash(profile.equipment.deskPhoneExtension)} />
-              <Field label="Desk Phone MAC" value={textOrDash(profile.equipment.deskPhoneMac)} />
+              <Field label="Desk Phone MAC Address" value={textOrDash(profile.equipment.deskPhoneMac)} />
               <Field label="Desk Phone Brand" value={textOrDash(profile.equipment.deskPhoneBrand)} />
               <Field label="Desk Phone Model" value={textOrDash(profile.equipment.deskPhoneModel)} />
               <Field label="PC Brand" value={textOrDash(profile.equipment.pcBrand)} />
               <Field label="PC Model" value={textOrDash(profile.equipment.pcModel)} />
               <Field label="PC Service Tag" value={textOrDash(profile.equipment.pcServiceTag)} />
-              <Field label="Bluetooth" value={textOrDash(profile.equipment.bluetoothStatus)} />
+              <Field label="Bluetooth Status" value={textOrDash(profile.equipment.bluetoothStatus)} />
               <Field label="PC Windows Name" value={textOrDash(profile.equipment.pcWindowsName)} />
             </ProfileCard>
 
+            <section className="rounded-lg border border-neutral-200 bg-white p-5 sm:p-6">
+              <h2 className="mb-4 flex items-center gap-2.5 text-base font-semibold text-neutral-950">
+                <span className="rounded-md bg-neutral-100 p-1.5 text-neutral-800" aria-hidden>
+                  <KeyRound className="h-4 w-4" />
+                </span>
+                Microsoft 365
+              </h2>
+              <div className="space-y-4">
+                <div>
+                  <dt className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">
+                    Microsoft Office License
+                  </dt>
+                  <TagList items={profile.entra.microsoftOfficeLicenses} empty="No licenses found." />
+                </div>
+                <div>
+                  <dt className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">
+                    Microsoft Group Membership
+                  </dt>
+                  <TagList items={profile.entra.microsoftGroups} empty="No group memberships found." />
+                </div>
+              </div>
+            </section>
+
+            {/* ── Health Insurance ─────────────────────────────────────── */}
             <section className="rounded-lg border border-neutral-200 bg-white p-5 sm:p-6">
               <h2 className="mb-4 flex items-center gap-2.5 text-base font-semibold text-neutral-950">
                 <span className="rounded-md bg-neutral-100 p-1.5 text-neutral-800" aria-hidden>
@@ -247,34 +387,66 @@ export function MyProfilePage() {
                 </span>
                 Health Insurance
               </h2>
-              {profile.healthInsurance.length === 0 ? (
-                <p className="text-sm font-medium text-neutral-500">No health insurance enrollments on file.</p>
+              {health ? (
+                <>
+                  <dl className="mb-5 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+                    <Field label="Health Insurance Status" value={textOrDash(health.insuranceEligibility)} />
+                    <Field
+                      label="Company Contribution Per Pay Period"
+                      value={
+                        health.companyContributionPerPayPeriod > 0
+                          ? currency.format(health.companyContributionPerPayPeriod)
+                          : "—"
+                      }
+                    />
+                  </dl>
+                  {health.elections.length === 0 ? (
+                    <p className="text-sm font-medium text-neutral-500">
+                      No insurance elections on file.
+                    </p>
+                  ) : (
+                    <div className="space-y-4">
+                      {health.elections.map((election) => (
+                        <InsuranceCard key={election.insuranceType} election={election} />
+                      ))}
+                    </div>
+                  )}
+                </>
               ) : (
-                <div className="space-y-4">
-                  {profile.healthInsurance.map((plan, index) => (
-                    <dl
-                      key={`${plan.insuranceType}-${index}`}
-                      className="grid grid-cols-1 gap-x-6 gap-y-4 rounded-md border border-neutral-100 bg-neutral-50/60 p-4 sm:grid-cols-2 lg:grid-cols-4"
-                    >
-                      <div className="flex items-center gap-2">
-                        <Field label="Coverage" value={textOrDash(plan.insuranceType)} />
-                        <span
-                          className={`mt-4 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                            plan.optInStatus.toLowerCase().includes("opt-in")
-                              ? "bg-emerald-600 text-white"
-                              : "bg-neutral-300 text-neutral-800"
-                          }`}
-                        >
-                          {textOrDash(plan.optInStatus)}
-                        </span>
-                      </div>
-                      <Field label="Plan" value={textOrDash(plan.planName)} />
-                      <Field label="Plan Type" value={textOrDash(plan.planType)} />
-                      <Field label="Covered" value={textOrDash(plan.additionalInsureds)} />
-                    </dl>
-                  ))}
-                </div>
+                <p className="text-sm font-medium text-neutral-500">
+                  Health insurance information isn't available.
+                </p>
               )}
+            </section>
+
+            {/* ── Experience ───────────────────────────────────────────── */}
+            <section className="rounded-lg border border-neutral-200 bg-white p-5 sm:p-6">
+              <h2 className="mb-4 flex items-center gap-2.5 text-base font-semibold text-neutral-950">
+                <span className="rounded-md bg-neutral-100 p-1.5 text-neutral-800" aria-hidden>
+                  <Ticket className="h-4 w-4" />
+                </span>
+                Experience
+              </h2>
+              <div className="space-y-5">
+                <div>
+                  <dt className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">
+                    Engagements Assigned To Work On
+                  </dt>
+                  <TagList items={experience?.engagementsAssignedTo ?? []} empty="None assigned." />
+                </div>
+                <div>
+                  <dt className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">
+                    Engagements Worked On
+                  </dt>
+                  <TagList items={experience?.engagementsWorkedOn ?? []} empty="None yet." />
+                </div>
+                <div>
+                  <dt className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">
+                    <Map className="h-3.5 w-3.5" /> Markets Worked In
+                  </dt>
+                  <TagList items={experience?.marketsWorkedIn ?? []} empty="No markets yet." />
+                </div>
+              </div>
             </section>
           </div>
         ) : null}

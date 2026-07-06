@@ -17,12 +17,31 @@ export interface SelfProfileEmergencyContact {
   isPrimary: boolean;
 }
 
-export interface SelfProfileHealthInsurance {
+export interface SelfProfileInsuranceElection {
   insuranceType: string;
   optInStatus: string;
+  healthPlanId: number | null;
   planName: string;
-  planType: string;
   additionalInsureds: string;
+  planPrice: string;
+  planBenefits: string;
+  monthlyRate: string;
+  payrollDeduction: string;
+}
+
+export interface SelfProfileHealthInsurance {
+  contactId: number;
+  insuranceEligibility: string;
+  tenureTier: '<1 yr' | '1+ yr' | null;
+  companyContributionPerPayPeriod: number;
+  elections: SelfProfileInsuranceElection[];
+}
+
+export interface SelfProfileExperience {
+  contactId: number;
+  engagementsAssignedTo: string[];
+  engagementsWorkedOn: string[];
+  marketsWorkedIn: string[];
 }
 
 export interface LinkedSelfProfile {
@@ -46,6 +65,7 @@ export interface LinkedSelfProfile {
   };
   personal: {
     dateOfBirth: string | null;
+    age: number | null;
     gender: string;
     maritalStatus: string;
     ethnicity: string;
@@ -54,9 +74,12 @@ export interface LinkedSelfProfile {
   homeAddress: SelfProfileAddress | null;
   emergencyContacts: SelfProfileEmergencyContact[];
   employment: {
+    title: string;
+    office: string;
     accessLevel: string;
     workAuthorization: string;
     startDate: string | null;
+    yearsOfService: string;
     hireDate: string | null;
     terminationDate: string | null;
     employmentStatus: string;
@@ -72,6 +95,7 @@ export interface LinkedSelfProfile {
   };
   officeAddress: SelfProfileAddress | null;
   equipment: {
+    deskPhoneNumber: string;
     deskPhoneExtension: string;
     deskPhoneMac: string;
     deskPhoneBrand: string;
@@ -82,7 +106,12 @@ export interface LinkedSelfProfile {
     bluetoothStatus: string;
     pcWindowsName: string;
   };
-  healthInsurance: SelfProfileHealthInsurance[];
+  entra: {
+    microsoftOfficeLicenses: string[];
+    microsoftGroups: string[];
+  };
+  healthInsurance: SelfProfileHealthInsurance | null;
+  experience: SelfProfileExperience | null;
 }
 
 export type SelfProfile = LinkedSelfProfile | { linked: false };

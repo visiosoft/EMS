@@ -15,19 +15,35 @@ describe("payrollCalendar", () => {
 
   it("marks the anchor and every 14th day as paydays", () => {
     expect(isPayday(parseISO(ANCHOR_PAYDAY))).toBe(true);
-    expect(isPayday(parseISO("2026-01-23"))).toBe(true);
-    expect(isPayday(parseISO("2025-12-26"))).toBe(true); // one cycle before the anchor
-    expect(isPayday(parseISO("2026-01-16"))).toBe(false); // off-week Friday
-    expect(isPayday(parseISO("2026-01-08"))).toBe(false); // Thursday
+    expect(isPayday(parseISO("2026-01-16"))).toBe(true);
+    expect(isPayday(parseISO("2026-01-30"))).toBe(true);
+    expect(isPayday(parseISO("2025-12-19"))).toBe(true); // one cycle before the anchor
+    expect(isPayday(parseISO("2026-01-09"))).toBe(false); // off-week Friday
+    expect(isPayday(parseISO("2026-01-01"))).toBe(false); // Thursday
+  });
+
+  it("matches the official ADP 2026 payday schedule", () => {
+    // Boxed paydays from the ADP 2026 Payroll Schedule, month → days.
+    const expected: Record<number, number[]> = {
+      0: [2, 16, 30], 1: [13, 27], 2: [13, 27], 3: [10, 24],
+      4: [8, 22], 5: [5, 19], 6: [3, 17, 31], 7: [14, 28],
+      8: [11, 25], 9: [9, 23], 10: [6, 20], 11: [4, 18],
+    };
+    for (const [month, days] of Object.entries(expected)) {
+      const actual = getPaydaysForMonth(2026, Number(month)).map((p) =>
+        parseISO(p.payday).getDate(),
+      );
+      expect(actual).toEqual(days);
+    }
   });
 
   it("covers the two-week period ending the previous Friday", () => {
     const jan = getPaydaysForMonth(2026, 0);
     const anchorPeriod = jan.find((p) => p.payday === ANCHOR_PAYDAY);
     expect(anchorPeriod).toBeDefined();
-    // Payday Fri 2026-01-09 covers Sat 2025-12-20 through Fri 2026-01-02.
-    expect(anchorPeriod!.periodEnd).toBe("2026-01-02");
-    expect(anchorPeriod!.periodStart).toBe("2025-12-20");
+    // Payday Fri 2026-01-02 covers Sat 2025-12-13 through Fri 2025-12-26.
+    expect(anchorPeriod!.periodEnd).toBe("2025-12-26");
+    expect(anchorPeriod!.periodStart).toBe("2025-12-13");
     expect(parseISO(anchorPeriod!.periodEnd).getDay()).toBe(5);
     expect(parseISO(anchorPeriod!.periodStart).getDay()).toBe(6);
   });
@@ -52,8 +68,8 @@ describe("payrollCalendar", () => {
   });
 
   it("finds the next payday on or after a date", () => {
-    expect(getNextPayday(parseISO("2026-01-09")).payday).toBe("2026-01-09");
-    expect(getNextPayday(parseISO("2026-01-10")).payday).toBe("2026-01-23");
-    expect(getNextPayday(parseISO("2025-12-27")).payday).toBe("2026-01-09");
+    expect(getNextPayday(parseISO("2026-01-02")).payday).toBe("2026-01-02");
+    expect(getNextPayday(parseISO("2026-01-03")).payday).toBe("2026-01-16");
+    expect(getNextPayday(parseISO("2025-12-27")).payday).toBe("2026-01-02");
   });
 });
