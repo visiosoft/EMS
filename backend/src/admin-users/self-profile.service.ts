@@ -11,6 +11,10 @@ import {
   EmployeeHealthInsuranceService,
   type EmployeeHealthInsuranceResponse,
 } from './employee-health-insurance.service';
+import {
+  EmployeeCertificationsService,
+  type EmployeeCertificationResponse,
+} from './employee-certifications.service';
 
 /**
  * Aggregate self-service profile for the signed-in internal employee. Resolves the user
@@ -40,6 +44,11 @@ export type MyFullProfileResponse =
   | { linked: false }
   | {
       linked: true;
+      /**
+       * `full` when the viewer is the employee or an Administrator (every field visible);
+       * `limited` for other staff, who see only the "All"-visibility fields.
+       */
+      visibility: 'full' | 'limited';
       identity: {
         contactId: number;
         contactInfoId: number;
@@ -106,7 +115,33 @@ export type MyFullProfileResponse =
       };
       healthInsurance: EmployeeHealthInsuranceResponse | null;
       experience: EmployeeExperienceResponse | null;
+      certifications: EmployeeCertificationResponse | null;
     };
+
+/** The linked variant of the profile response (everything except the `{ linked: false }` case). */
+type LinkedProfile = Extract<MyFullProfileResponse, { linked: true }>;
+
+/** A person resolved from the internal EMS directory by email or contact id. */
+type ResolvedContact = {
+  contactId: number;
+  contactInfoId: number;
+  contactAssignmentId: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  cellPhone: string;
+  workPhone: string;
+  department: string;
+  role: string;
+  company: string;
+};
+
+/**
+ * Who is viewing the profile. When neither `isSelf` nor `isAdmin` is true, the
+ * Administrator-only fields (per Employee Profiles.xlsx column D) are stripped
+ * before the profile leaves the service.
+ */
+type ViewerContext = { isSelf: boolean; isAdmin: boolean };
 
 /** Company main desk line — static per spec ("Administrator Entered and static as (312) 274-1800"). */
 const STATIC_DESK_PHONE_NUMBER = '(312) 274-1800';
@@ -118,9 +153,11 @@ export class SelfProfileService {
     private readonly auditContext: AuditRequestContext,
     private readonly healthInsuranceService: EmployeeHealthInsuranceService,
     private readonly experienceService: EmployeeExperienceService,
+    private readonly certificationsService: EmployeeCertificationsService,
     private readonly adminUsersService: AdminUsersService,
   ) {}
 
+  /** The signed-in employee's own profile — self always sees every field. */
   async getMyFullProfile(): Promise<MyFullProfileResponse> {
     const emails = this.signedInEmailCandidates();
     if (emails.length === 0) return { linked: false };
@@ -128,6 +165,40 @@ export class SelfProfileService {
     const base = await this.resolveInternalContact(emails);
     if (!base) return { linked: false };
 
+    return this.buildFullProfile(base, { isSelf: true, isAdmin: true });
+  }
+
+  /**
+   * Another employee's profile as seen by the signed-in viewer. Administrator-only
+   * fields are stripped unless the viewer is an Administrator or is the employee.
+   */
+  async getEmployeeProfileForViewer(
+    targetContactId: number,
+  ): Promise<MyFullProfileResponse> {
+    if (!Number.isFinite(targetContactId) || targetContactId <= 0) {
+      return { linked: false };
+    }
+    const target = await this.resolveInternalContactById(targetContactId);
+    if (!target) return { linked: false };
+
+    const viewerEmails = this.signedInEmailCandidates();
+    const viewer = viewerEmails.length
+      ? await this.resolveInternalContact(viewerEmails)
+      : null;
+    const isSelf = viewer?.contactId === target.contactId;
+    const isAdmin = isSelf
+      ? true
+      : viewer
+        ? await this.isAccessLevelAdmin(viewer.contactId)
+        : false;
+
+    return this.buildFullProfile(target, { isSelf: Boolean(isSelf), isAdmin });
+  }
+
+  private async buildFullProfile(
+    base: ResolvedContact,
+    viewer: ViewerContext,
+  ): Promise<MyFullProfileResponse> {
     const { contactId, contactAssignmentId } = base;
     const hasEmployeeProfile = await this.tableExists('EmployeeProfile');
 
@@ -157,10 +228,17 @@ export class SelfProfileService {
     const experience = await this.safe(() =>
       this.experienceService.getExperience(base.email),
     );
+    const certifications = await this.safe(() =>
+      this.certificationsService.getCertifications(base.email),
+    );
 
     // Entra-sourced fields (Title, Office, Microsoft licenses & groups). Delegated Graph token
     // arrives via the x-entra-graph-access-token header; absent it, these degrade to empty.
-    const entraJob = await this.loadEntraJobInfo();
+    // The delegated `/me` call only describes the signed-in viewer, so for anyone other than
+    // yourself the title falls back to the directory role (never leak the viewer's own title).
+    const entraJob = viewer.isSelf
+      ? await this.loadEntraJobInfo()
+      : { title: base.role, office: '' };
     const microsoftOfficeLicenses =
       (await this.safe(() =>
         this.adminUsersService.getUserLicenses(base.email),
@@ -172,8 +250,9 @@ export class SelfProfileService {
     const dateOfBirth = readDateString(profileRow, 'DateOfBirth');
     const startDate = readDateString(profileRow, 'StartDate');
 
-    return {
+    const profile: LinkedProfile = {
       linked: true,
+      visibility: viewer.isSelf || viewer.isAdmin ? 'full' : 'limited',
       identity: {
         contactId,
         contactInfoId: base.contactInfoId,
@@ -226,7 +305,72 @@ export class SelfProfileService {
       entra: { microsoftOfficeLicenses, microsoftGroups },
       healthInsurance,
       experience,
+      certifications,
     };
+
+    return this.applyVisibility(profile, viewer);
+  }
+
+  /**
+   * Strip Administrator-only fields when the viewer is neither the employee nor an
+   * Administrator. Field classification follows Employee Profiles.xlsx column D; the
+   * three demographic fields (gender/marital status/ethnicity) are treated as
+   * Administrator-only as well since they are sensitive and not marked "All".
+   */
+  private applyVisibility(
+    profile: LinkedProfile,
+    viewer: ViewerContext,
+  ): LinkedProfile {
+    if (viewer.isSelf || viewer.isAdmin) return profile;
+    return {
+      ...profile,
+      basics: { ...profile.basics, personalEmail: '' },
+      personal: {
+        ...profile.personal,
+        age: null,
+        ssnLast4: '',
+        gender: '',
+        maritalStatus: '',
+        ethnicity: '',
+      },
+      homeAddress: null,
+      emergencyContacts: [],
+      employment: {
+        ...profile.employment,
+        accessLevel: '',
+        workAuthorization: '',
+        payType: '',
+        payRate: '',
+        ptoAccrualRate: '',
+        employmentAgreement: '',
+        rampAccount: '',
+        rampCreditCard: '',
+      },
+      equipment: {
+        ...profile.equipment,
+        deskPhoneMac: '',
+        deskPhoneBrand: '',
+        deskPhoneModel: '',
+        pcBrand: '',
+        pcModel: '',
+        pcServiceTag: '',
+        bluetoothStatus: '',
+        pcWindowsName: '',
+      },
+      entra: { ...profile.entra, microsoftOfficeLicenses: [] },
+      healthInsurance: null,
+    };
+  }
+
+  /** True when the given contact's EmployeeProfile.AccessLevel is an admin tier. */
+  private async isAccessLevelAdmin(contactId: number): Promise<boolean> {
+    if (!(await this.tableExists('EmployeeProfile'))) return false;
+    const rows = (await this.dataSource.query(
+      `SELECT TOP 1 AccessLevel FROM dbo.EmployeeProfile WHERE ContactID = @0`,
+      [contactId],
+    )) as Record<string, unknown>[];
+    const accessLevel = readString(rows[0], 'AccessLevel').toLowerCase();
+    return accessLevel === 'administrator' || accessLevel === 'super admin';
   }
 
   /** Run a best-effort loader; swallow failures so one bad section can't fail the profile. */
@@ -272,23 +416,28 @@ export class SelfProfileService {
     );
   }
 
-  private async resolveInternalContact(emails: string[]): Promise<
-    | {
-        contactId: number;
-        contactInfoId: number;
-        contactAssignmentId: number;
-        firstName: string;
-        lastName: string;
-        email: string;
-        cellPhone: string;
-        workPhone: string;
-        department: string;
-        role: string;
-        company: string;
-      }
-    | null
-  > {
+  private async resolveInternalContact(
+    emails: string[],
+  ): Promise<ResolvedContact | null> {
+    if (emails.length === 0) return null;
     const placeholders = emails.map((_, index) => `@${index}`).join(', ');
+    return this.resolveContactByWhere(
+      `LOWER(LTRIM(RTRIM(ci.Email))) IN (${placeholders})`,
+      emails,
+    );
+  }
+
+  private async resolveInternalContactById(
+    contactId: number,
+  ): Promise<ResolvedContact | null> {
+    return this.resolveContactByWhere('c.ContactID = @0', [contactId]);
+  }
+
+  /** Shared internal-directory lookup — callers supply the WHERE clause + params. */
+  private async resolveContactByWhere(
+    whereClause: string,
+    params: unknown[],
+  ): Promise<ResolvedContact | null> {
     const rows = await this.dataSource.query(
       `
       SELECT TOP 1
@@ -309,10 +458,10 @@ export class SelfProfileService {
       INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
       LEFT JOIN dbo.Department d ON d.DepartmentID = ca.DepartmentID
       LEFT JOIN dbo.Role r ON r.RoleID = ca.RoleID
-      WHERE LOWER(LTRIM(RTRIM(ci.Email))) IN (${placeholders})
+      WHERE ${whereClause}
       ORDER BY ca.ContactAssignmentID
       `,
-      emails,
+      params,
     );
     const r = rows[0] as Record<string, unknown> | undefined;
     if (!r) return null;
