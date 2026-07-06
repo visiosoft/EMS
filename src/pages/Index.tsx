@@ -148,6 +148,15 @@ function sanitizeViewDataForView(view: string, raw: unknown): Record<string, unk
     if (obj.createEngagement === true || obj.createEngagement === '1') {
       out.createEngagement = true;
     }
+    if (obj.mineOnly === true || obj.mineOnly === '1') {
+      out.mineOnly = true;
+    }
+    if (typeof obj.dateFrom === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(obj.dateFrom.trim())) {
+      out.dateFrom = obj.dateFrom.trim();
+    }
+    if (typeof obj.dateTo === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(obj.dateTo.trim())) {
+      out.dateTo = obj.dateTo.trim();
+    }
     return out;
   }
   if (view === 'companies' && obj.selectedCompanyId != null) {
@@ -167,6 +176,7 @@ function readRouteFromUrl(): { view: string; viewData: Record<string, unknown> }
       statusFilter: params.get('statusFilter') ?? undefined,
       timingFilter: params.get('timingFilter') ?? undefined,
       createEngagement: params.get('createEngagement') === '1',
+      mineOnly: params.get('mineOnly') === '1',
     });
 
     return { view, viewData };
@@ -186,6 +196,9 @@ function readAndConsumeOpenIntent(): { view: string; viewData: Record<string, un
       view?: unknown;
       createEngagement?: unknown;
       timingFilter?: unknown;
+      mineOnly?: unknown;
+      dateFrom?: unknown;
+      dateTo?: unknown;
       expiresAt?: unknown;
     };
     const expiresAt = typeof parsed.expiresAt === 'number' ? parsed.expiresAt : 0;
@@ -203,6 +216,9 @@ function readAndConsumeOpenIntent(): { view: string; viewData: Record<string, un
       viewData: sanitizeViewDataForView('engagements', {
         createEngagement: parsed.createEngagement === true,
         timingFilter: parsed.timingFilter,
+        mineOnly: parsed.mineOnly === true,
+        dateFrom: parsed.dateFrom,
+        dateTo: parsed.dateTo,
       }),
     };
   } catch {
@@ -462,6 +478,9 @@ const Index = () => {
             onNavigate={navigate}
             statusFilter={data.statusFilter as string | undefined}
             timingFilter={data.timingFilter as EngagementTimingFilter | undefined}
+            mineOnly={data.mineOnly as boolean | undefined}
+            dateFrom={data.dateFrom as string | undefined}
+            dateTo={data.dateTo as string | undefined}
             addToast={addToast}
           />
         )}

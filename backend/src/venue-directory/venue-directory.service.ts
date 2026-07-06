@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder } from 'typeorm';
 import { Venue } from '../entities/venue.entity';
+import { dmaMarketNameNormSql } from '../lookups/dma-normalization.util';
 import {
   ALL_VENUES_ENTERTAINMENT_COMPLEX_NAMES_SQL,
   applyAllVenuesSort,
@@ -19,6 +20,8 @@ export interface AllVenueDirectoryRow {
   venueTypeName: string | null;
   dmaId: number | null;
   dmaMarketName: string | null;
+  city: string | null;
+  stateProvince: string | null;
 }
 
 @Injectable()
@@ -109,15 +112,10 @@ export class VenueDirectoryService {
       qb.andWhere('c.dmaid = :dmaF', { dmaF: v.dmaId });
     }
     if (Array.isArray(v.dmaIds) && v.dmaIds.length > 0) {
-      // Strip trailing punctuation (.,:;) from MarketName before comparing so that
-      // near-duplicate entries like "ABILENE-SWEETWATER" / "ABILENE-SWEETWATER." are
-      // treated as the same DMA family.
+      // Near-duplicate MarketName entries ("ABILENE-SWEETWATER" / "ABILENE-SWEETWATER.")
+      // are treated as the same DMA family via the shared normalization.
       const normExpr = (alias: string) =>
-        `LOWER(LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(REPLACE(
-          CASE WHEN RIGHT(RTRIM(${alias}.MarketName),1) IN ('.', ',', ':', ';')
-               THEN LEFT(RTRIM(${alias}.MarketName), LEN(RTRIM(${alias}.MarketName))-1)
-               ELSE RTRIM(${alias}.MarketName) END
-        , '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '))))`;
+        dmaMarketNameNormSql(`${alias}.MarketName`);
       qb.andWhere(
         `EXISTS (
           SELECT 1
@@ -161,7 +159,9 @@ export class VenueDirectoryService {
       .addSelect('v.venueTypeId', 'venueTypeId')
       .addSelect('vt.venueTypeName', 'venueTypeName')
       .addSelect('c.dmaid', 'dmaId')
-      .addSelect('d.marketName', 'dmaMarketName');
+      .addSelect('d.marketName', 'dmaMarketName')
+      .addSelect('pa.city', 'city')
+      .addSelect('pa.stateProvince', 'stateProvince');
     applyAllVenuesSort(dataQb, filters.sortBy, filters.sortDir);
 
     const countQb = this.baseAllVenuesQuery(filters).select('COUNT(1)', 'cnt');
@@ -189,6 +189,8 @@ export class VenueDirectoryService {
       venueTypeName: this.nullableStr(this.pickRaw(row, 'venueTypeName', null)),
       dmaId: this.nullableInt(this.pickRaw(row, 'dmaId', null)),
       dmaMarketName: this.nullableStr(this.pickRaw(row, 'dmaMarketName', null)),
+      city: this.nullableStr(this.pickRaw(row, 'city', null)),
+      stateProvince: this.nullableStr(this.pickRaw(row, 'stateProvince', null)),
     }));
 
     return { data, total: Number.isFinite(total) && total > 0 ? total : 0 };

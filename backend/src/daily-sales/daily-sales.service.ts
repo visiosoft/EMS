@@ -590,14 +590,17 @@ export class DailySalesService {
    * IAE staff on engagements are stored as ContactID in dbo.EngagementIAEContact.
    */
   private async resolveIaeContactIdForSignedInUser(): Promise<number | null> {
-    const email = this.auditContext.getUserEmail()?.trim().toLowerCase();
-    if (!email) return null;
+    const emails = this.auditContext
+      .getUserEmailCandidates()
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean);
+    if (emails.length === 0) return null;
     const row = await this.contactRepo
       .createQueryBuilder('c')
       .innerJoin('c.contactInfo', 'ci')
       .innerJoin(ContactAssignment, 'ca', 'ca.contactId = c.contactId')
       .innerJoin(Company, 'internalCompany', 'internalCompany.companyId = ca.companyId')
-      .where('LOWER(LTRIM(RTRIM(ci.email))) = :email', { email })
+      .where('LOWER(LTRIM(RTRIM(ci.email))) IN (:...emails)', { emails })
       .andWhere('internalCompany.isInternal = :isInternal', {
         isInternal: true,
       })

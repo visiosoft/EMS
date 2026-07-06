@@ -6,6 +6,8 @@ type AuditRequestStore = {
   userDisplayName: string | null;
   /** Entra preferred_username / UPN when available (used for "my" list filters). */
   userEmail: string | null;
+  /** All Entra email-like claims (email, preferred_username, upn) for internal contact matching. */
+  userEmailCandidates: string[];
   graphAccessToken: string | null;
 };
 
@@ -27,6 +29,11 @@ export class AuditRequestContext {
 
   getUserEmail(): string | null {
     return this.storage.getStore()?.userEmail ?? null;
+  }
+
+  /** All Entra email-like claims for the signed-in user, most-authoritative first. */
+  getUserEmailCandidates(): string[] {
+    return this.storage.getStore()?.userEmailCandidates ?? [];
   }
 
   getGraphAccessToken(): string | null {

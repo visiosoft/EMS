@@ -18,7 +18,7 @@ export class AuditContextMiddleware implements NestMiddleware {
     const graphAccessToken = req.header('x-entra-graph-access-token') ?? null;
     let userOid = readAuditUserOidHeader(req);
     let userDisplayName = readAuditUserNameHeader(req);
-    let userEmail = readAuditUserEmailHeader(req);
+    let userEmailCandidates = readAuditUserEmailHeaderCandidates(req);
 
     if (token) {
       try {
@@ -28,23 +28,45 @@ export class AuditContextMiddleware implements NestMiddleware {
           normalizeAuditUserName(user.name) ??
           normalizeAuditUserName(user.preferred_username) ??
           userDisplayName;
-        userEmail =
-          normalizeAuditUserEmail(user.email) ??
-          normalizeAuditUserEmail(user.preferred_username) ??
-          normalizeAuditUserEmail(user.upn) ??
-          userEmail;
+        /**
+         * The `email`, `preferred_username`, and `upn` claims can each carry a different
+         * address (e.g. `mail` vs. sign-in UPN on the same Entra account). Internal contact
+         * lookups match against whichever address EMS has on file, so keep all of them as
+         * candidates rather than collapsing to a single "best" claim.
+         */
+        const tokenEmailCandidates = [
+          normalizeAuditUserEmail(user.email),
+          normalizeAuditUserEmail(user.preferred_username),
+          normalizeAuditUserEmail(user.upn),
+        ].filter((value): value is string => value != null);
+        if (tokenEmailCandidates.length > 0) {
+          userEmailCandidates = dedupeStrings([
+            ...tokenEmailCandidates,
+            ...userEmailCandidates,
+          ]);
+        }
       } catch {
         userOid = readAuditUserOidHeader(req);
         userDisplayName = readAuditUserNameHeader(req);
-        userEmail = readAuditUserEmailHeader(req);
+        userEmailCandidates = readAuditUserEmailHeaderCandidates(req);
       }
     }
 
     this.auditContext.run(
-      { userOid, userDisplayName, userEmail, graphAccessToken },
+      {
+        userOid,
+        userDisplayName,
+        userEmail: userEmailCandidates[0] ?? null,
+        userEmailCandidates,
+        graphAccessToken,
+      },
       next,
     );
   }
+}
+
+function dedupeStrings(values: string[]): string[] {
+  return Array.from(new Set(values));
 }
 
 function readAuditUserOidHeader(req: Request): string | null {
@@ -81,11 +103,12 @@ function normalizeAuditUserOid(
   return oid;
 }
 
-function readAuditUserEmailHeader(req: Request): string | null {
-  return (
-    normalizeAuditUserEmail(req.header('x-user-email')) ??
-    normalizeAuditUserEmail(req.header('x-entra-email')) ??
-    null
+function readAuditUserEmailHeaderCandidates(req: Request): string[] {
+  return dedupeStrings(
+    [
+      normalizeAuditUserEmail(req.header('x-user-email')),
+      normalizeAuditUserEmail(req.header('x-entra-email')),
+    ].filter((value): value is string => value != null),
   );
 }
 

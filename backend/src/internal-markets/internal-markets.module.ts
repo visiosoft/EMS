@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
 import { AdminUsersModule } from '../admin-users/admin-users.module';
 import { CompanyModule } from '../company/company.module';
+import { VenueDirectoryModule } from '../venue-directory/venue-directory.module';
 import { InternalMarketsController } from './internal-markets.controller';
 import { InternalMarketsService } from './internal-markets.service';
 
 @Module({
-  imports: [AdminUsersModule, CompanyModule],
+  imports: [AdminUsersModule, CompanyModule, VenueDirectoryModule],
   controllers: [InternalMarketsController],
   providers: [InternalMarketsService],
 })

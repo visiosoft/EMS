@@ -103,6 +103,17 @@ export function InternalHeader() {
 
           <div className="flex min-w-0 flex-1 items-center justify-end gap-2 xl:hidden">
             <AppSuiteSwitcher surface="dark" />
+            <button
+              type="button"
+              onClick={() => navigate("my-profile")}
+              className={cn(
+                "flex items-center gap-1.5 rounded-full border border-white/20 bg-neutral-900/80 px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-neutral-800",
+                currentView === "my-profile" && "border-white bg-white text-black hover:bg-white",
+              )}
+            >
+              <User className="h-3.5 w-3.5" />
+              <span className="sr-only">My Profile</span>
+            </button>
             {currentView === "learning-portal" && (
               <a
                 href="/internal/admin"
@@ -131,6 +142,17 @@ export function InternalHeader() {
  
           <div className="hidden shrink-0 xl:flex xl:items-center xl:gap-3">
             <AppSuiteSwitcher surface="dark" />
+            <button
+              type="button"
+              onClick={() => navigate("my-profile")}
+              className={cn(
+                "flex items-center gap-2 rounded-full border border-white/20 bg-neutral-900/80 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-neutral-800",
+                currentView === "my-profile" && "border-white bg-white text-black hover:bg-white",
+              )}
+            >
+              <User className={cn("h-4 w-4", currentView === "my-profile" ? "text-black/85" : "text-white/85")} />
+              <span>My Profile</span>
+            </button>
             {currentView === "learning-portal" && (
               <a
                 href="/internal/admin"
@@ -190,6 +212,19 @@ export function InternalHeader() {
                   </li>
                 );
               })}
+              <li>
+                <button
+                  type="button"
+                  onClick={() => navigate("my-profile")}
+                  className={mobileButtonClass(currentView === "my-profile")}
+                >
+                  <span>My Profile</span>
+                  <ChevronRight
+                    className={cn("h-4 w-4", currentView === "my-profile" ? "text-black/80" : "text-white/70")}
+                    aria-hidden
+                  />
+                </button>
+              </li>
             </ul>
           </div>
         </nav>

@@ -4,12 +4,15 @@ import { useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { fetchHubEngagementSchedule } from "@/api/engagementApi";
 import { getAccountOid } from "@/auth/entra";
-import { handleOpenEngagements } from "../lib/emsOpenIntent";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { handleOpenEngagements, primeEmsOpenIntent } from "../lib/emsOpenIntent";
 import {
   getHubWeekDateRange,
   mapEngagementRowsToHubEvents,
   type HubScheduleWeek,
 } from "../lib/hubEngagementSchedule";
+
+const LIST_HEIGHT = 336;
 
 type EngagementWidgetProps = {
   title: string;
@@ -60,7 +63,7 @@ export function EngagementWidget({ title, scheduleWeek }: EngagementWidgetProps)
           href="/"
           target="_blank"
           rel="noreferrer"
-          onClick={(event) => handleOpenEngagements(event)}
+          onClick={() => primeEmsOpenIntent({ view: "engagements", mineOnly: true, timingFilter: "upcoming", dateFrom: weekRange?.startDate, dateTo: weekRange?.endDate })}
           className="shrink-0 text-xs font-semibold text-neutral-900 underline-offset-4 hover:underline"
         >
           See all
@@ -99,23 +102,25 @@ export function EngagementWidget({ title, scheduleWeek }: EngagementWidgetProps)
       ) : null}
 
       {events.length > 0 ? (
-        <ul className="space-y-3">
-          {events.map((event) => (
-            <li
-              key={event.key}
-              className="flex items-center gap-4 rounded-sm transition-colors duration-200 hover:bg-neutral-50"
-            >
-              <div className="flex h-[64px] w-[64px] shrink-0 flex-col items-center justify-center border border-neutral-200 bg-white shadow-[0_1px_4px_rgba(0,0,0,0.12)]">
-                <span className="text-[11px] font-medium text-neutral-700">{event.month}</span>
-                <span className="text-[25px] font-semibold leading-none text-neutral-950">{event.day}</span>
-              </div>
-              <div className="min-w-0">
-                <p className="truncate text-[14px] font-semibold text-neutral-950">{event.title}</p>
-                <p className="mt-1 truncate text-[12px] font-medium text-neutral-800">{event.time}</p>
-              </div>
-            </li>
-          ))}
-        </ul>
+        <ScrollArea style={{ height: LIST_HEIGHT }} className="pr-4">
+          <ul className="space-y-3">
+            {events.map((event) => (
+              <li
+                key={event.key}
+                className="flex items-center gap-4 rounded-sm transition-colors duration-200 hover:bg-neutral-50"
+              >
+                <div className="flex h-[64px] w-[64px] shrink-0 flex-col items-center justify-center border border-neutral-200 bg-white shadow-[0_1px_4px_rgba(0,0,0,0.12)]">
+                  <span className="text-[11px] font-medium text-neutral-700">{event.month}</span>
+                  <span className="text-[25px] font-semibold leading-none text-neutral-950">{event.day}</span>
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-[14px] font-semibold text-neutral-950">{event.title}</p>
+                  <p className="mt-1 truncate text-[12px] font-medium text-neutral-800">{event.time}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </ScrollArea>
       ) : null}
     </section>
   );

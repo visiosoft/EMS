@@ -587,9 +587,29 @@ export interface EngagementListFilters {
   dmaMarketName?: string;
   venueLabel?: string;
   timing?: 'all' | 'upcoming' | 'past';
+  /** Only engagements where the signed-in user is an IAE contact (dbo.EngagementIAEContact). */
+  mine?: boolean;
   /** Whitelist: attraction, tour, venue, market, date */
   sortBy?: string;
   sortDir?: string;
+  /** YYYY-MM-DD — include only engagements with at least one performance in [dateFrom, dateTo]. */
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+/** Row for GET /engagements/hub-red-alerts (Company Hub sales-goal alerts). */
+export interface HubRedAlertRow {
+  engagementId: number;
+  attractionName: string | null;
+  tourName: string | null;
+  venueName: string | null;
+  city: string | null;
+  stateProvince: string | null;
+  openingPerformanceDate: string | null;
+  salesRevenueGoal: number;
+  totalRevenue: number;
+  /** 0–100, totalRevenue as a share of salesRevenueGoal. */
+  pctToGoal: number;
 }
 
 function pickRaw(r: Record<string, unknown>, key: string): unknown {
@@ -3912,6 +3932,19 @@ export class EngagementService {
         `(${openingSub} IS NOT NULL AND CAST(${openingSub} AS DATE) < CAST(GETDATE() AS DATE))`,
       );
     }
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(f.dateFrom ?? '')) && /^\d{4}-\d{2}-\d{2}$/.test(String(f.dateTo ?? ''))) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM dbo.Performance hubPerf
+          WHERE hubPerf.EngagementID = e.engagementId
+            AND CAST(hubPerf.PerformanceDate AS DATE) >= CAST(:dateFrom AS DATE)
+            AND CAST(hubPerf.PerformanceDate AS DATE) <= CAST(:dateTo AS DATE)
+        )`,
+        { dateFrom: f.dateFrom, dateTo: f.dateTo },
+      );
+    }
   }
 
   private applyEngagementListSort(
@@ -3954,15 +3987,42 @@ export class EngagementService {
   }
 
   /**
-   * Company Hub schedule: engagements created by the signed-in user (dbo.Engagement.created_by)
-   * with at least one performance in [startDate, endDate].
+   * Map the signed-in Entra user to dbo.Contact via dbo.ContactInfo.Email.
+   * IAE staff on engagements are stored as ContactID in dbo.EngagementIAEContact.
+   */
+  private async resolveIaeContactIdForSignedInUser(): Promise<number | null> {
+    const emails = this.auditContext
+      .getUserEmailCandidates()
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean);
+    if (emails.length === 0) return null;
+    const row = await this.contactRepo
+      .createQueryBuilder('c')
+      .innerJoin('c.contactInfo', 'ci')
+      .innerJoin(ContactAssignment, 'ca', 'ca.contactId = c.contactId')
+      .innerJoin(Company, 'internalCompany', 'internalCompany.companyId = ca.companyId')
+      .where('LOWER(LTRIM(RTRIM(ci.email))) IN (:...emails)', { emails })
+      .andWhere('internalCompany.isInternal = :isInternal', {
+        isInternal: true,
+      })
+      .select('c.contactId', 'contactId')
+      .getRawOne<{ contactId: number | string }>();
+    if (row?.contactId == null) return null;
+    const id = Number(row.contactId);
+    return Number.isFinite(id) && id >= 1 ? id : null;
+  }
+
+  /**
+   * Company Hub schedule: engagements the signed-in user is assigned to as an IAE
+   * contact (dbo.EngagementIAEContact) with at least one performance in [startDate, endDate].
+   * A signed-in user with no matching internal contact gets an empty list, not an error.
    */
   async listHubSchedule(
     startDateRaw?: string,
     endDateRaw?: string,
   ): Promise<EngagementListRow[]> {
-    const userOid = this.auditContext.getUserOid()?.trim();
-    if (!userOid) {
+    const userEmail = this.auditContext.getUserEmail()?.trim();
+    if (!userEmail) {
       throw new BadRequestException({
         message: 'Sign in required to load your engagements.',
       });
@@ -3982,11 +4042,19 @@ export class EngagementService {
       });
     }
 
+    const myIaeContactId = await this.resolveIaeContactIdForSignedInUser();
+    if (myIaeContactId == null) return [];
+
     const openingSub = this.openingPerformanceDateSubquery();
     const qb = this.buildEngagementQuery();
     qb.andWhere(
-      `LOWER(LTRIM(RTRIM(ISNULL(e.createdBy, '')))) = LOWER(LTRIM(RTRIM(:userOid)))`,
-      { userOid },
+      `EXISTS (
+        SELECT 1
+        FROM dbo.EngagementIAEContact eic
+        WHERE eic.EngagementID = e.engagementId
+          AND eic.ContactID = :myIaeContactId
+      )`,
+      { myIaeContactId },
     );
     qb.andWhere(
       `EXISTS (
@@ -4009,6 +4077,91 @@ export class EngagementService {
     return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
   }
 
+  /**
+   * Company Hub "red alerts": the signed-in user's assigned engagements whose total
+   * ticketing revenue is still below EngagementFinances.SalesRevenueGoal.
+   * Engagements without a positive goal and cancelled engagements are excluded.
+   * SalesRevenueGoal is an optional column; when absent this returns [].
+   */
+  async listHubRedAlerts(): Promise<HubRedAlertRow[]> {
+    const userEmail = this.auditContext.getUserEmail()?.trim();
+    if (!userEmail) {
+      throw new BadRequestException({
+        message: 'Sign in required to load your engagements.',
+      });
+    }
+
+    const myIaeContactId = await this.resolveIaeContactIdForSignedInUser();
+    if (myIaeContactId == null) return [];
+    if (!(await this.engagementFinancesHasMarketingBudgetColumns())) return [];
+
+    const raw = (await this.dataSource.query(
+      `
+      SELECT
+        e.EngagementID AS engagementId,
+        a.AttractionName AS attractionName,
+        t.TourName AS tourName,
+        COALESCE(NULLIF(LTRIM(RTRIM(ISNULL(vc.CompanyName, ''))), ''), v.VenueName) AS venueName,
+        addr.City AS city,
+        addr.StateProvince AS stateProvince,
+        CONVERT(varchar(10), op.openingDate, 120) AS openingPerformanceDate,
+        ef.SalesRevenueGoal AS salesRevenueGoal,
+        sales.totalRevenue AS totalRevenue
+      FROM dbo.Engagement e
+      INNER JOIN dbo.EngagementFinances ef
+        ON ef.EngagementID = e.EngagementID
+       AND ef.SalesRevenueGoal IS NOT NULL
+       AND ef.SalesRevenueGoal > 0
+      INNER JOIN dbo.Tour t ON t.TourID = e.TourID
+      LEFT JOIN dbo.Attraction a ON a.AttractionID = t.AttractionID
+      LEFT JOIN dbo.EngagementVenue ev
+        ON ev.EngagementID = e.EngagementID AND ev.IsPrimary = 1
+      LEFT JOIN dbo.Venue v ON v.CompanyID = ev.VenueCompanyID
+      LEFT JOIN dbo.Company vc ON vc.CompanyID = ev.VenueCompanyID
+      LEFT JOIN dbo.Address addr ON addr.AddressID = vc.PhysicalAddressID
+      OUTER APPLY (
+        SELECT COALESCE(SUM(CAST(ts.PerformanceSalesRevenue AS decimal(18,2))), 0) AS totalRevenue
+        FROM dbo.TicketingSales ts
+        INNER JOIN dbo.[Performance] p ON p.PerformanceID = ts.PerformanceID
+        WHERE p.EngagementID = e.EngagementID
+      ) sales
+      OUTER APPLY (
+        SELECT MIN(CAST(p2.PerformanceDate AS DATE)) AS openingDate
+        FROM dbo.[Performance] p2
+        WHERE p2.EngagementID = e.EngagementID
+      ) op
+      WHERE EXISTS (
+          SELECT 1 FROM dbo.EngagementIAEContact eic
+          WHERE eic.EngagementID = e.EngagementID AND eic.ContactID = @0
+        )
+        AND LOWER(ISNULL(e.EngagementStatus, '')) NOT LIKE 'cancel%'
+        AND sales.totalRevenue < ef.SalesRevenueGoal
+      ORDER BY sales.totalRevenue / ef.SalesRevenueGoal ASC, e.EngagementID DESC
+      `,
+      [myIaeContactId],
+    )) as Record<string, unknown>[];
+
+    return raw.map((r) => {
+      const goal = Number(pickRaw(r, 'salesRevenueGoal') ?? 0);
+      const revenue = Number(pickRaw(r, 'totalRevenue') ?? 0);
+      const pct =
+        goal > 0 ? Math.max(0, Math.min(100, (revenue / goal) * 100)) : 0;
+      return {
+        engagementId: Number(pickRaw(r, 'engagementId')),
+        attractionName: (pickRaw(r, 'attractionName') as string | null) ?? null,
+        tourName: (pickRaw(r, 'tourName') as string | null) ?? null,
+        venueName: (pickRaw(r, 'venueName') as string | null) ?? null,
+        city: (pickRaw(r, 'city') as string | null) ?? null,
+        stateProvince: (pickRaw(r, 'stateProvince') as string | null) ?? null,
+        openingPerformanceDate:
+          (pickRaw(r, 'openingPerformanceDate') as string | null) ?? null,
+        salesRevenueGoal: goal,
+        totalRevenue: revenue,
+        pctToGoal: Math.round(pct * 10) / 10,
+      };
+    });
+  }
+
   async listPaginated(
     offset: number,
     limit: number,
@@ -4018,6 +4171,20 @@ export class EngagementService {
     const off = Math.max(0, offset);
 
     const qb = this.buildEngagementQuery();
+    if (filters.mine) {
+      const myIaeContactId = await this.resolveIaeContactIdForSignedInUser();
+      // Signed-in users without a linked internal contact simply have no engagements.
+      if (myIaeContactId == null) return { data: [], total: 0 };
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM dbo.EngagementIAEContact eic
+          WHERE eic.EngagementID = e.engagementId
+            AND eic.ContactID = :myIaeContactId
+        )`,
+        { myIaeContactId },
+      );
+    }
     this.applyEngagementListFilters(qb, filters);
     this.applyEngagementListSort(qb, filters.sortBy, filters.sortDir);
     const total = await qb.clone().getCount();

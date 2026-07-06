@@ -25,15 +25,16 @@ export class InternalMarketsController {
     return this.internalMarketsService.suggestMarkets(query, safeLimit);
   }
 
-  @Get('postal-codes')
-  postalCodes(
-    @Query('market') market: string,
+  /** Complexes and venues within a market (any DMAID of the market family), sorted by city. */
+  @Get('venues')
+  venues(
+    @Query('dmaid', ParseIntPipe) dmaid: number,
     @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
-    @Query('limit', new DefaultValuePipe(25), ParseIntPipe) limit: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
   ) {
     const safeLimit = Math.min(100, Math.max(1, limit));
-    return this.internalMarketsService.listPostalCodes(
-      market ?? '',
+    return this.internalMarketsService.listVenuesForMarket(
+      dmaid,
       Math.max(0, offset),
       safeLimit,
     );

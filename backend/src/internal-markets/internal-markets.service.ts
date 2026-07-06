@@ -1,9 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { LookupsService } from '../lookups/lookups.service';
+import { VenueDirectoryService } from '../venue-directory/venue-directory.service';
 
 @Injectable()
 export class InternalMarketsService {
-  constructor(private readonly lookupsService: LookupsService) {}
+  constructor(
+    private readonly lookupsService: LookupsService,
+    private readonly venueDirectoryService: VenueDirectoryService,
+  ) {}
 
   listMarkets(offset: number, limit: number, query?: string) {
     return this.lookupsService.findDmaHubMarketsPaginated(
@@ -17,11 +21,16 @@ export class InternalMarketsService {
     return this.lookupsService.findDmaHubMarketSuggestions(query, limit);
   }
 
-  listPostalCodes(marketName: string, offset: number, limit: number) {
-    return this.lookupsService.findPostalCodesByMarketName(
-      marketName,
-      offset,
-      limit,
-    );
+  /**
+   * Entertainment complexes and venues within a market, sorted by city.
+   * `dmaid` may be any postal-level DMAID of the market — the venue-directory
+   * filter expands it to the whole normalized MarketName family.
+   */
+  listVenuesForMarket(dmaid: number, offset: number, limit: number) {
+    return this.venueDirectoryService.listAllVenues(offset, limit, {
+      dmaIds: [dmaid],
+      sortBy: 'city',
+      sortDir: 'asc',
+    });
   }
 }
