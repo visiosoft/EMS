@@ -8,6 +8,8 @@ export type InternalView =
   | "home"
   | "company-news"
   | "employee-services"
+  | "employee-directory"
+  | "employee-profile"
   | "leadership"
   | "markets"
   | "venues"
@@ -35,12 +37,16 @@ export type InternalViewData = {
   departmentId?: number;
   /** Employee Services: open with the employee directory panel expanded. */
   revealDirectory?: boolean;
+  /** Employee profile: which employee's profile to show (directory → profile). */
+  contactId?: number;
 };
 
 const VALID_VIEWS = new Set<string>([
   "home",
   "company-news",
   "employee-services",
+  "employee-directory",
+  "employee-profile",
   "leadership",
   "markets",
   "venues",
@@ -125,6 +131,12 @@ function sanitizeViewData(view: InternalView, raw: unknown): InternalViewData {
     if (typeof obj.fromView === "string") out.fromView = obj.fromView as InternalView;
     if (typeof obj.fromTitle === "string") out.fromTitle = obj.fromTitle;
     if (typeof obj.departmentId === "number" && obj.departmentId > 0) out.departmentId = obj.departmentId;
+    return out;
+  }
+
+  if (view === "employee-profile") {
+    if (typeof obj.contactId === "number" && obj.contactId > 0) out.contactId = obj.contactId;
+    if (typeof obj.fromView === "string") out.fromView = obj.fromView as InternalView;
     return out;
   }
 

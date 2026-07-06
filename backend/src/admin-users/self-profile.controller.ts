@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Param, ParseIntPipe } from '@nestjs/common';
 import { SelfProfileService } from './self-profile.service';
 
 /**
@@ -14,5 +14,15 @@ export class SelfProfileController {
   @Get('my-profile')
   getMyProfile() {
     return this.selfProfileService.getMyFullProfile();
+  }
+
+  /**
+   * Another employee's profile for the Company Hub directory. The service applies
+   * field-level visibility: Administrator-only fields are stripped unless the signed-in
+   * viewer is an Administrator or is the employee themselves.
+   */
+  @Get('employees/:contactId/profile')
+  getEmployeeProfile(@Param('contactId', ParseIntPipe) contactId: number) {
+    return this.selfProfileService.getEmployeeProfileForViewer(contactId);
   }
 }
