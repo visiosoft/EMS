@@ -5,6 +5,8 @@ import { BookingPage } from "@/modules/internal/pages/BookingPage";
 import { CompanyNewsPage } from "@/modules/internal/pages/CompanyNewsPage";
 import { DepartmentsPage } from "@/modules/internal/pages/DepartmentsPage";
 import { EmployeeServicesPage } from "@/modules/internal/pages/EmployeeServicesPage";
+import { EmployeeDirectoryPage } from "@/modules/internal/pages/EmployeeDirectoryPage";
+import { EmployeeProfilePage } from "@/modules/internal/pages/EmployeeProfilePage";
 import { EventBusinessPage } from "@/modules/internal/pages/EventBusinessPage";
 import { InternalHomePage } from "@/modules/internal/pages/HomePage";
 import { LeadershipPage } from "@/modules/internal/pages/LeadershipPage";
@@ -29,6 +31,10 @@ function InternalAppViews() {
       return <CompanyNewsPage />;
     case "employee-services":
       return <EmployeeServicesPage />;
+    case "employee-directory":
+      return <EmployeeDirectoryPage />;
+    case "employee-profile":
+      return <EmployeeProfilePage />;
     case "leadership":
       return <LeadershipPage />;
     case "markets":

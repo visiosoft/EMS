@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from "react";
-import { ChevronDown, UsersRound } from "lucide-react";
+import { useEffect } from "react";
+import { UsersRound } from "lucide-react";
 import { IaeLogoIcon } from "@/components/brand/IaeBrandMark";
 import { InternalPageHero } from "../components/InternalPageHero";
 import { InternalPageFrame } from "../layout/InternalPageFrame";
-import { IaeEmployeesTable } from "../components/IaeEmployeesTable";
 import { EMPLOYEE_SERVICE_ITEMS, type EmployeeServiceItem } from "../constants/pageData";
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
 import {
@@ -82,31 +81,17 @@ function ServiceTileContent({
   );
 }
 
-function DirectoryToggleBanner({
-  open,
-  onToggle,
-  panelId,
-}: {
-  open: boolean;
-  onToggle: () => void;
-  panelId: string;
-}) {
+function DirectoryBanner({ onOpen }: { onOpen: () => void }) {
   return (
     <button
       type="button"
-      onClick={onToggle}
-      aria-expanded={open}
-      aria-controls={panelId}
+      onClick={onOpen}
       className={`group flex min-h-[126px] w-full items-center justify-center gap-5 rounded-lg bg-[#0c0c0c] px-8 py-6 text-white shadow-[0_4px_16px_rgba(0,0,0,0.22)] ${TILE_INTERACTION_CLASS}`}
     >
       <span className="rounded-xl bg-black/20 p-3 transition-transform duration-300 group-hover:scale-110" aria-hidden>
         <UsersRound className="h-[66px] w-[66px]" strokeWidth={1.55} />
       </span>
       <span className="text-lg font-semibold tracking-[0.02em]">Employee Directory</span>
-      <ChevronDown
-        className={`h-6 w-6 transition-transform duration-300 ${open ? "rotate-180" : ""}`}
-        aria-hidden
-      />
     </button>
   );
 }
@@ -167,24 +152,13 @@ function ServiceTile({
 export function EmployeeServicesPage() {
   const { viewData, openEmployeeHandbook, navigate } = useInternalNavigation();
   const handbookView = resolveHandbookViewFromData(viewData.handbook, viewData.handbookHash);
-  const [directoryOpen, setDirectoryOpen] = useState(Boolean(viewData.revealDirectory));
-  const directoryPanelRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
+  // The directory is now a dedicated page; honor legacy deep links that asked to reveal it.
   useEffect(() => {
-    if (viewData.revealDirectory) setDirectoryOpen(true);
-  }, [viewData.revealDirectory]);
+    if (viewData.revealDirectory) navigate("employee-directory");
+  }, [viewData.revealDirectory, navigate]);
 
-  useEffect(() => {
-    if (!directoryOpen || !viewData.revealDirectory) return;
-    const frame = requestAnimationFrame(() => {
-      // Mobile and desktop layouts each mount a panel; scroll the visible one.
-      const visible = Object.values(directoryPanelRefs.current).find(
-        (el) => el && el.offsetParent !== null,
-      );
-      visible?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [directoryOpen, viewData.revealDirectory]);
+  const openDirectory = () => navigate("employee-directory");
 
   const handbookItem = EMPLOYEE_SERVICE_ITEMS.find((item) => item.handbookIndex);
   const standardServiceItems = EMPLOYEE_SERVICE_ITEMS.filter(
@@ -199,19 +173,6 @@ export function EmployeeServicesPage() {
       />
     );
   }
-
-  const renderDirectoryPanel = (variant: "mobile" | "desktop") =>
-    directoryOpen ? (
-      <div
-        id={`employee-directory-panel-${variant}`}
-        ref={(el) => {
-          directoryPanelRefs.current[variant] = el;
-        }}
-        className="scroll-mt-24"
-      >
-        <IaeEmployeesTable searchable maxVisibleRows={null} title={null} />
-      </div>
-    ) : null;
 
   const handleTileClick = (item: EmployeeServiceItem) => {
     if (item.handbookIndex) {
@@ -238,14 +199,9 @@ export function EmployeeServicesPage() {
 
       <main className="mx-auto w-full max-w-[1060px] px-5 pb-16 pt-16 sm:px-8 sm:pt-20 lg:px-0">
         <section aria-label="Employee services resources">
-          {/* Mobile: directory toggle above a uniform 2-column tile grid */}
+          {/* Mobile: directory banner above a uniform 2-column tile grid */}
           <div className="space-y-3 lg:hidden">
-            <DirectoryToggleBanner
-              open={directoryOpen}
-              onToggle={() => setDirectoryOpen((prev) => !prev)}
-              panelId="employee-directory-panel-mobile"
-            />
-            {renderDirectoryPanel("mobile")}
+            <DirectoryBanner onOpen={openDirectory} />
 
             <div className="grid grid-cols-2 gap-3">
               {mobileItems.map((item, index) => (
@@ -260,14 +216,9 @@ export function EmployeeServicesPage() {
             </div>
           </div>
 
-          {/* Desktop: directory toggle above the wide handbook banner + four tiles in one row */}
+          {/* Desktop: directory banner above the wide handbook banner + four tiles in one row */}
           <div className="hidden space-y-3 lg:block">
-            <DirectoryToggleBanner
-              open={directoryOpen}
-              onToggle={() => setDirectoryOpen((prev) => !prev)}
-              panelId="employee-directory-panel-desktop"
-            />
-            {renderDirectoryPanel("desktop")}
+            <DirectoryBanner onOpen={openDirectory} />
 
             {handbookItem ? (
               <HandbookWideBanner item={handbookItem} onOpen={() => openEmployeeHandbook("index")} />

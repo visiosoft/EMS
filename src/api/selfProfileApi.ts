@@ -44,8 +44,25 @@ export interface SelfProfileExperience {
   marketsWorkedIn: string[];
 }
 
+export interface SelfProfileCertification {
+  submissionId: number;
+  certificationName: string;
+  issuingOrganization: string;
+  platformName: string;
+  dateCompleted: string | null;
+  pointsAwarded: number;
+  credentialUrl: string;
+  tags: string[];
+}
+
+export interface SelfProfileCertifications {
+  certifications: SelfProfileCertification[];
+}
+
 export interface LinkedSelfProfile {
   linked: true;
+  /** `full` for the employee/admins; `limited` for other staff (Administrator-only fields hidden). */
+  visibility: "full" | "limited";
   identity: {
     contactId: number;
     contactInfoId: number;
@@ -112,10 +129,19 @@ export interface LinkedSelfProfile {
   };
   healthInsurance: SelfProfileHealthInsurance | null;
   experience: SelfProfileExperience | null;
+  certifications: SelfProfileCertifications | null;
 }
 
 export type SelfProfile = LinkedSelfProfile | { linked: false };
 
 export function fetchMySelfProfile(): Promise<SelfProfile> {
   return apiFetch<SelfProfile>('/internal/my-profile');
+}
+
+/**
+ * Another employee's profile for the directory. Same shape as the self profile, but the
+ * server strips Administrator-only fields unless the viewer is an admin or the employee.
+ */
+export function fetchEmployeeProfile(contactId: number): Promise<SelfProfile> {
+  return apiFetch<SelfProfile>(`/internal/employees/${contactId}/profile`);
 }

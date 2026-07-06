@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactElement } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Loader2, RefreshCw, Search } from 'lucide-react';
 import { fetchIaeStaffEmployees, type IaeEmployee } from '@/api/iaeEmployeesApi';
@@ -6,6 +6,8 @@ import { formatE164ForDisplay } from '@/lib/contactPhoneField';
 import { TeamMemberAvatar } from './TeamMemberAvatar';
 
 const DEFAULT_VISIBLE_ROW_COUNT = 8;
+
+export type EmployeeSortMode = 'name-first' | 'name-last' | 'department';
 
 function displayName(employee: IaeEmployee): string {
   return [employee.firstName, employee.lastName].filter(Boolean).join(' ').trim() || '—';
@@ -23,8 +25,45 @@ function displayMobile(cellPhone: string | null, workPhone: string | null): stri
   return formatted || '—';
 }
 
+/** Leadership weight so managers/directors sort above their reports within a department. */
+export function roleWeight(role: string | null | undefined): number {
+  const r = (role ?? '').toLowerCase();
+  if (/\b(ceo|chief|president|owner|founder)\b/.test(r)) return 100;
+  if (/\b(evp|svp|vp|vice president)\b/.test(r)) return 80;
+  if (/\b(director|head)\b/.test(r)) return 60;
+  if (/\b(manager|lead|supervisor)\b/.test(r)) return 40;
+  return 0;
+}
+
+function compareByName(a: IaeEmployee, b: IaeEmployee, primary: 'first' | 'last'): number {
+  const aFirst = (a.firstName ?? '').toLowerCase();
+  const bFirst = (b.firstName ?? '').toLowerCase();
+  const aLast = (a.lastName ?? '').toLowerCase();
+  const bLast = (b.lastName ?? '').toLowerCase();
+  if (primary === 'first') {
+    return aFirst.localeCompare(bFirst) || aLast.localeCompare(bLast);
+  }
+  return aLast.localeCompare(bLast) || aFirst.localeCompare(bFirst);
+}
+
+function sortEmployees(employees: IaeEmployee[], mode: EmployeeSortMode | undefined): IaeEmployee[] {
+  if (!mode) return employees;
+  const sorted = [...employees];
+  if (mode === 'department') {
+    sorted.sort(
+      (a, b) =>
+        (a.departmentName ?? '').localeCompare(b.departmentName ?? '') ||
+        roleWeight(b.roleName) - roleWeight(a.roleName) ||
+        compareByName(a, b, 'last'),
+    );
+    return sorted;
+  }
+  sorted.sort((a, b) => compareByName(a, b, mode === 'name-last' ? 'last' : 'first'));
+  return sorted;
+}
+
 /** One row per person — guards against duplicate Contact rows or stale API responses. */
-function dedupeEmployees(employees: IaeEmployee[]): IaeEmployee[] {
+export function dedupeEmployees(employees: IaeEmployee[]): IaeEmployee[] {
   const seenContactIds = new Set<number>();
   const seenEmails = new Set<string>();
   const unique: IaeEmployee[] = [];
@@ -43,20 +82,63 @@ function dedupeEmployees(employees: IaeEmployee[]): IaeEmployee[] {
   return unique;
 }
 
-function EmployeeRow({ employee }: { employee: IaeEmployee }) {
+function EmployeeRow({
+  employee,
+  onClick,
+}: {
+  employee: IaeEmployee;
+  onClick?: (employee: IaeEmployee) => void;
+}) {
   const rawMobile = employee.cellPhone || employee.workPhone;
   const mobileDisplay = displayMobile(employee.cellPhone, employee.workPhone);
+  const clickable = Boolean(onClick);
   return (
-    <tr className="transition-colors hover:bg-neutral-50">
+    <tr
+      className={`transition-colors hover:bg-neutral-50 ${clickable ? 'cursor-pointer' : ''}`}
+      onClick={clickable ? () => onClick?.(employee) : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={
+        clickable
+          ? (event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onClick?.(employee);
+              }
+            }
+          : undefined
+      }
+    >
       <td className="px-4 py-3">
         <TeamMemberAvatar />
       </td>
-      <td className="px-4 py-3 font-medium text-neutral-900">{displayName(employee)}</td>
+      <td className="px-4 py-3 font-medium text-neutral-900">
+        {clickable ? (
+          <span className="underline-offset-2 hover:underline">{displayName(employee)}</span>
+        ) : (
+          displayName(employee)
+        )}
+      </td>
       <td className="px-4 py-3 text-neutral-800">{employee.roleName || '—'}</td>
       <td className="px-4 py-3 text-neutral-800">{employee.departmentName || '—'}</td>
       <td className="px-4 py-3 text-neutral-800">{displayExtension(employee)}</td>
-      <td className="px-4 py-3 text-neutral-800">{rawMobile && mobileDisplay !== '—' ? <a href={`tel:${rawMobile}`} className="hover:underline">{mobileDisplay}</a> : mobileDisplay}</td>
-      <td className="px-4 py-3 text-neutral-800">{employee.email ? <a href={`mailto:${employee.email}`} className="hover:underline">{employee.email}</a> : '—'}</td>
+      <td className="px-4 py-3 text-neutral-800" onClick={(e) => e.stopPropagation()}>
+        {rawMobile && mobileDisplay !== '—' ? (
+          <a href={`tel:${rawMobile}`} className="hover:underline">
+            {mobileDisplay}
+          </a>
+        ) : (
+          mobileDisplay
+        )}
+      </td>
+      <td className="px-4 py-3 text-neutral-800" onClick={(e) => e.stopPropagation()}>
+        {employee.email ? (
+          <a href={`mailto:${employee.email}`} className="hover:underline">
+            {employee.email}
+          </a>
+        ) : (
+          '—'
+        )}
+      </td>
     </tr>
   );
 }
@@ -69,12 +151,21 @@ type IaeEmployeesTableProps = {
    */
   maxVisibleRows?: number | null;
   title?: string | null;
+  /** Row order. Omit to keep the API's insertion order. */
+  sortMode?: EmployeeSortMode;
+  /** Insert a department heading row before each department group. */
+  groupByDepartment?: boolean;
+  /** Makes rows clickable — e.g. to open the employee's profile. */
+  onRowClick?: (employee: IaeEmployee) => void;
 };
 
 export function IaeEmployeesTable({
   searchable = true,
   maxVisibleRows = DEFAULT_VISIBLE_ROW_COUNT,
   title = 'IAE Employees',
+  sortMode,
+  groupByDepartment = false,
+  onRowClick,
 }: IaeEmployeesTableProps = {}) {
   const [search, setSearch] = useState('');
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
@@ -86,24 +177,54 @@ export function IaeEmployeesTable({
 
   const filteredEmployees = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return employees;
-    return employees.filter((employee) =>
-      [
-        displayName(employee),
-        employee.roleName ?? '',
-        employee.departmentName ?? '',
-        employee.email,
-        displayExtension(employee),
-      ]
-        .join(' ')
-        .toLowerCase()
-        .includes(q),
-    );
-  }, [employees, search]);
+    const base = q
+      ? employees.filter((employee) =>
+          [
+            displayName(employee),
+            employee.roleName ?? '',
+            employee.departmentName ?? '',
+            employee.email,
+            displayExtension(employee),
+          ]
+            .join(' ')
+            .toLowerCase()
+            .includes(q),
+        )
+      : employees;
+    return sortEmployees(base, groupByDepartment ? 'department' : sortMode);
+  }, [employees, search, sortMode, groupByDepartment]);
 
   /** ~3.25rem per body row + ~3rem header — caps visible rows before scroll. */
   const tableMaxHeight =
     maxVisibleRows != null ? `calc(${maxVisibleRows} * 3.25rem + 3rem)` : undefined;
+
+  const renderBodyRows = () => {
+    if (!groupByDepartment) {
+      return filteredEmployees.map((employee) => (
+        <EmployeeRow key={employee.contactId} employee={employee} onClick={onRowClick} />
+      ));
+    }
+    const rows: ReactElement[] = [];
+    let lastDept: string | null = null;
+    for (const employee of filteredEmployees) {
+      const dept = employee.departmentName?.trim() || 'Unassigned';
+      if (dept !== lastDept) {
+        lastDept = dept;
+        rows.push(
+          <tr key={`dept-${dept}`} className="bg-neutral-100/80">
+            <td
+              colSpan={7}
+              className="px-4 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-600"
+            >
+              {dept}
+            </td>
+          </tr>,
+        );
+      }
+      rows.push(<EmployeeRow key={employee.contactId} employee={employee} onClick={onRowClick} />);
+    }
+    return rows;
+  };
 
   return (
     <section className={title ? 'mt-12' : ''}>
@@ -173,7 +294,7 @@ export function IaeEmployeesTable({
                   </td>
                 </tr>
               ) : (
-                filteredEmployees.map((employee) => <EmployeeRow key={employee.contactId} employee={employee} />)
+                renderBodyRows()
               )}
             </tbody>
           </table>
