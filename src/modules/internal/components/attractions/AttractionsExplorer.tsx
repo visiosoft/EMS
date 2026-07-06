@@ -15,6 +15,7 @@ import {
   fetchInternalAttractions,
   type InternalHubAttraction,
 } from '@/api/internalAttractionsApi';
+import { fetchTourEngagements, type ApiTourEngagementRow } from '@/api/attractionToursApi';
 import { cn } from '@/lib/utils';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import {
@@ -38,6 +39,93 @@ function attractionInitials(name: string): string {
 
 function tourCountLabel(count: number): string {
   return `${count} ${count === 1 ? 'tour' : 'tours'}`;
+}
+
+function formatEngagementDate(row: ApiTourEngagementRow): string {
+  if (!row.openingPerformanceDate) return 'Date TBD';
+  const date = new Date(`${row.openingPerformanceDate}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return row.openingPerformanceDate;
+  const formatted = date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+  if (row.openingPerformanceTime) {
+    const [hh = '0', mm = '0'] = row.openingPerformanceTime.split(':');
+    const time = new Date(2000, 0, 1, Number(hh), Number(mm));
+    if (!Number.isNaN(time.getTime())) {
+      return `${formatted} · ${time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+    }
+  }
+  return formatted;
+}
+
+function engagementPlace(row: ApiTourEngagementRow): string {
+  const cityState = [row.city?.trim(), row.stateProvince?.trim()].filter(Boolean).join(', ');
+  return [row.venueName?.trim(), cityState].filter(Boolean).join(' · ');
+}
+
+function TourEngagementsList({ tourId, isOpen }: { tourId: number; isOpen: boolean }) {
+  const { data, isPending, isError } = useQuery({
+    queryKey: internalAttractionsQueryKeys.tourEngagements(tourId),
+    queryFn: () => fetchTourEngagements(tourId),
+    enabled: isOpen,
+    staleTime: 5 * 60_000,
+    gcTime: attractionsHubFreshCache.gcTime,
+  });
+
+  if (!isOpen) return null;
+
+  if (isPending) {
+    return (
+      <p className="mt-2 flex items-center gap-2 border-t border-neutral-100 pt-2 text-xs text-neutral-500">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+        Loading engagements…
+      </p>
+    );
+  }
+
+  if (isError) {
+    return (
+      <p className="mt-2 border-t border-neutral-100 pt-2 text-xs text-amber-800">
+        Could not load engagements for this tour.
+      </p>
+    );
+  }
+
+  const engagements = data ?? [];
+  if (engagements.length === 0) {
+    return (
+      <p className="mt-2 border-t border-neutral-100 pt-2 text-xs text-neutral-500">
+        No engagements on this tour yet.
+      </p>
+    );
+  }
+
+  return (
+    <ul className="mt-2 space-y-1.5 border-t border-neutral-100 pt-2">
+      {engagements.map((engagement) => (
+        <li key={engagement.engagementId} className="rounded-md bg-neutral-50 px-2.5 py-2">
+          <div className="flex items-baseline justify-between gap-2">
+            <p className="min-w-0 truncate text-xs font-semibold text-neutral-900" title={engagement.displayTitle}>
+              {engagement.displayTitle || `Engagement #${engagement.engagementId}`}
+            </p>
+            {engagement.engagementStatus ? (
+              <span className="shrink-0 rounded-full bg-neutral-200 px-2 py-0.5 text-[10px] font-semibold text-neutral-700">
+                {engagement.engagementStatus}
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-0.5 text-[11px] text-neutral-600">{formatEngagementDate(engagement)}</p>
+          {engagementPlace(engagement) ? (
+            <p className="mt-0.5 truncate text-[11px] text-neutral-500" title={engagementPlace(engagement)}>
+              {engagementPlace(engagement)}
+            </p>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 function AttractionToursPanel({
@@ -73,6 +161,16 @@ function AttractionToursPanel({
   const total = data?.pages[0]?.total ?? attraction.activeTourCount;
   const showInitialLoad = isPending && !data;
   const isRefreshing = isFetching && !isFetchingNextPage && !!data && !showInitialLoad;
+  const [openTourIds, setOpenTourIds] = useState<Set<number>>(new Set());
+
+  const toggleTour = (tourId: number) => {
+    setOpenTourIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(tourId)) next.delete(tourId);
+      else next.add(tourId);
+      return next;
+    });
+  };
 
   if (!isOpen) return null;
 
@@ -104,19 +202,39 @@ function AttractionToursPanel({
           {tours.length === 0 ? (
             <p className="text-sm text-neutral-500">No tours linked to this attraction yet.</p>
           ) : (
-            <ul className="grid gap-2 sm:grid-cols-2">
-              {tours.map((tour) => (
-                <li
-                  key={tour.tourId}
-                  className="rounded-lg border border-neutral-200 bg-white px-3 py-2.5 shadow-sm transition-colors hover:border-neutral-300"
-                >
-                  <p className="text-sm font-semibold text-neutral-900">{tour.tourName}</p>
-                  <p className="mt-0.5 text-xs text-neutral-500">
-                    {tour.className || '—'}
-                    {tour.talentAgencyCompanyName ? ` · ${tour.talentAgencyCompanyName}` : ''}
-                  </p>
-                </li>
-              ))}
+            <ul className="grid items-start gap-2 sm:grid-cols-2">
+              {tours.map((tour) => {
+                const isTourOpen = openTourIds.has(tour.tourId);
+                return (
+                  <li
+                    key={tour.tourId}
+                    className="rounded-lg border border-neutral-200 bg-white px-3 py-2.5 shadow-sm transition-colors hover:border-neutral-300"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleTour(tour.tourId)}
+                      aria-expanded={isTourOpen}
+                      className="flex w-full items-center justify-between gap-2 text-left focus-visible:outline-none"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold text-neutral-900">{tour.tourName}</span>
+                        <span className="mt-0.5 block text-xs text-neutral-500">
+                          {tour.className || '—'}
+                          {tour.talentAgencyCompanyName ? ` · ${tour.talentAgencyCompanyName}` : ''}
+                        </span>
+                      </span>
+                      <ChevronDown
+                        className={cn(
+                          'h-4 w-4 shrink-0 text-neutral-500 transition-transform duration-300',
+                          isTourOpen && 'rotate-180',
+                        )}
+                        aria-hidden
+                      />
+                    </button>
+                    <TourEngagementsList tourId={tour.tourId} isOpen={isTourOpen} />
+                  </li>
+                );
+              })}
             </ul>
           )}
           {hasNextPage ? (

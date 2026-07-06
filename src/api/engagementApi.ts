@@ -693,11 +693,29 @@ export interface CreatePerformancePayload {
 /** Full list (legacy). Prefer {@link fetchEngagementsPaged} for the EMS list screen. */
 export const fetchEngagements = () => apiFetch<ApiEngagementListRow[]>('/engagements');
 
-/** Company Hub widgets — engagements created by the signed-in user (`created_by`) in the date range. */
+/** Company Hub widgets — engagements the signed-in user is assigned to (IAE contact) in the date range. */
 export function fetchHubEngagementSchedule(startDate: string, endDate: string) {
   const params = new URLSearchParams({ startDate, endDate });
   return apiFetch<ApiEngagementListRow[]>(`/engagements/hub-schedule?${params}`);
 }
+
+/** Company Hub — the signed-in user's assigned engagements still below their sales revenue goal. */
+export interface ApiHubRedAlertRow {
+  engagementId: number;
+  attractionName: string | null;
+  tourName: string | null;
+  venueName: string | null;
+  city: string | null;
+  stateProvince: string | null;
+  openingPerformanceDate: string | null;
+  salesRevenueGoal: number;
+  totalRevenue: number;
+  /** 0–100, totalRevenue as a share of salesRevenueGoal. */
+  pctToGoal: number;
+}
+
+export const fetchHubRedAlertEngagements = () =>
+  apiFetch<ApiHubRedAlertRow[]>('/engagements/hub-red-alerts');
 
 export interface ApiEngagementsPageResponse {
   data: ApiEngagementListRow[];
@@ -718,9 +736,14 @@ export type EngagementPagedQueryOpts = {
   dma?: string;
   venue?: string;
   timing?: 'all' | 'upcoming' | 'past';
+  /** Only engagements where the signed-in user is an IAE contact. */
+  mine?: boolean;
   /** Server whitelist: attraction, tour, venue, market, date */
   sortBy?: string;
   sortDir?: 'asc' | 'desc';
+  /** YYYY-MM-DD — include only engagements with at least one performance in [dateFrom, dateTo]. */
+  dateFrom?: string;
+  dateTo?: string;
 };
 
 export function engagementsPagedQueryKey(
@@ -740,8 +763,11 @@ export function engagementsPagedQueryKey(
     opts.dma ?? '',
     opts.venue ?? '',
     opts.timing ?? 'all',
+    opts.mine ?? false,
     opts.sortBy ?? '',
     opts.sortDir ?? '',
+    opts.dateFrom ?? '',
+    opts.dateTo ?? '',
   ] as const;
 }
 
@@ -757,8 +783,11 @@ export function engagementsSuggestionCacheQueryKey(opts: Omit<EngagementPagedQue
     opts.dma ?? '',
     opts.venue ?? '',
     opts.timing ?? 'all',
+    opts.mine ?? false,
     opts.sortBy ?? '',
     opts.sortDir ?? '',
+    opts.dateFrom ?? '',
+    opts.dateTo ?? '',
   ] as const;
 }
 
@@ -777,10 +806,13 @@ export function fetchEngagementsPaged(
   if (opts?.dma?.trim()) params.set('dma', opts.dma.trim());
   if (opts?.venue?.trim()) params.set('venue', opts.venue.trim());
   if (opts?.timing && opts.timing !== 'all') params.set('timing', opts.timing);
+  if (opts?.mine) params.set('mine', '1');
   if (opts?.sortBy?.trim()) {
     params.set('sortBy', opts.sortBy.trim());
     if (opts.sortDir) params.set('sortDir', opts.sortDir);
   }
+  if (opts?.dateFrom?.trim()) params.set('dateFrom', opts.dateFrom.trim());
+  if (opts?.dateTo?.trim()) params.set('dateTo', opts.dateTo.trim());
   return apiFetch<ApiEngagementsPageResponse>(`/engagements/paged?${params}`);
 }
 

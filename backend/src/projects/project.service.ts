@@ -42,7 +42,11 @@ import { AuditRequestContext } from '../audit/audit-request-context.service';
 import {
   isAllowedProjectStage,
   PROJECT_STAGE_VALUES,
-  isProjectConversionStage,
+  isAllowedOfferReviewStatus,
+  OFFER_REVIEW_STATUS_VALUES,
+  isProjectConversionReview,
+  DEFAULT_PUBLIC_TICKETING_STATUS,
+  DEFAULT_PRIVATE_TICKETING_STATUS,
 } from './project-stage.constants';
 
 const ENGAGEMENT_VENUE_OPTION_STATUS_ALLOWLIST = [
@@ -155,6 +159,20 @@ export class ProjectService {
     return { projectStages: [...PROJECT_STAGE_VALUES], source: 'application' };
   }
 
+  /**
+   * Allowed OfferReviewStatus values (new field). Only applicable once an
+   * offer is Submitted; 'Confirmed' triggers project → engagement conversion.
+   */
+  async getOfferReviewStatusMeta(): Promise<{
+    offerReviewStatuses: string[];
+    source: 'application';
+  }> {
+    return {
+      offerReviewStatuses: [...OFFER_REVIEW_STATUS_VALUES],
+      source: 'application',
+    };
+  }
+
   private parseVenueStatusEnvAllowlist(): string[] {
     const raw = process.env.VENUE_STATUS_ALLOWLIST?.trim();
     if (!raw) return [];
@@ -204,6 +222,31 @@ export class ProjectService {
     if (!isAllowedProjectStage(stage)) {
       throw new BadRequestException({
         message: `Invalid project stage "${stage}". Allowed values: ${PROJECT_STAGE_VALUES.join(', ')}.`,
+      });
+    }
+  }
+
+  /**
+   * OfferReviewStatus may only be set once an offer is Submitted
+   * (OfferCreationStatus = 'Submitted'). 'Confirmed' triggers conversion.
+   */
+  private assertValidOfferReviewStatus(
+    review: string,
+    currentStage: string,
+  ): void {
+    if (!isAllowedOfferReviewStatus(review)) {
+      throw new BadRequestException({
+        message: `Invalid offer review status "${review}". Allowed values: ${OFFER_REVIEW_STATUS_VALUES.join(', ')}.`,
+      });
+    }
+    if (
+      String(currentStage ?? '')
+        .trim()
+        .toLowerCase() !== 'submitted'
+    ) {
+      throw new BadRequestException({
+        message:
+          'Offer review status can only be set once the offer creation status is "Submitted".',
       });
     }
   }
@@ -664,7 +707,7 @@ export class ProjectService {
         performanceRows.push({
           date,
           time,
-          status: (statusRaw ?? '').trim() || 'Public',
+          status: (statusRaw ?? '').trim() || DEFAULT_PUBLIC_TICKETING_STATUS,
         });
       };
 
@@ -688,7 +731,7 @@ export class ProjectService {
         addPerformanceRow(
           option.proposedDate,
           option.proposedTime,
-          'Private',
+          DEFAULT_PRIVATE_TICKETING_STATUS,
           'Every proposed performance needs both a date and time before this project can be converted into an engagement.',
         );
       }
@@ -1160,6 +1203,7 @@ export class ProjectService {
       talentAgencyCompanyId: effectiveMgmtId,
       talentAgencyCompanyName: effectiveMgmtName,
       projectStage: project.projectStage,
+      offerReviewStatus: project.offerReviewStatus,
       createdDate: project.createdDate,
       createdBy,
       name: null,
@@ -1193,6 +1237,12 @@ export class ProjectService {
       });
     }
     this.assertValidProjectStage(dto.projectStage);
+    if (dto.offerReviewStatus !== undefined && dto.offerReviewStatus != null) {
+      this.assertValidOfferReviewStatus(
+        dto.offerReviewStatus,
+        dto.projectStage,
+      );
+    }
     const normalizedTourStartDate = this.normalizeDateOnly(dto.tourStartDate);
     const normalizedTourEndDate = this.normalizeDateOnly(dto.tourEndDate);
     this.assertValidTourDateRange(
@@ -1222,6 +1272,7 @@ export class ProjectService {
         const project = manager.create(EngagementProject, {
           tourId: dto.tourId,
           projectStage: dto.projectStage,
+          offerReviewStatus: dto.offerReviewStatus ?? null,
           createdDate: new Date(),
           createdBy: this.resolveProjectCreatedBy(dto.createdBy),
         });
@@ -1268,7 +1319,7 @@ export class ProjectService {
           normalizedAgentContactId,
         );
 
-        const engagementId = isProjectConversionStage(dto.projectStage)
+        const engagementId = isProjectConversionReview(dto.offerReviewStatus)
           ? await this.convertProjectToEngagement(
               manager,
               savedProject,
@@ -1287,15 +1338,19 @@ export class ProjectService {
         const d = String((err as QueryFailedError).driverError ?? err.message);
         this.logger.warn(`Create project failed: ${d}`);
         const isStageCheck =
-          /CHECK constraint/i.test(d) && /ProjectStage/i.test(d);
+          /CHECK constraint/i.test(d) && /OfferCreationStatus/i.test(d);
+        const isReviewCheck =
+          /CHECK constraint/i.test(d) && /OfferReviewStatus/i.test(d);
         const isOptionStatusCheck =
           /CHECK constraint/i.test(d) && /OptionStatus/i.test(d);
         throw new BadRequestException({
           message: isStageCheck
-            ? `This project stage isn’t accepted by the database. Use one of: ${PROJECT_STAGE_VALUES.join(', ')}.`
-            : isOptionStatusCheck
-              ? 'A proposed date option used a status the database does not allow. Refresh the page and try again, or ask an administrator which option statuses are valid.'
-              : 'Could not create the project. Check that the tour exists and that the information you entered matches your organization’s rules.',
+            ? `This project stage isn't accepted by the database. Use one of: ${PROJECT_STAGE_VALUES.join(', ')}.`
+            : isReviewCheck
+              ? `This offer review status isn't accepted by the database. Use one of: ${OFFER_REVIEW_STATUS_VALUES.join(', ')}.`
+              : isOptionStatusCheck
+                ? 'A proposed date option used a status the database does not allow. Refresh the page and try again, or ask an administrator which option statuses are valid.'
+                : 'Could not create the project. Check that the tour exists and that the information you entered matches your organization’s rules.',
           detail: d,
         });
       }
@@ -1310,12 +1365,19 @@ export class ProjectService {
     const project = await this.assertProjectExists(id);
 
     const shouldConvert =
-      dto.projectStage !== undefined &&
-      isProjectConversionStage(dto.projectStage);
+      dto.offerReviewStatus !== undefined &&
+      isProjectConversionReview(dto.offerReviewStatus);
 
     if (dto.projectStage !== undefined) {
       this.assertValidProjectStage(dto.projectStage);
       project.projectStage = dto.projectStage;
+    }
+    if (dto.offerReviewStatus !== undefined && dto.offerReviewStatus != null) {
+      const effectiveStage = dto.projectStage ?? project.projectStage;
+      this.assertValidOfferReviewStatus(dto.offerReviewStatus, effectiveStage);
+      project.offerReviewStatus = dto.offerReviewStatus;
+    } else if (dto.offerReviewStatus === null) {
+      project.offerReviewStatus = null;
     }
     // CreatedBy is immutable: store creator ID at insert time only.
     if (dto.tourId !== undefined) {
@@ -1427,11 +1489,15 @@ export class ProjectService {
         const d = String((e as QueryFailedError).driverError ?? e.message);
         this.logger.warn(`Update project failed (id=${id}): ${d}`);
         const isStageCheck =
-          /CHECK constraint/i.test(d) && /ProjectStage/i.test(d);
+          /CHECK constraint/i.test(d) && /OfferCreationStatus/i.test(d);
+        const isReviewCheck =
+          /CHECK constraint/i.test(d) && /OfferReviewStatus/i.test(d);
         throw new BadRequestException({
           message: isStageCheck
             ? `This project stage isn’t accepted by the database. Use one of: ${PROJECT_STAGE_VALUES.join(', ')}.`
-            : 'Could not update the project. Check the information you entered, or ask your administrator if something is blocked by your system’s rules.',
+            : isReviewCheck
+              ? `This offer review status isn’t accepted by the database. Use one of: ${OFFER_REVIEW_STATUS_VALUES.join(', ')}.`
+              : 'Could not update the project. Check the information you entered, or ask your administrator if something is blocked by your system’s rules.',
           detail: d,
         });
       }
@@ -1487,6 +1553,7 @@ export class ProjectService {
       talentAgencyCompanyId: number | null;
       talentAgencyCompanyName: string | null;
       projectStage: string;
+      offerReviewStatus: string | null;
       createdDate: Date;
       createdBy: string | null;
       name: null;
@@ -1607,6 +1674,7 @@ export class ProjectService {
           talentAgencyCompanyName:
             p.tour?.talentAgencyCompany?.companyName ?? null,
           projectStage: p.projectStage,
+          offerReviewStatus: p.offerReviewStatus,
           createdDate: p.createdDate,
           createdBy: await this.resolveCreatedByDisplayValue(
             p.createdBy,

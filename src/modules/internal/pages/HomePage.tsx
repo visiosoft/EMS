@@ -4,7 +4,7 @@ import { getAccountName, getActiveAccount } from "@/auth/entra";
 import { EngagementWidget } from "../components/EngagementWidget";
 import { HomeNewsSection } from "../components/HomeNewsSection";
 import { HubActionCards } from "../components/HubActionCards";
-import { TimeZonesWidget } from "../components/TimeZonesWidget";
+import { RedAlertEngagementsWidget } from "../components/RedAlertEngagementsWidget";
 import { InternalPageFrame } from "../layout/InternalPageFrame";
 
 export function InternalHomePage() {
@@ -54,7 +54,7 @@ export function InternalHomePage() {
 
         <section className="mt-12 grid gap-x-8 gap-y-10 lg:grid-cols-[minmax(260px,1fr)_minmax(260px,0.92fr)_minmax(260px,1fr)] xl:gap-x-10">
           <EngagementWidget title="Engagements This Week" scheduleWeek="this" />
-          <TimeZonesWidget />
+          <RedAlertEngagementsWidget />
           <EngagementWidget title="Engagements Next Week" scheduleWeek="next" />
         </section>
 

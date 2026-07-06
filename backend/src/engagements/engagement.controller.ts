@@ -76,13 +76,19 @@ export class EngagementController {
     return this.engagementService.getEngagementIaeContactLookups();
   }
 
-  /** Company Hub — engagements created by the signed-in user for a date range. */
+  /** Company Hub — engagements the signed-in user is assigned to (IAE contact) for a date range. */
   @Get('hub-schedule')
   listHubSchedule(
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ) {
     return this.engagementService.listHubSchedule(startDate, endDate);
+  }
+
+  /** Company Hub — the signed-in user's assigned engagements still below their sales revenue goal. */
+  @Get('hub-red-alerts')
+  listHubRedAlerts() {
+    return this.engagementService.listHubRedAlerts();
   }
 
   @Patch('withholdings/:withholdingId/links')
@@ -151,8 +157,11 @@ export class EngagementController {
     @Query('dma') dma?: string,
     @Query('venue') venue?: string,
     @Query('timing') timing?: string,
+    @Query('mine') mine?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
   ) {
     const t =
       timing === 'upcoming' || timing === 'past' ? timing : ('all' as const);
@@ -164,8 +173,11 @@ export class EngagementController {
       dmaMarketName: dma,
       venueLabel: venue,
       timing: t,
+      mine: mine === '1' || mine === 'true',
       sortBy,
       sortDir,
+      dateFrom,
+      dateTo,
     });
   }
 

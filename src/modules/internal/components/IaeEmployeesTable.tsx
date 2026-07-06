@@ -1,19 +1,19 @@
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, RefreshCw } from 'lucide-react';
+import { Loader2, RefreshCw, Search } from 'lucide-react';
 import { fetchIaeStaffEmployees, type IaeEmployee } from '@/api/iaeEmployeesApi';
 import { formatE164ForDisplay } from '@/lib/contactPhoneField';
 import { TeamMemberAvatar } from './TeamMemberAvatar';
 
-const VISIBLE_ROW_COUNT = 8;
-/** ~3.25rem per body row + ~3rem header — caps list at eight visible rows before scroll. */
-const TABLE_MAX_HEIGHT = `calc(${VISIBLE_ROW_COUNT} * 3.25rem + 3rem)`;
+const DEFAULT_VISIBLE_ROW_COUNT = 8;
 
 function displayName(employee: IaeEmployee): string {
   return [employee.firstName, employee.lastName].filter(Boolean).join(' ').trim() || '—';
 }
 
-function displayExtension(workPhone: string | null): string {
-  const digits = (workPhone ?? '').replace(/\D/g, '');
+function displayExtension(employee: IaeEmployee): string {
+  if (employee.extension?.trim()) return employee.extension.trim();
+  const digits = (employee.workPhone ?? '').replace(/\D/g, '');
   if (digits.length >= 3 && digits.length <= 5) return digits;
   return '—';
 }
@@ -52,24 +52,64 @@ function EmployeeRow({ employee }: { employee: IaeEmployee }) {
         <TeamMemberAvatar />
       </td>
       <td className="px-4 py-3 font-medium text-neutral-900">{displayName(employee)}</td>
-      <td className="px-4 py-3 text-neutral-800">{displayExtension(employee.workPhone)}</td>
+      <td className="px-4 py-3 text-neutral-800">{employee.roleName || '—'}</td>
+      <td className="px-4 py-3 text-neutral-800">{employee.departmentName || '—'}</td>
+      <td className="px-4 py-3 text-neutral-800">{displayExtension(employee)}</td>
       <td className="px-4 py-3 text-neutral-800">{rawMobile && mobileDisplay !== '—' ? <a href={`tel:${rawMobile}`} className="hover:underline">{mobileDisplay}</a> : mobileDisplay}</td>
       <td className="px-4 py-3 text-neutral-800">{employee.email ? <a href={`mailto:${employee.email}`} className="hover:underline">{employee.email}</a> : '—'}</td>
     </tr>
   );
 }
 
-export function IaeEmployeesTable() {
+type IaeEmployeesTableProps = {
+  /** Show the client-side name/title/department/email search box. */
+  searchable?: boolean;
+  /**
+   * Rows visible before the list scrolls. Pass null for no cap (full-height directory).
+   */
+  maxVisibleRows?: number | null;
+  title?: string | null;
+};
+
+export function IaeEmployeesTable({
+  searchable = true,
+  maxVisibleRows = DEFAULT_VISIBLE_ROW_COUNT,
+  title = 'IAE Employees',
+}: IaeEmployeesTableProps = {}) {
+  const [search, setSearch] = useState('');
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['iae-staff-employees'],
     queryFn: fetchIaeStaffEmployees,
   });
 
-  const employees = dedupeEmployees(data ?? []);
+  const employees = useMemo(() => dedupeEmployees(data ?? []), [data]);
+
+  const filteredEmployees = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return employees;
+    return employees.filter((employee) =>
+      [
+        displayName(employee),
+        employee.roleName ?? '',
+        employee.departmentName ?? '',
+        employee.email,
+        displayExtension(employee),
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [employees, search]);
+
+  /** ~3.25rem per body row + ~3rem header — caps visible rows before scroll. */
+  const tableMaxHeight =
+    maxVisibleRows != null ? `calc(${maxVisibleRows} * 3.25rem + 3rem)` : undefined;
 
   return (
-    <section className="mt-12">
-      <h2 className="mb-5 text-2xl font-semibold tracking-[0.01em] text-neutral-950">IAE Employees</h2>
+    <section className={title ? 'mt-12' : ''}>
+      {title ? (
+        <h2 className="mb-5 text-2xl font-semibold tracking-[0.01em] text-neutral-950">{title}</h2>
+      ) : null}
 
       {isError ? (
         <div className="mb-4 flex items-center justify-between gap-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -85,16 +125,32 @@ export function IaeEmployeesTable() {
         </div>
       ) : null}
 
+      {searchable ? (
+        <div className="relative mb-4 max-w-md">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" aria-hidden />
+          <input
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search by name, title, department, or email"
+            aria-label="Search employees"
+            className="h-10 w-full rounded-md border border-neutral-300 bg-white pl-9 pr-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+          />
+        </div>
+      ) : null}
+
       <div className="overflow-x-auto rounded-lg border border-neutral-200">
         <div
           className="overflow-y-auto overflow-x-auto [scrollbar-gutter:stable]"
-          style={{ maxHeight: TABLE_MAX_HEIGHT }}
+          style={tableMaxHeight ? { maxHeight: tableMaxHeight } : undefined}
         >
-          <table className="min-w-[680px] w-full border-collapse text-left text-sm">
+          <table className="min-w-[880px] w-full border-collapse text-left text-sm">
             <thead className="sticky top-0 z-10 bg-white shadow-[0_1px_0_0_#e5e5e5]">
               <tr className="border-b border-neutral-200 text-xs font-semibold text-neutral-900">
                 <th className="px-4 py-4">Picture</th>
                 <th className="px-4 py-4">Name</th>
+                <th className="px-4 py-4">Title</th>
+                <th className="px-4 py-4">Department</th>
                 <th className="px-4 py-4">Extension</th>
                 <th className="px-4 py-4">Mobile</th>
                 <th className="px-4 py-4">Work Email</th>
@@ -103,28 +159,30 @@ export function IaeEmployeesTable() {
             <tbody className="divide-y divide-neutral-100">
               {isLoading ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center text-neutral-500">
+                  <td colSpan={7} className="px-4 py-10 text-center text-neutral-500">
                     <Loader2 className="mx-auto h-6 w-6 animate-spin" aria-hidden />
                     <span className="sr-only">Loading employees</span>
                   </td>
                 </tr>
-              ) : employees.length === 0 ? (
+              ) : filteredEmployees.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center text-neutral-500">
-                    No staff employees found.
+                  <td colSpan={7} className="px-4 py-10 text-center text-neutral-500">
+                    {employees.length === 0
+                      ? 'No staff employees found.'
+                      : 'No employees match your search.'}
                   </td>
                 </tr>
               ) : (
-                employees.map((employee) => <EmployeeRow key={employee.contactId} employee={employee} />)
+                filteredEmployees.map((employee) => <EmployeeRow key={employee.contactId} employee={employee} />)
               )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {!isLoading && employees.length > VISIBLE_ROW_COUNT ? (
+      {!isLoading && maxVisibleRows != null && filteredEmployees.length > maxVisibleRows ? (
         <p className="mt-2 text-xs text-neutral-500">
-          Showing {employees.length} staff {employees.length === 1 ? 'member' : 'members'}. Scroll to see all.
+          Showing {filteredEmployees.length} staff {filteredEmployees.length === 1 ? 'member' : 'members'}. Scroll to see all.
           {isFetching && !isLoading ? ' Updating…' : null}
         </p>
       ) : null}

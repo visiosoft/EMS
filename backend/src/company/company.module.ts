@@ -34,6 +34,7 @@ import { VenueServiceProvider } from '../entities/venue-service-provider.entity'
 import { Link } from '../entities/link.entity';
 import { LookupsController } from '../lookups/lookups.controller';
 import { LookupsService } from '../lookups/lookups.service';
+import { EntraAuthGuard } from '../admin-users/entra-auth.guard';
 import { HubSpotModule } from '../hubspot/hubspot.module';
 import {
   CompanyController,
@@ -92,7 +93,7 @@ const entities = [
     ContactAssignmentBulkUpdateController,
     LookupsController,
   ],
-  providers: [CompanyService, LookupsService],
+  providers: [CompanyService, LookupsService, EntraAuthGuard],
   exports: [CompanyService, LookupsService],
 })
 export class CompanyModule {}

@@ -686,6 +686,11 @@ export function getStatusColor(status: string): { bg: string; text: string } {
     /** Legacy venue / date-option status values (pre–product allowlist). */
     Proposed: { bg: 'bg-ems-blue-dim', text: 'text-ems-blue' },
     Offered: { bg: 'bg-ems-purple-dim', text: 'text-ems-purple' },
+    /** Offer-creation statuses (dbo.EngagementProject.OfferCreationStatus). */
+    Requested: { bg: 'bg-ems-amber-dim', text: 'text-ems-amber' },
+    Drafted: { bg: 'bg-ems-blue-dim', text: 'text-ems-blue' },
+    /** Offer-review statuses (dbo.EngagementProject.OfferReviewStatus). */
+    'In Consideration': { bg: 'bg-ems-purple-dim', text: 'text-ems-purple' },
   };
   return map[status] || { bg: 'bg-elevated', text: 'text-text-secondary' };
 }

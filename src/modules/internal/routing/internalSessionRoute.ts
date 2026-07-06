@@ -21,7 +21,10 @@ export type InternalView =
   | "department-ticketing-sales"
   | "learning-portal"
   | "learning-admin"
-  | "document-library";
+  | "document-library"
+  | "my-profile"
+  | "payroll-schedule"
+  | "health-insurance";
 
 export type InternalViewData = {
   handbook?: EmployeeHandbookView;
@@ -30,6 +33,8 @@ export type InternalViewData = {
   fromView?: InternalView;
   fromTitle?: string;
   departmentId?: number;
+  /** Employee Services: open with the employee directory panel expanded. */
+  revealDirectory?: boolean;
 };
 
 const VALID_VIEWS = new Set<string>([
@@ -50,6 +55,9 @@ const VALID_VIEWS = new Set<string>([
   "learning-portal",
   "learning-admin",
   "document-library",
+  "my-profile",
+  "payroll-schedule",
+  "health-insurance",
 ]);
 
 const LEGACY_PATH_TO_VIEW: Record<string, InternalView> = {
@@ -71,6 +79,9 @@ const LEGACY_PATH_TO_VIEW: Record<string, InternalView> = {
   "/internal/departments/production": "department-production",
   "/internal/departments/ticketing-sales": "department-ticketing-sales",
   "/internal/learning-portal": "learning-portal",
+  "/internal/my-profile": "my-profile",
+  "/internal/payroll-schedule": "payroll-schedule",
+  "/internal/health-insurance": "health-insurance",
 };
 
 const DEPARTMENT_TITLE_TO_VIEW: Record<string, InternalView> = {
@@ -126,6 +137,8 @@ function sanitizeViewData(view: InternalView, raw: unknown): InternalViewData {
 
   const handbookHash = typeof obj.handbookHash === "string" ? normalizeHash(obj.handbookHash) : "";
   if (handbookHash) out.handbookHash = handbookHash.slice(0, 120);
+
+  if (obj.revealDirectory === true) out.revealDirectory = true;
 
   if (!out.handbook && out.handbookHash) {
     const fromHash = handbookDataFromHash(`#${out.handbookHash}`);
