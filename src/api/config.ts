@@ -1,5 +1,6 @@
 import {
   acquireApiAccessToken,
+  requestApiAccessToken,
   acquireGraphAccessToken,
   getActiveAccount,
   getAccountEmail,
@@ -34,6 +35,22 @@ export async function apiFetch<T>(
   };
   const method = (requestInit.method ?? 'GET').toUpperCase();
   let res = await fetch(url, requestInit);
+
+  // If 401, try to get a fresh token and retry once
+  if (res.status === 401 && isApiAccessTokenConfigured()) {
+    const account = getActiveAccount();
+    if (account) {
+      try {
+        const freshToken = await requestApiAccessToken(account);
+        const retryHeaders = new Headers(headers);
+        retryHeaders.set('Authorization', `Bearer ${freshToken}`);
+        res = await fetch(url, { ...requestInit, headers: retryHeaders });
+      } catch {
+        // interactive token acquisition failed — return original 401
+      }
+    }
+  }
+
   /**
    * Global guard: if a server-side sorted list query fails with a 5xx,
    * retry once without sortBy/sortDir so screens do not hard-fail.
