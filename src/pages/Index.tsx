@@ -33,7 +33,7 @@ const TOURS_SORT_STATE_STORAGE_KEY = 'iae-tours-sort-state-v1';
 const SALES_SUMMARY_SORT_STATE_STORAGE_KEY = 'iae-sales-summary-sort-state-v1';
 const SETTINGS_LOOKUP_SORT_STORAGE_KEY = 'iae-settings-lookup-sort-state-v1';
 
-/** Survives Ctrl+R in this tab; cleared when the tab closes — new visits start on Projects. */
+/** Survives Ctrl+R in this tab; cleared when the tab closes — new visits start on Engagements. */
 const EMS_SESSION_ROUTE_KEY = 'iae-ems-session-route-v1';
 const EMS_OPEN_INTENT_KEY = 'iae-ems-open-intent-v1';
 
@@ -268,7 +268,7 @@ const Index = () => {
     const intentRoute = readAndConsumeOpenIntent();
     if (intentRoute) return intentRoute;
     const r = readStoredSessionRoute();
-    return { view: r?.view ?? 'projects', viewData: r?.viewData ?? {} };
+    return { view: r?.view ?? 'engagements', viewData: r?.viewData ?? {} };
   }, []);
 
   const [currentView, setCurrentView] = useState(initialRoute.view);

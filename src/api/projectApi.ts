@@ -20,21 +20,70 @@ import type { ApiPaginatedResponse } from './companyApi';
 // Lookup types
 // ---------------------------------------------------------------------------
 
-/** Client-defined allowed values for `dbo.EngagementProject.ProjectStage`. */
+/**
+ * Allowed values for `dbo.EngagementProject.OfferCreationStatus`
+ * (column formerly named `ProjectStage`). The entity/API still exposes this
+ * as `projectStage` for backward compatibility with the frontend.
+ */
 export const PROJECT_STAGE_VALUES = [
-  'Under Construction',
-  'Pending',
-  'Confirmed',
-  'Inactive',
+  'Requested',
+  'Drafted',
+  'Submitted',
 ] as const;
 export type ProjectStage = (typeof PROJECT_STAGE_VALUES)[number];
 
-export const PROJECT_CONVERSION_STAGE: ProjectStage = 'Confirmed';
+/**
+ * Allowed values for `dbo.EngagementProject.OfferReviewStatus` (new column).
+ * Only applicable once OfferCreationStatus = 'Submitted'.
+ * 'Confirmed' triggers project → engagement conversion.
+ */
+export const OFFER_REVIEW_STATUS_VALUES = [
+  'In Consideration',
+  'Declined',
+  'Confirmed',
+] as const;
+export type OfferReviewStatus = (typeof OFFER_REVIEW_STATUS_VALUES)[number];
+
+/** The OfferReviewStatus value that triggers project → engagement conversion. */
+export const OFFER_REVIEW_CONFIRMED_STATUS: OfferReviewStatus = 'Confirmed';
 
 export interface ProjectStageMeta {
   projectStages: string[];
   source: 'application' | 'check_constraint' | 'environment' | 'existing_rows' | 'empty';
 }
+
+export interface OfferReviewStatusMeta {
+  offerReviewStatuses: string[];
+  source: 'application' | 'environment';
+}
+
+/**
+ * Allowed values for `dbo.Performance.TicketingStatus`
+ * (column formerly named `PerformanceStatus`). The entity/API still exposes
+ * this as `performanceStatus` to avoid a collision with
+ * `PerformanceTicketing.ticketingStatus` (a separate concept).
+ */
+export const PERFORMANCE_TICKETING_STATUS_VALUES = [
+  'Private (Not Announced)',
+  'Public (Not On Sale)',
+  'Public (On-Sale)',
+  'Public (Season Ticket Sales Only)',
+] as const;
+export type PerformanceTicketingStatus =
+  (typeof PERFORMANCE_TICKETING_STATUS_VALUES)[number];
+
+/** True for any of the "Public ..." ticketing statuses. */
+export function isPublicTicketingStatus(v: string | null | undefined): boolean {
+  if (!v) return false;
+  return v.trim().toLowerCase().startsWith('public');
+}
+
+/** Canonical default public ticketing status. */
+export const DEFAULT_PUBLIC_TICKETING_STATUS: PerformanceTicketingStatus =
+  'Public (Not On Sale)';
+/** Canonical default private ticketing status. */
+export const DEFAULT_PRIVATE_TICKETING_STATUS: PerformanceTicketingStatus =
+  'Private (Not Announced)';
 
 /** Allowed `dbo.EngagementProjectVenue.VenueStatus` from env or application canonical list. */
 export interface VenueStatusMeta {
@@ -183,8 +232,10 @@ export interface ApiProjectListRow {
   /** From Tour.TalentAgencyCompanyID → Company */
   talentAgencyCompanyId?: number | null;
   talentAgencyCompanyName?: string | null;
-  /** EngagementProject.ProjectStage — NOT NULL (may be legacy values not in `PROJECT_STAGE_VALUES`) */
+  /** EngagementProject.OfferCreationStatus (formerly ProjectStage) — NOT NULL (may be legacy values not in `PROJECT_STAGE_VALUES`) */
   projectStage: string;
+  /** EngagementProject.OfferReviewStatus (new). Nullable; only set once Submitted. 'Confirmed' triggers conversion. */
+  offerReviewStatus?: string | null;
   /** ISO datetime */
   createdDate: string;
   /** nullable in DB */
@@ -217,6 +268,8 @@ export interface CreateProjectPayload {
   talentAgencyCompanyId: number;
   /** REQUIRED */
   projectStage: ProjectStage;
+  /** Optional; only valid once projectStage = 'Submitted'. 'Confirmed' triggers conversion. */
+  offerReviewStatus?: OfferReviewStatus | null;
   /** nullable */
   createdBy?: string | null;
   /** Persisted to dbo.Tour.TourStartDate */
@@ -241,6 +294,8 @@ export interface CreateProjectPayload {
 
 export interface UpdateProjectPayload {
   projectStage?: ProjectStage;
+  /** Optional; only valid once projectStage = 'Submitted'. 'Confirmed' triggers conversion. */
+  offerReviewStatus?: OfferReviewStatus | null;
   createdBy?: string | null;
   tourId?: number;
   /** Persisted to dbo.Tour.TourStartDate */
@@ -279,6 +334,11 @@ export interface CreateProjectResult extends ProjectConversionResult {
 /** Fixed list accepted for project writes (see `PROJECT_STAGE_VALUES`). */
 export function fetchProjectStageMeta() {
   return apiFetch<ProjectStageMeta>('/projects/meta/project-stages');
+}
+
+/** Fixed list of accepted OfferReviewStatus values (see `OFFER_REVIEW_STATUS_VALUES`). */
+export function fetchOfferReviewStatusMeta() {
+  return apiFetch<OfferReviewStatusMeta>('/projects/meta/offer-review-statuses');
 }
 
 export function fetchVenueStatusMeta() {

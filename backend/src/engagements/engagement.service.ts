@@ -2680,9 +2680,11 @@ export class EngagementService {
       },
     });
     if (!opening) return;
-    const isPublic = opening.performanceStatus.trim().toLowerCase() === 'public';
-    if (isPublic) return;
-    opening.performanceStatus = 'Public';
+    // Performance.PerformanceStatus was renamed to TicketingStatus; "public"
+    // now covers any value starting with "Public" (e.g. "Public (Not On Sale)").
+    const status = opening.performanceStatus?.trim() ?? '';
+    if (status.toLowerCase().startsWith('public')) return;
+    opening.performanceStatus = 'Public (Not On Sale)';
     await this.performanceRepo.save(opening);
   }
 
@@ -5240,10 +5242,13 @@ export class EngagementService {
         );
       }
 
+      // Performance.TicketingStatus (formerly PerformanceStatus) uses the
+      // expanded value set; map the engagement's Private/Public flag to the
+      // canonical default ticketing statuses.
       const perfStatus =
-        dto.engagementStatus === 'Private' || dto.engagementStatus === 'Public'
-          ? dto.engagementStatus
-          : 'Public';
+        dto.engagementStatus === 'Private'
+          ? 'Private (Not Announced)'
+          : 'Public (Not On Sale)';
       await manager.save(
         Performance,
         manager.create(Performance, {
@@ -6074,7 +6079,7 @@ export class EngagementService {
         p.[PerformanceID] AS pid,
         CONVERT(varchar(10), p.[PerformanceDate], 120) AS pdate,
         p.[PerformanceTime] AS ptime,
-        p.[PerformanceStatus] AS pstatus
+        p.[TicketingStatus] AS pstatus
         ${selectAdv}
        FROM dbo.Performance p
        ${joinAdv}
@@ -7818,7 +7823,7 @@ export class EngagementService {
       engagementId,
       performanceDate: dto.performanceDate,
       performanceTime: normalizedTime,
-      performanceStatus: dto.performanceStatus?.trim() || 'Public',
+      performanceStatus: dto.performanceStatus?.trim() || 'Public (Not On Sale)',
     });
 
     const saved = await this.performanceRepo.save(row);
@@ -7860,7 +7865,7 @@ export class EngagementService {
     }
 
     if (dto.performanceStatus !== undefined) {
-      perf.performanceStatus = dto.performanceStatus.trim() || 'Public';
+      perf.performanceStatus = dto.performanceStatus.trim() || 'Public (Not On Sale)';
     }
 
     await this.assertPerformanceSlotAvailable(

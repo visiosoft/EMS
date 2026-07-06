@@ -31,6 +31,11 @@ export class ProjectController {
     return this.projectService.getProjectStageMeta();
   }
 
+  @Get('meta/offer-review-statuses')
+  offerReviewStatusesMeta() {
+    return this.projectService.getOfferReviewStatusMeta();
+  }
+
   @Get('meta/venue-statuses')
   venueStatusesMeta() {
     return this.projectService.getVenueStatusMeta();
