@@ -867,6 +867,13 @@ export const updateEngagement = (id: number, body: UpdateEngagementPayload) =>
   apiFetch<void>(`/engagements/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 export const deleteEngagement = (id: number) =>
   apiFetch<void>(`/engagements/${id}`, { method: 'DELETE' });
+export interface EngagementDeleteImpact {
+  canDelete: boolean;
+  blockers: string[];
+  dependents: { label: string; count: number }[];
+}
+export const fetchEngagementDeleteImpact = (id: number) =>
+  apiFetch<EngagementDeleteImpact>(`/engagements/${id}/delete-impact`);
 export const fetchEngagementPerformances = (id: number) =>
   apiFetch<ApiPerformanceRow[]>(`/engagements/${id}/performances`);
 export const createEngagementPerformance = (id: number, body: CreatePerformancePayload) =>
