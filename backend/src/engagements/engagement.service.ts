@@ -43,7 +43,7 @@ import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
 import { EmsAppCreatedStore } from '../attraction-tours/ems-app-created.store';
 import { DocumentLibraryService } from '../document-library/document-library.service';
-import { buildEngagementFolderHierarchies } from './engagement-folder-structure';
+import { buildEngagementFolderHierarchies, ENGAGEMENT_FOLDER_STRUCTURE } from './engagement-folder-structure';
 import { CreateEngagementDto } from './dto/create-engagement.dto';
 import { CreatePerformanceDto } from './dto/create-performance.dto';
 import { UpdateEngagementDto } from './dto/update-engagement.dto';
@@ -622,6 +622,14 @@ function pickRaw(r: Record<string, unknown>, key: string): unknown {
 @Injectable()
 export class EngagementService {
   private readonly logger = new Logger(EngagementService.name);
+
+  /**
+   * In-memory tracker for background SharePoint folder provisioning jobs, keyed by
+   * engagementId. "ready" is not tracked here — it's derived from the persisted
+   * EngagementFolder link (see getSharePointFolderStatus), so it survives restarts and
+   * is correct across instances. Only the transient pending/failed states live here.
+   */
+  private readonly folderJobs = new Map<number, { status: 'pending' | 'failed'; error?: string; updatedAt: number }>();
 
   /**
    * When dbo.EngagementFinances has optional SharePoint link columns, read/write them via raw SQL.
@@ -5278,76 +5286,79 @@ export class EngagementService {
       return { engagementId: saved.engagementId };
     });
 
-    // If status is Confirmed, create SharePoint folder structure
+    // If status is Confirmed, provision the SharePoint folder structure in the BACKGROUND.
+    // Engagement creation must not wait for Graph — the Documents tab polls for readiness.
     if (dto.engagementStatus === 'Confirmed') {
-      const engagementId = result.engagementId;
-      try {
-        const primaryVenue = await this.companyRepo.findOne({
-          where: { companyId: dto.primaryVenueCompanyId },
-          relations: ['dma'],
-        });
-        const year = (dto.openingShowDate || new Date().toISOString().slice(0, 10)).slice(0, 4);
-        const marketName = primaryVenue?.dma?.marketName ?? null;
-        const attractionName = tour.attraction?.attractionName ?? null;
-
-        const hierarchies = buildEngagementFolderHierarchies(year, marketName, attractionName);
-
-        let rootWebUrl = '';
-        for (const hierarchy of hierarchies) {
-          const folder = await this.documentLibrary.ensureFolderHierarchy(hierarchy);
-          if (!rootWebUrl) {
-            rootWebUrl = folder.webUrl;
-          }
-        }
-
-        // Store the root folder link
-        if (rootWebUrl) {
-          const rootSegments = hierarchies[0]?.slice(0, -1) ?? [];
-          const folderPath = rootSegments.length > 0 ? rootSegments.join('/') : 'Engagements';
-          await this.upsertEngagementLink(engagementId, {
-            linkUrl: rootWebUrl,
-            linkName: `Engagement #${engagementId} Files`,
-            linkPurpose: 'EngagementFolder',
-            linkPath: folderPath,
-          });
-        }
-
-        this.logger.log(`[SharePoint] Created folder structure for engagement ${engagementId}: ${rootWebUrl}`);
-      } catch (err) {
-        this.logger.error(
-          `[SharePoint] Failed to create folders for engagement ${engagementId}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
+      this.startFolderProvisioning(result.engagementId);
     }
 
     return result;
   }
 
   /**
-   * Returns the SharePoint folder link for an engagement, if one exists.
+   * Returns the SharePoint folder link for an engagement, if one exists, along with the
+   * relative folder paths used to browse it inline:
+   *  - `linkPath`         → the engagement (attraction-level) folder: `{Year}/{Market}/{Attraction}`
+   *  - `marketFolderPath` → the default Market (DMA) folder one level up: `{Year}/{Market}`
+   * Paths are resolved fresh so they always match the created folder names; the stored
+   * `link.linkPath` is used as a fallback for engagements provisioned before this existed.
    */
-  async getSharePointFolderLink(engagementId: number): Promise<{ linkUrl: string | null; linkName: string | null }> {
+  async getSharePointFolderLink(
+    engagementId: number,
+  ): Promise<{ linkUrl: string | null; linkName: string | null; linkPath: string | null; marketFolderPath: string | null }> {
     const el = await this.engagementLinkRepo.findOne({
       where: { engagementId, linkPurpose: 'EngagementFolder' },
       relations: ['link'],
     });
-    if (!el?.link) return { linkUrl: null, linkName: null };
-    return { linkUrl: el.link.linkUrl, linkName: el.link.linkName };
+    if (!el?.link) return { linkUrl: null, linkName: null, linkPath: null, marketFolderPath: null };
+
+    const resolved = await this.resolveEngagementFolderPaths(engagementId);
+    const storedPath = el.link.linkPath || null;
+    const linkPath = resolved.linkPath ?? storedPath;
+    const marketFolderPath =
+      resolved.marketFolderPath ??
+      (storedPath ? storedPath.split('/').slice(0, -1).join('/') || null : null);
+
+    return { linkUrl: el.link.linkUrl, linkName: el.link.linkName, linkPath, marketFolderPath };
   }
 
   /**
-   * Ensures the SharePoint folder structure exists for a given engagement.
-   * Can be called manually to retry if folder creation failed during initial creation.
+   * Resolves the relative folder paths for an engagement from its primary venue's DMA
+   * market, opening performance year, and attraction — matching how folders are named in
+   * {@link buildEngagementFolderHierarchies}. Returns nulls if the context can't be resolved.
    */
-  async ensureSharePointFolders(engagementId: number): Promise<{ rootWebUrl: string }> {
+  private async resolveEngagementFolderPaths(
+    engagementId: number,
+  ): Promise<{ linkPath: string | null; marketFolderPath: string | null }> {
+    try {
+      const ctx = await this.resolveEngagementFolderContext(engagementId);
+      if (!ctx) return { linkPath: null, marketFolderPath: null };
+      const hierarchies = buildEngagementFolderHierarchies(ctx.year, ctx.marketName, ctx.attractionName);
+      const engSegments = hierarchies[0]?.slice(0, -1) ?? []; // [Year, Market, Attraction]
+      if (engSegments.length === 0) return { linkPath: null, marketFolderPath: null };
+      return {
+        linkPath: engSegments.join('/'),
+        marketFolderPath: engSegments.slice(0, -1).join('/'), // [Year, Market]
+      };
+    } catch {
+      return { linkPath: null, marketFolderPath: null };
+    }
+  }
+
+  /**
+   * Resolves the engagement's folder-naming context: year (from the earliest performance),
+   * the primary venue's DMA market, and the attraction. Shared by path resolution and
+   * folder provisioning so both agree on names. Returns null if the tour can't be found.
+   */
+  private async resolveEngagementFolderContext(
+    engagementId: number,
+  ): Promise<{ year: string; marketName: string | null; attractionName: string | null } | null> {
     const engagement = await this.assertEngagementExists(engagementId);
     const tour = await this.tourRepo.findOne({
       where: { tourId: engagement.tourId },
       relations: ['attraction'],
     });
-    if (!tour) {
-      throw new BadRequestException({ message: `Tour #${engagement.tourId} for engagement ${engagementId} not found.` });
-    }
+    if (!tour) return null;
 
     const primaryVenue = await this.engagementVenueRepo.findOne({
       where: { engagementId, isPrimary: true },
@@ -5361,7 +5372,6 @@ export class EngagementService {
       marketName = company?.dma?.marketName ?? null;
     }
 
-    // Get the opening performance date for the year
     const openingPerf = await this.performanceRepo.findOne({
       where: { engagementId },
       order: { performanceDate: 'ASC' },
@@ -5370,28 +5380,97 @@ export class EngagementService {
       ? String(openingPerf.performanceDate).slice(0, 4)
       : new Date().getFullYear().toString();
 
-    const attractionName = tour.attraction?.attractionName ?? null;
-    const hierarchies = buildEngagementFolderHierarchies(year, marketName, attractionName);
+    return { year, marketName, attractionName: tour.attraction?.attractionName ?? null };
+  }
 
-    let rootWebUrl = '';
-    for (const hierarchy of hierarchies) {
-      const folder = await this.documentLibrary.ensureFolderHierarchy(hierarchy);
-      if (!rootWebUrl) {
-        rootWebUrl = folder.webUrl;
-      }
+  /**
+   * Ensures the SharePoint folder structure exists for a given engagement, using the
+   * optimized parallel tree builder ({@link DocumentLibraryService.createFolderTree}).
+   * Throws on failure so background provisioning can record the error.
+   */
+  async ensureSharePointFolders(engagementId: number): Promise<{ rootWebUrl: string }> {
+    const ctx = await this.resolveEngagementFolderContext(engagementId);
+    if (!ctx) {
+      throw new BadRequestException({
+        message: `Engagement ${engagementId} is missing the tour data needed to create SharePoint folders.`,
+      });
     }
 
-    // Upsert the root folder link
+    const hierarchies = buildEngagementFolderHierarchies(ctx.year, ctx.marketName, ctx.attractionName);
+    const rootSegments = hierarchies[0]?.slice(0, -1) ?? []; // [Year, Market, Attraction]
+
+    const { rootWebUrl } = await this.documentLibrary.createFolderTree(
+      rootSegments,
+      ENGAGEMENT_FOLDER_STRUCTURE,
+    );
+
     if (rootWebUrl) {
       await this.upsertEngagementLink(engagementId, {
         linkUrl: rootWebUrl,
         linkName: `Engagement #${engagementId} Files`,
         linkPurpose: 'EngagementFolder',
+        linkPath: rootSegments.join('/'),
       });
     }
 
     this.logger.log(`[SharePoint] Folder structure for engagement ${engagementId}: ${rootWebUrl}`);
     return { rootWebUrl };
+  }
+
+  /**
+   * Starts (or re-starts) SharePoint folder provisioning in the background and returns
+   * immediately, so engagement creation/confirmation never blocks on Graph. Idempotent
+   * while a job is already pending. The frontend polls {@link getSharePointFolderStatus}.
+   */
+  startFolderProvisioning(engagementId: number): { status: 'pending' } {
+    const existing = this.folderJobs.get(engagementId);
+    if (existing?.status === 'pending') return { status: 'pending' };
+    this.folderJobs.set(engagementId, { status: 'pending', updatedAt: Date.now() });
+    void this.runFolderProvisioning(engagementId);
+    return { status: 'pending' };
+  }
+
+  private async runFolderProvisioning(engagementId: number): Promise<void> {
+    try {
+      await this.ensureSharePointFolders(engagementId);
+      // "ready" is derived from the persisted link, so clear the transient job entry.
+      this.folderJobs.delete(engagementId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.folderJobs.set(engagementId, { status: 'failed', error: message, updatedAt: Date.now() });
+      this.logger.error(
+        `[SharePoint] Background folder provisioning failed for engagement ${engagementId}: ${message}`,
+      );
+    }
+  }
+
+  /**
+   * Reports the SharePoint folder state for the Documents tab:
+   *  - `ready`   → folders exist (persisted link); includes the browse paths
+   *  - `pending` → a background provisioning job is running
+   *  - `failed`  → the last provisioning attempt failed (includes an error message)
+   *  - `none`    → no folder and nothing in progress (e.g. a non-Confirmed engagement)
+   */
+  async getSharePointFolderStatus(engagementId: number): Promise<{
+    status: 'ready' | 'pending' | 'failed' | 'none';
+    linkUrl: string | null;
+    linkName: string | null;
+    linkPath: string | null;
+    marketFolderPath: string | null;
+    error: string | null;
+  }> {
+    const link = await this.getSharePointFolderLink(engagementId);
+    if (link.linkUrl) {
+      return { status: 'ready', ...link, error: null };
+    }
+    const job = this.folderJobs.get(engagementId);
+    if (job?.status === 'pending') {
+      return { status: 'pending', ...link, error: null };
+    }
+    if (job?.status === 'failed') {
+      return { status: 'failed', ...link, error: job.error ?? 'SharePoint folder creation failed.' };
+    }
+    return { status: 'none', ...link, error: null };
   }
 
   async update(id: number, dto: UpdateEngagementDto): Promise<void> {
@@ -5540,11 +5619,8 @@ export class EngagementService {
       dto.engagementStatus === 'Confirmed' &&
       existing.engagementStatus !== 'Confirmed'
     ) {
-      void this.ensureSharePointFolders(id).catch((err) => {
-        this.logger.error(
-          `[SharePoint] Failed to create folders on status update for engagement ${id}: ${err.message}`,
-        );
-      });
+      // Non-blocking: provision in the background and let the Documents tab poll for readiness.
+      this.startFolderProvisioning(id);
     }
   }
 
