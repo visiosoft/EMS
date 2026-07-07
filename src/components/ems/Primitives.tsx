@@ -339,6 +339,7 @@ export function FormField({
   required,
   optional,
   error,
+  badge,
   children,
 }: {
   label: string;
@@ -346,16 +347,21 @@ export function FormField({
   /** Show “(Optional)” — use for fields not yet persisted to the database */
   optional?: boolean;
   error?: string;
+  /** Optional adornment rendered at the end of the label row (e.g. an extraction-confidence badge). */
+  badge?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <div className="space-y-1">
-      <label className="text-xs font-medium text-text-secondary">
-        {label}
-        {required && <span className="text-ems-coral ml-0.5">*</span>}
-        {optional && (
-          <span className="text-text-muted font-normal ml-1">(Optional)</span>
-        )}
+      <label className="text-xs font-medium text-text-secondary flex items-center gap-1.5">
+        <span>
+          {label}
+          {required && <span className="text-ems-coral ml-0.5">*</span>}
+          {optional && (
+            <span className="text-text-muted font-normal ml-1">(Optional)</span>
+          )}
+        </span>
+        {badge}
       </label>
       {children}
       {error && <p className="text-xs text-ems-coral">{error}</p>}

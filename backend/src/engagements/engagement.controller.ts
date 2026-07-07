@@ -574,9 +574,11 @@ export class EngagementController {
     @UploadedFile() file: Express.Multer.File,
   ) {
     try {
-      const extracted = await this.contractExtractionService.extractFromFile(file.path);
+      const { data, fieldMeta } = await this.contractExtractionService.extractFromFile(file.path);
       return {
-        extracted,
+        extracted: data,
+        // Per-field confidence + source snippet for the review UI (not persisted).
+        fieldMeta,
         originalFilename: file.originalname,
         // File is discarded after extraction, so there is no stored blob to reference.
         annotatedPdfBlobName: '',
