@@ -3,6 +3,7 @@ import { Sidebar, Header } from '@/components/ems/Layout';
 import { ToastContainer } from '@/components/ems/Primitives';
 import { CompaniesPage } from '@/components/ems/CompaniesPage';
 import { ContactsPage } from '@/components/ems/ContactsPage';
+import { useAccessLevel } from '@/hooks/useAccessLevel';
 import { AttractionToursPage } from '@/components/ems/AttractionToursPage';
 import { AttractionSalesDashboardPage } from '@/components/ems/AttractionSalesDashboardPage';
 import { CalendarPage } from '@/components/ems/CalendarPage';
@@ -32,7 +33,7 @@ const TOURS_SORT_STATE_STORAGE_KEY = 'iae-tours-sort-state-v1';
 const SALES_SUMMARY_SORT_STATE_STORAGE_KEY = 'iae-sales-summary-sort-state-v1';
 const SETTINGS_LOOKUP_SORT_STORAGE_KEY = 'iae-settings-lookup-sort-state-v1';
 
-/** Survives Ctrl+R in this tab; cleared when the tab closes — new visits start on Projects. */
+/** Survives Ctrl+R in this tab; cleared when the tab closes — new visits start on Engagements. */
 const EMS_SESSION_ROUTE_KEY = 'iae-ems-session-route-v1';
 const EMS_OPEN_INTENT_KEY = 'iae-ems-open-intent-v1';
 
@@ -148,6 +149,15 @@ function sanitizeViewDataForView(view: string, raw: unknown): Record<string, unk
     if (obj.createEngagement === true || obj.createEngagement === '1') {
       out.createEngagement = true;
     }
+    if (obj.mineOnly === true || obj.mineOnly === '1') {
+      out.mineOnly = true;
+    }
+    if (typeof obj.dateFrom === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(obj.dateFrom.trim())) {
+      out.dateFrom = obj.dateFrom.trim();
+    }
+    if (typeof obj.dateTo === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(obj.dateTo.trim())) {
+      out.dateTo = obj.dateTo.trim();
+    }
     return out;
   }
   if (view === 'companies' && obj.selectedCompanyId != null) {
@@ -167,6 +177,7 @@ function readRouteFromUrl(): { view: string; viewData: Record<string, unknown> }
       statusFilter: params.get('statusFilter') ?? undefined,
       timingFilter: params.get('timingFilter') ?? undefined,
       createEngagement: params.get('createEngagement') === '1',
+      mineOnly: params.get('mineOnly') === '1',
     });
 
     return { view, viewData };
@@ -186,6 +197,9 @@ function readAndConsumeOpenIntent(): { view: string; viewData: Record<string, un
       view?: unknown;
       createEngagement?: unknown;
       timingFilter?: unknown;
+      mineOnly?: unknown;
+      dateFrom?: unknown;
+      dateTo?: unknown;
       expiresAt?: unknown;
     };
     const expiresAt = typeof parsed.expiresAt === 'number' ? parsed.expiresAt : 0;
@@ -203,6 +217,9 @@ function readAndConsumeOpenIntent(): { view: string; viewData: Record<string, un
       viewData: sanitizeViewDataForView('engagements', {
         createEngagement: parsed.createEngagement === true,
         timingFilter: parsed.timingFilter,
+        mineOnly: parsed.mineOnly === true,
+        dateFrom: parsed.dateFrom,
+        dateTo: parsed.dateTo,
       }),
     };
   } catch {
@@ -251,7 +268,7 @@ const Index = () => {
     const intentRoute = readAndConsumeOpenIntent();
     if (intentRoute) return intentRoute;
     const r = readStoredSessionRoute();
-    return { view: r?.view ?? 'projects', viewData: r?.viewData ?? {} };
+    return { view: r?.view ?? 'engagements', viewData: r?.viewData ?? {} };
   }, []);
 
   const [currentView, setCurrentView] = useState(initialRoute.view);
@@ -264,6 +281,7 @@ const Index = () => {
   const [savedViewCache, setSavedViewCache] = useState<ViewCacheEntry[]>([]);
   const [viewRenderEpoch, setViewRenderEpoch] = useState(0);
   const autoCreateEngagementHandledRef = useRef(false);
+  const { isAdministrator, isLoading: accessLevelLoading } = useAccessLevel();
 
   useEffect(() => {
     try {
@@ -462,6 +480,9 @@ const Index = () => {
             onNavigate={navigate}
             statusFilter={data.statusFilter as string | undefined}
             timingFilter={data.timingFilter as EngagementTimingFilter | undefined}
+            mineOnly={data.mineOnly as boolean | undefined}
+            dateFrom={data.dateFrom as string | undefined}
+            dateTo={data.dateTo as string | undefined}
             addToast={addToast}
           />
         )}
@@ -540,7 +561,7 @@ const Index = () => {
           return <div className="text-text-muted text-sm">Engagement not found</div>;
         })()}
 
-        {view === 'settings' && (
+        {view === 'settings' && isAdministrator && (
           <SettingsPage
             addToast={addToast}
             users={users}
@@ -549,12 +570,18 @@ const Index = () => {
           />
         )}
 
+        {view === 'settings' && !isAdministrator && !accessLevelLoading && (
+          <div className="flex items-center justify-center h-64 text-text-muted text-sm">
+            You do not have permission to access Settings. Administrator access is required.
+          </div>
+        )}
+
         {view === 'profile' && (
           <ProfilePage addToast={addToast} />
         )}
       </>
     ),
-    [addToast, navigate, setUsers, users],
+    [addToast, navigate, setUsers, users, isAdministrator, accessLevelLoading],
   );
 
   const getBreadcrumb = (): string[] => {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import {
+  Building2,
   ChevronDown,
   LayoutGrid,
   List,
@@ -10,10 +11,11 @@ import {
   X,
 } from 'lucide-react';
 import {
-  fetchInternalMarketPostals,
   fetchInternalMarketSuggestions,
   fetchInternalMarkets,
+  fetchInternalMarketVenues,
   type InternalHubMarket,
+  type InternalMarketVenue,
 } from '@/api/internalMarketsApi';
 import { cn } from '@/lib/utils';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
@@ -24,12 +26,16 @@ import {
 } from './marketsHubCache';
 
 const MARKETS_PAGE_SIZE = 10;
-const POSTALS_PAGE_SIZE = 20;
+const VENUES_PAGE_SIZE = 20;
 const SUGGESTION_LIMIT = 8;
 
 type ViewMode = 'tiles' | 'list';
 
-function MarketPostalPanel({ market, isOpen }: { market: InternalHubMarket; isOpen: boolean }) {
+function venueLocation(venue: InternalMarketVenue): string {
+  return [venue.city?.trim(), venue.stateProvince?.trim()].filter(Boolean).join(', ');
+}
+
+function MarketVenuesPanel({ market, isOpen }: { market: InternalHubMarket; isOpen: boolean }) {
   const {
     data,
     isPending,
@@ -39,9 +45,9 @@ function MarketPostalPanel({ market, isOpen }: { market: InternalHubMarket; isOp
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: internalMarketsQueryKeys.postals(market.marketName),
+    queryKey: internalMarketsQueryKeys.venues(market.dmaid),
     queryFn: ({ pageParam = 0 }) =>
-      fetchInternalMarketPostals(market.marketName, pageParam, POSTALS_PAGE_SIZE),
+      fetchInternalMarketVenues(market.dmaid, pageParam, VENUES_PAGE_SIZE),
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) => {
       const loaded = allPages.reduce((sum, page) => sum + page.data.length, 0);
@@ -52,50 +58,86 @@ function MarketPostalPanel({ market, isOpen }: { market: InternalHubMarket; isOp
     placeholderData: keepPreviousData,
   });
 
-  const showPostalInitialLoad = isPending && !data;
-  const isPostalRefreshing =
-    isOpen && isFetching && !isFetchingNextPage && !!data && !showPostalInitialLoad;
+  const showVenuesInitialLoad = isPending && !data;
+  const isVenuesRefreshing =
+    isOpen && isFetching && !isFetchingNextPage && !!data && !showVenuesInitialLoad;
 
-  const postals = useMemo(() => data?.pages.flatMap((page) => page.data) ?? [], [data]);
-  const total = data?.pages[0]?.total ?? market.postalCount;
+  const venues = useMemo(() => data?.pages.flatMap((page) => page.data) ?? [], [data]);
+  const total = data?.pages[0]?.total ?? 0;
 
   if (!isOpen) return null;
 
   return (
     <div className="animate-slide-up border-t border-neutral-200/80 bg-neutral-50/90 px-4 py-4 sm:px-5">
-      {showPostalInitialLoad ? (
+      {showVenuesInitialLoad ? (
         <p className="flex items-center gap-2 text-sm text-neutral-600">
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-          Loading postal codes…
+          Loading venues…
         </p>
       ) : null}
 
-      {isPostalRefreshing ? (
+      {isVenuesRefreshing ? (
         <p className="mb-2 flex items-center gap-2 text-xs text-neutral-500" role="status">
           <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-          Refreshing postal codes…
+          Refreshing venues…
         </p>
       ) : null}
 
       {isError ? (
-        <p className="text-sm text-amber-800">Could not load postal codes for this market.</p>
+        <p className="text-sm text-amber-800">Could not load venues for this market.</p>
       ) : null}
 
-      {!showPostalInitialLoad && !isError ? (
+      {!showVenuesInitialLoad && !isError ? (
         <>
           <p className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-neutral-500">
-            {total} postal {total === 1 ? 'code' : 'codes'}
+            {total} {total === 1 ? 'venue' : 'venues'} · sorted by city
           </p>
-          <ul className="grid max-h-[220px] grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-            {postals.map((row) => (
-              <li
-                key={row.dmaid}
-                className="rounded-md border border-neutral-200 bg-white px-2.5 py-2 text-center text-xs font-semibold text-neutral-800 shadow-sm transition-colors hover:border-neutral-400"
-              >
-                {row.postalCode}
-              </li>
-            ))}
-          </ul>
+          {venues.length === 0 ? (
+            <p className="text-sm text-neutral-600">No venues on file for this market yet.</p>
+          ) : (
+            <ul className="max-h-[300px] space-y-2 overflow-y-auto pr-1">
+              {venues.map((venue) => {
+                const complexes = (venue.entertainmentComplexNames ?? '')
+                  .split(',')
+                  .map((name) => name.trim())
+                  .filter(Boolean);
+                return (
+                  <li
+                    key={venue.companyId}
+                    className="rounded-md border border-neutral-200 bg-white px-3 py-2.5 shadow-sm transition-colors hover:border-neutral-400"
+                  >
+                    <div className="flex items-baseline justify-between gap-3">
+                      <p className="min-w-0 truncate text-sm font-semibold text-neutral-900" title={venue.venueName}>
+                        {venue.venueName}
+                      </p>
+                      {venueLocation(venue) ? (
+                        <span className="shrink-0 text-xs font-medium text-neutral-600">{venueLocation(venue)}</span>
+                      ) : null}
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-neutral-500">
+                      {venue.venueTypeName ? <span>{venue.venueTypeName}</span> : null}
+                      {venue.seatingCapacity > 0 ? (
+                        <span>· {venue.seatingCapacity.toLocaleString()} seats</span>
+                      ) : null}
+                    </div>
+                    {complexes.length > 0 ? (
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {complexes.map((complexName) => (
+                          <span
+                            key={complexName}
+                            className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-semibold text-neutral-700"
+                          >
+                            <Building2 className="h-3 w-3" aria-hidden />
+                            {complexName}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
           {hasNextPage ? (
             <button
               type="button"
@@ -103,7 +145,7 @@ function MarketPostalPanel({ market, isOpen }: { market: InternalHubMarket; isOp
               disabled={isFetchingNextPage}
               className="mt-3 text-sm font-semibold text-neutral-800 underline-offset-4 hover:underline disabled:opacity-60"
             >
-              {isFetchingNextPage ? 'Loading more…' : 'Load more postal codes'}
+              {isFetchingNextPage ? 'Loading more…' : 'Load more venues'}
             </button>
           ) : null}
         </>
@@ -166,7 +208,7 @@ function MarketCard({
                 )}
                 aria-expanded={expanded}
               >
-                <span className="whitespace-nowrap">{expanded ? 'Hide' : 'View'} postals</span>
+                <span className="whitespace-nowrap">{expanded ? 'Hide' : 'View'} venues</span>
                 <ChevronDown
                   className={cn('h-4 w-4 shrink-0 transition-transform duration-300', expanded && 'rotate-180')}
                   aria-hidden
@@ -185,7 +227,7 @@ function MarketCard({
         </div>
       </div>
 
-      <MarketPostalPanel market={market} isOpen={expanded} />
+      <MarketVenuesPanel market={market} isOpen={expanded} />
     </article>
   );
 }
@@ -245,10 +287,18 @@ export function MarketsExplorer() {
   const showMarketsRefreshing =
     marketsQuery.isFetching && marketsQuery.isPlaceholderData && !!marketsQuery.data;
 
-  const markets = useMemo(
-    () => marketsQuery.data?.pages.flatMap((page) => page.data) ?? [],
-    [marketsQuery.data],
-  );
+  const markets = useMemo(() => {
+    const rows = marketsQuery.data?.pages.flatMap((page) => page.data) ?? [];
+    // One card per market: guards against name variants and infinite-scroll page
+    // drift re-delivering a market on two pages (staleTime is 0 here).
+    const seen = new Set<string>();
+    return rows.filter((market) => {
+      const key = market.marketName.trim().replace(/[.,:;]$/, '').replace(/\s{2,}/g, ' ').toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [marketsQuery.data]);
 
   const total = marketsQuery.data?.pages[0]?.total ?? 0;
 

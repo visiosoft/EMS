@@ -5,6 +5,8 @@ import { BookingPage } from "@/modules/internal/pages/BookingPage";
 import { CompanyNewsPage } from "@/modules/internal/pages/CompanyNewsPage";
 import { DepartmentsPage } from "@/modules/internal/pages/DepartmentsPage";
 import { EmployeeServicesPage } from "@/modules/internal/pages/EmployeeServicesPage";
+import { EmployeeDirectoryPage } from "@/modules/internal/pages/EmployeeDirectoryPage";
+import { EmployeeProfilePage } from "@/modules/internal/pages/EmployeeProfilePage";
 import { EventBusinessPage } from "@/modules/internal/pages/EventBusinessPage";
 import { InternalHomePage } from "@/modules/internal/pages/HomePage";
 import { LeadershipPage } from "@/modules/internal/pages/LeadershipPage";
@@ -16,6 +18,9 @@ import { ProductionPage } from "@/modules/internal/pages/ProductionPage";
 import { TicketingSalesPage } from "@/modules/internal/pages/TicketingSalesPage";
 import { LearningPortalPage } from "@/modules/internal/pages/LearningPortalPage";
 import { LearningAdminPage } from "@/modules/internal/pages/LearningAdminPage";
+import { MyProfilePage } from "@/modules/internal/pages/MyProfilePage";
+import { PayrollSchedulePage } from "@/modules/internal/pages/PayrollSchedulePage";
+import { HealthInsurancePage } from "@/modules/internal/pages/HealthInsurancePage";
 import { DocumentLibraryPage } from "@/features/document-library/pages/DocumentLibraryPage";
 
 function InternalAppViews() {
@@ -26,6 +31,10 @@ function InternalAppViews() {
       return <CompanyNewsPage />;
     case "employee-services":
       return <EmployeeServicesPage />;
+    case "employee-directory":
+      return <EmployeeDirectoryPage />;
+    case "employee-profile":
+      return <EmployeeProfilePage />;
     case "leadership":
       return <LeadershipPage />;
     case "markets":
@@ -52,6 +61,12 @@ function InternalAppViews() {
       return <LearningPortalPage />;
     case "document-library":
       return <DocumentLibraryPage />;
+    case "my-profile":
+      return <MyProfilePage />;
+    case "payroll-schedule":
+      return <PayrollSchedulePage />;
+    case "health-insurance":
+      return <HealthInsurancePage />;
     case "home":
     default:
       return <InternalHomePage />;

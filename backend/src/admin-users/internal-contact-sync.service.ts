@@ -9,6 +9,10 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { randomBytes } from 'crypto';
 import { DataSource, EntityManager } from 'typeorm';
 import {
+  IAE_ENTRA_COMPANY_NAME,
+  isIaeEntraCompany,
+} from './admin-users.constants';
+import {
   AdminDirectorySyncUser,
   AdminUsersService,
 } from './admin-users.service';
@@ -549,6 +553,22 @@ export class InternalContactSyncService {
         continue;
       }
 
+      // Only IAE company members become EMS internal contacts. Note this guards the
+      // create/update path only — activeEntraEmailSet (removal logic) is built from
+      // ALL enabled users above so existing contacts linked to accounts with a blank
+      // or legacy companyName are never swept into removals by this filter.
+      if (!isIaeEntraCompany(user.companyName)) {
+        rows.push(
+          this.buildSkippedUserRow(
+            user,
+            user.companyName?.trim()
+              ? `Skipped: Entra Company Name "${user.companyName.trim()}" is not ${IAE_ENTRA_COMPANY_NAME}.`
+              : `Skipped: Entra Company Name is blank (must contain ${IAE_ENTRA_COMPANY_NAME}).`,
+          ),
+        );
+        continue;
+      }
+
       if (duplicateEntraUsers.length > 1) {
         rows.push({
           actionId: `entra-duplicate:${user.id}`,
@@ -730,6 +750,25 @@ export class InternalContactSyncService {
       if (emailMatches.length === 1) {
         const user = emailMatches[0];
         referencedUserIds.add(user.id);
+        if (!isIaeEntraCompany(user.companyName)) {
+          // Surface instead of auto-linking: writing EMS data into a non-IAE Entra
+          // account is out of scope for the employee sync.
+          rows.push({
+            actionId: `skipped:${contact.contactId}`,
+            type: 'skipped',
+            reason: `Matched Entra user's Company Name ${
+              user.companyName?.trim() ? `"${user.companyName.trim()}"` : '(blank)'
+            } is not ${IAE_ENTRA_COMPANY_NAME} — fix the Entra Company Name first.`,
+            contactId: contact.contactId,
+            emsName: formatContactName(contact),
+            emsEmail: contact.email,
+            entraUserId: user.id,
+            entraName: user.displayName,
+            entraEmail: user.email,
+            changes: [],
+          });
+          continue;
+        }
         rows.push(
           this.buildEmsToEntraMatchedRow(
             contact,
@@ -796,6 +835,9 @@ export class InternalContactSyncService {
     for (const user of users) {
       if (!user.accountEnabled) continue;
       if (referencedUserIds.has(user.id)) continue;
+      // Non-IAE accounts (vendors, service accounts, other companies) are outside
+      // the employee sync — never propose disabling them.
+      if (!isIaeEntraCompany(user.companyName)) continue;
       const email = normalizeEmail(user.email);
       if (email && emsEmails.has(email)) continue;
 
@@ -1643,6 +1685,7 @@ export class InternalContactSyncService {
 
     if (forCreate) {
       payload.accountEnabled = true;
+      payload.companyName = IAE_ENTRA_COMPANY_NAME;
       payload.passwordProfile = {
         forceChangePasswordNextSignIn: true,
         password: temporaryPassword,

@@ -1,34 +1,25 @@
-import { useRef, useEffect, useState, type ReactNode, type MouseEvent } from "react";
+import { useRef, useEffect, useState, type ReactNode } from "react";
 import {
-  BadgeDollarSign,
   BriefcaseBusiness,
   CalendarDays,
+  Contact,
   IdCard,
-  LineChart,
-  RotateCcw,
   Star,
+  UserRound,
 } from "lucide-react";
 import { HUB_ACTION_CARDS } from "../constants/quickLinks";
+import { primeEmsOpenIntent } from "../lib/emsOpenIntent";
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
 
-const SALES_UPDATE_URL =
-  "https://innovationae.sharepoint.com/:x:/s/IAECloudServer/EZwsYuu0QX9PjJW6GzC8JtkB50cSo1vLBDSscx4pmSy0tg?e=9mVJip&wdLOR=c02714DFC-8E9B-A44E-B239-9078B0C8BD68&web=1";
-const EMS_OPEN_INTENT_KEY = "iae-ems-open-intent-v1";
-
 const CARD_ICONS: Record<(typeof HUB_ACTION_CARDS)[number]["key"], ReactNode> = {
-  "sales-update": (
+  "my-engagements": (
     <span className="relative inline-flex items-center justify-center">
-      <LineChart className="h-[70px] w-[70px]" strokeWidth={2.15} />
-      <BadgeDollarSign className="absolute -left-3 top-1 h-8 w-8 fill-black text-white" strokeWidth={2.25} />
+      <BriefcaseBusiness className="h-[74px] w-[74px]" strokeWidth={1.9} />
+      <UserRound className="absolute -right-4 -top-3 h-9 w-9 fill-black" strokeWidth={2.1} />
     </span>
   ),
   "employee-services": <IdCard className="h-[74px] w-[74px]" strokeWidth={1.9} />,
-  "past-engagements": (
-    <span className="relative inline-flex items-center justify-center">
-      <BriefcaseBusiness className="h-[74px] w-[74px]" strokeWidth={1.9} />
-      <RotateCcw className="absolute -right-4 -top-3 h-10 w-10" strokeWidth={2} />
-    </span>
-  ),
+  "employee-directory": <Contact className="h-[74px] w-[74px]" strokeWidth={1.9} />,
   "upcoming-engagements": (
     <span className="relative inline-flex items-center justify-center">
       <CalendarDays className="h-[74px] w-[74px]" strokeWidth={1.9} />
@@ -37,22 +28,8 @@ const CARD_ICONS: Record<(typeof HUB_ACTION_CARDS)[number]["key"], ReactNode> = 
   ),
 };
 
-function primeEngagementsTab(timingFilter: "past" | "upcoming") {
-  if (typeof window === "undefined") return;
-
-  window.localStorage.setItem(
-    EMS_OPEN_INTENT_KEY,
-    JSON.stringify({
-      view: "engagements",
-      timingFilter,
-      expiresAt: Date.now() + 120_000,
-    }),
-  );
-}
-
-function handleEngagementCardClick(event: MouseEvent<HTMLButtonElement>, key: "past-engagements" | "upcoming-engagements") {
-  event.preventDefault();
-  primeEngagementsTab(key === "past-engagements" ? "past" : "upcoming");
+function openEmsEngagements(options: { timingFilter?: "all" | "past" | "upcoming"; mineOnly?: boolean }) {
+  primeEmsOpenIntent({ view: "engagements", ...options });
   window.open("/", "_blank", "noopener,noreferrer");
 }
 
@@ -79,6 +56,22 @@ export function HubActionCards() {
     return () => io.disconnect();
   }, []);
 
+  const handleCardClick = (key: (typeof HUB_ACTION_CARDS)[number]["key"]) => {
+    if (key === "my-engagements") {
+      openEmsEngagements({ mineOnly: true, timingFilter: "all" });
+      return;
+    }
+    if (key === "upcoming-engagements") {
+      openEmsEngagements({ timingFilter: "upcoming", mineOnly: true });
+      return;
+    }
+    if (key === "employee-directory") {
+      navigate("employee-services", { revealDirectory: true });
+      return;
+    }
+    navigate("employee-services");
+  };
+
   return (
     <section
       ref={ref as React.RefObject<HTMLElement>}
@@ -94,40 +87,11 @@ export function HubActionCards() {
           transitionDelay: `${i * 80}ms`,
         };
 
-        if (card.key === "sales-update") {
-          return (
-            <a
-              key={card.key}
-              href={SALES_UPDATE_URL}
-              target="_blank"
-              rel="noreferrer"
-              className={sharedClass}
-              style={sharedStyle}
-            >
-              <CardContent card={card} />
-            </a>
-          );
-        }
-
-        if (card.key === "employee-services") {
-          return (
-            <button
-              key={card.key}
-              type="button"
-              onClick={() => navigate("employee-services")}
-              className={sharedClass}
-              style={sharedStyle}
-            >
-              <CardContent card={card} />
-            </button>
-          );
-        }
-
         return (
           <button
             key={card.key}
             type="button"
-            onClick={(event) => handleEngagementCardClick(event, card.key)}
+            onClick={() => handleCardClick(card.key)}
             className={sharedClass}
             style={sharedStyle}
           >

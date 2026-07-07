@@ -170,6 +170,12 @@ import { calculateRoyalties } from '@/lib/royaltiesCalculation';
 import { EngagementMarketingReadOnlySection } from './EngagementMarketingReadOnlySection';
 import { EngagementContractPanel } from './EngagementContractPanel';
 import { invalidateSalesCapacityRelatedQueries } from '@/api/cacheHelpers';
+import {
+  PERFORMANCE_TICKETING_STATUS_VALUES,
+  DEFAULT_PUBLIC_TICKETING_STATUS,
+  DEFAULT_PRIVATE_TICKETING_STATUS,
+  isPublicTicketingStatus,
+} from '@/api/projectApi';
 // fetchIaeStaffEmployees removed — IAE Marketing Team now uses EngagementIAEContact
 import { formatOpeningDateSafe, formatSqlTimeDisplay } from '@/lib/engagementDisplay';
 import { formatE164ForDisplay } from '@/lib/contactPhoneField';
@@ -287,6 +293,15 @@ function normalizePerformanceTimeInput(value: string): string {
       .slice(0, 2)}`;
   }
   return value.trim();
+}
+
+function normalizePerformanceStatusValue(value: string | null | undefined): string {
+  const raw = (value ?? '').trim();
+  if (!raw) return DEFAULT_PUBLIC_TICKETING_STATUS;
+  const lower = raw.toLowerCase();
+  if (lower === 'public') return DEFAULT_PUBLIC_TICKETING_STATUS;
+  if (lower === 'private') return DEFAULT_PRIVATE_TICKETING_STATUS;
+  return raw;
 }
 
 type PerformanceDraftRow = {
@@ -2770,7 +2785,7 @@ function EditablePerformanceRow({
   const [date, setDate] = useState(perf.performanceDate);
   const [time, setTime] = useState(perf.performanceTime.slice(0, 5));
   const [status, setStatus] = useState(
-    perf.performanceStatus.trim().toLowerCase() === 'private' ? 'Private' : 'Public',
+    normalizePerformanceStatusValue(perf.performanceStatus),
   );
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -2787,7 +2802,9 @@ function EditablePerformanceRow({
       await updateEngagementPerformance(engagementId, perf.performanceId, {
         performanceDate: date,
         performanceTime: time,
-        performanceStatus: isPrimary ? 'Public' : status || 'Public',
+        performanceStatus: isPrimary
+          ? DEFAULT_PUBLIC_TICKETING_STATUS
+          : status || DEFAULT_PUBLIC_TICKETING_STATUS,
       });
       addToast('Performance updated.', 'success');
       setEditing(false);
@@ -2799,10 +2816,8 @@ function EditablePerformanceRow({
     }
   };
 
-  const handleToggleVisibility = async () => {
+  const handleStatusChange = async (next: string) => {
     if (isPrimary) return;
-    const next =
-      perf.performanceStatus.trim().toLowerCase() === 'private' ? 'Public' : 'Private';
     setSaving(true);
     try {
       await updateEngagementPerformance(engagementId, perf.performanceId, {
@@ -2854,25 +2869,15 @@ function EditablePerformanceRow({
           </div>
           <div>
             <label className="text-xs text-text-muted block mb-1 font-medium">Visibility</label>
-            <div className="flex items-center rounded-md border border-border bg-surface p-1">
-              <button
-                type="button"
-                className={`flex-1 rounded px-2 py-1 text-xs font-medium transition-colors ${status === 'Public' ? 'bg-ems-accent text-white' : 'text-text-secondary hover:bg-hover'}`}
-                onClick={() => setStatus('Public')}
-              >
-                Public
-              </button>
-              <button
-                type="button"
-                className={`flex-1 rounded px-2 py-1 text-xs font-medium transition-colors ${status === 'Private' ? 'bg-ems-accent text-white' : 'text-text-secondary hover:bg-hover'}`}
-                onClick={() => setStatus('Private')}
-                disabled={isPrimary}
-              >
-                Private
-              </button>
-            </div>
+            <Select2
+              options={PERFORMANCE_TICKETING_STATUS_VALUES.map((v) => ({ value: v, label: v }))}
+              value={status}
+              onChange={setStatus}
+              placeholder="Select…"
+              disabled={isPrimary || saving}
+            />
             {isPrimary && (
-              <p className="mt-1 text-[11px] text-text-muted">Opening performance is always Public.</p>
+              <p className="mt-1 text-[11px] text-text-muted">Opening performance is always public.</p>
             )}
           </div>
         </div>
@@ -2884,9 +2889,7 @@ function EditablePerformanceRow({
               setDate(perf.performanceDate);
               setTime(perf.performanceTime.slice(0, 5));
               setStatus(
-                perf.performanceStatus.trim().toLowerCase() === 'private'
-                  ? 'Private'
-                  : 'Public',
+                normalizePerformanceStatusValue(perf.performanceStatus),
               );
             }}
             disabled={saving}
@@ -2922,7 +2925,7 @@ function EditablePerformanceRow({
               {' · '}
               <span
                 className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                  perf.performanceStatus === 'Public'
+                  isPublicTicketingStatus(perf.performanceStatus)
                     ? 'bg-green-500/10 text-green-600 dark:text-green-400'
                     : 'bg-surface text-text-muted'
                 }`}
@@ -2938,16 +2941,14 @@ function EditablePerformanceRow({
               First
             </span>
           )}
-          <button
-            type="button"
-            onClick={() => void handleToggleVisibility()}
+          <Select2
+            options={PERFORMANCE_TICKETING_STATUS_VALUES.map((v) => ({ value: v, label: v }))}
+            value={normalizePerformanceStatusValue(perf.performanceStatus)}
+            onChange={(v) => void handleStatusChange(v)}
+            placeholder="Select…"
             disabled={saving || isPrimary}
-            className="text-xs text-text-secondary hover:text-ems-accent px-2.5 py-1.5 rounded hover:bg-elevated transition-colors disabled:opacity-50"
-          >
-            {perf.performanceStatus.trim().toLowerCase() === 'private'
-              ? 'Set Public'
-              : 'Set Private'}
-          </button>
+            className="w-52"
+          />
           <button
             type="button"
             onClick={() => setEditing(true)}
@@ -3848,7 +3849,7 @@ function EngagementMainInformationPanel({
           const created = await createEngagementPerformance(engagementId, {
             performanceDate: nextOpening.date,
             performanceTime: nextOpening.time,
-            performanceStatus: 'Public',
+            performanceStatus: DEFAULT_PUBLIC_TICKETING_STATUS,
           });
           targetPerformanceId = created.performanceId;
         }
@@ -11483,7 +11484,7 @@ export function EngagementDetailPage({
     id: `pf-${Date.now()}-${pfRowIdRef.current++}`,
     performanceDate: getTodayDateString(),
     performanceTime: '20:00',
-    performanceStatus: 'Public',
+    performanceStatus: DEFAULT_PUBLIC_TICKETING_STATUS,
   });
   const [pfRows, setPfRows] = useState<PerformanceDraftRow[]>([
     makePerformanceDraftRow(),
@@ -11548,7 +11549,7 @@ export function EngagementDetailPage({
         (rowDraft) =>
           rowDraft.performanceDate.trim() !== getTodayDateString() ||
           rowDraft.performanceTime.trim() !== '20:00' ||
-          (rowDraft.performanceStatus || '').trim() !== 'Public',
+          (rowDraft.performanceStatus || '').trim() !== DEFAULT_PUBLIC_TICKETING_STATUS,
       ),
     [pfRows, showAddPerformance],
   );
@@ -11580,7 +11581,7 @@ export function EngagementDetailPage({
           await createEngagementPerformance(engagementId, {
             performanceDate: rowDraft.performanceDate,
             performanceTime: rowDraft.performanceTime,
-            performanceStatus: rowDraft.performanceStatus || 'Public',
+            performanceStatus: rowDraft.performanceStatus || DEFAULT_PUBLIC_TICKETING_STATUS,
           });
           createdCount += 1;
         } catch (cause) {
@@ -12566,32 +12567,17 @@ export function EngagementDetailPage({
                       </FormField>
 
                       <FormField label="Visibility">
-                        <div className="flex items-center rounded-md border border-border bg-surface p-1">
-                          <button
-                            type="button"
-                            className={`flex-1 rounded px-2 py-1 text-xs font-medium transition-colors ${rowDraft.performanceStatus === 'Public' ? 'bg-ems-accent text-white' : 'text-text-secondary hover:bg-hover'}`}
-                            onClick={() =>
-                              updatePerformanceDraftRow(rowDraft.id, {
-                                performanceStatus: 'Public',
-                              })
-                            }
-                            disabled={createPerformanceMut.isPending}
-                          >
-                            Public
-                          </button>
-                          <button
-                            type="button"
-                            className={`flex-1 rounded px-2 py-1 text-xs font-medium transition-colors ${rowDraft.performanceStatus === 'Private' ? 'bg-ems-accent text-white' : 'text-text-secondary hover:bg-hover'}`}
-                            onClick={() =>
-                              updatePerformanceDraftRow(rowDraft.id, {
-                                performanceStatus: 'Private',
-                              })
-                            }
-                            disabled={createPerformanceMut.isPending}
-                          >
-                            Private
-                          </button>
-                        </div>
+                        <Select2
+                          options={PERFORMANCE_TICKETING_STATUS_VALUES.map((v) => ({ value: v, label: v }))}
+                          value={rowDraft.performanceStatus}
+                          onChange={(v) =>
+                            updatePerformanceDraftRow(rowDraft.id, {
+                              performanceStatus: v,
+                            })
+                          }
+                          placeholder="Select…"
+                          disabled={createPerformanceMut.isPending}
+                        />
                       </FormField>
                     </div>
 

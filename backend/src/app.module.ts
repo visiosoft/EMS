@@ -16,6 +16,7 @@ import { VenueDirectoryModule } from './venue-directory/venue-directory.module';
 import { AdminUsersModule } from './admin-users/admin-users.module';
 import { InternalNewsModule } from './internal-news/internal-news.module';
 import { InternalEmployeesModule } from './internal-employees/internal-employees.module';
+import { InternalBenefitsModule } from './internal-benefits/internal-benefits.module';
 import { InternalMarketsModule } from './internal-markets/internal-markets.module';
 import { InternalVenuesModule } from './internal-venues/internal-venues.module';
 import { InternalAttractionsModule } from './internal-attractions/internal-attractions.module';
@@ -27,6 +28,7 @@ import { DocumentLibraryModule } from './document-library/document-library.modul
 import { OrganizationChartModule } from './organization-chart/organization-chart.module';
 import { RampModule } from './ramp/ramp.module';
 import { LearningModule } from './learning/learning.module';
+import { CommonModule } from './common/common.module';
 
 const parseBoolean = (
   value: string | undefined,
@@ -103,6 +105,7 @@ const parseNumber = (value: string | undefined, fallback: number): number => {
       }),
     }),
     AuditModule,
+    CommonModule,
     CompanyModule,
     AttractionToursModule,
     EngagementsModule,
@@ -113,6 +116,7 @@ const parseNumber = (value: string | undefined, fallback: number): number => {
     AdminUsersModule,
     InternalNewsModule,
     InternalEmployeesModule,
+    InternalBenefitsModule,
     InternalMarketsModule,
     InternalVenuesModule,
     InternalAttractionsModule,

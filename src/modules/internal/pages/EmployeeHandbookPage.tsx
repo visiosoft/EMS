@@ -1,8 +1,24 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  forwardRef,
+  memo,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { AlertCircle, Banknote, ChevronDown,BookOpen, ChevronLeft, ChevronRight, ClipboardCheck, Home, Lectern, Star, UserRoundCog, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { ReactFlipBook } from "@vuvandinh203/react-flipbook";
+import { fetchHandbookSections } from "@/api/employeeHandbookApi";
+import { useInternalNavigation } from "../routing/InternalNavigationContext";
+import type { EmployeeHandbookView } from "../routing/internalSessionRoute";
+
+export type { EmployeeHandbookView };
 
 interface ReactFlipBookRef {
   pageFlip: () => unknown;
@@ -15,11 +31,101 @@ interface ReactFlipBookRef {
   startAutoFlip: (delay?: number, direction?: 'next' | 'prev') => void;
   stopAutoFlip: () => void;
 }
-import { fetchHandbookSections } from "@/api/employeeHandbookApi";
-import { useInternalNavigation } from "../routing/InternalNavigationContext";
-import type { EmployeeHandbookView } from "../routing/internalSessionRoute";
 
-export type { EmployeeHandbookView };
+export type HandbookFlipBookHandle = {
+  /** Jump to a page by index, resolving the exact spread (no far-jump glitch). */
+  goToPage: (index: number) => void;
+};
+
+type HandbookFlipBookProps = {
+  pages: ReactNode[];
+  pageW: number;
+  pageH: number;
+  isMobile: boolean;
+  startPage: number;
+  onPageChange: (index: number) => void;
+};
+
+/**
+ * Isolated flip-book. Wrapped in React.memo so the parent's frequent re-renders
+ * (currentPage/header/rail updates) never reach it — those would otherwise recreate
+ * `children` and force the underlying engine to re-initialize, snapping the book back
+ * to the cover. All navigation is driven imperatively through the ref, so the parent
+ * never has to re-render this subtree to move pages. It only re-renders when the
+ * pagination or page dimensions genuinely change.
+ */
+const HandbookFlipBook = memo(
+  forwardRef<HandbookFlipBookHandle, HandbookFlipBookProps>(function HandbookFlipBook(
+    { pages, pageW, pageH, isMobile, startPage, onPageChange },
+    ref,
+  ) {
+    const bookRef = useRef<ReactFlipBookRef>(null);
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        goToPage: (index: number) => {
+          if (index == null || index < 0) return;
+          const clamped = Math.min(index, pages.length - 1);
+          const engine = bookRef.current?.pageFlip?.() as
+            | { turnToPage?: (page: number) => void }
+            | null
+            | undefined;
+          if (engine && typeof engine.turnToPage === "function") {
+            engine.turnToPage(clamped);
+          } else {
+            bookRef.current?.flip(clamped);
+          }
+        },
+      }),
+      [pages.length],
+    );
+
+    return (
+      <ReactFlipBook
+        key={pages.length}
+        ref={bookRef}
+        width={pageW}
+        height={pageH}
+        size="fixed"
+        showCover={true}
+        usePortrait={isMobile}
+        flippingTime={700}
+        drawShadow
+        maxShadowOpacity={0.5}
+        enableKeyboardNav
+        showPageCorners
+        startPage={startPage}
+        mobileScrollSupport={false}
+        onFlip={(e: { data: number }) => onPageChange(e.data)}
+        renderNavigationButton={(type, onClick) => (
+          <button
+            type="button"
+            onClick={onClick}
+            aria-label={type === "prev" ? "Previous page" : "Next page"}
+            className="absolute top-1/2 z-10 -translate-y-1/2 rounded-full border border-white/[0.08] bg-neutral-950/60 p-2.5 text-white/40 shadow-lg backdrop-blur-md transition-all duration-200 hover:border-white/20 hover:bg-neutral-950/80 hover:text-white/70"
+            style={{ [type === "prev" ? "left" : "right"]: "4px" }}
+          >
+            {type === "prev" ? (
+              <ChevronLeft className="size-4" strokeWidth={2} />
+            ) : (
+              <ChevronRight className="size-4" strokeWidth={2} />
+            )}
+          </button>
+        )}
+        renderPageNumber={(current, total) => (
+          <div className="pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2">
+            <span className="rounded-full bg-white/90 px-3 py-0.5 text-[10px] font-medium text-black backdrop-blur-sm">
+              {current + 1} / {total}
+            </span>
+          </div>
+        )}
+      >
+        {pages}
+      </ReactFlipBook>
+    );
+  }),
+);
 
 type HandbookSectionId =
   | "introduction"
@@ -135,6 +241,20 @@ function splitIntoSubsections(blocks: HandbookContentBlock[]): { title: string; 
   return subsections;
 }
 
+/**
+ * True when a subsection has at least one block that actually renders text.
+ * Gated placeholder subsections (e.g. "8.1 Onboarding Checklist (limited
+ * access/password)") arrive from the API as a heading with no body, so they
+ * produce no book page. Keeping them would list a chapter/index entry that jumps
+ * nowhere (shown as "—" in the index), so we drop them entirely.
+ */
+function hasRenderableContent(blocks: HandbookContentBlock[]): boolean {
+  return blocks.some((block) => {
+    if (block.kind === "list") return block.items.some((item) => item.trim().length > 0);
+    return block.text.trim().length > 0;
+  });
+}
+
 function useHandbookSections() {
   return useQuery({
     queryKey: ["handbook-sections"],
@@ -155,6 +275,7 @@ function useHandbookSections() {
           const splitSubsections = splitIntoSubsections(blocks);
 
           for (const ss of splitSubsections) {
+            if (!hasRenderableContent(ss.blocks)) continue;
             result[id].subsections.push({
               id: slugify(ss.title || sub.subsectionId),
               title: ss.title || sub.subsectionTitle || apiSection.sectionTitle,
@@ -440,6 +561,110 @@ export function EmployeeHandbookPage() {
   );
 }
 
+type HandbookTocSection = {
+  number: number;
+  title: string;
+  pageId?: string;
+  pageIndex: number;
+  subsections?: { label: string; title: string; pageId: string; pageIndex: number }[];
+};
+
+/**
+ * Self-contained Contents page. It owns its expand/collapse state so toggling a
+ * chapter never changes the parent's children array — which would otherwise
+ * force the flip-book to re-initialize and snap back to the cover.
+ */
+function HandbookTocPage({
+  tocSections,
+  isMobile,
+  pageNumber,
+  totalPages,
+  onJump,
+}: {
+  tocSections: HandbookTocSection[];
+  isMobile: boolean;
+  pageNumber: number;
+  totalPages: number;
+  onJump: (index: number | null | undefined) => void;
+}) {
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const toggle = (num: number) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(num)) next.delete(num);
+      else next.add(num);
+      return next;
+    });
+  const sectionIcons = [Lectern, UserRoundCog, Home, Banknote, Star, BookOpen, ClipboardCheck];
+
+  return (
+    <div className={`flex h-full w-full flex-col bg-white text-neutral-900 paper-grain ${isMobile ? "" : "page-edge"}`}>
+      <div className="flex-1 overflow-y-auto p-8 md:p-10">
+        <h2 className="font-display text-xl tracking-tight mb-4">Contents</h2>
+        <div className="h-px w-8 bg-current/20 mb-5" />
+        <nav className="space-y-[3px]">
+          {tocSections.map((sec) => {
+            const isIndexEntry = sec.title === "Index";
+            const Icon = isIndexEntry ? BookOpen : sectionIcons[sec.number - 1] || BookOpen;
+            const isExpanded = expanded.has(sec.number);
+            const hasSubsections = !isIndexEntry && sec.subsections && sec.subsections.length > 0;
+            return (
+              <div key={sec.number}>
+                <div className="group flex h-[44px] w-full items-center gap-3 border-t border-neutral-200 text-left text-[12px] text-black-500 transition-colors hover:text-neutral-900">
+                  <button
+                    type="button"
+                    onClick={() => onJump(sec.pageIndex)}
+                    className="flex flex-1 items-center gap-3 py-0 focus-visible:outline-none"
+                  >
+                    <span className="w-5 text-[10px] font-medium text-black-300 group-hover:text-neutral-500">
+                      {isIndexEntry ? "" : String(sec.number).padStart(2, "0")}
+                    </span>
+                    <Icon className="size-[16px] shrink-0 text-black-300 transition-colors group-hover:text-neutral-500" strokeWidth={1.5} aria-hidden />
+                    <span className="leading-tight">{sec.title}</span>
+                  </button>
+                  {hasSubsections && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggle(sec.number);
+                      }}
+                      className="flex size-[28px] shrink-0 items-center justify-center rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400"
+                      aria-label={isExpanded ? "Collapse subsections" : "Expand subsections"}
+                    >
+                      <ChevronDown
+                        className={`size-3.5 text-black-300 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
+                        strokeWidth={2}
+                      />
+                    </button>
+                  )}
+                </div>
+                {isExpanded && hasSubsections
+                  ? sec.subsections!.map((sub) => (
+                      <button
+                        key={sub.label}
+                        type="button"
+                        onClick={() => onJump(sub.pageIndex)}
+                        className="flex h-[32px] w-full items-center gap-3 pl-[52px] pr-0 text-left text-[11px] text-black-400 transition-colors hover:text-neutral-900 focus-visible:outline-none"
+                      >
+                        <span className="shrink-0 font-medium">{sub.label}</span>
+                        <span className="truncate opacity-70">{sub.title.replace(/^\d+\.\d+\s*/, "")}</span>
+                      </button>
+                    ))
+                  : null}
+              </div>
+            );
+          })}
+        </nav>
+      </div>
+      <div className="flex shrink-0 items-center justify-between border-t border-black-100 px-5 py-2 text-black-300">
+        <span className="text-[8px] font-medium uppercase tracking-[0.2em]">iAE Employee Handbook</span>
+        <span className="text-[8px] font-medium uppercase tracking-[0.2em]">{String(pageNumber).padStart(3, "0")} / {String(totalPages).padStart(3, "0")}</span>
+      </div>
+    </div>
+  );
+}
+
 export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }: { handbookHash?: string; handbookSubsection?: string }) {
   const { navigateHandbook, openEmployeeHandbook } = useInternalNavigation();
   const { data: handbookData = {}, isLoading, isError, error } = useHandbookSections();
@@ -448,24 +673,17 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
   const isIndex = !handbookHash || handbookHash === "handbook";
 
   useEffect(() => {
-    const targetId = normalizeHash(handbookHash ?? "");
-
+    // The flip-book renders no DOM anchors; deep links land via startPage/flip().
     window.requestAnimationFrame(() => {
-      if (!targetId || targetId === sectionMeta?.hash) {
-        window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-        return;
-      }
-
-      const target = document.getElementById(targetId);
-      if (target) {
-        target.scrollIntoView({ block: "start", behavior: "auto" });
-      }
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
     });
   }, [handbookHash, sectionMeta?.hash]);
 
   type BookPage = {
-    kind: "cover" | "toc" | "chapter-intro" | "content" | "back-cover";
+    kind: "cover" | "toc" | "chapter-intro" | "content" | "index" | "back-cover";
     theme: "ink" | "paper";
+    /** Stable target id — flip destinations resolve against the FINAL page order. */
+    pageId?: string;
     chapterIdx?: number;
     chapterNumber?: number;
     chapterTitle?: string;
@@ -473,29 +691,24 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
     totalInChapter?: number;
     blocks?: HandbookContentBlock[];
     subsectionTitle?: string;
+    indexEntries?: { label: string; title: string; pageId: string }[];
     tocSections?: {
       number: number;
       title: string;
+      pageId?: string;
       pageIndex: number;
-      subsections?: { label: string; title: string; pageIndex: number }[];
+      subsections?: { label: string; title: string; pageId: string; pageIndex: number }[];
     }[];
   };
 
   const stageRef = useRef<HTMLDivElement | null>(null);
-  const bookRef = useRef<ReactFlipBookRef>(null);
+  const bookRef = useRef<HandbookFlipBookHandle>(null);
   const navLabel = isIndex ? "Index" : (section?.heroTitle ?? "Handbook");
   const [currentPage, setCurrentPage] = useState(0);
   const [stage, setStage] = useState({ w: 0, h: 0 });
-  const [expandedChapters, setExpandedChapters] = useState<Set<number>>(new Set());
 
-  const toggleChapter = (num: number) => {
-    setExpandedChapters((prev) => {
-      const next = new Set(prev);
-      if (next.has(num)) next.delete(num);
-      else next.add(num);
-      return next;
-    });
-  };
+  /** Stable so it never invalidates the memoized flip-book. */
+  const handlePageChange = useCallback((index: number) => setCurrentPage(index), []);
 
   useLayoutEffect(() => {
     if (!stageRef.current) return;
@@ -506,6 +719,37 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
     });
     ro.observe(el);
     return () => ro.disconnect();
+  }, []);
+
+  /**
+   * page-flip binds NATIVE mousedown/mouseup (and touch) listeners on the book
+   * container and, on release, treats a near-corner click as a page turn. Our
+   * pages contain their own interactive controls (TOC chapter rows, the chapter
+   * chevron, index links, chapter-jump buttons). Clicking one of those fires BOTH
+   * our React onClick (jump / toggle) AND page-flip's flip-by-click, which snaps
+   * the book to an adjacent/cover page right after we jump — the reported bug.
+   *
+   * React's stopPropagation can't prevent this: page-flip's listeners are native
+   * and run during the bubble phase before React's root-level handlers. So we
+   * intercept in the CAPTURE phase on the stage (an ancestor of the book) and
+   * swallow the pointer events only when they originate from an in-page control,
+   * so they never reach page-flip. Drag-to-flip on empty page area, the explicit
+   * prev/next buttons, and keyboard navigation are all untouched.
+   */
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const swallowIfControl = (e: Event) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("button, a, [data-book-interactive]")) {
+        e.stopPropagation();
+      }
+    };
+    const types = ["mousedown", "mouseup", "touchstart", "touchend"] as const;
+    types.forEach((type) => stage.addEventListener(type, swallowIfControl, true));
+    return () => {
+      types.forEach((type) => stage.removeEventListener(type, swallowIfControl, true));
+    };
   }, []);
 
   const { pageW, pageH } = useMemo(() => {
@@ -530,26 +774,35 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
     return Math.max(300, pageH - footerH - paddingH);
   }, [pageH]);
 
-  const bookPages: BookPage[] = useMemo(() => {
+  const { bookPages, pageIndexById } = useMemo(() => {
+    type TocEntry = NonNullable<BookPage["tocSections"]>[number];
+
+    const stripSubsectionNumber = (title: string) => title.replace(/^\d+\.\d+\s*/, "");
+
+    // Step 1: Build all book pages in final order (excluding TOC for now).
     const result: BookPage[] = [];
+    const indexSubsections: { label: string; title: string; pageId: string }[] = [];
 
-    const buildSections = (sectionsList: HandbookDetailSection[]) => {
-      const sectionPageEntries: {
-        number: number;
-        title: string;
-        pageIndex: number;
-        subsections: { label: string; title: string; pageIndex: number }[];
-      }[] = [];
+    result.push({ kind: "cover", theme: "ink" });
 
-      sectionsList.forEach((sec, si) => {
-        const pageIndex = result.length;
+    if (isIndex && Object.keys(handbookData).length > 0) {
+      Object.values(handbookData).forEach((sec, si) => {
         const number = si + 1;
-        const subsectionEntries: { label: string; title: string; pageIndex: number }[] = [];
-        sectionPageEntries.push({ number, title: sec.heroTitle, pageIndex, subsections: subsectionEntries });
+        const chapterPageId = `chapter-${si}`;
+
+        // The user expects a chapter intro to appear as the LEFT page of a spread.
+        // With showCover=true, page 0 is the cover alone on the right, then spreads
+        // are [1,2], [3,4], ... so odd indices are left pages. The TOC is later
+        // inserted at index 1, shifting every page after it by +1, so the next slot
+        // must be even before the splice to land on an odd (left) page after the splice.
+        if (result.length % 2 !== 0) {
+          result.push({ kind: "content", theme: "paper", blocks: [] });
+        }
 
         result.push({
           kind: "chapter-intro",
           theme: "ink",
+          pageId: chapterPageId,
           chapterIdx: si,
           chapterNumber: number,
           chapterTitle: sec.heroTitle,
@@ -557,15 +810,16 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
 
         for (const sub of sec.subsections) {
           const pageBlocks = splitPages(sub.blocks, contentHeight);
-          const firstPageIndex = result.length;
+          const subPageId = `sub-${si}-${sub.id}`;
           const numMatch = sub.title.match(/^(\d+\.\d+)/);
           const label = numMatch ? numMatch[1] : sub.title;
-          subsectionEntries.push({ label, title: sub.title, pageIndex: firstPageIndex });
+          indexSubsections.push({ label, title: sub.title, pageId: subPageId });
 
           pageBlocks.forEach((chunk, ci) => {
             result.push({
               kind: "content",
               theme: "paper",
+              pageId: ci === 0 ? subPageId : undefined,
               chapterIdx: si,
               chapterNumber: number,
               chapterTitle: sec.heroTitle,
@@ -578,72 +832,150 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
         }
       });
 
-      return sectionPageEntries;
-    };
-
-    if (isIndex && Object.keys(handbookData).length > 0) {
-      result.push({ kind: "cover", theme: "ink" });
-      const sectionsList = Object.values(handbookData);
-      const tocEntries = buildSections(sectionsList);
-      result.splice(1, 0, { kind: "toc", theme: "paper", tocSections: tocEntries });
-      tocEntries.forEach(entry => {
-        entry.pageIndex += 1;
-        entry.subsections?.forEach(sub => { sub.pageIndex += 1; });
-      });
+      // Alphabetical index pages at the end of the book (before the back cover).
+      const sortedEntries = [...indexSubsections].sort((a, b) =>
+        stripSubsectionNumber(a.title).localeCompare(stripSubsectionNumber(b.title)),
+      );
+      if (sortedEntries.length > 0) {
+        // Ensure the index also begins on a left-hand page after the TOC splice.
+        if (result.length % 2 !== 0) {
+          result.push({ kind: "content", theme: "paper", blocks: [] });
+        }
+        const rowsPerPage = Math.max(8, Math.floor((contentHeight - 90) / 26));
+        const entriesPerPage = rowsPerPage * 2; // two columns on desktop
+        for (let i = 0; i < sortedEntries.length; i += entriesPerPage) {
+          result.push({
+            kind: "index",
+            theme: "paper",
+            pageId: i === 0 ? "handbook-index" : undefined,
+            indexEntries: sortedEntries
+              .slice(i, i + entriesPerPage)
+              .map(({ label, title, pageId }) => ({ label, title, pageId })),
+          });
+        }
+      }
       result.push({ kind: "back-cover", theme: "ink" });
     } else if (section) {
-      result.push({ kind: "cover", theme: "ink" });
-      const singleSectionEntries = buildSections([section]);
-      result.splice(1, 0, {
-        kind: "toc",
-        theme: "paper",
-        tocSections: singleSectionEntries[0]
-          ? [{ number: singleSectionEntries[0].number, title: singleSectionEntries[0].title, pageIndex: singleSectionEntries[0].pageIndex, subsections: singleSectionEntries[0].subsections }]
-          : [{ number: 1, title: section.heroTitle, pageIndex: 1, subsections: [] }],
+      result.push({
+        kind: "chapter-intro",
+        theme: "ink",
+        pageId: "chapter-0",
+        chapterIdx: 0,
+        chapterNumber: 1,
+        chapterTitle: section.heroTitle,
       });
-      singleSectionEntries.forEach(entry => {
-        entry.pageIndex += 1;
-        entry.subsections?.forEach(sub => { sub.pageIndex += 1; });
-      });
+
+      for (const sub of section.subsections) {
+        const pageBlocks = splitPages(sub.blocks, contentHeight);
+        const subPageId = `sub-0-${sub.id}`;
+        const numMatch = sub.title.match(/^(\d+\.\d+)/);
+        const label = numMatch ? numMatch[1] : sub.title;
+
+        pageBlocks.forEach((chunk, ci) => {
+          result.push({
+            kind: "content",
+            theme: "paper",
+            pageId: ci === 0 ? subPageId : undefined,
+            chapterIdx: 0,
+            chapterNumber: 1,
+            chapterTitle: section.heroTitle,
+            pageInChapter: ci + 1,
+            totalInChapter: pageBlocks.length,
+            blocks: chunk,
+            subsectionTitle: ci === 0 ? sub.title : undefined,
+          });
+        });
+      }
       result.push({ kind: "back-cover", theme: "ink" });
     }
 
+    // Ensure the book has an odd number of pages so the back cover ends on the right side.
     if (result.length % 2 === 0) {
       result.splice(result.length - 1, 0, { kind: "content", theme: "paper", blocks: [] });
     }
 
-    // Recalculate ToC page indices after all pages are finalized
-    const tocPage = result.find((p) => p.kind === "toc") as BookPage | undefined;
-    if (tocPage?.tocSections) {
-      for (const entry of tocPage.tocSections) {
-        const actualIdx = result.findIndex(
-          (p) => p.kind === "chapter-intro" && p.chapterTitle === entry.title,
-        );
-        if (actualIdx >= 0) {
-          entry.pageIndex = actualIdx;
+    // Step 2: Resolve stable page ids against the FINAL page order.
+    const map = new Map<string, number>();
+    result.forEach((page, i) => {
+      if (page.pageId) map.set(page.pageId, i);
+    });
+
+    // Step 3: Build the Table of Contents from the resolved final page order.
+    const tocSections: TocEntry[] = [];
+    if (isIndex && Object.keys(handbookData).length > 0) {
+      Object.values(handbookData).forEach((sec, si) => {
+        const chapterPageId = `chapter-${si}`;
+        const subsections: NonNullable<TocEntry["subsections"]> = [];
+        for (const sub of sec.subsections) {
+          const subPageId = `sub-${si}-${sub.id}`;
+          const numMatch = sub.title.match(/^(\d+\.\d+)/);
+          const label = numMatch ? numMatch[1] : sub.title;
+          subsections.push({
+            label,
+            title: sub.title,
+            pageId: subPageId,
+            pageIndex: map.get(subPageId) ?? 0,
+          });
         }
-        if (entry.subsections) {
-          for (const sub of entry.subsections) {
-            const actualSubIdx = result.findIndex(
-              (p) => p.kind === "content" && p.subsectionTitle === sub.title,
-            );
-            if (actualSubIdx >= 0) {
-              sub.pageIndex = actualSubIdx;
-            }
-          }
-        }
+        tocSections.push({
+          number: si + 1,
+          title: sec.heroTitle,
+          pageId: chapterPageId,
+          pageIndex: map.get(chapterPageId) ?? 0,
+          subsections,
+        });
+      });
+
+      if (indexSubsections.length > 0) {
+        tocSections.push({
+          number: tocSections.length + 1,
+          title: "Index",
+          pageId: "handbook-index",
+          pageIndex: map.get("handbook-index") ?? 0,
+          subsections: [],
+        });
+      }
+    } else if (section) {
+      const subsections: NonNullable<TocEntry["subsections"]> = [];
+      for (const sub of section.subsections) {
+        const subPageId = `sub-0-${sub.id}`;
+        const numMatch = sub.title.match(/^(\d+\.\d+)/);
+        const label = numMatch ? numMatch[1] : sub.title;
+        subsections.push({
+          label,
+          title: sub.title,
+          pageId: subPageId,
+          pageIndex: map.get(subPageId) ?? 0,
+        });
+      }
+      tocSections.push({
+        number: 1,
+        title: section.heroTitle,
+        pageId: "chapter-0",
+        pageIndex: map.get("chapter-0") ?? 0,
+        subsections,
+      });
+    }
+
+    // Step 4: Insert the resolved TOC as page 1.
+    result.splice(1, 0, { kind: "toc", theme: "paper", tocSections });
+
+    // Step 5: Rebuild the map after the TOC splice and update TOC page indices.
+    map.clear();
+    result.forEach((page, i) => {
+      if (page.pageId) map.set(page.pageId, i);
+    });
+    for (const entry of tocSections) {
+      const idx = entry.pageId != null ? map.get(entry.pageId) : null;
+      if (idx != null) entry.pageIndex = idx;
+      for (const sub of entry.subsections ?? []) {
+        const subIdx = map.get(sub.pageId);
+        if (subIdx != null) sub.pageIndex = subIdx;
       }
     }
 
-    return result;
+    return { bookPages: result, pageIndexById: map };
   }, [isIndex, section, handbookData, contentHeight]);
-
-  useEffect(() => {
-    const tocPageIdx = bookPages.findIndex((p) => p.kind === "toc");
-    if (currentPage !== tocPageIdx && expandedChapters.size > 0) {
-      setExpandedChapters(new Set());
-    }
-  }, [currentPage, bookPages, expandedChapters.size]);
 
   const currentPageInfo = bookPages[currentPage];
   const currentChapterIdx = currentPageInfo?.chapterIdx ?? -1;
@@ -664,6 +996,24 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
     return entries;
   }, [currentChapterIdx, bookPages]);
 
+  /** Chapter headings for the floating button directory (one per chapter-intro page). */
+  const chapterEntries = useMemo(
+    () =>
+      bookPages.flatMap((page, i) =>
+        page.kind === "chapter-intro"
+          ? [
+              {
+                number: page.chapterNumber!,
+                title: (page.chapterTitle ?? "").replace(/^\d+\.\s*/, ""),
+                chapterIdx: page.chapterIdx!,
+                pageIndex: i,
+              },
+            ]
+          : [],
+      ),
+    [bookPages],
+  );
+
   const startPage = useMemo(() => {
     if (!handbookSubsection || bookPages.length === 0) return 0;
     const prefix = `${handbookSubsection} `;
@@ -676,6 +1026,16 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
   const totalPages = bookPages.length;
   const isMobile = stage.w > 0 && stage.w < 768;
   const showFlipbook = !isError && !isLoading && (isIndex || section) && pageW > 0 && pageH > 0;
+
+  /**
+   * Jump to a page by its bookPages index. Delegates to the isolated flip-book's
+   * imperative handle (which uses the engine's `turnToPage` to resolve the exact
+   * spread). Stable identity — no deps — so it never invalidates the memoized book.
+   */
+  const jumpToIndex = useCallback((targetIndex: number | null | undefined) => {
+    if (targetIndex == null || targetIndex < 0) return;
+    bookRef.current?.goToPage(targetIndex);
+  }, []);
 
   function renderBookPage(page: BookPage, index: number, pageNumber: number) {
     const ink = page.theme === "ink";
@@ -719,63 +1079,45 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
     }
 
     if (page.kind === "toc" && page.tocSections) {
-      const sectionIcons = [Lectern, UserRoundCog, Home, Banknote, Star, BookOpen, ClipboardCheck];
+      return (
+        <HandbookTocPage
+          tocSections={page.tocSections}
+          isMobile={isMobile}
+          pageNumber={pageNumber}
+          totalPages={totalPages}
+          onJump={jumpToIndex}
+        />
+      );
+    }
+
+    if (page.kind === "index" && page.indexEntries) {
       return (
         <div className={`flex h-full w-full flex-col ${themeClasses} ${isMobile ? "" : "page-edge"}`}>
           <div className="flex-1 overflow-y-auto p-8 md:p-10">
-            <h2 className="font-display text-xl tracking-tight mb-4">Contents</h2>
+            <h2 className="font-display text-xl tracking-tight mb-4">Index</h2>
             <div className="h-px w-8 bg-current/20 mb-5" />
-            <nav className="space-y-[3px]">
-              {page.tocSections.map((sec) => {
-                const Icon = sectionIcons[sec.number - 1] || BookOpen;
-                const isExpanded = expandedChapters.has(sec.number);
-                const hasSubsections = sec.subsections && sec.subsections.length > 0;
+            <div className="grid grid-cols-1 gap-x-8 md:grid-cols-2">
+              {page.indexEntries.map((entry) => {
+                const target = pageIndexById.get(entry.pageId);
                 return (
-                  <div key={sec.number}>
-                    <div className="group flex h-[44px] w-full items-center gap-3 border-t border-neutral-200 text-left text-[12px] text-black-500 transition-colors hover:text-neutral-900">
-                      <button
-                        type="button"
-                        onClick={() => bookRef.current?.flip(Math.min(sec.pageIndex, totalPages - 1))}
-                        className="flex flex-1 items-center gap-3 py-0 focus-visible:outline-none"
-                      >
-                        <span className="w-5 text-[10px] font-medium text-black-300 group-hover:text-neutral-500">
-                          {String(sec.number).padStart(2, "0")}
-                        </span>
-                        <Icon className="size-[16px] shrink-0 text-black-300 transition-colors group-hover:text-neutral-500" strokeWidth={1.5} aria-hidden />
-                        <span className="leading-tight">{sec.title}</span>
-                      </button>
-                      {hasSubsections && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleChapter(sec.number);
-                          }}
-                          className="flex size-[28px] shrink-0 items-center justify-center rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400"
-                          aria-label={isExpanded ? "Collapse subsections" : "Expand subsections"}
-                        >
-                          <ChevronDown
-                            className={`size-3.5 text-black-300 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
-                            strokeWidth={2}
-                          />
-                        </button>
-                      )}
-                    </div>
-                    {isExpanded && hasSubsections && sec.subsections!.map((sub) => (
-                      <button
-                        key={sub.label}
-                        type="button"
-                        onClick={() => bookRef.current?.flip(Math.min(sub.pageIndex, totalPages - 1))}
-                        className="flex h-[32px] w-full items-center gap-3 pl-[52px] pr-0 text-left text-[11px] text-black-400 transition-colors hover:text-neutral-900 focus-visible:outline-none"
-                      >
-                        <span className="shrink-0 font-medium">{sub.label}</span>
-                        <span className="truncate opacity-70">{sub.title.replace(/^\d+\.\d+\s*/, "")}</span>
-                      </button>
-                    ))}
-                  </div>
+                  <button
+                    key={`${entry.pageId}-${entry.title}`}
+                    type="button"
+                    onClick={() => {
+                      jumpToIndex(target);
+                    }}
+                    className="flex h-[26px] min-w-0 items-baseline gap-2 text-left text-[11px] text-black-500 transition-colors hover:text-neutral-900 focus-visible:outline-none"
+                    title={entry.title}
+                  >
+                    <span className="truncate">{entry.title.replace(/^\d+\.\d+\s*/, "")}</span>
+                    <span className="min-w-4 flex-1 border-b border-dotted border-current/25" aria-hidden />
+                    <span className="shrink-0 text-[10px] font-medium tabular-nums text-black-300">
+                      {target != null ? String(target + 1).padStart(3, "0") : "—"}
+                    </span>
+                  </button>
                 );
               })}
-            </nav>
+            </div>
           </div>
           <div className="flex shrink-0 items-center justify-between border-t border-black-100 px-5 py-2 text-black-300">
             <span className="text-[8px] font-medium uppercase tracking-[0.2em]">iAE Employee Handbook</span>
@@ -863,6 +1205,22 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
     );
   }
 
+  /**
+   * Stable page children. The flip-book wrapper re-initializes (and resets to the
+   * cover) whenever its `children` identity changes, so this memo must only change
+   * when the pagination itself changes — never on navigation state like currentPage.
+   * TOC expand state lives inside HandbookTocPage so it doesn't invalidate this.
+   */
+  const bookChildren = useMemo(
+    () =>
+      bookPages.map((page, index) => (
+        <div key={index} style={{ width: pageW, height: pageH }}>
+          {renderBookPage(page, index, index + 1)}
+        </div>
+      )),
+    [bookPages, pageW, pageH, isMobile, totalPages, pageIndexById, jumpToIndex],
+  );
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-neutral-950 ink-grain">
       {/* Top bar */}
@@ -922,81 +1280,66 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
               className="book-shadow"
               style={{ width: isMobile ? pageW : pageW * 2, height: pageH }}
             >
-              <ReactFlipBook
-                key={bookPages.length}
+              <HandbookFlipBook
                 ref={bookRef}
-                width={pageW}
-                height={pageH}
-                size="fixed"
-                showCover={true}
-                usePortrait={isMobile}
-                flippingTime={700}
-                drawShadow
-                maxShadowOpacity={0.5}
-                enableKeyboardNav
-                showPageCorners
+                pages={bookChildren}
+                pageW={pageW}
+                pageH={pageH}
+                isMobile={isMobile}
                 startPage={startPage}
-                mobileScrollSupport={false}
-                onFlip={(e: { data: number }) => setCurrentPage(e.data)}
-                renderNavigationButton={(type, onClick) => (
-                  <button
-                    type="button"
-                    onClick={onClick}
-                    aria-label={type === "prev" ? "Previous page" : "Next page"}
-                    className="absolute top-1/2 z-10 -translate-y-1/2 rounded-full border border-white/[0.08] bg-neutral-950/60 p-2.5 text-white/40 shadow-lg backdrop-blur-md transition-all duration-200 hover:border-white/20 hover:bg-neutral-950/80 hover:text-white/70"
-                    style={{ [type === "prev" ? "left" : "right"]: "4px" }}
-                  >
-                    {type === "prev" ? (
-                      <ChevronLeft className="size-4" strokeWidth={2} />
-                    ) : (
-                      <ChevronRight className="size-4" strokeWidth={2} />
-                    )}
-                  </button>
-                )}
-                renderPageNumber={(current, total) => (
-                  <div className="pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2">
-                    <span className="rounded-full bg-white/90 px-3 py-0.5 text-[10px] font-medium text-black backdrop-blur-sm">
-                      {current + 1} / {total}
-                    </span>
-                  </div>
-                )}
-              >
-                {bookPages.map((page, index) => (
-                  <div key={index} style={{ width: pageW, height: pageH }}>
-                    {renderBookPage(page, index, index + 1)}
-                  </div>
-                ))}
-              </ReactFlipBook>
+                onPageChange={handlePageChange}
+              />
             </div>
 
             {/* ── Floating buttons: desktop (left side) ── */}
-            <div className="absolute left-2 top-1/2 z-20 -translate-y-1/2 flex-col gap-1.5 hidden md:flex">
+            <div className="absolute left-2 top-1/2 z-20 -translate-y-1/2 flex-col gap-1.5 hidden md:flex max-h-[78vh] w-[168px] overflow-y-auto pr-1">
               <button
                 type="button"
-                onClick={() => bookRef.current?.flip(0)}
-                className="flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.50] bg-neutral-950/70 text-white/80 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
+                onClick={() => jumpToIndex(0)}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/[0.50] bg-neutral-950/70 text-white/80 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
                 title="Go to cover"
               >
                 <BookOpen className="size-3.5" strokeWidth={1.5} />
               </button>
 
-              {chapterSubsections.length > 0 && (
+              {chapterEntries.length > 0 && (
                 <div className="flex flex-col gap-1">
                   <span className="text-center text-[7px] font-medium uppercase tracking-[0.15em] text-white/40">
-                    Ch. {currentPageInfo?.chapterNumber}
+                    Chapters
                   </span>
-                  {chapterSubsections.map((sub) => (
-                    <button
-                      key={sub.label}
-                      type="button"
-                      onClick={() => bookRef.current?.flip(sub.pageIndex)}
-                      className="flex h-7 w-full items-center gap-1.5 rounded-md border border-white/[0.50] bg-neutral-950/70 px-2 text-left text-[8px] font-medium text-white/70 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
-                      title={sub.fullTitle}
-                    >
-                      <span className="shrink-0 font-semibold tracking-[0.1em]">{sub.label}</span>
-                      <span className="truncate opacity-75">{sub.fullTitle.replace(/^\d+\.\d+\s*/, "")}</span>
-                    </button>
-                  ))}
+                  {chapterEntries.map((chapter) => {
+                    const isActiveChapter = chapter.chapterIdx === currentChapterIdx;
+                    return (
+                      <div key={chapter.number} className="flex flex-col gap-1">
+                        <button
+                          type="button"
+                          onClick={() => jumpToIndex(chapter.pageIndex)}
+                          className={`flex h-7 w-full items-center gap-1.5 rounded-md border px-2 text-left text-[8px] font-medium shadow-lg backdrop-blur-md transition-all ${
+                            isActiveChapter
+                              ? "border-white bg-white/90 text-neutral-950"
+                              : "border-white/[0.50] bg-neutral-950/70 text-white/70 hover:border-white/20 hover:text-white/70"
+                          }`}
+                          title={chapter.title}
+                        >
+                          <span className="shrink-0 font-semibold tracking-[0.1em]">Ch. {chapter.number}</span>
+                          <span className={`truncate ${isActiveChapter ? "" : "opacity-75"}`}>{chapter.title}</span>
+                        </button>
+                        {isActiveChapter &&
+                          chapterSubsections.map((sub) => (
+                            <button
+                              key={sub.label}
+                              type="button"
+                              onClick={() => jumpToIndex(sub.pageIndex)}
+                              className="ml-2 flex h-7 items-center gap-1.5 rounded-md border border-white/[0.50] bg-neutral-950/70 px-2 text-left text-[8px] font-medium text-white/70 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
+                              title={sub.fullTitle}
+                            >
+                              <span className="shrink-0 font-semibold tracking-[0.1em]">{sub.label}</span>
+                              <span className="truncate opacity-75">{sub.fullTitle.replace(/^\d+\.\d+\s*/, "")}</span>
+                            </button>
+                          ))}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1009,12 +1352,38 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
         <div className="flex flex-wrap items-center justify-center gap-2 px-4 py-2 md:hidden">
           <button
             type="button"
-            onClick={() => bookRef.current?.flip(0)}
+            onClick={() => jumpToIndex(0)}
             className="flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.50] bg-neutral-950/70 text-white/80 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
             title="Go to cover"
           >
             <BookOpen className="size-3.5" strokeWidth={1.5} />
           </button>
+
+          {chapterEntries.length > 0 && (
+            <div className="flex flex-wrap items-center justify-center gap-1.5">
+              <span className="w-full text-center text-[7px] font-medium uppercase tracking-[0.15em] text-white/40">
+                Chapters
+              </span>
+              {chapterEntries.map((chapter) => {
+                const isActiveChapter = chapter.chapterIdx === currentChapterIdx;
+                return (
+                  <button
+                    key={chapter.number}
+                    type="button"
+                    onClick={() => jumpToIndex(chapter.pageIndex)}
+                    className={`flex h-7 items-center gap-1 rounded-md border px-2.5 text-[8px] font-medium shadow-lg backdrop-blur-md transition-all ${
+                      isActiveChapter
+                        ? "border-white bg-white/90 text-neutral-950"
+                        : "border-white/[0.50] bg-neutral-950/70 text-white/70 hover:border-white/20 hover:text-white/70"
+                    }`}
+                    title={chapter.title}
+                  >
+                    <span className="shrink-0 font-semibold tracking-[0.1em]">Ch. {chapter.number}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {chapterSubsections.length > 0 && (
             <div className="flex flex-wrap items-center justify-center gap-1.5">
@@ -1025,7 +1394,7 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
                 <button
                   key={sub.label}
                   type="button"
-                  onClick={() => bookRef.current?.flip(sub.pageIndex)}
+                  onClick={() => jumpToIndex(sub.pageIndex)}
                   className="flex h-7 items-center gap-1 rounded-md border border-white/[0.50] bg-neutral-950/70 px-2.5 text-[8px] font-medium text-white/70 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
                   title={sub.fullTitle}
                 >

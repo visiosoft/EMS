@@ -1,7 +1,8 @@
+import { useEffect } from "react";
+import { UsersRound } from "lucide-react";
 import { IaeLogoIcon } from "@/components/brand/IaeBrandMark";
 import { InternalPageHero } from "../components/InternalPageHero";
 import { InternalPageFrame } from "../layout/InternalPageFrame";
-import { IaeEmployeesTable } from "../components/IaeEmployeesTable";
 import { EMPLOYEE_SERVICE_ITEMS, type EmployeeServiceItem } from "../constants/pageData";
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
 import {
@@ -80,6 +81,21 @@ function ServiceTileContent({
   );
 }
 
+function DirectoryBanner({ onOpen }: { onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={`group flex min-h-[126px] w-full items-center justify-center gap-5 rounded-lg bg-[#0c0c0c] px-8 py-6 text-white shadow-[0_4px_16px_rgba(0,0,0,0.22)] ${TILE_INTERACTION_CLASS}`}
+    >
+      <span className="rounded-xl bg-black/20 p-3 transition-transform duration-300 group-hover:scale-110" aria-hidden>
+        <UsersRound className="h-[66px] w-[66px]" strokeWidth={1.55} />
+      </span>
+      <span className="text-lg font-semibold tracking-[0.02em]">Employee Directory</span>
+    </button>
+  );
+}
+
 function HandbookWideBanner({
   item,
   onOpen,
@@ -137,6 +153,13 @@ export function EmployeeServicesPage() {
   const { viewData, openEmployeeHandbook, navigate } = useInternalNavigation();
   const handbookView = resolveHandbookViewFromData(viewData.handbook, viewData.handbookHash);
 
+  // The directory is now a dedicated page; honor legacy deep links that asked to reveal it.
+  useEffect(() => {
+    if (viewData.revealDirectory) navigate("employee-directory");
+  }, [viewData.revealDirectory, navigate]);
+
+  const openDirectory = () => navigate("employee-directory");
+
   const handbookItem = EMPLOYEE_SERVICE_ITEMS.find((item) => item.handbookIndex);
   const standardServiceItems = EMPLOYEE_SERVICE_ITEMS.filter(
     (item) => !item.handbookIndex && !item.companyMark,
@@ -176,21 +199,27 @@ export function EmployeeServicesPage() {
 
       <main className="mx-auto w-full max-w-[1060px] px-5 pb-16 pt-16 sm:px-8 sm:pt-20 lg:px-0">
         <section aria-label="Employee services resources">
-          {/* Mobile: uniform 2-column tile grid (all six resources) */}
-          <div className="grid grid-cols-2 gap-3 lg:hidden">
-            {mobileItems.map((item, index) => (
-              <ServiceTile
-                key={item.title}
-                item={item}
-                variant="mobile"
-                index={index}
-                onActivate={handleTileClick}
-              />
-            ))}
+          {/* Mobile: directory banner above a uniform 2-column tile grid */}
+          <div className="space-y-3 lg:hidden">
+            <DirectoryBanner onOpen={openDirectory} />
+
+            <div className="grid grid-cols-2 gap-3">
+              {mobileItems.map((item, index) => (
+                <ServiceTile
+                  key={item.title}
+                  item={item}
+                  variant="mobile"
+                  index={index}
+                  onActivate={handleTileClick}
+                />
+              ))}
+            </div>
           </div>
 
-          {/* Desktop: wide handbook banner + four tiles in one row */}
+          {/* Desktop: directory banner above the wide handbook banner + four tiles in one row */}
           <div className="hidden space-y-3 lg:block">
+            <DirectoryBanner onOpen={openDirectory} />
+
             {handbookItem ? (
               <HandbookWideBanner item={handbookItem} onOpen={() => openEmployeeHandbook("index")} />
             ) : null}
@@ -208,8 +237,6 @@ export function EmployeeServicesPage() {
             </div>
           </div>
         </section>
-
-        <IaeEmployeesTable />
       </main>
     </InternalPageFrame>
   );

@@ -16,6 +16,7 @@ export const internalAttractionsQueryKeys = {
   attractions: (appliedQuery: string) => ['internal-attractions', appliedQuery] as const,
   suggestions: (debouncedDraft: string) => ['internal-attractions-suggestions', debouncedDraft] as const,
   tours: (attractionId: number) => ['internal-attraction-tours', attractionId] as const,
+  tourEngagements: (tourId: number) => ['internal-tour-engagements', tourId] as const,
 };
 
 export function normalizeAttractionsSearchQuery(value: string): string {

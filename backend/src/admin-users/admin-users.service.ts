@@ -71,6 +71,7 @@ export type AdminDirectorySyncUser = {
   jobTitle: string;
   mobilePhone: string;
   businessPhones: string[];
+  companyName: string;
   accountEnabled: boolean;
   userType: string;
 };
@@ -308,6 +309,7 @@ export class AdminUsersService {
       businessPhones: Array.isArray(user.businessPhones)
         ? user.businessPhones.filter(Boolean).map((phone) => phone.trim())
         : [],
+      companyName: user.companyName?.trim() || '',
       accountEnabled,
       userType: user.userType?.trim() || '',
     };
