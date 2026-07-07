@@ -50,8 +50,22 @@ export class DocumentLibraryController {
    * fixed user's OneDrive can't be reached by hand-crafting `?source=onedrive`.
    * Verification relies on the signed Entra bearer token, never the spoofable X-User-* headers.
    */
-  private async resolveSource(req: Request, requested?: DocumentSource): Promise<DocumentSource> {
+  private async resolveSource(req: Request, requested?: DocumentSource, self?: boolean): Promise<DocumentSource> {
     if (requested !== 'onedrive') return 'sharepoint';
+
+    // `self` = the caller's OWN OneDrive (Hub sidebar). It's their personal drive, so any
+    // authenticated internal user may use it — this route is already behind InternalAccessGuard.
+    if (self) {
+      return 'onedrive';
+    }
+
+    // When OneDrive is the shared engagement document store (ENGAGEMENT_DOCUMENT_SOURCE=onedrive),
+    // it is a shared team location, not a personal drive — so any internal user may use it. This
+    // route is already behind InternalAccessGuard. The per-user DOCUMENT_TOGGLE_USER gate below
+    // remains for the legacy case of browsing a single person's OneDrive while the site stays on SharePoint.
+    if (this.documentLibraryService.getEngagementSource() === 'onedrive') {
+      return 'onedrive';
+    }
 
     const allowed = (this.config.get<string>('DOCUMENT_TOGGLE_USER') ?? '').trim().toLowerCase();
     if (!allowed) {
@@ -117,18 +131,29 @@ export class DocumentLibraryController {
   }
 
   /**
-   * The shared SharePoint library is always filtered to the caller's own files (folders stay visible).
-   * OneDrive is left untouched — its admin gate already restricts who can read it.
+   * The shared SharePoint library is always filtered to the caller's own files (folders stay
+   * visible). The caller's OWN OneDrive (`self`) is filtered the same way, preserving the
+   * CreatedBy behavior. The fixed shared OneDrive (engagements) is left untouched.
    */
   private async applyOwnershipFilter(
     req: Request,
     source: DocumentSource,
     items: DocumentItem[],
+    self?: boolean,
   ): Promise<DocumentItem[]> {
-    if (source !== 'sharepoint') return items;
+    if (source !== 'sharepoint' && !self) return items;
     const identity = await this.getCallerIdentity(req);
     if (!identity) return [];
     return this.filterOwnedFiles(items, identity);
+  }
+
+  /**
+   * For a `self` OneDrive request, resolves the calling user's own drive identity
+   * (oid, or UPN/email fallback) to target `/users/{id}/drive`. Null if unresolvable.
+   */
+  private async resolveSelfDriveUser(req: Request): Promise<string | undefined> {
+    const identity = await this.getCallerIdentity(req);
+    return identity?.oid ?? identity?.emails[0];
   }
 
   @Get('root')
@@ -166,11 +191,17 @@ export class DocumentLibraryController {
   @Get('folder')
   async getFolderContents(@Req() req: Request, @Query() query: FolderQueryDto) {
     try {
-      const source = await this.resolveSource(req, query.source);
-      const items = await this.documentLibraryService.getFolderContents(query.path, source);
+      const source = await this.resolveSource(req, query.source, query.self);
+      let driveUserOverride: string | undefined;
+      if (source === 'onedrive' && query.self) {
+        driveUserOverride = await this.resolveSelfDriveUser(req);
+        // Can't determine whose OneDrive to read → return nothing rather than the wrong drive.
+        if (!driveUserOverride) return [];
+      }
+      const items = await this.documentLibraryService.getFolderContents(query.path, source, driveUserOverride);
       // Shared engagement folders are team spaces — return everything, unfiltered.
       if (query.shared) return items;
-      return await this.applyOwnershipFilter(req, source, items);
+      return await this.applyOwnershipFilter(req, source, items, query.self);
     } catch (error) {
       throw this.toHttpException('folder contents', error);
     }
@@ -207,8 +238,15 @@ export class DocumentLibraryController {
     @Query() query: DownloadQueryDto,
   ) {
     try {
-      const source = await this.resolveSource(req, query.source);
-      const file = await this.documentLibraryService.downloadItem(query.id, source);
+      const source = await this.resolveSource(req, query.source, query.self);
+      let driveUserOverride: string | undefined;
+      if (source === 'onedrive' && query.self) {
+        driveUserOverride = await this.resolveSelfDriveUser(req);
+        if (!driveUserOverride) {
+          throw new ForbiddenException('Sign-in required to download from your OneDrive.');
+        }
+      }
+      const file = await this.documentLibraryService.downloadItem(query.id, source, driveUserOverride);
       res.setHeader('Content-Type', file.contentType);
       if (file.contentLength) res.setHeader('Content-Length', file.contentLength);
       res.setHeader(

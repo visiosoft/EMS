@@ -20,6 +20,15 @@ export class FolderQueryDto {
   @IsOptional()
   @Transform(({ value }) => value === true || value === 'true')
   shared?: boolean;
+
+  /**
+   * When true (with source=onedrive), targets the CALLING user's own OneDrive instead of
+   * the fixed ONEDRIVE_USER account — used by the Hub sidebar so each user sees their own files.
+   */
+  @IsBoolean()
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  self?: boolean;
 }
 
 export class UploadBodyDto {
@@ -39,4 +48,10 @@ export class DownloadQueryDto {
   @IsIn(['sharepoint', 'onedrive'])
   @IsOptional()
   source?: DocumentSource;
+
+  /** When true (with source=onedrive), downloads from the CALLING user's own OneDrive. */
+  @IsBoolean()
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  self?: boolean;
 }

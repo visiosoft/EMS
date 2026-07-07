@@ -58,6 +58,7 @@ export class DocumentLibraryService {
   private readonly sharePointSiteHostname: string;
   private readonly sharePointSitePath: string;
   private readonly engagementsRootFolder: string;
+  private readonly engagementSource: DocumentSource;
   private tokenCache: { token: string; expiry: number } | null = null;
   private sharePointSiteId: string | null = null;
 
@@ -69,6 +70,17 @@ export class DocumentLibraryService {
     this.sharePointSiteHostname = config.get<string>('SHAREPOINT_SITE_HOSTNAME') ?? '';
     this.sharePointSitePath = config.get<string>('SHAREPOINT_SITE_PATH') ?? '';
     this.engagementsRootFolder = config.get<string>('SHAREPOINT_ENGAGEMENTS_ROOT_FOLDER') ?? 'Engagements';
+    // Where engagement folders are provisioned and browsed. Default 'sharepoint';
+    // set ENGAGEMENT_DOCUMENT_SOURCE=onedrive to use the OneDrive at ONEDRIVE_USER.
+    this.engagementSource =
+      (config.get<string>('ENGAGEMENT_DOCUMENT_SOURCE') ?? '').trim().toLowerCase() === 'onedrive'
+        ? 'onedrive'
+        : 'sharepoint';
+  }
+
+  /** The document source (sharepoint | onedrive) that engagement folders live in. */
+  getEngagementSource(): DocumentSource {
+    return this.engagementSource;
   }
 
   private async resolveSiteId(): Promise<string> {
@@ -82,14 +94,20 @@ export class DocumentLibraryService {
     return 'root';
   }
 
-  private async driveBase(source: DocumentSource): Promise<string> {
+  /**
+   * Resolves the Graph drive base URL. For OneDrive, `driveUserOverride` (a UPN or object id)
+   * targets that specific user's OneDrive — used by the Hub sidebar to read the CALLING user's
+   * own drive. When omitted, OneDrive falls back to the fixed ONEDRIVE_USER (engagement store).
+   */
+  private async driveBase(source: DocumentSource, driveUserOverride?: string): Promise<string> {
     if (source === 'onedrive') {
-      if (!this.oneDriveUser) {
+      const driveUser = driveUserOverride || this.oneDriveUser;
+      if (!driveUser) {
         throw new Error(
           'OneDrive source is not configured. Set ONEDRIVE_USER (UPN or object id) in the backend environment.',
         );
       }
-      return `${GRAPH_BASE}/users/${encodeURIComponent(this.oneDriveUser)}/drive`;
+      return `${GRAPH_BASE}/users/${encodeURIComponent(driveUser)}/drive`;
     }
     const siteId = await this.resolveSiteId();
     return `${GRAPH_BASE}/sites/${siteId}/drive`;
@@ -178,8 +196,8 @@ export class DocumentLibraryService {
     return (await response.json()) as T;
   }
 
-  private async buildChildrenUrl(source: DocumentSource, relativePath?: string): Promise<string> {
-    const base = await this.driveBase(source);
+  private async buildChildrenUrl(source: DocumentSource, relativePath?: string, driveUserOverride?: string): Promise<string> {
+    const base = await this.driveBase(source, driveUserOverride);
     if (!relativePath || relativePath === '') {
       return `${base}/root/children?${DRIVE_ITEM_SELECT}`;
     }
@@ -235,12 +253,17 @@ export class DocumentLibraryService {
     }
   }
 
-  async getFolderContents(relativePath?: string, source: DocumentSource = 'sharepoint'): Promise<DocumentItem[]> {
-    const cacheKey = `site-contents:${source}:${relativePath || 'root'}`;
+  async getFolderContents(
+    relativePath?: string,
+    source: DocumentSource = 'sharepoint',
+    driveUserOverride?: string,
+  ): Promise<DocumentItem[]> {
+    // driveUserOverride is part of the key so per-user OneDrive listings never collide in cache.
+    const cacheKey = `site-contents:${source}:${driveUserOverride || 'default'}:${relativePath || 'root'}`;
     const cached = this.getFromCache<DocumentItem[]>(cacheKey);
     if (cached) return cached;
 
-    const url = await this.buildChildrenUrl(source, relativePath);
+    const url = await this.buildChildrenUrl(source, relativePath, driveUserOverride);
     this.logger.log(`[GraphAPI] getFolderContents URL: ${url}`);
     try {
       const data = await this.graphGet<GraphChildrenResponse>(url);
@@ -256,9 +279,10 @@ export class DocumentLibraryService {
   async downloadItem(
     id: string,
     source: DocumentSource = 'sharepoint',
+    driveUserOverride?: string,
   ): Promise<{ stream: ReadableStream<Uint8Array>; contentType: string; contentLength: string | null; filename: string }> {
     const token = await this.acquireAppToken();
-    const url = `${await this.driveBase(source)}/items/${encodeURIComponent(id)}/content`;
+    const url = `${await this.driveBase(source, driveUserOverride)}/items/${encodeURIComponent(id)}/content`;
     this.logger.log(`[GraphAPI] downloadItem URL: ${url}`);
 
     // `fetch` follows the 302 Graph returns to the pre-authenticated download URL.

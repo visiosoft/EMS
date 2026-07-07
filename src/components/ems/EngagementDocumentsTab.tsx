@@ -49,6 +49,9 @@ export function EngagementDocumentsTab({ engagementId, addToast }: Props) {
   });
   const statusData = statusQuery.data;
   const status = statusData?.status;
+  // The drive engagement documents live on (sharepoint | onedrive); reported by the backend.
+  const docSource = statusData?.source;
+  const sourceLabel = docSource === 'onedrive' ? 'OneDrive' : 'SharePoint';
 
   // Default the tab to the engagement's Market (DMA) folder, falling back to the
   // engagement (attraction) folder if the market path can't be resolved.
@@ -61,8 +64,8 @@ export function EngagementDocumentsTab({ engagementId, addToast }: Props) {
 
   // Fetch folder contents (shared: engagement folders are shown to the whole team)
   const contentsQuery = useQuery({
-    queryKey: ['engagement-documents', engagementId, effectivePath],
-    queryFn: () => fetchFolderContents(effectivePath, undefined, { shared: true }),
+    queryKey: ['engagement-documents', engagementId, effectivePath, docSource],
+    queryFn: () => fetchFolderContents(effectivePath, docSource, { shared: true }),
     enabled: !!effectivePath,
     staleTime: 10_000,
     refetchInterval: 30_000,
@@ -110,7 +113,7 @@ export function EngagementDocumentsTab({ engagementId, addToast }: Props) {
   const handleDownload = async (item: DocumentItem) => {
     setDownloadingId(item.id);
     try {
-      await downloadFile(item);
+      await downloadFile(item, docSource);
     } catch (e) {
       addToast(`${item.name}: ${friendlyApiError(e)}`, 'error');
     } finally {
@@ -127,7 +130,7 @@ export function EngagementDocumentsTab({ engagementId, addToast }: Props) {
     try {
       for (const file of files) {
         try {
-          await uploadDocument(targetPath, file);
+          await uploadDocument(targetPath, file, docSource);
           uploaded += 1;
         } catch (e) {
           addToast(`${file.name}: ${friendlyApiError(e)}`, 'error');
@@ -135,7 +138,7 @@ export function EngagementDocumentsTab({ engagementId, addToast }: Props) {
       }
       if (uploaded > 0) {
         addToast(
-          uploaded === 1 ? 'File uploaded to SharePoint.' : `${uploaded} files uploaded to SharePoint.`,
+          uploaded === 1 ? `File uploaded to ${sourceLabel}.` : `${uploaded} files uploaded to ${sourceLabel}.`,
           'success',
         );
         contentsQuery.refetch();
@@ -153,14 +156,14 @@ export function EngagementDocumentsTab({ engagementId, addToast }: Props) {
     const prev = prevStatusRef.current;
     if (prev === 'pending' && status === 'ready') {
       addToast(
-        'Your SharePoint folders have been created successfully. You can now access all documents.',
+        `Your ${sourceLabel} folders have been created successfully. You can now access all documents.`,
         'success',
         undefined,
-        'SharePoint Workspace Ready',
+        `${sourceLabel} Workspace Ready`,
       );
     } else if (prev === 'pending' && status === 'failed') {
       addToast(
-        "We couldn't create your SharePoint folders. Please try again.",
+        `We couldn't create your ${sourceLabel} folders. Please try again.`,
         'error',
         { label: 'Retry', onClick: () => void handleCreateOrRetry() },
         'Folder Creation Failed',
@@ -188,7 +191,7 @@ export function EngagementDocumentsTab({ engagementId, addToast }: Props) {
       <div className="bg-card border border-border rounded-lg p-8 text-center space-y-4">
         <FolderTree className="h-12 w-12 mx-auto text-ems-coral" />
         <div>
-          <h3 className="text-sm font-semibold text-text-primary">Couldn't check SharePoint status</h3>
+          <h3 className="text-sm font-semibold text-text-primary">Couldn't check {sourceLabel} status</h3>
           <p className="text-sm text-text-muted mt-1">{friendlyApiError(statusQuery.error)}</p>
         </div>
         <button
@@ -210,7 +213,7 @@ export function EngagementDocumentsTab({ engagementId, addToast }: Props) {
       <div className="bg-card border border-border rounded-lg p-8 text-center space-y-3">
         <Loader2 className="h-10 w-10 mx-auto text-ems-accent animate-spin" />
         <div>
-          <h3 className="text-sm font-semibold text-text-primary">Preparing your SharePoint folders</h3>
+          <h3 className="text-sm font-semibold text-text-primary">Preparing your {sourceLabel} folders</h3>
           <p className="text-sm text-text-muted mt-1">
             This may take a few moments. The documents will appear here automatically once ready.
           </p>
@@ -225,7 +228,7 @@ export function EngagementDocumentsTab({ engagementId, addToast }: Props) {
       <div className="bg-card border border-border rounded-lg p-8 text-center space-y-4">
         <FolderTree className="h-12 w-12 mx-auto text-ems-coral" />
         <div>
-          <h3 className="text-sm font-semibold text-text-primary">SharePoint folder creation failed</h3>
+          <h3 className="text-sm font-semibold text-text-primary">{sourceLabel} folder creation failed</h3>
           <p className="text-sm text-text-muted mt-1">
             {statusData?.error || 'Something went wrong while creating the folders.'}
           </p>
@@ -249,9 +252,9 @@ export function EngagementDocumentsTab({ engagementId, addToast }: Props) {
       <div className="bg-card border border-border rounded-lg p-8 text-center space-y-4">
         <FolderTree className="h-12 w-12 mx-auto text-text-muted" />
         <div>
-          <h3 className="text-sm font-semibold text-text-primary">No SharePoint folder</h3>
+          <h3 className="text-sm font-semibold text-text-primary">No {sourceLabel} folder</h3>
           <p className="text-sm text-text-muted mt-1">
-            This engagement does not have a SharePoint folder structure yet.
+            This engagement does not have a {sourceLabel} folder structure yet.
             Folder structures are automatically created when an engagement is set to
             status <strong>Confirmed</strong>.
           </p>
@@ -285,7 +288,7 @@ export function EngagementDocumentsTab({ engagementId, addToast }: Props) {
             className="inline-flex items-center gap-1.5 text-sm text-ems-accent hover:underline"
           >
             <ExternalLink className="h-4 w-4" />
-            Open in SharePoint
+            Open in {sourceLabel}
           </a>
         </div>
         <div className="flex items-center gap-3">

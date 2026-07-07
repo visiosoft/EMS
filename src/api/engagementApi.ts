@@ -1388,6 +1388,8 @@ export type EngagementSharePointFolderStatusValue = 'ready' | 'pending' | 'faile
 
 export interface EngagementSharePointFolderStatus extends EngagementSharePointFolderLink {
   status: EngagementSharePointFolderStatusValue;
+  /** The drive the engagement documents live on — the tab browses/uploads/downloads against it. */
+  source?: 'sharepoint' | 'onedrive';
   /** Present (with a user-friendly message) when status is 'failed'. */
   error?: string | null;
 }

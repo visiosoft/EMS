@@ -5410,6 +5410,7 @@ export class EngagementService {
     const { rootWebUrl } = await this.documentLibrary.createFolderTree(
       rootSegments,
       ENGAGEMENT_FOLDER_STRUCTURE,
+      this.documentLibrary.getEngagementSource(),
     );
 
     if (rootWebUrl) {
@@ -5465,20 +5466,24 @@ export class EngagementService {
     linkName: string | null;
     linkPath: string | null;
     marketFolderPath: string | null;
+    source: 'sharepoint' | 'onedrive';
     error: string | null;
   }> {
+    // The drive engagement documents live on, so the frontend browses/uploads/downloads
+    // against the same source the folders were provisioned on.
+    const source = this.documentLibrary.getEngagementSource();
     const link = await this.getSharePointFolderLink(engagementId);
     if (link.linkUrl) {
-      return { status: 'ready', ...link, error: null };
+      return { status: 'ready', ...link, source, error: null };
     }
     const job = this.folderJobs.get(engagementId);
     if (job?.status === 'pending') {
-      return { status: 'pending', ...link, error: null };
+      return { status: 'pending', ...link, source, error: null };
     }
     if (job?.status === 'failed') {
-      return { status: 'failed', ...link, error: job.error ?? 'SharePoint folder creation failed.' };
+      return { status: 'failed', ...link, source, error: job.error ?? 'Folder creation failed.' };
     }
-    return { status: 'none', ...link, error: null };
+    return { status: 'none', ...link, source, error: null };
   }
 
   async update(id: number, dto: UpdateEngagementDto): Promise<void> {
