@@ -28,6 +28,8 @@ export interface ToastItem {
   id: string;
   message: string;
   type: 'success' | 'error' | 'warning' | 'info';
+  /** Optional bold heading rendered above the message. */
+  title?: string;
   action?: { label: string; onClick: () => void };
 }
 
@@ -77,7 +79,14 @@ function Toast({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => void }
       onBlur={() => startDismissTimer()}
     >
       <div className="flex items-start gap-2">
-        <span className="text-text-primary text-sm flex-1">{toast.message}</span>
+        <div className="flex-1 min-w-0">
+          {toast.title && (
+            <p className="text-text-primary text-sm font-semibold">{toast.title}</p>
+          )}
+          <p className={`text-sm ${toast.title ? 'text-text-secondary mt-0.5' : 'text-text-primary'}`}>
+            {toast.message}
+          </p>
+        </div>
         <button onClick={onDismiss} className="text-text-muted hover:text-text-secondary text-xs">✕</button>
       </div>
       {toast.action && (

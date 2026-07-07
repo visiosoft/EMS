@@ -1,14 +1,20 @@
 import {
+  BadRequestException,
+  Body,
   Controller,
   ForbiddenException,
   Get,
   HttpException,
   Logger,
+  Post,
   Query,
   Req,
   Res,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ConfigService } from '@nestjs/config';
 import type { Request, Response } from 'express';
 import { Readable } from 'node:stream';
@@ -22,9 +28,10 @@ import {
   type DocumentItem,
   type DocumentSource,
 } from './document-library.service';
+import { documentUploadMulterOptions } from './document-upload-multer.config';
 
 type OwnerIdentity = { oid?: string; emails: string[] };
-import { DownloadQueryDto, FolderQueryDto } from './dto/document-query.dto';
+import { DownloadQueryDto, FolderQueryDto, UploadBodyDto } from './dto/document-query.dto';
 
 @UseGuards(InternalAccessGuard)
 @Controller('documents')
@@ -161,9 +168,35 @@ export class DocumentLibraryController {
     try {
       const source = await this.resolveSource(req, query.source);
       const items = await this.documentLibraryService.getFolderContents(query.path, source);
+      // Shared engagement folders are team spaces — return everything, unfiltered.
+      if (query.shared) return items;
       return await this.applyOwnershipFilter(req, source, items);
     } catch (error) {
       throw this.toHttpException('folder contents', error);
+    }
+  }
+
+  @Post('upload')
+  @UseInterceptors(FileInterceptor('file', documentUploadMulterOptions()))
+  async upload(
+    @Req() req: Request,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: UploadBodyDto,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file was provided for upload.');
+    }
+    try {
+      const source = await this.resolveSource(req, body.source);
+      return await this.documentLibraryService.uploadFile(
+        body.path ?? '',
+        file.originalname,
+        file.buffer,
+        file.mimetype,
+        source,
+      );
+    } catch (error) {
+      throw this.toHttpException('upload', error);
     }
   }
 

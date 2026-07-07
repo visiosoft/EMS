@@ -1,14 +1,19 @@
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
-import { Loader2, ExternalLink, FolderOpen, RefreshCw, FolderTree, FileIcon } from 'lucide-react';
-import { fetchEngagementSharePointFolder, createEngagementSharePointFolders } from '@/api/engagementApi';
-import { fetchFolderContents } from '@/features/document-library/services/documentApi';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Loader2, ExternalLink, FolderOpen, RefreshCw, FolderTree, FileIcon, Upload, Download } from 'lucide-react';
+import { fetchEngagementSharePointFolderStatus, createEngagementSharePointFolders } from '@/api/engagementApi';
+import { fetchFolderContents, uploadDocument, downloadFile } from '@/features/document-library/services/documentApi';
 import type { DocumentItem } from '@/features/document-library/types';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 
 interface Props {
   engagementId: number;
-  addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  addToast: (
+    msg: string,
+    type: 'success' | 'error' | 'warning' | 'info',
+    action?: { label: string; onClick: () => void },
+    title?: string,
+  ) => void;
 }
 
 function formatDate(dateStr?: string): string {
@@ -31,39 +36,53 @@ function formatFileSize(bytes?: number): string {
 export function EngagementDocumentsTab({ engagementId, addToast }: Props) {
   const [currentPath, setCurrentPath] = useState<string>('');
   const [creating, setCreating] = useState(false);
-  const [creationError, setCreationError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch the SharePoint folder link for this engagement
-  const folderQuery = useQuery({
-    queryKey: ['engagement-sharepoint-folder', engagementId],
-    queryFn: () => fetchEngagementSharePointFolder(engagementId),
+  // Poll the SharePoint folder provisioning status. While it's 'pending' we keep polling
+  // so the folders load automatically once ready — the user never has to refresh.
+  const statusQuery = useQuery({
+    queryKey: ['engagement-sharepoint-status', engagementId],
+    queryFn: () => fetchEngagementSharePointFolderStatus(engagementId),
+    refetchInterval: (query) => (query.state.data?.status === 'pending' ? 4000 : false),
   });
+  const statusData = statusQuery.data;
+  const status = statusData?.status;
 
-  // Set the initial path from the folder link
+  // Default the tab to the engagement's Market (DMA) folder, falling back to the
+  // engagement (attraction) folder if the market path can't be resolved.
   const rootPath = useMemo(() => {
-    if (!folderQuery.data?.linkPath) return '';
-    return folderQuery.data.linkPath;
-  }, [folderQuery.data]);
+    return statusData?.marketFolderPath || statusData?.linkPath || '';
+  }, [statusData]);
 
-  // Fetch folder contents
+  // The effective folder currently being viewed. Empty currentPath = the market root.
+  const effectivePath = currentPath || rootPath;
+
+  // Fetch folder contents (shared: engagement folders are shown to the whole team)
   const contentsQuery = useQuery({
-    queryKey: ['engagement-documents', engagementId, currentPath || rootPath],
-    queryFn: () => fetchFolderContents(currentPath || rootPath),
-    enabled: !!(currentPath || rootPath),
+    queryKey: ['engagement-documents', engagementId, effectivePath],
+    queryFn: () => fetchFolderContents(effectivePath, undefined, { shared: true }),
+    enabled: !!effectivePath,
     staleTime: 10_000,
     refetchInterval: 30_000,
   });
 
+  // Breadcrumbs are relative to the Market (DMA) folder — it is the base of this view,
+  // so users navigate within it (and below) but not above it.
   const breadcrumbs = useMemo(() => {
-    const parts = (currentPath || rootPath).split('/').filter(Boolean);
-    const crumbs = [{ name: 'Engagement Files', path: '' }];
-    let acc = '';
-    for (const part of parts) {
+    const rootName = rootPath.split('/').filter(Boolean).pop() || 'Documents';
+    const crumbs = [{ name: rootName, path: rootPath }];
+    const relative = effectivePath.startsWith(rootPath)
+      ? effectivePath.slice(rootPath.length).replace(/^\//, '')
+      : effectivePath;
+    let acc = rootPath;
+    for (const part of relative.split('/').filter(Boolean)) {
       acc = acc ? `${acc}/${part}` : part;
       crumbs.push({ name: part, path: acc });
     }
     return crumbs;
-  }, [currentPath, rootPath]);
+  }, [effectivePath, rootPath]);
 
   const navigateToFolder = (folderPath: string) => {
     setCurrentPath(folderPath);
@@ -73,27 +92,87 @@ export function EngagementDocumentsTab({ engagementId, addToast }: Props) {
     setCurrentPath(path);
   };
 
-  const handleRetryCreate = async () => {
+  const handleCreateOrRetry = async () => {
     setCreating(true);
-    setCreationError(null);
     try {
-      const result = await createEngagementSharePointFolders(engagementId);
-      addToast('SharePoint folders created successfully.', 'success');
-      folderQuery.refetch();
-      if (result.rootWebUrl) {
-        setCurrentPath('');
-      }
+      await createEngagementSharePointFolders(engagementId);
+      addToast('Preparing your SharePoint folders…', 'info');
+      setCurrentPath('');
+      // Reflect the new 'pending' state immediately and resume polling.
+      await statusQuery.refetch();
     } catch (e) {
-      const msg = friendlyApiError(e);
-      setCreationError(msg);
-      addToast(msg, 'error');
+      addToast(friendlyApiError(e), 'error');
     } finally {
       setCreating(false);
     }
   };
 
-  // Loading state
-  if (folderQuery.isLoading) {
+  const handleDownload = async (item: DocumentItem) => {
+    setDownloadingId(item.id);
+    try {
+      await downloadFile(item);
+    } catch (e) {
+      addToast(`${item.name}: ${friendlyApiError(e)}`, 'error');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const handleFilesSelected = async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) return;
+    const targetPath = effectivePath;
+    const files = Array.from(fileList);
+    setUploading(true);
+    let uploaded = 0;
+    try {
+      for (const file of files) {
+        try {
+          await uploadDocument(targetPath, file);
+          uploaded += 1;
+        } catch (e) {
+          addToast(`${file.name}: ${friendlyApiError(e)}`, 'error');
+        }
+      }
+      if (uploaded > 0) {
+        addToast(
+          uploaded === 1 ? 'File uploaded to SharePoint.' : `${uploaded} files uploaded to SharePoint.`,
+          'success',
+        );
+        contentsQuery.refetch();
+      }
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // Fire a toast the moment the background provisioning finishes — only on the actual
+  // transition out of 'pending', so opening an already-ready engagement stays silent.
+  const prevStatusRef = useRef<typeof status>(undefined);
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    if (prev === 'pending' && status === 'ready') {
+      addToast(
+        'Your SharePoint folders have been created successfully. You can now access all documents.',
+        'success',
+        undefined,
+        'SharePoint Workspace Ready',
+      );
+    } else if (prev === 'pending' && status === 'failed') {
+      addToast(
+        "We couldn't create your SharePoint folders. Please try again.",
+        'error',
+        { label: 'Retry', onClick: () => void handleCreateOrRetry() },
+        'Folder Creation Failed',
+      );
+    }
+    prevStatusRef.current = status;
+    // handleCreateOrRetry is intentionally omitted; the transition guard prevents refires.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, addToast]);
+
+  // Initial load
+  if (statusQuery.isLoading) {
     return (
       <div className="flex items-center gap-2 text-text-muted text-sm py-6">
         <Loader2 className="h-4 w-4 animate-spin" />
@@ -102,8 +181,70 @@ export function EngagementDocumentsTab({ engagementId, addToast }: Props) {
     );
   }
 
-  // No folder yet
-  if (!folderQuery.data?.linkUrl) {
+  // The status request itself failed (e.g. backend unreachable) — surface it explicitly
+  // instead of falling through to the misleading "No SharePoint folder" empty state.
+  if (statusQuery.isError) {
+    return (
+      <div className="bg-card border border-border rounded-lg p-8 text-center space-y-4">
+        <FolderTree className="h-12 w-12 mx-auto text-ems-coral" />
+        <div>
+          <h3 className="text-sm font-semibold text-text-primary">Couldn't check SharePoint status</h3>
+          <p className="text-sm text-text-muted mt-1">{friendlyApiError(statusQuery.error)}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void statusQuery.refetch()}
+          className="inline-flex items-center gap-2 bg-ems-accent text-background text-sm px-4 py-2 rounded-md font-medium hover:bg-ems-accent/90 transition-colors"
+        >
+          <RefreshCw className="h-4 w-4" />
+          Try again
+        </button>
+      </div>
+    );
+  }
+
+  // Folders are being created in the background — non-blocking loading state that
+  // auto-resolves (the status query keeps polling) without a manual refresh.
+  if (status === 'pending') {
+    return (
+      <div className="bg-card border border-border rounded-lg p-8 text-center space-y-3">
+        <Loader2 className="h-10 w-10 mx-auto text-ems-accent animate-spin" />
+        <div>
+          <h3 className="text-sm font-semibold text-text-primary">Preparing your SharePoint folders</h3>
+          <p className="text-sm text-text-muted mt-1">
+            This may take a few moments. The documents will appear here automatically once ready.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Provisioning failed — clear message + Retry.
+  if (status === 'failed') {
+    return (
+      <div className="bg-card border border-border rounded-lg p-8 text-center space-y-4">
+        <FolderTree className="h-12 w-12 mx-auto text-ems-coral" />
+        <div>
+          <h3 className="text-sm font-semibold text-text-primary">SharePoint folder creation failed</h3>
+          <p className="text-sm text-text-muted mt-1">
+            {statusData?.error || 'Something went wrong while creating the folders.'}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void handleCreateOrRetry()}
+          disabled={creating}
+          className="inline-flex items-center gap-2 bg-ems-accent text-background text-sm px-4 py-2 rounded-md font-medium hover:bg-ems-accent/90 transition-colors disabled:opacity-60"
+        >
+          {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          Retry folder creation
+        </button>
+      </div>
+    );
+  }
+
+  // No folder yet (e.g. engagement not Confirmed) — offer manual creation.
+  if (status !== 'ready' || !statusData?.linkUrl) {
     return (
       <div className="bg-card border border-border rounded-lg p-8 text-center space-y-4">
         <FolderTree className="h-12 w-12 mx-auto text-text-muted" />
@@ -111,30 +252,18 @@ export function EngagementDocumentsTab({ engagementId, addToast }: Props) {
           <h3 className="text-sm font-semibold text-text-primary">No SharePoint folder</h3>
           <p className="text-sm text-text-muted mt-1">
             This engagement does not have a SharePoint folder structure yet.
-            Folder structures are automatically created when an engagement is created with
+            Folder structures are automatically created when an engagement is set to
             status <strong>Confirmed</strong>.
           </p>
         </div>
-
-        {creationError && (
-          <div className="bg-ems-coral/10 border border-ems-coral/30 rounded-md px-4 py-3 text-left">
-            <p className="text-sm font-medium text-ems-coral">Folder creation failed</p>
-            <p className="text-sm text-text-muted mt-1">{creationError}</p>
-          </div>
-        )}
-
         <button
           type="button"
-          onClick={() => void handleRetryCreate()}
+          onClick={() => void handleCreateOrRetry()}
           disabled={creating}
           className="inline-flex items-center gap-2 bg-ems-accent text-background text-sm px-4 py-2 rounded-md font-medium hover:bg-ems-accent/90 transition-colors disabled:opacity-60"
         >
-          {creating ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <FolderTree className="h-4 w-4" />
-          )}
-          {creationError ? 'Retry folder creation' : 'Create folder structure now'}
+          {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderTree className="h-4 w-4" />}
+          Create folder structure now
         </button>
       </div>
     );
@@ -150,7 +279,7 @@ export function EngagementDocumentsTab({ engagementId, addToast }: Props) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <a
-            href={folderQuery.data.linkUrl}
+            href={statusData?.linkUrl ?? '#'}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 text-sm text-ems-accent hover:underline"
@@ -159,14 +288,36 @@ export function EngagementDocumentsTab({ engagementId, addToast }: Props) {
             Open in SharePoint
           </a>
         </div>
-        <button
-          type="button"
-          onClick={() => contentsQuery.refetch()}
-          className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-text-primary transition-colors"
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-          Refresh
-        </button>
+        <div className="flex items-center gap-3">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => void handleFilesSelected(e.target.files)}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="inline-flex items-center gap-1.5 text-sm text-ems-accent hover:underline disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {uploading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Upload className="h-4 w-4" />
+            )}
+            {uploading ? 'Uploading…' : 'Upload'}
+          </button>
+          <button
+            type="button"
+            onClick={() => contentsQuery.refetch()}
+            className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-text-primary transition-colors"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Breadcrumbs */}
@@ -211,11 +362,12 @@ export function EngagementDocumentsTab({ engagementId, addToast }: Props) {
       ) : (
         <div className="bg-card border border-border rounded-lg overflow-hidden">
           {/* Column headers */}
-          <div className="grid grid-cols-[32px_1fr_120px_80px] gap-0 px-3 py-2 bg-surface/50 border-b border-border text-[11px] text-text-muted font-medium uppercase tracking-wide">
+          <div className="grid grid-cols-[32px_1fr_120px_80px_40px] gap-0 px-3 py-2 bg-surface/50 border-b border-border text-[11px] text-text-muted font-medium uppercase tracking-wide">
             <div />
             <div>Name</div>
             <div className="text-right">Modified</div>
             <div className="text-right">Size</div>
+            <div />
           </div>
 
           {/* Items */}
@@ -225,7 +377,7 @@ export function EngagementDocumentsTab({ engagementId, addToast }: Props) {
                 key={item.id}
                 type="button"
                 onClick={() => navigateToFolder(item.path)}
-                className="w-full grid grid-cols-[32px_1fr_120px_80px] gap-0 px-3 py-2 border-b border-border/50 text-sm hover:bg-hover transition-colors text-left"
+                className="w-full grid grid-cols-[32px_1fr_120px_80px_40px] gap-0 px-3 py-2 border-b border-border/50 text-sm hover:bg-hover transition-colors text-left"
               >
                 <div className="text-amber-500 flex items-center justify-center">
                   <FolderOpen className="h-4 w-4" />
@@ -235,14 +387,16 @@ export function EngagementDocumentsTab({ engagementId, addToast }: Props) {
                   {formatDate(item.modified)}
                 </div>
                 <div className="text-right text-text-muted text-xs">—</div>
+                <div />
               </button>
             ) : (
-              <a
+              <button
                 key={item.id}
-                href={item.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="grid grid-cols-[32px_1fr_120px_80px] gap-0 px-3 py-2 border-b border-border/50 text-sm hover:bg-hover transition-colors"
+                type="button"
+                onClick={() => void handleDownload(item)}
+                disabled={downloadingId === item.id}
+                title={`Download ${item.name}`}
+                className="w-full grid grid-cols-[32px_1fr_120px_80px_40px] gap-0 px-3 py-2 border-b border-border/50 text-sm hover:bg-hover transition-colors text-left disabled:opacity-60"
               >
                 <div className="text-text-muted flex items-center justify-center">
                   <FileIcon className="h-4 w-4" />
@@ -254,7 +408,14 @@ export function EngagementDocumentsTab({ engagementId, addToast }: Props) {
                 <div className="text-right text-text-muted text-xs">
                   {formatFileSize(item.size)}
                 </div>
-              </a>
+                <div className="flex items-center justify-center text-text-muted">
+                  {downloadingId === item.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
+                </div>
+              </button>
             ),
           )}
         </div>

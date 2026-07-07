@@ -432,6 +432,142 @@ export class DocumentLibraryService {
     };
   }
 
+  /**
+   * Creates a full engagement folder tree efficiently:
+   *  1. the shared root chain ({Year}/{Market}/{Attraction}) sequentially — each level
+   *     depends on its parent, and creating it once avoids the redundant re-creation the
+   *     old per-hierarchy loop performed;
+   *  2. the top-level folders (Contracts, Booking, …) in parallel;
+   *  3. their children (Tour, Venue, Partner) in parallel.
+   * The app-only token is warmed once up front and reused across every request, and each
+   * request is wrapped in exponential-backoff retry for transient Graph failures.
+   * Returns the attraction-level folder's webUrl (the engagement's root folder).
+   */
+  async createFolderTree(
+    rootSegments: string[],
+    structure: Record<string, string[]>,
+    source: DocumentSource = 'sharepoint',
+  ): Promise<{ rootWebUrl: string }> {
+    // Warm the token so the parallel waves below reuse a single cached app-only token.
+    await this.acquireAppToken();
+
+    // 1) Root chain — sequential (parent must exist before child).
+    let accumulatedPath = '';
+    let rootWebUrl = '';
+    for (const segment of rootSegments) {
+      const folderName = segment.trim();
+      if (!folderName) continue;
+      const res = await this.withGraphRetry(
+        () => this.createFolder(accumulatedPath, folderName, source),
+        `createFolder ${folderName}`,
+      );
+      accumulatedPath = res.path;
+      rootWebUrl = res.webUrl;
+    }
+    const basePath = accumulatedPath;
+
+    // 2) Top-level folders — independent, create in parallel.
+    const parents = Object.keys(structure);
+    await Promise.all(
+      parents.map((parent) =>
+        this.withGraphRetry(() => this.createFolder(basePath, parent, source), `createFolder ${parent}`),
+      ),
+    );
+
+    // 3) Child folders — independent once parents exist, create in parallel.
+    const childTasks: Promise<unknown>[] = [];
+    for (const [parent, children] of Object.entries(structure)) {
+      for (const child of children) {
+        childTasks.push(
+          this.withGraphRetry(
+            () => this.createFolder(`${basePath}/${parent}`, child, source),
+            `createFolder ${parent}/${child}`,
+          ),
+        );
+      }
+    }
+    await Promise.all(childTasks);
+
+    return { rootWebUrl };
+  }
+
+  /**
+   * Retries a Graph operation with exponential backoff + jitter on transient failures
+   * (throttling / transient server errors / network). Non-transient errors (401/403/404)
+   * fail fast so misconfiguration surfaces immediately.
+   */
+  private async withGraphRetry<T>(fn: () => Promise<T>, label: string, maxAttempts = 4): Promise<T> {
+    const isTransient = (status?: number): boolean =>
+      status === undefined || status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+
+    let attempt = 0;
+    for (;;) {
+      try {
+        return await fn();
+      } catch (err) {
+        attempt += 1;
+        const status = (err as { status?: number })?.status;
+        if (attempt >= maxAttempts || !isTransient(status)) throw err;
+        const backoff = Math.min(8000, 400 * 2 ** (attempt - 1)) + Math.floor(Math.random() * 250);
+        this.logger.warn(
+          `[GraphAPI] ${label} failed (attempt ${attempt}/${maxAttempts}, status ${status ?? 'network'}); retrying in ${backoff}ms`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, backoff));
+      }
+    }
+  }
+
+  // ─── File upload ────────────────────────────────────────────────────────
+
+  /**
+   * Uploads a file into the given folder via Graph's simple upload (PUT .../content).
+   * Simple upload supports files up to 250 MB, which comfortably covers the 100 MB
+   * cap enforced by the controller's multer config. Uses conflictBehavior=rename so
+   * re-uploading a same-named file gets a numbered suffix instead of overwriting.
+   */
+  async uploadFile(
+    parentPath: string,
+    filename: string,
+    buffer: Buffer,
+    contentType: string,
+    source: DocumentSource = 'sharepoint',
+  ): Promise<DocumentItem> {
+    const token = await this.acquireAppToken();
+    const base = await this.driveBase(source);
+    const encodedName = encodeURIComponent(filename);
+    const encodedParent = parentPath.split('/').filter(Boolean).map((s) => encodeURIComponent(s)).join('/');
+    const itemPath = encodedParent ? `${encodedParent}/${encodedName}` : encodedName;
+    const url = `${base}/root:/${itemPath}:/content?@microsoft.graph.conflictBehavior=rename`;
+
+    this.logger.log(`[GraphAPI] uploadFile PUT ${url}`);
+
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': contentType || 'application/octet-stream',
+      },
+      // Node's fetch (undici) accepts a Buffer at runtime; the DOM BodyInit type in
+      // this project doesn't include BufferSource, so cast to satisfy the compiler.
+      body: buffer as unknown as BodyInit,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '(failed to read body)');
+      this.logger.error(`[GraphAPI] uploadFile failed (${response.status}): ${errorText}`);
+      const err = new Error(`Graph API responded with ${response.status}: ${errorText}`);
+      (err as any).status = response.status;
+      (err as any).statusText = response.statusText;
+      (err as any).body = errorText;
+      throw err;
+    }
+
+    const data = (await response.json()) as GraphDriveItem;
+    this.logger.log(`[GraphAPI] File uploaded: ${data.webUrl}`);
+    this.invalidateCache(parentPath);
+    return this.normalizeItem(data, parentPath);
+  }
+
   private normalizeItem(item: GraphDriveItem, parentPath: string): DocumentItem {
     const isFolder = 'folder' in item;
     const path = parentPath ? `${parentPath}/${item.name}` : item.name;
