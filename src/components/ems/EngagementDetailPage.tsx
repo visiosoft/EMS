@@ -44,6 +44,7 @@ import {
 import {
   createEngagementPerformance,
   deleteEngagement,
+  fetchEngagementDeleteImpact,
   fetchEngagement,
   fetchEngagementFinance,
   fetchEngagementFinanceLookups,
@@ -10266,11 +10267,35 @@ export function EngagementDetailPage({
     productionDatesMutation.isPending;
 
   // ── Delete ──────────────────────────────────────────────────────────────
+  const deleteImpactQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'delete-impact'],
+    queryFn: () => fetchEngagementDeleteImpact(engagementId),
+    enabled: pendingDelete,
+  });
+
   const deleteMutation = useMutation({
     mutationFn: () => deleteEngagement(engagementId),
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ['engagements'] });
+      // refetchType: 'all' — the engagements list is unmounted right now (we're still on
+      // this detail page), and the app's QueryClient has refetchOnMount: false, so a plain
+      // invalidate would only mark it stale and never actually refetch before it remounts.
+      // The predicate skips this engagement's own ['engagements', engagementId] detail
+      // query — refetching it would 404 (it's gone) while we're still mounted here, which
+      // flashes the "Could not load engagement" error screen before onNavigate takes over.
+      await qc.invalidateQueries({
+        refetchType: 'all',
+        predicate: (query) => {
+          const key = query.queryKey;
+          if (key[0] !== 'engagements') return false;
+          return !(key.length === 2 && key[1] === engagementId);
+        },
+      });
       addToast('Engagement deleted.', 'warning');
+      // This page now stays mounted (hidden) instead of unmounting on navigate, since view
+      // persistence is on by default — so the dialog must be closed explicitly here rather
+      // than relying on unmount. Its content renders via a portal, so left open it would
+      // keep floating on top of whatever view we navigate to.
+      setPendingDelete(false);
       onNavigate('engagements');
     },
     onError: (e: unknown) => {
@@ -11624,10 +11649,50 @@ export function EngagementDetailPage({
               <span className="font-medium text-text-primary">
                 {row.displayTitle}
               </span>
-              . This cannot be undone. If removal isn’t allowed, you’ll see an error message after you
-              confirm.
+              . This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
+
+          {deleteImpactQuery.isLoading && (
+            <div
+              className="flex items-center gap-2.5 rounded-lg border border-border border-dashed bg-surface/60 px-3 py-2.5 text-sm text-text-secondary"
+              role="status"
+              aria-live="polite"
+            >
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-ems-accent" aria-hidden />
+              <span>Checking for linked data…</span>
+            </div>
+          )}
+
+          {deleteImpactQuery.data && deleteImpactQuery.data.blockers.length > 0 && (
+            <div className="flex items-start gap-2.5 rounded-lg border border-ems-coral/40 bg-ems-coral/10 px-3 py-2.5 text-sm text-text-primary">
+              <AlertCircle className="h-4 w-4 shrink-0 text-ems-coral mt-0.5" aria-hidden />
+              <div className="space-y-1">
+                {deleteImpactQuery.data.blockers.map((b, i) => (
+                  <p key={i}>{b}</p>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {deleteImpactQuery.data &&
+            deleteImpactQuery.data.canDelete &&
+            deleteImpactQuery.data.dependents.length > 0 && (
+              <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm text-text-primary">
+                <AlertCircle className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" aria-hidden />
+                <div className="space-y-1">
+                  <p className="font-medium">This engagement also has linked data that will be permanently deleted:</p>
+                  <ul className="list-disc pl-4">
+                    {deleteImpactQuery.data.dependents.map((d, i) => (
+                      <li key={i}>
+                        {d.count} {d.label}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
+
           {deleteMutation.isPending && (
             <div
               className="flex items-center gap-2.5 rounded-lg border border-border border-dashed bg-surface/60 px-3 py-2.5 text-sm text-text-secondary"
@@ -11651,7 +11716,11 @@ export function EngagementDetailPage({
             <Button
               type="button"
               variant="destructive"
-              disabled={deleteMutation.isPending}
+              disabled={
+                deleteMutation.isPending ||
+                deleteImpactQuery.isLoading ||
+                deleteImpactQuery.data?.canDelete === false
+              }
               className="bg-ems-coral text-white hover:bg-ems-coral/90 sm:ml-0"
               onClick={() => void deleteMutation.mutate()}
             >
@@ -11660,6 +11729,8 @@ export function EngagementDetailPage({
                   <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
                   Removing…
                 </>
+              ) : deleteImpactQuery.data && deleteImpactQuery.data.dependents.length > 0 ? (
+                'Yes, delete engagement and linked data'
               ) : (
                 'Yes, remove engagement'
               )}
