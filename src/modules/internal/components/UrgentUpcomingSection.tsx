@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { handleOpenEngagements, handleOpenEmsCalendar } from "../lib/emsOpenIntent";
+import { handleOpenEngagements, handleOpenEmsCalendar, primeEmsOpenIntent } from "../lib/emsOpenIntent";
 import { useHubEngagementSchedule } from "../hooks/useHubEngagementSchedule";
 import type { HubEngagementEvent } from "../lib/hubEngagementSchedule";
 
@@ -30,7 +30,7 @@ function StatusMessage({ children }: { children: ReactNode }) {
 }
 
 export function UrgentUpcomingSection({ pinned = false }: UrgentUpcomingSectionProps) {
-  const { events, isLoading, isError, isAuthenticated, userOid } = useHubEngagementSchedule("this");
+  const { events, isLoading, isError, isAuthenticated, userOid, weekRange } = useHubEngagementSchedule("this");
 
   const showEmptyWeek = !isLoading && !isError && userOid && events.length === 0;
 
@@ -60,7 +60,7 @@ export function UrgentUpcomingSection({ pinned = false }: UrgentUpcomingSectionP
               href="/"
               target="_blank"
               rel="noreferrer"
-              onClick={(event) => handleOpenEngagements(event)}
+              onClick={() => primeEmsOpenIntent({ view: "engagements", mineOnly: true, timingFilter: "upcoming", dateFrom: weekRange.startDate, dateTo: weekRange.endDate })}
               className="text-sm font-semibold text-white hover:text-white/80 md:absolute md:left-[107px] md:top-[92px] sm:text-base"
             >
               See all

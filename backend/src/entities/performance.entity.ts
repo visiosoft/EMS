@@ -21,7 +21,15 @@ export class Performance extends AuditColumns {
   @JoinColumn({ name: 'EngagementID' })
   engagement: Engagement;
 
-  @Column({ name: 'PerformanceStatus', type: 'nvarchar', length: 50 })
+  /**
+   * DB column was renamed `PerformanceStatus` → `TicketingStatus`.
+   * Allowed values: Private (Not Announced), Public (Not On Sale),
+   * Public (On-Sale), Public (Season Ticket Sales Only).
+   * The entity property keeps the legacy name `performanceStatus` to avoid a
+   * collision with `PerformanceTicketing.ticketingStatus` (a separate concept
+   * on a different table); it maps to the new column via `@Column name` below.
+   */
+  @Column({ name: 'TicketingStatus', type: 'nvarchar', length: 50 })
   performanceStatus: string;
 
   @Column({ name: 'PerformanceDate', type: 'date' })

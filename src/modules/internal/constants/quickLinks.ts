@@ -25,29 +25,17 @@ export const SHIPPING_REQUESTS_URL =
 export const QUICK_LINKS: QuickLinkItem[] = [
   { label: "Company News", view: "company-news", icon: Newspaper },
   { label: "Tech Support", href: GENUITY_HELP_CENTER_URL, icon: UsersRound, external: true },
-  {
-    label: "ADP Payroll Schedule",
-    href: "https://innovationae.sharepoint.com/sites/IAECloudServer/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FIAECloudServer%2FShared%20Documents%2FMarketing%2FTO%20REVIEW%2FMandy%2FzMANDY%20PRINT%20REQUESTS%2FADAM%20REVIEW%2F2026%20Payroll%20Schedule%20%28Revised%29%20%281%29%2Epdf&parent=%2Fsites%2FIAECloudServer%2FShared%20Documents%2FMarketing%2FTO%20REVIEW%2FMandy%2FzMANDY%20PRINT%20REQUESTS%2FADAM%20REVIEW&p=true&ga=1",
-    icon: BadgeDollarSign,
-    external: true,
-  },
+  { label: "Payroll Schedule", view: "payroll-schedule", icon: BadgeDollarSign },
   { label: "PTO Requests", href: "https://signin.adp.com/", icon: CalendarDays, external: true },
   { label: "Payment Requests", href: "https://ramp.com/", icon: CreditCard, external: true },
   { label: "Shipping Requests", href: SHIPPING_REQUESTS_URL, icon: Mail, external: true },
 ];
 
 export const HUB_ACTION_CARDS = [
-  { key: "sales-update", label: "Sales Update" },
+  { key: "my-engagements", label: "My Engagements" },
   { key: "employee-services", label: "Employee Services" },
-  { key: "past-engagements", label: "Past Engagements" },
+  { key: "employee-directory", label: "Employee Directory" },
   { key: "upcoming-engagements", label: "Upcoming Engagements" },
-] as const;
-
-export const TIME_ZONE_LOCATIONS = [
-  { city: "Chicago, IL", timeZone: "America/Chicago", offsetLabel: null },
-  { city: "New York, NY", timeZone: "America/New_York", offsetLabel: "+1h" },
-  { city: "Denver, CO", timeZone: "America/Denver", offsetLabel: "-1h" },
-  { city: "Los Angeles, CA", timeZone: "America/Los_Angeles", offsetLabel: "-2h" },
 ] as const;
 
 export const DOCUMENT_ITEMS = [

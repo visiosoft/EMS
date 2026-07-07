@@ -38,7 +38,7 @@ type SortColumn =
   | 'ticketsSoldYesterday' | 'grossSales7Days' | 'ticketsSoldPrevious7Days'
   | 'grossSales14Days' | 'ticketsSoldPrevious14Days' | 'grossUnsoldRevenue' | 'unsoldTickets';
 
-type EventDateScope = 'past' | 'upcoming' | 'custom';
+type EventDateScope = 'all' | 'past' | 'upcoming' | 'custom';
 type SalesSummaryMetricColumnGroupId =
   | 'totalInventory'
   | 'lifetimeSales'
@@ -59,6 +59,7 @@ type SummaryRow = { row: ApiPerformanceSalesRow; metrics: Metrics };
 const EMPTY_PERFORMANCE_ROWS: ApiPerformanceSalesRow[] = [];
 
 const EVENT_DATE_SCOPE_OPTIONS: Array<{ value: EventDateScope; label: string }> = [
+  { value: 'all', label: 'All Engagements' },
   { value: 'upcoming', label: 'Upcoming' },
   { value: 'past', label: 'Past' },
   { value: 'custom', label: 'Custom Date Range' },
@@ -105,12 +106,30 @@ function snap(ledger: Ledger, performanceId: number, cutoff: string): Snapshot |
 // latest report's cumulative minus the report before it). Lets "yesterday"
 // figures fall back to the last day that actually had sales when yesterday
 // itself had none reported.
+// "Unreported" rows (where both cumulative values are zero after previously
+// being non-zero) are skipped — the Sales Trends view carries forward the
+// prior reported value for such days, so we skip them here to stay aligned.
 function lastDailyMovement(rows: LedgerRow[] | undefined, cutoff: string): Snapshot {
   if (!rows?.length) return { tickets: 0, revenue: 0 };
   let idx = -1; for (let i = 0; i < rows.length; i++) { if (rows[i].salesDate <= cutoff) idx = i; else break; }
   if (idx < 0) return { tickets: 0, revenue: 0 };
-  const cur = rows[idx]; const prev = idx > 0 ? rows[idx - 1] : null;
-  return { tickets: delta(cur.tickets, prev?.tickets ?? 0), revenue: delta(cur.revenue, prev?.revenue ?? 0) };
+  // Walk backwards to find the most recent day with non-zero movement,
+  // matching the engagement dashboard behaviour.
+  while (idx > 0) {
+    const cur = rows[idx];
+    // Skip unreported gap rows (NULL coerced to 0 in the DB).
+    if (cur.tickets === 0 && cur.revenue === 0) { idx--; continue; }
+    // Find the nearest prior row that isn't an unreported gap.
+    let pi = idx - 1;
+    while (pi > 0 && rows[pi].tickets === 0 && rows[pi].revenue === 0) pi--;
+    const prev = rows[pi];
+    const t = delta(cur.tickets, prev.tickets);
+    const r = delta(cur.revenue, prev.revenue);
+    if (t > 0 || r > 0) return { tickets: t, revenue: r };
+    idx = pi;
+  }
+  // Only one reported entry — treat its cumulative as the initial movement.
+  return { tickets: rows[idx].tickets, revenue: rows[idx].revenue };
 }
 function aggregateLastDailyMovement(ledger: Ledger, cutoff: string): Snapshot {
   let tickets = 0, revenue = 0;
@@ -123,11 +142,23 @@ function metricsFor(r: ApiPerformanceSalesRow, ledger: Ledger, reportDate: strin
   const prev7 = ready ? snap(ledger, r.performanceId, ymdAddBusinessDays(reportDate, -7)) : null;
   const prev14 = ready ? snap(ledger, r.performanceId, ymdAddBusinessDays(reportDate, -14)) : null;
   const cap = num(r.engagementSellableCapacity), potential = num(r.engagementGrossPotential);
+  // Use lastDailyMovement when the ledger is ready — it finds the most recent
+  // day with actual cumulative movement, so weekends / days with no new sales
+  // rows still reflect the last reported day correctly.
+  const movement = ready
+    ? lastDailyMovement(ledger.get(r.performanceId), reportDate)
+    : null;
+  const ticketsSoldYesterday = movement
+    ? movement.tickets
+    : delta(current.tickets, prev?.tickets ?? 0);
+  const yesterdayRevenue = movement
+    ? movement.revenue
+    : delta(current.revenue, prev?.revenue ?? 0);
   return {
     currentTickets: current.tickets,
     currentRevenue: current.revenue,
-    ticketsSoldYesterday: delta(current.tickets, prev?.tickets ?? 0),
-    yesterdayRevenue: delta(current.revenue, prev?.revenue ?? 0),
+    ticketsSoldYesterday,
+    yesterdayRevenue,
     grossSales7Days: delta(current.revenue, prev7?.revenue ?? 0),
     ticketsSoldPrevious7Days: delta(current.tickets, prev7?.tickets ?? 0),
     grossSales14Days: delta(current.revenue, prev14?.revenue ?? 0),
@@ -539,8 +570,8 @@ function ColResizeHandle({
 
 export function SalesSummaryPage({ onOpenEngagement }: Props) {
   const today = ymd();
-  const [eventDateScope, setEventDateScope] = useState<EventDateScope>('upcoming');
-  const [appliedEventDateScope, setAppliedEventDateScope] = useState<EventDateScope>('upcoming');
+  const [eventDateScope, setEventDateScope] = useState<EventDateScope>('all');
+  const [appliedEventDateScope, setAppliedEventDateScope] = useState<EventDateScope>('all');
   const [customStartDate, setCustomStartDate] = useState(today);
   const [customEndDate, setCustomEndDate] = useState(today);
   const [appliedCustomStartDate, setAppliedCustomStartDate] = useState(today);
@@ -561,7 +592,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   const appliedCustomDatesAreValid = iso(appliedCustomStartDate) && iso(appliedCustomEndDate);
   const appliedCustomRangeOrderIsValid = !appliedCustomDatesAreValid || appliedCustomEndDate >= appliedCustomStartDate;
   const dateOk = appliedEventDateScope !== 'custom' || (appliedCustomDatesAreValid && appliedCustomRangeOrderIsValid);
-  const dateScopeChanged = appliedEventDateScope !== 'upcoming';
+  const dateScopeChanged = appliedEventDateScope !== 'all';
   const customRangeHasChanges =
     eventDateScope === 'custom' &&
     (appliedEventDateScope !== 'custom' ||
@@ -575,10 +606,10 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
     venueFilter,
     activeSearch.trim(),
   ].filter(Boolean).length;
-  const reset = () => { setAttractionFilter(''); setGenreFilter(''); setTourFilter(''); setVenueFilter(''); setSearchInput(''); setActiveSearch(''); setEventDateScope('upcoming'); setAppliedEventDateScope('upcoming'); setCustomStartDate(today); setCustomEndDate(today); setAppliedCustomStartDate(today); setAppliedCustomEndDate(today); setPage(1); };
+  const reset = () => { setAttractionFilter(''); setGenreFilter(''); setTourFilter(''); setVenueFilter(''); setSearchInput(''); setActiveSearch(''); setEventDateScope('all'); setAppliedEventDateScope('all'); setCustomStartDate(today); setCustomEndDate(today); setAppliedCustomStartDate(today); setAppliedCustomEndDate(today); setPage(1); };
 
   const handleEventDateScopeChange = (value: string) => {
-    const next = (value || 'upcoming') as EventDateScope;
+    const next = (value || 'all') as EventDateScope;
     setEventDateScope(next);
     if (next !== 'custom') {
       setAppliedEventDateScope(next);
@@ -596,6 +627,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
 
   const searchParam = activeSearch.trim() || undefined;
   const performanceDateParams = useMemo(() => {
+    if (appliedEventDateScope === 'all') return {};
     if (appliedEventDateScope === 'past') return { endDate: ymdAddDays(today, -1) };
     if (appliedEventDateScope === 'custom' && dateOk) return { startDate: appliedCustomStartDate, endDate: appliedCustomEndDate };
     return { startDate: today };
@@ -896,7 +928,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
     {isRefreshing && <div className="pointer-events-none fixed top-0 left-0 right-0 z-[200] h-0.5 overflow-hidden" aria-hidden><div className="h-full w-1/3 animate-pulse bg-ems-accent/90" /></div>}
     <div className="shrink-0 flex flex-col gap-3 rounded-xl border border-border bg-card px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="flex items-center gap-2"><h1 className="text-2xl font-bold text-text-primary tracking-tight">Overview Report</h1>{!isLoading && <span className="rounded-full bg-elevated px-2.5 py-0.5 text-[11px] font-semibold tabular-nums text-text-secondary">{kpis.events.toLocaleString()} {kpis.events === 1 ? 'event' : 'events'}</span>}</div><p className="mt-0.5 text-sm text-text-secondary">A detailed snapshot of selected events</p></div><div className="inline-flex items-center gap-2 rounded-lg border border-border bg-elevated/60 px-3 py-2 text-xs text-text-secondary"><Info className="h-4 w-4 text-ems-accent shrink-0" aria-hidden /><span>Click a row to view <span className="font-medium text-text-primary">Sales Trends</span> for that event</span></div></div>
     {!isLoading && rows.length > 0 && !!summary && <div className="shrink-0 grid grid-cols-2 md:grid-cols-4 gap-3"><KpiCard icon={CalendarRange} label="Events" value={kpis.events.toLocaleString()} sub="in selected date scope" tone="blue" /><KpiCard icon={Ticket} label="Total tickets sold" value={kpis.totalSold.toLocaleString()} sub="across selected events" tone="purple" /><KpiCard icon={TrendingUp} label="Revenue yesterday" value={money(kpis.revenueYesterday) || '$0'} sub="from prior day" tone="accent" /><KpiCard icon={DollarSign} label="Total revenue" value={money(kpis.totalRevenue) || '$0'} sub="across selected events" tone="green" /></div>}
-    <div className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-rows-1 lg:grid-cols-[16rem_minmax(0,1fr)]"><aside className="lg:sticky lg:top-[4.5rem] lg:self-start"><div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden"><div className="flex items-center justify-between gap-2 border-b border-border bg-surface/60 px-4 py-3"><div className="flex items-center gap-2 min-w-0"><FilterIcon className="h-4 w-4 text-ems-accent shrink-0" aria-hidden /><h2 className="text-sm font-semibold text-text-primary">Filters</h2>{activeFilterCount > 0 && <span className="rounded-full bg-ems-accent/15 text-ems-accent text-[10px] font-semibold tabular-nums ring-1 ring-ems-accent/20 px-2 py-0.5">{activeFilterCount}</span>}</div>{activeFilterCount > 0 && <button type="button" onClick={reset} className="inline-flex items-center gap-1 rounded-md text-[11px] font-medium text-text-secondary hover:text-ems-accent transition-colors" title="Clear all filters"><RotateCcw className="h-3 w-3" aria-hidden />Reset</button>}</div><div className="p-3 space-y-3 max-h-[calc(100vh-12rem)] overflow-y-auto"><FilterField label="Event date"><Select2 options={EVENT_DATE_SCOPE_OPTIONS} value={eventDateScope} onChange={handleEventDateScopeChange} placeholder="Upcoming" allowClear={false} /></FilterField>{eventDateScope === 'custom' && <div className="rounded-lg border border-border bg-surface/45 p-2.5 space-y-2"><FilterField label="From"><input type="date" className={dateInputClass} value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} aria-label="Custom date range from" /></FilterField><FilterField label="To"><input type="date" className={dateInputClass} value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} aria-label="Custom date range to" /></FilterField>{!customDatesAreValid && <p className="text-[11px] text-ems-coral">Enter valid from and to dates.</p>}{customDatesAreValid && !customRangeOrderIsValid && <p className="text-[11px] text-ems-coral">To date must be on or after from date.</p>}<button type="button" onClick={applyCustomDateRange} disabled={!customDatesAreValid || !customRangeOrderIsValid || !customRangeHasChanges} className="inline-flex h-9 w-full items-center justify-center rounded-lg border border-ems-accent/30 bg-ems-accent text-sm font-semibold text-white shadow-sm transition-all hover:bg-ems-accent-hover disabled:cursor-not-allowed disabled:border-border disabled:bg-elevated disabled:text-text-muted disabled:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/30">Apply range</button></div>}<div className="h-px bg-border" /><FilterField label="Attraction"><Select2 options={attractionOptions} value={attractionFilter} onChange={setAttractionFilter} placeholder="All attractions" allowClear={!!attractionFilter} /></FilterField><FilterField label="Genre"><Select2 options={opt('All genres', pageData?.filterOptions.genres)} value={genreFilter} onChange={setGenreFilter} placeholder="All genres" allowClear={!!genreFilter} /></FilterField><FilterField label="Tour Name"><Select2 options={opt('All tours', pageData?.filterOptions.tours)} value={tourFilter} onChange={setTourFilter} placeholder="All tours" allowClear={!!tourFilter} /></FilterField><FilterField label="Venue"><Select2 options={opt('All venues', pageData?.filterOptions.venues)} value={venueFilter} onChange={setVenueFilter} placeholder="All venues" allowClear={!!venueFilter} /></FilterField></div></div></aside>
+    <div className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-rows-1 lg:grid-cols-[16rem_minmax(0,1fr)]"><aside className="lg:sticky lg:top-[4.5rem] lg:self-start"><div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden"><div className="flex items-center justify-between gap-2 border-b border-border bg-surface/60 px-4 py-3"><div className="flex items-center gap-2 min-w-0"><FilterIcon className="h-4 w-4 text-ems-accent shrink-0" aria-hidden /><h2 className="text-sm font-semibold text-text-primary">Filters</h2>{activeFilterCount > 0 && <span className="rounded-full bg-ems-accent/15 text-ems-accent text-[10px] font-semibold tabular-nums ring-1 ring-ems-accent/20 px-2 py-0.5">{activeFilterCount}</span>}</div>{activeFilterCount > 0 && <button type="button" onClick={reset} className="inline-flex items-center gap-1 rounded-md text-[11px] font-medium text-text-secondary hover:text-ems-accent transition-colors" title="Clear all filters"><RotateCcw className="h-3 w-3" aria-hidden />Reset</button>}</div><div className="p-3 space-y-3 max-h-[calc(100vh-12rem)] overflow-y-auto"><FilterField label="Event date"><Select2 options={EVENT_DATE_SCOPE_OPTIONS} value={eventDateScope} onChange={handleEventDateScopeChange} placeholder="All Engagements" allowClear={false} /></FilterField>{eventDateScope === 'custom' && <div className="rounded-lg border border-border bg-surface/45 p-2.5 space-y-2"><FilterField label="From"><input type="date" className={dateInputClass} value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} aria-label="Custom date range from" /></FilterField><FilterField label="To"><input type="date" className={dateInputClass} value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} aria-label="Custom date range to" /></FilterField>{!customDatesAreValid && <p className="text-[11px] text-ems-coral">Enter valid from and to dates.</p>}{customDatesAreValid && !customRangeOrderIsValid && <p className="text-[11px] text-ems-coral">To date must be on or after from date.</p>}<button type="button" onClick={applyCustomDateRange} disabled={!customDatesAreValid || !customRangeOrderIsValid || !customRangeHasChanges} className="inline-flex h-9 w-full items-center justify-center rounded-lg border border-ems-accent/30 bg-ems-accent text-sm font-semibold text-white shadow-sm transition-all hover:bg-ems-accent-hover disabled:cursor-not-allowed disabled:border-border disabled:bg-elevated disabled:text-text-muted disabled:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/30">Apply range</button></div>}<div className="h-px bg-border" /><FilterField label="Attraction"><Select2 options={attractionOptions} value={attractionFilter} onChange={setAttractionFilter} placeholder="All attractions" allowClear={!!attractionFilter} /></FilterField><FilterField label="Genre"><Select2 options={opt('All genres', pageData?.filterOptions.genres)} value={genreFilter} onChange={setGenreFilter} placeholder="All genres" allowClear={!!genreFilter} /></FilterField><FilterField label="Tour Name"><Select2 options={opt('All tours', pageData?.filterOptions.tours)} value={tourFilter} onChange={setTourFilter} placeholder="All tours" allowClear={!!tourFilter} /></FilterField><FilterField label="Venue"><Select2 options={opt('All venues', pageData?.filterOptions.venues)} value={venueFilter} onChange={setVenueFilter} placeholder="All venues" allowClear={!!venueFilter} /></FilterField></div></div></aside>
       <section className="flex flex-col min-w-0 rounded-xl border border-border bg-card shadow-sm overflow-hidden lg:min-h-0">
         {showFullSkeleton ? (
           <div className="p-8 flex items-center justify-center"><Loader2 className="h-8 w-8 text-ems-accent animate-spin" /></div>

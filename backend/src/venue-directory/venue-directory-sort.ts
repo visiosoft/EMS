@@ -23,6 +23,9 @@ export function applyAllVenuesSort(
   if (sortBy === 'type') {
     qb.orderBy('vt.venueTypeName', sortDir);
     tieBreak();
+  } else if (sortBy === 'city') {
+    qb.orderBy('pa.city', sortDir);
+    tieBreak();
   } else if (sortBy === 'dma') {
     qb.orderBy('d.marketName', sortDir);
     tieBreak();

@@ -8,6 +8,8 @@ export type InternalView =
   | "home"
   | "company-news"
   | "employee-services"
+  | "employee-directory"
+  | "employee-profile"
   | "leadership"
   | "markets"
   | "venues"
@@ -21,7 +23,10 @@ export type InternalView =
   | "department-ticketing-sales"
   | "learning-portal"
   | "learning-admin"
-  | "document-library";
+  | "document-library"
+  | "my-profile"
+  | "payroll-schedule"
+  | "health-insurance";
 
 export type InternalViewData = {
   handbook?: EmployeeHandbookView;
@@ -29,12 +34,19 @@ export type InternalViewData = {
   handbookSubsection?: string;
   fromView?: InternalView;
   fromTitle?: string;
+  departmentId?: number;
+  /** Employee Services: open with the employee directory panel expanded. */
+  revealDirectory?: boolean;
+  /** Employee profile: which employee's profile to show (directory → profile). */
+  contactId?: number;
 };
 
 const VALID_VIEWS = new Set<string>([
   "home",
   "company-news",
   "employee-services",
+  "employee-directory",
+  "employee-profile",
   "leadership",
   "markets",
   "venues",
@@ -49,6 +61,9 @@ const VALID_VIEWS = new Set<string>([
   "learning-portal",
   "learning-admin",
   "document-library",
+  "my-profile",
+  "payroll-schedule",
+  "health-insurance",
 ]);
 
 const LEGACY_PATH_TO_VIEW: Record<string, InternalView> = {
@@ -70,6 +85,9 @@ const LEGACY_PATH_TO_VIEW: Record<string, InternalView> = {
   "/internal/departments/production": "department-production",
   "/internal/departments/ticketing-sales": "department-ticketing-sales",
   "/internal/learning-portal": "learning-portal",
+  "/internal/my-profile": "my-profile",
+  "/internal/payroll-schedule": "payroll-schedule",
+  "/internal/health-insurance": "health-insurance",
 };
 
 const DEPARTMENT_TITLE_TO_VIEW: Record<string, InternalView> = {
@@ -112,6 +130,13 @@ function sanitizeViewData(view: InternalView, raw: unknown): InternalViewData {
   if (view === "learning-portal" || view === "learning-admin") {
     if (typeof obj.fromView === "string") out.fromView = obj.fromView as InternalView;
     if (typeof obj.fromTitle === "string") out.fromTitle = obj.fromTitle;
+    if (typeof obj.departmentId === "number" && obj.departmentId > 0) out.departmentId = obj.departmentId;
+    return out;
+  }
+
+  if (view === "employee-profile") {
+    if (typeof obj.contactId === "number" && obj.contactId > 0) out.contactId = obj.contactId;
+    if (typeof obj.fromView === "string") out.fromView = obj.fromView as InternalView;
     return out;
   }
 
@@ -124,6 +149,8 @@ function sanitizeViewData(view: InternalView, raw: unknown): InternalViewData {
 
   const handbookHash = typeof obj.handbookHash === "string" ? normalizeHash(obj.handbookHash) : "";
   if (handbookHash) out.handbookHash = handbookHash.slice(0, 120);
+
+  if (obj.revealDirectory === true) out.revealDirectory = true;
 
   if (!out.handbook && out.handbookHash) {
     const fromHash = handbookDataFromHash(`#${out.handbookHash}`);
@@ -160,6 +187,10 @@ export function readLegacyInternalRoute(pathname: string, hash: string, search: 
   }
   if (searchParams.has("fromTitle")) {
     viewData.fromTitle = searchParams.get("fromTitle") as string;
+  }
+  if (searchParams.has("departmentId")) {
+    const parsed = Number(searchParams.get("departmentId"));
+    if (Number.isFinite(parsed) && parsed > 0) viewData.departmentId = parsed;
   }
 
   // Handle ?view= query param (used for new-tab views like learning-admin)

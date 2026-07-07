@@ -288,8 +288,13 @@ export class UpdatePerformanceTicketingDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(2048)
-  compTicketRequestLink?: string | null;
+  @MaxLength(500)
+  compTicketForm?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  compTicketExcelSheet?: string | null;
 
   @IsOptional()
   @IsString()

@@ -13,6 +13,7 @@ import {
   Ticket,
   Umbrella,
 } from "lucide-react";
+import type { InternalView } from "../routing/internalSessionRoute";
 
 export type EmployeeServiceItem = {
   title: string;
@@ -27,17 +28,14 @@ export type EmployeeServiceItem = {
   handbookSubsection?: string;
   /** Opens an external resource in a new browser tab. */
   externalUrl?: string;
-  /** Navigates to another internal hub view (e.g. Leadership). */
-  internalView?: "leadership";
+  /** Navigates to another internal hub view (e.g. Leadership, Payroll Schedule). */
+  internalView?: InternalView;
 };
-
-const PAYROLL_SCHEDULE_URL =
-  "https://innovationae.sharepoint.com/:b:/s/IAECloudServer/IQC1kP6XmMQORqdlqblGMz-fAVr7g5AdIhzRVzyzyXQH298?e=MLKNB4";
 
 export const EMPLOYEE_SERVICE_ITEMS: EmployeeServiceItem[] = [
   { title: "Employee Handbook", icon: FileBadge2, handbookIndex: true },
-  { title: "Health Insurance", icon: HeartPulse, handbookHash: "handbook-work-performance", handbookSubsection: "5.4" },
-  { title: "Payroll Schedule", icon: ReceiptText, externalUrl: PAYROLL_SCHEDULE_URL },
+  { title: "Health Insurance", icon: HeartPulse, internalView: "health-insurance" },
+  { title: "Payroll Schedule", icon: ReceiptText, internalView: "payroll-schedule" },
   { title: "PTO Request", icon: ClipboardList, externalUrl: "https://signin.adp.com" },
   { title: "Official Work Holiday", icon: Umbrella, handbookHash: "handbook-compensation-benefits", handbookSubsection: "4.11" },
   { title: "Company", icon: FileBadge2, companyMark: true, internalView: "leadership" },

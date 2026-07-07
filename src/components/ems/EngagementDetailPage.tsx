@@ -145,9 +145,17 @@ import {
 } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { cleanDmaMarketLabel } from '@/lib/dmaMarket';
+import { fetchDailySales, type ApiDailySalesRow } from '@/api/dailySalesApi';
+import { calculateRoyalties } from '@/lib/royaltiesCalculation';
 import { EngagementMarketingReadOnlySection } from './EngagementMarketingReadOnlySection';
 import { EngagementContractPanel } from './EngagementContractPanel';
 import { invalidateSalesCapacityRelatedQueries } from '@/api/cacheHelpers';
+import {
+  PERFORMANCE_TICKETING_STATUS_VALUES,
+  DEFAULT_PUBLIC_TICKETING_STATUS,
+  DEFAULT_PRIVATE_TICKETING_STATUS,
+  isPublicTicketingStatus,
+} from '@/api/projectApi';
 // fetchIaeStaffEmployees removed — IAE Marketing Team now uses EngagementIAEContact
 import { formatOpeningDateSafe, formatSqlTimeDisplay } from '@/lib/engagementDisplay';
 import { formatE164ForDisplay } from '@/lib/contactPhoneField';
@@ -265,6 +273,15 @@ function normalizePerformanceTimeInput(value: string): string {
       .slice(0, 2)}`;
   }
   return value.trim();
+}
+
+function normalizePerformanceStatusValue(value: string | null | undefined): string {
+  const raw = (value ?? '').trim();
+  if (!raw) return DEFAULT_PUBLIC_TICKETING_STATUS;
+  const lower = raw.toLowerCase();
+  if (lower === 'public') return DEFAULT_PUBLIC_TICKETING_STATUS;
+  if (lower === 'private') return DEFAULT_PRIVATE_TICKETING_STATUS;
+  return raw;
 }
 
 type PerformanceDraftRow = {
@@ -2748,7 +2765,7 @@ function EditablePerformanceRow({
   const [date, setDate] = useState(perf.performanceDate);
   const [time, setTime] = useState(perf.performanceTime.slice(0, 5));
   const [status, setStatus] = useState(
-    perf.performanceStatus.trim().toLowerCase() === 'private' ? 'Private' : 'Public',
+    normalizePerformanceStatusValue(perf.performanceStatus),
   );
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -2765,7 +2782,9 @@ function EditablePerformanceRow({
       await updateEngagementPerformance(engagementId, perf.performanceId, {
         performanceDate: date,
         performanceTime: time,
-        performanceStatus: isPrimary ? 'Public' : status || 'Public',
+        performanceStatus: isPrimary
+          ? DEFAULT_PUBLIC_TICKETING_STATUS
+          : status || DEFAULT_PUBLIC_TICKETING_STATUS,
       });
       addToast('Performance updated.', 'success');
       setEditing(false);
@@ -2777,10 +2796,8 @@ function EditablePerformanceRow({
     }
   };
 
-  const handleToggleVisibility = async () => {
+  const handleStatusChange = async (next: string) => {
     if (isPrimary) return;
-    const next =
-      perf.performanceStatus.trim().toLowerCase() === 'private' ? 'Public' : 'Private';
     setSaving(true);
     try {
       await updateEngagementPerformance(engagementId, perf.performanceId, {
@@ -2832,25 +2849,15 @@ function EditablePerformanceRow({
           </div>
           <div>
             <label className="text-xs text-text-muted block mb-1 font-medium">Visibility</label>
-            <div className="flex items-center rounded-md border border-border bg-surface p-1">
-              <button
-                type="button"
-                className={`flex-1 rounded px-2 py-1 text-xs font-medium transition-colors ${status === 'Public' ? 'bg-ems-accent text-white' : 'text-text-secondary hover:bg-hover'}`}
-                onClick={() => setStatus('Public')}
-              >
-                Public
-              </button>
-              <button
-                type="button"
-                className={`flex-1 rounded px-2 py-1 text-xs font-medium transition-colors ${status === 'Private' ? 'bg-ems-accent text-white' : 'text-text-secondary hover:bg-hover'}`}
-                onClick={() => setStatus('Private')}
-                disabled={isPrimary}
-              >
-                Private
-              </button>
-            </div>
+            <Select2
+              options={PERFORMANCE_TICKETING_STATUS_VALUES.map((v) => ({ value: v, label: v }))}
+              value={status}
+              onChange={setStatus}
+              placeholder="Select…"
+              disabled={isPrimary || saving}
+            />
             {isPrimary && (
-              <p className="mt-1 text-[11px] text-text-muted">Opening performance is always Public.</p>
+              <p className="mt-1 text-[11px] text-text-muted">Opening performance is always public.</p>
             )}
           </div>
         </div>
@@ -2862,9 +2869,7 @@ function EditablePerformanceRow({
               setDate(perf.performanceDate);
               setTime(perf.performanceTime.slice(0, 5));
               setStatus(
-                perf.performanceStatus.trim().toLowerCase() === 'private'
-                  ? 'Private'
-                  : 'Public',
+                normalizePerformanceStatusValue(perf.performanceStatus),
               );
             }}
             disabled={saving}
@@ -2900,7 +2905,7 @@ function EditablePerformanceRow({
               {' · '}
               <span
                 className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                  perf.performanceStatus === 'Public'
+                  isPublicTicketingStatus(perf.performanceStatus)
                     ? 'bg-green-500/10 text-green-600 dark:text-green-400'
                     : 'bg-surface text-text-muted'
                 }`}
@@ -2916,16 +2921,14 @@ function EditablePerformanceRow({
               First
             </span>
           )}
-          <button
-            type="button"
-            onClick={() => void handleToggleVisibility()}
+          <Select2
+            options={PERFORMANCE_TICKETING_STATUS_VALUES.map((v) => ({ value: v, label: v }))}
+            value={normalizePerformanceStatusValue(perf.performanceStatus)}
+            onChange={(v) => void handleStatusChange(v)}
+            placeholder="Select…"
             disabled={saving || isPrimary}
-            className="text-xs text-text-secondary hover:text-ems-accent px-2.5 py-1.5 rounded hover:bg-elevated transition-colors disabled:opacity-50"
-          >
-            {perf.performanceStatus.trim().toLowerCase() === 'private'
-              ? 'Set Public'
-              : 'Set Private'}
-          </button>
+            className="w-52"
+          />
           <button
             type="button"
             onClick={() => setEditing(true)}
@@ -3826,7 +3829,7 @@ function EngagementMainInformationPanel({
           const created = await createEngagementPerformance(engagementId, {
             performanceDate: nextOpening.date,
             performanceTime: nextOpening.time,
-            performanceStatus: 'Public',
+            performanceStatus: DEFAULT_PUBLIC_TICKETING_STATUS,
           });
           targetPerformanceId = created.performanceId;
         }
@@ -5602,6 +5605,17 @@ function EngagementEventBusinessPanel({
     queryFn: () => fetchDepositTerms(engagementId),
   });
 
+  // ── Daily sales (for SESAC royalty — most recent entry by salesDate) ─────
+  const dailySalesQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'daily-sales'],
+    queryFn: () => fetchDailySales(engagementId),
+    staleTime: 60_000,
+  });
+  const mostRecentDailySales = useMemo(() => {
+    const rows = dailySalesQuery.data ?? [];
+    return rows.reduce<ApiDailySalesRow | null>((latest, r) => (!latest || r.salesDate > latest.salesDate ? r : latest), null);
+  }, [dailySalesQuery.data]);
+
   // Derive IAE staff by role from engagement IAE contacts
   const iaeEventBusinessManagers = useMemo(() =>
     (iaeContactsQuery.data ?? []).filter((c) => c.roleName === 'Event Business Manager'),
@@ -6170,6 +6184,18 @@ function EngagementEventBusinessPanel({
 
   const d = financeQuery.data;
 
+  const royalties = calculateRoyalties({
+    totalSeatingCapacity: d?.sellableCapacity ?? null,
+    grossPotential: d?.grossPotential ?? null,
+    mostRecentPaidTicketQuantity: mostRecentDailySales?.ticketsSold ?? null,
+    tourAscap: d?.tourAscap ?? null,
+    tourBmi: d?.tourBmi ?? null,
+    tourSesac: d?.tourSesac ?? null,
+    tourGmr: d?.tourGmr ?? null,
+  });
+  const formatRoyaltyCurrency = (n: number | null): string =>
+    n == null ? '—' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+
   const sectionHeader = (title: string) => (
     <h4 className="text-sm font-semibold text-text-primary uppercase tracking-wide pt-2 pb-1 border-b border-border">{title}</h4>
   );
@@ -6621,22 +6647,52 @@ function EngagementEventBusinessPanel({
 
         {/* ── Licensing / Royalties ─────────────────────────────────── */}
         {sectionHeader('Licensing / Royalties')}
-        <div className="flex flex-wrap gap-3">
-          {(['ASCAP', 'BMI', 'SESAC', 'GMR'] as const).map((org) => {
-            const flag = org === 'ASCAP' ? d?.tourAscap : org === 'BMI' ? d?.tourBmi : org === 'SESAC' ? d?.tourSesac : d?.tourGmr;
-            return (
-              <span key={org} className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${
-                flag === true ? 'bg-green-100 text-green-800 ring-1 ring-green-300' :
-                flag === false ? 'bg-gray-100 text-gray-400' :
-                'bg-gray-100 text-gray-400'
-              }`}>{org}</span>
-            );
-          })}
-          {d?.tourAscap == null && d?.tourBmi == null && d?.tourSesac == null && d?.tourGmr == null && (
-            <span className="text-sm text-text-muted">Licensing flags are set on the Tour record.</span>
-          )}
-        </div>
-        <p className="text-xs text-text-muted mt-1">Fee amounts are calculated from licensing rates — rate data is managed on the Tour record.</p>
+        {(() => {
+          // Only PROs selected on the tour (flag === true) are shown. Order fixed: ASCAP, BMI, SESAC, GMR.
+          const selectedOrgs = ([
+            { org: 'ASCAP', selected: d?.tourAscap === true, line: royalties.ascap },
+            { org: 'BMI', selected: d?.tourBmi === true, line: royalties.bmi },
+            { org: 'SESAC', selected: d?.tourSesac === true, line: royalties.sesac },
+            { org: 'GMR', selected: d?.tourGmr === true, line: royalties.gmr },
+          ] as const).filter((o) => o.selected);
+
+          if (selectedOrgs.length === 0) {
+            return <p className="text-sm text-text-muted">No royalties selected for this tour.</p>;
+          }
+
+          const hasCalculatedOrg = selectedOrgs.some((o) => o.org !== 'GMR');
+          const gmrSelected = selectedOrgs.some((o) => o.org === 'GMR');
+
+          return (
+            <>
+              <div className="flex flex-col gap-3">
+                {selectedOrgs.map(({ org, line }) => (
+                  <div key={org} className="flex flex-col gap-0.5">
+                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 ring-1 ring-green-300">{org}</span>
+                      <span className="text-sm text-text-primary font-medium">
+                        {org === 'GMR' ? 'Not calculated' : line.applicable ? formatRoyaltyCurrency(line.amount) : '—'}
+                      </span>
+                      <span className="text-xs text-text-muted">{line.tierLabel}</span>
+                    </div>
+                    {line.formula && (
+                      <span className="text-xs text-text-muted italic pl-1">{line.formula}</span>
+                    )}
+                  </div>
+                ))}
+                {hasCalculatedOrg && (
+                  <div className="flex items-baseline gap-3 pt-1 border-t border-border">
+                    <span className="text-sm font-semibold text-text-primary">Total royalties (ASCAP + BMI + SESAC)</span>
+                    <span className="text-sm font-semibold text-text-primary">{formatRoyaltyCurrency(royalties.totalRoyalties)}</span>
+                  </div>
+                )}
+              </div>
+              {gmrSelected && (
+                <p className="text-xs text-text-muted mt-1">GMR royalty is determined outside the portal and excluded from the total above.</p>
+              )}
+            </>
+          );
+        })()}
 
         {/* ── RAMP ────────────────────────────────────────────────── */}
         {sectionHeader('RAMP')}
@@ -7916,7 +7972,8 @@ function EngagementTicketingPanel({
   const [vipPackageOffered, setVipPackageOffered] = useState('');
   const [vipPackageName, setVipPackageName] = useState('');
   const [vipPackageBenefits, setVipPackageBenefits] = useState<string[]>([]);
-  const [compTicketRequestLink, setCompTicketRequestLink] = useState('');
+  const [compTicketForm, setCompTicketForm] = useState('');
+  const [compTicketExcelSheet, setCompTicketExcelSheet] = useState('');
   const [facilityFeeType, setFacilityFeeType] = useState('');
   const [facilityFeeAmount, setFacilityFeeAmount] = useState('');
   const [dynamicPricingMode, setDynamicPricingMode] = useState('');
@@ -8050,7 +8107,8 @@ function EngagementTicketingPanel({
     setVipPackageOffered(d.vipPackageOffered == null ? '' : d.vipPackageOffered ? 'Yes' : 'No');
     setVipPackageName(d.vipPackageName ?? '');
     setVipPackageBenefits(d.vipPackageBenefits ?? []);
-    setCompTicketRequestLink(d.compTicketRequestLink ?? '');
+    setCompTicketForm(d.compTicketForm ?? '');
+    setCompTicketExcelSheet(d.compTicketExcelSheet ?? '');
     setFacilityFeeType(d.facilityFeeType ?? '');
     setFacilityFeeAmount(numFieldToString(d.facilityFeeAmount));
     setDynamicPricingMode(d.dynamicPricingMode ?? '');
@@ -8107,6 +8165,8 @@ function EngagementTicketingPanel({
       creditCardFeesType: creditCardFeesType.trim() || null,
       creditCardFeesAmountPercent: parseOptionalDecimal(creditCardFeesAmountPercent, '').value,
       kidsTicketsPrices: kidsTicketsPrices.trim() || null,
+      compTicketForm: compTicketForm.trim() || null,
+      compTicketExcelSheet: compTicketExcelSheet.trim() || null,
     });
     const base = JSON.stringify({
       sellableCapacity: d.sellableCapacity ?? null,
@@ -8131,6 +8191,8 @@ function EngagementTicketingPanel({
       creditCardFeesType: (d.creditCardFeesType ?? '').trim() || null,
       creditCardFeesAmountPercent: d.creditCardFeesAmountPercent ?? null,
       kidsTicketsPrices: (d.kidsTicketsPrices ?? '').trim() || null,
+      compTicketForm: (d.compTicketForm ?? '').trim() || null,
+      compTicketExcelSheet: (d.compTicketExcelSheet ?? '').trim() || null,
     });
     return cur !== base;
   }, [
@@ -8142,7 +8204,7 @@ function EngagementTicketingPanel({
     preSaleDate, preSaleEndDate, preSaleRegistrationStartDate, preSaleRegistrationEndDate,
     facilityFeeType, facilityFeeAmount, dynamicPricingMode,
     rebateAmount, bumpAmount, creditCardFeesType, creditCardFeesAmountPercent,
-    kidsTicketsPrices,
+    kidsTicketsPrices, compTicketForm, compTicketExcelSheet,
   ]);
 
   const promoPasswordDirty = useMemo(() => {
@@ -8279,6 +8341,8 @@ function EngagementTicketingPanel({
         creditCardFeesType: creditCardFeesType.trim() ? (creditCardFeesType as 'Inside Service Charge' | 'Budget Line Item') : null,
         creditCardFeesAmountPercent: ccf.value,
         kidsTicketsPrices: kidsTicketsPrices.trim() || null,
+        compTicketForm: compTicketForm.trim() || null,
+        compTicketExcelSheet: compTicketExcelSheet.trim() || null,
       });
     },
     onSuccess: async () => {
@@ -8634,6 +8698,21 @@ function EngagementTicketingPanel({
                 {fieldRow('Public Sale Ticketing Link',
                   <input className={inputCls} type="url" autoComplete="nope" placeholder="https://…" value={publicSaleLinkUrl}
                     onChange={(e) => { markTicketingUserEdited(); setPublicSaleLinkUrl(e.target.value); }} disabled={disabled} />,
+                )}
+              </div>
+            </div>
+
+            {/* ── COMPLIMENTARY TICKET REQUEST ── */}
+            <div className="space-y-4">
+              {sectionHeader('Complimentary Ticket Request')}
+              <div className="grid grid-cols-1 gap-4">
+                {fieldRow('Complimentary Ticket Request Form',
+                  <input className={inputCls} type="url" autoComplete="nope" placeholder="https://…" value={compTicketForm}
+                    onChange={(e) => { markTicketingUserEdited(); setCompTicketForm(e.target.value); }} disabled={disabled} />,
+                )}
+                {fieldRow('Complimentary Ticket Request Submissions',
+                  <input className={inputCls} type="url" autoComplete="nope" placeholder="https://…" value={compTicketExcelSheet}
+                    onChange={(e) => { markTicketingUserEdited(); setCompTicketExcelSheet(e.target.value); }} disabled={disabled} />,
                 )}
               </div>
               <div className="flex justify-end pt-2 border-t border-border">
@@ -10354,7 +10433,7 @@ export function EngagementDetailPage({
     id: `pf-${Date.now()}-${pfRowIdRef.current++}`,
     performanceDate: getTodayDateString(),
     performanceTime: '20:00',
-    performanceStatus: 'Public',
+    performanceStatus: DEFAULT_PUBLIC_TICKETING_STATUS,
   });
   const [pfRows, setPfRows] = useState<PerformanceDraftRow[]>([
     makePerformanceDraftRow(),
@@ -10419,7 +10498,7 @@ export function EngagementDetailPage({
         (rowDraft) =>
           rowDraft.performanceDate.trim() !== getTodayDateString() ||
           rowDraft.performanceTime.trim() !== '20:00' ||
-          (rowDraft.performanceStatus || '').trim() !== 'Public',
+          (rowDraft.performanceStatus || '').trim() !== DEFAULT_PUBLIC_TICKETING_STATUS,
       ),
     [pfRows, showAddPerformance],
   );
@@ -10451,7 +10530,7 @@ export function EngagementDetailPage({
           await createEngagementPerformance(engagementId, {
             performanceDate: rowDraft.performanceDate,
             performanceTime: rowDraft.performanceTime,
-            performanceStatus: rowDraft.performanceStatus || 'Public',
+            performanceStatus: rowDraft.performanceStatus || DEFAULT_PUBLIC_TICKETING_STATUS,
           });
           createdCount += 1;
         } catch (cause) {
@@ -11437,32 +11516,17 @@ export function EngagementDetailPage({
                       </FormField>
 
                       <FormField label="Visibility">
-                        <div className="flex items-center rounded-md border border-border bg-surface p-1">
-                          <button
-                            type="button"
-                            className={`flex-1 rounded px-2 py-1 text-xs font-medium transition-colors ${rowDraft.performanceStatus === 'Public' ? 'bg-ems-accent text-white' : 'text-text-secondary hover:bg-hover'}`}
-                            onClick={() =>
-                              updatePerformanceDraftRow(rowDraft.id, {
-                                performanceStatus: 'Public',
-                              })
-                            }
-                            disabled={createPerformanceMut.isPending}
-                          >
-                            Public
-                          </button>
-                          <button
-                            type="button"
-                            className={`flex-1 rounded px-2 py-1 text-xs font-medium transition-colors ${rowDraft.performanceStatus === 'Private' ? 'bg-ems-accent text-white' : 'text-text-secondary hover:bg-hover'}`}
-                            onClick={() =>
-                              updatePerformanceDraftRow(rowDraft.id, {
-                                performanceStatus: 'Private',
-                              })
-                            }
-                            disabled={createPerformanceMut.isPending}
-                          >
-                            Private
-                          </button>
-                        </div>
+                        <Select2
+                          options={PERFORMANCE_TICKETING_STATUS_VALUES.map((v) => ({ value: v, label: v }))}
+                          value={rowDraft.performanceStatus}
+                          onChange={(v) =>
+                            updatePerformanceDraftRow(rowDraft.id, {
+                              performanceStatus: v,
+                            })
+                          }
+                          placeholder="Select…"
+                          disabled={createPerformanceMut.isPending}
+                        />
                       </FormField>
                     </div>
 
