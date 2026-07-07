@@ -280,37 +280,37 @@ function Branch({
   );
 }
 
-// ── Department / loose-group card ──
+// ── Department / loose-group card, sized as a node hanging off the company root ──
 function DepartmentCard({
   label,
   members,
   query,
   onSelect,
-  index,
 }: {
   label: string;
   members: AnyMember[];
   query: string;
   onSelect?: (contactId: number) => void;
-  index: number;
 }) {
   const accent = accentFor(label);
-  const visible = members.filter((m) => memberMatches(m, query));
-  if (visible.length === 0) return null;
+  const anyMatch = query ? members.some((m) => memberMatches(m, query)) : true;
   return (
-    <section
-      className="hub-org-branch flex flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm"
-      style={{ animationDelay: `${index * 60}ms` }}
+    <article
+      className={`hub-org-card w-[268px] flex-shrink-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white text-left shadow-sm transition-all duration-300 ${
+        query && !anyMatch ? "opacity-40" : ""
+      }`}
     >
-      <header className="flex items-center gap-2.5 border-b border-neutral-100 bg-gradient-to-b from-neutral-50/70 to-white px-4 py-3">
+      <header className="flex items-center gap-2.5 border-b border-neutral-100 bg-gradient-to-b from-neutral-50/70 to-white px-3 py-2.5">
         <span className={`h-2.5 w-2.5 rounded-full ${accent.dot}`} />
-        <h3 className="flex-1 truncate text-sm font-semibold text-neutral-950">{label}</h3>
+        <h3 className="flex-1 truncate text-[11px] font-bold uppercase tracking-[0.12em] text-neutral-600">
+          {label}
+        </h3>
         <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-bold text-neutral-600">
           {members.length}
         </span>
       </header>
       <div className="flex flex-col gap-0.5 p-2">
-        {visible.map((member, i) => (
+        {members.map((member, i) => (
           <MemberRow
             key={`${member.contactId}-${i}`}
             member={member}
@@ -319,7 +319,7 @@ function DepartmentCard({
           />
         ))}
       </div>
-    </section>
+    </article>
   );
 }
 
@@ -415,6 +415,22 @@ export function HubOrgChart({ onSelectMember }: { onSelectMember?: (contactId: n
   const isHierarchy = realRoots.length > 0;
   const hasContent = isHierarchy || looseGroups.length > 0 || depGroups.length > 0;
 
+  // Children of the company root — mirrors EMS: manager branches first, then
+  // department groups (loose members in hierarchy mode, or plain departments).
+  const rootChildren = useMemo(() => {
+    // looseGroups (hierarchy mode) and depGroups (department mode) are mutually
+    // exclusive — only one is ever populated — so concatenating both is safe.
+    const groups = [...looseGroups, ...depGroups];
+    return [
+      ...realRoots.map((node) => ({ type: "branch" as const, node })),
+      ...groups.map((group) => ({
+        type: "dept" as const,
+        label: group.label,
+        members: group.members as AnyMember[],
+      })),
+    ];
+  }, [realRoots, looseGroups, depGroups]);
+
   const toggle = (id: string) =>
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -506,47 +522,65 @@ export function HubOrgChart({ onSelectMember }: { onSelectMember?: (contactId: n
             className="mx-auto w-max origin-top transition-transform duration-300 ease-out"
             style={{ transform: `scale(${zoom})` }}
           >
-            {isHierarchy ? (
-              <div className="flex items-start justify-center gap-14">
-                {realRoots.map((root) => (
-                  <Branch
-                    key={root.nodeId}
-                    node={root}
-                    depth={0}
-                    query={query}
-                    collapsed={collapsed}
-                    onToggle={toggle}
-                    onSelect={onSelectMember}
-                  />
-                ))}
-              </div>
-            ) : null}
+            {/* Company root — every branch and department hangs off this node. */}
+            <div className="flex flex-col items-center">
+              <article className="hub-org-card relative z-10 w-[268px] flex-shrink-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white p-5 text-center shadow-sm">
+                <span className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full border border-neutral-200 bg-neutral-50 text-neutral-700">
+                  <Network className="h-6 w-6" />
+                </span>
+                <h2 className="text-[16px] font-bold tracking-tight text-neutral-950">
+                  {data?.company?.companyName || "Organization"}
+                </h2>
+                <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-400">
+                  Organization
+                </p>
+              </article>
 
-            {/* Department view, or the "everyone else" groups beneath a hierarchy */}
-            {(!isHierarchy && depGroups.length > 0) || (isHierarchy && looseGroups.length > 0) ? (
-              <div className={isHierarchy ? "mt-12" : ""}>
-                {isHierarchy ? (
-                  <div className="mb-4 flex items-center gap-3">
-                    <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-400">
-                      Other teams
-                    </span>
-                    <span className="h-px flex-1 bg-neutral-200" />
-                  </div>
-                ) : null}
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                  {(isHierarchy ? looseGroups : depGroups).map((group, index) => (
-                    <DepartmentCard
-                      key={group.label}
-                      label={group.label}
-                      members={group.members}
-                      query={query}
-                      onSelect={onSelectMember}
-                      index={index}
-                    />
-                  ))}
+              {rootChildren.length > 0 ? (
+                <div className="relative w-full pt-8">
+                  <span className="hub-org-line absolute left-1/2 top-0 h-8 w-px -translate-x-1/2 bg-neutral-200" />
+                  <ul className="relative flex items-start justify-center">
+                    {rootChildren.map((child, index) => {
+                      const isFirst = index === 0;
+                      const isLast = index === rootChildren.length - 1;
+                      const only = rootChildren.length === 1;
+                      const key =
+                        child.type === "branch" ? child.node.nodeId : `dept-${child.label}`;
+                      return (
+                        <li key={key} className="relative flex flex-col items-center px-6">
+                          {!only ? (
+                            <span
+                              className="absolute top-0 h-px bg-neutral-200"
+                              style={{ left: isFirst ? "50%" : 0, right: isLast ? "50%" : 0 }}
+                            />
+                          ) : null}
+                          <span className="hub-org-line absolute left-1/2 top-0 h-6 w-px -translate-x-1/2 bg-neutral-200" />
+                          <div className="pt-6">
+                            {child.type === "branch" ? (
+                              <Branch
+                                node={child.node}
+                                depth={0}
+                                query={query}
+                                collapsed={collapsed}
+                                onToggle={toggle}
+                                onSelect={onSelectMember}
+                              />
+                            ) : (
+                              <DepartmentCard
+                                label={child.label}
+                                members={child.members}
+                                query={query}
+                                onSelect={onSelectMember}
+                              />
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 </div>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
           </div>
         )}
       </div>
