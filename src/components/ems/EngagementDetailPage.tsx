@@ -133,6 +133,7 @@ import {
   fetchRampAccountingFieldOptions,
   fetchRampAccountingVendors,
   fetchRampCustomerJobFieldOptions,
+  fetchRampMemos,
   type RampAccountingField,
   type RampEngagementAccountingContext,
 } from '@/api/rampApi';
@@ -6762,6 +6763,11 @@ const RAMP_TAB_META: Record<string, { scope: string; description: string; intent
     description: 'Templates that mass-produce funds with consistent policy — offsites, stipends, allowances.',
     intent: 'Hotel/Travel spend programs within Ramp (org-wide list).',
   },
+  memos: {
+    scope: 'memos:read',
+    description: 'Notes and additional context attached to card transactions — describes what the expense was for.',
+    intent: 'Transaction memos entered by cardholders (org-wide list).',
+  },
   'gl-accounts': {
     scope: 'accounting:read',
     description: 'General ledger accounts the customer codes spend against. Required before any object can sync.',
@@ -6877,10 +6883,11 @@ function RampPager({
 }
 
 function RampSection({ engagementId }: { engagementId: number }) {
-  const [activeTab, setActiveTab] = useState<'transactions' | 'bills' | 'receipts' | 'vendors' | 'users' | 'departments' | 'spend-programs' | 'gl-accounts' | 'accounting-fields' | 'accounting-vendors' | 'connections'>('transactions');
+  const [activeTab, setActiveTab] = useState<'transactions' | 'bills' | 'receipts' | 'memos' | 'vendors' | 'users' | 'departments' | 'spend-programs' | 'gl-accounts' | 'accounting-fields' | 'accounting-vendors' | 'connections'>('transactions');
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
 
   // ─── Filters ──────────────────────────────────────────────────────────────
+  // Input state (what user types) — only applied on Search click
   const [txFromDate, setTxFromDate] = useState('');
   const [txToDate, setTxToDate] = useState('');
   const [txState, setTxState] = useState('');
@@ -6894,22 +6901,36 @@ function RampSection({ engagementId }: { engagementId: number }) {
   const [billMinAmount, setBillMinAmount] = useState('');
   const [billMaxAmount, setBillMaxAmount] = useState('');
 
-  const txFilters = {
+  const [receiptFromDate, setReceiptFromDate] = useState('');
+  const [receiptToDate, setReceiptToDate] = useState('');
+  const [receiptTransactionFilter, setReceiptTransactionFilter] = useState('');
+
+  // Committed filters (what's actually sent to the API — set on Search click)
+  const [txFilters, setTxFilters] = useState<Record<string, string | undefined>>({});
+  const [billFilters, setBillFilters] = useState<Record<string, string | undefined>>({});
+  const [receiptFilters, setReceiptFilters] = useState<Record<string, string | undefined>>({});
+
+  const handleTxSearch = () => setTxFilters({
     from_date: txFromDate || undefined,
     to_date: txToDate || undefined,
     state: txState || undefined,
     min_amount: txMinAmount || undefined,
     max_amount: txMaxAmount || undefined,
-  };
+  });
 
-  const billFilters = {
+  const handleBillSearch = () => setBillFilters({
     from_due_date: billFromDueDate || undefined,
     to_due_date: billToDueDate || undefined,
     payment_status: billPaymentStatus || undefined,
     approval_status: billApprovalStatus || undefined,
     min_amount: billMinAmount || undefined,
     max_amount: billMaxAmount || undefined,
-  };
+  });
+
+  const handleReceiptSearch = () => setReceiptFilters({
+    from_date: receiptFromDate || undefined,
+    to_date: receiptToDate || undefined,
+  });
 
   const statusQuery = useQuery({
     queryKey: ['ramp', 'status'],
@@ -6945,8 +6966,8 @@ function RampSection({ engagementId }: { engagementId: number }) {
   });
 
   const receiptsQuery = useInfiniteQuery({
-    queryKey: ['ramp', 'receipts', engagementId],
-    queryFn: ({ pageParam }) => fetchEngagementRampReceipts(engagementId, { page_size: 50, start: pageParam }),
+    queryKey: ['ramp', 'receipts', engagementId, receiptFilters],
+    queryFn: ({ pageParam }) => fetchEngagementRampReceipts(engagementId, { ...receiptFilters, page_size: 50, start: pageParam }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.page?.next ?? undefined,
     enabled: configured && activeTab === 'receipts',
@@ -6986,6 +7007,17 @@ function RampSection({ engagementId }: { engagementId: number }) {
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.page?.next ?? undefined,
     enabled: configured && activeTab === 'spend-programs',
+    staleTime: 120_000,
+  });
+
+  // Memos: fetch all memos then filter client-side to only show those
+  // whose transaction ID matches the engagement's transactions.
+  const memosQuery = useInfiniteQuery({
+    queryKey: ['ramp', 'memos'],
+    queryFn: ({ pageParam }) => fetchRampMemos({ page_size: 100, start: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.page?.next ?? undefined,
+    enabled: configured && activeTab === 'memos',
     staleTime: 120_000,
   });
 
@@ -7057,6 +7089,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
   const usersPaged = usePagedRamp(usersQuery, 'users');
   const departmentsPaged = usePagedRamp(departmentsQuery, 'departments');
   const spendProgramsPaged = usePagedRamp(spendProgramsQuery, 'spend-programs');
+  const memosPaged = usePagedRamp(memosQuery, 'memos');
   const glAccountsPaged = usePagedRamp(glAccountsQuery, 'gl-accounts');
   const accountingFieldsPaged = usePagedRamp(accountingFieldsQuery, 'accounting-fields');
   const fieldOptionsPaged = usePagedRamp(fieldOptionsQuery, selectedFieldId);
@@ -7069,6 +7102,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
   const users = usersPaged.rows;
   const departments = departmentsPaged.rows;
   const spendPrograms = spendProgramsPaged.rows;
+  const memos = memosPaged.rows;
   const glAccounts = glAccountsPaged.rows;
   const accountingFields = accountingFieldsPaged.rows;
   const fieldOptions = fieldOptionsPaged.rows;
@@ -7090,6 +7124,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
     { key: 'transactions' as const, label: 'Transactions' },
     { key: 'bills' as const, label: 'Bills' },
     { key: 'receipts' as const, label: 'Receipts' },
+    { key: 'memos' as const, label: 'Memos' },
     { key: 'vendors' as const, label: 'Vendors' },
     { key: 'users' as const, label: 'Users' },
     { key: 'departments' as const, label: 'Departments' },
@@ -7212,6 +7247,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
               <span className="text-text-muted">Max $</span>
               <input type="number" value={txMaxAmount} onChange={(e) => setTxMaxAmount(e.target.value)} placeholder="∞" className="border border-border rounded px-2 py-1 bg-elevated text-text-primary w-20" />
             </label>
+            <button type="button" onClick={handleTxSearch} className="px-3 py-1 rounded bg-ems-accent text-white text-xs font-medium hover:opacity-90 transition-opacity">Search</button>
           </div>
 
           {transactionsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading transactions…</div>}
@@ -7220,28 +7256,28 @@ function RampSection({ engagementId }: { engagementId: number }) {
             transactions.length === 0
               ? <p className="text-sm text-text-muted">No transactions found.</p>
               : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
+                <div className="overflow-x-auto -mx-2 px-2">
+                  <table className="min-w-[800px] w-full text-xs border-collapse">
                     <thead>
                       <tr className="border-b border-border text-left">
-                        <th className="py-1.5 px-2 font-medium text-text-muted">Date</th>
-                        <th className="py-1.5 px-2 font-medium text-text-muted">Merchant</th>
-                        <th className="py-1.5 px-2 font-medium text-text-muted">Cardholder</th>
-                        <th className="py-1.5 px-2 font-medium text-text-muted">Category</th>
-                        <th className="py-1.5 px-2 font-medium text-text-muted text-right">Amount</th>
-                        <th className="py-1.5 px-2 font-medium text-text-muted">State</th>
-                        <th className="py-1.5 px-2 font-medium text-text-muted">Memo</th>
-                        <th className="py-1.5 px-2 font-medium text-text-muted text-center">Receipts</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[100px]">Date</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[140px]">Merchant</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[120px]">Cardholder</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[120px]">Category</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted text-right min-w-[90px]">Amount</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[80px]">State</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[150px]">Memo</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted text-center min-w-[60px]">Receipts</th>
                       </tr>
                     </thead>
                     <tbody>
                       {transactions.map((tx) => (
                         <tr key={tx.id} className="border-b border-border/50 hover:bg-muted/40">
                           <td className="py-1.5 px-2 whitespace-nowrap">{formatDate(tx.user_transaction_time)}</td>
-                          <td className="py-1.5 px-2">{tx.merchant_name ?? tx.merchant_descriptor ?? '—'}</td>
+                          <td className="py-1.5 px-2 break-words">{tx.merchant_name ?? tx.merchant_descriptor ?? '—'}</td>
                           <td className="py-1.5 px-2 whitespace-nowrap">{tx.card_holder ? `${tx.card_holder.first_name} ${tx.card_holder.last_name}` : '—'}</td>
-                          <td className="py-1.5 px-2">{tx.sk_category_name ?? '—'}</td>
-                          <td className="py-1.5 px-2 text-right font-mono">{formatCurrency(tx.amount, tx.currency_code ?? 'USD')}</td>
+                          <td className="py-1.5 px-2 break-words">{tx.sk_category_name ?? '—'}</td>
+                          <td className="py-1.5 px-2 text-right font-mono whitespace-nowrap">{formatCurrency(tx.amount, tx.currency_code ?? 'USD')}</td>
                           <td className="py-1.5 px-2">
                             <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
                               tx.state === 'CLEARED' ? 'bg-green-100 text-green-700' :
@@ -7250,7 +7286,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
                               'bg-gray-100 text-gray-600'
                             }`}>{tx.state ?? '—'}</span>
                           </td>
-                          <td className="py-1.5 px-2 max-w-[150px] truncate">{tx.memo ?? '—'}</td>
+                          <td className="py-1.5 px-2 break-words">{tx.memo ?? '—'}</td>
                           <td className="py-1.5 px-2 text-center">{tx.receipts && tx.receipts.length > 0 ? `📎 ${tx.receipts.length}` : '—'}</td>
                         </tr>
                       ))}
@@ -7283,7 +7319,6 @@ function RampSection({ engagementId }: { engagementId: number }) {
               <select value={billPaymentStatus} onChange={(e) => setBillPaymentStatus(e.target.value)} className="border border-border rounded px-2 py-1 bg-elevated text-text-primary">
                 <option value="">All</option>
                 <option value="OPEN">Open</option>
-                <option value="PAYMENT_INITIATED">Payment Initiated</option>
                 <option value="PAID">Paid</option>
               </select>
             </label>
@@ -7304,6 +7339,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
               <span className="text-text-muted">Max $</span>
               <input type="number" value={billMaxAmount} onChange={(e) => setBillMaxAmount(e.target.value)} placeholder="∞" className="border border-border rounded px-2 py-1 bg-elevated text-text-primary w-20" />
             </label>
+            <button type="button" onClick={handleBillSearch} className="px-3 py-1 rounded bg-ems-accent text-white text-xs font-medium hover:opacity-90 transition-opacity">Search</button>
           </div>
 
           {billsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading bills…</div>}
@@ -7312,25 +7348,25 @@ function RampSection({ engagementId }: { engagementId: number }) {
             bills.length === 0
               ? <p className="text-sm text-text-muted">No bills found.</p>
               : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
+                <div className="overflow-x-auto -mx-2 px-2">
+                  <table className="min-w-[700px] w-full text-xs border-collapse">
                     <thead>
                       <tr className="border-b border-border text-left">
-                        <th className="py-1.5 px-2 font-medium text-text-muted">Invoice #</th>
-                        <th className="py-1.5 px-2 font-medium text-text-muted">Vendor</th>
-                        <th className="py-1.5 px-2 font-medium text-text-muted">Due Date</th>
-                        <th className="py-1.5 px-2 font-medium text-text-muted text-right">Amount</th>
-                        <th className="py-1.5 px-2 font-medium text-text-muted">Status</th>
-                        <th className="py-1.5 px-2 font-medium text-text-muted">Memo</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[100px]">Invoice #</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[150px]">Vendor</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[100px]">Due Date</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted text-right min-w-[90px]">Amount</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[100px]">Status</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[150px]">Memo</th>
                       </tr>
                     </thead>
                     <tbody>
                       {bills.map((bill) => (
                         <tr key={bill.id} className="border-b border-border/50 hover:bg-muted/40">
-                          <td className="py-1.5 px-2">{bill.invoice_number ?? '—'}</td>
-                          <td className="py-1.5 px-2">{bill.vendor?.name ?? '—'}</td>
+                          <td className="py-1.5 px-2 break-words">{bill.invoice_number ?? '—'}</td>
+                          <td className="py-1.5 px-2 break-words">{bill.vendor?.name ?? '—'}</td>
                           <td className="py-1.5 px-2 whitespace-nowrap">{formatDate(bill.due_at)}</td>
-                          <td className="py-1.5 px-2 text-right font-mono">{bill.amount ? formatCurrency(bill.amount.amount, bill.amount.currency_code) : '—'}</td>
+                          <td className="py-1.5 px-2 text-right font-mono whitespace-nowrap">{bill.amount ? formatCurrency(bill.amount.amount, bill.amount.currency_code) : '—'}</td>
                           <td className="py-1.5 px-2">
                             <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
                               bill.status_summary === 'PAID' ? 'bg-green-100 text-green-700' :
@@ -7339,7 +7375,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
                               'bg-gray-100 text-gray-600'
                             }`}>{bill.status_summary ?? bill.status ?? '—'}</span>
                           </td>
-                          <td className="py-1.5 px-2 max-w-[150px] truncate">{bill.memo ?? '—'}</td>
+                          <td className="py-1.5 px-2 break-words">{bill.memo ?? '—'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -7356,29 +7392,105 @@ function RampSection({ engagementId }: { engagementId: number }) {
       {/* Receipts tab */}
       {activeTab === 'receipts' && (
         <div className="space-y-2">
+          {/* Filters */}
+          <div className="flex flex-wrap gap-2 items-end text-xs">
+            <label className="flex flex-col gap-0.5">
+              <span className="text-text-muted">From Date</span>
+              <input type="date" value={receiptFromDate} onChange={(e) => setReceiptFromDate(e.target.value)} className="border border-border rounded px-2 py-1 bg-elevated text-text-primary" />
+            </label>
+            <label className="flex flex-col gap-0.5">
+              <span className="text-text-muted">To Date</span>
+              <input type="date" value={receiptToDate} onChange={(e) => setReceiptToDate(e.target.value)} className="border border-border rounded px-2 py-1 bg-elevated text-text-primary" />
+            </label>
+            <label className="flex flex-col gap-0.5">
+              <span className="text-text-muted">Transaction</span>
+              <select value={receiptTransactionFilter} onChange={(e) => setReceiptTransactionFilter(e.target.value)} className="border border-border rounded px-2 py-1 bg-elevated text-text-primary max-w-[220px]">
+                <option value="">All Transactions</option>
+                {transactions.map((tx) => (
+                  <option key={tx.id} value={tx.id}>
+                    {formatDate(tx.user_transaction_time)} · {tx.merchant_name ?? tx.merchant_descriptor ?? 'Unknown'} · {formatCurrency(tx.amount, tx.currency_code ?? 'USD')}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button type="button" onClick={handleReceiptSearch} className="px-3 py-1 rounded bg-ems-accent text-white text-xs font-medium hover:opacity-90 transition-opacity">Search</button>
+          </div>
+
           {receiptsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading receipts…</div>}
           {receiptsQuery.isError && <p className="text-sm text-red-600">Failed to load receipts.</p>}
           {receiptsQuery.isSuccess && (
-            receipts.length === 0
-              ? <p className="text-sm text-text-muted">No receipts found for this engagement's transactions.</p>
-              : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                  {receipts.map((r) => (
-                    <div key={r.id} className="rounded border border-border p-2 text-xs flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="font-medium text-text-primary truncate">{r.merchant_name ?? 'Receipt'}</p>
-                        <p className="text-text-muted">{formatCurrency(r.amount)} · {formatDate(r.created_at)}</p>
-                      </div>
+            (() => {
+              const filteredReceipts = receiptTransactionFilter
+                ? receipts.filter((r) => r.transaction_id === receiptTransactionFilter)
+                : receipts;
+              return filteredReceipts.length === 0
+                ? <p className="text-sm text-text-muted">No receipts found{receiptTransactionFilter ? ' for this transaction' : " for this engagement's transactions"}.</p>
+                : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {filteredReceipts.map((r) => (
+                      <div key={r.id} className="rounded border border-border p-2 text-xs flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-medium text-text-primary truncate">{r.merchant_name ?? 'Receipt'}</p>
+                          <p className="text-text-muted">{formatCurrency(r.amount)} · {formatDate(r.created_at)}</p>
+                        </div>
                       {r.receipt_url
                         ? <a href={r.receipt_url} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:underline whitespace-nowrap">View</a>
                         : <span className="shrink-0 text-text-muted">—</span>}
                     </div>
                   ))}
                 </div>
-              )
+              );
+            })()
           )}
           {receiptsQuery.isSuccess && (
             <RampPager pager={receiptsPaged} />
+          )}
+        </div>
+      )}
+
+      {/* Memos tab */}
+      {activeTab === 'memos' && (
+        <div className="space-y-2">
+          {(memosQuery.isLoading || transactionsQuery.isLoading) && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading memos…</div>}
+          {memosQuery.isError && <p className="text-sm text-red-600">Failed to load memos.</p>}
+          {memosQuery.isSuccess && transactionsQuery.isSuccess && (
+            (() => {
+              // Filter memos to only those whose id (transaction_id) matches this engagement's transactions
+              const engagementTxIds = new Set(transactions.map((tx) => tx.id));
+              const engagementMemos = memos.filter((m) => engagementTxIds.has(m.id));
+              return engagementMemos.length === 0
+                ? <p className="text-sm text-text-muted">No memos found for this engagement's transactions.</p>
+                : (
+                  <div className="overflow-x-auto -mx-2 px-2">
+                    <table className="min-w-[600px] w-full text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-border text-left">
+                          <th className="py-1.5 px-2 font-medium text-text-muted min-w-[120px]">Date</th>
+                          <th className="py-1.5 px-2 font-medium text-text-muted min-w-[140px]">Merchant</th>
+                          <th className="py-1.5 px-2 font-medium text-text-muted min-w-[90px] text-right">Amount</th>
+                          <th className="py-1.5 px-2 font-medium text-text-muted min-w-[200px]">Memo</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {engagementMemos.map((m) => {
+                          const tx = transactions.find((t) => t.id === m.id);
+                          return (
+                            <tr key={m.id} className="border-b border-border/50 hover:bg-muted/40">
+                              <td className="py-1.5 px-2 whitespace-nowrap">{tx ? formatDate(tx.user_transaction_time) : '—'}</td>
+                              <td className="py-1.5 px-2 break-words">{tx?.merchant_name ?? tx?.merchant_descriptor ?? '—'}</td>
+                              <td className="py-1.5 px-2 text-right font-mono whitespace-nowrap">{tx ? formatCurrency(tx.amount, tx.currency_code ?? 'USD') : '—'}</td>
+                              <td className="py-1.5 px-2 break-words font-medium">{m.memo ?? '—'}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+            })()
+          )}
+          {memosQuery.isSuccess && (
+            <RampPager pager={memosPaged} />
           )}
         </div>
       )}
@@ -7396,7 +7508,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
                   {vendors.map((v) => (
                     <div key={v.id} className="rounded border border-border p-2 text-xs">
                       <p className="font-medium text-text-primary">{v.name}</p>
-                      <p className="text-text-muted">{[v.city, v.state, v.country].filter(Boolean).join(', ') || '—'}</p>
+                      <p className="text-text-muted">{[v.address?.city, v.address?.state, v.country].filter(Boolean).join(', ') || '—'}</p>
                     </div>
                   ))}
                 </div>

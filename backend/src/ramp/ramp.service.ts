@@ -24,25 +24,75 @@ const RAMP_SCOPES = [
 export interface RampTransaction {
   id: string;
   amount: number | null;
+  minor_unit_conversion_rate: number | null;
   merchant_name: string | null;
   merchant_descriptor: string | null;
   merchant_category_code: string | null;
+  merchant_category_code_description: string | null;
+  merchant_id: string | null;
+  merchant_location: { city: string | null; state: string | null; country: string | null; postal_code: string | null } | null;
+  sk_category_id: number | null;
   sk_category_name: string | null;
   memo: string | null;
   state: string | null;
   user_transaction_time: string | null;
   settlement_date: string | null;
+  accounting_date: string | null;
   currency_code: string | null;
-  card_holder?: { first_name: string; last_name: string } | null;
+  card_id: string | null;
+  card_present: boolean | null;
+  card_holder: {
+    first_name: string;
+    last_name: string;
+    user_id: string | null;
+    employee_id: string | null;
+    department_id: string | null;
+    department_name: string | null;
+    location_id: string | null;
+    location_name: string | null;
+  } | null;
   receipts?: string[];
   spend_program_id: string | null;
   department_id?: string | null;
-  accounting_field_selections?: RampAccountingFieldSelection[];
+  entity_id: string | null;
+  fund_id: string | null;
+  limit_id: string | null;
+  trip_id: string | null;
+  trip_name: string | null;
+  sync_status: string | null;
+  synced_at: string | null;
+  all_requirements_met_and_approved: boolean | null;
+  original_transaction_id: string | null;
+  original_transaction_amount: { amount: number; currency_code: string; minor_unit_conversion_rate: number } | null;
+  network_merchant_id: string | null;
+  updated_at: string | null;
+  accounting_field_selections?: RampTransactionAccountingFieldSelection[];
   line_items?: Array<{
-    accounting_field_selections?: RampAccountingFieldSelection[];
-    amount?: number;
+    accounting_field_selections?: RampTransactionAccountingFieldSelection[];
+    amount?: { amount: number; currency_code: string; minor_unit_conversion_rate: number };
+    converted_amount?: { amount: number; currency_code: string; minor_unit_conversion_rate: number };
     memo?: string | null;
   }>;
+  policy_violations?: Array<Record<string, unknown>>;
+  disputes?: Array<Record<string, unknown>>;
+}
+
+/** Accounting field selection on a transaction — richer structure from the API. */
+export interface RampTransactionAccountingFieldSelection {
+  id: string;
+  name: string;
+  display_name?: string | null;
+  external_id?: string | null;
+  external_code?: string | null;
+  provider_name?: string | null;
+  type?: string | null;
+  source?: { type: string } | null;
+  category_info?: {
+    id: string;
+    name: string;
+    type: string;
+    external_id?: string | null;
+  } | null;
 }
 
 export interface RampBill {
@@ -128,9 +178,58 @@ export interface RampUser {
 export interface RampVendor {
   id: string;
   name: string;
-  city: string | null;
+  name_legal: string | null;
+  description: string | null;
+  country: string;
   state: string | null;
-  country: string | null;
+  is_active: boolean;
+  is_deletable: boolean;
+  vendor_type: string | null;
+  vendor_owner_id: string | null;
+  merchant_id: string | null;
+  parent_vendor_id: string | null;
+  external_vendor_id: string | null;
+  accounting_vendor_remote_id: string | null;
+  sk_category_id: number | null;
+  sk_category_name: string | null;
+  billing_frequency: string | null;
+  federal_tax_classification: string | null;
+  default_entity_id: string | null;
+  contacts: string[];
+  address: {
+    address_line_1: string | null;
+    address_line_2: string | null;
+    city: string | null;
+    state: string | null;
+    country: string | null;
+    postal_code: string | null;
+  } | null;
+  addresses: Array<{
+    address_line_1: string | null;
+    address_line_2: string | null;
+    city: string | null;
+    state: string | null;
+    country: string | null;
+    postal_code: string | null;
+    address_type?: string | null;
+  }>;
+  tax_address: {
+    address_line_1: string | null;
+    address_line_2: string | null;
+    city: string | null;
+    state: string | null;
+    country: string | null;
+    postal_code: string | null;
+  } | null;
+  default_payment_method: {
+    payment_method: string | null;
+    source: string | null;
+  } | null;
+  total_spend_all_time: { amount: number; currency_code: string } | null;
+  total_spend_last_30_days: { amount: number; currency_code: string } | null;
+  total_spend_last_365_days: { amount: number; currency_code: string } | null;
+  total_spend_ytd: { amount: number; currency_code: string } | null;
+  created_at: string;
 }
 
 export interface RampReceipt {
@@ -138,7 +237,21 @@ export interface RampReceipt {
   transaction_id: string | null;
   user_id: string | null;
   created_at: string | null;
-  receipt_url: string | null;
+  receipt_url: string;
+  ocr?: {
+    currency_code?: string | null;
+    line_items?: Array<{
+      description?: string | null;
+      amount?: number | null;
+      quantity?: number | null;
+    }>;
+    merchant_name?: string | null;
+    subtotal?: number | null;
+    tax?: number | null;
+    tip?: number | null;
+    total?: number | null;
+    transaction_date?: string | null;
+  } | null;
 }
 
 export interface RampSpendProgram {
@@ -150,10 +263,10 @@ export interface RampSpendProgram {
 
 export interface RampMemo {
   id: string;
-  transaction_id: string | null;
-  content: string | null;
-  created_at: string | null;
-  user_id: string | null;
+  memo: string | null;
+  transaction_id?: string | null;
+  user_id?: string | null;
+  created_at?: string | null;
 }
 
 export interface RampAccountingConnection {
@@ -373,8 +486,13 @@ export class RampService {
     card_id?: string;
     entity_id?: string;
     merchant_id?: string;
+    limit_id?: string;
+    location_id?: string;
+    trip_id?: string;
+    statement_id?: string;
     state?: string;
     sync_status?: string;
+    approval_status?: string;
     min_amount?: string;
     max_amount?: string;
     sk_category_id?: number;
@@ -383,7 +501,13 @@ export class RampService {
     order_by_amount_desc?: boolean;
     order_by_amount_asc?: boolean;
     has_no_sync_commits?: boolean;
+    has_statement?: boolean;
+    has_been_approved?: boolean;
+    all_requirements_met_and_approved?: boolean;
     requires_memo?: boolean;
+    include_merchant_data?: boolean;
+    synced_after?: string;
+    awaiting_approval_by_user_id?: string;
     page_size?: number;
     start?: string;
   }): Promise<RampPagedResponse<RampTransaction>> {
@@ -451,8 +575,23 @@ export class RampService {
 
   // ─── Vendors ──────────────────────────────────────────────────────────────
 
+  /**
+   * List bill-pay vendors (payees) from Ramp.
+   * Scope: vendors:read
+   * Endpoint: GET /vendors
+   */
   async listVendors(params?: {
     name?: string;
+    is_active?: boolean;
+    merchant_id?: string;
+    external_vendor_id?: string;
+    vendor_owner_id?: string;
+    from_created_at?: string;
+    to_created_at?: string;
+    from_updated_at?: string;
+    to_updated_at?: string;
+    include_draft?: boolean;
+    include_subsidiary?: boolean;
     page_size?: number;
     start?: string;
   }): Promise<RampPagedResponse<RampVendor>> {
@@ -463,9 +602,12 @@ export class RampService {
 
   async listReceipts(params?: {
     transaction_id?: string;
-    user_id?: string;
+    reimbursement_id?: string;
     from_date?: string;
     to_date?: string;
+    created_after?: string;
+    created_before?: string;
+    include_ocr_data?: boolean;
     page_size?: number;
     start?: string;
   }): Promise<RampPagedResponse<RampReceipt>> {
@@ -486,6 +628,10 @@ export class RampService {
   async listMemos(params?: {
     user_id?: string;
     department_id?: string;
+    card_id?: string;
+    location_id?: string;
+    manager_id?: string;
+    merchant_id?: string;
     from_date?: string;
     to_date?: string;
     page_size?: number;
@@ -1140,8 +1286,11 @@ export class RampService {
     });
 
     const out: Array<RampReceipt & { merchant_name: string | null; amount: number | null }> = [];
+    const seen = new Set<string>();
     for (const tx of txResult.data) {
       for (const receiptId of tx.receipts ?? []) {
+        if (seen.has(receiptId)) continue;
+        seen.add(receiptId);
         try {
           const receipt = await this.getReceipt(receiptId);
           out.push({

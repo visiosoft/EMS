@@ -8,19 +8,66 @@ import { apiFetch } from './config';
 export interface RampTransaction {
   id: string;
   amount: number | null;
+  minor_unit_conversion_rate: number | null;
   merchant_name: string | null;
   merchant_descriptor: string | null;
   merchant_category_code: string | null;
+  merchant_category_code_description: string | null;
+  merchant_id: string | null;
+  merchant_location: { city: string | null; state: string | null; country: string | null; postal_code: string | null } | null;
+  sk_category_id: number | null;
   sk_category_name: string | null;
   memo: string | null;
   state: string | null;
   user_transaction_time: string | null;
   settlement_date: string | null;
+  accounting_date: string | null;
   currency_code: string | null;
-  card_holder?: { first_name: string; last_name: string } | null;
+  card_id: string | null;
+  card_present: boolean | null;
+  card_holder: {
+    first_name: string;
+    last_name: string;
+    user_id: string | null;
+    employee_id: string | null;
+    department_id: string | null;
+    department_name: string | null;
+    location_id: string | null;
+    location_name: string | null;
+  } | null;
   receipts?: string[];
   spend_program_id: string | null;
   department_id?: string | null;
+  entity_id: string | null;
+  fund_id: string | null;
+  limit_id: string | null;
+  trip_id: string | null;
+  trip_name: string | null;
+  sync_status: string | null;
+  synced_at: string | null;
+  all_requirements_met_and_approved: boolean | null;
+  original_transaction_id: string | null;
+  original_transaction_amount: { amount: number; currency_code: string; minor_unit_conversion_rate: number } | null;
+  network_merchant_id: string | null;
+  updated_at: string | null;
+  accounting_field_selections?: Array<{
+    id: string;
+    name: string;
+    display_name?: string | null;
+    external_id?: string | null;
+    external_code?: string | null;
+    provider_name?: string | null;
+    type?: string | null;
+    category_info?: { id: string; name: string; type: string; external_id?: string | null } | null;
+  }>;
+  line_items?: Array<{
+    accounting_field_selections?: Array<{ id: string; name: string }>;
+    amount?: { amount: number; currency_code: string; minor_unit_conversion_rate: number };
+    converted_amount?: { amount: number; currency_code: string; minor_unit_conversion_rate: number };
+    memo?: string | null;
+  }>;
+  policy_violations?: Array<Record<string, unknown>>;
+  disputes?: Array<Record<string, unknown>>;
 }
 
 export interface RampBill {
@@ -54,9 +101,31 @@ export interface RampUser {
 export interface RampVendor {
   id: string;
   name: string;
-  city: string | null;
+  name_legal: string | null;
+  description: string | null;
+  country: string;
   state: string | null;
-  country: string | null;
+  is_active: boolean;
+  vendor_type: string | null;
+  vendor_owner_id: string | null;
+  merchant_id: string | null;
+  external_vendor_id: string | null;
+  accounting_vendor_remote_id: string | null;
+  sk_category_name: string | null;
+  billing_frequency: string | null;
+  federal_tax_classification: string | null;
+  contacts: string[];
+  address: {
+    address_line_1: string | null;
+    address_line_2: string | null;
+    city: string | null;
+    state: string | null;
+    country: string | null;
+    postal_code: string | null;
+  } | null;
+  total_spend_all_time: { amount: number; currency_code: string } | null;
+  total_spend_ytd: { amount: number; currency_code: string } | null;
+  created_at: string;
 }
 
 export interface RampReceipt {
@@ -64,7 +133,21 @@ export interface RampReceipt {
   transaction_id: string | null;
   user_id: string | null;
   created_at: string | null;
-  receipt_url: string | null;
+  receipt_url: string;
+  ocr?: {
+    currency_code?: string | null;
+    line_items?: Array<{
+      description?: string | null;
+      amount?: number | null;
+      quantity?: number | null;
+    }>;
+    merchant_name?: string | null;
+    subtotal?: number | null;
+    tax?: number | null;
+    tip?: number | null;
+    total?: number | null;
+    transaction_date?: string | null;
+  } | null;
 }
 
 export interface RampEngagementReceipt extends RampReceipt {
@@ -279,6 +362,16 @@ export function fetchRampUsers(params?: {
 
 export function fetchRampVendors(params?: {
   name?: string;
+  is_active?: boolean;
+  merchant_id?: string;
+  external_vendor_id?: string;
+  vendor_owner_id?: string;
+  from_created_at?: string;
+  to_created_at?: string;
+  from_updated_at?: string;
+  to_updated_at?: string;
+  include_draft?: boolean;
+  include_subsidiary?: boolean;
   page_size?: number;
   start?: string;
 }): Promise<RampPagedResponse<RampVendor>> {
@@ -288,9 +381,12 @@ export function fetchRampVendors(params?: {
 
 export function fetchRampReceipts(params?: {
   transaction_id?: string;
-  user_id?: string;
+  reimbursement_id?: string;
   from_date?: string;
   to_date?: string;
+  created_after?: string;
+  created_before?: string;
+  include_ocr_data?: boolean;
   page_size?: number;
   start?: string;
 }): Promise<RampPagedResponse<RampReceipt>> {
@@ -304,6 +400,27 @@ export function fetchRampSpendPrograms(params?: {
 }): Promise<RampPagedResponse<RampSpendProgram>> {
   const qs = buildQuery(params);
   return apiFetch<RampPagedResponse<RampSpendProgram>>(`/ramp/spend-programs${qs}`);
+}
+
+export interface RampMemo {
+  id: string;
+  memo: string | null;
+}
+
+export function fetchRampMemos(params?: {
+  user_id?: string;
+  department_id?: string;
+  card_id?: string;
+  location_id?: string;
+  manager_id?: string;
+  merchant_id?: string;
+  from_date?: string;
+  to_date?: string;
+  page_size?: number;
+  start?: string;
+}): Promise<RampPagedResponse<RampMemo>> {
+  const qs = buildQuery(params);
+  return apiFetch<RampPagedResponse<RampMemo>>(`/ramp/memos${qs}`);
 }
 
 // ─── Accounting ─────────────────────────────────────────────────────────────
