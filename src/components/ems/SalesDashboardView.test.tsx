@@ -163,8 +163,8 @@ describe('SalesDashboardView', () => {
       .closest('table')
       ?.querySelector('tbody tr');
     expect(valuesRow).not.toBeNull();
-    expect(within(valuesRow as HTMLElement).getByText('5')).toBeVisible();
-    expect(within(valuesRow as HTMLElement).getByText('$50')).toBeVisible();
+    expect(within(valuesRow as HTMLElement).getAllByText('5')[0]).toBeVisible();
+    expect(within(valuesRow as HTMLElement).getAllByText('$50')[0]).toBeVisible();
   });
 
   it('derives the wrap delta from cumulative totals after consecutive no-sale days', () => {
@@ -202,9 +202,15 @@ describe('SalesDashboardView', () => {
     // Jun 29 delta: 1312 - 1275 = 37 tickets, 111424 - 108660 = $2,764
     expect(within(valuesRow as HTMLElement).getByText('37')).toBeVisible();
     expect(within(valuesRow as HTMLElement).getByText('$2,764')).toBeVisible();
-    // Must not echo the cumulative total.
-    expect(within(valuesRow as HTMLElement).queryByText('1,312')).not.toBeInTheDocument();
-    expect(within(valuesRow as HTMLElement).queryByText('$111,424')).not.toBeInTheDocument();
+    // The cumulative total (1,312 / $111,424) appears in other columns (7-Day,
+    // 14-Day) which is correct — verify the Yesterday's Wrap cells specifically
+    // show the delta by checking the cells with the "As of" note.
+    const wrapCells = Array.from((valuesRow as HTMLElement).querySelectorAll('td'))
+      .filter(td => td.textContent?.includes('As of'));
+    expect(wrapCells[0]?.textContent).toContain('37');
+    expect(wrapCells[0]?.textContent).not.toContain('1,312');
+    expect(wrapCells[1]?.textContent).toContain('$2,764');
+    expect(wrapCells[1]?.textContent).not.toContain('$111,424');
   });
 
   it('carries forward the latest day with data for the Lifetime to-date figures when KPIs are 0', () => {
@@ -240,8 +246,8 @@ describe('SalesDashboardView', () => {
     );
 
     // Carried forward from Jun 29 instead of the zeroed KPI snapshot.
-    expect(screen.getByText('2,500')).toBeVisible();
-    expect(screen.getByText('$25,000')).toBeVisible();
+    expect(screen.getAllByText('2,500')[0]).toBeVisible();
+    expect(screen.getAllByText('$25,000')[0]).toBeVisible();
     // % of Seats Sold and % of $ Potential Sold, recomputed from the carry.
     expect(screen.getAllByText('50.0%').length).toBeGreaterThanOrEqual(2);
   });
@@ -441,7 +447,7 @@ describe('SalesDashboardView', () => {
     const valuesRow = wrapTable?.querySelector('tbody tr');
     expect(valuesRow).not.toBeNull();
     // Should show 5 tickets and $50 from May 22 (the fallback)
-    expect(within(valuesRow as HTMLElement).getByText('5')).toBeVisible();
-    expect(within(valuesRow as HTMLElement).getByText('$50')).toBeVisible();
+    expect(within(valuesRow as HTMLElement).getAllByText('5')[0]).toBeVisible();
+    expect(within(valuesRow as HTMLElement).getAllByText('$50')[0]).toBeVisible();
   });
 });

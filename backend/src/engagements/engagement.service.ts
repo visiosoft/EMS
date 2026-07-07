@@ -59,10 +59,21 @@ import { CreateEngagementTravelHotelDto, UpdateEngagementTravelHotelDto, CreateE
 import { EngagementTravel } from '../entities/engagement-travel.entity';
 import { EngagementTravelCarService } from '../entities/engagement-travel-car-service.entity';
 import { EngagementTravelHotel } from '../entities/engagement-travel-hotel.entity';
+import { EngagementPartner } from '../entities/engagement-partner.entity';
+import { PerformanceContract } from '../entities/performance-contract.entity';
 import { AuditRequestContext } from '../audit/audit-request-context.service';
 import { buildEngagementDisplayTitle } from './engagement-display.util';
 import { normalizeEngagementStatus } from './engagement-status.util';
 import { getIaeWaiverStatusAllowlist } from './iae-waiver-status.constants';
+
+export interface EngagementDeleteImpact {
+  /** Whether the engagement can be deleted at all (false if hard blockers exist). */
+  canDelete: boolean;
+  /** Reasons deletion is refused outright; user must resolve these first (no data is deleted). */
+  blockers: string[];
+  /** Dependent records that will be permanently deleted along with the engagement, if the user proceeds. */
+  dependents: { label: string; count: number }[];
+}
 
 export interface EngagementListRow {
   engagementId: number;
@@ -4198,7 +4209,9 @@ export class EngagementService {
     this.applyEngagementListFilters(qb, filters);
     this.applyEngagementListSort(qb, filters.sortBy, filters.sortDir);
     const total = await qb.clone().getCount();
-    const raw = await qb.skip(off).take(safeLimit).getRawMany();
+    // `.skip()/.take()` are silently ignored by TypeORM once a query has joins (it only
+    // reads them when `joinAttributes.length === 0`); `.offset()/.limit()` apply unconditionally.
+    const raw = await qb.offset(off).limit(safeLimit).getRawMany();
     return {
       data: (raw as Record<string, unknown>[]).map((r) => this.mapRaw(r)),
       total,
@@ -5626,28 +5639,62 @@ export class EngagementService {
   private async assertEngagementDeletableForDelete(
     engagementId: number,
   ): Promise<void> {
+    const impact = await this.getEngagementDeleteImpact(engagementId);
+    if (!impact.canDelete) {
+      throw new BadRequestException({ message: impact.blockers[0] });
+    }
+  }
+
+  /**
+   * Reports hard blockers (deletion refused outright) and soft dependents (data that
+   * will be cascade-deleted along with the engagement if the user proceeds), so the UI
+   * can warn the user before calling remove().
+   */
+  async getEngagementDeleteImpact(
+    engagementId: number,
+  ): Promise<EngagementDeleteImpact> {
     await this.assertEngagementExists(engagementId);
 
-    const sourceLink = await this.dataSource.manager.findOne(EngagementXref, {
+    const blockers: string[] = [];
+
+    const sourceLinks = await this.dataSource.manager.find(EngagementXref, {
       where: { engagementId },
     });
-    if (sourceLink) {
-      throw new BadRequestException({
-        message: sourceLink.sourceEngagementId.startsWith('EngagementProject:')
-          ? 'This engagement was created from a finalized project and cannot be deleted because its source project is view-only.'
-          : 'This engagement is linked to an originating record and cannot be deleted.',
-      });
-    }
 
     const performanceCount = await this.performanceRepo.count({
       where: { engagementId },
     });
-    if (performanceCount > 1) {
-      throw new BadRequestException({
-        message:
-          'This engagement has more than one show date. Remove the extra performances on the Performances tab, then delete the engagement.',
-      });
-    }
+
+    const eid = Math.trunc(engagementId);
+    const [linkCount, partnerCount, travelCount, contractCount, retailPartnerRows] =
+      await Promise.all([
+        this.engagementLinkRepo.count({ where: { engagementId } }),
+        this.dataSource.manager.count(EngagementPartner, { where: { engagementId } }),
+        this.engagementTravelRepo.count({ where: { engagementId } }),
+        this.dataSource.manager.count(PerformanceContract, { where: { engagementId } }),
+        this.dataSource.query(
+          `SELECT COUNT(*) AS cnt FROM dbo.EngagementRetailPartner WHERE [EngagementID] = ${eid}`,
+        ),
+      ]);
+    const retailPartnerCount = Number(
+      (retailPartnerRows as Array<{ cnt: number | string }>)?.[0]?.cnt ?? 0,
+    );
+
+    const dependents = [
+      {
+        label:
+          'source project link(s) — the originating project will become editable again',
+        count: sourceLinks.length,
+      },
+      { label: 'show date(s) / performance(s)', count: performanceCount },
+      { label: 'document link(s)', count: linkCount },
+      { label: 'event business partner link(s)', count: partnerCount },
+      { label: 'travel booking(s)', count: travelCount },
+      { label: 'contract(s)', count: contractCount },
+      { label: 'retail partner link(s)', count: retailPartnerCount },
+    ].filter((d) => d.count > 0);
+
+    return { canDelete: blockers.length === 0, blockers, dependents };
   }
 
   async remove(id: number): Promise<void> {
@@ -5673,7 +5720,56 @@ export class EngagementService {
           .from(PerformanceTicketing)
           .where('performanceId IN (:...pids)', { pids })
           .execute();
+
+        // VIPPackage / PerformancePromoPassword aren't registered TypeORM entities
+        // (managed via raw SQL throughout this service) — delete the same way here.
+        const pidList = pids.map((p) => Math.trunc(p)).join(',');
+        await manager.query(
+          `DELETE FROM dbo.VIPPackageBenefit WHERE [VIPPackageID] IN (SELECT [VIPPackageID] FROM dbo.VIPPackage WHERE [PerformanceID] IN (${pidList}))`,
+        );
+        await manager.query(
+          `DELETE FROM dbo.VIPPackage WHERE [PerformanceID] IN (${pidList})`,
+        );
+        await manager.query(
+          `DELETE FROM dbo.PerformancePromoPassword WHERE [PerformanceID] IN (${pidList})`,
+        );
       }
+
+      const travelIds = (
+        await manager.find(EngagementTravel, {
+          where: { engagementId: id },
+          select: { engagementTravelId: true },
+        })
+      ).map((t) => t.engagementTravelId);
+      if (travelIds.length > 0) {
+        await manager
+          .createQueryBuilder()
+          .delete()
+          .from(EngagementTravelHotel)
+          .where('engagementTravelId IN (:...travelIds)', { travelIds })
+          .execute();
+        await manager
+          .createQueryBuilder()
+          .delete()
+          .from(EngagementTravelCarService)
+          .where('engagementTravelId IN (:...travelIds)', { travelIds })
+          .execute();
+        await manager.delete(EngagementTravel, { engagementId: id });
+      }
+
+      const eid = Math.trunc(id);
+      await manager.query(
+        `DELETE FROM dbo.PerformanceContracts WHERE [EngagementID] = ${eid}`,
+      );
+      await manager.query(
+        `DELETE FROM dbo.EngagementRetailPartner WHERE [EngagementID] = ${eid}`,
+      );
+      await manager.delete(EngagementPartner, { engagementId: id });
+      await manager.delete(EngagementLink, { engagementId: id });
+      // Unlink from any originating project so it reverts to editable rather
+      // than staying permanently locked to a now-deleted engagement.
+      await manager.delete(EngagementXref, { engagementId: id });
+
       await manager.delete(Performance, { engagementId: id });
       await manager.delete(EngagementFinances, { engagementId: id });
       await manager.delete(EngagementProduction, { engagementId: id });

@@ -74,7 +74,13 @@ type EngagementTileSize = 'small' | 'medium' | 'large';
 const ENGAGEMENTS_VIEW_MODE_STORAGE_KEY = 'iae-engagements-view-mode-v1';
 const ENGAGEMENTS_TILE_SIZE_STORAGE_KEY = 'iae-engagements-tile-size-v1';
 const ENGAGEMENTS_SORT_STATE_STORAGE_KEY = 'iae-engagements-sort-state-v1';
-const EMS_SAVED_VIEWS_ENABLED_KEY = 'iae-ems-saved-views-enabled-v1';
+const EMS_SAVED_VIEWS_ENABLED_KEY = 'iae-ems-saved-views-enabled-v2';
+
+/** Mirrors Index.tsx's readSavedViewsEnabled — defaults on; an explicit '0' opts out. */
+function isSavedViewsEnabled(): boolean {
+  const stored = localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY);
+  return stored === null ? true : stored === '1';
+}
 
 const ENGAGEMENT_MOVABLE_COLUMN_ORDER_KEY = 'iae-engagements-movable-column-order-v1';
 const LEGACY_ENGAGEMENT_TABLE_COLUMN_ORDER_KEY = 'iae-engagements-table-column-order-v2';
@@ -220,7 +226,7 @@ function loadEngagementsSortState(): {
   const defaultSort = { col: 'date' as EngagementMovableColumnId, dir: 'asc' as const };
   if (typeof window === 'undefined') return defaultSort;
   try {
-    if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') {
+    if (!isSavedViewsEnabled()) {
       return defaultSort;
     }
     const raw = localStorage.getItem(ENGAGEMENTS_SORT_STATE_STORAGE_KEY);
@@ -243,7 +249,7 @@ function saveEngagementsSortState(state: {
   dir: 'asc' | 'desc';
 }) {
   try {
-    if (localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) !== '1') return;
+    if (!isSavedViewsEnabled()) return;
     localStorage.setItem(ENGAGEMENTS_SORT_STATE_STORAGE_KEY, JSON.stringify(state));
   } catch {
     /* ignore */
