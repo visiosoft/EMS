@@ -234,6 +234,12 @@ export class EngagementController {
     return this.engagementService.removeEngagementIaeContact(id, eicId);
   }
 
+  /** Preview what deleting this engagement would remove, before the user confirms. */
+  @Get(':id/delete-impact')
+  getDeleteImpact(@Param('id', ParseIntPipe) id: number) {
+    return this.engagementService.getEngagementDeleteImpact(id);
+  }
+
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('id', ParseIntPipe) id: number) {

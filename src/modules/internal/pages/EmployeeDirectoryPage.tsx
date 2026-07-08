@@ -13,6 +13,13 @@ import {
   roleWeight,
 } from "../components/IaeEmployeesTable";
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 type DirectoryMode = "tiles" | "table";
 type TilesView = "org" | "alpha" | "dept";
@@ -33,23 +40,47 @@ function compareByName(a: IaeEmployee, b: IaeEmployee, primary: AlphaSort): numb
     : aLast.localeCompare(bLast) || aFirst.localeCompare(bFirst);
 }
 
+/** Professional segmented control container (grey track, white active pill). */
+function Segmented({
+  label,
+  children,
+}: {
+  label?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="inline-flex h-10 items-center gap-0.5 rounded-lg border border-neutral-200 bg-neutral-100/80 p-1">
+      {label ? (
+        <span className="pl-1.5 pr-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-neutral-400">
+          {label}
+        </span>
+      ) : null}
+      {children}
+    </div>
+  );
+}
+
 function SegBtn({
   active,
   onClick,
   children,
+  ariaLabel,
 }: {
   active: boolean;
   onClick: () => void;
   children: React.ReactNode;
+  ariaLabel?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] font-semibold transition-colors ${
+      aria-pressed={active}
+      aria-label={ariaLabel}
+      className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-all ${
         active
-          ? "bg-neutral-900 text-white"
-          : "bg-transparent text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
+          ? "bg-white text-neutral-900 shadow-sm ring-1 ring-black/[0.06]"
+          : "text-neutral-500 hover:text-neutral-900"
       }`}
     >
       {children}
@@ -158,6 +189,8 @@ export function EmployeeDirectoryPage() {
 
   const isOrgView = mode === "tiles" && tilesView === "org";
   const showSearch = !isOrgView;
+  const alphaActive =
+    (mode === "tiles" && tilesView === "alpha") || (mode === "table" && tableView === "alpha");
 
   return (
     <InternalPageFrame>
@@ -171,73 +204,78 @@ export function EmployeeDirectoryPage() {
           isOrgView ? "max-w-[1800px] lg:px-6" : "max-w-[1200px] lg:px-12"
         }`}
       >
-        {/* View controls */}
-        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="inline-flex rounded-lg border border-neutral-200 bg-white p-1">
-            <SegBtn active={mode === "tiles"} onClick={() => setMode("tiles")}>
-              <LayoutGrid className="h-4 w-4" /> Tiles
-            </SegBtn>
-            <SegBtn active={mode === "table"} onClick={() => setMode("table")}>
-              <Rows3 className="h-4 w-4" /> Table
-            </SegBtn>
-          </div>
+        {/* Toolbar: search on the left, view/sort controls on the right */}
+        <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center">
+          {showSearch ? (
+            <div className="relative w-full lg:max-w-sm lg:flex-1">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400"
+                aria-hidden
+              />
+              <input
+                type="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search employees by name, title, or department"
+                aria-label="Search employees"
+                className="h-10 w-full rounded-lg border border-neutral-300 bg-white pl-9 pr-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+              />
+            </div>
+          ) : (
+            <div className="hidden lg:block lg:flex-1" />
+          )}
 
-          <div className="inline-flex flex-wrap gap-1 rounded-lg border border-neutral-200 bg-white p-1">
-            {mode === "tiles" ? (
-              <>
-                <SegBtn active={tilesView === "org"} onClick={() => setTilesView("org")}>
-                  <Network className="h-4 w-4" /> Org Chart
-                </SegBtn>
-                <SegBtn active={tilesView === "alpha"} onClick={() => setTilesView("alpha")}>
-                  Alphabetical
-                </SegBtn>
-                <SegBtn active={tilesView === "dept"} onClick={() => setTilesView("dept")}>
-                  Department
-                </SegBtn>
-              </>
-            ) : (
-              <>
-                <SegBtn active={tableView === "dept"} onClick={() => setTableView("dept")}>
-                  Department
-                </SegBtn>
-                <SegBtn active={tableView === "alpha"} onClick={() => setTableView("alpha")}>
-                  Alphabetical
-                </SegBtn>
-              </>
-            )}
+          <div className="flex flex-wrap items-center gap-2 lg:ml-auto lg:justify-end">
+            {alphaActive ? (
+              <Select value={alphaSort} onValueChange={(value) => setAlphaSort(value as AlphaSort)}>
+                <SelectTrigger
+                  aria-label="Sort employees"
+                  className="h-10 w-[170px] rounded-lg border-neutral-200 bg-white text-[13px] font-medium text-neutral-800 focus:ring-1 focus:ring-black"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="first">Sort: First name</SelectItem>
+                  <SelectItem value="last">Sort: Last name</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : null}
+
+            <Segmented>
+              {mode === "tiles" ? (
+                <>
+                  <SegBtn active={tilesView === "org"} onClick={() => setTilesView("org")}>
+                    <Network className="h-4 w-4" /> Org Chart
+                  </SegBtn>
+                  <SegBtn active={tilesView === "alpha"} onClick={() => setTilesView("alpha")}>
+                    Alphabetical
+                  </SegBtn>
+                  <SegBtn active={tilesView === "dept"} onClick={() => setTilesView("dept")}>
+                    Department
+                  </SegBtn>
+                </>
+              ) : (
+                <>
+                  <SegBtn active={tableView === "dept"} onClick={() => setTableView("dept")}>
+                    Department
+                  </SegBtn>
+                  <SegBtn active={tableView === "alpha"} onClick={() => setTableView("alpha")}>
+                    Alphabetical
+                  </SegBtn>
+                </>
+              )}
+            </Segmented>
+
+            <Segmented>
+              <SegBtn active={mode === "tiles"} onClick={() => setMode("tiles")} ariaLabel="Tile view">
+                <LayoutGrid className="h-4 w-4" /> Tiles
+              </SegBtn>
+              <SegBtn active={mode === "table"} onClick={() => setMode("table")} ariaLabel="Table view">
+                <Rows3 className="h-4 w-4" /> Table
+              </SegBtn>
+            </Segmented>
           </div>
         </div>
-
-        {/* Alphabetical first/last toggle (tiles + table alpha views) */}
-        {((mode === "tiles" && tilesView === "alpha") ||
-          (mode === "table" && tableView === "alpha")) && (
-          <div className="mb-4 flex items-center gap-2 text-[13px] text-neutral-600">
-            <span className="font-semibold">Sort by:</span>
-            <div className="inline-flex rounded-md border border-neutral-200 bg-white p-0.5">
-              <SegBtn active={alphaSort === "first"} onClick={() => setAlphaSort("first")}>
-                First name
-              </SegBtn>
-              <SegBtn active={alphaSort === "last"} onClick={() => setAlphaSort("last")}>
-                Last name
-              </SegBtn>
-            </div>
-          </div>
-        )}
-
-        {/* Search (all views except org chart, which has its own) */}
-        {showSearch ? (
-          <div className="relative mb-5 max-w-md">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" aria-hidden />
-            <input
-              type="search"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search by name, title, department, or email"
-              aria-label="Search employees"
-              className="h-10 w-full rounded-md border border-neutral-300 bg-white pl-9 pr-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
-            />
-          </div>
-        ) : null}
 
         {/* Content */}
         {mode === "tiles" && tilesView === "org" ? (

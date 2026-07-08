@@ -761,6 +761,26 @@ function buildAuditGroups(
       ? data.kpis.pctRevenueVsPotential
       : pctOf(lifetimeRevenue, grossPotential);
 
+  // 7-day and 14-day wraps: subtract cumulative snapshot from 7/14 calendar
+  // days ago from the current cumulative — matches Sales Summary page logic.
+  const lastPoint = chronological[chronological.length - 1];
+  const currentTicketsSnap = lastPoint ? (finiteNumber(lastPoint.totalTickets) ?? 0) : 0;
+  const currentRevenueSnap = lastPoint ? (finiteNumber(lastPoint.totalRevenue) ?? 0) : 0;
+  const cutoff7 = ymdAddDays(asOf, -7);
+  const cutoff14 = ymdAddDays(asOf, -14);
+  // Find the last chart point on or before the cutoff date.
+  const snapAtCutoff = (cutoff: string) => {
+    let hit: SalesChartPoint | undefined;
+    for (const pt of chronological) { if (pt.date > cutoff) break; hit = pt; }
+    return hit;
+  };
+  const point7 = snapAtCutoff(cutoff7);
+  const point14 = snapAtCutoff(cutoff14);
+  const trailing7Tickets = Math.max(0, currentTicketsSnap - (point7 ? (finiteNumber(point7.totalTickets) ?? 0) : 0));
+  const trailing7Revenue = Math.max(0, currentRevenueSnap - (point7 ? (finiteNumber(point7.totalRevenue) ?? 0) : 0));
+  const trailing14Tickets = Math.max(0, currentTicketsSnap - (point14 ? (finiteNumber(point14.totalTickets) ?? 0) : 0));
+  const trailing14Revenue = Math.max(0, currentRevenueSnap - (point14 ? (finiteNumber(point14.totalRevenue) ?? 0) : 0));
+
   return [
     {
       title: 'Total Inventory',
@@ -771,8 +791,21 @@ function buildAuditGroups(
       ],
     },
     {
-      title: "Yesterday's Wrap",
+      title: 'Lifetime',
       shade: 'bg-card',
+      cells: [
+        { label: 'Total Tickets Sold To Date', value: countOrDash(lifetimeTickets) },
+        { label: 'Total Sales $ To Date', value: moneyOrDash(lifetimeRevenue) },
+        { label: '% of Seats Sold', value: pctDisplay(lifetimePctSold) },
+        {
+          label: '% of $ Potential Sold',
+          value: pctDisplay(lifetimePctPotential),
+        },
+      ],
+    },
+    {
+      title: "Yesterday's Wrap",
+      shade: 'bg-elevated/35',
       cells: [
         {
           label: 'Total Tickets Sold Yesterday',
@@ -787,24 +820,33 @@ function buildAuditGroups(
       ],
     },
     {
-      title: 'Unsold Inventory & Value',
+      title: 'Seven-Day Wrap',
+      shade: 'bg-card',
+      cells: [
+        { label: '7 Day Total Tickets Sold', value: countOrDash(trailing7Tickets) },
+        { label: '7 Day $ Sold', value: moneyOrDash(trailing7Revenue) },
+      ],
+    },
+    {
+      title: 'Fourteen-Day Wrap',
       shade: 'bg-elevated/35',
+      cells: [
+        { label: '14 Day Total Tickets Sold', value: countOrDash(trailing14Tickets) },
+        { label: '14 Day $ Sold', value: moneyOrDash(trailing14Revenue) },
+      ],
+    },
+    {
+      title: 'Unsold Inventory & Value',
+      shade: 'bg-card',
       cells: [
         { label: 'Total Unsold Tickets', value: countOrDash(unsoldTickets) },
         { label: 'Total Unsold $', value: moneyOrDash(unsoldRevenue) },
       ],
     },
     {
-      title: 'Lifetime',
-      shade: 'bg-card',
+      title: 'Goal',
+      shade: 'bg-elevated/45',
       cells: [
-        { label: 'Total Tickets Sold To Date', value: countOrDash(lifetimeTickets) },
-        { label: 'Total Sales $ To Date', value: moneyOrDash(lifetimeRevenue) },
-        { label: '% of Seats Sold', value: pctDisplay(lifetimePctSold) },
-        {
-          label: '% of $ Potential Sold',
-          value: pctDisplay(lifetimePctPotential),
-        },
         {
           label: 'Goal Revenue',
           value: moneyOrDash(grossPotential),
