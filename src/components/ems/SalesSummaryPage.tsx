@@ -578,7 +578,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
   const searchWrapperRef = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE);
+  const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE_ALL);
   const [sort, setSort] = useState<SortState>({ col: 'eventDate', dir: 'asc' });
   const [visibleMetricColumnKeys, setVisibleMetricColumnKeys] = useState<SortColumn[]>(loadSalesSummaryVisibleMetricColumns);
   const iso = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s.trim());
