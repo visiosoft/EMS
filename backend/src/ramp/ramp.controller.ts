@@ -511,6 +511,22 @@ export class RampController {
     });
   }
 
+  @Get('engagement/:engagementId/vendors')
+  getEngagementVendors(
+    @Param('engagementId', ParseIntPipe) engagementId: number,
+    @Query('name') name?: string,
+    @Query('is_active') isActive?: string,
+    @Query('page_size') pageSize?: string,
+    @Query('start') start?: string,
+  ) {
+    return this.rampService.getEngagementVendors(engagementId, {
+      name,
+      is_active: isActive !== undefined ? isActive === 'true' : undefined,
+      page_size: pageSize ? Number(pageSize) : undefined,
+      start,
+    });
+  }
+
   /** Full accounting context scoped to an engagement's Customer/Job. */
   @Get('engagement/:engagementId/accounting')
   getEngagementAccounting(

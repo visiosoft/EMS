@@ -169,6 +169,8 @@ export interface RampEngagementAccountingContext {
   matchedOptions: RampAccountingFieldOption[];
   glAccounts: RampGlAccount[];
   accountingVendors: RampAccountingVendor[];
+  allFields: RampAccountingField[];
+  customerJobOptions: RampAccountingFieldOption[];
 }
 
 export interface RampSpendProgram {
@@ -264,6 +266,8 @@ export interface RampCustomerJobFieldOptions {
   customerOptions: RampAccountingFieldOption[];
   jobField: RampAccountingField | null;
   jobOptions: RampAccountingFieldOption[];
+  combinedField: RampAccountingField | null;
+  combinedOptions: RampAccountingFieldOption[];
 }
 
 export interface RampStatus {
@@ -551,6 +555,19 @@ export function fetchEngagementRampReceipts(
 ): Promise<RampPagedResponse<RampEngagementReceipt>> {
   const qs = buildQuery(params);
   return apiFetch<RampPagedResponse<RampEngagementReceipt>>(`/ramp/engagement/${engagementId}/receipts${qs}`);
+}
+
+export function fetchEngagementRampVendors(
+  engagementId: number,
+  params?: {
+    name?: string;
+    is_active?: boolean;
+    page_size?: number;
+    start?: string;
+  },
+): Promise<RampPagedResponse<RampVendor>> {
+  const qs = buildQuery(params);
+  return apiFetch<RampPagedResponse<RampVendor>>(`/ramp/engagement/${engagementId}/vendors${qs}`);
 }
 
 export function fetchEngagementRampMapping(

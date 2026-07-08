@@ -118,7 +118,7 @@ import {
 } from '@/api/engagementApi';
 import {
   fetchRampStatus,
-  fetchRampVendors,
+  fetchEngagementRampVendors,
   fetchRampUsers,
   fetchRampDepartments,
   fetchRampSpendPrograms,
@@ -128,11 +128,8 @@ import {
   fetchEngagementRampMapping,
   fetchEngagementRampAccounting,
   fetchRampAccountingConnections,
-  fetchRampGlAccounts,
   fetchRampAccountingFields,
   fetchRampAccountingFieldOptions,
-  fetchRampAccountingVendors,
-  fetchRampCustomerJobFieldOptions,
   fetchRampMemos,
   type RampAccountingField,
   type RampEngagementAccountingContext,
@@ -6746,7 +6743,7 @@ const RAMP_TAB_META: Record<string, { scope: string; description: string; intent
   vendors: {
     scope: 'vendors:read',
     description: 'Bill-pay payees you pay via ACH, check, or wire. Vendors carry contacts, bank accounts, and addresses.',
-    intent: 'Vendors that map to companies in the EMS (org-wide list).',
+    intent: 'Vendors linked to this engagement via Customer/Job accounting field.',
   },
   users: {
     scope: 'users:read',
@@ -6975,8 +6972,8 @@ function RampSection({ engagementId }: { engagementId: number }) {
   });
 
   const vendorsQuery = useInfiniteQuery({
-    queryKey: ['ramp', 'vendors'],
-    queryFn: ({ pageParam }) => fetchRampVendors({ page_size: 50, start: pageParam }),
+    queryKey: ['ramp', 'engagement', engagementId, 'vendors'],
+    queryFn: ({ pageParam }) => fetchEngagementRampVendors(engagementId, { page_size: 50, start: pageParam }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.page?.next ?? undefined,
     enabled: configured && activeTab === 'vendors',
@@ -7023,7 +7020,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
 
   // ─── Accounting queries (accounting:read) ───────────────────────────────
 
-  /** Engagement-scoped accounting context — returns matched Customer/Job fields/options + org-wide GL accounts & vendors. */
+  /** Engagement-scoped accounting context — resolves Customer/Job via Attraction+Venue mapping. */
   const engagementAccountingQuery = useQuery({
     queryKey: ['ramp', 'accounting', 'engagement', engagementId],
     queryFn: () => fetchEngagementRampAccounting(engagementId),
@@ -7035,15 +7032,6 @@ function RampSection({ engagementId }: { engagementId: number }) {
     queryKey: ['ramp', 'accounting', 'connections'],
     queryFn: () => fetchRampAccountingConnections(),
     enabled: configured && activeTab === 'connections',
-    staleTime: 300_000,
-  });
-
-  const glAccountsQuery = useInfiniteQuery({
-    queryKey: ['ramp', 'accounting', 'gl-accounts'],
-    queryFn: ({ pageParam }) => fetchRampGlAccounts({ page_size: 100, start: pageParam }),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage) => lastPage.page?.next ?? undefined,
-    enabled: configured && activeTab === 'gl-accounts',
     staleTime: 300_000,
   });
 
@@ -7065,22 +7053,6 @@ function RampSection({ engagementId }: { engagementId: number }) {
     staleTime: 300_000,
   });
 
-  const accountingVendorsQuery = useInfiniteQuery({
-    queryKey: ['ramp', 'accounting', 'vendors'],
-    queryFn: ({ pageParam }) => fetchRampAccountingVendors({ page_size: 100, start: pageParam }),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage) => lastPage.page?.next ?? undefined,
-    enabled: configured && activeTab === 'accounting-vendors',
-    staleTime: 300_000,
-  });
-
-  const customerJobQuery = useQuery({
-    queryKey: ['ramp', 'accounting', 'customer-job'],
-    queryFn: () => fetchRampCustomerJobFieldOptions(),
-    enabled: configured && activeTab === 'accounting-fields',
-    staleTime: 300_000,
-  });
-
   // One cached page shown at a time, with Previous/Next over the cursor pages.
   const txPaged = usePagedRamp(transactionsQuery, engagementId);
   const billsPaged = usePagedRamp(billsQuery, engagementId);
@@ -7090,10 +7062,8 @@ function RampSection({ engagementId }: { engagementId: number }) {
   const departmentsPaged = usePagedRamp(departmentsQuery, 'departments');
   const spendProgramsPaged = usePagedRamp(spendProgramsQuery, 'spend-programs');
   const memosPaged = usePagedRamp(memosQuery, 'memos');
-  const glAccountsPaged = usePagedRamp(glAccountsQuery, 'gl-accounts');
   const accountingFieldsPaged = usePagedRamp(accountingFieldsQuery, 'accounting-fields');
   const fieldOptionsPaged = usePagedRamp(fieldOptionsQuery, selectedFieldId);
-  const accountingVendorsPaged = usePagedRamp(accountingVendorsQuery, 'accounting-vendors');
 
   const transactions = txPaged.rows;
   const bills = billsPaged.rows;
@@ -7103,10 +7073,12 @@ function RampSection({ engagementId }: { engagementId: number }) {
   const departments = departmentsPaged.rows;
   const spendPrograms = spendProgramsPaged.rows;
   const memos = memosPaged.rows;
-  const glAccounts = glAccountsPaged.rows;
   const accountingFields = accountingFieldsPaged.rows;
   const fieldOptions = fieldOptionsPaged.rows;
-  const accountingVendors = accountingVendorsPaged.rows;
+
+  // GL accounts and accounting vendors come from the engagement-scoped query (filtered by Customer/Job)
+  const glAccounts = engagementAccountingQuery.data?.glAccounts ?? [];
+  const accountingVendors = engagementAccountingQuery.data?.accountingVendors ?? [];
 
   if (statusQuery.isLoading) {
     return <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Checking Ramp connection…</div>;
@@ -7250,7 +7222,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
             <button type="button" onClick={handleTxSearch} className="px-3 py-1 rounded bg-ems-accent text-white text-xs font-medium hover:opacity-90 transition-opacity">Search</button>
           </div>
 
-          {transactionsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading transactions…</div>}
+          {transactionsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching transactions from Ramp…</div>}
           {transactionsQuery.isError && <p className="text-sm text-red-600">Failed to load transactions.</p>}
           {transactionsQuery.isSuccess && (
             transactions.length === 0
@@ -7342,7 +7314,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
             <button type="button" onClick={handleBillSearch} className="px-3 py-1 rounded bg-ems-accent text-white text-xs font-medium hover:opacity-90 transition-opacity">Search</button>
           </div>
 
-          {billsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading bills…</div>}
+          {billsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching bills from Ramp…</div>}
           {billsQuery.isError && <p className="text-sm text-red-600">Failed to load bills.</p>}
           {billsQuery.isSuccess && (
             bills.length === 0
@@ -7416,7 +7388,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
             <button type="button" onClick={handleReceiptSearch} className="px-3 py-1 rounded bg-ems-accent text-white text-xs font-medium hover:opacity-90 transition-opacity">Search</button>
           </div>
 
-          {receiptsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading receipts…</div>}
+          {receiptsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching receipts from Ramp…</div>}
           {receiptsQuery.isError && <p className="text-sm text-red-600">Failed to load receipts.</p>}
           {receiptsQuery.isSuccess && (
             (() => {
@@ -7451,7 +7423,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
       {/* Memos tab */}
       {activeTab === 'memos' && (
         <div className="space-y-2">
-          {(memosQuery.isLoading || transactionsQuery.isLoading) && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading memos…</div>}
+          {(memosQuery.isLoading || transactionsQuery.isLoading) && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching memos from Ramp…</div>}
           {memosQuery.isError && <p className="text-sm text-red-600">Failed to load memos.</p>}
           {memosQuery.isSuccess && transactionsQuery.isSuccess && (
             (() => {
@@ -7498,7 +7470,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
       {/* Vendors tab */}
       {activeTab === 'vendors' && (
         <div className="space-y-2">
-          {vendorsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading vendors…</div>}
+          {vendorsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching vendors from Ramp…</div>}
           {vendorsQuery.isError && <p className="text-sm text-red-600">Failed to load vendors.</p>}
           {vendorsQuery.isSuccess && (
             vendors.length === 0
@@ -7523,7 +7495,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
       {/* Users tab */}
       {activeTab === 'users' && (
         <div className="space-y-2">
-          {usersQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading users…</div>}
+          {usersQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching users from Ramp…</div>}
           {usersQuery.isError && <p className="text-sm text-red-600">Failed to load users.</p>}
           {usersQuery.isSuccess && (
             users.length === 0
@@ -7560,7 +7532,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
       {/* Departments tab */}
       {activeTab === 'departments' && (
         <div className="space-y-2">
-          {departmentsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading departments…</div>}
+          {departmentsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching departments from Ramp…</div>}
           {departmentsQuery.isError && <p className="text-sm text-red-600">Failed to load departments.</p>}
           {departmentsQuery.isSuccess && (
             departments.length === 0
@@ -7584,7 +7556,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
       {/* Spend Programs tab */}
       {activeTab === 'spend-programs' && (
         <div className="space-y-2">
-          {spendProgramsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading spend programs…</div>}
+          {spendProgramsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching spend programs from Ramp…</div>}
           {spendProgramsQuery.isError && <p className="text-sm text-red-600">Failed to load spend programs.</p>}
           {spendProgramsQuery.isSuccess && (
             spendPrograms.length === 0
@@ -7609,9 +7581,9 @@ function RampSection({ engagementId }: { engagementId: number }) {
       {/* GL Accounts tab */}
       {activeTab === 'gl-accounts' && (
         <div className="space-y-2">
-          {glAccountsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading GL accounts…</div>}
-          {glAccountsQuery.isError && <p className="text-sm text-red-600">Failed to load GL accounts.</p>}
-          {glAccountsQuery.isSuccess && (
+          {engagementAccountingQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching GL accounts from Ramp…</div>}
+          {engagementAccountingQuery.isError && <p className="text-sm text-red-600">Failed to load GL accounts.</p>}
+          {engagementAccountingQuery.isSuccess && (
             glAccounts.length === 0
               ? <p className="text-sm text-text-muted">No GL accounts found.</p>
               : (
@@ -7652,8 +7624,8 @@ function RampSection({ engagementId }: { engagementId: number }) {
                 </div>
               )
           )}
-          {glAccountsQuery.isSuccess && (
-            <RampPager pager={glAccountsPaged} />
+          {engagementAccountingQuery.isSuccess && glAccounts.length > 0 && (
+            <p className="text-xs text-text-muted">Showing {glAccounts.length} GL account(s) used by this engagement's transactions/bills.</p>
           )}
         </div>
       )}
@@ -7661,23 +7633,34 @@ function RampSection({ engagementId }: { engagementId: number }) {
       {/* Accounting Fields tab */}
       {activeTab === 'accounting-fields' && (
         <div className="space-y-3">
-          {/* Customer/Job summary */}
-          {customerJobQuery.isSuccess && (
+          {/* Customer/Job mapping summary (resolved from Attraction→Job, Venue/DMA→Customer) */}
+          {engagementAccountingQuery.isSuccess && engagementAccountingQuery.data.matchedFields.length > 0 && (
             <div className="rounded-md border border-ems-accent/30 bg-ems-accent/5 px-3 py-2 text-xs">
-              <span className="font-medium text-text-primary">Customer/Job Fields</span>
+              <span className="font-medium text-text-primary">Customer/Job Mapping</span>
               <span className="text-text-secondary ml-2">
-                {customerJobQuery.data.customerField
-                  ? `Customer: "${customerJobQuery.data.customerField.display_name || customerJobQuery.data.customerField.name}" (${customerJobQuery.data.customerOptions.length} options)`
-                  : 'Customer: not configured'}
-                {' · '}
-                {customerJobQuery.data.jobField
-                  ? `Job: "${customerJobQuery.data.jobField.display_name || customerJobQuery.data.jobField.name}" (${customerJobQuery.data.jobOptions.length} options)`
-                  : 'Job: not configured'}
+                Field: "{engagementAccountingQuery.data.matchedFields[0].display_name || engagementAccountingQuery.data.matchedFields[0].name}"
+                ({engagementAccountingQuery.data.customerJobOptions?.length ?? 0} options)
               </span>
+              {engagementAccountingQuery.data.mapping && (
+                <span className="ml-2 text-green-700">
+                  {engagementAccountingQuery.data.mapping.customerName && `→ Customer: "${engagementAccountingQuery.data.mapping.customerName}"`}
+                  {engagementAccountingQuery.data.mapping.jobName && ` · Job: "${engagementAccountingQuery.data.mapping.jobName}"`}
+                </span>
+              )}
+              {engagementAccountingQuery.data.matchedOptions.length > 0 && (
+                <span className="ml-2 font-medium text-green-800">
+                  → Matched: "{engagementAccountingQuery.data.matchedOptions[0].value}"
+                </span>
+              )}
+            </div>
+          )}
+          {engagementAccountingQuery.isSuccess && engagementAccountingQuery.data.matchedFields.length === 0 && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <span className="font-medium">Customer/Job Mapping:</span> No matching Customer/Job field found in Ramp for this engagement's Attraction/Venue.
             </div>
           )}
 
-          {accountingFieldsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading accounting fields…</div>}
+          {accountingFieldsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching accounting fields from Ramp…</div>}
           {accountingFieldsQuery.isError && <p className="text-sm text-red-600">Failed to load accounting fields.</p>}
           {accountingFieldsQuery.isSuccess && (
             accountingFields.length === 0
@@ -7698,7 +7681,10 @@ function RampSection({ engagementId }: { engagementId: number }) {
                       </thead>
                       <tbody>
                         {accountingFields.map((field: RampAccountingField) => (
-                          <tr key={field.ramp_id} className={`border-b border-border/50 hover:bg-muted/40 ${selectedFieldId === field.ramp_id ? 'bg-ems-accent/10' : ''}`}>
+                          <tr key={field.ramp_id} className={`border-b border-border/50 hover:bg-muted/40 ${
+                            selectedFieldId === field.ramp_id ? 'bg-ems-accent/10' :
+                            engagementAccountingQuery.data?.matchedFields.some((mf) => mf.ramp_id === field.ramp_id) ? 'bg-green-50' : ''
+                          }`}>
                             <td className="py-1.5 px-2 font-medium">{field.name}</td>
                             <td className="py-1.5 px-2">{field.display_name ?? '—'}</td>
                             <td className="py-1.5 px-2">
@@ -7780,9 +7766,9 @@ function RampSection({ engagementId }: { engagementId: number }) {
       {/* Accounting Vendors tab */}
       {activeTab === 'accounting-vendors' && (
         <div className="space-y-2">
-          {accountingVendorsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading accounting vendors…</div>}
-          {accountingVendorsQuery.isError && <p className="text-sm text-red-600">Failed to load accounting vendors.</p>}
-          {accountingVendorsQuery.isSuccess && (
+          {engagementAccountingQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching accounting vendors from Ramp…</div>}
+          {engagementAccountingQuery.isError && <p className="text-sm text-red-600">Failed to load accounting vendors.</p>}
+          {engagementAccountingQuery.isSuccess && (
             accountingVendors.length === 0
               ? <p className="text-sm text-text-muted">No accounting vendors found.</p>
               : (
@@ -7819,8 +7805,8 @@ function RampSection({ engagementId }: { engagementId: number }) {
                 </div>
               )
           )}
-          {accountingVendorsQuery.isSuccess && (
-            <RampPager pager={accountingVendorsPaged} />
+          {engagementAccountingQuery.isSuccess && accountingVendors.length > 0 && (
+            <p className="text-xs text-text-muted">Showing {accountingVendors.length} accounting vendor(s) from this engagement's bills.</p>
           )}
         </div>
       )}

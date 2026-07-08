@@ -825,42 +825,57 @@ export class RampService {
     customerOptions: RampAccountingFieldOption[];
     jobField: RampAccountingField | null;
     jobOptions: RampAccountingFieldOption[];
+    combinedField: RampAccountingField | null;
+    combinedOptions: RampAccountingFieldOption[];
   }> {
     const fields = await this.getAllAccountingFields();
 
+    // Strategy A: Combined "Customer/Job" field (QuickBooks pattern)
+    const combinedField = fields.find(
+      (f) =>
+        f.name?.toLowerCase() === 'customer/job' ||
+        (f.display_name?.toLowerCase().includes('customer') &&
+          f.display_name?.toLowerCase().includes('job')),
+    ) ?? null;
+
+    // Strategy B: Separate "Customer" and "Job" fields
     const customerField = fields.find(
       (f) =>
-        f.name?.toLowerCase() === 'customer' ||
-        f.display_name?.toLowerCase() === 'customer',
+        (f.name?.toLowerCase() === 'customer' ||
+          f.display_name?.toLowerCase() === 'customer') &&
+        f.ramp_id !== combinedField?.ramp_id,
     ) ?? null;
 
     const jobField = fields.find(
       (f) =>
-        f.name?.toLowerCase() === 'job' ||
-        f.display_name?.toLowerCase() === 'job',
+        (f.name?.toLowerCase() === 'job' ||
+          f.display_name?.toLowerCase() === 'job') &&
+        f.ramp_id !== combinedField?.ramp_id,
     ) ?? null;
+
+    let combinedOptions: RampAccountingFieldOption[] = [];
+    if (combinedField) {
+      combinedOptions = await this.getAllAccountingFieldOptions(combinedField.ramp_id);
+    }
 
     let customerOptions: RampAccountingFieldOption[] = [];
     if (customerField) {
       customerOptions = await this.getAllAccountingFieldOptions(customerField.ramp_id);
-    } else {
-      this.logger.log(
-        'No "Customer" custom accounting field found in Ramp. ' +
-          'Customer/Job data is expected as Ramp Custom Fields, not QuickBooks records.',
-      );
     }
 
     let jobOptions: RampAccountingFieldOption[] = [];
     if (jobField) {
       jobOptions = await this.getAllAccountingFieldOptions(jobField.ramp_id);
-    } else {
+    }
+
+    if (!combinedField && !customerField && !jobField) {
       this.logger.log(
-        'No "Job" custom accounting field found in Ramp. ' +
-          'Customer/Job data is expected as Ramp Custom Fields, not QuickBooks records.',
+        'No Customer/Job custom accounting fields found in Ramp. ' +
+          'Checked for combined "Customer/Job" and separate "Customer"/"Job" fields.',
       );
     }
 
-    return { customerField, customerOptions, jobField, jobOptions };
+    return { customerField, customerOptions, jobField, jobOptions, combinedField, combinedOptions };
   }
 
   // ─── Engagement → Ramp mapping ────────────────────────────────────────────
@@ -1328,10 +1343,14 @@ export class RampService {
     matchedFields: RampAccountingField[];
     /** The specific option(s) that matched this engagement. */
     matchedOptions: RampAccountingFieldOption[];
-    /** All GL accounts (not engagement-filtered — they're org-wide chart of accounts). */
+    /** GL accounts (org-wide chart of accounts). */
     glAccounts: RampGlAccount[];
-    /** Accounting vendors (org-wide — cannot be filtered by engagement). */
+    /** Accounting vendors (org-wide). */
     accountingVendors: RampAccountingVendor[];
+    /** All custom accounting fields. */
+    allFields: RampAccountingField[];
+    /** Options for the matched Customer/Job field. */
+    customerJobOptions: RampAccountingFieldOption[];
   }> {
     this.logger.log(`[Engagement #${engagementId}] Loading engagement accounting context…`);
 
@@ -1388,20 +1407,139 @@ export class RampService {
       }
     }
 
-    // GL accounts and vendors are org-wide — they can't be filtered by engagement
-    // but are useful context for the user when coding transactions.
-    const [glAccounts, accountingVendors] = await Promise.all([
-      this.getAllGlAccounts(),
-      this.getAllAccountingVendors(),
-    ]);
+    // GL accounts and vendors scoped to this engagement — extracted from
+    // engagement transactions/bills which are already filtered by Customer/Job.
+    const glAccountIds = new Set<string>();
+    const billVendorRemoteIds = new Set<string>();
+
+    // Extract GL accounts from engagement transactions
+    const txResult = await this.getEngagementTransactions(engagementId, { page_size: 100 });
+    for (const tx of txResult.data) {
+      for (const sel of tx.accounting_field_selections ?? []) {
+        if (sel.id) glAccountIds.add(sel.id);
+      }
+      for (const li of tx.line_items ?? []) {
+        for (const sel of li.accounting_field_selections ?? []) {
+          if (sel.id) glAccountIds.add(sel.id);
+        }
+      }
+    }
+
+    // Extract vendor IDs and GL accounts from engagement bills
+    const billResult = await this.getEngagementBills(engagementId, { page_size: 100 });
+    for (const bill of billResult.data) {
+      if (bill.vendor?.remote_id) billVendorRemoteIds.add(bill.vendor.remote_id);
+      if (bill.vendor?.id) billVendorRemoteIds.add(bill.vendor.id);
+      for (const sel of bill.accounting_field_selections ?? []) {
+        if (sel.id) glAccountIds.add(sel.id);
+      }
+      for (const li of bill.line_items ?? []) {
+        for (const sel of li.accounting_field_selections ?? []) {
+          if (sel.id) glAccountIds.add(sel.id);
+        }
+      }
+    }
+
+    // Filter GL accounts to only those used by this engagement
+    const allGlAccounts = await this.getAllGlAccounts();
+    const glAccounts = glAccountIds.size > 0
+      ? allGlAccounts.filter((gl) => glAccountIds.has(gl.ramp_id) || glAccountIds.has(gl.id ?? ''))
+      : [];
+
+    // Filter accounting vendors to those appearing in engagement bills
+    const allAccountingVendors = await this.getAllAccountingVendors();
+    const accountingVendors = billVendorRemoteIds.size > 0
+      ? allAccountingVendors.filter((av) =>
+          billVendorRemoteIds.has(av.ramp_id) || billVendorRemoteIds.has(av.id ?? ''))
+      : [];
+
+    // Get all options for the matched Customer/Job field (for display in the accounting fields tab)
+    let customerJobOptions: RampAccountingFieldOption[] = [];
+    if (matchedFields.length > 0) {
+      customerJobOptions = await this.getAllAccountingFieldOptions(matchedFields[0].ramp_id);
+    }
 
     this.logger.log(
       `[Engagement #${engagementId}] Accounting context: ` +
         `${matchedFields.length} field(s), ${matchedOptions.length} option(s), ` +
-        `${glAccounts.length} GL accounts, ${accountingVendors.length} vendors`,
+        `${glAccounts.length}/${allGlAccounts.length} GL accounts, ` +
+        `${accountingVendors.length}/${allAccountingVendors.length} vendors`,
     );
 
-    return { mapping, matchedFields, matchedOptions, glAccounts, accountingVendors };
+    return { mapping, matchedFields, matchedOptions, glAccounts, accountingVendors, allFields: fields, customerJobOptions };
+  }
+
+  // ─── Engagement-scoped Vendors ────────────────────────────────────────────
+
+  /**
+   * List Ramp vendors associated with this engagement by extracting vendor IDs
+   * from the engagement's bills (which are scoped via Customer/Job accounting field).
+   * Returns deduplicated vendor details for all vendors that appear on engagement bills.
+   */
+  async getEngagementVendors(
+    engagementId: number,
+    params?: {
+      name?: string;
+      is_active?: boolean;
+      page_size?: number;
+      start?: string;
+    },
+  ): Promise<RampPagedResponse<RampVendor>> {
+    // Fetch all bills for this engagement (scoped by Customer/Job field)
+    const vendorIds = new Set<string>();
+    let cursor: string | undefined;
+    for (let page = 0; page < 20; page++) {
+      const bills = await this.getEngagementBills(engagementId, {
+        page_size: 100,
+        start: cursor,
+      });
+      for (const bill of bills.data) {
+        if (bill.vendor?.id) vendorIds.add(bill.vendor.id);
+      }
+      cursor = bills.page.next ?? undefined;
+      if (!cursor) break;
+    }
+
+    if (vendorIds.size === 0) {
+      this.logger.log(`[Engagement #${engagementId}] No vendors found in engagement bills`);
+      return { data: [], page: { next: null } };
+    }
+
+    this.logger.log(
+      `[Engagement #${engagementId}] Found ${vendorIds.size} unique vendor(s) from bills`,
+    );
+
+    // Fetch full vendor details — paginate through all org vendors and filter
+    const matched: RampVendor[] = [];
+    let vendorCursor: string | undefined;
+    for (let page = 0; page < 20 && matched.length < vendorIds.size; page++) {
+      const result = await this.getList<RampVendor>('/vendors', {
+        is_active: params?.is_active,
+        page_size: 100,
+        start: vendorCursor,
+      });
+      for (const v of result.data) {
+        if (vendorIds.has(v.id)) {
+          if (!params?.name || v.name.toLowerCase().includes(params.name.toLowerCase())) {
+            matched.push(v);
+          }
+        }
+      }
+      vendorCursor = result.page.next ?? undefined;
+      if (!vendorCursor) break;
+    }
+
+    // Apply client-side pagination
+    const pageSize = params?.page_size ?? 50;
+    const startIndex = params?.start ? Number(params.start) : 0;
+    const slice = matched.slice(startIndex, startIndex + pageSize);
+    const nextIndex = startIndex + pageSize;
+    const hasMore = nextIndex < matched.length;
+
+    return {
+      data: slice,
+      page: { next: hasMore ? String(nextIndex) : null },
+    };
   }
 
   // ─── Health check ─────────────────────────────────────────────────────────
