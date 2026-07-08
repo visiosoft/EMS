@@ -151,7 +151,7 @@ export function InternalQuickLinksSidebar() {
                           title={`Download ${item.name}`}
                           aria-label={`Download ${item.name}`}
                           onClick={() => {
-                            void downloadFile(item).catch((err) => {
+                            void downloadFile(item, "onedrive", { self: true }).catch((err) => {
                               console.error("Download failed", err);
                             });
                           }}

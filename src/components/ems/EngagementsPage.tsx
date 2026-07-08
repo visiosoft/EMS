@@ -1574,10 +1574,10 @@ function CreateEngagementModal({
         <Modal title="Confirm Engagement Creation" onClose={() => setShowConfirmDialog(false)} width={540}>
           <div className="space-y-4">
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
-              <p className="font-medium mb-2">SharePoint folder structure will be created</p>
+              <p className="font-medium mb-2">Onedrive folder structure will be created</p>
               <p>
                 This engagement will be created with status <strong>Confirmed</strong>.
-                The system will automatically create a folder structure in SharePoint under:
+                The system will automatically create a folder structure in onedrive under:
               </p>
               <div className="mt-3 pl-4 text-amber-700 font-mono text-xs leading-relaxed">
                 Engagements / {openingShowDateTime.slice(0, 4)} /{' '}
@@ -1608,6 +1608,7 @@ function CreateEngagementModal({
                 type="button"
                 onClick={() => {
                   setShowConfirmDialog(false);
+                  onClose();
                   void doCreate();
                 }}
                 disabled={submitting}

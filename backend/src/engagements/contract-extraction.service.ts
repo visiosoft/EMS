@@ -1,8 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import * as fs from 'fs';
 import { extname } from 'path';
 import * as mammoth from 'mammoth';
 import { PDFParse } from 'pdf-parse';
+import { ContractLlmClient, RawExtraction } from './contract-llm.client';
+import { CONTRACT_FIELD_DEFS, ContractFieldDef } from './contract-field-schema';
 
 export interface ExtractedContractData {
   agency: string | null;
@@ -32,6 +34,36 @@ export interface ExtractedContractData {
   additionallyInsured: string | null;
   oneDrivePdfUrl: string | null;
 }
+
+/**
+ * Review metadata for a single extracted field. Not persisted — it drives the
+ * confidence badge + source snippet in the contract panel so a reviewer can
+ * trust/correct each value before saving.
+ */
+export interface ContractFieldMeta {
+  /** 0-1 model confidence, after server-side adjustment (quote verification, derivation). */
+  confidence: number;
+  /** UI bucket: high = auto-fill/trust, review = eyeball, derived = computed, not_found = blank. */
+  status: 'high' | 'review' | 'derived' | 'not_found';
+  /** Verbatim supporting span (LLM path only). */
+  sourceQuote: string | null;
+  /** 1-based source page, or null. */
+  sourcePage: number | null;
+  /** True when sourceQuote was confirmed present in the document text. */
+  verified: boolean;
+}
+
+export type ContractFieldMetaMap = Partial<Record<keyof ExtractedContractData, ContractFieldMeta>>;
+
+export interface ContractExtractionResult {
+  data: ExtractedContractData;
+  fieldMeta: ContractFieldMetaMap;
+}
+
+/** Confidence at/above which a verified LLM value is treated as high (auto-fill). */
+const HIGH_CONFIDENCE = 0.75;
+/** Below this many non-whitespace chars, a PDF is treated as scanned/image-only (needs OCR). */
+const MIN_TEXT_CHARS = 40;
 
 type FieldKind = 'text' | 'amount' | 'currency' | 'date' | 'section';
 
@@ -102,55 +134,199 @@ const SECTION_HEADERS = new Set([
 export class ContractExtractionService {
   private readonly logger = new Logger(ContractExtractionService.name);
 
+  // `llm` is optional so the deterministic helpers can be unit-tested (and the
+  // service still works) without an API key. When it is absent or disabled, the
+  // service degrades to the deterministic label/regex path instead of failing.
+  constructor(@Optional() private readonly llm?: ContractLlmClient) {}
+
   /** Entry point: dispatch by file type (.pdf or .docx). */
-  async extractFromFile(filePath: string): Promise<ExtractedContractData> {
+  async extractFromFile(filePath: string): Promise<ContractExtractionResult> {
     const ext = extname(filePath).toLowerCase();
     if (ext === '.docx') return this.extractFromDocx(filePath);
     return this.extractFromPdf(filePath);
   }
 
-  async extractFromPdf(filePath: string): Promise<ExtractedContractData> {
+  async extractFromPdf(filePath: string): Promise<ContractExtractionResult> {
     const buffer = fs.readFileSync(filePath);
     const parser = new PDFParse({ data: new Uint8Array(buffer) });
 
-    // Primary: read AcroForm field values. The Contract Form is a fillable PDF —
-    // the typed-in values live in form-field widgets, NOT in the page text stream,
-    // so getText() only returns the static labels.
-    const result = await this.extractFromFormFields(parser);
-    if (result) return result;
+    // Fast path: IAE's OWN fillable Contract Form (AcroForm). The typed-in values
+    // live in form-field widgets, not the text stream — deterministic and free.
+    const formResult = await this.extractFromFormFields(parser);
+    if (formResult) return this.wrapDeterministic(formResult, 'high', 0.9);
 
-    // Fallback: flattened / non-fillable PDFs where values are part of the text.
     const textResult = await parser.getText();
     const text = (textResult.text ?? '').trim();
-    if (!text) {
-      this.logger.warn('PDF has no form fields and text extraction returned empty content');
-      return this.emptyResult();
+
+    // Scanned / image-only PDF: negligible text layer -> Claude reads the PDF
+    // directly (vision OCR). No separate OCR service; .docx never lands here.
+    if (text.replace(/\s+/g, '').length < MIN_TEXT_CHARS) {
+      if (this.llm?.enabled) {
+        try {
+          const raw = await this.llm.extractFromPdf(buffer.toString('base64'));
+          return this.buildResultFromRaw(raw, null, true);
+        } catch (err) {
+          this.logger.error(`LLM OCR extraction failed: ${(err as Error).message}`);
+        }
+      } else {
+        this.logger.warn('Scanned/image-only PDF but the LLM (OCR) path is not configured');
+      }
+      return this.emptyExtractionResult();
     }
 
-    return this.extractFromTextContent(text);
+    // Text-layer third-party contract: LLM primary, deterministic regex fallback.
+    return this.extractFromText(text);
   }
 
   /**
-   * Word documents have no AcroForm fields — extract the raw text (table cells
-   * and content controls come through as label/value lines) and parse it with
-   * the same label-based pipeline as flattened PDFs.
+   * Word documents have no AcroForm fields and are always text (mammoth) — never
+   * OCR. Route straight to the LLM text path with a deterministic fallback.
    */
-  private async extractFromDocx(filePath: string): Promise<ExtractedContractData> {
+  private async extractFromDocx(filePath: string): Promise<ContractExtractionResult> {
     let text = '';
     try {
       const { value } = await mammoth.extractRawText({ path: filePath });
       text = (value ?? '').trim();
     } catch (err) {
       this.logger.warn(`DOCX text extraction failed: ${(err as Error).message}`);
-      return this.emptyResult();
+      return this.emptyExtractionResult();
     }
 
     if (!text) {
       this.logger.warn('DOCX text extraction returned empty content');
-      return this.emptyResult();
+      return this.emptyExtractionResult();
     }
 
-    return this.extractFromTextContent(text);
+    return this.extractFromText(text);
+  }
+
+  /**
+   * Primary non-form path: semantic LLM extraction with per-field confidence +
+   * source. Falls back to the deterministic label/regex pipeline when the LLM is
+   * unconfigured or errors (so uploads never fail before the key is provisioned).
+   */
+  private async extractFromText(text: string): Promise<ContractExtractionResult> {
+    if (this.llm?.enabled) {
+      try {
+        const raw = await this.llm.extractFromText(text);
+        return this.buildResultFromRaw(raw, text, false);
+      } catch (err) {
+        this.logger.error(
+          `LLM text extraction failed, falling back to deterministic parse: ${(err as Error).message}`,
+        );
+      }
+    }
+    return this.wrapDeterministic(this.extractFromTextContent(text), 'review', 0.5);
+  }
+
+  // ─── LLM post-processing ──────────────────────────────────────────────────
+
+  /**
+   * Turn the model's raw per-field output into a typed `ExtractedContractData`
+   * plus review metadata: normalize amounts/dates/currency, verify each source
+   * quote against the document text (hallucination guard), and compute status.
+   */
+  private buildResultFromRaw(
+    raw: RawExtraction,
+    docText: string | null,
+    isOcr: boolean,
+  ): ContractExtractionResult {
+    const data = this.emptyResult();
+    const fieldMeta: ContractFieldMetaMap = {};
+    const normalizedDoc = docText ? this.normalizeForMatch(docText) : null;
+
+    for (const def of CONTRACT_FIELD_DEFS) {
+      const field = raw?.[def.key];
+      const rawValue = (field?.value ?? '').toString().trim();
+      const quote = ((field?.sourceQuote ?? '').toString().trim() || null) as string | null;
+      const pageNum = Number(field?.sourcePage ?? 0);
+      const page = Number.isFinite(pageNum) && pageNum > 0 ? pageNum : null;
+      let confidence = this.clamp01(Number(field?.confidence ?? 0));
+
+      if (!rawValue) {
+        fieldMeta[def.key] = { confidence: 0, status: 'not_found', sourceQuote: null, sourcePage: page, verified: false };
+        continue;
+      }
+
+      const normalized = this.normalizeFieldValue(def, rawValue);
+      if (normalized === null) {
+        // Model returned something un-parseable for this type (e.g. non-numeric amount).
+        fieldMeta[def.key] = { confidence: Math.min(confidence, 0.4), status: 'review', sourceQuote: quote, sourcePage: page, verified: false };
+        continue;
+      }
+      (data[def.key] as string | number | null) = normalized;
+
+      let verified = false;
+      if (quote && normalizedDoc) {
+        verified = normalizedDoc.includes(this.normalizeForMatch(quote));
+        if (!verified) confidence = Math.min(confidence, 0.4); // quote not in doc -> likely hallucinated
+      }
+      if (isOcr) confidence = Math.min(confidence, 0.7); // no text layer to verify against
+
+      const trustworthy = !isOcr && (verified || !quote);
+      const status = confidence >= HIGH_CONFIDENCE && trustworthy ? 'high' : 'review';
+      fieldMeta[def.key] = { confidence, status, sourceQuote: quote, sourcePage: page, verified };
+    }
+
+    this.applyDerivations(data, fieldMeta);
+    return { data, fieldMeta };
+  }
+
+  /** Compute fields absent from the document but derivable from others (tagged for the reviewer). */
+  private applyDerivations(data: ExtractedContractData, fieldMeta: ContractFieldMetaMap): void {
+    for (const def of CONTRACT_FIELD_DEFS) {
+      if (def.derivation !== 'balanceFromGuaranteeMinusDeposit') continue;
+      if (data.balanceAmount != null) continue; // never overwrite a stated value
+      if (data.guaranteeAmount == null || data.depositAmount == null) continue;
+      const balance = data.guaranteeAmount - data.depositAmount;
+      if (balance <= 0) continue;
+      data.balanceAmount = balance;
+      fieldMeta.balanceAmount = { confidence: 0.6, status: 'derived', sourceQuote: null, sourcePage: null, verified: false };
+    }
+  }
+
+  /** Normalize a raw string value into the typed value the form field expects. */
+  private normalizeFieldValue(def: ContractFieldDef, raw: string): string | number | null {
+    switch (def.type) {
+      case 'amount':
+        return this.parseAmount(raw);
+      case 'currency':
+        return raw.match(/[A-Za-z]{3}/)?.[0]?.toUpperCase() ?? null;
+      case 'date':
+        return this.parseDate(raw);
+      default:
+        return raw.slice(0, 2000);
+    }
+  }
+
+  /** Lenient normalization for substring quote verification (case + whitespace insensitive). */
+  private normalizeForMatch(s: string): string {
+    return s.toLowerCase().replace(/\s+/g, ' ').trim();
+  }
+
+  private clamp01(n: number): number {
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, Math.min(1, n));
+  }
+
+  /** Wrap a deterministic (form-field or regex) result with uniform review metadata. */
+  private wrapDeterministic(
+    data: ExtractedContractData,
+    status: 'high' | 'review',
+    confidence: number,
+  ): ContractExtractionResult {
+    const fieldMeta: ContractFieldMetaMap = {};
+    (Object.keys(data) as (keyof ExtractedContractData)[]).forEach((key) => {
+      fieldMeta[key] =
+        data[key] != null
+          ? { confidence, status, sourceQuote: null, sourcePage: null, verified: false }
+          : { confidence: 0, status: 'not_found', sourceQuote: null, sourcePage: null, verified: false };
+    });
+    return { data, fieldMeta };
+  }
+
+  private emptyExtractionResult(): ContractExtractionResult {
+    return this.wrapDeterministic(this.emptyResult(), 'review', 0);
   }
 
   /** Shared text pipeline: label-above-value blocks, then inline "Label: Value" fallback. */

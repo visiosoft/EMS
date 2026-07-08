@@ -374,9 +374,10 @@ const Index = () => {
     message: string,
     type: 'success' | 'error' | 'warning' | 'info',
     action?: { label: string; onClick: () => void },
+    title?: string,
   ) => {
     const id = Date.now().toString();
-    setToasts(prev => [...prev, { id, message, type, action }]);
+    setToasts(prev => [...prev, { id, message, type, action, title }]);
   }, []);
 
   const dismissToast = useCallback((id: string) => {

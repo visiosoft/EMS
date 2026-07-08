@@ -12,7 +12,38 @@ import {
   deletePerformanceContract,
   type ApiPerformanceContractRow,
   type SavePerformanceContractPayload,
+  type ContractFieldMeta,
+  type ContractFieldMetaMap,
 } from '@/api/engagementApi';
+
+/**
+ * Small confidence badge shown next to a field's label after AI extraction.
+ * Green = high (trust), amber = review (eyeball it), blue = derived (computed).
+ * The native tooltip carries the source snippet so a reviewer can verify at a glance.
+ */
+function ConfidenceBadge({ meta }: { meta?: ContractFieldMeta }) {
+  if (!meta || meta.status === 'not_found') return null;
+  const styles: Record<'high' | 'review' | 'derived', { cls: string; label: string }> = {
+    high: { cls: 'bg-ems-green-dim text-ems-green', label: 'High' },
+    review: { cls: 'bg-ems-amber-dim text-ems-amber', label: 'Review' },
+    derived: { cls: 'bg-ems-blue-dim text-ems-blue', label: 'Derived' },
+  };
+  const s = styles[meta.status];
+  if (!s) return null;
+  const pct = Math.round((meta.confidence ?? 0) * 100);
+  const title = [
+    meta.status === 'derived' ? 'Computed from other fields' : `${s.label} confidence · ${pct}%`,
+    meta.sourceQuote ? `Source: "${meta.sourceQuote}"${meta.sourcePage ? ` (p.${meta.sourcePage})` : ''}` : null,
+    meta.verified ? 'Source verified in document' : null,
+  ]
+    .filter(Boolean)
+    .join('\n');
+  return (
+    <span title={title} className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${s.cls}`}>
+      {meta.status === 'derived' ? 'Derived' : `${s.label} ${pct}%`}
+    </span>
+  );
+}
 
 interface ContractFormState {
   agency: string;
@@ -160,6 +191,8 @@ export function EngagementContractPanel({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState<ContractFormState>(emptyForm());
   const [editingContractId, setEditingContractId] = useState<number | null>(null);
+  // Per-field extraction confidence/source; populated on upload, cleared once the row is saved or edited.
+  const [fieldMeta, setFieldMeta] = useState<ContractFieldMetaMap>({});
 
   const contractsQuery = useQuery({
     queryKey: ['engagements', engagementId, 'contracts'],
@@ -202,6 +235,7 @@ export function EngagementContractPanel({
         originalFilename,
         annotatedPdfBlobName,
       });
+      setFieldMeta(data.fieldMeta ?? {});
       setEditingContractId(null);
       addToast('Contract data extracted. Review and save below.', 'success');
     },
@@ -221,6 +255,7 @@ export function EngagementContractPanel({
       invalidate();
       addToast('Contract saved.', 'success');
       setForm(emptyForm());
+      setFieldMeta({});
       setEditingContractId(null);
     },
     onError: (e) => addToast(friendlyApiError(e, 'Could not save contract.'), 'error'),
@@ -233,6 +268,7 @@ export function EngagementContractPanel({
       addToast('Contract deleted.', 'warning');
       if (editingContractId) {
         setForm(emptyForm());
+        setFieldMeta({});
         setEditingContractId(null);
       }
     },
@@ -249,16 +285,24 @@ export function EngagementContractPanel({
 
   const handleEdit = (row: ApiPerformanceContractRow) => {
     setForm(contractRowToForm(row));
+    setFieldMeta({}); // saved contracts carry no extraction metadata
     setEditingContractId(row.contractId);
   };
 
   const handleCancelEdit = () => {
     setForm(emptyForm());
+    setFieldMeta({});
     setEditingContractId(null);
   };
 
   const set = (field: keyof ContractFormState) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setForm((prev) => ({ ...prev, [field]: e.target.value }));
+
+  /** Badge for a given extracted field (null when no metadata, e.g. editing a saved contract). */
+  const badgeFor = (field: keyof ContractFormState) => <ConfidenceBadge meta={fieldMeta[field]} />;
+
+  // Count of fields still flagged for review, shown as a summary hint after extraction.
+  const reviewCount = Object.values(fieldMeta).filter((m) => m && m.status === 'review').length;
 
   const inputCls =
     'w-full rounded border border-border bg-background px-2 py-1.5 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:ring-1 focus:ring-ems-accent/50 disabled:opacity-60';
@@ -335,116 +379,123 @@ export function EngagementContractPanel({
 
       {/* Contract form */}
       <div className={sectionCls}>
-        <span className={labelCls}>
-          {editingContractId ? 'Edit Contract' : 'Contract Details'}
-        </span>
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <span className="text-xs font-semibold text-text-primary">
+            {editingContractId ? 'Edit Contract' : 'Contract Details'}
+          </span>
+          {reviewCount > 0 && (
+            <span className="text-[11px] text-ems-amber" title="Fields the AI is unsure about — verify against the PDF before saving.">
+              {reviewCount} field{reviewCount === 1 ? '' : 's'} to review
+            </span>
+          )}
+        </div>
 
         {/* Talent Agency & Agent */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Talent Agency">
+          <FormField label="Talent Agency" badge={badgeFor('agency')}>
             <input type="text" className={inputCls} value={form.agency} onChange={set('agency')} placeholder="Agency name…" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Talent Agent">
+          <FormField label="Talent Agent" badge={badgeFor('agent')}>
             <input type="text" className={inputCls} value={form.agent} onChange={set('agent')} placeholder="Agent name…" disabled={saveMutation.isPending} />
           </FormField>
         </div>
 
         {/* Attraction */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Attraction">
+          <FormField label="Attraction" badge={badgeFor('attraction')}>
             <input type="text" className={inputCls} value={form.attraction} onChange={set('attraction')} placeholder="Artist / show name…" disabled={saveMutation.isPending} />
           </FormField>
         </div>
 
         {/* Venue info */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Venue Name">
+          <FormField label="Venue Name" badge={badgeFor('venueName')}>
             <input type="text" className={inputCls} value={form.venueName} onChange={set('venueName')} placeholder="Venue name…" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Venue Address">
+          <FormField label="Venue Address" badge={badgeFor('venueAddress')}>
             <input type="text" className={inputCls} value={form.venueAddress} onChange={set('venueAddress')} placeholder="Street address…" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Venue City">
+          <FormField label="Venue City" badge={badgeFor('venueCity')}>
             <input type="text" className={inputCls} value={form.venueCity} onChange={set('venueCity')} placeholder="City…" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Venue State">
+          <FormField label="Venue State" badge={badgeFor('venueState')}>
             <input type="text" className={inputCls} value={form.venueState} onChange={set('venueState')} placeholder="State / Province…" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Venue Country">
+          <FormField label="Venue Country" badge={badgeFor('venueCountry')}>
             <input type="text" className={inputCls} value={form.venueCountry} onChange={set('venueCountry')} placeholder="Country…" disabled={saveMutation.isPending} />
           </FormField>
         </div>
 
         {/* Producer */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Producer">
+          <FormField label="Producer" badge={badgeFor('producer')}>
             <input type="text" className={inputCls} value={form.producer} onChange={set('producer')} placeholder="Producer / Promoter…" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Producer Address">
+          <FormField label="Producer Address" badge={badgeFor('producerAddress')}>
             <input type="text" className={inputCls} value={form.producerAddress} onChange={set('producerAddress')} placeholder="Producer address…" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Producer Federal ID">
+          <FormField label="Producer Federal ID" badge={badgeFor('producerFedId')}>
             <input type="text" className={inputCls} value={form.producerFedId} onChange={set('producerFedId')} placeholder="EIN / Tax ID…" disabled={saveMutation.isPending} />
           </FormField>
         </div>
 
         {/* Financial */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <FormField label="Guarantee Amount">
+          <FormField label="Guarantee Amount" badge={badgeFor('guaranteeAmount')}>
             <input type="number" step="0.01" className={inputCls} value={form.guaranteeAmount} onChange={set('guaranteeAmount')} placeholder="0.00" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Guarantee Currency">
+          <FormField label="Guarantee Currency" badge={badgeFor('guaranteeCurrency')}>
             <input type="text" className={inputCls} value={form.guaranteeCurrency} onChange={set('guaranteeCurrency')} placeholder="USD" disabled={saveMutation.isPending} />
           </FormField>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <FormField label="Deposit Amount">
+          <FormField label="Deposit Amount" badge={badgeFor('depositAmount')}>
             <input type="number" step="0.01" className={inputCls} value={form.depositAmount} onChange={set('depositAmount')} placeholder="0.00" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Deposit Due Date">
+          <FormField label="Deposit Due Date" badge={badgeFor('depositDueDate')}>
             <input type="date" className={inputCls} value={form.depositDueDate} onChange={set('depositDueDate')} disabled={saveMutation.isPending} />
           </FormField>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <FormField label="Balance Amount">
+          <FormField label="Balance Amount" badge={badgeFor('balanceAmount')}>
             <input type="number" step="0.01" className={inputCls} value={form.balanceAmount} onChange={set('balanceAmount')} placeholder="0.00" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Balance Due Date">
+          <FormField label="Balance Due Date" badge={badgeFor('balanceDueDate')}>
             <input type="date" className={inputCls} value={form.balanceDueDate} onChange={set('balanceDueDate')} disabled={saveMutation.isPending} />
           </FormField>
         </div>
 
         {/* Long text fields */}
-        <FormField label="Royalty Description">
+        <FormField label="Royalty Description" badge={badgeFor('royaltyDescription')}>
           <textarea className={textareaCls} value={form.royaltyDescription} onChange={set('royaltyDescription')} placeholder="Royalty / merchandise terms…" disabled={saveMutation.isPending} />
         </FormField>
-        <FormField label="Overage Description">
+        <FormField label="Overage Description" badge={badgeFor('overageDescription')}>
           <textarea className={textareaCls} value={form.overageDescription} onChange={set('overageDescription')} placeholder="Overage / bonus terms…" disabled={saveMutation.isPending} />
         </FormField>
-        <FormField label="Payment Terms">
+        <FormField label="Payment Terms" badge={badgeFor('paymentTerms')}>
           <textarea className={textareaCls} value={form.paymentTerms} onChange={set('paymentTerms')} placeholder="Payment terms…" disabled={saveMutation.isPending} />
         </FormField>
 
         {/* Payment method */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <FormField label="Payment Method Type">
+          <FormField label="Payment Method Type" badge={badgeFor('paymentMethodType')}>
             <input type="text" className={inputCls} value={form.paymentMethodType} onChange={set('paymentMethodType')} placeholder="Wire / Check / ACH…" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Payment Payable To">
+          <FormField label="Payment Payable To" badge={badgeFor('paymentPayableTo')}>
             <input type="text" className={inputCls} value={form.paymentPayableTo} onChange={set('paymentPayableTo')} placeholder="Payee name…" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Payment Bank Name">
+          <FormField label="Payment Bank Name" badge={badgeFor('paymentBankName')}>
             <input type="text" className={inputCls} value={form.paymentBankName} onChange={set('paymentBankName')} placeholder="Bank name…" disabled={saveMutation.isPending} />
           </FormField>
         </div>
 
         {/* Performances & Insurance */}
-        <FormField label="Performances">
+        <FormField label="Performances" badge={badgeFor('performances')}>
           <textarea className={textareaCls} value={form.performances} onChange={set('performances')} placeholder="Performance dates, times, details…" disabled={saveMutation.isPending} />
         </FormField>
-        <FormField label="Additionally Insured">
+        <FormField label="Additionally Insured" badge={badgeFor('additionallyInsured')}>
           <textarea className={textareaCls} value={form.additionallyInsured} onChange={set('additionallyInsured')} placeholder="Additional insured parties…" disabled={saveMutation.isPending} />
         </FormField>
 
