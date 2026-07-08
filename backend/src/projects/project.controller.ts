@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   DefaultValuePipe,
@@ -6,12 +7,21 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  NotFoundException,
   Param,
   ParseIntPipe,
   Patch,
   Post,
   Query,
+  Res,
+  StreamableFile,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
+import { createReadStream } from 'fs';
+import { confirmedOfferMulterOptions } from './confirmed-offer-multer.config';
 import { AddPerformanceOptionDto } from './dto/add-performance-option.dto';
 import { AddProjectVenueDto } from './dto/add-project-venue.dto';
 import { CreateProjectDto } from './dto/create-project.dto';
@@ -147,5 +157,33 @@ export class ProjectController {
     @Param('optionId', ParseIntPipe) optionId: number,
   ) {
     return this.projectService.removePerformanceOption(id, optionId);
+  }
+
+  // ─── Confirmed Offer PDF Upload ────────────────────────────────────────
+
+  @Post(':id/confirmed-offer-pdf')
+  @UseInterceptors(FileInterceptor('file', confirmedOfferMulterOptions()))
+  uploadConfirmedOfferPdf(
+    @Param('id', ParseIntPipe) id: number,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file was provided.');
+    }
+    return this.projectService.uploadConfirmedOfferPdf(id, file);
+  }
+
+  @Get(':id/confirmed-offer-pdf')
+  async downloadConfirmedOfferPdf(
+    @Param('id', ParseIntPipe) id: number,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const { filePath, linkName } = await this.projectService.getConfirmedOfferPdfPath(id);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="${encodeURIComponent(linkName)}"`,
+    });
+    const stream = createReadStream(filePath);
+    return new StreamableFile(stream);
   }
 }

@@ -42,6 +42,13 @@ export class EngagementProject {
   })
   offerReviewStatus: string | null;
 
+  @Column({
+    name: 'ConfirmedOfferLinkID',
+    type: 'int',
+    nullable: true,
+  })
+  confirmedOfferLinkId: number | null;
+
   @Column({ name: 'CreatedDate', type: 'datetime2' })
   createdDate: Date;
 

@@ -11,6 +11,7 @@ import { EngagementProjectPerformanceOption } from '../entities/engagement-proje
 import { EngagementProjectVenue } from '../entities/engagement-project-venue.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { EngagementXref } from '../entities/engagement-xref.entity';
+import { Link } from '../entities/link.entity';
 import { Performance } from '../entities/performance.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
@@ -34,6 +35,7 @@ import { ProjectService } from './project.service';
       Attraction,
       Venue,
       Company,
+      Link,
     ]),
   ],
   controllers: [ProjectController],

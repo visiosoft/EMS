@@ -28,7 +28,11 @@ import { Company } from '../entities/company.entity';
 import { Dma } from '../entities/dma.entity';
 import { Performance } from '../entities/performance.entity';
 import { Tour } from '../entities/tour.entity';
+import { Link } from '../entities/link.entity';
 import { Venue } from '../entities/venue.entity';
+import * as path from 'path';
+import * as fs from 'fs';
+import { CONFIRMED_OFFER_UPLOAD_DIR } from './confirmed-offer-multer.config';
 import {
   CreateProjectDto,
   type ProjectOpeningPerformanceDto,
@@ -102,6 +106,8 @@ export class ProjectService {
     private readonly venueRepo: Repository<Venue>,
     @InjectRepository(Company)
     private readonly companyRepo: Repository<Company>,
+    @InjectRepository(Link)
+    private readonly linkRepo: Repository<Link>,
     private readonly dataSource: DataSource,
     private readonly auditContext: AuditRequestContext,
     private readonly adminUsersService: AdminUsersService,
@@ -1204,6 +1210,7 @@ export class ProjectService {
       talentAgencyCompanyName: effectiveMgmtName,
       projectStage: project.projectStage,
       offerReviewStatus: project.offerReviewStatus,
+      confirmedOfferLinkId: project.confirmedOfferLinkId,
       createdDate: project.createdDate,
       createdBy,
       name: null,
@@ -1375,8 +1382,20 @@ export class ProjectService {
     if (dto.offerReviewStatus !== undefined && dto.offerReviewStatus != null) {
       const effectiveStage = dto.projectStage ?? project.projectStage;
       this.assertValidOfferReviewStatus(dto.offerReviewStatus, effectiveStage);
+      // When moving away from Confirmed (e.g. Declined / In Consideration),
+      // clear the confirmed-offer PDF link so the user must re-upload if
+      // they later confirm again.
+      if (
+        dto.offerReviewStatus !== 'Confirmed' &&
+        project.confirmedOfferLinkId != null
+      ) {
+        await this.removeConfirmedOfferPdf(project);
+      }
       project.offerReviewStatus = dto.offerReviewStatus;
     } else if (dto.offerReviewStatus === null) {
+      if (project.confirmedOfferLinkId != null) {
+        await this.removeConfirmedOfferPdf(project);
+      }
       project.offerReviewStatus = null;
     }
     // CreatedBy is immutable: store creator ID at insert time only.
@@ -1884,5 +1903,93 @@ export class ProjectService {
       .replace(/_/g, '\\_')
       .replace(/\[/g, '\\[')
       .replace(/\]/g, '\\]');
+  }
+
+  // ─── Confirmed Offer PDF ──────────────────────────────────────────────
+
+  async uploadConfirmedOfferPdf(
+    projectId: number,
+    file: { originalname: string; mimetype: string; filename: string; path: string; size: number },
+  ): Promise<{ linkId: number; linkName: string }> {
+    const project = await this.assertProjectExists(projectId);
+
+    const publicPath = `/uploads/confirmed-offers/${file.filename}`.slice(0, 2048);
+
+    const link = this.linkRepo.create({
+      linkType: 'ConfirmedOffer',
+      linkUrl: publicPath,
+      linkName: file.originalname,
+      linkPath: publicPath,
+    });
+
+    const savedLink = await this.linkRepo.save(link);
+
+    project.confirmedOfferLinkId = savedLink.linkId;
+    await this.projectRepo.save(project);
+
+    return { linkId: savedLink.linkId, linkName: savedLink.linkName };
+  }
+
+  async getConfirmedOfferPdfPath(
+    projectId: number,
+  ): Promise<{ filePath: string; linkName: string }> {
+    const project = await this.assertProjectExists(projectId);
+
+    if (project.confirmedOfferLinkId == null) {
+      throw new NotFoundException('No confirmed-offer PDF has been uploaded for this project.');
+    }
+
+    const link = await this.linkRepo.findOne({
+      where: { linkId: project.confirmedOfferLinkId },
+    });
+    if (!link) {
+      throw new NotFoundException('The link record for this confirmed-offer PDF was not found.');
+    }
+
+    // linkPath is like /uploads/confirmed-offers/<uuid>.pdf — extract filename
+    const fileName = link.linkPath.split('/').pop() ?? '';
+    const filePath = path.resolve(path.join(CONFIRMED_OFFER_UPLOAD_DIR, fileName));
+
+    // Prevent path traversal
+    if (!filePath.startsWith(path.resolve(CONFIRMED_OFFER_UPLOAD_DIR))) {
+      throw new BadRequestException('Invalid file path.');
+    }
+
+    if (!fs.existsSync(filePath)) {
+      throw new NotFoundException('The confirmed-offer PDF file was not found on disk.');
+    }
+
+    return { filePath, linkName: link.linkName };
+  }
+
+  /**
+   * Remove the confirmed-offer PDF link and file from a project.
+   * Called when the offer review status moves away from Confirmed.
+   */
+  private async removeConfirmedOfferPdf(project: EngagementProject): Promise<void> {
+    const linkId = project.confirmedOfferLinkId;
+    if (linkId == null) return;
+
+    const link = await this.linkRepo.findOne({ where: { linkId } });
+
+    // Clear FK first
+    project.confirmedOfferLinkId = null;
+    await this.projectRepo.save(project);
+
+    if (link) {
+      // Delete file from disk
+      const fileName = link.linkPath.split('/').pop() ?? '';
+      if (fileName) {
+        const filePath = path.resolve(path.join(CONFIRMED_OFFER_UPLOAD_DIR, fileName));
+        if (
+          filePath.startsWith(path.resolve(CONFIRMED_OFFER_UPLOAD_DIR)) &&
+          fs.existsSync(filePath)
+        ) {
+          fs.unlinkSync(filePath);
+        }
+      }
+      // Delete the Link record
+      await this.linkRepo.remove(link);
+    }
   }
 }
