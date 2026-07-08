@@ -28,6 +28,8 @@ export interface ToastItem {
   id: string;
   message: string;
   type: 'success' | 'error' | 'warning' | 'info';
+  /** Optional bold heading rendered above the message. */
+  title?: string;
   action?: { label: string; onClick: () => void };
 }
 
@@ -77,7 +79,14 @@ function Toast({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => void }
       onBlur={() => startDismissTimer()}
     >
       <div className="flex items-start gap-2">
-        <span className="text-text-primary text-sm flex-1">{toast.message}</span>
+        <div className="flex-1 min-w-0">
+          {toast.title && (
+            <p className="text-text-primary text-sm font-semibold">{toast.title}</p>
+          )}
+          <p className={`text-sm ${toast.title ? 'text-text-secondary mt-0.5' : 'text-text-primary'}`}>
+            {toast.message}
+          </p>
+        </div>
         <button onClick={onDismiss} className="text-text-muted hover:text-text-secondary text-xs">✕</button>
       </div>
       {toast.action && (
@@ -330,6 +339,7 @@ export function FormField({
   required,
   optional,
   error,
+  badge,
   children,
 }: {
   label: string;
@@ -337,16 +347,21 @@ export function FormField({
   /** Show “(Optional)” — use for fields not yet persisted to the database */
   optional?: boolean;
   error?: string;
+  /** Optional adornment rendered at the end of the label row (e.g. an extraction-confidence badge). */
+  badge?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <div className="space-y-1">
-      <label className="text-xs font-medium text-text-secondary">
-        {label}
-        {required && <span className="text-ems-coral ml-0.5">*</span>}
-        {optional && (
-          <span className="text-text-muted font-normal ml-1">(Optional)</span>
-        )}
+      <label className="text-xs font-medium text-text-secondary flex items-center gap-1.5">
+        <span>
+          {label}
+          {required && <span className="text-ems-coral ml-0.5">*</span>}
+          {optional && (
+            <span className="text-text-muted font-normal ml-1">(Optional)</span>
+          )}
+        </span>
+        {badge}
       </label>
       {children}
       {error && <p className="text-xs text-ems-coral">{error}</p>}

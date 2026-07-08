@@ -8,7 +8,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Engagement } from '@/data/constants';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Loader2,
   Building2,
@@ -44,6 +44,7 @@ import {
 import {
   createEngagementPerformance,
   deleteEngagement,
+  fetchEngagementDeleteImpact,
   fetchEngagement,
   fetchEngagementFinance,
   fetchEngagementFinanceLookups,
@@ -116,6 +117,24 @@ import {
   type UpdateEngagementIaeContactPayload,
   type UpdateEngagementPayload,
 } from '@/api/engagementApi';
+import {
+  fetchRampStatus,
+  fetchEngagementRampVendors,
+  fetchRampUsers,
+  fetchRampDepartments,
+  fetchRampSpendPrograms,
+  fetchEngagementRampTransactions,
+  fetchEngagementRampBills,
+  fetchEngagementRampReceipts,
+  fetchEngagementRampMapping,
+  fetchEngagementRampAccounting,
+  fetchRampAccountingConnections,
+  fetchRampAccountingFields,
+  fetchRampAccountingFieldOptions,
+  fetchRampMemos,
+  type RampAccountingField,
+  type RampEngagementAccountingContext,
+} from '@/api/rampApi';
 import {
   fetchAttractions,
   fetchTours,
@@ -6696,8 +6715,1139 @@ function EngagementEventBusinessPanel({
 
         {/* ── RAMP ────────────────────────────────────────────────── */}
         {sectionHeader('RAMP')}
-        <p className="text-sm text-text-muted">RAMP bills and reports will be shown here when available.</p>
+        <RampSection engagementId={engagementId} />
       </div>
+    </div>
+  );
+}
+
+// ─── Ramp API Section ─────────────────────────────────────────────────────────
+
+// Scope description + EMS intent (from the Ramp API Scopes sheet) shown as a
+// caption on each tab, so the data is presented per its scope + comment.
+const RAMP_TAB_META: Record<string, { scope: string; description: string; intent: string }> = {
+  transactions: {
+    scope: 'transactions:read',
+    description: 'Card transactions, sorted by most recent. Each links to a user, card, merchant, optional receipts, and accounting field selections.',
+    intent: 'IAE card payments linked to this EMS engagement.',
+  },
+  bills: {
+    scope: 'bills:read',
+    description: 'Bills track the AP workflow — vendors, line items, payment details, due dates.',
+    intent: 'IAE bills linked to this EMS engagement.',
+  },
+  receipts: {
+    scope: 'receipts:read',
+    description: 'Digital copies of business receipts and invoices, fetched from the receipt attached to each transaction.',
+    intent: 'IAE receipts/transactions connected to this engagement.',
+  },
+  vendors: {
+    scope: 'vendors:read',
+    description: 'Bill-pay payees you pay via ACH, check, or wire. Vendors carry contacts, bank accounts, and addresses.',
+    intent: 'Vendors linked to this engagement via Customer/Job accounting field.',
+  },
+  users: {
+    scope: 'users:read',
+    description: 'People on the Ramp account. Each user connects to departments, entities, cards, and transactions.',
+    intent: 'IAE internal users — link to individual employees (org-wide list).',
+  },
+  departments: {
+    scope: 'departments:read',
+    description: 'Departments represent an organizational division or cost center within the business.',
+    intent: 'Connect to IAE departments in the EMS (org-wide list).',
+  },
+  'spend-programs': {
+    scope: 'spend_programs:read',
+    description: 'Templates that mass-produce funds with consistent policy — offsites, stipends, allowances.',
+    intent: 'Hotel/Travel spend programs within Ramp (org-wide list).',
+  },
+  memos: {
+    scope: 'memos:read',
+    description: 'Notes and additional context attached to card transactions — describes what the expense was for.',
+    intent: 'Transaction memos entered by cardholders (org-wide list).',
+  },
+  'gl-accounts': {
+    scope: 'accounting:read',
+    description: 'General ledger accounts the customer codes spend against. Required before any object can sync.',
+    intent: 'Chart of Accounts from the ERP integration (org-wide list).',
+  },
+  'accounting-fields': {
+    scope: 'accounting:read',
+    description: 'Custom accounting fields (e.g. Customer, Job, Class) used to categorize transactions and bills.',
+    intent: 'Custom accounting dimensions and their options synced from the ERP (org-wide list).',
+  },
+  'accounting-vendors': {
+    scope: 'accounting:read',
+    description: 'Vendor list pushed from the ERP used for GL coding on transactions, bills, and reimbursements.',
+    intent: 'ERP-sourced accounting vendors for GL coding (org-wide list).',
+  },
+  connections: {
+    scope: 'accounting:read',
+    description: 'The link between the Ramp account and an ERP integration. Shows active connection status.',
+    intent: 'Verify ERP connection status and provider name.',
+  },
+};
+
+/**
+ * Presents a cursor-paginated useInfiniteQuery one page at a time. Ramp's API is
+ * cursor-based (no total count / random access), so Next fetches the next cursor
+ * page and Previous walks back through already-cached pages.
+ */
+function usePagedRamp<T>(
+  query: {
+    data?: { pages: { data: T[] }[] };
+    hasNextPage: boolean;
+    isFetchingNextPage: boolean;
+    fetchNextPage: () => Promise<{ data?: { pages: unknown[] } | undefined }>;
+  },
+  resetKey: unknown,
+) {
+  const [pageIndex, setPageIndex] = useState(0);
+  useEffect(() => {
+    setPageIndex(0);
+  }, [resetKey]);
+
+  const pages = query.data?.pages ?? [];
+  const rows = pages[pageIndex]?.data ?? [];
+  const loadedCount = pages.length;
+  const canPrev = pageIndex > 0;
+  const canNext = pageIndex < loadedCount - 1 || query.hasNextPage;
+
+  const goNext = async () => {
+    if (pageIndex + 1 < pages.length) {
+      setPageIndex(pageIndex + 1);
+      return;
+    }
+    if (query.hasNextPage) {
+      const res = await query.fetchNextPage();
+      const newLen = res.data?.pages.length ?? pages.length;
+      if (newLen > pages.length) setPageIndex(pages.length);
+    }
+  };
+  const goPrev = () => setPageIndex((i) => Math.max(0, i - 1));
+
+  return {
+    rows,
+    page: pageIndex + 1,
+    loadedCount,
+    canPrev,
+    canNext,
+    hasNextPage: query.hasNextPage,
+    isPaging: query.isFetchingNextPage,
+    goNext,
+    goPrev,
+  };
+}
+
+function RampPager({
+  pager,
+}: {
+  pager: {
+    rows: unknown[];
+    page: number;
+    loadedCount: number;
+    canPrev: boolean;
+    canNext: boolean;
+    hasNextPage: boolean;
+    isPaging: boolean;
+    goNext: () => void;
+    goPrev: () => void;
+  };
+}) {
+  if (pager.rows.length === 0 && !pager.canNext && !pager.canPrev) return null;
+  return (
+    <div className="flex items-center justify-end gap-2 pt-1">
+      <span className="tabular-nums text-text-muted text-xs mr-1">
+        Page {pager.page}{!pager.hasNextPage ? ` / ${pager.loadedCount}` : ''} · {pager.rows.length} shown
+      </span>
+      <button
+        type="button"
+        disabled={!pager.canPrev}
+        onClick={pager.goPrev}
+        className="px-3 py-1.5 rounded border border-border bg-elevated hover:bg-hover disabled:opacity-40 text-xs font-medium"
+      >
+        Previous
+      </button>
+      <button
+        type="button"
+        disabled={!pager.canNext || pager.isPaging}
+        onClick={pager.goNext}
+        className="px-3 py-1.5 rounded border border-border bg-elevated hover:bg-hover disabled:opacity-40 text-xs font-medium"
+      >
+        {pager.isPaging ? 'Loading…' : 'Next'}
+      </button>
+    </div>
+  );
+}
+
+function RampSection({ engagementId }: { engagementId: number }) {
+  const [activeTab, setActiveTab] = useState<'transactions' | 'bills' | 'receipts' | 'memos' | 'vendors' | 'users' | 'departments' | 'spend-programs' | 'gl-accounts' | 'accounting-fields' | 'accounting-vendors' | 'connections'>('transactions');
+  const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
+
+  // ─── Filters ──────────────────────────────────────────────────────────────
+  // Input state (what user types) — only applied on Search click
+  const [txFromDate, setTxFromDate] = useState('');
+  const [txToDate, setTxToDate] = useState('');
+  const [txState, setTxState] = useState('');
+  const [txMinAmount, setTxMinAmount] = useState('');
+  const [txMaxAmount, setTxMaxAmount] = useState('');
+
+  const [billFromDueDate, setBillFromDueDate] = useState('');
+  const [billToDueDate, setBillToDueDate] = useState('');
+  const [billPaymentStatus, setBillPaymentStatus] = useState('');
+  const [billApprovalStatus, setBillApprovalStatus] = useState('');
+  const [billMinAmount, setBillMinAmount] = useState('');
+  const [billMaxAmount, setBillMaxAmount] = useState('');
+
+  const [receiptFromDate, setReceiptFromDate] = useState('');
+  const [receiptToDate, setReceiptToDate] = useState('');
+  const [receiptTransactionFilter, setReceiptTransactionFilter] = useState('');
+
+  // Committed filters (what's actually sent to the API — set on Search click)
+  const [txFilters, setTxFilters] = useState<Record<string, string | undefined>>({});
+  const [billFilters, setBillFilters] = useState<Record<string, string | undefined>>({});
+  const [receiptFilters, setReceiptFilters] = useState<Record<string, string | undefined>>({});
+
+  const handleTxSearch = () => setTxFilters({
+    from_date: txFromDate || undefined,
+    to_date: txToDate || undefined,
+    state: txState || undefined,
+    min_amount: txMinAmount || undefined,
+    max_amount: txMaxAmount || undefined,
+  });
+
+  const handleBillSearch = () => setBillFilters({
+    from_due_date: billFromDueDate || undefined,
+    to_due_date: billToDueDate || undefined,
+    payment_status: billPaymentStatus || undefined,
+    approval_status: billApprovalStatus || undefined,
+    min_amount: billMinAmount || undefined,
+    max_amount: billMaxAmount || undefined,
+  });
+
+  const handleReceiptSearch = () => setReceiptFilters({
+    from_date: receiptFromDate || undefined,
+    to_date: receiptToDate || undefined,
+  });
+
+  const statusQuery = useQuery({
+    queryKey: ['ramp', 'status'],
+    queryFn: () => fetchRampStatus(),
+    staleTime: 300_000,
+  });
+
+  const mappingQuery = useQuery({
+    queryKey: ['ramp', 'mapping', engagementId],
+    queryFn: () => fetchEngagementRampMapping(engagementId),
+    enabled: statusQuery.data?.configured === true,
+    staleTime: 300_000,
+  });
+
+  const configured = statusQuery.data?.configured === true;
+
+  const transactionsQuery = useInfiniteQuery({
+    queryKey: ['ramp', 'transactions', engagementId, txFilters],
+    queryFn: ({ pageParam }) => fetchEngagementRampTransactions(engagementId, { ...txFilters, page_size: 20, start: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.page?.next ?? undefined,
+    enabled: configured && activeTab === 'transactions',
+    staleTime: 60_000,
+  });
+
+  const billsQuery = useInfiniteQuery({
+    queryKey: ['ramp', 'bills', engagementId, billFilters],
+    queryFn: ({ pageParam }) => fetchEngagementRampBills(engagementId, { ...billFilters, page_size: 20, start: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.page?.next ?? undefined,
+    enabled: configured && activeTab === 'bills',
+    staleTime: 60_000,
+  });
+
+  const receiptsQuery = useInfiniteQuery({
+    queryKey: ['ramp', 'receipts', engagementId, receiptFilters],
+    queryFn: ({ pageParam }) => fetchEngagementRampReceipts(engagementId, { ...receiptFilters, page_size: 50, start: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.page?.next ?? undefined,
+    enabled: configured && activeTab === 'receipts',
+    staleTime: 60_000,
+  });
+
+  const vendorsQuery = useInfiniteQuery({
+    queryKey: ['ramp', 'engagement', engagementId, 'vendors'],
+    queryFn: ({ pageParam }) => fetchEngagementRampVendors(engagementId, { page_size: 50, start: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.page?.next ?? undefined,
+    enabled: configured && activeTab === 'vendors',
+    staleTime: 120_000,
+  });
+
+  const usersQuery = useInfiniteQuery({
+    queryKey: ['ramp', 'users'],
+    queryFn: ({ pageParam }) => fetchRampUsers({ page_size: 50, start: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.page?.next ?? undefined,
+    enabled: configured && activeTab === 'users',
+    staleTime: 120_000,
+  });
+
+  const departmentsQuery = useInfiniteQuery({
+    queryKey: ['ramp', 'departments'],
+    queryFn: ({ pageParam }) => fetchRampDepartments({ page_size: 50, start: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.page?.next ?? undefined,
+    enabled: configured && activeTab === 'departments',
+    staleTime: 120_000,
+  });
+
+  const spendProgramsQuery = useInfiniteQuery({
+    queryKey: ['ramp', 'spend-programs'],
+    queryFn: ({ pageParam }) => fetchRampSpendPrograms({ page_size: 50, start: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.page?.next ?? undefined,
+    enabled: configured && activeTab === 'spend-programs',
+    staleTime: 120_000,
+  });
+
+  // Memos: fetch all memos then filter client-side to only show those
+  // whose transaction ID matches the engagement's transactions.
+  const memosQuery = useInfiniteQuery({
+    queryKey: ['ramp', 'memos'],
+    queryFn: ({ pageParam }) => fetchRampMemos({ page_size: 100, start: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.page?.next ?? undefined,
+    enabled: configured && activeTab === 'memos',
+    staleTime: 120_000,
+  });
+
+  // ─── Accounting queries (accounting:read) ───────────────────────────────
+
+  /** Engagement-scoped accounting context — resolves Customer/Job via Attraction+Venue mapping. */
+  const engagementAccountingQuery = useQuery({
+    queryKey: ['ramp', 'accounting', 'engagement', engagementId],
+    queryFn: () => fetchEngagementRampAccounting(engagementId),
+    enabled: configured && (activeTab === 'gl-accounts' || activeTab === 'accounting-fields' || activeTab === 'accounting-vendors' || activeTab === 'connections'),
+    staleTime: 300_000,
+  });
+
+  const connectionsQuery = useQuery({
+    queryKey: ['ramp', 'accounting', 'connections'],
+    queryFn: () => fetchRampAccountingConnections(),
+    enabled: configured && activeTab === 'connections',
+    staleTime: 300_000,
+  });
+
+  const accountingFieldsQuery = useInfiniteQuery({
+    queryKey: ['ramp', 'accounting', 'fields'],
+    queryFn: ({ pageParam }) => fetchRampAccountingFields({ page_size: 100, start: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.page?.next ?? undefined,
+    enabled: configured && activeTab === 'accounting-fields',
+    staleTime: 300_000,
+  });
+
+  const fieldOptionsQuery = useInfiniteQuery({
+    queryKey: ['ramp', 'accounting', 'field-options', selectedFieldId],
+    queryFn: ({ pageParam }) => fetchRampAccountingFieldOptions(selectedFieldId!, { page_size: 100, start: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.page?.next ?? undefined,
+    enabled: configured && activeTab === 'accounting-fields' && !!selectedFieldId,
+    staleTime: 300_000,
+  });
+
+  // One cached page shown at a time, with Previous/Next over the cursor pages.
+  const txPaged = usePagedRamp(transactionsQuery, engagementId);
+  const billsPaged = usePagedRamp(billsQuery, engagementId);
+  const receiptsPaged = usePagedRamp(receiptsQuery, engagementId);
+  const vendorsPaged = usePagedRamp(vendorsQuery, 'vendors');
+  const usersPaged = usePagedRamp(usersQuery, 'users');
+  const departmentsPaged = usePagedRamp(departmentsQuery, 'departments');
+  const spendProgramsPaged = usePagedRamp(spendProgramsQuery, 'spend-programs');
+  const memosPaged = usePagedRamp(memosQuery, 'memos');
+  const accountingFieldsPaged = usePagedRamp(accountingFieldsQuery, 'accounting-fields');
+  const fieldOptionsPaged = usePagedRamp(fieldOptionsQuery, selectedFieldId);
+
+  const transactions = txPaged.rows;
+  const bills = billsPaged.rows;
+  const receipts = receiptsPaged.rows;
+  const vendors = vendorsPaged.rows;
+  const users = usersPaged.rows;
+  const departments = departmentsPaged.rows;
+  const spendPrograms = spendProgramsPaged.rows;
+  const memos = memosPaged.rows;
+  const accountingFields = accountingFieldsPaged.rows;
+  const fieldOptions = fieldOptionsPaged.rows;
+
+  // GL accounts and accounting vendors come from the engagement-scoped query (filtered by Customer/Job)
+  const glAccounts = engagementAccountingQuery.data?.glAccounts ?? [];
+  const accountingVendors = engagementAccountingQuery.data?.accountingVendors ?? [];
+
+  if (statusQuery.isLoading) {
+    return <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Checking Ramp connection…</div>;
+  }
+
+  if (!statusQuery.data?.configured) {
+    return (
+      <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
+        <p className="text-sm text-amber-800">Ramp API is not configured. Set <code className="text-xs bg-amber-100 px-1 rounded">RAMP_CLIENT_ID</code> and <code className="text-xs bg-amber-100 px-1 rounded">RAMP_CLIENT_SECRET</code> in the backend environment.</p>
+      </div>
+    );
+  }
+
+  const tabs = [
+    { key: 'transactions' as const, label: 'Transactions' },
+    { key: 'bills' as const, label: 'Bills' },
+    { key: 'receipts' as const, label: 'Receipts' },
+    { key: 'memos' as const, label: 'Memos' },
+    { key: 'vendors' as const, label: 'Vendors' },
+    { key: 'users' as const, label: 'Users' },
+    { key: 'departments' as const, label: 'Departments' },
+    { key: 'spend-programs' as const, label: 'Spend Programs' },
+    { key: 'gl-accounts' as const, label: 'GL Accounts' },
+    { key: 'accounting-fields' as const, label: 'Accounting Fields' },
+    { key: 'accounting-vendors' as const, label: 'Acct Vendors' },
+    { key: 'connections' as const, label: 'Connections' },
+  ];
+
+  const formatCurrency = (amount: number | null | undefined, currency = 'USD') => {
+    if (amount == null) return '—';
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount / 100);
+  };
+
+  const formatDate = (iso: string | null | undefined) => {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  const isEngagementScoped = activeTab === 'transactions' || activeTab === 'bills' || activeTab === 'receipts';
+  const tabMeta = RAMP_TAB_META[activeTab];
+
+  return (
+    <div className="space-y-3">
+      {/* Engagement → Ramp linkage banner (accounting:read — Customer/Job mapping) */}
+      {mappingQuery.data && (mappingQuery.data.customerName || mappingQuery.data.jobName) && (
+        <div className="rounded-md border border-ems-accent/30 bg-ems-accent/5 px-3 py-2 text-xs text-text-secondary">
+          <span className="font-medium text-text-primary">Linked to Ramp via</span>{' '}
+          {mappingQuery.data.customerJobFieldOptionId ? (
+            <>Customer/Job = <span className="font-mono">{mappingQuery.data.customerName}{mappingQuery.data.jobName ? `:${mappingQuery.data.jobName}` : ''}</span>
+              <span className="ml-1 text-green-600">✓ matched</span></>
+          ) : (
+            <>
+              {mappingQuery.data.customerName && (
+                <>Customer = <span className="font-mono">{mappingQuery.data.customerName}</span>
+                  {mappingQuery.data.customerFieldOptionId ? <span className="ml-1 text-green-600">✓</span> : <span className="ml-1 text-amber-600">(no match)</span>}</>
+              )}
+              {mappingQuery.data.customerName && mappingQuery.data.jobName && ' · '}
+              {mappingQuery.data.jobName && (
+                <>Job = <span className="font-mono">{mappingQuery.data.jobName}</span>
+                  {mappingQuery.data.jobFieldOptionId ? <span className="ml-1 text-green-600">✓</span> : <span className="ml-1 text-amber-600">(no match)</span>}</>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Engagement accounting context summary */}
+      {engagementAccountingQuery.data && engagementAccountingQuery.data.matchedOptions.length > 0 && (
+        <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
+          <span className="font-medium">Engagement Accounting Match:</span>{' '}
+          {engagementAccountingQuery.data.matchedOptions.map((opt, i) => (
+            <span key={opt.ramp_id}>
+              {i > 0 && ' · '}
+              <span className="font-mono">{opt.value}</span>
+              {opt.code && <span className="text-green-600 ml-1">({opt.code})</span>}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Sub-tabs */}
+      <div className="flex flex-wrap gap-1 border-b border-border pb-1">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setActiveTab(t.key)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-t transition-colors ${
+              activeTab === t.key
+                ? 'bg-ems-accent text-white'
+                : 'text-text-muted hover:text-text-primary hover:bg-muted'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Scope description + EMS intent caption (from the Ramp API Scopes sheet) */}
+      {tabMeta && (
+        <div className="text-xs text-text-muted">
+          <span className="font-mono text-[10px] bg-muted px-1 py-0.5 rounded mr-1.5">{tabMeta.scope}</span>
+          {tabMeta.description} <span className="text-text-secondary">— {tabMeta.intent}</span>
+          {!isEngagementScoped && (
+            <span className="ml-1 italic">Org-wide reference data, not filtered by engagement.</span>
+          )}
+        </div>
+      )}
+
+      {/* Transactions tab */}
+      {activeTab === 'transactions' && (
+        <div className="space-y-2">
+          {/* Filters */}
+          <div className="flex flex-wrap gap-2 items-end text-xs">
+            <label className="flex flex-col gap-0.5">
+              <span className="text-text-muted">From Date</span>
+              <input type="date" value={txFromDate} onChange={(e) => setTxFromDate(e.target.value)} className="border border-border rounded px-2 py-1 bg-elevated text-text-primary" />
+            </label>
+            <label className="flex flex-col gap-0.5">
+              <span className="text-text-muted">To Date</span>
+              <input type="date" value={txToDate} onChange={(e) => setTxToDate(e.target.value)} className="border border-border rounded px-2 py-1 bg-elevated text-text-primary" />
+            </label>
+            <label className="flex flex-col gap-0.5">
+              <span className="text-text-muted">State</span>
+              <select value={txState} onChange={(e) => setTxState(e.target.value)} className="border border-border rounded px-2 py-1 bg-elevated text-text-primary">
+                <option value="">All</option>
+                <option value="CLEARED">Cleared</option>
+                <option value="PENDING">Pending</option>
+                <option value="DECLINED">Declined</option>
+                <option value="ALL">All (incl. Declined)</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-0.5">
+              <span className="text-text-muted">Min $</span>
+              <input type="number" value={txMinAmount} onChange={(e) => setTxMinAmount(e.target.value)} placeholder="0" className="border border-border rounded px-2 py-1 bg-elevated text-text-primary w-20" />
+            </label>
+            <label className="flex flex-col gap-0.5">
+              <span className="text-text-muted">Max $</span>
+              <input type="number" value={txMaxAmount} onChange={(e) => setTxMaxAmount(e.target.value)} placeholder="∞" className="border border-border rounded px-2 py-1 bg-elevated text-text-primary w-20" />
+            </label>
+            <button type="button" onClick={handleTxSearch} className="px-3 py-1 rounded bg-ems-accent text-white text-xs font-medium hover:opacity-90 transition-opacity">Search</button>
+          </div>
+
+          {transactionsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching transactions from Ramp…</div>}
+          {transactionsQuery.isError && <p className="text-sm text-red-600">Failed to load transactions.</p>}
+          {transactionsQuery.isSuccess && (
+            transactions.length === 0
+              ? <p className="text-sm text-text-muted">No transactions found.</p>
+              : (
+                <div className="overflow-x-auto -mx-2 px-2">
+                  <table className="min-w-[800px] w-full text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-border text-left">
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[100px]">Date</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[140px]">Merchant</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[120px]">Cardholder</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[120px]">Category</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted text-right min-w-[90px]">Amount</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[80px]">State</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[150px]">Memo</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted text-center min-w-[60px]">Receipts</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {transactions.map((tx) => (
+                        <tr key={tx.id} className="border-b border-border/50 hover:bg-muted/40">
+                          <td className="py-1.5 px-2 whitespace-nowrap">{formatDate(tx.user_transaction_time)}</td>
+                          <td className="py-1.5 px-2 break-words">{tx.merchant_name ?? tx.merchant_descriptor ?? '—'}</td>
+                          <td className="py-1.5 px-2 whitespace-nowrap">{tx.card_holder ? `${tx.card_holder.first_name} ${tx.card_holder.last_name}` : '—'}</td>
+                          <td className="py-1.5 px-2 break-words">{tx.sk_category_name ?? '—'}</td>
+                          <td className="py-1.5 px-2 text-right font-mono whitespace-nowrap">{formatCurrency(tx.amount, tx.currency_code ?? 'USD')}</td>
+                          <td className="py-1.5 px-2">
+                            <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                              tx.state === 'CLEARED' ? 'bg-green-100 text-green-700' :
+                              tx.state === 'PENDING' ? 'bg-yellow-100 text-yellow-700' :
+                              tx.state === 'DECLINED' ? 'bg-red-100 text-red-700' :
+                              'bg-gray-100 text-gray-600'
+                            }`}>{tx.state ?? '—'}</span>
+                          </td>
+                          <td className="py-1.5 px-2 break-words">{tx.memo ?? '—'}</td>
+                          <td className="py-1.5 px-2 text-center">{tx.receipts && tx.receipts.length > 0 ? `📎 ${tx.receipts.length}` : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+          )}
+          {transactionsQuery.isSuccess && (
+            <RampPager pager={txPaged} />
+          )}
+        </div>
+      )}
+
+      {/* Bills tab */}
+      {activeTab === 'bills' && (
+        <div className="space-y-2">
+          {/* Filters */}
+          <div className="flex flex-wrap gap-2 items-end text-xs">
+            <label className="flex flex-col gap-0.5">
+              <span className="text-text-muted">Due From</span>
+              <input type="date" value={billFromDueDate} onChange={(e) => setBillFromDueDate(e.target.value)} className="border border-border rounded px-2 py-1 bg-elevated text-text-primary" />
+            </label>
+            <label className="flex flex-col gap-0.5">
+              <span className="text-text-muted">Due To</span>
+              <input type="date" value={billToDueDate} onChange={(e) => setBillToDueDate(e.target.value)} className="border border-border rounded px-2 py-1 bg-elevated text-text-primary" />
+            </label>
+            <label className="flex flex-col gap-0.5">
+              <span className="text-text-muted">Payment Status</span>
+              <select value={billPaymentStatus} onChange={(e) => setBillPaymentStatus(e.target.value)} className="border border-border rounded px-2 py-1 bg-elevated text-text-primary">
+                <option value="">All</option>
+                <option value="OPEN">Open</option>
+                <option value="PAID">Paid</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-0.5">
+              <span className="text-text-muted">Approval</span>
+              <select value={billApprovalStatus} onChange={(e) => setBillApprovalStatus(e.target.value)} className="border border-border rounded px-2 py-1 bg-elevated text-text-primary">
+                <option value="">All</option>
+                <option value="APPROVED">Approved</option>
+                <option value="PENDING">Pending</option>
+                <option value="REJECTED">Rejected</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-0.5">
+              <span className="text-text-muted">Min $</span>
+              <input type="number" value={billMinAmount} onChange={(e) => setBillMinAmount(e.target.value)} placeholder="0" className="border border-border rounded px-2 py-1 bg-elevated text-text-primary w-20" />
+            </label>
+            <label className="flex flex-col gap-0.5">
+              <span className="text-text-muted">Max $</span>
+              <input type="number" value={billMaxAmount} onChange={(e) => setBillMaxAmount(e.target.value)} placeholder="∞" className="border border-border rounded px-2 py-1 bg-elevated text-text-primary w-20" />
+            </label>
+            <button type="button" onClick={handleBillSearch} className="px-3 py-1 rounded bg-ems-accent text-white text-xs font-medium hover:opacity-90 transition-opacity">Search</button>
+          </div>
+
+          {billsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching bills from Ramp…</div>}
+          {billsQuery.isError && <p className="text-sm text-red-600">Failed to load bills.</p>}
+          {billsQuery.isSuccess && (
+            bills.length === 0
+              ? <p className="text-sm text-text-muted">No bills found.</p>
+              : (
+                <div className="overflow-x-auto -mx-2 px-2">
+                  <table className="min-w-[700px] w-full text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-border text-left">
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[100px]">Invoice #</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[150px]">Vendor</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[100px]">Due Date</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted text-right min-w-[90px]">Amount</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[100px]">Status</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[150px]">Memo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bills.map((bill) => (
+                        <tr key={bill.id} className="border-b border-border/50 hover:bg-muted/40">
+                          <td className="py-1.5 px-2 break-words">{bill.invoice_number ?? '—'}</td>
+                          <td className="py-1.5 px-2 break-words">{bill.vendor?.name ?? '—'}</td>
+                          <td className="py-1.5 px-2 whitespace-nowrap">{formatDate(bill.due_at)}</td>
+                          <td className="py-1.5 px-2 text-right font-mono whitespace-nowrap">{bill.amount ? formatCurrency(bill.amount.amount, bill.amount.currency_code) : '—'}</td>
+                          <td className="py-1.5 px-2">
+                            <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                              bill.status_summary === 'PAID' ? 'bg-green-100 text-green-700' :
+                              bill.status_summary === 'OPEN' ? 'bg-blue-100 text-blue-700' :
+                              bill.status_summary === 'OVERDUE' ? 'bg-red-100 text-red-700' :
+                              'bg-gray-100 text-gray-600'
+                            }`}>{bill.status_summary ?? bill.status ?? '—'}</span>
+                          </td>
+                          <td className="py-1.5 px-2 break-words">{bill.memo ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+          )}
+          {billsQuery.isSuccess && (
+            <RampPager pager={billsPaged} />
+          )}
+        </div>
+      )}
+
+      {/* Receipts tab */}
+      {activeTab === 'receipts' && (
+        <div className="space-y-2">
+          {/* Filters */}
+          <div className="flex flex-wrap gap-2 items-end text-xs">
+            <label className="flex flex-col gap-0.5">
+              <span className="text-text-muted">From Date</span>
+              <input type="date" value={receiptFromDate} onChange={(e) => setReceiptFromDate(e.target.value)} className="border border-border rounded px-2 py-1 bg-elevated text-text-primary" />
+            </label>
+            <label className="flex flex-col gap-0.5">
+              <span className="text-text-muted">To Date</span>
+              <input type="date" value={receiptToDate} onChange={(e) => setReceiptToDate(e.target.value)} className="border border-border rounded px-2 py-1 bg-elevated text-text-primary" />
+            </label>
+            <label className="flex flex-col gap-0.5">
+              <span className="text-text-muted">Transaction</span>
+              <select value={receiptTransactionFilter} onChange={(e) => setReceiptTransactionFilter(e.target.value)} className="border border-border rounded px-2 py-1 bg-elevated text-text-primary max-w-[220px]">
+                <option value="">All Transactions</option>
+                {transactions.map((tx) => (
+                  <option key={tx.id} value={tx.id}>
+                    {formatDate(tx.user_transaction_time)} · {tx.merchant_name ?? tx.merchant_descriptor ?? 'Unknown'} · {formatCurrency(tx.amount, tx.currency_code ?? 'USD')}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button type="button" onClick={handleReceiptSearch} className="px-3 py-1 rounded bg-ems-accent text-white text-xs font-medium hover:opacity-90 transition-opacity">Search</button>
+          </div>
+
+          {receiptsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching receipts from Ramp…</div>}
+          {receiptsQuery.isError && <p className="text-sm text-red-600">Failed to load receipts.</p>}
+          {receiptsQuery.isSuccess && (
+            (() => {
+              const filteredReceipts = receiptTransactionFilter
+                ? receipts.filter((r) => r.transaction_id === receiptTransactionFilter)
+                : receipts;
+              return filteredReceipts.length === 0
+                ? <p className="text-sm text-text-muted">No receipts found{receiptTransactionFilter ? ' for this transaction' : " for this engagement's transactions"}.</p>
+                : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {filteredReceipts.map((r) => (
+                      <div key={r.id} className="rounded border border-border p-2 text-xs flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-medium text-text-primary truncate">{r.merchant_name ?? 'Receipt'}</p>
+                          <p className="text-text-muted">{formatCurrency(r.amount)} · {formatDate(r.created_at)}</p>
+                        </div>
+                      {r.receipt_url
+                        ? <a href={r.receipt_url} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:underline whitespace-nowrap">View</a>
+                        : <span className="shrink-0 text-text-muted">—</span>}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()
+          )}
+          {receiptsQuery.isSuccess && (
+            <RampPager pager={receiptsPaged} />
+          )}
+        </div>
+      )}
+
+      {/* Memos tab */}
+      {activeTab === 'memos' && (
+        <div className="space-y-2">
+          {(memosQuery.isLoading || transactionsQuery.isLoading) && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching memos from Ramp…</div>}
+          {memosQuery.isError && <p className="text-sm text-red-600">Failed to load memos.</p>}
+          {memosQuery.isSuccess && transactionsQuery.isSuccess && (
+            (() => {
+              // Filter memos to only those whose id (transaction_id) matches this engagement's transactions
+              const engagementTxIds = new Set(transactions.map((tx) => tx.id));
+              const engagementMemos = memos.filter((m) => engagementTxIds.has(m.id));
+              return engagementMemos.length === 0
+                ? <p className="text-sm text-text-muted">No memos found for this engagement's transactions.</p>
+                : (
+                  <div className="overflow-x-auto -mx-2 px-2">
+                    <table className="min-w-[600px] w-full text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-border text-left">
+                          <th className="py-1.5 px-2 font-medium text-text-muted min-w-[120px]">Date</th>
+                          <th className="py-1.5 px-2 font-medium text-text-muted min-w-[140px]">Merchant</th>
+                          <th className="py-1.5 px-2 font-medium text-text-muted min-w-[90px] text-right">Amount</th>
+                          <th className="py-1.5 px-2 font-medium text-text-muted min-w-[200px]">Memo</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {engagementMemos.map((m) => {
+                          const tx = transactions.find((t) => t.id === m.id);
+                          return (
+                            <tr key={m.id} className="border-b border-border/50 hover:bg-muted/40">
+                              <td className="py-1.5 px-2 whitespace-nowrap">{tx ? formatDate(tx.user_transaction_time) : '—'}</td>
+                              <td className="py-1.5 px-2 break-words">{tx?.merchant_name ?? tx?.merchant_descriptor ?? '—'}</td>
+                              <td className="py-1.5 px-2 text-right font-mono whitespace-nowrap">{tx ? formatCurrency(tx.amount, tx.currency_code ?? 'USD') : '—'}</td>
+                              <td className="py-1.5 px-2 break-words font-medium">{m.memo ?? '—'}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+            })()
+          )}
+          {memosQuery.isSuccess && (
+            <RampPager pager={memosPaged} />
+          )}
+        </div>
+      )}
+
+      {/* Vendors tab */}
+      {activeTab === 'vendors' && (
+        <div className="space-y-2">
+          {vendorsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching vendors from Ramp…</div>}
+          {vendorsQuery.isError && <p className="text-sm text-red-600">Failed to load vendors.</p>}
+          {vendorsQuery.isSuccess && (
+            vendors.length === 0
+              ? <p className="text-sm text-text-muted">No vendors found.</p>
+              : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {vendors.map((v) => (
+                    <div key={v.id} className="rounded border border-border p-2 text-xs">
+                      <p className="font-medium text-text-primary">{v.name}</p>
+                      <p className="text-text-muted">{[v.address?.city, v.address?.state, v.country].filter(Boolean).join(', ') || '—'}</p>
+                    </div>
+                  ))}
+                </div>
+              )
+          )}
+          {vendorsQuery.isSuccess && (
+            <RampPager pager={vendorsPaged} />
+          )}
+        </div>
+      )}
+
+      {/* Users tab */}
+      {activeTab === 'users' && (
+        <div className="space-y-2">
+          {usersQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching users from Ramp…</div>}
+          {usersQuery.isError && <p className="text-sm text-red-600">Failed to load users.</p>}
+          {usersQuery.isSuccess && (
+            users.length === 0
+              ? <p className="text-sm text-text-muted">No users found.</p>
+              : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border text-left">
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Name</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Email</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Role</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {users.map((u) => (
+                        <tr key={u.id} className="border-b border-border/50 hover:bg-muted/40">
+                          <td className="py-1.5 px-2">{u.first_name} {u.last_name}</td>
+                          <td className="py-1.5 px-2">{u.email}</td>
+                          <td className="py-1.5 px-2">{u.role ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+          )}
+          {usersQuery.isSuccess && (
+            <RampPager pager={usersPaged} />
+          )}
+        </div>
+      )}
+
+      {/* Departments tab */}
+      {activeTab === 'departments' && (
+        <div className="space-y-2">
+          {departmentsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching departments from Ramp…</div>}
+          {departmentsQuery.isError && <p className="text-sm text-red-600">Failed to load departments.</p>}
+          {departmentsQuery.isSuccess && (
+            departments.length === 0
+              ? <p className="text-sm text-text-muted">No departments found.</p>
+              : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {departments.map((dept) => (
+                    <div key={dept.id} className="rounded border border-border p-2 text-xs">
+                      <p className="font-medium text-text-primary">{dept.name}</p>
+                    </div>
+                  ))}
+                </div>
+              )
+          )}
+          {departmentsQuery.isSuccess && (
+            <RampPager pager={departmentsPaged} />
+          )}
+        </div>
+      )}
+
+      {/* Spend Programs tab */}
+      {activeTab === 'spend-programs' && (
+        <div className="space-y-2">
+          {spendProgramsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching spend programs from Ramp…</div>}
+          {spendProgramsQuery.isError && <p className="text-sm text-red-600">Failed to load spend programs.</p>}
+          {spendProgramsQuery.isSuccess && (
+            spendPrograms.length === 0
+              ? <p className="text-sm text-text-muted">No spend programs found.</p>
+              : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {spendPrograms.map((sp) => (
+                    <div key={sp.id} className="rounded border border-border p-2 text-xs">
+                      <p className="font-medium text-text-primary">{sp.name}</p>
+                      {sp.description && <p className="text-text-muted mt-0.5">{sp.description}</p>}
+                    </div>
+                  ))}
+                </div>
+              )
+          )}
+          {spendProgramsQuery.isSuccess && (
+            <RampPager pager={spendProgramsPaged} />
+          )}
+        </div>
+      )}
+
+      {/* GL Accounts tab */}
+      {activeTab === 'gl-accounts' && (
+        <div className="space-y-2">
+          {engagementAccountingQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching GL accounts from Ramp…</div>}
+          {engagementAccountingQuery.isError && <p className="text-sm text-red-600">Failed to load GL accounts.</p>}
+          {engagementAccountingQuery.isSuccess && (
+            glAccounts.length === 0
+              ? <p className="text-sm text-text-muted">No GL accounts found.</p>
+              : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border text-left">
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Code</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Name</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Classification</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Status</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Provider</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {glAccounts.map((acct) => (
+                        <tr key={acct.ramp_id} className="border-b border-border/50 hover:bg-muted/40">
+                          <td className="py-1.5 px-2 font-mono">{acct.code ?? '—'}</td>
+                          <td className="py-1.5 px-2">{acct.name}</td>
+                          <td className="py-1.5 px-2">
+                            <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                              acct.classification === 'EXPENSE' ? 'bg-red-100 text-red-700' :
+                              acct.classification === 'REVENUE' ? 'bg-green-100 text-green-700' :
+                              acct.classification === 'ASSET' ? 'bg-blue-100 text-blue-700' :
+                              acct.classification === 'LIABILITY' ? 'bg-orange-100 text-orange-700' :
+                              'bg-gray-100 text-gray-600'
+                            }`}>{acct.classification ?? '—'}</span>
+                          </td>
+                          <td className="py-1.5 px-2">
+                            <span className={`inline-block w-2 h-2 rounded-full mr-1 ${acct.is_active ? 'bg-green-500' : 'bg-gray-300'}`} />
+                            {acct.is_active ? 'Active' : 'Inactive'}
+                          </td>
+                          <td className="py-1.5 px-2 text-text-muted">{acct.provider_name ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+          )}
+          {engagementAccountingQuery.isSuccess && glAccounts.length > 0 && (
+            <p className="text-xs text-text-muted">Showing {glAccounts.length} GL account(s) used by this engagement's transactions/bills.</p>
+          )}
+        </div>
+      )}
+
+      {/* Accounting Fields tab */}
+      {activeTab === 'accounting-fields' && (
+        <div className="space-y-3">
+          {/* Customer/Job mapping summary (resolved from Attraction→Job, Venue/DMA→Customer) */}
+          {engagementAccountingQuery.isSuccess && engagementAccountingQuery.data.matchedFields.length > 0 && (
+            <div className="rounded-md border border-ems-accent/30 bg-ems-accent/5 px-3 py-2 text-xs">
+              <span className="font-medium text-text-primary">Customer/Job Mapping</span>
+              <span className="text-text-secondary ml-2">
+                Field: "{engagementAccountingQuery.data.matchedFields[0].display_name || engagementAccountingQuery.data.matchedFields[0].name}"
+                ({engagementAccountingQuery.data.customerJobOptions?.length ?? 0} options)
+              </span>
+              {engagementAccountingQuery.data.mapping && (
+                <span className="ml-2 text-green-700">
+                  {engagementAccountingQuery.data.mapping.customerName && `→ Customer: "${engagementAccountingQuery.data.mapping.customerName}"`}
+                  {engagementAccountingQuery.data.mapping.jobName && ` · Job: "${engagementAccountingQuery.data.mapping.jobName}"`}
+                </span>
+              )}
+              {engagementAccountingQuery.data.matchedOptions.length > 0 && (
+                <span className="ml-2 font-medium text-green-800">
+                  → Matched: "{engagementAccountingQuery.data.matchedOptions[0].value}"
+                </span>
+              )}
+            </div>
+          )}
+          {engagementAccountingQuery.isSuccess && engagementAccountingQuery.data.matchedFields.length === 0 && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <span className="font-medium">Customer/Job Mapping:</span> No matching Customer/Job field found in Ramp for this engagement's Attraction/Venue.
+            </div>
+          )}
+
+          {accountingFieldsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching accounting fields from Ramp…</div>}
+          {accountingFieldsQuery.isError && <p className="text-sm text-red-600">Failed to load accounting fields.</p>}
+          {accountingFieldsQuery.isSuccess && (
+            accountingFields.length === 0
+              ? <p className="text-sm text-text-muted">No custom accounting fields found.</p>
+              : (
+                <div className="space-y-2">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border text-left">
+                          <th className="py-1.5 px-2 font-medium text-text-muted">Name</th>
+                          <th className="py-1.5 px-2 font-medium text-text-muted">Display Name</th>
+                          <th className="py-1.5 px-2 font-medium text-text-muted">Input Type</th>
+                          <th className="py-1.5 px-2 font-medium text-text-muted">Splittable</th>
+                          <th className="py-1.5 px-2 font-medium text-text-muted">Status</th>
+                          <th className="py-1.5 px-2 font-medium text-text-muted">Options</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {accountingFields.map((field: RampAccountingField) => (
+                          <tr key={field.ramp_id} className={`border-b border-border/50 hover:bg-muted/40 ${
+                            selectedFieldId === field.ramp_id ? 'bg-ems-accent/10' :
+                            engagementAccountingQuery.data?.matchedFields.some((mf) => mf.ramp_id === field.ramp_id) ? 'bg-green-50' : ''
+                          }`}>
+                            <td className="py-1.5 px-2 font-medium">{field.name}</td>
+                            <td className="py-1.5 px-2">{field.display_name ?? '—'}</td>
+                            <td className="py-1.5 px-2">
+                              <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-600">{field.input_type}</span>
+                            </td>
+                            <td className="py-1.5 px-2">{field.is_splittable ? 'Yes' : 'No'}</td>
+                            <td className="py-1.5 px-2">
+                              <span className={`inline-block w-2 h-2 rounded-full mr-1 ${field.is_active ? 'bg-green-500' : 'bg-gray-300'}`} />
+                              {field.is_active ? 'Active' : 'Inactive'}
+                            </td>
+                            <td className="py-1.5 px-2">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedFieldId(selectedFieldId === field.ramp_id ? null : field.ramp_id)}
+                                className="text-ems-accent hover:underline text-xs"
+                              >
+                                {selectedFieldId === field.ramp_id ? 'Hide' : 'View'}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {accountingFieldsQuery.isSuccess && (
+                    <RampPager pager={accountingFieldsPaged} />
+                  )}
+                </div>
+              )
+          )}
+
+          {/* Field Options sub-section */}
+          {selectedFieldId && (
+            <div className="mt-3 border-t border-border pt-3">
+              <h4 className="text-xs font-semibold text-text-primary mb-2">
+                Options for: {accountingFields.find((f: RampAccountingField) => f.ramp_id === selectedFieldId)?.display_name || accountingFields.find((f: RampAccountingField) => f.ramp_id === selectedFieldId)?.name || selectedFieldId}
+              </h4>
+              {fieldOptionsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading field options…</div>}
+              {fieldOptionsQuery.isError && <p className="text-sm text-red-600">Failed to load field options.</p>}
+              {fieldOptionsQuery.isSuccess && (
+                fieldOptions.length === 0
+                  ? <p className="text-sm text-text-muted">No options found for this field.</p>
+                  : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-border text-left">
+                            <th className="py-1.5 px-2 font-medium text-text-muted">Value</th>
+                            <th className="py-1.5 px-2 font-medium text-text-muted">Display Name</th>
+                            <th className="py-1.5 px-2 font-medium text-text-muted">Code</th>
+                            <th className="py-1.5 px-2 font-medium text-text-muted">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {fieldOptions.map((opt) => (
+                            <tr key={opt.ramp_id} className="border-b border-border/50 hover:bg-muted/40">
+                              <td className="py-1.5 px-2 font-medium">{opt.value}</td>
+                              <td className="py-1.5 px-2">{opt.display_name ?? '—'}</td>
+                              <td className="py-1.5 px-2 font-mono">{opt.code ?? '—'}</td>
+                              <td className="py-1.5 px-2">
+                                <span className={`inline-block w-2 h-2 rounded-full mr-1 ${opt.is_active ? 'bg-green-500' : 'bg-gray-300'}`} />
+                                {opt.is_active ? 'Active' : 'Inactive'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+              )}
+              {fieldOptionsQuery.isSuccess && (
+                <RampPager pager={fieldOptionsPaged} />
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Accounting Vendors tab */}
+      {activeTab === 'accounting-vendors' && (
+        <div className="space-y-2">
+          {engagementAccountingQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching accounting vendors from Ramp…</div>}
+          {engagementAccountingQuery.isError && <p className="text-sm text-red-600">Failed to load accounting vendors.</p>}
+          {engagementAccountingQuery.isSuccess && (
+            accountingVendors.length === 0
+              ? <p className="text-sm text-text-muted">No accounting vendors found.</p>
+              : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border text-left">
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Name</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Code</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Status</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Synced</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Provider</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {accountingVendors.map((v) => (
+                        <tr key={v.ramp_id} className="border-b border-border/50 hover:bg-muted/40">
+                          <td className="py-1.5 px-2 font-medium">{v.name}</td>
+                          <td className="py-1.5 px-2 font-mono">{v.code ?? '—'}</td>
+                          <td className="py-1.5 px-2">
+                            <span className={`inline-block w-2 h-2 rounded-full mr-1 ${v.is_active ? 'bg-green-500' : 'bg-gray-300'}`} />
+                            {v.is_active ? 'Active' : 'Inactive'}
+                          </td>
+                          <td className="py-1.5 px-2">
+                            <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${v.is_synced ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                              {v.is_synced ? 'Synced' : 'Not synced'}
+                            </span>
+                          </td>
+                          <td className="py-1.5 px-2 text-text-muted">{v.provider_name ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+          )}
+          {engagementAccountingQuery.isSuccess && accountingVendors.length > 0 && (
+            <p className="text-xs text-text-muted">Showing {accountingVendors.length} accounting vendor(s) from this engagement's bills.</p>
+          )}
+        </div>
+      )}
+
+      {/* Connections tab */}
+      {activeTab === 'connections' && (
+        <div className="space-y-2">
+          {connectionsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading connections…</div>}
+          {connectionsQuery.isError && <p className="text-sm text-red-600">Failed to load accounting connections.</p>}
+          {connectionsQuery.isSuccess && (
+            (!connectionsQuery.data.connections || connectionsQuery.data.connections.length === 0)
+              ? <p className="text-sm text-text-muted">No accounting connections configured.</p>
+              : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {connectionsQuery.data.connections.map((conn) => (
+                    <div key={conn.id} className="rounded border border-border p-3 text-xs space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-text-primary">{conn.remote_provider_name ?? 'Unknown Provider'}</span>
+                        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                          conn.status === 'LINKED' ? 'bg-green-100 text-green-700' :
+                          conn.status === 'UNLINKED' ? 'bg-red-100 text-red-700' :
+                          'bg-gray-100 text-gray-600'
+                        }`}>{conn.status}</span>
+                      </div>
+                      <div className="text-text-muted">
+                        <span>Type: {conn.connection_type}</span>
+                        {' · '}
+                        <span>{conn.is_active ? 'Active' : 'Inactive'}</span>
+                      </div>
+                      {conn.last_linked_at && (
+                        <div className="text-text-muted">Last linked: {new Date(conn.last_linked_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+                      )}
+                      <div className="text-text-muted">Created: {new Date(conn.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+                    </div>
+                  ))}
+                </div>
+              )
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -10266,11 +11416,35 @@ export function EngagementDetailPage({
     productionDatesMutation.isPending;
 
   // ── Delete ──────────────────────────────────────────────────────────────
+  const deleteImpactQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'delete-impact'],
+    queryFn: () => fetchEngagementDeleteImpact(engagementId),
+    enabled: pendingDelete,
+  });
+
   const deleteMutation = useMutation({
     mutationFn: () => deleteEngagement(engagementId),
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ['engagements'] });
+      // refetchType: 'all' — the engagements list is unmounted right now (we're still on
+      // this detail page), and the app's QueryClient has refetchOnMount: false, so a plain
+      // invalidate would only mark it stale and never actually refetch before it remounts.
+      // The predicate skips this engagement's own ['engagements', engagementId] detail
+      // query — refetching it would 404 (it's gone) while we're still mounted here, which
+      // flashes the "Could not load engagement" error screen before onNavigate takes over.
+      await qc.invalidateQueries({
+        refetchType: 'all',
+        predicate: (query) => {
+          const key = query.queryKey;
+          if (key[0] !== 'engagements') return false;
+          return !(key.length === 2 && key[1] === engagementId);
+        },
+      });
       addToast('Engagement deleted.', 'warning');
+      // This page now stays mounted (hidden) instead of unmounting on navigate, since view
+      // persistence is on by default — so the dialog must be closed explicitly here rather
+      // than relying on unmount. Its content renders via a portal, so left open it would
+      // keep floating on top of whatever view we navigate to.
+      setPendingDelete(false);
       onNavigate('engagements');
     },
     onError: (e: unknown) => {
@@ -11624,10 +12798,50 @@ export function EngagementDetailPage({
               <span className="font-medium text-text-primary">
                 {row.displayTitle}
               </span>
-              . This cannot be undone. If removal isn’t allowed, you’ll see an error message after you
-              confirm.
+              . This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
+
+          {deleteImpactQuery.isLoading && (
+            <div
+              className="flex items-center gap-2.5 rounded-lg border border-border border-dashed bg-surface/60 px-3 py-2.5 text-sm text-text-secondary"
+              role="status"
+              aria-live="polite"
+            >
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-ems-accent" aria-hidden />
+              <span>Checking for linked data…</span>
+            </div>
+          )}
+
+          {deleteImpactQuery.data && deleteImpactQuery.data.blockers.length > 0 && (
+            <div className="flex items-start gap-2.5 rounded-lg border border-ems-coral/40 bg-ems-coral/10 px-3 py-2.5 text-sm text-text-primary">
+              <AlertCircle className="h-4 w-4 shrink-0 text-ems-coral mt-0.5" aria-hidden />
+              <div className="space-y-1">
+                {deleteImpactQuery.data.blockers.map((b, i) => (
+                  <p key={i}>{b}</p>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {deleteImpactQuery.data &&
+            deleteImpactQuery.data.canDelete &&
+            deleteImpactQuery.data.dependents.length > 0 && (
+              <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm text-text-primary">
+                <AlertCircle className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" aria-hidden />
+                <div className="space-y-1">
+                  <p className="font-medium">This engagement also has linked data that will be permanently deleted:</p>
+                  <ul className="list-disc pl-4">
+                    {deleteImpactQuery.data.dependents.map((d, i) => (
+                      <li key={i}>
+                        {d.count} {d.label}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
+
           {deleteMutation.isPending && (
             <div
               className="flex items-center gap-2.5 rounded-lg border border-border border-dashed bg-surface/60 px-3 py-2.5 text-sm text-text-secondary"
@@ -11651,7 +12865,11 @@ export function EngagementDetailPage({
             <Button
               type="button"
               variant="destructive"
-              disabled={deleteMutation.isPending}
+              disabled={
+                deleteMutation.isPending ||
+                deleteImpactQuery.isLoading ||
+                deleteImpactQuery.data?.canDelete === false
+              }
               className="bg-ems-coral text-white hover:bg-ems-coral/90 sm:ml-0"
               onClick={() => void deleteMutation.mutate()}
             >
@@ -11660,6 +12878,8 @@ export function EngagementDetailPage({
                   <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
                   Removing…
                 </>
+              ) : deleteImpactQuery.data && deleteImpactQuery.data.dependents.length > 0 ? (
+                'Yes, delete engagement and linked data'
               ) : (
                 'Yes, remove engagement'
               )}

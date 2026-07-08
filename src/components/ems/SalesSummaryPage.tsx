@@ -6,14 +6,10 @@ import {
   CalendarRange,
   ChevronRight,
   Columns3,
-  DollarSign,
-  Filter as FilterIcon,
   Info,
   Loader2,
   RotateCcw,
   Search,
-  Ticket,
-  TrendingUp,
 } from 'lucide-react';
 import { fetchDailySales, fetchDailySalesByPerformance, fetchDailySalesByPerformanceSuggestions, type ApiDailySalesRow, type ApiPerformanceSalesRow, type SuggestionItem } from '@/api/dailySalesApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
@@ -139,8 +135,8 @@ function aggregateLastDailyMovement(ledger: Ledger, cutoff: string): Snapshot {
 function metricsFor(r: ApiPerformanceSalesRow, ledger: Ledger, reportDate: string, ready: boolean): Metrics {
   const current = (ready ? snap(ledger, r.performanceId, reportDate) : null) ?? { tickets: fallbackTickets(r), revenue: fallbackRevenue(r) };
   const prev = ready ? snap(ledger, r.performanceId, ymdAddDays(reportDate, -1)) : { tickets: num(r.yesterdayTicketsSold) ?? 0, revenue: num(r.yesterdayRevenue) ?? 0 };
-  const prev7 = ready ? snap(ledger, r.performanceId, ymdAddBusinessDays(reportDate, -7)) : null;
-  const prev14 = ready ? snap(ledger, r.performanceId, ymdAddBusinessDays(reportDate, -14)) : null;
+  const prev7 = ready ? snap(ledger, r.performanceId, ymdAddDays(reportDate, -7)) : null;
+  const prev14 = ready ? snap(ledger, r.performanceId, ymdAddDays(reportDate, -14)) : null;
   const cap = num(r.engagementSellableCapacity), potential = num(r.engagementGrossPotential);
   // Use lastDailyMovement when the ledger is ready — it finds the most recent
   // day with actual cumulative movement, so weekends / days with no new sales
@@ -602,7 +598,6 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
     dateScopeChanged ? appliedEventDateScope : '',
     attractionFilter,
     genreFilter,
-    tourFilter,
     venueFilter,
     activeSearch.trim(),
   ].filter(Boolean).length;
@@ -927,8 +922,16 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   return <div className="flex flex-col gap-4 lg:h-[calc(100vh-6.5rem)] lg:min-h-0">
     {isRefreshing && <div className="pointer-events-none fixed top-0 left-0 right-0 z-[200] h-0.5 overflow-hidden" aria-hidden><div className="h-full w-1/3 animate-pulse bg-ems-accent/90" /></div>}
     <div className="shrink-0 flex flex-col gap-3 rounded-xl border border-border bg-card px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="flex items-center gap-2"><h1 className="text-2xl font-bold text-text-primary tracking-tight">Overview Report</h1>{!isLoading && <span className="rounded-full bg-elevated px-2.5 py-0.5 text-[11px] font-semibold tabular-nums text-text-secondary">{kpis.events.toLocaleString()} {kpis.events === 1 ? 'event' : 'events'}</span>}</div><p className="mt-0.5 text-sm text-text-secondary">A detailed snapshot of selected events</p></div><div className="inline-flex items-center gap-2 rounded-lg border border-border bg-elevated/60 px-3 py-2 text-xs text-text-secondary"><Info className="h-4 w-4 text-ems-accent shrink-0" aria-hidden /><span>Click a row to view <span className="font-medium text-text-primary">Sales Trends</span> for that event</span></div></div>
-    {!isLoading && rows.length > 0 && !!summary && <div className="shrink-0 grid grid-cols-2 md:grid-cols-4 gap-3"><KpiCard icon={CalendarRange} label="Events" value={kpis.events.toLocaleString()} sub="in selected date scope" tone="blue" /><KpiCard icon={Ticket} label="Total tickets sold" value={kpis.totalSold.toLocaleString()} sub="across selected events" tone="purple" /><KpiCard icon={TrendingUp} label="Revenue yesterday" value={money(kpis.revenueYesterday) || '$0'} sub="from prior day" tone="accent" /><KpiCard icon={DollarSign} label="Total revenue" value={money(kpis.totalRevenue) || '$0'} sub="across selected events" tone="green" /></div>}
-    <div className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-rows-1 lg:grid-cols-[16rem_minmax(0,1fr)]"><aside className="lg:sticky lg:top-[4.5rem] lg:self-start"><div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden"><div className="flex items-center justify-between gap-2 border-b border-border bg-surface/60 px-4 py-3"><div className="flex items-center gap-2 min-w-0"><FilterIcon className="h-4 w-4 text-ems-accent shrink-0" aria-hidden /><h2 className="text-sm font-semibold text-text-primary">Filters</h2>{activeFilterCount > 0 && <span className="rounded-full bg-ems-accent/15 text-ems-accent text-[10px] font-semibold tabular-nums ring-1 ring-ems-accent/20 px-2 py-0.5">{activeFilterCount}</span>}</div>{activeFilterCount > 0 && <button type="button" onClick={reset} className="inline-flex items-center gap-1 rounded-md text-[11px] font-medium text-text-secondary hover:text-ems-accent transition-colors" title="Clear all filters"><RotateCcw className="h-3 w-3" aria-hidden />Reset</button>}</div><div className="p-3 space-y-3 max-h-[calc(100vh-12rem)] overflow-y-auto"><FilterField label="Event date"><Select2 options={EVENT_DATE_SCOPE_OPTIONS} value={eventDateScope} onChange={handleEventDateScopeChange} placeholder="All Engagements" allowClear={false} /></FilterField>{eventDateScope === 'custom' && <div className="rounded-lg border border-border bg-surface/45 p-2.5 space-y-2"><FilterField label="From"><input type="date" className={dateInputClass} value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} aria-label="Custom date range from" /></FilterField><FilterField label="To"><input type="date" className={dateInputClass} value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} aria-label="Custom date range to" /></FilterField>{!customDatesAreValid && <p className="text-[11px] text-ems-coral">Enter valid from and to dates.</p>}{customDatesAreValid && !customRangeOrderIsValid && <p className="text-[11px] text-ems-coral">To date must be on or after from date.</p>}<button type="button" onClick={applyCustomDateRange} disabled={!customDatesAreValid || !customRangeOrderIsValid || !customRangeHasChanges} className="inline-flex h-9 w-full items-center justify-center rounded-lg border border-ems-accent/30 bg-ems-accent text-sm font-semibold text-white shadow-sm transition-all hover:bg-ems-accent-hover disabled:cursor-not-allowed disabled:border-border disabled:bg-elevated disabled:text-text-muted disabled:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/30">Apply range</button></div>}<div className="h-px bg-border" /><FilterField label="Attraction"><Select2 options={attractionOptions} value={attractionFilter} onChange={setAttractionFilter} placeholder="All attractions" allowClear={!!attractionFilter} /></FilterField><FilterField label="Genre"><Select2 options={opt('All genres', pageData?.filterOptions.genres)} value={genreFilter} onChange={setGenreFilter} placeholder="All genres" allowClear={!!genreFilter} /></FilterField><FilterField label="Tour Name"><Select2 options={opt('All tours', pageData?.filterOptions.tours)} value={tourFilter} onChange={setTourFilter} placeholder="All tours" allowClear={!!tourFilter} /></FilterField><FilterField label="Venue"><Select2 options={opt('All venues', pageData?.filterOptions.venues)} value={venueFilter} onChange={setVenueFilter} placeholder="All venues" allowClear={!!venueFilter} /></FilterField></div></div></aside>
+
+    <div className="shrink-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 items-end gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
+      <FilterField label="Event date"><Select2 options={EVENT_DATE_SCOPE_OPTIONS} value={eventDateScope} onChange={handleEventDateScopeChange} placeholder="All Engagements" allowClear={false} /></FilterField>
+      <FilterField label="Attraction"><Select2 options={attractionOptions} value={attractionFilter} onChange={setAttractionFilter} placeholder="All attractions" allowClear={!!attractionFilter} /></FilterField>
+      <FilterField label="Genre"><Select2 options={opt('All genres', pageData?.filterOptions.genres)} value={genreFilter} onChange={setGenreFilter} placeholder="All genres" allowClear={!!genreFilter} /></FilterField>
+      <FilterField label="Venue"><Select2 options={opt('All venues', pageData?.filterOptions.venues)} value={venueFilter} onChange={setVenueFilter} placeholder="All venues" allowClear={!!venueFilter} /></FilterField>
+      {activeFilterCount > 0 && <button type="button" onClick={reset} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-elevated px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-ems-accent hover:border-ems-accent/30 transition-colors" title="Clear all filters"><RotateCcw className="h-3 w-3" aria-hidden />Reset</button>}
+    </div>
+    {eventDateScope === 'custom' && <div className="shrink-0 flex flex-wrap items-end gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm"><FilterField label="From"><input type="date" className={dateInputClass} value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} aria-label="Custom date range from" /></FilterField><FilterField label="To"><input type="date" className={dateInputClass} value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} aria-label="Custom date range to" /></FilterField>{!customDatesAreValid && <p className="text-[11px] text-ems-coral self-center">Enter valid from and to dates.</p>}{customDatesAreValid && !customRangeOrderIsValid && <p className="text-[11px] text-ems-coral self-center">To date must be on or after from date.</p>}<button type="button" onClick={applyCustomDateRange} disabled={!customDatesAreValid || !customRangeOrderIsValid || !customRangeHasChanges} className="inline-flex h-9 items-center justify-center rounded-lg border border-ems-accent/30 bg-ems-accent px-4 text-sm font-semibold text-white shadow-sm transition-all hover:bg-ems-accent-hover disabled:cursor-not-allowed disabled:border-border disabled:bg-elevated disabled:text-text-muted disabled:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/30">Apply range</button></div>}
+    <div className="flex flex-col lg:min-h-0 lg:flex-1">
       <section className="flex flex-col min-w-0 rounded-xl border border-border bg-card shadow-sm overflow-hidden lg:min-h-0">
         {showFullSkeleton ? (
           <div className="p-8 flex items-center justify-center"><Loader2 className="h-8 w-8 text-ems-accent animate-spin" /></div>

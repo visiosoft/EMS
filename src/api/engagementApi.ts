@@ -867,6 +867,13 @@ export const updateEngagement = (id: number, body: UpdateEngagementPayload) =>
   apiFetch<void>(`/engagements/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 export const deleteEngagement = (id: number) =>
   apiFetch<void>(`/engagements/${id}`, { method: 'DELETE' });
+export interface EngagementDeleteImpact {
+  canDelete: boolean;
+  blockers: string[];
+  dependents: { label: string; count: number }[];
+}
+export const fetchEngagementDeleteImpact = (id: number) =>
+  apiFetch<EngagementDeleteImpact>(`/engagements/${id}/delete-impact`);
 export const fetchEngagementPerformances = (id: number) =>
   apiFetch<ApiPerformanceRow[]>(`/engagements/${id}/performances`);
 export const createEngagementPerformance = (id: number, body: CreatePerformancePayload) =>
@@ -1283,6 +1290,17 @@ export interface SavePerformanceContractPayload {
   annotatedPdfBlobName?: string | null;
 }
 
+/** Per-field review metadata returned alongside the extracted values (not persisted). */
+export interface ContractFieldMeta {
+  confidence: number;
+  status: 'high' | 'review' | 'derived' | 'not_found';
+  sourceQuote: string | null;
+  sourcePage: number | null;
+  verified: boolean;
+}
+
+export type ContractFieldMetaMap = Partial<Record<string, ContractFieldMeta>>;
+
 export interface ContractUploadResponse {
   extracted: {
     agency: string | null;
@@ -1312,6 +1330,8 @@ export interface ContractUploadResponse {
     additionallyInsured: string | null;
     oneDrivePdfUrl: string | null;
   };
+  /** Per-field confidence + source snippet for the review UI. */
+  fieldMeta?: ContractFieldMetaMap;
   originalFilename: string;
   annotatedPdfBlobName: string;
 }
@@ -1350,7 +1370,10 @@ export const deletePerformanceContract = (engagementId: number, contractId: numb
 export interface EngagementSharePointFolderLink {
   linkUrl: string | null;
   linkName: string | null;
-  linkPath?: string;
+  /** Engagement (attraction-level) folder path: `{Year}/{Market}/{Attraction}`. */
+  linkPath?: string | null;
+  /** Default Market (DMA) folder path one level up: `{Year}/{Market}`. Opened by default in the Documents tab. */
+  marketFolderPath?: string | null;
 }
 
 /** Get the SharePoint folder link for an engagement */
@@ -1361,11 +1384,33 @@ export const fetchEngagementSharePointFolder = (
     `/engagements/${engagementId}/sharepoint-folder`,
   );
 
-/** Manually trigger SharePoint folder structure creation */
+export type EngagementSharePointFolderStatusValue = 'ready' | 'pending' | 'failed' | 'none';
+
+export interface EngagementSharePointFolderStatus extends EngagementSharePointFolderLink {
+  status: EngagementSharePointFolderStatusValue;
+  /** The drive the engagement documents live on — the tab browses/uploads/downloads against it. */
+  source?: 'sharepoint' | 'onedrive';
+  /** Present (with a user-friendly message) when status is 'failed'. */
+  error?: string | null;
+}
+
+/**
+ * Poll the background SharePoint folder provisioning state. Returns 'pending' while
+ * folders are being created, 'ready' (with paths) once available, 'failed' on error,
+ * or 'none' when no folder exists and nothing is in progress.
+ */
+export const fetchEngagementSharePointFolderStatus = (
+  engagementId: number,
+): Promise<EngagementSharePointFolderStatus> =>
+  apiFetch<EngagementSharePointFolderStatus>(
+    `/engagements/${engagementId}/sharepoint-folder/status`,
+  );
+
+/** Manually (re)trigger SharePoint folder creation. Non-blocking — poll status for completion. */
 export const createEngagementSharePointFolders = (
   engagementId: number,
-): Promise<{ rootWebUrl: string }> =>
-  apiFetch<{ rootWebUrl: string }>(
+): Promise<{ status: EngagementSharePointFolderStatusValue }> =>
+  apiFetch<{ status: EngagementSharePointFolderStatusValue }>(
     `/engagements/${engagementId}/create-sharepoint-folders`,
     { method: 'POST' },
   );

@@ -14,7 +14,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, Check, ExternalLink, GripVertical, Loader2, Lock, Pencil, Plus, RotateCcw, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, ExternalLink, Eye, GripVertical, Loader2, Lock, Pencil, Plus, RotateCcw, Trash2, Upload, X } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import {
@@ -82,6 +82,8 @@ import {
   updateProjectVenue,
   OPTION_STATUS_VALUES,
   VENUE_STATUS_VALUES,
+  uploadConfirmedOfferPdf,
+  getConfirmedOfferPdfUrl,
 } from '@/api/projectApi';
 import type {
   ApiPerformanceOption,
@@ -431,6 +433,121 @@ function InlineSelectField({
   );
 }
 
+// ─── Confirmed Offer PDF upload ─────────────────────────────────────────────
+
+function ConfirmedOfferPdfUpload({
+  project,
+  addToast,
+  pendingFile,
+  onFileSelected,
+  required,
+}: {
+  project: ApiProjectDetail;
+  addToast: Props['addToast'];
+  pendingFile: File | null;
+  onFileSelected: (file: File | null) => void;
+  required?: boolean;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [showPreview, setShowPreview] = useState(false);
+
+  const hasLink = project.confirmedOfferLinkId != null;
+  const hasPendingOrLink = hasLink || pendingFile != null;
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!/\.pdf$/i.test(file.name)) {
+      addToast('Only PDF files are accepted.', 'warning');
+      return;
+    }
+    onFileSelected(file);
+    if (fileRef.current) fileRef.current.value = '';
+  };
+
+  const pdfPreviewUrl = pendingFile
+    ? URL.createObjectURL(pendingFile)
+    : hasLink
+      ? getConfirmedOfferPdfUrl(project.engagementProjectId)
+      : null;
+
+  // Clean up object URL on unmount or when pendingFile changes
+  useEffect(() => {
+    if (!pendingFile) return;
+    const url = URL.createObjectURL(pendingFile);
+    return () => URL.revokeObjectURL(url);
+  }, [pendingFile]);
+
+  return (
+    <div className={`rounded-md border bg-surface px-4 py-3 ${required && !hasPendingOrLink ? 'border-red-400' : 'border-border'}`}>
+      <span className="text-xs text-text-muted block mb-1.5">
+        Confirmed Offer PDF
+        {required && <span className="text-red-500 ml-0.5">*</span>}
+      </span>
+      {hasPendingOrLink ? (
+        <>
+          <div className="flex items-center gap-2">
+            <Check className="h-4 w-4 text-emerald-500 shrink-0" />
+            <span className="text-sm text-text-primary">
+              {pendingFile
+                ? <><span className="text-amber-600 text-xs font-medium"></span> {pendingFile.name}</>
+                : 'PDF uploaded'}
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowPreview((p) => !p)}
+              className="text-xs text-ems-accent hover:underline inline-flex items-center gap-1"
+            >
+              <Eye className="h-3.5 w-3.5" />
+              {showPreview ? 'Hide preview' : 'Preview'}
+            </button>
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className="ml-auto text-xs text-ems-accent hover:underline"
+            >
+              Replace
+            </button>
+          </div>
+          {showPreview && pdfPreviewUrl && (
+            <div className="mt-3 rounded border border-border overflow-hidden">
+              <iframe
+                src={pdfPreviewUrl}
+                title="Confirmed Offer PDF Preview"
+                className="w-full border-0"
+                style={{ height: '500px' }}
+              />
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-elevated px-3 py-1.5 text-sm text-text-primary hover:bg-muted/50 transition-colors"
+          >
+            <Upload className="h-3.5 w-3.5" />
+            Upload PDF
+          </button>
+          <span className="text-[11px] text-text-muted">
+            {required
+              ? 'Upload the signed confirmed offer document before saving.'
+              : 'Upload the signed confirmed offer document.'}
+          </span>
+        </div>
+      )}
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".pdf,application/pdf"
+        onChange={handleFileChange}
+        className="hidden"
+      />
+    </div>
+  );
+}
+
 function ProjectInlineOverview({
   project,
   tours,
@@ -466,6 +583,7 @@ function ProjectInlineOverview({
   const [showDmaModal, setShowDmaModal] = useState(false);
   const [dmaDraftIds, setDmaDraftIds] = useState<number[]>(project.dmaIds ?? []);
   const [dmaModalSearch, setDmaModalSearch] = useState('');
+  const [pendingPdfFile, setPendingPdfFile] = useState<File | null>(null);
 
   const mark = useCallback(<T,>(fn: (v: T) => void) => (v: T) => {
     fn(v);
@@ -483,6 +601,7 @@ function ProjectInlineOverview({
     setDmaDraftIds(project.dmaIds ?? []);
     setDmaModalSearch('');
     setShowDmaModal(false);
+    setPendingPdfFile(null);
     setDirty(false);
   }, [
     project.engagementProjectId,
@@ -657,6 +776,14 @@ function ProjectInlineOverview({
       addToast('Tour start date cannot be after end date.', 'warning');
       return;
     }
+    // Block confirmation if no confirmed-offer PDF has been uploaded or selected
+    const isChangingToConfirmed =
+      offerReviewStatus === 'Confirmed' &&
+      (project.offerReviewStatus ?? null) !== 'Confirmed';
+    if (isChangingToConfirmed && project.confirmedOfferLinkId == null && pendingPdfFile == null) {
+      addToast('Please upload the confirmed offer PDF before confirming.', 'warning');
+      return;
+    }
     const previousDmaKey = [...(project.dmaIds ?? [])].sort((a, b) => a - b).join(',');
     const nextDmaKey = [...selectedDmaIds].sort((a, b) => a - b).join(',');
     const dmaChanged = previousDmaKey !== nextDmaKey;
@@ -666,6 +793,11 @@ function ProjectInlineOverview({
     setSaving(true);
     let savedOk = false;
     try {
+      // Upload pending PDF first (before project update) so the link is set
+      if (pendingPdfFile) {
+        await uploadConfirmedOfferPdf(project.engagementProjectId, pendingPdfFile);
+      }
+
       const payload: {
         tourId: number;
         talentAgencyCompanyId: number;
@@ -914,6 +1046,16 @@ function ProjectInlineOverview({
             <p className="mt-0.5 text-[11px] text-text-muted">Setting review status to Confirmed creates the engagement.</p>
           </div>
         </div>
+
+        {offerReviewStatus === 'Confirmed' && (
+          <ConfirmedOfferPdfUpload
+            project={project}
+            addToast={addToast}
+            pendingFile={pendingPdfFile}
+            onFileSelected={(file) => { setPendingPdfFile(file); setDirty(true); }}
+            required
+          />
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-4">
           <div>

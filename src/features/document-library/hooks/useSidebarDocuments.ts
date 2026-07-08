@@ -9,8 +9,9 @@ export function useSidebarDocuments() {
   const [currentPath, setCurrentPath] = useState<string>(ONEDRIVE_BASE_PATH);
 
   const { data: items, isLoading, error, refetch } = useQuery({
-    queryKey: ['onedrive-sidebar', currentPath],
-    queryFn: () => fetchFolderContents(currentPath),
+    queryKey: ['my-onedrive-sidebar', currentPath],
+    // The logged-in user's OWN OneDrive (source=onedrive + self); CreatedBy filter still applies.
+    queryFn: () => fetchFolderContents(currentPath, 'onedrive', { self: true }),
     staleTime: 30_000,
   });
 

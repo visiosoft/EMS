@@ -22,7 +22,10 @@ import type { ToastItem } from '@/components/ems/Primitives';
 import { cn } from '@/lib/utils';
 
 const SIDEBAR_COLLAPSED_KEY = 'iae-ems-sidebar-collapsed-v1';
-const EMS_SAVED_VIEWS_ENABLED_KEY = 'iae-ems-saved-views-enabled-v1';
+// v2: earlier code unconditionally wrote this key (including the old default of '0') on
+// every app load, so any browser that ever opened the app before already has a stale '0'
+// baked in — a version bump lets the new opt-out-instead-of-opt-in default actually apply.
+const EMS_SAVED_VIEWS_ENABLED_KEY = 'iae-ems-saved-views-enabled-v2';
 const ENGAGEMENTS_SORT_STATE_STORAGE_KEY = 'iae-engagements-sort-state-v1';
 const PROJECTS_SORT_STATE_STORAGE_KEY = 'iae-projects-sort-state-v1';
 const COMPANIES_SORT_STATE_STORAGE_KEY = 'iae-companies-sort-state-v1';
@@ -91,12 +94,18 @@ function readSidebarCollapsed(): boolean {
   }
 }
 
+/**
+ * Defaults to enabled — list pages (filters, sort, pagination, scroll) should survive
+ * navigating away and back by default, not just for users who found the header toggle.
+ * A stored '0' means the user explicitly disabled it (via the reset button); honor that.
+ */
 function readSavedViewsEnabled(): boolean {
-  if (typeof window === 'undefined') return false;
+  if (typeof window === 'undefined') return true;
   try {
-    return window.localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY) === '1';
+    const stored = window.localStorage.getItem(EMS_SAVED_VIEWS_ENABLED_KEY);
+    return stored === null ? true : stored === '1';
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -292,17 +301,6 @@ const Index = () => {
   }, [sidebarCollapsed]);
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(
-        EMS_SAVED_VIEWS_ENABLED_KEY,
-        savedViewsEnabled ? '1' : '0',
-      );
-    } catch {
-      /* ignore */
-    }
-  }, [savedViewsEnabled]);
-
-  useEffect(() => {
     if (!VALID_VIEWS.has(currentView)) return;
     writeStoredSessionRoute(currentView, viewData);
   }, [currentView, viewData]);
@@ -376,9 +374,10 @@ const Index = () => {
     message: string,
     type: 'success' | 'error' | 'warning' | 'info',
     action?: { label: string; onClick: () => void },
+    title?: string,
   ) => {
     const id = Date.now().toString();
-    setToasts(prev => [...prev, { id, message, type, action }]);
+    setToasts(prev => [...prev, { id, message, type, action, title }]);
   }, []);
 
   const dismissToast = useCallback((id: string) => {
@@ -387,6 +386,11 @@ const Index = () => {
 
   const enableSavedViews = useCallback(() => {
     setSavedViewsEnabled(true);
+    try {
+      window.localStorage.setItem(EMS_SAVED_VIEWS_ENABLED_KEY, '1');
+    } catch {
+      /* ignore */
+    }
     addToast('View memory enabled.', 'success');
   }, [addToast]);
 
@@ -394,6 +398,7 @@ const Index = () => {
     setSavedViewsEnabled(false);
     setSavedViewCache([]);
     try {
+      window.localStorage.setItem(EMS_SAVED_VIEWS_ENABLED_KEY, '0');
       window.localStorage.removeItem(ENGAGEMENTS_SORT_STATE_STORAGE_KEY);
       window.localStorage.removeItem(PROJECTS_SORT_STATE_STORAGE_KEY);
       window.localStorage.removeItem(COMPANIES_SORT_STATE_STORAGE_KEY);
@@ -644,21 +649,26 @@ const Index = () => {
         <main className="p-4 lg:p-6">
           {savedViewsEnabled ? (
             <>
-              {savedViewCache.map((entry) => (
-                <div
-                  key={`${entry.key}:${viewRenderEpoch}`}
-                  className={entry.key === makeViewCacheKey(currentView, viewData) ? 'block' : 'hidden'}
-                >
-                  {renderView(entry.view, entry.viewData)}
-                </div>
-              ))}
-              {!savedViewCache.some(
-                (entry) => entry.key === makeViewCacheKey(currentView, viewData),
-              ) && (
-                <div key={`active-fallback:${makeViewCacheKey(currentView, viewData)}:${viewRenderEpoch}`}>
-                  {renderView(currentView, viewData)}
-                </div>
-              )}
+              {(() => {
+                // The active view's cache entry is added asynchronously (via the effect
+                // above), one render after it first becomes current. Synthesizing it here
+                // too — under the exact same key it'll get once the effect lands it — means
+                // the div key never changes between "not yet cached" and "cached", so React
+                // never treats it as a different element and never remounts it mid-session.
+                const activeKey = makeViewCacheKey(currentView, viewData);
+                const hasActive = savedViewCache.some((entry) => entry.key === activeKey);
+                const entries = hasActive
+                  ? savedViewCache
+                  : [...savedViewCache, { key: activeKey, view: currentView, viewData }];
+                return entries.map((entry) => (
+                  <div
+                    key={`${entry.key}:${viewRenderEpoch}`}
+                    className={entry.key === activeKey ? 'block' : 'hidden'}
+                  >
+                    {renderView(entry.view, entry.viewData)}
+                  </div>
+                ));
+              })()}
             </>
           ) : (
             <div key={`${currentView}:${makeViewCacheKey(currentView, viewData)}:${viewRenderEpoch}`}>

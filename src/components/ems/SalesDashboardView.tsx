@@ -119,7 +119,7 @@ const CHART_CONFIGS: ChartConfig[] = [
   {
     id: 'total-cumulative-sales',
     number: 'Chart 1',
-    title: 'Total Cumulative Sales',
+    title: 'Cumulative Sales',
     valueLabel: '# of Total Tix Sold To Date',
     yAxisLabel: '# of Total Tix Sold To Date',
     dataKey: 'totalTickets',
@@ -129,20 +129,8 @@ const CHART_CONFIGS: ChartConfig[] = [
     axisFormatter: compactCountOrDash,
   },
   {
-    id: 'ticket-sales-pace',
-    number: 'Chart 2',
-    title: 'Ticket Sales Pace',
-    valueLabel: '# sold each Unit',
-    yAxisLabel: '# sold each Unit',
-    dataKey: 'dailyTickets',
-    kind: 'bar',
-    color: 'hsl(var(--ems-blue))',
-    formatter: countOrDash,
-    axisFormatter: compactCountOrDash,
-  },
-  {
     id: 'total-dollar-sales',
-    number: 'Chart 3',
+    number: 'Chart 2',
     title: 'Total $ Sales',
     valueLabel: 'Total $ sold to date',
     yAxisLabel: 'Total $ sold to date',
@@ -151,6 +139,18 @@ const CHART_CONFIGS: ChartConfig[] = [
     color: 'hsl(var(--ems-green))',
     formatter: moneyOrDash,
     axisFormatter: compactMoneyOrDash,
+  },
+  {
+    id: 'ticket-sales-pace',
+    number: 'Chart 3',
+    title: 'Ticket Sales Pace',
+    valueLabel: '# sold each Unit',
+    yAxisLabel: '# sold each Unit',
+    dataKey: 'dailyTickets',
+    kind: 'bar',
+    color: 'hsl(var(--ems-blue))',
+    formatter: countOrDash,
+    axisFormatter: compactCountOrDash,
   },
   {
     id: 'daily-dollar-sales-pace',
@@ -192,13 +192,13 @@ const CHART_CONFIGS: ChartConfig[] = [
     id: 'remaining-inventory',
     number: 'Chart 7',
     title: 'Remaining Inventory',
-    valueLabel: 'Value of Unsold Inventory',
-    yAxisLabel: 'Value of Unsold Inventory',
+    valueLabel: '# of Unsold Seats Remaining',
+    yAxisLabel: '# of Unsold Seats Remaining',
     dataKey: 'remainingInventory',
     kind: 'line',
     color: 'hsl(var(--text-secondary))',
-    formatter: moneyOrDash,
-    axisFormatter: compactMoneyOrDash,
+    formatter: countOrDash,
+    axisFormatter: compactCountOrDash,
   },
   {
     id: 'anticipated-marketing-spend',
@@ -378,6 +378,7 @@ function trimLeadingQuietDays(rows: SeriesPoint[]) {
 function buildDailyChartPoints(
   series: SeriesPoint[] | undefined,
   grossPotential: number | null | undefined,
+  sellableCapacity: number | null | undefined,
   marketingWindow: MarketingWindow | undefined,
   asOfDate: string | undefined,
 ): SalesChartPoint[] {
@@ -449,22 +450,42 @@ function buildDailyChartPoints(
   // jumping ahead to Monday's. Leading days before the first sale stay at zero
   // (no prior sales to carry forward), which is the only time a 0 is shown.
 
-  return expandedRows.map((row, index) => {
+  // Recompute daily deltas from the consecutive cumulative totals in the
+  // expanded (gap-filled) series.  This ensures pace values are always
+  // "today cumulative − yesterday cumulative" regardless of what the API sent.
+  const dailyDeltas = expandedRows.map((row, index) => {
     const totalTickets = finiteNumber(row.totalTickets) ?? 0;
-    const dailyTickets = finiteNumber(row.dailyTickets) ?? 0;
     const totalRevenue = finiteNumber(row.totalRevenue) ?? 0;
-    const dailyRevenue = finiteNumber(row.dailyRevenue) ?? 0;
-    const trailingWindow = expandedRows.slice(Math.max(0, index - 6), index + 1);
+    const prev = index > 0 ? expandedRows[index - 1] : undefined;
+    const prevTickets = finiteNumber(prev?.totalTickets) ?? 0;
+    const prevRevenue = finiteNumber(prev?.totalRevenue) ?? 0;
+    return {
+      ...row,
+      totalTickets,
+      totalRevenue,
+      dailyTickets: Math.max(0, totalTickets - prevTickets),
+      dailyRevenue: Math.max(0, totalRevenue - prevRevenue),
+    };
+  });
+
+  return dailyDeltas.map((row, index) => {
+    const totalTickets = row.totalTickets;
+    const dailyTickets = row.dailyTickets;
+    const totalRevenue = row.totalRevenue;
+    const dailyRevenue = row.dailyRevenue;
+    const trailingWindow = dailyDeltas.slice(Math.max(0, index - 6), index + 1);
     const trailingTickets7 = trailingWindow.reduce(
-      (sum, pt) => sum + (finiteNumber(pt.dailyTickets) ?? 0),
+      (sum, pt) => sum + pt.dailyTickets,
       0,
     );
     const trailingRevenue7 = trailingWindow.reduce(
-      (sum, pt) => sum + (finiteNumber(pt.dailyRevenue) ?? 0),
+      (sum, pt) => sum + pt.dailyRevenue,
       0,
     );
     const remainingInventory =
-      grossPotential != null ? safeNonNegative(grossPotential - totalRevenue) : null;
+      sellableCapacity != null ? safeNonNegative(sellableCapacity - totalTickets) : null;
+    const anticipatedMarketingSpend =
+      grossPotential != null ? safeNonNegative((grossPotential - totalRevenue) * 0.1) : null;
 
     return {
       date: row.date,
@@ -477,8 +498,7 @@ function buildDailyChartPoints(
       trailingTickets7,
       trailingRevenue7,
       remainingInventory,
-      anticipatedMarketingSpend:
-        remainingInventory != null ? remainingInventory * 0.1 : null,
+      anticipatedMarketingSpend,
       averageTicketPrice: totalTickets > 0 ? totalRevenue / totalTickets : null,
       averageDailySales: dailyTickets > 0 ? dailyRevenue / dailyTickets : null,
     };
@@ -627,13 +647,14 @@ function hasChartValues(points: SalesChartPoint[], config: ChartConfig) {
   });
 }
 
-// The daily-pace charts (Ticket Sales Pace, Daily $ Sales Pace) should not drop
-// to zero on quiet days. A day with no sales (0) inherits the previous day's
-// value so the pace stays flat across consecutive no-sale days instead of
-// reading as a dip. Leading days before the first sale stay empty.
+// The daily-pace charts (Ticket Sales Pace, Daily $ Sales Pace) visually carry
+// forward the last non-zero value on zero-sales days so the line stays flat
+// rather than dropping to zero. The underlying data (used for trailing-7, etc.)
+// remains correct; this only affects chart rendering.
 const CARRY_FORWARD_DATA_KEYS: ReadonlySet<string> = new Set([
   'dailyTickets',
   'dailyRevenue',
+  'averageDailySales',
 ]);
 
 function carryForwardZeros(points: SalesChartPoint[], config: ChartConfig) {
@@ -740,6 +761,26 @@ function buildAuditGroups(
       ? data.kpis.pctRevenueVsPotential
       : pctOf(lifetimeRevenue, grossPotential);
 
+  // 7-day and 14-day wraps: subtract cumulative snapshot from 7/14 calendar
+  // days ago from the current cumulative — matches Sales Summary page logic.
+  const lastPoint = chronological[chronological.length - 1];
+  const currentTicketsSnap = lastPoint ? (finiteNumber(lastPoint.totalTickets) ?? 0) : 0;
+  const currentRevenueSnap = lastPoint ? (finiteNumber(lastPoint.totalRevenue) ?? 0) : 0;
+  const cutoff7 = ymdAddDays(asOf, -7);
+  const cutoff14 = ymdAddDays(asOf, -14);
+  // Find the last chart point on or before the cutoff date.
+  const snapAtCutoff = (cutoff: string) => {
+    let hit: SalesChartPoint | undefined;
+    for (const pt of chronological) { if (pt.date > cutoff) break; hit = pt; }
+    return hit;
+  };
+  const point7 = snapAtCutoff(cutoff7);
+  const point14 = snapAtCutoff(cutoff14);
+  const trailing7Tickets = Math.max(0, currentTicketsSnap - (point7 ? (finiteNumber(point7.totalTickets) ?? 0) : 0));
+  const trailing7Revenue = Math.max(0, currentRevenueSnap - (point7 ? (finiteNumber(point7.totalRevenue) ?? 0) : 0));
+  const trailing14Tickets = Math.max(0, currentTicketsSnap - (point14 ? (finiteNumber(point14.totalTickets) ?? 0) : 0));
+  const trailing14Revenue = Math.max(0, currentRevenueSnap - (point14 ? (finiteNumber(point14.totalRevenue) ?? 0) : 0));
+
   return [
     {
       title: 'Total Inventory',
@@ -750,8 +791,21 @@ function buildAuditGroups(
       ],
     },
     {
-      title: "Yesterday's Wrap",
+      title: 'Lifetime',
       shade: 'bg-card',
+      cells: [
+        { label: 'Total Tickets Sold To Date', value: countOrDash(lifetimeTickets) },
+        { label: 'Total Sales $ To Date', value: moneyOrDash(lifetimeRevenue) },
+        { label: '% of Seats Sold', value: pctDisplay(lifetimePctSold) },
+        {
+          label: '% of $ Potential Sold',
+          value: pctDisplay(lifetimePctPotential),
+        },
+      ],
+    },
+    {
+      title: "Yesterday's Wrap",
+      shade: 'bg-elevated/35',
       cells: [
         {
           label: 'Total Tickets Sold Yesterday',
@@ -766,24 +820,33 @@ function buildAuditGroups(
       ],
     },
     {
-      title: 'Unsold Inventory & Value',
+      title: 'Seven-Day Wrap',
+      shade: 'bg-card',
+      cells: [
+        { label: '7 Day Total Tickets Sold', value: countOrDash(trailing7Tickets) },
+        { label: '7 Day $ Sold', value: moneyOrDash(trailing7Revenue) },
+      ],
+    },
+    {
+      title: 'Fourteen-Day Wrap',
       shade: 'bg-elevated/35',
+      cells: [
+        { label: '14 Day Total Tickets Sold', value: countOrDash(trailing14Tickets) },
+        { label: '14 Day $ Sold', value: moneyOrDash(trailing14Revenue) },
+      ],
+    },
+    {
+      title: 'Unsold Inventory & Value',
+      shade: 'bg-card',
       cells: [
         { label: 'Total Unsold Tickets', value: countOrDash(unsoldTickets) },
         { label: 'Total Unsold $', value: moneyOrDash(unsoldRevenue) },
       ],
     },
     {
-      title: 'Lifetime',
-      shade: 'bg-card',
+      title: 'Goal',
+      shade: 'bg-elevated/45',
       cells: [
-        { label: 'Total Tickets Sold To Date', value: countOrDash(lifetimeTickets) },
-        { label: 'Total Sales $ To Date', value: moneyOrDash(lifetimeRevenue) },
-        { label: '% of Seats Sold', value: pctDisplay(lifetimePctSold) },
-        {
-          label: '% of $ Potential Sold',
-          value: pctDisplay(lifetimePctPotential),
-        },
         {
           label: 'Goal Revenue',
           value: moneyOrDash(grossPotential),
@@ -1292,10 +1355,11 @@ export function SalesDashboardView({
       buildDailyChartPoints(
         data?.series,
         data?.grossPotential,
+        data?.sellableCapacity,
         data?.marketingWindow,
         data?.asOfDate,
       ),
-    [data?.asOfDate, data?.grossPotential, data?.marketingWindow, data?.series],
+    [data?.asOfDate, data?.grossPotential, data?.sellableCapacity, data?.marketingWindow, data?.series],
   );
 
   const chartPoints = useMemo(
@@ -1535,7 +1599,7 @@ export function SalesDashboardView({
           <ChartUnitTabs unit={chartUnit} onChange={setChartUnit} />
         </div>
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {CHART_CONFIGS.map((config) => (
             <ChartCard
               key={config.id}

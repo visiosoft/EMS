@@ -470,7 +470,7 @@ export function HubOrgChart({ onSelectMember }: { onSelectMember?: (contactId: n
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Find a person…"
+            placeholder="Search people…"
             aria-label="Search the org chart"
             className="h-9 w-full rounded-full border border-neutral-300 bg-white pl-9 pr-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
           />
