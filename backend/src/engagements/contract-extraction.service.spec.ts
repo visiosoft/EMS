@@ -206,8 +206,109 @@ describe('ContractExtractionService', () => {
 
   describe('emptyResult', () => {
     it('should return all fields as null', () => {
-      const result = callPrivate('emptyResult');
+      const result = callPrivate('emptyResult') as Record<string, unknown>;
       expect(Object.values(result).every((v) => v === null)).toBe(true);
+    });
+  });
+
+  // ─── LLM post-processing (buildResultFromRaw) ──────────────────────────────
+  describe('buildResultFromRaw (LLM path post-process)', () => {
+    type RawField = { value: string; confidence: number; sourceQuote: string; sourcePage: number };
+    const field = (value: string, confidence: number, sourceQuote = value, sourcePage = 1): RawField => ({
+      value,
+      confidence,
+      sourceQuote,
+      sourcePage,
+    });
+    type Result = {
+      data: Record<string, unknown>;
+      fieldMeta: Record<string, { confidence: number; status: string; sourceQuote: string | null; sourcePage: number | null; verified: boolean }>;
+    };
+    const build = (raw: Record<string, RawField>, docText: string | null, isOcr = false) =>
+      callPrivate('buildResultFromRaw', raw, docText, isOcr) as Result;
+
+    it('parses amounts/currency and marks a verified high-confidence field as high', () => {
+      const doc = 'Guarantee/Flat Fee $35,000  Royalty 10% of NAGBOR  Producer Federal ID Number 99-3649963';
+      const res = build(
+        {
+          guaranteeAmount: field('$35,000', 0.95, '$35,000'),
+          guaranteeCurrency: field('USD', 0.9, 'Flat Fee'),
+          producerFedId: field('99-3649963', 0.97, '99-3649963'),
+        },
+        doc,
+      );
+      expect(res.data.guaranteeAmount).toBe(35000);
+      expect(res.data.guaranteeCurrency).toBe('USD');
+      expect(res.data.producerFedId).toBe('99-3649963');
+      expect(res.fieldMeta.guaranteeAmount.status).toBe('high');
+      expect(res.fieldMeta.guaranteeAmount.verified).toBe(true);
+    });
+
+    it('caps confidence and flags review when the source quote is not found in the document (hallucination guard)', () => {
+      const res = build({ producer: field('Phantom LLC', 0.99, 'this text is not in the document') }, 'A real contract body.');
+      expect(res.data.producer).toBe('Phantom LLC'); // value kept, but demoted for review
+      expect(res.fieldMeta.producer.verified).toBe(false);
+      expect(res.fieldMeta.producer.status).toBe('review');
+      expect(res.fieldMeta.producer.confidence).toBeLessThanOrEqual(0.4);
+    });
+
+    it('derives balanceAmount from guarantee - deposit only when absent, tagged derived', () => {
+      const doc = 'Fee $50,000 Deposit $5,000';
+      const res = build(
+        {
+          guaranteeAmount: field('50000', 0.95, '$50,000'),
+          depositAmount: field('5000', 0.95, '$5,000'),
+          balanceAmount: field('', 0),
+        },
+        doc,
+      );
+      expect(res.data.balanceAmount).toBe(45000);
+      expect(res.fieldMeta.balanceAmount.status).toBe('derived');
+    });
+
+    it('does not overwrite a stated balanceAmount with a derived one', () => {
+      const doc = 'Fee $50,000 Deposit $5,000 Balance $40,000';
+      const res = build(
+        {
+          guaranteeAmount: field('50000', 0.95, '$50,000'),
+          depositAmount: field('5000', 0.95, '$5,000'),
+          balanceAmount: field('40000', 0.9, '$40,000'),
+        },
+        doc,
+      );
+      expect(res.data.balanceAmount).toBe(40000);
+      expect(res.fieldMeta.balanceAmount.status).not.toBe('derived');
+    });
+
+    it('OCR path (no text layer) defaults fields to review even at high model confidence', () => {
+      const res = build({ guaranteeAmount: field('25000', 0.98, '$25,000') }, null, true);
+      expect(res.data.guaranteeAmount).toBe(25000);
+      expect(res.fieldMeta.guaranteeAmount.status).toBe('review');
+      expect(res.fieldMeta.guaranteeAmount.verified).toBe(false);
+    });
+
+    it('marks empty values as not_found and leaves the data field null', () => {
+      const res = build({ attraction: field('', 0) }, 'Some contract text');
+      expect(res.data.attraction).toBeNull();
+      expect(res.fieldMeta.attraction.status).toBe('not_found');
+    });
+
+    it('handles a realistic CAD deal — currency and amount normalization (JCS London)', () => {
+      const doc = 'A Flat Fee of Seventy Thousand U.S. Dollars ($70,000) ... 13% included ... 15% Canadian Withholding ... LONDON, ON';
+      const res = build(
+        {
+          guaranteeAmount: field('70000', 0.94, '$70,000'),
+          guaranteeCurrency: field('USD', 0.9, 'U.S. Dollars'),
+          venueState: field('ON', 0.9, 'LONDON, ON'),
+          venueCountry: field('Canada', 0.6, '15% Canadian Withholding'),
+        },
+        doc,
+      );
+      expect(res.data.guaranteeAmount).toBe(70000);
+      expect(res.data.guaranteeCurrency).toBe('USD');
+      expect(res.data.venueCountry).toBe('Canada');
+      // inferred country reported at lower confidence -> review, not high
+      expect(res.fieldMeta.venueCountry.status).toBe('review');
     });
   });
 });

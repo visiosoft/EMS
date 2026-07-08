@@ -36,6 +36,7 @@ import { EngagementTravelHotel } from '../entities/engagement-travel-hotel.entit
 import { EngagementPartner } from '../entities/engagement-partner.entity';
 import { PerformanceContract } from '../entities/performance-contract.entity';
 import { ContractExtractionService } from './contract-extraction.service';
+import { ContractLlmClient } from './contract-llm.client';
 
 @Module({
   imports: [
@@ -76,7 +77,7 @@ import { ContractExtractionService } from './contract-extraction.service';
     DocumentLibraryModule,
   ],
   controllers: [EngagementController],
-  providers: [EngagementService, ContractExtractionService],
+  providers: [EngagementService, ContractExtractionService, ContractLlmClient],
   exports: [EngagementService],
 })
 export class EngagementsModule {}
