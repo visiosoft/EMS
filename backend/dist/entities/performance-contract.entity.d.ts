@@ -1,0 +1,33 @@
+export declare class PerformanceContract {
+    contractId: number;
+    createdAt: Date;
+    engagementId: number | null;
+    agency: string | null;
+    agent: string | null;
+    attraction: string | null;
+    venueName: string | null;
+    venueAddress: string | null;
+    venueCity: string | null;
+    venueState: string | null;
+    venueCountry: string | null;
+    producer: string | null;
+    producerAddress: string | null;
+    producerFedId: string | null;
+    guaranteeAmount: string | null;
+    guaranteeCurrency: string | null;
+    depositAmount: string | null;
+    depositDueDate: string | null;
+    balanceAmount: string | null;
+    balanceDueDate: string | null;
+    royaltyDescription: string | null;
+    overageDescription: string | null;
+    paymentTerms: string | null;
+    paymentMethodType: string | null;
+    paymentPayableTo: string | null;
+    paymentBankName: string | null;
+    performances: string | null;
+    additionallyInsured: string | null;
+    annotatedPdfBlobName: string | null;
+    originalFilename: string | null;
+    oneDrivePdfUrl: string | null;
+}

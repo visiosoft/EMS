@@ -1,0 +1,55 @@
+import { AdminUsersService } from './admin-users.service';
+import { EmployeeCertificationsService } from './employee-certifications.service';
+import { EmployeeEmploymentService, UpdateEmployeeEmploymentProfileDto } from './employee-employment.service';
+import { EmployeeExperienceService } from './employee-experience.service';
+import { EmployeeHealthInsuranceService, UpdateEmployeeHealthInsuranceDto } from './employee-health-insurance.service';
+import { EmployeeProfileService, UpdateEmployeePersonalProfileDto } from './employee-profile.service';
+import { ApplyInternalContactSyncDto, InternalContactSyncService } from './internal-contact-sync.service';
+import { UpdateMyProfileDto, UserProfileService } from './user-profile.service';
+import { AccessLevelService } from '../common/access-level.service';
+import { AccessLevel } from '../common/access-level.enum';
+import { AuditRequestContext } from '../audit/audit-request-context.service';
+export declare class AdminUsersController {
+    private readonly accessLevelService;
+    private readonly adminUsersService;
+    private readonly auditContext;
+    private readonly employeeCertificationsService;
+    private readonly employeeEmploymentService;
+    private readonly employeeExperienceService;
+    private readonly employeeHealthInsuranceService;
+    private readonly employeeProfileService;
+    private readonly internalContactSyncService;
+    private readonly userProfileService;
+    constructor(accessLevelService: AccessLevelService, adminUsersService: AdminUsersService, auditContext: AuditRequestContext, employeeCertificationsService: EmployeeCertificationsService, employeeEmploymentService: EmployeeEmploymentService, employeeExperienceService: EmployeeExperienceService, employeeHealthInsuranceService: EmployeeHealthInsuranceService, employeeProfileService: EmployeeProfileService, internalContactSyncService: InternalContactSyncService, userProfileService: UserProfileService);
+    getMyAccessLevel(): Promise<{
+        accessLevel: AccessLevel;
+    }>;
+    listUsers(graphAccessToken?: string): Promise<import("./admin-users.service").AdminDirectoryUser[]>;
+    listRawUsers(graphAccessToken?: string): Promise<import("./admin-users.service").RawAdminDirectoryUsersDump>;
+    getMyProfile(): Promise<import("./user-profile.service").MyProfileResponse>;
+    updateMyProfile(dto: UpdateMyProfileDto): Promise<import("./user-profile.service").MyProfileResponse>;
+    getPersonalProfile(email: string): Promise<import("./employee-profile.service").EmployeePersonalProfileResponse>;
+    updatePersonalProfile(email: string, dto: UpdateEmployeePersonalProfileDto): Promise<import("./employee-profile.service").EmployeePersonalProfileResponse>;
+    getEmploymentProfile(email: string): Promise<import("./employee-employment.service").EmployeeEmploymentProfileResponse>;
+    getAllAccessLevels(): Promise<{
+        email: string;
+        accessLevel: string;
+    }[]>;
+    updateEmploymentProfile(email: string, dto: UpdateEmployeeEmploymentProfileDto): Promise<import("./employee-employment.service").EmployeeEmploymentProfileResponse>;
+    getExperience(email: string): Promise<import("./employee-experience.service").EmployeeExperienceResponse>;
+    getCertifications(email: string): Promise<import("./employee-certifications.service").EmployeeCertificationResponse>;
+    getHealthInsurance(email: string): Promise<import("./employee-health-insurance.service").EmployeeHealthInsuranceResponse>;
+    updateHealthInsurance(email: string, dto: UpdateEmployeeHealthInsuranceDto): Promise<import("./employee-health-insurance.service").EmployeeHealthInsuranceResponse>;
+    listWorkstations(): Promise<import("./employee-employment.service").WorkstationListResponse>;
+    listPhoneExtensions(): Promise<import("./employee-employment.service").PhoneExtensionListResponse>;
+    listPhoneDevices(): Promise<import("./employee-employment.service").PhoneDeviceListResponse>;
+    listPcDevices(): Promise<import("./employee-employment.service").PcDeviceListResponse>;
+    getUserLicenses(email: string, graphAccessToken?: string): Promise<string[]>;
+    getUserGroups(email: string, graphAccessToken?: string): Promise<string[]>;
+    previewInternalContactSync(graphAccessToken?: string): Promise<import("./internal-contact-sync.service").InternalContactSyncPreview>;
+    previewEntraToEmsContactSync(graphAccessToken?: string): Promise<import("./internal-contact-sync.service").InternalContactSyncPreview>;
+    applyEntraToEmsContactSync(dto: ApplyInternalContactSyncDto, graphAccessToken?: string): Promise<import("./internal-contact-sync.service").InternalContactSyncApplyResult>;
+    previewEmsToEntraContactSync(graphAccessToken?: string): Promise<import("./internal-contact-sync.service").InternalContactSyncPreview>;
+    applyEmsToEntraContactSync(dto: ApplyInternalContactSyncDto, graphAccessToken?: string): Promise<import("./internal-contact-sync.service").InternalContactSyncApplyResult>;
+    applyInternalContactSync(dto: ApplyInternalContactSyncDto, graphAccessToken?: string): Promise<import("./internal-contact-sync.service").InternalContactSyncApplyResult>;
+}

@@ -1,6 +1,5 @@
 node_modules
 uploads
-dist
 coverage
 .env
 npm-debug.log*
