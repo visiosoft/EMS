@@ -14,7 +14,7 @@ import {
 import { fetchDailySales, fetchDailySalesByPerformance, fetchDailySalesByPerformanceSuggestions, type ApiDailySalesRow, type ApiPerformanceSalesRow, type SuggestionItem } from '@/api/dailySalesApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { Select2 } from './Select2';
-import { PAGE_SIZE, PAGE_SIZE_ALL, type PageSizeOption, isAllPageSize, toPageSize } from '@/lib/serverPagination';
+import { PAGE_SIZE, PAGE_SIZE_ALL, PAGE_SIZE_OPTIONS, type PageSizeOption, isAllPageSize, toPageSize } from '@/lib/serverPagination';
 import { PageSizeSelect } from './PageSizeSelect';
 import {
   DropdownMenu,
@@ -578,7 +578,8 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
   const searchWrapperRef = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE_ALL);
+  const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE);
+  const pageSizeAutoSet = useRef(false);
   const [sort, setSort] = useState<SortState>({ col: 'eventDate', dir: 'asc' });
   const [visibleMetricColumnKeys, setVisibleMetricColumnKeys] = useState<SortColumn[]>(loadSalesSummaryVisibleMetricColumns);
   const iso = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s.trim());
@@ -867,6 +868,14 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   useEffect(() => {
     setPage(1);
   }, [pageSize]);
+
+  // Auto-select the smallest page-size option that fits all records on first load
+  useEffect(() => {
+    if (pageSizeAutoSet.current || serverTotal <= 0) return;
+    pageSizeAutoSet.current = true;
+    const fit = PAGE_SIZE_OPTIONS.find((opt) => opt >= serverTotal);
+    setPageSize(fit ?? PAGE_SIZE_ALL);
+  }, [serverTotal]);
 
   useEffect(() => {
     if (!visibleSalesSummaryColumns.some((column) => column.key === sort.col)) {
