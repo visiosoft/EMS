@@ -13,7 +13,7 @@
  * otherwise the backend should silently ignore them.
  */
 
-import { apiFetch } from './config';
+import { apiFetch, apiFetchMultipart } from './config';
 import type { ApiPaginatedResponse } from './companyApi';
 
 // ---------------------------------------------------------------------------
@@ -236,6 +236,8 @@ export interface ApiProjectListRow {
   projectStage: string;
   /** EngagementProject.OfferReviewStatus (new). Nullable; only set once Submitted. 'Confirmed' triggers conversion. */
   offerReviewStatus?: string | null;
+  /** FK → dbo.Link.LinkID — set when a confirmed-offer PDF is uploaded. */
+  confirmedOfferLinkId?: number | null;
   /** ISO datetime */
   createdDate: string;
   /** nullable in DB */
@@ -408,6 +410,24 @@ export function updateProject(id: number, body: UpdateProjectPayload) {
 
 export function deleteProject(id: number) {
   return apiFetch<void>(`/projects/${id}`, { method: 'DELETE' });
+}
+
+export function uploadConfirmedOfferPdf(
+  projectId: number,
+  file: File,
+): Promise<{ linkId: number; linkName: string }> {
+  const form = new FormData();
+  form.append('file', file);
+  return apiFetchMultipart<{ linkId: number; linkName: string }>(
+    `/projects/${projectId}/confirmed-offer-pdf`,
+    { method: 'POST', body: form },
+  );
+}
+
+/** Returns the URL to fetch/preview the confirmed-offer PDF for a project. */
+export function getConfirmedOfferPdfUrl(projectId: number): string {
+  const base = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '';
+  return `${base}/api/projects/${projectId}/confirmed-offer-pdf`;
 }
 
 // --- Venue proposals ---------------------------------------------------------
