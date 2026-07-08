@@ -793,8 +793,15 @@ function buildAuditRows(
 
   // Projected Final Sales
   const daysUntilOpening = finiteNumber(data.kpis.daysUntilOpening) ?? 0;
-  const projectedFinalTickets = lifetimeTickets + dailyAvgTickets * daysUntilOpening;
-  const projectedFinalRevenue = lifetimeRevenue + dailyAvgRevenue * daysUntilOpening;
+  const projectedFinalTicketsRaw = lifetimeTickets + dailyAvgTickets * daysUntilOpening;
+  const projectedFinalRevenueRaw = lifetimeRevenue + dailyAvgRevenue * daysUntilOpening;
+  // Cap projections so they never exceed total capacity / gross potential
+  const projectedFinalTickets = sellableCapacity != null
+    ? Math.min(projectedFinalTicketsRaw, sellableCapacity)
+    : projectedFinalTicketsRaw;
+  const projectedFinalRevenue = grossPotential != null
+    ? Math.min(projectedFinalRevenueRaw, grossPotential)
+    : projectedFinalRevenueRaw;
 
   // Left to Reach Goal
   const goalRevenue = grossPotential;
@@ -1535,41 +1542,41 @@ export function SalesDashboardView({
         </InfoCell>
       </dl>
 
-      <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
-        <div className="border-b border-border bg-surface/70 px-4 py-3 text-center">
-          <h2 className="text-base font-semibold text-text-primary">Event Audit</h2>
+      <section className="overflow-hidden rounded-lg border-4 border-black bg-card shadow-sm">
+        <div className="border-b border-border bg-surface/70 px-3 py-1.5 text-center">
+          <h2 className="text-sm font-semibold text-text-primary">Event Audit</h2>
         </div>
         {/* Row 1 */}
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1120px] border-collapse text-sm">
             <thead>
-              <tr className="text-center text-[11px] font-semibold text-text-primary">
+              <tr className="text-center text-[10px] font-semibold text-text-primary">
                 {auditRows.row1.map((group, groupIndex) => (
                   <th
                     key={group.title}
                     colSpan={group.cells.length}
                     className={cn(
-                      'border-b border-r border-border px-3 py-2',
+                      'border-b border-r border-border px-2 py-1',
                       group.shade,
                       groupIndex > 0 && 'border-l-2 border-l-border',
                     )}
                   >
                     <div>{group.title}</div>
                     {group.subtitle ? (
-                      <div className="mt-0.5 text-[10px] font-medium italic text-text-muted">
+                      <div className="mt-0.5 text-[9px] font-medium italic text-text-muted">
                         {group.subtitle}
                       </div>
                     ) : null}
                   </th>
                 ))}
               </tr>
-              <tr className="text-center text-[11px] font-semibold text-text-primary">
+              <tr className="text-center text-[10px] font-semibold text-text-primary">
                 {auditRows.row1.map((group, groupIndex) =>
                   group.cells.map((cell, cellIndex) => (
                     <th
                       key={`${group.title}-${cell.label}`}
                       className={cn(
-                        'h-14 border-b border-r border-border/80 px-3 py-2 align-middle leading-tight',
+                        'h-9 border-b border-r border-border/80 px-2 py-1 align-middle leading-tight',
                         group.shade,
                         groupIndex > 0 && cellIndex === 0 && 'border-l-2 border-l-border',
                       )}
@@ -1606,7 +1613,7 @@ export function SalesDashboardView({
           </table>
         </div>
         {/* Horizontal divider between rows */}
-        <div className="border-t-2 border-border/60" />
+        <div className="border-t-[5px] border-black" />
         {/* Row 2 */}
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1120px] border-collapse text-sm">
@@ -1626,13 +1633,13 @@ export function SalesDashboardView({
                   </th>
                 ))}
               </tr>
-              <tr className="text-center text-[11px] font-semibold text-text-primary">
+              <tr className="text-center text-[10px] font-semibold text-text-primary">
                 {auditRows.row2.map((group, groupIndex) =>
                   group.cells.map((cell, cellIndex) => (
                     <th
                       key={`${group.title}-${cell.label}`}
                       className={cn(
-                        'h-14 border-b border-r border-border/80 px-3 py-2 align-middle leading-tight',
+                        'h-9 border-b border-r border-border/80 px-2 py-1 align-middle leading-tight',
                         group.shade,
                         groupIndex > 0 && cellIndex === 0 && 'border-l-2 border-l-border',
                       )}

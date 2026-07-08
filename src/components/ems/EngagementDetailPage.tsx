@@ -6521,7 +6521,7 @@ function EngagementEventBusinessPanel({
               onChange={(v) => { markSalesTaxEdited(); setSalesTaxRemittedBy(v); }}
               disabled={disabled} />)}
         </div>
-        {(d?.isCanadaEngagement || (financeLookupsQuery.data?.nonResidentWithholdings ?? []).find((r) => r.id === d?.requiredNonResidentWithholdingId)?.canApplyForWaiver != null) && (
+        {d?.isCanadaEngagement && (
           <>
             <p className="text-xs text-text-muted font-medium uppercase tracking-wide pt-2">HST (Harmonized Sales Tax) - Canada</p>
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
@@ -6561,8 +6561,7 @@ function EngagementEventBusinessPanel({
         {(() => {
           const wid = d?.requiredNonResidentWithholdingId;
           const wrow = wid != null ? (financeLookupsQuery.data?.nonResidentWithholdings ?? []).find((r) => r.id === wid) : undefined;
-          // Show Canada fields if isCanadaEngagement flag is set OR if the NRW record indicates Canada
-          const isCanada = d?.isCanadaEngagement || (wrow?.canApplyForWaiver != null);
+          const isCanada = !!d?.isCanadaEngagement;
           return (
             <div className="space-y-5">
               <div className="grid grid-cols-1 gap-5 lg:grid-cols-3 lg:gap-x-10">
