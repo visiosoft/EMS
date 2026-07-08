@@ -98,6 +98,7 @@ interface AuditCell {
 
 interface AuditGroup {
   title: string;
+  subtitle?: string;
   shade: string;
   cells: AuditCell[];
 }
@@ -686,10 +687,15 @@ function currentUnitLabel(unit: ChartUnit) {
   return CHART_UNIT_OPTIONS.find((option) => option.id === unit)?.label ?? 'Date';
 }
 
-function buildAuditGroups(
+interface AuditRows {
+  row1: AuditGroup[];
+  row2: AuditGroup[];
+}
+
+function buildAuditRows(
   data: ApiSalesDashboardBody,
   dailyPoints: SalesChartPoint[],
-): AuditGroup[] {
+): AuditRows {
   const asOf = data.asOfDate;
   const yesterday = ymdAddDays(asOf, -1);
   // Walk backward to the most recent day whose cumulative totals rose above the
@@ -781,7 +787,21 @@ function buildAuditGroups(
   const trailing14Tickets = Math.max(0, currentTicketsSnap - (point14 ? (finiteNumber(point14.totalTickets) ?? 0) : 0));
   const trailing14Revenue = Math.max(0, currentRevenueSnap - (point14 ? (finiteNumber(point14.totalRevenue) ?? 0) : 0));
 
-  return [
+  // Average Daily Wrap (over previous 7 days)
+  const dailyAvgTickets = trailing7Tickets / 7;
+  const dailyAvgRevenue = trailing7Revenue / 7;
+
+  // Projected Final Sales
+  const daysUntilOpening = finiteNumber(data.kpis.daysUntilOpening) ?? 0;
+  const projectedFinalTickets = lifetimeTickets + dailyAvgTickets * daysUntilOpening;
+  const projectedFinalRevenue = lifetimeRevenue + dailyAvgRevenue * daysUntilOpening;
+
+  // Left to Reach Goal
+  const goalRevenue = grossPotential;
+  const leftToReachGoal =
+    goalRevenue != null ? safeNonNegative(goalRevenue - lifetimeRevenue) : null;
+
+  const row1: AuditGroup[] = [
     {
       title: 'Total Inventory',
       shade: 'bg-elevated/45',
@@ -791,21 +811,8 @@ function buildAuditGroups(
       ],
     },
     {
-      title: 'Lifetime',
-      shade: 'bg-card',
-      cells: [
-        { label: 'Total Tickets Sold To Date', value: countOrDash(lifetimeTickets) },
-        { label: 'Total Sales $ To Date', value: moneyOrDash(lifetimeRevenue) },
-        { label: '% of Seats Sold', value: pctDisplay(lifetimePctSold) },
-        {
-          label: '% of $ Potential Sold',
-          value: pctDisplay(lifetimePctPotential),
-        },
-      ],
-    },
-    {
       title: "Yesterday's Wrap",
-      shade: 'bg-elevated/35',
+      shade: 'bg-card',
       cells: [
         {
           label: 'Total Tickets Sold Yesterday',
@@ -817,6 +824,15 @@ function buildAuditGroups(
           value: moneyOrDash(wrapRevenue),
           note: wrapNote,
         },
+      ],
+    },
+    {
+      title: 'Average Daily Wrap',
+      subtitle: 'Over Previous 7 Days',
+      shade: 'bg-elevated/35',
+      cells: [
+        { label: 'Daily Average Number of Tickets Sold', value: countOrDash(Math.round(dailyAvgTickets)) },
+        { label: 'Daily Average Value of Tickets Sold', value: moneyOrDash(dailyAvgRevenue) },
       ],
     },
     {
@@ -835,31 +851,54 @@ function buildAuditGroups(
         { label: '14 Day $ Sold', value: moneyOrDash(trailing14Revenue) },
       ],
     },
+  ];
+
+  const row2: AuditGroup[] = [
     {
       title: 'Unsold Inventory & Value',
-      shade: 'bg-card',
+      shade: 'bg-elevated/45',
       cells: [
         { label: 'Total Unsold Tickets', value: countOrDash(unsoldTickets) },
         { label: 'Total Unsold $', value: moneyOrDash(unsoldRevenue) },
       ],
     },
     {
-      title: 'Goal',
+      title: 'Lifetime',
+      shade: 'bg-card',
+      cells: [
+        { label: 'Total Tickets Sold To Date', value: countOrDash(lifetimeTickets) },
+        { label: 'Total Sales $ To Date', value: moneyOrDash(lifetimeRevenue) },
+        { label: '% of Seats Sold', value: pctDisplay(lifetimePctSold) },
+        { label: '% of Potential Sold', value: pctDisplay(lifetimePctPotential) },
+      ],
+    },
+    {
+      title: 'Projected Final Sales',
+      shade: 'bg-elevated/35',
+      cells: [
+        { label: 'Projected Final Tickets Sold', value: countOrDash(Math.round(projectedFinalTickets)) },
+        { label: 'Projected Final Sales Value', value: moneyOrDash(projectedFinalRevenue) },
+      ],
+    },
+    {
+      title: 'Sales Goals',
       shade: 'bg-elevated/45',
       cells: [
         {
           label: 'Goal Revenue',
-          value: moneyOrDash(grossPotential),
+          value: moneyOrDash(goalRevenue),
           note: 'Static Number posted by Booking Dept',
         },
         {
           label: 'Left to Reach Goal',
-          value: moneyOrDash(unsoldRevenue),
-          note: '=Goal Revenue-Total Sales $ To Date',
+          value: moneyOrDash(leftToReachGoal),
+          note: '= Goal Revenue − Total Sales $ To Date',
         },
       ],
     },
   ];
+
+  return { row1, row2 };
 }
 
 function isUnreportedSummaryRow(row: SummaryPoint) {
@@ -1372,8 +1411,8 @@ export function SalesDashboardView({
     [chartPoints, chartUnit, data?.marketingWindow],
   );
 
-  const auditGroups = useMemo(
-    () => (data ? buildAuditGroups(data, dailyChartPoints) : []),
+  const auditRows = useMemo(
+    () => (data ? buildAuditRows(data, dailyChartPoints) : { row1: [], row2: [] }),
     [data, dailyChartPoints],
   );
 
@@ -1500,11 +1539,12 @@ export function SalesDashboardView({
         <div className="border-b border-border bg-surface/70 px-4 py-3 text-center">
           <h2 className="text-base font-semibold text-text-primary">Event Audit</h2>
         </div>
+        {/* Row 1 */}
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1120px] border-collapse text-sm">
             <thead>
               <tr className="text-center text-[11px] font-semibold text-text-primary">
-                {auditGroups.map((group, groupIndex) => (
+                {auditRows.row1.map((group, groupIndex) => (
                   <th
                     key={group.title}
                     colSpan={group.cells.length}
@@ -1514,12 +1554,17 @@ export function SalesDashboardView({
                       groupIndex > 0 && 'border-l-2 border-l-border',
                     )}
                   >
-                    {group.title}
+                    <div>{group.title}</div>
+                    {group.subtitle ? (
+                      <div className="mt-0.5 text-[10px] font-medium italic text-text-muted">
+                        {group.subtitle}
+                      </div>
+                    ) : null}
                   </th>
                 ))}
               </tr>
               <tr className="text-center text-[11px] font-semibold text-text-primary">
-                {auditGroups.map((group, groupIndex) =>
+                {auditRows.row1.map((group, groupIndex) =>
                   group.cells.map((cell, cellIndex) => (
                     <th
                       key={`${group.title}-${cell.label}`}
@@ -1537,7 +1582,70 @@ export function SalesDashboardView({
             </thead>
             <tbody>
               <tr>
-                {auditGroups.map((group, groupIndex) =>
+                {auditRows.row1.map((group, groupIndex) =>
+                  group.cells.map((cell, cellIndex) => (
+                    <td
+                      key={`${group.title}-${cell.label}-value`}
+                      className={cn(
+                        'h-20 border-r border-border/70 px-3 py-3 text-right align-top tabular-nums text-text-primary',
+                        group.shade,
+                        groupIndex > 0 && cellIndex === 0 && 'border-l-2 border-l-border',
+                      )}
+                    >
+                      <div className="text-base font-semibold">{cell.value}</div>
+                      {cell.note ? (
+                        <div className="mt-2 whitespace-normal text-left text-[11px] font-medium leading-snug text-text-muted">
+                          {cell.note}
+                        </div>
+                      ) : null}
+                    </td>
+                  )),
+                )}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        {/* Horizontal divider between rows */}
+        <div className="border-t-2 border-border/60" />
+        {/* Row 2 */}
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1120px] border-collapse text-sm">
+            <thead>
+              <tr className="text-center text-[11px] font-semibold text-text-primary">
+                {auditRows.row2.map((group, groupIndex) => (
+                  <th
+                    key={group.title}
+                    colSpan={group.cells.length}
+                    className={cn(
+                      'border-b border-r border-border px-3 py-2',
+                      group.shade,
+                      groupIndex > 0 && 'border-l-2 border-l-border',
+                    )}
+                  >
+                    {group.title}
+                  </th>
+                ))}
+              </tr>
+              <tr className="text-center text-[11px] font-semibold text-text-primary">
+                {auditRows.row2.map((group, groupIndex) =>
+                  group.cells.map((cell, cellIndex) => (
+                    <th
+                      key={`${group.title}-${cell.label}`}
+                      className={cn(
+                        'h-14 border-b border-r border-border/80 px-3 py-2 align-middle leading-tight',
+                        group.shade,
+                        groupIndex > 0 && cellIndex === 0 && 'border-l-2 border-l-border',
+                      )}
+                    >
+                      {cell.label}
+                    </th>
+                  )),
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                {auditRows.row2.map((group, groupIndex) =>
                   group.cells.map((cell, cellIndex) => (
                     <td
                       key={`${group.title}-${cell.label}-value`}
