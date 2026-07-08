@@ -8948,12 +8948,42 @@ export class EngagementService {
        WHERE [EngagementID] = ${eid}
        ORDER BY [ContractID] DESC`,
     );
-    return (rows as Record<string, unknown>[]).map((r) => ({
-      ...r,
-      guaranteeAmount: r.guaranteeAmount != null ? Number(r.guaranteeAmount) : null,
-      depositAmount: r.depositAmount != null ? Number(r.depositAmount) : null,
-      balanceAmount: r.balanceAmount != null ? Number(r.balanceAmount) : null,
-    }));
+    return (rows as Record<string, unknown>[]).map((r) => {
+      const performancesRaw = r.performances as string | null;
+      const insuredRaw = r.additionallyInsured as string | null;
+      return {
+        ...r,
+        guaranteeAmount: r.guaranteeAmount != null ? Number(r.guaranteeAmount) : null,
+        depositAmount: r.depositAmount != null ? Number(r.depositAmount) : null,
+        balanceAmount: r.balanceAmount != null ? Number(r.balanceAmount) : null,
+        performances:
+          this.parseJsonArrayColumn(performancesRaw) ??
+          (performancesRaw ? [{ date: null, time: null, formatted: performancesRaw }] : null),
+        additionallyInsured: this.parseJsonArrayColumn(insuredRaw) ?? (insuredRaw ? [insuredRaw] : null),
+      };
+    });
+  }
+
+  /**
+   * `Performances`/`AdditionallyInsured` store a JSON-encoded array in a plain nvarchar(max)
+   * column (no schema migration). Returns null on parse failure so the caller can fall back to
+   * wrapping pre-existing free-text values (saved before this field became structured).
+   */
+  private parseJsonArrayColumn(raw: string | null): unknown[] | null {
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Encode an array field for JSON-in-text storage; undefined/empty pass through unchanged. */
+  private toJsonColumnValue(val: unknown[] | null | undefined): string | null | undefined {
+    if (val === undefined) return undefined;
+    if (val === null || val.length === 0) return null;
+    return JSON.stringify(val);
   }
 
   async savePerformanceContract(
@@ -9003,8 +9033,8 @@ export class EngagementService {
     addCol('PaymentMethodType', dto.paymentMethodType, 100);
     addCol('PaymentPayableTo', dto.paymentPayableTo, 255);
     addCol('PaymentBankName', dto.paymentBankName, 255);
-    addCol('Performances', dto.performances, 8000);
-    addCol('AdditionallyInsured', dto.additionallyInsured, 8000);
+    addCol('Performances', this.toJsonColumnValue(dto.performances), 20000);
+    addCol('AdditionallyInsured', this.toJsonColumnValue(dto.additionallyInsured), 20000);
     addCol('AnnotatedPdfBlobName', dto.annotatedPdfBlobName, 500);
     addCol('OriginalFilename', dto.originalFilename, 500);
     addCol('OneDrivePdfUrl', dto.oneDrivePdfUrl, 1000);
@@ -9060,8 +9090,8 @@ export class EngagementService {
     addSet('PaymentMethodType', dto.paymentMethodType, 100);
     addSet('PaymentPayableTo', dto.paymentPayableTo, 255);
     addSet('PaymentBankName', dto.paymentBankName, 255);
-    addSet('Performances', dto.performances, 8000);
-    addSet('AdditionallyInsured', dto.additionallyInsured, 8000);
+    addSet('Performances', this.toJsonColumnValue(dto.performances), 20000);
+    addSet('AdditionallyInsured', this.toJsonColumnValue(dto.additionallyInsured), 20000);
     addSet('AnnotatedPdfBlobName', dto.annotatedPdfBlobName, 500);
     addSet('OriginalFilename', dto.originalFilename, 500);
     addSet('OneDrivePdfUrl', dto.oneDrivePdfUrl, 1000);

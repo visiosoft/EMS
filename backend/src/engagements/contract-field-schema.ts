@@ -14,7 +14,14 @@ import type { ExtractedContractData } from './contract-extraction.service';
  * ("Venue" = "Engagement Venue" = "Location") from `description` + `examples`;
  * `aliases` are only priors/hints, never an exhaustive whitelist.
  */
-export type ContractFieldType = 'text' | 'amount' | 'currency' | 'date' | 'section';
+export type ContractFieldType =
+  | 'text'
+  | 'amount'
+  | 'currency'
+  | 'date'
+  | 'section'
+  | 'performance-list'
+  | 'insured-list';
 
 export interface ContractFieldDef {
   /** Must be a key of ExtractedContractData (kept in sync at compile time). */
@@ -30,7 +37,7 @@ export interface ContractFieldDef {
   examples: string[];
   required: boolean;
   /** Optional post-process derivation when the value is absent in the document. */
-  derivation?: 'balanceFromGuaranteeMinusDeposit';
+  derivation?: 'balanceFromGuaranteeMinusDeposit' | 'additionallyInsuredFromParties';
 }
 
 export const CONTRACT_FIELD_DEFS: ContractFieldDef[] = [
@@ -135,6 +142,16 @@ export const CONTRACT_FIELD_DEFS: ContractFieldDef[] = [
       "The producer's US federal tax identification number (EIN), typically formatted NN-NNNNNNN. Do not confuse with SSN or account numbers.",
     aliases: ['Federal ID Number', 'Fed ID', 'EIN', 'Tax ID', 'Producer Federal ID Number'],
     examples: ['99-3649963', '22-3218704', '13-3136260'],
+    required: false,
+  },
+  {
+    key: 'presenter',
+    label: 'Presenter',
+    type: 'text',
+    description:
+      'The presenter / purchaser / buyer — the party PAYING for the engagement (usually Innovation Arts & Entertainment). This is the counterpart to the producer (the payee). Extracted so it can be added to the additionally-insured list.',
+    aliases: ['Presenter', 'Purchaser', 'Buyer', 'Presented by', 'Presenting Organization'],
+    examples: ['Innovation Arts & Entertainment'],
     required: false,
   },
   {
@@ -254,19 +271,27 @@ export const CONTRACT_FIELD_DEFS: ContractFieldDef[] = [
   {
     key: 'performances',
     label: 'Performances',
-    type: 'section',
-    description: 'The performance schedule — dates, times, and number of performances.',
+    type: 'performance-list',
+    description:
+      'The performance schedule as a list of individual performances, each with its own date, time, and a human-readable formatted string.',
     aliases: ['Performance Schedule', 'Date', 'Show Time', '# of Performances', 'Engagement'],
-    examples: ['February 26, 2025 at 7:30 PM (1 performance)', 'April 3, 2025 at 6:30 PM'],
+    examples: ['February 26, 2025 at 7:30 PM', 'April 3, 2025 at 6:30 PM'],
     required: false,
   },
   {
     key: 'additionallyInsured',
     label: 'Additionally Insured',
-    type: 'section',
-    description: 'The parties that must be named as additional insured on insurance certificates.',
+    type: 'insured-list',
+    description:
+      'The parties that must be named as additional insured on insurance certificates, as a list of party NAMES only (no role prefix like "Agency:"). Order the list as: the Talent Agency first (if known), then the Producer, then the Presenter/Purchaser (e.g. Innovation Arts & Entertainment), then any other named parties. Omit any of these that are not present in the contract.',
     aliases: ['Additional Insured', 'Additionally Insured', 'named as additional insureds'],
-    examples: ['Innovation Arts & Entertainment and its subsidiaries and affiliated entities'],
+    examples: [
+      '["The Booking Group", "CFA Touring, LLC"]',
+      '["The Booking Group", "Chicago Razzle Dazzle II, LLC", "Innovation Arts & Entertainment"]',
+    ],
     required: false,
+    // When the contract has no explicit insured clause, build the list from the
+    // extracted agency + producer + presenter (see contract-extraction.service.ts).
+    derivation: 'additionallyInsuredFromParties',
   },
 ];

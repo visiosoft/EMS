@@ -6,6 +6,13 @@ import { PDFParse } from 'pdf-parse';
 import { ContractLlmClient, RawExtraction } from './contract-llm.client';
 import { CONTRACT_FIELD_DEFS, ContractFieldDef } from './contract-field-schema';
 
+/** One performance/show date within a contract's schedule. */
+export interface PerformanceItem {
+  date: string | null;
+  time: string | null;
+  formatted: string;
+}
+
 export interface ExtractedContractData {
   agency: string | null;
   agent: string | null;
@@ -18,6 +25,11 @@ export interface ExtractedContractData {
   producer: string | null;
   producerAddress: string | null;
   producerFedId: string | null;
+  /**
+   * The presenter/purchaser/buyer (the party paying, usually IAE). Extracted to
+   * complete the additionally-insured list; not persisted or shown as a form field.
+   */
+  presenter: string | null;
   guaranteeAmount: number | null;
   guaranteeCurrency: string | null;
   depositAmount: number | null;
@@ -30,8 +42,8 @@ export interface ExtractedContractData {
   paymentMethodType: string | null;
   paymentPayableTo: string | null;
   paymentBankName: string | null;
-  performances: string | null;
-  additionallyInsured: string | null;
+  performances: PerformanceItem[] | null;
+  additionallyInsured: string[] | null;
   oneDrivePdfUrl: string | null;
 }
 
@@ -65,7 +77,7 @@ const HIGH_CONFIDENCE = 0.75;
 /** Below this many non-whitespace chars, a PDF is treated as scanned/image-only (needs OCR). */
 const MIN_TEXT_CHARS = 40;
 
-type FieldKind = 'text' | 'amount' | 'currency' | 'date' | 'section';
+type FieldKind = 'text' | 'amount' | 'currency' | 'date' | 'section' | 'performance-list' | 'insured-list';
 
 interface FieldDef {
   key: keyof ExtractedContractData;
@@ -103,8 +115,8 @@ const FIELD_DEFS: FieldDef[] = [
   { key: 'paymentMethodType', label: 'payment method type', kind: 'text' },
   { key: 'paymentPayableTo', label: 'payment payable to', kind: 'text' },
   { key: 'paymentBankName', label: 'payment bank name', kind: 'text' },
-  { key: 'performances', label: 'performances', kind: 'section' },
-  { key: 'additionallyInsured', label: 'additionally insured', kind: 'section' },
+  { key: 'performances', label: 'performances', kind: 'performance-list' },
+  { key: 'additionallyInsured', label: 'additionally insured', kind: 'insured-list' },
   { key: 'oneDrivePdfUrl', label: 'onedrive pdf url', kind: 'text' },
 ];
 
@@ -237,11 +249,21 @@ export class ContractExtractionService {
 
     for (const def of CONTRACT_FIELD_DEFS) {
       const field = raw?.[def.key];
+
+      if (def.type === 'performance-list') {
+        this.assignPerformanceList(field, data, fieldMeta, normalizedDoc, isOcr);
+        continue;
+      }
+      if (def.type === 'insured-list') {
+        this.assignInsuredList(field, data, fieldMeta, normalizedDoc, isOcr);
+        continue;
+      }
+
       const rawValue = (field?.value ?? '').toString().trim();
       const quote = ((field?.sourceQuote ?? '').toString().trim() || null) as string | null;
       const pageNum = Number(field?.sourcePage ?? 0);
       const page = Number.isFinite(pageNum) && pageNum > 0 ? pageNum : null;
-      let confidence = this.clamp01(Number(field?.confidence ?? 0));
+      const confidence = this.clamp01(Number(field?.confidence ?? 0));
 
       if (!rawValue) {
         fieldMeta[def.key] = { confidence: 0, status: 'not_found', sourceQuote: null, sourcePage: page, verified: false };
@@ -255,34 +277,156 @@ export class ContractExtractionService {
         continue;
       }
       (data[def.key] as string | number | null) = normalized;
-
-      let verified = false;
-      if (quote && normalizedDoc) {
-        verified = normalizedDoc.includes(this.normalizeForMatch(quote));
-        if (!verified) confidence = Math.min(confidence, 0.4); // quote not in doc -> likely hallucinated
-      }
-      if (isOcr) confidence = Math.min(confidence, 0.7); // no text layer to verify against
-
-      const trustworthy = !isOcr && (verified || !quote);
-      const status = confidence >= HIGH_CONFIDENCE && trustworthy ? 'high' : 'review';
-      fieldMeta[def.key] = { confidence, status, sourceQuote: quote, sourcePage: page, verified };
+      fieldMeta[def.key] = { sourceQuote: quote, sourcePage: page, ...this.computeFieldStatus(quote, normalizedDoc, isOcr, confidence) };
     }
 
     this.applyDerivations(data, fieldMeta);
     return { data, fieldMeta };
   }
 
+  /**
+   * Shared confidence/verification computation: caps confidence when the source
+   * quote can't be found in the document (hallucination guard) or when reading
+   * from an OCR pass (no text layer to verify against), then buckets the result.
+   */
+  private computeFieldStatus(
+    quote: string | null,
+    normalizedDoc: string | null,
+    isOcr: boolean,
+    confidenceIn: number,
+  ): { confidence: number; status: 'high' | 'review'; verified: boolean } {
+    let confidence = confidenceIn;
+    let verified = false;
+    if (quote && normalizedDoc) {
+      verified = normalizedDoc.includes(this.normalizeForMatch(quote));
+      if (!verified) confidence = Math.min(confidence, 0.4);
+    }
+    if (isOcr) confidence = Math.min(confidence, 0.7);
+    const trustworthy = !isOcr && (verified || !quote);
+    const status = confidence >= HIGH_CONFIDENCE && trustworthy ? 'high' : 'review';
+    return { confidence, status, verified };
+  }
+
+  /** Handle the `performances` field: its raw `value` is an array of {date,time,formatted}, not a string. */
+  private assignPerformanceList(
+    field: RawExtraction[string] | undefined,
+    data: ExtractedContractData,
+    fieldMeta: ContractFieldMetaMap,
+    normalizedDoc: string | null,
+    isOcr: boolean,
+  ): void {
+    const quote = ((field?.sourceQuote ?? '').toString().trim() || null) as string | null;
+    const pageNum = Number(field?.sourcePage ?? 0);
+    const page = Number.isFinite(pageNum) && pageNum > 0 ? pageNum : null;
+    const confidence = this.clamp01(Number(field?.confidence ?? 0));
+
+    const rawItems = Array.isArray(field?.value) ? (field!.value as unknown[]) : [];
+    const items = rawItems
+      .map((item): PerformanceItem | null => {
+        if (!item || typeof item !== 'object') return null;
+        const o = item as Record<string, unknown>;
+        const dateStr = typeof o.date === 'string' ? o.date.trim() : '';
+        const timeStr = typeof o.time === 'string' ? o.time.trim() : '';
+        const formatted = (typeof o.formatted === 'string' ? o.formatted.trim() : '').slice(0, 500);
+        if (!dateStr && !timeStr && !formatted) return null;
+        return {
+          date: dateStr ? this.parseDate(dateStr) : null,
+          time: timeStr ? this.parseTime(timeStr) : null,
+          formatted: formatted || [dateStr, timeStr].filter(Boolean).join(' '),
+        };
+      })
+      .filter((x): x is PerformanceItem => x !== null);
+
+    if (!items.length) {
+      fieldMeta.performances = { confidence: 0, status: 'not_found', sourceQuote: null, sourcePage: page, verified: false };
+      return;
+    }
+
+    data.performances = items;
+    fieldMeta.performances = { sourceQuote: quote, sourcePage: page, ...this.computeFieldStatus(quote, normalizedDoc, isOcr, confidence) };
+  }
+
+  /** Handle the `additionallyInsured` field: its raw `value` is a string array, not a string. */
+  private assignInsuredList(
+    field: RawExtraction[string] | undefined,
+    data: ExtractedContractData,
+    fieldMeta: ContractFieldMetaMap,
+    normalizedDoc: string | null,
+    isOcr: boolean,
+  ): void {
+    const quote = ((field?.sourceQuote ?? '').toString().trim() || null) as string | null;
+    const pageNum = Number(field?.sourcePage ?? 0);
+    const page = Number.isFinite(pageNum) && pageNum > 0 ? pageNum : null;
+    const confidence = this.clamp01(Number(field?.confidence ?? 0));
+
+    const rawItems = Array.isArray(field?.value) ? (field!.value as unknown[]) : [];
+    const parties = rawItems
+      .map((v) => (typeof v === 'string' ? v.trim().slice(0, 255) : ''))
+      .filter(Boolean);
+
+    if (!parties.length) {
+      fieldMeta.additionallyInsured = { confidence: 0, status: 'not_found', sourceQuote: null, sourcePage: page, verified: false };
+      return;
+    }
+
+    data.additionallyInsured = parties;
+    fieldMeta.additionallyInsured = { sourceQuote: quote, sourcePage: page, ...this.computeFieldStatus(quote, normalizedDoc, isOcr, confidence) };
+  }
+
   /** Compute fields absent from the document but derivable from others (tagged for the reviewer). */
   private applyDerivations(data: ExtractedContractData, fieldMeta: ContractFieldMetaMap): void {
     for (const def of CONTRACT_FIELD_DEFS) {
-      if (def.derivation !== 'balanceFromGuaranteeMinusDeposit') continue;
-      if (data.balanceAmount != null) continue; // never overwrite a stated value
-      if (data.guaranteeAmount == null || data.depositAmount == null) continue;
-      const balance = data.guaranteeAmount - data.depositAmount;
-      if (balance <= 0) continue;
-      data.balanceAmount = balance;
-      fieldMeta.balanceAmount = { confidence: 0.6, status: 'derived', sourceQuote: null, sourcePage: null, verified: false };
+      if (def.derivation === 'balanceFromGuaranteeMinusDeposit') {
+        if (data.balanceAmount != null) continue; // never overwrite a stated value
+        if (data.guaranteeAmount == null || data.depositAmount == null) continue;
+        const balance = data.guaranteeAmount - data.depositAmount;
+        if (balance <= 0) continue;
+        data.balanceAmount = balance;
+        fieldMeta.balanceAmount = { confidence: 0.6, status: 'derived', sourceQuote: null, sourcePage: null, verified: false };
+      } else if (def.derivation === 'additionallyInsuredFromParties') {
+        this.deriveAdditionallyInsured(data, fieldMeta);
+      }
     }
+    this.ensureAgencyFirstInsured(data);
+  }
+
+  /**
+   * When the contract has no explicit additionally-insured clause, build the list
+   * from the parties we already extract — Agency, Producer, Presenter — in that
+   * order, de-duplicated. The LLM's own list wins when present (only fill blanks).
+   */
+  private deriveAdditionallyInsured(
+    data: ExtractedContractData,
+    fieldMeta: ContractFieldMetaMap,
+  ): void {
+    if (data.additionallyInsured?.length) return; // LLM extracted an explicit list -> keep it
+    const seen = new Set<string>();
+    const parties = [data.agency, data.producer, data.presenter]
+      .map((p) => p?.trim())
+      .filter((p): p is string => !!p)
+      .filter((p) => {
+        const key = p.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    if (!parties.length) return;
+    data.additionallyInsured = parties;
+    fieldMeta.additionallyInsured = {
+      confidence: 0.6,
+      status: 'derived',
+      sourceQuote: null,
+      sourcePage: null,
+      verified: false,
+    };
+  }
+
+  /** The Agency must always be listed first among additionally-insured parties, when known. */
+  private ensureAgencyFirstInsured(data: ExtractedContractData): void {
+    const agency = data.agency?.trim();
+    if (!agency || !data.additionallyInsured?.length) return;
+    const rest = data.additionallyInsured.filter((p) => p.trim().toLowerCase() !== agency.toLowerCase());
+    data.additionallyInsured = [agency, ...rest];
   }
 
   /** Normalize a raw string value into the typed value the form field expects. */
@@ -471,6 +615,23 @@ export class ContractExtractionService {
         if (d) (result[def.key] as string | null) = d;
         break;
       }
+      case 'performance-list': {
+        // Deterministic path has no reliable way to split multiple performances out of a
+        // free-text block (line breaks are already collapsed upstream) — keep the whole
+        // block as a single entry and let the reviewer split it if needed.
+        (result.performances as PerformanceItem[] | null) = [
+          { date: this.parseDate(raw), time: this.parseTime(raw), formatted: raw.slice(0, 500) },
+        ];
+        break;
+      }
+      case 'insured-list': {
+        const parties = raw
+          .split(/;|(?:,|\band\b)(?=\s*[A-Z])/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+        (result.additionallyInsured as string[] | null) = parties.length ? parties : [raw.slice(0, 500)];
+        break;
+      }
       case 'section':
       case 'text':
       default:
@@ -590,6 +751,19 @@ export class ContractExtractionService {
     return null;
   }
 
+  /** Parse a 12h or 24h clock time out of a raw string into 24-hour HH:MM. */
+  private parseTime(raw: string): string | null {
+    const ampm = raw.match(/(\d{1,2}):(\d{2})\s*(am|pm)/i);
+    if (ampm) {
+      let h = parseInt(ampm[1], 10) % 12;
+      if (/pm/i.test(ampm[3])) h += 12;
+      return `${String(h).padStart(2, '0')}:${ampm[2]}`;
+    }
+    const h24 = raw.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
+    if (h24) return `${h24[1].padStart(2, '0')}:${h24[2]}`;
+    return null;
+  }
+
   private monthToNum(month: string): string | null {
     const months: Record<string, string> = {
       jan: '01', january: '01', feb: '02', february: '02', mar: '03', march: '03',
@@ -613,6 +787,7 @@ export class ContractExtractionService {
       producer: null,
       producerAddress: null,
       producerFedId: null,
+      presenter: null,
       guaranteeAmount: null,
       guaranteeCurrency: null,
       depositAmount: null,

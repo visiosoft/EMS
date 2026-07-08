@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Upload, ExternalLink, Trash2 } from 'lucide-react';
+import { Loader2, Upload, ExternalLink, Trash2, Plus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FormField } from './Primitives';
 import { friendlyApiError } from '@/lib/friendlyApiError';
@@ -12,38 +12,9 @@ import {
   deletePerformanceContract,
   type ApiPerformanceContractRow,
   type SavePerformanceContractPayload,
-  type ContractFieldMeta,
   type ContractFieldMetaMap,
+  type ContractPerformanceItem,
 } from '@/api/engagementApi';
-
-/**
- * Small confidence badge shown next to a field's label after AI extraction.
- * Green = high (trust), amber = review (eyeball it), blue = derived (computed).
- * The native tooltip carries the source snippet so a reviewer can verify at a glance.
- */
-function ConfidenceBadge({ meta }: { meta?: ContractFieldMeta }) {
-  if (!meta || meta.status === 'not_found') return null;
-  const styles: Record<'high' | 'review' | 'derived', { cls: string; label: string }> = {
-    high: { cls: 'bg-ems-green-dim text-ems-green', label: 'High' },
-    review: { cls: 'bg-ems-amber-dim text-ems-amber', label: 'Review' },
-    derived: { cls: 'bg-ems-blue-dim text-ems-blue', label: 'Derived' },
-  };
-  const s = styles[meta.status];
-  if (!s) return null;
-  const pct = Math.round((meta.confidence ?? 0) * 100);
-  const title = [
-    meta.status === 'derived' ? 'Computed from other fields' : `${s.label} confidence · ${pct}%`,
-    meta.sourceQuote ? `Source: "${meta.sourceQuote}"${meta.sourcePage ? ` (p.${meta.sourcePage})` : ''}` : null,
-    meta.verified ? 'Source verified in document' : null,
-  ]
-    .filter(Boolean)
-    .join('\n');
-  return (
-    <span title={title} className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${s.cls}`}>
-      {meta.status === 'derived' ? 'Derived' : `${s.label} ${pct}%`}
-    </span>
-  );
-}
 
 interface ContractFormState {
   agency: string;
@@ -69,8 +40,8 @@ interface ContractFormState {
   paymentMethodType: string;
   paymentPayableTo: string;
   paymentBankName: string;
-  performances: string;
-  additionallyInsured: string;
+  performances: ContractPerformanceItem[];
+  additionallyInsured: string[];
   oneDrivePdfUrl: string;
   originalFilename: string;
   annotatedPdfBlobName: string;
@@ -101,8 +72,8 @@ function emptyForm(): ContractFormState {
     paymentMethodType: '',
     paymentPayableTo: '',
     paymentBankName: '',
-    performances: '',
-    additionallyInsured: '',
+    performances: [],
+    additionallyInsured: [],
     oneDrivePdfUrl: '',
     originalFilename: '',
     annotatedPdfBlobName: '',
@@ -134,8 +105,8 @@ function contractRowToForm(row: ApiPerformanceContractRow): ContractFormState {
     paymentMethodType: row.paymentMethodType ?? '',
     paymentPayableTo: row.paymentPayableTo ?? '',
     paymentBankName: row.paymentBankName ?? '',
-    performances: row.performances ?? '',
-    additionallyInsured: row.additionallyInsured ?? '',
+    performances: row.performances ?? [],
+    additionallyInsured: row.additionallyInsured ?? [],
     oneDrivePdfUrl: row.oneDrivePdfUrl ?? '',
     originalFilename: row.originalFilename ?? '',
     annotatedPdfBlobName: row.annotatedPdfBlobName ?? '',
@@ -172,8 +143,16 @@ function formToPayload(form: ContractFormState): SavePerformanceContractPayload 
     paymentMethodType: trimOrNull(form.paymentMethodType),
     paymentPayableTo: trimOrNull(form.paymentPayableTo),
     paymentBankName: trimOrNull(form.paymentBankName),
-    performances: trimOrNull(form.performances),
-    additionallyInsured: trimOrNull(form.additionallyInsured),
+    performances: (() => {
+      const rows = form.performances
+        .map((p) => ({ date: p.date?.trim() || null, time: p.time?.trim() || null, formatted: p.formatted?.trim() || '' }))
+        .filter((p) => p.date || p.time || p.formatted);
+      return rows.length ? rows : null;
+    })(),
+    additionallyInsured: (() => {
+      const parties = form.additionallyInsured.map((s) => s.trim()).filter(Boolean);
+      return parties.length ? parties : null;
+    })(),
     oneDrivePdfUrl: trimOrNull(form.oneDrivePdfUrl),
     originalFilename: trimOrNull(form.originalFilename),
     annotatedPdfBlobName: trimOrNull(form.annotatedPdfBlobName),
@@ -229,8 +208,8 @@ export function EngagementContractPanel({
         paymentMethodType: extracted.paymentMethodType ?? '',
         paymentPayableTo: extracted.paymentPayableTo ?? '',
         paymentBankName: extracted.paymentBankName ?? '',
-        performances: extracted.performances ?? '',
-        additionallyInsured: extracted.additionallyInsured ?? '',
+        performances: extracted.performances ?? [],
+        additionallyInsured: extracted.additionallyInsured ?? [],
         oneDrivePdfUrl: extracted.oneDrivePdfUrl ?? '',
         originalFilename,
         annotatedPdfBlobName,
@@ -295,11 +274,28 @@ export function EngagementContractPanel({
     setEditingContractId(null);
   };
 
-  const set = (field: keyof ContractFormState) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-    setForm((prev) => ({ ...prev, [field]: e.target.value }));
+  const set = (field: Exclude<keyof ContractFormState, 'performances' | 'additionallyInsured'>) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      setForm((prev) => ({ ...prev, [field]: e.target.value }));
 
-  /** Badge for a given extracted field (null when no metadata, e.g. editing a saved contract). */
-  const badgeFor = (field: keyof ContractFormState) => <ConfidenceBadge meta={fieldMeta[field]} />;
+  const addPerformance = () =>
+    setForm((prev) => ({ ...prev, performances: [...prev.performances, { date: '', time: '', formatted: '' }] }));
+  const updatePerformance = (index: number, patch: Partial<ContractPerformanceItem>) =>
+    setForm((prev) => ({
+      ...prev,
+      performances: prev.performances.map((p, i) => (i === index ? { ...p, ...patch } : p)),
+    }));
+  const removePerformance = (index: number) =>
+    setForm((prev) => ({ ...prev, performances: prev.performances.filter((_, i) => i !== index) }));
+
+  const addInsuredParty = () => setForm((prev) => ({ ...prev, additionallyInsured: [...prev.additionallyInsured, ''] }));
+  const updateInsuredParty = (index: number, value: string) =>
+    setForm((prev) => ({
+      ...prev,
+      additionallyInsured: prev.additionallyInsured.map((p, i) => (i === index ? value : p)),
+    }));
+  const removeInsuredParty = (index: number) =>
+    setForm((prev) => ({ ...prev, additionallyInsured: prev.additionallyInsured.filter((_, i) => i !== index) }));
 
   // Count of fields still flagged for review, shown as a summary hint after extraction.
   const reviewCount = Object.values(fieldMeta).filter((m) => m && m.status === 'review').length;
@@ -383,120 +379,187 @@ export function EngagementContractPanel({
           <span className="text-xs font-semibold text-text-primary">
             {editingContractId ? 'Edit Contract' : 'Contract Details'}
           </span>
-          {reviewCount > 0 && (
+          {/* {reviewCount > 0 && (
             <span className="text-[11px] text-ems-amber" title="Fields the AI is unsure about — verify against the PDF before saving.">
               {reviewCount} field{reviewCount === 1 ? '' : 's'} to review
             </span>
-          )}
+          )} */}
         </div>
 
         {/* Talent Agency & Agent */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Talent Agency" badge={badgeFor('agency')}>
+          <FormField label="Talent Agency">
             <input type="text" className={inputCls} value={form.agency} onChange={set('agency')} placeholder="Agency name…" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Talent Agent" badge={badgeFor('agent')}>
+          <FormField label="Talent Agent">
             <input type="text" className={inputCls} value={form.agent} onChange={set('agent')} placeholder="Agent name…" disabled={saveMutation.isPending} />
           </FormField>
         </div>
 
         {/* Attraction */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Attraction" badge={badgeFor('attraction')}>
+          <FormField label="Attraction">
             <input type="text" className={inputCls} value={form.attraction} onChange={set('attraction')} placeholder="Artist / show name…" disabled={saveMutation.isPending} />
           </FormField>
         </div>
 
         {/* Venue info */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Venue Name" badge={badgeFor('venueName')}>
+          <FormField label="Venue Name">
             <input type="text" className={inputCls} value={form.venueName} onChange={set('venueName')} placeholder="Venue name…" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Venue Address" badge={badgeFor('venueAddress')}>
+          <FormField label="Venue Address">
             <input type="text" className={inputCls} value={form.venueAddress} onChange={set('venueAddress')} placeholder="Street address…" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Venue City" badge={badgeFor('venueCity')}>
+          <FormField label="Venue City">
             <input type="text" className={inputCls} value={form.venueCity} onChange={set('venueCity')} placeholder="City…" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Venue State" badge={badgeFor('venueState')}>
+          <FormField label="Venue State">
             <input type="text" className={inputCls} value={form.venueState} onChange={set('venueState')} placeholder="State / Province…" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Venue Country" badge={badgeFor('venueCountry')}>
+          <FormField label="Venue Country">
             <input type="text" className={inputCls} value={form.venueCountry} onChange={set('venueCountry')} placeholder="Country…" disabled={saveMutation.isPending} />
           </FormField>
         </div>
 
         {/* Producer */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Producer" badge={badgeFor('producer')}>
+          <FormField label="Producer">
             <input type="text" className={inputCls} value={form.producer} onChange={set('producer')} placeholder="Producer / Promoter…" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Producer Address" badge={badgeFor('producerAddress')}>
+          <FormField label="Producer Address">
             <input type="text" className={inputCls} value={form.producerAddress} onChange={set('producerAddress')} placeholder="Producer address…" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Producer Federal ID" badge={badgeFor('producerFedId')}>
+          <FormField label="Producer Federal ID">
             <input type="text" className={inputCls} value={form.producerFedId} onChange={set('producerFedId')} placeholder="EIN / Tax ID…" disabled={saveMutation.isPending} />
           </FormField>
         </div>
 
         {/* Financial */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <FormField label="Guarantee Amount" badge={badgeFor('guaranteeAmount')}>
+          <FormField label="Guarantee Amount">
             <input type="number" step="0.01" className={inputCls} value={form.guaranteeAmount} onChange={set('guaranteeAmount')} placeholder="0.00" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Guarantee Currency" badge={badgeFor('guaranteeCurrency')}>
+          <FormField label="Guarantee Currency">
             <input type="text" className={inputCls} value={form.guaranteeCurrency} onChange={set('guaranteeCurrency')} placeholder="USD" disabled={saveMutation.isPending} />
           </FormField>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <FormField label="Deposit Amount" badge={badgeFor('depositAmount')}>
+          <FormField label="Deposit Amount">
             <input type="number" step="0.01" className={inputCls} value={form.depositAmount} onChange={set('depositAmount')} placeholder="0.00" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Deposit Due Date" badge={badgeFor('depositDueDate')}>
+          <FormField label="Deposit Due Date">
             <input type="date" className={inputCls} value={form.depositDueDate} onChange={set('depositDueDate')} disabled={saveMutation.isPending} />
           </FormField>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <FormField label="Balance Amount" badge={badgeFor('balanceAmount')}>
+          <FormField label="Balance Amount">
             <input type="number" step="0.01" className={inputCls} value={form.balanceAmount} onChange={set('balanceAmount')} placeholder="0.00" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Balance Due Date" badge={badgeFor('balanceDueDate')}>
+          <FormField label="Balance Due Date">
             <input type="date" className={inputCls} value={form.balanceDueDate} onChange={set('balanceDueDate')} disabled={saveMutation.isPending} />
           </FormField>
         </div>
 
         {/* Long text fields */}
-        <FormField label="Royalty Description" badge={badgeFor('royaltyDescription')}>
+        <FormField label="Royalty Description">
           <textarea className={textareaCls} value={form.royaltyDescription} onChange={set('royaltyDescription')} placeholder="Royalty / merchandise terms…" disabled={saveMutation.isPending} />
         </FormField>
-        <FormField label="Overage Description" badge={badgeFor('overageDescription')}>
+        <FormField label="Overage Description">
           <textarea className={textareaCls} value={form.overageDescription} onChange={set('overageDescription')} placeholder="Overage / bonus terms…" disabled={saveMutation.isPending} />
         </FormField>
-        <FormField label="Payment Terms" badge={badgeFor('paymentTerms')}>
+        <FormField label="Payment Terms">
           <textarea className={textareaCls} value={form.paymentTerms} onChange={set('paymentTerms')} placeholder="Payment terms…" disabled={saveMutation.isPending} />
         </FormField>
 
         {/* Payment method */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <FormField label="Payment Method Type" badge={badgeFor('paymentMethodType')}>
+          <FormField label="Payment Method Type">
             <input type="text" className={inputCls} value={form.paymentMethodType} onChange={set('paymentMethodType')} placeholder="Wire / Check / ACH…" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Payment Payable To" badge={badgeFor('paymentPayableTo')}>
+          <FormField label="Payment Payable To">
             <input type="text" className={inputCls} value={form.paymentPayableTo} onChange={set('paymentPayableTo')} placeholder="Payee name…" disabled={saveMutation.isPending} />
           </FormField>
-          <FormField label="Payment Bank Name" badge={badgeFor('paymentBankName')}>
+          <FormField label="Payment Bank Name">
             <input type="text" className={inputCls} value={form.paymentBankName} onChange={set('paymentBankName')} placeholder="Bank name…" disabled={saveMutation.isPending} />
           </FormField>
         </div>
 
         {/* Performances & Insurance */}
-        <FormField label="Performances" badge={badgeFor('performances')}>
-          <textarea className={textareaCls} value={form.performances} onChange={set('performances')} placeholder="Performance dates, times, details…" disabled={saveMutation.isPending} />
+        <FormField label="Performances">
+          <div className="space-y-2">
+            {form.performances.map((perf, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <input
+                  type="date"
+                  className={inputCls}
+                  value={perf.date ?? ''}
+                  onChange={(e) => updatePerformance(i, { date: e.target.value })}
+                  disabled={saveMutation.isPending}
+                />
+                <input
+                  type="time"
+                  className={inputCls}
+                  value={perf.time ?? ''}
+                  onChange={(e) => updatePerformance(i, { time: e.target.value })}
+                  disabled={saveMutation.isPending}
+                />
+                <input
+                  type="text"
+                  className={inputCls}
+                  value={perf.formatted}
+                  onChange={(e) => updatePerformance(i, { formatted: e.target.value })}
+                  placeholder="e.g. Wednesday, May 7, 2025 at 7:30 PM"
+                  disabled={saveMutation.isPending}
+                />
+                <button
+                  type="button"
+                  className="shrink-0 text-text-muted hover:text-ems-coral p-1 rounded"
+                  onClick={() => removePerformance(i)}
+                  disabled={saveMutation.isPending}
+                  title="Remove performance"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+            <Button type="button" size="sm" variant="outline" onClick={addPerformance} disabled={saveMutation.isPending}>
+              <span className="inline-flex items-center gap-1.5"><Plus className="h-3.5 w-3.5" />Add Performance</span>
+            </Button>
+          </div>
         </FormField>
-        <FormField label="Additionally Insured" badge={badgeFor('additionallyInsured')}>
-          <textarea className={textareaCls} value={form.additionallyInsured} onChange={set('additionallyInsured')} placeholder="Additional insured parties…" disabled={saveMutation.isPending} />
+        <FormField label="Additionally Insured">
+          <div className="space-y-2">
+            {form.additionallyInsured.map((party, i) => (
+              <div key={i} className="flex items-center gap-2">
+                {i === 0 && party.trim() && party.trim().toLowerCase() === form.agency.trim().toLowerCase() && (
+                  <span className="shrink-0 text-[10px] font-medium text-text-muted">Agency</span>
+                )}
+                <input
+                  type="text"
+                  className={inputCls}
+                  value={party}
+                  onChange={(e) => updateInsuredParty(i, e.target.value)}
+                  placeholder="Additional insured party…"
+                  disabled={saveMutation.isPending}
+                />
+                <button
+                  type="button"
+                  className="shrink-0 text-text-muted hover:text-ems-coral p-1 rounded"
+                  onClick={() => removeInsuredParty(i)}
+                  disabled={saveMutation.isPending}
+                  title="Remove party"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+            <Button type="button" size="sm" variant="outline" onClick={addInsuredParty} disabled={saveMutation.isPending}>
+              <span className="inline-flex items-center gap-1.5"><Plus className="h-3.5 w-3.5" />Add Party</span>
+            </Button>
+          </div>
         </FormField>
 
         {/* OneDrive PDF URL */}
