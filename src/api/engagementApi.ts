@@ -1225,6 +1225,13 @@ export const deleteEngagementTravel = (engagementId: number, travelId: number) =
 
 // ─── Performance Contracts ────────────────────────────────────────────────────
 
+/** One performance/show date within a contract's schedule. */
+export interface ContractPerformanceItem {
+  date: string | null;
+  time: string | null;
+  formatted: string;
+}
+
 export interface ApiPerformanceContractRow {
   contractId: number;
   createdAt: string;
@@ -1252,8 +1259,8 @@ export interface ApiPerformanceContractRow {
   paymentMethodType: string | null;
   paymentPayableTo: string | null;
   paymentBankName: string | null;
-  performances: string | null;
-  additionallyInsured: string | null;
+  performances: ContractPerformanceItem[] | null;
+  additionallyInsured: string[] | null;
   annotatedPdfBlobName: string | null;
   originalFilename: string | null;
   oneDrivePdfUrl: string | null;
@@ -1283,8 +1290,8 @@ export interface SavePerformanceContractPayload {
   paymentMethodType?: string | null;
   paymentPayableTo?: string | null;
   paymentBankName?: string | null;
-  performances?: string | null;
-  additionallyInsured?: string | null;
+  performances?: ContractPerformanceItem[] | null;
+  additionallyInsured?: string[] | null;
   oneDrivePdfUrl?: string | null;
   originalFilename?: string | null;
   annotatedPdfBlobName?: string | null;
@@ -1326,8 +1333,8 @@ export interface ContractUploadResponse {
     paymentMethodType: string | null;
     paymentPayableTo: string | null;
     paymentBankName: string | null;
-    performances: string | null;
-    additionallyInsured: string | null;
+    performances: ContractPerformanceItem[] | null;
+    additionallyInsured: string[] | null;
     oneDrivePdfUrl: string | null;
   };
   /** Per-field confidence + source snippet for the review UI. */

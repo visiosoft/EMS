@@ -1,11 +1,27 @@
-import { IsDateString, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
-import { Transform } from 'class-transformer';
+import { IsArray, IsDateString, IsNumber, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
 
 function toOptionalDecimal(v: unknown): number | null | undefined {
   if (v === null || v === '') return null;
   if (v === undefined) return undefined;
   const n = Number(v);
   return Number.isFinite(n) ? n : undefined;
+}
+
+/** One performance/show date within a contract's schedule. */
+export class PerformanceItemDto {
+  @IsOptional()
+  @IsString()
+  date?: string | null;
+
+  @IsOptional()
+  @IsString()
+  time?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  formatted?: string | null;
 }
 
 export class SavePerformanceContractDto {
@@ -120,12 +136,15 @@ export class SavePerformanceContractDto {
   paymentBankName?: string | null;
 
   @IsOptional()
-  @IsString()
-  performances?: string | null;
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PerformanceItemDto)
+  performances?: PerformanceItemDto[] | null;
 
   @IsOptional()
-  @IsString()
-  additionallyInsured?: string | null;
+  @IsArray()
+  @IsString({ each: true })
+  additionallyInsured?: string[] | null;
 
   @IsOptional()
   @IsString()

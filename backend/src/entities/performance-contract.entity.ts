@@ -80,9 +80,11 @@ export class PerformanceContract {
   @Column({ name: 'PaymentBankName', type: 'nvarchar', length: 255, nullable: true })
   paymentBankName!: string | null;
 
+  /** JSON-encoded PerformanceItem[] (see contract-extraction.service.ts) — CRUD goes through raw SQL in EngagementService, not this entity. */
   @Column({ name: 'Performances', type: 'nvarchar', length: 'max', nullable: true })
   performances!: string | null;
 
+  /** JSON-encoded string[], Agency always first — see engagement.service.ts parseJsonArrayColumn. */
   @Column({ name: 'AdditionallyInsured', type: 'nvarchar', length: 'max', nullable: true })
   additionallyInsured!: string | null;
 

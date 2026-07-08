@@ -343,6 +343,16 @@ function extractErrorDetail(error: unknown): ErrorResponse & { status: number } 
     }
 
     case 404: {
+      if (graphError?.code === 'ResourceNotFound' && /mysite/i.test(graphError.message)) {
+        return {
+          status: 404,
+          title: 'OneDrive not available for this account',
+          message: "This user's OneDrive could not be found.",
+          suggestion:
+            'This Microsoft 365 account may not have OneDrive provisioned (no license, or provisioning has not run yet). Try signing in to onedrive.com once with this account, or contact your Microsoft 365 admin.',
+          detail: graphErr.body || '',
+        };
+      }
       return {
         status: 404,
         title: 'Document library not found',
