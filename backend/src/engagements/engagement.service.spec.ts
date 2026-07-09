@@ -126,7 +126,7 @@ describe('EngagementService – new methods', () => {
     });
 
     it('should create a new link and engagement link when none exists', async () => {
-      engagementLinkRepo.findOne!.mockResolvedValue(null);
+      (engagementLinkRepo.findOne as jest.Mock).mockResolvedValue(null);
 
       const result = await service.upsertEngagementLink(1, {
         linkUrl: 'https://sharepoint.com/contract.pdf',
@@ -154,7 +154,7 @@ describe('EngagementService – new methods', () => {
     });
 
     it('should update existing link when same purpose already exists', async () => {
-      engagementLinkRepo.findOne!.mockResolvedValue({
+      (engagementLinkRepo.findOne as jest.Mock).mockResolvedValue({
         engagementLinkId: 5,
         engagementId: 1,
         linkId: 20,
@@ -187,7 +187,7 @@ describe('EngagementService – new methods', () => {
     });
 
     it('should use linkPurpose as linkName when linkName is not provided', async () => {
-      engagementLinkRepo.findOne!.mockResolvedValue(null);
+      (engagementLinkRepo.findOne as jest.Mock).mockResolvedValue(null);
 
       await service.upsertEngagementLink(1, {
         linkUrl: 'https://example.com/doc.pdf',
@@ -209,7 +209,7 @@ describe('EngagementService – new methods', () => {
 
     it('should remove an existing engagement link', async () => {
       const mockEl = { engagementLinkId: 5, engagementId: 1, linkId: 10, linkPurpose: 'Contract', link: null as any };
-      engagementLinkRepo.findOne!.mockResolvedValue(mockEl);
+      (engagementLinkRepo.findOne as jest.Mock).mockResolvedValue(mockEl);
 
       await service.removeEngagementLink(1, 5);
 
@@ -217,7 +217,7 @@ describe('EngagementService – new methods', () => {
     });
 
     it('should throw NotFoundException when link does not exist', async () => {
-      engagementLinkRepo.findOne!.mockResolvedValue(null);
+      (engagementLinkRepo.findOne as jest.Mock).mockResolvedValue(null);
 
       await expect(service.removeEngagementLink(1, 999)).rejects.toThrow(NotFoundException);
     });

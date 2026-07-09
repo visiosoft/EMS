@@ -68,7 +68,7 @@ describe('ContractExtractionService', () => {
         'https://onedrive.com/contracts/rolling-stones-msg.pdf',
       ].join('\n');
 
-      const result = callPrivate('extractFromTextContent', text);
+      const result = callPrivate('extractFromTextContent', text) as any;
 
       expect(result).toMatchObject({
         agency: 'Creative Artists Agency',
@@ -102,7 +102,7 @@ describe('ContractExtractionService', () => {
     });
 
     it('should return empty result for empty text', () => {
-      const result = callPrivate('extractFromTextContent', '');
+      const result = callPrivate('extractFromTextContent', '') as any;
       expect(result.agency).toBeNull();
       expect(result.guaranteeAmount).toBeNull();
     });
@@ -117,7 +117,7 @@ describe('ContractExtractionService', () => {
         '1,250,000.00',
       ].join('\n');
 
-      const result = callPrivate('extractFromTextContent', text);
+      const result = callPrivate('extractFromTextContent', text) as any;
       expect(result.agency).toBe('WME');
       expect(result.attraction).toBe('Beyoncé');
       expect(result.guaranteeAmount).toBe(1250000);
@@ -199,7 +199,7 @@ describe('ContractExtractionService', () => {
         'Bank name: Barclays',
       ].join('\n');
 
-      const result = callPrivate('extractFromTextContent', text);
+      const result = callPrivate('extractFromTextContent', text) as any;
       expect(result.agency).toBe('William Morris Endeavor');
       expect(result.agent).toBe('Tom Agent');
     });

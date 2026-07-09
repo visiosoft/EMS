@@ -17,14 +17,10 @@ import {
   UpdateEmployeePersonalProfileDto,
 } from './employee-profile.service';
 import { EntraAuthGuard } from './entra-auth.guard';
-import {
-  ApplyInternalContactSyncDto,
-  InternalContactSyncService,
-} from './internal-contact-sync.service';
-import {
-  UpdateMyProfileDto,
-  UserProfileService,
-} from './user-profile.service';
+import { InternalContactSyncService } from './internal-contact-sync.service';
+import type { ApplyInternalContactSyncDto } from './internal-contact-sync.service';
+import { UserProfileService } from './user-profile.service';
+import type { UpdateMyProfileDto } from './user-profile.service';
 import { AccessLevelService } from '../common/access-level.service';
 import { AccessLevelGuard } from '../common/access-level.guard';
 import { AccessLevel } from '../common/access-level.enum';

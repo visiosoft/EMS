@@ -41,6 +41,7 @@ export interface InternalContactSyncRow {
   emsEmail?: string;
   changes: InternalContactSyncFieldChange[];
   candidateContacts?: InternalContactSyncCandidate[];
+  dependencies?: string[];
 }
 
 export interface InternalContactSyncPreview {
