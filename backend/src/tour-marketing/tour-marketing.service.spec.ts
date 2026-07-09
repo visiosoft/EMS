@@ -79,13 +79,13 @@ describe('TourMarketingService', () => {
 
   describe('getTourMarketing', () => {
     it('should throw NotFoundException when tour does not exist', async () => {
-      tourRepo.findOne!.mockResolvedValue(null);
+      (tourRepo.findOne as jest.Mock).mockResolvedValue(null);
 
       await expect(service.getTourMarketing(999)).rejects.toThrow(NotFoundException);
     });
 
     it('should return marketing data with empty collections when no data exists', async () => {
-      tourRepo.findOne!.mockResolvedValue({
+      (tourRepo.findOne as jest.Mock).mockResolvedValue({
         tourId: 1,
         audienceGender: null,
         talentAgencyCompanyId: null,
@@ -103,7 +103,7 @@ describe('TourMarketingService', () => {
     });
 
     it('should query marketing director from talent agency company', async () => {
-      tourRepo.findOne!.mockResolvedValue({
+      (tourRepo.findOne as jest.Mock).mockResolvedValue({
         tourId: 5,
         audienceGender: 'Mixed',
         talentAgencyCompanyId: 100,
@@ -124,12 +124,12 @@ describe('TourMarketingService', () => {
     });
 
     it('should return offer codes from repository', async () => {
-      tourRepo.findOne!.mockResolvedValue({
+      (tourRepo.findOne as jest.Mock).mockResolvedValue({
         tourId: 3,
         audienceGender: null,
         talentAgencyCompanyId: null,
       } as any);
-      offerCodeRepo.find!.mockResolvedValue([
+      (offerCodeRepo.find as jest.Mock).mockResolvedValue([
         { offerCodeId: 1, tourId: 3, code: 'PROMO1', assignedTo: 'IAE - Sign Up', iaeSms: null, purpose: 'Presale' },
         { offerCodeId: 2, tourId: 3, code: 'DISC10', assignedTo: null, iaeSms: 'Venue - Members', purpose: 'Discount' },
       ] as any);
@@ -147,7 +147,7 @@ describe('TourMarketingService', () => {
     });
 
     it('should return audience age range IDs and labels', async () => {
-      tourRepo.findOne!.mockResolvedValue({
+      (tourRepo.findOne as jest.Mock).mockResolvedValue({
         tourId: 2,
         audienceGender: 'Female',
         talentAgencyCompanyId: null,
@@ -166,7 +166,7 @@ describe('TourMarketingService', () => {
     });
 
     it('should return media mix entries', async () => {
-      tourRepo.findOne!.mockResolvedValue({
+      (tourRepo.findOne as jest.Mock).mockResolvedValue({
         tourId: 4,
         audienceGender: null,
         talentAgencyCompanyId: null,
@@ -200,7 +200,7 @@ describe('TourMarketingService', () => {
 
   describe('saveTourMarketing', () => {
     it('should throw NotFoundException when tour does not exist', async () => {
-      tourRepo.findOne!.mockResolvedValue(null);
+      (tourRepo.findOne as jest.Mock).mockResolvedValue(null);
 
       await expect(
         service.saveTourMarketing(999, { audienceGender: 'Mixed' }),
@@ -209,9 +209,9 @@ describe('TourMarketingService', () => {
 
     it('should update audience gender on tour', async () => {
       const tour = { tourId: 1, audienceGender: null } as any;
-      tourRepo.findOne!.mockResolvedValue(tour);
+      (tourRepo.findOne as jest.Mock).mockResolvedValue(tour);
       // For the final getTourMarketing call after save
-      tourRepo.findOne!.mockResolvedValue({ ...tour, audienceGender: 'Female' });
+      (tourRepo.findOne as jest.Mock).mockResolvedValue({ ...tour, audienceGender: 'Female' });
 
       await service.saveTourMarketing(1, { audienceGender: 'Female' });
 
@@ -220,7 +220,7 @@ describe('TourMarketingService', () => {
     });
 
     it('should replace audience age range IDs', async () => {
-      tourRepo.findOne!.mockResolvedValue({ tourId: 2, audienceGender: null, talentAgencyCompanyId: null } as any);
+      (tourRepo.findOne as jest.Mock).mockResolvedValue({ tourId: 2, audienceGender: null, talentAgencyCompanyId: null } as any);
 
       await service.saveTourMarketing(2, { audienceAgeRangeIds: [1, 3, 5] });
 
@@ -233,7 +233,7 @@ describe('TourMarketingService', () => {
     });
 
     it('should replace media mix entries', async () => {
-      tourRepo.findOne!.mockResolvedValue({ tourId: 3, audienceGender: null, talentAgencyCompanyId: null } as any);
+      (tourRepo.findOne as jest.Mock).mockResolvedValue({ tourId: 3, audienceGender: null, talentAgencyCompanyId: null } as any);
 
       await service.saveTourMarketing(3, {
         mediaMix: [{ advertisingSubTypeId: 10, companyId: 200 }],
@@ -247,7 +247,7 @@ describe('TourMarketingService', () => {
     });
 
     it('should rollback on error', async () => {
-      tourRepo.findOne!.mockResolvedValue({ tourId: 4, audienceGender: null } as any);
+      (tourRepo.findOne as jest.Mock).mockResolvedValue({ tourId: 4, audienceGender: null } as any);
       const qr = (dataSource.createQueryRunner as jest.Mock)();
       qr.manager.save.mockRejectedValueOnce(new Error('DB error'));
 
@@ -262,13 +262,13 @@ describe('TourMarketingService', () => {
 
   describe('deleteOfferCode', () => {
     it('should throw NotFoundException when offer code does not exist', async () => {
-      offerCodeRepo.findOne!.mockResolvedValue(null);
+      (offerCodeRepo.findOne as jest.Mock).mockResolvedValue(null);
 
       await expect(service.deleteOfferCode(1, 999)).rejects.toThrow(NotFoundException);
     });
 
     it('should delete the offer code when it exists', async () => {
-      offerCodeRepo.findOne!.mockResolvedValue({
+      (offerCodeRepo.findOne as jest.Mock).mockResolvedValue({
         offerCodeId: 5,
         tourId: 1,
         code: 'TEST',
@@ -283,7 +283,7 @@ describe('TourMarketingService', () => {
     });
 
     it('should not delete offer code belonging to different tour', async () => {
-      offerCodeRepo.findOne!.mockResolvedValue(null); // findOne with tourId filter returns null
+      (offerCodeRepo.findOne as jest.Mock).mockResolvedValue(null); // findOne with tourId filter returns null
 
       await expect(service.deleteOfferCode(2, 5)).rejects.toThrow(NotFoundException);
     });
