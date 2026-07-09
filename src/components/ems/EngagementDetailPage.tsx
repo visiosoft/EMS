@@ -1,4 +1,4 @@
-﻿/**
+/**
  * EngagementDetailPage – fully dynamic, end-to-end DB-driven.
  * All data comes from the API. No static/hardcoded content.
  *
@@ -5566,14 +5566,70 @@ const WITHHOLDING_PAYMENT_METHOD_OPTIONS: Select2Option[] = [
   { value: 'ACH', label: 'ACH' },
 ];
 
+/** US state abbreviation → full name map for NRW matching */
+const US_STATE_ABBR_TO_NAME: Record<string, string> = {
+  AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California',
+  CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware', FL: 'Florida', GA: 'Georgia',
+  HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois', IN: 'Indiana', IA: 'Iowa',
+  KS: 'Kansas', KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland',
+  MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota', MS: 'Mississippi', MO: 'Missouri',
+  MT: 'Montana', NE: 'Nebraska', NV: 'Nevada', NH: 'New Hampshire', NJ: 'New Jersey',
+  NM: 'New Mexico', NY: 'New York', NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio',
+  OK: 'Oklahoma', OR: 'Oregon', PA: 'Pennsylvania', RI: 'Rhode Island', SC: 'South Carolina',
+  SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas', UT: 'Utah', VT: 'Vermont',
+  VA: 'Virginia', WA: 'Washington', WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming',
+  DC: 'District of Columbia',
+};
+
+type NrwLookupRow = NonNullable<ApiEngagementFinanceLookups['nonResidentWithholdings']>[number];
+
+/** Match an NRW reference row by venue city → state → country (most specific wins) */
+function matchNrwByGeography(
+  rows: NrwLookupRow[],
+  venueCity: string | null | undefined,
+  venueState: string | null | undefined,
+  isCanada: boolean | null | undefined,
+): NrwLookupRow | undefined {
+  if (!rows.length) return undefined;
+  const lower = (s: string | null | undefined) => (s ?? '').trim().toLowerCase() || null;
+  const cityLower = lower(venueCity);
+  const stateLower = lower(venueState);
+  // Normalize state: if it's a 2-letter abbreviation, map to full name
+  const stateUpper = (venueState ?? '').trim().toUpperCase();
+  const stateFullName = US_STATE_ABBR_TO_NAME[stateUpper]?.toLowerCase() ?? stateLower;
+
+  // 1. Try City match (AreaCategory = 'City')
+  if (cityLower) {
+    const match = rows.find((r) => r.areaCategory === 'City' && lower(r.withholdingArea) === cityLower);
+    if (match) return match;
+  }
+  // 2. Try State match (AreaCategory = 'State')
+  if (stateFullName) {
+    const match = rows.find((r) => r.areaCategory === 'State' && lower(r.withholdingArea) === stateFullName);
+    if (match) return match;
+  }
+  // 3. Try Country match (AreaCategory = 'Country') — currently only Canada
+  if (isCanada) {
+    const match = rows.find((r) => r.areaCategory === 'Country' && lower(r.withholdingArea) === 'canada');
+    if (match) return match;
+  }
+  return undefined;
+}
+
 function EngagementEventBusinessPanel({
   engagementId,
   venueCompanyId,
+  venueCity,
+  venueState,
+  isCanadaEngagement,
   addToast,
   onDirtyChange,
 }: {
   engagementId: number;
   venueCompanyId: number | null | undefined;
+  venueCity?: string | null;
+  venueState?: string | null;
+  isCanadaEngagement?: boolean | null;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
@@ -5784,24 +5840,31 @@ function EngagementEventBusinessPanel({
     setHstPaidOnVenueExpenses(numFieldToString(d.hstPaidOnVenueExpenses));
     setHstRemittedToIae(d.hstCollectedFromTicketSales != null && d.hstCollectedFromTicketSales !== 0 ? 'Yes' : '');
     setHstPaidToAttraction(d.hstPaidOnTourPayments != null && d.hstPaidOnTourPayments !== 0 ? 'Yes' : '');
-    // NRW lookup fields (area/rate/agency/waiver date/app) are populated from financeLookupsQuery
-    const nrwRow = d.requiredNonResidentWithholdingId != null
-      ? (financeLookupsQuery.data?.nonResidentWithholdings ?? []).find((r) => r.id === d.requiredNonResidentWithholdingId)
+    // NRW lookup fields — auto-match from static NonResidentWithholding table by city/state/country
+    const allNrwRows = financeLookupsQuery.data?.nonResidentWithholdings ?? [];
+    // If engagement already has an assigned NRW record, use it
+    let nrwRef = d.requiredNonResidentWithholdingId != null
+      ? allNrwRows.find((r) => r.id === d.requiredNonResidentWithholdingId)
       : undefined;
-    setWithholdingArea(nrwRow?.withholdingArea ?? '');
-    setWithholdingRate(nrwRow?.withholdingTaxRate != null ? String(nrwRow.withholdingTaxRate) : '');
-    setWithholdingAgency(nrwRow?.withholdingAgencyName ?? '');
-    setIaeWaiverSubmissionDate(nrwRow?.iaeWaiverSubmissionDate ?? '');
-    setIaeWaiverAppNumber(nrwRow?.iaeWaiverAppNumber ?? '');
-    setWithholdingPayee(d.withholdingPayee ?? '');
-    setWithholdingPaymentMethod(d.withholdingPaymentMethod ?? '');
-    setWithholdingFormToAttractionLink(d.withholdingFormToAttractionLink ?? '');
-    setWithholdingFormToMunicipalityLink(d.withholdingFormToMunicipalityLink ?? '');
-    setWithholdingQuickbooksNumber(d.withholdingQuickbooksNumber ?? '');
-    setWithholdingWaiver(d.withholdingWaiver ?? '');
-    setWithholdingCompletedWaiverLink(d.withholdingCompletedWaiverLink ?? '');
-    setTourWaiverLink(d.tourWaiverLink ?? '');
-    setWithholdingExceptions(d.withholdingExceptions ?? '');
+    // If no assigned record (or assigned record is blank), auto-match by geography
+    if (!nrwRef || (!nrwRef.withholdingPayee && !nrwRef.paymentMethod && !nrwRef.quickBooksNumber)) {
+      const geoMatch = matchNrwByGeography(allNrwRows, venueCity, venueState, isCanadaEngagement);
+      if (geoMatch) nrwRef = geoMatch;
+    }
+    setWithholdingArea(nrwRef?.withholdingArea ?? '');
+    setWithholdingRate(nrwRef?.withholdingTaxRate != null ? String(nrwRef.withholdingTaxRate) : '');
+    setWithholdingAgency(nrwRef?.withholdingAgencyName ?? '');
+    setIaeWaiverSubmissionDate(nrwRef?.iaeWaiverSubmissionDate ?? '');
+    setIaeWaiverAppNumber(nrwRef?.iaeWaiverAppNumber ?? '');
+    setWithholdingPayee(d.withholdingPayee || (nrwRef?.withholdingPayee ?? ''));
+    setWithholdingPaymentMethod(d.withholdingPaymentMethod || (nrwRef?.paymentMethod ?? ''));
+    setWithholdingFormToAttractionLink(d.withholdingFormToAttractionLink || (nrwRef?.formToAttractionUrl ?? ''));
+    setWithholdingFormToMunicipalityLink(d.withholdingFormToMunicipalityLink || (nrwRef?.formToMunicipalityUrl ?? ''));
+    setWithholdingQuickbooksNumber(d.withholdingQuickbooksNumber || (nrwRef?.quickBooksNumber ?? ''));
+    setWithholdingWaiver(d.withholdingWaiver || (nrwRef?.canApplyForWaiver != null ? (nrwRef.canApplyForWaiver ? 'Yes' : 'No') : ''));
+    setWithholdingCompletedWaiverLink(d.withholdingCompletedWaiverLink || (nrwRef?.completedWaiverUrl ?? ''));
+    setTourWaiverLink(d.tourWaiverLink || (nrwRef?.tourWaiverUrl ?? ''));
+    setWithholdingExceptions(d.withholdingExceptions || (nrwRef?.exceptionsNotes ?? ''));
     setCheckNumberOrConfOfWithholdingPayment(d.checkNumberOrConfOfWithholdingPayment ?? '');
     // Final Attraction Compensation (separate save)
     setFinalGuaranteeAmount(numFieldToString(d.finalGuaranteeAmount));
@@ -5812,7 +5875,7 @@ function EngagementEventBusinessPanel({
     setFinalReimbursables(numFieldToString(d.finalReimbursables));
     setArtistGrossTaxableCompensation(numFieldToString(d.artistGrossTaxableCompensation));
     setAmountDueToDeptOfRevenue(numFieldToString(d.amountDueToDeptOfRevenue));
-  }, [financeQuery.data, engagementLinks]);
+  }, [financeQuery.data, engagementLinks, financeLookupsQuery.data]);
 
   // â”€â”€ Settlement Status — separate save â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // -- Settlement -- separate save
@@ -6564,7 +6627,7 @@ function EngagementEventBusinessPanel({
         {(() => {
           const wid = d?.requiredNonResidentWithholdingId;
           const wrow = wid != null ? (financeLookupsQuery.data?.nonResidentWithholdings ?? []).find((r) => r.id === wid) : undefined;
-          const isCanada = !!d?.isCanadaEngagement;
+          const isCanada = !!d?.isCanadaEngagement || withholdingArea.toLowerCase() === 'canada';
           return (
             <div className="space-y-5">
               <div className="grid grid-cols-1 gap-5 lg:grid-cols-3 lg:gap-x-10">
@@ -6610,13 +6673,13 @@ function EngagementEventBusinessPanel({
                     {fieldRow('IAE Waiver Application Number',
                       <input className={inputCls} value={iaeWaiverAppNumber} readOnly disabled />)}
                   </div>
+                  <div className="grid grid-cols-1">
+                    {fieldRow('Exceptions',
+                      <textarea className={`${inputCls} min-h-[88px] resize-y`} value={withholdingExceptions}
+                        readOnly disabled />)}
+                  </div>
                 </>
               )}
-              <div className="grid grid-cols-1">
-                {fieldRow('Exceptions',
-                  <textarea className={`${inputCls} min-h-[88px] resize-y`} value={withholdingExceptions}
-                    readOnly disabled />)}
-              </div>
             </div>
           );
         })()}
@@ -12462,6 +12525,9 @@ export function EngagementDetailPage({
         <EngagementEventBusinessPanel
           engagementId={engagementId}
           venueCompanyId={row.primaryVenueCompanyId}
+          venueCity={row.city}
+          venueState={row.stateProvince}
+          isCanadaEngagement={row.isCanadaEngagement}
           addToast={addToast}
           onDirtyChange={handleEventBusinessDirtyChange}
         />

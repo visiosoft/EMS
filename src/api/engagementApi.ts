@@ -468,6 +468,7 @@ export interface ApiEngagementFinanceLookups {
     label: string;
     withholdingTaxRate?: string | null;
     withholdingArea?: string | null;
+    areaCategory?: string | null;
     dmaid?: number | null;
     taxAgencyId?: number | null;
     withholdingAgencyName?: string | null;
