@@ -993,7 +993,18 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
       {/* Admin-entered fields */}
       <SectionCard title="Employment Details" icon={<Briefcase className="h-4 w-4 text-ems-blue" />}>
         <div className="grid gap-4 md:grid-cols-2">
-          {isAdmin && (
+          {isAdmin && accessLevel === 'Super Admin' ? (
+            <SelectField
+              label="Access Level"
+              value={accessLevel}
+              onChange={() => {}}
+              options={[
+                { value: 'Super Admin', label: 'Super Admin' },
+              ]}
+              source="admin"
+              disabled
+            />
+          ) : isAdmin ? (
             <SelectField
               label="Access Level"
               value={accessLevel}
@@ -1004,7 +1015,7 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
               ]}
               source="admin"
             />
-          )}
+          ) : null}
           {isAdmin && (
             <SelectField
               label="Work Authorization"

@@ -189,6 +189,17 @@ export class EmployeeEmploymentService {
     const modifiedBy =
       this.auditContext.getUserEmail() ?? 'employment-profile';
 
+    // Prevent changing the access level of a Super Admin user
+    if (
+      dto.accessLevel !== undefined &&
+      (current.accessLevel ?? '').trim().toLowerCase() === 'super admin' &&
+      (dto.accessLevel ?? '').trim().toLowerCase() !== 'super admin'
+    ) {
+      throw new BadRequestException(
+        'Cannot change the access level of a Super Admin user.',
+      );
+    }
+
     const hasEpTable = await this.tableExists('EmployeeProfile');
     if (!hasEpTable) {
       throw new BadRequestException(
