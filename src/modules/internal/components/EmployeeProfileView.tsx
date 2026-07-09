@@ -281,16 +281,24 @@ function CertificationRow({ cert }: { cert: SelfProfileCertification }) {
 
 /**
  * Read-only profile renderer shared by "My Profile" (self) and the directory's
- * "view another employee" page. Shows all fields and sections — complete information
- * for all 8 Excel categories with no permission filtering.
+ * "view another employee" page. The data is already visibility-filtered server-side.
  *
  * Rendered as exactly the eight Employee Profiles.xlsx categories — each its own
  * clearly bordered, shadowed, numbered card (01–08) — so the page reads as eight
- * distinct sections. Related fields (Home Address / Emergency Contacts under Personal,
- * Office Address under Employment) are grouped as labeled sub-sections inside their
- * parent card.
+ * distinct sections rather than a continuous list. Related fields that live under a
+ * category in the xlsx (Home Address / Emergency Contacts under Personal, Office
+ * Address under Employment) are grouped as labeled sub-sections inside that card
+ * instead of spawning extra boxes.
+ *
+ * When the profile is `limited` (a non-admin viewing another employee), Administrator-
+ * only fields/sub-sections are omitted, and categories that are entirely
+ * Administrator-only (Health Insurance, Software Assets) are skipped — every
+ * "All"-visibility field is still shown, even when blank, so the viewer sees the
+ * maximum information they're allowed to.
  */
 export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile }) {
+  const limited = profile.visibility === "limited";
+
   const health = profile.healthInsurance;
   const experience = profile.experience;
   const certifications = profile.certifications?.certifications ?? [];
@@ -304,7 +312,7 @@ export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile })
     { label: "First Name", value: textOrDash(profile.basics.firstName) },
     { label: "Middle Name", value: textOrDash(profile.basics.middleName) },
     { label: "Last Name", value: textOrDash(profile.basics.lastName) },
-    { label: "Personal Email", value: textOrDash(profile.basics.personalEmail) },
+    { label: "Personal Email", value: textOrDash(profile.basics.personalEmail), admin: true },
     { label: "Cell Phone Number", value: phoneOrDash(profile.basics.cellPhone) },
     { label: "Work Phone", value: phoneOrDash(profile.basics.workPhone) },
     { label: "Birth Date", value: formatDate(profile.personal.dateOfBirth) },
@@ -312,24 +320,25 @@ export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile })
       label: "Social Security Number",
       value: profile.personal.ssnLast4 ? `•••-••-${profile.personal.ssnLast4}` : "—",
       kind: "reveal",
+      admin: true,
     },
     {
       label: "Age",
       value: profile.personal.age != null ? String(profile.personal.age) : "—",
       kind: "reveal",
+      admin: true,
     },
-    { label: "Gender", value: textOrDash(profile.personal.gender) },
-    { label: "Marital Status", value: textOrDash(profile.personal.maritalStatus) },
-    { label: "Ethnicity", value: textOrDash(profile.personal.ethnicity) },
+    // Gender / Marital Status / Ethnicity intentionally omitted: not in the client's
+    // Employee Profiles.xlsx field list, so they are not part of the profile.
   ];
 
   const employmentFields: FieldItem[] = [
     { label: "Title", value: textOrDash(profile.employment.title) },
-    { label: "Access Level", value: textOrDash(profile.employment.accessLevel) },
+    { label: "Access Level", value: textOrDash(profile.employment.accessLevel), admin: true },
     { label: "Work Email", value: textOrDash(profile.basics.email) },
     { label: "Office", value: textOrDash(profile.employment.office) },
     { label: "Workstation", value: textOrDash(profile.employment.workstation) },
-    { label: "Work Authorization", value: textOrDash(profile.employment.workAuthorization) },
+    { label: "Work Authorization", value: textOrDash(profile.employment.workAuthorization), admin: true },
     { label: "Department", value: textOrDash(profile.basics.department) },
     { label: "Role", value: textOrDash(profile.basics.role) },
     { label: "Company", value: textOrDash(profile.basics.company) },
@@ -338,123 +347,142 @@ export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile })
     { label: "Termination Date", value: formatDate(profile.employment.terminationDate) },
     { label: "Employment Status", value: textOrDash(profile.employment.employmentStatus) },
     { label: "Employment Type", value: textOrDash(profile.employment.employmentType) },
-    { label: "Pay Type", value: textOrDash(profile.employment.payType) },
-    { label: "Pay Rate", value: textOrDash(profile.employment.payRate) },
+    // Pay Type / Pay Rate intentionally omitted: not in the client's Employee
+    // Profiles.xlsx field list, so they are not part of the profile.
     { label: "Years of Service", value: textOrDash(profile.employment.yearsOfService) },
     { label: "Supervisor", value: textOrDash(profile.employment.supervisor) },
-    { label: "Paid Time Off Accrual Rate", value: textOrDash(profile.employment.ptoAccrualRate) },
+    { label: "Paid Time Off Accrual Rate", value: textOrDash(profile.employment.ptoAccrualRate), admin: true },
     {
       label: "Employment Agreement Fully Executed",
       value: textOrDash(profile.employment.employmentAgreement),
+      admin: true,
     },
-    { label: "Ramp Account", value: textOrDash(profile.employment.rampAccount) },
-    { label: "Ramp Credit Card", value: textOrDash(profile.employment.rampCreditCard) },
+    { label: "Ramp Account", value: textOrDash(profile.employment.rampAccount), admin: true },
+    { label: "Ramp Credit Card", value: textOrDash(profile.employment.rampCreditCard), admin: true },
   ];
 
   const propertyFields: FieldItem[] = [
     { label: "Desk Phone Number", value: textOrDash(profile.equipment.deskPhoneNumber) },
     { label: "Desk Phone Extension", value: textOrDash(profile.equipment.deskPhoneExtension) },
-    { label: "Desk Phone MAC Address", value: textOrDash(profile.equipment.deskPhoneMac) },
-    { label: "Desk Phone Brand", value: textOrDash(profile.equipment.deskPhoneBrand) },
-    { label: "Desk Phone Model", value: textOrDash(profile.equipment.deskPhoneModel) },
-    { label: "PC Brand", value: textOrDash(profile.equipment.pcBrand) },
-    { label: "PC Model", value: textOrDash(profile.equipment.pcModel) },
-    { label: "PC Service Tag", value: textOrDash(profile.equipment.pcServiceTag) },
-    { label: "Bluetooth Status", value: textOrDash(profile.equipment.bluetoothStatus) },
-    { label: "PC Windows Name", value: textOrDash(profile.equipment.pcWindowsName) },
+    { label: "Desk Phone MAC Address", value: textOrDash(profile.equipment.deskPhoneMac), admin: true },
+    { label: "Desk Phone Brand", value: textOrDash(profile.equipment.deskPhoneBrand), admin: true },
+    { label: "Desk Phone Model", value: textOrDash(profile.equipment.deskPhoneModel), admin: true },
+    { label: "PC Brand", value: textOrDash(profile.equipment.pcBrand), admin: true },
+    { label: "PC Model", value: textOrDash(profile.equipment.pcModel), admin: true },
+    { label: "PC Service Tag", value: textOrDash(profile.equipment.pcServiceTag), admin: true },
+    { label: "Bluetooth Status", value: textOrDash(profile.equipment.bluetoothStatus), admin: true },
+    { label: "PC Windows Name", value: textOrDash(profile.equipment.pcWindowsName), admin: true },
   ];
+
+  const visiblePersonalFields = limited ? personalFields.filter((f) => !f.admin) : personalFields;
+  const visibleEmploymentFields = limited ? employmentFields.filter((f) => !f.admin) : employmentFields;
+  const visiblePropertyFields = limited ? propertyFields.filter((f) => !f.admin) : propertyFields;
+
+  // Categories that are entirely Administrator-only (per xlsx) are skipped for limited viewers.
+  const showHealth = !limited;
+  const showSoftware = !limited;
+  const showHomeAddress = !limited;
+  const showEmergency = !limited;
 
   return (
     <div className="space-y-6">
       {/* ── 1. Personal ──────────────────────────────────────────── */}
       <SectionShell number={1} title="Personal" icon={<UserRound className="h-4 w-4" />}>
-        <FieldGrid items={personalFields} />
+        <FieldGrid items={visiblePersonalFields} />
 
-        <SubGroup label="Home Address">
-          <Field label="Address" value={homeAddress} />
-        </SubGroup>
+        {showHomeAddress ? (
+          <SubGroup label="Home Address">
+            <Field label="Address" value={homeAddress} />
+          </SubGroup>
+        ) : null}
 
-        <SubGroup label="Emergency Contacts">
-          {profile.emergencyContacts.length === 0 ? (
-            <p className="text-sm font-medium text-neutral-500">No emergency contacts on file.</p>
-          ) : (
-            <div className="space-y-4">
-              {profile.emergencyContacts.map((contact, index) => (
-                <dl
-                  key={`${contact.fullName}-${index}`}
-                  className="grid grid-cols-1 gap-x-6 gap-y-4 rounded-md border border-neutral-100 bg-neutral-50/60 p-4 sm:grid-cols-2 lg:grid-cols-4"
-                >
-                  <div className="flex items-center gap-2">
-                    <Field label="Name" value={textOrDash(contact.fullName)} />
-                    {contact.isPrimary ? (
-                      <span className="mt-4 rounded-full bg-neutral-900 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-                        Primary
-                      </span>
-                    ) : null}
-                  </div>
-                  <Field label="Relationship" value={textOrDash(contact.relationship)} />
-                  <Field label="Phone" value={phoneOrDash(contact.phoneNumber)} />
-                  <Field label="Email" value={textOrDash(contact.email)} />
-                </dl>
-              ))}
-            </div>
-          )}
-        </SubGroup>
+        {showEmergency ? (
+          <SubGroup label="Emergency Contacts">
+            {profile.emergencyContacts.length === 0 ? (
+              <p className="text-sm font-medium text-neutral-500">No emergency contacts on file.</p>
+            ) : (
+              <div className="space-y-4">
+                {profile.emergencyContacts.map((contact, index) => (
+                  <dl
+                    key={`${contact.fullName}-${index}`}
+                    className="grid grid-cols-1 gap-x-6 gap-y-4 rounded-md border border-neutral-100 bg-neutral-50/60 p-4 sm:grid-cols-2 lg:grid-cols-4"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Field label="Name" value={textOrDash(contact.fullName)} />
+                      {contact.isPrimary ? (
+                        <span className="mt-4 rounded-full bg-neutral-900 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                          Primary
+                        </span>
+                      ) : null}
+                    </div>
+                    <Field label="Relationship" value={textOrDash(contact.relationship)} />
+                    <Field label="Phone" value={phoneOrDash(contact.phoneNumber)} />
+                    <Field label="Email" value={textOrDash(contact.email)} />
+                  </dl>
+                ))}
+              </div>
+            )}
+          </SubGroup>
+        ) : null}
       </SectionShell>
 
       {/* ── 2. Employment information ────────────────────────────── */}
       <SectionShell number={2} title="Employment information" icon={<Briefcase className="h-4 w-4" />}>
-        <FieldGrid items={employmentFields} />
+        <FieldGrid items={visibleEmploymentFields} />
         <SubGroup label="Office Address">
           <Field label="Address" value={officeAddress} />
         </SubGroup>
       </SectionShell>
 
       {/* ── 3. Health Insurance information ──────────────────────── */}
-      <SectionShell number={3} title="Health Insurance information" icon={<HeartPulse className="h-4 w-4" />}>
-        {health ? (
-          <>
-            <dl className="mb-5 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
-              <Field label="Health Insurance Status" value={textOrDash(health.insuranceEligibility)} />
-              <Field label="Tenure Tier" value={health.tenureTier || "—"} />
-              <Field
-                label="Company Contribution Per Pay Period"
-                value={
-                  health.companyContributionPerPayPeriod > 0
-                    ? currency.format(health.companyContributionPerPayPeriod)
-                    : "—"
-                }
-              />
-            </dl>
-            {health.elections.length === 0 ? (
-              <p className="text-sm font-medium text-neutral-500">No insurance elections on file.</p>
-            ) : (
-              <div className="space-y-4">
-                {health.elections.map((election) => (
-                  <InsuranceCard key={election.insuranceType} election={election} />
-                ))}
-              </div>
-            )}
-          </>
-        ) : (
-          <p className="text-sm font-medium text-neutral-500">
-            Health insurance information isn't available.
-          </p>
-        )}
-      </SectionShell>
+      {showHealth ? (
+        <SectionShell number={3} title="Health Insurance information" icon={<HeartPulse className="h-4 w-4" />}>
+          {health ? (
+            <>
+              <dl className="mb-5 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+                <Field label="Health Insurance Status" value={textOrDash(health.insuranceEligibility)} />
+                <Field label="Tenure Tier" value={health.tenureTier || "—"} />
+                <Field
+                  label="Company Contribution Per Pay Period"
+                  value={
+                    health.companyContributionPerPayPeriod > 0
+                      ? currency.format(health.companyContributionPerPayPeriod)
+                      : "—"
+                  }
+                />
+              </dl>
+              {health.elections.length === 0 ? (
+                <p className="text-sm font-medium text-neutral-500">No insurance elections on file.</p>
+              ) : (
+                <div className="space-y-4">
+                  {health.elections.map((election) => (
+                    <InsuranceCard key={election.insuranceType} election={election} />
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-sm font-medium text-neutral-500">
+              Health insurance information isn't available.
+            </p>
+          )}
+        </SectionShell>
+      ) : null}
 
       {/* ── 4. Company Property Assignments ──────────────────────── */}
       <SectionShell number={4} title="Company Property Assignments" icon={<Laptop className="h-4 w-4" />}>
-        <FieldGrid items={propertyFields} />
+        <FieldGrid items={visiblePropertyFields} />
       </SectionShell>
 
       {/* ── 5. Software assets ───────────────────────────────────── */}
-      <SectionShell number={5} title="Software assets" icon={<KeyRound className="h-4 w-4" />}>
-        <dt className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">
-          Microsoft Office License
-        </dt>
-        <TagList items={licenses} empty="No licenses found." />
-      </SectionShell>
+      {showSoftware ? (
+        <SectionShell number={5} title="Software assets" icon={<KeyRound className="h-4 w-4" />}>
+          <dt className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">
+            Microsoft Office License
+          </dt>
+          <TagList items={licenses} empty="No licenses found." />
+        </SectionShell>
+      ) : null}
 
       {/* ── 6. Group Membership ──────────────────────────────────── */}
       <SectionShell number={6} title="Group Membership" icon={<Users className="h-4 w-4" />}>

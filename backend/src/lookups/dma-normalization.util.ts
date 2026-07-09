@@ -14,3 +14,15 @@ export function dmaMarketNameNormSql(colExpr: string): string {
          ELSE RTRIM(${colExpr}) END
   , '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '))))`;
 }
+
+/**
+ * JS mirror of {@link dmaMarketNameNormSql} for in-memory joins (e.g. matching
+ * dbo.DMA market names against the small dbo.DMAPopulation reference table without
+ * a SQL-side join). Must stay behaviorally identical to the SQL version.
+ */
+export function normalizeDmaMarketNameJs(name: string): string {
+  let s = name.replace(/\s+$/, '');
+  if (/[.,:;]$/.test(s)) s = s.slice(0, -1);
+  s = s.trim().replace(/\s{2,}/g, ' ');
+  return s.toLowerCase();
+}

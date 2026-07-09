@@ -14,6 +14,8 @@ import {
   updateManagedContact,
   type ApiCompanyListRow,
   type ApiManagedContact,
+  type ApiManagedContactAssignment,
+  type ManagedContactAssignmentInput,
   type ManagedContactPayload,
   type ApiContactConnections,
 } from '@/api/companyApi';
@@ -43,6 +45,29 @@ import { Button } from '@/components/ui/button';
 
 type ToastFn = (message: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 
+function newClientId() {
+  return typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `a-${Date.now()}-${Math.random()}`;
+}
+
+/** One company link being edited in the form — a contact can hold several at once. */
+type ContactCompanyAssignmentDraft = {
+  id: string;
+  companyId: string;
+  roleIds: string[];
+  departmentIds: string[];
+};
+
+function makeAssignmentDraft(assignment?: ApiManagedContactAssignment): ContactCompanyAssignmentDraft {
+  return {
+    id: newClientId(),
+    companyId: assignment ? String(assignment.companyId) : '',
+    roleIds: assignment ? assignment.roleIds.map(String) : [],
+    departmentIds: assignment ? assignment.departmentIds.map(String) : [],
+  };
+}
+
 type ContactDraft = {
   firstName: string;
   lastName: string;
@@ -51,9 +76,7 @@ type ContactDraft = {
   workPhoneDisplay: string;
   cellPhoneCountry: PhoneCountrySelection;
   cellPhoneDisplay: string;
-  companyId: string;
-  roleIds: string[];
-  departmentIds: string[];
+  assignments: ContactCompanyAssignmentDraft[];
 };
 
 function makeDraftFromRow(row?: ApiManagedContact): ContactDraft {
@@ -66,9 +89,7 @@ function makeDraftFromRow(row?: ApiManagedContact): ContactDraft {
       workPhoneDisplay: '',
       cellPhoneCountry: DEFAULT_PHONE_COUNTRY,
       cellPhoneDisplay: '',
-      companyId: '',
-      roleIds: [],
-      departmentIds: [],
+      assignments: [],
     };
   }
   const wp = parsePhoneFieldValue(row.workPhone, DEFAULT_PHONE_COUNTRY);
@@ -81,9 +102,7 @@ function makeDraftFromRow(row?: ApiManagedContact): ContactDraft {
     workPhoneDisplay: wp.display,
     cellPhoneCountry: cp.country,
     cellPhoneDisplay: cp.display,
-    companyId: row.companyIds[0] ? String(row.companyIds[0]) : '',
-    roleIds: row.roleIds.map(String),
-    departmentIds: row.departmentIds.map(String),
+    assignments: row.assignments.map((assignment) => makeAssignmentDraft(assignment)),
   };
 }
 
@@ -119,10 +138,25 @@ function normalizeDraftForCompare(draft: ContactDraft) {
     workPhoneDisplay: draft.workPhoneDisplay.trim(),
     cellPhoneCountry: draft.cellPhoneCountry,
     cellPhoneDisplay: draft.cellPhoneDisplay.trim(),
-    companyId: draft.companyId,
-    roleIds: [...draft.roleIds].sort(),
-    departmentIds: [...draft.departmentIds].sort(),
+    assignments: [...draft.assignments]
+      .map((a) => ({
+        companyId: a.companyId,
+        roleIds: [...a.roleIds].sort(),
+        departmentIds: [...a.departmentIds].sort(),
+      }))
+      .sort((a, b) => a.companyId.localeCompare(b.companyId)),
   };
+}
+
+/** Builds the save payload's `assignments` from draft rows, dropping any with no company picked. */
+function assignmentsPayloadFromDraft(assignments: ContactCompanyAssignmentDraft[]): ManagedContactAssignmentInput[] {
+  return assignments
+    .filter((a) => a.companyId)
+    .map((a) => ({
+      companyId: Number(a.companyId),
+      roleIds: a.roleIds.map(Number).filter((id) => Number.isInteger(id) && id > 0),
+      departmentIds: a.departmentIds.map(Number).filter((id) => Number.isInteger(id) && id > 0),
+    }));
 }
 
 function ContactInlineField({
@@ -219,12 +253,128 @@ function ContactInlineField({
   );
 }
 
+/**
+ * Editable list of company links for a contact. A contact can belong to several
+ * companies at once (e.g. an Entertainment Complex, a Venue Management Company, and
+ * one of its Venues) — each block here is one company with its own roles/departments.
+ * Shared by the edit drawer and the add/edit modal.
+ */
+function CompanyAssignmentEditor({
+  assignments,
+  onChange,
+  companies,
+  roleOptions,
+  departmentOptions,
+}: {
+  assignments: ContactCompanyAssignmentDraft[];
+  onChange: (next: ContactCompanyAssignmentDraft[]) => void;
+  companies: ApiCompanyListRow[];
+  roleOptions: { value: string; label: string }[];
+  departmentOptions: { value: string; label: string }[];
+}) {
+  const companyOptions = useMemo(() => companyToSelect2Options(companies), [companies]);
+  const companyById = useMemo(() => {
+    const map = new Map<number, ApiCompanyListRow>();
+    for (const company of companies) map.set(company.companyId, company);
+    return map;
+  }, [companies]);
+
+  const updateAssignment = (id: string, patch: Partial<ContactCompanyAssignmentDraft>) => {
+    onChange(assignments.map((a) => (a.id === id ? { ...a, ...patch } : a)));
+  };
+  const removeAssignment = (id: string) => {
+    onChange(assignments.filter((a) => a.id !== id));
+  };
+  const addAssignment = () => {
+    onChange([...assignments, makeAssignmentDraft()]);
+  };
+
+  const usedCompanyIds = new Set(assignments.map((a) => a.companyId).filter(Boolean));
+
+  return (
+    <div className="space-y-3">
+      {assignments.length === 0 ? (
+        <p className="rounded-md border border-dashed border-border bg-surface px-3 py-4 text-center text-xs text-text-muted">
+          No companies linked yet.
+        </p>
+      ) : (
+        assignments.map((assignment, index) => {
+          const selectedCompany = assignment.companyId
+            ? companyById.get(Number(assignment.companyId))
+            : null;
+          const optionsForThisRow = companyOptions.filter(
+            (option) => option.value === assignment.companyId || !usedCompanyIds.has(option.value),
+          );
+          return (
+            <div key={assignment.id} className="rounded-md border border-border bg-surface p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  Company {index + 1}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeAssignment(assignment.id)}
+                  className="rounded p-1 text-text-muted transition hover:bg-ems-coral/10 hover:text-ems-coral"
+                  aria-label="Remove this company"
+                >
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <FormField label="Company" required>
+                  <Select2
+                    options={optionsForThisRow}
+                    value={assignment.companyId}
+                    onChange={(companyId) => updateAssignment(assignment.id, { companyId })}
+                    placeholder="Select a company"
+                  />
+                </FormField>
+                <FormField label="Roles" required>
+                  <Select2Multi
+                    options={roleOptions}
+                    values={assignment.roleIds}
+                    onChange={(roleIds) => updateAssignment(assignment.id, { roleIds })}
+                    placeholder="Select one or more roles…"
+                  />
+                </FormField>
+                <FormField label="Departments" required>
+                  <Select2Multi
+                    options={departmentOptions}
+                    values={assignment.departmentIds}
+                    onChange={(departmentIds) => updateAssignment(assignment.id, { departmentIds })}
+                    placeholder="Select one or more departments…"
+                  />
+                </FormField>
+              </div>
+              {selectedCompany ? (
+                <p className="mt-2 text-[11px] text-text-muted">
+                  {[selectedCompany.companyTypeName, selectedCompany.physicalCity, selectedCompany.physicalStateProvince]
+                    .filter(Boolean)
+                    .join(' • ')}
+                  {selectedCompany.isInternal ? ' • Internal IAE staff' : ''}
+                </p>
+              ) : null}
+            </div>
+          );
+        })
+      )}
+      <button
+        type="button"
+        onClick={addAssignment}
+        className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-ems-accent/50 px-3 py-1.5 text-xs font-medium text-ems-accent transition hover:bg-ems-accent-dim"
+      >
+        <Plus className="h-3.5 w-3.5" aria-hidden />
+        Add company
+      </button>
+    </div>
+  );
+}
+
 function ContactDetailDrawer({
   row,
   companies,
   roles,
   departments,
-  companyById,
   saving,
   onClose,
   onDelete,
@@ -234,7 +384,6 @@ function ContactDetailDrawer({
   companies: ApiCompanyListRow[];
   roles: { roleId: number; roleName: string }[];
   departments: { departmentId: number; departmentName: string }[];
-  companyById: Map<number, ApiCompanyListRow>;
   saving: boolean;
   onClose: () => void;
   onDelete: () => void;
@@ -252,15 +401,6 @@ function ContactDetailDrawer({
   const dirty = useMemo(
     () => JSON.stringify(normalizeDraftForCompare(draft)) !== JSON.stringify(normalizeDraftForCompare(initialDraft)),
     [draft, initialDraft],
-  );
-  const hasCompany = Boolean(draft.companyId);
-  const selectedCompany = hasCompany ? companyById.get(Number(draft.companyId)) : null;
-  const companyOptions = useMemo(
-    () => [
-      { value: '', label: 'No company' },
-      ...companyToSelect2Options(companies),
-    ],
-    [companies],
   );
   const roleOptions = useMemo(
     () => roles.map((role) => ({ value: String(role.roleId), label: role.roleName })),
@@ -285,10 +425,18 @@ function ContactDetailDrawer({
       return;
     }
 
-    const roleIds = draft.roleIds.map(Number).filter((id) => Number.isInteger(id) && id > 0);
-    const departmentIds = draft.departmentIds.map(Number).filter((id) => Number.isInteger(id) && id > 0);
-    if (hasCompany && (roleIds.length === 0 || departmentIds.length === 0)) {
-      setError('Company contacts need at least one role and one department.');
+    const assignments = assignmentsPayloadFromDraft(draft.assignments);
+    if (assignments.length !== draft.assignments.length) {
+      setError('Pick a company for every company row, or remove the empty one.');
+      return;
+    }
+    if (assignments.some((a) => a.roleIds.length === 0 || a.departmentIds.length === 0)) {
+      setError('Select at least one role and one department for each company.');
+      return;
+    }
+    const duplicateCompany = new Set(assignments.map((a) => a.companyId)).size !== assignments.length;
+    if (duplicateCompany) {
+      setError('Each company can only be linked once — remove the duplicate.');
       return;
     }
 
@@ -299,9 +447,7 @@ function ContactDetailDrawer({
       email,
       workPhone: tryE164FromDisplay(draft.workPhoneDisplay, draft.workPhoneCountry) || null,
       cellPhone: tryE164FromDisplay(draft.cellPhoneDisplay, draft.cellPhoneCountry) || null,
-      companyId: hasCompany ? Number(draft.companyId) : null,
-      roleIds: hasCompany ? roleIds : [],
-      departmentIds: hasCompany ? departmentIds : [],
+      assignments,
     });
   };
 
@@ -312,17 +458,17 @@ function ContactDetailDrawer({
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-lg font-semibold text-text-primary">{contactName(row)}</h2>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-muted">
-            {hasCompany ? (
+            {row.companyNames.length > 0 ? (
               <>
-                <span className="inline-flex items-center gap-1 rounded-md bg-ems-accent-dim px-2 py-0.5 text-[11px] font-medium text-ems-accent">
-                  <Building2 className="h-3 w-3" aria-hidden />
-                  {selectedCompany?.companyName || row.companyNames[0] || 'Company contact'}
-                </span>
-                {selectedCompany?.companyTypeName && (
-                  <span className="inline-flex items-center rounded-md bg-elevated px-2 py-0.5 text-[11px] font-medium text-text-secondary">
-                    {selectedCompany.companyTypeName}
+                {row.companyNames.map((name) => (
+                  <span
+                    key={name}
+                    className="inline-flex items-center gap-1 rounded-md bg-ems-accent-dim px-2 py-0.5 text-[11px] font-medium text-ems-accent"
+                  >
+                    <Building2 className="h-3 w-3" aria-hidden />
+                    {name}
                   </span>
-                )}
+                ))}
                 {row.isStaff ? internalStaffChip() : null}
               </>
             ) : (
@@ -389,58 +535,18 @@ function ContactDetailDrawer({
 
           <section className="space-y-4">
             <div className="border-b border-border pb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
-              Company assignment
+              Company assignments
             </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <FormField label="Company">
-                <Select2
-                  options={companyOptions}
-                  value={draft.companyId}
-                  onChange={(companyId) =>
-                    setDraft((current) => ({
-                      ...current,
-                      companyId,
-                      roleIds: companyId ? current.roleIds : [],
-                      departmentIds: companyId ? current.departmentIds : [],
-                    }))
-                  }
-                  placeholder="Select a company"
-                  allowClear
-                />
-              </FormField>
-              <div className="rounded-md border border-border bg-surface px-3 py-2 text-xs text-text-muted">
-                {selectedCompany ? (
-                  <>
-                    <div className="font-medium text-text-primary">{selectedCompany.companyName}</div>
-                    <div className="mt-1">
-                      {[selectedCompany.companyTypeName, selectedCompany.physicalCity, selectedCompany.physicalStateProvince]
-                        .filter(Boolean)
-                        .join(' • ')}
-                    </div>
-                  </>
-                ) : (
-                  'No company selected. Pick a company marked Internal to make this an IAE staff contact.'
-                )}
-              </div>
-              <FormField label="Roles" required={hasCompany}>
-                <Select2Multi
-                  options={roleOptions}
-                  values={draft.roleIds}
-                  onChange={(roleIds) => setDraft((current) => ({ ...current, roleIds }))}
-                  placeholder={hasCompany ? 'Select one or more roles…' : 'Only used for company contacts'}
-                  disabled={!hasCompany}
-                />
-              </FormField>
-              <FormField label="Departments" required={hasCompany}>
-                <Select2Multi
-                  options={departmentOptions}
-                  values={draft.departmentIds}
-                  onChange={(departmentIds) => setDraft((current) => ({ ...current, departmentIds }))}
-                  placeholder={hasCompany ? 'Select one or more departments…' : 'Only used for company contacts'}
-                  disabled={!hasCompany}
-                />
-              </FormField>
-            </div>
+            <p className="text-xs text-text-muted">
+              A contact can belong to multiple companies at once — add each one with its own roles and departments.
+            </p>
+            <CompanyAssignmentEditor
+              assignments={draft.assignments}
+              onChange={(assignments) => setDraft((current) => ({ ...current, assignments }))}
+              companies={companies}
+              roleOptions={roleOptions}
+              departmentOptions={departmentOptions}
+            />
           </section>
 
           <section className="space-y-4">
@@ -464,15 +570,6 @@ function ContactDetailDrawer({
               />
             </div>
           </section>
-
-          {row.companyNames.length > 1 && (
-            <section className="rounded-md border border-border bg-surface p-3">
-              <div className="text-xs font-medium uppercase tracking-wide text-text-muted">Additional companies</div>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {row.companyNames.slice(1).map((name) => chip(name))}
-              </div>
-            </section>
-          )}
 
           {error && (
             <div className="rounded-md border border-ems-coral/40 bg-ems-coral/10 px-3 py-2 text-sm text-ems-coral">
@@ -534,14 +631,6 @@ function ContactModal({
 }) {
   const [draft, setDraft] = useState<ContactDraft>(() => makeDraftFromRow(row ?? undefined));
   const [error, setError] = useState<string | null>(null);
-  const hasCompany = Boolean(draft.companyId);
-  const companyOptions = useMemo(
-    () => [
-      { value: '', label: 'No company' },
-      ...companyToSelect2Options(companies),
-    ],
-    [companies],
-  );
   const roleOptions = roles.map((role) => ({ value: String(role.roleId), label: role.roleName }));
   const departmentOptions = departments.map((department) => ({
     value: String(department.departmentId),
@@ -558,12 +647,19 @@ function ContactModal({
       setError('First name, last name, and email are required.');
       return;
     }
-    const roleIds = draft.roleIds.map(Number).filter((id) => Number.isInteger(id) && id > 0);
-    const departmentIds = draft.departmentIds
-      .map(Number)
-      .filter((id) => Number.isInteger(id) && id > 0);
-    if (hasCompany && (roleIds.length === 0 || departmentIds.length === 0)) {
-      setError('Company contacts need at least one role and one department.');
+
+    const assignments = assignmentsPayloadFromDraft(draft.assignments);
+    if (assignments.length !== draft.assignments.length) {
+      setError('Pick a company for every company row, or remove the empty one.');
+      return;
+    }
+    if (assignments.some((a) => a.roleIds.length === 0 || a.departmentIds.length === 0)) {
+      setError('Select at least one role and one department for each company.');
+      return;
+    }
+    const duplicateCompany = new Set(assignments.map((a) => a.companyId)).size !== assignments.length;
+    if (duplicateCompany) {
+      setError('Each company can only be linked once — remove the duplicate.');
       return;
     }
     setError(null);
@@ -577,9 +673,7 @@ function ContactModal({
       email,
       workPhone,
       cellPhone,
-      companyId: hasCompany ? Number(draft.companyId) : null,
-      roleIds: hasCompany ? roleIds : [],
-      departmentIds: hasCompany ? departmentIds : [],
+      assignments,
     });
   };
 
@@ -613,7 +707,7 @@ function ContactModal({
       <div className="space-y-6">
         <div className="rounded-md border border-ems-accent/30 bg-ems-accent-dim px-3 py-2 text-xs text-text-secondary flex items-start gap-2">
           <span className="mt-0.5 shrink-0 text-ems-accent">ⓘ</span>
-          <span>Pick a company for this contact. Contacts assigned to a company marked Internal are treated as IAE staff.</span>
+          <span>A contact can belong to multiple companies at once. Contacts assigned to a company marked Internal are treated as IAE staff.</span>
         </div>
 
         <section className="space-y-4">
@@ -629,22 +723,6 @@ function ContactModal({
             </FormField>
             <FormField label="Email" required>
               <input className={inputCls} value={draft.email} maxLength={254} type="email" onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))} />
-            </FormField>
-            <FormField label="Company">
-              <Select2
-                options={companyOptions}
-                value={draft.companyId}
-                onChange={(companyId) =>
-                  setDraft((d) => ({
-                    ...d,
-                    companyId,
-                    roleIds: companyId ? d.roleIds : [],
-                    departmentIds: companyId ? d.departmentIds : [],
-                  }))
-                }
-                placeholder="Select a company"
-                allowClear
-              />
             </FormField>
           </div>
         </section>
@@ -674,28 +752,15 @@ function ContactModal({
 
         <section className="space-y-4">
           <div className="border-b border-border pb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
-            Company details
+            Company assignments
           </div>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <FormField label="Roles" required={hasCompany}>
-              <Select2Multi
-                options={roleOptions}
-                values={draft.roleIds}
-                onChange={(roleIds) => setDraft((d) => ({ ...d, roleIds }))}
-                placeholder={hasCompany ? 'Select one or more roles…' : 'Only used for company contacts'}
-                disabled={!hasCompany}
-              />
-            </FormField>
-            <FormField label="Departments" required={hasCompany}>
-              <Select2Multi
-                options={departmentOptions}
-                values={draft.departmentIds}
-                onChange={(departmentIds) => setDraft((d) => ({ ...d, departmentIds }))}
-                placeholder={hasCompany ? 'Select one or more departments…' : 'Only used for company contacts'}
-                disabled={!hasCompany}
-              />
-            </FormField>
-          </div>
+          <CompanyAssignmentEditor
+            assignments={draft.assignments}
+            onChange={(assignments) => setDraft((d) => ({ ...d, assignments }))}
+            companies={companies}
+            roleOptions={roleOptions}
+            departmentOptions={departmentOptions}
+          />
         </section>
 
         {error && (
@@ -1200,7 +1265,6 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
           companies={companies}
           roles={lookupsQuery.data?.roles ?? []}
           departments={lookupsQuery.data?.departments ?? []}
-          companyById={companyById}
           saving={saveMutation.isPending}
           onClose={() => setSelectedContact(null)}
           onDelete={() => {

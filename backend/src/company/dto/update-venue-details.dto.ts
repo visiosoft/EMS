@@ -10,6 +10,18 @@ import {
 import { UpdateVenueProfileDto } from './update-venue-profile.dto';
 
 class ContactDraftDto {
+  /**
+   * When set, links this EXISTING contact to the role directly (by id) instead of
+   * re-matching on the typed email. This is how the Venue Profile "assign existing
+   * contact" picker attaches a venue's already-known contact (e.g. its Booking
+   * Director) to a role without creating a duplicate Contact/ContactInfo.
+   */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  contactId?: number | null;
+
   /** "First Last" (split on first whitespace). */
   @IsOptional()
   fullName?: string;

@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, Plus, X } from 'lucide-react';
 import { ContactPhoneRow } from './ContactPhoneRow';
 import { FormField } from './Primitives';
-import { Select2 } from './Select2';
+import { Select2, type Select2Option } from './Select2';
 import { companyToSelect2Options } from './companySelectOptions';
 import { DEFAULT_PHONE_COUNTRY } from '@/lib/contactPhoneOptions';
 import {
@@ -15,6 +15,7 @@ import {
 import type { Company } from '@/data/constants';
 import type {
   ApiBrand,
+  ApiCompanyContact,
   ApiSeatingType,
   ApiNonResidentWithholdingOption,
   ApiServiceProvided,
@@ -25,6 +26,7 @@ import type {
 } from '@/api/companyApi';
 import {
   entertainmentComplexCompaniesQueryKey,
+  fetchCompanyContacts,
   fetchEntertainmentComplexCompanyRows,
   fetchVenueDetails,
   fetchVenueProfile,
@@ -73,6 +75,9 @@ function newClientId() {
 
 type VenueLocalContactBlock = {
   id: string;
+  /** Set when this row was populated from (or explicitly linked to) an existing contact. */
+  contactId: number | null;
+  contactInfoId: number | null;
   fullName: string;
   email: string;
   workPhoneCountry: PhoneCountrySelection;
@@ -84,6 +89,8 @@ type VenueLocalContactBlock = {
 function emptyContactBlock(): VenueLocalContactBlock {
   return {
     id: newClientId(),
+    contactId: null,
+    contactInfoId: null,
     fullName: '',
     email: '',
     workPhoneCountry: DEFAULT_PHONE_COUNTRY,
@@ -126,6 +133,8 @@ function apiRowToBlock(row: ApiVenueRoleContact): VenueLocalContactBlock {
   });
   return {
     id: newClientId(),
+    contactId: row.contactId ?? null,
+    contactInfoId: row.contactInfoId ?? null,
     fullName: row.fullName ?? '',
     email: row.email ?? '',
     workPhoneCountry: w.country,
@@ -184,6 +193,7 @@ function blocksToContactPayload(blocks: VenueLocalContactBlock[] | undefined) {
     .map((b) => {
       const { phone, cellPhone } = blockPhonesToE164(b);
       return {
+        contactId: b.contactId ?? null,
         fullName: b.fullName.trim(),
         email: b.email.trim(),
         phone,
@@ -191,7 +201,9 @@ function blocksToContactPayload(blocks: VenueLocalContactBlock[] | undefined) {
       };
     })
     .filter(
-      (c) => c.email.length + c.fullName.length + c.phone.length + c.cellPhone.length > 0,
+      (c) =>
+        c.contactId != null ||
+        c.email.length + c.fullName.length + c.phone.length + c.cellPhone.length > 0,
     );
 }
 
@@ -309,6 +321,37 @@ function contactSigFromApiRows(rows: ApiVenueRoleContact[] | undefined) {
   return contactBlocksSignature(rows.map(apiRowToBlock));
 }
 
+/**
+ * Existing venue contacts, for the "assign existing contact" picker below. Fetched
+ * once per venue and shared (via React Query's cache) across every role section on
+ * the page, since they all draw from the same company's Contacts list.
+ */
+function useVenueContactPickerOptions(companyId: number) {
+  const contactsQ = useQuery({
+    queryKey: ['companies', companyId, 'contacts-picker'],
+    queryFn: () => fetchCompanyContacts(companyId),
+    enabled: Number.isFinite(companyId) && companyId > 0,
+    staleTime: 60 * 1000,
+  });
+  const contacts = contactsQ.data ?? [];
+  const contactsById = useMemo(() => {
+    const map = new Map<number, ApiCompanyContact>();
+    for (const contact of contacts) map.set(contact.contactId, contact);
+    return map;
+  }, [contacts]);
+  const options: Select2Option[] = useMemo(
+    () =>
+      contacts.map((contact) => ({
+        value: String(contact.contactId),
+        label: `${contact.firstName} ${contact.lastName}`.trim() || contact.email,
+        description: contact.roleName || undefined,
+        rightText: contact.email || undefined,
+      })),
+    [contacts],
+  );
+  return { options, contactsById };
+}
+
 function VenueRoleContactBlockGroup({
   roleTitle,
   blocks,
@@ -316,6 +359,7 @@ function VenueRoleContactBlockGroup({
   onAdd,
   onRemove,
   inputCls,
+  companyId,
 }: {
   roleTitle: string;
   blocks: VenueLocalContactBlock[] | undefined;
@@ -323,8 +367,31 @@ function VenueRoleContactBlockGroup({
   onAdd: () => void;
   onRemove: (id: string) => void;
   inputCls: string;
+  companyId: number;
 }) {
   const list = Array.isArray(blocks) ? blocks : [];
+  const { options: contactOptions, contactsById } = useVenueContactPickerOptions(companyId);
+
+  const applyExistingContact = (blockId: string, contactIdValue: string) => {
+    if (!contactIdValue) {
+      onUpdate(blockId, { contactId: null, contactInfoId: null });
+      return;
+    }
+    const contact = contactsById.get(Number(contactIdValue));
+    if (!contact) return;
+    const w = parsePhoneFieldValue(contact.workPhone, DEFAULT_PHONE_COUNTRY, { noCountryWhenEmpty: true });
+    const c = parsePhoneFieldValue(contact.cellPhone, DEFAULT_PHONE_COUNTRY, { noCountryWhenEmpty: true });
+    onUpdate(blockId, {
+      contactId: contact.contactId,
+      contactInfoId: contact.contactInfoId,
+      fullName: `${contact.firstName} ${contact.lastName}`.trim(),
+      email: contact.email ?? '',
+      workPhoneCountry: w.country,
+      workPhoneDisplay: w.display,
+      cellPhoneCountry: c.country,
+      cellPhoneDisplay: c.display,
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -338,6 +405,15 @@ function VenueRoleContactBlockGroup({
               {idx === 0 ? roleTitle : ''}
             </div>
             <div className="min-w-0 space-y-3">
+              <div className="min-w-0">
+                <Select2
+                  options={contactOptions}
+                  value={block.contactId != null ? String(block.contactId) : ''}
+                  onChange={(value) => applyExistingContact(block.id, value)}
+                  placeholder="Assign an existing contact…"
+                  allowClear
+                />
+              </div>
               <div className="flex items-start gap-1.5">
                 <div className="min-w-0 flex-1">
                   <input
@@ -355,8 +431,8 @@ function VenueRoleContactBlockGroup({
                     type="button"
                     onClick={onAdd}
                     className="flex-shrink-0 p-1.5 rounded-md text-emerald-600 hover:bg-emerald-600/10"
-                    title="Add another"
-                    aria-label="Add another contact"
+                    title="Add a new contact"
+                    aria-label="Add a new contact"
                   >
                     <Plus className="h-4 w-4" strokeWidth={2.5} />
                   </button>
@@ -1827,6 +1903,7 @@ export function CompanyVenueProfilePanel({
                 setFinanceBlocks((p) => (p.length < 2 ? p : p.filter((b) => b.id !== id)))
               }
               inputCls={inputCls}
+              companyId={companyId}
             />
             <VenueRoleContactBlockGroup
               roleTitle="Settlement Manager"
@@ -1843,6 +1920,7 @@ export function CompanyVenueProfilePanel({
                 )
               }
               inputCls={inputCls}
+              companyId={companyId}
             />
             <div className="flex flex-wrap justify-end pt-1">
               <button
@@ -1873,6 +1951,7 @@ export function CompanyVenueProfilePanel({
                 )
               }
               inputCls={inputCls}
+              companyId={companyId}
             />
             <div className="flex flex-wrap justify-end pt-1">
               <button
@@ -1901,6 +1980,7 @@ export function CompanyVenueProfilePanel({
                 setTechnicalBlocks((p) => (p.length < 2 ? p : p.filter((b) => b.id !== id)))
               }
               inputCls={inputCls}
+              companyId={companyId}
             />
             <VenueRoleContactBlockGroup
               roleTitle="Stagehand Provider"
@@ -1917,6 +1997,7 @@ export function CompanyVenueProfilePanel({
                 )
               }
               inputCls={inputCls}
+              companyId={companyId}
             />
             <FormField label="Load-in Dock Physical Address">
               <input
@@ -1966,6 +2047,7 @@ export function CompanyVenueProfilePanel({
                 )
               }
               inputCls={inputCls}
+              companyId={companyId}
             />
             <div className="flex flex-wrap justify-end pt-1">
               <button
@@ -2000,6 +2082,7 @@ export function CompanyVenueProfilePanel({
                 )
               }
               inputCls={inputCls}
+              companyId={companyId}
             />
             <VenueRoleContactBlockGroup
               roleTitle="Rental Manager"
@@ -2016,6 +2099,7 @@ export function CompanyVenueProfilePanel({
                 )
               }
               inputCls={inputCls}
+              companyId={companyId}
             />
             <VenueRoleContactBlockGroup
               roleTitle="Calendar Manager"
@@ -2032,6 +2116,7 @@ export function CompanyVenueProfilePanel({
                 )
               }
               inputCls={inputCls}
+              companyId={companyId}
             />
             <VenueRoleContactBlockGroup
               roleTitle="Contracts Manager"
@@ -2048,6 +2133,7 @@ export function CompanyVenueProfilePanel({
                 )
               }
               inputCls={inputCls}
+              companyId={companyId}
             />
             <div className="max-w-3xl space-y-3 pt-1">
               <FormField label="Insurance policy copy requirements">

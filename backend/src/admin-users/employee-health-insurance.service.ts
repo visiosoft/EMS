@@ -181,6 +181,9 @@ export class EmployeeHealthInsuranceService {
     const hasPlanTable = await this.tableExists('HealthPlan');
     const hasPricingTable = await this.tableExists('HealthPlanPricing');
     const hasBenefitTable = await this.tableExists('HealthPlanBenefit');
+    const hasContributionRuleTable = await this.tableExists(
+      'HealthPlanContributionRule',
+    );
 
     // 2. Determine tenure tier and insurance eligibility from StartDate
     let insuranceEligibility = 'Ineligible';
@@ -240,6 +243,46 @@ export class EmployeeHealthInsuranceService {
           }
         }
 
+        // Employer contribution % per plan, keyed by tenure tier
+        // (dbo.HealthPlanContributionRule: 1+ year of service = 100%, <1 year = 50%).
+        // This is what lets us COMPUTE the employee's payroll deduction and the company's
+        // contribution instead of relying on a manually-entered DeductionPerPayPeriod.
+        const contributionByPlan = new Map<
+          number,
+          { tierRaw: string; pct: number }[]
+        >();
+        if (hasContributionRuleTable && planIds.length > 0) {
+          const placeholders = planIds.map((_, i) => `@${i}`).join(', ');
+          const ruleRows = await this.dataSource.query(
+            `SELECT HealthPlanID, TenureTier, EmployerContributionPct
+             FROM dbo.HealthPlanContributionRule
+             WHERE HealthPlanID IN (${placeholders})
+               AND (EndDate IS NULL OR EndDate >= CAST(GETUTCDATE() AS date))`,
+            planIds,
+          );
+          for (const rr of ruleRows as Record<string, unknown>[]) {
+            const pid = readNumber(rr, 'HealthPlanID');
+            if (pid == null) continue;
+            const list = contributionByPlan.get(pid) ?? [];
+            list.push({
+              tierRaw: readString(rr, 'TenureTier'),
+              pct: Number(rr['EmployerContributionPct'] ?? 0),
+            });
+            contributionByPlan.set(pid, list);
+          }
+        }
+        const employerPctFor = (planId: number): number | null => {
+          const list = contributionByPlan.get(planId);
+          if (!list || list.length === 0) return null;
+          const match = list.find((r) => {
+            const t = r.tierRaw.toLowerCase();
+            if (tenureTier === '1+ yr') return t.startsWith('1+');
+            if (tenureTier === '<1 yr') return t.includes('less than');
+            return false;
+          });
+          return match ? match.pct : null;
+        };
+
         // API label 'Health' matches what the frontend (EMS + Hub) already expects for
         // the medical election, even though the DB column prefix/PlanType is 'Medical'.
         const TYPE_COLUMNS = [
@@ -281,10 +324,20 @@ export class EmployeeHealthInsuranceService {
               const monthly = Number(priceRows[0].MonthlyPremium ?? 0);
               election.planPrice = `$${monthly.toFixed(2)}/mo`;
               election.monthlyRate = `$${monthly.toFixed(2)}/mo`;
-              // Company's share of the monthly premium, per pay period (26/yr).
-              const empPP = (monthly * 12) / 26;
-              if (election.optInStatus === 'Opt-In' && empPP > deduction) {
-                companyContribPP += empPP - deduction;
+              // Split the premium into employee/employer shares per pay period (26/yr).
+              // Preferred: derive from the tenure-based employer contribution rule
+              // (row 59 "payroll deduction — develop the calculation"). Fallback: the
+              // manually-entered DeductionPerPayPeriod when no rule exists for the plan.
+              if (election.optInStatus === 'Opt-In') {
+                const employerPct = employerPctFor(healthPlanId);
+                if (employerPct != null) {
+                  const employeeDeductionPP = (monthly * (1 - employerPct) * 12) / 26;
+                  election.payrollDeduction = `$${employeeDeductionPP.toFixed(2)}/pay period`;
+                  companyContribPP += (monthly * employerPct * 12) / 26;
+                } else {
+                  const empPP = (monthly * 12) / 26;
+                  if (empPP > deduction) companyContribPP += empPP - deduction;
+                }
               }
             }
 
