@@ -72,7 +72,7 @@ export interface RampTransaction {
 
 export interface RampBill {
   id: string;
-  amount: { amount: number; currency_code: string } | null;
+  amount: { amount: number; currency_code: string; minor_unit_conversion_rate?: number } | null;
   invoice_number: string | null;
   memo: string | null;
   due_at: string | null;
@@ -82,6 +82,7 @@ export interface RampBill {
   status_summary: string | null;
   vendor: { id: string; name: string } | null;
   line_items: { amount: number; memo: string | null }[];
+  invoice_urls?: string[];
 }
 
 export interface RampDepartment {
@@ -167,10 +168,17 @@ export interface RampEngagementAccountingContext {
   mapping: RampEngagementMapping;
   matchedFields: RampAccountingField[];
   matchedOptions: RampAccountingFieldOption[];
-  glAccounts: RampGlAccount[];
-  accountingVendors: RampAccountingVendor[];
   allFields: RampAccountingField[];
-  customerJobOptions: RampAccountingFieldOption[];
+  customerJobOptionsCount: number;
+}
+
+export interface RampEngagementGlAccountsResponse {
+  glAccounts: RampGlAccount[];
+  glAccountAmounts: Record<string, number>;
+}
+
+export interface RampEngagementAccountingVendorsResponse {
+  accountingVendors: RampAccountingVendor[];
 }
 
 export interface RampSpendProgram {
@@ -409,6 +417,9 @@ export function fetchRampSpendPrograms(params?: {
 export interface RampMemo {
   id: string;
   memo: string | null;
+  transaction_id?: string | null;
+  transaction_amount?: number | null;
+  merchant_name?: string | null;
 }
 
 export function fetchRampMemos(params?: {
@@ -425,6 +436,14 @@ export function fetchRampMemos(params?: {
 }): Promise<RampPagedResponse<RampMemo>> {
   const qs = buildQuery(params);
   return apiFetch<RampPagedResponse<RampMemo>>(`/ramp/memos${qs}`);
+}
+
+export function fetchEngagementRampMemos(
+  engagementId: number,
+  params?: { page_size?: number; start?: string },
+): Promise<RampPagedResponse<RampMemo>> {
+  const qs = buildQuery(params);
+  return apiFetch<RampPagedResponse<RampMemo>>(`/ramp/engagement/${engagementId}/memos${qs}`);
 }
 
 // ─── Accounting ─────────────────────────────────────────────────────────────
@@ -580,6 +599,24 @@ export function fetchEngagementRampAccounting(
   engagementId: number,
 ): Promise<RampEngagementAccountingContext> {
   return apiFetch<RampEngagementAccountingContext>(`/ramp/engagement/${engagementId}/accounting`);
+}
+
+export function fetchEngagementRampGlAccounts(
+  engagementId: number,
+): Promise<RampEngagementGlAccountsResponse> {
+  return apiFetch<RampEngagementGlAccountsResponse>(`/ramp/engagement/${engagementId}/gl-accounts`);
+}
+
+export function fetchEngagementRampAccountingVendors(
+  engagementId: number,
+): Promise<RampEngagementAccountingVendorsResponse> {
+  return apiFetch<RampEngagementAccountingVendorsResponse>(`/ramp/engagement/${engagementId}/accounting-vendors`);
+}
+
+export function fetchEngagementRampCustomerJobOptions(
+  engagementId: number,
+): Promise<{ fieldName: string | null; options: RampAccountingFieldOption[] }> {
+  return apiFetch<{ fieldName: string | null; options: RampAccountingFieldOption[] }>(`/ramp/engagement/${engagementId}/customer-job-options`);
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
