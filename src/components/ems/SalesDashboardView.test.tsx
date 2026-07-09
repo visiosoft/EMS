@@ -120,6 +120,18 @@ function renderDashboard() {
   );
 }
 
+// The Event Audit renders twice — a spreadsheet table (md and up) and stacked
+// cards (mobile). Both live in the DOM under jsdom, so resolve the desktop
+// table by finding the "Yesterday's Wrap" occurrence that has a <table> ancestor.
+function yesterdaysWrapTable(): HTMLTableElement | null {
+  return (
+    screen
+      .getAllByText("Yesterday's Wrap")
+      .map((el) => el.closest('table'))
+      .find((t): t is HTMLTableElement => t !== null) ?? null
+  );
+}
+
 describe('SalesDashboardView', () => {
   it('keeps chart unit tabs visible in the expanded chart screen', () => {
     renderDashboard();
@@ -155,13 +167,13 @@ describe('SalesDashboardView', () => {
     // recent day sales actually occurred — May 22's report (5 tickets / $50).
     renderDashboard();
 
-    const wrapRow = screen.getByText('Total Tickets Sold Yesterday').closest('th');
+    const wrapRow = yesterdaysWrapTable()?.querySelector('thead');
     expect(wrapRow).not.toBeNull();
+    expect(
+      within(wrapRow as HTMLElement).getByText('Total # of Tickets Sold Yesterday'),
+    ).toBeVisible();
 
-    const valuesRow = screen
-      .getByText("Yesterday's Wrap")
-      .closest('table')
-      ?.querySelector('tbody tr');
+    const valuesRow = yesterdaysWrapTable()?.querySelector('tbody tr');
     expect(valuesRow).not.toBeNull();
     expect(within(valuesRow as HTMLElement).getAllByText('5')[0]).toBeVisible();
     expect(within(valuesRow as HTMLElement).getAllByText('$50')[0]).toBeVisible();
@@ -194,10 +206,7 @@ describe('SalesDashboardView', () => {
       />,
     );
 
-    const valuesRow = screen
-      .getByText("Yesterday's Wrap")
-      .closest('table')
-      ?.querySelector('tbody tr');
+    const valuesRow = yesterdaysWrapTable()?.querySelector('tbody tr');
     expect(valuesRow).not.toBeNull();
     // Jun 29 delta: 1312 - 1275 = 37 tickets, 111424 - 108660 = $2,764
     expect(within(valuesRow as HTMLElement).getByText('37')).toBeVisible();
@@ -442,7 +451,7 @@ describe('SalesDashboardView', () => {
     );
 
     // The wrap section should still show values from the latest reported day
-    const wrapTable = screen.getByText("Yesterday's Wrap").closest('table');
+    const wrapTable = yesterdaysWrapTable();
     expect(wrapTable).not.toBeNull();
     const valuesRow = wrapTable?.querySelector('tbody tr');
     expect(valuesRow).not.toBeNull();
