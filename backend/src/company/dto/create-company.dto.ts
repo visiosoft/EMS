@@ -16,7 +16,7 @@ import { CompanyServiceAreaDto } from './company-service-area.dto';
 export class CreateCompanyDto {
   @IsString()
   @IsNotEmpty()
-  @MaxLength(200)
+  @MaxLength(1000)
   companyName: string;
 
   @IsOptional()
