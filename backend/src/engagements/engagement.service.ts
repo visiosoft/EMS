@@ -453,6 +453,7 @@ export interface FinanceMasterOption {
   label: string;
   withholdingTaxRate?: string | null;
   withholdingArea?: string | null;
+  areaCategory?: string | null;
   dmaid?: number | null;
   taxAgencyId?: number | null;
   withholdingAgencyName?: string | null;
@@ -2771,6 +2772,7 @@ export class EngagementService {
       artistWaiverInstructionsId: number | null;
       iaeWaiverInstructionsId: number | null;
       withholdingArea: string | null;
+      areaCategory: string | null;
       withholdingAgencyName: string | null;
       withholdingPayee: string | null;
       paymentMethod: string | null;
@@ -2792,6 +2794,7 @@ export class EngagementService {
     let rows: Record<string, unknown>[] = [];
     const extraCols = `
             ,w.WithholdingArea AS withholdingArea
+            ,w.AreaCategory AS areaCategory
             ,w.WithholdingAgencyName AS withholdingAgencyName
             ,w.WithholdingPayee AS withholdingPayee
             ,w.PaymentMethod AS paymentMethod
@@ -2854,6 +2857,7 @@ export class EngagementService {
           artistWaiverInstructionsId: row.artistWaiverInstructionsId == null ? null : Number(row.artistWaiverInstructionsId),
           iaeWaiverInstructionsId: row.iaeWaiverInstructionsId == null ? null : Number(row.iaeWaiverInstructionsId),
           withholdingArea: row.withholdingArea == null ? null : String(row.withholdingArea),
+          areaCategory: row.areaCategory == null ? null : String(row.areaCategory),
           withholdingAgencyName: row.withholdingAgencyName == null ? null : String(row.withholdingAgencyName),
           withholdingPayee: row.withholdingPayee == null ? null : String(row.withholdingPayee),
           paymentMethod: row.paymentMethod == null ? null : String(row.paymentMethod),
@@ -4430,6 +4434,7 @@ export class EngagementService {
       label: `Withholding #${r.withholdingId} (rate ${r.withholdingTaxRate})`,
       withholdingTaxRate: String(r.withholdingTaxRate ?? ''),
       withholdingArea: r.withholdingArea ?? (r.dmaid != null ? (dmaAreaById.get(r.dmaid) ?? null) : null),
+      areaCategory: r.areaCategory ?? null,
       dmaid: r.dmaid ?? null,
       taxAgencyId: r.taxAgencyId ?? null,
       withholdingAgencyName: r.withholdingAgencyName ?? null,
@@ -4647,35 +4652,60 @@ export class EngagementService {
 
       const venueCompany =
         venueCompanyId != null
-          ? await em.findOne(Company, { where: { companyId: venueCompanyId } })
+          ? await em.findOne(Company, {
+              where: { companyId: venueCompanyId },
+              relations: ['physicalAddress'],
+            })
           : null;
-      const hasDmaId = await this.nonResidentWithholdingHasDmaId();
+
+      // ── Match existing NRW by geography (city → state → country) ──────
+      const venueAddress = venueCompany?.physicalAddress ?? null;
+      const venueCity = venueAddress?.city?.trim() || null;
+      const venueState = venueAddress?.stateProvince?.trim() || null;
+      const venueCountry = venueAddress?.country?.trim() || null;
+
+      const allNrwRows = await this.listNonResidentWithholdingRowsSafe(em);
+      const matchByArea = (area: string | null): typeof allNrwRows[number] | undefined => {
+        if (!area) return undefined;
+        const lower = area.toLowerCase();
+        return allNrwRows.find(
+          (r) => r.withholdingArea != null && r.withholdingArea.toLowerCase() === lower,
+        );
+      };
+      // Try most-specific first: city, then state, then country
+      const geoMatch = matchByArea(venueCity) ?? matchByArea(venueState) ?? matchByArea(venueCountry);
       let savedWithholdingId: number | null = null;
-      if (hasDmaId) {
-        const withholding = em.create(NonResidentWithholding, {
-          withholdingTaxRate: '0',
-          dmaid: venueCompany?.dmaid ?? null,
-          taxAgencyId: null,
-          withholdingLinkId: null,
-          artistWaiverInstructionsId: null,
-          iaeWaiverInstructionsId: null,
-        });
-        const savedWithholding = await em.save(
-          NonResidentWithholding,
-          withholding,
-        );
-        savedWithholdingId = savedWithholding.withholdingId;
+
+      if (geoMatch) {
+        savedWithholdingId = geoMatch.withholdingId;
       } else {
-        const inserted = await em.query(
-          `
-            INSERT INTO [dbo].[NonResidentWithholding]
-              ([WithholdingTaxRate], [TaxAgencyID], [WithholdingLinkID], [ArtistWaiverInstructionsID], [IAEWaiverInstructionsID])
-            VALUES (@0, @1, @2, @3, @4);
-            SELECT CAST(SCOPE_IDENTITY() AS int) AS withholdingId;
-          `,
-          ['0', null, null, null, null],
-        );
-        savedWithholdingId = Number(inserted?.[0]?.withholdingId ?? NaN);
+        const hasDmaId = await this.nonResidentWithholdingHasDmaId();
+        if (hasDmaId) {
+          const withholding = em.create(NonResidentWithholding, {
+            withholdingTaxRate: '0',
+            dmaid: venueCompany?.dmaid ?? null,
+            taxAgencyId: null,
+            withholdingLinkId: null,
+            artistWaiverInstructionsId: null,
+            iaeWaiverInstructionsId: null,
+          });
+          const savedWithholding = await em.save(
+            NonResidentWithholding,
+            withholding,
+          );
+          savedWithholdingId = savedWithholding.withholdingId;
+        } else {
+          const inserted = await em.query(
+            `
+              INSERT INTO [dbo].[NonResidentWithholding]
+                ([WithholdingTaxRate], [TaxAgencyID], [WithholdingLinkID], [ArtistWaiverInstructionsID], [IAEWaiverInstructionsID])
+              VALUES (@0, @1, @2, @3, @4);
+              SELECT CAST(SCOPE_IDENTITY() AS int) AS withholdingId;
+            `,
+            ['0', null, null, null, null],
+          );
+          savedWithholdingId = Number(inserted?.[0]?.withholdingId ?? NaN);
+        }
       }
       if (!Number.isInteger(savedWithholdingId) || savedWithholdingId < 1) {
         throw new BadRequestException({
