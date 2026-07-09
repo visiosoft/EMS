@@ -17,7 +17,7 @@ export class UpdateCompanyDto {
   @IsOptional()
   @IsString()
   @IsNotEmpty()
-  @MaxLength(200)
+  @MaxLength(1000)
   companyName?: string;
 
   @IsOptional()

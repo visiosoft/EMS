@@ -49,7 +49,7 @@ class LoadDockAddressDto {
 export class UpdateVenueProfileDto {
   @IsOptional()
   @IsString()
-  @MaxLength(200)
+  @MaxLength(1000)
   venueName?: string;
 
   @IsOptional()

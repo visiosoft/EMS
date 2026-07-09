@@ -2434,7 +2434,7 @@ export class CompanyService {
   ): Partial<Venue> {
     return {
       companyId,
-      venueName: companyName.trim().slice(0, 200),
+      venueName: companyName.trim(),
       seatingCapacity: 0,
       salesTaxRate: null,
       taxInCart: false,
@@ -2819,7 +2819,7 @@ export class CompanyService {
         await complexRepo.save(
           complexRepo.create({
             companyId: complexId,
-            complexName: complexCompany.companyName.trim().slice(0, 200),
+            complexName: complexCompany.companyName.trim(),
           }),
         );
       }
@@ -2889,6 +2889,7 @@ export class CompanyService {
     return { created: true };
   }
 
+
   async updateVenueProfile(
     companyId: number,
     dto: UpdateVenueProfileDto,
@@ -2902,7 +2903,7 @@ export class CompanyService {
       });
     }
     if (dto.venueName !== undefined) {
-      venue.venueName = dto.venueName.trim().slice(0, 200);
+      venue.venueName = dto.venueName.trim();
     }
     if (dto.seatingCapacity !== undefined) {
       venue.seatingCapacity = dto.seatingCapacity;
