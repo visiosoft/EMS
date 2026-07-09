@@ -21,7 +21,7 @@ export class Venue {
   @JoinColumn({ name: 'CompanyID' })
   company: Company;
 
-  @Column({ name: 'VenueName', type: 'nvarchar', length: 200 })
+  @Column({ name: 'VenueName', type: 'nvarchar', length: 1000 })
   venueName: string;
 
   @Column({ name: 'SeatingCapacity', type: 'int' })

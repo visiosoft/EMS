@@ -22,7 +22,7 @@ export class Company extends AuditColumns {
   @JoinColumn({ name: 'CompanyTypeID' })
   companyType: CompanyType;
 
-  @Column({ name: 'CompanyName', type: 'nvarchar', length: 200 })
+  @Column({ name: 'CompanyName', type: 'nvarchar', length: 1000 })
   companyName: string;
 
   @Column({ name: 'PhysicalAddressID', type: 'int' })

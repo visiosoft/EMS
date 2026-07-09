@@ -10,6 +10,6 @@ export class VenueComplex {
   @JoinColumn({ name: 'CompanyID' })
   company: Company;
 
-  @Column({ name: 'ComplexName', type: 'nvarchar', length: 200 })
+  @Column({ name: 'ComplexName', type: 'nvarchar', length: 1000 })
   complexName: string;
 }
