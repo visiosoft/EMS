@@ -95,6 +95,16 @@ export interface ApiCompanyContact {
   departmentName: string;
 }
 
+/** One company link for a managed contact, with roles/departments scoped to that company. */
+export interface ApiManagedContactAssignment {
+  companyId: number;
+  companyName: string;
+  roleIds: number[];
+  roleNames: string[];
+  departmentIds: number[];
+  departmentNames: string[];
+}
+
 export interface ApiManagedContact {
   contactId: number;
   contactInfoId: number;
@@ -104,12 +114,15 @@ export interface ApiManagedContact {
   cellPhone: string | null;
   workPhone: string | null;
   isStaff: boolean;
+  /** Flattened across every company assignment. */
   companyIds: number[];
   companyNames: string[];
   roleIds: number[];
   roleNames: string[];
   departmentIds: number[];
   departmentNames: string[];
+  /** Per-company breakdown — which roles/departments apply under which company. */
+  assignments: ApiManagedContactAssignment[];
 }
 
 export interface ApiCompanyVenueLinkedContactsSection {
@@ -440,15 +453,19 @@ export function updateContactAssignment(assignmentId: number, body: Partial<{ fi
 export function deleteContactAssignment(assignmentId: number) { return apiFetch<void>(`/contact-assignments/${assignmentId}`, { method: 'DELETE' }); }
 
 export type ManagedContactsQueryOpts = { q?: string; companyId?: number };
+export type ManagedContactAssignmentInput = {
+  companyId: number;
+  roleIds: number[];
+  departmentIds: number[];
+};
 export type ManagedContactPayload = {
   firstName: string;
   lastName: string;
   email: string;
   cellPhone?: string | null;
   workPhone?: string | null;
-  companyId?: number | null;
-  roleIds?: number[];
-  departmentIds?: number[];
+  /** Complete desired set of company links — replaces the contact's entire assignment set. */
+  assignments?: ManagedContactAssignmentInput[];
 };
 export function managedContactsQueryKey(offset: number, limit: number, opts?: ManagedContactsQueryOpts) {
   return ['contacts', 'managed', offset, limit, opts?.q ?? '', opts?.companyId ?? ''] as const;
@@ -540,8 +557,48 @@ export function fetchServicesAllowedForCompanyTypes(companyTypeIds: number[]) {
   );
 }
 export function fetchStagehandProviderCompanies() { return apiFetch<ApiStagehandProviderCompany[]>('/lookups/stagehand-providers').then((data) => (Array.isArray(data) ? data : [])); }
+/**
+ * One venue-profile role contact being saved. When `contactId` is set the server links
+ * that existing contact directly (rather than re-matching by typed email), which is how
+ * the "assign existing contact" picker on the Venue Profile tab attaches, e.g., a venue's
+ * Booking Director without creating a duplicate contact.
+ */
+export type VenueRoleContactInput = {
+  contactId?: number | null;
+  fullName?: string;
+  email?: string;
+  phone?: string;
+  cellPhone?: string;
+};
+export type UpdateVenueDetailsPayload = Partial<{
+  venueProfile: Parameters<typeof updateVenueProfile>[1];
+  brandIds: number[];
+  taxIds: number[];
+  stagehandProviderCompanyId: number | null;
+  nonResidentWithholdingId: number | null;
+  hasStateTaxOnTickets: 0 | 1;
+  hasCityTaxOnTickets: 0 | 1;
+  financeDirectors: VenueRoleContactInput[];
+  settlementManagers: VenueRoleContactInput[];
+  marketingDirectors: VenueRoleContactInput[];
+  technicalDirectors: VenueRoleContactInput[];
+  ticketingManagers: VenueRoleContactInput[];
+  bookingDirectors: VenueRoleContactInput[];
+  rentalManagers: VenueRoleContactInput[];
+  calendarManagers: VenueRoleContactInput[];
+  contractManagers: VenueRoleContactInput[];
+  stagehandProviderContacts: VenueRoleContactInput[];
+  nonResidentWithholding: {
+    withholdingTaxRate?: string;
+    dmaid?: number | null;
+    taxAgencyId?: number | null;
+    withholdingLink?: { linkId?: number | null; linkType?: string; linkUrl?: string; linkName?: string; linkPath?: string } | null;
+    artistWaiverInstructions?: { linkId?: number | null; linkType?: string; linkUrl?: string; linkName?: string; linkPath?: string } | null;
+    iaeWaiverInstructions?: { linkId?: number | null; linkType?: string; linkUrl?: string; linkName?: string; linkPath?: string } | null;
+  } | null;
+}>;
 export function fetchVenueDetails(companyId: number) { return apiFetch<ApiVenueDetailsResponse>(`/companies/${companyId}/venue-details`); }
-export function updateVenueDetails(companyId: number, body: Partial<{ venueProfile: Parameters<typeof updateVenueProfile>[1]; brandIds: number[]; taxIds: number[]; stagehandProviderCompanyId: number | null; nonResidentWithholdingId: number | null; hasStateTaxOnTickets: 0 | 1; hasCityTaxOnTickets: 0 | 1; financeDirectors: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; settlementManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; marketingDirectors: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; technicalDirectors: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; ticketingManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; bookingDirectors: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; rentalManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; calendarManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; contractManagers: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; stagehandProviderContacts: { fullName?: string; email?: string; phone?: string; cellPhone?: string }[]; nonResidentWithholding: { withholdingTaxRate?: string; dmaid?: number | null; taxAgencyId?: number | null; withholdingLink?: { linkId?: number | null; linkType?: string; linkUrl?: string; linkName?: string; linkPath?: string } | null; artistWaiverInstructions?: { linkId?: number | null; linkType?: string; linkUrl?: string; linkName?: string; linkPath?: string } | null; iaeWaiverInstructions?: { linkId?: number | null; linkType?: string; linkUrl?: string; linkName?: string; linkPath?: string } | null } | null }>) {
+export function updateVenueDetails(companyId: number, body: UpdateVenueDetailsPayload) {
   return apiFetch<{ updated: boolean }>(`/companies/${companyId}/venue-details`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 

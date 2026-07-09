@@ -10,6 +10,7 @@ import { ContactInfo } from '../entities/contact-info.entity';
 import { Contact } from '../entities/contact.entity';
 import { Department } from '../entities/department.entity';
 import { Dma } from '../entities/dma.entity';
+import { DmaPopulation } from '../entities/dma-population.entity';
 import { EngagementProjectVenue } from '../entities/engagement-project-venue.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { Engagement } from '../entities/engagement.entity';
@@ -50,6 +51,7 @@ const entities = [
   CompanyType,
   Company,
   Dma,
+  DmaPopulation,
   Link,
   ContactInfo,
   Contact,

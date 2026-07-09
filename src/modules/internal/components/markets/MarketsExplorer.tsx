@@ -172,7 +172,12 @@ function MarketCard({
       className="animate-slide-up group flex flex-col overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)] transition-all duration-300 hover:-translate-y-0.5 hover:border-neutral-300 hover:shadow-[0_14px_36px_rgba(0,0,0,0.1)]"
       style={{ animationDelay: `${Math.min(index, 12) * 45}ms`, animationFillMode: 'both' }}
     >
-      <div className={cn('p-3 sm:p-5', isList && 'p-4')}>
+      <button
+        type="button"
+        onClick={() => setExpanded((open) => !open)}
+        aria-expanded={expanded}
+        className={cn('w-full p-3 text-left sm:p-5', isList && 'p-4')}
+      >
         <div className={cn('flex gap-3 sm:gap-4', isList ? 'flex-row' : 'flex-col')}>
           <div
             className={cn(
@@ -199,33 +204,42 @@ function MarketCard({
               >
                 {market.marketName}
               </h3>
-              <button
-                type="button"
-                onClick={() => setExpanded((open) => !open)}
+              <span
                 className={cn(
-                  'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-neutral-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-neutral-800 shadow-sm transition-colors hover:bg-neutral-100 sm:px-3 sm:text-xs',
+                  'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-neutral-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-neutral-800 shadow-sm sm:px-3 sm:text-xs',
                   !isList && 'w-full sm:w-auto',
                 )}
-                aria-expanded={expanded}
               >
                 <span className="whitespace-nowrap">{expanded ? 'Hide' : 'View'} venues</span>
                 <ChevronDown
                   className={cn('h-4 w-4 shrink-0 transition-transform duration-300', expanded && 'rotate-180')}
                   aria-hidden
                 />
-              </button>
+              </span>
             </div>
-            <p className="mt-2 text-sm text-neutral-600">
-              <span className="font-semibold text-neutral-800">{market.postalCount}</span> postal{' '}
-              {market.postalCount === 1 ? 'code' : 'codes'}
-              {market.samplePostalCode ? (
-                <span className="text-neutral-500"> · e.g. {market.samplePostalCode}</span>
-              ) : null}
-            </p>
-            <p className="mt-0.5 text-xs text-neutral-400">DMA #{market.dmaid}</p>
+            {market.nielsenCode != null ? (
+              <p className="mt-2 text-sm text-neutral-600">
+                <span className="font-semibold text-neutral-800">
+                  Nielsen DMA #{market.nielsenCode}
+                </span>
+                {market.nielsenRank != null ? (
+                  <span className="text-neutral-500"> · Rank {market.nielsenRank}</span>
+                ) : null}
+              </p>
+            ) : null}
+            {market.nielsenMarketName ? (
+              <p className="mt-0.5 truncate text-xs text-neutral-500" title={market.nielsenMarketName}>
+                Nielsen name: {market.nielsenMarketName}
+              </p>
+            ) : null}
+            {market.population != null ? (
+              <p className="mt-0.5 text-xs text-neutral-500">
+                {market.population.toLocaleString()} metro population
+              </p>
+            ) : null}
           </div>
         </div>
-      </div>
+      </button>
 
       <MarketVenuesPanel market={market} isOpen={expanded} />
     </article>
@@ -471,7 +485,11 @@ export function MarketsExplorer() {
                 >
                   <span className="font-semibold text-neutral-900">{item.marketName}</span>
                   <span className="text-xs text-neutral-500">
-                    {item.postalCount} postals · {item.samplePostalCode || '—'}
+                    {item.nielsenCode != null ? (
+                      <>Nielsen DMA #{item.nielsenCode}{item.population != null ? ` · ${item.population.toLocaleString()} pop.` : ''}</>
+                    ) : (
+                      '—'
+                    )}
                   </span>
                 </button>
               </li>

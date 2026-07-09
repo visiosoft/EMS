@@ -141,7 +141,7 @@ type ResolvedContact = {
  * Administrator-only fields (per Employee Profiles.xlsx column D) are stripped
  * before the profile leaves the service.
  */
-type ViewerContext = { isSelf: boolean };
+type ViewerContext = { isSelf: boolean; isAdmin: boolean };
 
 /** Company main desk line — static per spec ("Administrator Entered and static as (312) 274-1800"). */
 const STATIC_DESK_PHONE_NUMBER = '(312) 274-1800';
@@ -157,7 +157,7 @@ export class SelfProfileService {
     private readonly adminUsersService: AdminUsersService,
   ) {}
 
-  /** The signed-in employee's own profile. */
+  /** The signed-in employee's own profile — self always sees every field. */
   async getMyFullProfile(): Promise<MyFullProfileResponse> {
     const emails = this.signedInEmailCandidates();
     if (emails.length === 0) return { linked: false };
@@ -165,13 +165,12 @@ export class SelfProfileService {
     const base = await this.resolveInternalContact(emails);
     if (!base) return { linked: false };
 
-    return this.buildFullProfile(base, { isSelf: true });
+    return this.buildFullProfile(base, { isSelf: true, isAdmin: true });
   }
 
   /**
-   * Another employee's profile as seen by the signed-in viewer. Every field is
-   * visible to every viewer — the directory shows complete information regardless of
-   * access level.
+   * Another employee's profile as seen by the signed-in viewer. Administrator-only
+   * fields are stripped unless the viewer is an Administrator or is the employee.
    */
   async getEmployeeProfileForViewer(
     targetContactId: number,
@@ -187,8 +186,13 @@ export class SelfProfileService {
       ? await this.resolveInternalContact(viewerEmails)
       : null;
     const isSelf = viewer?.contactId === target.contactId;
+    const isAdmin = isSelf
+      ? true
+      : viewer
+        ? await this.isAccessLevelAdmin(viewer.contactId)
+        : false;
 
-    return this.buildFullProfile(target, { isSelf: Boolean(isSelf) });
+    return this.buildFullProfile(target, { isSelf: Boolean(isSelf), isAdmin });
   }
 
   private async buildFullProfile(
@@ -248,9 +252,7 @@ export class SelfProfileService {
 
     const profile: LinkedProfile = {
       linked: true,
-      // Every viewer sees every field — the directory shows complete information
-      // for all employees regardless of the viewer's access level.
-      visibility: 'full',
+      visibility: viewer.isSelf || viewer.isAdmin ? 'full' : 'limited',
       identity: {
         contactId,
         contactInfoId: base.contactInfoId,
@@ -306,7 +308,69 @@ export class SelfProfileService {
       certifications,
     };
 
-    return profile;
+    return this.applyVisibility(profile, viewer);
+  }
+
+  /**
+   * Strip Administrator-only fields when the viewer is neither the employee nor an
+   * Administrator. Field classification follows Employee Profiles.xlsx column D; the
+   * three demographic fields (gender/marital status/ethnicity) are treated as
+   * Administrator-only as well since they are sensitive and not marked "All".
+   */
+  private applyVisibility(
+    profile: LinkedProfile,
+    viewer: ViewerContext,
+  ): LinkedProfile {
+    if (viewer.isSelf || viewer.isAdmin) return profile;
+    return {
+      ...profile,
+      basics: { ...profile.basics, personalEmail: '' },
+      personal: {
+        ...profile.personal,
+        age: null,
+        ssnLast4: '',
+        gender: '',
+        maritalStatus: '',
+        ethnicity: '',
+      },
+      homeAddress: null,
+      emergencyContacts: [],
+      employment: {
+        ...profile.employment,
+        accessLevel: '',
+        workAuthorization: '',
+        payType: '',
+        payRate: '',
+        ptoAccrualRate: '',
+        employmentAgreement: '',
+        rampAccount: '',
+        rampCreditCard: '',
+      },
+      equipment: {
+        ...profile.equipment,
+        deskPhoneMac: '',
+        deskPhoneBrand: '',
+        deskPhoneModel: '',
+        pcBrand: '',
+        pcModel: '',
+        pcServiceTag: '',
+        bluetoothStatus: '',
+        pcWindowsName: '',
+      },
+      entra: { ...profile.entra, microsoftOfficeLicenses: [] },
+      healthInsurance: null,
+    };
+  }
+
+  /** True when the given contact's EmployeeProfile.AccessLevel is an admin tier. */
+  private async isAccessLevelAdmin(contactId: number): Promise<boolean> {
+    if (!(await this.tableExists('EmployeeProfile'))) return false;
+    const rows = (await this.dataSource.query(
+      `SELECT TOP 1 AccessLevel FROM dbo.EmployeeProfile WHERE ContactID = @0`,
+      [contactId],
+    )) as Record<string, unknown>[];
+    const accessLevel = readString(rows[0], 'AccessLevel').toLowerCase();
+    return accessLevel === 'administrator' || accessLevel === 'super admin';
   }
 
   /** Run a best-effort loader; swallow failures so one bad section can't fail the profile. */

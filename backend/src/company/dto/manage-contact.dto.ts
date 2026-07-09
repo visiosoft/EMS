@@ -8,7 +8,28 @@ import {
   IsString,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
+
+/** One company link for a contact, with roles/departments scoped to that company. */
+export class ContactCompanyAssignmentDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  companyId: number;
+
+  @IsArray()
+  @Type(() => Number)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  roleIds: number[];
+
+  @IsArray()
+  @Type(() => Number)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  departmentIds: number[];
+}
 
 export class ManageContactDto {
   @IsString()
@@ -35,12 +56,28 @@ export class ManageContactDto {
   @MaxLength(30)
   workPhone?: string | null;
 
+  /**
+   * Complete desired set of company links for this contact — one entry per company,
+   * each carrying its own roles/departments. A contact can belong to multiple
+   * companies at once (e.g. a Venue Management Company and one of its Venues); the
+   * server replaces the contact's entire assignment set with exactly this list, so
+   * callers must include every company the contact should keep, not just the one
+   * being edited.
+   */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ContactCompanyAssignmentDto)
+  assignments?: ContactCompanyAssignmentDto[];
+
+  /** @deprecated Use `assignments`. Kept for older callers of this DTO shape. */
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
   companyId?: number | null;
 
+  /** @deprecated Use `assignments`. */
   @IsOptional()
   @IsArray()
   @Type(() => Number)
@@ -48,6 +85,7 @@ export class ManageContactDto {
   @Min(1, { each: true })
   roleIds?: number[];
 
+  /** @deprecated Use `assignments`. */
   @IsOptional()
   @IsArray()
   @Type(() => Number)
@@ -84,12 +122,21 @@ export class UpdateManagedContactDto {
   @MaxLength(30)
   workPhone?: string | null;
 
+  /** Same full-replace semantics as {@link ManageContactDto.assignments}. */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ContactCompanyAssignmentDto)
+  assignments?: ContactCompanyAssignmentDto[];
+
+  /** @deprecated Use `assignments`. Kept for older callers of this DTO shape. */
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
   companyId?: number | null;
 
+  /** @deprecated Use `assignments`. */
   @IsOptional()
   @IsArray()
   @Type(() => Number)
@@ -97,6 +144,7 @@ export class UpdateManagedContactDto {
   @Min(1, { each: true })
   roleIds?: number[];
 
+  /** @deprecated Use `assignments`. */
   @IsOptional()
   @IsArray()
   @Type(() => Number)

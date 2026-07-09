@@ -189,6 +189,16 @@ export interface CompanyContactRow {
   departmentName: string;
 }
 
+/** One company link for a managed contact, with roles/departments scoped to that company. */
+export interface ManagedContactAssignmentGroup {
+  companyId: number;
+  companyName: string;
+  roleIds: number[];
+  roleNames: string[];
+  departmentIds: number[];
+  departmentNames: string[];
+}
+
 export interface ManagedContactRow {
   contactId: number;
   contactInfoId: number;
@@ -198,12 +208,15 @@ export interface ManagedContactRow {
   cellPhone: string | null;
   workPhone: string | null;
   isStaff: boolean;
+  /** Flattened across every company assignment — kept for callers that don't need per-company grouping. */
   companyIds: number[];
   companyNames: string[];
   roleIds: number[];
   roleNames: string[];
   departmentIds: number[];
   departmentNames: string[];
+  /** Per-company breakdown: which roles/departments apply under which company. */
+  assignments: ManagedContactAssignmentGroup[];
 }
 
 export interface CompanyVenueLinkedContactsSection {
@@ -1289,12 +1302,43 @@ export class CompanyService {
     roleName: string,
     departmentName: string,
     draft: {
+      contactId?: number | null;
       fullName?: string;
       email?: string;
       phone?: string;
       cellPhone?: string;
     },
   ): Promise<void> {
+    // "Assign existing contact" path: the Venue Profile picker sends the chosen
+    // contact's id, so link that Contact to the role directly instead of re-matching
+    // by email (which is what dropped the connection before) — and never create a
+    // duplicate Contact/ContactInfo. The contact's shared ContactInfo is left as-is;
+    // its details are edited from the Contacts tab, not silently rewritten here.
+    const linkContactId = Number(draft.contactId ?? 0);
+    if (Number.isInteger(linkContactId) && linkContactId > 0) {
+      const existingContact = await em.findOne(Contact, {
+        where: { contactId: linkContactId },
+      });
+      if (!existingContact) {
+        throw new NotFoundException(`Contact ${linkContactId} was not found.`);
+      }
+      const alreadyAssigned = await em.findOne(ContactAssignment, {
+        where: { contactId: linkContactId, companyId, roleId, departmentId },
+      });
+      if (!alreadyAssigned) {
+        await em.save(
+          ContactAssignment,
+          em.create(ContactAssignment, {
+            contactId: linkContactId,
+            companyId,
+            roleId,
+            departmentId,
+          }),
+        );
+      }
+      return;
+    }
+
     const fullName = String(draft.fullName ?? '').trim();
     const email = String(draft.email ?? '').trim();
     const phone = draft.phone != null ? String(draft.phone).trim() : '';
@@ -1374,6 +1418,7 @@ export class CompanyService {
     departmentName: string,
     drafts:
       | Array<{
+          contactId?: number | null;
           fullName?: string;
           email?: string;
           phone?: string;
@@ -1388,6 +1433,7 @@ export class CompanyService {
     const departmentId = await this.getDepartmentIdByName(departmentName, em);
     const nonEmpty = drafts.filter(
       (d) =>
+        (Number.isInteger(Number(d.contactId)) && Number(d.contactId) > 0) ||
         !(
           isBlank(d.fullName) &&
           isBlank(d.email) &&
@@ -3545,54 +3591,104 @@ export class CompanyService {
     ];
   }
 
+  /**
+   * Replaces a contact's ENTIRE set of company assignments with exactly the companies
+   * (and their per-company roles/departments) passed in `assignments`. Callers must
+   * pass the contact's complete desired company list, not just the one being edited —
+   * this is what makes a full delete-then-recreate here safe, unlike the historical
+   * bug where the payload only ever carried a single company and every save silently
+   * dropped the contact's other company links. A contact can legitimately belong to
+   * several companies at once (e.g. a Venue Management Company and one of its Venues),
+   * each with its own roles/departments.
+   */
   private async ensureManagedContactAssignments(
     em: EntityManager,
     contactId: number,
-    companyId: number | null | undefined,
-    roleIds: number[] | undefined,
-    departmentIds: number[] | undefined,
-  ): Promise<boolean> {
-    const companyIdNum = Number(companyId ?? 0);
-    const hasCompany = Number.isInteger(companyIdNum) && companyIdNum > 0;
+    assignments: { companyId: number; roleIds: number[]; departmentIds: number[] }[],
+  ): Promise<void> {
+    const normalized: {
+      companyId: number;
+      roleIdList: number[];
+      departmentIdList: number[];
+    }[] = [];
+    for (const assignment of assignments) {
+      const companyId = Number(assignment.companyId);
+      if (!Number.isInteger(companyId) || companyId <= 0) continue;
+      const roleIdList = this.uniquePositiveInts(assignment.roleIds);
+      const departmentIdList = this.uniquePositiveInts(assignment.departmentIds);
+      if (roleIdList.length === 0 || departmentIdList.length === 0) {
+        throw new BadRequestException({
+          statusCode: HttpStatus.BAD_REQUEST,
+          error: 'Bad Request',
+          message:
+            'Select at least one role and one department for each company assignment.',
+        });
+      }
+      normalized.push({ companyId, roleIdList, departmentIdList });
+    }
+
     await em.delete(ContactAssignment, { contactId });
-    if (!hasCompany) return false;
+    if (normalized.length === 0) return;
 
-    const company = await em.getRepository(Company).findOne({
-      where: { companyId: companyIdNum },
-    });
-    if (!company) {
-      throw new NotFoundException(`Company ${companyIdNum} was not found.`);
-    }
-    const roleIdList = this.uniquePositiveInts(roleIds);
-    const departmentIdList = this.uniquePositiveInts(departmentIds);
-    if (roleIdList.length === 0 || departmentIdList.length === 0) {
-      throw new BadRequestException({
-        statusCode: HttpStatus.BAD_REQUEST,
-        error: 'Bad Request',
-        message:
-          'Select at least one role and one department when linking a contact to a company.',
-      });
-    }
-    for (const roleId of roleIdList) await this.ensureRole(roleId, em);
-    for (const departmentId of departmentIdList) {
-      await this.ensureDepartment(departmentId, em);
-    }
-
-    const assignments: ContactAssignment[] = [];
-    for (const roleId of roleIdList) {
-      for (const departmentId of departmentIdList) {
-        assignments.push(
-          em.create(ContactAssignment, {
-            contactId,
-            companyId: companyIdNum,
-            roleId,
-            departmentId,
-          }),
-        );
+    const companyIds = [...new Set(normalized.map((a) => a.companyId))];
+    const companies = await em
+      .getRepository(Company)
+      .findBy({ companyId: In(companyIds) });
+    const foundCompanyIds = new Set(companies.map((c) => c.companyId));
+    for (const companyId of companyIds) {
+      if (!foundCompanyIds.has(companyId)) {
+        throw new NotFoundException(`Company ${companyId} was not found.`);
       }
     }
-    await em.save(ContactAssignment, assignments);
-    return Boolean(company.isInternal);
+
+    for (const assignment of normalized) {
+      for (const roleId of assignment.roleIdList) await this.ensureRole(roleId, em);
+      for (const departmentId of assignment.departmentIdList) {
+        await this.ensureDepartment(departmentId, em);
+      }
+    }
+
+    const rows: ContactAssignment[] = [];
+    for (const assignment of normalized) {
+      for (const roleId of assignment.roleIdList) {
+        for (const departmentId of assignment.departmentIdList) {
+          rows.push(
+            em.create(ContactAssignment, {
+              contactId,
+              companyId: assignment.companyId,
+              roleId,
+              departmentId,
+            }),
+          );
+        }
+      }
+    }
+    await em.save(ContactAssignment, rows);
+  }
+
+  /** Normalizes a DTO's company-assignment fields, preferring `assignments` over the deprecated flat fields. */
+  private assignmentsFromDto(
+    dto: ManageContactDto | UpdateManagedContactDto,
+  ): { companyId: number; roleIds: number[]; departmentIds: number[] }[] | undefined {
+    if (dto.assignments !== undefined) {
+      return dto.assignments.map((a) => ({
+        companyId: a.companyId,
+        roleIds: a.roleIds,
+        departmentIds: a.departmentIds,
+      }));
+    }
+    if (dto.companyId !== undefined) {
+      return dto.companyId == null
+        ? []
+        : [
+            {
+              companyId: dto.companyId,
+              roleIds: dto.roleIds ?? [],
+              departmentIds: dto.departmentIds ?? [],
+            },
+          ];
+    }
+    return undefined;
   }
 
   private async getOrCreateManagedContact(
@@ -3797,10 +3893,6 @@ export class CompanyService {
       .getRawMany<Record<string, unknown>>();
 
     const byContact = new Map<number, ManagedContactRow>();
-    const pushUnique = <T>(list: T[], value: T | null | undefined) => {
-      if (value == null) return;
-      if (!list.includes(value)) list.push(value);
-    };
     for (const row of raw) {
       const contactId = Number(pickRawRowValue(row, 'contactId'));
       if (!Number.isInteger(contactId) || contactId < 1) continue;
@@ -3827,35 +3919,11 @@ export class CompanyService {
           roleNames: [],
           departmentIds: [],
           departmentNames: [],
+          assignments: [],
         };
         byContact.set(contactId, item);
       }
-      const companyIdValue = Number(pickRawRowValue(row, 'companyId'));
-      if (Number.isInteger(companyIdValue) && companyIdValue > 0) {
-        item.isStaff =
-          item.isStaff || isTruthyBit(pickRawRowValue(row, 'companyIsInternal'));
-        pushUnique(item.companyIds, companyIdValue);
-        pushUnique(
-          item.companyNames,
-          String(pickRawRowValue(row, 'companyName') ?? '').trim(),
-        );
-      }
-      const roleIdValue = Number(pickRawRowValue(row, 'roleId'));
-      if (Number.isInteger(roleIdValue) && roleIdValue > 0) {
-        pushUnique(item.roleIds, roleIdValue);
-        pushUnique(
-          item.roleNames,
-          String(pickRawRowValue(row, 'roleName') ?? '').trim(),
-        );
-      }
-      const departmentIdValue = Number(pickRawRowValue(row, 'departmentId'));
-      if (Number.isInteger(departmentIdValue) && departmentIdValue > 0) {
-        pushUnique(item.departmentIds, departmentIdValue);
-        pushUnique(
-          item.departmentNames,
-          String(pickRawRowValue(row, 'departmentName') ?? '').trim(),
-        );
-      }
+      this.accumulateManagedContactAssignmentRow(item, row);
     }
 
     return {
@@ -3864,6 +3932,68 @@ export class CompanyService {
         .filter((row): row is ManagedContactRow => Boolean(row)),
       total,
     };
+  }
+
+  /**
+   * Folds one raw joined row (contact × at-most-one ContactAssignment) into a
+   * ManagedContactRow's flattened arrays and its per-company `assignments` group.
+   * Shared by {@link listManagedContacts} and {@link getManagedContactRowById} so
+   * both return identically-shaped per-company breakdowns.
+   */
+  private accumulateManagedContactAssignmentRow(
+    item: ManagedContactRow,
+    row: Record<string, unknown>,
+  ): void {
+    const pushUnique = <T>(list: T[], value: T | null | undefined) => {
+      if (value == null) return;
+      if (!list.includes(value)) list.push(value);
+    };
+
+    const companyIdValue = Number(pickRawRowValue(row, 'companyId'));
+    let group: ManagedContactAssignmentGroup | undefined;
+    if (Number.isInteger(companyIdValue) && companyIdValue > 0) {
+      item.isStaff =
+        item.isStaff || isTruthyBit(pickRawRowValue(row, 'companyIsInternal'));
+      const companyName = String(pickRawRowValue(row, 'companyName') ?? '').trim();
+      pushUnique(item.companyIds, companyIdValue);
+      pushUnique(item.companyNames, companyName);
+      group = item.assignments.find((g) => g.companyId === companyIdValue);
+      if (!group) {
+        group = {
+          companyId: companyIdValue,
+          companyName,
+          roleIds: [],
+          roleNames: [],
+          departmentIds: [],
+          departmentNames: [],
+        };
+        item.assignments.push(group);
+      }
+    }
+
+    const roleIdValue = Number(pickRawRowValue(row, 'roleId'));
+    if (Number.isInteger(roleIdValue) && roleIdValue > 0) {
+      const roleName = String(pickRawRowValue(row, 'roleName') ?? '').trim();
+      pushUnique(item.roleIds, roleIdValue);
+      pushUnique(item.roleNames, roleName);
+      if (group) {
+        pushUnique(group.roleIds, roleIdValue);
+        pushUnique(group.roleNames, roleName);
+      }
+    }
+
+    const departmentIdValue = Number(pickRawRowValue(row, 'departmentId'));
+    if (Number.isInteger(departmentIdValue) && departmentIdValue > 0) {
+      const departmentName = String(
+        pickRawRowValue(row, 'departmentName') ?? '',
+      ).trim();
+      pushUnique(item.departmentIds, departmentIdValue);
+      pushUnique(item.departmentNames, departmentName);
+      if (group) {
+        pushUnique(group.departmentIds, departmentIdValue);
+        pushUnique(group.departmentNames, departmentName);
+      }
+    }
   }
 
   private async getManagedContactRowById(
@@ -3918,38 +4048,10 @@ export class CompanyService {
       roleNames: [],
       departmentIds: [],
       departmentNames: [],
-    };
-    const pushUnique = <T>(list: T[], value: T | null | undefined) => {
-      if (value == null) return;
-      if (!list.includes(value)) list.push(value);
+      assignments: [],
     };
     for (const row of raw) {
-      const companyIdValue = Number(pickRawRowValue(row, 'companyId'));
-      if (Number.isInteger(companyIdValue) && companyIdValue > 0) {
-        out.isStaff =
-          out.isStaff || isTruthyBit(pickRawRowValue(row, 'companyIsInternal'));
-        pushUnique(out.companyIds, companyIdValue);
-        pushUnique(
-          out.companyNames,
-          String(pickRawRowValue(row, 'companyName') ?? '').trim(),
-        );
-      }
-      const roleIdValue = Number(pickRawRowValue(row, 'roleId'));
-      if (Number.isInteger(roleIdValue) && roleIdValue > 0) {
-        pushUnique(out.roleIds, roleIdValue);
-        pushUnique(
-          out.roleNames,
-          String(pickRawRowValue(row, 'roleName') ?? '').trim(),
-        );
-      }
-      const departmentIdValue = Number(pickRawRowValue(row, 'departmentId'));
-      if (Number.isInteger(departmentIdValue) && departmentIdValue > 0) {
-        pushUnique(out.departmentIds, departmentIdValue);
-        pushUnique(
-          out.departmentNames,
-          String(pickRawRowValue(row, 'departmentName') ?? '').trim(),
-        );
-      }
+      this.accumulateManagedContactAssignmentRow(out, row);
     }
     return out;
   }
@@ -3962,9 +4064,7 @@ export class CompanyService {
       await this.ensureManagedContactAssignments(
         em,
         contact.contactId,
-        dto.companyId,
-        dto.roleIds,
-        dto.departmentIds,
+        this.assignmentsFromDto(dto) ?? [],
       );
       const row = await this.getManagedContactRowById(contact.contactId, em);
       if (!row) {
@@ -3984,21 +4084,16 @@ export class CompanyService {
   ): Promise<ManagedContactRow> {
     const row = await this.dataSource.transaction(async (em) => {
       const contact = await this.getOrCreateManagedContact(em, dto, contactId);
-      const nextCompany =
-        dto.companyId !== undefined
-          ? dto.companyId
-          : ((
-              await em.getRepository(ContactAssignment).findOne({
-                where: { contactId },
-              })
-            )?.companyId ?? null);
-      await this.ensureManagedContactAssignments(
-        em,
-        contact.contactId,
-        nextCompany,
-        dto.roleIds,
-        dto.departmentIds,
-      );
+      // Undefined `assignments` (both current and deprecated shapes) means the
+      // caller isn't touching company links at all — leave the existing set alone.
+      const nextAssignments = this.assignmentsFromDto(dto);
+      if (nextAssignments !== undefined) {
+        await this.ensureManagedContactAssignments(
+          em,
+          contact.contactId,
+          nextAssignments,
+        );
+      }
       const row = await this.getManagedContactRowById(contact.contactId, em);
       if (!row) {
         throw new BadRequestException(
