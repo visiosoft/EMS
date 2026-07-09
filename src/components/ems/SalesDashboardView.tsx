@@ -808,21 +808,34 @@ function buildAuditRows(
   const leftToReachGoal =
     goalRevenue != null ? safeNonNegative(goalRevenue - lifetimeRevenue) : null;
 
+  // Alternating column shades to mirror the Event Audit spreadsheet
+  // (white / gray / white / gray / white across each row).
+  const LIGHT = 'bg-card';
+  const SHADE = 'bg-elevated/60';
+
   const row1: AuditGroup[] = [
     {
       title: 'Total Inventory',
-      shade: 'bg-elevated/45',
+      shade: LIGHT,
       cells: [
         { label: 'Sellable Capacity', value: countOrDash(sellableCapacity) },
-        { label: 'Gross Potential $', value: moneyOrDash(grossPotential) },
+        { label: 'Gross Potential $', value: moneyDecimalOrDash(grossPotential) },
+      ],
+    },
+    {
+      title: 'Lifetime Sales',
+      shade: SHADE,
+      cells: [
+        { label: 'Total Tickets Sold To Date', value: countOrDash(lifetimeTickets) },
+        { label: 'Total $ Sold To Date', value: moneyOrDash(lifetimeRevenue) },
       ],
     },
     {
       title: "Yesterday's Wrap",
-      shade: 'bg-card',
+      shade: LIGHT,
       cells: [
         {
-          label: 'Total Tickets Sold Yesterday',
+          label: 'Total # of Tickets Sold Yesterday',
           value: countOrDash(wrapTickets),
           note: wrapNote,
         },
@@ -834,28 +847,19 @@ function buildAuditRows(
       ],
     },
     {
-      title: 'Average Daily Wrap',
-      subtitle: 'Over Previous 7 Days',
-      shade: 'bg-elevated/35',
-      cells: [
-        { label: 'Daily Average Number of Tickets Sold', value: countOrDash(Math.round(dailyAvgTickets)) },
-        { label: 'Daily Average Value of Tickets Sold', value: moneyOrDash(dailyAvgRevenue) },
-      ],
-    },
-    {
       title: 'Seven-Day Wrap',
-      shade: 'bg-card',
+      shade: SHADE,
       cells: [
         { label: '7 Day Total Tickets Sold', value: countOrDash(trailing7Tickets) },
-        { label: '7 Day $ Sold', value: moneyOrDash(trailing7Revenue) },
+        { label: '7 Day Total $ Sold', value: moneyOrDash(trailing7Revenue) },
       ],
     },
     {
-      title: 'Fourteen-Day Wrap',
-      shade: 'bg-elevated/35',
+      title: 'Fourteen Day Wrap',
+      shade: LIGHT,
       cells: [
         { label: '14 Day Total Tickets Sold', value: countOrDash(trailing14Tickets) },
-        { label: '14 Day $ Sold', value: moneyOrDash(trailing14Revenue) },
+        { label: '14 Day Total $ Sold', value: moneyOrDash(trailing14Revenue) },
       ],
     },
   ];
@@ -863,25 +867,32 @@ function buildAuditRows(
   const row2: AuditGroup[] = [
     {
       title: 'Unsold Inventory & Value',
-      shade: 'bg-elevated/45',
+      shade: LIGHT,
       cells: [
         { label: 'Total Unsold Tickets', value: countOrDash(unsoldTickets) },
-        { label: 'Total Unsold $', value: moneyOrDash(unsoldRevenue) },
+        { label: 'Total Unsold $', value: moneyDecimalOrDash(unsoldRevenue) },
       ],
     },
     {
-      title: 'Lifetime',
-      shade: 'bg-card',
+      title: 'Percentage Sold',
+      shade: SHADE,
       cells: [
-        { label: 'Total Tickets Sold To Date', value: countOrDash(lifetimeTickets) },
-        { label: 'Total Sales $ To Date', value: moneyOrDash(lifetimeRevenue) },
         { label: '% of Seats Sold', value: pctDisplay(lifetimePctSold) },
-        { label: '% of Potential Sold', value: pctDisplay(lifetimePctPotential) },
+        { label: '% of Gross Potential Sold', value: pctDisplay(lifetimePctPotential) },
+      ],
+    },
+    {
+      title: 'Average Daily Wrap',
+      subtitle: 'Over Previous 7 Days',
+      shade: LIGHT,
+      cells: [
+        { label: 'Daily Average # of Tickets Sold', value: countOrDash(Math.round(dailyAvgTickets)) },
+        { label: 'Daily Average $ of Tickets Sold', value: moneyOrDash(dailyAvgRevenue) },
       ],
     },
     {
       title: 'Projected Final Sales',
-      shade: 'bg-elevated/35',
+      shade: SHADE,
       cells: [
         { label: 'Projected Final Tickets Sold', value: countOrDash(Math.round(projectedFinalTickets)) },
         { label: 'Projected Final Sales Value', value: moneyOrDash(projectedFinalRevenue) },
@@ -889,7 +900,7 @@ function buildAuditRows(
     },
     {
       title: 'Sales Goals',
-      shade: 'bg-elevated/45',
+      shade: LIGHT,
       cells: [
         {
           label: 'Goal Revenue',
@@ -897,7 +908,7 @@ function buildAuditRows(
           note: 'Static Number posted by Booking Dept',
         },
         {
-          label: 'Left to Reach Goal',
+          label: 'Left To Reach Goal',
           value: moneyOrDash(leftToReachGoal),
           note: '= Goal Revenue − Total Sales $ To Date',
         },
@@ -1542,23 +1553,27 @@ export function SalesDashboardView({
         </InfoCell>
       </dl>
 
-      <section className="overflow-hidden rounded-lg border-4 border-black bg-card shadow-sm">
-        <div className="border-b border-border bg-surface/70 px-3 py-1.5 text-center">
-          <h2 className="text-sm font-semibold text-text-primary">Event Audit</h2>
+      <section className="overflow-hidden rounded-lg border-[10px] border-black bg-card shadow-sm">
+        <div className="bg-black px-3 py-2 text-center">
+          <h2 className="text-4xl font-extrabold uppercase tracking-wide text-white">
+            Event Audit
+          </h2>
         </div>
+        {/* Desktop / tablet: spreadsheet-style table (md and up) */}
+        <div className="hidden md:block">
         {/* Row 1 */}
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1120px] border-collapse text-sm">
+          <table className="w-full min-w-[1360px] table-fixed border-collapse text-sm">
             <thead>
-              <tr className="text-center text-[10px] font-semibold text-text-primary">
+              <tr className="text-center text-[13px] font-bold text-text-primary">
                 {auditRows.row1.map((group, groupIndex) => (
                   <th
                     key={group.title}
                     colSpan={group.cells.length}
                     className={cn(
-                      'border-b border-r border-border px-2 py-1',
+                      'border-b border-r border-border px-2 py-1.5',
                       group.shade,
-                      groupIndex > 0 && 'border-l-2 border-l-border',
+                      groupIndex > 0 && 'border-l-[6px] border-l-gray-400',
                     )}
                   >
                     <div>{group.title}</div>
@@ -1570,15 +1585,16 @@ export function SalesDashboardView({
                   </th>
                 ))}
               </tr>
-              <tr className="text-center text-[10px] font-semibold text-text-primary">
+              <tr className="text-[10px] font-semibold text-text-secondary">
                 {auditRows.row1.map((group, groupIndex) =>
                   group.cells.map((cell, cellIndex) => (
                     <th
                       key={`${group.title}-${cell.label}`}
                       className={cn(
                         'h-9 border-b border-r border-border/80 px-2 py-1 align-middle leading-tight',
+                        'text-center',
                         group.shade,
-                        groupIndex > 0 && cellIndex === 0 && 'border-l-2 border-l-border',
+                        groupIndex > 0 && cellIndex === 0 && 'border-l-[6px] border-l-gray-400',
                       )}
                     >
                       {cell.label}
@@ -1594,12 +1610,13 @@ export function SalesDashboardView({
                     <td
                       key={`${group.title}-${cell.label}-value`}
                       className={cn(
-                        'h-20 border-r border-border/70 px-3 py-3 text-right align-top tabular-nums text-text-primary',
+                        'h-20 border-r border-border/70 px-2 py-3 align-middle tabular-nums text-text-primary',
+                        'text-center',
                         group.shade,
-                        groupIndex > 0 && cellIndex === 0 && 'border-l-2 border-l-border',
+                        groupIndex > 0 && cellIndex === 0 && 'border-l-[6px] border-l-gray-400',
                       )}
                     >
-                      <div className="text-base font-semibold">{cell.value}</div>
+                      <div className="whitespace-nowrap text-lg font-bold">{cell.value}</div>
                       {cell.note ? (
                         <div className="mt-2 whitespace-normal text-left text-[11px] font-medium leading-snug text-text-muted">
                           {cell.note}
@@ -1613,35 +1630,41 @@ export function SalesDashboardView({
           </table>
         </div>
         {/* Horizontal divider between rows */}
-        <div className="border-t-[5px] border-black" />
+        <div className="border-t-[7px] border-gray-400" />
         {/* Row 2 */}
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1120px] border-collapse text-sm">
+          <table className="w-full min-w-[1360px] table-fixed border-collapse text-sm">
             <thead>
-              <tr className="text-center text-[11px] font-semibold text-text-primary">
+              <tr className="text-center text-[13px] font-bold text-text-primary">
                 {auditRows.row2.map((group, groupIndex) => (
                   <th
                     key={group.title}
                     colSpan={group.cells.length}
                     className={cn(
-                      'border-b border-r border-border px-3 py-2',
+                      'border-b border-r border-border px-2 py-1.5',
                       group.shade,
-                      groupIndex > 0 && 'border-l-2 border-l-border',
+                      groupIndex > 0 && 'border-l-[6px] border-l-gray-400',
                     )}
                   >
-                    {group.title}
+                    <div>{group.title}</div>
+                    {group.subtitle ? (
+                      <div className="mt-0.5 text-[9px] font-medium italic text-text-muted">
+                        {group.subtitle}
+                      </div>
+                    ) : null}
                   </th>
                 ))}
               </tr>
-              <tr className="text-center text-[10px] font-semibold text-text-primary">
+              <tr className="text-[10px] font-semibold text-text-secondary">
                 {auditRows.row2.map((group, groupIndex) =>
                   group.cells.map((cell, cellIndex) => (
                     <th
                       key={`${group.title}-${cell.label}`}
                       className={cn(
                         'h-9 border-b border-r border-border/80 px-2 py-1 align-middle leading-tight',
+                        'text-center',
                         group.shade,
-                        groupIndex > 0 && cellIndex === 0 && 'border-l-2 border-l-border',
+                        groupIndex > 0 && cellIndex === 0 && 'border-l-[6px] border-l-gray-400',
                       )}
                     >
                       {cell.label}
@@ -1657,12 +1680,13 @@ export function SalesDashboardView({
                     <td
                       key={`${group.title}-${cell.label}-value`}
                       className={cn(
-                        'h-20 border-r border-border/70 px-3 py-3 text-right align-top tabular-nums text-text-primary',
+                        'h-20 border-r border-border/70 px-2 py-3 align-middle tabular-nums text-text-primary',
+                        'text-center',
                         group.shade,
-                        groupIndex > 0 && cellIndex === 0 && 'border-l-2 border-l-border',
+                        groupIndex > 0 && cellIndex === 0 && 'border-l-[6px] border-l-gray-400',
                       )}
                     >
-                      <div className="text-base font-semibold">{cell.value}</div>
+                      <div className="whitespace-nowrap text-lg font-bold">{cell.value}</div>
                       {cell.note ? (
                         <div className="mt-2 whitespace-normal text-left text-[11px] font-medium leading-snug text-text-muted">
                           {cell.note}
@@ -1674,6 +1698,44 @@ export function SalesDashboardView({
               </tr>
             </tbody>
           </table>
+        </div>
+        </div>
+        {/* Mobile: stacked cards (below md) */}
+        <div className="grid grid-cols-1 gap-3 p-3 sm:grid-cols-2 md:hidden">
+          {[...auditRows.row1, ...auditRows.row2].map((group) => (
+            <div
+              key={group.title}
+              className={cn('rounded-md border-2 border-gray-400 p-3', group.shade)}
+            >
+              <div className="text-center text-[13px] font-bold text-text-primary">
+                {group.title}
+              </div>
+              {group.subtitle ? (
+                <div className="text-center text-[9px] font-medium italic text-text-muted">
+                  {group.subtitle}
+                </div>
+              ) : null}
+              <dl className="mt-2 divide-y divide-border/70">
+                {group.cells.map((cell) => (
+                  <div key={cell.label} className="py-1.5">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="text-[11px] font-semibold text-text-secondary">
+                        {cell.label}
+                      </dt>
+                      <dd className="text-lg font-bold tabular-nums text-text-primary">
+                        {cell.value}
+                      </dd>
+                    </div>
+                    {cell.note ? (
+                      <div className="mt-1 text-[11px] font-medium leading-snug text-text-muted">
+                        {cell.note}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </dl>
+            </div>
+          ))}
         </div>
         {hasMissingCapacityContext ? (
           <div className="border-t border-border bg-elevated/30 px-4 py-2 text-xs text-text-secondary">
