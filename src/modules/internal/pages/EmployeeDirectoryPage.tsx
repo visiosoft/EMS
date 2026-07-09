@@ -13,6 +13,7 @@ import {
   roleWeight,
 } from "../components/IaeEmployeesTable";
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
+import type { InternalView } from "../routing/internalSessionRoute";
 import {
   Select,
   SelectContent,
@@ -135,7 +136,13 @@ function TilesGrid({
   );
 }
 
-export function EmployeeDirectoryPage() {
+/**
+ * Directory body: search, view toggles (tiles/table, org/alpha/dept), and the
+ * resulting grid/chart/table. Shared by the standalone Employee Directory page and
+ * the inline reveal-under-button panel on Employee Services — both need the exact
+ * same browsing behavior, just different surrounding chrome.
+ */
+export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView }) {
   const { navigate } = useInternalNavigation();
   const [mode, setMode] = useState<DirectoryMode>("tiles");
   const [tilesView, setTilesView] = useState<TilesView>("alpha");
@@ -143,8 +150,7 @@ export function EmployeeDirectoryPage() {
   const [alphaSort, setAlphaSort] = useState<AlphaSort>("first");
   const [search, setSearch] = useState("");
 
-  const openProfile = (contactId: number) =>
-    navigate("employee-profile", { contactId, fromView: "employee-directory" });
+  const openProfile = (contactId: number) => navigate("employee-profile", { contactId, fromView });
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["iae-staff-employees"],
@@ -193,18 +199,8 @@ export function EmployeeDirectoryPage() {
     (mode === "tiles" && tilesView === "alpha") || (mode === "table" && tableView === "alpha");
 
   return (
-    <InternalPageFrame>
-      <InternalPageHero
-        title="Employee Directory"
-        subtitle="Browse the iAE team by tiles, org chart, department, or name — and open any profile."
-      />
-
-      <main
-        className={`mx-auto w-full px-4 pb-16 pt-10 sm:px-6 ${
-          isOrgView ? "max-w-[1800px] lg:px-6" : "max-w-[1200px] lg:px-12"
-        }`}
-      >
-        {/* Toolbar: search on the left, view/sort controls on the right */}
+    <>
+      {/* Toolbar: search on the left, view/sort controls on the right */}
         <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center">
           {showSearch ? (
             <div className="relative w-full lg:max-w-sm lg:flex-1">
@@ -324,6 +320,20 @@ export function EmployeeDirectoryPage() {
         ) : (
           <TilesGrid employees={alphaSorted} onOpen={openProfile} />
         )}
+    </>
+  );
+}
+
+export function EmployeeDirectoryPage() {
+  return (
+    <InternalPageFrame>
+      <InternalPageHero
+        title="Employee Directory"
+        subtitle="Browse the iAE team by tiles, org chart, department, or name — and open any profile."
+      />
+
+      <main className="mx-auto w-full max-w-[1800px] px-4 pb-16 pt-10 sm:px-6 lg:px-6">
+        <EmployeeDirectoryPanel fromView="employee-directory" />
       </main>
     </InternalPageFrame>
   );

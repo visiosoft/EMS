@@ -2078,8 +2078,9 @@ export function SettingsPage({
 	            ) : null}
 
             {adminUsersQuery.data ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm bg-card border border-border rounded-lg min-w-[1180px]">
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm bg-card border border-border rounded-lg min-w-[1180px]">
                   <thead>
                     <tr className="text-text-muted text-xs border-b border-border bg-surface">
                       <th className="text-left py-2.5 px-3">Name</th>
@@ -2150,6 +2151,10 @@ export function SettingsPage({
                   </tbody>
                 </table>
               </div>
+              <div className="mt-3 flex items-center justify-end text-xs text-text-secondary px-1">
+                Showing <span className="font-medium text-text-primary tabular-nums ml-1">{adminUsersQuery.data.length.toLocaleString()}</span><span className="ml-1">total users</span>
+              </div>
+              </>
             ) : null}
           </div>
         </div>

@@ -3,8 +3,14 @@ import { apiFetch } from './config';
 export type InternalHubMarket = {
   dmaid: number;
   marketName: string;
-  samplePostalCode: string;
-  postalCount: number;
+  /** Official Nielsen DMA name from the reference table, or null when unmatched. */
+  nielsenMarketName: string | null;
+  /** Official Nielsen DMA code, or null when the market has no reference-data match. */
+  nielsenCode: number | null;
+  /** Official Nielsen market rank (1 = largest), or null when unmatched. */
+  nielsenRank: number | null;
+  /** Metro 12+ population from the Nielsen reference table, or null when unmatched. */
+  population: number | null;
 };
 
 export type InternalMarketsPage = {

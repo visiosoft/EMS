@@ -112,7 +112,7 @@ export function InternalHeader() {
               )}
             >
               <User className="h-3.5 w-3.5" />
-              <span className="sr-only">My Profile</span>
+              <span>Profile</span>
             </button>
             {currentView === "learning-portal" && (
               <a

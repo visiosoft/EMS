@@ -109,7 +109,10 @@ export class InternalBenefitsService {
     additionalInsureds: string | null,
     tenureYears: number | null,
   ): number | null {
-    const tier = (additionalInsureds ?? '').trim().toLowerCase();
+    const raw = (additionalInsureds ?? '').trim();
+    // EmployeeHealthInsurance.*CoverageTier stores "Employee Only" for single coverage,
+    // but HealthPlanPricing.CoverageType uses plain "Employee" for the same tier.
+    const tier = (raw === 'Employee Only' ? 'Employee' : raw).toLowerCase();
     if (!tier) return null;
 
     const tierRows = pricing.filter((row) => {
@@ -125,6 +128,28 @@ export class InternalBenefitsService {
     return (matched ?? tierRows[0]).monthlyPremium;
   }
 
+  /**
+   * dbo.EmployeeHealthInsurance is a wide table: one row per employee with a
+   * Medical/Dental/Vision column triplet (HealthPlanID/CoverageTier/ElectionStatus)
+   * per insurance type, not one row per election. 'Health' (the API/UI label) maps to
+   * the 'Medical' column prefix. Mirrors the equivalent unpivot in
+   * employee-health-insurance.service.ts.
+   */
+  private static readonly TYPE_COLUMNS = [
+    { apiType: 'Health', prefix: 'Medical' },
+    { apiType: 'Dental', prefix: 'Dental' },
+    { apiType: 'Vision', prefix: 'Vision' },
+  ] as const;
+
+  private async tableExists(tableName: string): Promise<boolean> {
+    const rows = await this.dataSource.query(
+      `SELECT 1 AS found FROM INFORMATION_SCHEMA.TABLES
+       WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = @0`,
+      [tableName],
+    );
+    return rows.length > 0;
+  }
+
   async getMyInsurance(): Promise<MyInsuranceResponse> {
     const contactId = await this.resolveContactIdForSignedInUser();
     if (contactId == null) return { noProfile: true, startDate: null, elections: [] };
@@ -137,27 +162,9 @@ export class InternalBenefitsService {
         [contactId],
       ) as Promise<Array<{ startDate: string | null }>>,
       this.dataSource.query(
-        `
-        SELECT ehi.InsuranceType AS insuranceType,
-               ehi.OptInStatus AS optInStatus,
-               ehi.AdditionalInsureds AS additionalInsureds,
-               ehi.HealthPlanID AS healthPlanId,
-               hp.PlanName AS planName
-        FROM dbo.EmployeeHealthInsurance ehi
-        LEFT JOIN dbo.HealthPlan hp ON hp.HealthPlanID = ehi.HealthPlanID
-        WHERE ehi.ContactID = @0
-        ORDER BY ehi.InsuranceType
-        `,
+        `SELECT TOP 1 * FROM dbo.EmployeeHealthInsurance WHERE ContactID = @0 ORDER BY EffectiveDate DESC`,
         [contactId],
-      ) as Promise<
-        Array<{
-          insuranceType: string;
-          optInStatus: string | null;
-          additionalInsureds: string | null;
-          healthPlanId: number | null;
-          planName: string | null;
-        }>
-      >,
+      ) as Promise<Array<Record<string, unknown>>>,
     ]);
 
     const startDate = profileRows?.[0]?.startDate ?? null;
@@ -165,53 +172,85 @@ export class InternalBenefitsService {
       ? (Date.now() - new Date(startDate).getTime()) / (365.25 * 86_400_000)
       : null;
 
+    const electionRow = electionRows?.[0];
+    if (!electionRow) return { noProfile: false, startDate, elections: [] };
+
     const planIds = [
       ...new Set(
-        electionRows
-          .map((row) => Number(row.healthPlanId))
-          .filter((id) => Number.isFinite(id) && id >= 1),
+        InternalBenefitsService.TYPE_COLUMNS.map(({ prefix }) =>
+          Number(electionRow[`${prefix}HealthPlanID`]),
+        ).filter((id) => Number.isFinite(id) && id >= 1),
       ),
     ];
-    const pricingByPlan = await this.loadCurrentPricing(planIds);
 
-    const elections: MyInsuranceElection[] = electionRows.map((row) => {
-      const healthPlanId = Number.isFinite(Number(row.healthPlanId)) && Number(row.healthPlanId) >= 1
-        ? Number(row.healthPlanId)
-        : null;
-      const pricing = healthPlanId != null ? pricingByPlan.get(healthPlanId) ?? [] : [];
-      return {
-        insuranceType: String(row.insuranceType ?? '').trim(),
-        optInStatus: row.optInStatus != null ? String(row.optInStatus).trim() : null,
-        additionalInsureds:
-          row.additionalInsureds != null ? String(row.additionalInsureds).trim() : null,
-        healthPlanId,
-        planName: row.planName != null ? String(row.planName).trim() : null,
-        monthlyPremium: this.matchPremium(
+    const [pricingByPlan, planNameById] = await Promise.all([
+      this.loadCurrentPricing(planIds),
+      this.loadPlanNames(planIds),
+    ]);
+
+    const elections: MyInsuranceElection[] = InternalBenefitsService.TYPE_COLUMNS.map(
+      ({ apiType, prefix }) => {
+        const rawPlanId = Number(electionRow[`${prefix}HealthPlanID`]);
+        const healthPlanId = Number.isFinite(rawPlanId) && rawPlanId >= 1 ? rawPlanId : null;
+        const coverageTier = electionRow[`${prefix}CoverageTier`];
+        const additionalInsureds = coverageTier != null ? String(coverageTier).trim() : null;
+        const status = electionRow[`${prefix}ElectionStatus`];
+        const statusText = status != null ? String(status).trim() : '';
+        const optInStatus =
+          statusText.toLowerCase() === 'enrolled'
+            ? 'Opt-In'
+            : statusText
+              ? 'Opt-Out'
+              : null;
+        const pricing = healthPlanId != null ? pricingByPlan.get(healthPlanId) ?? [] : [];
+        return {
+          insuranceType: apiType,
+          optInStatus,
+          additionalInsureds,
+          healthPlanId,
+          planName: healthPlanId != null ? planNameById.get(healthPlanId) ?? null : null,
+          monthlyPremium: this.matchPremium(pricing, additionalInsureds, tenureYears),
           pricing,
-          row.additionalInsureds != null ? String(row.additionalInsureds) : null,
-          tenureYears,
-        ),
-        pricing,
-      };
-    });
+        };
+      },
+    );
 
     return { noProfile: false, startDate, elections };
   }
 
+  private async loadPlanNames(healthPlanIds: number[]): Promise<Map<number, string>> {
+    const byPlan = new Map<number, string>();
+    if (healthPlanIds.length === 0) return byPlan;
+    const rows = (await this.dataSource.query(
+      `SELECT HealthPlanID AS healthPlanId, PlanName AS planName FROM dbo.HealthPlan
+       WHERE HealthPlanID IN (${healthPlanIds.map((_, i) => `@${i}`).join(', ')})`,
+      healthPlanIds,
+    )) as Array<{ healthPlanId: number; planName: string }>;
+    for (const row of rows) {
+      byPlan.set(Number(row.healthPlanId), String(row.planName ?? '').trim());
+    }
+    return byPlan;
+  }
+
   async listPlans(): Promise<BenefitPlanRow[]> {
+    const hasBenefitTable = await this.tableExists('HealthPlanBenefit');
+
     const [planRows, benefitRows] = await Promise.all([
       this.dataSource.query(
         `SELECT hp.HealthPlanID AS healthPlanId, hp.PlanName AS planName, hp.PlanType AS planType
          FROM dbo.HealthPlan hp
-         WHERE hp.IsActive = 1
+         WHERE (hp.EndDate IS NULL OR hp.EndDate >= CAST(GETDATE() AS date))
          ORDER BY hp.PlanType, hp.PlanName`,
       ) as Promise<Array<{ healthPlanId: number; planName: string; planType: string }>>,
-      this.dataSource.query(
-        `SELECT hpb.HealthPlanID AS healthPlanId, hpb.BenefitDescription AS benefitDescription
-         FROM dbo.HealthPlanBenefit hpb
-         INNER JOIN dbo.HealthPlan hp ON hp.HealthPlanID = hpb.HealthPlanID AND hp.IsActive = 1
-         ORDER BY hpb.HealthPlanID, hpb.SortOrder`,
-      ) as Promise<Array<{ healthPlanId: number; benefitDescription: string }>>,
+      hasBenefitTable
+        ? (this.dataSource.query(
+            `SELECT hpb.HealthPlanID AS healthPlanId, hpb.BenefitDescription AS benefitDescription
+             FROM dbo.HealthPlanBenefit hpb
+             INNER JOIN dbo.HealthPlan hp ON hp.HealthPlanID = hpb.HealthPlanID
+               AND (hp.EndDate IS NULL OR hp.EndDate >= CAST(GETDATE() AS date))
+             ORDER BY hpb.HealthPlanID, hpb.SortOrder`,
+          ) as Promise<Array<{ healthPlanId: number; benefitDescription: string }>>)
+        : Promise.resolve([]),
     ]);
 
     const pricingByPlan = await this.loadCurrentPricing(
@@ -226,12 +265,22 @@ export class InternalBenefitsService {
       benefitsByPlan.set(Number(row.healthPlanId), list);
     }
 
-    return planRows.map((row) => ({
-      healthPlanId: Number(row.healthPlanId),
-      planName: String(row.planName ?? '').trim(),
-      planType: String(row.planType ?? '').trim(),
-      benefits: benefitsByPlan.get(Number(row.healthPlanId)) ?? [],
-      pricing: pricingByPlan.get(Number(row.healthPlanId)) ?? [],
-    }));
+    return planRows.map((row) => {
+      const healthPlanId = Number(row.healthPlanId);
+      // Fallback: derive a benefits list from pricing when no dedicated benefit rows exist
+      // (e.g. dbo.HealthPlanBenefit isn't provisioned yet), so plan cards still show something.
+      const benefits =
+        benefitsByPlan.get(healthPlanId) ??
+        (pricingByPlan.get(healthPlanId) ?? []).map(
+          (price) => `${price.coverageType}: $${price.monthlyPremium.toFixed(2)}/mo`,
+        );
+      return {
+        healthPlanId,
+        planName: String(row.planName ?? '').trim(),
+        planType: String(row.planType ?? '').trim(),
+        benefits,
+        pricing: pricingByPlan.get(healthPlanId) ?? [],
+      };
+    });
   }
 }

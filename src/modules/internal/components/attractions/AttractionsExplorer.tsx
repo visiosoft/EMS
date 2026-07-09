@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient, type UseQueryOptions, type UseQueryResult } from '@tanstack/react-query';
 import {
+  Calendar,
   ChevronDown,
   LayoutGrid,
   List,
   Loader2,
+  MapPin,
+  Music,
   Search,
   Sparkles,
   X,
@@ -78,8 +81,8 @@ function TourEngagementsList({ tourId, isOpen }: { tourId: number; isOpen: boole
 
   if (isPending) {
     return (
-      <p className="mt-2 flex items-center gap-2 border-t border-neutral-100 pt-2 text-xs text-neutral-500">
-        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+      <p className="mt-3 flex items-center gap-2 border-t border-neutral-100 pt-3 text-sm text-neutral-500">
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
         Loading engagements…
       </p>
     );
@@ -87,7 +90,7 @@ function TourEngagementsList({ tourId, isOpen }: { tourId: number; isOpen: boole
 
   if (isError) {
     return (
-      <p className="mt-2 border-t border-neutral-100 pt-2 text-xs text-amber-800">
+      <p className="mt-3 border-t border-neutral-100 pt-3 text-sm text-amber-800">
         Could not load engagements for this tour.
       </p>
     );
@@ -96,32 +99,41 @@ function TourEngagementsList({ tourId, isOpen }: { tourId: number; isOpen: boole
   const engagements = data ?? [];
   if (engagements.length === 0) {
     return (
-      <p className="mt-2 border-t border-neutral-100 pt-2 text-xs text-neutral-500">
+      <p className="mt-3 border-t border-neutral-100 pt-3 text-sm text-neutral-500">
         No engagements on this tour yet.
       </p>
     );
   }
 
   return (
-    <ul className="mt-2 space-y-1.5 border-t border-neutral-100 pt-2">
+    <ul className="mt-3 space-y-2 border-t border-neutral-100 pt-3">
       {engagements.map((engagement) => (
-        <li key={engagement.engagementId} className="rounded-md bg-neutral-50 px-2.5 py-2">
-          <div className="flex items-baseline justify-between gap-2">
-            <p className="min-w-0 truncate text-xs font-semibold text-neutral-900" title={engagement.displayTitle}>
+        <li
+          key={engagement.engagementId}
+          className="rounded-lg border border-neutral-200 bg-white px-4 py-3 shadow-sm transition-colors hover:border-neutral-300"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <p className="min-w-0 truncate text-sm font-semibold text-neutral-950" title={engagement.displayTitle}>
               {engagement.displayTitle || `Engagement #${engagement.engagementId}`}
             </p>
             {engagement.engagementStatus ? (
-              <span className="shrink-0 rounded-full bg-neutral-200 px-2 py-0.5 text-[10px] font-semibold text-neutral-700">
+              <span className="shrink-0 rounded-full bg-neutral-900 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
                 {engagement.engagementStatus}
               </span>
             ) : null}
           </div>
-          <p className="mt-0.5 text-[11px] text-neutral-600">{formatEngagementDate(engagement)}</p>
-          {engagementPlace(engagement) ? (
-            <p className="mt-0.5 truncate text-[11px] text-neutral-500" title={engagementPlace(engagement)}>
-              {engagementPlace(engagement)}
-            </p>
-          ) : null}
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-600">
+            <span className="inline-flex items-center gap-1.5">
+              <Calendar className="h-3.5 w-3.5 text-neutral-400" aria-hidden />
+              {formatEngagementDate(engagement)}
+            </span>
+            {engagementPlace(engagement) ? (
+              <span className="inline-flex min-w-0 items-center gap-1.5" title={engagementPlace(engagement)}>
+                <MapPin className="h-3.5 w-3.5 shrink-0 text-neutral-400" aria-hidden />
+                <span className="truncate">{engagementPlace(engagement)}</span>
+              </span>
+            ) : null}
+          </div>
         </li>
       ))}
     </ul>
@@ -175,7 +187,7 @@ function AttractionToursPanel({
   if (!isOpen) return null;
 
   return (
-    <div className="animate-slide-up border-t border-neutral-200/80 bg-neutral-50/90 px-4 py-4 sm:px-5">
+    <div className="animate-slide-up border-t border-neutral-200/80 bg-gradient-to-b from-neutral-50 to-neutral-100/60 px-4 py-5 sm:px-6">
       {showInitialLoad ? (
         <p className="flex items-center gap-2 text-sm text-neutral-600">
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
@@ -196,42 +208,55 @@ function AttractionToursPanel({
 
       {!showInitialLoad && !isError ? (
         <>
-          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-neutral-500">
+          <p className="mb-4 text-xs font-bold uppercase tracking-[0.16em] text-neutral-500">
             {total} related {total === 1 ? 'tour' : 'tours'}
           </p>
           {tours.length === 0 ? (
             <p className="text-sm text-neutral-500">No tours linked to this attraction yet.</p>
           ) : (
-            <ul className="grid items-start gap-2 sm:grid-cols-2">
+            <ul className="grid items-start gap-3 sm:grid-cols-2">
               {tours.map((tour) => {
                 const isTourOpen = openTourIds.has(tour.tourId);
                 return (
                   <li
                     key={tour.tourId}
-                    className="rounded-lg border border-neutral-200 bg-white px-3 py-2.5 shadow-sm transition-colors hover:border-neutral-300"
+                    className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm transition-all duration-300 hover:border-neutral-300 hover:shadow-md"
                   >
                     <button
                       type="button"
                       onClick={() => toggleTour(tour.tourId)}
                       aria-expanded={isTourOpen}
-                      className="flex w-full items-center justify-between gap-2 text-left focus-visible:outline-none"
+                      className="flex w-full items-center gap-3 px-4 py-4 text-left focus-visible:outline-none"
                     >
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold text-neutral-900">{tour.tourName}</span>
-                        <span className="mt-0.5 block text-xs text-neutral-500">
+                      <span
+                        className={cn(
+                          'flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#0c0c0c] text-white transition-transform duration-300',
+                          isTourOpen && 'scale-105',
+                        )}
+                        aria-hidden
+                      >
+                        <Music className="h-5 w-5" strokeWidth={1.6} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-base font-bold tracking-[-0.01em] text-neutral-950">
+                          {tour.tourName}
+                        </span>
+                        <span className="mt-0.5 block truncate text-sm text-neutral-500">
                           {tour.className || '—'}
                           {tour.talentAgencyCompanyName ? ` · ${tour.talentAgencyCompanyName}` : ''}
                         </span>
                       </span>
                       <ChevronDown
                         className={cn(
-                          'h-4 w-4 shrink-0 text-neutral-500 transition-transform duration-300',
-                          isTourOpen && 'rotate-180',
+                          'h-5 w-5 shrink-0 text-neutral-400 transition-transform duration-300',
+                          isTourOpen && 'rotate-180 text-neutral-800',
                         )}
                         aria-hidden
                       />
                     </button>
-                    <TourEngagementsList tourId={tour.tourId} isOpen={isTourOpen} />
+                    <div className={cn(isTourOpen && 'px-4 pb-4')}>
+                      <TourEngagementsList tourId={tour.tourId} isOpen={isTourOpen} />
+                    </div>
                   </li>
                 );
               })}
@@ -242,7 +267,7 @@ function AttractionToursPanel({
               type="button"
               onClick={() => void fetchNextPage()}
               disabled={isFetchingNextPage}
-              className="mt-3 text-sm font-semibold text-neutral-800 underline-offset-4 hover:underline disabled:opacity-60"
+              className="mt-4 text-sm font-semibold text-neutral-800 underline-offset-4 hover:underline disabled:opacity-60"
             >
               {isFetchingNextPage ? 'Loading more…' : 'Load more tours'}
             </button>
@@ -323,7 +348,12 @@ function AttractionCard({
       className="animate-slide-up group flex flex-col overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)] transition-all duration-300 hover:-translate-y-0.5 hover:border-neutral-300 hover:shadow-[0_14px_36px_rgba(0,0,0,0.1)]"
       style={{ animationDelay: `${Math.min(index, 12) * 45}ms`, animationFillMode: 'both' }}
     >
-      <div className={cn('p-3 sm:p-5', isList && 'p-4')}>
+      <button
+        type="button"
+        onClick={() => setExpanded((open) => !open)}
+        aria-expanded={expanded}
+        className={cn('w-full p-3 text-left sm:p-5', isList && 'p-4')}
+      >
         {!isList ? <AttractionVisual attraction={attraction} isList={false} /> : null}
 
         <div className={cn('flex gap-3 sm:gap-4', isList && 'flex-row')}>
@@ -345,21 +375,18 @@ function AttractionCard({
               >
                 {attraction.attractionName}
               </h3>
-              <button
-                type="button"
-                onClick={() => setExpanded((open) => !open)}
+              <span
                 className={cn(
-                  'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-neutral-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-neutral-800 shadow-sm transition-colors hover:bg-neutral-100 sm:px-3 sm:text-xs',
+                  'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-800 shadow-sm transition-colors group-hover:border-neutral-900 group-hover:bg-neutral-900 group-hover:text-white sm:text-sm',
                   !isList && 'w-full sm:w-auto',
                 )}
-                aria-expanded={expanded}
               >
                 <span className="whitespace-nowrap">{expanded ? 'Hide' : 'View'} tours</span>
                 <ChevronDown
                   className={cn('h-4 w-4 shrink-0 transition-transform duration-300', expanded && 'rotate-180')}
                   aria-hidden
                 />
-              </button>
+              </span>
             </div>
             <p className="mt-2 text-sm text-neutral-600">
               <span className="font-semibold text-neutral-800">
@@ -373,7 +400,7 @@ function AttractionCard({
             </p>
           </div>
         </div>
-      </div>
+      </button>
 
       <AttractionToursPanel attraction={attraction} isOpen={expanded} />
     </article>
