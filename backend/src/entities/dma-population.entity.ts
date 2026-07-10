@@ -2,10 +2,13 @@ import { Column, Entity, PrimaryColumn } from 'typeorm';
 
 /**
  * Nielsen DMA population reference data ("Sakshi's table"). NielsenCode is a unique
- * natural key (253 rows), but MarketName is NOT unique — ~49 names repeat across
- * multiple NielsenCode/Rank rows (e.g. "NEW YORK" has 10 differently-ranked rows).
- * Callers must dedupe by picking the lowest Rank per normalized name before joining
- * to dbo.DMA.MarketName. See docs/sql/dma-population-fix-request.sql.
+ * natural key (253 rows); MarketName is also unique per row as of Sakshi's 2026-07
+ * correction (each NielsenCode maps to its own real Nielsen market name). Joining
+ * this to dbo.DMA.MarketName still isn't a plain string match, though: dbo.DMA uses
+ * our own full multi-city labels ("SAN FRANCISCO-OAKLAND-SAN JOSE") while this table
+ * uses official, often shorter Nielsen labels ("San Francisco") — see
+ * normalizeNielsenMarketNameForMatch() in lookups/dma-normalization.util.ts for the
+ * matching logic and its documented limits.
  */
 @Entity({ name: 'DMAPopulation', schema: 'dbo' })
 export class DmaPopulation {
