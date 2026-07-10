@@ -525,26 +525,15 @@ function TourCardReadOnly({
         <span className="text-text-muted">Talent Agency </span>
         {t.talentAgencyCompanyName ?? '—'}
       </div>
-      {statusLabel && (
+      {(hasProjects || hasEngagements) ? (
         <div className={`mt-2 rounded-md border-l-2 px-3 py-2.5 ${statusAccentCls} ${statusBgCls}`}>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            {/* <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">Status</span> */}
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full border bg-surface px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${statusBorderCls} ${statusTextCls}`}
-            >
-              <span className={`h-1.5 w-1.5 rounded-full ${statusDotCls}`} aria-hidden />
-              {statusLabel}
-            </span>
             <span className="text-[11px] text-text-secondary">{statusSummary}</span>
           </div>
           {(t.projectNames.length > 0 || t.engagementNames.length > 0) && (
             <div className="mt-2.5 border-t border-border pt-2.5 space-y-3">
               {t.projectNames.length > 0 && (
                 <div>
-                  <div className="mb-1.5 flex items-center gap-1.5">
-                    <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">Projects</span>
-                    <span className="text-[10px] text-text-muted tabular-nums">{t.projectNames.length}</span>
-                  </div>
                   <div className="text-[11px] text-text-primary font-medium">
                     {t.attractionName} — {t.tourName}
                   </div>
@@ -569,10 +558,20 @@ function TourCardReadOnly({
                 </div>
               )}
               {t.engagementNames.length > 0 && (
-                <StatusItemGroup label="Engagements" items={t.engagementNames} />
+                <div>
+                  <ul className="space-y-1">
+                    {t.engagementNames.map((name, i) => (
+                      <StatusItemRow key={i} name={name} />
+                    ))}
+                  </ul>
+                </div>
               )}
             </div>
           )}
+        </div>
+      ) : (
+        <div className="mt-2 rounded-md border-l-2 border-l-border px-3 py-2 bg-elevated">
+          <span className="text-[11px] text-text-muted">No engagements or projects linked yet.</span>
         </div>
       )}
     </button>
@@ -2763,14 +2762,16 @@ export function AttractionToursPage({ addToast, onNavigate }: Props) {
           <TabBar tabs={['Attractions', 'Tours']} active={pageTab} onChange={setPageTab} />
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setShowAddAttraction(true)}
-            disabled={loading || !classes.length}
-            className="bg-ems-accent hover:bg-ems-accent/80 text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            + Add Attraction
-          </button>
+          {pageTab === 'Attractions' && (
+            <button
+              type="button"
+              onClick={() => setShowAddAttraction(true)}
+              disabled={loading || !classes.length}
+              className="bg-ems-accent hover:bg-ems-accent/80 text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              + Add Attraction
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setShowAddTour(true)}
