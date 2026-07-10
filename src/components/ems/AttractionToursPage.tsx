@@ -14,6 +14,8 @@ import {
   ImageIcon,
   ArrowUp,
   ArrowDown,
+  ArrowUpRight,
+  Plus,
   RotateCcw,
 } from 'lucide-react';
 import {
@@ -50,6 +52,7 @@ import {
   fetchAttractions,
   fetchClasses,
   fetchTourEngagements,
+  fetchTourProjects,
   fetchTourAgeRanges,
   fetchAdvertisingSubTypes,
   fetchTours,
@@ -63,6 +66,7 @@ import {
   type ApiTourListRow,
   type ApiVenueType,
   type ApiTourMediaMixItem,
+  type ApiTourProjectRow,
 } from '@/api/attractionToursApi';
 import {
   fetchCompanies,
@@ -407,6 +411,69 @@ function engagementLocationLabel(e: ApiTourEngagementRow): string {
   return location || e.dmaMarketName || 'Location not set';
 }
 
+/** Splits "NKU Technologies (Pvt) Ltd (Confirmed)" into its label and trailing stage. */
+function splitTrailingStage(name: string): { label: string; stage: string } {
+  const match = name.match(/^(.*?)\s*\(([^()]+)\)$/);
+  return match ? { label: match[1], stage: match[2] } : { label: name, stage: '' };
+}
+
+/** Chip colors keyed off the stage word so states read distinctly, not uniformly green. */
+function stageChipCls(stage: string): string {
+  switch (stage.trim().toLowerCase()) {
+    case 'confirmed':
+    case 'executed':
+    case 'signed':
+      return 'border-ems-green text-ems-green';
+    case 'drafted':
+    case 'submitted':
+    case 'pending':
+      return 'border-ems-amber text-ems-amber';
+    case 'cancelled':
+    case 'canceled':
+    case 'rejected':
+    case 'void':
+      return 'border-ems-coral text-ems-coral';
+    default:
+      return 'border-border text-text-secondary';
+  }
+}
+
+/** One project/engagement row: name carries the scan, stage chip sits flush right. */
+function StatusItemRow({ name }: { name: string }) {
+  const { label, stage } = splitTrailingStage(name);
+  return (
+    <li className="flex items-center gap-2 text-[11px]">
+      <span className="min-w-0 flex-1 truncate text-text-primary" title={label}>
+        {label}
+      </span>
+      {stage && (
+        <span
+          className={`shrink-0 inline-flex items-center rounded-full border bg-surface px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${stageChipCls(stage)}`}
+        >
+          {stage}
+        </span>
+      )}
+    </li>
+  );
+}
+
+/** Labelled group of status rows, with its count echoed in the header. */
+function StatusItemGroup({ label, items }: { label: string; items: string[] }) {
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center gap-1.5">
+        <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">{label}</span>
+        <span className="text-[10px] text-text-muted tabular-nums">{items.length}</span>
+      </div>
+      <ul className="space-y-1">
+        {items.map((name, i) => (
+          <StatusItemRow key={i} name={name} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /** Read-only tour summary when viewing an attraction, with quick-open to Tours tab. */
 function TourCardReadOnly({
   t,
@@ -415,6 +482,24 @@ function TourCardReadOnly({
   t: ApiTourListRow;
   onOpenTour: (tour: ApiTourListRow) => void;
 }) {
+  const hasEngagements = t.engagementCount > 0;
+  const hasProjects = t.projectCount > 0;
+  const statusLabel = hasEngagements ? 'Confirmed' : hasProjects ? 'Project' : null;
+  const projectsText = `${t.projectCount} project${t.projectCount === 1 ? '' : 's'}`;
+  const engagementsText = `${t.engagementCount} engagement${t.engagementCount === 1 ? '' : 's'}`;
+  const statusSummary = hasEngagements
+    ? hasProjects
+      ? `${projectsText} · ${engagementsText}`
+      : `${engagementsText} linked`
+    : hasProjects
+      ? `${projectsText} · no engagements yet`
+      : null;
+  const statusBgCls = hasEngagements ? 'bg-ems-green-dim' : 'bg-ems-amber-dim';
+  const statusTextCls = hasEngagements ? 'text-ems-green' : 'text-ems-amber';
+  const statusBorderCls = hasEngagements ? 'border-ems-green' : 'border-ems-amber';
+  const statusAccentCls = hasEngagements ? 'border-l-ems-green' : 'border-l-ems-amber';
+  const statusDotCls = hasEngagements ? 'bg-ems-green' : 'bg-ems-amber';
+
   return (
     <button
       type="button"
@@ -440,6 +525,56 @@ function TourCardReadOnly({
         <span className="text-text-muted">Talent Agency </span>
         {t.talentAgencyCompanyName ?? '—'}
       </div>
+      {statusLabel && (
+        <div className={`mt-2 rounded-md border-l-2 px-3 py-2.5 ${statusAccentCls} ${statusBgCls}`}>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            {/* <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">Status</span> */}
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full border bg-surface px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${statusBorderCls} ${statusTextCls}`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${statusDotCls}`} aria-hidden />
+              {statusLabel}
+            </span>
+            <span className="text-[11px] text-text-secondary">{statusSummary}</span>
+          </div>
+          {(t.projectNames.length > 0 || t.engagementNames.length > 0) && (
+            <div className="mt-2.5 border-t border-border pt-2.5 space-y-3">
+              {t.projectNames.length > 0 && (
+                <div>
+                  <div className="mb-1.5 flex items-center gap-1.5">
+                    <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">Projects</span>
+                    <span className="text-[10px] text-text-muted tabular-nums">{t.projectNames.length}</span>
+                  </div>
+                  <div className="text-[11px] text-text-primary font-medium">
+                    {t.attractionName} — {t.tourName}
+                  </div>
+                  <div className="text-[11px] text-text-secondary mb-1">
+                    {t.talentAgencyCompanyName ?? '—'}
+                  </div>
+                  <ul className="space-y-1">
+                    {t.projectNames.map((name, i) => {
+                      const { label, stage } = splitTrailingStage(name);
+                      return (
+                        <li key={`p-${i}`} className="flex items-center justify-end gap-2 text-[11px]">
+                          {/* //<span className="min-w-0 truncate text-text-primary" title={label}>{label}</span> */}
+                          {stage && (
+                            <span className={`shrink-0 inline-flex items-center rounded-full border bg-surface px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${stageChipCls(stage)}`}>
+                              {stage}
+                            </span>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+              {t.engagementNames.length > 0 && (
+                <StatusItemGroup label="Engagements" items={t.engagementNames} />
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </button>
   );
 }
@@ -503,10 +638,15 @@ function EngagementCardReadOnly({
   );
 }
 
-function TourThumbnailTile({ tour }: { tour: ApiTourListRow }) {
+function TourThumbnailTile({ tour, onClick }: { tour: ApiTourListRow; onClick?: (tour: ApiTourListRow) => void }) {
   const thumb = getThumbnailUrl(tour as unknown as Record<string, unknown>);
   return (
-    <div className="rounded-lg border border-border/80 bg-card p-2.5">
+    <button
+      type="button"
+      onClick={() => onClick?.(tour)}
+      className="w-full text-left rounded-lg border border-border/80 bg-card p-2.5 hover:bg-hover/60 transition-colors cursor-pointer"
+      title={`Open ${tour.tourName}`}
+    >
       <div className="relative aspect-[16/9] w-full overflow-hidden rounded-md border border-border/70 bg-elevated">
         {thumb ? (
           <img src={thumb} alt={`${tour.tourName} thumbnail`} className="h-full w-full object-cover" loading="lazy" />
@@ -521,7 +661,7 @@ function TourThumbnailTile({ tour }: { tour: ApiTourListRow }) {
         {tour.tourName}
       </p>
       <p className="text-[11px] text-text-muted truncate">{tour.className || '—'}</p>
-    </div>
+    </button>
   );
 }
 
@@ -1102,6 +1242,12 @@ function TourDrawer({
     enabled: activeTab === 'Engagements' && Number.isInteger(tour.tourId) && tour.tourId > 0,
     staleTime: 60_000,
   });
+  const projectsQuery = useQuery({
+    queryKey: ['tour-projects', tour.tourId],
+    queryFn: () => fetchTourProjects(tour.tourId),
+    enabled: activeTab === 'Projects' && Number.isInteger(tour.tourId) && tour.tourId > 0,
+    staleTime: 60_000,
+  });
   const [talentAgentContactIds, setTalentAgentContactIds] = useState<string[]>(
     () => (tour.talentAgentContactIds ?? []).map(String),
   );
@@ -1472,7 +1618,7 @@ function TourDrawer({
         </div>
       </div>
 
-      <TabBar tabs={['Details', 'Contacts', 'Engagements', 'Marketing']} active={activeTab} onChange={onTabChange} />
+      <TabBar tabs={['Details', 'Contacts', 'Projects', 'Engagements', 'Marketing']} active={activeTab} onChange={onTabChange} />
 
       <div className="p-4 text-sm relative">
         {activeTab === 'Details' && (
@@ -1877,6 +2023,64 @@ function TourDrawer({
                   </div>
                 )}
               </>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'Projects' && (
+          <div className="space-y-3">
+            {projectsQuery.isLoading ? (
+              <div
+                className="rounded-lg border border-border bg-elevated px-4 py-8 text-center"
+                role="status"
+                aria-live="polite"
+              >
+                <Loader2 className="mx-auto h-7 w-7 animate-spin text-ems-accent" aria-hidden />
+                <p className="mt-2 text-sm text-text-secondary">Loading projects…</p>
+              </div>
+            ) : projectsQuery.isError ? (
+              <div className="rounded-lg border border-ems-coral/40 bg-ems-coral-dim px-4 py-3">
+                <p className="text-sm text-ems-coral">
+                  {friendlyApiError(projectsQuery.error, 'Could not load projects for this tour.')}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void projectsQuery.refetch()}
+                  className="mt-2 text-xs font-medium text-ems-coral hover:underline"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : (projectsQuery.data ?? []).length === 0 ? (
+              <div className="rounded-lg border border-border bg-elevated px-4 py-8 text-center text-sm text-text-muted">
+                No projects are associated with this tour yet.
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {(projectsQuery.data ?? []).map((project) => (
+                  <div
+                    key={project.engagementProjectId}
+                    className="rounded-lg border border-border bg-elevated p-3 space-y-1.5"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium text-text-primary">
+                        {project.attractionName ?? 'Attraction'} — {project.tourName ?? 'Tour'}
+                      </span>
+                      <StatusBadge status={project.projectStage} />
+                    </div>
+                    <div className="text-xs text-text-secondary">
+                      <span className="text-text-muted">Talent Agency:</span>{' '}
+                      {project.talentAgencyName ?? '—'}
+                    </div>
+                    {project.offerReviewStatus && (
+                      <div className="text-xs text-text-secondary">
+                        <span className="text-text-muted">Offer Review:</span>{' '}
+                        <StatusBadge status={project.offerReviewStatus} />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         )}
@@ -2558,7 +2762,7 @@ export function AttractionToursPage({ addToast, onNavigate }: Props) {
           )}
           <TabBar tabs={['Attractions', 'Tours']} active={pageTab} onChange={setPageTab} />
         </div>
-        {pageTab === 'Attractions' ? (
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setShowAddAttraction(true)}
@@ -2567,7 +2771,6 @@ export function AttractionToursPage({ addToast, onNavigate }: Props) {
           >
             + Add Attraction
           </button>
-        ) : (
           <button
             type="button"
             onClick={() => setShowAddTour(true)}
@@ -2576,7 +2779,7 @@ export function AttractionToursPage({ addToast, onNavigate }: Props) {
           >
             + Add Tour
           </button>
-        )}
+        </div>
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
@@ -2954,20 +3157,44 @@ export function AttractionToursPage({ addToast, onNavigate }: Props) {
                                   <h3 className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
                                     Related Tours
                                   </h3>
-                                  <button
-                                    type="button"
-                                    className="text-xs text-ems-accent hover:text-ems-accent/80 font-medium"
-                                    onClick={() => setSelectedAttractionId(a.attractionId)}
-                                  >
-                                    Open details
-                                  </button>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <button
+                                      type="button"
+                                      className="inline-flex items-center gap-1 rounded-md border border-ems-accent px-2 py-1 text-xs font-medium text-ems-accent transition-colors hover:bg-ems-accent-dim focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
+                                      onClick={() => setShowAddTour(true)}
+                                    >
+                                      <Plus className="h-3.5 w-3.5" aria-hidden />
+                                      Add Tour
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
+                                      onClick={() => setSelectedAttractionId(a.attractionId)}
+                                    >
+                                      Open details
+                                      <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
+                                    </button>
+                                  </div>
                                 </div>
                                 {toursForAttraction.length === 0 ? (
                                   <p className="text-xs text-text-muted">No tours attached yet.</p>
                                 ) : (
                                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                                     {toursForAttraction.map((t) => (
-                                      <TourThumbnailTile key={t.tourId} tour={t} />
+                                      <TourThumbnailTile
+                                        key={t.tourId}
+                                        tour={t}
+                                        onClick={(tour) => {
+                                          setSelectedAttractionId(null);
+                                          setPageTab('Tours');
+                                          setSelectedTourId(tour.tourId);
+                                          setTourInput(tour.tourName);
+                                          setTourSearch(tour.tourName);
+                                          setShowTourSuggestions(false);
+                                          setTourDrawerTab('Details');
+                                          setPage(1);
+                                        }}
+                                      />
                                     ))}
                                   </div>
                                 )}
