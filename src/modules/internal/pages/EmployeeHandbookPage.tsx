@@ -1323,7 +1323,7 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
             </div>
 
             {/* ── Floating buttons: desktop (left side) ── */}
-            <div className="absolute left-2 top-1/2 z-20 -translate-y-1/2 flex-col gap-1.5 hidden md:flex max-h-[82vh] w-[220px] overflow-y-auto pr-1">
+            <div className="absolute left-2 top-1/2 z-20 -translate-y-1/2 flex-col gap-2 hidden md:flex max-h-[82vh] w-[320px] overflow-y-auto pr-1">
               <button
                 type="button"
                 onClick={() => jumpToIndex(0)}
@@ -1334,18 +1334,18 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
               </button>
 
               {chapterEntries.length > 0 && (
-                <div className="flex flex-col gap-1">
-                  <span className="text-left text-[13px] font-semibold uppercase tracking-[0.08em] text-white/60">
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-left text-[20px] font-semibold uppercase tracking-[0.08em] text-white/60">
                     Chapters
                   </span>
                   {chapterEntries.map((chapter) => {
                     const isActiveChapter = chapter.chapterIdx === currentChapterIdx;
                     return (
-                      <div key={chapter.number} className="flex flex-col gap-1">
+                      <div key={chapter.number} className="flex flex-col gap-1.5">
                         <button
                           type="button"
                           onClick={() => jumpToIndex(chapter.pageIndex)}
-                          className={`flex w-full min-w-0 items-center gap-1.5 rounded-md border px-2.5 py-2 text-left text-[14px] font-medium leading-snug shadow-lg backdrop-blur-md transition-all ${
+                          className={`flex w-full min-w-0 items-center gap-2 rounded-md border px-3 py-2.5 text-left text-[22px] font-medium leading-snug shadow-lg backdrop-blur-md transition-all ${
                             isActiveChapter
                               ? "border-white bg-white/90 text-neutral-950"
                               : "border-white/[0.50] bg-neutral-950/70 text-white/70 hover:border-white/20 hover:text-white/70"
@@ -1356,7 +1356,7 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
                           <span className={`truncate ${isActiveChapter ? "" : "opacity-75"}`}>{chapter.title}</span>
                         </button>
                         {isActiveChapter && chapterSubsections.length > 0 && (
-                          <span className="ml-3 text-left text-[10px] font-semibold uppercase tracking-[0.06em] text-white/40">
+                          <span className="ml-3 text-left text-[15px] font-semibold uppercase tracking-[0.06em] text-white/40">
                             In This Chapter
                           </span>
                         )}
@@ -1366,7 +1366,7 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
                               key={sub.label}
                               type="button"
                               onClick={() => jumpToIndex(sub.pageIndex)}
-                              className="ml-3 flex min-w-0 items-center gap-1.5 rounded-md border border-white/[0.50] bg-neutral-950/70 px-2.5 py-2 text-left text-[14px] font-medium leading-snug text-white/70 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
+                              className="ml-3 flex min-w-0 items-center gap-2 rounded-md border border-white/[0.50] bg-neutral-950/70 px-3 py-2.5 text-left text-[22px] font-medium leading-snug text-white/70 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
                               title={sub.fullTitle}
                             >
                               <span className="shrink-0 font-semibold tracking-[0.03em]">{sub.label}</span>
@@ -1396,11 +1396,11 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
           </button>
 
           {chapterEntries.length > 0 && (
-            <div className="flex flex-col gap-1">
-              <span className="text-center text-[12px] font-semibold uppercase tracking-[0.08em] text-white/60">
+            <div className="flex flex-col gap-1.5">
+              <span className="text-center text-[18px] font-semibold uppercase tracking-[0.08em] text-white/60">
                 Chapters
               </span>
-              <div className="flex flex-wrap items-center justify-center gap-1.5">
+              <div className="flex flex-wrap items-center justify-center gap-2">
                 {chapterEntries.map((chapter) => {
                   const isActiveChapter = chapter.chapterIdx === currentChapterIdx;
                   return (
@@ -1408,7 +1408,7 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
                       key={chapter.number}
                       type="button"
                       onClick={() => jumpToIndex(chapter.pageIndex)}
-                      className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[13px] font-medium shadow-lg backdrop-blur-md transition-all ${
+                      className={`flex items-center gap-1.5 rounded-md border px-3 py-2 text-[19px] font-medium shadow-lg backdrop-blur-md transition-all ${
                         isActiveChapter
                           ? "border-white bg-white/90 text-neutral-950"
                           : "border-white/[0.50] bg-neutral-950/70 text-white/70 hover:border-white/20 hover:text-white/70"
@@ -1424,17 +1424,17 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
           )}
 
           {chapterSubsections.length > 0 && (
-            <div className="flex flex-col gap-1">
-              <span className="text-center text-[10px] font-semibold uppercase tracking-[0.06em] text-white/40">
+            <div className="flex flex-col gap-1.5">
+              <span className="text-center text-[15px] font-semibold uppercase tracking-[0.06em] text-white/40">
                 In Ch. {currentPageInfo?.chapterNumber}
               </span>
-              <div className="flex flex-wrap items-center justify-center gap-1.5">
+              <div className="flex flex-wrap items-center justify-center gap-2">
                 {chapterSubsections.map((sub) => (
                   <button
                     key={sub.label}
                     type="button"
                     onClick={() => jumpToIndex(sub.pageIndex)}
-                    className="flex items-center gap-1.5 rounded-md border border-white/[0.50] bg-neutral-950/70 px-2.5 py-1.5 text-[13px] font-medium text-white/70 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
+                    className="flex items-center gap-1.5 rounded-md border border-white/[0.50] bg-neutral-950/70 px-3 py-2 text-[19px] font-medium text-white/70 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
                     title={sub.fullTitle}
                   >
                     <span className="shrink-0 font-semibold tracking-[0.03em]">{sub.label}</span>
