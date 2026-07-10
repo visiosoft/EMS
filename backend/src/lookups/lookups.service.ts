@@ -10,7 +10,10 @@ import { CompanyType } from '../entities/company-type.entity';
 import { Department } from '../entities/department.entity';
 import { Dma } from '../entities/dma.entity';
 import { DmaPopulation } from '../entities/dma-population.entity';
-import { dmaMarketNameNormSql, normalizeDmaMarketNameJs } from './dma-normalization.util';
+import {
+  dmaMarketNameNormSql,
+  normalizeNielsenMarketNameForMatch,
+} from './dma-normalization.util';
 import { Role } from '../entities/role.entity';
 import { SeatingType } from '../entities/seating-type.entity';
 import { VenueType } from '../entities/venue-type.entity';
@@ -412,12 +415,15 @@ export class LookupsService {
   > | null = null;
 
   /**
-   * Best (lowest official Nielsen Rank) row per normalized market name, deduping
-   * dbo.DMAPopulation's non-unique MarketName labels — ~49 names repeat across
-   * multiple NielsenCode/Rank rows (e.g. "NEW YORK" has 10 differently-ranked rows).
-   * Cached for the process lifetime: this is small (253 rows), effectively-static
-   * reference data. See docs/sql/dma-population-fix-request.sql for the underlying
-   * data-quality issue and what's needed from Sakshi to fully resolve it.
+   * Best (lowest official Nielsen Rank) row per Nielsen-normalized market name.
+   * dbo.DMAPopulation's MarketName is unique per NielsenCode as of Sakshi's 2026-07
+   * correction (each Nielsen market has exactly one row), so this dedup is now purely
+   * defensive. The remaining reason not every dbo.DMA tile gets Nielsen data is a
+   * naming-convention gap: dbo.DMA uses our own full multi-city labels while
+   * DMAPopulation uses official (often shorter) Nielsen labels — see
+   * {@link normalizeNielsenMarketNameForMatch} for exactly what is and isn't
+   * compensated for. Cached for the process lifetime: this is small (253 rows),
+   * effectively-static reference data.
    */
   private async loadBestDmaPopulationByNormName() {
     if (this.dmaPopulationCache) return this.dmaPopulationCache;
@@ -433,7 +439,7 @@ export class LookupsService {
     >();
     for (const row of rows) {
       if (!row.marketName) continue;
-      const key = normalizeDmaMarketNameJs(row.marketName);
+      const key = normalizeNielsenMarketNameForMatch(row.marketName);
       const existing = map.get(key);
       if (!existing || (row.rank ?? Infinity) < (existing.nielsenRank ?? Infinity)) {
         map.set(key, {
@@ -487,7 +493,7 @@ export class LookupsService {
   ) {
     return rows.map((r) => {
       const marketName = String(r.marketName ?? r.MarketName ?? '');
-      const pop = populationByNormName.get(normalizeDmaMarketNameJs(marketName));
+      const pop = populationByNormName.get(normalizeNielsenMarketNameForMatch(marketName));
       return {
         dmaid: Number(r.dmaid ?? r.DMAID),
         marketName,
