@@ -628,7 +628,7 @@ function HandbookTocPage({
   return (
     <div className={`flex h-full w-full flex-col bg-white text-neutral-900 paper-grain ${isMobile ? "" : "page-edge"}`}>
       <div className="flex-1 overflow-y-auto p-8 md:p-10">
-        <h2 className="font-display text-xl tracking-tight mb-4">Contents</h2>
+        <h2 className="font-display text-2xl tracking-tight mb-4">Contents</h2>
         <div className="h-px w-8 bg-current/20 mb-5" />
         <nav className="space-y-[3px]">
           {tocSections.map((sec) => {
@@ -638,16 +638,16 @@ function HandbookTocPage({
             const hasSubsections = !isIndexEntry && sec.subsections && sec.subsections.length > 0;
             return (
               <div key={sec.number}>
-                <div className="group flex h-[44px] w-full items-center gap-3 border-t border-neutral-200 text-left text-[12px] text-black-500 transition-colors hover:text-neutral-900">
+                <div className="group flex h-[52px] w-full items-center gap-3 border-t border-neutral-200 text-left text-[15px] text-black-500 transition-colors hover:text-neutral-900">
                   <button
                     type="button"
                     onClick={() => onJump(sec.pageIndex)}
                     className="flex flex-1 items-center gap-3 py-0 focus-visible:outline-none"
                   >
-                    <span className="w-5 text-[10px] font-medium text-black-300 group-hover:text-neutral-500">
+                    <span className="w-6 text-[12px] font-medium text-black-300 group-hover:text-neutral-500">
                       {isIndexEntry ? "" : String(sec.number).padStart(2, "0")}
                     </span>
-                    <Icon className="size-[16px] shrink-0 text-black-300 transition-colors group-hover:text-neutral-500" strokeWidth={1.5} aria-hidden />
+                    <Icon className="size-[19px] shrink-0 text-black-300 transition-colors group-hover:text-neutral-500" strokeWidth={1.5} aria-hidden />
                     <span className="leading-tight">{sec.title}</span>
                   </button>
                   {hasSubsections && (
@@ -661,7 +661,7 @@ function HandbookTocPage({
                       aria-label={isExpanded ? "Collapse subsections" : "Expand subsections"}
                     >
                       <ChevronDown
-                        className={`size-3.5 text-black-300 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
+                        className={`size-4 text-black-300 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
                         strokeWidth={2}
                       />
                     </button>
@@ -673,7 +673,7 @@ function HandbookTocPage({
                         key={sub.label}
                         type="button"
                         onClick={() => onJump(sub.pageIndex)}
-                        className="flex h-[32px] w-full items-center gap-3 pl-[52px] pr-0 text-left text-[11px] text-black-400 transition-colors hover:text-neutral-900 focus-visible:outline-none"
+                        className="flex h-[38px] w-full items-center gap-3 pl-[56px] pr-0 text-left text-[13px] text-black-400 transition-colors hover:text-neutral-900 focus-visible:outline-none"
                       >
                         <span className="shrink-0 font-medium">{sub.label}</span>
                         <span className="truncate opacity-70">{sub.title.replace(/^\d+\.\d+\s*/, "")}</span>
@@ -686,8 +686,8 @@ function HandbookTocPage({
         </nav>
       </div>
       <div className="flex shrink-0 items-center justify-between border-t border-black-100 px-5 py-2 text-black-300">
-        <span className="text-[8px] font-medium uppercase tracking-[0.2em]">iAE Employee Handbook</span>
-        <span className="text-[8px] font-medium uppercase tracking-[0.2em]">{String(pageNumber).padStart(3, "0")} / {String(totalPages).padStart(3, "0")}</span>
+        <span className="text-[9px] font-medium uppercase tracking-[0.2em]">iAE Employee Handbook</span>
+        <span className="text-[9px] font-medium uppercase tracking-[0.2em]">{String(pageNumber).padStart(3, "0")} / {String(totalPages).padStart(3, "0")}</span>
       </div>
     </div>
   );
@@ -1125,7 +1125,7 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
       return (
         <div className={`flex h-full w-full flex-col ${themeClasses} ${isMobile ? "" : "page-edge"}`}>
           <div className="flex-1 overflow-y-auto p-8 md:p-10">
-            <h2 className="font-display text-xl tracking-tight mb-4">Index</h2>
+            <h2 className="font-display text-2xl tracking-tight mb-4">Index</h2>
             <div className="h-px w-8 bg-current/20 mb-5" />
             <div className="grid grid-cols-1 gap-x-8 md:grid-cols-2">
               {page.indexEntries.map((entry) => {
@@ -1137,12 +1137,12 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
                     onClick={() => {
                       jumpToIndex(target);
                     }}
-                    className="flex h-[26px] min-w-0 items-baseline gap-2 text-left text-[11px] text-black-500 transition-colors hover:text-neutral-900 focus-visible:outline-none"
+                    className="flex h-[32px] min-w-0 items-baseline gap-2 text-left text-[14px] text-black-500 transition-colors hover:text-neutral-900 focus-visible:outline-none"
                     title={entry.title}
                   >
                     <span className="truncate">{entry.title.replace(/^\d+\.\d+\s*/, "")}</span>
                     <span className="min-w-4 flex-1 border-b border-dotted border-current/25" aria-hidden />
-                    <span className="shrink-0 text-[10px] font-medium tabular-nums text-black-300">
+                    <span className="shrink-0 text-[12px] font-medium tabular-nums text-black-300">
                       {target != null ? String(target + 1).padStart(3, "0") : "—"}
                     </span>
                   </button>
@@ -1151,8 +1151,8 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
             </div>
           </div>
           <div className="flex shrink-0 items-center justify-between border-t border-black-100 px-5 py-2 text-black-300">
-            <span className="text-[8px] font-medium uppercase tracking-[0.2em]">iAE Employee Handbook</span>
-            <span className="text-[8px] font-medium uppercase tracking-[0.2em]">{String(pageNumber).padStart(3, "0")} / {String(totalPages).padStart(3, "0")}</span>
+            <span className="text-[9px] font-medium uppercase tracking-[0.2em]">iAE Employee Handbook</span>
+            <span className="text-[9px] font-medium uppercase tracking-[0.2em]">{String(pageNumber).padStart(3, "0")} / {String(totalPages).padStart(3, "0")}</span>
           </div>
         </div>
       );
@@ -1323,7 +1323,7 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
             </div>
 
             {/* ── Floating buttons: desktop (left side) ── */}
-            <div className="absolute left-2 top-1/2 z-20 -translate-y-1/2 flex-col gap-2 hidden md:flex max-h-[82vh] w-[320px] overflow-y-auto pr-1">
+            <div className="absolute left-2 top-1/2 z-20 -translate-y-1/2 flex-col gap-1.5 hidden md:flex max-h-[82vh] w-[220px] overflow-y-auto pr-1">
               <button
                 type="button"
                 onClick={() => jumpToIndex(0)}
@@ -1334,18 +1334,18 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
               </button>
 
               {chapterEntries.length > 0 && (
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-left text-[20px] font-semibold uppercase tracking-[0.08em] text-white/60">
+                <div className="flex flex-col gap-1">
+                  <span className="text-left text-[13px] font-semibold uppercase tracking-[0.08em] text-white/60">
                     Chapters
                   </span>
                   {chapterEntries.map((chapter) => {
                     const isActiveChapter = chapter.chapterIdx === currentChapterIdx;
                     return (
-                      <div key={chapter.number} className="flex flex-col gap-1.5">
+                      <div key={chapter.number} className="flex flex-col gap-1">
                         <button
                           type="button"
                           onClick={() => jumpToIndex(chapter.pageIndex)}
-                          className={`flex w-full min-w-0 items-center gap-2 rounded-md border px-3 py-2.5 text-left text-[22px] font-medium leading-snug shadow-lg backdrop-blur-md transition-all ${
+                          className={`flex w-full min-w-0 items-center gap-1.5 rounded-md border px-2.5 py-2 text-left text-[14px] font-medium leading-snug shadow-lg backdrop-blur-md transition-all ${
                             isActiveChapter
                               ? "border-white bg-white/90 text-neutral-950"
                               : "border-white/[0.50] bg-neutral-950/70 text-white/70 hover:border-white/20 hover:text-white/70"
@@ -1356,7 +1356,7 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
                           <span className={`truncate ${isActiveChapter ? "" : "opacity-75"}`}>{chapter.title}</span>
                         </button>
                         {isActiveChapter && chapterSubsections.length > 0 && (
-                          <span className="ml-3 text-left text-[15px] font-semibold uppercase tracking-[0.06em] text-white/40">
+                          <span className="ml-3 text-left text-[10px] font-semibold uppercase tracking-[0.06em] text-white/40">
                             In This Chapter
                           </span>
                         )}
@@ -1366,7 +1366,7 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
                               key={sub.label}
                               type="button"
                               onClick={() => jumpToIndex(sub.pageIndex)}
-                              className="ml-3 flex min-w-0 items-center gap-2 rounded-md border border-white/[0.50] bg-neutral-950/70 px-3 py-2.5 text-left text-[22px] font-medium leading-snug text-white/70 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
+                              className="ml-3 flex min-w-0 items-center gap-1.5 rounded-md border border-white/[0.50] bg-neutral-950/70 px-2.5 py-2 text-left text-[14px] font-medium leading-snug text-white/70 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
                               title={sub.fullTitle}
                             >
                               <span className="shrink-0 font-semibold tracking-[0.03em]">{sub.label}</span>
@@ -1396,11 +1396,11 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
           </button>
 
           {chapterEntries.length > 0 && (
-            <div className="flex flex-col gap-1.5">
-              <span className="text-center text-[18px] font-semibold uppercase tracking-[0.08em] text-white/60">
+            <div className="flex flex-col gap-1">
+              <span className="text-center text-[12px] font-semibold uppercase tracking-[0.08em] text-white/60">
                 Chapters
               </span>
-              <div className="flex flex-wrap items-center justify-center gap-2">
+              <div className="flex flex-wrap items-center justify-center gap-1.5">
                 {chapterEntries.map((chapter) => {
                   const isActiveChapter = chapter.chapterIdx === currentChapterIdx;
                   return (
@@ -1408,7 +1408,7 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
                       key={chapter.number}
                       type="button"
                       onClick={() => jumpToIndex(chapter.pageIndex)}
-                      className={`flex items-center gap-1.5 rounded-md border px-3 py-2 text-[19px] font-medium shadow-lg backdrop-blur-md transition-all ${
+                      className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[13px] font-medium shadow-lg backdrop-blur-md transition-all ${
                         isActiveChapter
                           ? "border-white bg-white/90 text-neutral-950"
                           : "border-white/[0.50] bg-neutral-950/70 text-white/70 hover:border-white/20 hover:text-white/70"
@@ -1424,17 +1424,17 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
           )}
 
           {chapterSubsections.length > 0 && (
-            <div className="flex flex-col gap-1.5">
-              <span className="text-center text-[15px] font-semibold uppercase tracking-[0.06em] text-white/40">
+            <div className="flex flex-col gap-1">
+              <span className="text-center text-[10px] font-semibold uppercase tracking-[0.06em] text-white/40">
                 In Ch. {currentPageInfo?.chapterNumber}
               </span>
-              <div className="flex flex-wrap items-center justify-center gap-2">
+              <div className="flex flex-wrap items-center justify-center gap-1.5">
                 {chapterSubsections.map((sub) => (
                   <button
                     key={sub.label}
                     type="button"
                     onClick={() => jumpToIndex(sub.pageIndex)}
-                    className="flex items-center gap-1.5 rounded-md border border-white/[0.50] bg-neutral-950/70 px-3 py-2 text-[19px] font-medium text-white/70 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
+                    className="flex items-center gap-1.5 rounded-md border border-white/[0.50] bg-neutral-950/70 px-2.5 py-1.5 text-[13px] font-medium text-white/70 shadow-lg backdrop-blur-md transition-all hover:border-white/20 hover:text-white/70"
                     title={sub.fullTitle}
                   >
                     <span className="shrink-0 font-semibold tracking-[0.03em]">{sub.label}</span>

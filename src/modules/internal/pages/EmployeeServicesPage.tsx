@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, UsersRound } from "lucide-react";
+import { ChevronDown, Maximize2, UsersRound } from "lucide-react";
 import { IaeLogoIcon } from "@/components/brand/IaeBrandMark";
 import { InternalPageHero } from "../components/InternalPageHero";
 import { InternalPageFrame } from "../layout/InternalPageFrame";
@@ -98,6 +98,20 @@ function DirectoryBanner({ open, onToggle }: { open: boolean; onToggle: () => vo
         className={`h-6 w-6 shrink-0 transition-transform duration-300 ${open ? "rotate-180" : ""}`}
         aria-hidden
       />
+    </button>
+  );
+}
+
+/** Opens the standalone full-page directory — for anyone who prefers the dedicated page over the inline panel. */
+function DirectoryFullScreenButton({ onOpen }: { onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-neutral-700 shadow-sm transition-colors hover:bg-neutral-100"
+    >
+      <Maximize2 className="h-3.5 w-3.5" aria-hidden />
+      Full screen view
     </button>
   );
 }
@@ -210,6 +224,9 @@ export function EmployeeServicesPage() {
 
             {dirOpen ? (
               <div className="animate-slide-up rounded-lg border border-neutral-200 bg-white p-4 shadow-sm">
+                <div className="mb-3 flex justify-end">
+                  <DirectoryFullScreenButton onOpen={() => navigate("employee-directory")} />
+                </div>
                 <EmployeeDirectoryPanel fromView="employee-services" />
               </div>
             ) : null}
@@ -233,6 +250,9 @@ export function EmployeeServicesPage() {
 
             {dirOpen ? (
               <div className="animate-slide-up rounded-lg border border-neutral-200 bg-white p-6 shadow-sm">
+                <div className="mb-4 flex justify-end">
+                  <DirectoryFullScreenButton onOpen={() => navigate("employee-directory")} />
+                </div>
                 <EmployeeDirectoryPanel fromView="employee-services" />
               </div>
             ) : null}
