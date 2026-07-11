@@ -17,12 +17,20 @@ export interface HealthPlanPricingInfo {
   monthlyPremium: number;
 }
 
+export interface HealthPlanContributionRuleInfo {
+  tenureTier: string;
+  employerContributionPct: number;
+}
+
 export interface HealthPlanOption {
   healthPlanId: number;
   planName: string;
   planType: string;
+  carrierName: string;
+  planCode: string | null;
   benefits: string[];
   pricing: HealthPlanPricingInfo[];
+  contributionRules: HealthPlanContributionRuleInfo[];
 }
 
 export interface EmployeeHealthInsurance {
@@ -30,6 +38,7 @@ export interface EmployeeHealthInsurance {
   insuranceEligibility: string;
   tenureTier: '<1 yr' | '1+ yr' | null;
   companyContributionPerPayPeriod: number;
+  benchmarkBiweekly: number;
   elections: InsuranceElection[];
   plans: HealthPlanOption[];
 }

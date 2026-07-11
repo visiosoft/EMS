@@ -3,28 +3,47 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AuditRequestContext } from '../audit/audit-request-context.service';
 
+/** Pay periods per year — biweekly payroll. */
+const PAY_PERIODS_PER_YEAR = 26;
+
+export type TenureTier = '<1 yr' | '1+ yr';
+
 export type BenefitPlanPricingRow = {
   coverageType: string;
   monthlyPremium: number;
+};
+
+export type BenefitPlanContributionRow = {
+  tenureTier: string;
+  employerContributionPct: number;
 };
 
 export type BenefitPlanRow = {
   healthPlanId: number;
   planName: string;
   planType: string;
-  benefits: string[];
+  carrierName: string;
+  planCode: string | null;
   pricing: BenefitPlanPricingRow[];
+  contributionRules: BenefitPlanContributionRow[];
 };
 
 export type MyInsuranceElection = {
   insuranceType: string;
   optInStatus: string | null;
   /** Coverage tier as elected, e.g. "Employee + Family". */
-  additionalInsureds: string | null;
+  coverageTier: string | null;
   healthPlanId: number | null;
   planName: string | null;
+  carrierName: string | null;
   /** Premium matched to the elected tier + tenure bucket; null when no confident match. */
   monthlyPremium: number | null;
+  /** As stored on dbo.EmployeeHealthInsurance — the authoritative payroll figure. */
+  deductionPerPayPeriod: number | null;
+  /** Employer share for this plan at the employee's tenure, from dbo.HealthPlanContributionRule. */
+  employerContributionPct: number | null;
+  /** Derived: what the premium costs per pay period, less what the employee is deducted. */
+  employerContributionPerPayPeriod: number | null;
   /** All current pricing rows for the elected plan (fallback when no premium match). */
   pricing: BenefitPlanPricingRow[];
 };
@@ -32,14 +51,49 @@ export type MyInsuranceElection = {
 export type MyInsuranceResponse = {
   /** True when the signed-in user has no linked internal contact. */
   noProfile: boolean;
-  /** Employment start date used for tenure-based pricing, when known. */
-  startDate: string | null;
+  /** Tenure bucket recorded on the election row; drives tenure-based pricing. */
+  tenureTier: TenureTier | null;
   elections: MyInsuranceElection[];
 };
 
 function toNumber(value: unknown): number {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
+}
+
+function nullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * dbo.EmployeeHealthInsurance.TenureTier is written as "1+ Years" / "Under 1 Year" /
+ * "Unknown"; dbo.HealthPlanContributionRule.TenureTier uses "1+ Year" / "Less than 1 year".
+ * Both collapse onto the same two buckets. Returns null when the tier is Unknown/unset.
+ */
+function normalizeTenureTier(raw: unknown): TenureTier | null {
+  const tier = String(raw ?? '').trim().toLowerCase();
+  if (!tier || tier === 'unknown') return null;
+  if (tier.startsWith('1+')) return '1+ yr';
+  if (tier.startsWith('<1') || tier.includes('under 1') || tier.includes('less than 1')) {
+    return '<1 yr';
+  }
+  return null;
+}
+
+/** Pick the employer-contribution rule row matching the employee's tenure bucket. */
+function matchContributionPct(
+  rules: BenefitPlanContributionRow[],
+  tenureTier: TenureTier | null,
+): number | null {
+  if (!tenureTier || rules.length === 0) return null;
+  const match = rules.find((rule) => {
+    const tier = rule.tenureTier.trim().toLowerCase();
+    if (tenureTier === '1+ yr') return tier.startsWith('1+');
+    return tier.includes('less than') || tier.includes('under') || tier.startsWith('<1');
+  });
+  return match ? match.employerContributionPct : null;
 }
 
 @Injectable()
@@ -99,17 +153,46 @@ export class InternalBenefitsService {
     return byPlan;
   }
 
+  private async loadContributionRules(
+    healthPlanIds: number[],
+  ): Promise<Map<number, BenefitPlanContributionRow[]>> {
+    const byPlan = new Map<number, BenefitPlanContributionRow[]>();
+    if (healthPlanIds.length === 0) return byPlan;
+    const rows = (await this.dataSource.query(
+      `
+      SELECT hpcr.HealthPlanID AS healthPlanId,
+             hpcr.TenureTier AS tenureTier,
+             hpcr.EmployerContributionPct AS employerContributionPct
+      FROM dbo.HealthPlanContributionRule hpcr
+      WHERE hpcr.HealthPlanID IN (${healthPlanIds.map((_, i) => `@${i}`).join(', ')})
+        AND (hpcr.EndDate IS NULL OR hpcr.EndDate >= CAST(GETDATE() AS date))
+      ORDER BY hpcr.HealthPlanID, hpcr.TenureTier
+      `,
+      healthPlanIds,
+    )) as Array<{ healthPlanId: number; tenureTier: string; employerContributionPct: unknown }>;
+    for (const row of rows) {
+      const planId = Number(row.healthPlanId);
+      const list = byPlan.get(planId) ?? [];
+      list.push({
+        tenureTier: String(row.tenureTier ?? '').trim(),
+        employerContributionPct: toNumber(row.employerContributionPct),
+      });
+      byPlan.set(planId, list);
+    }
+    return byPlan;
+  }
+
   /**
    * Pick the pricing row for an elected tier + tenure. CoverageType strings look like
-   * "Employee (1+ yr)" / "Employee + Spouse (<1 yr)"; AdditionalInsureds holds the tier
+   * "Employee (1+ yr)" / "Employee + Spouse (<1 yr)"; CoverageTier holds the tier
    * ("Employee + Family"). Matching is defensive — null when nothing lines up.
    */
   private matchPremium(
     pricing: BenefitPlanPricingRow[],
-    additionalInsureds: string | null,
-    tenureYears: number | null,
+    coverageTier: string | null,
+    tenureTier: TenureTier | null,
   ): number | null {
-    const raw = (additionalInsureds ?? '').trim();
+    const raw = (coverageTier ?? '').trim();
     // EmployeeHealthInsurance.*CoverageTier stores "Employee Only" for single coverage,
     // but HealthPlanPricing.CoverageType uses plain "Employee" for the same tier.
     const tier = (raw === 'Employee Only' ? 'Employee' : raw).toLowerCase();
@@ -122,58 +205,37 @@ export class InternalBenefitsService {
     if (tierRows.length === 0) return null;
     if (tierRows.length === 1) return tierRows[0].monthlyPremium;
 
-    const wantSenior = tenureYears == null || tenureYears >= 1;
-    const marker = wantSenior ? '1+' : '<1';
+    // Tenure unknown → assume the fully-vested rate, matching matchPricingForTier.
+    const marker = tenureTier === '<1 yr' ? '<1' : '1+';
     const matched = tierRows.find((row) => row.coverageType.includes(marker));
     return (matched ?? tierRows[0]).monthlyPremium;
   }
 
   /**
    * dbo.EmployeeHealthInsurance is a wide table: one row per employee with a
-   * Medical/Dental/Vision column triplet (HealthPlanID/CoverageTier/ElectionStatus)
-   * per insurance type, not one row per election. 'Health' (the API/UI label) maps to
-   * the 'Medical' column prefix. Mirrors the equivalent unpivot in
+   * Medical/Dental/Vision column triplet (HealthPlanID/CoverageTier/DeductionPerPayPeriod)
+   * per insurance type, not one row per election. Mirrors the equivalent unpivot in
    * employee-health-insurance.service.ts.
    */
   private static readonly TYPE_COLUMNS = [
-    { apiType: 'Health', prefix: 'Medical' },
+    { apiType: 'Medical', prefix: 'Medical' },
     { apiType: 'Dental', prefix: 'Dental' },
     { apiType: 'Vision', prefix: 'Vision' },
   ] as const;
 
-  private async tableExists(tableName: string): Promise<boolean> {
-    const rows = await this.dataSource.query(
-      `SELECT 1 AS found FROM INFORMATION_SCHEMA.TABLES
-       WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = @0`,
-      [tableName],
-    );
-    return rows.length > 0;
-  }
-
   async getMyInsurance(): Promise<MyInsuranceResponse> {
     const contactId = await this.resolveContactIdForSignedInUser();
-    if (contactId == null) return { noProfile: true, startDate: null, elections: [] };
+    if (contactId == null) return { noProfile: true, tenureTier: null, elections: [] };
 
-    const [profileRows, electionRows] = await Promise.all([
-      this.dataSource.query(
-        `SELECT TOP 1 CONVERT(varchar(10), ep.StartDate, 120) AS startDate
-         FROM dbo.EmployeeProfile ep WHERE ep.ContactID = @0
-         ORDER BY ep.EmployeeProfileID DESC`,
-        [contactId],
-      ) as Promise<Array<{ startDate: string | null }>>,
-      this.dataSource.query(
-        `SELECT TOP 1 * FROM dbo.EmployeeHealthInsurance WHERE ContactID = @0 ORDER BY EffectiveDate DESC`,
-        [contactId],
-      ) as Promise<Array<Record<string, unknown>>>,
-    ]);
-
-    const startDate = profileRows?.[0]?.startDate ?? null;
-    const tenureYears = startDate
-      ? (Date.now() - new Date(startDate).getTime()) / (365.25 * 86_400_000)
-      : null;
+    const electionRows = (await this.dataSource.query(
+      `SELECT TOP 1 * FROM dbo.EmployeeHealthInsurance WHERE ContactID = @0 ORDER BY EffectiveDate DESC`,
+      [contactId],
+    )) as Array<Record<string, unknown>>;
 
     const electionRow = electionRows?.[0];
-    if (!electionRow) return { noProfile: false, startDate, elections: [] };
+    if (!electionRow) return { noProfile: false, tenureTier: null, elections: [] };
+
+    const tenureTier = normalizeTenureTier(electionRow.TenureTier);
 
     const planIds = [
       ...new Set(
@@ -183,103 +245,113 @@ export class InternalBenefitsService {
       ),
     ];
 
-    const [pricingByPlan, planNameById] = await Promise.all([
+    const [pricingByPlan, contributionsByPlan, planById] = await Promise.all([
       this.loadCurrentPricing(planIds),
-      this.loadPlanNames(planIds),
+      this.loadContributionRules(planIds),
+      this.loadPlanDetails(planIds),
     ]);
 
     const elections: MyInsuranceElection[] = InternalBenefitsService.TYPE_COLUMNS.map(
       ({ apiType, prefix }) => {
         const rawPlanId = Number(electionRow[`${prefix}HealthPlanID`]);
         const healthPlanId = Number.isFinite(rawPlanId) && rawPlanId >= 1 ? rawPlanId : null;
-        const coverageTier = electionRow[`${prefix}CoverageTier`];
-        const additionalInsureds = coverageTier != null ? String(coverageTier).trim() : null;
-        const status = electionRow[`${prefix}ElectionStatus`];
-        const statusText = status != null ? String(status).trim() : '';
-        const optInStatus =
-          statusText.toLowerCase() === 'enrolled'
-            ? 'Opt-In'
-            : statusText
-              ? 'Opt-Out'
-              : null;
+        const rawTier = electionRow[`${prefix}CoverageTier`];
+        const coverageTier = rawTier != null ? String(rawTier).trim() : null;
+        // No ElectionStatus column — derive from whether PlanID is set
+        const optInStatus = healthPlanId != null ? 'Opt-In' : 'Opt-Out';
         const pricing = healthPlanId != null ? pricingByPlan.get(healthPlanId) ?? [] : [];
+        const plan = healthPlanId != null ? planById.get(healthPlanId) : undefined;
+
+        const monthlyPremium = this.matchPremium(pricing, coverageTier, tenureTier);
+        const deductionPerPayPeriod =
+          healthPlanId != null
+            ? nullableNumber(electionRow[`${prefix}DeductionPerPayPeriod`])
+            : null;
+        const employerContributionPct =
+          healthPlanId != null
+            ? matchContributionPct(contributionsByPlan.get(healthPlanId) ?? [], tenureTier)
+            : null;
+
+        // The employer share is whatever the premium costs per pay period beyond the
+        // employee's deduction. Derived rather than recomputed from the benchmark rule so
+        // this can never disagree with the payroll figure actually stored on the row.
+        let employerContributionPerPayPeriod: number | null = null;
+        if (monthlyPremium != null && deductionPerPayPeriod != null) {
+          const premiumPerPayPeriod = (monthlyPremium * 12) / PAY_PERIODS_PER_YEAR;
+          employerContributionPerPayPeriod =
+            Math.round(Math.max(premiumPerPayPeriod - deductionPerPayPeriod, 0) * 100) / 100;
+        }
+
         return {
           insuranceType: apiType,
           optInStatus,
-          additionalInsureds,
+          coverageTier,
           healthPlanId,
-          planName: healthPlanId != null ? planNameById.get(healthPlanId) ?? null : null,
-          monthlyPremium: this.matchPremium(pricing, additionalInsureds, tenureYears),
+          planName: plan?.planName ?? null,
+          carrierName: plan?.carrierName ?? null,
+          monthlyPremium,
+          deductionPerPayPeriod,
+          employerContributionPct,
+          employerContributionPerPayPeriod,
           pricing,
         };
       },
     );
 
-    return { noProfile: false, startDate, elections };
+    return { noProfile: false, tenureTier, elections };
   }
 
-  private async loadPlanNames(healthPlanIds: number[]): Promise<Map<number, string>> {
-    const byPlan = new Map<number, string>();
+  private async loadPlanDetails(
+    healthPlanIds: number[],
+  ): Promise<Map<number, { planName: string; carrierName: string }>> {
+    const byPlan = new Map<number, { planName: string; carrierName: string }>();
     if (healthPlanIds.length === 0) return byPlan;
     const rows = (await this.dataSource.query(
-      `SELECT HealthPlanID AS healthPlanId, PlanName AS planName FROM dbo.HealthPlan
+      `SELECT HealthPlanID AS healthPlanId, PlanName AS planName, CarrierName AS carrierName
+       FROM dbo.HealthPlan
        WHERE HealthPlanID IN (${healthPlanIds.map((_, i) => `@${i}`).join(', ')})`,
       healthPlanIds,
-    )) as Array<{ healthPlanId: number; planName: string }>;
+    )) as Array<{ healthPlanId: number; planName: string; carrierName: string | null }>;
     for (const row of rows) {
-      byPlan.set(Number(row.healthPlanId), String(row.planName ?? '').trim());
+      byPlan.set(Number(row.healthPlanId), {
+        planName: String(row.planName ?? '').trim(),
+        carrierName: String(row.carrierName ?? '').trim(),
+      });
     }
     return byPlan;
   }
 
   async listPlans(): Promise<BenefitPlanRow[]> {
-    const hasBenefitTable = await this.tableExists('HealthPlanBenefit');
+    const planRows = (await this.dataSource.query(
+      `SELECT hp.HealthPlanID AS healthPlanId, hp.PlanName AS planName, hp.PlanType AS planType,
+              hp.CarrierName AS carrierName, hp.PlanCode AS planCode
+       FROM dbo.HealthPlan hp
+       WHERE (hp.EndDate IS NULL OR hp.EndDate >= CAST(GETDATE() AS date))
+       ORDER BY hp.PlanType, hp.PlanName`,
+    )) as Array<{
+      healthPlanId: number;
+      planName: string;
+      planType: string;
+      carrierName: string | null;
+      planCode: string | null;
+    }>;
 
-    const [planRows, benefitRows] = await Promise.all([
-      this.dataSource.query(
-        `SELECT hp.HealthPlanID AS healthPlanId, hp.PlanName AS planName, hp.PlanType AS planType
-         FROM dbo.HealthPlan hp
-         WHERE (hp.EndDate IS NULL OR hp.EndDate >= CAST(GETDATE() AS date))
-         ORDER BY hp.PlanType, hp.PlanName`,
-      ) as Promise<Array<{ healthPlanId: number; planName: string; planType: string }>>,
-      hasBenefitTable
-        ? (this.dataSource.query(
-            `SELECT hpb.HealthPlanID AS healthPlanId, hpb.BenefitDescription AS benefitDescription
-             FROM dbo.HealthPlanBenefit hpb
-             INNER JOIN dbo.HealthPlan hp ON hp.HealthPlanID = hpb.HealthPlanID
-               AND (hp.EndDate IS NULL OR hp.EndDate >= CAST(GETDATE() AS date))
-             ORDER BY hpb.HealthPlanID, hpb.SortOrder`,
-          ) as Promise<Array<{ healthPlanId: number; benefitDescription: string }>>)
-        : Promise.resolve([]),
+    const planIds = planRows.map((row) => Number(row.healthPlanId));
+    const [pricingByPlan, contributionsByPlan] = await Promise.all([
+      this.loadCurrentPricing(planIds),
+      this.loadContributionRules(planIds),
     ]);
-
-    const pricingByPlan = await this.loadCurrentPricing(
-      planRows.map((row) => Number(row.healthPlanId)),
-    );
-
-    const benefitsByPlan = new Map<number, string[]>();
-    for (const row of benefitRows) {
-      const list = benefitsByPlan.get(Number(row.healthPlanId)) ?? [];
-      const description = String(row.benefitDescription ?? '').trim();
-      if (description) list.push(description);
-      benefitsByPlan.set(Number(row.healthPlanId), list);
-    }
 
     return planRows.map((row) => {
       const healthPlanId = Number(row.healthPlanId);
-      // Fallback: derive a benefits list from pricing when no dedicated benefit rows exist
-      // (e.g. dbo.HealthPlanBenefit isn't provisioned yet), so plan cards still show something.
-      const benefits =
-        benefitsByPlan.get(healthPlanId) ??
-        (pricingByPlan.get(healthPlanId) ?? []).map(
-          (price) => `${price.coverageType}: $${price.monthlyPremium.toFixed(2)}/mo`,
-        );
       return {
         healthPlanId,
         planName: String(row.planName ?? '').trim(),
         planType: String(row.planType ?? '').trim(),
-        benefits,
+        carrierName: String(row.carrierName ?? '').trim(),
+        planCode: String(row.planCode ?? '').trim() || null,
         pricing: pricingByPlan.get(healthPlanId) ?? [],
+        contributionRules: contributionsByPlan.get(healthPlanId) ?? [],
       };
     });
   }
