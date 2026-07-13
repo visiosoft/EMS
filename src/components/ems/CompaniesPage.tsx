@@ -68,7 +68,7 @@ import {
   type CreateCompanyPayload,
   type UpdateCompanyPayload,
 } from "@/api/companyApi";
-import { upsertInList, removeQueriesByPrefix } from "@/api/cacheHelpers";
+import { upsertInList, removeFromList, removeQueriesByPrefix } from "@/api/cacheHelpers";
 import { mapApiCompanyToCompany } from "./companyMapping";
 import { CompanyVenueProfilePanel } from "./CompanyVenueProfilePanel";
 import { VenueMarketingPanel } from "./VenueMarketingPanel";
@@ -2208,12 +2208,14 @@ function mapContactRow(
 function ContactFormDb({
   roles,
   departments,
+  companies,
   onSave,
   onCancel,
   initial,
 }: {
   roles: ApiRole[];
   departments: ApiDepartment[];
+  companies?: ApiCompanyListRow[];
   onSave: (payload: {
     firstName: string;
     lastName: string;
@@ -2223,6 +2225,7 @@ function ContactFormDb({
     workPhone?: string | null;
     roleId: number;
     departmentId: number;
+    companyId?: number;
   }) => void | Promise<void>;
   onCancel: () => void;
   initial?: Contact;
@@ -2278,6 +2281,9 @@ function ContactFormDb({
   const [departmentId, setDepartmentId] = useState(
     initial?.departmentId != null ? String(initial.departmentId) : "",
   );
+  const [companyId, setCompanyId] = useState(
+    initial?.companyId != null ? String(initial.companyId) : "",
+  );
   const [fieldErrors, setFieldErrors] = useState<{
     firstName?: string;
     lastName?: string;
@@ -2312,6 +2318,7 @@ function ContactFormDb({
     setDepartmentId(
       initial?.departmentId != null ? String(initial.departmentId) : "",
     );
+    setCompanyId(initial?.companyId != null ? String(initial.companyId) : "");
   }, [initial]);
 
   const inputCls =
@@ -2333,12 +2340,34 @@ function ContactFormDb({
       })),
     [departments],
   );
+  const companyOpts = useMemo(
+    () =>
+      (companies ?? []).map((c) => ({
+        value: String(c.companyId),
+        label: c.companyName,
+      })),
+    [companies],
+  );
 
   const [saving, setSaving] = useState(false);
 
   return (
     <div className="bg-elevated border border-border rounded-lg p-4 space-y-3">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+        {companies && companies.length > 0 && (
+          <div className="sm:col-span-2">
+            <FormField label="Company">
+              <Select2
+                options={[
+                  { value: "", label: "Select company\u2026" },
+                  ...companyOpts,
+                ]}
+                value={companyId}
+                onChange={(v) => setCompanyId(v)}
+              />
+            </FormField>
+          </div>
+        )}
         <FormField label="First Name" required error={fieldErrors.firstName}>
           <input
             className={inputCls}
@@ -2486,7 +2515,7 @@ function ContactFormDb({
             try {
               const hasWork = workPhoneDisplay.trim().length > 0;
               const hasCell = cellPhoneDisplay.trim().length > 0;
-              await onSave({
+              const savePayload: Parameters<typeof onSave>[0] = {
                 firstName: firstName.trim(),
                 lastName: lastName.trim(),
                 email: email.trim(),
@@ -2494,7 +2523,11 @@ function ContactFormDb({
                 cellPhone: hasCell ? cE! : isEditing ? null : undefined,
                 roleId: Number(roleId),
                 departmentId: Number(departmentId),
-              });
+              };
+              if (companyId && initial?.companyId && String(initial.companyId) !== companyId) {
+                savePayload.companyId = Number(companyId);
+              }
+              await onSave(savePayload);
             } finally {
               setSaving(false);
             }
@@ -5143,6 +5176,7 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
             key={editContact.contactAssignmentId ?? editContact.id}
             roles={roles}
             departments={departments}
+            companies={companiesPickerQuery.data ?? []}
             initial={editContact}
             onCancel={() => setEditContact(null)}
             onSave={async (payload) => {
@@ -5152,20 +5186,37 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                   editContact.contactAssignmentId,
                   payload,
                 );
-                const mapped = mapContactRow(
-                  updated as ApiCompanyContact,
-                  String(selectedCompany.id),
-                );
-                upsertInList<Contact>(
-                  qc,
-                  ["companies", selectedCompany.id, "contacts"],
-                  mapped,
-                  (c) => c.contactAssignmentId === mapped.contactAssignmentId,
-                );
-                await qc.invalidateQueries({
-                  queryKey: ["companies", selectedCompany.id, "contacts"],
-                  exact: true,
-                });
+                const companyChanged = payload.companyId != null && String(payload.companyId) !== String(selectedCompany.id);
+                if (companyChanged) {
+                  removeFromList<Contact>(
+                    qc,
+                    ["companies", selectedCompany.id, "contacts"],
+                    (c) => c.contactAssignmentId === editContact.contactAssignmentId,
+                  );
+                  await qc.invalidateQueries({
+                    queryKey: ["companies", selectedCompany.id, "contacts"],
+                    exact: true,
+                  });
+                  await qc.invalidateQueries({
+                    queryKey: ["companies", String(payload.companyId), "contacts"],
+                    exact: true,
+                  });
+                } else {
+                  const mapped = mapContactRow(
+                    updated as ApiCompanyContact,
+                    String(selectedCompany.id),
+                  );
+                  upsertInList<Contact>(
+                    qc,
+                    ["companies", selectedCompany.id, "contacts"],
+                    mapped,
+                    (c) => c.contactAssignmentId === mapped.contactAssignmentId,
+                  );
+                  await qc.invalidateQueries({
+                    queryKey: ["companies", selectedCompany.id, "contacts"],
+                    exact: true,
+                  });
+                }
                 setEditContact(null);
                 addToast("Contact updated.", "success");
               } catch (e) {

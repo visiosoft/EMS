@@ -433,7 +433,7 @@ export function createCompanyContact(companyId: number, body: CompanyContactCrea
     body: JSON.stringify({ ...body, roleId: roleIds[0], departmentId: departmentIds[0] }),
   }).finally(clearStoredContactIds);
 }
-export function updateContactAssignment(assignmentId: number, body: Partial<{ firstName: string; lastName: string; email: string; cellPhone: string | null; workPhone: string | null; roleId: number; departmentId: number; roleIds: number[]; departmentIds: number[] }>) {
+export function updateContactAssignment(assignmentId: number, body: Partial<{ firstName: string; lastName: string; email: string; cellPhone: string | null; workPhone: string | null; roleId: number; departmentId: number; roleIds: number[]; departmentIds: number[]; companyId: number }>) {
   const storedRoleIds = readStoredContactIds(CONTACT_MULTI_STORAGE.role);
   const storedDepartmentIds = readStoredContactIds(CONTACT_MULTI_STORAGE.department);
   const roleIds = uniquePositiveIds(body.roleIds?.length ? body.roleIds : storedRoleIds.length ? storedRoleIds : body.roleId ? [body.roleId] : []);

@@ -4458,6 +4458,28 @@ export class CompanyService {
 
       if (dto.roleId !== undefined) asg.roleId = dto.roleId;
       if (dto.departmentId !== undefined) asg.departmentId = dto.departmentId;
+      if (dto.companyId !== undefined && dto.companyId !== asg.companyId) {
+        const duplicateAssignment = await asgRepo.findOne({
+          where: {
+            companyId: dto.companyId,
+            contactId: asg.contactId,
+          },
+        });
+        if (
+          duplicateAssignment &&
+          duplicateAssignment.contactAssignmentId !== asg.contactAssignmentId
+        ) {
+          throw new ConflictException({
+            statusCode: HttpStatus.CONFLICT,
+            error: 'Conflict',
+            message:
+              'This contact is already assigned to the selected company.',
+            detail:
+              'A contact assignment already exists for this company/contact pair.',
+          });
+        }
+        asg.companyId = dto.companyId;
+      }
       try {
         await asgRepo.save(asg);
       } catch (e: unknown) {
