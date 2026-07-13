@@ -6,7 +6,8 @@ const common_1 = require("@nestjs/common");
 const crypto_1 = require("crypto");
 const multer_1 = require("multer");
 const path_1 = require("path");
-exports.TOUR_BANNER_UPLOAD_DIR = (0, path_1.join)(process.cwd(), 'uploads', 'tour-banners');
+const upload_path_1 = require("../common/upload-path");
+exports.TOUR_BANNER_UPLOAD_DIR = (0, path_1.join)((0, upload_path_1.getUploadRoot)(), 'tour-banners');
 const MIME_EXT = {
     'image/jpeg': '.jpg',
     'image/png': '.png',

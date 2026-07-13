@@ -6,7 +6,8 @@ const common_1 = require("@nestjs/common");
 const crypto_1 = require("crypto");
 const multer_1 = require("multer");
 const path_1 = require("path");
-exports.CONTRACT_UPLOAD_DIR = (0, path_1.join)(process.cwd(), 'uploads', 'contracts');
+const upload_path_1 = require("../common/upload-path");
+exports.CONTRACT_UPLOAD_DIR = (0, path_1.join)((0, upload_path_1.getUploadRoot)(), 'contracts');
 function contractMulterOptions() {
     return {
         storage: (0, multer_1.diskStorage)({

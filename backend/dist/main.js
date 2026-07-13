@@ -43,12 +43,15 @@ const tour_banner_multer_config_1 = require("./attraction-tours/tour-banner-mult
 const seating_chart_multer_config_1 = require("./engagements/seating-chart-multer.config");
 const contract_multer_config_1 = require("./engagements/contract-multer.config");
 const confirmed_offer_multer_config_1 = require("./projects/confirmed-offer-multer.config");
+const upload_path_1 = require("./common/upload-path");
 const DEFAULT_PORT = 3001;
 async function bootstrap() {
+    const certificateUploadDir = path.join((0, upload_path_1.getUploadRoot)(), 'certificates');
     fs.mkdirSync(tour_banner_multer_config_1.TOUR_BANNER_UPLOAD_DIR, { recursive: true });
     fs.mkdirSync(seating_chart_multer_config_1.SEATING_CHART_UPLOAD_DIR, { recursive: true });
     fs.mkdirSync(contract_multer_config_1.CONTRACT_UPLOAD_DIR, { recursive: true });
     fs.mkdirSync(confirmed_offer_multer_config_1.CONFIRMED_OFFER_UPLOAD_DIR, { recursive: true });
+    fs.mkdirSync(certificateUploadDir, { recursive: true });
     const app = await core_1.NestFactory.create(app_module_1.AppModule);
     const logger = new common_1.Logger('Bootstrap');
     app.useStaticAssets(tour_banner_multer_config_1.TOUR_BANNER_UPLOAD_DIR, {
@@ -62,6 +65,9 @@ async function bootstrap() {
     });
     app.useStaticAssets(confirmed_offer_multer_config_1.CONFIRMED_OFFER_UPLOAD_DIR, {
         prefix: '/uploads/confirmed-offers/',
+    });
+    app.useStaticAssets(certificateUploadDir, {
+        prefix: '/uploads/certificates/',
     });
     app.enableCors();
     app.setGlobalPrefix('api');

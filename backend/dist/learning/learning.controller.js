@@ -51,10 +51,12 @@ const platform_express_1 = require("@nestjs/platform-express");
 const multer_1 = require("multer");
 const path_1 = require("path");
 const fs = __importStar(require("fs"));
+const path_2 = require("path");
+const upload_path_1 = require("../common/upload-path");
 const internal_access_guard_js_1 = require("../internal-access/internal-access.guard.js");
 const learning_dto_js_1 = require("./dto/learning.dto.js");
 const learning_service_js_1 = require("./learning.service.js");
-const CERTIFICATE_UPLOAD_DIR = './uploads/certificates';
+const CERTIFICATE_UPLOAD_DIR = (0, path_2.join)((0, upload_path_1.getUploadRoot)(), 'certificates');
 fs.mkdirSync(CERTIFICATE_UPLOAD_DIR, { recursive: true });
 const certificateUploadOptions = () => ({
     storage: (0, multer_1.diskStorage)({

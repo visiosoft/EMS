@@ -17,6 +17,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
 import * as fs from 'fs';
+import { join } from 'path';
+import { getUploadRoot } from '../common/upload-path';
 import { InternalAccessGuard } from '../internal-access/internal-access.guard.js';
 import {
   CreateCertificationDto,
@@ -26,7 +28,7 @@ import {
 } from './dto/learning.dto.js';
 import { LearningService } from './learning.service.js';
 
-const CERTIFICATE_UPLOAD_DIR = './uploads/certificates';
+const CERTIFICATE_UPLOAD_DIR = join(getUploadRoot(), 'certificates');
 fs.mkdirSync(CERTIFICATE_UPLOAD_DIR, { recursive: true });
 
 const certificateUploadOptions = () => ({
