@@ -262,15 +262,25 @@ function ContactInlineField({
 function CompanyAssignmentEditor({
   assignments,
   onChange,
+  onRequestRemove,
   companies,
   roleOptions,
   departmentOptions,
+  loading,
 }: {
   assignments: ContactCompanyAssignmentDraft[];
   onChange: (next: ContactCompanyAssignmentDraft[]) => void;
+  /**
+   * Lets the host confirm and persist the removal of an already-saved company link.
+   * Resolving `false` keeps the row. When omitted (the add-contact form, where nothing
+   * exists server-side yet), removal is a plain draft edit.
+   */
+  onRequestRemove?: (assignment: ContactCompanyAssignmentDraft, companyLabel: string) => Promise<boolean>;
   companies: ApiCompanyListRow[];
   roleOptions: { value: string; label: string }[];
   departmentOptions: { value: string; label: string }[];
+  /** The company/role/department lists are still in flight. */
+  loading?: boolean;
 }) {
   const companyOptions = useMemo(() => companyToSelect2Options(companies), [companies]);
   const companyById = useMemo(() => {
@@ -282,14 +292,45 @@ function CompanyAssignmentEditor({
   const updateAssignment = (id: string, patch: Partial<ContactCompanyAssignmentDraft>) => {
     onChange(assignments.map((a) => (a.id === id ? { ...a, ...patch } : a)));
   };
-  const removeAssignment = (id: string) => {
-    onChange(assignments.filter((a) => a.id !== id));
+  const removeAssignment = async (assignment: ContactCompanyAssignmentDraft, companyLabel: string) => {
+    if (onRequestRemove) {
+      const removed = await onRequestRemove(assignment, companyLabel);
+      if (!removed) return;
+    }
+    onChange(assignments.filter((a) => a.id !== assignment.id));
   };
   const addAssignment = () => {
     onChange([...assignments, makeAssignmentDraft()]);
   };
 
   const usedCompanyIds = new Set(assignments.map((a) => a.companyId).filter(Boolean));
+
+  // Until the pickers have their options, a company row would render as an empty
+  // "Select a company" box — which reads as "this contact has no company" rather than
+  // "still loading". Hold the section behind a skeleton of the same shape instead.
+  if (loading) {
+    return (
+      <div className="space-y-3" aria-busy="true">
+        {Array.from({ length: Math.max(assignments.length, 1) }).map((_, index) => (
+          <div key={index} className="rounded-md border border-border bg-surface p-3">
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+              Loading company {index + 1}…
+            </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              {['Company', 'Roles', 'Departments'].map((label) => (
+                <div key={label}>
+                  <div className="mb-1.5 text-xs text-text-muted">{label}</div>
+                  <div className="h-9 animate-pulse rounded-md bg-elevated" />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        <span className="sr-only">Loading company assignments…</span>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">
@@ -313,7 +354,9 @@ function CompanyAssignmentEditor({
                 </span>
                 <button
                   type="button"
-                  onClick={() => removeAssignment(assignment.id)}
+                  onClick={() => {
+                    void removeAssignment(assignment, selectedCompany?.companyName ?? 'this company');
+                  }}
                   className="rounded p-1 text-text-muted transition hover:bg-ems-coral/10 hover:text-ems-coral"
                   aria-label="Remove this company"
                 >
@@ -375,19 +418,23 @@ function ContactDetailDrawer({
   companies,
   roles,
   departments,
+  lookupsLoading,
   saving,
   onClose,
   onDelete,
   onSave,
+  onRemoveCompany,
 }: {
   row: ApiManagedContact;
   companies: ApiCompanyListRow[];
   roles: { roleId: number; roleName: string }[];
   departments: { departmentId: number; departmentName: string }[];
+  lookupsLoading: boolean;
   saving: boolean;
   onClose: () => void;
   onDelete: () => void;
   onSave: (payload: ManagedContactPayload) => void;
+  onRemoveCompany: (assignments: ManagedContactAssignmentInput[]) => Promise<void>;
 }) {
   const [draft, setDraft] = useState<ContactDraft>(() => makeDraftFromRow(row));
   const [error, setError] = useState<string | null>(null);
@@ -414,6 +461,63 @@ function ContactDetailDrawer({
   const discard = () => {
     setDraft(makeDraftFromRow(row));
     setError(null);
+  };
+
+  /**
+   * Unlinking a company is destructive and takes effect immediately — confirm it, then
+   * persist the remaining links straight away rather than leaving the removal sitting in
+   * the draft, where a reload would silently bring the company back.
+   */
+  const requestRemoveAssignment = async (
+    assignment: ContactCompanyAssignmentDraft,
+    companyLabel: string,
+  ): Promise<boolean> => {
+    const companyId = Number(assignment.companyId);
+    const savedAssignment = row.assignments.find((a) => a.companyId === companyId);
+    // A row the user just added and never saved: nothing to delete server-side.
+    if (!assignment.companyId || !savedAssignment) return true;
+
+    const result = await Swal.fire({
+      title: 'Remove company from contact?',
+      text: `${contactName(row)} will no longer be linked to ${companyLabel}. The contact itself is kept, along with any other companies.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, remove',
+      cancelButtonText: 'Cancel',
+      buttonsStyling: false,
+      showLoaderOnConfirm: true,
+      allowOutsideClick: () => !Swal.isLoading(),
+      preConfirm: async () => {
+        try {
+          // Send the saved links minus this one, so an unsaved edit elsewhere in the
+          // drawer can't ride along with the removal.
+          await onRemoveCompany(
+            row.assignments
+              .filter((a) => a.companyId !== companyId)
+              .map((a) => ({
+                companyId: a.companyId,
+                roleIds: a.roleIds,
+                departmentIds: a.departmentIds,
+              })),
+          );
+          return true;
+        } catch (err) {
+          Swal.showValidationMessage(friendlyApiError(err, 'Could not remove the company.'));
+          return false;
+        }
+      },
+      customClass: {
+        popup: 'border border-border bg-card text-text-primary shadow-xl rounded-lg',
+        title: 'text-lg font-semibold text-text-primary pt-4',
+        htmlContainer: 'text-sm text-text-secondary mt-2 text-center px-6 pb-4',
+        confirmButton:
+          'bg-ems-coral text-white hover:bg-ems-coral/90 font-medium py-2 px-4 rounded-md shadow-sm mx-1 cursor-pointer transition-colors',
+        cancelButton:
+          'border border-border bg-elevated text-text-primary hover:bg-hover font-medium py-2 px-4 rounded-md shadow-sm mx-1 cursor-pointer transition-colors',
+      },
+    });
+
+    return result.isConfirmed;
   };
 
   const save = () => {
@@ -543,9 +647,11 @@ function ContactDetailDrawer({
             <CompanyAssignmentEditor
               assignments={draft.assignments}
               onChange={(assignments) => setDraft((current) => ({ ...current, assignments }))}
+              onRequestRemove={requestRemoveAssignment}
               companies={companies}
               roleOptions={roleOptions}
               departmentOptions={departmentOptions}
+              loading={lookupsLoading}
             />
           </section>
 
@@ -617,6 +723,7 @@ function ContactModal({
   companies,
   roles,
   departments,
+  lookupsLoading,
   saving,
   onClose,
   onSave,
@@ -625,6 +732,7 @@ function ContactModal({
   companies: ApiCompanyListRow[];
   roles: { roleId: number; roleName: string }[];
   departments: { departmentId: number; departmentName: string }[];
+  lookupsLoading: boolean;
   saving: boolean;
   onClose: () => void;
   onSave: (payload: ManagedContactPayload) => void;
@@ -760,6 +868,7 @@ function ContactModal({
             companies={companies}
             roleOptions={roleOptions}
             departmentOptions={departmentOptions}
+            loading={lookupsLoading}
           />
         </section>
 
@@ -913,6 +1022,17 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
   });
   const deleteMutation = useMutation({
     mutationFn: (row: ApiManagedContact) => deleteManagedContact(row.contactId),
+  });
+  /** Unlinks a company from a contact by persisting the links it should keep. */
+  const removeCompanyMutation = useMutation({
+    mutationFn: (payload: { contactId: number; assignments: ManagedContactAssignmentInput[] }) =>
+      updateManagedContact(payload.contactId, { assignments: payload.assignments }),
+    onSuccess: async (saved) => {
+      await qc.invalidateQueries({ queryKey: ['contacts', 'managed'] });
+      await qc.invalidateQueries({ queryKey: ['companies'] });
+      if (saved) setSelectedContact(saved);
+      addToast('Company removed from contact.', 'success');
+    },
   });
 
   const companyOptions = useMemo(
@@ -1265,12 +1385,19 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
           companies={companies}
           roles={lookupsQuery.data?.roles ?? []}
           departments={lookupsQuery.data?.departments ?? []}
+          lookupsLoading={lookupsQuery.isLoading}
           saving={saveMutation.isPending}
           onClose={() => setSelectedContact(null)}
           onDelete={() => {
             void handleDeleteContact(selectedContact);
           }}
           onSave={(body) => saveMutation.mutate({ row: selectedContact, body })}
+          onRemoveCompany={async (assignments) => {
+            await removeCompanyMutation.mutateAsync({
+              contactId: selectedContact.contactId,
+              assignments,
+            });
+          }}
         />
       )}
 
@@ -1290,6 +1417,7 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
           companies={companies}
           roles={lookupsQuery.data?.roles ?? []}
           departments={lookupsQuery.data?.departments ?? []}
+          lookupsLoading={lookupsQuery.isLoading}
           saving={saveMutation.isPending}
           onClose={() => setEditing(undefined)}
           onSave={(body) => saveMutation.mutate({ row: null, body })}
