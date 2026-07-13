@@ -1779,8 +1779,6 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
         setPlanBenefits={setDentalBenefits}
         payrollDeduction={dentalDeduction}
         setPayrollDeduction={setDentalDeduction}
-        companyContribution={dentalCompanyContrib}
-        setCompanyContribution={setDentalCompanyContrib}
         tenureTier={tenureTier}
         companyContribPP={companyContribPP}
         benchmarkBiweekly={insuranceQuery.data?.benchmarkBiweekly ?? 0}
@@ -1804,8 +1802,6 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
         setPlanBenefits={setVisionBenefits}
         payrollDeduction={visionDeduction}
         setPayrollDeduction={setVisionDeduction}
-        companyContribution={visionCompanyContrib}
-        setCompanyContribution={setVisionCompanyContrib}
         tenureTier={tenureTier}
         companyContribPP={companyContribPP}
         benchmarkBiweekly={insuranceQuery.data?.benchmarkBiweekly ?? 0}
