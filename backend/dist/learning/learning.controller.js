@@ -58,7 +58,10 @@ const CERTIFICATE_UPLOAD_DIR = './uploads/certificates';
 fs.mkdirSync(CERTIFICATE_UPLOAD_DIR, { recursive: true });
 const certificateUploadOptions = () => ({
     storage: (0, multer_1.diskStorage)({
-        destination: CERTIFICATE_UPLOAD_DIR,
+        destination: (_req, _file, cb) => {
+            fs.mkdirSync(CERTIFICATE_UPLOAD_DIR, { recursive: true });
+            cb(null, CERTIFICATE_UPLOAD_DIR);
+        },
         filename: (_req, file, cb) => {
             const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
             cb(null, `${uniqueSuffix}${(0, path_1.extname)(file.originalname)}`);
