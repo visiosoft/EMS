@@ -1442,7 +1442,13 @@ export class CompanyService {
         ),
     );
 
-    await em.delete(ContactAssignment, { companyId, roleId, departmentId });
+    const obsolete = await em
+      .getRepository(ContactAssignment)
+      .find({ where: { companyId, roleId, departmentId } });
+    await this.deleteContactAssignmentsWithDependents(
+      em,
+      obsolete.map((a) => a.contactAssignmentId),
+    );
 
     for (const d of nonEmpty) {
       await this.insertVenueContactAssignment(
@@ -3627,17 +3633,16 @@ export class CompanyService {
       normalized.push({ companyId, roleIdList, departmentIdList });
     }
 
-    await em.delete(ContactAssignment, { contactId });
-    if (normalized.length === 0) return;
-
     const companyIds = [...new Set(normalized.map((a) => a.companyId))];
-    const companies = await em
-      .getRepository(Company)
-      .findBy({ companyId: In(companyIds) });
-    const foundCompanyIds = new Set(companies.map((c) => c.companyId));
-    for (const companyId of companyIds) {
-      if (!foundCompanyIds.has(companyId)) {
-        throw new NotFoundException(`Company ${companyId} was not found.`);
+    if (companyIds.length > 0) {
+      const companies = await em
+        .getRepository(Company)
+        .findBy({ companyId: In(companyIds) });
+      const foundCompanyIds = new Set(companies.map((c) => c.companyId));
+      for (const companyId of companyIds) {
+        if (!foundCompanyIds.has(companyId)) {
+          throw new NotFoundException(`Company ${companyId} was not found.`);
+        }
       }
     }
 
@@ -3648,22 +3653,80 @@ export class CompanyService {
       }
     }
 
-    const rows: ContactAssignment[] = [];
+    // The desired end state, as one row per company × role × department triple.
+    const desired = new Set<string>();
     for (const assignment of normalized) {
       for (const roleId of assignment.roleIdList) {
         for (const departmentId of assignment.departmentIdList) {
-          rows.push(
-            em.create(ContactAssignment, {
-              contactId,
-              companyId: assignment.companyId,
-              roleId,
-              departmentId,
-            }),
-          );
+          desired.add(`${assignment.companyId}:${roleId}:${departmentId}`);
         }
       }
     }
-    await em.save(ContactAssignment, rows);
+
+    // Diff rather than delete-all-and-reinsert: ContactAssignmentID is referenced by
+    // EmployeePhoneExtension / EmployeeComputer / EmployeeWorkLocation, so recreating
+    // untouched rows would strip a staff member's desk extension, computer and work
+    // location on every unrelated save (and trip their FKs).
+    const existing = await em
+      .getRepository(ContactAssignment)
+      .find({ where: { contactId } });
+
+    const seen = new Set<string>();
+    const obsoleteIds: number[] = [];
+    for (const row of existing) {
+      const key = `${row.companyId}:${row.roleId}:${row.departmentId}`;
+      // A duplicate of a row we're keeping is itself obsolete — keep the first only.
+      if (desired.has(key) && !seen.has(key)) {
+        seen.add(key);
+        continue;
+      }
+      obsoleteIds.push(row.contactAssignmentId);
+    }
+
+    if (obsoleteIds.length > 0) {
+      await this.deleteContactAssignmentsWithDependents(em, obsoleteIds);
+    }
+
+    const toInsert = [...desired]
+      .filter((key) => !seen.has(key))
+      .map((key) => {
+        const [companyId, roleId, departmentId] = key.split(':').map(Number);
+        return em.create(ContactAssignment, {
+          contactId,
+          companyId,
+          roleId,
+          departmentId,
+        });
+      });
+    if (toInsert.length > 0) {
+      await em.save(ContactAssignment, toInsert);
+    }
+  }
+
+  /**
+   * Deletes ContactAssignment rows along with the employee records that hang off
+   * ContactAssignmentID, which would otherwise block the delete on their FKs.
+   */
+  private async deleteContactAssignmentsWithDependents(
+    em: EntityManager,
+    assignmentIds: number[],
+  ): Promise<void> {
+    if (assignmentIds.length === 0) return;
+    for (const assignmentId of assignmentIds) {
+      await em.query(
+        `DELETE FROM dbo.EmployeeComputer WHERE ContactAssignmentID = @0`,
+        [assignmentId],
+      );
+      await em.query(
+        `DELETE FROM dbo.EmployeeWorkLocation WHERE ContactAssignmentID = @0`,
+        [assignmentId],
+      );
+      await em.query(
+        `DELETE FROM dbo.EmployeePhoneExtension WHERE ContactAssignmentID = @0`,
+        [assignmentId],
+      );
+    }
+    await em.delete(ContactAssignment, { contactAssignmentId: In(assignmentIds) });
   }
 
   /** Normalizes a DTO's company-assignment fields, preferring `assignments` over the deprecated flat fields. */
@@ -4149,20 +4212,14 @@ export class CompanyService {
       if (!contact)
         throw new NotFoundException(`Contact ${contactId} was not found.`);
 
-      // Get contact assignment IDs to delete from EmployeePhoneExtension
       const assignments = await em.getRepository(ContactAssignment).find({
         where: { contactId },
       });
       const assignmentIds = assignments.map((a) => a.contactAssignmentId);
-      if (assignmentIds.length > 0) {
-        await em.query(
-          `DELETE FROM dbo.EmployeePhoneExtension WHERE ContactAssignmentID IN (${assignmentIds.join(',')})`,
-        );
-      }
 
       await em.getRepository(EngagementIAEContact).delete({ contactId });
       await em.getRepository(TourTalentAgent).delete({ contactId });
-      await em.delete(ContactAssignment, { contactId });
+      await this.deleteContactAssignmentsWithDependents(em, assignmentIds);
       await em.delete(Contact, { contactId });
       const stillUsed = await em.getRepository(Contact).count({
         where: { contactInfoId: contact.contactInfoId },
