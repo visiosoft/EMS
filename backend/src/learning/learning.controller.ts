@@ -49,7 +49,7 @@ const certificateUploadOptions = () => ({
 @UseGuards(InternalAccessGuard)
 @Controller('internal/learning')
 export class LearningController {
-  constructor(private readonly learningService: LearningService) {}
+  constructor(private readonly learningService: LearningService) { }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PLATFORMS (lookup)
