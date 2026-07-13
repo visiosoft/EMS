@@ -104,7 +104,14 @@ export function BookingPage() {
                         <TeamMemberAvatar />
                       </td>
                       <td className="px-4 py-4 text-sm text-neutral-700">
-                        {member.firstName} {member.lastName}
+                        <button
+                          type="button"
+                          onClick={() => navigate('employee-profile', { contactId: member.contactId })}
+                          className="hover:text-blue-600 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 rounded-sm transition-colors"
+                          title={`View ${member.firstName} ${member.lastName}'s profile`}
+                        >
+                          {member.firstName} {member.lastName}
+                        </button>
                         {member.contactId === currentContactId && <span className="ml-2 text-xs font-bold text-blue-600">(You)</span>}
                       </td>
                       <td className="px-4 py-4 text-sm font-semibold text-neutral-900">{member.roleName || "—"}</td>

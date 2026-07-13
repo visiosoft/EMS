@@ -24,7 +24,7 @@ import {
 } from "@/api/learningApi";
 
 export function LearningAdminPage() {
-  const { viewData } = useInternalNavigation();
+  const { viewData, navigate } = useInternalNavigation();
   
   const [activeTab, setActiveTab] = useState<"overview" | "publish" | "monitor" | "scores" | "manage">(() => {
     if (typeof window !== "undefined") {
@@ -420,7 +420,11 @@ export function LearningAdminPage() {
                             <tbody className="divide-y divide-neutral-100">
                               {submissions.slice(0, 10).map((sub) => (
                                 <tr key={sub.submissionId} className="hover:bg-neutral-50/50 transition-colors">
-                                  <td className="whitespace-nowrap px-6 py-4 font-bold text-black">{sub.employeeName}</td>
+                                  <td className="whitespace-nowrap px-6 py-4 font-bold text-black">
+                                    <button type="button" onClick={() => navigate('employee-profile', { contactId: sub.contactId })} className="hover:text-blue-600 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 rounded-sm transition-colors">
+                                      {sub.employeeName}
+                                    </button>
+                                  </td>
                                   <td className="px-6 py-4 font-semibold text-neutral-900">{sub.certificationName}</td>
                                   <td className="whitespace-nowrap px-6 py-4 font-semibold text-neutral-900">{new Date(sub.submittedAt).toLocaleDateString()}</td>
                                   <td className="whitespace-nowrap px-6 py-4"><StatusBadge status={sub.status} /></td>
@@ -545,7 +549,9 @@ export function LearningAdminPage() {
                             submissions.map((sub) => (
                               <tr key={sub.submissionId} className="hover:bg-neutral-50/55 transition-colors">
                                 <td className="px-6 py-4">
-                                  <div className="font-bold text-black">{sub.employeeName}</div>
+                                  <button type="button" onClick={() => navigate('employee-profile', { contactId: sub.contactId })} className="font-bold text-black hover:text-blue-600 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 rounded-sm transition-colors">
+                                    {sub.employeeName}
+                                  </button>
                                   <div className="text-[11px] font-semibold text-neutral-500 mt-0.5">{sub.employeeRole || "Employee"}</div>
                                 </td>
                                 <td className="px-6 py-4 font-semibold text-neutral-900">{sub.certificationName}</td>
@@ -605,7 +611,11 @@ export function LearningAdminPage() {
                         <tbody className="divide-y divide-neutral-100">
                           {employees.map((emp) => (
                             <tr key={emp.contactId} className="hover:bg-neutral-50/50 transition-colors">
-                              <td className="whitespace-nowrap px-6 py-4 font-bold text-black">{emp.employeeName}</td>
+                              <td className="whitespace-nowrap px-6 py-4 font-bold text-black">
+                                <button type="button" onClick={() => navigate('employee-profile', { contactId: emp.contactId })} className="hover:text-blue-600 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 rounded-sm transition-colors">
+                                  {emp.employeeName}
+                                </button>
+                              </td>
                               <td className="whitespace-nowrap px-6 py-4 font-semibold text-neutral-900">{emp.employeeRole || "—"}</td>
                               <td className="whitespace-nowrap px-6 py-4 font-semibold text-neutral-900">{emp.certsSubmitted}</td>
                               <td className="whitespace-nowrap px-6 py-4 font-semibold text-neutral-900">{emp.certsApproved}</td>

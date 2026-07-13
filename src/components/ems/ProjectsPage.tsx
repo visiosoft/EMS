@@ -1309,6 +1309,7 @@ interface Props {
   onNavigate?: (view: string, data?: unknown) => void;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
   onCreateEngagement?: unknown; onUpdateProjects?: unknown; onDeleteProject?: unknown;
+  initialSelectedProjectId?: number | null;
 }
 
 // ─── Projects list: movable columns (Stage fixed) + server-side sort ─────────
@@ -2017,6 +2018,7 @@ function VenueProposalRow({
   tourId,
   tourName,
   onOpenEngagement,
+  onNavigate,
 }: {
   venue: ApiProjectVenue;
   projectId: number;
@@ -2029,6 +2031,7 @@ function VenueProposalRow({
   tourId?: number;
   tourName?: string | null;
   onOpenEngagement?: (engagementId: number) => void;
+  onNavigate?: (view: string, data?: unknown) => void;
 }) {
   const [showAddOpt, setShowAddOpt] = useState(false);
   const [editingStatus, setEditingStatus] = useState(false);
@@ -2109,9 +2112,20 @@ function VenueProposalRow({
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <span className="text-text-primary font-medium text-sm">
-                  {venueDisplayName}
-                </span>
+                {onNavigate && venue.venueCompanyId ? (
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('companies', { selectedCompanyId: venue.venueCompanyId })}
+                    className="text-text-primary font-medium text-sm hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                    title="Open venue company profile"
+                  >
+                    {venueDisplayName}
+                  </button>
+                ) : (
+                  <span className="text-text-primary font-medium text-sm">
+                    {venueDisplayName}
+                  </span>
+                )}
                 <span className="inline-flex max-w-full items-center rounded border border-border bg-elevated px-2 py-0.5 text-[11px] font-medium text-text-secondary">
                   DMA: {venueDmaLabel}
                 </span>
@@ -2451,12 +2465,14 @@ function ProjectDetailDrawer({
   onRequestDelete,
   onOpenEngagement,
   addToast,
+  onNavigate,
 }: {
   projectId: number;
   onClose: () => void;
   onRequestDelete: (row: ApiProjectListRow) => void;
   onOpenEngagement: (engagementId: number) => void;
   addToast: Props['addToast'];
+  onNavigate?: (view: string, data?: unknown) => void;
 }) {
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState('Overview');
@@ -2565,7 +2581,18 @@ function ProjectDetailDrawer({
               </h2>
               <div className="flex items-center flex-wrap gap-2 mt-0.5">
                 {project?.talentAgencyCompanyName && (
-                  <span className="text-xs text-text-secondary">{project.talentAgencyCompanyName}</span>
+                  onNavigate && project.talentAgencyCompanyId ? (
+                    <button
+                      type="button"
+                      onClick={() => onNavigate('companies', { selectedCompanyId: project.talentAgencyCompanyId })}
+                      className="text-xs text-text-secondary hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                      title="Open talent agency company"
+                    >
+                      {project.talentAgencyCompanyName}
+                    </button>
+                  ) : (
+                    <span className="text-xs text-text-secondary">{project.talentAgencyCompanyName}</span>
+                  )
                 )}
                 {project?.projectStage && <StatusBadge status={project.projectStage} />}
               </div>
@@ -2691,6 +2718,7 @@ function ProjectDetailDrawer({
                 tourId={project.tourId}
                 tourName={project.tourName}
                 onOpenEngagement={onOpenEngagement}
+                onNavigate={onNavigate}
               />
             ))}
           </div>
@@ -4058,7 +4086,7 @@ function projectListSuggestionLabel(row: ApiProjectListRow): string {
   return a || t || `Project #${row.engagementProjectId}`;
 }
 
-export function ProjectsPage({ addToast, onNavigate }: Props) {
+export function ProjectsPage({ addToast, onNavigate, initialSelectedProjectId }: Props) {
   const qc = useQueryClient();
   const [searchInput, setSearchInput] = useState('');
   const [searchCommitted, setSearchCommitted] = useState('');
@@ -4077,6 +4105,12 @@ export function ProjectsPage({ addToast, onNavigate }: Props) {
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<ApiProjectListRow | null>(null);
+
+  // Auto-open project drawer when navigated with initialSelectedProjectId
+  useEffect(() => {
+    if (initialSelectedProjectId == null) return;
+    setSelectedProjectId(initialSelectedProjectId);
+  }, [initialSelectedProjectId]);
 
   const { offset, limit } = getPageParams(page, pageSize);
 
@@ -4571,6 +4605,7 @@ export function ProjectsPage({ addToast, onNavigate }: Props) {
             onNavigate?.('engagement-detail', { engagementId });
           }}
           addToast={addToast}
+          onNavigate={onNavigate}
         />
       )}
 

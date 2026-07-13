@@ -3,6 +3,7 @@ import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient, type UseQ
 import {
   Calendar,
   ChevronDown,
+  ExternalLink,
   LayoutGrid,
   List,
   Loader2,
@@ -18,9 +19,10 @@ import {
   fetchInternalAttractions,
   type InternalHubAttraction,
 } from '@/api/internalAttractionsApi';
-import { fetchTourEngagements, type ApiTourEngagementRow } from '@/api/attractionToursApi';
+import { fetchTourEngagements, fetchTourProjects, type ApiTourEngagementRow } from '@/api/attractionToursApi';
 import { cn } from '@/lib/utils';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import { primeEmsOpenIntent } from '../../lib/emsOpenIntent';
 import {
   attractionsHubFreshCache,
   internalAttractionsQueryKeys,
@@ -77,6 +79,14 @@ function TourEngagementsList({ tourId, isOpen }: { tourId: number; isOpen: boole
     gcTime: attractionsHubFreshCache.gcTime,
   });
 
+  const projectsQuery = useQuery({
+    queryKey: ['tour-projects', 'internal', tourId],
+    queryFn: () => fetchTourProjects(tourId),
+    enabled: isOpen,
+    staleTime: 5 * 60_000,
+    gcTime: attractionsHubFreshCache.gcTime,
+  });
+
   if (!isOpen) return null;
 
   if (isPending) {
@@ -97,46 +107,86 @@ function TourEngagementsList({ tourId, isOpen }: { tourId: number; isOpen: boole
   }
 
   const engagements = data ?? [];
-  if (engagements.length === 0) {
-    return (
-      <p className="mt-3 border-t border-neutral-100 pt-3 text-sm text-neutral-500">
-        No engagements on this tour yet.
-      </p>
-    );
-  }
+  const projects = projectsQuery.data ?? [];
 
   return (
-    <ul className="mt-3 space-y-2 border-t border-neutral-100 pt-3">
-      {engagements.map((engagement) => (
-        <li
-          key={engagement.engagementId}
-          className="rounded-lg border border-neutral-200 bg-white px-4 py-3 shadow-sm transition-colors hover:border-neutral-300"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <p className="min-w-0 truncate text-sm font-semibold text-neutral-950" title={engagement.displayTitle}>
-              {engagement.displayTitle || `Engagement #${engagement.engagementId}`}
-            </p>
-            {engagement.engagementStatus ? (
-              <span className="shrink-0 rounded-full bg-neutral-900 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
-                {engagement.engagementStatus}
-              </span>
-            ) : null}
-          </div>
-          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-600">
-            <span className="inline-flex items-center gap-1.5">
-              <Calendar className="h-3.5 w-3.5 text-neutral-400" aria-hidden />
-              {formatEngagementDate(engagement)}
-            </span>
-            {engagementPlace(engagement) ? (
-              <span className="inline-flex min-w-0 items-center gap-1.5" title={engagementPlace(engagement)}>
-                <MapPin className="h-3.5 w-3.5 shrink-0 text-neutral-400" aria-hidden />
-                <span className="truncate">{engagementPlace(engagement)}</span>
-              </span>
-            ) : null}
-          </div>
-        </li>
-      ))}
-    </ul>
+    <div className="mt-3 space-y-4 border-t border-neutral-100 pt-3">
+      {/* Engagements */}
+      {engagements.length === 0 ? (
+        <p className="text-sm text-neutral-500">No engagements on this tour yet.</p>
+      ) : (
+        <div>
+          <p className="mb-2 text-xs font-bold uppercase tracking-[0.14em] text-neutral-500">
+            {engagements.length} Engagement{engagements.length === 1 ? '' : 's'}
+          </p>
+          <ul className="space-y-2">
+            {engagements.map((engagement) => (
+              <li
+                key={engagement.engagementId}
+                className="rounded-lg border border-neutral-200 bg-white px-4 py-3 shadow-sm transition-colors hover:border-neutral-300"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <p className="min-w-0 truncate text-sm font-semibold text-neutral-950" title={engagement.displayTitle}>
+                    {engagement.displayTitle || `Engagement #${engagement.engagementId}`}
+                  </p>
+                  {engagement.engagementStatus ? (
+                    <span className="shrink-0 rounded-full bg-neutral-900 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
+                      {engagement.engagementStatus}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-600">
+                  <span className="inline-flex items-center gap-1.5">
+                    <Calendar className="h-3.5 w-3.5 text-neutral-400" aria-hidden />
+                    {formatEngagementDate(engagement)}
+                  </span>
+                  {engagementPlace(engagement) ? (
+                    <span className="inline-flex min-w-0 items-center gap-1.5" title={engagementPlace(engagement)}>
+                      <MapPin className="h-3.5 w-3.5 shrink-0 text-neutral-400" aria-hidden />
+                      <span className="truncate">{engagementPlace(engagement)}</span>
+                    </span>
+                  ) : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Projects */}
+      {projectsQuery.isPending ? (
+        <p className="flex items-center gap-2 text-sm text-neutral-500">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+          Loading projects…
+        </p>
+      ) : projects.length > 0 ? (
+        <div>
+          <p className="mb-2 text-xs font-bold uppercase tracking-[0.14em] text-neutral-500">
+            {projects.length} Project{projects.length === 1 ? '' : 's'}
+          </p>
+          <ul className="space-y-2">
+            {projects.map((project) => (
+              <li
+                key={project.engagementProjectId}
+                className="rounded-lg border border-neutral-200 bg-white px-4 py-3 shadow-sm transition-colors hover:border-neutral-300"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <p className="min-w-0 text-sm font-semibold text-neutral-950">
+                    {project.attractionName ?? 'Attraction'} — {project.tourName ?? 'Tour'}
+                  </p>
+                  <span className="shrink-0 rounded-full bg-neutral-900 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
+                    {project.projectStage}
+                  </span>
+                </div>
+                {project.talentAgencyName && (
+                  <p className="mt-1 text-xs text-neutral-500">Agency: {project.talentAgencyName}</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -214,13 +264,13 @@ function AttractionToursPanel({
           {tours.length === 0 ? (
             <p className="text-sm text-neutral-500">No tours linked to this attraction yet.</p>
           ) : (
-            <ul className="grid items-start gap-3 sm:grid-cols-2">
+            <ul className="grid items-start gap-3">
               {tours.map((tour) => {
                 const isTourOpen = openTourIds.has(tour.tourId);
                 return (
                   <li
                     key={tour.tourId}
-                    className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm transition-all duration-300 hover:border-neutral-300 hover:shadow-md"
+                    className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm transition-[border-color,box-shadow] duration-300 hover:border-neutral-300 hover:shadow-md"
                   >
                     <button
                       type="button"
@@ -238,10 +288,18 @@ function AttractionToursPanel({
                         <Music className="h-5 w-5" strokeWidth={1.6} />
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-base font-bold tracking-[-0.01em] text-neutral-950">
+                        <a
+                          href="/"
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => { e.stopPropagation(); primeEmsOpenIntent({ view: 'attraction-tours', selectedTourId: tour.tourId }); }}
+                          className="block text-base font-bold tracking-[-0.01em] text-neutral-950 hover:text-blue-700 hover:underline transition-colors"
+                          title="Open tour in EMS"
+                        >
                           {tour.tourName}
-                        </span>
-                        <span className="mt-0.5 block truncate text-sm text-neutral-500">
+                          <ExternalLink className="ml-1.5 inline h-3.5 w-3.5 opacity-50" aria-hidden />
+                        </a>
+                        <span className="mt-0.5 block text-sm text-neutral-500">
                           {tour.className || '—'}
                           {tour.talentAgencyCompanyName ? ` · ${tour.talentAgencyCompanyName}` : ''}
                         </span>
@@ -345,7 +403,10 @@ function AttractionCard({
 
   return (
     <article
-      className="animate-slide-up group flex flex-col overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)] transition-all duration-300 hover:-translate-y-0.5 hover:border-neutral-300 hover:shadow-[0_14px_36px_rgba(0,0,0,0.1)]"
+      className={cn(
+        "animate-slide-up group flex flex-col overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)] transition-[border-color,box-shadow] duration-300 hover:border-neutral-300 hover:shadow-[0_14px_36px_rgba(0,0,0,0.1)]",
+        !expanded && "hover:-translate-y-0.5",
+      )}
       style={{ animationDelay: `${Math.min(index, 12) * 45}ms`, animationFillMode: 'both' }}
     >
       <button

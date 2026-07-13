@@ -9,6 +9,7 @@ import {
   fetchContactConnections,
   fetchCompaniesPickerRows,
   fetchLookups,
+  fetchManagedContactById,
   fetchManagedContacts,
   managedContactsQueryKey,
   updateManagedContact,
@@ -379,6 +380,7 @@ function ContactDetailDrawer({
   onClose,
   onDelete,
   onSave,
+  onNavigate,
 }: {
   row: ApiManagedContact;
   companies: ApiCompanyListRow[];
@@ -388,6 +390,7 @@ function ContactDetailDrawer({
   onClose: () => void;
   onDelete: () => void;
   onSave: (payload: ManagedContactPayload) => void;
+  onNavigate?: (view: string, data?: unknown) => void;
 }) {
   const [draft, setDraft] = useState<ContactDraft>(() => makeDraftFromRow(row));
   const [error, setError] = useState<string | null>(null);
@@ -460,14 +463,27 @@ function ContactDetailDrawer({
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-muted">
             {row.companyNames.length > 0 ? (
               <>
-                {row.companyNames.map((name) => (
-                  <span
-                    key={name}
-                    className="inline-flex items-center gap-1 rounded-md bg-ems-accent-dim px-2 py-0.5 text-[11px] font-medium text-ems-accent"
-                  >
-                    <Building2 className="h-3 w-3" aria-hidden />
-                    {name}
-                  </span>
+                {row.companyNames.map((name, idx) => (
+                  onNavigate && row.companyIds[idx] ? (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => onNavigate('companies', { selectedCompanyId: row.companyIds[idx] })}
+                      className="inline-flex items-center gap-1 rounded-md bg-ems-accent-dim px-2 py-0.5 text-[11px] font-medium text-ems-accent hover:bg-ems-accent/20 hover:underline transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40"
+                      title={`Open ${name}`}
+                    >
+                      <Building2 className="h-3 w-3" aria-hidden />
+                      {name}
+                    </button>
+                  ) : (
+                    <span
+                      key={name}
+                      className="inline-flex items-center gap-1 rounded-md bg-ems-accent-dim px-2 py-0.5 text-[11px] font-medium text-ems-accent"
+                    >
+                      <Building2 className="h-3 w-3" aria-hidden />
+                      {name}
+                    </span>
+                  )
                 ))}
                 {row.isStaff ? internalStaffChip() : null}
               </>
@@ -821,7 +837,7 @@ function SearchSuggestions({
 
 /* ── Main Contacts Page ──────────────────────────────────────────────── */
 
-export function ContactsPage({ addToast }: { addToast: ToastFn }) {
+export function ContactsPage({ addToast, initialSelectedContactId, onNavigate }: { addToast: ToastFn; initialSelectedContactId?: number | null; onNavigate?: (view: string, data?: unknown) => void }) {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [committedSearch, setCommittedSearch] = useState('');
@@ -878,6 +894,22 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
     const refreshed = rows.find((row) => row.contactId === selectedContact.contactId);
     if (refreshed) setSelectedContact(refreshed);
   }, [rows, selectedContact]);
+
+  // Auto-open contact detail when navigated with initialSelectedContactId
+  useEffect(() => {
+    if (initialSelectedContactId == null) return;
+    const match = rows.find((r) => r.contactId === initialSelectedContactId);
+    if (match) {
+      setSelectedContact(match);
+      return;
+    }
+    // Contact not in current page — fetch it directly
+    let cancelled = false;
+    fetchManagedContactById(initialSelectedContactId).then((contact) => {
+      if (!cancelled && contact) setSelectedContact(contact);
+    }).catch(() => { /* ignore – contact may not exist */ });
+    return () => { cancelled = true; };
+  }, [initialSelectedContactId, rows]);
 
   // Build a lookup map for company details
   const companyById = useMemo(() => {
@@ -1271,6 +1303,7 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
             void handleDeleteContact(selectedContact);
           }}
           onSave={(body) => saveMutation.mutate({ row: selectedContact, body })}
+          onNavigate={onNavigate}
         />
       )}
 

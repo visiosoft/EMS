@@ -4056,6 +4056,10 @@ export class CompanyService {
     return out;
   }
 
+  async findManagedContactById(contactId: number): Promise<ManagedContactRow | null> {
+    return this.getManagedContactRowById(contactId);
+  }
+
   async createManagedContact(
     dto: ManageContactDto,
   ): Promise<ManagedContactRow> {

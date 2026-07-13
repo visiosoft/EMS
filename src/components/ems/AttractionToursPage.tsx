@@ -204,6 +204,8 @@ function AttractionToursTableSkeleton({
 interface Props {
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
   onNavigate?: (view: string, data?: Record<string, unknown>) => void;
+  initialSelectedTourId?: number | null;
+  initialSelectedAttractionId?: number | null;
 }
 
 type AttractionsViewMode = 'list' | 'tiles';
@@ -1189,6 +1191,7 @@ function TourDrawer({
   activeTab,
   onTabChange,
   onOpenEngagement,
+  onNavigate,
 }: {
   tour: ApiTourListRow;
   attractions: ApiAttractionListRow[];
@@ -1206,6 +1209,7 @@ function TourDrawer({
   activeTab: string;
   onTabChange: (tab: string) => void;
   onOpenEngagement: (engagementId: number) => void;
+  onNavigate?: (view: string, data?: unknown) => void;
 }) {
   const qc = useQueryClient();
 
@@ -2011,7 +2015,18 @@ function TourDrawer({
                   <div className="space-y-3">
                     {contacts.map(c => (
                       <div key={c.contactAssignmentId} className="bg-elevated border border-border rounded-lg p-3">
-                        <div className="font-medium text-text-primary">{c.firstName} {c.lastName}</div>
+                        {onNavigate ? (
+                          <button
+                            type="button"
+                            onClick={() => onNavigate('contacts', { selectedContactId: c.contactId })}
+                            className="font-medium text-text-primary hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                            title={`View ${c.firstName} ${c.lastName}'s details`}
+                          >
+                            {c.firstName} {c.lastName}
+                          </button>
+                        ) : (
+                          <div className="font-medium text-text-primary">{c.firstName} {c.lastName}</div>
+                        )}
                         <div className="text-xs text-text-secondary">{c.roleName} • {c.departmentName}</div>
                         <div className="mt-2 text-xs text-text-secondary space-y-1">
                           <div>{c.email ? <a href={`mailto:${c.email}`} className="hover:underline">{c.email}</a> : null}</div>
@@ -2062,9 +2077,20 @@ function TourDrawer({
                     className="rounded-lg border border-border bg-elevated p-3 space-y-1.5"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-medium text-text-primary">
-                        {project.attractionName ?? 'Attraction'} — {project.tourName ?? 'Tour'}
-                      </span>
+                      {onNavigate ? (
+                        <button
+                          type="button"
+                          onClick={() => onNavigate('projects', { selectedProjectId: project.engagementProjectId })}
+                          className="text-sm font-medium text-text-primary hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors text-left"
+                          title="Open project details"
+                        >
+                          {project.attractionName ?? 'Attraction'} — {project.tourName ?? 'Tour'}
+                        </button>
+                      ) : (
+                        <span className="text-sm font-medium text-text-primary">
+                          {project.attractionName ?? 'Attraction'} — {project.tourName ?? 'Tour'}
+                        </span>
+                      )}
                       <StatusBadge status={project.projectStage} />
                     </div>
                     <div className="text-xs text-text-secondary">
@@ -2152,7 +2178,7 @@ function clearAttractionToursServerSearchCaches(qc: QueryClient) {
 const compareTours = (a: ApiTourListRow, b: ApiTourListRow) =>
   a.tourName.localeCompare(b.tourName, undefined, { sensitivity: 'base' });
 
-export function AttractionToursPage({ addToast, onNavigate }: Props) {
+export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourId, initialSelectedAttractionId }: Props) {
   const qc = useQueryClient();
   const [pageTab, setPageTab] = useState('Attractions');
   const [attractionInput, setAttractionInput] = useState('');
@@ -2180,6 +2206,20 @@ export function AttractionToursPage({ addToast, onNavigate }: Props) {
   const [selectedAttractionId, setSelectedAttractionId] = useState<number | null>(null);
   const [selectedTourId, setSelectedTourId] = useState<number | null>(null);
   const [tourDrawerTab, setTourDrawerTab] = useState('Details');
+
+  // Auto-open tour/attraction when navigated with initial IDs
+  useEffect(() => {
+    if (initialSelectedTourId != null) {
+      setSelectedTourId(initialSelectedTourId);
+      setPageTab('Tours');
+    }
+  }, [initialSelectedTourId]);
+  useEffect(() => {
+    if (initialSelectedAttractionId != null) {
+      setSelectedAttractionId(initialSelectedAttractionId);
+      setPageTab('Attractions');
+    }
+  }, [initialSelectedAttractionId]);
 
   const [showAddAttraction, setShowAddAttraction] = useState(false);
   const [showAddTour, setShowAddTour] = useState(false);
@@ -3435,6 +3475,7 @@ export function AttractionToursPage({ addToast, onNavigate }: Props) {
           onOpenEngagement={(engagementId) => {
             onNavigate?.('engagement-detail', { engagementId });
           }}
+          onNavigate={onNavigate}
         />
       )}
 

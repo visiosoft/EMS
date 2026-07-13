@@ -476,6 +476,9 @@ export function fetchManagedContacts(offset = 0, limit = 25, opts?: ManagedConta
   if (opts?.companyId != null && opts.companyId > 0) params.set('companyId', String(opts.companyId));
   return apiFetch<ApiPaginatedResponse<ApiManagedContact>>(`/contacts?${params}`);
 }
+export function fetchManagedContactById(contactId: number) {
+  return apiFetch<ApiManagedContact>(`/contacts/${contactId}`);
+}
 export function createManagedContact(body: ManagedContactPayload) {
   return apiFetch<ApiManagedContact>('/contacts', { method: 'POST', body: JSON.stringify(body) });
 }
