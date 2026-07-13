@@ -6,9 +6,9 @@ import { join } from 'path';
  * Locally, use ./uploads relative to cwd.
  */
 export function getUploadRoot(): string {
-  if (process.env.WEBSITE_INSTANCE_ID) {
-    // Running on Azure App Service
-    return '/home/uploads';
-  }
-  return join(process.cwd(), 'uploads');
+    if (process.env.WEBSITE_INSTANCE_ID) {
+        // Running on Azure App Service
+        return '/home/uploads';
+    }
+    return join(process.cwd(), 'uploads');
 }
