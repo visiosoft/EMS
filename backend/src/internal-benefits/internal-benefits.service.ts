@@ -198,10 +198,23 @@ export class InternalBenefitsService {
     const tier = (raw === 'Employee Only' ? 'Employee' : raw).toLowerCase();
     if (!tier) return null;
 
-    const tierRows = pricing.filter((row) => {
+    let tierRows = pricing.filter((row) => {
       const base = row.coverageType.replace(/\s*\(.*\)\s*$/, '').trim().toLowerCase();
       return base === tier;
     });
+
+    // Fallback: "Family" ↔ "Employee + Family", "Children" ↔ "Employee + Children"
+    if (tierRows.length === 0) {
+      const alternates = InternalBenefitsService.buildAlternateTiers(tier);
+      for (const alt of alternates) {
+        tierRows = pricing.filter((row) => {
+          const base = row.coverageType.replace(/\s*\(.*\)\s*$/, '').trim().toLowerCase();
+          return base === alt;
+        });
+        if (tierRows.length > 0) break;
+      }
+    }
+
     if (tierRows.length === 0) return null;
     if (tierRows.length === 1) return tierRows[0].monthlyPremium;
 
@@ -209,6 +222,17 @@ export class InternalBenefitsService {
     const marker = tenureTier === '<1 yr' ? '<1' : '1+';
     const matched = tierRows.find((row) => row.coverageType.includes(marker));
     return (matched ?? tierRows[0]).monthlyPremium;
+  }
+
+  private static buildAlternateTiers(base: string): string[] {
+    const alts: string[] = [];
+    if (base === 'family') alts.push('employee + family');
+    if (base === 'employee + family') alts.push('family');
+    if (base === 'children') alts.push('employee + children');
+    if (base === 'employee + children') alts.push('children');
+    if (base === 'child') alts.push('employee + child');
+    if (base === 'employee + child') alts.push('child');
+    return alts;
   }
 
   /**
@@ -257,8 +281,9 @@ export class InternalBenefitsService {
         const healthPlanId = Number.isFinite(rawPlanId) && rawPlanId >= 1 ? rawPlanId : null;
         const rawTier = electionRow[`${prefix}CoverageTier`];
         const coverageTier = rawTier != null ? String(rawTier).trim() : null;
-        // No ElectionStatus column — derive from whether PlanID is set
-        const optInStatus = healthPlanId != null ? 'Opt-In' : 'Opt-Out';
+        // Use the actual ElectionStatus column from the DB
+        const rawStatus = String(electionRow[`${prefix}ElectionStatus`] ?? '').trim().toLowerCase();
+        const optInStatus = (rawStatus === 'enrolled' || rawStatus === 'opt-in') ? 'Opt-In' : 'Opt-Out';
         const pricing = healthPlanId != null ? pricingByPlan.get(healthPlanId) ?? [] : [];
         const plan = healthPlanId != null ? planById.get(healthPlanId) : undefined;
 

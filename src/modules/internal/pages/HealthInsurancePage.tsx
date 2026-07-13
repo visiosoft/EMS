@@ -34,6 +34,77 @@ const COVERAGE_ICONS: Record<CoverageType, typeof HeartPulse> = {
 /** Pay periods per year — biweekly payroll, matching the backend. */
 const PAY_PERIODS_PER_YEAR = 26;
 
+/** Static plan benefits keyed by HealthPlanID. */
+const PLAN_BENEFITS: Record<number, string[]> = {
+  1: [
+    "$0 deductible",
+    "$5,000 individual / $15,000 family OOP max",
+    "PCP $50, Specialist $70",
+    "Preventive no charge",
+    "ER $500",
+    "Referral required",
+    "No out-of-network coverage except emergency",
+  ],
+  2: [
+    "$1,600 individual / $3,200 family deductible",
+    "$6,500 / $13,000 OOP max",
+    "PCP $40, Specialist $60 (after deductible)",
+    "Preventive no charge",
+    "ER $500 (after deductible)",
+    "Out-of-network available at higher cost",
+  ],
+  3: [
+    "$1,500 individual / $3,000 family deductible",
+    "$5,000 / $10,000 OOP max",
+    "PCP $30, Specialist $50 (after deductible)",
+    "Preventive no charge",
+    "ER $350 (after deductible)",
+    "Out-of-network available",
+  ],
+  4: [
+    "Preventive covered at 100%",
+    "Basic services 80% after deductible",
+    "Major services 50% after deductible",
+    "$50 individual / $150 family deductible",
+    "$1,500 annual max per person",
+  ],
+  5: [
+    "Eye exam $10 copay",
+    "Frames $150 allowance every 24 months",
+    "Standard lenses covered in full",
+    "Contact lens allowance $150/year",
+  ],
+};
+
+/** SharePoint links to plan summary PDFs. */
+const PLAN_DOCUMENT_LINKS: Record<number, { label: string; url: string }> = {
+  1: {
+    label: "BCBS G5J2PSN $0 Ded HMO Summary",
+    url: "https://innovationae.sharepoint.com/:b:/s/IAECloudServer/IQDjHqX1ejb-RKIuAhyk0TQYAZTakItRZp22A_OcYMNX-Q8",
+  },
+  2: {
+    label: "BCBS G532BCE $1600 Choice PPO Summary",
+    url: "https://innovationae.sharepoint.com/:b:/s/IAECloudServer/IQDRegItH2URT7Oi4ytVjcx6AQ-QBepRI8MnbOk1mRHdH-8",
+  },
+  3: {
+    label: "BCBS P5M1PPO $1500 Blue PPO Option Summary",
+    url: "https://innovationae.sharepoint.com/:b:/s/IAECloudServer/IQA5AaHtavtPSpOUaXLPnOS9AbYPSqe6bY3D5DrLEfRB4To",
+  },
+  4: {
+    label: "Principal Dental Summary",
+    url: "https://innovationae.sharepoint.com/:b:/s/IAECloudServer/IQCjiyflxnnuSbLhjUImPAVmAWsWmwmOt0SppDZHChSw_JU",
+  },
+  5: {
+    label: "Principal Vision Summary",
+    url: "https://innovationae.sharepoint.com/:b:/s/IAECloudServer/IQBk7rFDIbBWTaEsK3ZeY7e9AZPeB8txKmLVMdd4EK899TQ",
+  },
+};
+
+const BENEFIT_GUIDE_LINK = {
+  label: "2026 Innovation Arts and Entertainment Benefit Guide",
+  url: "https://innovationae.sharepoint.com/:b:/s/IAECloudServer/IQDnnMKugJcbT6RDD2-G4G1nAbk2cpgMSNhk8BA9AVB8dyM",
+};
+
 const currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
@@ -67,7 +138,23 @@ function baseTier(coverageType: string): string {
 function normalizeElectedTier(coverageTier: string | null): string | null {
   const raw = (coverageTier ?? "").trim();
   if (!raw) return null;
-  return raw === "Employee Only" ? "Employee" : raw;
+  if (raw === "Employee Only") return "Employee";
+  return raw;
+}
+
+/** Check if an elected tier matches a pricing tier, handling "Family" ↔ "Employee + Family" etc. */
+function tiersMatch(elected: string | null, pricingTier: string): boolean {
+  if (!elected) return false;
+  const a = elected.toLowerCase();
+  const b = pricingTier.toLowerCase();
+  if (a === b) return true;
+  // "Family" ↔ "Employee + Family"
+  if (a === "family" && b === "employee + family") return true;
+  if (a === "employee + family" && b === "family") return true;
+  // "Children" ↔ "Employee + Children"
+  if (a === "children" && b === "employee + children") return true;
+  if (a === "employee + children" && b === "children") return true;
+  return false;
 }
 
 /**
@@ -121,7 +208,7 @@ function TierCards({
   return (
     <div className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
       {tiers.map(({ tier, monthlyPremium }) => {
-        const elected = electedTier === tier;
+        const elected = tiersMatch(electedTier, tier);
         return (
           <article
             key={tier}
@@ -260,6 +347,9 @@ function ElectedPlanDetail({
   const pricing = plan?.pricing ?? election.pricing;
   const planName = plan?.planName ?? election.planName ?? "Plan on file";
   const carrierName = plan?.carrierName || election.carrierName;
+  const planId = election.healthPlanId;
+  const benefits = planId != null ? PLAN_BENEFITS[planId] ?? [] : [];
+  const planDoc = planId != null ? PLAN_DOCUMENT_LINKS[planId] : undefined;
 
   return (
     <div className="space-y-8">
@@ -290,6 +380,44 @@ function ElectedPlanDetail({
         <SectionHeading>Your cost</SectionHeading>
         <CostBreakdown election={election} />
       </section>
+
+      {benefits.length > 0 ? (
+        <section aria-label={`${type} plan benefits`}>
+          <SectionHeading>Plan benefits</SectionHeading>
+          <ul className="grid grid-cols-1 gap-2 rounded-lg border border-neutral-200 bg-white px-5 py-4 sm:grid-cols-2">
+            {benefits.map((benefit) => (
+              <li key={benefit} className="flex items-start gap-2 text-sm text-neutral-800">
+                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-400" aria-hidden />
+                {benefit}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {planDoc ? (
+        <section aria-label={`${type} plan documents`}>
+          <SectionHeading>Plan documents</SectionHeading>
+          <div className="flex flex-col gap-2">
+            <a
+              href={planDoc.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 text-sm font-medium text-neutral-700 underline decoration-neutral-300 underline-offset-2 hover:text-black hover:decoration-black"
+            >
+              📄 {planDoc.label}
+            </a>
+            <a
+              href={BENEFIT_GUIDE_LINK.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 text-sm font-medium text-neutral-700 underline decoration-neutral-300 underline-offset-2 hover:text-black hover:decoration-black"
+            >
+              📄 {BENEFIT_GUIDE_LINK.label}
+            </a>
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -388,20 +516,6 @@ function CoveragePanel({
           </p>
         </div>
       )}
-
-      {otherPlans.length > 0 ? (
-        <section aria-label={`Other ${type} plans`}>
-          <SectionHeading>{enrolled ? `Other ${type} plans` : `Available ${type} plans`}</SectionHeading>
-          <p className="-mt-2 mb-4 text-sm text-neutral-600">
-            Every active {type.toLowerCase()} plan iAE offers, priced for your tenure.
-          </p>
-          <div className="space-y-3">
-            {otherPlans.map((plan) => (
-              <PlanCard key={plan.healthPlanId} plan={plan} tenureTier={tenureTier} />
-            ))}
-          </div>
-        </section>
-      ) : null}
     </div>
   );
 }

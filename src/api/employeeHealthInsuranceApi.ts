@@ -50,6 +50,24 @@ export interface UpdateEmployeeHealthInsuranceRequest {
   additionalInsureds?: string | null;
 }
 
+export interface BulkUpdateHealthInsuranceRequest {
+  medical?: {
+    optInStatus?: string | null;
+    healthPlanId?: number | null;
+    additionalInsureds?: string | null;
+  };
+  dental?: {
+    optInStatus?: string | null;
+    healthPlanId?: number | null;
+    additionalInsureds?: string | null;
+  };
+  vision?: {
+    optInStatus?: string | null;
+    healthPlanId?: number | null;
+    additionalInsureds?: string | null;
+  };
+}
+
 export function fetchEmployeeHealthInsurance(
   email: string,
 ): Promise<EmployeeHealthInsurance> {
@@ -66,6 +84,19 @@ export function updateEmployeeHealthInsurance(
     `/admin/users/${encodeURIComponent(email)}/health-insurance`,
     {
       method: 'PATCH',
+      body: JSON.stringify(request),
+    },
+  );
+}
+
+export function bulkUpdateHealthInsurance(
+  email: string,
+  request: BulkUpdateHealthInsuranceRequest,
+): Promise<EmployeeHealthInsurance> {
+  return apiFetch<EmployeeHealthInsurance>(
+    `/admin/users/${encodeURIComponent(email)}/health-insurance`,
+    {
+      method: 'PUT',
       body: JSON.stringify(request),
     },
   );

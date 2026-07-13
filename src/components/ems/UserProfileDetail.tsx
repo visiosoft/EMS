@@ -21,9 +21,9 @@ import {
 } from '@/api/employeeEmploymentApi';
 import {
   fetchEmployeeHealthInsurance,
-  updateEmployeeHealthInsurance,
+  bulkUpdateHealthInsurance,
   type EmployeeHealthInsurance,
-  type UpdateEmployeeHealthInsuranceRequest,
+  type BulkUpdateHealthInsuranceRequest,
   type HealthPlanOption,
 } from '@/api/employeeHealthInsuranceApi';
 import {
@@ -1375,6 +1375,8 @@ function InsuranceSection({
   setMonthlyRate,
   payrollDeduction,
   setPayrollDeduction,
+  companyContribution,
+  setCompanyContribution,
   tenureTier,
   companyContribPP,
   benchmarkBiweekly,
@@ -1398,6 +1400,8 @@ function InsuranceSection({
   setMonthlyRate?: (v: string) => void;
   payrollDeduction?: string;
   setPayrollDeduction?: (v: string) => void;
+  companyContribution?: string;
+  setCompanyContribution?: (v: string) => void;
   tenureTier?: '<1 yr' | '1+ yr' | null;
   companyContribPP?: number;
   benchmarkBiweekly?: number;
@@ -1425,6 +1429,7 @@ function InsuranceSection({
       setPlanBenefits?.('');
       setPayrollDeduction?.('');
       setMonthlyRate?.('');
+      setCompanyContribution?.('');
       return;
     }
     const plan = plans.find((p) => String(p.healthPlanId) === currentPlanId);
@@ -1457,6 +1462,24 @@ function InsuranceSection({
           const marker = tenureTier === '<1 yr' ? '<1' : '1+';
           priceEntry = candidates.find((p) => p.coverageType.includes(marker)) ?? candidates[0];
         }
+        // Fallback: "Family" ↔ "Employee + Family", "Children" ↔ "Employee + Children"
+        if (!priceEntry) {
+          const altMap: Record<string, string> = {
+            'family': 'employee + family',
+            'employee + family': 'family',
+            'children': 'employee + children',
+            'employee + children': 'children',
+            'child': 'employee + child',
+            'employee + child': 'child',
+          };
+          const alt = altMap[baseLower];
+          if (alt) {
+            const altCandidates = plan.pricing.filter((p) =>
+              p.coverageType.replace(/\s*\(.*\)\s*$/, '').trim().toLowerCase() === alt,
+            );
+            priceEntry = altCandidates[0];
+          }
+        }
       }
 
       if (priceEntry) {
@@ -1488,13 +1511,15 @@ function InsuranceSection({
         const employerApplied = Math.min(employerPerPP, planPriceBiweekly);
         const payrollDed = Math.round((planPriceBiweekly - employerApplied) * 100) / 100;
         setPayrollDeduction?.(`$${payrollDed.toFixed(2)}/pay period`);
+        setCompanyContribution?.(`$${employerApplied.toFixed(2)}/pay period`);
       } else {
         setPlanPrice?.('');
         setMonthlyRate?.('');
         setPayrollDeduction?.('');
+        setCompanyContribution?.('');
       }
     }
-  }, [plans, tenureTier, companyContribPP, benchmarkBiweekly, setPlanPrice, setPlanBenefits, setPayrollDeduction, setMonthlyRate]);
+  }, [plans, tenureTier, companyContribPP, benchmarkBiweekly, setPlanPrice, setPlanBenefits, setPayrollDeduction, setMonthlyRate, setCompanyContribution]);
 
   // Recalculate pricing when additionalInsureds changes
   useEffect(() => {
@@ -1551,6 +1576,9 @@ function InsuranceSection({
         {showAdditional && payrollDeduction !== undefined && (
           <ReadOnlyField label="Payroll Deduction" value={optIn !== 'Opt-In' ? '—' : (payrollDeduction || '—')} source="calculated" />
         )}
+        {showAdditional && companyContribution !== undefined && (
+          <ReadOnlyField label="Company Contribution Per Pay Period" value={optIn !== 'Opt-In' ? '—' : (companyContribution || '—')} source="calculated" />
+        )}
       </div>
     </SectionCard>
   );
@@ -1588,6 +1616,9 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
   const [visionPrice, setVisionPrice] = useState('');
   const [visionBenefits, setVisionBenefits] = useState('');
   const [visionDeduction, setVisionDeduction] = useState('');
+  const [healthCompanyContrib, setHealthCompanyContrib] = useState('');
+  const [dentalCompanyContrib, setDentalCompanyContrib] = useState('');
+  const [visionCompanyContrib, setVisionCompanyContrib] = useState('');
 
   const populateForm = useCallback((data: EmployeeHealthInsurance) => {
     const health = data.elections.find((e) => e.insuranceType === 'Medical');
@@ -1628,8 +1659,8 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
   }, [insuranceQuery.data, populateForm]);
 
   const saveMutation = useMutation({
-    mutationFn: (payload: UpdateEmployeeHealthInsuranceRequest) =>
-      updateEmployeeHealthInsurance(user.email, payload),
+    mutationFn: (payload: BulkUpdateHealthInsuranceRequest) =>
+      bulkUpdateHealthInsurance(user.email, payload),
     onSuccess: (data) => {
       qc.setQueryData(['employee-health-insurance', user.email], data);
       populateForm(data);
@@ -1641,29 +1672,23 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
   });
 
   const handleSave = async () => {
-    const saves: UpdateEmployeeHealthInsuranceRequest[] = [
-      {
-        insuranceType: 'Medical',
+    saveMutation.mutate({
+      medical: {
         optInStatus: healthOptIn || null,
         healthPlanId: healthPlanId ? Number(healthPlanId) : null,
         additionalInsureds: additionalInsureds || null,
       },
-      {
-        insuranceType: 'Dental',
+      dental: {
         optInStatus: dentalOptIn || null,
         healthPlanId: dentalPlanId ? Number(dentalPlanId) : null,
         additionalInsureds: dentalAdditionalInsureds || null,
       },
-      {
-        insuranceType: 'Vision',
+      vision: {
         optInStatus: visionOptIn || null,
         healthPlanId: visionPlanId ? Number(visionPlanId) : null,
         additionalInsureds: visionAdditionalInsureds || null,
       },
-    ];
-    for (const payload of saves) {
-      saveMutation.mutate(payload);
-    }
+    });
   };
 
   if (insuranceQuery.isLoading) {
@@ -1729,6 +1754,8 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
         setMonthlyRate={setHealthRate}
         payrollDeduction={healthDeduction}
         setPayrollDeduction={setHealthDeduction}
+        companyContribution={healthCompanyContrib}
+        setCompanyContribution={setHealthCompanyContrib}
         tenureTier={tenureTier}
         companyContribPP={companyContribPP}
         benchmarkBiweekly={insuranceQuery.data?.benchmarkBiweekly ?? 0}
@@ -1750,6 +1777,13 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
         setPlanPrice={setDentalPrice}
         planBenefits={dentalBenefits}
         setPlanBenefits={setDentalBenefits}
+        payrollDeduction={dentalDeduction}
+        setPayrollDeduction={setDentalDeduction}
+        companyContribution={dentalCompanyContrib}
+        setCompanyContribution={setDentalCompanyContrib}
+        tenureTier={tenureTier}
+        companyContribPP={companyContribPP}
+        benchmarkBiweekly={insuranceQuery.data?.benchmarkBiweekly ?? 0}
         showAdditional
       />
 
@@ -1768,6 +1802,13 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
         setPlanPrice={setVisionPrice}
         planBenefits={visionBenefits}
         setPlanBenefits={setVisionBenefits}
+        payrollDeduction={visionDeduction}
+        setPayrollDeduction={setVisionDeduction}
+        companyContribution={visionCompanyContrib}
+        setCompanyContribution={setVisionCompanyContrib}
+        tenureTier={tenureTier}
+        companyContribPP={companyContribPP}
+        benchmarkBiweekly={insuranceQuery.data?.benchmarkBiweekly ?? 0}
         showAdditional
       />
 
