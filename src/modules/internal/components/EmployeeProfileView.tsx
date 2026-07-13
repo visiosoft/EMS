@@ -342,13 +342,7 @@ export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile })
     { label: "Department", value: textOrDash(profile.basics.department) },
     { label: "Role", value: textOrDash(profile.basics.role) },
     { label: "Company", value: textOrDash(profile.basics.company) },
-    { label: "Hire Date", value: formatDate(profile.employment.hireDate) },
     { label: "Start Date at IAE", value: formatDate(profile.employment.startDate) },
-    { label: "Termination Date", value: formatDate(profile.employment.terminationDate) },
-    { label: "Employment Status", value: textOrDash(profile.employment.employmentStatus) },
-    { label: "Employment Type", value: textOrDash(profile.employment.employmentType) },
-    // Pay Type / Pay Rate intentionally omitted: not in the client's Employee
-    // Profiles.xlsx field list, so they are not part of the profile.
     { label: "Years of Service", value: textOrDash(profile.employment.yearsOfService) },
     { label: "Supervisor", value: textOrDash(profile.employment.supervisor) },
     { label: "Paid Time Off Accrual Rate", value: textOrDash(profile.employment.ptoAccrualRate), admin: true },
@@ -415,7 +409,6 @@ export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile })
                         </span>
                       ) : null}
                     </div>
-                    <Field label="Relationship" value={textOrDash(contact.relationship)} />
                     <Field label="Phone" value={phoneOrDash(contact.phoneNumber)} />
                     <Field label="Email" value={textOrDash(contact.email)} />
                   </dl>
