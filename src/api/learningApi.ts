@@ -125,19 +125,8 @@ export function fetchLearningPlatforms(): Promise<LearningPlatform[]> {
 
 export type LearningDepartment = { departmentId: number; departmentName: string };
 
-const ALLOWED_DEPARTMENT_NAMES = [
-  "Art & Graphic Design",
-  "Marketing",
-  "Finance",
-  "Booking",
-  "Production",
-  "Ticketing & Sales",
-];
-
 export function fetchLearningDepartments(): Promise<LearningDepartment[]> {
-  return apiFetch<LearningDepartment[]>('/lookups/departments').then((depts) =>
-    depts.filter((d) => ALLOWED_DEPARTMENT_NAMES.includes(d.departmentName))
-  );
+  return apiFetch<LearningDepartment[]>('/lookups/departments');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

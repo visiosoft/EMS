@@ -35,6 +35,9 @@ export class NonResidentWithholding {
   @Column({ name: 'WithholdingArea', type: 'nvarchar', length: 100, nullable: true })
   withholdingArea: string | null;
 
+  @Column({ name: 'AreaCategory', type: 'nvarchar', length: 20, nullable: true })
+  areaCategory: string | null;
+
   @Column({ name: 'WithholdingAgencyName', type: 'nvarchar', length: 200, nullable: true })
   withholdingAgencyName: string | null;
 

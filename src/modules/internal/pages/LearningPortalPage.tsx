@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { InternalPageFrame } from "../layout/InternalPageFrame";
 import { UrgentUpcomingSection } from "../components/UrgentUpcomingSection";
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
+import { apiFetch } from "@/api/config";
 import {
   fetchLearningCertifications,
   fetchLearningPlatforms,
@@ -24,9 +25,25 @@ import { fetchMyProfile } from "@/api/myProfileApi";
 
 export function LearningPortalPage() {
   const { navigate, viewData } = useInternalNavigation();
-  const departmentName = viewData?.fromTitle || "Art & Graphic Design";
-  const departmentView = viewData?.fromView || "department-art-graphic-design";
-  const departmentId = viewData?.departmentId || 65;
+  const departmentName = viewData?.fromTitle || "";
+  const departmentView = viewData?.fromView || "departments";
+  const [departmentId, setDepartmentId] = useState<number | null>(viewData?.departmentId || null);
+
+  // Resolve departmentId by name if not provided in viewData
+  useEffect(() => {
+    if (viewData?.departmentId) {
+      setDepartmentId(viewData.departmentId);
+      return;
+    }
+    if (departmentName) {
+      apiFetch<{ departmentId: number; departmentName: string }[]>('/lookups/departments')
+        .then((depts) => {
+          const match = depts.find((d) => d.departmentName === departmentName);
+          if (match) setDepartmentId(match.departmentId);
+        })
+        .catch(console.error);
+    }
+  }, [departmentName, viewData?.departmentId]);
 
   const [currentContactId, setCurrentContactId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -40,6 +57,7 @@ export function LearningPortalPage() {
   const [progress, setProgress] = useState<LearningProgressResponse | null>(null);
 
   useEffect(() => {
+    if (!departmentId) return;
     const load = async () => {
       try {
         const profile = await fetchMyProfile();
@@ -69,7 +87,7 @@ export function LearningPortalPage() {
   };
 
   const refreshMyData = useCallback(async () => {
-    if (!currentContactId) return;
+    if (!currentContactId || !departmentId) return;
     const [score, prog] = await Promise.all([
       fetchMyLearningScore(currentContactId, departmentId),
       fetchLearningProgress(currentContactId, departmentId),
@@ -92,7 +110,7 @@ export function LearningPortalPage() {
       >
         <div className="mx-auto mb-6 max-w-[1120px]">
           <button
-            onClick={() => navigate(departmentView)}
+            onClick={() => navigate(departmentView, departmentId ? { departmentId } : undefined)}
             className="flex items-center text-sm font-semibold text-neutral-400 transition-colors hover:text-white"
           >
             <ArrowLeft className="mr-2 h-4 w-4" /> Back to {departmentName}
@@ -165,11 +183,11 @@ export function LearningPortalPage() {
           </button>
         </div>
 
-        {activeTab === "BROWSE" && (
+        {activeTab === "BROWSE" && departmentId && (
           <BrowseCertifications departmentId={departmentId} />
         )}
         
-        {activeTab === "SUBMIT" && currentContactId && (
+        {activeTab === "SUBMIT" && currentContactId && departmentId && (
           <SubmitCertificate
             departmentId={departmentId}
             contactId={currentContactId}
@@ -178,7 +196,7 @@ export function LearningPortalPage() {
           />
         )}
         
-        {activeTab === "MY" && currentContactId && (
+        {activeTab === "MY" && currentContactId && departmentId && (
           <MyCertificates
             departmentId={departmentId}
             contactId={currentContactId}
@@ -188,7 +206,7 @@ export function LearningPortalPage() {
           />
         )}
         
-        {activeTab === "LEADERBOARD" && (
+        {activeTab === "LEADERBOARD" && departmentId && (
           <Leaderboard departmentId={departmentId} departmentName={departmentName} myScore={myScore} currentContactId={currentContactId} />
         )}
       </main>

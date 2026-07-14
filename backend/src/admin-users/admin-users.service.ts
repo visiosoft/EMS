@@ -4,6 +4,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { AuditRequestContext } from '../audit/audit-request-context.service';
+import { isIaeEntraCompany } from './admin-users.constants';
 
 type GraphUser = {
   id: string;
@@ -321,7 +322,9 @@ export class AdminUsersService {
     const users: AdminDirectoryUser[] = [];
 
     for (const user of await this.fetchGraphUsers(accessToken)) {
-      users.push(this.buildUserDisplay(user));
+      if (isIaeEntraCompany(user.companyName)) {
+        users.push(this.buildUserDisplay(user));
+      }
     }
 
     return users.sort((left, right) => left.name.localeCompare(right.name));
@@ -333,6 +336,7 @@ export class AdminUsersService {
     const accessToken = await this.getGraphAccessToken(graphAccessToken);
 
     return (await this.fetchGraphUsers(accessToken))
+      .filter((user) => isIaeEntraCompany(user.companyName))
       .map((user) => this.buildUserForSync(user))
       .sort((left, right) => left.displayName.localeCompare(right.displayName));
   }

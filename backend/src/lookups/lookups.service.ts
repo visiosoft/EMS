@@ -9,7 +9,11 @@ import { Class } from '../entities/class.entity';
 import { CompanyType } from '../entities/company-type.entity';
 import { Department } from '../entities/department.entity';
 import { Dma } from '../entities/dma.entity';
-import { dmaMarketNameNormSql } from './dma-normalization.util';
+import { DmaPopulation } from '../entities/dma-population.entity';
+import {
+  dmaMarketNameNormSql,
+  normalizeNielsenMarketNameForMatch,
+} from './dma-normalization.util';
 import { Role } from '../entities/role.entity';
 import { SeatingType } from '../entities/seating-type.entity';
 import { VenueType } from '../entities/venue-type.entity';
@@ -51,6 +55,8 @@ export class LookupsService {
     private readonly seatingTypeRepo: Repository<SeatingType>,
     @InjectRepository(Dma)
     private readonly dmaRepo: Repository<Dma>,
+    @InjectRepository(DmaPopulation)
+    private readonly dmaPopulationRepo: Repository<DmaPopulation>,
     @InjectRepository(Class)
     private readonly classRepo: Repository<Class>,
     @InjectRepository(VenueType)
@@ -378,16 +384,12 @@ export class LookupsService {
    * "Abilene-Sweetwater.") merge via {@link dmaMarketNameNormSql} over the ~200
    * distinct names. Pickers and the hub list show a single entry per market.
    */
-  private buildDmaMarketsGroupedSubquery(
-    query: string,
-    includePostalCount = false,
-  ) {
+  private buildDmaMarketsGroupedSubquery(query: string) {
     const rawGrouped = this.dmaRepo
       .createQueryBuilder('d')
       .select('MIN(d.dmaid)', 'dmaid')
       .addSelect('d.marketName', 'marketName')
       .addSelect('MIN(d.postalCode)', 'postalCode')
-      .addSelect('COUNT(*)', 'cnt')
       .groupBy('d.marketName');
     this.applyDmaMarketSearchFilter(rawGrouped, query);
 
@@ -396,13 +398,60 @@ export class LookupsService {
       .select('MIN(g.dmaid)', 'dmaid')
       .addSelect('MIN(g.marketName)', 'marketName')
       .addSelect('MIN(g.postalCode)', 'postalCode');
-    if (includePostalCount) {
-      qb.addSelect('SUM(g.cnt)', 'postalCount');
-    }
     qb.from(`(${rawGrouped.getQuery()})`, 'g')
       .setParameters(rawGrouped.getParameters())
       .groupBy(dmaMarketNameNormSql('g.marketName'));
     return qb;
+  }
+
+  private dmaPopulationCache: Map<
+    string,
+    {
+      nielsenCode: number;
+      nielsenRank: number | null;
+      population: number | null;
+      nielsenMarketName: string | null;
+    }
+  > | null = null;
+
+  /**
+   * Best (lowest official Nielsen Rank) row per Nielsen-normalized market name.
+   * dbo.DMAPopulation's MarketName is unique per NielsenCode as of Sakshi's 2026-07
+   * correction (each Nielsen market has exactly one row), so this dedup is now purely
+   * defensive. The remaining reason not every dbo.DMA tile gets Nielsen data is a
+   * naming-convention gap: dbo.DMA uses our own full multi-city labels while
+   * DMAPopulation uses official (often shorter) Nielsen labels — see
+   * {@link normalizeNielsenMarketNameForMatch} for exactly what is and isn't
+   * compensated for. Cached for the process lifetime: this is small (253 rows),
+   * effectively-static reference data.
+   */
+  private async loadBestDmaPopulationByNormName() {
+    if (this.dmaPopulationCache) return this.dmaPopulationCache;
+    const rows = await this.dmaPopulationRepo.find();
+    const map = new Map<
+      string,
+      {
+        nielsenCode: number;
+        nielsenRank: number | null;
+        population: number | null;
+        nielsenMarketName: string | null;
+      }
+    >();
+    for (const row of rows) {
+      if (!row.marketName) continue;
+      const key = normalizeNielsenMarketNameForMatch(row.marketName);
+      const existing = map.get(key);
+      if (!existing || (row.rank ?? Infinity) < (existing.nielsenRank ?? Infinity)) {
+        map.set(key, {
+          nielsenCode: row.nielsenCode,
+          nielsenRank: row.rank,
+          population: row.metro12PlusPopulation,
+          nielsenMarketName: row.marketName,
+        });
+      }
+    }
+    this.dmaPopulationCache = map;
+    return map;
   }
 
   private applyDmaMarketSearchFilter(
@@ -430,13 +479,30 @@ export class LookupsService {
     }));
   }
 
-  private mapDmaHubMarketRows(rows: Record<string, unknown>[]) {
-    return rows.map((r) => ({
-      dmaid: Number(r.dmaid ?? r.DMAID),
-      marketName: String(r.marketName ?? r.MarketName ?? ''),
-      samplePostalCode: String(r.postalCode ?? r.PostalCode ?? ''),
-      postalCount: Number(r.postalCount ?? r.PostalCount ?? 0),
-    }));
+  private mapDmaHubMarketRows(
+    rows: Record<string, unknown>[],
+    populationByNormName: Map<
+      string,
+      {
+        nielsenCode: number;
+        nielsenRank: number | null;
+        population: number | null;
+        nielsenMarketName: string | null;
+      }
+    >,
+  ) {
+    return rows.map((r) => {
+      const marketName = String(r.marketName ?? r.MarketName ?? '');
+      const pop = populationByNormName.get(normalizeNielsenMarketNameForMatch(marketName));
+      return {
+        dmaid: Number(r.dmaid ?? r.DMAID),
+        marketName,
+        nielsenMarketName: pop?.nielsenMarketName ?? null,
+        nielsenCode: pop?.nielsenCode ?? null,
+        nielsenRank: pop?.nielsenRank ?? null,
+        population: pop?.population ?? null,
+      };
+    });
   }
 
   /**
@@ -527,12 +593,14 @@ export class LookupsService {
     data: {
       dmaid: number;
       marketName: string;
-      samplePostalCode: string;
-      postalCount: number;
+      nielsenMarketName: string | null;
+      nielsenCode: number | null;
+      nielsenRank: number | null;
+      population: number | null;
     }[];
     total: number;
   }> {
-    const inner = this.buildDmaMarketsGroupedSubquery(query, true);
+    const inner = this.buildDmaMarketsGroupedSubquery(query);
 
     const countRow = await this.dmaRepo.manager
       .createQueryBuilder()
@@ -547,8 +615,6 @@ export class LookupsService {
       .createQueryBuilder()
       .select('t.dmaid', 'dmaid')
       .addSelect('t.marketName', 'marketName')
-      .addSelect('t.postalCode', 'postalCode')
-      .addSelect('t.postalCount', 'postalCount')
       .from(`(${inner.getQuery()})`, 't')
       .setParameters(inner.getParameters())
       .orderBy('t.marketName', 'ASC')
@@ -557,8 +623,10 @@ export class LookupsService {
       .limit(limit)
       .getRawMany<Record<string, unknown>>();
 
+    const populationByNormName = await this.loadBestDmaPopulationByNormName();
+
     return {
-      data: this.mapDmaHubMarketRows(rows),
+      data: this.mapDmaHubMarketRows(rows, populationByNormName),
       total,
     };
   }

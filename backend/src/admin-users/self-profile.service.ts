@@ -223,7 +223,7 @@ export class SelfProfileService {
     // Rich sections reuse the exact EMS services (health-insurance formulas, experience SQL).
     // Each is best-effort so a missing table or edge case never fails the whole profile.
     const healthInsurance = await this.safe(() =>
-      this.healthInsuranceService.getHealthInsurance(base.email),
+      this.healthInsuranceService.getHealthInsuranceByContactId(base.contactId),
     );
     const experience = await this.safe(() =>
       this.experienceService.getExperience(base.email),

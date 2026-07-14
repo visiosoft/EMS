@@ -30,6 +30,7 @@ import { UpdateVenueDetailsDto } from './dto/update-venue-details.dto';
 export class CompanyController {
   constructor(private readonly companyService: CompanyService) {}
 
+
   @Get()
   findAll(
     @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,

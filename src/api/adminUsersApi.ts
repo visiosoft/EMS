@@ -57,9 +57,58 @@ export type GraphRequestError = Error & {
 const GRAPH_USERS_URL =
     'https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,mail,givenName,surname,department,jobTitle,employeeType,mobilePhone,businessPhones,officeLocation,city,state,country,companyName,accountEnabled,userType&$top=999';
 
+const IAE_ENTRA_COMPANY_NAME = 'Innovation Arts & Entertainment';
+
+function normalizeCompanyName(value: string): string {
+    return value
+        .toLowerCase()
+        .replace(/&/g, 'and')
+        .replace(/[^a-z0-9]+/g, '')
+        .trim();
+}
+
+function levenshteinDistance(a: string, b: string): number {
+    if (a.length === 0) return b.length;
+    if (b.length === 0) return a.length;
+    const matrix: number[][] = [];
+    for (let i = 0; i <= b.length; i++) {
+        matrix[i] = [i];
+    }
+    for (let j = 0; j <= a.length; j++) {
+        matrix[0][j] = j;
+    }
+    for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+            if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                matrix[i][j] = matrix[i - 1][j - 1];
+            } else {
+                matrix[i][j] = Math.min(
+                    matrix[i - 1][j - 1] + 1,
+                    Math.min(matrix[i][j - 1] + 1, matrix[i - 1][j] + 1)
+                );
+            }
+        }
+    }
+    return matrix[b.length][a.length];
+}
+
+const IAE_COMPANY_NORMALIZED = normalizeCompanyName(IAE_ENTRA_COMPANY_NAME);
+
+export function isIaeEntraCompany(companyName: string | null | undefined): boolean {
+    const normalized = normalizeCompanyName(companyName ?? '');
+    if (!normalized) return false;
+    if (normalized.includes(IAE_COMPANY_NORMALIZED)) return true;
+    if (IAE_COMPANY_NORMALIZED.includes(normalized) && normalized.length > 5) return true;
+    if (levenshteinDistance(normalized, IAE_COMPANY_NORMALIZED) <= 3) return true;
+    return false;
+}
+
 export async function fetchAdminUsers(graphAccessToken: string): Promise<AdminDirectoryUserRow[]> {
     const users = await fetchEntraUsers(graphAccessToken);
-    return users.map(mapGraphUserToRow).sort((left, right) => left.name.localeCompare(right.name));
+    return users
+        .filter((user) => isIaeEntraCompany(user.companyName))
+        .map(mapGraphUserToRow)
+        .sort((left, right) => left.name.localeCompare(right.name));
 }
 
 async function fetchEntraUsers(graphAccessToken: string): Promise<GraphUser[]> {
@@ -182,7 +231,7 @@ function mapGraphUserToRow(user: GraphUser): AdminDirectoryUserRow {
         email: cleanString(user.mail) || cleanString(user.userPrincipalName),
         role: 'Entra user',
         jobTitle: cleanString(user.jobTitle),
-        department: cleanString(user.department),
+        department: user.department ? user.department.split('&').map(d => d.trim()).filter(Boolean).join(', ') : '',
         employeeType: cleanString(user.employeeType),
         officeLocation: cleanString(user.officeLocation),
         city: cleanString(user.city),

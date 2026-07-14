@@ -1,16 +1,9 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  BadgeDollarSign,
-  CalendarCheck2,
-  CalendarDays,
   ClipboardList,
   FileBadge2,
   HeartPulse,
-  Megaphone,
-  Palette,
   ReceiptText,
-  Settings2,
-  Ticket,
   Umbrella,
 } from "lucide-react";
 import type { InternalView } from "../routing/internalSessionRoute";
@@ -61,18 +54,4 @@ export const LEADERSHIP_CONTACTS: LeadershipContact[] = [
   { name: "Nichole Beeler", title: "Director of Marketing", extension: "224", mobile: "(847) 322-9091", email: "nichole@innovationae.com" },
   { name: "Rebecca Pepe", title: "Director of Marketing", extension: "232", mobile: "(847) 714-3244", email: "rebecca@innovationae.com" },
   { name: "IAE", title: "Company", extension: "(312) 274-1800", mobile: "—", email: "info@innovationae.com", companyMark: true },
-];
-
-export type DepartmentCard = {
-  title: string;
-  icon: LucideIcon;
-};
-
-export const DEPARTMENT_CARDS: DepartmentCard[] = [
-  { title: "Art", icon: Palette },
-  { title: "Events", icon: CalendarDays },
-  { title: "Booking", icon: CalendarCheck2 },
-  { title: "Marketing", icon: Megaphone },
-  { title: "Ticketing & Sales", icon: Ticket },
-  { title: "Production", icon: Settings2 },
 ];

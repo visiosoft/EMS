@@ -68,7 +68,7 @@ describe('ContractExtractionService', () => {
         'https://onedrive.com/contracts/rolling-stones-msg.pdf',
       ].join('\n');
 
-      const result = callPrivate('extractFromTextContent', text);
+      const result = callPrivate('extractFromTextContent', text) as any;
 
       expect(result).toMatchObject({
         agency: 'Creative Artists Agency',
@@ -96,12 +96,13 @@ describe('ContractExtractionService', () => {
       expect(result.royaltyDescription).toContain('85%');
       expect(result.overageDescription).toContain('90%');
       expect(result.paymentTerms).toContain('Deposit upon signing');
-      expect(result.performances).toContain('July 4, 2026');
-      expect(result.additionallyInsured).toContain('Live Nation Worldwide');
+      expect(result.performances).toHaveLength(1);
+      expect(result.performances[0].formatted).toContain('July 4, 2026');
+      expect(result.additionallyInsured).toEqual(['Live Nation Worldwide Inc', 'Madison Square Garden Entertainment Corp.']);
     });
 
     it('should return empty result for empty text', () => {
-      const result = callPrivate('extractFromTextContent', '');
+      const result = callPrivate('extractFromTextContent', '') as any;
       expect(result.agency).toBeNull();
       expect(result.guaranteeAmount).toBeNull();
     });
@@ -116,7 +117,7 @@ describe('ContractExtractionService', () => {
         '1,250,000.00',
       ].join('\n');
 
-      const result = callPrivate('extractFromTextContent', text);
+      const result = callPrivate('extractFromTextContent', text) as any;
       expect(result.agency).toBe('WME');
       expect(result.attraction).toBe('Beyoncé');
       expect(result.guaranteeAmount).toBe(1250000);
@@ -198,7 +199,7 @@ describe('ContractExtractionService', () => {
         'Bank name: Barclays',
       ].join('\n');
 
-      const result = callPrivate('extractFromTextContent', text);
+      const result = callPrivate('extractFromTextContent', text) as any;
       expect(result.agency).toBe('William Morris Endeavor');
       expect(result.agent).toBe('Tom Agent');
     });
@@ -309,6 +310,103 @@ describe('ContractExtractionService', () => {
       expect(res.data.venueCountry).toBe('Canada');
       // inferred country reported at lower confidence -> review, not high
       expect(res.fieldMeta.venueCountry.status).toBe('review');
+    });
+
+    const listField = (value: unknown[], confidence: number, sourceQuote = '', sourcePage = 1) => ({
+      value,
+      confidence,
+      sourceQuote,
+      sourcePage,
+    });
+
+    it('normalizes a structured performances array (date/time)', () => {
+      const res = build({
+        performances: listField(
+          [
+            { date: 'May 7, 2025', time: '7:30 PM', formatted: 'Wednesday, May 7, 2025 at 7:30 PM' },
+            { date: '2025-05-08', time: '19:30', formatted: '' },
+          ],
+          0.9,
+        ),
+      } as unknown as Record<string, RawField>, null);
+      expect(res.data.performances).toEqual([
+        { date: '2025-05-07', time: '19:30', formatted: 'Wednesday, May 7, 2025 at 7:30 PM' },
+        { date: '2025-05-08', time: '19:30', formatted: '2025-05-08 19:30' },
+      ]);
+      expect(res.fieldMeta.performances.status).toBe('high');
+    });
+
+    it('marks performances as not_found when the array is empty', () => {
+      const res = build({ performances: listField([], 0) } as unknown as Record<string, RawField>, null);
+      expect(res.data.performances).toBeNull();
+      expect(res.fieldMeta.performances.status).toBe('not_found');
+    });
+
+    it('normalizes additionallyInsured to a string array', () => {
+      const res = build({
+        additionallyInsured: listField(['Live Nation Worldwide Inc', 'Madison Square Garden Entertainment Corp'], 0.9),
+      } as unknown as Record<string, RawField>, null);
+      expect(res.data.additionallyInsured).toEqual(['Live Nation Worldwide Inc', 'Madison Square Garden Entertainment Corp']);
+    });
+
+    it('always puts the Agency first among additionally-insured parties, inserting it if missing', () => {
+      const res = build({
+        agency: field('The Booking Group', 0.9),
+        additionallyInsured: listField(['CFA Touring, LLC'], 0.9),
+      } as unknown as Record<string, RawField>, null);
+      expect(res.data.additionallyInsured).toEqual(['The Booking Group', 'CFA Touring, LLC']);
+    });
+
+    it('moves the Agency to the front when it was extracted out of order', () => {
+      const res = build({
+        agency: field('The Booking Group', 0.9),
+        additionallyInsured: listField(['CFA Touring, LLC', 'The Booking Group'], 0.9),
+      } as unknown as Record<string, RawField>, null);
+      expect(res.data.additionallyInsured).toEqual(['The Booking Group', 'CFA Touring, LLC']);
+    });
+
+    it('derives additionallyInsured from agency + producer + presenter when the clause is absent', () => {
+      const res = build({
+        agency: field('The Booking Group', 0.9),
+        producer: field('Chicago Razzle Dazzle II, LLC', 0.9),
+        presenter: field('Innovation Arts & Entertainment', 0.9),
+        additionallyInsured: listField([], 0),
+      } as unknown as Record<string, RawField>, null);
+      expect(res.data.additionallyInsured).toEqual([
+        'The Booking Group',
+        'Chicago Razzle Dazzle II, LLC',
+        'Innovation Arts & Entertainment',
+      ]);
+      expect(res.fieldMeta.additionallyInsured.status).toBe('derived');
+    });
+
+    it('derives from agency + producer only when no presenter is found', () => {
+      const res = build({
+        agency: field('The Booking Group', 0.9),
+        producer: field('CFA Touring, LLC', 0.9),
+        additionallyInsured: listField([], 0),
+      } as unknown as Record<string, RawField>, null);
+      expect(res.data.additionallyInsured).toEqual(['The Booking Group', 'CFA Touring, LLC']);
+    });
+
+    it('does not derive additionallyInsured when the contract explicitly lists parties (LLM wins)', () => {
+      const res = build({
+        agency: field('The Booking Group', 0.9),
+        producer: field('Some Producer, LLC', 0.9),
+        presenter: field('Innovation Arts & Entertainment', 0.9),
+        additionallyInsured: listField(['The Booking Group', 'Grand Theatre Foundation'], 0.9),
+      } as unknown as Record<string, RawField>, null);
+      expect(res.data.additionallyInsured).toEqual(['The Booking Group', 'Grand Theatre Foundation']);
+      expect(res.fieldMeta.additionallyInsured.status).not.toBe('derived');
+    });
+
+    it('de-duplicates when a party appears in more than one role', () => {
+      const res = build({
+        agency: field('The Booking Group', 0.9),
+        producer: field('The Booking Group', 0.9),
+        additionallyInsured: listField([], 0),
+      } as unknown as Record<string, RawField>, null);
+      expect(res.data.additionallyInsured).toEqual(['The Booking Group']);
     });
   });
 });

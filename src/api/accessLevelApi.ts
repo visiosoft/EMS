@@ -9,3 +9,4 @@ export interface MyAccessLevelResponse {
 export function fetchMyAccessLevel(): Promise<MyAccessLevelResponse> {
   return apiFetch<MyAccessLevelResponse>('/admin/me/access-level');
 }
+// test comment

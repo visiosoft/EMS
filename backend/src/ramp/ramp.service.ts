@@ -75,6 +75,13 @@ export interface RampTransaction {
   }>;
   policy_violations?: Array<Record<string, unknown>>;
   disputes?: Array<Record<string, unknown>>;
+  accounting_categories?: Array<{
+    tracking_category_remote_id?: string | null;
+    category_id?: string | null;
+    tracking_category_remote_type?: string | null;
+    tracking_category_remote_name?: string | null;
+    category_name?: string | null;
+  }>;
 }
 
 /** Accounting field selection on a transaction — richer structure from the API. */
@@ -153,6 +160,7 @@ export interface RampBillAccountingFieldSelection {
   external_code?: string | null;
   display_name?: string | null;
   provider_name?: string | null;
+  type?: string | null;
   category_info?: {
     id: string;
     name: string;
@@ -1322,14 +1330,60 @@ export class RampService {
     return { data: out, page: { next: txResult.page.next } };
   }
 
+  // ─── Engagement-scoped Memos ──────────────────────────────────────────────
+
+  /**
+   * Memos associated with this engagement's transactions. The Ramp memos API
+   * doesn't support filtering by accounting field, so we fetch engagement
+   * transactions first, collect their IDs, then fetch memos and filter.
+   */
+  async getEngagementMemos(
+    engagementId: number,
+    params?: { page_size?: number; start?: string },
+  ): Promise<RampPagedResponse<RampMemo & { transaction_amount: number | null; merchant_name: string | null }>> {
+    // Get all engagement transactions (up to 200) to build the ID set
+    const txResult = await this.getEngagementTransactions(engagementId, { page_size: 200 });
+    const txMap = new Map<string, RampTransaction>();
+    for (const tx of txResult.data) {
+      txMap.set(tx.id, tx);
+    }
+
+    if (txMap.size === 0) {
+      return { data: [], page: { next: null } };
+    }
+
+    // Fetch memos pages until we have enough engagement-scoped results
+    const targetSize = params?.page_size ?? 20;
+    const filtered: Array<RampMemo & { transaction_amount: number | null; merchant_name: string | null }> = [];
+    let cursor: string | undefined = params?.start;
+    let next: string | null = null;
+
+    for (let page = 0; page < 20 && filtered.length < targetSize; page++) {
+      const result = await this.listMemos({ page_size: 100, start: cursor });
+      for (const memo of result.data) {
+        // In Ramp's API, memo.id IS the transaction ID
+        const matchedTx = txMap.get(memo.id);
+        if (matchedTx) {
+          filtered.push({
+            ...memo,
+            transaction_amount: matchedTx.amount,
+            merchant_name: matchedTx.merchant_name ?? matchedTx.merchant_descriptor ?? null,
+          });
+        }
+      }
+      cursor = result.page.next ?? undefined;
+      if (!cursor) break;
+      next = cursor;
+    }
+
+    return { data: filtered.slice(0, targetSize), page: { next: filtered.length >= targetSize ? next : null } };
+  }
+
   // ─── Engagement-scoped Accounting data ────────────────────────────────────
 
   /**
-   * Retrieves the accounting field and its options that correspond to the
-   * engagement's Customer/Job. Returns the matched field + only the specific
-   * option that maps to this engagement (not all options).
-   *
-   * If no match is found returns empty collections — never throws.
+   * Lightweight accounting context — resolves Customer/Job mapping and field metadata.
+   * Does NOT fetch transactions/bills (fast).
    */
   async getEngagementAccountingContext(engagementId: number): Promise<{
     mapping: {
@@ -1339,20 +1393,12 @@ export class RampService {
       customerName: string | null;
       jobName: string | null;
     };
-    /** The field(s) that were used for matching. */
     matchedFields: RampAccountingField[];
-    /** The specific option(s) that matched this engagement. */
     matchedOptions: RampAccountingFieldOption[];
-    /** GL accounts (org-wide chart of accounts). */
-    glAccounts: RampGlAccount[];
-    /** Accounting vendors (org-wide). */
-    accountingVendors: RampAccountingVendor[];
-    /** All custom accounting fields. */
     allFields: RampAccountingField[];
-    /** Options for the matched Customer/Job field. */
-    customerJobOptions: RampAccountingFieldOption[];
+    customerJobOptionsCount: number;
   }> {
-    this.logger.log(`[Engagement #${engagementId}] Loading engagement accounting context…`);
+    this.logger.log(`[Engagement #${engagementId}] Loading engagement accounting context (lightweight)…`);
 
     const mapping = await this.resolveEngagementRampIds(engagementId);
     const fields = await this.getAllAccountingFields();
@@ -1367,7 +1413,6 @@ export class RampService {
     ].filter(Boolean) as string[];
 
     if (allFieldOptionIds.length > 0) {
-      // Identify which fields were matched
       const combinedField = fields.find(
         (f) =>
           f.name?.toLowerCase() === 'customer/job' ||
@@ -1407,35 +1452,129 @@ export class RampService {
       }
     }
 
-    // GL accounts and vendors scoped to this engagement — extracted from
-    // engagement transactions/bills which are already filtered by Customer/Job.
+    let customerJobOptionsCount = 0;
+    if (matchedFields.length > 0) {
+      const customerJobOptions = await this.getAllAccountingFieldOptions(matchedFields[0].ramp_id);
+      customerJobOptionsCount = customerJobOptions.length;
+    }
+
+    return { mapping, matchedFields, matchedOptions, allFields: fields, customerJobOptionsCount };
+  }
+
+  /**
+   * Returns the full list of Customer/Job field options for this engagement's matched field.
+   * Separate from the lightweight accounting context to avoid loading 5MB on every tab switch.
+   */
+  async getEngagementCustomerJobOptions(engagementId: number): Promise<{
+    fieldName: string | null;
+    options: RampAccountingFieldOption[];
+  }> {
+    const mapping = await this.resolveEngagementRampIds(engagementId);
+    const fields = await this.getAllAccountingFields();
+
+    const combinedField = fields.find(
+      (f) =>
+        f.name?.toLowerCase() === 'customer/job' ||
+        (f.display_name?.toLowerCase().includes('customer') &&
+          f.display_name?.toLowerCase().includes('job')),
+    );
+    const customerField = fields.find(
+      (f) =>
+        (f.name?.toLowerCase() === 'customer' ||
+          f.display_name?.toLowerCase() === 'customer') &&
+        f.ramp_id !== combinedField?.ramp_id,
+    );
+
+    // Pick the field that was matched
+    const matchedField = mapping.customerJobFieldOptionId
+      ? combinedField
+      : mapping.customerFieldOptionId
+        ? customerField
+        : null;
+
+    if (!matchedField) {
+      return { fieldName: null, options: [] };
+    }
+
+    const options = await this.getAllAccountingFieldOptions(matchedField.ramp_id);
+    return { fieldName: matchedField.display_name ?? matchedField.name, options };
+  }
+
+  /**
+   * GL accounts used by this engagement + dollar amounts per account.
+   * Fetches engagement transactions/bills to determine which GL accounts are referenced.
+   */
+  async getEngagementGlAccounts(engagementId: number): Promise<{
+    glAccounts: RampGlAccount[];
+    glAccountAmounts: Record<string, number>;
+  }> {
+    this.logger.log(`[Engagement #${engagementId}] Loading engagement GL accounts…`);
+
     const glAccountIds = new Set<string>();
-    const billVendorRemoteIds = new Set<string>();
+    const glAccountAmountMap = new Map<string, number>();
+
+    const addGlAmount = (selId: string, amount: number) => {
+      glAccountAmountMap.set(selId, (glAccountAmountMap.get(selId) ?? 0) + amount);
+    };
 
     // Extract GL accounts from engagement transactions
     const txResult = await this.getEngagementTransactions(engagementId, { page_size: 100 });
     for (const tx of txResult.data) {
+      let glFoundViaLineItems = false;
       for (const sel of tx.accounting_field_selections ?? []) {
         if (sel.id) glAccountIds.add(sel.id);
       }
       for (const li of tx.line_items ?? []) {
         for (const sel of li.accounting_field_selections ?? []) {
           if (sel.id) glAccountIds.add(sel.id);
+          if (sel.id && (sel.type === 'GL_ACCOUNT' || sel.category_info?.type === 'GL_ACCOUNT')) {
+            const liDollars = li.amount
+              ? li.amount.amount / (li.amount.minor_unit_conversion_rate || 100)
+              : (tx.amount ?? 0);
+            addGlAmount(sel.id, liDollars);
+            glFoundViaLineItems = true;
+          }
+        }
+      }
+      for (const sel of tx.accounting_field_selections ?? []) {
+        if (sel.id && (sel.type === 'GL_ACCOUNT' || sel.category_info?.type === 'GL_ACCOUNT')) {
+          addGlAmount(sel.id, tx.amount ?? 0);
+          glFoundViaLineItems = true;
+        }
+      }
+      if (!glFoundViaLineItems) {
+        for (const cat of tx.accounting_categories ?? []) {
+          if (cat.tracking_category_remote_type === 'GL_ACCOUNT' && cat.category_id) {
+            glAccountIds.add(cat.category_id);
+            addGlAmount(cat.category_id, tx.amount ?? 0);
+          }
         }
       }
     }
 
-    // Extract vendor IDs and GL accounts from engagement bills
+    // Extract GL accounts from engagement bills
     const billResult = await this.getEngagementBills(engagementId, { page_size: 100 });
     for (const bill of billResult.data) {
-      if (bill.vendor?.remote_id) billVendorRemoteIds.add(bill.vendor.remote_id);
-      if (bill.vendor?.id) billVendorRemoteIds.add(bill.vendor.id);
       for (const sel of bill.accounting_field_selections ?? []) {
         if (sel.id) glAccountIds.add(sel.id);
       }
       for (const li of bill.line_items ?? []) {
         for (const sel of li.accounting_field_selections ?? []) {
           if (sel.id) glAccountIds.add(sel.id);
+          if (sel.id && (sel.type === 'GL_ACCOUNT' || sel.category_info?.type === 'GL_ACCOUNT')) {
+            const liDollars = li.amount
+              ? li.amount.amount / (li.amount.minor_unit_conversion_rate || 100)
+              : (bill.amount ? bill.amount.amount / (bill.amount.minor_unit_conversion_rate || 100) : 0);
+            addGlAmount(sel.id, liDollars);
+          }
+        }
+      }
+      for (const sel of bill.accounting_field_selections ?? []) {
+        if (sel.id && (sel.type === 'GL_ACCOUNT' || sel.category_info?.type === 'GL_ACCOUNT')) {
+          const billDollars = bill.amount
+            ? bill.amount.amount / (bill.amount.minor_unit_conversion_rate || 100)
+            : 0;
+          addGlAmount(sel.id, billDollars);
         }
       }
     }
@@ -1446,27 +1585,41 @@ export class RampService {
       ? allGlAccounts.filter((gl) => glAccountIds.has(gl.ramp_id) || glAccountIds.has(gl.id ?? ''))
       : [];
 
-    // Filter accounting vendors to those appearing in engagement bills
+    // Build amounts keyed by ramp_id
+    const glAccountAmounts: Record<string, number> = {};
+    for (const gl of glAccounts) {
+      const byRampId = glAccountAmountMap.get(gl.ramp_id) ?? 0;
+      const byId = gl.id ? (glAccountAmountMap.get(gl.id) ?? 0) : 0;
+      glAccountAmounts[gl.ramp_id] = byRampId + byId;
+    }
+
+    this.logger.log(`[Engagement #${engagementId}] GL accounts: ${glAccounts.length}, amount entries: ${glAccountAmountMap.size}`);
+    return { glAccounts, glAccountAmounts };
+  }
+
+  /**
+   * Accounting vendors associated with this engagement's bills.
+   */
+  async getEngagementAccountingVendors(engagementId: number): Promise<{
+    accountingVendors: RampAccountingVendor[];
+  }> {
+    this.logger.log(`[Engagement #${engagementId}] Loading engagement accounting vendors…`);
+
+    const billVendorRemoteIds = new Set<string>();
+    const billResult = await this.getEngagementBills(engagementId, { page_size: 100 });
+    for (const bill of billResult.data) {
+      if (bill.vendor?.remote_id) billVendorRemoteIds.add(bill.vendor.remote_id);
+      if (bill.vendor?.id) billVendorRemoteIds.add(bill.vendor.id);
+    }
+
     const allAccountingVendors = await this.getAllAccountingVendors();
     const accountingVendors = billVendorRemoteIds.size > 0
       ? allAccountingVendors.filter((av) =>
           billVendorRemoteIds.has(av.ramp_id) || billVendorRemoteIds.has(av.id ?? ''))
       : [];
 
-    // Get all options for the matched Customer/Job field (for display in the accounting fields tab)
-    let customerJobOptions: RampAccountingFieldOption[] = [];
-    if (matchedFields.length > 0) {
-      customerJobOptions = await this.getAllAccountingFieldOptions(matchedFields[0].ramp_id);
-    }
-
-    this.logger.log(
-      `[Engagement #${engagementId}] Accounting context: ` +
-        `${matchedFields.length} field(s), ${matchedOptions.length} option(s), ` +
-        `${glAccounts.length}/${allGlAccounts.length} GL accounts, ` +
-        `${accountingVendors.length}/${allAccountingVendors.length} vendors`,
-    );
-
-    return { mapping, matchedFields, matchedOptions, glAccounts, accountingVendors, allFields: fields, customerJobOptions };
+    this.logger.log(`[Engagement #${engagementId}] Accounting vendors: ${accountingVendors.length}/${allAccountingVendors.length}`);
+    return { accountingVendors };
   }
 
   // ─── Engagement-scoped Vendors ────────────────────────────────────────────

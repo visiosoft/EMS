@@ -1,4 +1,4 @@
-﻿/**
+/**
  * EngagementDetailPage – fully dynamic, end-to-end DB-driven.
  * All data comes from the API. No static/hardcoded content.
  *
@@ -128,10 +128,13 @@ import {
   fetchEngagementRampReceipts,
   fetchEngagementRampMapping,
   fetchEngagementRampAccounting,
+  fetchEngagementRampGlAccounts,
+  fetchEngagementRampAccountingVendors,
+  fetchEngagementRampCustomerJobOptions,
+  fetchEngagementRampMemos,
   fetchRampAccountingConnections,
   fetchRampAccountingFields,
   fetchRampAccountingFieldOptions,
-  fetchRampMemos,
   type RampAccountingField,
   type RampEngagementAccountingContext,
 } from '@/api/rampApi';
@@ -5563,14 +5566,70 @@ const WITHHOLDING_PAYMENT_METHOD_OPTIONS: Select2Option[] = [
   { value: 'ACH', label: 'ACH' },
 ];
 
+/** US state abbreviation → full name map for NRW matching */
+const US_STATE_ABBR_TO_NAME: Record<string, string> = {
+  AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California',
+  CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware', FL: 'Florida', GA: 'Georgia',
+  HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois', IN: 'Indiana', IA: 'Iowa',
+  KS: 'Kansas', KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland',
+  MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota', MS: 'Mississippi', MO: 'Missouri',
+  MT: 'Montana', NE: 'Nebraska', NV: 'Nevada', NH: 'New Hampshire', NJ: 'New Jersey',
+  NM: 'New Mexico', NY: 'New York', NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio',
+  OK: 'Oklahoma', OR: 'Oregon', PA: 'Pennsylvania', RI: 'Rhode Island', SC: 'South Carolina',
+  SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas', UT: 'Utah', VT: 'Vermont',
+  VA: 'Virginia', WA: 'Washington', WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming',
+  DC: 'District of Columbia',
+};
+
+type NrwLookupRow = NonNullable<ApiEngagementFinanceLookups['nonResidentWithholdings']>[number];
+
+/** Match an NRW reference row by venue city → state → country (most specific wins) */
+function matchNrwByGeography(
+  rows: NrwLookupRow[],
+  venueCity: string | null | undefined,
+  venueState: string | null | undefined,
+  isCanada: boolean | null | undefined,
+): NrwLookupRow | undefined {
+  if (!rows.length) return undefined;
+  const lower = (s: string | null | undefined) => (s ?? '').trim().toLowerCase() || null;
+  const cityLower = lower(venueCity);
+  const stateLower = lower(venueState);
+  // Normalize state: if it's a 2-letter abbreviation, map to full name
+  const stateUpper = (venueState ?? '').trim().toUpperCase();
+  const stateFullName = US_STATE_ABBR_TO_NAME[stateUpper]?.toLowerCase() ?? stateLower;
+
+  // 1. Try City match (AreaCategory = 'City')
+  if (cityLower) {
+    const match = rows.find((r) => r.areaCategory === 'City' && lower(r.withholdingArea) === cityLower);
+    if (match) return match;
+  }
+  // 2. Try State match (AreaCategory = 'State')
+  if (stateFullName) {
+    const match = rows.find((r) => r.areaCategory === 'State' && lower(r.withholdingArea) === stateFullName);
+    if (match) return match;
+  }
+  // 3. Try Country match (AreaCategory = 'Country') — currently only Canada
+  if (isCanada) {
+    const match = rows.find((r) => r.areaCategory === 'Country' && lower(r.withholdingArea) === 'canada');
+    if (match) return match;
+  }
+  return undefined;
+}
+
 function EngagementEventBusinessPanel({
   engagementId,
   venueCompanyId,
+  venueCity,
+  venueState,
+  isCanadaEngagement,
   addToast,
   onDirtyChange,
 }: {
   engagementId: number;
   venueCompanyId: number | null | undefined;
+  venueCity?: string | null;
+  venueState?: string | null;
+  isCanadaEngagement?: boolean | null;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
@@ -5781,24 +5840,31 @@ function EngagementEventBusinessPanel({
     setHstPaidOnVenueExpenses(numFieldToString(d.hstPaidOnVenueExpenses));
     setHstRemittedToIae(d.hstCollectedFromTicketSales != null && d.hstCollectedFromTicketSales !== 0 ? 'Yes' : '');
     setHstPaidToAttraction(d.hstPaidOnTourPayments != null && d.hstPaidOnTourPayments !== 0 ? 'Yes' : '');
-    // NRW lookup fields (area/rate/agency/waiver date/app) are populated from financeLookupsQuery
-    const nrwRow = d.requiredNonResidentWithholdingId != null
-      ? (financeLookupsQuery.data?.nonResidentWithholdings ?? []).find((r) => r.id === d.requiredNonResidentWithholdingId)
+    // NRW lookup fields — auto-match from static NonResidentWithholding table by city/state/country
+    const allNrwRows = financeLookupsQuery.data?.nonResidentWithholdings ?? [];
+    // If engagement already has an assigned NRW record, use it
+    let nrwRef = d.requiredNonResidentWithholdingId != null
+      ? allNrwRows.find((r) => r.id === d.requiredNonResidentWithholdingId)
       : undefined;
-    setWithholdingArea(nrwRow?.withholdingArea ?? '');
-    setWithholdingRate(nrwRow?.withholdingTaxRate != null ? String(nrwRow.withholdingTaxRate) : '');
-    setWithholdingAgency(nrwRow?.withholdingAgencyName ?? '');
-    setIaeWaiverSubmissionDate(nrwRow?.iaeWaiverSubmissionDate ?? '');
-    setIaeWaiverAppNumber(nrwRow?.iaeWaiverAppNumber ?? '');
-    setWithholdingPayee(d.withholdingPayee ?? '');
-    setWithholdingPaymentMethod(d.withholdingPaymentMethod ?? '');
-    setWithholdingFormToAttractionLink(d.withholdingFormToAttractionLink ?? '');
-    setWithholdingFormToMunicipalityLink(d.withholdingFormToMunicipalityLink ?? '');
-    setWithholdingQuickbooksNumber(d.withholdingQuickbooksNumber ?? '');
-    setWithholdingWaiver(d.withholdingWaiver ?? '');
-    setWithholdingCompletedWaiverLink(d.withholdingCompletedWaiverLink ?? '');
-    setTourWaiverLink(d.tourWaiverLink ?? '');
-    setWithholdingExceptions(d.withholdingExceptions ?? '');
+    // If no assigned record (or assigned record is blank), auto-match by geography
+    if (!nrwRef || (!nrwRef.withholdingPayee && !nrwRef.paymentMethod && !nrwRef.quickBooksNumber)) {
+      const geoMatch = matchNrwByGeography(allNrwRows, venueCity, venueState, isCanadaEngagement);
+      if (geoMatch) nrwRef = geoMatch;
+    }
+    setWithholdingArea(nrwRef?.withholdingArea ?? '');
+    setWithholdingRate(nrwRef?.withholdingTaxRate != null ? String(nrwRef.withholdingTaxRate) : '');
+    setWithholdingAgency(nrwRef?.withholdingAgencyName ?? '');
+    setIaeWaiverSubmissionDate(nrwRef?.iaeWaiverSubmissionDate ?? '');
+    setIaeWaiverAppNumber(nrwRef?.iaeWaiverAppNumber ?? '');
+    setWithholdingPayee(d.withholdingPayee || (nrwRef?.withholdingPayee ?? ''));
+    setWithholdingPaymentMethod(d.withholdingPaymentMethod || (nrwRef?.paymentMethod ?? ''));
+    setWithholdingFormToAttractionLink(d.withholdingFormToAttractionLink || (nrwRef?.formToAttractionUrl ?? ''));
+    setWithholdingFormToMunicipalityLink(d.withholdingFormToMunicipalityLink || (nrwRef?.formToMunicipalityUrl ?? ''));
+    setWithholdingQuickbooksNumber(d.withholdingQuickbooksNumber || (nrwRef?.quickBooksNumber ?? ''));
+    setWithholdingWaiver(d.withholdingWaiver || (nrwRef?.canApplyForWaiver != null ? (nrwRef.canApplyForWaiver ? 'Yes' : 'No') : ''));
+    setWithholdingCompletedWaiverLink(d.withholdingCompletedWaiverLink || (nrwRef?.completedWaiverUrl ?? ''));
+    setTourWaiverLink(d.tourWaiverLink || (nrwRef?.tourWaiverUrl ?? ''));
+    setWithholdingExceptions(d.withholdingExceptions || (nrwRef?.exceptionsNotes ?? ''));
     setCheckNumberOrConfOfWithholdingPayment(d.checkNumberOrConfOfWithholdingPayment ?? '');
     // Final Attraction Compensation (separate save)
     setFinalGuaranteeAmount(numFieldToString(d.finalGuaranteeAmount));
@@ -5809,7 +5875,7 @@ function EngagementEventBusinessPanel({
     setFinalReimbursables(numFieldToString(d.finalReimbursables));
     setArtistGrossTaxableCompensation(numFieldToString(d.artistGrossTaxableCompensation));
     setAmountDueToDeptOfRevenue(numFieldToString(d.amountDueToDeptOfRevenue));
-  }, [financeQuery.data, engagementLinks]);
+  }, [financeQuery.data, engagementLinks, financeLookupsQuery.data]);
 
   // â”€â”€ Settlement Status — separate save â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // -- Settlement -- separate save
@@ -6521,7 +6587,7 @@ function EngagementEventBusinessPanel({
               onChange={(v) => { markSalesTaxEdited(); setSalesTaxRemittedBy(v); }}
               disabled={disabled} />)}
         </div>
-        {(d?.isCanadaEngagement || (financeLookupsQuery.data?.nonResidentWithholdings ?? []).find((r) => r.id === d?.requiredNonResidentWithholdingId)?.canApplyForWaiver != null) && (
+        {d?.isCanadaEngagement && (
           <>
             <p className="text-xs text-text-muted font-medium uppercase tracking-wide pt-2">HST (Harmonized Sales Tax) - Canada</p>
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
@@ -6561,8 +6627,7 @@ function EngagementEventBusinessPanel({
         {(() => {
           const wid = d?.requiredNonResidentWithholdingId;
           const wrow = wid != null ? (financeLookupsQuery.data?.nonResidentWithholdings ?? []).find((r) => r.id === wid) : undefined;
-          // Show Canada fields if isCanadaEngagement flag is set OR if the NRW record indicates Canada
-          const isCanada = d?.isCanadaEngagement || (wrow?.canApplyForWaiver != null);
+          const isCanada = !!d?.isCanadaEngagement || withholdingArea.toLowerCase() === 'canada';
           return (
             <div className="space-y-5">
               <div className="grid grid-cols-1 gap-5 lg:grid-cols-3 lg:gap-x-10">
@@ -6608,13 +6673,13 @@ function EngagementEventBusinessPanel({
                     {fieldRow('IAE Waiver Application Number',
                       <input className={inputCls} value={iaeWaiverAppNumber} readOnly disabled />)}
                   </div>
+                  <div className="grid grid-cols-1">
+                    {fieldRow('Exceptions',
+                      <textarea className={`${inputCls} min-h-[88px] resize-y`} value={withholdingExceptions}
+                        readOnly disabled />)}
+                  </div>
                 </>
               )}
-              <div className="grid grid-cols-1">
-                {fieldRow('Exceptions',
-                  <textarea className={`${inputCls} min-h-[88px] resize-y`} value={withholdingExceptions}
-                    readOnly disabled />)}
-              </div>
             </div>
           );
         })()}
@@ -7011,8 +7076,8 @@ function RampSection({ engagementId }: { engagementId: number }) {
   // Memos: fetch all memos then filter client-side to only show those
   // whose transaction ID matches the engagement's transactions.
   const memosQuery = useInfiniteQuery({
-    queryKey: ['ramp', 'memos'],
-    queryFn: ({ pageParam }) => fetchRampMemos({ page_size: 100, start: pageParam }),
+    queryKey: ['ramp', 'memos', engagementId],
+    queryFn: ({ pageParam }) => fetchEngagementRampMemos(engagementId, { page_size: 50, start: pageParam }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.page?.next ?? undefined,
     enabled: configured && activeTab === 'memos',
@@ -7026,6 +7091,30 @@ function RampSection({ engagementId }: { engagementId: number }) {
     queryKey: ['ramp', 'accounting', 'engagement', engagementId],
     queryFn: () => fetchEngagementRampAccounting(engagementId),
     enabled: configured && (activeTab === 'gl-accounts' || activeTab === 'accounting-fields' || activeTab === 'accounting-vendors' || activeTab === 'connections'),
+    staleTime: 300_000,
+  });
+
+  /** Customer/Job options list — loaded alongside accounting context. */
+  const customerJobOptionsQuery = useQuery({
+    queryKey: ['ramp', 'customer-job-options', 'engagement', engagementId],
+    queryFn: () => fetchEngagementRampCustomerJobOptions(engagementId),
+    enabled: configured && activeTab === 'accounting-fields',
+    staleTime: 300_000,
+  });
+
+  /** GL accounts + amounts — loaded separately (heavy computation). */
+  const glAccountsQuery = useQuery({
+    queryKey: ['ramp', 'gl-accounts', 'engagement', engagementId],
+    queryFn: () => fetchEngagementRampGlAccounts(engagementId),
+    enabled: configured && activeTab === 'gl-accounts',
+    staleTime: 300_000,
+  });
+
+  /** Accounting vendors — loaded separately. */
+  const acctVendorsQuery = useQuery({
+    queryKey: ['ramp', 'accounting-vendors', 'engagement', engagementId],
+    queryFn: () => fetchEngagementRampAccountingVendors(engagementId),
+    enabled: configured && activeTab === 'accounting-vendors',
     staleTime: 300_000,
   });
 
@@ -7077,9 +7166,9 @@ function RampSection({ engagementId }: { engagementId: number }) {
   const accountingFields = accountingFieldsPaged.rows;
   const fieldOptions = fieldOptionsPaged.rows;
 
-  // GL accounts and accounting vendors come from the engagement-scoped query (filtered by Customer/Job)
-  const glAccounts = engagementAccountingQuery.data?.glAccounts ?? [];
-  const accountingVendors = engagementAccountingQuery.data?.accountingVendors ?? [];
+  // GL accounts and accounting vendors come from their own dedicated queries
+  const glAccounts = glAccountsQuery.data?.glAccounts ?? [];
+  const accountingVendors = acctVendorsQuery.data?.accountingVendors ?? [];
 
   if (statusQuery.isLoading) {
     return <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Checking Ramp connection…</div>;
@@ -7099,9 +7188,6 @@ function RampSection({ engagementId }: { engagementId: number }) {
     { key: 'receipts' as const, label: 'Receipts' },
     { key: 'memos' as const, label: 'Memos' },
     { key: 'vendors' as const, label: 'Vendors' },
-    { key: 'users' as const, label: 'Users' },
-    { key: 'departments' as const, label: 'Departments' },
-    { key: 'spend-programs' as const, label: 'Spend Programs' },
     { key: 'gl-accounts' as const, label: 'GL Accounts' },
     { key: 'accounting-fields' as const, label: 'Accounting Fields' },
     { key: 'accounting-vendors' as const, label: 'Acct Vendors' },
@@ -7110,7 +7196,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
 
   const formatCurrency = (amount: number | null | undefined, currency = 'USD') => {
     if (amount == null) return '—';
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount / 100);
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount);
   };
 
   const formatDate = (iso: string | null | undefined) => {
@@ -7118,7 +7204,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
     return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
-  const isEngagementScoped = activeTab === 'transactions' || activeTab === 'bills' || activeTab === 'receipts';
+  const isEngagementScoped = activeTab === 'transactions' || activeTab === 'bills' || activeTab === 'receipts' || activeTab === 'memos' || activeTab === 'vendors' || activeTab === 'gl-accounts' || activeTab === 'accounting-vendors';
   const tabMeta = RAMP_TAB_META[activeTab];
 
   return (
@@ -7331,6 +7417,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
                         <th className="py-1.5 px-2 font-medium text-text-muted text-right min-w-[90px]">Amount</th>
                         <th className="py-1.5 px-2 font-medium text-text-muted min-w-[100px]">Status</th>
                         <th className="py-1.5 px-2 font-medium text-text-muted min-w-[150px]">Memo</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[60px]">Invoice</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -7339,7 +7426,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
                           <td className="py-1.5 px-2 break-words">{bill.invoice_number ?? '—'}</td>
                           <td className="py-1.5 px-2 break-words">{bill.vendor?.name ?? '—'}</td>
                           <td className="py-1.5 px-2 whitespace-nowrap">{formatDate(bill.due_at)}</td>
-                          <td className="py-1.5 px-2 text-right font-mono whitespace-nowrap">{bill.amount ? formatCurrency(bill.amount.amount, bill.amount.currency_code) : '—'}</td>
+                          <td className="py-1.5 px-2 text-right font-mono whitespace-nowrap">{bill.amount ? formatCurrency(bill.amount.amount / (bill.amount.minor_unit_conversion_rate ?? 100), bill.amount.currency_code) : '—'}</td>
                           <td className="py-1.5 px-2">
                             <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
                               bill.status_summary === 'PAID' ? 'bg-green-100 text-green-700' :
@@ -7349,6 +7436,21 @@ function RampSection({ engagementId }: { engagementId: number }) {
                             }`}>{bill.status_summary ?? bill.status ?? '—'}</span>
                           </td>
                           <td className="py-1.5 px-2 break-words">{bill.memo ?? '—'}</td>
+                          <td className="py-1.5 px-2">
+                            {bill.invoice_urls && bill.invoice_urls.length > 0 ? (
+                              <span className="flex flex-col gap-0.5">
+                                {bill.invoice_urls.map((url, i) => {
+                                  const ext = url.split('?')[0].split('.').pop()?.toUpperCase() ?? 'FILE';
+                                  return (
+                                    <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 text-ems-accent hover:underline" title={`View Invoice (${ext})`}>
+                                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                                      {ext}
+                                    </a>
+                                  );
+                                })}
+                              </span>
+                            ) : '—'}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -7424,43 +7526,33 @@ function RampSection({ engagementId }: { engagementId: number }) {
       {/* Memos tab */}
       {activeTab === 'memos' && (
         <div className="space-y-2">
-          {(memosQuery.isLoading || transactionsQuery.isLoading) && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching memos from Ramp…</div>}
+          {memosQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching memos from Ramp…</div>}
           {memosQuery.isError && <p className="text-sm text-red-600">Failed to load memos.</p>}
-          {memosQuery.isSuccess && transactionsQuery.isSuccess && (
-            (() => {
-              // Filter memos to only those whose id (transaction_id) matches this engagement's transactions
-              const engagementTxIds = new Set(transactions.map((tx) => tx.id));
-              const engagementMemos = memos.filter((m) => engagementTxIds.has(m.id));
-              return engagementMemos.length === 0
-                ? <p className="text-sm text-text-muted">No memos found for this engagement's transactions.</p>
-                : (
-                  <div className="overflow-x-auto -mx-2 px-2">
-                    <table className="min-w-[600px] w-full text-xs border-collapse">
-                      <thead>
-                        <tr className="border-b border-border text-left">
-                          <th className="py-1.5 px-2 font-medium text-text-muted min-w-[120px]">Date</th>
-                          <th className="py-1.5 px-2 font-medium text-text-muted min-w-[140px]">Merchant</th>
-                          <th className="py-1.5 px-2 font-medium text-text-muted min-w-[90px] text-right">Amount</th>
-                          <th className="py-1.5 px-2 font-medium text-text-muted min-w-[200px]">Memo</th>
+          {memosQuery.isSuccess && (
+            memos.length === 0
+              ? <p className="text-sm text-text-muted">No memos found for this engagement's transactions.</p>
+              : (
+                <div className="overflow-x-auto -mx-2 px-2">
+                  <table className="min-w-[600px] w-full text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-border text-left">
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[140px]">Merchant</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[90px] text-right">Amount</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted min-w-[200px]">Memo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {memos.map((m) => (
+                        <tr key={m.id} className="border-b border-border/50 hover:bg-muted/40">
+                          <td className="py-1.5 px-2 break-words">{m.merchant_name ?? '—'}</td>
+                          <td className="py-1.5 px-2 text-right font-mono whitespace-nowrap">{formatCurrency(m.transaction_amount)}</td>
+                          <td className="py-1.5 px-2 break-words font-medium">{m.memo ?? '—'}</td>
                         </tr>
-                      </thead>
-                      <tbody>
-                        {engagementMemos.map((m) => {
-                          const tx = transactions.find((t) => t.id === m.id);
-                          return (
-                            <tr key={m.id} className="border-b border-border/50 hover:bg-muted/40">
-                              <td className="py-1.5 px-2 whitespace-nowrap">{tx ? formatDate(tx.user_transaction_time) : '—'}</td>
-                              <td className="py-1.5 px-2 break-words">{tx?.merchant_name ?? tx?.merchant_descriptor ?? '—'}</td>
-                              <td className="py-1.5 px-2 text-right font-mono whitespace-nowrap">{tx ? formatCurrency(tx.amount, tx.currency_code ?? 'USD') : '—'}</td>
-                              <td className="py-1.5 px-2 break-words font-medium">{m.memo ?? '—'}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                );
-            })()
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
           )}
           {memosQuery.isSuccess && (
             <RampPager pager={memosPaged} />
@@ -7493,98 +7585,12 @@ function RampSection({ engagementId }: { engagementId: number }) {
         </div>
       )}
 
-      {/* Users tab */}
-      {activeTab === 'users' && (
-        <div className="space-y-2">
-          {usersQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching users from Ramp…</div>}
-          {usersQuery.isError && <p className="text-sm text-red-600">Failed to load users.</p>}
-          {usersQuery.isSuccess && (
-            users.length === 0
-              ? <p className="text-sm text-text-muted">No users found.</p>
-              : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b border-border text-left">
-                        <th className="py-1.5 px-2 font-medium text-text-muted">Name</th>
-                        <th className="py-1.5 px-2 font-medium text-text-muted">Email</th>
-                        <th className="py-1.5 px-2 font-medium text-text-muted">Role</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {users.map((u) => (
-                        <tr key={u.id} className="border-b border-border/50 hover:bg-muted/40">
-                          <td className="py-1.5 px-2">{u.first_name} {u.last_name}</td>
-                          <td className="py-1.5 px-2">{u.email}</td>
-                          <td className="py-1.5 px-2">{u.role ?? '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )
-          )}
-          {usersQuery.isSuccess && (
-            <RampPager pager={usersPaged} />
-          )}
-        </div>
-      )}
-
-      {/* Departments tab */}
-      {activeTab === 'departments' && (
-        <div className="space-y-2">
-          {departmentsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching departments from Ramp…</div>}
-          {departmentsQuery.isError && <p className="text-sm text-red-600">Failed to load departments.</p>}
-          {departmentsQuery.isSuccess && (
-            departments.length === 0
-              ? <p className="text-sm text-text-muted">No departments found.</p>
-              : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                  {departments.map((dept) => (
-                    <div key={dept.id} className="rounded border border-border p-2 text-xs">
-                      <p className="font-medium text-text-primary">{dept.name}</p>
-                    </div>
-                  ))}
-                </div>
-              )
-          )}
-          {departmentsQuery.isSuccess && (
-            <RampPager pager={departmentsPaged} />
-          )}
-        </div>
-      )}
-
-      {/* Spend Programs tab */}
-      {activeTab === 'spend-programs' && (
-        <div className="space-y-2">
-          {spendProgramsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching spend programs from Ramp…</div>}
-          {spendProgramsQuery.isError && <p className="text-sm text-red-600">Failed to load spend programs.</p>}
-          {spendProgramsQuery.isSuccess && (
-            spendPrograms.length === 0
-              ? <p className="text-sm text-text-muted">No spend programs found.</p>
-              : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {spendPrograms.map((sp) => (
-                    <div key={sp.id} className="rounded border border-border p-2 text-xs">
-                      <p className="font-medium text-text-primary">{sp.name}</p>
-                      {sp.description && <p className="text-text-muted mt-0.5">{sp.description}</p>}
-                    </div>
-                  ))}
-                </div>
-              )
-          )}
-          {spendProgramsQuery.isSuccess && (
-            <RampPager pager={spendProgramsPaged} />
-          )}
-        </div>
-      )}
-
       {/* GL Accounts tab */}
       {activeTab === 'gl-accounts' && (
         <div className="space-y-2">
-          {engagementAccountingQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching GL accounts from Ramp…</div>}
-          {engagementAccountingQuery.isError && <p className="text-sm text-red-600">Failed to load GL accounts.</p>}
-          {engagementAccountingQuery.isSuccess && (
+          {glAccountsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching GL accounts from Ramp…</div>}
+          {glAccountsQuery.isError && <p className="text-sm text-red-600">Failed to load GL accounts.</p>}
+          {glAccountsQuery.isSuccess && (
             glAccounts.length === 0
               ? <p className="text-sm text-text-muted">No GL accounts found.</p>
               : (
@@ -7594,6 +7600,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
                       <tr className="border-b border-border text-left">
                         <th className="py-1.5 px-2 font-medium text-text-muted">Code</th>
                         <th className="py-1.5 px-2 font-medium text-text-muted">Name</th>
+                        <th className="py-1.5 px-2 font-medium text-text-muted">Amount</th>
                         <th className="py-1.5 px-2 font-medium text-text-muted">Classification</th>
                         <th className="py-1.5 px-2 font-medium text-text-muted">Status</th>
                         <th className="py-1.5 px-2 font-medium text-text-muted">Provider</th>
@@ -7604,6 +7611,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
                         <tr key={acct.ramp_id} className="border-b border-border/50 hover:bg-muted/40">
                           <td className="py-1.5 px-2 font-mono">{acct.code ?? '—'}</td>
                           <td className="py-1.5 px-2">{acct.name}</td>
+                          <td className="py-1.5 px-2 text-right font-mono whitespace-nowrap">{formatCurrency(glAccountsQuery.data?.glAccountAmounts?.[acct.ramp_id])}</td>
                           <td className="py-1.5 px-2">
                             <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
                               acct.classification === 'EXPENSE' ? 'bg-red-100 text-red-700' :
@@ -7625,7 +7633,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
                 </div>
               )
           )}
-          {engagementAccountingQuery.isSuccess && glAccounts.length > 0 && (
+          {glAccountsQuery.isSuccess && glAccounts.length > 0 && (
             <p className="text-xs text-text-muted">Showing {glAccounts.length} GL account(s) used by this engagement's transactions/bills.</p>
           )}
         </div>
@@ -7640,7 +7648,7 @@ function RampSection({ engagementId }: { engagementId: number }) {
               <span className="font-medium text-text-primary">Customer/Job Mapping</span>
               <span className="text-text-secondary ml-2">
                 Field: "{engagementAccountingQuery.data.matchedFields[0].display_name || engagementAccountingQuery.data.matchedFields[0].name}"
-                ({engagementAccountingQuery.data.customerJobOptions?.length ?? 0} options)
+                ({customerJobOptionsQuery.data?.options?.length ?? engagementAccountingQuery.data.customerJobOptionsCount ?? 0} options)
               </span>
               {engagementAccountingQuery.data.mapping && (
                 <span className="ml-2 text-green-700">
@@ -7767,9 +7775,9 @@ function RampSection({ engagementId }: { engagementId: number }) {
       {/* Accounting Vendors tab */}
       {activeTab === 'accounting-vendors' && (
         <div className="space-y-2">
-          {engagementAccountingQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching accounting vendors from Ramp…</div>}
-          {engagementAccountingQuery.isError && <p className="text-sm text-red-600">Failed to load accounting vendors.</p>}
-          {engagementAccountingQuery.isSuccess && (
+          {acctVendorsQuery.isLoading && <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Please wait, fetching accounting vendors from Ramp…</div>}
+          {acctVendorsQuery.isError && <p className="text-sm text-red-600">Failed to load accounting vendors.</p>}
+          {acctVendorsQuery.isSuccess && (
             accountingVendors.length === 0
               ? <p className="text-sm text-text-muted">No accounting vendors found.</p>
               : (
@@ -12517,6 +12525,9 @@ export function EngagementDetailPage({
         <EngagementEventBusinessPanel
           engagementId={engagementId}
           venueCompanyId={row.primaryVenueCompanyId}
+          venueCity={row.city}
+          venueState={row.stateProvince}
+          isCanadaEngagement={row.isCanadaEngagement}
           addToast={addToast}
           onDirtyChange={handleEventBusinessDirtyChange}
         />

@@ -534,4 +534,41 @@ export class RampController {
   ) {
     return this.rampService.getEngagementAccountingContext(engagementId);
   }
+
+  /** GL accounts + amounts scoped to an engagement's transactions/bills. */
+  @Get('engagement/:engagementId/gl-accounts')
+  getEngagementGlAccounts(
+    @Param('engagementId', ParseIntPipe) engagementId: number,
+  ) {
+    return this.rampService.getEngagementGlAccounts(engagementId);
+  }
+
+  /** Customer/Job field options list for this engagement's matched field. */
+  @Get('engagement/:engagementId/customer-job-options')
+  getEngagementCustomerJobOptions(
+    @Param('engagementId', ParseIntPipe) engagementId: number,
+  ) {
+    return this.rampService.getEngagementCustomerJobOptions(engagementId);
+  }
+
+  /** Accounting vendors scoped to an engagement's bills. */
+  @Get('engagement/:engagementId/accounting-vendors')
+  getEngagementAccountingVendors(
+    @Param('engagementId', ParseIntPipe) engagementId: number,
+  ) {
+    return this.rampService.getEngagementAccountingVendors(engagementId);
+  }
+
+  /** Memos scoped to an engagement's transactions (via Customer/Job). */
+  @Get('engagement/:engagementId/memos')
+  getEngagementMemos(
+    @Param('engagementId', ParseIntPipe) engagementId: number,
+    @Query('page_size') pageSize?: string,
+    @Query('start') start?: string,
+  ) {
+    return this.rampService.getEngagementMemos(engagementId, {
+      page_size: pageSize ? Number(pageSize) : undefined,
+      start: start || undefined,
+    });
+  }
 }

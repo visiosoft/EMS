@@ -573,9 +573,27 @@ function SyncPreviewModal({
   }, [preview, searchQuery]);
 
   const handleApplyClick = () => {
+    const selectedRowsWithDeps = preview ? preview.rows.filter(
+      r => selectedActionIds.has(r.actionId) && 
+           r.dependencies && r.dependencies.length > 0
+    ) : [];
+
+    let html = `You are about to apply <b>${applyCount}</b> selected action${applyCount !== 1 ? 's' : ''}.<br/>Are you sure you want to proceed?`;
+
+    if (selectedRowsWithDeps.length > 0) {
+      const depList = selectedRowsWithDeps.slice(0, 5).map(r => `<li><b>${syncRowPrimaryName(r)}</b> (${r.dependencies!.join(', ')})</li>`).join('');
+      const more = selectedRowsWithDeps.length > 5 ? `<li>...and ${selectedRowsWithDeps.length - 5} more</li>` : '';
+      
+      html += `<br/><br/><div class="text-left text-ems-coral bg-ems-coral/10 p-3 rounded-md border border-ems-coral/20">
+        <p class="font-semibold mb-1">Warning: Linked Records Will Be Deleted</p>
+        <p class="mb-2 text-xs">The following contacts have connected system records that will be <b>permanently deleted</b> because their assignments are being removed or reduced:</p>
+        <ul class="list-disc pl-5 mb-1 text-xs">${depList}${more}</ul>
+      </div>`;
+    }
+
     Swal.fire({
       title: 'Confirm Synchronization',
-      html: `You are about to apply <b>${applyCount}</b> selected action${applyCount !== 1 ? 's' : ''}.<br/>Are you sure you want to proceed?`,
+      html,
       icon: 'warning',
       showCancelButton: true,
       confirmButtonText: 'Yes, Apply',
@@ -987,9 +1005,27 @@ function InternalContactSyncPreviewPanel({
   ];
 
   const handleApplyClick = () => {
+    const selectedRowsWithDeps = preview.rows.filter(
+      r => selectedActionIds.has(r.actionId) && 
+           r.dependencies && r.dependencies.length > 0
+    );
+
+    let html = `You are about to apply <b>${applyCount}</b> selected action${applyCount !== 1 ? 's' : ''}.<br/>Are you sure you want to proceed?`;
+
+    if (selectedRowsWithDeps.length > 0) {
+      const depList = selectedRowsWithDeps.slice(0, 5).map(r => `<li><b>${syncRowPrimaryName(r)}</b> (${r.dependencies!.join(', ')})</li>`).join('');
+      const more = selectedRowsWithDeps.length > 5 ? `<li>...and ${selectedRowsWithDeps.length - 5} more</li>` : '';
+      
+      html += `<br/><br/><div class="text-left text-ems-coral bg-ems-coral/10 p-3 rounded-md border border-ems-coral/20">
+        <p class="font-semibold mb-1">Warning: Linked Records Will Be Deleted</p>
+        <p class="mb-2 text-xs">The following contacts have connected system records that will be <b>permanently deleted</b> because their assignments are being removed or reduced:</p>
+        <ul class="list-disc pl-5 mb-1 text-xs">${depList}${more}</ul>
+      </div>`;
+    }
+
     Swal.fire({
       title: 'Confirm Synchronization',
-      html: `You are about to apply <b>${applyCount}</b> selected action${applyCount !== 1 ? 's' : ''}.<br/>Are you sure you want to proceed?`,
+      html,
       icon: 'warning',
       showCancelButton: true,
       confirmButtonText: 'Yes, Apply',
@@ -2042,8 +2078,9 @@ export function SettingsPage({
 	            ) : null}
 
             {adminUsersQuery.data ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm bg-card border border-border rounded-lg min-w-[1180px]">
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm bg-card border border-border rounded-lg min-w-[1180px]">
                   <thead>
                     <tr className="text-text-muted text-xs border-b border-border bg-surface">
                       <th className="text-left py-2.5 px-3">Name</th>
@@ -2114,6 +2151,10 @@ export function SettingsPage({
                   </tbody>
                 </table>
               </div>
+              <div className="mt-3 flex items-center justify-end text-xs text-text-secondary px-1">
+                Showing <span className="font-medium text-text-primary tabular-nums ml-1">{adminUsersQuery.data.length.toLocaleString()}</span><span className="ml-1">total users</span>
+              </div>
+              </>
             ) : null}
           </div>
         </div>

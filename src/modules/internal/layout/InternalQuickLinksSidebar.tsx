@@ -4,6 +4,19 @@ import { useInternalNavigation } from "../routing/InternalNavigationContext";
 import { useSidebarDocuments } from "../../../features/document-library/hooks/useSidebarDocuments";
 import { downloadFile } from "../../../features/document-library/services/documentApi";
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  return "Could not load documents";
+}
+
+function getErrorSuggestion(error: unknown): string | undefined {
+  if (error && typeof error === "object" && "suggestion" in error) {
+    const suggestion = (error as { suggestion?: unknown }).suggestion;
+    if (typeof suggestion === "string") return suggestion;
+  }
+  return undefined;
+}
+
 function getFileIconColor(name: string): string {
   const ext = name.slice(name.lastIndexOf(".")).toLowerCase();
   const colors: Record<string, string> = {
@@ -80,7 +93,10 @@ export function InternalQuickLinksSidebar() {
               </div>
             ) : error ? (
               <div className="px-4 py-6 text-center text-sm text-neutral-500">
-                <p>Could not load documents</p>
+                <p>{getErrorMessage(error)}</p>
+                {getErrorSuggestion(error) && (
+                  <p className="mt-1 text-xs text-neutral-400">{getErrorSuggestion(error)}</p>
+                )}
                 <button
                   type="button"
                   onClick={() => refetch()}

@@ -314,6 +314,7 @@ export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile })
     { label: "Last Name", value: textOrDash(profile.basics.lastName) },
     { label: "Personal Email", value: textOrDash(profile.basics.personalEmail), admin: true },
     { label: "Cell Phone Number", value: phoneOrDash(profile.basics.cellPhone) },
+    { label: "Work Phone", value: phoneOrDash(profile.basics.workPhone) },
     { label: "Birth Date", value: formatDate(profile.personal.dateOfBirth) },
     {
       label: "Social Security Number",
@@ -327,9 +328,8 @@ export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile })
       kind: "reveal",
       admin: true,
     },
-    { label: "Gender", value: textOrDash(profile.personal.gender), admin: true },
-    { label: "Marital Status", value: textOrDash(profile.personal.maritalStatus), admin: true },
-    { label: "Ethnicity", value: textOrDash(profile.personal.ethnicity), admin: true },
+    // Gender / Marital Status / Ethnicity intentionally omitted: not in the client's
+    // Employee Profiles.xlsx field list, so they are not part of the profile.
   ];
 
   const employmentFields: FieldItem[] = [
@@ -342,7 +342,13 @@ export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile })
     { label: "Department", value: textOrDash(profile.basics.department) },
     { label: "Role", value: textOrDash(profile.basics.role) },
     { label: "Company", value: textOrDash(profile.basics.company) },
+    { label: "Hire Date", value: formatDate(profile.employment.hireDate) },
     { label: "Start Date at IAE", value: formatDate(profile.employment.startDate) },
+    { label: "Termination Date", value: formatDate(profile.employment.terminationDate) },
+    { label: "Employment Status", value: textOrDash(profile.employment.employmentStatus) },
+    { label: "Employment Type", value: textOrDash(profile.employment.employmentType) },
+    // Pay Type / Pay Rate intentionally omitted: not in the client's Employee
+    // Profiles.xlsx field list, so they are not part of the profile.
     { label: "Years of Service", value: textOrDash(profile.employment.yearsOfService) },
     { label: "Supervisor", value: textOrDash(profile.employment.supervisor) },
     { label: "Paid Time Off Accrual Rate", value: textOrDash(profile.employment.ptoAccrualRate), admin: true },
@@ -435,6 +441,7 @@ export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile })
             <>
               <dl className="mb-5 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
                 <Field label="Health Insurance Status" value={textOrDash(health.insuranceEligibility)} />
+                <Field label="Tenure Tier" value={health.tenureTier || "—"} />
                 <Field
                   label="Company Contribution Per Pay Period"
                   value={

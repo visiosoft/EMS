@@ -1,21 +1,17 @@
 import { InternalLayout } from "@/modules/internal/layout/InternalLayout";
 import { InternalNavigationProvider, useInternalNavigation } from "@/modules/internal/routing/InternalNavigationContext";
-import { ArtGraphicDesignPage } from "@/modules/internal/pages/ArtGraphicDesignPage";
-import { BookingPage } from "@/modules/internal/pages/BookingPage";
+import { DepartmentDetailPage } from "@/modules/internal/pages/DepartmentDetailPage";
+import { EventBusinessPage } from "@/modules/internal/pages/EventBusinessPage";
 import { CompanyNewsPage } from "@/modules/internal/pages/CompanyNewsPage";
 import { DepartmentsPage } from "@/modules/internal/pages/DepartmentsPage";
 import { EmployeeServicesPage } from "@/modules/internal/pages/EmployeeServicesPage";
 import { EmployeeDirectoryPage } from "@/modules/internal/pages/EmployeeDirectoryPage";
 import { EmployeeProfilePage } from "@/modules/internal/pages/EmployeeProfilePage";
-import { EventBusinessPage } from "@/modules/internal/pages/EventBusinessPage";
 import { InternalHomePage } from "@/modules/internal/pages/HomePage";
 import { LeadershipPage } from "@/modules/internal/pages/LeadershipPage";
 import { MarketsPage } from "@/modules/internal/pages/MarketsPage";
 import { VenuesPage } from "@/modules/internal/pages/VenuesPage";
 import { AttractionsPage } from "@/modules/internal/pages/AttractionsPage";
-import { MarketingPage } from "@/modules/internal/pages/MarketingPage";
-import { ProductionPage } from "@/modules/internal/pages/ProductionPage";
-import { TicketingSalesPage } from "@/modules/internal/pages/TicketingSalesPage";
 import { LearningPortalPage } from "@/modules/internal/pages/LearningPortalPage";
 import { LearningAdminPage } from "@/modules/internal/pages/LearningAdminPage";
 import { MyProfilePage } from "@/modules/internal/pages/MyProfilePage";
@@ -45,18 +41,15 @@ function InternalAppViews() {
       return <AttractionsPage />;
     case "departments":
       return <DepartmentsPage />;
-    case "department-art-graphic-design":
-      return <ArtGraphicDesignPage />;
-    case "department-booking":
-      return <BookingPage />;
     case "department-event-business":
       return <EventBusinessPage />;
+    case "department":
+    case "department-art-graphic-design":
+    case "department-booking":
     case "department-marketing":
-      return <MarketingPage />;
     case "department-production":
-      return <ProductionPage />;
     case "department-ticketing-sales":
-      return <TicketingSalesPage />;
+      return <DepartmentDetailPage />;
     case "learning-portal":
       return <LearningPortalPage />;
     case "document-library":

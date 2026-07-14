@@ -453,6 +453,7 @@ export interface FinanceMasterOption {
   label: string;
   withholdingTaxRate?: string | null;
   withholdingArea?: string | null;
+  areaCategory?: string | null;
   dmaid?: number | null;
   taxAgencyId?: number | null;
   withholdingAgencyName?: string | null;
@@ -2771,6 +2772,7 @@ export class EngagementService {
       artistWaiverInstructionsId: number | null;
       iaeWaiverInstructionsId: number | null;
       withholdingArea: string | null;
+      areaCategory: string | null;
       withholdingAgencyName: string | null;
       withholdingPayee: string | null;
       paymentMethod: string | null;
@@ -2792,6 +2794,7 @@ export class EngagementService {
     let rows: Record<string, unknown>[] = [];
     const extraCols = `
             ,w.WithholdingArea AS withholdingArea
+            ,w.AreaCategory AS areaCategory
             ,w.WithholdingAgencyName AS withholdingAgencyName
             ,w.WithholdingPayee AS withholdingPayee
             ,w.PaymentMethod AS paymentMethod
@@ -2854,6 +2857,7 @@ export class EngagementService {
           artistWaiverInstructionsId: row.artistWaiverInstructionsId == null ? null : Number(row.artistWaiverInstructionsId),
           iaeWaiverInstructionsId: row.iaeWaiverInstructionsId == null ? null : Number(row.iaeWaiverInstructionsId),
           withholdingArea: row.withholdingArea == null ? null : String(row.withholdingArea),
+          areaCategory: row.areaCategory == null ? null : String(row.areaCategory),
           withholdingAgencyName: row.withholdingAgencyName == null ? null : String(row.withholdingAgencyName),
           withholdingPayee: row.withholdingPayee == null ? null : String(row.withholdingPayee),
           paymentMethod: row.paymentMethod == null ? null : String(row.paymentMethod),
@@ -4430,6 +4434,7 @@ export class EngagementService {
       label: `Withholding #${r.withholdingId} (rate ${r.withholdingTaxRate})`,
       withholdingTaxRate: String(r.withholdingTaxRate ?? ''),
       withholdingArea: r.withholdingArea ?? (r.dmaid != null ? (dmaAreaById.get(r.dmaid) ?? null) : null),
+      areaCategory: r.areaCategory ?? null,
       dmaid: r.dmaid ?? null,
       taxAgencyId: r.taxAgencyId ?? null,
       withholdingAgencyName: r.withholdingAgencyName ?? null,
@@ -4647,35 +4652,60 @@ export class EngagementService {
 
       const venueCompany =
         venueCompanyId != null
-          ? await em.findOne(Company, { where: { companyId: venueCompanyId } })
+          ? await em.findOne(Company, {
+              where: { companyId: venueCompanyId },
+              relations: ['physicalAddress'],
+            })
           : null;
-      const hasDmaId = await this.nonResidentWithholdingHasDmaId();
+
+      // ── Match existing NRW by geography (city → state → country) ──────
+      const venueAddress = venueCompany?.physicalAddress ?? null;
+      const venueCity = venueAddress?.city?.trim() || null;
+      const venueState = venueAddress?.stateProvince?.trim() || null;
+      const venueCountry = venueAddress?.country?.trim() || null;
+
+      const allNrwRows = await this.listNonResidentWithholdingRowsSafe(em);
+      const matchByArea = (area: string | null): typeof allNrwRows[number] | undefined => {
+        if (!area) return undefined;
+        const lower = area.toLowerCase();
+        return allNrwRows.find(
+          (r) => r.withholdingArea != null && r.withholdingArea.toLowerCase() === lower,
+        );
+      };
+      // Try most-specific first: city, then state, then country
+      const geoMatch = matchByArea(venueCity) ?? matchByArea(venueState) ?? matchByArea(venueCountry);
       let savedWithholdingId: number | null = null;
-      if (hasDmaId) {
-        const withholding = em.create(NonResidentWithholding, {
-          withholdingTaxRate: '0',
-          dmaid: venueCompany?.dmaid ?? null,
-          taxAgencyId: null,
-          withholdingLinkId: null,
-          artistWaiverInstructionsId: null,
-          iaeWaiverInstructionsId: null,
-        });
-        const savedWithholding = await em.save(
-          NonResidentWithholding,
-          withholding,
-        );
-        savedWithholdingId = savedWithholding.withholdingId;
+
+      if (geoMatch) {
+        savedWithholdingId = geoMatch.withholdingId;
       } else {
-        const inserted = await em.query(
-          `
-            INSERT INTO [dbo].[NonResidentWithholding]
-              ([WithholdingTaxRate], [TaxAgencyID], [WithholdingLinkID], [ArtistWaiverInstructionsID], [IAEWaiverInstructionsID])
-            VALUES (@0, @1, @2, @3, @4);
-            SELECT CAST(SCOPE_IDENTITY() AS int) AS withholdingId;
-          `,
-          ['0', null, null, null, null],
-        );
-        savedWithholdingId = Number(inserted?.[0]?.withholdingId ?? NaN);
+        const hasDmaId = await this.nonResidentWithholdingHasDmaId();
+        if (hasDmaId) {
+          const withholding = em.create(NonResidentWithholding, {
+            withholdingTaxRate: '0',
+            dmaid: venueCompany?.dmaid ?? null,
+            taxAgencyId: null,
+            withholdingLinkId: null,
+            artistWaiverInstructionsId: null,
+            iaeWaiverInstructionsId: null,
+          });
+          const savedWithholding = await em.save(
+            NonResidentWithholding,
+            withholding,
+          );
+          savedWithholdingId = savedWithholding.withholdingId;
+        } else {
+          const inserted = await em.query(
+            `
+              INSERT INTO [dbo].[NonResidentWithholding]
+                ([WithholdingTaxRate], [TaxAgencyID], [WithholdingLinkID], [ArtistWaiverInstructionsID], [IAEWaiverInstructionsID])
+              VALUES (@0, @1, @2, @3, @4);
+              SELECT CAST(SCOPE_IDENTITY() AS int) AS withholdingId;
+            `,
+            ['0', null, null, null, null],
+          );
+          savedWithholdingId = Number(inserted?.[0]?.withholdingId ?? NaN);
+        }
       }
       if (!Number.isInteger(savedWithholdingId) || savedWithholdingId < 1) {
         throw new BadRequestException({
@@ -8948,12 +8978,42 @@ export class EngagementService {
        WHERE [EngagementID] = ${eid}
        ORDER BY [ContractID] DESC`,
     );
-    return (rows as Record<string, unknown>[]).map((r) => ({
-      ...r,
-      guaranteeAmount: r.guaranteeAmount != null ? Number(r.guaranteeAmount) : null,
-      depositAmount: r.depositAmount != null ? Number(r.depositAmount) : null,
-      balanceAmount: r.balanceAmount != null ? Number(r.balanceAmount) : null,
-    }));
+    return (rows as Record<string, unknown>[]).map((r) => {
+      const performancesRaw = r.performances as string | null;
+      const insuredRaw = r.additionallyInsured as string | null;
+      return {
+        ...r,
+        guaranteeAmount: r.guaranteeAmount != null ? Number(r.guaranteeAmount) : null,
+        depositAmount: r.depositAmount != null ? Number(r.depositAmount) : null,
+        balanceAmount: r.balanceAmount != null ? Number(r.balanceAmount) : null,
+        performances:
+          this.parseJsonArrayColumn(performancesRaw) ??
+          (performancesRaw ? [{ date: null, time: null, formatted: performancesRaw }] : null),
+        additionallyInsured: this.parseJsonArrayColumn(insuredRaw) ?? (insuredRaw ? [insuredRaw] : null),
+      };
+    });
+  }
+
+  /**
+   * `Performances`/`AdditionallyInsured` store a JSON-encoded array in a plain nvarchar(max)
+   * column (no schema migration). Returns null on parse failure so the caller can fall back to
+   * wrapping pre-existing free-text values (saved before this field became structured).
+   */
+  private parseJsonArrayColumn(raw: string | null): unknown[] | null {
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Encode an array field for JSON-in-text storage; undefined/empty pass through unchanged. */
+  private toJsonColumnValue(val: unknown[] | null | undefined): string | null | undefined {
+    if (val === undefined) return undefined;
+    if (val === null || val.length === 0) return null;
+    return JSON.stringify(val);
   }
 
   async savePerformanceContract(
@@ -9003,8 +9063,8 @@ export class EngagementService {
     addCol('PaymentMethodType', dto.paymentMethodType, 100);
     addCol('PaymentPayableTo', dto.paymentPayableTo, 255);
     addCol('PaymentBankName', dto.paymentBankName, 255);
-    addCol('Performances', dto.performances, 8000);
-    addCol('AdditionallyInsured', dto.additionallyInsured, 8000);
+    addCol('Performances', this.toJsonColumnValue(dto.performances), 20000);
+    addCol('AdditionallyInsured', this.toJsonColumnValue(dto.additionallyInsured), 20000);
     addCol('AnnotatedPdfBlobName', dto.annotatedPdfBlobName, 500);
     addCol('OriginalFilename', dto.originalFilename, 500);
     addCol('OneDrivePdfUrl', dto.oneDrivePdfUrl, 1000);
@@ -9060,8 +9120,8 @@ export class EngagementService {
     addSet('PaymentMethodType', dto.paymentMethodType, 100);
     addSet('PaymentPayableTo', dto.paymentPayableTo, 255);
     addSet('PaymentBankName', dto.paymentBankName, 255);
-    addSet('Performances', dto.performances, 8000);
-    addSet('AdditionallyInsured', dto.additionallyInsured, 8000);
+    addSet('Performances', this.toJsonColumnValue(dto.performances), 20000);
+    addSet('AdditionallyInsured', this.toJsonColumnValue(dto.additionallyInsured), 20000);
     addSet('AnnotatedPdfBlobName', dto.annotatedPdfBlobName, 500);
     addSet('OriginalFilename', dto.originalFilename, 500);
     addSet('OneDrivePdfUrl', dto.oneDrivePdfUrl, 1000);
