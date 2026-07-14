@@ -197,7 +197,8 @@ function BusinessCard({
 }
 
 export function EventBusinessPage() {
-  const { navigate } = useInternalNavigation();
+  const { navigate, viewData } = useInternalNavigation();
+  const departmentId = viewData?.departmentId;
   return (
     <InternalPageFrame footer={<UrgentUpcomingSection pinned />}>
       <section
@@ -236,7 +237,7 @@ export function EventBusinessPage() {
         </section>
 
         <a
-          href="/internal/learning-portal?fromView=department-event-business&fromTitle=Event+Business&departmentId=62"
+          href={`/internal/learning-portal?fromView=department-event-business&fromTitle=Event+Business&departmentId=${departmentId || ""}`}
           target="_blank"
           rel="noreferrer"
           className="mt-8 flex h-[58px] w-full items-center justify-between gap-3 bg-black px-4 text-sm font-semibold text-white transition-colors hover:bg-neutral-800"
