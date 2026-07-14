@@ -15,6 +15,7 @@ export type InternalView =
   | "venues"
   | "attractions"
   | "departments"
+  | "department"
   | "department-art-graphic-design"
   | "department-booking"
   | "department-event-business"
@@ -52,6 +53,7 @@ const VALID_VIEWS = new Set<string>([
   "venues",
   "attractions",
   "departments",
+  "department",
   "department-art-graphic-design",
   "department-booking",
   "department-event-business",
@@ -90,15 +92,6 @@ const LEGACY_PATH_TO_VIEW: Record<string, InternalView> = {
   "/internal/health-insurance": "health-insurance",
 };
 
-const DEPARTMENT_TITLE_TO_VIEW: Record<string, InternalView> = {
-  Art: "department-art-graphic-design",
-  Events: "department-event-business",
-  Booking: "department-booking",
-  Marketing: "department-marketing",
-  "Ticketing & Sales": "department-ticketing-sales",
-  Production: "department-production",
-};
-
 const FOOTER_LABEL_TO_VIEW: Record<string, InternalView> = {
   "company news": "company-news",
   "employee services": "employee-services",
@@ -134,6 +127,12 @@ function sanitizeViewData(view: InternalView, raw: unknown): InternalViewData {
     return out;
   }
 
+  // Generic department detail view and legacy per-department views
+  if (view === "department" || view.startsWith("department-")) {
+    if (typeof obj.departmentId === "number" && obj.departmentId > 0) out.departmentId = obj.departmentId;
+    return out;
+  }
+
   if (view === "employee-profile") {
     if (typeof obj.contactId === "number" && obj.contactId > 0) out.contactId = obj.contactId;
     if (typeof obj.fromView === "string") out.fromView = obj.fromView as InternalView;
@@ -158,10 +157,6 @@ function sanitizeViewData(view: InternalView, raw: unknown): InternalViewData {
   }
 
   return out;
-}
-
-export function departmentTitleToView(title: string): InternalView | null {
-  return DEPARTMENT_TITLE_TO_VIEW[title] ?? null;
 }
 
 export function footerLabelToView(label: string): InternalView | null {
