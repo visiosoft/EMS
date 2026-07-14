@@ -2340,6 +2340,17 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
   const tours = toursPage?.data ?? [];
   const attractionsForPicker = attractions;
 
+  // Populate tour search field when tour data loads for initial selection
+  useEffect(() => {
+    if (initialSelectedTourId == null) return;
+    const tour = tours.find((t) => t.tourId === initialSelectedTourId);
+    if (tour) {
+      setTourInput(tour.tourName);
+      setTourSearch(tour.tourName);
+      setShowTourSuggestions(false);
+    }
+  }, [initialSelectedTourId, tours]);
+
   const attractionSuggestions = useMemo(() => {
     const q = attractionInput.trim();
     if (!q) return [];

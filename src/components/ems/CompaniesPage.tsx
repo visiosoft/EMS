@@ -4066,6 +4066,16 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
     staleTime: 60 * 1000,
   });
 
+  // Populate search when company detail loads for initial selection
+  useEffect(() => {
+    if (initialSelectedCompanyId == null) return;
+    const name = companyDetailQuery.data?.companyName;
+    if (name) {
+      setSearchInput(name);
+      setActiveSearch(name);
+    }
+  }, [initialSelectedCompanyId, companyDetailQuery.data]);
+
   const selectedCompany = selectedCompanyId
     ? (displayList.find((c) => c.id === selectedCompanyId) ??
       (companyDetailQuery.data

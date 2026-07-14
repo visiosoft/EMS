@@ -394,10 +394,12 @@ function ContactDetailDrawer({
 }) {
   const [draft, setDraft] = useState<ContactDraft>(() => makeDraftFromRow(row));
   const [error, setError] = useState<string | null>(null);
+  const [editingAssignments, setEditingAssignments] = useState(false);
 
   useEffect(() => {
     setDraft(makeDraftFromRow(row));
     setError(null);
+    setEditingAssignments(false);
   }, [row]);
 
   const initialDraft = useMemo(() => makeDraftFromRow(row), [row]);
@@ -550,19 +552,74 @@ function ContactDetailDrawer({
           </section>
 
           <section className="space-y-4">
-            <div className="border-b border-border pb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
-              Company assignments
+            <div className="flex items-center justify-between border-b border-border pb-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+                Company assignments
+              </span>
+              <button
+                type="button"
+                onClick={() => setEditingAssignments((v) => !v)}
+                className="text-xs font-medium text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm"
+              >
+                {editingAssignments ? 'Done' : 'Edit'}
+              </button>
             </div>
-            <p className="text-xs text-text-muted">
-              A contact can belong to multiple companies at once — add each one with its own roles and departments.
-            </p>
-            <CompanyAssignmentEditor
-              assignments={draft.assignments}
-              onChange={(assignments) => setDraft((current) => ({ ...current, assignments }))}
-              companies={companies}
-              roleOptions={roleOptions}
-              departmentOptions={departmentOptions}
-            />
+            {editingAssignments ? (
+              <>
+                <p className="text-xs text-text-muted">
+                  A contact can belong to multiple companies at once — add each one with its own roles and departments.
+                </p>
+                <CompanyAssignmentEditor
+                  assignments={draft.assignments}
+                  onChange={(assignments) => setDraft((current) => ({ ...current, assignments }))}
+                  companies={companies}
+                  roleOptions={roleOptions}
+                  departmentOptions={departmentOptions}
+                />
+              </>
+            ) : (
+              <div className="space-y-2">
+                {row.assignments.length === 0 ? (
+                  <p className="text-sm text-text-muted">No company assignments.</p>
+                ) : (
+                  row.assignments.map((asg, idx) => {
+                    const companyName = row.companyNames[idx] || `Company #${asg.companyId}`;
+                    return (
+                      <div key={`${asg.companyId}-${idx}`} className="flex items-center gap-3 rounded-md border border-border bg-elevated px-3 py-2">
+                        <Building2 className="h-4 w-4 shrink-0 text-text-muted" aria-hidden />
+                        <div className="min-w-0 flex-1">
+                          {onNavigate ? (
+                            <button
+                              type="button"
+                              onClick={() => onNavigate('companies', { selectedCompanyId: asg.companyId })}
+                              className="text-sm font-medium text-text-primary hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                              title={`Open ${companyName}`}
+                            >
+                              {companyName}
+                            </button>
+                          ) : (
+                            <span className="text-sm font-medium text-text-primary">{companyName}</span>
+                          )}
+                          {(asg.roleName || asg.departmentName) && (
+                            <p className="text-xs text-text-secondary mt-0.5">
+                              {[asg.roleName, asg.departmentName].filter(Boolean).join(' · ')}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+                <button
+                  type="button"
+                  onClick={() => setEditingAssignments(true)}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-2 text-xs font-medium text-text-secondary transition hover:border-ems-accent hover:text-ems-accent"
+                >
+                  <Plus className="h-3.5 w-3.5" aria-hidden />
+                  Add company
+                </button>
+              </div>
+            )}
           </section>
 
           <section className="space-y-4">
@@ -901,12 +958,18 @@ export function ContactsPage({ addToast, initialSelectedContactId, onNavigate }:
     const match = rows.find((r) => r.contactId === initialSelectedContactId);
     if (match) {
       setSelectedContact(match);
+      setSearch(`${match.firstName} ${match.lastName}`.trim());
+      setCommittedSearch(`${match.firstName} ${match.lastName}`.trim());
       return;
     }
     // Contact not in current page — fetch it directly
     let cancelled = false;
     fetchManagedContactById(initialSelectedContactId).then((contact) => {
-      if (!cancelled && contact) setSelectedContact(contact);
+      if (!cancelled && contact) {
+        setSelectedContact(contact);
+        setSearch(`${contact.firstName} ${contact.lastName}`.trim());
+        setCommittedSearch(`${contact.firstName} ${contact.lastName}`.trim());
+      }
     }).catch(() => { /* ignore – contact may not exist */ });
     return () => { cancelled = true; };
   }, [initialSelectedContactId, rows]);
