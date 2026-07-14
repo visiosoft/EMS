@@ -330,6 +330,9 @@ export interface EngagementFinanceRow {
     | 'CoPro'
     | '3rd Party Renting Venue'
     | 'Silent CoPro with Venue'
+    | 'CoPro with 3rd Party'
+    | 'CoPro with 3rd Party, 3rd Party Renting Venue'
+    | 'Silent CoPro with 3rd Party, 3rd Party Renting Venue'
     | null;
   thirdPartyPartnerDealStructure:
     | 'CoPro with 3rd Party'
@@ -1249,6 +1252,9 @@ export class EngagementService {
     | 'CoPro'
     | '3rd Party Renting Venue'
     | 'Silent CoPro with Venue'
+    | 'CoPro with 3rd Party'
+    | 'CoPro with 3rd Party, 3rd Party Renting Venue'
+    | 'Silent CoPro with 3rd Party, 3rd Party Renting Venue'
     | null {
     const t = String(value ?? '').trim().toLowerCase();
     if (!t) return null;
@@ -1256,6 +1262,9 @@ export class EngagementService {
     if (t === 'copro') return 'CoPro';
     if (t === '3rd party renting venue') return '3rd Party Renting Venue';
     if (t === 'silent copro with venue') return 'Silent CoPro with Venue';
+    if (t === 'copro with 3rd party') return 'CoPro with 3rd Party';
+    if (t === 'copro with 3rd party, 3rd party renting venue') return 'CoPro with 3rd Party, 3rd Party Renting Venue';
+    if (t === 'silent copro with 3rd party, 3rd party renting venue') return 'Silent CoPro with 3rd Party, 3rd Party Renting Venue';
     return null;
   }
 

@@ -90,12 +90,15 @@ export class UpdateEngagementFinanceDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(100)
+  @MaxLength(150)
   venueDealType?:
     | 'Rental'
     | 'CoPro'
     | '3rd Party Renting Venue'
     | 'Silent CoPro with Venue'
+    | 'CoPro with 3rd Party'
+    | 'CoPro with 3rd Party, 3rd Party Renting Venue'
+    | 'Silent CoPro with 3rd Party, 3rd Party Renting Venue'
     | null;
 
   @IsOptional()
