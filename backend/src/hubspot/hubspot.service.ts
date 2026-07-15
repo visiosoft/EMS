@@ -12,6 +12,7 @@ import { ContactAssignment } from '../entities/contact-assignment.entity';
 import { Contact } from '../entities/contact.entity';
 import { Department } from '../entities/department.entity';
 import { Role } from '../entities/role.entity';
+import { HubSpotWebhookEventDto } from './dto/hubspot-webhook-event.dto';
 
 interface ExternalContactSyncRow {
   contactId: number;
@@ -1405,6 +1406,56 @@ export class HubSpotService {
         (target as Map<number, string>).set(numericSourceId, hubSpotId);
       } else {
         (target as Map<string, string>).set(sourceId, hubSpotId);
+      }
+    }
+  }
+
+  // ─── Webhook event processing ────────────────────────────────────────────────
+
+  /**
+   * Process an array of HubSpot webhook events asynchronously.
+   * Called fire-and-forget from the controller after the 200 response is sent.
+   */
+  async handleWebhookEvents(events: HubSpotWebhookEventDto[]): Promise<void> {
+    for (const event of events) {
+      try {
+        switch (event.subscriptionType) {
+          case 'contact.creation':
+            // TODO: Map HubSpot objectId to internal ContactID.
+            // Currently there is no HubSpotContactId column on Contact/ContactInfo.
+            // Once a mapping exists, call queueContactSync with the internal ID.
+            this.logger.log(
+              `Webhook: contact.creation for HubSpot objectId=${event.objectId}. No internal mapping yet — skipping.`,
+            );
+            break;
+
+          case 'contact.propertyChange':
+            // TODO: Map HubSpot objectId to internal ContactID and update the changed property.
+            // Requires a HubSpotContactId lookup column or mapping table.
+            this.logger.log(
+              `Webhook: contact.propertyChange for HubSpot objectId=${event.objectId}, property=${event.propertyName}. No internal mapping yet — skipping.`,
+            );
+            break;
+
+          case 'company.creation':
+          case 'company.propertyChange':
+            // TODO: Map HubSpot objectId to internal CompanyID.
+            // Once available, route through queueCompanySync(internalCompanyId).
+            this.logger.log(
+              `Webhook: ${event.subscriptionType} for HubSpot objectId=${event.objectId}. No internal mapping yet — skipping.`,
+            );
+            break;
+
+          default:
+            this.logger.debug(
+              `Webhook: unhandled subscriptionType "${event.subscriptionType}" (eventId=${event.eventId}, objectId=${event.objectId})`,
+            );
+        }
+      } catch (error) {
+        this.logger.error(
+          `Webhook processing failed for eventId=${event.eventId} (${event.subscriptionType})`,
+          error instanceof Error ? error.stack : error,
+        );
       }
     }
   }
