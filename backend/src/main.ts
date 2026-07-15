@@ -21,7 +21,9 @@ async function bootstrap() {
   fs.mkdirSync(CONTRACT_UPLOAD_DIR, { recursive: true });
   fs.mkdirSync(CONFIRMED_OFFER_UPLOAD_DIR, { recursive: true });
   fs.mkdirSync(certificateUploadDir, { recursive: true });
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    rawBody: true,
+  });
   const logger = new Logger('Bootstrap');
 
   app.useStaticAssets(TOUR_BANNER_UPLOAD_DIR, {
