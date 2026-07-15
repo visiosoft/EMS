@@ -1,0 +1,155 @@
+import { CreateCertificationDto, CreateSubmissionDto, ReviewSubmissionDto, UpdateCertificationDto } from './dto/learning.dto.js';
+import { LearningService } from './learning.service.js';
+export declare class LearningController {
+    private readonly learningService;
+    constructor(learningService: LearningService);
+    getPlatforms(): Promise<any>;
+    getCertifications(departmentId: number, status: string, level: string, platformId: number): Promise<any>;
+    getCertificationById(id: number): Promise<{
+        certificationId: any;
+        title: any;
+        description: any;
+        platformId: any;
+        platformName: any;
+        departmentId: any;
+        departmentName: any;
+        difficultyLevel: any;
+        pointsAwarded: any;
+        estimatedDuration: any;
+        externalCourseUrl: any;
+        status: any;
+        tags: any;
+    }>;
+    createCertification(dto: CreateCertificationDto): Promise<{
+        certificationId: any;
+        title: any;
+        description: any;
+        platformId: any;
+        platformName: any;
+        departmentId: any;
+        departmentName: any;
+        difficultyLevel: any;
+        pointsAwarded: any;
+        estimatedDuration: any;
+        externalCourseUrl: any;
+        status: any;
+        tags: any;
+    }>;
+    updateCertification(id: number, dto: UpdateCertificationDto): Promise<{
+        certificationId: any;
+        title: any;
+        description: any;
+        platformId: any;
+        platformName: any;
+        departmentId: any;
+        departmentName: any;
+        difficultyLevel: any;
+        pointsAwarded: any;
+        estimatedDuration: any;
+        externalCourseUrl: any;
+        status: any;
+        tags: any;
+    }>;
+    toggleCertificationStatus(id: number): Promise<{
+        certificationId: number;
+        status: string;
+    }>;
+    getSubmissions(departmentId: number, contactId: number, status: string, search: string): Promise<any>;
+    getSubmissionById(id: number): Promise<{
+        submissionId: any;
+        certificationId: any;
+        contactId: any;
+        departmentId: any;
+        certificationName: any;
+        issuingOrganization: any;
+        dateCompleted: any;
+        credentialId: any;
+        credentialUrl: any;
+        additionalNotes: any;
+        status: any;
+        pointsAwarded: any;
+        reviewedBy: any;
+        reviewedAt: any;
+        adminNotes: any;
+        submittedAt: any;
+        employeeName: any;
+        employeeRole: any;
+        platformName: any;
+        documents: any;
+    }>;
+    createSubmission(dto: CreateSubmissionDto, certificateFile?: Express.Multer.File): Promise<{
+        submissionId: any;
+        certificationId: any;
+        contactId: any;
+        departmentId: any;
+        certificationName: any;
+        issuingOrganization: any;
+        dateCompleted: any;
+        credentialId: any;
+        credentialUrl: any;
+        additionalNotes: any;
+        status: any;
+        pointsAwarded: any;
+        reviewedBy: any;
+        reviewedAt: any;
+        adminNotes: any;
+        submittedAt: any;
+        employeeName: any;
+        employeeRole: any;
+        platformName: any;
+        documents: any;
+    }>;
+    reviewSubmission(id: number, dto: ReviewSubmissionDto): Promise<{
+        submissionId: any;
+        certificationId: any;
+        contactId: any;
+        departmentId: any;
+        certificationName: any;
+        issuingOrganization: any;
+        dateCompleted: any;
+        credentialId: any;
+        credentialUrl: any;
+        additionalNotes: any;
+        status: any;
+        pointsAwarded: any;
+        reviewedBy: any;
+        reviewedAt: any;
+        adminNotes: any;
+        submittedAt: any;
+        employeeName: any;
+        employeeRole: any;
+        platformName: any;
+        documents: any;
+    }>;
+    getEmployeeScores(departmentId: number): Promise<any>;
+    getMyScore(contactId: number, departmentId: number): Promise<{
+        totalPoints: number;
+        certsSubmitted: number;
+        certsApproved: number;
+        currentTier: string;
+        rank: number;
+        lastActivityAt?: undefined;
+    } | {
+        totalPoints: any;
+        certsSubmitted: any;
+        certsApproved: any;
+        currentTier: any;
+        lastActivityAt: any;
+        rank: any;
+    }>;
+    getProgress(contactId: number, departmentId: number): Promise<{
+        items: any;
+        summary: {
+            completed: any;
+            total: any;
+            percent: number;
+        };
+    }>;
+    getPointTiers(): Promise<any>;
+    getOverview(departmentId: number): Promise<{
+        totalEmployees: any;
+        activeCertifications: any;
+        totalSubmissions: any;
+        pendingSubmissions: any;
+    }>;
+}
