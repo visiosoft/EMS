@@ -34,6 +34,10 @@ import {
 } from '@/api/engagementApi';
 import {
   fetchCompanies,
+  fetchCompanyContacts,
+  fetchVenueProfile,
+  updateVenueProfile,
+  fetchLookups,
 } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { companyToSelect2Option } from './companySelectOptions';
@@ -454,6 +458,34 @@ export function EngagementDrillBitsTab({
     staleTime: 300_000,
   });
 
+  const venueCompanyId = row.primaryVenueCompanyId;
+
+  const venueProfileQuery = useQuery({
+    queryKey: ['companies', venueCompanyId, 'venue-profile'],
+    queryFn: () => fetchVenueProfile(venueCompanyId!),
+    enabled: venueCompanyId != null,
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  const brandsLookupsQuery = useQuery({
+    queryKey: ['company-lookups', 'drillbits-brands'],
+    queryFn: fetchLookups,
+    staleTime: 300_000,
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // STATE — Brand/Series
+  // ══════════════════════════════════════════════════════════════════════════
+
+  const [brandId, setBrandId] = useState('');
+
+  const {
+    hasUserEdited: hasBrandEdited,
+    markUserEdited: markBrandEdited,
+    clearUserEdited: clearBrandEdited,
+  } = useUserEditTracker(`drillbits-brand:${engagementId}`);
+
   // ══════════════════════════════════════════════════════════════════════════
   // STATE — Production & Performance Schedule
   // ══════════════════════════════════════════════════════════════════════════
@@ -511,12 +543,12 @@ export function EngagementDrillBitsTab({
   // ══════════════════════════════════════════════════════════════════════════
 
   const [ticketingSystemCompanyId, setTicketingSystemCompanyId] = useState('');
+  const [ticketingContactId, setTicketingContactId] = useState('');
   const [ticketingAdministrator, setTicketingAdministrator] = useState('');
   const [boxOfficeLaborRequired, setBoxOfficeLaborRequired] = useState('');
   const [facilityFeeType, setFacilityFeeType] = useState('');
   const [facilityFeeAmount, setFacilityFeeAmount] = useState('');
   const [dynamicPricingMode, setDynamicPricingMode] = useState('');
-  const [serviceChargeRevenueShare, setServiceChargeRevenueShare] = useState('');
   const [rebateAmount, setRebateAmount] = useState('');
   const [bumpAmount, setBumpAmount] = useState('');
   const [creditCardFeesType, setCreditCardFeesType] = useState('');
@@ -531,11 +563,13 @@ export function EngagementDrillBitsTab({
   const [grossMarketingBudget, setGrossMarketingBudget] = useState('');
   const [netMarketingBudget, setNetMarketingBudget] = useState('');
   const [salesRevenueGoal, setSalesRevenueGoal] = useState('');
+  const [tourSplitPoint, setTourSplitPoint] = useState('');
 
   // ══════════════════════════════════════════════════════════════════════════
   // STATE — Travel
   // ══════════════════════════════════════════════════════════════════════════
 
+  const [travelSelections, setTravelSelections] = useState<string[]>([]);
   const [travelGroundIaePays, setTravelGroundIaePays] = useState('');
   const [travelGroundIaeArranges, setTravelGroundIaeArranges] = useState('');
   const [travelAirfareIaePays, setTravelAirfareIaePays] = useState('');
@@ -626,6 +660,17 @@ export function EngagementDrillBitsTab({
     setRehearsalTime((row.rehearsalTime ?? '').slice(0, 5));
   }, [row]);
 
+  // Brand from venue profile
+  useEffect(() => {
+    const profile = venueProfileQuery.data;
+    if (!profile || profile.missing) {
+      setBrandId('');
+      return;
+    }
+    const brandIds = (profile as { brandIds: number[] }).brandIds;
+    setBrandId(brandIds[0] != null ? String(brandIds[0]) : '');
+  }, [venueProfileQuery.data]);
+
   // Finance data
   useEffect(() => {
     const d = financeQuery.data;
@@ -652,6 +697,7 @@ export function EngagementDrillBitsTab({
     setGrossMarketingBudget(numFieldToString(d.grossMarketingBudget));
     setNetMarketingBudget(numFieldToString(d.netMarketingBudget));
     setSalesRevenueGoal(numFieldToString(d.salesRevenueGoal));
+    setTourSplitPoint(numFieldToString(d.tourSplitPoint));
   }, [financeQuery.data]);
 
   // Ticketing from first performance
@@ -669,6 +715,7 @@ export function EngagementDrillBitsTab({
     const d = ticketingQuery.data;
     if (!d) return;
     setTicketingSystemCompanyId(d.ticketingSystemCompanyId == null ? '' : String(d.ticketingSystemCompanyId));
+    setTicketingContactId(d.ticketingAdminContactId == null ? '' : String(d.ticketingAdminContactId));
     setTicketingAdministrator(d.ticketingAdministrator ?? '');
     setBoxOfficeLaborRequired(d.boxOfficeLaborStaffingRequired == null ? '' : d.boxOfficeLaborStaffingRequired ? 'Yes' : 'No');
     setFacilityFeeType(d.facilityFeeType ?? '');
@@ -686,6 +733,17 @@ export function EngagementDrillBitsTab({
   // DERIVED
   // ══════════════════════════════════════════════════════════════════════════
 
+  const brandOptions = useMemo<Select2Option[]>(() => {
+    const brands = brandsLookupsQuery.data?.brands ?? [];
+    return [
+      { value: '', label: '---' },
+      ...brands
+        .slice()
+        .sort((a, b) => a.brandName.localeCompare(b.brandName, undefined, { sensitivity: 'base' }))
+        .map((brand) => ({ value: String(brand.brandId), label: brand.brandName })),
+    ];
+  }, [brandsLookupsQuery.data?.brands]);
+
   const ticketingSystemCompanyOptions = useMemo<Select2Option[]>(() => {
     const rows = companiesQuery.data?.data ?? [];
     const filtered = rows.filter((company) => {
@@ -696,6 +754,22 @@ export function EngagementDrillBitsTab({
     });
     return [{ value: '', label: 'Not set' }, ...filtered.map(companyToSelect2Option)];
   }, [companiesQuery.data?.data]);
+
+  const ticketingCompanyContactsQuery = useQuery({
+    queryKey: ['companies', ticketingSystemCompanyId, 'contacts'],
+    queryFn: () => fetchCompanyContacts(Number(ticketingSystemCompanyId)),
+    enabled: !!ticketingSystemCompanyId,
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  const ticketingContactOptions = useMemo<Select2Option[]>(() => {
+    const contacts = ticketingCompanyContactsQuery.data ?? [];
+    return [
+      { value: '', label: 'Not set' },
+      ...contacts.map((c) => ({ value: String(c.contactId), label: `${c.firstName} ${c.lastName}`.trim() })),
+    ];
+  }, [ticketingCompanyContactsQuery.data]);
 
   // Venue Deal options from dbo.VenueDealType (IDs 1-4)
   const venueDealOptions = useMemo<Select2Option[]>(() => {
@@ -717,13 +791,30 @@ export function EngagementDrillBitsTab({
   // DIRTY TRACKING
   // ══════════════════════════════════════════════════════════════════════════
 
-  const isDirty = hasProductionEdited || hasAttractionEdited || hasVenueDealEdited || hasThirdPartyEdited
+  const isDirty = hasBrandEdited || hasProductionEdited || hasAttractionEdited || hasVenueDealEdited || hasThirdPartyEdited
     || hasTicketingEdited || hasMarketingEdited || hasTravelEdited || hasEquipmentEdited || hasMiscEdited
     || showAddPerformance;
   useEffect(() => {
     onDirtyChange?.(isDirty);
     return () => onDirtyChange?.(false);
   }, [isDirty, onDirtyChange]);
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // SAVE — Brand/Series (VenueProfile)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  const saveBrandMut = useMutation({
+    mutationFn: async () => {
+      if (venueCompanyId == null) throw new Error('No venue selected — cannot save brand.');
+      await updateVenueProfile(venueCompanyId, {
+        brandIds: brandId ? [Number(brandId)] : [],
+      });
+      await qc.invalidateQueries({ queryKey: ['companies', venueCompanyId, 'venue-profile'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
+    },
+    onSuccess: () => { clearBrandEdited(); addToast('Brand/Series saved.', 'success'); },
+    onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
+  });
 
   // ══════════════════════════════════════════════════════════════════════════
   // SAVE — Production Schedule (dbo.EngagementProduction via updateEngagement)
@@ -845,6 +936,7 @@ export function EngagementDrillBitsTab({
       if (firstPerformanceId == null) throw new Error('No performance exists to save ticketing data.');
       const ticketPayload: UpdatePerformanceTicketingPayload = {
         ticketingSystemCompanyId: ticketingSystemCompanyId ? Number(ticketingSystemCompanyId) : null,
+        ticketingAdminContactId: ticketingContactId ? Number(ticketingContactId) : null,
         ticketingAdministrator: (ticketingAdministrator || null) as UpdatePerformanceTicketingPayload['ticketingAdministrator'],
         boxOfficeLaborStaffingRequired: boxOfficeLaborRequired === 'Yes' ? true : boxOfficeLaborRequired === 'No' ? false : null,
         facilityFeeType: (facilityFeeType || null) as UpdatePerformanceTicketingPayload['facilityFeeType'],
@@ -877,11 +969,14 @@ export function EngagementDrillBitsTab({
       assertParseOk(netMktg);
       const salesRev = parseOptionalDecimal(salesRevenueGoal, 'Sales Revenue Goal');
       assertParseOk(salesRev);
+      const splitPt = parseOptionalDecimal(tourSplitPoint, 'Engagement Tour Split Point');
+      assertParseOk(splitPt);
 
       await updateEngagementFinance(engagementId, {
         grossMarketingBudget: grossMktg.value,
         netMarketingBudget: netMktg.value,
         salesRevenueGoal: salesRev.value,
+        tourSplitPoint: splitPt.value,
       });
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] });
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
@@ -994,6 +1089,27 @@ export function EngagementDrillBitsTab({
 
   return (
     <div className="bg-card border border-border rounded-lg p-5 space-y-8">
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {/* SECTION: Brand/Series */}
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      <section className="relative">
+        <SavingOverlay pending={saveBrandMut.isPending} />
+        <SectionHeader title="Brand/Series" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Brand/Series">
+            <Select2
+              options={brandOptions}
+              value={brandId}
+              onChange={(value) => { markBrandEdited(); setBrandId(value); }}
+              placeholder="---"
+              allowClear
+              disabled={venueCompanyId == null}
+            />
+          </FormField>
+        </div>
+        <SaveBtn onClick={() => saveBrandMut.mutate()} pending={saveBrandMut.isPending} dirty={hasBrandEdited} label="Save Brand/Series" />
+      </section>
+
       {/* ═══════════════════════════════════════════════════════════════════ */}
       {/* SECTION: Production and Performance Schedule */}
       {/* ═══════════════════════════════════════════════════════════════════ */}
@@ -1291,8 +1407,17 @@ export function EngagementDrillBitsTab({
             <Select2
               options={ticketingSystemCompanyOptions}
               value={ticketingSystemCompanyId}
-              onChange={(v) => { markTicketingEdited(); setTicketingSystemCompanyId(v); }}
+              onChange={(v) => { markTicketingEdited(); setTicketingSystemCompanyId(v); setTicketingContactId(''); }}
               placeholder="Select…"
+            />
+          </FormField>
+          <FormField label="Ticketing System Contact">
+            <Select2
+              options={ticketingContactOptions}
+              value={ticketingContactId}
+              onChange={(v) => { markTicketingEdited(); setTicketingContactId(v); }}
+              placeholder={ticketingSystemCompanyId ? 'Select contact…' : 'Select a company first'}
+              disabled={!ticketingSystemCompanyId}
             />
           </FormField>
           <FormField label="Ticketing Administrator">
@@ -1343,40 +1468,35 @@ export function EngagementDrillBitsTab({
               placeholder="Select…"
             />
           </FormField>
-          <FormField label="Service Charge Revenue Share">
-            <input
-              type="number"
-              min={0}
-              step={0.01}
-              className={inputCls}
-              value={serviceChargeRevenueShare}
-              onChange={(e) => { markTicketingEdited(); setServiceChargeRevenueShare(e.target.value); }}
-              placeholder="$"
-            />
-          </FormField>
 
-          <FormField label="Rebate Amount">
-            <input
-              type="number"
-              min={0}
-              step={0.01}
-              className={inputCls}
-              value={rebateAmount}
-              onChange={(e) => { markTicketingEdited(); setRebateAmount(e.target.value); }}
-              placeholder="$"
-            />
-          </FormField>
-          <FormField label="Bump Amount">
-            <input
-              type="number"
-              min={0}
-              step={0.01}
-              className={inputCls}
-              value={bumpAmount}
-              onChange={(e) => { markTicketingEdited(); setBumpAmount(e.target.value); }}
-              placeholder="$"
-            />
-          </FormField>
+          {/* Service Charge Revenue Share */}
+          <div className="rounded-lg border border-border bg-surface/40 p-4 sm:col-span-2">
+            <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-3">Service Charge Revenue Share</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField label="Rebate Amount">
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  className={inputCls}
+                  value={rebateAmount}
+                  onChange={(e) => { markTicketingEdited(); setRebateAmount(e.target.value); }}
+                  placeholder="$"
+                />
+              </FormField>
+              <FormField label="Bump Amount">
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  className={inputCls}
+                  value={bumpAmount}
+                  onChange={(e) => { markTicketingEdited(); setBumpAmount(e.target.value); }}
+                  placeholder="$"
+                />
+              </FormField>
+            </div>
+          </div>
 
           {/* Credit Card Fees */}
           <div className="rounded-lg border border-border bg-surface/40 p-4 sm:col-span-2">
@@ -1475,6 +1595,17 @@ export function EngagementDrillBitsTab({
               placeholder="$"
             />
           </FormField>
+          <FormField label="Engagement Tour Split Point ($)">
+            <input
+              type="number"
+              min={0}
+              step={0.01}
+              className={inputCls}
+              value={tourSplitPoint}
+              onChange={(e) => { markMarketingEdited(); setTourSplitPoint(e.target.value); }}
+              placeholder="$"
+            />
+          </FormField>
         </div>
         <SaveBtn onClick={() => saveMarketingMut.mutate()} pending={saveMarketingMut.isPending} dirty={hasMarketingEdited} label="Save Marketing" />
       </section>
@@ -1486,7 +1617,31 @@ export function EngagementDrillBitsTab({
         <SavingOverlay pending={saveTravelMut.isPending} />
         <SectionHeader title="Travel" />
         <div className="space-y-4">
-          {TRAVEL_CATEGORIES.map((category) => {
+          <div className="flex flex-wrap gap-4">
+            {TRAVEL_CATEGORIES.map((category) => (
+              <label key={category} className="inline-flex items-center gap-2 text-sm text-text-primary cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={travelSelections.includes(category)}
+                  onChange={(e) => {
+                    markTravelEdited();
+                    if (e.target.checked) {
+                      setTravelSelections((prev) => [...prev, category]);
+                    } else {
+                      setTravelSelections((prev) => prev.filter((x) => x !== category));
+                      // Clear fields for deselected category
+                      if (category === 'Ground Transportation') { setTravelGroundIaePays(''); setTravelGroundIaeArranges(''); }
+                      if (category === 'Airfare') { setTravelAirfareIaePays(''); setTravelAirfareIaeArranges(''); }
+                      if (category === 'Hotels') { setTravelHotelsIaePays(''); setTravelHotelsIaeArranges(''); }
+                    }
+                  }}
+                />
+                {category}
+              </label>
+            ))}
+          </div>
+          {TRAVEL_CATEGORIES.filter((c) => travelSelections.includes(c)).map((category) => {
             const paysSt = category === 'Ground Transportation' ? travelGroundIaePays : category === 'Airfare' ? travelAirfareIaePays : travelHotelsIaePays;
             const setPays = category === 'Ground Transportation' ? setTravelGroundIaePays : category === 'Airfare' ? setTravelAirfareIaePays : setTravelHotelsIaePays;
             const arrangesSt = category === 'Ground Transportation' ? travelGroundIaeArranges : category === 'Airfare' ? travelAirfareIaeArranges : travelHotelsIaeArranges;
@@ -1501,7 +1656,7 @@ export function EngagementDrillBitsTab({
                       value={paysSt}
                       onChange={(v) => { markTravelEdited(); setPays(v); }}
                       placeholder="Select…"
-                            />
+                    />
                   </FormField>
                   <FormField label="IAE Arranges">
                     <Select2
@@ -1509,7 +1664,7 @@ export function EngagementDrillBitsTab({
                       value={arrangesSt}
                       onChange={(v) => { markTravelEdited(); setArranges(v); }}
                       placeholder="Select…"
-                            />
+                    />
                   </FormField>
                 </div>
               </div>

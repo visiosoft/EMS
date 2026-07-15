@@ -3031,20 +3031,33 @@ export class EngagementService {
     const url = this.normalizeHttpOrHttpsUrl(rawUrl, label);
     if (!url) return null;
 
+    // If we have an existing link, update it
     const existing =
       existingLinkId != null && existingLinkId > 0
         ? await this.linkRepo.findOne({ where: { linkId: existingLinkId } })
         : null;
-    const link =
-      existing ??
-      this.linkRepo.create({
-        linkType: 'URL',
-        linkName: label,
-      });
-    link.linkType = 'URL';
-    link.linkUrl = url;
-    link.linkPath = url.slice(0, 1024);
-    link.linkName = (link.linkName?.trim() || label).slice(0, 255);
+    if (existing) {
+      existing.linkType = 'URL';
+      existing.linkUrl = url;
+      existing.linkPath = url.slice(0, 1024);
+      existing.linkName = (existing.linkName?.trim() || label).slice(0, 255);
+      const saved = await this.linkRepo.save(existing);
+      return saved.linkId;
+    }
+
+    // No existing link — check if a Link with this URL already exists (unique constraint)
+    const byUrl = await this.linkRepo.findOne({ where: { linkUrl: url } });
+    if (byUrl) {
+      return byUrl.linkId;
+    }
+
+    // Create a new Link row
+    const link = this.linkRepo.create({
+      linkType: 'URL',
+      linkName: label,
+      linkUrl: url,
+      linkPath: url.slice(0, 1024),
+    });
     const saved = await this.linkRepo.save(link);
     return saved.linkId;
   }

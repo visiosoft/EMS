@@ -180,6 +180,10 @@ export function EngagementTicketingRefactored({ engagementId, row, addToast, onD
   const [compTicketForm, setCompTicketForm] = useState('');
   const [compTicketExcelSheet, setCompTicketExcelSheet] = useState('');
 
+  // ── Purchase Links state ──────────────────────────────────────────────────
+  const [presaleLinkUrl, setPresaleLinkUrl] = useState('');
+  const [publicSaleLinkUrl, setPublicSaleLinkUrl] = useState('');
+
   useEffect(() => {
     const d = ticketingQuery.data;
     if (!d) return;
@@ -188,6 +192,8 @@ export function EngagementTicketingRefactored({ engagementId, row, addToast, onD
     setVipPackageBenefits(d.vipPackageBenefits ?? []);
     setCompTicketForm(d.compTicketForm ?? '');
     setCompTicketExcelSheet(d.compTicketExcelSheet ?? '');
+    setPresaleLinkUrl(d.ticketingLinkUrl ?? '');
+    setPublicSaleLinkUrl(d.publicSaleLinkUrl ?? '');
   }, [ticketingQuery.data]);
 
   const toggleVipBenefit = (b: string) => {
@@ -222,6 +228,20 @@ export function EngagementTicketingRefactored({ engagementId, row, addToast, onD
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performance-ticketing'] });
     },
     onSuccess: () => addToast('Comp ticket request saved.', 'success'),
+    onError: (e) => addToast(friendlyApiError(e), 'error'),
+  });
+
+  // ── Purchase Links Save ───────────────────────────────────────────────────
+  const saveLinksMut = useMutation({
+    mutationFn: async () => {
+      if (firstPerformanceId == null) throw new Error('No performance exists.');
+      await updateEngagementPerformanceTicketing(engagementId, firstPerformanceId, {
+        ticketingLinkUrl: presaleLinkUrl.trim() || null,
+        publicSaleLinkUrl: publicSaleLinkUrl.trim() || null,
+      });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performance-ticketing'] });
+    },
+    onSuccess: () => addToast('Purchase links saved.', 'success'),
     onError: (e) => addToast(friendlyApiError(e), 'error'),
   });
 
@@ -357,6 +377,53 @@ export function EngagementTicketingRefactored({ engagementId, row, addToast, onD
           <p className="text-sm text-text-muted">No seating chart uploaded.</p>
         )}
         <p className="text-xs text-text-muted italic">From Venue tab.</p>
+      </div>
+
+      {/* ── PURCHASE LINKS (editable) ─────────────────────────────────── */}
+      <div className="rounded-lg border border-border bg-surface/40 p-4 space-y-4">
+        {sectionHeader('Purchase Links')}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Presale Ticketing Link">
+            <div className="flex items-center gap-1.5">
+              <input
+                type="url"
+                className="w-full flex-1 rounded border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-ems-accent/50"
+                value={presaleLinkUrl}
+                onChange={(e) => setPresaleLinkUrl(e.target.value)}
+                placeholder="https://…"
+                disabled={saveLinksMut.isPending}
+              />
+              {presaleLinkUrl.trim() && (
+                <a href={presaleLinkUrl.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              )}
+            </div>
+          </FormField>
+          <FormField label="Public Sale Ticketing Link">
+            <div className="flex items-center gap-1.5">
+              <input
+                type="url"
+                className="w-full flex-1 rounded border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-ems-accent/50"
+                value={publicSaleLinkUrl}
+                onChange={(e) => setPublicSaleLinkUrl(e.target.value)}
+                placeholder="https://…"
+                disabled={saveLinksMut.isPending}
+              />
+              {publicSaleLinkUrl.trim() && (
+                <a href={publicSaleLinkUrl.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              )}
+            </div>
+          </FormField>
+        </div>
+        <div className="flex justify-end pt-2 border-t border-border">
+          <Button type="button" size="sm" className="bg-ems-accent text-white hover:opacity-90"
+            onClick={() => saveLinksMut.mutate()} disabled={saveLinksMut.isPending}>
+            {saveLinksMut.isPending ? <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span> : 'Save Purchase Links'}
+          </Button>
+        </div>
       </div>
 
       {/* ── PROMOTIONAL PASSWORDS & PURPOSE (from Tour Ticketing Offer Codes) ── */}
