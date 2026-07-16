@@ -221,6 +221,15 @@ function splitIntoSubsections(blocks: HandbookContentBlock[]): { title: string; 
   let current: { title: string; blocks: HandbookContentBlock[] } | null = null;
 
   for (const block of blocks) {
+    // Drop orphaned top-level section headers (e.g. "8 Executive Addendum"). The
+    // handbook's major sections are the seven chapters in handbookSections, so a
+    // bare integer-numbered heading embedded in a chapter's content is a leftover
+    // marker for a gated section — its "x.y" children arrive as empty,
+    // access-restricted subsections and are already dropped by hasRenderableContent,
+    // leaving only this title to leak onto the page.
+    if (block.kind === "heading" && /^\d+\s+\p{L}/u.test(block.text)) {
+      continue;
+    }
     if (block.kind === "heading" && /^\d+\.\d+\s/.test(block.text)) {
       if (current) {
         subsections.push(current);
@@ -316,10 +325,29 @@ const CHAR_COLS = 55;
  * `.prose-handbook p { line-height: 1.75 }` wins over the leading-[1.85] utility by
  * specificity, so 15 * 1.75 = 26.25). Headings render at leading-[1.65] = 24.75.
  * These used to be a flat 30px for both, which overestimated block height and left
- * the bottom third of every page blank — see splitPages().
+ * the bottom third of every page blank — see splitChapterPages().
  */
 const PARAGRAPH_LINE_H = 26;
 const HEADING_H = 25;
+
+/** Vertical rhythm reserved between blocks, matched to the rendered margins. */
+const GAP = 13;
+const LIST_GAP = 4;
+/**
+ * Inline subsection title (h2 line + mb-2 + divider) as rendered by
+ * renderContentBlock's "subsection-title" case; its mt-7 when mid-page is
+ * SUBSECTION_TITLE_TOP_GAP.
+ */
+const SUBSECTION_TITLE_H = 37;
+const SUBSECTION_TITLE_TOP_GAP = 28;
+/** A subsection title must be followed by at least this much content on the same page. */
+const ORPHAN_MIN_H = 2 * PARAGRAPH_LINE_H;
+
+/** Synthetic block for a subsection title flowing inline within a page. */
+type SubsectionTitleBlock = { kind: "subsection-title"; text: string; pageId: string };
+type HandbookPageBlock = HandbookContentBlock | SubsectionTitleBlock;
+
+type FlowSubsection = { pageId: string; title: string; blocks: HandbookContentBlock[] };
 
 function blockHeight(block: HandbookContentBlock): number {
   switch (block.kind) {
@@ -344,13 +372,24 @@ function findBreakPoint(text: string, targetCol: number): number {
   return nextSpace + 1;
 }
 
-function splitPages(blocks: HandbookContentBlock[], contentHeight: number): HandbookContentBlock[][] {
-  const TITLE_H = 60;
-  const GAP = 13;
-  const LIST_GAP = 4;
-  const pages: HandbookContentBlock[][] = [];
-  let buf: HandbookContentBlock[] = [];
-  let used = TITLE_H;
+/**
+ * Paginate a whole chapter as one continuous flow. Subsections do NOT force a page
+ * break: each subsection's title is placed on the current page whenever the title
+ * plus at least a couple of lines of its content still fit (orphan control), and a
+ * new page starts only when that check fails. This keeps the bottom of pages filled
+ * instead of breaking early at every subsection boundary.
+ *
+ * Returns the pages plus, for each subsection, the page index it starts on — used
+ * for deep links, the index, and the chapter navigation rail.
+ */
+function splitChapterPages(
+  subsections: FlowSubsection[],
+  contentHeight: number,
+): { pages: HandbookPageBlock[][]; starts: { pageId: string; title: string; pageIdx: number }[] } {
+  const pages: HandbookPageBlock[][] = [];
+  const starts: { pageId: string; title: string; pageIdx: number }[] = [];
+  let buf: HandbookPageBlock[] = [];
+  let used = 0;
 
   function addBlock(block: HandbookContentBlock, gapSize: number): "fit" | "new-page" {
     const h = blockHeight(block);
@@ -388,27 +427,51 @@ function splitPages(blocks: HandbookContentBlock[], contentHeight: number): Hand
     return true;
   }
 
-  for (const block of blocks) {
-    if (block.kind === "list") {
-      for (const item of block.items) {
-        const itemBlock: HandbookContentBlock = { kind: "list-item", text: item };
-        if (addBlock(itemBlock, LIST_GAP) === "new-page") {
-          if (!trySplitBlock(itemBlock, LIST_GAP)) {
-            flushAndStart(itemBlock);
+  /** Height of the first rendered piece of a subsection, capped for orphan control. */
+  function leadContentHeight(blocks: HandbookContentBlock[]): number {
+    const first = blocks[0];
+    if (!first) return 0;
+    if (first.kind === "list") {
+      const item = first.items[0];
+      return item ? Math.min(blockHeight({ kind: "list-item", text: item }), ORPHAN_MIN_H) : 0;
+    }
+    return Math.min(blockHeight(first), ORPHAN_MIN_H);
+  }
+
+  for (const sub of subsections) {
+    const titleGap = buf.length === 0 ? 0 : SUBSECTION_TITLE_TOP_GAP;
+    const needed = titleGap + SUBSECTION_TITLE_H + GAP + leadContentHeight(sub.blocks);
+    if (buf.length > 0 && used + needed > contentHeight) {
+      pages.push(buf);
+      buf = [];
+      used = 0;
+    }
+    starts.push({ pageId: sub.pageId, title: sub.title, pageIdx: pages.length });
+    used += (buf.length === 0 ? 0 : SUBSECTION_TITLE_TOP_GAP) + SUBSECTION_TITLE_H;
+    buf.push({ kind: "subsection-title", text: sub.title, pageId: sub.pageId });
+
+    for (const block of sub.blocks) {
+      if (block.kind === "list") {
+        for (const item of block.items) {
+          const itemBlock: HandbookContentBlock = { kind: "list-item", text: item };
+          if (addBlock(itemBlock, LIST_GAP) === "new-page") {
+            if (!trySplitBlock(itemBlock, LIST_GAP)) {
+              flushAndStart(itemBlock);
+            }
           }
         }
-      }
-    } else {
-      if (addBlock(block, GAP) === "new-page") {
-        if (!trySplitBlock(block, GAP)) {
-          flushAndStart(block);
+      } else {
+        if (addBlock(block, GAP) === "new-page") {
+          if (!trySplitBlock(block, GAP)) {
+            flushAndStart(block);
+          }
         }
       }
     }
   }
 
   if (buf.length > 0) pages.push(buf);
-  return pages;
+  return { pages, starts };
 }
 
 function HandbookParagraph({ children, italic = false }: { children: ReactNode; italic?: boolean }) {
@@ -417,12 +480,21 @@ function HandbookParagraph({ children, italic = false }: { children: ReactNode; 
 
 /**
  * Block-to-block margins below are matched to the GAP/LIST_GAP constants reserved by
- * splitPages() during pagination. Without them the DOM renders tightly-packed content
+ * splitChapterPages() during pagination. Without them the DOM renders tightly-packed content
  * (Tailwind preflight zeroes default margins) while the paginator budgets extra space
  * for a gap that never appears — the mismatch was what left the bottom third of every
  * handbook page blank.
  */
-function renderContentBlock(block: HandbookContentBlock, index: number) {
+function renderContentBlock(block: HandbookPageBlock, index: number) {
+  if (block.kind === "subsection-title") {
+    return (
+      <div key={`title-${block.pageId}`} className="mb-[13px] mt-7 first:mt-0">
+        <h2 className="mb-2 font-display text-lg tracking-tight">{block.text}</h2>
+        <div className="h-px w-8 bg-current/20" />
+      </div>
+    );
+  }
+
   if (block.kind === "heading") {
     return (
       <h3 key={`${block.text}-${index}`} className={`mb-[13px] text-[15px] font-semibold leading-[1.65] text-neutral-900 last:mb-0 ${block.italic ? "italic" : ""}`}>
@@ -628,7 +700,7 @@ function HandbookTocPage({
   return (
     <div className={`flex h-full w-full flex-col bg-white text-neutral-900 paper-grain ${isMobile ? "" : "page-edge"}`}>
       <div className="flex-1 overflow-y-auto p-8 md:p-10">
-        <h2 className="font-display text-xl tracking-tight mb-4">Contents</h2>
+        <h2 className="font-display text-2xl tracking-tight mb-4">Contents</h2>
         <div className="h-px w-8 bg-current/20 mb-5" />
         <nav className="space-y-[3px]">
           {tocSections.map((sec) => {
@@ -638,16 +710,16 @@ function HandbookTocPage({
             const hasSubsections = !isIndexEntry && sec.subsections && sec.subsections.length > 0;
             return (
               <div key={sec.number}>
-                <div className="group flex h-[44px] w-full items-center gap-3 border-t border-neutral-200 text-left text-[12px] text-black-500 transition-colors hover:text-neutral-900">
+                <div className="group flex h-[52px] w-full items-center gap-3 border-t border-neutral-200 text-left text-[15px] text-black-500 transition-colors hover:text-neutral-900">
                   <button
                     type="button"
                     onClick={() => onJump(sec.pageIndex)}
                     className="flex flex-1 items-center gap-3 py-0 focus-visible:outline-none"
                   >
-                    <span className="w-5 text-[10px] font-medium text-black-300 group-hover:text-neutral-500">
+                    <span className="w-6 text-[12px] font-medium text-black-300 group-hover:text-neutral-500">
                       {isIndexEntry ? "" : String(sec.number).padStart(2, "0")}
                     </span>
-                    <Icon className="size-[16px] shrink-0 text-black-300 transition-colors group-hover:text-neutral-500" strokeWidth={1.5} aria-hidden />
+                    <Icon className="size-[19px] shrink-0 text-black-300 transition-colors group-hover:text-neutral-500" strokeWidth={1.5} aria-hidden />
                     <span className="leading-tight">{sec.title}</span>
                   </button>
                   {hasSubsections && (
@@ -661,7 +733,7 @@ function HandbookTocPage({
                       aria-label={isExpanded ? "Collapse subsections" : "Expand subsections"}
                     >
                       <ChevronDown
-                        className={`size-3.5 text-black-300 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
+                        className={`size-4 text-black-300 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
                         strokeWidth={2}
                       />
                     </button>
@@ -673,7 +745,7 @@ function HandbookTocPage({
                         key={sub.label}
                         type="button"
                         onClick={() => onJump(sub.pageIndex)}
-                        className="flex h-[32px] w-full items-center gap-3 pl-[52px] pr-0 text-left text-[11px] text-black-400 transition-colors hover:text-neutral-900 focus-visible:outline-none"
+                        className="flex h-[38px] w-full items-center gap-3 pl-[56px] pr-0 text-left text-[13px] text-black-400 transition-colors hover:text-neutral-900 focus-visible:outline-none"
                       >
                         <span className="shrink-0 font-medium">{sub.label}</span>
                         <span className="truncate opacity-70">{sub.title.replace(/^\d+\.\d+\s*/, "")}</span>
@@ -686,8 +758,8 @@ function HandbookTocPage({
         </nav>
       </div>
       <div className="flex shrink-0 items-center justify-between border-t border-black-100 px-5 py-2 text-black-300">
-        <span className="text-[8px] font-medium uppercase tracking-[0.2em]">iAE Employee Handbook</span>
-        <span className="text-[8px] font-medium uppercase tracking-[0.2em]">{String(pageNumber).padStart(3, "0")} / {String(totalPages).padStart(3, "0")}</span>
+        <span className="text-[9px] font-medium uppercase tracking-[0.2em]">iAE Employee Handbook</span>
+        <span className="text-[9px] font-medium uppercase tracking-[0.2em]">{String(pageNumber).padStart(3, "0")} / {String(totalPages).padStart(3, "0")}</span>
       </div>
     </div>
   );
@@ -717,8 +789,9 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
     chapterTitle?: string;
     pageInChapter?: number;
     totalInChapter?: number;
-    blocks?: HandbookContentBlock[];
-    subsectionTitle?: string;
+    blocks?: HandbookPageBlock[];
+    /** Subsections whose first line falls on this page (a page can start several short ones). */
+    subsectionStarts?: { pageId: string; title: string }[];
     indexEntries?: { label: string; title: string; pageId: string }[];
     tocSections?: {
       number: number;
@@ -836,28 +909,30 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
           chapterTitle: sec.heroTitle,
         });
 
-        for (const sub of sec.subsections) {
-          const pageBlocks = splitPages(sub.blocks, contentHeight);
+        const flowSubs: FlowSubsection[] = sec.subsections.map((sub) => {
           const subPageId = `sub-${si}-${sub.id}`;
           const numMatch = sub.title.match(/^(\d+\.\d+)/);
           const label = numMatch ? numMatch[1] : sub.title;
           indexSubsections.push({ label, title: sub.title, pageId: subPageId });
+          return { pageId: subPageId, title: sub.title, blocks: sub.blocks };
+        });
 
-          pageBlocks.forEach((chunk, ci) => {
-            result.push({
-              kind: "content",
-              theme: "paper",
-              pageId: ci === 0 ? subPageId : undefined,
-              chapterIdx: si,
-              chapterNumber: number,
-              chapterTitle: sec.heroTitle,
-              pageInChapter: ci + 1,
-              totalInChapter: pageBlocks.length,
-              blocks: chunk,
-              subsectionTitle: ci === 0 ? sub.title : undefined,
-            });
+        const { pages: chapterPages, starts } = splitChapterPages(flowSubs, contentHeight);
+        chapterPages.forEach((chunk, ci) => {
+          result.push({
+            kind: "content",
+            theme: "paper",
+            chapterIdx: si,
+            chapterNumber: number,
+            chapterTitle: sec.heroTitle,
+            pageInChapter: ci + 1,
+            totalInChapter: chapterPages.length,
+            blocks: chunk,
+            subsectionStarts: starts
+              .filter((s) => s.pageIdx === ci)
+              .map(({ pageId, title }) => ({ pageId, title })),
           });
-        }
+        });
       });
 
       // Alphabetical index pages at the end of the book (before the back cover).
@@ -893,27 +968,27 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
         chapterTitle: section.heroTitle,
       });
 
-      for (const sub of section.subsections) {
-        const pageBlocks = splitPages(sub.blocks, contentHeight);
-        const subPageId = `sub-0-${sub.id}`;
-        const numMatch = sub.title.match(/^(\d+\.\d+)/);
-        const label = numMatch ? numMatch[1] : sub.title;
-
-        pageBlocks.forEach((chunk, ci) => {
-          result.push({
-            kind: "content",
-            theme: "paper",
-            pageId: ci === 0 ? subPageId : undefined,
-            chapterIdx: 0,
-            chapterNumber: 1,
-            chapterTitle: section.heroTitle,
-            pageInChapter: ci + 1,
-            totalInChapter: pageBlocks.length,
-            blocks: chunk,
-            subsectionTitle: ci === 0 ? sub.title : undefined,
-          });
+      const flowSubs: FlowSubsection[] = section.subsections.map((sub) => ({
+        pageId: `sub-0-${sub.id}`,
+        title: sub.title,
+        blocks: sub.blocks,
+      }));
+      const { pages: chapterPages, starts } = splitChapterPages(flowSubs, contentHeight);
+      chapterPages.forEach((chunk, ci) => {
+        result.push({
+          kind: "content",
+          theme: "paper",
+          chapterIdx: 0,
+          chapterNumber: 1,
+          chapterTitle: section.heroTitle,
+          pageInChapter: ci + 1,
+          totalInChapter: chapterPages.length,
+          blocks: chunk,
+          subsectionStarts: starts
+            .filter((s) => s.pageIdx === ci)
+            .map(({ pageId, title }) => ({ pageId, title })),
         });
-      }
+      });
       result.push({ kind: "back-cover", theme: "ink" });
     }
 
@@ -926,6 +1001,7 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
     const map = new Map<string, number>();
     result.forEach((page, i) => {
       if (page.pageId) map.set(page.pageId, i);
+      page.subsectionStarts?.forEach((s) => map.set(s.pageId, i));
     });
 
     // Step 3: Build the Table of Contents from the resolved final page order.
@@ -992,6 +1068,7 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
     map.clear();
     result.forEach((page, i) => {
       if (page.pageId) map.set(page.pageId, i);
+      page.subsectionStarts?.forEach((s) => map.set(s.pageId, i));
     });
     for (const entry of tocSections) {
       const idx = entry.pageId != null ? map.get(entry.pageId) : null;
@@ -1015,10 +1092,11 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
     if (currentChapterIdx < 0) return [];
     const entries: { label: string; fullTitle: string; pageIndex: number }[] = [];
     bookPages.forEach((page, i) => {
-      if (page.chapterIdx === currentChapterIdx && page.subsectionTitle) {
-        const numMatch = page.subsectionTitle.match(/^(\d+\.\d+)/);
-        const label = numMatch ? numMatch[1] : page.subsectionTitle;
-        entries.push({ label, fullTitle: page.subsectionTitle, pageIndex: i });
+      if (page.chapterIdx !== currentChapterIdx) return;
+      for (const start of page.subsectionStarts ?? []) {
+        const numMatch = start.title.match(/^(\d+\.\d+)/);
+        const label = numMatch ? numMatch[1] : start.title;
+        entries.push({ label, fullTitle: start.title, pageIndex: i });
       }
     });
     return entries;
@@ -1049,7 +1127,7 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
     }
     const prefix = `${handbookSubsection} `;
     const idx = bookPages.findIndex(
-      (p) => p.kind === "content" && p.subsectionTitle?.startsWith(prefix),
+      (p) => p.kind === "content" && p.subsectionStarts?.some((s) => s.title.startsWith(prefix)),
     );
     return idx > 0 ? idx : 0;
   }, [handbookSubsection, bookPages, pageIndexById]);
@@ -1125,7 +1203,7 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
       return (
         <div className={`flex h-full w-full flex-col ${themeClasses} ${isMobile ? "" : "page-edge"}`}>
           <div className="flex-1 overflow-y-auto p-8 md:p-10">
-            <h2 className="font-display text-xl tracking-tight mb-4">Index</h2>
+            <h2 className="font-display text-2xl tracking-tight mb-4">Index</h2>
             <div className="h-px w-8 bg-current/20 mb-5" />
             <div className="grid grid-cols-1 gap-x-8 md:grid-cols-2">
               {page.indexEntries.map((entry) => {
@@ -1137,12 +1215,12 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
                     onClick={() => {
                       jumpToIndex(target);
                     }}
-                    className="flex h-[26px] min-w-0 items-baseline gap-2 text-left text-[11px] text-black-500 transition-colors hover:text-neutral-900 focus-visible:outline-none"
+                    className="flex h-[32px] min-w-0 items-baseline gap-2 text-left text-[14px] text-black-500 transition-colors hover:text-neutral-900 focus-visible:outline-none"
                     title={entry.title}
                   >
                     <span className="truncate">{entry.title.replace(/^\d+\.\d+\s*/, "")}</span>
                     <span className="min-w-4 flex-1 border-b border-dotted border-current/25" aria-hidden />
-                    <span className="shrink-0 text-[10px] font-medium tabular-nums text-black-300">
+                    <span className="shrink-0 text-[12px] font-medium tabular-nums text-black-300">
                       {target != null ? String(target + 1).padStart(3, "0") : "—"}
                     </span>
                   </button>
@@ -1151,8 +1229,8 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
             </div>
           </div>
           <div className="flex shrink-0 items-center justify-between border-t border-black-100 px-5 py-2 text-black-300">
-            <span className="text-[8px] font-medium uppercase tracking-[0.2em]">iAE Employee Handbook</span>
-            <span className="text-[8px] font-medium uppercase tracking-[0.2em]">{String(pageNumber).padStart(3, "0")} / {String(totalPages).padStart(3, "0")}</span>
+            <span className="text-[9px] font-medium uppercase tracking-[0.2em]">iAE Employee Handbook</span>
+            <span className="text-[9px] font-medium uppercase tracking-[0.2em]">{String(pageNumber).padStart(3, "0")} / {String(totalPages).padStart(3, "0")}</span>
           </div>
         </div>
       );
@@ -1219,12 +1297,6 @@ export function EmployeeHandbookSectionPage({ handbookHash, handbookSubsection }
             </div>
           )}
           <div className="prose-handbook">
-            {page.subsectionTitle && (
-              <>
-                <h2 className="font-display text-lg tracking-tight mb-2">{page.subsectionTitle}</h2>
-                <div className="h-px w-8 bg-current/20 mb-4" />
-              </>
-            )}
             {page.blocks?.map((block, i) => renderContentBlock(block, i))}
           </div>
         </div>

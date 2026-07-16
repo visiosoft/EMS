@@ -39,7 +39,7 @@ export function LearningAdminPage() {
       const saved = localStorage.getItem("iae_admin_active_dept");
       if (saved) return saved;
     }
-    return viewData?.fromTitle || "Art & Graphic Design";
+    return viewData?.fromTitle || "";
   });
 
   // Data state
@@ -50,7 +50,7 @@ export function LearningAdminPage() {
   const [platforms, setPlatforms] = useState<LearningPlatform[]>([]);
   const [departments, setDepartments] = useState<{ id: number; name: string }[]>([]);
 
-  const activeDeptId = departments.find((d) => d.name === activeDept)?.id || 65;
+  const activeDeptId = departments.find((d) => d.name === activeDept)?.id || departments[0]?.id || 0;
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -98,6 +98,10 @@ export function LearningAdminPage() {
       .then((depts) => {
         const mapped = depts.map((d) => ({ id: d.departmentId, name: d.departmentName }));
         setDepartments(mapped);
+        // Set activeDept to first department if not already set
+        if (!activeDept && mapped.length > 0) {
+          setActiveDept(mapped[0].name);
+        }
         // Set default formDepartment to the active department or first available
         const match = mapped.find((d) => d.name === activeDept);
         if (match) setFormDepartment(String(match.id));

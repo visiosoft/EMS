@@ -1038,13 +1038,6 @@ function ProjectInlineOverview({
               <p className="mt-0.5 text-[11px] text-text-muted">Available once the offer is Submitted.</p>
             </div>
           )}
-          <div>
-            <span className="text-xs text-text-muted">Conversion</span>
-            <div className="mt-0.5 w-full min-w-0 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary">
-              {offerReviewStatus === 'Confirmed' ? 'Engagement created' : '—'}
-            </div>
-            <p className="mt-0.5 text-[11px] text-text-muted">Setting review status to Confirmed creates the engagement.</p>
-          </div>
         </div>
 
         {offerReviewStatus === 'Confirmed' && (

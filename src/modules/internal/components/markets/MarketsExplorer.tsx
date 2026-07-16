@@ -208,7 +208,7 @@ function MarketCard({
               <h3
                 className={cn(
                   'line-clamp-3 min-w-0 flex-1 font-bold leading-snug tracking-[-0.02em] text-neutral-950 [overflow-wrap:anywhere]',
-                  isList ? 'text-base sm:text-lg' : 'text-sm sm:text-base lg:text-lg',
+                  isList ? 'text-base sm:text-lg' : 'min-h-[4.125em] text-sm sm:text-base lg:text-lg',
                 )}
                 title={market.marketName}
               >
@@ -227,26 +227,28 @@ function MarketCard({
                 />
               </span>
             </div>
-            {market.nielsenCode != null ? (
-              <p className="mt-2 text-sm text-neutral-600">
-                <span className="font-semibold text-neutral-800">
-                  Nielsen DMA #{market.nielsenCode}
-                </span>
-                {market.nielsenRank != null ? (
-                  <span className="text-neutral-500"> · Rank {market.nielsenRank}</span>
-                ) : null}
-              </p>
-            ) : null}
-            {market.nielsenMarketName ? (
-              <p className="mt-0.5 truncate text-xs text-neutral-500" title={market.nielsenMarketName}>
-                Nielsen name: {market.nielsenMarketName}
-              </p>
-            ) : null}
-            {market.population != null ? (
-              <p className="mt-0.5 text-xs text-neutral-500">
-                {market.population.toLocaleString()} metro population
-              </p>
-            ) : null}
+            <div className="mt-2 flex min-h-[3.75rem] flex-col gap-0.5">
+              {market.nielsenCode != null ? (
+                <p className="text-sm text-neutral-600">
+                  <span className="font-semibold text-neutral-800">
+                    Nielsen DMA #{market.nielsenCode}
+                  </span>
+                  {market.nielsenRank != null ? (
+                    <span className="text-neutral-500"> · Rank {market.nielsenRank}</span>
+                  ) : null}
+                </p>
+              ) : null}
+              {market.nielsenMarketName ? (
+                <p className="truncate text-xs text-neutral-500" title={market.nielsenMarketName}>
+                  Nielsen name: {market.nielsenMarketName}
+                </p>
+              ) : null}
+              {market.population != null ? (
+                <p className="text-xs text-neutral-500">
+                  {market.population.toLocaleString()} metro population
+                </p>
+              ) : null}
+            </div>
           </div>
         </div>
       </button>

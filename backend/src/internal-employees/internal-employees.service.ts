@@ -139,21 +139,35 @@ export class InternalEmployeesService {
 
   async listEmployeesByDepartment(departmentId: number): Promise<IaeEmployeeRow[]> {
     const rows = await this.dataSource.query(
-      `SELECT DISTINCT
+      `SELECT
          c.ContactID AS contactId,
          ci.FirstName AS firstName,
          ci.LastName AS lastName,
          ci.Email AS email,
          ci.CellPhone AS cellPhone,
          ci.WorkPhone AS workPhone,
-         r.RoleName AS roleName
-       FROM dbo.ContactAssignment ca
-       JOIN dbo.Contact c ON c.ContactID = ca.ContactID
-       JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
-       JOIN dbo.Company company ON company.CompanyID = ca.CompanyID
-       LEFT JOIN dbo.Role r ON r.RoleID = ca.RoleID
-       WHERE ca.DepartmentID = @0
-         AND company.is_internal = 1
+         rolePick.roleName AS roleName
+       FROM dbo.Contact c
+       INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+       OUTER APPLY (
+         SELECT STUFF((
+           SELECT ', ' + r.RoleName
+           FROM dbo.ContactAssignment ca2
+           INNER JOIN dbo.Company co2 ON co2.CompanyID = ca2.CompanyID AND co2.is_internal = 1
+           INNER JOIN dbo.Role r ON r.RoleID = ca2.RoleID
+           WHERE ca2.ContactID = c.ContactID
+             AND ca2.DepartmentID = @0
+           FOR XML PATH(''), TYPE
+         ).value('.', 'NVARCHAR(MAX)'), 1, 2, '') AS roleName
+       ) rolePick
+       WHERE EXISTS (
+         SELECT 1
+         FROM dbo.ContactAssignment ca
+         INNER JOIN dbo.Company company ON company.CompanyID = ca.CompanyID
+         WHERE ca.ContactID = c.ContactID
+           AND ca.DepartmentID = @0
+           AND company.is_internal = 1
+       )
        ORDER BY ci.LastName ASC, ci.FirstName ASC`,
       [departmentId],
     );
