@@ -169,6 +169,13 @@ export interface ApiProjectVenue {
   /** NOT NULL in DB */
   venueStatus: VenueStatus;
 
+  /** Offer Creation Status at the venue (component) level. Values: Requested, Drafted, Submitted */
+  offerCreationStatus: string;
+  /** Offer Review Status at the venue level. Only applicable once offerCreationStatus = 'Submitted'. */
+  offerReviewStatus?: string | null;
+  /** FK → dbo.Link — confirmed offer PDF for this specific venue/component. */
+  confirmedOfferLinkId?: number | null;
+
   // -------------------------------------------------------------------------
   // FRONTEND-ONLY fields – not in EngagementProjectVenue table
   // Include in payload if backend can persist them; otherwise backend ignores.
@@ -191,6 +198,8 @@ export interface CreateProjectVenuePayload {
   venueCompanyId: number;
   /** REQUIRED */
   venueStatus: VenueStatus;
+  /** Offer Creation Status for this venue component. Defaults to 'Requested'. */
+  offerCreationStatus?: ProjectStage;
   /** One or more proposed date/time options */
   performanceOptions?: CreatePerformanceOptionPayload[];
 
@@ -204,7 +213,12 @@ export interface CreateProjectVenuePayload {
   engagementId?: number;
 }
 
-export type UpdateProjectVenuePayload = Partial<Omit<CreateProjectVenuePayload, 'venueCompanyId'>>;
+export type UpdateProjectVenuePayload = Partial<Omit<CreateProjectVenuePayload, 'venueCompanyId'>> & {
+  /** Offer Creation Status for this venue component */
+  offerCreationStatus?: ProjectStage;
+  /** Offer Review Status. 'Confirmed' triggers engagement creation for this venue. */
+  offerReviewStatus?: OfferReviewStatus | null;
+};
 
 // ---------------------------------------------------------------------------
 // Project (EngagementProject)
@@ -232,12 +246,6 @@ export interface ApiProjectListRow {
   /** From Tour.TalentAgencyCompanyID → Company */
   talentAgencyCompanyId?: number | null;
   talentAgencyCompanyName?: string | null;
-  /** EngagementProject.OfferCreationStatus (formerly ProjectStage) — NOT NULL (may be legacy values not in `PROJECT_STAGE_VALUES`) */
-  projectStage: string;
-  /** EngagementProject.OfferReviewStatus (new). Nullable; only set once Submitted. 'Confirmed' triggers conversion. */
-  offerReviewStatus?: string | null;
-  /** FK → dbo.Link.LinkID — set when a confirmed-offer PDF is uploaded. */
-  confirmedOfferLinkId?: number | null;
   /** ISO datetime */
   createdDate: string;
   /** nullable in DB */
@@ -268,10 +276,8 @@ export interface CreateProjectPayload {
   tourId: number;
   /** Sent by the wizard; persisted on dbo.Tour.TalentAgencyCompanyID when the project is created. */
   talentAgencyCompanyId: number;
-  /** REQUIRED */
-  projectStage: ProjectStage;
-  /** Optional; only valid once projectStage = 'Submitted'. 'Confirmed' triggers conversion. */
-  offerReviewStatus?: OfferReviewStatus | null;
+  /** Default OfferCreationStatus applied to all venues if not specified per-venue. */
+  projectStage?: ProjectStage;
   /** nullable */
   createdBy?: string | null;
   /** Persisted to dbo.Tour.TourStartDate */
@@ -295,9 +301,6 @@ export interface CreateProjectPayload {
 }
 
 export interface UpdateProjectPayload {
-  projectStage?: ProjectStage;
-  /** Optional; only valid once projectStage = 'Submitted'. 'Confirmed' triggers conversion. */
-  offerReviewStatus?: OfferReviewStatus | null;
   createdBy?: string | null;
   tourId?: number;
   /** Persisted to dbo.Tour.TourStartDate */
@@ -414,20 +417,21 @@ export function deleteProject(id: number) {
 
 export function uploadConfirmedOfferPdf(
   projectId: number,
+  venueId: number,
   file: File,
 ): Promise<{ linkId: number; linkName: string }> {
   const form = new FormData();
   form.append('file', file);
   return apiFetchMultipart<{ linkId: number; linkName: string }>(
-    `/projects/${projectId}/confirmed-offer-pdf`,
+    `/projects/${projectId}/venues/${venueId}/confirmed-offer-pdf`,
     { method: 'POST', body: form },
   );
 }
 
-/** Returns the URL to fetch/preview the confirmed-offer PDF for a project. */
-export function getConfirmedOfferPdfUrl(projectId: number): string {
+/** Returns the URL to fetch/preview the confirmed-offer PDF for a venue component. */
+export function getConfirmedOfferPdfUrl(projectId: number, venueId: number): string {
   const base = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '';
-  return `${base}/api/projects/${projectId}/confirmed-offer-pdf`;
+  return `${base}/api/projects/${projectId}/venues/${venueId}/confirmed-offer-pdf`;
 }
 
 // --- Venue proposals ---------------------------------------------------------
@@ -448,7 +452,7 @@ export function updateProjectVenue(
   venueId: number,
   body: UpdateProjectVenuePayload,
 ) {
-  return apiFetch<void>(`/projects/${projectId}/venues/${venueId}`, {
+  return apiFetch<ProjectConversionResult>(`/projects/${projectId}/venues/${venueId}`, {
     method: 'PATCH',
     body: JSON.stringify(body),
   });
