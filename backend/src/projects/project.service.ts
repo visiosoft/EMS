@@ -1108,9 +1108,8 @@ export class ProjectService {
             engagementProjectId: savedProject.engagementProjectId,
             venueCompanyId: v.venueCompanyId,
             venueStatus: v.venueStatus,
-          } as any);
-          // Set venue-level offer status (will persist once migration is run)
-          pv.offerCreationStatus = v.offerCreationStatus ?? defaultOfferCreationStatus;
+            offerCreationStatus: v.offerCreationStatus ?? defaultOfferCreationStatus,
+          });
           const savedPv = await manager.save(EngagementProjectVenue, pv);
 
           for (const opt of v.performanceOptions ?? []) {
@@ -1509,8 +1508,8 @@ export class ProjectService {
           engagementProjectId: projectId,
           venueCompanyId: dto.venueCompanyId,
           venueStatus: dto.venueStatus,
-        } as any);
-        pv.offerCreationStatus = dto.offerCreationStatus ?? 'Requested';
+          offerCreationStatus: dto.offerCreationStatus ?? 'Requested',
+        });
         const saved = await manager.save(pv);
 
         for (const opt of dto.performanceOptions ?? []) {

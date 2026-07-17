@@ -439,6 +439,7 @@ function ConfirmedOfferPdfUpload({
   pendingFile,
   onFileSelected,
   required,
+  readOnly,
 }: {
   projectId: number;
   venue: ApiProjectVenue;
@@ -446,6 +447,7 @@ function ConfirmedOfferPdfUpload({
   pendingFile: File | null;
   onFileSelected: (file: File | null) => void;
   required?: boolean;
+  readOnly?: boolean;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [showPreview, setShowPreview] = useState(false);
@@ -500,13 +502,15 @@ function ConfirmedOfferPdfUpload({
               <Eye className="h-3.5 w-3.5" />
               {showPreview ? 'Hide preview' : 'Preview'}
             </button>
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              className="ml-auto text-xs text-ems-accent hover:underline"
-            >
-              Replace
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="ml-auto text-xs text-ems-accent hover:underline"
+              >
+                Replace
+              </button>
+            )}
           </div>
           {showPreview && pdfPreviewUrl && (
             <div className="mt-3 rounded border border-border overflow-hidden">
@@ -1773,10 +1777,11 @@ function VenueConfirmEngagementModal({
         primaryVenueCompanyId: venue.venueCompanyId,
       });
 
-      // 2. Confirm venue status
+      // 2. Confirm venue status + link engagement via offerReviewStatus
       try {
         await updateProjectVenue(projectId, venue.engagementProjectVenueId, {
           venueStatus: 'Confirmed' as VenueStatus,
+          engagementId,
         });
       } catch (statusErr) {
         // Engagement was created but venue status update failed — still report success for engagement
@@ -2062,11 +2067,9 @@ function VenueProposalRow({
   return (
     <>
       <div className="relative bg-card border border-border rounded-lg overflow-hidden">
-        {venue.venueStatus === 'Confirmed' && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/50 backdrop-blur-[1px]">
-            <span className="text-xs font-medium italic text-emerald-600 dark:text-emerald-400 px-3 py-1 rounded bg-background/80 shadow-sm">
-              Engagement created (locked)
-            </span>
+        {venue.offerReviewStatus === 'Confirmed' && (
+          <div className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/30 border-b border-emerald-200 dark:border-emerald-800 px-4 py-1.5">
+            <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">Confirmed — read only</span>
           </div>
         )}
         <div className="p-4 space-y-3">
@@ -2147,7 +2150,7 @@ function VenueProposalRow({
                   <StatusBadge status={venue.venueStatus} />
                 </div>
               )}
-              {!readOnly && venue.venueStatus !== 'Confirmed' && (
+              {!readOnly && venue.offerReviewStatus !== 'Confirmed' && (
                 <button type="button" onClick={() => setConfirmRemoveOpen(true)} disabled={deleting}
                   className="text-text-muted hover:text-ems-coral text-xs disabled:opacity-50 px-1"
                   aria-label={`Remove ${venueDisplayName}`}
@@ -2198,6 +2201,7 @@ function VenueProposalRow({
                   pendingFile={pendingPdfFile}
                   onFileSelected={(file) => setPendingPdfFile(file)}
                   required
+                  readOnly={venue.offerReviewStatus === 'Confirmed'}
                 />
               )}
               {(offerCreationStatus !== (venue.offerCreationStatus ?? 'Requested') ||
@@ -2232,7 +2236,7 @@ function VenueProposalRow({
           <div className="border-t border-border/60 pt-2 space-y-1">
             <div className="flex items-center justify-between mb-1.5">
               <p className="text-[11px] text-text-muted font-medium">Proposed Dates</p>
-              {!readOnly && venue.venueStatus !== 'Confirmed' && (
+              {!readOnly && venue.offerReviewStatus !== 'Confirmed' && (
                 <button type="button" onClick={() => setShowAddOpt(!showAddOpt)} className="text-ems-accent text-[11px] hover:underline">+ Add date</button>
               )}
             </div>
@@ -2316,9 +2320,18 @@ function VenueProposalRow({
             onOpenEngagement?.(engagementId);
             void onRefresh();
           }}
-          onCancel={() => {
+          onCancel={async () => {
             setShowEngagementModal(false);
-            setVenueStatus(venue.venueStatus);
+            // Revert the offerReviewStatus on the backend since no engagement was created
+            try {
+              await updateProjectVenue(projectId, venue.engagementProjectVenueId, {
+                offerReviewStatus: (venue.offerReviewStatus !== 'Confirmed' ? venue.offerReviewStatus : null) as OfferReviewStatus | null,
+              });
+              await onRefresh();
+            } catch (e) {
+              addToast(friendlyApiError(e, 'Could not revert offer review status.'), 'error');
+            }
+            setOfferReviewStatus(venue.offerReviewStatus !== 'Confirmed' ? (venue.offerReviewStatus ?? null) : null);
           }}
           addToast={addToast}
         />
