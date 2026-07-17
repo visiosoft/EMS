@@ -1,1 +1,0 @@
-{"version":3,"file":"internal-access.guard.js","sourceRoot":"","sources":["../../src/internal-access/internal-access.guard.ts"],"names":[],"mappings":";;;;;;;;;AAAA,2CAAyD;AAGlD,IAAM,mBAAmB,GAAzB,MAAM,mBAAmB;IAC9B,WAAW;QACT,OAAO,IAAI,CAAC;IACd,CAAC;CACF,CAAA;AAJY,kDAAmB;8BAAnB,mBAAmB;IAD/B,IAAA,mBAAU,GAAE;GACA,mBAAmB,CAI/B"}
