@@ -17,12 +17,20 @@ export interface HealthPlanPricingInfo {
   monthlyPremium: number;
 }
 
+export interface HealthPlanContributionRuleInfo {
+  tenureTier: string;
+  employerContributionPct: number;
+}
+
 export interface HealthPlanOption {
   healthPlanId: number;
   planName: string;
   planType: string;
+  carrierName: string;
+  planCode: string | null;
   benefits: string[];
   pricing: HealthPlanPricingInfo[];
+  contributionRules: HealthPlanContributionRuleInfo[];
 }
 
 export interface EmployeeHealthInsurance {
@@ -30,6 +38,7 @@ export interface EmployeeHealthInsurance {
   insuranceEligibility: string;
   tenureTier: '<1 yr' | '1+ yr' | null;
   companyContributionPerPayPeriod: number;
+  benchmarkBiweekly: number;
   elections: InsuranceElection[];
   plans: HealthPlanOption[];
 }
@@ -39,6 +48,24 @@ export interface UpdateEmployeeHealthInsuranceRequest {
   optInStatus?: string | null;
   healthPlanId?: number | null;
   additionalInsureds?: string | null;
+}
+
+export interface BulkUpdateHealthInsuranceRequest {
+  medical?: {
+    optInStatus?: string | null;
+    healthPlanId?: number | null;
+    additionalInsureds?: string | null;
+  };
+  dental?: {
+    optInStatus?: string | null;
+    healthPlanId?: number | null;
+    additionalInsureds?: string | null;
+  };
+  vision?: {
+    optInStatus?: string | null;
+    healthPlanId?: number | null;
+    additionalInsureds?: string | null;
+  };
 }
 
 export function fetchEmployeeHealthInsurance(
@@ -57,6 +84,19 @@ export function updateEmployeeHealthInsurance(
     `/admin/users/${encodeURIComponent(email)}/health-insurance`,
     {
       method: 'PATCH',
+      body: JSON.stringify(request),
+    },
+  );
+}
+
+export function bulkUpdateHealthInsurance(
+  email: string,
+  request: BulkUpdateHealthInsuranceRequest,
+): Promise<EmployeeHealthInsurance> {
+  return apiFetch<EmployeeHealthInsurance>(
+    `/admin/users/${encodeURIComponent(email)}/health-insurance`,
+    {
+      method: 'PUT',
       body: JSON.stringify(request),
     },
   );

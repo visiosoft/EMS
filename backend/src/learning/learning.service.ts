@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { AuditRequestContext } from '../audit/audit-request-context.service.js';
 import {
@@ -292,6 +292,58 @@ export class LearningService {
     );
 
     return { certificationId: id, status: newStatus };
+  }
+
+  async deleteCertification(id: number) {
+    const userDisplayName = this.auditContext.getUserDisplayName() || 'System';
+    const userId = this.auditContext.getUserOid() || userDisplayName;
+
+    // Check certification exists
+    const rows = await this.dataSource.query(
+      `SELECT CertificationID, Title FROM dbo.LearningCertification WHERE CertificationID = @0`,
+      [id],
+    );
+    if (rows.length === 0) throw new NotFoundException('Certification not found');
+
+    const certTitle = rows[0].Title;
+
+    // Check for submissions referencing this certification
+    const submissionCheck = await this.dataSource.query(
+      `SELECT COUNT(*) AS Total FROM dbo.LearningSubmission WHERE CertificationID = @0`,
+      [id],
+    );
+    if (submissionCheck[0].Total > 0) {
+      throw new ConflictException(
+        `Cannot delete this certification because ${submissionCheck[0].Total} employee(s) have already submitted certificates against it. Submitted documents cannot be removed.`,
+      );
+    }
+
+    // Delete associated tags
+    await this.dataSource.query(
+      `DELETE FROM dbo.LearningCertificationTag WHERE CertificationID = @0`,
+      [id],
+    );
+
+    // Delete associated progress records
+    await this.dataSource.query(
+      `DELETE FROM dbo.LearningProgress WHERE CertificationID = @0`,
+      [id],
+    );
+
+    // Delete the certification
+    await this.dataSource.query(
+      `DELETE FROM dbo.LearningCertification WHERE CertificationID = @0`,
+      [id],
+    );
+
+    // Audit log
+    await this.dataSource.query(
+      `INSERT INTO dbo.LearningAuditLog (ActionType, EntityType, EntityID, PerformedBy, Details)
+       VALUES ('CERT_DELETED', 'Certification', @0, @1, @2)`,
+      [id, userId, JSON.stringify({ title: certTitle })],
+    );
+
+    return { certificationId: id, deleted: true };
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

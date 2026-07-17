@@ -100,6 +100,11 @@ export class LearningController {
     return this.learningService.toggleCertificationStatus(id);
   }
 
+  @Delete('certifications/:id')
+  deleteCertification(@Param('id', ParseIntPipe) id: number) {
+    return this.learningService.deleteCertification(id);
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // SUBMISSIONS — Submit, My Certificates, Monitor
   // ═══════════════════════════════════════════════════════════════════════════

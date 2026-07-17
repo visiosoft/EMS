@@ -186,7 +186,7 @@ const currency = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 
-function InsuranceCard({ election }: { election: SelfProfileInsuranceElection }) {
+function InsuranceCard({ election, companyContributionPerPayPeriod }: { election: SelfProfileInsuranceElection; companyContributionPerPayPeriod?: number }) {
   const optedIn = election.optInStatus.toLowerCase().includes("opt-in");
   const benefits = election.planBenefits
     .split(";")
@@ -212,6 +212,9 @@ function InsuranceCard({ election }: { election: SelfProfileInsuranceElection })
             <Field label="Plan Price" value={textOrDash(election.planPrice)} />
             <Field label="Monthly Rate" value={textOrDash(election.monthlyRate)} />
             <Field label="Payroll Deduction" value={textOrDash(election.payrollDeduction)} />
+            {companyContributionPerPayPeriod != null && companyContributionPerPayPeriod > 0 ? (
+              <Field label="Company Contribution Per Pay Period" value={currency.format(companyContributionPerPayPeriod)} />
+            ) : null}
           </dl>
           {benefits.length > 0 ? (
             <div className="mt-4">
@@ -342,13 +345,7 @@ export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile })
     { label: "Department", value: textOrDash(profile.basics.department) },
     { label: "Role", value: textOrDash(profile.basics.role) },
     { label: "Company", value: textOrDash(profile.basics.company) },
-    { label: "Hire Date", value: formatDate(profile.employment.hireDate) },
     { label: "Start Date at IAE", value: formatDate(profile.employment.startDate) },
-    { label: "Termination Date", value: formatDate(profile.employment.terminationDate) },
-    { label: "Employment Status", value: textOrDash(profile.employment.employmentStatus) },
-    { label: "Employment Type", value: textOrDash(profile.employment.employmentType) },
-    // Pay Type / Pay Rate intentionally omitted: not in the client's Employee
-    // Profiles.xlsx field list, so they are not part of the profile.
     { label: "Years of Service", value: textOrDash(profile.employment.yearsOfService) },
     { label: "Supervisor", value: textOrDash(profile.employment.supervisor) },
     { label: "Paid Time Off Accrual Rate", value: textOrDash(profile.employment.ptoAccrualRate), admin: true },
@@ -415,7 +412,6 @@ export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile })
                         </span>
                       ) : null}
                     </div>
-                    <Field label="Relationship" value={textOrDash(contact.relationship)} />
                     <Field label="Phone" value={phoneOrDash(contact.phoneNumber)} />
                     <Field label="Email" value={textOrDash(contact.email)} />
                   </dl>
@@ -442,21 +438,21 @@ export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile })
               <dl className="mb-5 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
                 <Field label="Health Insurance Status" value={textOrDash(health.insuranceEligibility)} />
                 <Field label="Tenure Tier" value={health.tenureTier || "—"} />
-                <Field
-                  label="Company Contribution Per Pay Period"
-                  value={
-                    health.companyContributionPerPayPeriod > 0
-                      ? currency.format(health.companyContributionPerPayPeriod)
-                      : "—"
-                  }
-                />
               </dl>
               {health.elections.length === 0 ? (
                 <p className="text-sm font-medium text-neutral-500">No insurance elections on file.</p>
               ) : (
                 <div className="space-y-4">
                   {health.elections.map((election) => (
-                    <InsuranceCard key={election.insuranceType} election={election} />
+                    <InsuranceCard
+                      key={election.insuranceType}
+                      election={election}
+                      companyContributionPerPayPeriod={
+                        election.insuranceType === "Medical"
+                          ? health.companyContributionPerPayPeriod
+                          : undefined
+                      }
+                    />
                   ))}
                 </div>
               )}

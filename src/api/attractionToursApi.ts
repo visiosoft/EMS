@@ -79,6 +79,10 @@ export interface ApiTourListRow {
   tourBannerImageUrl: string | null;
   mediaMix: ApiTourMediaMixItem[];
   appCreated: boolean;
+  projectCount: number;
+  engagementCount: number;
+  projectNames: string[];
+  engagementNames: string[];
 }
 
 export interface CreateAttractionPayload {
@@ -294,6 +298,23 @@ export function deleteTour(id: number) {
 
 export function fetchTourEngagements(tourId: number) {
   return apiFetch<ApiTourEngagementRow[]>(`/engagements/by-tour/${tourId}`);
+}
+
+export interface ApiTourProjectRow {
+  engagementProjectId: number;
+  tourId: number;
+  attractionName: string | null;
+  tourName: string | null;
+  talentAgencyName: string | null;
+  projectStage: string;
+  offerReviewStatus: string | null;
+  confirmedOfferLinkId: number | null;
+  createdDate: string;
+  createdBy: string | null;
+}
+
+export function fetchTourProjects(tourId: number) {
+  return apiFetch<ApiTourProjectRow[]>(`/tours/${tourId}/projects`);
 }
 
 export function fetchTourAgeRanges() {

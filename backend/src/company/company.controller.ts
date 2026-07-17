@@ -4,6 +4,7 @@ import {
   DefaultValuePipe,
   Delete,
   Get,
+  NotFoundException,
   Param,
   ParseIntPipe,
   Patch,
@@ -216,6 +217,13 @@ export class ContactsController {
   @Get(':id/connections')
   getConnections(@Param('id', ParseIntPipe) id: number) {
     return this.companyService.getContactConnections(id);
+  }
+
+  @Get(':id')
+  async findOne(@Param('id', ParseIntPipe) id: number) {
+    const row = await this.companyService.findManagedContactById(id);
+    if (!row) throw new NotFoundException(`Contact ${id} not found`);
+    return row;
   }
 
   @Delete(':id')
