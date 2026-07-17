@@ -1475,14 +1475,62 @@ export class HubSpotService {
       return;
     }
 
-    // objectId = HubSpot contact id, use it as ContactInfoID lookup
-    const result = await this.dataSource.query(
+    // 1. Try to find by ContactInfoID = objectId
+    const byId = await this.dataSource.query(
+      `SELECT ContactInfoID FROM dbo.ContactInfo WHERE ContactInfoID = @0`,
+      [event.objectId],
+    );
+
+    if (byId.length > 0) {
+      await this.dataSource.query(
+        `UPDATE dbo.ContactInfo SET [${dbColumn}] = @0 WHERE ContactInfoID = @1`,
+        [event.propertyValue, event.objectId],
+      );
+      this.logger.log(
+        `contact.propertyChange: Updated ContactInfo(${event.objectId}) [${dbColumn}] = "${event.propertyValue}"`,
+      );
+      return;
+    }
+
+    // 2. objectId not found — if property is email, check if value already exists (email must be unique)
+    if (event.propertyName.toLowerCase() === 'email') {
+      const byEmail = await this.dataSource.query(
+        `SELECT ContactInfoID FROM dbo.ContactInfo WHERE [Email] = @0`,
+        [event.propertyValue],
+      );
+
+      if (byEmail.length > 0) {
+        const existingId = byEmail[0].ContactInfoID;
+        this.logger.log(
+          `contact.propertyChange: ContactInfoID=${event.objectId} not found, but email "${event.propertyValue}" exists in ContactInfo(${existingId}). Skipping.`,
+        );
+        return;
+      }
+    }
+
+    // 3. No match at all — insert new record with objectId as ContactInfoID
+    await this.dataSource.query(
+      `SET IDENTITY_INSERT dbo.ContactInfo ON;
+       INSERT INTO dbo.ContactInfo (ContactInfoID, FirstName, LastName, Email, CellPhone, WorkPhone)
+       VALUES (@0, '', '', '', NULL, NULL);
+       SET IDENTITY_INSERT dbo.ContactInfo OFF;`,
+      [event.objectId],
+    );
+
+    // Set the property value on the new record
+    await this.dataSource.query(
       `UPDATE dbo.ContactInfo SET [${dbColumn}] = @0 WHERE ContactInfoID = @1`,
       [event.propertyValue, event.objectId],
     );
 
+    // Also create a Contact record linked to this ContactInfo
+    await this.dataSource.query(
+      `INSERT INTO dbo.Contact (ContactInfoID) VALUES (@0)`,
+      [event.objectId],
+    );
+
     this.logger.log(
-      `contact.propertyChange: Updated ContactInfo(${event.objectId}) [${dbColumn}] = "${event.propertyValue}"`,
+      `contact.propertyChange: Created new ContactInfo(${event.objectId}) + Contact with [${dbColumn}] = "${event.propertyValue}"`,
     );
   }
 
@@ -1498,15 +1546,21 @@ export class HubSpotService {
       return;
     }
 
-    // Insert a new ContactInfo record with the HubSpot objectId
+    // Insert a new ContactInfo record with objectId as ContactInfoID
     await this.dataSource.query(
       `SET IDENTITY_INSERT dbo.ContactInfo ON;
-       INSERT INTO dbo.ContactInfo (ContactInfoID, FirstName, LastName, Email)
-       VALUES (@0, '', '', '');
+       INSERT INTO dbo.ContactInfo (ContactInfoID, FirstName, LastName, Email, CellPhone, WorkPhone)
+       VALUES (@0, '', '', '', NULL, NULL);
        SET IDENTITY_INSERT dbo.ContactInfo OFF;`,
       [event.objectId],
     );
 
-    this.logger.log(`contact.creation: Created ContactInfo(${event.objectId}).`);
+    // Create a Contact record linked to this ContactInfo
+    await this.dataSource.query(
+      `INSERT INTO dbo.Contact (ContactInfoID) VALUES (@0)`,
+      [event.objectId],
+    );
+
+    this.logger.log(`contact.creation: Created ContactInfo(${event.objectId}) + Contact.`);
   }
 }
