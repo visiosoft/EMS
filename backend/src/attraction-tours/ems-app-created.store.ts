@@ -65,7 +65,9 @@ export class EmsAppCreatedStore implements OnModuleInit {
       writeFileSync(fp, JSON.stringify(this.data, null, 2), 'utf8');
     } catch (e) {
       this.logger.error(`Could not persist EMS app-created IDs: ${e}`);
-      throw e;
+      // Do not throw – the in-memory store still holds the data for the
+      // lifetime of this process.  On Azure App Service the wwwroot filesystem
+      // may be read-only; crashing the request is worse than losing persistence.
     }
   }
 
