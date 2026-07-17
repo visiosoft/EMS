@@ -1880,7 +1880,7 @@ function engagementLocationLabel(e: ApiEngagementRow): string {
 
 // ─── Company Linked Records Section ─────────────────────────────────────────
 
-type LinkedRecord = { title: string; subtitle: string | null; role?: string };
+type LinkedRecord = { title: string; subtitle: string | null; role?: string; onClick?: () => void };
 
 /** Saturated avatar tones (white text), picked deterministically from the title. */
 const LINKED_AVATAR_TONES = [
@@ -1907,7 +1907,13 @@ function LinkedRecordRow({ item }: { item: LinkedRecord }) {
     item.title.split("").reduce((sum, ch) => sum + ch.charCodeAt(0), 0) %
     LINKED_AVATAR_TONES.length;
   return (
-    <li className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-hover/40">
+    <li
+      className={`flex items-center gap-3 px-4 py-3 transition-colors ${item.onClick ? 'cursor-pointer hover:bg-hover/60' : 'hover:bg-hover/40'}`}
+      onClick={item.onClick}
+      role={item.onClick ? 'button' : undefined}
+      tabIndex={item.onClick ? 0 : undefined}
+      onKeyDown={item.onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); item.onClick!(); } } : undefined}
+    >
       <div
         className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white ${LINKED_AVATAR_TONES[toneIdx]}`}
         aria-hidden
@@ -1915,7 +1921,7 @@ function LinkedRecordRow({ item }: { item: LinkedRecord }) {
         {linkedRecordInitials(item.title)}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-semibold text-text-primary">
+        <div className={`truncate text-sm font-semibold ${item.onClick ? 'text-text-primary hover:text-ems-accent' : 'text-text-primary'}`}>
           {item.title}
         </div>
         {item.subtitle && (
@@ -1957,7 +1963,7 @@ function LinkGroup({
   );
 }
 
-function CompanyLinksSection({ companyId }: { companyId: string }) {
+function CompanyLinksSection({ companyId, onNavigate }: { companyId: string; onNavigate?: (view: string, data?: unknown) => void }) {
   const q = useQuery({
     queryKey: ["companies", companyId, "links"],
     queryFn: () => fetchCompanyLinks(Number(companyId)),
@@ -1980,19 +1986,22 @@ function CompanyLinksSection({ companyId }: { companyId: string }) {
   const data = q.data;
   if (!data) return null;
 
+  const mapItems = (items: LinkedRecord[], handler: (item: unknown) => (() => void) | undefined) =>
+    items.map((item) => ({ ...item, onClick: handler(item) }));
+
   const groups: {
     key: string;
     title: string;
     icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
     items: LinkedRecord[];
   }[] = [
-    { key: "engagements", title: "Engagements", icon: CalendarRange, items: data.engagements },
-    { key: "projects", title: "Projects", icon: FolderKanban, items: data.projects },
-    { key: "tours", title: "Tours", icon: MapPin, items: data.tours },
-    { key: "attractions", title: "Attractions", icon: Sparkles, items: data.attractions },
-    { key: "serviceProviderFor", title: "Service Provider for", icon: Wrench, items: data.serviceProviderFor },
-    { key: "entertainmentComplexes", title: "Member of Complex", icon: Building2, items: data.entertainmentComplexes },
-    { key: "complexVenues", title: "Complex Venues", icon: Building, items: data.complexVenues },
+    { key: "engagements", title: "Engagements", icon: CalendarRange, items: mapItems(data.engagements as LinkedRecord[], (item) => onNavigate ? () => onNavigate('engagement-detail', { engagementId: (item as { engagementId: number }).engagementId }) : undefined) },
+    { key: "projects", title: "Projects", icon: FolderKanban, items: mapItems(data.projects as LinkedRecord[], (item) => onNavigate ? () => onNavigate('projects', { selectedProjectId: (item as { projectId: number }).projectId }) : undefined) },
+    { key: "tours", title: "Tours", icon: MapPin, items: mapItems(data.tours as LinkedRecord[], (item) => onNavigate ? () => onNavigate('attraction-tours', { selectedTourId: (item as { tourId: number }).tourId }) : undefined) },
+    { key: "attractions", title: "Attractions", icon: Sparkles, items: mapItems(data.attractions as LinkedRecord[], (item) => onNavigate ? () => onNavigate('attraction-tours', { selectedAttractionId: (item as { attractionId: number }).attractionId }) : undefined) },
+    { key: "serviceProviderFor", title: "Service Provider for", icon: Wrench, items: mapItems(data.serviceProviderFor as LinkedRecord[], (item) => onNavigate ? () => onNavigate('companies', { selectedCompanyId: (item as { venueCompanyId: number }).venueCompanyId }) : undefined) },
+    { key: "entertainmentComplexes", title: "Member of Complex", icon: Building2, items: mapItems(data.entertainmentComplexes as LinkedRecord[], (item) => onNavigate ? () => onNavigate('companies', { selectedCompanyId: (item as { complexCompanyId: number }).complexCompanyId }) : undefined) },
+    { key: "complexVenues", title: "Complex Venues", icon: Building, items: mapItems(data.complexVenues as LinkedRecord[], (item) => onNavigate ? () => onNavigate('companies', { selectedCompanyId: (item as { venueCompanyId: number }).venueCompanyId }) : undefined) },
   ].filter((g) => g.items.length > 0);
 
   const totalLinks = groups.reduce((sum, g) => sum + g.items.length, 0);
@@ -4057,6 +4066,16 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
     staleTime: 60 * 1000,
   });
 
+  // Populate search when company detail loads for initial selection
+  useEffect(() => {
+    if (initialSelectedCompanyId == null) return;
+    const name = companyDetailQuery.data?.companyName;
+    if (name) {
+      setSearchInput(name);
+      setActiveSearch(name);
+    }
+  }, [initialSelectedCompanyId, companyDetailQuery.data]);
+
   const selectedCompany = selectedCompanyId
     ? (displayList.find((c) => c.id === selectedCompanyId) ??
       (companyDetailQuery.data
@@ -4876,7 +4895,18 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                       {companyContacts.map((ct) => (
                         <tr key={ct.id} className="border-b border-border/50">
                           <td className="py-2 text-text-primary">
-                            {ct.firstName} {ct.lastName}
+                            {onNavigate ? (
+                              <button
+                                type="button"
+                                onClick={() => onNavigate('contacts', { selectedContactId: ct.contactId })}
+                                className="text-left font-medium hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                                title={`View ${ct.firstName} ${ct.lastName}'s details`}
+                              >
+                                {ct.firstName} {ct.lastName}
+                              </button>
+                            ) : (
+                              <>{ct.firstName} {ct.lastName}</>
+                            )}
                           </td>
                           <td className="py-2">
                             {(() => {
@@ -4982,7 +5012,18 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                         className="rounded-md border border-border bg-surface overflow-hidden"
                       >
                         <div className="px-3 py-2 border-b border-border bg-elevated/40 text-xs font-medium text-text-secondary">
-                          {section.venueCompanyName}
+                          {onNavigate ? (
+                            <button
+                              type="button"
+                              onClick={() => onNavigate('companies', { selectedCompanyId: section.venueCompanyId })}
+                              className="hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                              title={`Open ${section.venueCompanyName}`}
+                            >
+                              {section.venueCompanyName}
+                            </button>
+                          ) : (
+                            section.venueCompanyName
+                          )}
                         </div>
                         <table className="w-full text-sm table-fixed">
                           <thead>
@@ -5001,7 +5042,18 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                                 className="border-b border-border/50 last:border-b-0"
                               >
                                 <td className="py-2 px-3 text-text-primary">
-                                  {ct.firstName} {ct.lastName}
+                                  {onNavigate ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => onNavigate('contacts', { selectedContactId: ct.contactId })}
+                                      className="text-left font-medium hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                                      title={`View ${ct.firstName} ${ct.lastName}'s details`}
+                                    >
+                                      {ct.firstName} {ct.lastName}
+                                    </button>
+                                  ) : (
+                                    <>{ct.firstName} {ct.lastName}</>
+                                  )}
                                 </td>
                                 <td className="py-2 px-3">
                                   {(() => {
@@ -5091,7 +5143,7 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
             )}
 
             {drawerTab === "Linked Records" && (
-              <CompanyLinksSection companyId={String(selectedCompany.id)} />
+              <CompanyLinksSection companyId={String(selectedCompany.id)} onNavigate={onNavigate} />
             )}
           </div>
         </Drawer>

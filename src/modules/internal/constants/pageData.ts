@@ -41,6 +41,7 @@ export type LeadershipContact = {
   mobile: string;
   email: string;
   companyMark?: boolean;
+  contactId?: number;
 };
 
 export const LEADERSHIP_CONTACTS: LeadershipContact[] = [
