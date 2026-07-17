@@ -4,8 +4,10 @@ import { InternalPageHero } from "../components/InternalPageHero";
 import { InternalPageFrame } from "../layout/InternalPageFrame";
 import { WeeklyRecapSection } from "../components/WeeklyRecapSection";
 import { LEADERSHIP_CONTACTS } from "../constants/pageData";
+import { useInternalNavigation } from "../routing/InternalNavigationContext";
 
 export function LeadershipPage() {
+  const { navigate } = useInternalNavigation();
   return (
     <InternalPageFrame footer={<WeeklyRecapSection pinned />}>
       <InternalPageHero
@@ -29,7 +31,20 @@ export function LeadershipPage() {
                     <UserRound className="h-9 w-9" strokeWidth={1.25} aria-hidden />
                   )}
                 </div>
-                <h3 className="mt-3 text-base font-semibold leading-tight text-white">{person.name}</h3>
+                <h3 className="mt-3 text-base font-semibold leading-tight text-white">
+                  {person.contactId ? (
+                    <button
+                      type="button"
+                      onClick={() => navigate('employee-profile', { contactId: person.contactId })}
+                      className="hover:text-white/80 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40 rounded-sm transition-colors"
+                      title={`View ${person.name}'s profile`}
+                    >
+                      {person.name}
+                    </button>
+                  ) : (
+                    person.name
+                  )}
+                </h3>
                 <p className="mt-1 min-h-[28px] text-[10px] font-semibold uppercase tracking-[0.18em] text-white/58">
                   {person.title}
                 </p>

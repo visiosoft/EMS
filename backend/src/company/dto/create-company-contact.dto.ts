@@ -81,4 +81,9 @@ export class UpdateCompanyContactDto {
   @IsInt()
   @Min(1)
   departmentId?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  companyId?: number;
 }
