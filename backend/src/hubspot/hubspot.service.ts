@@ -1413,6 +1413,18 @@ export class HubSpotService {
   // ─── Webhook event processing ────────────────────────────────────────────────
 
   /**
+   * HubSpot property name → ContactInfo column name mapping.
+   */
+  private readonly contactPropertyMap: Record<string, string> = {
+    email: 'Email',
+    firstname: 'FirstName',
+    lastname: 'LastName',
+    phone: 'CellPhone',
+    mobilephone: 'CellPhone',
+    work_phone: 'WorkPhone',
+  };
+
+  /**
    * Process an array of HubSpot webhook events asynchronously.
    * Called fire-and-forget from the controller after the 200 response is sent.
    */
@@ -1420,29 +1432,18 @@ export class HubSpotService {
     for (const event of events) {
       try {
         switch (event.subscriptionType) {
-          case 'contact.creation':
-            // TODO: Map HubSpot objectId to internal ContactID.
-            // Currently there is no HubSpotContactId column on Contact/ContactInfo.
-            // Once a mapping exists, call queueContactSync with the internal ID.
-            this.logger.log(
-              `Webhook: contact.creation for HubSpot objectId=${event.objectId}. No internal mapping yet — skipping.`,
-            );
+          case 'contact.propertyChange':
+            await this.handleContactPropertyChange(event);
             break;
 
-          case 'contact.propertyChange':
-            // TODO: Map HubSpot objectId to internal ContactID and update the changed property.
-            // Requires a HubSpotContactId lookup column or mapping table.
-            this.logger.log(
-              `Webhook: contact.propertyChange for HubSpot objectId=${event.objectId}, property=${event.propertyName}. No internal mapping yet — skipping.`,
-            );
+          case 'contact.creation':
+            await this.handleContactCreation(event);
             break;
 
           case 'company.creation':
           case 'company.propertyChange':
-            // TODO: Map HubSpot objectId to internal CompanyID.
-            // Once available, route through queueCompanySync(internalCompanyId).
             this.logger.log(
-              `Webhook: ${event.subscriptionType} for HubSpot objectId=${event.objectId}. No internal mapping yet — skipping.`,
+              `Webhook: ${event.subscriptionType} for objectId=${event.objectId}. Company sync not yet wired.`,
             );
             break;
 
@@ -1458,5 +1459,54 @@ export class HubSpotService {
         );
       }
     }
+  }
+
+  private async handleContactPropertyChange(event: HubSpotWebhookEventDto): Promise<void> {
+    if (!event.propertyName || event.propertyValue === undefined) {
+      this.logger.warn(`contact.propertyChange missing propertyName/Value (eventId=${event.eventId}). Skipping.`);
+      return;
+    }
+
+    const dbColumn = this.contactPropertyMap[event.propertyName.toLowerCase()];
+    if (!dbColumn) {
+      this.logger.debug(
+        `No column mapping for HubSpot property "${event.propertyName}". Skipping.`,
+      );
+      return;
+    }
+
+    // objectId = HubSpot contact id, use it as ContactInfoID lookup
+    const result = await this.dataSource.query(
+      `UPDATE dbo.ContactInfo SET [${dbColumn}] = @0 WHERE ContactInfoID = @1`,
+      [event.propertyValue, event.objectId],
+    );
+
+    this.logger.log(
+      `contact.propertyChange: Updated ContactInfo(${event.objectId}) [${dbColumn}] = "${event.propertyValue}"`,
+    );
+  }
+
+  private async handleContactCreation(event: HubSpotWebhookEventDto): Promise<void> {
+    // Check if a ContactInfo record already exists with this ID
+    const existing = await this.dataSource.query(
+      `SELECT ContactInfoID FROM dbo.ContactInfo WHERE ContactInfoID = @0`,
+      [event.objectId],
+    );
+
+    if (existing.length > 0) {
+      this.logger.log(`contact.creation: ContactInfo(${event.objectId}) already exists. Skipping.`);
+      return;
+    }
+
+    // Insert a new ContactInfo record with the HubSpot objectId
+    await this.dataSource.query(
+      `SET IDENTITY_INSERT dbo.ContactInfo ON;
+       INSERT INTO dbo.ContactInfo (ContactInfoID, FirstName, LastName, Email)
+       VALUES (@0, '', '', '');
+       SET IDENTITY_INSERT dbo.ContactInfo OFF;`,
+      [event.objectId],
+    );
+
+    this.logger.log(`contact.creation: Created ContactInfo(${event.objectId}).`);
   }
 }
