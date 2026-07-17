@@ -70,6 +70,11 @@ class UpdateContactAssignmentBulkDto {
   @IsInt({ each: true })
   @Min(1, { each: true })
   departmentIds: number[];
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  companyId?: number;
 }
 
 function assertOptionalE164Phone(
@@ -151,7 +156,9 @@ export class ContactAssignmentBulkUpdateController {
           message: 'One or more selected departments are invalid.',
         });
 
-      const companyId = currentAssignment.companyId;
+      const companyId = dto.companyId != null && dto.companyId !== currentAssignment.companyId
+        ? dto.companyId
+        : currentAssignment.companyId;
       const oldContactId = currentAssignment.contactId;
       const oldContactInfoId = currentAssignment.contact.contactInfoId;
       const currentInfo = currentAssignment.contact.contactInfo;
@@ -232,9 +239,12 @@ export class ContactAssignmentBulkUpdateController {
       }
 
       if (targetContactId !== oldContactId) {
-        await assignmentRepo.delete({ companyId, contactId: oldContactId });
+        await assignmentRepo.delete({ companyId: currentAssignment.companyId, contactId: oldContactId });
       }
-      await assignmentRepo.delete({ companyId, contactId: targetContactId });
+      await assignmentRepo.delete({ companyId: currentAssignment.companyId, contactId: targetContactId });
+      if (companyId !== currentAssignment.companyId) {
+        await assignmentRepo.delete({ companyId, contactId: targetContactId });
+      }
 
       const createdIds: number[] = [];
       for (const roleId of roleIds) {
