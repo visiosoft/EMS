@@ -198,6 +198,15 @@ export function toggleLearningCertificationStatus(
   );
 }
 
+export function deleteLearningCertification(
+  id: number,
+): Promise<{ certificationId: number; deleted: boolean }> {
+  return apiFetch<{ certificationId: number; deleted: boolean }>(
+    `/internal/learning/certifications/${id}`,
+    { method: 'DELETE' },
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // SUBMISSIONS
 // ═══════════════════════════════════════════════════════════════════════════
