@@ -1429,13 +1429,36 @@ export class HubSpotService {
    * Called fire-and-forget from the controller after the 200 response is sent.
    */
   async handleWebhookEvents(events: HubSpotWebhookEventDto[]): Promise<void> {
+    // Group contact.propertyChange events by objectId to process together
+    const contactPropertyEvents = new Map<number, HubSpotWebhookEventDto[]>();
+    const otherEvents: HubSpotWebhookEventDto[] = [];
+
     for (const event of events) {
+      if (event.subscriptionType === 'contact.propertyChange') {
+        const group = contactPropertyEvents.get(event.objectId) || [];
+        group.push(event);
+        contactPropertyEvents.set(event.objectId, group);
+      } else {
+        otherEvents.push(event);
+      }
+    }
+
+    // Process grouped contact property changes
+    for (const [objectId, group] of contactPropertyEvents) {
+      try {
+        await this.handleContactPropertyChanges(objectId, group);
+      } catch (error) {
+        this.logger.error(
+          `Webhook processing failed for objectId=${objectId} (contact.propertyChange)`,
+          error instanceof Error ? error.stack : error,
+        );
+      }
+    }
+
+    // Process other events
+    for (const event of otherEvents) {
       try {
         switch (event.subscriptionType) {
-          case 'contact.propertyChange':
-            await this.handleContactPropertyChange(event);
-            break;
-
           case 'contact.creation':
             await this.handleContactCreation(event);
             break;
@@ -1461,106 +1484,108 @@ export class HubSpotService {
     }
   }
 
-  private async handleContactPropertyChange(event: HubSpotWebhookEventDto): Promise<void> {
-    if (!event.propertyName || event.propertyValue === undefined) {
-      this.logger.warn(`contact.propertyChange missing propertyName/Value (eventId=${event.eventId}). Skipping.`);
-      return;
-    }
-
-    const dbColumn = this.contactPropertyMap[event.propertyName.toLowerCase()];
-    if (!dbColumn) {
-      this.logger.debug(
-        `No column mapping for HubSpot property "${event.propertyName}". Skipping.`,
-      );
-      return;
-    }
-
-    // 1. Try to find by ContactInfoID = objectId
-    const byId = await this.dataSource.query(
-      `SELECT ContactInfoID FROM dbo.ContactInfo WHERE ContactInfoID = @0`,
-      [event.objectId],
+  private async handleContactPropertyChanges(
+    objectId: number,
+    events: HubSpotWebhookEventDto[],
+  ): Promise<void> {
+    // Find the email event from the group
+    const emailEvent = events.find(
+      (e) => e.propertyName?.toLowerCase() === 'email' && e.propertyValue,
     );
+    const email = emailEvent?.propertyValue;
 
-    if (byId.length > 0) {
-      await this.dataSource.query(
-        `UPDATE dbo.ContactInfo SET [${dbColumn}] = @0 WHERE ContactInfoID = @1`,
-        [event.propertyValue, event.objectId],
-      );
-      this.logger.log(
-        `contact.propertyChange: Updated ContactInfo(${event.objectId}) [${dbColumn}] = "${event.propertyValue}"`,
-      );
-      return;
-    }
+    // 1. If we have an email, look up the contact by email
+    let contactInfoId: number | null = null;
+    let foundByEmail = false;
 
-    // 2. objectId not found — if property is email, check if value already exists (email must be unique)
-    if (event.propertyName.toLowerCase() === 'email') {
+    if (email) {
       const byEmail = await this.dataSource.query(
         `SELECT ContactInfoID FROM dbo.ContactInfo WHERE [Email] = @0`,
-        [event.propertyValue],
+        [email],
       );
 
       if (byEmail.length > 0) {
-        const existingId = byEmail[0].ContactInfoID;
+        contactInfoId = byEmail[0].ContactInfoID;
+        foundByEmail = true;
         this.logger.log(
-          `contact.propertyChange: ContactInfoID=${event.objectId} not found, but email "${event.propertyValue}" exists in ContactInfo(${existingId}). Skipping.`,
+          `contact.propertyChange: Found existing contact by email "${email}" → ContactInfo(${contactInfoId}).`,
         );
-        return;
       }
     }
 
-    // 3. No match at all — insert new record with objectId as ContactInfoID
-    await this.dataSource.query(
-      `SET IDENTITY_INSERT dbo.ContactInfo ON;
-       INSERT INTO dbo.ContactInfo (ContactInfoID, FirstName, LastName, Email, CellPhone, WorkPhone)
-       VALUES (@0, '', '', '', NULL, NULL);
-       SET IDENTITY_INSERT dbo.ContactInfo OFF;`,
-      [event.objectId],
-    );
+    // 2. If contact not found by email, create a new one (auto-generated ID)
+    if (contactInfoId === null) {
+      const insertResult = await this.dataSource.query(
+        `INSERT INTO dbo.ContactInfo (FirstName, LastName, Email, CellPhone, WorkPhone)
+         VALUES ('', '', @0, NULL, NULL);
+         SELECT SCOPE_IDENTITY() AS NewId;`,
+        [email || ''],
+      );
+      const newId = insertResult?.[0]?.NewId;
 
-    // Set the property value on the new record
-    await this.dataSource.query(
-      `UPDATE dbo.ContactInfo SET [${dbColumn}] = @0 WHERE ContactInfoID = @1`,
-      [event.propertyValue, event.objectId],
-    );
+      if (!newId) {
+        this.logger.error(`contact.propertyChange: Failed to insert new ContactInfo. Result: ${JSON.stringify(insertResult)}`);
+        return;
+      }
 
-    // Also create a Contact record linked to this ContactInfo
-    await this.dataSource.query(
-      `INSERT INTO dbo.Contact (ContactInfoID) VALUES (@0)`,
-      [event.objectId],
-    );
+      await this.dataSource.query(
+        `INSERT INTO dbo.Contact (ContactInfoID) VALUES (@0)`,
+        [newId],
+      );
 
-    this.logger.log(
-      `contact.propertyChange: Created new ContactInfo(${event.objectId}) + Contact with [${dbColumn}] = "${event.propertyValue}"`,
-    );
+      contactInfoId = newId;
+      foundByEmail = false;
+      this.logger.log(
+        `contact.propertyChange: Created new ContactInfo(${newId}) + Contact with email="${email}".`,
+      );
+    }
+
+    // 3. Update properties on the found/created contact (skip email if contact was found by it)
+    for (const event of events) {
+      if (!event.propertyName || event.propertyValue === undefined) continue;
+
+      // Skip updating email if we found the contact by that email (it's already correct)
+      if (event.propertyName.toLowerCase() === 'email' && foundByEmail) continue;
+
+      const dbColumn = this.contactPropertyMap[event.propertyName.toLowerCase()];
+      if (!dbColumn) {
+        this.logger.debug(
+          `No column mapping for HubSpot property "${event.propertyName}". Skipping.`,
+        );
+        continue;
+      }
+
+      await this.dataSource.query(
+        `UPDATE dbo.ContactInfo SET [${dbColumn}] = @0 WHERE ContactInfoID = @1`,
+        [event.propertyValue, contactInfoId],
+      );
+
+      this.logger.log(
+        `contact.propertyChange: Updated ContactInfo(${contactInfoId}) [${dbColumn}] = "${event.propertyValue}"`,
+      );
+    }
   }
 
   private async handleContactCreation(event: HubSpotWebhookEventDto): Promise<void> {
-    // Check if a ContactInfo record already exists with this ID
-    const existing = await this.dataSource.query(
-      `SELECT ContactInfoID FROM dbo.ContactInfo WHERE ContactInfoID = @0`,
-      [event.objectId],
+    // Insert a new ContactInfo record (auto-generated ID)
+    const insertResult = await this.dataSource.query(
+      `INSERT INTO dbo.ContactInfo (FirstName, LastName, Email, CellPhone, WorkPhone)
+       VALUES ('', '', '', NULL, NULL);
+       SELECT SCOPE_IDENTITY() AS NewId;`,
     );
+    const newId = insertResult[0]?.NewId;
 
-    if (existing.length > 0) {
-      this.logger.log(`contact.creation: ContactInfo(${event.objectId}) already exists. Skipping.`);
+    if (!newId) {
+      this.logger.error(`contact.creation: Failed to insert new ContactInfo for objectId=${event.objectId}.`);
       return;
     }
-
-    // Insert a new ContactInfo record with objectId as ContactInfoID
-    await this.dataSource.query(
-      `SET IDENTITY_INSERT dbo.ContactInfo ON;
-       INSERT INTO dbo.ContactInfo (ContactInfoID, FirstName, LastName, Email, CellPhone, WorkPhone)
-       VALUES (@0, '', '', '', NULL, NULL);
-       SET IDENTITY_INSERT dbo.ContactInfo OFF;`,
-      [event.objectId],
-    );
 
     // Create a Contact record linked to this ContactInfo
     await this.dataSource.query(
       `INSERT INTO dbo.Contact (ContactInfoID) VALUES (@0)`,
-      [event.objectId],
+      [newId],
     );
 
-    this.logger.log(`contact.creation: Created ContactInfo(${event.objectId}) + Contact.`);
+    this.logger.log(`contact.creation: Created ContactInfo(${newId}) + Contact for HubSpot objectId=${event.objectId}.`);
   }
 }
