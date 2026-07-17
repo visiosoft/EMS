@@ -85,7 +85,6 @@ export declare class ProjectService {
     private projectXrefKey;
     private getConvertedEngagementId;
     private assertProjectEditable;
-    private convertProjectToEngagement;
     private isOidLike;
     private getCreatedByNameMap;
     private rememberCreatedByName;

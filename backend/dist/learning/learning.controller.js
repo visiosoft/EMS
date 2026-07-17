@@ -102,6 +102,9 @@ let LearningController = class LearningController {
     toggleCertificationStatus(id) {
         return this.learningService.toggleCertificationStatus(id);
     }
+    deleteCertification(id) {
+        return this.learningService.deleteCertification(id);
+    }
     getSubmissions(departmentId, contactId, status, search) {
         return this.learningService.getSubmissions(departmentId, contactId, status, search);
     }
@@ -176,6 +179,13 @@ __decorate([
     __metadata("design:paramtypes", [Number]),
     __metadata("design:returntype", void 0)
 ], LearningController.prototype, "toggleCertificationStatus", null);
+__decorate([
+    (0, common_1.Delete)('certifications/:id'),
+    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number]),
+    __metadata("design:returntype", void 0)
+], LearningController.prototype, "deleteCertification", null);
 __decorate([
     (0, common_1.Get)('submissions'),
     __param(0, (0, common_1.Query)('departmentId', new common_1.DefaultValuePipe(0), common_1.ParseIntPipe)),

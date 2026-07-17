@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { DataSource, Repository } from 'typeorm';
 import { Company } from '../entities/company.entity';
 import { Contact } from '../entities/contact.entity';
+import { HubSpotWebhookEventDto } from './dto/hubspot-webhook-event.dto';
 export interface HubSpotContactSyncResult {
     dryRun: boolean;
     syncSource: string;
@@ -85,4 +86,5 @@ export declare class HubSpotService {
     private uniqueNumbers;
     private toNullableNumber;
     private mergeHubSpotIds;
+    handleWebhookEvents(events: HubSpotWebhookEventDto[]): Promise<void>;
 }

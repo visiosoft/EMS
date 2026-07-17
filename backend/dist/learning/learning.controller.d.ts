@@ -54,6 +54,10 @@ export declare class LearningController {
         certificationId: number;
         status: string;
     }>;
+    deleteCertification(id: number): Promise<{
+        certificationId: number;
+        deleted: boolean;
+    }>;
     getSubmissions(departmentId: number, contactId: number, status: string, search: string): Promise<any>;
     getSubmissionById(id: number): Promise<{
         submissionId: any;

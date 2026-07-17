@@ -13,6 +13,7 @@ const company_entity_1 = require("../entities/company.entity");
 const contact_entity_1 = require("../entities/contact.entity");
 const hubspot_controller_1 = require("./hubspot.controller");
 const hubspot_service_1 = require("./hubspot.service");
+const hubspot_signature_service_1 = require("./hubspot-signature.service");
 let HubSpotModule = class HubSpotModule {
 };
 exports.HubSpotModule = HubSpotModule;
@@ -20,7 +21,7 @@ exports.HubSpotModule = HubSpotModule = __decorate([
     (0, common_1.Module)({
         imports: [typeorm_1.TypeOrmModule.forFeature([contact_entity_1.Contact, company_entity_1.Company])],
         controllers: [hubspot_controller_1.HubSpotController],
-        providers: [hubspot_service_1.HubSpotService],
+        providers: [hubspot_service_1.HubSpotService, hubspot_signature_service_1.HubSpotSignatureService],
         exports: [hubspot_service_1.HubSpotService],
     })
 ], HubSpotModule);

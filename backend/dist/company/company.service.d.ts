@@ -76,6 +76,14 @@ export interface CompanyContactRow {
     departmentId: number;
     departmentName: string;
 }
+export interface ManagedContactAssignmentGroup {
+    companyId: number;
+    companyName: string;
+    roleIds: number[];
+    roleNames: string[];
+    departmentIds: number[];
+    departmentNames: string[];
+}
 export interface ManagedContactRow {
     contactId: number;
     contactInfoId: number;
@@ -91,6 +99,7 @@ export interface ManagedContactRow {
     roleNames: string[];
     departmentIds: number[];
     departmentNames: string[];
+    assignments: ManagedContactAssignmentGroup[];
 }
 export interface CompanyVenueLinkedContactsSection {
     venueCompanyId: number;
@@ -407,12 +416,16 @@ export declare class CompanyService {
     private mapRawContactRow;
     private uniquePositiveInts;
     private ensureManagedContactAssignments;
+    private deleteContactAssignmentsWithDependents;
+    private assignmentsFromDto;
     private getOrCreateManagedContact;
     listManagedContacts(offset?: number, limit?: number, q?: string, companyId?: number): Promise<{
         data: ManagedContactRow[];
         total: number;
     }>;
+    private accumulateManagedContactAssignmentRow;
     private getManagedContactRowById;
+    findManagedContactById(contactId: number): Promise<ManagedContactRow | null>;
     createManagedContact(dto: ManageContactDto): Promise<ManagedContactRow>;
     updateManagedContact(contactId: number, dto: UpdateManagedContactDto): Promise<ManagedContactRow>;
     getContactConnections(contactId: number): Promise<{

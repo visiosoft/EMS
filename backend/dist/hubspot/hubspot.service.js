@@ -995,6 +995,29 @@ let HubSpotService = HubSpotService_1 = class HubSpotService {
             }
         }
     }
+    async handleWebhookEvents(events) {
+        for (const event of events) {
+            try {
+                switch (event.subscriptionType) {
+                    case 'contact.creation':
+                        this.logger.log(`Webhook: contact.creation for HubSpot objectId=${event.objectId}. No internal mapping yet — skipping.`);
+                        break;
+                    case 'contact.propertyChange':
+                        this.logger.log(`Webhook: contact.propertyChange for HubSpot objectId=${event.objectId}, property=${event.propertyName}. No internal mapping yet — skipping.`);
+                        break;
+                    case 'company.creation':
+                    case 'company.propertyChange':
+                        this.logger.log(`Webhook: ${event.subscriptionType} for HubSpot objectId=${event.objectId}. No internal mapping yet — skipping.`);
+                        break;
+                    default:
+                        this.logger.debug(`Webhook: unhandled subscriptionType "${event.subscriptionType}" (eventId=${event.eventId}, objectId=${event.objectId})`);
+                }
+            }
+            catch (error) {
+                this.logger.error(`Webhook processing failed for eventId=${event.eventId} (${event.subscriptionType})`, error instanceof Error ? error.stack : error);
+            }
+        }
+    }
 };
 exports.HubSpotService = HubSpotService;
 exports.HubSpotService = HubSpotService = HubSpotService_1 = __decorate([

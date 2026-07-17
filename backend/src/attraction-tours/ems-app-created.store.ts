@@ -64,8 +64,10 @@ export class EmsAppCreatedStore implements OnModuleInit {
       mkdirSync(dirname(fp), { recursive: true });
       writeFileSync(fp, JSON.stringify(this.data, null, 2), 'utf8');
     } catch (e) {
-      this.logger.error(`Could not persist EMS app-created IDs to ${fp}: ${e}`);
-      // Don't throw – persistence is best-effort; failing here should not block the API response
+      this.logger.error(`Could not persist EMS app-created IDs: ${e}`);
+      // Do not throw – the in-memory store still holds the data for the
+      // lifetime of this process.  On Azure App Service the wwwroot filesystem
+      // may be read-only; crashing the request is worse than losing persistence.
     }
   }
 

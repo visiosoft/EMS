@@ -52,7 +52,9 @@ async function bootstrap() {
     fs.mkdirSync(contract_multer_config_1.CONTRACT_UPLOAD_DIR, { recursive: true });
     fs.mkdirSync(confirmed_offer_multer_config_1.CONFIRMED_OFFER_UPLOAD_DIR, { recursive: true });
     fs.mkdirSync(certificateUploadDir, { recursive: true });
-    const app = await core_1.NestFactory.create(app_module_1.AppModule);
+    const app = await core_1.NestFactory.create(app_module_1.AppModule, {
+        rawBody: true,
+    });
     const logger = new common_1.Logger('Bootstrap');
     app.useStaticAssets(tour_banner_multer_config_1.TOUR_BANNER_UPLOAD_DIR, {
         prefix: '/uploads/tour-banners/',

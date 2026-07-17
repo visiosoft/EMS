@@ -61,7 +61,6 @@ let EmsAppCreatedStore = EmsAppCreatedStore_1 = class EmsAppCreatedStore {
         }
         catch (e) {
             this.logger.error(`Could not persist EMS app-created IDs: ${e}`);
-            throw e;
         }
     }
     recordAttraction(id) {

@@ -311,5 +311,6 @@ export declare class ContactsController {
             tourName: string;
         }[];
     }>;
+    findOne(id: number): Promise<import("./company.service").ManagedContactRow>;
     remove(id: number): Promise<void>;
 }
