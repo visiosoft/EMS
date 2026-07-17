@@ -210,6 +210,11 @@ function readAndConsumeOpenIntent(): { view: string; viewData: Record<string, un
       dateFrom?: unknown;
       dateTo?: unknown;
       expiresAt?: unknown;
+      selectedCompanyId?: unknown;
+      selectedContactId?: unknown;
+      selectedTourId?: unknown;
+      selectedAttractionId?: unknown;
+      selectedProjectId?: unknown;
     };
     const expiresAt = typeof parsed.expiresAt === 'number' ? parsed.expiresAt : 0;
     const view = typeof parsed.view === 'string' ? parsed.view : '';
@@ -217,6 +222,37 @@ function readAndConsumeOpenIntent(): { view: string; viewData: Record<string, un
 
     if (view === 'calendar' && VALID_VIEWS.has('calendar')) {
       return { view: 'calendar', viewData: {} };
+    }
+
+    if (view === 'companies' && VALID_VIEWS.has('companies')) {
+      return {
+        view: 'companies',
+        viewData: { selectedCompanyId: typeof parsed.selectedCompanyId === 'number' ? parsed.selectedCompanyId : undefined },
+      };
+    }
+
+    if (view === 'contacts' && VALID_VIEWS.has('contacts')) {
+      return {
+        view: 'contacts',
+        viewData: { selectedContactId: typeof parsed.selectedContactId === 'number' ? parsed.selectedContactId : undefined },
+      };
+    }
+
+    if (view === 'attraction-tours' && VALID_VIEWS.has('attraction-tours')) {
+      return {
+        view: 'attraction-tours',
+        viewData: {
+          selectedTourId: typeof parsed.selectedTourId === 'number' ? parsed.selectedTourId : undefined,
+          selectedAttractionId: typeof parsed.selectedAttractionId === 'number' ? parsed.selectedAttractionId : undefined,
+        },
+      };
+    }
+
+    if (view === 'projects' && VALID_VIEWS.has('projects')) {
+      return {
+        view: 'projects',
+        viewData: { selectedProjectId: typeof parsed.selectedProjectId === 'number' ? parsed.selectedProjectId : undefined },
+      };
     }
 
     if (view !== 'engagements') return null;
@@ -428,14 +464,31 @@ const Index = () => {
           />
         )}
 
-        {view === 'contacts' && <ContactsPage addToast={addToast} />}
+        {view === 'contacts' && (
+          <ContactsPage
+            addToast={addToast}
+            onNavigate={navigate}
+            initialSelectedContactId={
+              (data.selectedContactId as number | undefined) ?? null
+            }
+          />
+        )}
 
-        {view === 'organization' && <OrganizationalChartPage />}
+        {view === 'organization' && <OrganizationalChartPage onNavigate={navigate} />}
 
         {view === 'all-venues' && <AllVenuesPage onNavigate={navigate} />}
 
         {view === 'attraction-tours' && (
-          <AttractionToursPage addToast={addToast} onNavigate={navigate} />
+          <AttractionToursPage
+            addToast={addToast}
+            onNavigate={navigate}
+            initialSelectedTourId={
+              (data.selectedTourId as number | undefined) ?? null
+            }
+            initialSelectedAttractionId={
+              (data.selectedAttractionId as number | undefined) ?? null
+            }
+          />
         )}
 
         {view === 'attraction-sales-summary' && (() => {
@@ -473,7 +526,13 @@ const Index = () => {
         {view === 'calendar' && <CalendarPage onNavigate={navigate} addToast={addToast} />}
 
         {view === 'projects' && (
-          <ProjectsPage onNavigate={navigate} addToast={addToast} />
+          <ProjectsPage
+            onNavigate={navigate}
+            addToast={addToast}
+            initialSelectedProjectId={
+              (data.selectedProjectId as number | undefined) ?? null
+            }
+          />
         )}
 
         {view === 'project-detail' && (
