@@ -1,36 +1,15 @@
 import {
   IsArray,
-  IsIn,
   IsInt,
   IsOptional,
   IsISO8601,
   IsString,
   MaxLength,
   Min,
-  ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import {
-  PROJECT_STAGE_VALUES,
-  OFFER_REVIEW_STATUS_VALUES,
-} from '../project-stage.constants';
-import { ProjectOpeningPerformanceDto } from './create-project.dto';
 
 export class UpdateProjectDto {
-  @IsOptional()
-  @IsString()
-  @IsIn([...PROJECT_STAGE_VALUES])
-  projectStage?: string;
-
-  /**
-   * OfferReviewStatus — only applicable once OfferCreationStatus = 'Submitted'.
-   * When set to 'Confirmed', the project is converted into an engagement.
-   */
-  @IsOptional()
-  @IsString()
-  @IsIn([...OFFER_REVIEW_STATUS_VALUES])
-  offerReviewStatus?: string | null;
-
   @IsOptional()
   @IsString()
   @MaxLength(200)
@@ -67,17 +46,6 @@ export class UpdateProjectDto {
   @IsInt({ each: true })
   @Min(1, { each: true })
   dmaIds?: number[];
-
-  /**
-   * Actual opening/show rows to create when the offer is Confirmed
-   * (OfferReviewStatus = 'Confirmed'). Accepted on update because conversion
-   * can be triggered from the project drawer.
-   */
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => ProjectOpeningPerformanceDto)
-  openingPerformances?: ProjectOpeningPerformanceDto[];
 
   @IsOptional() targetOnSale?: string | null;
   @IsOptional()

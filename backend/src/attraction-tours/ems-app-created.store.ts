@@ -65,7 +65,6 @@ export class EmsAppCreatedStore implements OnModuleInit {
       writeFileSync(fp, JSON.stringify(this.data, null, 2), 'utf8');
     } catch (e) {
       this.logger.error(`Could not persist EMS app-created IDs: ${e}`);
-      throw e;
     }
   }
 
