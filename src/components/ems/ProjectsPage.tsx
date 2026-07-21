@@ -489,10 +489,10 @@ function ConfirmedOfferPdfUpload({
         <>
           <div className="flex items-center gap-2">
             <Check className="h-4 w-4 text-emerald-500 shrink-0" />
-            <span className="text-sm text-text-primary">
+            <span className="text-sm text-text-primary truncate max-w-[20rem]" title={pendingFile ? pendingFile.name : (venue.confirmedOfferLinkName ?? 'PDF uploaded')}>
               {pendingFile
                 ? <><span className="text-amber-600 text-xs font-medium"></span> {pendingFile.name}</>
-                : 'PDF uploaded'}
+                : (venue.confirmedOfferLinkName ?? 'PDF uploaded')}
             </span>
             <button
               type="button"
@@ -1370,7 +1370,7 @@ function renderProjectListCell(slot: ProjectMovableColumnId | 'stage', p: ApiPro
   if (slot === 'stage') {
     return (
       <td key="stage" className="py-2.5 px-3">
-        <span className="text-xs text-text-muted">Per venue</span>
+        <StatusBadge status={p.projectStage} />
       </td>
     );
   }
@@ -1777,7 +1777,31 @@ function VenueConfirmEngagementModal({
         primaryVenueCompanyId: venue.venueCompanyId,
       });
 
-      // 2. Confirm venue status + link engagement via offerReviewStatus
+      // 2. Update proposed dates — since engagement is created, mark first as Confirmed with engagement date/time
+      if (venue.performanceOptions.length > 0) {
+        try {
+          let updatedFirst = false;
+          for (const opt of venue.performanceOptions) {
+            if (!updatedFirst) {
+              // Update the first proposed date to match the engagement opening show
+              await updatePerformanceOption(projectId, opt.performanceOptionId, {
+                proposedDate: openingDate.trim(),
+                proposedTime: openingTime.trim(),
+                optionStatus: 'Confirmed' as OptionStatus,
+              });
+              updatedFirst = true;
+            } else {
+              await updatePerformanceOption(projectId, opt.performanceOptionId, {
+                optionStatus: 'Inactive' as OptionStatus,
+              });
+            }
+          }
+        } catch {
+          addToast('Engagement created but proposed dates could not be updated.', 'warning');
+        }
+      }
+
+      // 3. Confirm venue status + link engagement via offerReviewStatus
       try {
         await updateProjectVenue(projectId, venue.engagementProjectVenueId, {
           venueStatus: 'Confirmed' as VenueStatus,
@@ -2018,13 +2042,18 @@ function VenueProposalRow({
       addToast('Please upload the confirmed offer PDF before confirming.', 'warning');
       return;
     }
+    if (isChangingToConfirmed && venue.performanceOptions.length === 0) {
+      addToast('Please add at least one proposed date before confirming.', 'warning');
+      return;
+    }
     setOfferSaving(true);
     let ok = false;
     try {
       // Upload pending PDF first
       if (pendingPdfFile) {
         await uploadConfirmedOfferPdf(projectId, venue.engagementProjectVenueId, pendingPdfFile);
-        setPendingPdfFile(null);
+        // Don't clear pendingPdfFile here — let onRefresh() update the venue data with confirmedOfferLinkId,
+        // which will naturally replace the pending file display. Clearing early causes a visual gap.
       }
 
       const result = await updateProjectVenue(projectId, venue.engagementProjectVenueId, {
@@ -2039,6 +2068,8 @@ function VenueProposalRow({
         addToast('Offer confirmed — engagement created.', 'success');
       }
       await onRefresh();
+      // Clear pending file only after refresh completes (backend now has the link)
+      if (pendingPdfFile) setPendingPdfFile(null);
       ok = true;
     } catch (e) {
       addToast(friendlyApiError(e, 'Could not update offer status.'), 'error');
@@ -2067,7 +2098,7 @@ function VenueProposalRow({
   return (
     <>
       <div className="relative bg-card border border-border rounded-lg overflow-hidden">
-        {venue.offerReviewStatus === 'Confirmed' && (
+        {venue.venueStatus === 'Confirmed' && (
           <div className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/30 border-b border-emerald-200 dark:border-emerald-800 px-4 py-1.5">
             <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">Confirmed — read only</span>
           </div>
@@ -2236,7 +2267,7 @@ function VenueProposalRow({
           <div className="border-t border-border/60 pt-2 space-y-1">
             <div className="flex items-center justify-between mb-1.5">
               <p className="text-[11px] text-text-muted font-medium">Proposed Dates</p>
-              {!readOnly && venue.offerReviewStatus !== 'Confirmed' && (
+              {!readOnly && venue.venueStatus !== 'Confirmed' && venue.offerReviewStatus !== 'Confirmed' && (
                 <button type="button" onClick={() => setShowAddOpt(!showAddOpt)} className="text-ems-accent text-[11px] hover:underline">+ Add date</button>
               )}
             </div>
@@ -2244,7 +2275,7 @@ function VenueProposalRow({
               <p className="text-xs text-text-muted">No date options yet.</p>
             )}
             {venue.performanceOptions.map((opt) =>
-              readOnly ? (
+              readOnly || venue.venueStatus === 'Confirmed' ? (
                 <div key={opt.performanceOptionId} className="flex items-center gap-3 rounded bg-elevated/50 px-2 py-1.5 text-xs">
                   <span className="font-medium text-text-primary">{formatProjectOptionDateTime(opt.proposedDate, opt.proposedTime)}</span>
                   <span className="ml-auto"><StatusBadge status={opt.optionStatus} /></span>
@@ -2259,7 +2290,7 @@ function VenueProposalRow({
                 />
               ),
             )}
-            {!readOnly && showAddOpt && (
+            {!readOnly && venue.venueStatus !== 'Confirmed' && showAddOpt && (
               <AddPerformanceOptionForm
                 projectId={projectId}
                 engagementProjectVenueId={venue.engagementProjectVenueId}
@@ -2541,6 +2572,7 @@ function ProjectDetailDrawer({
 
   const refresh = useCallback(async () => {
     await qc.invalidateQueries({ queryKey: ['projects', projectId] });
+    await qc.invalidateQueries({ queryKey: ['projects', 'api'] });
   }, [qc, projectId]);
 
   const project = detailQuery.data;
@@ -2945,6 +2977,13 @@ function CreateProjectForm({
 
   const [showAddTourModal, setShowAddTourModal] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Post-creation engagement flow: when venue status is "Confirmed", we create the project
+  // with "Pending" venues, then show the engagement modal for each venue sequentially.
+  const [pendingConfirmVenues, setPendingConfirmVenues] = useState<ApiProjectVenue[]>([]);
+  const [confirmVenueIndex, setConfirmVenueIndex] = useState(0);
+  const [createdProjectResult, setCreatedProjectResult] = useState<CreateProjectResult | null>(null);
+
   const talentAgentContactsQuery = useQuery({
     queryKey: ['company', projectTourMgmtCompanyId ?? 0, 'contacts'],
     queryFn: () => fetchCompanyContacts(projectTourMgmtCompanyId as number),
@@ -3343,10 +3382,12 @@ function CreateProjectForm({
       addToast('Select a venue proposal status on the Venues step.', 'error');
       return;
     }
+    const isConfirmedStatus = wizardVenueStatus.trim() === 'Confirmed';
     const venuesPayload = selectedVenueCompanyIds.map((venueCompanyId) => {
       return {
         venueCompanyId,
-        venueStatus: wizardVenueStatus.trim() as VenueStatus,
+        // If Confirmed, create with Pending first — we'll confirm after engagement creation
+        venueStatus: (isConfirmedStatus ? 'Pending' : wizardVenueStatus.trim()) as VenueStatus,
       };
     });
     setSaving(true);
@@ -3361,7 +3402,16 @@ function CreateProjectForm({
         dmaIds: validSelectedDmaIds,
         venues: venuesPayload,
       });
-      onSaved(res);
+
+      if (isConfirmedStatus) {
+        // Fetch project to get venue details with IDs for the engagement modal
+        const projectDetail = await fetchProject(res.engagementProjectId);
+        setPendingConfirmVenues(projectDetail.venues ?? []);
+        setConfirmVenueIndex(0);
+        setCreatedProjectResult(res);
+      } else {
+        onSaved(res);
+      }
     } catch (e) {
       addToast(friendlyApiError(e, 'Could not create project.'), 'error');
     } finally {
@@ -4116,6 +4166,40 @@ function CreateProjectForm({
           }
         />
       </Modal>
+    )}
+
+    {/* Post-creation engagement confirmation modal — shown when user selected "Confirmed" status */}
+    {pendingConfirmVenues.length > 0 && confirmVenueIndex < pendingConfirmVenues.length && createdProjectResult && selectedTourId && (
+      <VenueConfirmEngagementModal
+        venue={pendingConfirmVenues[confirmVenueIndex]}
+        projectId={createdProjectResult.engagementProjectId}
+        attractionId={selectedAttractionId}
+        attractionName={attractions.find((a) => a.attractionId === selectedAttractionId)?.attractionName ?? null}
+        tourId={selectedTourId}
+        tourName={tours.find((t) => t.tourId === selectedTourId)?.tourName ?? null}
+        onCreated={(engagementId) => {
+          const nextIndex = confirmVenueIndex + 1;
+          if (nextIndex < pendingConfirmVenues.length) {
+            setConfirmVenueIndex(nextIndex);
+          } else {
+            // All venues confirmed — report success
+            onSaved({
+              ...createdProjectResult,
+              engagementId,
+              converted: true,
+            });
+            setPendingConfirmVenues([]);
+            setCreatedProjectResult(null);
+          }
+        }}
+        onCancel={() => {
+          // User cancelled — save project as-is (venues remain Pending)
+          onSaved(createdProjectResult);
+          setPendingConfirmVenues([]);
+          setCreatedProjectResult(null);
+        }}
+        addToast={addToast}
+      />
     )}
     </>
   );

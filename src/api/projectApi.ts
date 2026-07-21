@@ -175,6 +175,8 @@ export interface ApiProjectVenue {
   offerReviewStatus?: string | null;
   /** FK → dbo.Link — confirmed offer PDF for this specific venue/component. */
   confirmedOfferLinkId?: number | null;
+  /** Original filename of the confirmed offer PDF. */
+  confirmedOfferLinkName?: string | null;
 
   // -------------------------------------------------------------------------
   // FRONTEND-ONLY fields – not in EngagementProjectVenue table
@@ -246,6 +248,8 @@ export interface ApiProjectListRow {
   /** From Tour.TalentAgencyCompanyID → Company */
   talentAgencyCompanyId?: number | null;
   talentAgencyCompanyName?: string | null;
+  /** dbo.EngagementProject.OfferCreationStatus — synced from venue components. */
+  projectStage?: string | null;
   /** ISO datetime */
   createdDate: string;
   /** nullable in DB */

@@ -973,6 +973,21 @@ export class ProjectService {
       }),
     );
 
+    // Fetch link names for confirmed-offer PDFs
+    const confirmedOfferLinkIds = dbVenues
+      .map((v) => v.confirmedOfferLinkId)
+      .filter((id): id is number => id != null && id > 0);
+    const confirmedOfferLinks =
+      confirmedOfferLinkIds.length > 0
+        ? await this.linkRepo.find({
+            where: { linkId: In(confirmedOfferLinkIds) },
+            select: ['linkId', 'linkName'],
+          })
+        : [];
+    const linkNameById = new Map(
+      confirmedOfferLinks.map((l) => [l.linkId, l.linkName]),
+    );
+
     const venuesWithDetails = dbVenues.map((v) => {
       const company = venueCompanyById.get(v.venueCompanyId);
       const venue = venueByCompanyId.get(v.venueCompanyId);
@@ -988,6 +1003,7 @@ export class ProjectService {
         offerCreationStatus: v.offerCreationStatus ?? project.projectStage ?? 'Requested',
         offerReviewStatus: v.offerReviewStatus ?? project.offerReviewStatus ?? null,
         confirmedOfferLinkId: v.confirmedOfferLinkId ?? project.confirmedOfferLinkId ?? null,
+        confirmedOfferLinkName: linkNameById.get(v.confirmedOfferLinkId ?? 0) ?? null,
         // Frontend-only fields returned as null (Option A — we never persisted them)
         configName: null,
         dealType: null,
@@ -1583,12 +1599,26 @@ export class ProjectService {
 
     await this.projectVenueRepo.save(pv);
 
+    // Sync project-level OfferCreationStatus based on all venue components
+    if (dto.offerCreationStatus !== undefined) {
+      await this.syncProjectOfferCreationStatus(projectId);
+    }
+
     // Handle engagement creation when confirming
     if (dto.offerReviewStatus === 'Confirmed') {
       // Require confirmed offer PDF before confirming
       if (pv.confirmedOfferLinkId == null) {
         throw new BadRequestException({
           message: 'Please upload the confirmed offer PDF before confirming this venue.',
+        });
+      }
+      // Require at least one proposed date before confirming
+      const optionsCount = await this.optionRepo.count({
+        where: { engagementProjectVenueId: venueId },
+      });
+      if (optionsCount === 0) {
+        throw new BadRequestException({
+          message: 'Please add at least one proposed date before confirming this venue.',
         });
       }
     }
@@ -1623,6 +1653,26 @@ export class ProjectService {
       engagementProjectId: projectId,
       engagementProjectVenueId: venueId,
     });
+    // Recalculate project-level status after removing a venue
+    await this.syncProjectOfferCreationStatus(projectId);
+  }
+
+  /**
+   * If all venue components of the project have OfferCreationStatus = 'Submitted',
+   * set the project-level OfferCreationStatus to 'Submitted'; otherwise 'Requested'.
+   */
+  private async syncProjectOfferCreationStatus(projectId: number): Promise<void> {
+    const venues = await this.projectVenueRepo.find({
+      where: { engagementProjectId: projectId },
+      select: ['offerCreationStatus'],
+    });
+    const allSubmitted =
+      venues.length > 0 &&
+      venues.every((v) => v.offerCreationStatus === 'Submitted');
+    await this.projectRepo.update(
+      { engagementProjectId: projectId },
+      { projectStage: allSubmitted ? 'Submitted' : 'Requested' },
+    );
   }
 
   // ─── Performance Option APIs ──────────────────────────────────────────────
