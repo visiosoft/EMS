@@ -433,7 +433,7 @@ export function createCompanyContact(companyId: number, body: CompanyContactCrea
     body: JSON.stringify({ ...body, roleId: roleIds[0], departmentId: departmentIds[0] }),
   }).finally(clearStoredContactIds);
 }
-export function updateContactAssignment(assignmentId: number, body: Partial<{ firstName: string; lastName: string; email: string; cellPhone: string | null; workPhone: string | null; roleId: number; departmentId: number; roleIds: number[]; departmentIds: number[] }>) {
+export function updateContactAssignment(assignmentId: number, body: Partial<{ firstName: string; lastName: string; email: string; cellPhone: string | null; workPhone: string | null; roleId: number; departmentId: number; roleIds: number[]; departmentIds: number[]; companyId: number }>) {
   const storedRoleIds = readStoredContactIds(CONTACT_MULTI_STORAGE.role);
   const storedDepartmentIds = readStoredContactIds(CONTACT_MULTI_STORAGE.department);
   const roleIds = uniquePositiveIds(body.roleIds?.length ? body.roleIds : storedRoleIds.length ? storedRoleIds : body.roleId ? [body.roleId] : []);
@@ -475,6 +475,9 @@ export function fetchManagedContacts(offset = 0, limit = 25, opts?: ManagedConta
   if (opts?.q?.trim()) params.set('q', opts.q.trim());
   if (opts?.companyId != null && opts.companyId > 0) params.set('companyId', String(opts.companyId));
   return apiFetch<ApiPaginatedResponse<ApiManagedContact>>(`/contacts?${params}`);
+}
+export function fetchManagedContactById(contactId: number) {
+  return apiFetch<ApiManagedContact>(`/contacts/${contactId}`);
 }
 export function createManagedContact(body: ManagedContactPayload) {
   return apiFetch<ApiManagedContact>('/contacts', { method: 'POST', body: JSON.stringify(body) });

@@ -96,7 +96,6 @@ import type {
   OfferReviewStatus,
   VenueStatus,
   CreateProjectResult,
-  ProjectOpeningPerformancePayload,
 } from '@/api/projectApi';
 import type { ApiPaginatedResponse } from '@/api/companyApi';
 import {
@@ -155,8 +154,6 @@ function projectDetailToListRow(p: ApiProjectDetail): ApiProjectListRow {
     attractionName: p.attractionName,
     talentAgencyCompanyId: p.talentAgencyCompanyId ?? null,
     talentAgencyCompanyName: p.talentAgencyCompanyName ?? null,
-    projectStage: p.projectStage,
-    offerReviewStatus: p.offerReviewStatus ?? null,
     createdDate: p.createdDate,
     createdBy: p.createdBy,
     dmaIds: p.dmaIds ?? [],
@@ -436,22 +433,26 @@ function InlineSelectField({
 // ─── Confirmed Offer PDF upload ─────────────────────────────────────────────
 
 function ConfirmedOfferPdfUpload({
-  project,
+  projectId,
+  venue,
   addToast,
   pendingFile,
   onFileSelected,
   required,
+  readOnly,
 }: {
-  project: ApiProjectDetail;
+  projectId: number;
+  venue: ApiProjectVenue;
   addToast: Props['addToast'];
   pendingFile: File | null;
   onFileSelected: (file: File | null) => void;
   required?: boolean;
+  readOnly?: boolean;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [showPreview, setShowPreview] = useState(false);
 
-  const hasLink = project.confirmedOfferLinkId != null;
+  const hasLink = venue.confirmedOfferLinkId != null;
   const hasPendingOrLink = hasLink || pendingFile != null;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -468,7 +469,7 @@ function ConfirmedOfferPdfUpload({
   const pdfPreviewUrl = pendingFile
     ? URL.createObjectURL(pendingFile)
     : hasLink
-      ? getConfirmedOfferPdfUrl(project.engagementProjectId)
+      ? getConfirmedOfferPdfUrl(projectId, venue.engagementProjectVenueId)
       : null;
 
   // Clean up object URL on unmount or when pendingFile changes
@@ -488,10 +489,10 @@ function ConfirmedOfferPdfUpload({
         <>
           <div className="flex items-center gap-2">
             <Check className="h-4 w-4 text-emerald-500 shrink-0" />
-            <span className="text-sm text-text-primary">
+            <span className="text-sm text-text-primary truncate max-w-[20rem]" title={pendingFile ? pendingFile.name : (venue.confirmedOfferLinkName ?? 'PDF uploaded')}>
               {pendingFile
                 ? <><span className="text-amber-600 text-xs font-medium"></span> {pendingFile.name}</>
-                : 'PDF uploaded'}
+                : (venue.confirmedOfferLinkName ?? 'PDF uploaded')}
             </span>
             <button
               type="button"
@@ -501,13 +502,15 @@ function ConfirmedOfferPdfUpload({
               <Eye className="h-3.5 w-3.5" />
               {showPreview ? 'Hide preview' : 'Preview'}
             </button>
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              className="ml-auto text-xs text-ems-accent hover:underline"
-            >
-              Replace
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="ml-auto text-xs text-ems-accent hover:underline"
+              >
+                Replace
+              </button>
+            )}
           </div>
           {showPreview && pdfPreviewUrl && (
             <div className="mt-3 rounded border border-border overflow-hidden">
@@ -569,10 +572,6 @@ function ProjectInlineOverview({
   const [dirty, setDirty] = useState(false);
 
   const [tourId, setTourId] = useState(project.tourId);
-  const [projectStage, setProjectStage] = useState(project.projectStage);
-  const [offerReviewStatus, setOfferReviewStatus] = useState<string | null>(
-    project.offerReviewStatus ?? null,
-  );
   const [tourStartDate, setTourStartDate] = useState(project.tourStartDate ?? getTodayDateString());
   const [tourEndDate, setTourEndDate] = useState(project.tourEndDate ?? getTodayDateString());
   const [talentAgencyCompanyId, setTalentAgencyCompanyId] = useState<number | null>(
@@ -583,7 +582,6 @@ function ProjectInlineOverview({
   const [showDmaModal, setShowDmaModal] = useState(false);
   const [dmaDraftIds, setDmaDraftIds] = useState<number[]>(project.dmaIds ?? []);
   const [dmaModalSearch, setDmaModalSearch] = useState('');
-  const [pendingPdfFile, setPendingPdfFile] = useState<File | null>(null);
 
   const mark = useCallback(<T,>(fn: (v: T) => void) => (v: T) => {
     fn(v);
@@ -592,8 +590,6 @@ function ProjectInlineOverview({
 
   useEffect(() => {
     setTourId(project.tourId);
-    setProjectStage(project.projectStage);
-    setOfferReviewStatus(project.offerReviewStatus ?? null);
     setTourStartDate(project.tourStartDate ?? getTodayDateString());
     setTourEndDate(project.tourEndDate ?? getTodayDateString());
     setTalentAgencyCompanyId(project.talentAgencyCompanyId ?? null);
@@ -601,15 +597,12 @@ function ProjectInlineOverview({
     setDmaDraftIds(project.dmaIds ?? []);
     setDmaModalSearch('');
     setShowDmaModal(false);
-    setPendingPdfFile(null);
     setDirty(false);
   }, [
     project.engagementProjectId,
     project.tourId,
     project.tourStartDate,
     project.tourEndDate,
-    project.projectStage,
-    project.offerReviewStatus,
     project.createdBy,
     project.talentAgencyCompanyId,
     project.dmaIds,
@@ -714,12 +707,8 @@ function ProjectInlineOverview({
     return labels;
   }, [talentAgentOptions, selectedTour?.talentAgentNames, selectedTourTalentAgentIds]);
 
-  const stageOptions = useMemo(() => editProjectStageSelectOptions(project.projectStage), [project.projectStage]);
-
   const discard = () => {
     setTourId(project.tourId);
-    setProjectStage(project.projectStage);
-    setOfferReviewStatus(project.offerReviewStatus ?? null);
     setTourStartDate(project.tourStartDate ?? getTodayDateString());
     setTourEndDate(project.tourEndDate ?? getTodayDateString());
     setTalentAgencyCompanyId(project.talentAgencyCompanyId ?? null);
@@ -759,7 +748,7 @@ function ProjectInlineOverview({
     if (changed) setDirty(true);
   };
 
-  const handleSave = async (openingPerformances?: ProjectOpeningPerformancePayload[]) => {
+  const handleSave = async () => {
     if (!tourId || !tourBelongsToAttraction) {
       addToast('Select a tour that belongs to the selected attraction before saving.', 'warning');
       return;
@@ -777,13 +766,6 @@ function ProjectInlineOverview({
       return;
     }
     // Block confirmation if no confirmed-offer PDF has been uploaded or selected
-    const isChangingToConfirmed =
-      offerReviewStatus === 'Confirmed' &&
-      (project.offerReviewStatus ?? null) !== 'Confirmed';
-    if (isChangingToConfirmed && project.confirmedOfferLinkId == null && pendingPdfFile == null) {
-      addToast('Please upload the confirmed offer PDF before confirming.', 'warning');
-      return;
-    }
     const previousDmaKey = [...(project.dmaIds ?? [])].sort((a, b) => a - b).join(',');
     const nextDmaKey = [...selectedDmaIds].sort((a, b) => a - b).join(',');
     const dmaChanged = previousDmaKey !== nextDmaKey;
@@ -793,19 +775,12 @@ function ProjectInlineOverview({
     setSaving(true);
     let savedOk = false;
     try {
-      // Upload pending PDF first (before project update) so the link is set
-      if (pendingPdfFile) {
-        await uploadConfirmedOfferPdf(project.engagementProjectId, pendingPdfFile);
-      }
-
       const payload: {
         tourId: number;
         talentAgencyCompanyId: number;
         tourStartDate: string;
         tourEndDate: string;
         dmaIds: number[];
-        projectStage?: ProjectStage;
-        offerReviewStatus?: OfferReviewStatus | null;
       } = {
         tourId,
         talentAgencyCompanyId: effectiveTalentAgencyId,
@@ -813,19 +788,8 @@ function ProjectInlineOverview({
         tourEndDate: tourEndDate.trim(),
         dmaIds: selectedDmaIds,
       };
-      // Only send stage/ review status when changed — avoids forcing a re-map
-      // of legacy DB values on every unrelated save.
-      if (projectStage !== project.projectStage) {
-        payload.projectStage = projectStage as ProjectStage;
-      }
-      if ((offerReviewStatus ?? null) !== (project.offerReviewStatus ?? null)) {
-        payload.offerReviewStatus = (offerReviewStatus ?? null) as OfferReviewStatus | null;
-      }
-      const result = await updateProject(project.engagementProjectId, payload);
+      await updateProject(project.engagementProjectId, payload);
 
-      if (result.converted && result.engagementId) {
-        addToast('Offer confirmed — engagement created.', 'success');
-      }
       if (scopeChanged) {
         onGoToVenues();
       }
@@ -1007,12 +971,6 @@ function ProjectInlineOverview({
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
-          <InlineSelectField
-            label="Offer creation status"
-            value={projectStage}
-            onChange={mark(setProjectStage)}
-            options={stageOptions}
-          />
           <div>
             <span className="text-xs text-text-muted">Created by</span>
             <div className="mt-0.5 w-full min-w-0 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary">
@@ -1020,42 +978,6 @@ function ProjectInlineOverview({
             </div>
           </div>
         </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
-          {projectStage === 'Submitted' ? (
-            <InlineSelectField
-              label="Offer review status"
-              value={offerReviewStatus ?? ''}
-              onChange={(v) => mark(setOfferReviewStatus)(v ? (v as OfferReviewStatus) : null)}
-              options={OFFER_REVIEW_STATUS_OPTIONS}
-            />
-          ) : (
-            <div>
-              <span className="text-xs text-text-muted">Offer review status</span>
-              <div className="mt-0.5 w-full min-w-0 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-muted">
-                {offerReviewStatus ?? '—'}
-              </div>
-              <p className="mt-0.5 text-[11px] text-text-muted">Available once the offer is Submitted.</p>
-            </div>
-          )}
-          <div>
-            <span className="text-xs text-text-muted">Conversion</span>
-            <div className="mt-0.5 w-full min-w-0 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary">
-              {offerReviewStatus === 'Confirmed' ? 'Engagement created' : '—'}
-            </div>
-            <p className="mt-0.5 text-[11px] text-text-muted">Setting review status to Confirmed creates the engagement.</p>
-          </div>
-        </div>
-
-        {offerReviewStatus === 'Confirmed' && (
-          <ConfirmedOfferPdfUpload
-            project={project}
-            addToast={addToast}
-            pendingFile={pendingPdfFile}
-            onFileSelected={(file) => { setPendingPdfFile(file); setDirty(true); }}
-            required
-          />
-        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-4">
           <div>
@@ -1236,6 +1158,11 @@ const OFFER_REVIEW_STATUS_OPTIONS = offerReviewStatusSelectOptions([
   ...OFFER_REVIEW_STATUS_VALUES,
 ]);
 
+const OFFER_CREATION_STATUS_OPTIONS = [...PROJECT_STAGE_VALUES].map((value) => ({
+  value,
+  label: CANONICAL_PROJECT_STAGE_LABEL[value] ?? value,
+}));
+
 function projectStageSelectOptions(stages: string[]) {
   return stages.map((value) => ({
     value,
@@ -1309,6 +1236,7 @@ interface Props {
   onNavigate?: (view: string, data?: unknown) => void;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
   onCreateEngagement?: unknown; onUpdateProjects?: unknown; onDeleteProject?: unknown;
+  initialSelectedProjectId?: number | null;
 }
 
 // ─── Projects list: movable columns (Stage fixed) + server-side sort ─────────
@@ -1849,10 +1777,35 @@ function VenueConfirmEngagementModal({
         primaryVenueCompanyId: venue.venueCompanyId,
       });
 
-      // 2. Confirm venue status
+      // 2. Update proposed dates — since engagement is created, mark first as Confirmed with engagement date/time
+      if (venue.performanceOptions.length > 0) {
+        try {
+          let updatedFirst = false;
+          for (const opt of venue.performanceOptions) {
+            if (!updatedFirst) {
+              // Update the first proposed date to match the engagement opening show
+              await updatePerformanceOption(projectId, opt.performanceOptionId, {
+                proposedDate: openingDate.trim(),
+                proposedTime: openingTime.trim(),
+                optionStatus: 'Confirmed' as OptionStatus,
+              });
+              updatedFirst = true;
+            } else {
+              await updatePerformanceOption(projectId, opt.performanceOptionId, {
+                optionStatus: 'Inactive' as OptionStatus,
+              });
+            }
+          }
+        } catch {
+          addToast('Engagement created but proposed dates could not be updated.', 'warning');
+        }
+      }
+
+      // 3. Confirm venue status + link engagement via offerReviewStatus
       try {
         await updateProjectVenue(projectId, venue.engagementProjectVenueId, {
           venueStatus: 'Confirmed' as VenueStatus,
+          engagementId,
         });
       } catch (statusErr) {
         // Engagement was created but venue status update failed — still report success for engagement
@@ -2017,6 +1970,7 @@ function VenueProposalRow({
   tourId,
   tourName,
   onOpenEngagement,
+  onNavigate,
 }: {
   venue: ApiProjectVenue;
   projectId: number;
@@ -2029,6 +1983,7 @@ function VenueProposalRow({
   tourId?: number;
   tourName?: string | null;
   onOpenEngagement?: (engagementId: number) => void;
+  onNavigate?: (view: string, data?: unknown) => void;
 }) {
   const [showAddOpt, setShowAddOpt] = useState(false);
   const [editingStatus, setEditingStatus] = useState(false);
@@ -2037,6 +1992,12 @@ function VenueProposalRow({
   const [deleting, setDeleting] = useState(false);
   const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
   const [showEngagementModal, setShowEngagementModal] = useState(false);
+
+  // Offer status state (component-level)
+  const [offerCreationStatus, setOfferCreationStatus] = useState<string>(venue.offerCreationStatus ?? 'Requested');
+  const [offerReviewStatus, setOfferReviewStatus] = useState<string | null>(venue.offerReviewStatus ?? null);
+  const [pendingPdfFile, setPendingPdfFile] = useState<File | null>(null);
+  const [offerSaving, setOfferSaving] = useState(false);
 
   const venueStatusStrings = useResolvedVenueStatusStrings(venueStatus);
   const venueStatusOptions = useMemo(
@@ -2050,20 +2011,13 @@ function VenueProposalRow({
     setVenueStatus(venue.venueStatus);
   }, [venue.venueStatus]);
 
+  useEffect(() => {
+    setOfferCreationStatus(venue.offerCreationStatus ?? 'Requested');
+    setOfferReviewStatus(venue.offerReviewStatus ?? null);
+    setPendingPdfFile(null);
+  }, [venue.offerCreationStatus, venue.offerReviewStatus]);
+
   const handleStatusSave = async () => {
-    if (venue.venueStatus === 'Confirmed' && venueStatus !== 'Confirmed') {
-      addToast("Once confirmed, a venue's status cannot be changed.", 'error');
-      setVenueStatus('Confirmed');
-      setEditingStatus(false);
-      return;
-    }
-
-    // Intercept "Confirmed" status → open engagement creation modal
-    if (venueStatus === 'Confirmed' && venue.venueStatus !== 'Confirmed' && tourId != null) {
-      setShowEngagementModal(true);
-      return;
-    }
-
     setStatusSaving(true);
     let ok = false;
     try {
@@ -2077,6 +2031,52 @@ function VenueProposalRow({
       setStatusSaving(false);
     }
     if (ok) addToast('Venue status updated.', 'success');
+  };
+
+  const handleOfferStatusSave = async () => {
+    // If changing to Confirmed, require PDF upload
+    const isChangingToConfirmed =
+      offerReviewStatus === 'Confirmed' &&
+      (venue.offerReviewStatus ?? null) !== 'Confirmed';
+    if (isChangingToConfirmed && venue.confirmedOfferLinkId == null && pendingPdfFile == null) {
+      addToast('Please upload the confirmed offer PDF before confirming.', 'warning');
+      return;
+    }
+    if (isChangingToConfirmed && venue.performanceOptions.length === 0) {
+      addToast('Please add at least one proposed date before confirming.', 'warning');
+      return;
+    }
+    setOfferSaving(true);
+    let ok = false;
+    try {
+      // Upload pending PDF first
+      if (pendingPdfFile) {
+        await uploadConfirmedOfferPdf(projectId, venue.engagementProjectVenueId, pendingPdfFile);
+        // Don't clear pendingPdfFile here — let onRefresh() update the venue data with confirmedOfferLinkId,
+        // which will naturally replace the pending file display. Clearing early causes a visual gap.
+      }
+
+      const result = await updateProjectVenue(projectId, venue.engagementProjectVenueId, {
+        offerCreationStatus: offerCreationStatus as ProjectStage,
+        offerReviewStatus: offerReviewStatus as OfferReviewStatus | null,
+      });
+
+      // If confirmed, show engagement creation modal
+      if (isChangingToConfirmed && tourId != null) {
+        setShowEngagementModal(true);
+      } else if (result.converted && result.engagementId) {
+        addToast('Offer confirmed — engagement created.', 'success');
+      }
+      await onRefresh();
+      // Clear pending file only after refresh completes (backend now has the link)
+      if (pendingPdfFile) setPendingPdfFile(null);
+      ok = true;
+    } catch (e) {
+      addToast(friendlyApiError(e, 'Could not update offer status.'), 'error');
+    } finally {
+      setOfferSaving(false);
+    }
+    if (ok && !isChangingToConfirmed) addToast('Offer status updated.', 'success');
   };
 
   const handleDelete = async () => {
@@ -2099,19 +2099,28 @@ function VenueProposalRow({
     <>
       <div className="relative bg-card border border-border rounded-lg overflow-hidden">
         {venue.venueStatus === 'Confirmed' && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/50 backdrop-blur-[1px]">
-            <span className="text-xs font-medium italic text-emerald-600 dark:text-emerald-400 px-3 py-1 rounded bg-background/80 shadow-sm">
-              Engagement created (locked)
-            </span>
+          <div className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/30 border-b border-emerald-200 dark:border-emerald-800 px-4 py-1.5">
+            <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">Confirmed — read only</span>
           </div>
         )}
         <div className="p-4 space-y-3">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <span className="text-text-primary font-medium text-sm">
-                  {venueDisplayName}
-                </span>
+                {onNavigate && venue.venueCompanyId ? (
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('companies', { selectedCompanyId: venue.venueCompanyId })}
+                    className="text-text-primary font-medium text-sm hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                    title="Open venue company profile"
+                  >
+                    {venueDisplayName}
+                  </button>
+                ) : (
+                  <span className="text-text-primary font-medium text-sm">
+                    {venueDisplayName}
+                  </span>
+                )}
                 <span className="inline-flex max-w-full items-center rounded border border-border bg-elevated px-2 py-0.5 text-[11px] font-medium text-text-secondary">
                   DMA: {venueDmaLabel}
                 </span>
@@ -2172,7 +2181,7 @@ function VenueProposalRow({
                   <StatusBadge status={venue.venueStatus} />
                 </div>
               )}
-              {!readOnly && venue.venueStatus !== 'Confirmed' && (
+              {!readOnly && venue.offerReviewStatus !== 'Confirmed' && (
                 <button type="button" onClick={() => setConfirmRemoveOpen(true)} disabled={deleting}
                   className="text-text-muted hover:text-ems-coral text-xs disabled:opacity-50 px-1"
                   aria-label={`Remove ${venueDisplayName}`}
@@ -2183,10 +2192,82 @@ function VenueProposalRow({
             </div>
           </div>
 
+          {/* Offer Status Controls (component-level) */}
+          {!readOnly && (
+            <div className="border-t border-border/60 pt-2 space-y-2">
+              <p className="text-[11px] text-text-muted font-medium">Offer Status</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <span className="text-[10px] text-text-muted">Offer Creation Status</span>
+                  <Select2
+                    options={OFFER_CREATION_STATUS_OPTIONS}
+                    value={offerCreationStatus}
+                    onChange={setOfferCreationStatus}
+                    placeholder="Select…"
+                    disabled={offerSaving || venue.offerReviewStatus === 'Confirmed'}
+                  />
+                </div>
+                <div>
+                  <span className="text-[10px] text-text-muted">Offer Review Status</span>
+                  {offerCreationStatus === 'Submitted' ? (
+                    <Select2
+                      options={OFFER_REVIEW_STATUS_OPTIONS}
+                      value={offerReviewStatus ?? ''}
+                      onChange={(v) => setOfferReviewStatus(v || null)}
+                      placeholder="Select…"
+                      disabled={offerSaving || venue.offerReviewStatus === 'Confirmed'}
+                    />
+                  ) : (
+                    <div className="mt-0.5 w-full min-w-0 bg-surface border border-border rounded px-3 py-1.5 text-xs text-text-muted">
+                      Available once Submitted
+                    </div>
+                  )}
+                </div>
+              </div>
+              {offerReviewStatus === 'Confirmed' && (
+                <ConfirmedOfferPdfUpload
+                  projectId={projectId}
+                  venue={venue}
+                  addToast={addToast}
+                  pendingFile={pendingPdfFile}
+                  onFileSelected={(file) => setPendingPdfFile(file)}
+                  required
+                  readOnly={venue.offerReviewStatus === 'Confirmed'}
+                />
+              )}
+              {(offerCreationStatus !== (venue.offerCreationStatus ?? 'Requested') ||
+                (offerReviewStatus ?? null) !== (venue.offerReviewStatus ?? null) ||
+                pendingPdfFile != null) && (
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => void handleOfferStatusSave()}
+                    disabled={offerSaving}
+                    className="inline-flex items-center gap-1 bg-ems-accent text-background text-xs px-3 py-1.5 rounded disabled:opacity-60"
+                  >
+                    {offerSaving && <Loader2 className="h-3 w-3 animate-spin" />}
+                    Save Offer Status
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOfferCreationStatus(venue.offerCreationStatus ?? 'Requested');
+                      setOfferReviewStatus(venue.offerReviewStatus ?? null);
+                      setPendingPdfFile(null);
+                    }}
+                    className="text-text-muted text-xs px-1 hover:text-text-primary"
+                  >
+                    Discard
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="border-t border-border/60 pt-2 space-y-1">
             <div className="flex items-center justify-between mb-1.5">
               <p className="text-[11px] text-text-muted font-medium">Proposed Dates</p>
-              {!readOnly && venue.venueStatus !== 'Confirmed' && (
+              {!readOnly && venue.venueStatus !== 'Confirmed' && venue.offerReviewStatus !== 'Confirmed' && (
                 <button type="button" onClick={() => setShowAddOpt(!showAddOpt)} className="text-ems-accent text-[11px] hover:underline">+ Add date</button>
               )}
             </div>
@@ -2194,7 +2275,7 @@ function VenueProposalRow({
               <p className="text-xs text-text-muted">No date options yet.</p>
             )}
             {venue.performanceOptions.map((opt) =>
-              readOnly ? (
+              readOnly || venue.venueStatus === 'Confirmed' ? (
                 <div key={opt.performanceOptionId} className="flex items-center gap-3 rounded bg-elevated/50 px-2 py-1.5 text-xs">
                   <span className="font-medium text-text-primary">{formatProjectOptionDateTime(opt.proposedDate, opt.proposedTime)}</span>
                   <span className="ml-auto"><StatusBadge status={opt.optionStatus} /></span>
@@ -2209,7 +2290,7 @@ function VenueProposalRow({
                 />
               ),
             )}
-            {!readOnly && showAddOpt && (
+            {!readOnly && venue.venueStatus !== 'Confirmed' && showAddOpt && (
               <AddPerformanceOptionForm
                 projectId={projectId}
                 engagementProjectVenueId={venue.engagementProjectVenueId}
@@ -2270,9 +2351,18 @@ function VenueProposalRow({
             onOpenEngagement?.(engagementId);
             void onRefresh();
           }}
-          onCancel={() => {
+          onCancel={async () => {
             setShowEngagementModal(false);
-            setVenueStatus(venue.venueStatus);
+            // Revert the offerReviewStatus on the backend since no engagement was created
+            try {
+              await updateProjectVenue(projectId, venue.engagementProjectVenueId, {
+                offerReviewStatus: (venue.offerReviewStatus !== 'Confirmed' ? venue.offerReviewStatus : null) as OfferReviewStatus | null,
+              });
+              await onRefresh();
+            } catch (e) {
+              addToast(friendlyApiError(e, 'Could not revert offer review status.'), 'error');
+            }
+            setOfferReviewStatus(venue.offerReviewStatus !== 'Confirmed' ? (venue.offerReviewStatus ?? null) : null);
           }}
           addToast={addToast}
         />
@@ -2451,12 +2541,14 @@ function ProjectDetailDrawer({
   onRequestDelete,
   onOpenEngagement,
   addToast,
+  onNavigate,
 }: {
   projectId: number;
   onClose: () => void;
   onRequestDelete: (row: ApiProjectListRow) => void;
   onOpenEngagement: (engagementId: number) => void;
   addToast: Props['addToast'];
+  onNavigate?: (view: string, data?: unknown) => void;
 }) {
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState('Overview');
@@ -2480,6 +2572,7 @@ function ProjectDetailDrawer({
 
   const refresh = useCallback(async () => {
     await qc.invalidateQueries({ queryKey: ['projects', projectId] });
+    await qc.invalidateQueries({ queryKey: ['projects', 'api'] });
   }, [qc, projectId]);
 
   const project = detailQuery.data;
@@ -2565,9 +2658,19 @@ function ProjectDetailDrawer({
               </h2>
               <div className="flex items-center flex-wrap gap-2 mt-0.5">
                 {project?.talentAgencyCompanyName && (
-                  <span className="text-xs text-text-secondary">{project.talentAgencyCompanyName}</span>
+                  onNavigate && project.talentAgencyCompanyId ? (
+                    <button
+                      type="button"
+                      onClick={() => onNavigate('companies', { selectedCompanyId: project.talentAgencyCompanyId })}
+                      className="text-xs text-text-secondary hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                      title="Open talent agency company"
+                    >
+                      {project.talentAgencyCompanyName}
+                    </button>
+                  ) : (
+                    <span className="text-xs text-text-secondary">{project.talentAgencyCompanyName}</span>
+                  )
                 )}
-                {project?.projectStage && <StatusBadge status={project.projectStage} />}
               </div>
             </>
           )}
@@ -2691,6 +2794,7 @@ function ProjectDetailDrawer({
                 tourId={project.tourId}
                 tourName={project.tourName}
                 onOpenEngagement={onOpenEngagement}
+                onNavigate={onNavigate}
               />
             ))}
           </div>
@@ -2873,6 +2977,13 @@ function CreateProjectForm({
 
   const [showAddTourModal, setShowAddTourModal] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Post-creation engagement flow: when venue status is "Confirmed", we create the project
+  // with "Pending" venues, then show the engagement modal for each venue sequentially.
+  const [pendingConfirmVenues, setPendingConfirmVenues] = useState<ApiProjectVenue[]>([]);
+  const [confirmVenueIndex, setConfirmVenueIndex] = useState(0);
+  const [createdProjectResult, setCreatedProjectResult] = useState<CreateProjectResult | null>(null);
+
   const talentAgentContactsQuery = useQuery({
     queryKey: ['company', projectTourMgmtCompanyId ?? 0, 'contacts'],
     queryFn: () => fetchCompanyContacts(projectTourMgmtCompanyId as number),
@@ -3271,10 +3382,12 @@ function CreateProjectForm({
       addToast('Select a venue proposal status on the Venues step.', 'error');
       return;
     }
+    const isConfirmedStatus = wizardVenueStatus.trim() === 'Confirmed';
     const venuesPayload = selectedVenueCompanyIds.map((venueCompanyId) => {
       return {
         venueCompanyId,
-        venueStatus: wizardVenueStatus.trim() as VenueStatus,
+        // If Confirmed, create with Pending first — we'll confirm after engagement creation
+        venueStatus: (isConfirmedStatus ? 'Pending' : wizardVenueStatus.trim()) as VenueStatus,
       };
     });
     setSaving(true);
@@ -3289,7 +3402,16 @@ function CreateProjectForm({
         dmaIds: validSelectedDmaIds,
         venues: venuesPayload,
       });
-      onSaved(res);
+
+      if (isConfirmedStatus) {
+        // Fetch project to get venue details with IDs for the engagement modal
+        const projectDetail = await fetchProject(res.engagementProjectId);
+        setPendingConfirmVenues(projectDetail.venues ?? []);
+        setConfirmVenueIndex(0);
+        setCreatedProjectResult(res);
+      } else {
+        onSaved(res);
+      }
     } catch (e) {
       addToast(friendlyApiError(e, 'Could not create project.'), 'error');
     } finally {
@@ -4045,6 +4167,40 @@ function CreateProjectForm({
         />
       </Modal>
     )}
+
+    {/* Post-creation engagement confirmation modal — shown when user selected "Confirmed" status */}
+    {pendingConfirmVenues.length > 0 && confirmVenueIndex < pendingConfirmVenues.length && createdProjectResult && selectedTourId && (
+      <VenueConfirmEngagementModal
+        venue={pendingConfirmVenues[confirmVenueIndex]}
+        projectId={createdProjectResult.engagementProjectId}
+        attractionId={selectedAttractionId}
+        attractionName={attractions.find((a) => a.attractionId === selectedAttractionId)?.attractionName ?? null}
+        tourId={selectedTourId}
+        tourName={tours.find((t) => t.tourId === selectedTourId)?.tourName ?? null}
+        onCreated={(engagementId) => {
+          const nextIndex = confirmVenueIndex + 1;
+          if (nextIndex < pendingConfirmVenues.length) {
+            setConfirmVenueIndex(nextIndex);
+          } else {
+            // All venues confirmed — report success
+            onSaved({
+              ...createdProjectResult,
+              engagementId,
+              converted: true,
+            });
+            setPendingConfirmVenues([]);
+            setCreatedProjectResult(null);
+          }
+        }}
+        onCancel={() => {
+          // User cancelled — save project as-is (venues remain Pending)
+          onSaved(createdProjectResult);
+          setPendingConfirmVenues([]);
+          setCreatedProjectResult(null);
+        }}
+        addToast={addToast}
+      />
+    )}
     </>
   );
 }
@@ -4058,7 +4214,7 @@ function projectListSuggestionLabel(row: ApiProjectListRow): string {
   return a || t || `Project #${row.engagementProjectId}`;
 }
 
-export function ProjectsPage({ addToast, onNavigate }: Props) {
+export function ProjectsPage({ addToast, onNavigate, initialSelectedProjectId }: Props) {
   const qc = useQueryClient();
   const [searchInput, setSearchInput] = useState('');
   const [searchCommitted, setSearchCommitted] = useState('');
@@ -4077,6 +4233,12 @@ export function ProjectsPage({ addToast, onNavigate }: Props) {
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<ApiProjectListRow | null>(null);
+
+  // Auto-open project drawer when navigated with initialSelectedProjectId
+  useEffect(() => {
+    if (initialSelectedProjectId == null) return;
+    setSelectedProjectId(initialSelectedProjectId);
+  }, [initialSelectedProjectId]);
 
   const { offset, limit } = getPageParams(page, pageSize);
 
@@ -4571,6 +4733,7 @@ export function ProjectsPage({ addToast, onNavigate }: Props) {
             onNavigate?.('engagement-detail', { engagementId });
           }}
           addToast={addToast}
+          onNavigate={onNavigate}
         />
       )}
 

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { 
   LayoutGrid, PenSquare, Eye, Users, FileBadge, LogOut, 
   Check, X, Sparkles, Plus, AlertCircle, FolderOpen, 
-  ChevronDown, Loader2
+  ChevronDown, Loader2, Trash2
 } from "lucide-react";
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
 import {
@@ -14,6 +14,7 @@ import {
   fetchLearningDepartments,
   createLearningCertification,
   toggleLearningCertificationStatus,
+  deleteLearningCertification,
   reviewLearningSubmission,
   type LearningCertification,
   type LearningSubmission,
@@ -24,7 +25,7 @@ import {
 } from "@/api/learningApi";
 
 export function LearningAdminPage() {
-  const { viewData } = useInternalNavigation();
+  const { viewData, navigate } = useInternalNavigation();
   
   const [activeTab, setActiveTab] = useState<"overview" | "publish" | "monitor" | "scores" | "manage">(() => {
     if (typeof window !== "undefined") {
@@ -233,6 +234,24 @@ export function LearningAdminPage() {
     } catch (e) { showToast("Failed to update status", "error"); }
   };
 
+  // Delete certification
+  const [deletingCert, setDeletingCert] = useState<LearningCertification | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDeleteCertification = async () => {
+    if (!deletingCert) return;
+    setIsDeleting(true);
+    try {
+      await deleteLearningCertification(deletingCert.certificationId);
+      showToast("Certification permanently deleted.");
+      setDeletingCert(null);
+      loadCertifications();
+    } catch (e: any) {
+      const message = e?.message || e?.body?.message || "Failed to delete certification";
+      showToast(message, "error");
+    } finally { setIsDeleting(false); }
+  };
+
   const handleExitAdmin = () => {
     if (window.opener || window.history.length === 1) window.close();
     else window.location.href = "/internal";
@@ -424,7 +443,11 @@ export function LearningAdminPage() {
                             <tbody className="divide-y divide-neutral-100">
                               {submissions.slice(0, 10).map((sub) => (
                                 <tr key={sub.submissionId} className="hover:bg-neutral-50/50 transition-colors">
-                                  <td className="whitespace-nowrap px-6 py-4 font-bold text-black">{sub.employeeName}</td>
+                                  <td className="whitespace-nowrap px-6 py-4 font-bold text-black">
+                                    <button type="button" onClick={() => navigate('employee-profile', { contactId: sub.contactId })} className="hover:text-blue-600 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 rounded-sm transition-colors">
+                                      {sub.employeeName}
+                                    </button>
+                                  </td>
                                   <td className="px-6 py-4 font-semibold text-neutral-900">{sub.certificationName}</td>
                                   <td className="whitespace-nowrap px-6 py-4 font-semibold text-neutral-900">{new Date(sub.submittedAt).toLocaleDateString()}</td>
                                   <td className="whitespace-nowrap px-6 py-4"><StatusBadge status={sub.status} /></td>
@@ -549,7 +572,9 @@ export function LearningAdminPage() {
                             submissions.map((sub) => (
                               <tr key={sub.submissionId} className="hover:bg-neutral-50/55 transition-colors">
                                 <td className="px-6 py-4">
-                                  <div className="font-bold text-black">{sub.employeeName}</div>
+                                  <button type="button" onClick={() => navigate('employee-profile', { contactId: sub.contactId })} className="font-bold text-black hover:text-blue-600 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 rounded-sm transition-colors">
+                                    {sub.employeeName}
+                                  </button>
                                   <div className="text-[11px] font-semibold text-neutral-500 mt-0.5">{sub.employeeRole || "Employee"}</div>
                                 </td>
                                 <td className="px-6 py-4 font-semibold text-neutral-900">{sub.certificationName}</td>
@@ -609,7 +634,11 @@ export function LearningAdminPage() {
                         <tbody className="divide-y divide-neutral-100">
                           {employees.map((emp) => (
                             <tr key={emp.contactId} className="hover:bg-neutral-50/50 transition-colors">
-                              <td className="whitespace-nowrap px-6 py-4 font-bold text-black">{emp.employeeName}</td>
+                              <td className="whitespace-nowrap px-6 py-4 font-bold text-black">
+                                <button type="button" onClick={() => navigate('employee-profile', { contactId: emp.contactId })} className="hover:text-blue-600 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 rounded-sm transition-colors">
+                                  {emp.employeeName}
+                                </button>
+                              </td>
                               <td className="whitespace-nowrap px-6 py-4 font-semibold text-neutral-900">{emp.employeeRole || "—"}</td>
                               <td className="whitespace-nowrap px-6 py-4 font-semibold text-neutral-900">{emp.certsSubmitted}</td>
                               <td className="whitespace-nowrap px-6 py-4 font-semibold text-neutral-900">{emp.certsApproved}</td>
@@ -664,16 +693,25 @@ export function LearningAdminPage() {
                                 </span>
                               </td>
                               <td className="whitespace-nowrap px-6 py-4">
-                                <button
-                                  onClick={() => handleToggleStatus(cert.certificationId)}
-                                  className={`flex h-7 items-center justify-center rounded-full border px-3 text-[10px] font-bold tracking-widest transition-colors ${
-                                    cert.status === "Active"
-                                      ? "border-neutral-200 bg-white text-red-500 hover:bg-red-50 hover:border-red-200"
-                                      : "border-neutral-200 bg-white text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200"
-                                  }`}
-                                >
-                                  {cert.status === "Active" ? "Unpublish" : "Republish"}
-                                </button>
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => handleToggleStatus(cert.certificationId)}
+                                    className={`flex h-7 items-center justify-center rounded-full border px-3 text-[10px] font-bold tracking-widest transition-colors ${
+                                      cert.status === "Active"
+                                        ? "border-neutral-200 bg-white text-red-500 hover:bg-red-50 hover:border-red-200"
+                                        : "border-neutral-200 bg-white text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200"
+                                    }`}
+                                  >
+                                    {cert.status === "Active" ? "Unpublish" : "Republish"}
+                                  </button>
+                                  <button
+                                    onClick={() => setDeletingCert(cert)}
+                                    className="flex h-7 items-center justify-center gap-1 rounded-full border border-neutral-200 bg-white px-3 text-[10px] font-bold tracking-widest text-red-600 hover:bg-red-50 hover:border-red-200 transition-colors"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                    Delete
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -750,6 +788,47 @@ export function LearningAdminPage() {
                 <button onClick={() => setReviewingSubmission(null)} className="rounded-full bg-black px-6 py-2.5 text-[10px] font-bold tracking-widest text-white hover:bg-neutral-800">CLOSE</button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deletingCert && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="w-[440px] rounded-xl bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 relative">
+            <button onClick={() => setDeletingCert(null)} className="absolute right-4 top-4 text-neutral-400 hover:text-black transition-colors">
+              <X className="h-5 w-5" />
+            </button>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
+                <Trash2 className="h-5 w-5 text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-black">Delete Certification</h3>
+            </div>
+            <p className="text-sm text-neutral-700 leading-relaxed">
+              Are you sure you want to permanently delete this certification? This action cannot be undone.
+            </p>
+            <div className="mt-4 rounded-lg bg-neutral-50 p-3 border border-neutral-100">
+              <span className="text-xs font-bold text-neutral-900">{deletingCert.title}</span>
+              <span className="block text-[11px] text-neutral-500 mt-0.5">{deletingCert.platformName} · +{deletingCert.pointsAwarded} pts</span>
+            </div>
+            <div className="mt-6 flex gap-3">
+              <button
+                disabled={isDeleting}
+                onClick={handleDeleteCertification}
+                className="flex-1 flex items-center justify-center gap-2 rounded-full bg-red-600 py-2.5 text-[10px] font-bold tracking-widest text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {isDeleting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                DELETE
+              </button>
+              <button
+                disabled={isDeleting}
+                onClick={() => setDeletingCert(null)}
+                className="flex-1 flex items-center justify-center rounded-full border border-neutral-300 bg-white py-2.5 text-[10px] font-bold tracking-widest text-black hover:bg-neutral-50 disabled:opacity-50"
+              >
+                CANCEL
+              </button>
+            </div>
           </div>
         </div>
       )}

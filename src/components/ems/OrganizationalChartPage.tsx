@@ -107,11 +107,13 @@ function HierarchyTeamCard({
   query,
   department,
   onToggleCollapse,
+  onNavigate,
 }: {
   node: UINode;
   query: string;
   department: string;
   onToggleCollapse: (nodeId: string) => void;
+  onNavigate?: (view: string, data?: unknown) => void;
 }) {
   const manager = node.member;
   const leafReports = node.children.filter(c => (c as UINode).children.length === 0) as UINode[];
@@ -162,9 +164,20 @@ function HierarchyTeamCard({
           <Avatar name={manager.displayName} size="md" />
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-1">
-              <p className="truncate text-[14px] font-bold tracking-tight text-text-primary">
-                {manager.displayName}
-              </p>
+              {onNavigate ? (
+                <button
+                  type="button"
+                  onClick={() => onNavigate('contacts', { selectedContactId: manager.contactId })}
+                  className="truncate text-[14px] font-bold tracking-tight text-text-primary hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors text-left"
+                  title={`View ${manager.displayName}'s profile`}
+                >
+                  {manager.displayName}
+                </button>
+              ) : (
+                <p className="truncate text-[14px] font-bold tracking-tight text-text-primary">
+                  {manager.displayName}
+                </p>
+              )}
               {manager.email && (
                 <a
                   href={`mailto:${manager.email}`}
@@ -208,9 +221,20 @@ function HierarchyTeamCard({
                 >
                   <Avatar name={child.member.displayName} size="sm" />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[13px] font-semibold text-text-primary">
-                      {child.member.displayName}
-                    </p>
+                    {onNavigate ? (
+                      <button
+                        type="button"
+                        onClick={() => onNavigate('contacts', { selectedContactId: child.member.contactId })}
+                        className="truncate text-[13px] font-semibold text-text-primary hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors text-left"
+                        title={`View ${child.member.displayName}'s profile`}
+                      >
+                        {child.member.displayName}
+                      </button>
+                    ) : (
+                      <p className="truncate text-[13px] font-semibold text-text-primary">
+                        {child.member.displayName}
+                      </p>
+                    )}
                     <p className="mt-0.5 truncate text-[11px] text-text-secondary">
                       {child.member.jobTitle || child.member.roleName || 'Internal staff'}
                     </p>
@@ -234,11 +258,13 @@ function HierarchyBranchContent({
   query,
   department,
   onToggleCollapse,
+  onNavigate,
 }: {
   node: UINode;
   query: string;
   department: string;
   onToggleCollapse: (nodeId: string) => void;
+  onNavigate?: (view: string, data?: unknown) => void;
 }) {
   const managerReports = node.children.filter(c => (c as UINode).children.length > 0) as UINode[];
 
@@ -251,6 +277,7 @@ function HierarchyBranchContent({
           query={query}
           department={department}
           onToggleCollapse={onToggleCollapse}
+          onNavigate={onNavigate}
         />
       </div>
 
@@ -296,6 +323,7 @@ function HierarchyBranchContent({
                     query={query}
                     department={department}
                     onToggleCollapse={onToggleCollapse}
+                    onNavigate={onNavigate}
                   />
                 </li>
               );
@@ -377,10 +405,12 @@ function DepNodeCard({
   node,
   query,
   department,
+  onNavigate,
 }: {
   node: OrganizationChartNode;
   query: string;
   department: string;
+  onNavigate?: (view: string, data?: unknown) => void;
 }) {
   const hasFilter = Boolean(query || department);
   const matchingMemberIds = new Set(
@@ -429,9 +459,20 @@ function DepNodeCard({
                 <Avatar name={member.displayName} size="sm" />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start gap-1.5">
-                    <p className="min-w-0 flex-1 text-sm font-semibold leading-tight text-text-primary">
-                      {member.displayName}
-                    </p>
+                    {onNavigate ? (
+                      <button
+                        type="button"
+                        onClick={() => onNavigate('contacts', { selectedContactId: member.contactId })}
+                        className="min-w-0 flex-1 text-sm font-semibold leading-tight text-text-primary text-left hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                        title={`View ${member.displayName}'s profile`}
+                      >
+                        {member.displayName}
+                      </button>
+                    ) : (
+                      <p className="min-w-0 flex-1 text-sm font-semibold leading-tight text-text-primary">
+                        {member.displayName}
+                      </p>
+                    )}
                     {member.email ? (
                       <a
                         href={`mailto:${member.email}`}
@@ -469,14 +510,16 @@ function DepTreeBranch({
   node,
   query,
   department,
+  onNavigate,
 }: {
   node: DepTreeNode;
   query: string;
   department: string;
+  onNavigate?: (view: string, data?: unknown) => void;
 }) {
   return (
     <li>
-      <DepNodeCard node={node} query={query} department={department} />
+      <DepNodeCard node={node} query={query} department={department} onNavigate={onNavigate} />
       {node.children.length ? (
         <ul>
           {node.children.map((child) => (
@@ -485,6 +528,7 @@ function DepTreeBranch({
               node={child}
               query={query}
               department={department}
+              onNavigate={onNavigate}
             />
           ))}
         </ul>
@@ -495,7 +539,7 @@ function DepTreeBranch({
 
 // ─── Main Page Component ───
 
-export function OrganizationalChartPage() {
+export function OrganizationalChartPage({ onNavigate }: { onNavigate?: (view: string, data?: unknown) => void }) {
   const { instance, accounts } = useMsal();
   const [search, setSearch] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
@@ -887,6 +931,7 @@ export function OrganizationalChartPage() {
                                       query={query}
                                       department={departmentFilter}
                                       onToggleCollapse={toggleCollapse}
+                                      onNavigate={onNavigate}
                                     />
                                   ) : (
                                     <div className="relative z-10 py-6">
@@ -894,6 +939,7 @@ export function OrganizationalChartPage() {
                                         node={child.data as OrganizationChartNode}
                                         query={query}
                                         department={departmentFilter}
+                                        onNavigate={onNavigate}
                                       />
                                     </div>
                                   )}
@@ -917,6 +963,7 @@ export function OrganizationalChartPage() {
                         node={root as DepTreeNode}
                         query={query}
                         department={departmentFilter}
+                        onNavigate={onNavigate}
                       />
                     ))}
                   </ul>
@@ -967,6 +1014,7 @@ export function OrganizationalChartPage() {
                           query={query}
                           department={departmentFilter}
                           onToggleCollapse={toggleCollapse}
+                          onNavigate={onNavigate}
                         />
                       </div>
                     );
@@ -989,6 +1037,7 @@ export function OrganizationalChartPage() {
                         node={node as DepTreeNode}
                         query={query}
                         department={departmentFilter}
+                        onNavigate={onNavigate}
                       />
                     ))}
                   </div>

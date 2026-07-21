@@ -68,7 +68,7 @@ import {
   type CreateCompanyPayload,
   type UpdateCompanyPayload,
 } from "@/api/companyApi";
-import { upsertInList, removeQueriesByPrefix } from "@/api/cacheHelpers";
+import { upsertInList, removeFromList, removeQueriesByPrefix } from "@/api/cacheHelpers";
 import { mapApiCompanyToCompany } from "./companyMapping";
 import { CompanyVenueProfilePanel } from "./CompanyVenueProfilePanel";
 import { VenueMarketingPanel } from "./VenueMarketingPanel";
@@ -1880,7 +1880,7 @@ function engagementLocationLabel(e: ApiEngagementRow): string {
 
 // ─── Company Linked Records Section ─────────────────────────────────────────
 
-type LinkedRecord = { title: string; subtitle: string | null; role?: string };
+type LinkedRecord = { title: string; subtitle: string | null; role?: string; onClick?: () => void };
 
 /** Saturated avatar tones (white text), picked deterministically from the title. */
 const LINKED_AVATAR_TONES = [
@@ -1907,7 +1907,13 @@ function LinkedRecordRow({ item }: { item: LinkedRecord }) {
     item.title.split("").reduce((sum, ch) => sum + ch.charCodeAt(0), 0) %
     LINKED_AVATAR_TONES.length;
   return (
-    <li className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-hover/40">
+    <li
+      className={`flex items-center gap-3 px-4 py-3 transition-colors ${item.onClick ? 'cursor-pointer hover:bg-hover/60' : 'hover:bg-hover/40'}`}
+      onClick={item.onClick}
+      role={item.onClick ? 'button' : undefined}
+      tabIndex={item.onClick ? 0 : undefined}
+      onKeyDown={item.onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); item.onClick!(); } } : undefined}
+    >
       <div
         className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white ${LINKED_AVATAR_TONES[toneIdx]}`}
         aria-hidden
@@ -1915,7 +1921,7 @@ function LinkedRecordRow({ item }: { item: LinkedRecord }) {
         {linkedRecordInitials(item.title)}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-semibold text-text-primary">
+        <div className={`truncate text-sm font-semibold ${item.onClick ? 'text-text-primary hover:text-ems-accent' : 'text-text-primary'}`}>
           {item.title}
         </div>
         {item.subtitle && (
@@ -1957,7 +1963,7 @@ function LinkGroup({
   );
 }
 
-function CompanyLinksSection({ companyId }: { companyId: string }) {
+function CompanyLinksSection({ companyId, onNavigate }: { companyId: string; onNavigate?: (view: string, data?: unknown) => void }) {
   const q = useQuery({
     queryKey: ["companies", companyId, "links"],
     queryFn: () => fetchCompanyLinks(Number(companyId)),
@@ -1980,19 +1986,22 @@ function CompanyLinksSection({ companyId }: { companyId: string }) {
   const data = q.data;
   if (!data) return null;
 
+  const mapItems = (items: LinkedRecord[], handler: (item: unknown) => (() => void) | undefined) =>
+    items.map((item) => ({ ...item, onClick: handler(item) }));
+
   const groups: {
     key: string;
     title: string;
     icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
     items: LinkedRecord[];
   }[] = [
-    { key: "engagements", title: "Engagements", icon: CalendarRange, items: data.engagements },
-    { key: "projects", title: "Projects", icon: FolderKanban, items: data.projects },
-    { key: "tours", title: "Tours", icon: MapPin, items: data.tours },
-    { key: "attractions", title: "Attractions", icon: Sparkles, items: data.attractions },
-    { key: "serviceProviderFor", title: "Service Provider for", icon: Wrench, items: data.serviceProviderFor },
-    { key: "entertainmentComplexes", title: "Member of Complex", icon: Building2, items: data.entertainmentComplexes },
-    { key: "complexVenues", title: "Complex Venues", icon: Building, items: data.complexVenues },
+    { key: "engagements", title: "Engagements", icon: CalendarRange, items: mapItems(data.engagements as LinkedRecord[], (item) => onNavigate ? () => onNavigate('engagement-detail', { engagementId: (item as { engagementId: number }).engagementId }) : undefined) },
+    { key: "projects", title: "Projects", icon: FolderKanban, items: mapItems(data.projects as LinkedRecord[], (item) => onNavigate ? () => onNavigate('projects', { selectedProjectId: (item as { projectId: number }).projectId }) : undefined) },
+    { key: "tours", title: "Tours", icon: MapPin, items: mapItems(data.tours as LinkedRecord[], (item) => onNavigate ? () => onNavigate('attraction-tours', { selectedTourId: (item as { tourId: number }).tourId }) : undefined) },
+    { key: "attractions", title: "Attractions", icon: Sparkles, items: mapItems(data.attractions as LinkedRecord[], (item) => onNavigate ? () => onNavigate('attraction-tours', { selectedAttractionId: (item as { attractionId: number }).attractionId }) : undefined) },
+    { key: "serviceProviderFor", title: "Service Provider for", icon: Wrench, items: mapItems(data.serviceProviderFor as LinkedRecord[], (item) => onNavigate ? () => onNavigate('companies', { selectedCompanyId: (item as { venueCompanyId: number }).venueCompanyId }) : undefined) },
+    { key: "entertainmentComplexes", title: "Member of Complex", icon: Building2, items: mapItems(data.entertainmentComplexes as LinkedRecord[], (item) => onNavigate ? () => onNavigate('companies', { selectedCompanyId: (item as { complexCompanyId: number }).complexCompanyId }) : undefined) },
+    { key: "complexVenues", title: "Complex Venues", icon: Building, items: mapItems(data.complexVenues as LinkedRecord[], (item) => onNavigate ? () => onNavigate('companies', { selectedCompanyId: (item as { venueCompanyId: number }).venueCompanyId }) : undefined) },
   ].filter((g) => g.items.length > 0);
 
   const totalLinks = groups.reduce((sum, g) => sum + g.items.length, 0);
@@ -2208,12 +2217,14 @@ function mapContactRow(
 function ContactFormDb({
   roles,
   departments,
+  companies,
   onSave,
   onCancel,
   initial,
 }: {
   roles: ApiRole[];
   departments: ApiDepartment[];
+  companies?: ApiCompanyListRow[];
   onSave: (payload: {
     firstName: string;
     lastName: string;
@@ -2223,6 +2234,7 @@ function ContactFormDb({
     workPhone?: string | null;
     roleId: number;
     departmentId: number;
+    companyId?: number;
   }) => void | Promise<void>;
   onCancel: () => void;
   initial?: Contact;
@@ -2278,6 +2290,9 @@ function ContactFormDb({
   const [departmentId, setDepartmentId] = useState(
     initial?.departmentId != null ? String(initial.departmentId) : "",
   );
+  const [companyId, setCompanyId] = useState(
+    initial?.companyId != null ? String(initial.companyId) : "",
+  );
   const [fieldErrors, setFieldErrors] = useState<{
     firstName?: string;
     lastName?: string;
@@ -2312,6 +2327,7 @@ function ContactFormDb({
     setDepartmentId(
       initial?.departmentId != null ? String(initial.departmentId) : "",
     );
+    setCompanyId(initial?.companyId != null ? String(initial.companyId) : "");
   }, [initial]);
 
   const inputCls =
@@ -2333,12 +2349,34 @@ function ContactFormDb({
       })),
     [departments],
   );
+  const companyOpts = useMemo(
+    () =>
+      (companies ?? []).map((c) => ({
+        value: String(c.companyId),
+        label: c.companyName,
+      })),
+    [companies],
+  );
 
   const [saving, setSaving] = useState(false);
 
   return (
     <div className="bg-elevated border border-border rounded-lg p-4 space-y-3">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+        {companies && companies.length > 0 && (
+          <div className="sm:col-span-2">
+            <FormField label="Company">
+              <Select2
+                options={[
+                  { value: "", label: "Select company\u2026" },
+                  ...companyOpts,
+                ]}
+                value={companyId}
+                onChange={(v) => setCompanyId(v)}
+              />
+            </FormField>
+          </div>
+        )}
         <FormField label="First Name" required error={fieldErrors.firstName}>
           <input
             className={inputCls}
@@ -2486,7 +2524,7 @@ function ContactFormDb({
             try {
               const hasWork = workPhoneDisplay.trim().length > 0;
               const hasCell = cellPhoneDisplay.trim().length > 0;
-              await onSave({
+              const savePayload: Parameters<typeof onSave>[0] = {
                 firstName: firstName.trim(),
                 lastName: lastName.trim(),
                 email: email.trim(),
@@ -2494,7 +2532,11 @@ function ContactFormDb({
                 cellPhone: hasCell ? cE! : isEditing ? null : undefined,
                 roleId: Number(roleId),
                 departmentId: Number(departmentId),
-              });
+              };
+              if (companyId && initial?.companyId && String(initial.companyId) !== companyId) {
+                savePayload.companyId = Number(companyId);
+              }
+              await onSave(savePayload);
             } finally {
               setSaving(false);
             }
@@ -4057,6 +4099,16 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
     staleTime: 60 * 1000,
   });
 
+  // Populate search when company detail loads for initial selection
+  useEffect(() => {
+    if (initialSelectedCompanyId == null) return;
+    const name = companyDetailQuery.data?.companyName;
+    if (name) {
+      setSearchInput(name);
+      setActiveSearch(name);
+    }
+  }, [initialSelectedCompanyId, companyDetailQuery.data]);
+
   const selectedCompany = selectedCompanyId
     ? (displayList.find((c) => c.id === selectedCompanyId) ??
       (companyDetailQuery.data
@@ -4876,7 +4928,18 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                       {companyContacts.map((ct) => (
                         <tr key={ct.id} className="border-b border-border/50">
                           <td className="py-2 text-text-primary">
-                            {ct.firstName} {ct.lastName}
+                            {onNavigate ? (
+                              <button
+                                type="button"
+                                onClick={() => onNavigate('contacts', { selectedContactId: ct.contactId })}
+                                className="text-left font-medium hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                                title={`View ${ct.firstName} ${ct.lastName}'s details`}
+                              >
+                                {ct.firstName} {ct.lastName}
+                              </button>
+                            ) : (
+                              <>{ct.firstName} {ct.lastName}</>
+                            )}
                           </td>
                           <td className="py-2">
                             {(() => {
@@ -4982,7 +5045,18 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                         className="rounded-md border border-border bg-surface overflow-hidden"
                       >
                         <div className="px-3 py-2 border-b border-border bg-elevated/40 text-xs font-medium text-text-secondary">
-                          {section.venueCompanyName}
+                          {onNavigate ? (
+                            <button
+                              type="button"
+                              onClick={() => onNavigate('companies', { selectedCompanyId: section.venueCompanyId })}
+                              className="hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                              title={`Open ${section.venueCompanyName}`}
+                            >
+                              {section.venueCompanyName}
+                            </button>
+                          ) : (
+                            section.venueCompanyName
+                          )}
                         </div>
                         <table className="w-full text-sm table-fixed">
                           <thead>
@@ -5001,7 +5075,18 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                                 className="border-b border-border/50 last:border-b-0"
                               >
                                 <td className="py-2 px-3 text-text-primary">
-                                  {ct.firstName} {ct.lastName}
+                                  {onNavigate ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => onNavigate('contacts', { selectedContactId: ct.contactId })}
+                                      className="text-left font-medium hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                                      title={`View ${ct.firstName} ${ct.lastName}'s details`}
+                                    >
+                                      {ct.firstName} {ct.lastName}
+                                    </button>
+                                  ) : (
+                                    <>{ct.firstName} {ct.lastName}</>
+                                  )}
                                 </td>
                                 <td className="py-2 px-3">
                                   {(() => {
@@ -5091,7 +5176,7 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
             )}
 
             {drawerTab === "Linked Records" && (
-              <CompanyLinksSection companyId={String(selectedCompany.id)} />
+              <CompanyLinksSection companyId={String(selectedCompany.id)} onNavigate={onNavigate} />
             )}
           </div>
         </Drawer>
@@ -5143,6 +5228,7 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
             key={editContact.contactAssignmentId ?? editContact.id}
             roles={roles}
             departments={departments}
+            companies={companiesPickerQuery.data ?? []}
             initial={editContact}
             onCancel={() => setEditContact(null)}
             onSave={async (payload) => {
@@ -5152,20 +5238,37 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                   editContact.contactAssignmentId,
                   payload,
                 );
-                const mapped = mapContactRow(
-                  updated as ApiCompanyContact,
-                  String(selectedCompany.id),
-                );
-                upsertInList<Contact>(
-                  qc,
-                  ["companies", selectedCompany.id, "contacts"],
-                  mapped,
-                  (c) => c.contactAssignmentId === mapped.contactAssignmentId,
-                );
-                await qc.invalidateQueries({
-                  queryKey: ["companies", selectedCompany.id, "contacts"],
-                  exact: true,
-                });
+                const companyChanged = payload.companyId != null && String(payload.companyId) !== String(selectedCompany.id);
+                if (companyChanged) {
+                  removeFromList<Contact>(
+                    qc,
+                    ["companies", selectedCompany.id, "contacts"],
+                    (c) => c.contactAssignmentId === editContact.contactAssignmentId,
+                  );
+                  await qc.invalidateQueries({
+                    queryKey: ["companies", selectedCompany.id, "contacts"],
+                    exact: true,
+                  });
+                  await qc.invalidateQueries({
+                    queryKey: ["companies", String(payload.companyId), "contacts"],
+                    exact: true,
+                  });
+                } else {
+                  const mapped = mapContactRow(
+                    updated as ApiCompanyContact,
+                    String(selectedCompany.id),
+                  );
+                  upsertInList<Contact>(
+                    qc,
+                    ["companies", selectedCompany.id, "contacts"],
+                    mapped,
+                    (c) => c.contactAssignmentId === mapped.contactAssignmentId,
+                  );
+                  await qc.invalidateQueries({
+                    queryKey: ["companies", selectedCompany.id, "contacts"],
+                    exact: true,
+                  });
+                }
                 setEditContact(null);
                 addToast("Contact updated.", "success");
               } catch (e) {

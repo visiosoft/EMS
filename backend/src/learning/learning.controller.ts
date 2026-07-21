@@ -16,6 +16,9 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
+import * as fs from 'fs';
+import { join } from 'path';
+import { getUploadRoot } from '../common/upload-path';
 import { InternalAccessGuard } from '../internal-access/internal-access.guard.js';
 import {
   CreateCertificationDto,
@@ -25,9 +28,15 @@ import {
 } from './dto/learning.dto.js';
 import { LearningService } from './learning.service.js';
 
+const CERTIFICATE_UPLOAD_DIR = join(getUploadRoot(), 'certificates');
+fs.mkdirSync(CERTIFICATE_UPLOAD_DIR, { recursive: true });
+
 const certificateUploadOptions = () => ({
   storage: diskStorage({
-    destination: './uploads/certificates',
+    destination: (_req, _file, cb) => {
+      fs.mkdirSync(CERTIFICATE_UPLOAD_DIR, { recursive: true });
+      cb(null, CERTIFICATE_UPLOAD_DIR);
+    },
     filename: (_req, file, cb) => {
       const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
       cb(null, `${uniqueSuffix}${extname(file.originalname)}`);
@@ -45,7 +54,7 @@ const certificateUploadOptions = () => ({
 @UseGuards(InternalAccessGuard)
 @Controller('internal/learning')
 export class LearningController {
-  constructor(private readonly learningService: LearningService) {}
+  constructor(private readonly learningService: LearningService) { }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PLATFORMS (lookup)
@@ -89,6 +98,11 @@ export class LearningController {
   @Patch('certifications/:id/toggle-status')
   toggleCertificationStatus(@Param('id', ParseIntPipe) id: number) {
     return this.learningService.toggleCertificationStatus(id);
+  }
+
+  @Delete('certifications/:id')
+  deleteCertification(@Param('id', ParseIntPipe) id: number) {
+    return this.learningService.deleteCertification(id);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

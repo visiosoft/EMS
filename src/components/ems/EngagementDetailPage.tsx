@@ -1,4 +1,4 @@
-/**
+﻿/**
  * EngagementDetailPage – fully dynamic, end-to-end DB-driven.
  * All data comes from the API. No static/hardcoded content.
  *
@@ -1627,10 +1627,12 @@ function ServiceProvidersTab({
   engagementId,
   addToast,
   onDirtyChange,
+  onNavigate,
 }: {
   engagementId: number;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
   onDirtyChange?: (dirty: boolean) => void;
+  onNavigate: (view: string, data?: unknown) => void;
 }) {
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
@@ -1827,9 +1829,14 @@ function ServiceProvidersTab({
               className="bg-elevated border border-border rounded-lg p-3 flex items-start justify-between gap-3"
             >
               <div className="min-w-0">
-                <div className="text-text-primary font-medium">
+                <button
+                  type="button"
+                  onClick={() => onNavigate('companies', { selectedCompanyId: p.providerCompanyId })}
+                  className="text-text-primary font-medium hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                  title="Open service provider company"
+                >
                   {p.providerCompanyName ?? `Company #${p.providerCompanyId}`}
-                </div>
+                </button>
                 <div className="mt-1 flex flex-wrap gap-1.5">
                   {(p.serviceProvidedNames ?? []).length > 0 ? (
                     p.serviceProvidedNames.map((name) => (
@@ -4860,11 +4867,13 @@ function EngagementBookingPanel({
   row,
   addToast,
   onDirtyChange,
+  onNavigate,
 }: {
   engagementId: number;
   row: ApiEngagementListRow;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
   onDirtyChange?: (dirty: boolean) => void;
+  onNavigate: (view: string, data?: unknown) => void;
 }) {
   const qc = useQueryClient();
 
@@ -5299,7 +5308,19 @@ function EngagementBookingPanel({
           {sectionTitle('Talent Agency')}
           {talentAgencyCompanyName ? (
             <p className="text-sm text-text-secondary">
-              <span className="font-medium">Agency:</span> {talentAgencyCompanyName}
+              <span className="font-medium">Agency:</span>{' '}
+              {talentAgencyCompanyId ? (
+                <button
+                  type="button"
+                  onClick={() => onNavigate('companies', { selectedCompanyId: talentAgencyCompanyId })}
+                  className="hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                  title="Open talent agency company"
+                >
+                  {talentAgencyCompanyName}
+                </button>
+              ) : (
+                talentAgencyCompanyName
+              )}
             </p>
           ) : null}
           {talentAgentContacts.length === 0 ? (
@@ -5307,9 +5328,15 @@ function EngagementBookingPanel({
           ) : (
             <div className="space-y-1">
               {talentAgentContacts.map((c) => (
-                <p key={c.contactId} className="text-sm text-text-secondary">
+                <button
+                  key={c.contactId}
+                  type="button"
+                  onClick={() => onNavigate('contacts', { selectedContactId: c.contactId })}
+                  className="block text-sm text-text-secondary hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                  title={`View ${[c.firstName, c.lastName].filter(Boolean).join(' ')}'s details`}
+                >
                   {[c.firstName, c.lastName].filter(Boolean).join(' ') || `Contact #${c.contactId}`}
-                </p>
+                </button>
               ))}
             </div>
           )}
@@ -7818,10 +7845,12 @@ function EngagementMarketingPanel({
   engagementId,
   addToast,
   onDirtyChange,
+  onNavigate,
 }: {
   engagementId: number;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
   onDirtyChange?: (dirty: boolean) => void;
+  onNavigate: (view: string, data?: unknown) => void;
 }) {
   const qc = useQueryClient();
   const performancesQuery = useQuery({
@@ -8795,11 +8824,28 @@ function EngagementMarketingPanel({
               {(retailPartnersQuery.data ?? []).map((rp) => (
                 <div key={rp.retailPartnerId} className="flex items-center justify-between px-3 py-2">
                   <div className="min-w-0">
-                    <span className="text-sm font-medium text-text-primary">{rp.companyName ?? '—'}</span>
+                    <button
+                      type="button"
+                      onClick={() => onNavigate('companies', { selectedCompanyId: rp.companyId })}
+                      className="text-sm font-medium text-text-primary hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                      title="Open retail partner company"
+                    >
+                      {rp.companyName ?? '—'}
+                    </button>
                     {rp.companyTypeName && (
                       <span className="ml-2 text-xs text-text-muted">[{rp.companyTypeName}]</span>
                     )}
-                    {rp.contactName && (
+                    {rp.contactName && rp.contactId && (
+                      <button
+                        type="button"
+                        onClick={() => onNavigate('contacts', { selectedContactId: rp.contactId })}
+                        className="ml-2 text-xs text-text-muted hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                        title="View contact details"
+                      >
+                        · {rp.contactName}
+                      </button>
+                    )}
+                    {rp.contactName && !rp.contactId && (
                       <span className="ml-2 text-xs text-text-muted">· {rp.contactName}</span>
                     )}
                   </div>
@@ -11913,13 +11959,31 @@ export function EngagementDetailPage({
               {row.attractionName && (
                 <span className="flex items-center gap-1.5 text-text-secondary">
                   <Tag className="h-3.5 w-3.5 text-text-muted" />
-                  {row.tourName}
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('attraction-tours', { selectedTourId: row.tourId })}
+                    className="hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                    title="Open tour details"
+                  >
+                    {row.tourName}
+                  </button>
                 </span>
               )}
               {(row.venueCompanyName ?? row.venueName) && (
                 <span className="flex items-center gap-1.5 text-text-secondary">
                   <Building2 className="h-3.5 w-3.5 text-text-muted" />
-                  {row.venueCompanyName ?? row.venueName}
+                  {row.primaryVenueCompanyId ? (
+                    <button
+                      type="button"
+                      onClick={() => onNavigate('companies', { selectedCompanyId: row.primaryVenueCompanyId })}
+                      className="hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                      title="Open venue company profile"
+                    >
+                      {row.venueCompanyName ?? row.venueName}
+                    </button>
+                  ) : (
+                    <>{row.venueCompanyName ?? row.venueName}</>
+                  )}
                 </span>
               )}
               {(row.city || row.stateProvince) && (
@@ -11979,17 +12043,46 @@ export function EngagementDetailPage({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-5 pt-5 border-t border-border text-sm">
           <div>
             <span className="text-text-muted text-xs block mb-0.5 font-medium">Attraction</span>
-            <span className="text-text-primary">{row.attractionName ?? '—'}</span>
+            {row.attractionId ? (
+              <button
+                type="button"
+                onClick={() => onNavigate('attraction-tours', { selectedAttractionId: row.attractionId })}
+                className="text-text-primary hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                title="Open attraction details"
+              >
+                {row.attractionName}
+              </button>
+            ) : (
+              <span className="text-text-primary">{row.attractionName ?? '—'}</span>
+            )}
           </div>
           <div>
             <span className="text-text-muted text-xs block mb-0.5 font-medium">Tour</span>
-            <span className="text-text-primary">{row.tourName ?? '—'}</span>
+            <button
+              type="button"
+              onClick={() => onNavigate('attraction-tours', { selectedTourId: row.tourId })}
+              className="text-text-primary hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+              title="Open tour details"
+            >
+              {row.tourName ?? '—'}
+            </button>
           </div>
           <div>
             <span className="text-text-muted text-xs block mb-0.5 font-medium">Venue</span>
-            <span className="text-text-primary">
-              {row.venueCompanyName ?? row.venueName ?? '—'}
-            </span>
+            {row.primaryVenueCompanyId ? (
+              <button
+                type="button"
+                onClick={() => onNavigate('companies', { selectedCompanyId: row.primaryVenueCompanyId })}
+                className="text-text-primary hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                title="Open venue company profile"
+              >
+                {row.venueCompanyName ?? row.venueName ?? '—'}
+              </button>
+            ) : (
+              <span className="text-text-primary">
+                {row.venueCompanyName ?? row.venueName ?? '—'}
+              </span>
+            )}
           </div>
           <div>
             <span className="text-text-muted text-xs block mb-0.5 font-medium">Location</span>
@@ -12312,6 +12405,7 @@ export function EngagementDetailPage({
           row={row}
           addToast={addToast}
           onDirtyChange={handleBookingDirtyChange}
+          onNavigate={onNavigate}
         />
       )}
 
@@ -12343,6 +12437,7 @@ export function EngagementDetailPage({
             engagementId={engagementId}
             addToast={addToast}
             onDirtyChange={handleServiceProvidersDirtyChange}
+            onNavigate={onNavigate}
           />
         </div>
       )}
@@ -12363,6 +12458,7 @@ export function EngagementDetailPage({
             engagementId={engagementId}
             addToast={addToast}
             onDirtyChange={handleMarketingDirtyChange}
+            onNavigate={onNavigate}
           />
           <EngagementMarketingReadOnlySection
             venueCompanyId={row.primaryVenueCompanyId}
