@@ -70,6 +70,11 @@ export class CreateProjectVenueDto {
   venueStatus: string;
 
   @IsOptional()
+  @IsString()
+  @IsIn([...PROJECT_STAGE_VALUES])
+  offerCreationStatus?: string;
+
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreatePerformanceOptionDto)
@@ -90,18 +95,11 @@ export class CreateProjectDto {
   @Min(1)
   tourId: number;
 
-  @IsString()
-  @IsIn([...PROJECT_STAGE_VALUES])
-  projectStage: string;
-
-  /**
-   * OfferReviewStatus — only applicable once OfferCreationStatus = 'Submitted'.
-   * When set to 'Confirmed', the project is converted into an engagement.
-   */
+  /** Default OfferCreationStatus applied to all venues if not specified per-venue. */
   @IsOptional()
   @IsString()
-  @IsIn([...OFFER_REVIEW_STATUS_VALUES])
-  offerReviewStatus?: string | null;
+  @IsIn([...PROJECT_STAGE_VALUES])
+  projectStage?: string;
 
   /**
    * Talent agency for this project — must match the tour when the tour already has
@@ -136,17 +134,6 @@ export class CreateProjectDto {
   @IsInt({ each: true })
   @Min(1, { each: true })
   dmaIds: number[];
-
-  /**
-   * Actual opening/show rows to create when the offer is Confirmed
-   * (OfferReviewStatus = 'Confirmed'). These become dbo.Performance rows for
-   * the generated engagement.
-   */
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => ProjectOpeningPerformanceDto)
-  openingPerformances?: ProjectOpeningPerformanceDto[];
 
   // Frontend-only fields — accepted and silently ignored (Option A per §5.8)
   @IsOptional() name?: string | null;

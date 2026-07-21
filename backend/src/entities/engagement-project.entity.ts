@@ -20,33 +20,18 @@ export class EngagementProject {
   tour: Tour;
 
   /**
-   * DB column was renamed `ProjectStage` → `OfferCreationStatus`.
-   * Allowed values: Requested, Drafted, Submitted.
-   * The entity property keeps the legacy name `projectStage` to avoid a wide
-   * API/ frontend rename; it maps to the new column via `@Column name` below.
+   * @deprecated Moved to EngagementProjectVenue. Kept for backward compat
+   * until migration `move-offer-status-to-venue-level.sql` is executed.
    */
-  @Column({ name: 'OfferCreationStatus', type: 'nvarchar', length: 50 })
-  projectStage: string;
+  @Column({ name: 'OfferCreationStatus', type: 'nvarchar', length: 50, nullable: true })
+  projectStage: string | null;
 
-  /**
-   * New column `OfferReviewStatus` — only applicable once an offer is
-   * Submitted (OfferCreationStatus = 'Submitted').
-   * Allowed values: In Consideration, Declined, Confirmed.
-   * `Confirmed` is the value that triggers project → engagement conversion.
-   */
-  @Column({
-    name: 'OfferReviewStatus',
-    type: 'nvarchar',
-    length: 50,
-    nullable: true,
-  })
+  /** @deprecated Moved to EngagementProjectVenue. */
+  @Column({ name: 'OfferReviewStatus', type: 'nvarchar', length: 50, nullable: true })
   offerReviewStatus: string | null;
 
-  @Column({
-    name: 'ConfirmedOfferLinkID',
-    type: 'int',
-    nullable: true,
-  })
+  /** @deprecated Moved to EngagementProjectVenue. */
+  @Column({ name: 'ConfirmedOfferLinkID', type: 'int', nullable: true })
   confirmedOfferLinkId: number | null;
 
   @Column({ name: 'CreatedDate', type: 'datetime2' })
