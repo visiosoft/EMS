@@ -8616,6 +8616,16 @@ export class EngagementService {
           hotel: null,
           carServices: csRows,
         });
+      } else {
+        // Drill Bits travel types (Ground Transportation, Airfare, Hotels)
+        results.push({
+          engagementTravelId: t.engagementTravelId,
+          travelType: travelType as 'Hotel' | 'Car',
+          hotel: null,
+          carServices: [],
+          iaePays: t.iaePays ?? null,
+          iaeArranges: t.iaeArranges ?? null,
+        } as EngagementTravelRow & { iaePays: boolean | null; iaeArranges: boolean | null });
       }
     }
 
@@ -8820,6 +8830,54 @@ export class EngagementService {
       }
       await manager.delete(EngagementTravel, { engagementTravelId });
     });
+  }
+
+  /**
+   * Upsert travel rows for the Drill Bits tab.
+   * Each item in `travelTypes` represents a selected travel category with IAEPays/IAEArranges.
+   * Rows not in the array are removed (only for Drill Bits travel types, not Hotel/Car).
+   */
+  async upsertTravelDrillBits(
+    engagementId: number,
+    travelTypes: { travelType: string; iaePays: boolean | null; iaeArranges: boolean | null }[],
+  ): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+    const drillBitsTypes = ['Ground Transportation', 'Airfare', 'Hotels'];
+
+    // Get existing drill-bits travel rows
+    const existing = await this.engagementTravelRepo.find({
+      where: { engagementId },
+    });
+    const drillBitsExisting = existing.filter((t) => drillBitsTypes.includes(t.travelType));
+
+    // Delete rows for types no longer selected
+    const selectedTypes = travelTypes.map((t) => t.travelType);
+    for (const row of drillBitsExisting) {
+      if (!selectedTypes.includes(row.travelType)) {
+        await this.engagementTravelRepo.delete({ engagementTravelId: row.engagementTravelId });
+      }
+    }
+
+    // Upsert selected types
+    for (const item of travelTypes) {
+      if (!drillBitsTypes.includes(item.travelType)) continue;
+      const existingRow = drillBitsExisting.find((r) => r.travelType === item.travelType);
+      if (existingRow) {
+        await this.engagementTravelRepo.update(
+          { engagementTravelId: existingRow.engagementTravelId },
+          { iaePays: item.iaePays, iaeArranges: item.iaeArranges },
+        );
+      } else {
+        const newRow = this.engagementTravelRepo.create({
+          engagementId,
+          travelType: item.travelType,
+          bookedBy: null,
+          iaePays: item.iaePays,
+          iaeArranges: item.iaeArranges,
+        });
+        await this.engagementTravelRepo.save(newRow);
+      }
+    }
   }
 
   // ─── Engagement Partner (dbo.EngagementPartner) ─────────────────────────────

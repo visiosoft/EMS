@@ -10,6 +10,7 @@ import {
   Loader2,
   AlertCircle,
   CalendarDays,
+  ExternalLink,
   Plus,
   Trash2,
 } from 'lucide-react';
@@ -21,13 +22,19 @@ import {
   fetchEngagementFinanceLookups,
   fetchEngagementPerformances,
   fetchEngagementPerformanceTicketing,
+  fetchEngagementVenueTabData,
+  fetchEngagementTravel,
   updateEngagementPerformanceTicketing,
   updateEngagementFinance,
   updateEngagement,
   createEngagementPerformance,
   updateEngagementPerformance,
   deleteEngagementPerformance,
+  upsertEngagementLink,
+  removeEngagementLink,
+  upsertTravelDrillBits,
   type ApiEngagementListRow,
+  type ApiEngagementLinkRow,
   type ApiPerformanceRow,
   type UpdateEngagementFinancePayload,
   type UpdatePerformanceTicketingPayload,
@@ -114,6 +121,17 @@ const TRAVEL_CATEGORIES = ['Ground Transportation', 'Airfare', 'Hotels'] as cons
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function isValidHttpOrHttpsUrl(raw: string): boolean {
+  const t = raw.trim();
+  if (t === '') return true;
+  try {
+    const u = new URL(t);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
 
 function numFieldToString(v: number | string | null | undefined): string {
   if (v == null || (typeof v === 'number' && Number.isNaN(v))) return '';
@@ -458,6 +476,20 @@ export function EngagementDrillBitsTab({
     staleTime: 300_000,
   });
 
+  const venueTabQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'venue-tab-data'],
+    queryFn: () => fetchEngagementVenueTabData(engagementId),
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  const travelQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'travel'],
+    queryFn: () => fetchEngagementTravel(engagementId),
+    staleTime: 60_000,
+    retry: 1,
+  });
+
   const venueCompanyId = row.primaryVenueCompanyId;
 
   const venueProfileQuery = useQuery({
@@ -531,6 +563,7 @@ export function EngagementDrillBitsTab({
   // ══════════════════════════════════════════════════════════════════════════
 
   const [venueDealTypeId, setVenueDealTypeId] = useState('');
+  const [rentalForecastLink, setRentalForecastLink] = useState('');
 
   // ══════════════════════════════════════════════════════════════════════════
   // STATE — 3rd Party Partner
@@ -699,6 +732,35 @@ export function EngagementDrillBitsTab({
     setSalesRevenueGoal(numFieldToString(d.salesRevenueGoal));
     setTourSplitPoint(numFieldToString(d.tourSplitPoint));
   }, [financeQuery.data]);
+
+  // Rental Forecast link from EngagementLink
+  useEffect(() => {
+    const links = venueTabQuery.data?.engagementLinks ?? [];
+    setRentalForecastLink(links.find((el) => el.linkPurpose === 'Rental Forecast')?.linkUrl ?? '');
+  }, [venueTabQuery.data]);
+
+  // Travel from EngagementTravel (Drill Bits types only)
+  useEffect(() => {
+    const rows = travelQuery.data ?? [];
+    const drillBitsRows = rows.filter((r) =>
+      TRAVEL_CATEGORIES.includes(r.travelType as typeof TRAVEL_CATEGORIES[number]),
+    );
+    setTravelSelections(drillBitsRows.map((r) => r.travelType));
+    for (const r of drillBitsRows) {
+      const pays = r.iaePays;
+      const arranges = r.iaeArranges;
+      if (r.travelType === 'Ground Transportation') {
+        setTravelGroundIaePays(pays == null ? '' : pays ? 'Yes' : 'No');
+        setTravelGroundIaeArranges(arranges == null ? '' : arranges ? 'Yes' : 'No');
+      } else if (r.travelType === 'Airfare') {
+        setTravelAirfareIaePays(pays == null ? '' : pays ? 'Yes' : 'No');
+        setTravelAirfareIaeArranges(arranges == null ? '' : arranges ? 'Yes' : 'No');
+      } else if (r.travelType === 'Hotels') {
+        setTravelHotelsIaePays(pays == null ? '' : pays ? 'Yes' : 'No');
+        setTravelHotelsIaeArranges(arranges == null ? '' : arranges ? 'Yes' : 'No');
+      }
+    }
+  }, [travelQuery.data]);
 
   // Ticketing from first performance
   const firstPerformance = (performancesQuery.data ?? [])[0] ?? null;
@@ -889,10 +951,25 @@ export function EngagementDrillBitsTab({
 
   const saveVenueDealMut = useMutation({
     mutationFn: async () => {
+      // Validate rental forecast URL
+      const rfTrimmed = rentalForecastLink.trim();
+      if (rfTrimmed && !isValidHttpOrHttpsUrl(rfTrimmed)) {
+        throw new Error('Rental Forecast must be a valid http(s) URL, or left empty.');
+      }
       await updateEngagementFinance(engagementId, {
         venueDealTypeId: venueDealTypeId ? Number(venueDealTypeId) : null,
       });
+      // Upsert or remove Rental Forecast engagement link
+      if (rfTrimmed) {
+        await upsertEngagementLink(engagementId, { linkUrl: rfTrimmed, linkPurpose: 'Rental Forecast' });
+      } else {
+        const existing = (venueTabQuery.data?.engagementLinks ?? []).find((el) => el.linkPurpose === 'Rental Forecast');
+        if (existing) {
+          await removeEngagementLink(engagementId, existing.engagementLinkId);
+        }
+      }
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venue-tab-data'] });
     },
     onSuccess: () => { clearVenueDealEdited(); addToast('Venue deal saved.', 'success'); },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
@@ -986,15 +1063,24 @@ export function EngagementDrillBitsTab({
   });
 
   // ══════════════════════════════════════════════════════════════════════════
-  // SAVE — Travel (no DB columns yet — placeholder)
+  // SAVE — Travel (EngagementTravel)
   // ══════════════════════════════════════════════════════════════════════════
 
   const saveTravelMut = useMutation({
     mutationFn: async () => {
-      // Travel IAE Pays / Arranges columns don't exist in DB yet
-      addToast('Travel fields saved locally (no DB columns yet).', 'info');
+      const travelTypes = travelSelections.map((category) => {
+        const pays = category === 'Ground Transportation' ? travelGroundIaePays : category === 'Airfare' ? travelAirfareIaePays : travelHotelsIaePays;
+        const arranges = category === 'Ground Transportation' ? travelGroundIaeArranges : category === 'Airfare' ? travelAirfareIaeArranges : travelHotelsIaeArranges;
+        return {
+          travelType: category,
+          iaePays: pays === 'Yes' ? true : pays === 'No' ? false : null,
+          iaeArranges: arranges === 'Yes' ? true : arranges === 'No' ? false : null,
+        };
+      });
+      await upsertTravelDrillBits(engagementId, travelTypes);
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'travel'] });
     },
-    onSuccess: () => { clearTravelEdited(); },
+    onSuccess: () => { clearTravelEdited(); addToast('Travel saved.', 'success'); },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
   });
 
@@ -1371,7 +1457,20 @@ export function EngagementDrillBitsTab({
             />
           </FormField>
           <FormField label="Upload Rental Forecast">
-            <p className="text-xs text-text-muted italic pt-2">File upload (requires new database column)</p>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="url"
+                className={`${inputCls} flex-1`}
+                value={rentalForecastLink}
+                onChange={(e) => { markVenueDealEdited(); setRentalForecastLink(e.target.value); }}
+                placeholder="https://…"
+              />
+              {rentalForecastLink.trim() && isValidHttpOrHttpsUrl(rentalForecastLink) && (
+                <a href={rentalForecastLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open Rental Forecast">
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              )}
+            </div>
           </FormField>
         </div>
         <SaveBtn onClick={() => saveVenueDealMut.mutate()} pending={saveVenueDealMut.isPending} dirty={hasVenueDealEdited} label="Save Venue Deal" />

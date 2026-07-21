@@ -1160,9 +1160,11 @@ export interface ApiTravelHotelRow {
 
 export interface ApiEngagementTravelRow {
   engagementTravelId: number;
-  travelType: 'Hotel' | 'Car';
+  travelType: string;
   hotel: ApiTravelHotelRow | null;
   carServices: ApiTravelCarServiceRow[];
+  iaePays?: boolean | null;
+  iaeArranges?: boolean | null;
 }
 
 export interface CreateTravelHotelPayload {
@@ -1186,6 +1188,18 @@ export interface CreateTravelCarServicePayload {
 
 export const fetchEngagementTravel = (engagementId: number) =>
   apiFetch<ApiEngagementTravelRow[]>(`/engagements/${engagementId}/travel`);
+
+export interface ApiTravelDrillBitsRow {
+  travelType: string;
+  iaePays: boolean | null;
+  iaeArranges: boolean | null;
+}
+
+export const upsertTravelDrillBits = (engagementId: number, travelTypes: ApiTravelDrillBitsRow[]) =>
+  apiFetch<void>(`/engagements/${engagementId}/travel/drillbits`, {
+    method: 'PUT',
+    body: JSON.stringify({ travelTypes }),
+  });
 
 export const addEngagementTravelHotel = (engagementId: number, body: CreateTravelHotelPayload) =>
   apiFetch<{ engagementTravelId: number; hotelTravelId: number }>(

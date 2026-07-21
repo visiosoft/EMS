@@ -10,10 +10,16 @@ export class EngagementTravel extends AuditColumns {
   @Column({ name: 'EngagementID', type: 'int' })
   engagementId: number;
 
-  /** 'Hotel' | 'Car' */
+  /** 'Hotel' | 'Car' | 'Ground Transportation' | 'Airfare' | 'Hotels' */
   @Column({ name: 'TravelType', type: 'nvarchar', length: 20 })
   travelType: string;
 
   @Column({ name: 'BookedBy', type: 'nvarchar', length: 50, nullable: true })
   bookedBy: string | null;
+
+  @Column({ name: 'IAEPays', type: 'bit', nullable: true })
+  iaePays: boolean | null;
+
+  @Column({ name: 'IAEArranges', type: 'bit', nullable: true })
+  iaeArranges: boolean | null;
 }

@@ -11,6 +11,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Put,
   Query,
   UploadedFile,
   UseInterceptors,
@@ -557,6 +558,15 @@ export class EngagementController {
     @Param('travelId', ParseIntPipe) travelId: number,
   ) {
     return this.engagementService.deleteEngagementTravel(id, travelId);
+  }
+
+  @Put(':id/travel/drillbits')
+  @HttpCode(HttpStatus.OK)
+  upsertTravelDrillBits(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { travelTypes: { travelType: string; iaePays: boolean | null; iaeArranges: boolean | null }[] },
+  ) {
+    return this.engagementService.upsertTravelDrillBits(id, body.travelTypes);
   }
 
   // ─── Performance Contracts ────────────────────────────────────────────────
