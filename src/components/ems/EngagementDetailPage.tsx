@@ -6712,8 +6712,52 @@ function EngagementEventBusinessPanel({
 
         {/* ── Licensing / Royalties ─────────────────────────────────── */}
         {sectionHeader('Licensing / Royalties')}
+        <div className="space-y-4">
+          {/* Tour PRO associations */}
+          <div>
+            <span className="text-xs font-medium text-text-muted uppercase tracking-wide block mb-2">Tour PRO Associations</span>
+            <div className="flex flex-wrap gap-2">
+              {([
+                { org: 'ASCAP', selected: d?.tourAscap === true },
+                { org: 'BMI', selected: d?.tourBmi === true },
+                { org: 'SESAC', selected: d?.tourSesac === true },
+                { org: 'GMR', selected: d?.tourGmr === true },
+              ] as const).filter((o) => o.selected).length === 0 ? (
+                <p className="text-sm text-text-muted">No PROs selected for this tour.</p>
+              ) : (
+                ([
+                  { org: 'ASCAP', selected: d?.tourAscap === true },
+                  { org: 'BMI', selected: d?.tourBmi === true },
+                  { org: 'SESAC', selected: d?.tourSesac === true },
+                  { org: 'GMR', selected: d?.tourGmr === true },
+                ] as const).filter((o) => o.selected).map(({ org }) => (
+                  <span key={org} className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 ring-1 ring-green-300">{org}</span>
+                ))
+              )}
+            </div>
+          </div>
+          {/* Royalty rate from Attraction Terms in Engagement Drill Bits */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <span className="text-xs font-medium text-text-muted uppercase tracking-wide block mb-1">Royalty Rate (from Attraction Terms)</span>
+              <span className="text-sm text-text-primary font-medium">
+                {d?.artistRoyaltyRatePercent != null && Number(d.artistRoyaltyRatePercent) > 0
+                  ? `${d.artistRoyaltyRatePercent}%`
+                  : '—'}
+              </span>
+            </div>
+            <div>
+              <span className="text-xs font-medium text-text-muted uppercase tracking-wide block mb-1">Royalty Basis</span>
+              <span className="text-sm text-text-primary font-medium">
+                {d?.artistRoyaltyBasedOn ? d.artistRoyaltyBasedOn : '—'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Previous royalty calculation (commented out) ──────────── */}
+        {/*
         {(() => {
-          // Only PROs selected on the tour (flag === true) are shown. Order fixed: ASCAP, BMI, SESAC, GMR.
           const selectedOrgs = ([
             { org: 'ASCAP', selected: d?.tourAscap === true, line: royalties.ascap },
             { org: 'BMI', selected: d?.tourBmi === true, line: royalties.bmi },
@@ -6758,6 +6802,7 @@ function EngagementEventBusinessPanel({
             </>
           );
         })()}
+        */}
 
         {/* ── RAMP ────────────────────────────────────────────────── */}
         {sectionHeader('RAMP')}
@@ -12133,20 +12178,20 @@ export function EngagementDetailPage({
           'Engagement Drill Bits',
           'Overview',
           'Engagement Contacts',
-          'Main Information',
+          // 'Main Information',
           'Booking',
           'Venues',
           { label: 'Documents', disabled: row?.engagementStatus !== 'Confirmed', disabledReason: 'SharePoint folders are only available for Confirmed engagements.' },
-          'Service Providers',
-          'Sale Summary',
+          'Ticketing',
           'Marketing',
           'Production',
-          'Taxation',
-          'Ticketing',
-          'Artist terms',
           'Event business',
-          'Finance',
+          'Service Providers',
+          'Sale Summary',
           'Contract',
+          // 'Taxation',
+          // 'Artist terms',
+          // 'Finance',
         ]}
         active={tab}
         onChange={handleTabChange}
@@ -12156,72 +12201,31 @@ export function EngagementDetailPage({
       {tab === 'Overview' && (
         <div className="bg-card border border-border rounded-lg p-5 space-y-5">
           <div
-            className="relative rounded-lg border border-border bg-surface/40 p-4"
-            aria-busy={capacitySectionSaving}
+            className="rounded-lg border border-border bg-surface/40 p-4"
           >
-            {capacitySectionSaving && (
-              <div
-                className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/55 backdrop-blur-[1px]"
-                aria-live="polite"
-              >
-                <span className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2.5 text-sm font-medium text-text-primary shadow-md">
-                  <Loader2 className="h-5 w-5 animate-spin text-ems-accent shrink-0" />
-                  Saving to database…
-                </span>
-              </div>
-            )}
             <h3 className="text-sm font-semibold text-text-primary mb-1">Sales Baseline Fields</h3>
+            <p className="text-xs text-text-muted mb-3 italic">Computed as the sum of all per-performance values. Edit individual performances in the Engagement Drill Bits tab.</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <FormField label="Engagement sellable capacity">
+              <FormField label="Engagement sellable capacity (sum)">
                 <input
-                  type="number"
-                  min={0}
-                  step={1}
+                  type="text"
                   className={inputCls}
-                  value={sellableCapacityInput}
-                  onChange={(e) => {
-                    markCapacityFieldsUserEdited();
-                    setSellableCapacityInput(e.target.value);
-                  }}
-                  disabled={anyEngagementPatchPending}
-                  placeholder="e.g. 2021"
+                  value={row?.sellableCapacity != null ? row.sellableCapacity.toLocaleString() : '—'}
+                  disabled
+                  readOnly
                 />
               </FormField>
-              <FormField label="Engagement gross potential">
+              <FormField label="Engagement gross potential (sum)">
                 <input
-                  type="number"
-                  min={0}
-                  step={0.01}
+                  type="text"
                   className={inputCls}
-                  value={grossPotentialInput}
-                  onChange={(e) => {
-                    markCapacityFieldsUserEdited();
-                    setGrossPotentialInput(e.target.value);
-                  }}
-                  disabled={anyEngagementPatchPending}
-                  placeholder="e.g. 403565.00"
+                  value={row?.grossPotential != null
+                    ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(Number(row.grossPotential))
+                    : '—'}
+                  disabled
+                  readOnly
                 />
               </FormField>
-            </div>
-            <div className="mt-4 flex justify-end">
-              <Button
-                type="button"
-                size="sm"
-                className="bg-ems-accent text-white hover:opacity-90"
-                onClick={handleSaveCapacityFields}
-                disabled={
-                  !canSaveCapacityFields || anyEngagementPatchPending
-                }
-              >
-                {capacitySectionSaving ? (
-                  <span className="inline-flex items-center gap-1">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Saving…
-                  </span>
-                ) : (
-                  'Save capacity fields'
-                )}
-              </Button>
             </div>
           </div>
           <div
@@ -12387,7 +12391,7 @@ export function EngagementDetailPage({
         </div>
       )}
       {/* ── Main Information ─────────────────────────────────────────────── */}
-      {tab === 'Main Information' && (
+      {/* {tab === 'Main Information' && (
         <EngagementMainInformationPanel
           engagementId={engagementId}
           row={row}
@@ -12396,7 +12400,7 @@ export function EngagementDetailPage({
           addToast={addToast}
           onDirtyChange={handleMainInformationDirtyChange}
         />
-      )}
+      )} */}
 
       {/* ── Booking ──────────────────────────────────────────────────────── */}
       {tab === 'Booking' && row && (

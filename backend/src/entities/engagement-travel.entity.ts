@@ -11,7 +11,7 @@ export class EngagementTravel extends AuditColumns {
   engagementId: number;
 
   /** 'Hotel' | 'Car' | 'Ground Transportation' | 'Airfare' | 'Hotels' */
-  @Column({ name: 'TravelType', type: 'nvarchar', length: 20 })
+  @Column({ name: 'TravelType', type: 'nvarchar', length: 50 })
   travelType: string;
 
   @Column({ name: 'BookedBy', type: 'nvarchar', length: 50, nullable: true })

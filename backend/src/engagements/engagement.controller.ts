@@ -77,6 +77,11 @@ export class EngagementController {
     return this.engagementService.getEngagementIaeContactLookups();
   }
 
+  @Get('equipment-rental-types')
+  listEquipmentRentalTypes() {
+    return this.engagementService.listEquipmentRentalTypes();
+  }
+
   /** Company Hub — engagements the signed-in user is assigned to (IAE contact) for a date range. */
   @Get('hub-schedule')
   listHubSchedule(
@@ -567,6 +572,45 @@ export class EngagementController {
     @Body() body: { travelTypes: { travelType: string; iaePays: boolean | null; iaeArranges: boolean | null }[] },
   ) {
     return this.engagementService.upsertTravelDrillBits(id, body.travelTypes);
+  }
+
+  // ─── Equipment Rentals ────────────────────────────────────────────────────
+
+  @Get(':id/equipment-rentals')
+  getEquipmentRentals(@Param('id', ParseIntPipe) id: number) {
+    return this.engagementService.getEquipmentRentals(id);
+  }
+
+  @Put(':id/equipment-rentals')
+  @HttpCode(HttpStatus.OK)
+  upsertEquipmentRentals(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { items: { equipmentRentalTypeId: number; budgetAmount: number | null }[] },
+  ) {
+    return this.engagementService.upsertEquipmentRentals(id, body.items);
+  }
+
+  // ─── Production Miscellaneous ─────────────────────────────────────────────
+
+  @Get(':id/production-misc')
+  getProductionMisc(@Param('id', ParseIntPipe) id: number) {
+    return this.engagementService.getProductionMisc(id);
+  }
+
+  @Patch(':id/production-misc')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  updateProductionMisc(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: {
+      runnerRequired: boolean | null;
+      cateringRequired: boolean | null;
+      cateringBudgetLineItem: string | null;
+      productionBuyoutRequired: boolean | null;
+      productionBuyoutDescription: string | null;
+      productionBuyoutBudgetAmount: number | null;
+    },
+  ) {
+    return this.engagementService.updateProductionMisc(id, body);
   }
 
   // ─── Performance Contracts ────────────────────────────────────────────────

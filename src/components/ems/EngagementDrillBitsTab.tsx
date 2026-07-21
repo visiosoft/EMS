@@ -24,6 +24,9 @@ import {
   fetchEngagementPerformanceTicketing,
   fetchEngagementVenueTabData,
   fetchEngagementTravel,
+  fetchEquipmentRentalTypes,
+  fetchEquipmentRentals,
+  fetchProductionMisc,
   updateEngagementPerformanceTicketing,
   updateEngagementFinance,
   updateEngagement,
@@ -33,6 +36,8 @@ import {
   upsertEngagementLink,
   removeEngagementLink,
   upsertTravelDrillBits,
+  upsertEquipmentRentals,
+  updateProductionMisc,
   type ApiEngagementListRow,
   type ApiEngagementLinkRow,
   type ApiPerformanceRow,
@@ -72,10 +77,8 @@ const ROYALTY_BASIS_OPTIONS: Select2Option[] = [
   { value: 'Based on NAGBOR', label: 'Based on NAGBOR' },
 ];
 
-// VenueDealType IDs 1-4 are Venue Deal, 5-8 are 3rd Party Partner
-// These are fetched from dbo.VenueDealType via fetchEngagementFinanceLookups()
+// VenueDealType IDs 1-4 are Venue Deal (fetched from dbo.VenueDealType via fetchEngagementFinanceLookups())
 const VENUE_DEAL_TYPE_IDS = [1, 2, 3, 4];
-const THIRD_PARTY_PARTNER_TYPE_IDS = [5, 6, 7, 8];
 
 const TICKETING_ADMIN_OPTIONS: Select2Option[] = [
   { value: '', label: 'Not set' },
@@ -113,8 +116,6 @@ const YES_NO_OPTIONS: Select2Option[] = [
   { value: 'Yes', label: 'Yes' },
   { value: 'No', label: 'No' },
 ];
-
-const EQUIPMENT_RENTAL_OPTIONS = ['Sound', 'Lights', 'Video', 'Other'] as const;
 
 const TRAVEL_CATEGORIES = ['Ground Transportation', 'Airfare', 'Hotels'] as const;
 
@@ -241,6 +242,7 @@ function EditablePerformanceRow({
   onRefresh: () => void;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 }) {
+  const rowQc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [dateVal, setDateVal] = useState(perf.performanceDate);
   const [timeVal, setTimeVal] = useState((perf.performanceTime ?? '').slice(0, 5));
@@ -288,6 +290,7 @@ function EditablePerformanceRow({
       setEditing(false);
       onRefresh();
       ticketingQuery.refetch();
+      rowQc.invalidateQueries({ queryKey: ['engagements', engagementId] });
       addToast('Performance updated.', 'success');
     },
     onError: (e) => addToast(friendlyApiError(e), 'error'),
@@ -295,7 +298,7 @@ function EditablePerformanceRow({
 
   const deleteMut = useMutation({
     mutationFn: () => deleteEngagementPerformance(engagementId, perf.performanceId),
-    onSuccess: () => { onRefresh(); addToast('Performance deleted.', 'success'); },
+    onSuccess: () => { onRefresh(); rowQc.invalidateQueries({ queryKey: ['engagements', engagementId] }); addToast('Performance deleted.', 'success'); },
     onError: (e) => addToast(friendlyApiError(e), 'error'),
   });
 
@@ -314,6 +317,7 @@ function EditablePerformanceRow({
     onSuccess: () => {
       ticketingQuery.refetch();
       setCapacityDirty(false);
+      rowQc.invalidateQueries({ queryKey: ['engagements', engagementId] });
       addToast('Capacity saved for this performance.', 'success');
     },
     onError: (e) => addToast(friendlyApiError(e), 'error'),
@@ -486,6 +490,26 @@ export function EngagementDrillBitsTab({
   const travelQuery = useQuery({
     queryKey: ['engagements', engagementId, 'travel'],
     queryFn: () => fetchEngagementTravel(engagementId),
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  const equipmentTypesQuery = useQuery({
+    queryKey: ['engagements', 'equipment-rental-types'],
+    queryFn: fetchEquipmentRentalTypes,
+    staleTime: 300_000,
+  });
+
+  const equipmentRentalsQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'equipment-rentals'],
+    queryFn: () => fetchEquipmentRentals(engagementId),
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  const productionMiscQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'production-misc'],
+    queryFn: () => fetchProductionMisc(engagementId),
     staleTime: 60_000,
     retry: 1,
   });
@@ -723,7 +747,7 @@ export function EngagementDrillBitsTab({
     setVenueDealTypeId(d.venueDealTypeId != null ? String(d.venueDealTypeId) : '');
     // 3rd party partner → stored in VenueDealType (nvarchar) column
     // Only populate if the value is a 3rd-party string (not a venue deal string)
-    const thirdPartyLabels = ['CoPro with 3rd Party', 'CoPro with 3rd Party, 3rd Party Renting Venue', 'Silent CoPro with 3rd Party, 3rd Party Renting Venue', '3rd Party Partner'];
+    const thirdPartyLabels = ['CoPro with 3rd Party', 'CoPro with 3rd Party, 3rd Party Renting Venue', 'Silent CoPro with 3rd Party, 3rd Party Renting Venue'];
     const rawVenueDeal = d.thirdPartyPartnerDealStructure ?? d.venueDealType ?? '';
     setThirdPartyDealType(thirdPartyLabels.includes(rawVenueDeal) ? rawVenueDeal : '');
     // Marketing budgets
@@ -761,6 +785,35 @@ export function EngagementDrillBitsTab({
       }
     }
   }, [travelQuery.data]);
+
+  // Equipment rentals from EngagementProductionEquipmentRental
+  useEffect(() => {
+    const rows = equipmentRentalsQuery.data ?? [];
+    const types = equipmentTypesQuery.data ?? [];
+    const selectedNames: string[] = [];
+    const budgets: Record<string, string> = {};
+    for (const row of rows) {
+      const typeName = types.find((t) => t.equipmentRentalTypeId === row.equipmentRentalTypeId)?.typeName;
+      if (typeName) {
+        selectedNames.push(typeName);
+        budgets[typeName] = row.budgetAmount != null ? String(row.budgetAmount) : '';
+      }
+    }
+    setEquipmentSelections(selectedNames);
+    setEquipmentBudgets(budgets);
+  }, [equipmentRentalsQuery.data, equipmentTypesQuery.data]);
+
+  // Miscellaneous from EngagementProduction
+  useEffect(() => {
+    const d = productionMiscQuery.data;
+    if (!d) return;
+    setRunnerRequired(d.runnerRequired == null ? '' : d.runnerRequired ? 'Yes' : 'No');
+    setCateringEnabled(d.cateringRequired == null ? '' : d.cateringRequired ? 'Yes' : 'No');
+    setCateringBudget(d.cateringBudgetLineItem ?? '');
+    setBuyoutsEnabled(d.productionBuyoutRequired == null ? '' : d.productionBuyoutRequired ? 'Yes' : 'No');
+    setBuyoutDescription(d.productionBuyoutDescription ?? '');
+    setBuyoutBudget(d.productionBuyoutBudgetAmount != null ? String(d.productionBuyoutBudgetAmount) : '');
+  }, [productionMiscQuery.data]);
 
   // Ticketing from first performance
   const firstPerformance = (performancesQuery.data ?? [])[0] ?? null;
@@ -841,11 +894,12 @@ export function EngagementDrillBitsTab({
   }, [financeLookupsQuery.data?.venueDealTypes]);
 
   // 3rd Party Partner options — stored as string in EngagementFinances.VenueDealType
-  const thirdPartyPartnerOptions = useMemo<Select2Option[]>(() => {
-    const all = financeLookupsQuery.data?.venueDealTypes ?? [];
-    const partnerOpts = all.filter((r) => THIRD_PARTY_PARTNER_TYPE_IDS.includes(r.id));
-    return [{ value: '', label: 'Not set' }, ...partnerOpts.map((r) => ({ value: r.label, label: r.label }))];
-  }, [financeLookupsQuery.data?.venueDealTypes]);
+  const thirdPartyPartnerOptions = useMemo<Select2Option[]>(() => [
+    { value: '', label: 'Not set' },
+    { value: 'CoPro with 3rd Party', label: 'CoPro with 3rd Party' },
+    { value: 'CoPro with 3rd Party, 3rd Party Renting Venue', label: 'CoPro with 3rd Party, 3rd Party Renting Venue' },
+    { value: 'Silent CoPro with 3rd Party, 3rd Party Renting Venue', label: 'Silent CoPro with 3rd Party, 3rd Party Renting Venue' },
+  ], []);
 
   const canDeleteIndividualShow = (performancesQuery.data ?? []).length > 1;
 
@@ -1085,28 +1139,47 @@ export function EngagementDrillBitsTab({
   });
 
   // ══════════════════════════════════════════════════════════════════════════
-  // SAVE — Equipment Rentals (no DB table yet — placeholder)
+  // SAVE — Equipment Rentals (EngagementProductionEquipmentRental)
   // ══════════════════════════════════════════════════════════════════════════
 
   const saveEquipmentMut = useMutation({
     mutationFn: async () => {
-      // Equipment Rental table doesn't exist in DB yet
-      addToast('Equipment fields saved locally (no DB table yet).', 'info');
+      const types = equipmentTypesQuery.data ?? [];
+      const items = equipmentSelections
+        .map((name) => {
+          const t = types.find((t) => t.typeName === name);
+          if (!t) return null;
+          const raw = equipmentBudgets[name];
+          const budgetAmount = raw ? parseFloat(raw) : null;
+          return { equipmentRentalTypeId: t.equipmentRentalTypeId, budgetAmount: budgetAmount != null && !isNaN(budgetAmount) ? budgetAmount : null };
+        })
+        .filter((x): x is { equipmentRentalTypeId: number; budgetAmount: number | null } => x != null);
+      await upsertEquipmentRentals(engagementId, items);
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'equipment-rentals'] });
     },
-    onSuccess: () => { clearEquipmentEdited(); },
+    onSuccess: () => { clearEquipmentEdited(); addToast('Equipment rentals saved.', 'success'); },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
   });
 
   // ══════════════════════════════════════════════════════════════════════════
-  // SAVE — Miscellaneous (no DB columns yet — placeholder)
+  // SAVE — Miscellaneous (EngagementProduction)
   // ══════════════════════════════════════════════════════════════════════════
 
   const saveMiscMut = useMutation({
     mutationFn: async () => {
-      // Misc columns (Runner, Catering, Buyouts) don't exist in DB yet
-      addToast('Miscellaneous fields saved locally (no DB columns yet).', 'info');
+      const buyoutAmt = buyoutBudget.trim() ? Number(buyoutBudget) : null;
+      if (buyoutAmt != null && isNaN(buyoutAmt)) throw new Error('Buyout Budget must be a valid number.');
+      await updateProductionMisc(engagementId, {
+        runnerRequired: runnerRequired === 'Yes' ? true : runnerRequired === 'No' ? false : null,
+        cateringRequired: cateringEnabled === 'Yes' ? true : cateringEnabled === 'No' ? false : null,
+        cateringBudgetLineItem: cateringEnabled === 'Yes' ? (cateringBudget.trim() || null) : null,
+        productionBuyoutRequired: buyoutsEnabled === 'Yes' ? true : buyoutsEnabled === 'No' ? false : null,
+        productionBuyoutDescription: buyoutsEnabled === 'Yes' ? (buyoutDescription.trim() || null) : null,
+        productionBuyoutBudgetAmount: buyoutsEnabled === 'Yes' ? buyoutAmt : null,
+      });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'production-misc'] });
     },
-    onSuccess: () => { clearMiscEdited(); },
+    onSuccess: () => { clearMiscEdited(); addToast('Miscellaneous saved.', 'success'); },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
   });
 
@@ -1781,43 +1854,43 @@ export function EngagementDrillBitsTab({
         <SectionHeader title="Equipment Rentals" />
         <div className="space-y-4">
           <div className="flex flex-wrap gap-4">
-            {EQUIPMENT_RENTAL_OPTIONS.map((opt) => (
-              <label key={opt} className="inline-flex items-center gap-2 text-sm text-text-primary cursor-pointer">
+            {(equipmentTypesQuery.data ?? []).map((opt) => (
+              <label key={opt.equipmentRentalTypeId} className="inline-flex items-center gap-2 text-sm text-text-primary cursor-pointer">
                 <input
                   type="checkbox"
                   className="h-4 w-4"
-                  checked={equipmentSelections.includes(opt)}
+                  checked={equipmentSelections.includes(opt.typeName)}
                   onChange={(e) => {
                     markEquipmentEdited();
                     if (e.target.checked) {
-                      setEquipmentSelections((prev) => [...prev, opt]);
+                      setEquipmentSelections((prev) => [...prev, opt.typeName]);
                     } else {
-                      setEquipmentSelections((prev) => prev.filter((x) => x !== opt));
-                      setEquipmentBudgets((prev) => { const c = { ...prev }; delete c[opt]; return c; });
+                      setEquipmentSelections((prev) => prev.filter((x) => x !== opt.typeName));
+                      setEquipmentBudgets((prev) => { const next = { ...prev }; delete next[opt.typeName]; return next; });
                     }
                   }}
-                    />
-                {opt}
+                />
+                {opt.typeName}
               </label>
             ))}
           </div>
           {equipmentSelections.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {equipmentSelections.map((eq) => (
-                <FormField key={eq} label={`${eq} — Budget`} required>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+              {equipmentSelections.map((name) => (
+                <div key={name} className="flex items-center gap-2">
+                  <span className="text-sm text-text-primary w-32 truncate">{name}</span>
                   <input
                     type="number"
-                    min={0}
-                    step={0.01}
-                    className={inputCls}
-                    value={equipmentBudgets[eq] ?? ''}
+                    step="0.01"
+                    placeholder="Budget $"
+                    className="flex-1 rounded border border-border-primary bg-bg-secondary px-3 py-1.5 text-sm text-text-primary"
+                    value={equipmentBudgets[name] ?? ''}
                     onChange={(e) => {
                       markEquipmentEdited();
-                      setEquipmentBudgets((prev) => ({ ...prev, [eq]: e.target.value }));
+                      setEquipmentBudgets((prev) => ({ ...prev, [name]: e.target.value }));
                     }}
-                          placeholder="$"
                   />
-                </FormField>
+                </div>
               ))}
             </div>
           )}
