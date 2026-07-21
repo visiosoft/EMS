@@ -12,6 +12,7 @@ import { ContactAssignment } from '../entities/contact-assignment.entity';
 import { Contact } from '../entities/contact.entity';
 import { Department } from '../entities/department.entity';
 import { Role } from '../entities/role.entity';
+import { HubSpotWebhookEventDto } from './dto/hubspot-webhook-event.dto';
 
 interface ExternalContactSyncRow {
   contactId: number;
@@ -1407,5 +1408,184 @@ export class HubSpotService {
         (target as Map<string, string>).set(sourceId, hubSpotId);
       }
     }
+  }
+
+  // ─── Webhook event processing ────────────────────────────────────────────────
+
+  /**
+   * HubSpot property name → ContactInfo column name mapping.
+   */
+  private readonly contactPropertyMap: Record<string, string> = {
+    email: 'Email',
+    firstname: 'FirstName',
+    lastname: 'LastName',
+    phone: 'CellPhone',
+    mobilephone: 'CellPhone',
+    work_phone: 'WorkPhone',
+  };
+
+  /**
+   * Process an array of HubSpot webhook events asynchronously.
+   * Called fire-and-forget from the controller after the 200 response is sent.
+   */
+  async handleWebhookEvents(events: HubSpotWebhookEventDto[]): Promise<void> {
+    // Group contact.propertyChange events by objectId to process together
+    const contactPropertyEvents = new Map<number, HubSpotWebhookEventDto[]>();
+    const otherEvents: HubSpotWebhookEventDto[] = [];
+
+    for (const event of events) {
+      if (event.subscriptionType === 'contact.propertyChange') {
+        const group = contactPropertyEvents.get(event.objectId) || [];
+        group.push(event);
+        contactPropertyEvents.set(event.objectId, group);
+      } else {
+        otherEvents.push(event);
+      }
+    }
+
+    // Process grouped contact property changes
+    for (const [objectId, group] of contactPropertyEvents) {
+      try {
+        await this.handleContactPropertyChanges(objectId, group);
+      } catch (error) {
+        this.logger.error(
+          `Webhook processing failed for objectId=${objectId} (contact.propertyChange)`,
+          error instanceof Error ? error.stack : error,
+        );
+      }
+    }
+
+    // Process other events
+    for (const event of otherEvents) {
+      try {
+        switch (event.subscriptionType) {
+          case 'contact.creation':
+            await this.handleContactCreation(event);
+            break;
+
+          case 'company.creation':
+          case 'company.propertyChange':
+            this.logger.log(
+              `Webhook: ${event.subscriptionType} for objectId=${event.objectId}. Company sync not yet wired.`,
+            );
+            break;
+
+          default:
+            this.logger.debug(
+              `Webhook: unhandled subscriptionType "${event.subscriptionType}" (eventId=${event.eventId}, objectId=${event.objectId})`,
+            );
+        }
+      } catch (error) {
+        this.logger.error(
+          `Webhook processing failed for eventId=${event.eventId} (${event.subscriptionType})`,
+          error instanceof Error ? error.stack : error,
+        );
+      }
+    }
+  }
+
+  private async handleContactPropertyChanges(
+    objectId: number,
+    events: HubSpotWebhookEventDto[],
+  ): Promise<void> {
+    // Find the email event from the group
+    const emailEvent = events.find(
+      (e) => e.propertyName?.toLowerCase() === 'email' && e.propertyValue,
+    );
+    const email = emailEvent?.propertyValue;
+
+    // 1. If we have an email, look up the contact by email
+    let contactInfoId: number | null = null;
+    let foundByEmail = false;
+
+    if (email) {
+      const byEmail = await this.dataSource.query(
+        `SELECT ContactInfoID FROM dbo.ContactInfo WHERE [Email] = @0`,
+        [email],
+      );
+
+      if (byEmail.length > 0) {
+        contactInfoId = byEmail[0].ContactInfoID;
+        foundByEmail = true;
+        this.logger.log(
+          `contact.propertyChange: Found existing contact by email "${email}" → ContactInfo(${contactInfoId}).`,
+        );
+      }
+    }
+
+    // 2. If contact not found by email, create a new one (auto-generated ID)
+    if (contactInfoId === null) {
+      const insertResult = await this.dataSource.query(
+        `INSERT INTO dbo.ContactInfo (FirstName, LastName, Email, CellPhone, WorkPhone)
+         VALUES ('', '', @0, NULL, NULL);
+         SELECT SCOPE_IDENTITY() AS NewId;`,
+        [email || ''],
+      );
+      const newId = insertResult?.[0]?.NewId;
+
+      if (!newId) {
+        this.logger.error(`contact.propertyChange: Failed to insert new ContactInfo. Result: ${JSON.stringify(insertResult)}`);
+        return;
+      }
+
+      await this.dataSource.query(
+        `INSERT INTO dbo.Contact (ContactInfoID) VALUES (@0)`,
+        [newId],
+      );
+
+      contactInfoId = newId;
+      foundByEmail = false;
+      this.logger.log(
+        `contact.propertyChange: Created new ContactInfo(${newId}) + Contact with email="${email}".`,
+      );
+    }
+
+    // 3. Update properties on the found/created contact (skip email if contact was found by it)
+    for (const event of events) {
+      if (!event.propertyName || event.propertyValue === undefined) continue;
+
+      // Skip updating email if we found the contact by that email (it's already correct)
+      if (event.propertyName.toLowerCase() === 'email' && foundByEmail) continue;
+
+      const dbColumn = this.contactPropertyMap[event.propertyName.toLowerCase()];
+      if (!dbColumn) {
+        this.logger.debug(
+          `No column mapping for HubSpot property "${event.propertyName}". Skipping.`,
+        );
+        continue;
+      }
+
+      await this.dataSource.query(
+        `UPDATE dbo.ContactInfo SET [${dbColumn}] = @0 WHERE ContactInfoID = @1`,
+        [event.propertyValue, contactInfoId],
+      );
+
+      this.logger.log(
+        `contact.propertyChange: Updated ContactInfo(${contactInfoId}) [${dbColumn}] = "${event.propertyValue}"`,
+      );
+    }
+  }
+
+  private async handleContactCreation(event: HubSpotWebhookEventDto): Promise<void> {
+    // Insert a new ContactInfo record (auto-generated ID)
+    const insertResult = await this.dataSource.query(
+      `INSERT INTO dbo.ContactInfo (FirstName, LastName, Email, CellPhone, WorkPhone)
+       VALUES ('', '', '', NULL, NULL);
+       SELECT SCOPE_IDENTITY() AS NewId;`,
+    );
+    const newId = insertResult[0]?.NewId;
+
+    if (!newId) {
+      this.logger.error(`contact.creation: Failed to insert new ContactInfo for objectId=${event.objectId}.`);
+      return;
+    }
+
+    // Create a Contact record linked to this ContactInfo
+    await this.dataSource.query(
+      `INSERT INTO dbo.Contact (ContactInfoID) VALUES (@0)`,
+      [newId],
+    );
+
+    this.logger.log(`contact.creation: Created ContactInfo(${newId}) + Contact for HubSpot objectId=${event.objectId}.`);
   }
 }

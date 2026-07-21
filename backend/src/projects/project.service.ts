@@ -973,6 +973,21 @@ export class ProjectService {
       }),
     );
 
+    // Fetch link names for confirmed-offer PDFs
+    const confirmedOfferLinkIds = dbVenues
+      .map((v) => v.confirmedOfferLinkId)
+      .filter((id): id is number => id != null && id > 0);
+    const confirmedOfferLinks =
+      confirmedOfferLinkIds.length > 0
+        ? await this.linkRepo.find({
+            where: { linkId: In(confirmedOfferLinkIds) },
+            select: ['linkId', 'linkName'],
+          })
+        : [];
+    const linkNameById = new Map(
+      confirmedOfferLinks.map((l) => [l.linkId, l.linkName]),
+    );
+
     const venuesWithDetails = dbVenues.map((v) => {
       const company = venueCompanyById.get(v.venueCompanyId);
       const venue = venueByCompanyId.get(v.venueCompanyId);
@@ -985,6 +1000,10 @@ export class ProjectService {
         venueDmaId: company?.dmaid ?? null,
         venueDmaMarketName: company?.dma?.marketName ?? null,
         venueStatus: v.venueStatus,
+        offerCreationStatus: v.offerCreationStatus ?? project.projectStage ?? 'Requested',
+        offerReviewStatus: v.offerReviewStatus ?? project.offerReviewStatus ?? null,
+        confirmedOfferLinkId: v.confirmedOfferLinkId ?? project.confirmedOfferLinkId ?? null,
+        confirmedOfferLinkName: linkNameById.get(v.confirmedOfferLinkId ?? 0) ?? null,
         // Frontend-only fields returned as null (Option A — we never persisted them)
         configName: null,
         dealType: null,
@@ -1022,9 +1041,10 @@ export class ProjectService {
       attractionName: attraction?.attractionName ?? null,
       talentAgencyCompanyId: effectiveMgmtId,
       talentAgencyCompanyName: effectiveMgmtName,
-      projectStage: project.projectStage,
-      offerReviewStatus: project.offerReviewStatus,
-      confirmedOfferLinkId: project.confirmedOfferLinkId,
+      // Deprecated project-level fields kept for backward compat until migration runs
+      projectStage: project.projectStage ?? 'Requested',
+      offerReviewStatus: project.offerReviewStatus ?? null,
+      confirmedOfferLinkId: project.confirmedOfferLinkId ?? null,
       createdDate: project.createdDate,
       createdBy,
       name: null,
@@ -1057,13 +1077,7 @@ export class ProjectService {
           'The selected tour already has a different talent agency on file. Use that agency or update the tour first.',
       });
     }
-    this.assertValidProjectStage(dto.projectStage);
-    if (dto.offerReviewStatus !== undefined && dto.offerReviewStatus != null) {
-      this.assertValidOfferReviewStatus(
-        dto.offerReviewStatus,
-        dto.projectStage,
-      );
-    }
+    this.assertValidProjectStage(dto.projectStage ?? 'Requested');
     const normalizedTourStartDate = this.normalizeDateOnly(dto.tourStartDate);
     const normalizedTourEndDate = this.normalizeDateOnly(dto.tourEndDate);
     this.assertValidTourDateRange(
@@ -1092,8 +1106,7 @@ export class ProjectService {
       return await this.dataSource.transaction(async (manager) => {
         const project = manager.create(EngagementProject, {
           tourId: dto.tourId,
-          projectStage: dto.projectStage,
-          offerReviewStatus: dto.offerReviewStatus ?? null,
+          projectStage: dto.projectStage ?? 'Requested',
           createdDate: new Date(),
           createdBy: this.resolveProjectCreatedBy(dto.createdBy),
         });
@@ -1105,11 +1118,13 @@ export class ProjectService {
           dto.dmaIds,
         );
 
+        const defaultOfferCreationStatus = dto.projectStage ?? 'Requested';
         for (const v of dto.venues ?? []) {
           const pv = manager.create(EngagementProjectVenue, {
             engagementProjectId: savedProject.engagementProjectId,
             venueCompanyId: v.venueCompanyId,
             venueStatus: v.venueStatus,
+            offerCreationStatus: v.offerCreationStatus ?? defaultOfferCreationStatus,
           });
           const savedPv = await manager.save(EngagementProjectVenue, pv);
 
@@ -1152,20 +1167,8 @@ export class ProjectService {
       if (err instanceof QueryFailedError) {
         const d = String((err as QueryFailedError).driverError ?? err.message);
         this.logger.warn(`Create project failed: ${d}`);
-        const isStageCheck =
-          /CHECK constraint/i.test(d) && /OfferCreationStatus/i.test(d);
-        const isReviewCheck =
-          /CHECK constraint/i.test(d) && /OfferReviewStatus/i.test(d);
-        const isOptionStatusCheck =
-          /CHECK constraint/i.test(d) && /OptionStatus/i.test(d);
         throw new BadRequestException({
-          message: isStageCheck
-            ? `This project stage isn't accepted by the database. Use one of: ${PROJECT_STAGE_VALUES.join(', ')}.`
-            : isReviewCheck
-              ? `This offer review status isn't accepted by the database. Use one of: ${OFFER_REVIEW_STATUS_VALUES.join(', ')}.`
-              : isOptionStatusCheck
-                ? 'A proposed date option used a status the database does not allow. Refresh the page and try again, or ask an administrator which option statuses are valid.'
-                : 'Could not create the project. Check that the tour exists and that the information you entered matches your organization’s rules.',
+          message: 'Could not update the project. Check the information you entered, or ask your administrator if something is blocked.',
           detail: d,
         });
       }
@@ -1179,29 +1182,6 @@ export class ProjectService {
   ): Promise<{ engagementId: number | null; converted: boolean }> {
     const project = await this.assertProjectExists(id);
 
-    if (dto.projectStage !== undefined) {
-      this.assertValidProjectStage(dto.projectStage);
-      project.projectStage = dto.projectStage;
-    }
-    if (dto.offerReviewStatus !== undefined && dto.offerReviewStatus != null) {
-      const effectiveStage = dto.projectStage ?? project.projectStage;
-      this.assertValidOfferReviewStatus(dto.offerReviewStatus, effectiveStage);
-      // When moving away from Confirmed (e.g. Declined / In Consideration),
-      // clear the confirmed-offer PDF link so the user must re-upload if
-      // they later confirm again.
-      if (
-        dto.offerReviewStatus !== 'Confirmed' &&
-        project.confirmedOfferLinkId != null
-      ) {
-        await this.removeConfirmedOfferPdf(project);
-      }
-      project.offerReviewStatus = dto.offerReviewStatus;
-    } else if (dto.offerReviewStatus === null) {
-      if (project.confirmedOfferLinkId != null) {
-        await this.removeConfirmedOfferPdf(project);
-      }
-      project.offerReviewStatus = null;
-    }
     // CreatedBy is immutable: store creator ID at insert time only.
     if (dto.tourId !== undefined) {
       await this.assertTourExists(dto.tourId);
@@ -1304,16 +1284,8 @@ export class ProjectService {
       if (e instanceof QueryFailedError) {
         const d = String((e as QueryFailedError).driverError ?? e.message);
         this.logger.warn(`Update project failed (id=${id}): ${d}`);
-        const isStageCheck =
-          /CHECK constraint/i.test(d) && /OfferCreationStatus/i.test(d);
-        const isReviewCheck =
-          /CHECK constraint/i.test(d) && /OfferReviewStatus/i.test(d);
         throw new BadRequestException({
-          message: isStageCheck
-            ? `This project stage isn’t accepted by the database. Use one of: ${PROJECT_STAGE_VALUES.join(', ')}.`
-            : isReviewCheck
-              ? `This offer review status isn’t accepted by the database. Use one of: ${OFFER_REVIEW_STATUS_VALUES.join(', ')}.`
-              : 'Could not update the project. Check the information you entered, or ask your administrator if something is blocked by your system’s rules.',
+          message: 'Could not update the project. Check the information you entered, or ask your administrator if something is blocked.',
           detail: d,
         });
       }
@@ -1368,8 +1340,6 @@ export class ProjectService {
       attractionName: string | null;
       talentAgencyCompanyId: number | null;
       talentAgencyCompanyName: string | null;
-      projectStage: string;
-      offerReviewStatus: string | null;
       createdDate: Date;
       createdBy: string | null;
       name: null;
@@ -1387,6 +1357,8 @@ export class ProjectService {
       .leftJoinAndSelect('t.attraction', 'a')
       .leftJoinAndSelect('t.talentAgencyCompany', 'tmg');
 
+    // Stage filter — uses project-level column (backward compat until migration runs,
+    // then can switch to venue-level subquery).
     const stage = (projectStageFilter ?? '').trim();
     if (stage && stage !== 'All') {
       qb.andWhere('ep.projectStage = :projectStage', { projectStage: stage });
@@ -1413,10 +1385,6 @@ export class ProjectService {
               )
               .orWhere(
                 `LOWER(ISNULL(tmg.companyName, '')) LIKE LOWER(:${param}) ESCAPE '\\'`,
-                { [param]: like },
-              )
-              .orWhere(
-                `LOWER(ISNULL(ep.projectStage, '')) LIKE LOWER(:${param}) ESCAPE '\\'`,
                 { [param]: like },
               )
               .orWhere(
@@ -1489,8 +1457,8 @@ export class ProjectService {
           talentAgencyCompanyId: p.tour?.talentAgencyCompanyId ?? null,
           talentAgencyCompanyName:
             p.tour?.talentAgencyCompany?.companyName ?? null,
-          projectStage: p.projectStage,
-          offerReviewStatus: p.offerReviewStatus,
+          projectStage: p.projectStage ?? 'Requested',
+          offerReviewStatus: p.offerReviewStatus ?? null,
           createdDate: p.createdDate,
           createdBy: await this.resolveCreatedByDisplayValue(
             p.createdBy,
@@ -1556,6 +1524,7 @@ export class ProjectService {
           engagementProjectId: projectId,
           venueCompanyId: dto.venueCompanyId,
           venueStatus: dto.venueStatus,
+          offerCreationStatus: dto.offerCreationStatus ?? 'Requested',
         });
         const saved = await manager.save(pv);
 
@@ -1596,13 +1565,63 @@ export class ProjectService {
     projectId: number,
     venueId: number,
     dto: UpdateProjectVenueDto,
-  ): Promise<void> {
+  ): Promise<{ engagementId: number | null; converted: boolean }> {
     const pv = await this.assertVenueInProject(projectId, venueId);
     if (dto.venueStatus !== undefined) {
       await this.assertValidVenueStatus(dto.venueStatus);
       pv.venueStatus = dto.venueStatus;
     }
+
+    // Handle offer creation status change at venue level
+    if (dto.offerCreationStatus !== undefined) {
+      this.assertValidProjectStage(dto.offerCreationStatus);
+      pv.offerCreationStatus = dto.offerCreationStatus;
+    }
+
+    // Handle offer review status change at venue level
+    if (dto.offerReviewStatus !== undefined && dto.offerReviewStatus != null) {
+      const effectiveStage = dto.offerCreationStatus ?? pv.offerCreationStatus ?? 'Requested';
+      this.assertValidOfferReviewStatus(dto.offerReviewStatus, effectiveStage);
+      // When moving away from Confirmed, clear confirmed-offer PDF
+      if (
+        dto.offerReviewStatus !== 'Confirmed' &&
+        pv.confirmedOfferLinkId != null
+      ) {
+        await this.removeVenueConfirmedOfferPdf(pv);
+      }
+      pv.offerReviewStatus = dto.offerReviewStatus;
+    } else if (dto.offerReviewStatus === null) {
+      if (pv.confirmedOfferLinkId != null) {
+        await this.removeVenueConfirmedOfferPdf(pv);
+      }
+      pv.offerReviewStatus = null;
+    }
+
     await this.projectVenueRepo.save(pv);
+
+    // Sync project-level OfferCreationStatus based on all venue components
+    if (dto.offerCreationStatus !== undefined) {
+      await this.syncProjectOfferCreationStatus(projectId);
+    }
+
+    // Handle engagement creation when confirming
+    if (dto.offerReviewStatus === 'Confirmed') {
+      // Require confirmed offer PDF before confirming
+      if (pv.confirmedOfferLinkId == null) {
+        throw new BadRequestException({
+          message: 'Please upload the confirmed offer PDF before confirming this venue.',
+        });
+      }
+      // Require at least one proposed date before confirming
+      const optionsCount = await this.optionRepo.count({
+        where: { engagementProjectVenueId: venueId },
+      });
+      if (optionsCount === 0) {
+        throw new BadRequestException({
+          message: 'Please add at least one proposed date before confirming this venue.',
+        });
+      }
+    }
 
     if (dto.engagementId) {
       const xrefKey = `EngagementProjectVenue:${venueId}`;
@@ -1619,7 +1638,10 @@ export class ProjectService {
         xref.engagementId = dto.engagementId;
       }
       await xrefRepo.save(xref);
+      return { engagementId: dto.engagementId, converted: true };
     }
+
+    return { engagementId: null, converted: false };
   }
 
   async removeVenue(projectId: number, venueId: number): Promise<void> {
@@ -1631,6 +1653,26 @@ export class ProjectService {
       engagementProjectId: projectId,
       engagementProjectVenueId: venueId,
     });
+    // Recalculate project-level status after removing a venue
+    await this.syncProjectOfferCreationStatus(projectId);
+  }
+
+  /**
+   * If all venue components of the project have OfferCreationStatus = 'Submitted',
+   * set the project-level OfferCreationStatus to 'Submitted'; otherwise 'Requested'.
+   */
+  private async syncProjectOfferCreationStatus(projectId: number): Promise<void> {
+    const venues = await this.projectVenueRepo.find({
+      where: { engagementProjectId: projectId },
+      select: ['offerCreationStatus'],
+    });
+    const allSubmitted =
+      venues.length > 0 &&
+      venues.every((v) => v.offerCreationStatus === 'Submitted');
+    await this.projectRepo.update(
+      { engagementProjectId: projectId },
+      { projectStage: allSubmitted ? 'Submitted' : 'Requested' },
+    );
   }
 
   // ─── Performance Option APIs ──────────────────────────────────────────────
@@ -1706,9 +1748,10 @@ export class ProjectService {
 
   async uploadConfirmedOfferPdf(
     projectId: number,
+    venueId: number,
     file: { originalname: string; mimetype: string; filename: string; path: string; size: number },
   ): Promise<{ linkId: number; linkName: string }> {
-    const project = await this.assertProjectExists(projectId);
+    const pv = await this.assertVenueInProject(projectId, venueId);
 
     const publicPath = `/uploads/confirmed-offers/${file.filename}`.slice(0, 2048);
 
@@ -1721,23 +1764,24 @@ export class ProjectService {
 
     const savedLink = await this.linkRepo.save(link);
 
-    project.confirmedOfferLinkId = savedLink.linkId;
-    await this.projectRepo.save(project);
+    pv.confirmedOfferLinkId = savedLink.linkId;
+    await this.projectVenueRepo.save(pv);
 
     return { linkId: savedLink.linkId, linkName: savedLink.linkName };
   }
 
   async getConfirmedOfferPdfPath(
     projectId: number,
+    venueId: number,
   ): Promise<{ filePath: string; linkName: string }> {
-    const project = await this.assertProjectExists(projectId);
+    const pv = await this.assertVenueInProject(projectId, venueId);
 
-    if (project.confirmedOfferLinkId == null) {
-      throw new NotFoundException('No confirmed-offer PDF has been uploaded for this project.');
+    if (pv.confirmedOfferLinkId == null) {
+      throw new NotFoundException('No confirmed-offer PDF has been uploaded for this venue.');
     }
 
     const link = await this.linkRepo.findOne({
-      where: { linkId: project.confirmedOfferLinkId },
+      where: { linkId: pv.confirmedOfferLinkId },
     });
     if (!link) {
       throw new NotFoundException('The link record for this confirmed-offer PDF was not found.');
@@ -1760,18 +1804,18 @@ export class ProjectService {
   }
 
   /**
-   * Remove the confirmed-offer PDF link and file from a project.
+   * Remove the confirmed-offer PDF link and file from a venue.
    * Called when the offer review status moves away from Confirmed.
    */
-  private async removeConfirmedOfferPdf(project: EngagementProject): Promise<void> {
-    const linkId = project.confirmedOfferLinkId;
+  private async removeVenueConfirmedOfferPdf(pv: EngagementProjectVenue): Promise<void> {
+    const linkId = pv.confirmedOfferLinkId;
     if (linkId == null) return;
 
     const link = await this.linkRepo.findOne({ where: { linkId } });
 
     // Clear FK first
-    project.confirmedOfferLinkId = null;
-    await this.projectRepo.save(project);
+    pv.confirmedOfferLinkId = null;
+    await this.projectVenueRepo.save(pv);
 
     if (link) {
       // Delete file from disk
