@@ -67,6 +67,8 @@ import {
   type ApiEngagementRow,
   type CreateCompanyPayload,
   type UpdateCompanyPayload,
+  fetchManagedContacts,
+  type ApiManagedContact,
 } from "@/api/companyApi";
 import { upsertInList, removeFromList, removeQueriesByPrefix } from "@/api/cacheHelpers";
 import { mapApiCompanyToCompany } from "./companyMapping";
@@ -96,6 +98,8 @@ import {
   Wrench,
   Building2,
   Building,
+  Search,
+  UserPlus,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -2214,6 +2218,104 @@ function mapContactRow(
   };
 }
 
+function LinkExistingContactPanel({
+  onSelect,
+  onCancel,
+}: {
+  onSelect: (contact: ApiManagedContact) => void;
+  onCancel: () => void;
+}) {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedTerm, setDebouncedTerm] = useState("");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setDebouncedTerm(searchTerm), 300);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [searchTerm]);
+
+  const searchQuery = useQuery({
+    queryKey: ["contacts", "link-search", debouncedTerm],
+    queryFn: () => fetchManagedContacts(0, 20, { q: debouncedTerm }),
+    enabled: debouncedTerm.trim().length >= 2,
+    staleTime: 30_000,
+  });
+
+  const results = searchQuery.data?.data ?? [];
+
+  return (
+    <div className="bg-elevated border border-border rounded-lg p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <Search className="h-4 w-4 text-text-muted shrink-0" />
+        <input
+          className="w-full min-w-0 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent"
+          placeholder="Search contacts by name or email…"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          autoFocus
+        />
+      </div>
+      {debouncedTerm.trim().length >= 2 && searchQuery.isLoading && (
+        <div className="flex items-center gap-2 text-sm text-text-muted py-1">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+          <span>Searching…</span>
+        </div>
+      )}
+      {debouncedTerm.trim().length >= 2 &&
+        !searchQuery.isLoading &&
+        results.length === 0 && (
+          <p className="text-sm text-text-muted py-1">
+            No contacts found. Try a different search or create a new contact.
+          </p>
+        )}
+      {results.length > 0 && (
+        <ul className="max-h-48 overflow-y-auto divide-y divide-border border border-border rounded">
+          {results.map((c) => (
+            <li key={c.contactId}>
+              <button
+                type="button"
+                className="w-full text-left px-3 py-2 hover:bg-hover text-sm flex items-center justify-between gap-2"
+                onClick={() => onSelect(c)}
+              >
+                <span className="truncate">
+                  <span className="font-medium text-text-primary">
+                    {c.firstName} {c.lastName}
+                  </span>
+                  <span className="text-text-muted ml-2">{c.email}</span>
+                </span>
+                {c.companyNames.length > 0 && (
+                  <span className="text-xs text-text-muted truncate max-w-[10rem]">
+                    {c.companyNames[0]}
+                    {c.companyNames.length > 1 &&
+                      ` +${c.companyNames.length - 1}`}
+                  </span>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {debouncedTerm.trim().length < 2 && (
+        <p className="text-xs text-text-muted">
+          Type at least 2 characters to search.
+        </p>
+      )}
+      <div className="flex justify-end pt-2 border-t border-border">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-text-secondary text-sm px-3 py-1.5 hover:text-text-primary"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ContactFormDb({
   roles,
   departments,
@@ -3818,6 +3920,8 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
   const [showAddModal, setShowAddModal] = useState(false);
   const [drawerTab, setDrawerTab] = useState("Overview");
   const [showAddContact, setShowAddContact] = useState(false);
+  const [addContactMode, setAddContactMode] = useState<"choose" | "link" | "create">("choose");
+  const [linkPrefill, setLinkPrefill] = useState<Contact | null>(null);
   const [editContact, setEditContact] = useState<Contact | null>(null);
   const [contactPendingDelete, setContactPendingDelete] =
     useState<Contact | null>(null);
@@ -4829,26 +4933,86 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
               <div className="space-y-3">
                 <button
                   type="button"
-                  onClick={() => setShowAddContact(!showAddContact)}
+                  onClick={() => {
+                    setShowAddContact(!showAddContact);
+                    setAddContactMode("choose");
+                    setLinkPrefill(null);
+                  }}
                   className="text-ems-accent text-sm hover:underline"
                 >
                   + Add Contact
                 </button>
-                {showAddContact && lookupsQuery.data && (
+                {showAddContact && lookupsQuery.data && addContactMode === "choose" && (
+                  <div className="bg-elevated border border-border rounded-lg p-4 space-y-3">
+                    <p className="text-sm text-text-primary font-medium">How would you like to add a contact?</p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setAddContactMode("link")}
+                        className="flex-1 flex items-center justify-center gap-2 border border-border rounded-md px-3 py-2 text-sm hover:bg-hover hover:border-ems-accent transition-colors"
+                      >
+                        <Search className="h-4 w-4" />
+                        Link Existing
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAddContactMode("create")}
+                        className="flex-1 flex items-center justify-center gap-2 border border-border rounded-md px-3 py-2 text-sm hover:bg-hover hover:border-ems-accent transition-colors"
+                      >
+                        <UserPlus className="h-4 w-4" />
+                        Create New
+                      </button>
+                    </div>
+                    <div className="flex justify-end pt-2 border-t border-border">
+                      <button
+                        type="button"
+                        onClick={() => setShowAddContact(false)}
+                        className="text-text-secondary text-sm px-3 py-1.5 hover:text-text-primary"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {showAddContact && lookupsQuery.data && addContactMode === "link" && (
+                  <LinkExistingContactPanel
+                    onSelect={(c) => {
+                      setLinkPrefill({
+                        id: `ca-new`,
+                        firstName: c.firstName,
+                        lastName: c.lastName,
+                        email: c.email,
+                        phone: c.workPhone || "",
+                        workPhone: c.workPhone || "",
+                        cellPhone: c.cellPhone || undefined,
+                        roles: c.roleNames,
+                        status: "Active",
+                        contactId: c.contactId,
+                      } as Contact);
+                      setAddContactMode("create");
+                    }}
+                    onCancel={() => {
+                      setAddContactMode("choose");
+                      setLinkPrefill(null);
+                    }}
+                  />
+                )}
+                {showAddContact && lookupsQuery.data && addContactMode === "create" && (
                   <ContactFormDb
                     roles={roles}
                     departments={departments}
-                    onCancel={() => setShowAddContact(false)}
+                    initial={linkPrefill ?? undefined}
+                    onCancel={() => {
+                      setShowAddContact(false);
+                      setAddContactMode("choose");
+                      setLinkPrefill(null);
+                    }}
                     onSave={async (payload) => {
                       try {
                         const created = await createCompanyContact(
                           Number(selectedCompany.id),
                           payload,
                         );
-                        /**
-                         * Splice the brand-new contact into the drawer's contacts
-                         * cache directly — no refetch, no drawer flicker.
-                         */
                         const mapped = mapContactRow(
                           created as ApiCompanyContact,
                           String(selectedCompany.id),
@@ -4870,6 +5034,8 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                           exact: true,
                         });
                         setShowAddContact(false);
+                        setAddContactMode("choose");
+                        setLinkPrefill(null);
                         addToast("Contact added to this company.", "success");
                       } catch (e) {
                         addToast(
