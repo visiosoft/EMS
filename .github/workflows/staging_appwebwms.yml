@@ -1,12 +1,12 @@
 # Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
 # More GitHub Actions for Azure: https://github.com/Azure/actions
 
-name: Build and deploy Node.js app to Azure Web App - iae
+name: Build and deploy Node.js app to Azure Web App - appwebwms
 
 on:
   push:
     branches:
-      - Prod
+      - staging
   workflow_dispatch:
 
 jobs:
@@ -15,12 +15,11 @@ jobs:
     permissions:
       contents: read #This is required for actions/checkout
     env:
-      VITE_API_URL: ${{ vars.VITE_API_URL }}
       VITE_ENTRA_CLIENT_ID: ${{ vars.VITE_ENTRA_CLIENT_ID }}
       VITE_ENTRA_TENANT_ID: ${{ vars.VITE_ENTRA_TENANT_ID }}
       VITE_ENTRA_API_SCOPE: ${{ vars.VITE_ENTRA_API_SCOPE }}
       VITE_ENTRA_GRAPH_SCOPE: ${{ vars.VITE_ENTRA_GRAPH_SCOPE || 'https://graph.microsoft.com/User.Read.All' }}
-      VITE_ENTRA_REDIRECT_URI: ${{ vars.VITE_ENTRA_REDIRECT_URI }}
+      VITE_ENTRA_REDIRECT_URI: ${{ vars.VITE_ENTRA_REDIRECT_URI_STAGING }}
       VITE_ENTRA_REDIRECT_PATH: ${{ vars.VITE_ENTRA_REDIRECT_PATH || '/login' }}
       VITE_GOOGLE_PLACES_API_KEY: ${{ vars.VITE_GOOGLE_PLACES_API_KEY }}
 
@@ -61,7 +60,7 @@ jobs:
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
-          app-name: 'iae'
+          app-name: 'appwebwms'
           slot-name: 'Production'
           package: .
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_C67DE40772FC4793BB91F40E6CED8F5F }}
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_5C4C44A9F1514115B3CED09B5ECDF5BC }}
