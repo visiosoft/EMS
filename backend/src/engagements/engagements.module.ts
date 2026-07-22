@@ -34,6 +34,8 @@ import { EngagementTravel } from '../entities/engagement-travel.entity';
 import { EngagementTravelCarService } from '../entities/engagement-travel-car-service.entity';
 import { EngagementTravelHotel } from '../entities/engagement-travel-hotel.entity';
 import { EngagementPartner } from '../entities/engagement-partner.entity';
+import { EngagementProductionEquipmentRental } from '../entities/engagement-production-equipment-rental.entity';
+import { EquipmentRentalType } from '../entities/equipment-rental-type.entity';
 import { PerformanceContract } from '../entities/performance-contract.entity';
 import { ContractExtractionService } from './contract-extraction.service';
 import { ContractLlmClient } from './contract-llm.client';
@@ -71,6 +73,8 @@ import { ContractLlmClient } from './contract-llm.client';
       EngagementTravelCarService,
       EngagementTravelHotel,
       EngagementPartner,
+      EngagementProductionEquipmentRental,
+      EquipmentRentalType,
       PerformanceContract,
     ]),
     AttractionToursModule,
