@@ -568,6 +568,7 @@ function ProjectInlineOverview({
   onOpenEngagement: (engagementId: number) => void;
   addToast: Props['addToast'];
 }) {
+  const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
 
@@ -717,6 +718,7 @@ function ProjectInlineOverview({
     setDmaModalSearch('');
     setShowDmaModal(false);
     setDirty(false);
+    setEditing(false);
   };
 
   const filteredDmaMarkets = useMemo(() => {
@@ -803,6 +805,7 @@ function ProjectInlineOverview({
     }
     if (savedOk) {
       addToast('Project updated.', 'success');
+      setEditing(false);
       if (scopeChanged) {
         addToast('Scope changed. Review venues now.', 'warning');
       }
@@ -816,10 +819,151 @@ function ProjectInlineOverview({
 
   return (
     <div className="relative">
-      <p className="flex items-center gap-1.5 text-[11px] text-text-muted mb-4 select-none">
-        <Pencil className="h-3 w-3 shrink-0" />
-        Click any field to edit it inline
-      </p>
+      {!editing ? (
+        <>
+          <div className="flex items-center justify-between mb-4">
+            <p className="flex items-center gap-1.5 text-[11px] text-text-muted select-none">
+              <Eye className="h-3 w-3 shrink-0" />
+              Viewing project details
+            </p>
+            {!project.isReadOnly && (
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:border-ems-accent/50 hover:bg-elevated transition-colors"
+              >
+                <Pencil className="h-3 w-3" />
+                Edit
+              </button>
+            )}
+          </div>
+
+          <div className="text-sm space-y-6 pb-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
+              <div>
+                <span className="text-xs text-text-muted">Attraction</span>
+                <div className="text-sm text-text-primary mt-0.5 font-medium">
+                  {project.attractionName ?? '—'}
+                </div>
+              </div>
+              <div>
+                <span className="text-xs text-text-muted">Tour</span>
+                <div className="text-sm text-text-primary mt-0.5 font-medium">
+                  {project.tourName ?? '—'}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
+              <div>
+                <span className="text-xs text-text-muted">Talent Agency</span>
+                <div className="text-sm text-text-primary mt-0.5">
+                  {project.talentAgencyCompanyName ?? '—'}
+                </div>
+              </div>
+              <div>
+                <span className="text-xs text-text-muted">Talent Agents</span>
+                <div className="text-sm text-text-primary mt-0.5">
+                  {selectedTourTalentAgentLabels.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedTourTalentAgentLabels.map((label, i) => (
+                        <span
+                          key={`view-agent-${i}-${label}`}
+                          className="inline-flex items-center rounded-md border border-border bg-elevated/50 px-2 py-0.5 text-xs text-text-primary"
+                        >
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-text-muted">—</span>
+                  )}
+                </div>
+              </div>
+              <div>
+                <span className="text-xs text-text-muted">Tour Start Date</span>
+                <div className="text-sm text-text-primary mt-0.5">
+                  {formatEmsShortWeekdayDate(project.tourStartDate)}
+                </div>
+              </div>
+              <div>
+                <span className="text-xs text-text-muted">Tour End Date</span>
+                <div className="text-sm text-text-primary mt-0.5">
+                  {formatEmsShortWeekdayDate(project.tourEndDate)}
+                </div>
+              </div>
+              <div className="sm:col-span-2 min-w-0">
+                <span className="text-xs text-text-muted">Markets (DMA)</span>
+                <div className="mt-1.5 rounded-lg border border-border bg-surface px-3 py-3">
+                  {(project.dmaIds ?? []).length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {(project.dmaIds ?? []).map((id) => {
+                        const row = dmaMarkets.find((m) => m.dmaid === id);
+                        const label = row ? formatDmaPickerLabel(row) : `DMA #${id}`;
+                        return (
+                          <span
+                            key={id}
+                            className="inline-flex items-center rounded-full border border-border bg-elevated/50 px-2.5 py-1 text-xs text-text-primary"
+                          >
+                            {label}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-text-muted">No markets selected.</p>
+                  )}
+                  <p className="mt-2 text-[11px] text-text-muted tabular-nums">
+                    {(project.dmaIds ?? []).length} market{(project.dmaIds ?? []).length === 1 ? '' : 's'} selected
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
+              <div>
+                <span className="text-xs text-text-muted">Created by</span>
+                <div className="text-sm text-text-primary mt-0.5">
+                  {project.createdBy ?? '—'}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-4">
+              <div>
+                <span className="text-xs text-text-muted">Created date</span>
+                <div className="text-sm text-text-primary mt-0.5">
+                  {formatEmsShortWeekdayDateTime(project.createdDate)}
+                </div>
+              </div>
+              <div>
+                <span className="text-xs text-text-muted">Venue proposals</span>
+                <div className="text-sm text-text-primary mt-0.5 flex items-center gap-2">
+                  <span className="font-mono tabular-nums">{project.venues.length}</span>
+                  <button type="button" onClick={onGoToVenues} className="text-ems-accent text-xs hover:underline">
+                    Open Venues tab
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+      <div className="flex items-center justify-between mb-4">
+        <p className="flex items-center gap-1.5 text-[11px] text-text-muted select-none">
+          <Pencil className="h-3 w-3 shrink-0" />
+          Click any field to edit it inline
+        </p>
+        <button
+          type="button"
+          onClick={() => discard()}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors"
+        >
+          <Eye className="h-3 w-3" />
+          View only
+        </button>
+      </div>
 
       <div className="text-sm space-y-6 pb-2">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
@@ -1120,7 +1264,8 @@ function ProjectInlineOverview({
           </div>
         </div>
       )}
-
+        </>
+      )}
     </div>
   );
 }

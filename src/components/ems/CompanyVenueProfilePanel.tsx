@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Plus, X } from 'lucide-react';
+import { Eye, Loader2, Pencil, Plus, X } from 'lucide-react';
 import { ContactPhoneRow } from './ContactPhoneRow';
 import { FormField } from './Primitives';
 import { Select2, type Select2Option } from './Select2';
@@ -609,6 +609,7 @@ export function CompanyVenueProfilePanel({
   const [draftOnlyFlags, setDraftOnlyFlags] = useState<Record<string, boolean>>({});
   const [savingKey, setSavingKey] = useState<SectionSaveKey>(null);
   const [provisioning, setProvisioning] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const brandAddOptions = useMemo(
     () =>
@@ -1609,12 +1610,102 @@ export function CompanyVenueProfilePanel({
 
   return (
     <div className="w-full space-y-6">
-      <header className="space-y-1">
+      <header className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-text-primary tracking-tight">
           Venue profile
         </h3>
+        {!editing ? (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:border-ems-accent/50 hover:bg-elevated transition-colors"
+          >
+            <Pencil className="h-3 w-3" />
+            Edit
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setEditing(false)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors"
+          >
+            <Eye className="h-3 w-3" />
+            View only
+          </button>
+        )}
       </header>
 
+      {!editing ? (
+        <div className={sectionCls}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <span className="text-xs text-text-muted">Entertainment Complex</span>
+              <div className="text-sm text-text-primary mt-0.5">
+                {entertainmentComplexCompanyId
+                  ? (entertainmentComplexNameById.get(entertainmentComplexCompanyId) ?? `#${entertainmentComplexCompanyId}`)
+                  : '—'}
+              </div>
+            </div>
+            <div>
+              <span className="text-xs text-text-muted">DMA</span>
+              <div className="text-sm text-text-primary mt-0.5">{company.dmaMarketName ?? '—'}</div>
+            </div>
+            <div>
+              <span className="text-xs text-text-muted">Physical address</span>
+              <div className="text-sm text-text-primary mt-0.5">
+                {[company.physicalStreet, company.physicalCity, company.physicalState, company.physicalPostalCode, company.physicalCountry].filter(Boolean).join(', ') || '—'}
+              </div>
+            </div>
+            <div>
+              <span className="text-xs text-text-muted">Mailing address</span>
+              <div className="text-sm text-text-primary mt-0.5">
+                {[company.mailingStreet || company.physicalStreet, company.mailingCity || company.physicalCity, company.mailingState || company.physicalState, company.mailingPostalCode || company.physicalPostalCode, company.mailingCountry || company.physicalCountry].filter(Boolean).join(', ') || '—'}
+              </div>
+            </div>
+          </div>
+          <div className="border-t border-border pt-5" />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <span className="text-xs text-text-muted">Venue name</span>
+              <div className="text-sm text-text-primary mt-0.5 font-medium">{venueName || '—'}</div>
+            </div>
+            <div>
+              <span className="text-xs text-text-muted">Seating capacity</span>
+              <div className="text-sm text-text-primary mt-0.5">{seatingCapacity || '—'}</div>
+            </div>
+            <div>
+              <span className="text-xs text-text-muted">Sales tax rate</span>
+              <div className="text-sm text-text-primary mt-0.5">{salesTaxRate || '—'}</div>
+            </div>
+            <div>
+              <span className="text-xs text-text-muted">Venue type</span>
+              <div className="text-sm text-text-primary mt-0.5">
+                {venueTypeId ? (venueTypes.find((t) => String(t.venueTypeId) === venueTypeId)?.venueTypeName ?? `#${venueTypeId}`) : '—'}
+              </div>
+            </div>
+            <div className="md:col-span-2">
+              <span className="text-xs text-text-muted">Venue brand</span>
+              <div className="text-sm text-text-primary mt-0.5">
+                {brandIds.length > 0
+                  ? brandIds.map((id) => brands.find((b) => b.brandId === id)?.brandName ?? `#${id}`).join(', ')
+                  : '—'}
+              </div>
+            </div>
+            <div className="md:col-span-2">
+              <span className="text-xs text-text-muted">Insurance language</span>
+              <div className="text-sm text-text-primary mt-0.5 whitespace-pre-wrap">{insuranceLanguage || '—'}</div>
+            </div>
+          </div>
+          <div className="border-t border-border pt-5" />
+          <div>
+            <span className="text-xs text-text-muted font-medium">Load-in Dock Physical Address</span>
+            <div className="text-sm text-text-primary mt-1">
+              {[loadDockAddressLine1, loadDockAddressLine2, loadDockCity, loadDockStateProvince, loadDockPostalCode, loadDockCountry].filter(Boolean).join(', ') || '—'}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
       <div className={sectionCls}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FormField label="Entertainment Complex">
@@ -2456,7 +2547,8 @@ export function CompanyVenueProfilePanel({
         </div>
           )}
       </div>
-
+        </>
+      )}
     </div>
   );
 }

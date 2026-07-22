@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, Loader2, Plus, Trash2 } from 'lucide-react';
+import { AlertCircle, Eye, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Select2 } from './Select2';
 import { Button } from '@/components/ui/button';
 import { friendlyApiError } from '@/lib/friendlyApiError';
@@ -109,6 +109,7 @@ export function VenueMarketingPanel({ venueCompanyId, addToast }: Props) {
   const [logoUrl, setLogoUrl] = useState('');
   const [specs, setSpecs] = useState<SpecRowState[]>([]);
   const [dirty, setDirty] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   // Populate from API
   useEffect(() => {
@@ -310,6 +311,120 @@ export function VenueMarketingPanel({ venueCompanyId, addToast }: Props) {
 
   return (
     <div className="space-y-6 p-1">
+      {/* View / Edit toggle header */}
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-semibold text-text-primary">Venue Marketing</h4>
+        {!editing ? (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:border-ems-accent/50 hover:bg-elevated transition-colors"
+          >
+            <Pencil className="h-3 w-3" />
+            Edit
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setEditing(false)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors"
+          >
+            <Eye className="h-3 w-3" />
+            View only
+          </button>
+        )}
+      </div>
+
+      {!editing ? (
+        <>
+          {/* Read-only Style Guide */}
+          <div className="rounded-lg border border-border bg-card p-5 space-y-4">
+            <h4 className="text-sm font-semibold text-text-primary">Style Guide</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <span className="text-xs text-text-muted">Style Guide Enabled</span>
+                <div className="text-sm text-text-primary mt-0.5">{styleGuideEnabled ? 'Yes' : 'No'}</div>
+              </div>
+              {styleGuideEnabled && (
+                <>
+                  <div>
+                    <span className="text-xs text-text-muted">Font</span>
+                    <div className="text-sm text-text-primary mt-0.5">{font || '—'}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-text-muted">Primary Colors</span>
+                    <div className="text-sm text-text-primary mt-0.5">{primaryColors || '—'}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-text-muted">Accent Colors</span>
+                    <div className="text-sm text-text-primary mt-0.5">{accentColors || '—'}</div>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <span className="text-xs text-text-muted">Notes</span>
+                    <div className="text-sm text-text-primary mt-0.5 whitespace-pre-wrap">{styleGuideNotes || '—'}</div>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <span className="text-xs text-text-muted">Logo URL</span>
+                    <div className="text-sm text-text-primary mt-0.5">{logoUrl || '—'}</div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Read-only Specs */}
+          <div className="rounded-lg border border-border bg-card p-5 space-y-4">
+            <h4 className="text-sm font-semibold text-text-primary">Marketing Specs</h4>
+            {specs.length === 0 ? (
+              <p className="text-xs text-text-muted">No marketing specs configured.</p>
+            ) : (
+              <div className="space-y-3">
+                {specs.map((spec, idx) => {
+                  const category = spec.placementCategoryId
+                    ? placementCategories.find((pc) => String(pc.placementCategoryId) === spec.placementCategoryId)
+                    : null;
+                  const format = spec.fileFormatOptionId
+                    ? fileFormatOptions.find((ff) => String(ff.fileFormatOptionId) === spec.fileFormatOptionId)
+                    : null;
+                  return (
+                    <div key={spec.tempId} className="rounded-md border border-border bg-surface p-3 space-y-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <span className="text-xs text-text-muted">File Name</span>
+                          <div className="text-sm text-text-primary mt-0.5">{spec.fileName || `Spec #${idx + 1}`}</div>
+                        </div>
+                        <div>
+                          <span className="text-xs text-text-muted">Placement Category</span>
+                          <div className="text-sm text-text-primary mt-0.5">{category?.placementName ?? '—'}</div>
+                        </div>
+                        <div>
+                          <span className="text-xs text-text-muted">Graphic Size</span>
+                          <div className="text-sm text-text-primary mt-0.5">
+                            {spec.graphicSizeHorizontal || spec.graphicSizeVertical
+                              ? `${spec.graphicSizeHorizontal || '—'} × ${spec.graphicSizeVertical || '—'}`
+                              : '—'}
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-xs text-text-muted">File Format</span>
+                          <div className="text-sm text-text-primary mt-0.5">{format?.fileFormatName ?? '—'}</div>
+                        </div>
+                      </div>
+                      {spec.notes && (
+                        <div>
+                          <span className="text-xs text-text-muted">Notes</span>
+                          <div className="text-sm text-text-primary mt-0.5 whitespace-pre-wrap">{spec.notes}</div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        <>
       {/* ── SECTION A: Style Guide ──────────────────────────────────────── */}
       <div className="rounded-lg border border-border bg-card p-5 space-y-4">
         <h4 className="text-sm font-semibold text-text-primary">Style Guide</h4>
@@ -591,6 +706,8 @@ export function VenueMarketingPanel({ venueCompanyId, addToast }: Props) {
           )}
         </Button>
       </div>
+        </>
+      )}
     </div>
   );
 }
