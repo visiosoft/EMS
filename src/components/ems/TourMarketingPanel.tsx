@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, Loader2, Plus, Trash2 } from 'lucide-react';
+import { AlertCircle, Eye, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Select2, Select2Multi } from './Select2';
 import { Button } from '@/components/ui/button';
 import { friendlyApiError } from '@/lib/friendlyApiError';
@@ -83,6 +83,7 @@ export function TourMarketingPanel({
   const [selectedMediaMixIds, setSelectedMediaMixIds] = useState<number[]>([]);
   const [offerCodes, setOfferCodes] = useState<OfferCodeRowState[]>([]);
   const [dirty, setDirty] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   // Populate from API
   useEffect(() => {
@@ -220,6 +221,111 @@ export function TourMarketingPanel({
 
   return (
     <div className="space-y-6 p-1">
+      {/* View / Edit toggle */}
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-semibold text-text-primary">Tour Marketing</h4>
+        {!editing ? (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:border-ems-accent/50 hover:bg-elevated transition-colors"
+          >
+            <Pencil className="h-3 w-3" />
+            Edit
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setEditing(false)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors"
+          >
+            <Eye className="h-3 w-3" />
+            View only
+          </button>
+        )}
+      </div>
+
+      {!editing ? (
+        <>
+          {/* Read-only view */}
+          <div className="rounded-lg border border-border bg-card p-5 space-y-4">
+            <div className="rounded-md bg-surface/60 border border-border p-3 space-y-1">
+              <p className="text-xs font-medium text-text-muted">Tour Marketing Director</p>
+              {marketingQuery.data?.marketingDirector ? (
+                <>
+                  <p className="text-sm text-text-primary">{marketingQuery.data.marketingDirector.name}</p>
+                  {marketingQuery.data.marketingDirector.email && <p className="text-xs text-text-muted">{marketingQuery.data.marketingDirector.email}</p>}
+                  {marketingQuery.data.marketingDirector.phone && <p className="text-xs text-text-muted">{marketingQuery.data.marketingDirector.phone}</p>}
+                </>
+              ) : (
+                <p className="text-sm text-text-muted italic">Not assigned</p>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <span className="text-xs text-text-muted">Audience Gender</span>
+                <div className="text-sm text-text-primary mt-0.5">{audienceGender || '—'}</div>
+              </div>
+              <div>
+                <span className="text-xs text-text-muted">Audience Age Range</span>
+                <div className="text-sm text-text-primary mt-0.5">
+                  {selectedAgeRangeIds.length > 0
+                    ? selectedAgeRangeIds.map((id) => {
+                        const ar = (ageRangesQuery.data ?? []).find((a) => a.ageRangeId === id);
+                        return ar?.ageRangeLabel ?? `#${id}`;
+                      }).join(', ')
+                    : '—'}
+                </div>
+              </div>
+            </div>
+            <div>
+              <span className="text-xs text-text-muted">Media Mix</span>
+              <div className="text-sm text-text-primary mt-0.5">
+                {selectedMediaMixIds.length > 0
+                  ? selectedMediaMixIds.map((id) => {
+                      const ast = (advertisingSubTypesQuery.data ?? []).find((a) => a.advertisingSubTypeId === id);
+                      return ast ? (ast.parentCategory ? `${ast.parentCategory} — ${ast.subTypeName}` : ast.subTypeName) : `#${id}`;
+                    }).join(', ')
+                  : '—'}
+              </div>
+            </div>
+          </div>
+
+          {/* Read-only Offer Codes */}
+          <div className="rounded-lg border border-border bg-card p-5 space-y-4">
+            <h4 className="text-sm font-semibold text-text-primary">Ticketing Offer Codes</h4>
+            {offerCodes.length === 0 ? (
+              <p className="text-sm text-text-muted">No offer codes configured.</p>
+            ) : (
+              <div className="space-y-2">
+                {offerCodes.map((code) => (
+                  <div key={code.tempId} className="rounded-md border border-border bg-surface/40 p-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      <div>
+                        <span className="text-xs text-text-muted">Code</span>
+                        <div className="text-sm text-text-primary mt-0.5">{code.code || '—'}</div>
+                      </div>
+                      <div>
+                        <span className="text-xs text-text-muted">Assigned To</span>
+                        <div className="text-sm text-text-primary mt-0.5">{code.assignedTo || '—'}</div>
+                      </div>
+                      <div>
+                        <span className="text-xs text-text-muted">IAE SMS</span>
+                        <div className="text-sm text-text-primary mt-0.5">{code.iaeSms || '—'}</div>
+                      </div>
+                      <div>
+                        <span className="text-xs text-text-muted">Purpose</span>
+                        <div className="text-sm text-text-primary mt-0.5">{code.purpose || '—'}</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        <>
       {/* ── SECTION A: Tour Info + Audience + Media Mix ──────────────────── */}
       <div className="rounded-lg border border-border bg-card p-5 space-y-4">
         <h4 className="text-sm font-semibold text-text-primary">Tour Marketing</h4>
@@ -393,6 +499,8 @@ export function TourMarketingPanel({
           )}
         </Button>
       </div>
+        </>
+      )}
     </div>
   );
 }
