@@ -60,6 +60,8 @@ import { EngagementTravel } from '../entities/engagement-travel.entity';
 import { EngagementTravelCarService } from '../entities/engagement-travel-car-service.entity';
 import { EngagementTravelHotel } from '../entities/engagement-travel-hotel.entity';
 import { EngagementPartner } from '../entities/engagement-partner.entity';
+import { EngagementProductionEquipmentRental } from '../entities/engagement-production-equipment-rental.entity';
+import { EquipmentRentalType } from '../entities/equipment-rental-type.entity';
 import { PerformanceContract } from '../entities/performance-contract.entity';
 import { AuditRequestContext } from '../audit/audit-request-context.service';
 import { buildEngagementDisplayTitle } from './engagement-display.util';
@@ -330,6 +332,9 @@ export interface EngagementFinanceRow {
     | 'CoPro'
     | '3rd Party Renting Venue'
     | 'Silent CoPro with Venue'
+    | 'CoPro with 3rd Party'
+    | 'CoPro with 3rd Party, 3rd Party Renting Venue'
+    | 'Silent CoPro with 3rd Party, 3rd Party Renting Venue'
     | null;
   thirdPartyPartnerDealStructure:
     | 'CoPro with 3rd Party'
@@ -740,6 +745,10 @@ export class EngagementService {
     private readonly engagementTravelHotelRepo: Repository<EngagementTravelHotel>,
     @InjectRepository(EngagementLink)
     private readonly engagementLinkRepo: Repository<EngagementLink>,
+    @InjectRepository(EngagementProductionEquipmentRental)
+    private readonly equipmentRentalRepo: Repository<EngagementProductionEquipmentRental>,
+    @InjectRepository(EquipmentRentalType)
+    private readonly equipmentRentalTypeRepo: Repository<EquipmentRentalType>,
     private readonly emsCreated: EmsAppCreatedStore,
     private readonly dataSource: DataSource,
     private readonly auditContext: AuditRequestContext,
@@ -1249,6 +1258,9 @@ export class EngagementService {
     | 'CoPro'
     | '3rd Party Renting Venue'
     | 'Silent CoPro with Venue'
+    | 'CoPro with 3rd Party'
+    | 'CoPro with 3rd Party, 3rd Party Renting Venue'
+    | 'Silent CoPro with 3rd Party, 3rd Party Renting Venue'
     | null {
     const t = String(value ?? '').trim().toLowerCase();
     if (!t) return null;
@@ -1256,6 +1268,9 @@ export class EngagementService {
     if (t === 'copro') return 'CoPro';
     if (t === '3rd party renting venue') return '3rd Party Renting Venue';
     if (t === 'silent copro with venue') return 'Silent CoPro with Venue';
+    if (t === 'copro with 3rd party') return 'CoPro with 3rd Party';
+    if (t === 'copro with 3rd party, 3rd party renting venue') return 'CoPro with 3rd Party, 3rd Party Renting Venue';
+    if (t === 'silent copro with 3rd party, 3rd party renting venue') return 'Silent CoPro with 3rd Party, 3rd Party Renting Venue';
     return null;
   }
 
@@ -3022,20 +3037,33 @@ export class EngagementService {
     const url = this.normalizeHttpOrHttpsUrl(rawUrl, label);
     if (!url) return null;
 
+    // If we have an existing link, update it
     const existing =
       existingLinkId != null && existingLinkId > 0
         ? await this.linkRepo.findOne({ where: { linkId: existingLinkId } })
         : null;
-    const link =
-      existing ??
-      this.linkRepo.create({
-        linkType: 'URL',
-        linkName: label,
-      });
-    link.linkType = 'URL';
-    link.linkUrl = url;
-    link.linkPath = url.slice(0, 1024);
-    link.linkName = (link.linkName?.trim() || label).slice(0, 255);
+    if (existing) {
+      existing.linkType = 'URL';
+      existing.linkUrl = url;
+      existing.linkPath = url.slice(0, 1024);
+      existing.linkName = (existing.linkName?.trim() || label).slice(0, 255);
+      const saved = await this.linkRepo.save(existing);
+      return saved.linkId;
+    }
+
+    // No existing link — check if a Link with this URL already exists (unique constraint)
+    const byUrl = await this.linkRepo.findOne({ where: { linkUrl: url } });
+    if (byUrl) {
+      return byUrl.linkId;
+    }
+
+    // Create a new Link row
+    const link = this.linkRepo.create({
+      linkType: 'URL',
+      linkName: label,
+      linkUrl: url,
+      linkPath: url.slice(0, 1024),
+    });
     const saved = await this.linkRepo.save(link);
     return saved.linkId;
   }
@@ -7955,6 +7983,11 @@ export class EngagementService {
       this.tryPersistSalesTaxToVenue(engagementId, dto),
       this.tryPersistEngagementScaling(engagementId, dto),
     ]);
+
+    // Recompute engagement-level sums when per-performance capacity fields change
+    if (dto.sellableCapacity !== undefined || dto.grossPotentialRevenue !== undefined) {
+      await this.recomputeEngagementCapacitySums(engagementId);
+    }
   }
 
   private async tryPersistEngagementScaling(
@@ -7970,6 +8003,39 @@ export class EngagementService {
       { engagementId },
       { engagementScaling: val },
     );
+  }
+
+  /**
+   * Recompute engagement-level SellableCapacity and GrossPotential as the SUM
+   * of per-performance values stored in dbo.PerformanceTicketing.
+   */
+  private async recomputeEngagementCapacitySums(engagementId: number): Promise<void> {
+    if (!(await this.performanceTicketingHasAdvancedColumns())) return;
+    try {
+      const eid = Math.floor(Number(engagementId));
+      if (!Number.isFinite(eid) || eid < 1) return;
+      const r = await this.dataSource.query(
+        `SELECT
+           SUM(pt.[SellableCapacity]) AS totalSC,
+           SUM(pt.[GrossPotentialRevenue]) AS totalGPR
+         FROM dbo.PerformanceTicketing pt
+         INNER JOIN dbo.Performance p ON p.[PerformanceID] = pt.[PerformanceID]
+         WHERE p.[EngagementID] = ${eid}`,
+      );
+      const row0 = (r as Record<string, unknown>[])?.[0];
+      const totalSC = row0?.totalSC != null && row0.totalSC !== '' && Number.isFinite(Number(row0.totalSC))
+        ? Math.trunc(Number(row0.totalSC))
+        : null;
+      const totalGPR = row0?.totalGPR != null && row0.totalGPR !== '' && Number.isFinite(Number(row0.totalGPR))
+        ? Number(Number(row0.totalGPR).toFixed(2))
+        : null;
+      await this.engagementRepo.update(
+        { engagementId: eid },
+        { sellableCapacity: totalSC, grossPotential: totalGPR },
+      );
+    } catch {
+      // Non-critical — don't let sum recompute failure block the save
+    }
   }
 
   private async tryPersistSalesTaxToVenue(
@@ -8112,6 +8178,7 @@ export class EngagementService {
       await manager.delete(Performance, { performanceId, engagementId });
     });
     await this.enforceOpeningPerformancePublic(engagementId);
+    await this.recomputeEngagementCapacitySums(engagementId);
   }
 
   // ─── Retail Partners (dbo.EngagementRetailPartner) ────────────────────────
@@ -8594,6 +8661,16 @@ export class EngagementService {
           hotel: null,
           carServices: csRows,
         });
+      } else {
+        // Drill Bits travel types (Ground Transportation, Airfare, Hotels)
+        results.push({
+          engagementTravelId: t.engagementTravelId,
+          travelType: travelType as 'Hotel' | 'Car',
+          hotel: null,
+          carServices: [],
+          iaePays: t.iaePays ?? null,
+          iaeArranges: t.iaeArranges ?? null,
+        } as EngagementTravelRow & { iaePays: boolean | null; iaeArranges: boolean | null });
       }
     }
 
@@ -8797,6 +8874,180 @@ export class EngagementService {
         await manager.delete(EngagementTravelCarService, { engagementTravelId });
       }
       await manager.delete(EngagementTravel, { engagementTravelId });
+    });
+  }
+
+  /**
+   * Upsert travel rows for the Drill Bits tab.
+   * Each item in `travelTypes` represents a selected travel category with IAEPays/IAEArranges.
+   * Rows not in the array are removed (only for Drill Bits travel types, not Hotel/Car).
+   */
+  async upsertTravelDrillBits(
+    engagementId: number,
+    travelTypes: { travelType: string; iaePays: boolean | null; iaeArranges: boolean | null }[],
+  ): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+    const drillBitsTypes = ['Ground Transportation', 'Airfare', 'Hotels'];
+
+    // Get existing drill-bits travel rows
+    const existing = await this.engagementTravelRepo.find({
+      where: { engagementId },
+    });
+    const drillBitsExisting = existing.filter((t) => drillBitsTypes.includes(t.travelType));
+
+    // Delete rows for types no longer selected
+    const selectedTypes = travelTypes.map((t) => t.travelType);
+    for (const row of drillBitsExisting) {
+      if (!selectedTypes.includes(row.travelType)) {
+        await this.engagementTravelRepo.delete({ engagementTravelId: row.engagementTravelId });
+      }
+    }
+
+    // Upsert selected types
+    for (const item of travelTypes) {
+      if (!drillBitsTypes.includes(item.travelType)) continue;
+      const existingRow = drillBitsExisting.find((r) => r.travelType === item.travelType);
+      if (existingRow) {
+        await this.engagementTravelRepo.update(
+          { engagementTravelId: existingRow.engagementTravelId },
+          { iaePays: item.iaePays, iaeArranges: item.iaeArranges },
+        );
+      } else {
+        const newRow = this.engagementTravelRepo.create({
+          engagementId,
+          travelType: item.travelType,
+          bookedBy: null,
+          iaePays: item.iaePays,
+          iaeArranges: item.iaeArranges,
+        });
+        await this.engagementTravelRepo.save(newRow);
+      }
+    }
+  }
+
+  // ─── Equipment Rentals (dbo.EngagementProductionEquipmentRental) ────────────
+
+  async listEquipmentRentalTypes(): Promise<{ equipmentRentalTypeId: number; typeName: string }[]> {
+    const types = await this.equipmentRentalTypeRepo.find({
+      where: { isActive: true },
+      order: { sortOrder: 'ASC', equipmentRentalTypeId: 'ASC' },
+    });
+    return types.map((t) => ({ equipmentRentalTypeId: t.equipmentRentalTypeId, typeName: t.typeName }));
+  }
+
+  async getEquipmentRentals(engagementId: number): Promise<{ equipmentRentalTypeId: number; budgetAmount: number | null }[]> {
+    await this.assertEngagementExists(engagementId);
+    // Find the production for this engagement
+    const production = await this.dataSource.getRepository(EngagementProduction).findOne({
+      where: { engagementId },
+    });
+    if (!production) return [];
+    const rentals = await this.equipmentRentalRepo.find({
+      where: { productionId: production.productionId },
+    });
+    return rentals.map((r) => ({
+      equipmentRentalTypeId: r.equipmentRentalTypeId,
+      budgetAmount: r.budgetAmount != null ? Number(r.budgetAmount) : null,
+    }));
+  }
+
+  async upsertEquipmentRentals(engagementId: number, items: { equipmentRentalTypeId: number; budgetAmount: number | null }[]): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+
+    // Find or create production record
+    let production = await this.dataSource.getRepository(EngagementProduction).findOne({
+      where: { engagementId },
+    });
+    if (!production) {
+      production = await this.dataSource.getRepository(EngagementProduction).save(
+        this.dataSource.getRepository(EngagementProduction).create({ engagementId }),
+      );
+    }
+
+    const productionId = production.productionId;
+    const selectedTypeIds = items.map((i) => i.equipmentRentalTypeId);
+
+    // Get current rentals
+    const existing = await this.equipmentRentalRepo.find({ where: { productionId } });
+    const existingTypeIds = existing.map((r) => r.equipmentRentalTypeId);
+
+    // Remove unselected
+    const toRemove = existing.filter((r) => !selectedTypeIds.includes(r.equipmentRentalTypeId));
+    for (const row of toRemove) {
+      await this.equipmentRentalRepo.delete({ engagementProductionEquipmentRentalId: row.engagementProductionEquipmentRentalId });
+    }
+
+    // Upsert selections
+    for (const item of items) {
+      const existingRow = existing.find((r) => r.equipmentRentalTypeId === item.equipmentRentalTypeId);
+      if (existingRow) {
+        await this.equipmentRentalRepo.update(
+          { engagementProductionEquipmentRentalId: existingRow.engagementProductionEquipmentRentalId },
+          { budgetAmount: item.budgetAmount },
+        );
+      } else {
+        await this.equipmentRentalRepo.save(
+          this.equipmentRentalRepo.create({ productionId, equipmentRentalTypeId: item.equipmentRentalTypeId, budgetAmount: item.budgetAmount }),
+        );
+      }
+    }
+  }
+
+  // ─── Production Miscellaneous (dbo.EngagementProduction) ────────────────────
+
+  async getProductionMisc(engagementId: number): Promise<{
+    runnerRequired: boolean | null;
+    cateringRequired: boolean | null;
+    cateringBudgetLineItem: string | null;
+    productionBuyoutRequired: boolean | null;
+    productionBuyoutDescription: string | null;
+    productionBuyoutBudgetAmount: number | null;
+  }> {
+    await this.assertEngagementExists(engagementId);
+    const production = await this.dataSource.getRepository(EngagementProduction).findOne({
+      where: { engagementId },
+    });
+    if (!production) {
+      return {
+        runnerRequired: null,
+        cateringRequired: null,
+        cateringBudgetLineItem: null,
+        productionBuyoutRequired: null,
+        productionBuyoutDescription: null,
+        productionBuyoutBudgetAmount: null,
+      };
+    }
+    return {
+      runnerRequired: production.runnerRequired,
+      cateringRequired: production.cateringRequired,
+      cateringBudgetLineItem: production.cateringBudgetLineItem,
+      productionBuyoutRequired: production.productionBuyoutRequired,
+      productionBuyoutDescription: production.productionBuyoutDescription,
+      productionBuyoutBudgetAmount: production.productionBuyoutBudgetAmount != null ? Number(production.productionBuyoutBudgetAmount) : null,
+    };
+  }
+
+  async updateProductionMisc(engagementId: number, dto: {
+    runnerRequired: boolean | null;
+    cateringRequired: boolean | null;
+    cateringBudgetLineItem: string | null;
+    productionBuyoutRequired: boolean | null;
+    productionBuyoutDescription: string | null;
+    productionBuyoutBudgetAmount: number | null;
+  }): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+    const repo = this.dataSource.getRepository(EngagementProduction);
+    let production = await repo.findOne({ where: { engagementId } });
+    if (!production) {
+      production = await repo.save(repo.create({ engagementId }));
+    }
+    await repo.update({ productionId: production.productionId }, {
+      runnerRequired: dto.runnerRequired,
+      cateringRequired: dto.cateringRequired,
+      cateringBudgetLineItem: dto.cateringBudgetLineItem,
+      productionBuyoutRequired: dto.productionBuyoutRequired,
+      productionBuyoutDescription: dto.productionBuyoutDescription,
+      productionBuyoutBudgetAmount: dto.productionBuyoutBudgetAmount,
     });
   }
 

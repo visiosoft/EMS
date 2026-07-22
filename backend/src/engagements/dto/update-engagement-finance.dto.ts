@@ -90,7 +90,7 @@ export class UpdateEngagementFinanceDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(100)
+  @MaxLength(150)
   venueDealType?:
     | 'Rental'
     | 'CoPro'

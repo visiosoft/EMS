@@ -1,4 +1,4 @@
-/**
+﻿/**
  * EngagementDetailPage – fully dynamic, end-to-end DB-driven.
  * All data comes from the API. No static/hardcoded content.
  *
@@ -171,6 +171,8 @@ import { fetchDailySales, type ApiDailySalesRow } from '@/api/dailySalesApi';
 import { calculateRoyalties } from '@/lib/royaltiesCalculation';
 import { EngagementMarketingReadOnlySection } from './EngagementMarketingReadOnlySection';
 import { EngagementContractPanel } from './EngagementContractPanel';
+import { EngagementDrillBitsTab } from './EngagementDrillBitsTab';
+import { EngagementTicketingRefactored } from './EngagementTicketingRefactored';
 import { invalidateSalesCapacityRelatedQueries } from '@/api/cacheHelpers';
 import {
   PERFORMANCE_TICKETING_STATUS_VALUES,
@@ -431,16 +433,23 @@ function VenueTabEditField({
         />
       ) : (
         <>
-          <input
-            type={urlField ? 'url' : 'text'}
-            inputMode={urlField ? 'url' : undefined}
-            placeholder={urlField ? 'https://…' : undefined}
-            className={`${cls}${invalidCls}`}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            disabled={disabled}
-            aria-invalid={invalid}
-          />
+          <div className="flex items-center gap-1.5">
+            <input
+              type={urlField ? 'url' : 'text'}
+              inputMode={urlField ? 'url' : undefined}
+              placeholder={urlField ? 'https://…' : undefined}
+              className={`${cls} flex-1${invalidCls}`}
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              disabled={disabled}
+              aria-invalid={invalid}
+            />
+            {urlField && value.trim() && !invalid && (
+              <a href={value.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
+                <ExternalLink className="h-4 w-4" />
+              </a>
+            )}
+          </div>
           {invalid && (
             <p className="mt-1 text-[11px] text-red-500">Enter a valid http:// or https:// link.</p>
           )}
@@ -626,6 +635,47 @@ function VenueDetailPanel({
     });
   };
 
+  // Fetch contacts from the venue company with role "Venue Booking Manager"
+  const venueBookingMgrQuery = useQuery({
+    queryKey: ['company-contacts', venue.venueCompanyId, 'venue-booking-manager-role'],
+    queryFn: () => fetchCompanyContacts(venue.venueCompanyId, { roleName: 'Venue Booking Manager' }),
+    staleTime: 60_000,
+  });
+  const venueBookingMgrNames = useMemo(() => {
+    const contacts = venueBookingMgrQuery.data ?? [];
+    return contacts.map((c) => [c.firstName, c.lastName].filter(Boolean).join(' ') || `Contact #${c.contactId}`);
+  }, [venueBookingMgrQuery.data]);
+
+  // Fetch contacts by role for other venue sections
+  const venueTicketingSoftwareQuery = useQuery({
+    queryKey: ['company-contacts', venue.venueCompanyId, 'venue-ticketing-software-role'],
+    queryFn: () => fetchCompanyContacts(venue.venueCompanyId, { roleName: 'Venue Ticketing Software' }),
+    staleTime: 60_000,
+  });
+  const venueTicketingAdminQuery = useQuery({
+    queryKey: ['company-contacts', venue.venueCompanyId, 'venue-ticketing-admin-role'],
+    queryFn: () => fetchCompanyContacts(venue.venueCompanyId, { roleName: 'Venue Ticketing Administrator' }),
+    staleTime: 60_000,
+  });
+  const venueProductionMgrQuery = useQuery({
+    queryKey: ['company-contacts', venue.venueCompanyId, 'venue-production-mgr-role'],
+    queryFn: () => fetchCompanyContacts(venue.venueCompanyId, { roleName: 'Venue Production Manager' }),
+    staleTime: 60_000,
+  });
+  const venueStageLaborQuery = useQuery({
+    queryKey: ['company-contacts', venue.venueCompanyId, 'venue-stage-labor-role'],
+    queryFn: () => fetchCompanyContacts(venue.venueCompanyId, { roleName: 'Venue Stage Labor' }),
+    staleTime: 60_000,
+  });
+  const attractionTechDirQuery = useQuery({
+    queryKey: ['company-contacts', venue.venueCompanyId, 'attraction-tech-director-role'],
+    queryFn: () => fetchCompanyContacts(venue.venueCompanyId, { roleName: 'Attraction Tech Director' }),
+    staleTime: 60_000,
+  });
+
+  const contactNames = (data: typeof venueBookingMgrQuery.data) =>
+    (data ?? []).map((c) => [c.firstName, c.lastName].filter(Boolean).join(' ') || `Contact #${c.contactId}`);
+
   const inputCls =
     'w-full rounded border border-border bg-background px-2 py-1.5 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:ring-1 focus:ring-ems-accent/50 disabled:opacity-60';
   const sectionCls = 'rounded-md border border-border bg-surface/40 p-4 space-y-4';
@@ -634,104 +684,102 @@ function VenueDetailPanel({
 
   return (
     <div className="space-y-4 mt-3">
-      {/* Venue Booking */}
+      {/* Venue Booking (read-only — from venue company contacts with role "Venue Booking Manager") */}
       <div className={sectionCls}>
         <span className={labelCls}>Venue Booking</span>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="Venue Booking Manager">
-            <Select2
-              options={bookingManagerOptions}
-              value={venueBookingManagerId}
-              onChange={setVenueBookingManagerId}
-              placeholder="Select manager…"
-              allowClear
-              disabled={saveBookingManagerMutation.isPending}
-            />
+            <div className={readOnlyValueCls}>
+              {venueBookingMgrQuery.isLoading ? (
+                <span className="text-text-muted text-xs">Loading…</span>
+              ) : venueBookingMgrNames.length > 0 ? (
+                venueBookingMgrNames.map((name, i) => <div key={i}>{name}</div>)
+              ) : (
+                <span className="text-text-muted">— no contact with role "Venue Booking Manager" —</span>
+              )}
+            </div>
           </FormField>
         </div>
-        <div className="flex justify-end">
-          <Button type="button" size="sm" className="bg-ems-accent text-white hover:opacity-90"
-            onClick={handleSaveBookingManager} disabled={saveBookingManagerMutation.isPending}>
-            {saveBookingManagerMutation.isPending ? (
-              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
-            ) : 'Save booking manager'}
-          </Button>
-        </div>
+        <p className="text-xs text-text-muted italic">Contacts with role "Venue Booking Manager" from the venue company.</p>
       </div>
 
-      {/* Venue Terms (Deal Type + Venue Type) */}
+      {/* Venue Terms (read-only — from Engagement Drill Bits) */}
       <div className={sectionCls}>
         <span className={labelCls}>Venue Terms</span>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="Deal Type">
-            <Select2
-              options={dealTypeOptions}
-              value={venueDealTypeId}
-              onChange={setVenueDealTypeId}
-              placeholder="Not set"
-              allowClear
-              disabled={saveVenueTermsMutation.isPending}
-            />
-          </FormField>
-          <FormField label="Venue Type">
-            <Select2
-              options={venueTypeOptions}
-              value={venueTypeId}
-              onChange={setVenueTypeId}
-              placeholder="Select type…"
-              allowClear
-              disabled={saveVenueTermsMutation.isPending}
-            />
+            <div className={readOnlyValueCls}>
+              {dealTypeOptions.find((o) => o.value === String(initialVenueDealTypeId ?? ''))?.label || venueDealType || '— not set —'}
+            </div>
           </FormField>
         </div>
-        <div className="flex justify-end">
-          <Button type="button" size="sm" className="bg-ems-accent text-white hover:opacity-90"
-            onClick={handleSaveVenueTerms} disabled={saveVenueTermsMutation.isPending}>
-            {saveVenueTermsMutation.isPending ? (
-              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
-            ) : 'Save venue terms'}
-          </Button>
-        </div>
+        <p className="text-xs text-text-muted italic">Managed in the Engagement Drill Bits tab.</p>
       </div>
 
-      {/* Venue Tech Pack */}
+      {/* Venue Type (read-only — from venue profile) */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Venue Type</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Venue Type">
+            <div className={readOnlyValueCls}>
+              {venueTypeOptions.find((o) => o.value === String(venue.venueTypeId ?? ''))?.label || venue.venueTypeName || '— not set —'}
+            </div>
+          </FormField>
+        </div>
+        <p className="text-xs text-text-muted italic">From the venue profile.</p>
+      </div>
+
+      {/* Venue Tech Pack (editable) */}
       <div className={sectionCls}>
         <span className={labelCls}>Venue Tech Pack</span>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="Venue Tech Pack PDF">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <input
                 type="text"
-                className={inputCls}
+                className={`${inputCls} flex-1`}
                 value={techRiderUrl}
                 onChange={(e) => setTechRiderUrl(e.target.value)}
                 placeholder="Paste tech pack PDF URL…"
                 disabled={saveTechPackMutation.isPending}
               />
-
+              {techRiderUrl.trim() && isValidHttpOrHttpsUrl(techRiderUrl) && (
+                <a href={techRiderUrl.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open tech pack PDF">
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              )}
             </div>
           </FormField>
-          <VenueTabEditField
-            label="Venue Stage Dimensions"
-            value={stageDimensions}
-            onChange={setStageDimensions}
-            disabled={saveTechPackMutation.isPending}
-            inputBgClass="bg-white"
-          />
-          <VenueTabEditField
-            label="Venue Fly System Specs"
-            value={flySystemSpecs}
-            onChange={setFlySystemSpecs}
-            disabled={saveTechPackMutation.isPending}
-            inputBgClass="bg-white"
-          />
-          <VenueTabEditField
-            label="Stage Type"
-            value={stageType}
-            onChange={setStageType}
-            disabled={saveTechPackMutation.isPending}
-            inputBgClass="bg-white"
-          />
+          <FormField label="Venue Stage Dimensions">
+            <input
+              type="text"
+              className={inputCls}
+              value={stageDimensions}
+              onChange={(e) => setStageDimensions(e.target.value)}
+              placeholder="e.g. 40ft x 30ft"
+              disabled={saveTechPackMutation.isPending}
+            />
+          </FormField>
+          <FormField label="Venue Fly System Specs">
+            <input
+              type="text"
+              className={inputCls}
+              value={flySystemSpecs}
+              onChange={(e) => setFlySystemSpecs(e.target.value)}
+              placeholder="e.g. 60 line sets"
+              disabled={saveTechPackMutation.isPending}
+            />
+          </FormField>
+          <FormField label="Stage Type">
+            <input
+              type="text"
+              className={inputCls}
+              value={stageType}
+              onChange={(e) => setStageType(e.target.value)}
+              placeholder="e.g. Proscenium"
+              disabled={saveTechPackMutation.isPending}
+            />
+          </FormField>
         </div>
         <div className="flex justify-end">
           <Button type="button" size="sm" className="bg-ems-accent text-white hover:opacity-90"
@@ -743,70 +791,68 @@ function VenueDetailPanel({
         </div>
       </div>
 
-      {/* Venue Ticketing (read-only) */}
+      {/* Venue Ticketing (read-only — from venue company contacts by role) */}
       <div className={sectionCls}>
         <span className={labelCls}>Venue Ticketing</span>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="Venue Ticketing Software">
             <div className={readOnlyValueCls}>
-              {(venueRoleContacts?.venueTicketingSoftware ?? []).length > 0
-                ? venueRoleContacts!.venueTicketingSoftware.map((c) => (
-                    <button key={c.contactId} type="button" onClick={() => onNavigate('contacts', { selectedContactId: c.contactId })} className="block text-left hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors">{`${c.firstName} ${c.lastName}`.trim()}</button>
-                  ))
-                : <span className="text-text-muted">— none assigned —</span>}
+              {venueTicketingSoftwareQuery.isLoading ? <span className="text-text-muted text-xs">Loading…</span>
+                : contactNames(venueTicketingSoftwareQuery.data).length > 0
+                  ? contactNames(venueTicketingSoftwareQuery.data).map((n, i) => <div key={i}>{n}</div>)
+                  : <span className="text-text-muted">— no contact with role "Venue Ticketing Software" —</span>}
             </div>
           </FormField>
           <FormField label="Venue Ticketing Administrator">
             <div className={readOnlyValueCls}>
-              {(venueRoleContacts?.venueTicketingAdministrator ?? []).length > 0
-                ? venueRoleContacts!.venueTicketingAdministrator.map((c) => (
-                    <button key={c.contactId} type="button" onClick={() => onNavigate('contacts', { selectedContactId: c.contactId })} className="block text-left hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors">{`${c.firstName} ${c.lastName}`.trim()}</button>
-                  ))
-                : <span className="text-text-muted">— none assigned —</span>}
+              {venueTicketingAdminQuery.isLoading ? <span className="text-text-muted text-xs">Loading…</span>
+                : contactNames(venueTicketingAdminQuery.data).length > 0
+                  ? contactNames(venueTicketingAdminQuery.data).map((n, i) => <div key={i}>{n}</div>)
+                  : <span className="text-text-muted">— no contact with role "Venue Ticketing Administrator" —</span>}
             </div>
           </FormField>
         </div>
+        <p className="text-xs text-text-muted italic">Contacts by role from the venue company.</p>
       </div>
 
-      {/* Venue Production (read-only) */}
+      {/* Venue Production (read-only — from venue company contacts by role) */}
       <div className={sectionCls}>
         <span className={labelCls}>Venue Production</span>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="Venue Production Manager">
             <div className={readOnlyValueCls}>
-              {(venueRoleContacts?.venueProductionManager ?? []).length > 0
-                ? venueRoleContacts!.venueProductionManager.map((c) => (
-                    <button key={c.contactId} type="button" onClick={() => onNavigate('contacts', { selectedContactId: c.contactId })} className="block text-left hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors">{`${c.firstName} ${c.lastName}`.trim()}</button>
-                  ))
-                : <span className="text-text-muted">— none assigned —</span>}
+              {venueProductionMgrQuery.isLoading ? <span className="text-text-muted text-xs">Loading…</span>
+                : contactNames(venueProductionMgrQuery.data).length > 0
+                  ? contactNames(venueProductionMgrQuery.data).map((n, i) => <div key={i}>{n}</div>)
+                  : <span className="text-text-muted">— no contact with role "Venue Production Manager" —</span>}
             </div>
           </FormField>
           <FormField label="Venue Stage Labor">
             <div className={readOnlyValueCls}>
-              {(venueRoleContacts?.venueStageLaborCompany ?? []).length > 0
-                ? venueRoleContacts!.venueStageLaborCompany.map((c) => (
-                    <button key={c.contactId} type="button" onClick={() => onNavigate('contacts', { selectedContactId: c.contactId })} className="block text-left hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors">{`${c.firstName} ${c.lastName}`.trim()}</button>
-                  ))
-                : <span className="text-text-muted">— none assigned —</span>}
+              {venueStageLaborQuery.isLoading ? <span className="text-text-muted text-xs">Loading…</span>
+                : contactNames(venueStageLaborQuery.data).length > 0
+                  ? contactNames(venueStageLaborQuery.data).map((n, i) => <div key={i}>{n}</div>)
+                  : <span className="text-text-muted">— no contact with role "Venue Stage Labor" —</span>}
             </div>
           </FormField>
         </div>
+        <p className="text-xs text-text-muted italic">Contacts by role from the venue company.</p>
       </div>
 
-      {/* Attraction Tech Director (read-only) */}
+      {/* Attraction Tech Director (read-only — from venue company contacts by role) */}
       <div className={sectionCls}>
         <span className={labelCls}>Attraction Tech Director</span>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="Attraction Tech Director">
             <div className={readOnlyValueCls}>
-              {(venueRoleContacts?.attractionTechDirector ?? []).length > 0
-                ? venueRoleContacts!.attractionTechDirector.map((c) => (
-                    <button key={c.contactId} type="button" onClick={() => onNavigate('contacts', { selectedContactId: c.contactId })} className="block text-left hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors">{`${c.firstName} ${c.lastName}`.trim()}</button>
-                  ))
-                : <span className="text-text-muted">— none assigned —</span>}
+              {attractionTechDirQuery.isLoading ? <span className="text-text-muted text-xs">Loading…</span>
+                : contactNames(attractionTechDirQuery.data).length > 0
+                  ? contactNames(attractionTechDirQuery.data).map((n, i) => <div key={i}>{n}</div>)
+                  : <span className="text-text-muted">— no contact with role "Attraction Tech Director" —</span>}
             </div>
           </FormField>
         </div>
+        <p className="text-xs text-text-muted italic">Contacts by role from the venue company.</p>
       </div>
 
       {/* Venue Contract */}
@@ -1514,13 +1560,6 @@ function VenuesTab({
                   </div>
                 </div>
                 <div className="flex items-center gap-3 shrink-0 ml-2">
-                  <button
-                    type="button"
-                    onClick={() => setExpandedVenueId(expandedVenueId === v.venueCompanyId ? null : v.venueCompanyId)}
-                    className="text-xs text-ems-accent hover:underline"
-                  >
-                    {expandedVenueId === v.venueCompanyId ? 'Collapse' : 'Details'}
-                  </button>
                   {!v.isPrimary && (
                     <button
                       type="button"
@@ -1534,23 +1573,21 @@ function VenuesTab({
                 </div>
               </div>
 
-              {/* Expanded details */}
-              {expandedVenueId === v.venueCompanyId && (
-                <div className="border-t border-border px-4 pb-4">
-                  <VenueDetailPanel
-                    engagementId={engagementId}
-                    venue={v}
-                    venueDealType={venueDealType}
-                    venueDealTypeId={venueDealTypeId}
-                    venueTerms={venueTerms}
-                    techRiderLinkUrl={techRiderLinkUrl}
-                    engagementLinks={engagementLinks}
-                    venueRoleContacts={venueRoleContacts[v.venueCompanyId] ?? null}
-                    addToast={addToast}
-                    onNavigate={onNavigate}
-                  />
-                </div>
-              )}
+              {/* Always-visible details */}
+              <div className="border-t border-border px-4 pb-4">
+                <VenueDetailPanel
+                  engagementId={engagementId}
+                  venue={v}
+                  venueDealType={venueDealType}
+                  venueDealTypeId={venueDealTypeId}
+                  venueTerms={venueTerms}
+                  techRiderLinkUrl={techRiderLinkUrl}
+                  engagementLinks={engagementLinks}
+                  venueRoleContacts={venueRoleContacts[v.venueCompanyId] ?? null}
+                  addToast={addToast}
+                  onNavigate={onNavigate}
+                />
+              </div>
             </div>
           ))}
         </div>
@@ -2087,7 +2124,7 @@ function EngagementProductionPanel({
         </div>
       )}
 
-      {/* IAE Production Manager */}
+      {/* IAE Production Manager (read-only from Engagement Contacts) */}
       <div className="rounded-md border border-border bg-surface/40 p-4 space-y-4">
         <span className="text-xs font-semibold text-text-primary block">IAE Production Manager</span>
         <div className="min-h-[42px] rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary">
@@ -2104,9 +2141,10 @@ function EngagementProductionPanel({
             </ul>
           )}
         </div>
+        <p className="text-xs text-text-muted italic">From Engagement Contacts → IAE Staff.</p>
       </div>
 
-      {/* Venue Production Manager */}
+      {/* Venue Production Manager (read-only from Engagement Contacts) */}
       <div className="rounded-md border border-border bg-surface/40 p-4 space-y-4">
         <span className="text-xs font-semibold text-text-primary block">Venue Production Manager</span>
         <div className="min-h-[42px] rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary">
@@ -2123,9 +2161,10 @@ function EngagementProductionPanel({
             </ul>
           )}
         </div>
+        <p className="text-xs text-text-muted italic">From Engagement Contacts → Non-IAE Contacts.</p>
       </div>
 
-      {/* Venue Stage Labor Company Contact */}
+      {/* Stagehand Provider (read-only from Engagement Contacts) */}
       <div className="rounded-md border border-border bg-surface/40 p-4 space-y-4">
         <span className="text-xs font-semibold text-text-primary block">Stagehand Provider</span>
         <div className="min-h-[42px] rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary">
@@ -2142,95 +2181,46 @@ function EngagementProductionPanel({
             </ul>
           )}
         </div>
+        <p className="text-xs text-text-muted italic">From Engagement Contacts → Non-IAE Contacts.</p>
       </div>
 
-      {/* Venue Type */}
+      {/* Venue Type (read-only from venue profile) */}
       <div className="rounded-md border border-border bg-surface/40 p-4 space-y-4">
         <span className="text-xs font-semibold text-text-primary block">Venue Type</span>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Venue Type">
-            <Select2
-              options={venueTypeOptions}
-              value={venueTypeId}
-              onChange={setVenueTypeId}
-              placeholder="Select type…"
-              allowClear
-              disabled={saveVenueTypeMutation.isPending}
-            />
-          </FormField>
+        <div className="text-sm text-text-primary">
+          {venueTypeOptions.find((o) => o.value === venueTypeId)?.label || '— not set —'}
         </div>
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            size="sm"
-            className="bg-ems-accent text-white hover:opacity-90"
-            onClick={() => saveVenueTypeMutation.mutate({ venueTypeId: venueTypeId ? Number(venueTypeId) : null })}
-            disabled={saveVenueTypeMutation.isPending}
-          >
-            {saveVenueTypeMutation.isPending ? (
-              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
-            ) : 'Save venue type'}
-          </Button>
-        </div>
+        <p className="text-xs text-text-muted italic">From the venue profile.</p>
       </div>
 
-      {/* Venue Tech Pack */}
+      {/* Venue Tech Pack (read-only from venue profile) */}
       <div className="rounded-md border border-border bg-surface/40 p-4 space-y-4">
         <span className="text-xs font-semibold text-text-primary block">Venue Tech Pack</span>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <VenueTabEditField
-            label="Venue Stage Dimensions"
-            value={stageDimensions}
-            onChange={setStageDimensions}
-            disabled={saveTechPackMutation.isPending}
-          />
-          <VenueTabEditField
-            label="Venue Fly System Specs"
-            value={flySystemSpecs}
-            onChange={setFlySystemSpecs}
-            disabled={saveTechPackMutation.isPending}
-          />
-          <VenueTabEditField
-            label="Stage Type"
-            value={stageType}
-            onChange={setStageType}
-            disabled={saveTechPackMutation.isPending}
-          />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <span className="text-xs text-text-muted block mb-0.5">Venue Stage Dimensions</span>
+            <span className="text-sm text-text-primary">{stageDimensions || '— not set —'}</span>
+          </div>
+          <div>
+            <span className="text-xs text-text-muted block mb-0.5">Venue Fly System Specs</span>
+            <span className="text-sm text-text-primary">{flySystemSpecs || '— not set —'}</span>
+          </div>
+          <div>
+            <span className="text-xs text-text-muted block mb-0.5">Stage Type</span>
+            <span className="text-sm text-text-primary">{stageType || '— not set —'}</span>
+          </div>
+          <div>
+            <span className="text-xs text-text-muted block mb-0.5">Venue Tech Pack PDF</span>
+            {techPackPdfUrl.trim() && isValidHttpOrHttpsUrl(techPackPdfUrl) ? (
+              <a href={techPackPdfUrl.trim()} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm text-ems-accent hover:underline">
+                <ExternalLink className="h-3.5 w-3.5 shrink-0" /> Open tech pack PDF
+              </a>
+            ) : (
+              <span className="text-sm text-text-muted">— not set —</span>
+            )}
+          </div>
         </div>
-        {techPackPdfUrl.trim() && isValidHttpOrHttpsUrl(techPackPdfUrl) && (
-          <a
-            href={techPackPdfUrl.trim()}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-ems-accent hover:underline"
-          >
-            <ExternalLink className="h-3 w-3 shrink-0" /> Open tech pack PDF
-          </a>
-        )}
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            size="sm"
-            className="bg-ems-accent text-white hover:opacity-90"
-            onClick={() => {
-              if (!isValidHttpOrHttpsUrl(techPackPdfUrl)) {
-                addToast('Venue Tech Pack PDF must be a valid http(s) URL, or left empty.', 'error');
-                return;
-              }
-              saveTechPackMutation.mutate({
-                stageDimensions: stageDimensions || null,
-                flySystemSpecs: flySystemSpecs || null,
-                stageType: stageType || null,
-                techPackPdfUrl: techPackPdfUrl.trim() || null,
-              });
-            }}
-            disabled={saveTechPackMutation.isPending}
-          >
-            {saveTechPackMutation.isPending ? (
-              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
-            ) : 'Save tech pack'}
-          </Button>
-        </div>
+        <p className="text-xs text-text-muted italic">From the venue profile. Editable on the Venue tab.</p>
       </div>
 
       {/* Attraction Travel */}
@@ -3624,7 +3614,6 @@ function EngagementMainInformationPanel({
       },
       venueProfile: {
         complexCompanyId: fkIdStringToNumber(complexCompanyId),
-        brandId: fkIdStringToNumber(brandId),
       },
       opening: mainInfoDateTimeSnapshot(openingDate, openingHour, openingMinute, openingPeriod),
       finance: {
@@ -3644,7 +3633,6 @@ function EngagementMainInformationPanel({
     addressLine1,
     addressPostal,
     addressState,
-    brandId,
     complexCompanyId,
     confirmationPacketApproved,
     dmaId,
@@ -3692,7 +3680,6 @@ function EngagementMainInformationPanel({
       },
       venueProfile: {
         complexCompanyId: !profile || profile.missing ? null : profile.entertainmentComplexCompanyIds[0] ?? null,
-        brandId: !profile || profile.missing ? null : profile.brandIds[0] ?? null,
       },
       opening: mainInfoDateTimeSnapshot(
         openingPerformance?.performanceDate ?? '',
@@ -3837,9 +3824,6 @@ function EngagementMainInformationPanel({
         await updateVenueProfile(nextVenueId, {
           entertainmentComplexCompanyIds: currentSnapshot.venueProfile.complexCompanyId != null
             ? [currentSnapshot.venueProfile.complexCompanyId]
-            : [],
-          brandIds: currentSnapshot.venueProfile.brandId != null
-            ? [currentSnapshot.venueProfile.brandId]
             : [],
         });
       }
@@ -4156,17 +4140,14 @@ function EngagementMainInformationPanel({
 
           {fieldRow(
             'Brand/Series',
-              <Select2
-                options={brandOptions}
-                value={brandId}
-                onChange={(value) => {
-                  markMainInfoUserEdited();
-                  setBrandId(value);
-                }}
-                placeholder="---"
-                allowClear
-                disabled={disabled || selectedVenueId == null}
+            <input
+              className={`${inputCls} disabled:opacity-60 disabled:cursor-not-allowed`}
+              value={brandOptions.find((o) => o.value === brandId)?.label ?? ''}
+              readOnly
+              disabled
+              placeholder="—"
             />,
+            'View only — edit Brand/Series from the Engagement Drill Bits tab.',
           )}
 
           {fieldRow(
@@ -4185,18 +4166,25 @@ function EngagementMainInformationPanel({
 
           {fieldRow(
             'Link to Folder on Sharepoint Server',
-            <input
-              className={inputCls}
-              type="url"
-              inputMode="url"
-              value={sharePointFolderLink}
-              onChange={(e) => {
-                markMainInfoUserEdited();
-                setSharePointFolderLink(e.target.value);
-              }}
-              disabled={disabled}
-              placeholder="Folder on Sharepoint Server (IAE Cloud Server)"
-            />,
+            <div className="flex items-center gap-1.5">
+              <input
+                className={`${inputCls} flex-1`}
+                type="url"
+                inputMode="url"
+                value={sharePointFolderLink}
+                onChange={(e) => {
+                  markMainInfoUserEdited();
+                  setSharePointFolderLink(e.target.value);
+                }}
+                disabled={disabled}
+                placeholder="Folder on Sharepoint Server (IAE Cloud Server)"
+              />
+              {sharePointFolderLink.trim() && isValidHttpOrHttpsUrl(sharePointFolderLink) && (
+                <a href={sharePointFolderLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              )}
+            </div>,
             'Stored on the engagement finance record as the SharePoint folder link.',
           )}
 
@@ -4580,8 +4568,9 @@ function EngagementArtistTermsPanel({
     return () => onDirtyChange?.(false);
   }, [artistTermsDirty, onDirtyChange]);
 
-  const disabled = saveMut.isPending;
-  const saveDisabled = disabled || !artistTermsDirty;
+  // Read-only: managed from Engagement Drill Bits tab
+  const disabled = true;
+  const saveDisabled = true;
 
   const fieldRow = (label: string, control: React.ReactNode) => (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-6 min-w-0">
@@ -4792,35 +4781,49 @@ function EngagementArtistTermsPanel({
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
         {fieldRow(
           'Link to Final Accepted Offer',
-          <input
-            id="at-offer-link"
-            type="url"
-            inputMode="url"
-            className={inputCls}
-            value={finalOfferLink}
-            onChange={(e) => {
-              markArtistTermsUserEdited();
-              setFinalOfferLink(e.target.value);
-            }}
-            disabled={disabled}
-            placeholder="https://…"
-          />,
+          <div className="flex items-center gap-1.5">
+            <input
+              id="at-offer-link"
+              type="url"
+              inputMode="url"
+              className={`${inputCls} flex-1`}
+              value={finalOfferLink}
+              onChange={(e) => {
+                markArtistTermsUserEdited();
+                setFinalOfferLink(e.target.value);
+              }}
+              disabled={disabled}
+              placeholder="https://…"
+            />
+            {finalOfferLink.trim() && isValidHttpOrHttpsUrl(finalOfferLink) && (
+              <a href={finalOfferLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
+                <ExternalLink className="h-4 w-4" />
+              </a>
+            )}
+          </div>,
         )}
         {fieldRow(
           'Link to Settlement File on SharePoint Server',
-          <input
-            id="at-settlement-link"
-            type="url"
-            inputMode="url"
-            className={inputCls}
-            value={settlementFileLink}
-            onChange={(e) => {
-              markArtistTermsUserEdited();
-              setSettlementFileLink(e.target.value);
-            }}
-            disabled={disabled}
-            placeholder="https://…"
-          />,
+          <div className="flex items-center gap-1.5">
+            <input
+              id="at-settlement-link"
+              type="url"
+              inputMode="url"
+              className={`${inputCls} flex-1`}
+              value={settlementFileLink}
+              onChange={(e) => {
+                markArtistTermsUserEdited();
+                setSettlementFileLink(e.target.value);
+              }}
+              disabled={disabled}
+              placeholder="https://…"
+            />
+            {settlementFileLink.trim() && isValidHttpOrHttpsUrl(settlementFileLink) && (
+              <a href={settlementFileLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
+                <ExternalLink className="h-4 w-4" />
+              </a>
+            )}
+          </div>,
         )}
       </div>
 
@@ -4964,25 +4967,30 @@ function EngagementBookingPanel({
   });
 
   // ── IAE contact lookups (contacts picker for talent buyer / booking mgr) ──
-  const roleIdsByKey = useMemo(() => {
-    const roles = iaeLookupsQuery.data?.roles;
+  const roleIdSetsByKey = useMemo(() => {
+    const roles = iaeLookupsQuery.data?.roles ?? [];
     return Object.fromEntries(
-      BOOKING_IAE_STAFF_FIELDS.map((f) => [f.key, findMainInfoRoleId(roles, f.aliases)]),
-    ) as Record<'talentBuyer' | 'bookingManager', number | null>;
+      BOOKING_IAE_STAFF_FIELDS.map((f) => {
+        const normalizedAliases = new Set(f.aliases.map(normalizeRoleMatchText));
+        const matchingIds = roles
+          .filter((role) => normalizedAliases.has(normalizeRoleMatchText(role.label)))
+          .map((role) => role.id);
+        return [f.key, new Set(matchingIds)];
+      }),
+    ) as Record<'talentBuyer' | 'bookingManager', Set<number>>;
   }, [iaeLookupsQuery.data?.roles]);
 
-  // Only IAE staff assigned to this engagement (Overview → staff assignments)
-  // with the matching role appear in each picker.
+  // Only IAE staff assigned to this engagement with any matching role appear.
   const iaeRowsByKey = useMemo(() => {
     const result: Record<'talentBuyer' | 'bookingManager', string> = { talentBuyer: '', bookingManager: '' };
     for (const field of BOOKING_IAE_STAFF_FIELDS) {
-      const roleId = roleIdsByKey[field.key];
-      if (roleId == null) continue;
-      const matches = (iaeContactsQuery.data ?? []).filter((r) => r.roleId === roleId);
+      const roleIds = roleIdSetsByKey[field.key];
+      if (!roleIds.size) continue;
+      const matches = (iaeContactsQuery.data ?? []).filter((r) => r.roleId != null && roleIds.has(r.roleId));
       result[field.key] = matches.map((r) => r.contactLabel).join(', ');
     }
     return result;
-  }, [iaeContactsQuery.data, roleIdsByKey]);
+  }, [iaeContactsQuery.data, roleIdSetsByKey]);
 
   // ── Primary venue for booking manager ─────────────────────────────────────
   const primaryVenue = useMemo(
@@ -5075,27 +5083,20 @@ function EngagementBookingPanel({
     setFullyExecutedLink(d.fullyExecutedAttractionContractSharePointLink ?? '');
   }, [financeQuery.data]);
 
-  // ── Venue Booking & Programming contacts (read-only) ──────────────────────
+  // ── Venue Booking Manager contacts (role = 'Venue Booking Manager') ─────
   const primaryVenueCompanyId = row.primaryVenueCompanyId;
-  const venueDetailsQuery = useQuery({
-    queryKey: ['venue-details', primaryVenueCompanyId],
-    queryFn: () => fetchVenueDetails(primaryVenueCompanyId!),
+  const venueBookingManagerContactsQuery = useQuery({
+    queryKey: ['company-contacts', primaryVenueCompanyId, 'venue-booking-manager'],
+    queryFn: () => fetchCompanyContacts(primaryVenueCompanyId!, { roleName: 'Venue Booking Manager' }),
     enabled: primaryVenueCompanyId != null && primaryVenueCompanyId > 0,
     staleTime: 60_000,
   });
-  const venueBookingProgrammingContacts = useMemo(() => {
-    const d = venueDetailsQuery.data;
-    if (!d || d.missing) return [];
-    const entries: { role: string; names: string }[] = [];
-    const rentalNames = (d.rentalManagers ?? []).map((c) => c.fullName).filter(Boolean);
-    const calendarNames = (d.calendarManagers ?? []).map((c) => c.fullName).filter(Boolean);
-    const contractNames = (d.contractManagers ?? []).map((c) => c.fullName).filter(Boolean);
-    if (rentalNames.length) entries.push({ role: 'Rental Manager', names: rentalNames.join(', ') });
-    if (calendarNames.length) entries.push({ role: 'Calendar Manager', names: calendarNames.join(', ') });
-    if (contractNames.length) entries.push({ role: 'Contracts Manager', names: contractNames.join(', ') });
-    return entries;
-  }, [venueDetailsQuery.data]
-  );
+  const venueBookingManagerNames = useMemo(() => {
+    const contacts = venueBookingManagerContactsQuery.data ?? [];
+    return contacts
+      .map((c) => [c.firstName, c.lastName].filter(Boolean).join(' ') || `Contact #${c.contactId}`)
+      .filter(Boolean);
+  }, [venueBookingManagerContactsQuery.data]);
 
   // ── Venue Deal Type options (from dbo.VenueDealType) ────────────────────────
   const financeLookupsQuery = useQuery({
@@ -5137,16 +5138,6 @@ function EngagementBookingPanel({
   // ── Save ──────────────────────────────────────────────────────────────────
   const saveMut = useMutation({
     mutationFn: async () => {
-      const d = financeQuery.data;
-      const guarantee = parseOptionalDecimal(attractionGuarantee, 'Guarantee');
-      if (!guarantee.ok) throw new Error(guarantee.message);
-      const overage = parseOptionalPercent(attractionOveragePercent, 'Overage (%)');
-      if (!overage.ok) throw new Error(overage.message);
-      const royalty = parseOptionalPercent(attractionRoyaltyPercent, 'Royalty (%)');
-      if (!royalty.ok) throw new Error(royalty.message);
-      const middleMoney = parseOptionalDecimal(attractionMiddleMoney, 'Middle Money');
-      if (!middleMoney.ok) throw new Error(middleMoney.message);
-
       const acLink = attractionContractLink.trim();
       const peLink = partiallyExecutedLink.trim();
       const feLink = fullyExecutedLink.trim();
@@ -5181,17 +5172,8 @@ function EngagementBookingPanel({
         tourManagerContactId: fkIdStringToNumber(tourManagerContactId) ?? null,
       });
 
-      // ── Finance fields (artist terms + venue deal type + booking columns) ─
+      // ── Attraction Contract links only ────────────────────────────────────
       await updateEngagementFinance(engagementId, {
-        // Artist / Attraction terms
-        artistDealType: attractionDealType.trim() || null,
-        artistGuarantee: guarantee.value,
-        overagePercent: overage.value,
-        artistRoyaltyRatePercent: royalty.value,
-        artistMiddleMoney: middleMoney.value,
-        // Venue terms
-        venueDealTypeId: fkIdStringToNumber(venueDealTypeId),
-        // Booking fields (new optional columns)
         attractionContractSharePointLink: acLink || null,
         partiallyExecutedAttractionContractSharePointLink: peLink || null,
         fullyExecutedAttractionContractSharePointLink: feLink || null,
@@ -5297,31 +5279,28 @@ function EngagementBookingPanel({
             'IAE Booking Manager',
             <span className="text-sm text-text-primary">{iaeRowsByKey.bookingManager || '— not set —'}</span>,
           )}
-          <p className="text-xs text-text-muted">Managed in the Main Information tab under "Innovation Arts Staff Assignments".</p>
+          <p className="text-xs text-text-muted">Managed in the Engagement Contacts tab under "IAE Staff Working on this".</p>
         </div>
 
-        {/* ── VENUE BOOKING & PROGRAMMING ──────────────────────────── */}
+        {/* ── VENUE BOOKING MANAGER ──────────────────────────────── */}
         <div className="rounded-lg border border-border bg-surface/40 p-4 space-y-3">
           {sectionTitle('Venue Booking Manager')}
           {primaryVenueCompanyId == null ? (
             <p className="text-sm text-text-muted">No primary venue linked.</p>
-          ) : venueDetailsQuery.isLoading ? (
+          ) : venueBookingManagerContactsQuery.isLoading ? (
             <div className="flex items-center gap-2 text-sm text-text-muted">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading venue contacts…
             </div>
-          ) : venueBookingProgrammingContacts.length === 0 ? (
-            <p className="text-sm text-text-muted">No Booking & Programming contacts set on this venue.</p>
+          ) : venueBookingManagerNames.length === 0 ? (
+            <p className="text-sm text-text-muted">No contacts with role "Venue Booking Manager" found on this venue company.</p>
           ) : (
             <div className="space-y-1">
-              {venueBookingProgrammingContacts.map((c, i) => (
-                <div key={i} className="flex items-center gap-2 text-sm">
-                  <span className="text-text-muted min-w-[140px]">{c.role}:</span>
-                  <span className="text-text-primary">{c.names}</span>
-                </div>
+              {venueBookingManagerNames.map((name, i) => (
+                <p key={i} className="text-sm text-text-primary font-medium">{name}</p>
               ))}
             </div>
           )}
-          <p className="text-xs text-text-muted">Managed in the venue's company profile.</p>
+          <p className="text-xs text-text-muted italic">Contacts with role "Venue Booking Manager" from the venue company linked to this engagement.</p>
         </div>
 
   {/* ── TALENT AGENCY ────────────────────────────────────────────── */}
@@ -5382,6 +5361,8 @@ function EngagementBookingPanel({
             'Promoter Partner Contact',
             selectedPromoterCompanyId == null ? (
               <span className="text-sm text-text-muted">Select a promoter company first.</span>
+            ) : promoterContactsQuery.isLoading ? (
+              <span className="text-sm text-text-muted">Loading contacts…</span>
             ) : (
               <Select2
                 options={promoterContactOptions}
@@ -5389,7 +5370,7 @@ function EngagementBookingPanel({
                 onChange={(v) => { markUserEdited(); setPromoterPartnerContactId(v); }}
                 placeholder="— not set —"
                 allowClear
-                disabled={disabled || promoterContactsQuery.isLoading}
+                disabled={disabled}
               />
             ),
           )}
@@ -5414,6 +5395,8 @@ function EngagementBookingPanel({
             'Tour Manager Contact',
             selectedTourMgmtCompanyId == null ? (
               <span className="text-sm text-text-muted">Select a Tour Management Company first.</span>
+            ) : tourMgmtContactsQuery.isLoading ? (
+              <span className="text-sm text-text-muted">Loading contacts…</span>
             ) : (
               <Select2
                 options={tourMgmtContactOptions}
@@ -5421,96 +5404,36 @@ function EngagementBookingPanel({
                 onChange={(v) => { markUserEdited(); setTourManagerContactId(v); }}
                 placeholder="— not set —"
                 allowClear
-                disabled={disabled || tourMgmtContactsQuery.isLoading}
+                disabled={disabled}
               />
             ),
           )}
+          <p className="text-xs text-text-muted italic">Tour Manager Contact is auto-populated from the selected company.</p>
         </div>
 
-        {/* ── ATTRACTION TERMS ─────────────────────────────────────────── */}
+        {/* ── ATTRACTION TERMS (read-only — managed in Engagement Drill Bits) ── */}
         <div className="rounded-lg border border-border bg-surface/40 p-4 space-y-3">
           {sectionTitle('Attraction Terms')}
-          {fieldRow(
-            'Deal Type',
-            <Select2
-              options={BOOKING_ATTRACTION_DEAL_TYPE_OPTIONS}
-              value={attractionDealType}
-              onChange={(v) => { markUserEdited(); setAttractionDealType(v); }}
-              placeholder="Not set"
-              allowClear
-              disabled={disabled}
-            />,
-          )}
-          {fieldRow(
-            'Guarantee (Amount $)',
-            <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-text-muted">$</span>
-              <input
-                className={`${whiteInputCls} pl-8`}
-                inputMode="decimal"
-                value={attractionGuarantee}
-                onChange={(e) => { markUserEdited(); setAttractionGuarantee(e.target.value); }}
-                disabled={disabled}
-              />
-            </div>,
-          )}
-          {fieldRow(
-            'Overage (%)',
-            <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-text-muted">%</span>
-              <input
-                className={`${whiteInputCls} pl-8`}
-                inputMode="decimal"
-                value={attractionOveragePercent}
-                onChange={(e) => { markUserEdited(); setAttractionOveragePercent(e.target.value); }}
-                disabled={disabled}
-              />
-            </div>,
-          )}
-          {fieldRow(
-            'Royalty (%)',
-            <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-text-muted">%</span>
-              <input
-                className={`${whiteInputCls} pl-8`}
-                inputMode="decimal"
-                value={attractionRoyaltyPercent}
-                onChange={(e) => { markUserEdited(); setAttractionRoyaltyPercent(e.target.value); }}
-                disabled={disabled}
-              />
-            </div>,
-          )}
-          {fieldRow(
-            'Middle Money ($)',
-            <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-text-muted">$</span>
-              <input
-                className={`${whiteInputCls} pl-8`}
-                inputMode="decimal"
-                value={attractionMiddleMoney}
-                onChange={(e) => { markUserEdited(); setAttractionMiddleMoney(e.target.value); }}
-                disabled={disabled}
-              />
-            </div>,
-          )}
-          <p className="text-xs text-text-muted">Also editable in the Artist Terms tab.</p>
+          <p className="text-xs text-text-muted italic mb-2">Managed in the Engagement Drill Bits tab.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {fieldRow('Deal Type', <span className="text-sm text-text-primary">{attractionDealType || '—'}</span>)}
+            {fieldRow('Guarantee ($)', <span className="text-sm text-text-primary">{attractionGuarantee ? `$${attractionGuarantee}` : '—'}</span>)}
+            {fieldRow('Overage (%)', <span className="text-sm text-text-primary">{attractionOveragePercent ? `${attractionOveragePercent}%` : '—'}</span>)}
+            {fieldRow('Royalty (%)', <span className="text-sm text-text-primary">{attractionRoyaltyPercent ? `${attractionRoyaltyPercent}%` : '—'}</span>)}
+            {fieldRow('Middle Money ($)', <span className="text-sm text-text-primary">{attractionMiddleMoney ? `$${attractionMiddleMoney}` : '—'}</span>)}
+          </div>
         </div>
 
-        {/* ── VENUE TERMS ──────────────────────────────────────────────── */}
+        {/* ── VENUE TERMS (read-only — managed in Engagement Drill Bits) ── */}
         <div className="rounded-lg border border-border bg-surface/40 p-4 space-y-3">
           {sectionTitle('Venue Terms')}
+          <p className="text-xs text-text-muted italic mb-2">Managed in the Engagement Drill Bits tab.</p>
           {fieldRow(
             'Deal Type',
-            <Select2
-              options={venueDealTypeOptions}
-              value={venueDealTypeId}
-              onChange={(v) => { markUserEdited(); setVenueDealTypeId(v); }}
-              placeholder="Not set"
-              allowClear
-              disabled={disabled}
-            />,
+            <span className="text-sm text-text-primary">
+              {venueDealTypeOptions.find((o) => o.value === venueDealTypeId)?.label || '—'}
+            </span>,
           )}
-          <p className="text-xs text-text-muted">Also editable in the Finance tab.</p>
         </div>
 
         {/* ── ATTRACTION CONTRACT ───────────────────────────────────────── */}
@@ -5527,6 +5450,11 @@ function EngagementBookingPanel({
                 disabled={disabled}
                 placeholder="https://…"
               />
+              {attractionContractLink.trim() && isValidHttpOrHttpsUrl(attractionContractLink) && (
+                <a href={attractionContractLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              )}
             </div>,
           )}
           {fieldRow(
@@ -5540,6 +5468,11 @@ function EngagementBookingPanel({
                 disabled={disabled}
                 placeholder="https://…"
               />
+              {partiallyExecutedLink.trim() && isValidHttpOrHttpsUrl(partiallyExecutedLink) && (
+                <a href={partiallyExecutedLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              )}
             </div>,
           )}
           {fieldRow(
@@ -5553,7 +5486,11 @@ function EngagementBookingPanel({
                 disabled={disabled}
                 placeholder="https://…"
               />
-
+              {fullyExecutedLink.trim() && isValidHttpOrHttpsUrl(fullyExecutedLink) && (
+                <a href={fullyExecutedLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              )}
             </div>,
           )}
         </div>
@@ -6399,6 +6336,7 @@ function EngagementEventBusinessPanel({
                   : <span className="text-text-muted italic">—</span>}
             </span>)}
         </div>
+        <p className="text-xs text-text-muted italic mt-1">From Engagement Contacts → IAE Staff.</p>
 
         {/* ── Venue Settlement Manager ─────────────────────────────── */}
         {sectionHeader('Venue Settlement Manager')}
@@ -6412,27 +6350,43 @@ function EngagementEventBusinessPanel({
                   : <span className="text-text-muted italic">—</span>}
             </span>)}
         </div>
+        <p className="text-xs text-text-muted italic mt-1">From Engagement Contacts → Non-IAE Contacts.</p>
 
         {/* ── Settlement Files ─────────────────────────────────────── */}
         {sectionHeader('Settlement Files')}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
           {fieldRow('Tour Settlement File (SharePoint)',
-            <input className={inputCls} value={tourSettlementFileSharePointLink} maxLength={2048}
-              placeholder="https://..."
-              onChange={(e) => { markSettlementFilesEdited(); setTourSettlementFileSharePointLink(e.target.value); }}
-              disabled={disabled} />)}
+            <div className="flex items-center gap-1.5">
+              <input className={`${inputCls} flex-1`} value={tourSettlementFileSharePointLink} maxLength={2048}
+                placeholder="https://..."
+                onChange={(e) => { markSettlementFilesEdited(); setTourSettlementFileSharePointLink(e.target.value); }}
+                disabled={disabled} />
+              {tourSettlementFileSharePointLink.trim() && isValidHttpOrHttpsUrl(tourSettlementFileSharePointLink) && (
+                <a href={tourSettlementFileSharePointLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link"><ExternalLink className="h-4 w-4" /></a>
+              )}
+            </div>)}
           {fieldRow('Venue Settlement File (SharePoint)',
-            <input className={inputCls} value={venueSettlementFileSharePointLink} maxLength={2048}
-              placeholder="https://..."
-              onChange={(e) => { markSettlementFilesEdited(); setVenueSettlementFileSharePointLink(e.target.value); }}
-              disabled={disabled} />)}
+            <div className="flex items-center gap-1.5">
+              <input className={`${inputCls} flex-1`} value={venueSettlementFileSharePointLink} maxLength={2048}
+                placeholder="https://..."
+                onChange={(e) => { markSettlementFilesEdited(); setVenueSettlementFileSharePointLink(e.target.value); }}
+                disabled={disabled} />
+              {venueSettlementFileSharePointLink.trim() && isValidHttpOrHttpsUrl(venueSettlementFileSharePointLink) && (
+                <a href={venueSettlementFileSharePointLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link"><ExternalLink className="h-4 w-4" /></a>
+              )}
+            </div>)}
         </div>
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
           {fieldRow('Partner Settlement File (SharePoint)',
-            <input className={inputCls} value={partnerSettlementFileSharePointLink} maxLength={2048}
-              placeholder="https://..."
-              onChange={(e) => { markSettlementFilesEdited(); setPartnerSettlementFileSharePointLink(e.target.value); }}
-              disabled={disabled} />)}
+            <div className="flex items-center gap-1.5">
+              <input className={`${inputCls} flex-1`} value={partnerSettlementFileSharePointLink} maxLength={2048}
+                placeholder="https://..."
+                onChange={(e) => { markSettlementFilesEdited(); setPartnerSettlementFileSharePointLink(e.target.value); }}
+                disabled={disabled} />
+              {partnerSettlementFileSharePointLink.trim() && isValidHttpOrHttpsUrl(partnerSettlementFileSharePointLink) && (
+                <a href={partnerSettlementFileSharePointLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link"><ExternalLink className="h-4 w-4" /></a>
+              )}
+            </div>)}
         </div>
         <div className="flex justify-end pt-2">
           <Button type="button" className="bg-ems-accent text-white hover:opacity-90" onClick={() => {
@@ -6758,8 +6712,52 @@ function EngagementEventBusinessPanel({
 
         {/* ── Licensing / Royalties ─────────────────────────────────── */}
         {sectionHeader('Licensing / Royalties')}
+        <div className="space-y-4">
+          {/* Tour PRO associations */}
+          <div>
+            <span className="text-xs font-medium text-text-muted uppercase tracking-wide block mb-2">Tour PRO Associations</span>
+            <div className="flex flex-wrap gap-2">
+              {([
+                { org: 'ASCAP', selected: d?.tourAscap === true },
+                { org: 'BMI', selected: d?.tourBmi === true },
+                { org: 'SESAC', selected: d?.tourSesac === true },
+                { org: 'GMR', selected: d?.tourGmr === true },
+              ] as const).filter((o) => o.selected).length === 0 ? (
+                <p className="text-sm text-text-muted">No PROs selected for this tour.</p>
+              ) : (
+                ([
+                  { org: 'ASCAP', selected: d?.tourAscap === true },
+                  { org: 'BMI', selected: d?.tourBmi === true },
+                  { org: 'SESAC', selected: d?.tourSesac === true },
+                  { org: 'GMR', selected: d?.tourGmr === true },
+                ] as const).filter((o) => o.selected).map(({ org }) => (
+                  <span key={org} className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 ring-1 ring-green-300">{org}</span>
+                ))
+              )}
+            </div>
+          </div>
+          {/* Royalty rate from Attraction Terms in Engagement Drill Bits */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <span className="text-xs font-medium text-text-muted uppercase tracking-wide block mb-1">Royalty Rate (from Attraction Terms)</span>
+              <span className="text-sm text-text-primary font-medium">
+                {d?.artistRoyaltyRatePercent != null && Number(d.artistRoyaltyRatePercent) > 0
+                  ? `${d.artistRoyaltyRatePercent}%`
+                  : '—'}
+              </span>
+            </div>
+            <div>
+              <span className="text-xs font-medium text-text-muted uppercase tracking-wide block mb-1">Royalty Basis</span>
+              <span className="text-sm text-text-primary font-medium">
+                {d?.artistRoyaltyBasedOn ? d.artistRoyaltyBasedOn : '—'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Previous royalty calculation (commented out) ──────────── */}
+        {/*
         {(() => {
-          // Only PROs selected on the tour (flag === true) are shown. Order fixed: ASCAP, BMI, SESAC, GMR.
           const selectedOrgs = ([
             { org: 'ASCAP', selected: d?.tourAscap === true, line: royalties.ascap },
             { org: 'BMI', selected: d?.tourBmi === true, line: royalties.bmi },
@@ -6804,6 +6802,7 @@ function EngagementEventBusinessPanel({
             </>
           );
         })()}
+        */}
 
         {/* ── RAMP ────────────────────────────────────────────────── */}
         {sectionHeader('RAMP')}
@@ -8207,8 +8206,7 @@ function EngagementMarketingPanel({
     const gross = parseOptionalDecimal(grossMarketingBudget, 'Gross marketing budget');
     const net = parseOptionalDecimal(netMarketingBudget, 'Net marketing budget');
     const goal = parseOptionalDecimal(salesRevenueGoal, 'Sales revenue goal');
-    const split = parseOptionalDecimal(tourSplitPoint, 'Tour split point');
-    for (const x of [gross, net, goal, split]) {
+    for (const x of [gross, net, goal]) {
       if (!x.ok) {
         addToast(x.message, 'error');
         return;
@@ -8218,7 +8216,6 @@ function EngagementMarketingPanel({
       grossMarketingBudget: gross.value,
       netMarketingBudget: net.value,
       salesRevenueGoal: goal.value,
-      tourSplitPoint: split.value,
       announcementDate: announcementDate.trim() === '' ? null : announcementDate.trim(),
     });
   };
@@ -8307,24 +8304,20 @@ function EngagementMarketingPanel({
     const net = parseOptionalDecimal(netMarketingBudget, 'Net marketing budget');
     const goal = parseOptionalDecimal(salesRevenueGoal, 'Sales revenue goal');
     if (!gross.ok || !net.ok || !goal.ok) return true;
-    const split = parseOptionalDecimal(tourSplitPoint, 'Tour split point');
-    if (!split.ok) return true;
     const cur = {
       grossMarketingBudget: gross.value,
       netMarketingBudget: net.value,
       salesRevenueGoal: goal.value,
-      tourSplitPoint: split.value,
       announcementDate: announcementDate.trim() === '' ? null : announcementDate.trim(),
     };
     const base = {
       grossMarketingBudget: d.grossMarketingBudget ?? null,
       netMarketingBudget: d.netMarketingBudget ?? null,
       salesRevenueGoal: d.salesRevenueGoal ?? null,
-      tourSplitPoint: d.tourSplitPoint ?? null,
       announcementDate: (d.announcementDate ?? '').trim() === '' ? null : (d.announcementDate ?? '').trim(),
     };
     return JSON.stringify(cur) !== JSON.stringify(base);
-  }, [financeQuery.data, grossMarketingBudget, netMarketingBudget, salesRevenueGoal, tourSplitPoint, announcementDate]);
+  }, [financeQuery.data, grossMarketingBudget, netMarketingBudget, salesRevenueGoal, announcementDate]);
   const marketingBudgetDirty =
     hasMarketingBudgetUserEdited && marketingBudgetDirtyRaw;
 
@@ -8449,36 +8442,56 @@ function EngagementMarketingPanel({
 
         <div className="rounded-lg border border-border bg-surface/40 p-4">
           <h4 className="text-sm font-semibold text-text-primary mb-3">Marketing Budget</h4>
+          <p className="text-xs text-text-muted mb-3 italic">Gross/Net Marketing Budget and Sales Revenue Goal are managed in the Engagement Drill Bits tab.</p>
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
             {fieldRow(
               'Gross Marketing Budget',
-              moneyInput(grossMarketingBudget, (next) => {
-                markMarketingBudgetUserEdited();
-                setGrossMarketingBudget(next);
-              }, 'mkt-gross-budget'),
+              <input
+                id="mkt-gross-budget"
+                className={`${inputCls} pl-8`}
+                value={grossMarketingBudget}
+                disabled
+              />,
             )}
             {fieldRow(
               'Net Marketing Budget',
-              moneyInput(netMarketingBudget, (next) => {
-                markMarketingBudgetUserEdited();
-                setNetMarketingBudget(next);
-              }, 'mkt-net-budget'),
+              <input
+                id="mkt-net-budget"
+                className={`${inputCls} pl-8`}
+                value={netMarketingBudget}
+                disabled
+              />,
             )}
           </div>
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10 mt-1">
             {fieldRow(
               'Sales Revenue Goal',
-              moneyInput(salesRevenueGoal, (next) => {
-                markMarketingBudgetUserEdited();
-                setSalesRevenueGoal(next);
-              }, 'mkt-sales-goal'),
+              <input
+                id="mkt-sales-goal"
+                className={`${inputCls} pl-8`}
+                value={salesRevenueGoal}
+                disabled
+              />,
             )}
             {fieldRow(
               'Engagement Tour Split Point ($)',
-              moneyInput(tourSplitPoint, (next) => {
-                markMarketingBudgetUserEdited();
-                setTourSplitPoint(next);
-              }, 'mkt-tour-split'),
+              <div className="relative">
+                <span
+                  className="pointer-events-none absolute left-3 top-1/2 z-[1] -translate-y-1/2 text-sm text-text-muted"
+                  aria-hidden
+                >
+                  $
+                </span>
+                <input
+                  id="mkt-tour-split"
+                  className={`${inputCls} pl-8`}
+                  inputMode="decimal"
+                  value={tourSplitPoint}
+                  readOnly
+                  disabled
+                />
+              </div>,
+              'View only — edit from the Engagement Drill Bits tab.',
             )}
           </div>
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10 mt-1">
@@ -8652,19 +8665,26 @@ function EngagementMarketingPanel({
               )}
               {fieldRow(
                 'Link ID',
-                <input
-                  id="mkt-link-id"
-                  type="url"
-                  inputMode="url"
-                  className={inputCls}
-                  value={ticketingLinkUrl}
-                  onChange={(e) => {
-                    markMarketingUserEdited();
-                    setTicketingLinkUrl(e.target.value);
-                  }}
-                  disabled={saveDisabled}
-                  placeholder="https://…"
-                />,
+                <div className="flex items-center gap-1.5">
+                  <input
+                    id="mkt-link-id"
+                    type="url"
+                    inputMode="url"
+                    className={`${inputCls} flex-1`}
+                    value={ticketingLinkUrl}
+                    onChange={(e) => {
+                      markMarketingUserEdited();
+                      setTicketingLinkUrl(e.target.value);
+                    }}
+                    disabled={saveDisabled}
+                    placeholder="https://…"
+                  />
+                  {ticketingLinkUrl.trim() && isValidHttpOrHttpsUrl(ticketingLinkUrl) && (
+                    <a href={ticketingLinkUrl.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
+                      <ExternalLink className="h-4 w-4" />
+                    </a>
+                  )}
+                </div>,
               )}
             </div>
 
@@ -9896,12 +9916,22 @@ function EngagementTicketingPanel({
               {sectionHeader('Purchase Links')}
               <div className="grid grid-cols-1 gap-4">
                 {fieldRow('Pre-Sale Ticketing Link',
-                  <input className={inputCls} type="url" autoComplete="nope" placeholder="https://…" value={ticketingLinkUrl}
-                    onChange={(e) => { markTicketingUserEdited(); setTicketingLinkUrl(e.target.value); }} disabled={disabled} />,
+                  <div className="flex items-center gap-1.5">
+                    <input className={`${inputCls} flex-1`} type="url" autoComplete="nope" placeholder="https://…" value={ticketingLinkUrl}
+                      onChange={(e) => { markTicketingUserEdited(); setTicketingLinkUrl(e.target.value); }} disabled={disabled} />
+                    {ticketingLinkUrl.trim() && isValidHttpOrHttpsUrl(ticketingLinkUrl) && (
+                      <a href={ticketingLinkUrl.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link"><ExternalLink className="h-4 w-4" /></a>
+                    )}
+                  </div>,
                 )}
                 {fieldRow('Public Sale Ticketing Link',
-                  <input className={inputCls} type="url" autoComplete="nope" placeholder="https://…" value={publicSaleLinkUrl}
-                    onChange={(e) => { markTicketingUserEdited(); setPublicSaleLinkUrl(e.target.value); }} disabled={disabled} />,
+                  <div className="flex items-center gap-1.5">
+                    <input className={`${inputCls} flex-1`} type="url" autoComplete="nope" placeholder="https://…" value={publicSaleLinkUrl}
+                      onChange={(e) => { markTicketingUserEdited(); setPublicSaleLinkUrl(e.target.value); }} disabled={disabled} />
+                    {publicSaleLinkUrl.trim() && isValidHttpOrHttpsUrl(publicSaleLinkUrl) && (
+                      <a href={publicSaleLinkUrl.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link"><ExternalLink className="h-4 w-4" /></a>
+                    )}
+                  </div>,
                 )}
               </div>
             </div>
@@ -9911,12 +9941,22 @@ function EngagementTicketingPanel({
               {sectionHeader('Complimentary Ticket Request')}
               <div className="grid grid-cols-1 gap-4">
                 {fieldRow('Complimentary Ticket Request Form',
-                  <input className={inputCls} type="url" autoComplete="nope" placeholder="https://…" value={compTicketForm}
-                    onChange={(e) => { markTicketingUserEdited(); setCompTicketForm(e.target.value); }} disabled={disabled} />,
+                  <div className="flex items-center gap-1.5">
+                    <input className={`${inputCls} flex-1`} type="url" autoComplete="nope" placeholder="https://…" value={compTicketForm}
+                      onChange={(e) => { markTicketingUserEdited(); setCompTicketForm(e.target.value); }} disabled={disabled} />
+                    {compTicketForm.trim() && isValidHttpOrHttpsUrl(compTicketForm) && (
+                      <a href={compTicketForm.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link"><ExternalLink className="h-4 w-4" /></a>
+                    )}
+                  </div>,
                 )}
                 {fieldRow('Complimentary Ticket Request Submissions',
-                  <input className={inputCls} type="url" autoComplete="nope" placeholder="https://…" value={compTicketExcelSheet}
-                    onChange={(e) => { markTicketingUserEdited(); setCompTicketExcelSheet(e.target.value); }} disabled={disabled} />,
+                  <div className="flex items-center gap-1.5">
+                    <input className={`${inputCls} flex-1`} type="url" autoComplete="nope" placeholder="https://…" value={compTicketExcelSheet}
+                      onChange={(e) => { markTicketingUserEdited(); setCompTicketExcelSheet(e.target.value); }} disabled={disabled} />
+                    {compTicketExcelSheet.trim() && isValidHttpOrHttpsUrl(compTicketExcelSheet) && (
+                      <a href={compTicketExcelSheet.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link"><ExternalLink className="h-4 w-4" /></a>
+                    )}
+                  </div>,
                 )}
               </div>
               <div className="flex justify-end pt-2 border-t border-border">
@@ -11293,7 +11333,7 @@ export function EngagementDetailPage({
   addToast,
 }: Props) {
   const qc = useQueryClient();
-  const [tab, setTab] = useState('Overview');
+  const [tab, setTab] = useState('Engagement Drill Bits');
   const [tabDirtyState, setTabDirtyState] = useState<Record<string, boolean>>({});
   const [pendingTab, setPendingTab] = useState<string | null>(null);
   const [showUnsavedTabAlert, setShowUnsavedTabAlert] = useState(false);
@@ -11325,7 +11365,7 @@ export function EngagementDetailPage({
   });
 
   useEffect(() => {
-    setTab('Overview');
+    setTab('Engagement Drill Bits');
     setTabDirtyState({});
     setPendingTab(null);
     setShowUnsavedTabAlert(false);
@@ -11390,14 +11430,14 @@ export function EngagementDetailPage({
   const venueContactsQuery = useQuery({
     queryKey: ['company-contacts', 'venue', venueId],
     queryFn: () => fetchCompanyContacts(venueId!),
-    enabled: tab === 'Contacts' && venueId != null && venueId > 0,
+    enabled: tab === 'Engagement Contacts' && venueId != null && venueId > 0,
   });
 
   const tourContactsQuery = useQuery({
     queryKey: ['company-contacts', 'tour-mgmt', tourMgmtCompanyId],
     queryFn: () => fetchCompanyContacts(tourMgmtCompanyId as number),
     enabled:
-      tab === 'Contacts' &&
+      tab === 'Engagement Contacts' &&
       typeof tourMgmtCompanyId === 'number' &&
       tourMgmtCompanyId > 0,
   });
@@ -11676,7 +11716,7 @@ export function EngagementDetailPage({
     });
   }, []);
   const handleStaffAssignmentsDirtyChange = useCallback(
-    (dirty: boolean) => setTabDirty('Staff Assignments', dirty),
+    (dirty: boolean) => setTabDirty('Engagement Contacts', dirty),
     [setTabDirty],
   );
   const handleMainInformationDirtyChange = useCallback(
@@ -11709,6 +11749,10 @@ export function EngagementDetailPage({
   );
   const handleBookingDirtyChange = useCallback(
     (dirty: boolean) => setTabDirty('Booking', dirty),
+    [setTabDirty],
+  );
+  const handleDrillBitsDirtyChange = useCallback(
+    (dirty: boolean) => setTabDirty('Engagement Drill Bits', dirty),
     [setTabDirty],
   );
   const handleEventBusinessDirtyChange = useCallback(
@@ -12131,24 +12175,23 @@ export function EngagementDetailPage({
       {/* Tabs */}
       <TabBar
         tabs={[
+          'Engagement Drill Bits',
           'Overview',
-          'Staff Assignments',
-          'Main Information',
+          'Engagement Contacts',
+          // 'Main Information',
           'Booking',
           'Venues',
           { label: 'Documents', disabled: row?.engagementStatus !== 'Confirmed', disabledReason: 'SharePoint folders are only available for Confirmed engagements.' },
-          'Service Providers',
-          'Contacts',
-          'Performances',
-          'Sale Summary',
+          'Ticketing',
           'Marketing',
           'Production',
-          'Taxation',
-          'Ticketing',
-          'Artist terms',
           'Event business',
-          'Finance',
+          'Service Providers',
+          'Sale Summary',
           'Contract',
+          // 'Taxation',
+          // 'Artist terms',
+          // 'Finance',
         ]}
         active={tab}
         onChange={handleTabChange}
@@ -12158,113 +12201,53 @@ export function EngagementDetailPage({
       {tab === 'Overview' && (
         <div className="bg-card border border-border rounded-lg p-5 space-y-5">
           <div
-            className="relative rounded-lg border border-border bg-surface/40 p-4"
-            aria-busy={capacitySectionSaving}
+            className="rounded-lg border border-border bg-surface/40 p-4"
           >
-            {capacitySectionSaving && (
-              <div
-                className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/55 backdrop-blur-[1px]"
-                aria-live="polite"
-              >
-                <span className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2.5 text-sm font-medium text-text-primary shadow-md">
-                  <Loader2 className="h-5 w-5 animate-spin text-ems-accent shrink-0" />
-                  Saving to database…
-                </span>
-              </div>
-            )}
             <h3 className="text-sm font-semibold text-text-primary mb-1">Sales Baseline Fields</h3>
+            <p className="text-xs text-text-muted mb-3 italic">Computed as the sum of all per-performance values. Edit individual performances in the Engagement Drill Bits tab.</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <FormField label="Engagement sellable capacity">
+              <FormField label="Engagement sellable capacity (sum)">
                 <input
-                  type="number"
-                  min={0}
-                  step={1}
+                  type="text"
                   className={inputCls}
-                  value={sellableCapacityInput}
-                  onChange={(e) => {
-                    markCapacityFieldsUserEdited();
-                    setSellableCapacityInput(e.target.value);
-                  }}
-                  disabled={anyEngagementPatchPending}
-                  placeholder="e.g. 2021"
+                  value={row?.sellableCapacity != null ? row.sellableCapacity.toLocaleString() : '—'}
+                  disabled
+                  readOnly
                 />
               </FormField>
-              <FormField label="Engagement gross potential">
+              <FormField label="Engagement gross potential (sum)">
                 <input
-                  type="number"
-                  min={0}
-                  step={0.01}
+                  type="text"
                   className={inputCls}
-                  value={grossPotentialInput}
-                  onChange={(e) => {
-                    markCapacityFieldsUserEdited();
-                    setGrossPotentialInput(e.target.value);
-                  }}
-                  disabled={anyEngagementPatchPending}
-                  placeholder="e.g. 403565.00"
+                  value={row?.grossPotential != null
+                    ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(Number(row.grossPotential))
+                    : '—'}
+                  disabled
+                  readOnly
                 />
               </FormField>
-            </div>
-            <div className="mt-4 flex justify-end">
-              <Button
-                type="button"
-                size="sm"
-                className="bg-ems-accent text-white hover:opacity-90"
-                onClick={handleSaveCapacityFields}
-                disabled={
-                  !canSaveCapacityFields || anyEngagementPatchPending
-                }
-              >
-                {capacitySectionSaving ? (
-                  <span className="inline-flex items-center gap-1">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Saving…
-                  </span>
-                ) : (
-                  'Save capacity fields'
-                )}
-              </Button>
             </div>
           </div>
           <div
             className="relative rounded-lg border border-border bg-surface/40 p-4"
-            aria-busy={productionSectionSaving}
           >
-            {productionSectionSaving && (
-              <div
-                className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/55 backdrop-blur-[1px]"
-                aria-live="polite"
-              >
-                <span className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2.5 text-sm font-medium text-text-primary shadow-md">
-                  <Loader2 className="h-5 w-5 animate-spin text-ems-accent shrink-0" />
-                  Saving to database…
-                </span>
-              </div>
-            )}
             <h3 className="text-sm font-semibold text-text-primary mb-1">Production and performance schedule</h3>
+            <p className="text-xs text-text-muted mb-3 italic">Managed in the Engagement Drill Bits tab.</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <FormField label="Load-In date" required>
+              <FormField label="Load-In date">
                 <input
                   type="date"
                   className={inputCls}
                   value={loadInDateInput}
-                  onChange={(e) => {
-                    markProductionDatesUserEdited();
-                    setLoadInDateInput(e.target.value);
-                  }}
-                  disabled={anyEngagementPatchPending}
+                  disabled
                 />
               </FormField>
-              <FormField label="Load-In time" required>
+              <FormField label="Load-In time">
                 <input
                   type="time"
                   className={inputCls}
                   value={loadInTimeInput}
-                  onChange={(e) => {
-                    markProductionDatesUserEdited();
-                    setLoadInTimeInput(e.target.value);
-                  }}
-                  disabled={anyEngagementPatchPending}
+                  disabled
                 />
               </FormField>
             </div>
@@ -12276,69 +12259,31 @@ export function EngagementDetailPage({
                   type="checkbox"
                   className="h-4 w-4"
                   checked={hasRehearsalInput}
-                  onChange={(e) => {
-                    markProductionDatesUserEdited();
-                    const checked = e.target.checked;
-                    setHasRehearsalInput(checked);
-                    if (!checked) {
-                      setRehearsalDateInput('');
-                      setRehearsalTimeInput('');
-                    }
-                  }}
-                  disabled={anyEngagementPatchPending}
+                  disabled
                 />
               </label>
             </div>
 
             {hasRehearsalInput && (
               <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <FormField label="Rehearsal date" required>
+                <FormField label="Rehearsal date">
                   <input
                     type="date"
                     className={inputCls}
                     value={rehearsalDateInput}
-                    onChange={(e) => {
-                      markProductionDatesUserEdited();
-                      setRehearsalDateInput(e.target.value);
-                    }}
-                    disabled={anyEngagementPatchPending}
+                    disabled
                   />
                 </FormField>
-                <FormField label="Rehearsal time" required>
+                <FormField label="Rehearsal time">
                   <input
                     type="time"
                     className={inputCls}
                     value={rehearsalTimeInput}
-                    onChange={(e) => {
-                      markProductionDatesUserEdited();
-                      setRehearsalTimeInput(e.target.value);
-                    }}
-                    disabled={anyEngagementPatchPending}
+                    disabled
                   />
                 </FormField>
               </div>
             )}
-
-            <div className="mt-4 flex justify-end">
-              <Button
-                type="button"
-                size="sm"
-                className="bg-ems-accent text-white hover:opacity-90"
-                onClick={() => void handleSaveProductionDates()}
-                disabled={
-                  !canSaveProductionDates || anyEngagementPatchPending
-                }
-              >
-                {productionSectionSaving ? (
-                  <span className="inline-flex items-center gap-1">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Saving…
-                  </span>
-                ) : (
-                  'Save production dates'
-                )}
-              </Button>
-            </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-sm">
             <div>
@@ -12362,76 +12307,37 @@ export function EngagementDetailPage({
           </div>
         </div>
       )}
-     {/* ── Staff Assignments ────────────────────────────────────────────── */}
-      {tab === 'Staff Assignments' && (
-        <div className="bg-card border border-border rounded-lg p-5">
-          <EngagementOverviewIaeStaffSection
-            engagementId={engagementId}
-            enabled={tab === 'Staff Assignments'}
-            addToast={addToast}
-            onDirtyChange={handleStaffAssignmentsDirtyChange}
-          />
-        </div>
-      )}
-      {/* ── Main Information ─────────────────────────────────────────────── */}
-      {tab === 'Main Information' && (
-        <EngagementMainInformationPanel
-          engagementId={engagementId}
-          row={row}
-          lookups={lookupsQuery.data}
-          lookupsLoading={lookupsQuery.isPending}
-          addToast={addToast}
-          onDirtyChange={handleMainInformationDirtyChange}
-        />
-      )}
-
-      {/* ── Booking ──────────────────────────────────────────────────────── */}
-      {tab === 'Booking' && row && (
-        <EngagementBookingPanel
+     {/* ── Engagement Drill Bits ─────────────────────────────────────── */}
+      {tab === 'Engagement Drill Bits' && row && (
+        <EngagementDrillBitsTab
           engagementId={engagementId}
           row={row}
           addToast={addToast}
-          onDirtyChange={handleBookingDirtyChange}
-          onNavigate={onNavigate}
+          onDirtyChange={handleDrillBitsDirtyChange}
         />
       )}
 
-      {/* ── Venues ───────────────────────────────────────────────────────── */}
-      {tab === 'Venues' && (
-        <div className="bg-card border border-border rounded-lg p-5">
-          <VenuesTab
-            engagementId={engagementId}
-            addToast={addToast}
-            onNavigate={onNavigate}
-          />
-        </div>
-      )}
-
-      {/* ── Documents (SharePoint) ───────────────────────────────────────── */}
-      {tab === 'Documents' && (
-        <div className="bg-card border border-border rounded-lg p-5">
-          <EngagementDocumentsTab
-            engagementId={engagementId}
-            addToast={addToast}
-          />
-        </div>
-      )}
-
-      {/* ── Service Providers ────────────────────────────────────────────── */}
-      {tab === 'Service Providers' && (
-        <div className="bg-card border border-border rounded-lg p-5">
-          <ServiceProvidersTab
-            engagementId={engagementId}
-            addToast={addToast}
-            onDirtyChange={handleServiceProvidersDirtyChange}
-            onNavigate={onNavigate}
-          />
-        </div>
-      )}
-
-      {/* ── Contacts ─────────────────────────────────────────────────────── */}
-      {tab === 'Contacts' && (
+     {/* ── Engagement Contacts (combined Staff + Contacts) ───────────────── */}
+      {tab === 'Engagement Contacts' && (
         <div className="space-y-6">
+          {/* ── IAE Staff Working on this ─────────────────────────────────── */}
+          <div className="bg-card border border-border rounded-lg p-5">
+            <h3 className="text-sm font-semibold text-text-primary mb-1">IAE Staff Working on this</h3>
+            <p className="text-xs text-text-muted mb-3">Internal IAE staff assigned to this engagement.</p>
+            <EngagementOverviewIaeStaffSection
+              engagementId={engagementId}
+              enabled={tab === 'Engagement Contacts'}
+              addToast={addToast}
+              onDirtyChange={handleStaffAssignmentsDirtyChange}
+            />
+          </div>
+
+          {/* ── Non-IAE Contacts Working on this Engagement ───────────────── */}
+          <div className="bg-card border border-border rounded-lg p-5">
+            <h3 className="text-sm font-semibold text-text-primary mb-1">Non-IAE Contacts Working on this Engagement</h3>
+            <p className="text-xs text-text-muted mb-3">External contacts grouped by company type.</p>
+          </div>
+
           {venueCompanyTypeNames.map((companyTypeName) => (
             <div key={`venue-${companyTypeName}`} className="bg-card border border-border rounded-lg p-5">
               <h3 className="text-sm font-semibold text-text-primary mb-1">{companyTypeName} contacts</h3>
@@ -12484,70 +12390,59 @@ export function EngagementDetailPage({
           </div>
         </div>
       )}
+      {/* ── Main Information ─────────────────────────────────────────────── */}
+      {/* {tab === 'Main Information' && (
+        <EngagementMainInformationPanel
+          engagementId={engagementId}
+          row={row}
+          lookups={lookupsQuery.data}
+          lookupsLoading={lookupsQuery.isPending}
+          addToast={addToast}
+          onDirtyChange={handleMainInformationDirtyChange}
+        />
+      )} */}
 
-      {/* ── Performances ─────────────────────────────────────────────────── */}
-      {tab === 'Performances' && (
-        <div className="bg-card border border-border rounded-lg p-5 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-semibold text-text-primary">Show dates & performances</h3>
-              <p className="text-xs text-text-muted mt-1">Each row is one show date and time.</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                resetAddPerformanceDraftRows();
-                setShowAddPerformance(true);
-              }}
-              className="inline-flex items-center justify-center shrink-0 bg-ems-accent text-background text-sm px-4 py-2 rounded-md font-medium hover:bg-ems-accent/90 transition-colors"
-            >
-              Add Date and Time
-            </button>
-          </div>
+      {/* ── Booking ──────────────────────────────────────────────────────── */}
+      {tab === 'Booking' && row && (
+        <EngagementBookingPanel
+          engagementId={engagementId}
+          row={row}
+          addToast={addToast}
+          onDirtyChange={handleBookingDirtyChange}
+          onNavigate={onNavigate}
+        />
+      )}
 
-          {performancesQuery.isLoading ? (
-            <div className="flex items-center gap-2 text-text-muted text-sm py-6">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading performances…
-            </div>
-          ) : performancesQuery.error ? (
-            <div className="flex items-center gap-2 text-ems-coral text-sm py-2">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              {friendlyApiError(performancesQuery.error)}
-              <button
-                type="button"
-                onClick={() => performancesQuery.refetch()}
-                className="text-xs underline ml-1"
-              >
-                Retry
-              </button>
-            </div>
-          ) : (performancesQuery.data ?? []).length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-8 text-center">
-              <CalendarDays className="h-8 w-8 text-text-muted/50" />
-              <p className="text-sm text-text-muted">
-                No performances yet. Add a show date to get started.
-              </p>
-            </div>
-          ) : (
-            <ul className="space-y-2">
-              {(performancesQuery.data ?? []).map((p, idx) => (
-                <EditablePerformanceRow
-                  key={p.performanceId}
-                  perf={p}
-                  isPrimary={idx === 0}
-                  engagementId={engagementId}
-                  allowDeleteShow={canDeleteIndividualShow}
-                  onRefresh={() =>
-                    qc.invalidateQueries({
-                      queryKey: ['engagements', engagementId, 'performances'],
-                    })
-                  }
-                  addToast={addToast}
-                />
-              ))}
-            </ul>
-          )}
+      {/* ── Venues ───────────────────────────────────────────────────────── */}
+      {tab === 'Venues' && (
+        <div className="bg-card border border-border rounded-lg p-5">
+          <VenuesTab
+            engagementId={engagementId}
+            addToast={addToast}
+            onNavigate={onNavigate}
+          />
+        </div>
+      )}
+
+      {/* ── Documents (SharePoint) ───────────────────────────────────────── */}
+      {tab === 'Documents' && (
+        <div className="bg-card border border-border rounded-lg p-5">
+          <EngagementDocumentsTab
+            engagementId={engagementId}
+            addToast={addToast}
+          />
+        </div>
+      )}
+
+      {/* ── Service Providers ────────────────────────────────────────────── */}
+      {tab === 'Service Providers' && (
+        <div className="bg-card border border-border rounded-lg p-5">
+          <ServiceProvidersTab
+            engagementId={engagementId}
+            addToast={addToast}
+            onDirtyChange={handleServiceProvidersDirtyChange}
+            onNavigate={onNavigate}
+          />
         </div>
       )}
 
@@ -12598,11 +12493,11 @@ export function EngagementDetailPage({
         />
       )}
 
-      {/* ── Ticketing (Engagement + PerformanceTicketing) ───────────────── */}
+      {/* ── Ticketing (refactored — mostly read-only summary) ──────────── */}
       {tab === 'Ticketing' && (
-        <EngagementTicketingPanel
+        <EngagementTicketingRefactored
           engagementId={engagementId}
-          engagementScaling={row.engagementScaling}
+          row={row}
           addToast={addToast}
           onDirtyChange={handleTicketingDirtyChange}
         />
