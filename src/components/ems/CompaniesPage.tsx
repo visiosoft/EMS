@@ -2612,10 +2612,26 @@ function ContactFormDb({
             }
             const wE = tryE164FromDisplay(workPhoneDisplay, workPhoneCountry);
             const cE = tryE164FromDisplay(cellPhoneDisplay, cellPhoneCountry);
-            if (workPhoneDisplay.trim() && !wE) {
+            /* When pre-filling from an existing contact whose phone is already
+               stored in E.164, the display↔E.164 round-trip can fail for some
+               legacy formats. Fall back to the original initial value when the
+               user hasn't touched the field. */
+            const initialWorkRaw = initial?.workPhone ?? initial?.phone ?? "";
+            const initialCellRaw = initial?.cellPhone ?? "";
+            const wFinal = wE || (() => {
+              if (!workPhoneDisplay.trim() || !initialWorkRaw.startsWith("+")) return "";
+              const parsed = parsePhoneFieldValue(initialWorkRaw, DEFAULT_PHONE_COUNTRY, { noCountryWhenEmpty: true });
+              return workPhoneDisplay === parsed.display ? initialWorkRaw : "";
+            })();
+            const cFinal = cE || (() => {
+              if (!cellPhoneDisplay.trim() || !initialCellRaw.startsWith("+")) return "";
+              const parsed = parsePhoneFieldValue(initialCellRaw, DEFAULT_PHONE_COUNTRY, { noCountryWhenEmpty: true });
+              return cellPhoneDisplay === parsed.display ? initialCellRaw : "";
+            })();
+            if (workPhoneDisplay.trim() && !wFinal) {
               wErr = PHONE_INVALID_MESSAGE;
             }
-            if (cellPhoneDisplay.trim() && !cE) {
+            if (cellPhoneDisplay.trim() && !cFinal) {
               cErr = PHONE_INVALID_MESSAGE;
             }
             setWorkPhoneError(wErr);
@@ -2630,8 +2646,8 @@ function ContactFormDb({
                 firstName: firstName.trim(),
                 lastName: lastName.trim(),
                 email: email.trim(),
-                workPhone: hasWork ? wE! : isEditing ? null : undefined,
-                cellPhone: hasCell ? cE! : isEditing ? null : undefined,
+                workPhone: hasWork ? wFinal! : isEditing ? null : undefined,
+                cellPhone: hasCell ? cFinal! : isEditing ? null : undefined,
                 roleId: Number(roleId),
                 departmentId: Number(departmentId),
               };
@@ -4984,10 +5000,12 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                         email: c.email,
                         phone: c.workPhone || "",
                         workPhone: c.workPhone || "",
-                        cellPhone: c.cellPhone || undefined,
+                        cellPhone: c.cellPhone || "",
                         roles: c.roleNames,
                         status: "Active",
                         contactId: c.contactId,
+                        roleId: c.roleIds?.[0],
+                        departmentId: c.departmentIds?.[0],
                       } as Contact);
                       setAddContactMode("create");
                     }}
