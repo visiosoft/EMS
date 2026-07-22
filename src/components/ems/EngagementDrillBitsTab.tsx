@@ -590,10 +590,21 @@ export function EngagementDrillBitsTab({
   const [rentalForecastLink, setRentalForecastLink] = useState('');
 
   // ══════════════════════════════════════════════════════════════════════════
+  // STATE — Venue (document links)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  const [confirmedArtistOfferLink, setConfirmedArtistOfferLink] = useState('');
+  const [confirmedPartnerForecastLink, setConfirmedPartnerForecastLink] = useState('');
+  const [confirmedRentalForecastLink, setConfirmedRentalForecastLink] = useState('');
+
+  // ══════════════════════════════════════════════════════════════════════════
   // STATE — 3rd Party Partner
   // ══════════════════════════════════════════════════════════════════════════
 
   const [thirdPartyDealType, setThirdPartyDealType] = useState('');
+  const [thirdPartyArtistOfferLink, setThirdPartyArtistOfferLink] = useState('');
+  const [thirdPartyPartnerForecastLink, setThirdPartyPartnerForecastLink] = useState('');
+  const [thirdPartyTourOfferLink, setThirdPartyTourOfferLink] = useState('');
 
   // ══════════════════════════════════════════════════════════════════════════
   // STATE — Ticketing
@@ -667,6 +678,12 @@ export function EngagementDrillBitsTab({
     markUserEdited: markVenueDealEdited,
     clearUserEdited: clearVenueDealEdited,
   } = useUserEditTracker(`drillbits-venuedeal:${engagementId}`);
+
+  const {
+    hasUserEdited: hasVenueDocsEdited,
+    markUserEdited: markVenueDocsEdited,
+    clearUserEdited: clearVenueDocsEdited,
+  } = useUserEditTracker(`drillbits-venuedocs:${engagementId}`);
 
   const {
     hasUserEdited: hasThirdPartyEdited,
@@ -750,6 +767,9 @@ export function EngagementDrillBitsTab({
     const thirdPartyLabels = ['CoPro with 3rd Party', 'CoPro with 3rd Party, 3rd Party Renting Venue', 'Silent CoPro with 3rd Party, 3rd Party Renting Venue'];
     const rawVenueDeal = d.thirdPartyPartnerDealStructure ?? d.venueDealType ?? '';
     setThirdPartyDealType(thirdPartyLabels.includes(rawVenueDeal) ? rawVenueDeal : '');
+    // 3rd party partner document links
+    setThirdPartyArtistOfferLink(d.finalAcceptedOfferLink ?? '');
+    setThirdPartyTourOfferLink(d.artistTourOfferLink ?? '');
     // Marketing budgets
     setGrossMarketingBudget(numFieldToString(d.grossMarketingBudget));
     setNetMarketingBudget(numFieldToString(d.netMarketingBudget));
@@ -761,7 +781,15 @@ export function EngagementDrillBitsTab({
   useEffect(() => {
     const links = venueTabQuery.data?.engagementLinks ?? [];
     setRentalForecastLink(links.find((el) => el.linkPurpose === 'Rental Forecast')?.linkUrl ?? '');
+    setConfirmedRentalForecastLink(links.find((el) => el.linkPurpose === 'Confirmed Rental Forecast')?.linkUrl ?? '');
+    setConfirmedPartnerForecastLink(links.find((el) => el.linkPurpose === 'VenueForcast')?.linkUrl ?? '');
+    setThirdPartyPartnerForecastLink(links.find((el) => el.linkPurpose === 'VenueForcast')?.linkUrl ?? '');
   }, [venueTabQuery.data]);
+
+  // Confirmed Artist Offer link from finance
+  useEffect(() => {
+    setConfirmedArtistOfferLink(financeQuery.data?.finalAcceptedOfferLink ?? '');
+  }, [financeQuery.data?.finalAcceptedOfferLink]);
 
   // Travel from EngagementTravel (Drill Bits types only)
   useEffect(() => {
@@ -1030,15 +1058,81 @@ export function EngagementDrillBitsTab({
   });
 
   // ══════════════════════════════════════════════════════════════════════════
+  // SAVE — Venue Documents
+  // ══════════════════════════════════════════════════════════════════════════
+
+  const saveVenueDocsMut = useMutation({
+    mutationFn: async () => {
+      const offerTrimmed = confirmedArtistOfferLink.trim();
+      const partnerTrimmed = confirmedPartnerForecastLink.trim();
+      const rentalTrimmed = confirmedRentalForecastLink.trim();
+      if (offerTrimmed && !isValidHttpOrHttpsUrl(offerTrimmed)) throw new Error('Confirmed Artist Offer link must be a valid http(s) URL.');
+      if (partnerTrimmed && !isValidHttpOrHttpsUrl(partnerTrimmed)) throw new Error('Confirmed Partner Forecast link must be a valid http(s) URL.');
+      if (rentalTrimmed && !isValidHttpOrHttpsUrl(rentalTrimmed)) throw new Error('Confirmed Rental Forecast link must be a valid http(s) URL.');
+
+      // Save confirmed artist offer link → EngagementFinances.FinalAcceptedOfferLink
+      await updateEngagementFinance(engagementId, {
+        finalAcceptedOfferLink: offerTrimmed || null,
+      });
+
+      // Save confirmed partner forecast link → EngagementLink (LinkPurpose = 'VenueForcast')
+      if (partnerTrimmed) {
+        await upsertEngagementLink(engagementId, { linkUrl: partnerTrimmed, linkPurpose: 'VenueForcast' });
+      } else {
+        const existing = (venueTabQuery.data?.engagementLinks ?? []).find((el) => el.linkPurpose === 'VenueForcast');
+        if (existing) {
+          await removeEngagementLink(engagementId, existing.engagementLinkId);
+        }
+      }
+
+      // Save confirmed rental forecast link → EngagementLink (LinkPurpose = 'Confirmed Rental Forecast')
+      if (rentalTrimmed) {
+        await upsertEngagementLink(engagementId, { linkUrl: rentalTrimmed, linkPurpose: 'Confirmed Rental Forecast' });
+      } else {
+        const existing = (venueTabQuery.data?.engagementLinks ?? []).find((el) => el.linkPurpose === 'Confirmed Rental Forecast');
+        if (existing) {
+          await removeEngagementLink(engagementId, existing.engagementLinkId);
+        }
+      }
+
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venue-tab-data'] });
+    },
+    onSuccess: () => { clearVenueDocsEdited(); addToast('Venue documents saved.', 'success'); },
+    onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
   // SAVE — 3rd Party Partner (EngagementFinances + PerformanceTicketing)
   // ══════════════════════════════════════════════════════════════════════════
 
   const saveThirdPartyMut = useMutation({
     mutationFn: async () => {
+      const offerTrimmed = thirdPartyArtistOfferLink.trim();
+      const partnerTrimmed = thirdPartyPartnerForecastLink.trim();
+      const tourOfferTrimmed = thirdPartyTourOfferLink.trim();
+      if (offerTrimmed && !isValidHttpOrHttpsUrl(offerTrimmed)) throw new Error('Confirmed Artist Offer link must be a valid http(s) URL.');
+      if (partnerTrimmed && !isValidHttpOrHttpsUrl(partnerTrimmed)) throw new Error('Confirmed Partner Forecast link must be a valid http(s) URL.');
+      if (tourOfferTrimmed && !isValidHttpOrHttpsUrl(tourOfferTrimmed)) throw new Error('Confirmed Tour Offer link must be a valid http(s) URL.');
+
       await updateEngagementFinance(engagementId, {
         venueDealType: (thirdPartyDealType.trim() || null) as UpdateEngagementFinancePayload['venueDealType'],
+        finalAcceptedOfferLink: offerTrimmed || null,
+        artistTourOfferLink: tourOfferTrimmed || null,
       });
+
+      // Partner Forecast → EngagementLink with purpose 'VenueForcast'
+      if (partnerTrimmed) {
+        await upsertEngagementLink(engagementId, { linkUrl: partnerTrimmed, linkPurpose: 'VenueForcast' });
+      } else {
+        const existing = (venueTabQuery.data?.engagementLinks ?? []).find((el) => el.linkPurpose === 'VenueForcast');
+        if (existing) {
+          await removeEngagementLink(engagementId, existing.engagementLinkId);
+        }
+      }
+
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venue-tab-data'] });
     },
     onSuccess: () => { clearThirdPartyEdited(); addToast('3rd party partner saved.', 'success'); },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
@@ -1550,12 +1644,92 @@ export function EngagementDrillBitsTab({
       </section>
 
       {/* ═══════════════════════════════════════════════════════════════════ */}
+      {/* SECTION: Venue */}
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      <section className="relative">
+        <SavingOverlay pending={saveVenueDocsMut.isPending} />
+        <SectionHeader title="Venue" />
+        {(() => {
+          const selectedLabel = (venueDealOptions.find((o) => o.value === venueDealTypeId)?.label ?? '').toLowerCase();
+          const isCoPro = selectedLabel.includes('copro') || selectedLabel.includes('co-pro') || selectedLabel.includes('co pro');
+          const isRental = selectedLabel.includes('rental');
+
+          if (!venueDealTypeId) {
+            return <p className="text-sm text-text-muted italic">Select a Venue Deal Type above to view related documents.</p>;
+          }
+
+          return (
+            <div className="space-y-4">
+              {isCoPro && (
+                <div className="grid grid-cols-1 gap-4">
+                  <FormField label="Link to PDF of Confirmed Artist Offer">
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="url"
+                        className={`${inputCls} flex-1`}
+                        value={confirmedArtistOfferLink}
+                        onChange={(e) => { markVenueDocsEdited(); setConfirmedArtistOfferLink(e.target.value); }}
+                        placeholder="https://…"
+                      />
+                      {confirmedArtistOfferLink.trim() && isValidHttpOrHttpsUrl(confirmedArtistOfferLink) && (
+                        <a href={confirmedArtistOfferLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      )}
+                    </div>
+                  </FormField>
+                  <FormField label="Link to PDF of Confirmed Partner Forecast">
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="url"
+                        className={`${inputCls} flex-1`}
+                        value={confirmedPartnerForecastLink}
+                        onChange={(e) => { markVenueDocsEdited(); setConfirmedPartnerForecastLink(e.target.value); }}
+                        placeholder="https://…"
+                      />
+                      {confirmedPartnerForecastLink.trim() && isValidHttpOrHttpsUrl(confirmedPartnerForecastLink) && (
+                        <a href={confirmedPartnerForecastLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      )}
+                    </div>
+                  </FormField>
+                </div>
+              )}
+              {isRental && (
+                <FormField label="Link to PDF of Confirmed Rental Forecast">
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="url"
+                      className={`${inputCls} flex-1`}
+                      value={confirmedRentalForecastLink}
+                      onChange={(e) => { markVenueDocsEdited(); setConfirmedRentalForecastLink(e.target.value); }}
+                      placeholder="https://…"
+                    />
+                    {confirmedRentalForecastLink.trim() && isValidHttpOrHttpsUrl(confirmedRentalForecastLink) && (
+                      <a href={confirmedRentalForecastLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
+                        <ExternalLink className="h-4 w-4" />
+                      </a>
+                    )}
+                  </div>
+                </FormField>
+              )}
+              {!isCoPro && !isRental && (
+                <p className="text-sm text-text-muted italic">No venue documents applicable for this deal type.</p>
+              )}
+            </div>
+          );
+        })()}
+        <SaveBtn onClick={() => saveVenueDocsMut.mutate()} pending={saveVenueDocsMut.isPending} dirty={hasVenueDocsEdited} label="Save Venue Documents" />
+      </section>
+
+      {/* ═══════════════════════════════════════════════════════════════════ */}
       {/* SECTION: 3rd Party Partner */}
       {/* ═══════════════════════════════════════════════════════════════════ */}
       <section className="relative">
         <SavingOverlay pending={saveThirdPartyMut.isPending} />
         <SectionHeader title="3rd Party Partner" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4">
           <FormField label="3rd Party Partner Deal Structure">
             <Select2
               options={thirdPartyPartnerOptions}
@@ -1563,6 +1737,54 @@ export function EngagementDrillBitsTab({
               onChange={(v) => { markThirdPartyEdited(); setThirdPartyDealType(v); }}
               placeholder="Select…"
             />
+          </FormField>
+          <FormField label="Link to PDF of Confirmed Artist Offer">
+            <div className="flex items-center gap-1.5">
+              <input
+                type="url"
+                className={`${inputCls} flex-1`}
+                value={thirdPartyArtistOfferLink}
+                onChange={(e) => { markThirdPartyEdited(); setThirdPartyArtistOfferLink(e.target.value); }}
+                placeholder="https://…"
+              />
+              {thirdPartyArtistOfferLink.trim() && isValidHttpOrHttpsUrl(thirdPartyArtistOfferLink) && (
+                <a href={thirdPartyArtistOfferLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              )}
+            </div>
+          </FormField>
+          <FormField label="Link to PDF of Confirmed Partner Forecast">
+            <div className="flex items-center gap-1.5">
+              <input
+                type="url"
+                className={`${inputCls} flex-1`}
+                value={thirdPartyPartnerForecastLink}
+                onChange={(e) => { markThirdPartyEdited(); setThirdPartyPartnerForecastLink(e.target.value); }}
+                placeholder="https://…"
+              />
+              {thirdPartyPartnerForecastLink.trim() && isValidHttpOrHttpsUrl(thirdPartyPartnerForecastLink) && (
+                <a href={thirdPartyPartnerForecastLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              )}
+            </div>
+          </FormField>
+          <FormField label="Link to PDF of Confirmed Tour Offer">
+            <div className="flex items-center gap-1.5">
+              <input
+                type="url"
+                className={`${inputCls} flex-1`}
+                value={thirdPartyTourOfferLink}
+                onChange={(e) => { markThirdPartyEdited(); setThirdPartyTourOfferLink(e.target.value); }}
+                placeholder="https://…"
+              />
+              {thirdPartyTourOfferLink.trim() && isValidHttpOrHttpsUrl(thirdPartyTourOfferLink) && (
+                <a href={thirdPartyTourOfferLink.trim()} target="_blank" rel="noopener noreferrer" className="shrink-0 text-ems-accent hover:text-ems-accent/80" title="Open link">
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              )}
+            </div>
           </FormField>
         </div>
         <SaveBtn onClick={() => saveThirdPartyMut.mutate()} pending={saveThirdPartyMut.isPending} dirty={hasThirdPartyEdited} label="Save 3rd Party Partner" />
