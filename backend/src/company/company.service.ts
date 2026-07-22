@@ -4290,15 +4290,15 @@ export class CompanyService {
         ));
 
       const existingAssignment = await em.findOne(ContactAssignment, {
-        where: { companyId, contactId: savedContact.contactId },
+        where: { companyId, contactId: savedContact.contactId, roleId: dto.roleId, departmentId: dto.departmentId },
       });
       if (existingAssignment) {
         throw new ConflictException({
           statusCode: HttpStatus.CONFLICT,
           error: 'Conflict',
-          message: 'This contact is already linked to this company.',
+          message: 'This contact is already linked to this company with the same role and department.',
           detail:
-            'A contact assignment already exists for this company/contact pair.',
+            'A contact assignment already exists for this company/contact/role/department combination.',
         });
       }
 
