@@ -950,10 +950,20 @@ function ProjectInlineOverview({
         </>
       ) : (
         <>
-      <p className="flex items-center gap-1.5 text-[11px] text-text-muted mb-4 select-none">
-        <Pencil className="h-3 w-3 shrink-0" />
-        Click any field to edit it inline
-      </p>
+      <div className="flex items-center justify-between mb-4">
+        <p className="flex items-center gap-1.5 text-[11px] text-text-muted select-none">
+          <Pencil className="h-3 w-3 shrink-0" />
+          Click any field to edit it inline
+        </p>
+        <button
+          type="button"
+          onClick={() => discard()}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors"
+        >
+          <Eye className="h-3 w-3" />
+          View only
+        </button>
+      </div>
 
       <div className="text-sm space-y-6 pb-2">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">

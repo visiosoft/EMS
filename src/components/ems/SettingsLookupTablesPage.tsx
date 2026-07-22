@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Info, Loader2, RotateCcw, Trash2 } from 'lucide-react';
+import { Eye, Info, Loader2, Pencil, RotateCcw, Trash2 } from 'lucide-react';
 import { UserProfileDetail, type UserProfileUser } from './UserProfileDetail';
 import {
   Tooltip,
@@ -3025,6 +3025,7 @@ function LookupDetailsEditor({
         : [],
   );
   const [error, setError] = useState('');
+  const [editing, setEditing] = useState(false);
   const companyServiceOptionsState = useCompanyServiceLookupOptions({
     isCompanyService,
     companyId,
@@ -3105,6 +3106,79 @@ function LookupDetailsEditor({
 
   return (
     <div className="space-y-4">
+      {!editing ? (
+        <>
+          <div className="flex items-center justify-between mb-2">
+            <p className="flex items-center gap-1.5 text-[11px] text-text-muted select-none">
+              <Eye className="h-3 w-3 shrink-0" /> Viewing details
+            </p>
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:border-ems-accent/50 hover:bg-elevated transition-colors"
+            >
+              <Pencil className="h-3 w-3" />
+              Edit
+            </button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {isCompanyService || isCompanyTypeService ? (
+              <>
+                {isCompanyService ? (
+                  <div>
+                    <span className="text-xs text-text-muted">Company</span>
+                    <div className="text-sm text-text-primary mt-0.5">
+                      {companyOptions.find((o) => o.value === companyId)?.label || companyId || '—'}
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <span className="text-xs text-text-muted">Company Type</span>
+                    <div className="text-sm text-text-primary mt-0.5">
+                      {companyTypeOptions.find((o) => o.value === companyTypeId)?.label || companyTypeId || '—'}
+                    </div>
+                  </div>
+                )}
+                <div>
+                  <span className="text-xs text-text-muted">Service Provided</span>
+                  <div className="text-sm text-text-primary mt-0.5">
+                    {isCompanyTypeService
+                      ? serviceProvidedIds.map((id) => serviceOptions.find((o) => o.value === id)?.label ?? `#${id}`).join(', ') || '—'
+                      : serviceOptions.find((o) => o.value === serviceProvidedId)?.label || serviceProvidedId || '—'}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <span className="text-xs text-text-muted">{isDma ? 'Market Name' : 'Name'}</span>
+                  <div className="text-sm text-text-primary mt-0.5 font-medium">{name || '—'}</div>
+                </div>
+                {isDma && (
+                  <div>
+                    <span className="text-xs text-text-muted">Postal Code</span>
+                    <div className="text-sm text-text-primary mt-0.5">{postalCode || '—'}</div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </>
+      ) : (
+        <>
+      <div className="flex items-center justify-between mb-2">
+        <p className="flex items-center gap-1.5 text-[11px] text-text-muted select-none">
+          <Pencil className="h-3 w-3 shrink-0" /> Edit fields below
+        </p>
+        <button
+          type="button"
+          onClick={() => setEditing(false)}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors"
+        >
+          <Eye className="h-3 w-3" />
+          View only
+        </button>
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {isCompanyService || isCompanyTypeService ? (
           <>
@@ -3211,6 +3285,8 @@ function LookupDetailsEditor({
           {saving ? 'Saving…' : 'Save changes'}
         </button>
       </div>
+        </>
+      )}
     </div>
   );
 }

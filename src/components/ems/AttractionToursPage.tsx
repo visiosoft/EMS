@@ -1744,6 +1744,45 @@ function TourDrawer({
                   <div className="text-sm text-text-primary mt-0.5">{tour.jobName || '\u2014'}</div>
                 </div>
                 <div>
+                  <span className="text-xs text-text-muted">Audience Gender</span>
+                  <div className="text-sm text-text-primary mt-0.5">{tour.audienceGender || '\u2014'}</div>
+                </div>
+                <div>
+                  <span className="text-xs text-text-muted">Audience Age Range</span>
+                  <div className="text-sm text-text-primary mt-0.5">
+                    {(tour.audienceAgeRangeIds ?? []).length > 0
+                      ? (tour.audienceAgeRangeIds ?? []).map((id) => {
+                          const ar = ageRanges.find((a) => a.ageRangeId === id);
+                          return ar?.ageRangeLabel ?? `#${id}`;
+                        }).join(', ')
+                      : '\u2014'}
+                  </div>
+                </div>
+                <div className="rounded-md border border-border/80 bg-surface/50 px-3 py-3 space-y-2">
+                  <span className="text-xs font-medium text-text-secondary">Media Mix</span>
+                  {(tour.mediaMix ?? []).length > 0 ? (
+                    <div className="space-y-1.5">
+                      {(tour.mediaMix ?? []).map((m, index) => (
+                        <div
+                          key={`view-mm-${m.advertisingSubTypeId}-${m.companyId ?? 0}-${index}`}
+                          className="flex items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1.5"
+                        >
+                          <span className="text-xs text-text-primary">
+                            <span className="font-medium">{m.subTypeName || `Sub-type #${m.advertisingSubTypeId}`}</span>
+                            {m.companyName ? (
+                              <span className="text-text-secondary"> — {m.companyName}</span>
+                            ) : (
+                              <span className="text-text-muted"> — No company</span>
+                            )}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-text-muted">No media mix entries.</p>
+                  )}
+                </div>
+                <div>
                   <span className="text-xs text-text-muted">Licensing</span>
                   <div className="flex flex-wrap gap-2 mt-1">
                     {[tour.ascap && 'ASCAP', tour.bmi && 'BMI', tour.sesac && 'SESAC', tour.gmr && 'GMR'].filter(Boolean).map((l) => (
