@@ -7,6 +7,7 @@ import {
   Trash2,
   Check,
   X,
+  Eye,
   LayoutGrid,
   List,
   ChevronDown,
@@ -840,11 +841,13 @@ function AttractionSidePanel({
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [nameError, setNameError] = useState<string | undefined>();
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     setName(attraction.attractionName);
     setDirty(false);
     setNameError(undefined);
+    setEditing(false);
   }, [attraction.attractionId, attraction.attractionName]);
 
   const handleSave = async () => {
@@ -865,6 +868,7 @@ function AttractionSidePanel({
       });
       setDirty(false);
       addToast('Attraction updated.', 'success');
+      setEditing(false);
       onSaved(updated);
     } catch (e) {
       addToast(friendlyApiError(e, 'Could not update.'), 'error');
@@ -905,10 +909,57 @@ function AttractionSidePanel({
       </div>
 
       <div className="p-4 space-y-5">
-        <p className="flex items-start gap-1.5 text-[11px] text-text-muted select-none leading-relaxed">
-          <Pencil className="h-3 w-3 shrink-0 mt-0.5" />
-          Click the attraction name to edit it.
-        </p>
+        {!editing ? (
+          <>
+            <div className="flex items-center justify-between mb-2">
+              <p className="flex items-center gap-1.5 text-[11px] text-text-muted select-none">
+                <Eye className="h-3 w-3 shrink-0" />
+                Viewing attraction details
+              </p>
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:border-ems-accent/50 hover:bg-elevated transition-colors"
+              >
+                <Pencil className="h-3 w-3" />
+                Edit
+              </button>
+            </div>
+
+            <div>
+              <span className="text-xs text-text-muted">Attraction Name</span>
+              <div className="text-sm text-text-primary mt-0.5 font-medium">{attraction.attractionName || '—'}</div>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-medium text-text-primary mb-1">Tours</h3>
+              <p className="text-[11px] text-text-muted mb-3">Click any tour card to open it in the Tours tab.</p>
+              <div className="space-y-3">
+                {tours.length === 0 && (
+                  <div className="text-text-muted text-sm">No tours attached yet.</div>
+                )}
+                {tours.map((t) => (
+                  <TourCardReadOnly key={t.tourId} t={t} onOpenTour={onOpenTour} />
+                ))}
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+        <div className="flex items-center justify-between mb-2">
+          <p className="flex items-start gap-1.5 text-[11px] text-text-muted select-none leading-relaxed">
+            <Pencil className="h-3 w-3 shrink-0 mt-0.5" />
+            Click the attraction name to edit it.
+          </p>
+          <button
+            type="button"
+            onClick={() => { setName(attraction.attractionName); setDirty(false); setNameError(undefined); setEditing(false); }}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors"
+          >
+            <Eye className="h-3 w-3" />
+            View only
+          </button>
+        </div>
 
         <InlineField
           label="Attraction Name"
@@ -966,6 +1017,8 @@ function AttractionSidePanel({
               </button>
             </div>
           </div>
+        )}
+          </>
         )}
       </div>
     </Drawer>
@@ -1274,6 +1327,7 @@ function TourDrawer({
   const [gmr, setGmr] = useState(tour.gmr);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editingTour, setEditingTour] = useState(false);
   const [tourFieldErrors, setTourFieldErrors] = useState<{
     tourName?: string;
     attractionId?: string;
@@ -1327,6 +1381,7 @@ function TourDrawer({
     setBannerInputKey((k) => k + 1);
     setDirty(false);
     setTourFieldErrors({});
+    setEditingTour(false);
   }, [tour.tourId]);
 
   const mark = <T,>(setter: (v: T) => void) => (v: T) => {
@@ -1556,6 +1611,7 @@ function TourDrawer({
       setStripBanner(false);
       setBannerInputKey((k) => k + 1);
       addToast('Tour updated.', 'success');
+      setEditingTour(false);
       onSaved(updated, tour.attractionId);
     } catch (e) {
       addToast(friendlyApiError(e, 'Could not update tour.'), 'error');
@@ -1594,6 +1650,7 @@ function TourDrawer({
     setBannerInputKey((k) => k + 1);
     setDirty(false);
     setTourFieldErrors({});
+    setEditingTour(false);
   };
 
   return (
@@ -1626,9 +1683,101 @@ function TourDrawer({
       <div className="p-4 text-sm relative">
         {activeTab === 'Details' && (
           <div className="space-y-5 pb-2">
-            <p className="flex items-center gap-1.5 text-[11px] text-text-muted select-none">
-              <Pencil className="h-3 w-3" /> Click any field to edit it
-            </p>
+            {!editingTour ? (
+              <>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="flex items-center gap-1.5 text-[11px] text-text-muted select-none">
+                    <Eye className="h-3 w-3 shrink-0" /> Viewing tour details
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setEditingTour(true)}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:border-ems-accent/50 hover:bg-elevated transition-colors"
+                  >
+                    <Pencil className="h-3 w-3" />
+                    Edit
+                  </button>
+                </div>
+
+                <div>
+                  <span className="text-xs text-text-muted">Tour Name</span>
+                  <div className="text-sm text-text-primary mt-0.5 font-medium">{tour.tourName || '\u2014'}</div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-4">
+                  <div>
+                    <span className="text-xs text-text-muted">Attraction</span>
+                    <div className="text-sm text-text-primary mt-0.5">{tour.attractionName || '\u2014'}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-text-muted">Genre / Class</span>
+                    <div className="text-sm text-text-primary mt-0.5">{tour.className || '\u2014'}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-text-muted">Talent Agency</span>
+                    <div className="text-sm text-text-primary mt-0.5">{tour.talentAgencyCompanyName || '\u2014'}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-text-muted">Preferred Venue Type</span>
+                    <div className="text-sm text-text-primary mt-0.5">{tour.venueTypePreferenceName || '\u2014'}</div>
+                  </div>
+                </div>
+                <div>
+                  <span className="text-xs text-text-muted">Talent Agents</span>
+                  <div className="text-sm text-text-primary mt-1">
+                    {(tour.talentAgentNames ?? []).length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {(tour.talentAgentNames ?? []).map((name, i) => (
+                          <span key={`view-agent-${i}`} className="inline-flex items-center rounded-md border border-border bg-elevated/50 px-2 py-0.5 text-xs text-text-primary">{name}</span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-text-muted">\u2014</span>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-xs text-text-muted">Payable Entity</span>
+                  <div className="text-sm text-text-primary mt-0.5">{tour.tourManagementCompanyName || '\u2014'}</div>
+                </div>
+                <div>
+                  <span className="text-xs text-text-muted">Tour Job</span>
+                  <div className="text-sm text-text-primary mt-0.5">{tour.jobName || '\u2014'}</div>
+                </div>
+                <div>
+                  <span className="text-xs text-text-muted">Licensing</span>
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {[tour.ascap && 'ASCAP', tour.bmi && 'BMI', tour.sesac && 'SESAC', tour.gmr && 'GMR'].filter(Boolean).map((l) => (
+                      <span key={l as string} className="inline-flex items-center rounded-md border border-border bg-elevated/50 px-2 py-0.5 text-xs text-text-primary">{l}</span>
+                    ))}
+                    {!tour.ascap && !tour.bmi && !tour.sesac && !tour.gmr && <span className="text-text-muted text-sm">\u2014</span>}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-xs text-text-muted">Tour Insurance Language</span>
+                  <div className="text-sm text-text-primary mt-0.5 whitespace-pre-wrap">{tour.tourInsuranceLanguage || '\u2014'}</div>
+                </div>
+                {tour.tourBannerImageUrl && (
+                  <div>
+                    <span className="text-xs text-text-muted">Tour Banner</span>
+                    <img src={tour.tourBannerImageUrl} alt="" className="mt-1 h-16 w-28 rounded-md border border-border object-cover bg-elevated" />
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+            <div className="flex items-center justify-between mb-2">
+              <p className="flex items-center gap-1.5 text-[11px] text-text-muted select-none">
+                <Pencil className="h-3 w-3" /> Click any field to edit it
+              </p>
+              <button
+                type="button"
+                onClick={() => { discard(); }}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors"
+              >
+                <Eye className="h-3 w-3" />
+                View only
+              </button>
+            </div>
             <InlineField
               label="Tour Name"
               value={tourName}
@@ -1967,6 +2116,8 @@ function TourDrawer({
                   </button>
                 </div>
               </div>
+            )}
+              </>
             )}
           </div>
         )}
