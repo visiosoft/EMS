@@ -89,6 +89,7 @@ import {
   Trash2,
   Check,
   X,
+  Eye,
   Link2,
   MapPin,
   CalendarRange,
@@ -530,6 +531,7 @@ function InlineEditableOverview({
   const [mailCountry, setMailCountry] = useState(
     company.mailingCountry ?? company.physicalCountry ?? "US",
   );
+  const [editing, setEditing] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [nameEditing, setNameEditing] = useState(false);
@@ -854,6 +856,7 @@ function InlineEditableOverview({
     );
     setDirty(false);
     setInlineSaveErrors([]);
+    setEditing(false);
   };
 
   const openServiceAreaEditor = () => {
@@ -1114,6 +1117,7 @@ function InlineEditableOverview({
       await Promise.resolve(onSaved(updated));
       setDirty(false);
       setInlineSaveErrors([]);
+      setEditing(false);
       addToast("Company updated successfully.", "success");
     } catch (e) {
       const message = friendlyApiError(e, "Could not update company.");
@@ -1351,11 +1355,153 @@ function InlineEditableOverview({
         </Modal>
       )}
 
+      {/* View / Edit toggle */}
+      {!editing ? (
+        <>
+          <div className="flex items-center justify-between mb-4">
+            <p className="flex items-center gap-1.5 text-[11px] text-text-muted select-none">
+              <Eye className="h-3 w-3 shrink-0" />
+              Viewing company details
+            </p>
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:border-ems-accent/50 hover:bg-elevated transition-colors"
+            >
+              <Pencil className="h-3 w-3" />
+              Edit
+            </button>
+          </div>
+
+          <div className="space-y-6 pb-2">
+            {/* Name */}
+            <div className="border-b border-border/80 pb-5">
+              <span className="text-xs text-text-muted">Company Name</span>
+              <div className="text-sm text-text-primary mt-0.5 font-medium">{company.name || '—'}</div>
+            </div>
+
+            {/* Type + DMA */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
+              <div>
+                <span className="text-xs text-text-muted">Internal</span>
+                <div className="text-sm text-text-primary mt-0.5">{company.isInternal ? 'Yes' : 'No'}</div>
+              </div>
+              <div>
+                <span className="text-xs text-text-muted">Company Type</span>
+                <div className="text-sm text-text-primary mt-0.5">
+                  {(company.companyTypeNames ?? []).join(', ') || '—'}
+                </div>
+              </div>
+              <div>
+                <span className="text-xs text-text-muted">Company Services</span>
+                <div className="text-sm text-text-primary mt-0.5">
+                  {(company.serviceProvidedIds ?? []).length > 0
+                    ? (company.serviceProvidedIds ?? []).map((id) => {
+                        const svc = servicesProvided.find((s) => s.serviceProvidedId === Number(id));
+                        return svc?.serviceName ?? `#${id}`;
+                      }).join(', ')
+                    : '—'}
+                </div>
+              </div>
+              <div>
+                <span className="text-xs text-text-muted">DMA</span>
+                <div className="text-sm text-text-primary mt-0.5">{company.dmaMarketName ?? '—'}</div>
+              </div>
+            </div>
+
+            {/* Service Area */}
+            <div className="bg-elevated border border-border rounded-lg p-4 space-y-3">
+              <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wide">Service Area</h4>
+              {company.allDmas ? (
+                <p className="text-sm text-text-primary">All DMAs (Nationwide)</p>
+              ) : (company.serviceAreas ?? []).length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {(company.serviceAreas ?? []).slice(0, 5).map((sa, i) => (
+                    <span key={`sa-view-${i}`} className="inline-flex items-center rounded-full border border-border bg-surface px-2.5 py-1 text-xs text-text-primary">
+                      {sa.dmaMarketName ?? `DMA #${sa.dmaid}`}
+                    </span>
+                  ))}
+                  {(company.serviceAreas ?? []).length > 5 && (
+                    <span className="text-[11px] text-text-muted self-center">+{(company.serviceAreas ?? []).length - 5} more</span>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-text-muted">No service areas configured.</p>
+              )}
+            </div>
+
+            {/* Physical Address */}
+            <div className="space-y-3">
+              <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wide border-b border-border/60 pb-1.5">Physical Address</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-3">
+                <div>
+                  <span className="text-xs text-text-muted">Street</span>
+                  <div className="text-sm text-text-primary mt-0.5">{company.physicalStreet || '—'}</div>
+                </div>
+                <div>
+                  <span className="text-xs text-text-muted">City</span>
+                  <div className="text-sm text-text-primary mt-0.5">{company.physicalCity || company.city || '—'}</div>
+                </div>
+                <div>
+                  <span className="text-xs text-text-muted">State / Province</span>
+                  <div className="text-sm text-text-primary mt-0.5">{company.physicalState || company.state || '—'}</div>
+                </div>
+                <div>
+                  <span className="text-xs text-text-muted">Postal Code</span>
+                  <div className="text-sm text-text-primary mt-0.5">{company.physicalPostalCode || '—'}</div>
+                </div>
+                <div>
+                  <span className="text-xs text-text-muted">Country</span>
+                  <div className="text-sm text-text-primary mt-0.5">{company.physicalCountry || '—'}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Mailing Address */}
+            <div className="space-y-3">
+              <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wide border-b border-border/60 pb-1.5">Mailing Address</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-3">
+                <div>
+                  <span className="text-xs text-text-muted">Street</span>
+                  <div className="text-sm text-text-primary mt-0.5">{company.mailingStreet || company.physicalStreet || '—'}</div>
+                </div>
+                <div>
+                  <span className="text-xs text-text-muted">City</span>
+                  <div className="text-sm text-text-primary mt-0.5">{company.mailingCity || company.physicalCity || company.city || '—'}</div>
+                </div>
+                <div>
+                  <span className="text-xs text-text-muted">State / Province</span>
+                  <div className="text-sm text-text-primary mt-0.5">{company.mailingState || company.physicalState || company.state || '—'}</div>
+                </div>
+                <div>
+                  <span className="text-xs text-text-muted">Postal Code</span>
+                  <div className="text-sm text-text-primary mt-0.5">{company.mailingPostalCode || company.physicalPostalCode || '—'}</div>
+                </div>
+                <div>
+                  <span className="text-xs text-text-muted">Country</span>
+                  <div className="text-sm text-text-primary mt-0.5">{company.mailingCountry || company.physicalCountry || '—'}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
       {/* Edit hint */}
-      <p className="flex items-center gap-1.5 text-[11px] text-text-muted mb-4 select-none">
-        <Pencil className="h-3 w-3 shrink-0" />
-        Click any field to edit it inline
-      </p>
+      <div className="flex items-center justify-between mb-4">
+        <p className="flex items-center gap-1.5 text-[11px] text-text-muted select-none">
+          <Pencil className="h-3 w-3 shrink-0" />
+          Click any field to edit it inline
+        </p>
+        <button
+          type="button"
+          onClick={() => discard()}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors"
+        >
+          <Eye className="h-3 w-3" />
+          View only
+        </button>
+      </div>
 
       {inlineSaveErrors.length > 0 && (
         <div
@@ -1820,6 +1966,8 @@ function InlineEditableOverview({
             </button>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );
