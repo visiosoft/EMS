@@ -803,6 +803,17 @@ export class EngagementService {
     });
   }
 
+  /** Convert a SQL Server `time` value (returned as Date by mssql driver) to HH:mm:ss string. */
+  private timeToString(val: unknown): string {
+    if (val instanceof Date) {
+      const h = String(val.getUTCHours()).padStart(2, '0');
+      const m = String(val.getUTCMinutes()).padStart(2, '0');
+      const s = String(val.getUTCSeconds()).padStart(2, '0');
+      return `${h}:${m}:${s}`;
+    }
+    return String(val ?? '');
+  }
+
   private async assertPerformanceSlotAvailable(
     engagementId: number,
     performanceDate: string,
@@ -4367,6 +4378,26 @@ export class EngagementService {
       payableEntity,
     );
     base.artistTourOfferLink = artistTourOfferLinkUrl;
+
+    // Resolve financeCustomer (dbo.Customer via Tour.CustomerID) and financeJob (dbo.Job via Tour.JobID)
+    try {
+      const tourData = await this.dataSource.query(
+        `SELECT c.CustomerName AS customerName, j.JobName AS jobName
+         FROM dbo.Tour t
+         LEFT JOIN dbo.Customer c ON c.CustomerID = t.CustomerID
+         LEFT JOIN dbo.Job j ON j.JobID = t.JobID
+         WHERE t.TourID = @0`,
+        [engagement.tourId],
+      );
+      const td = (tourData as Record<string, unknown>[])?.[0];
+      if (td) {
+        const cName = td.customerName;
+        base.financeCustomer = cName == null || cName === '' ? null : String(cName).trim() || null;
+        const jName = td.jobName;
+        base.financeJob = jName == null || jName === '' ? null : String(jName).trim() || null;
+      }
+    } catch { /* Customer/Job columns may not exist — keep defaults */ }
+
     if (!row?.financeId) return this.mergeAnnouncementDateFromProduction(engagementId, base);
     const withMarketingBudget = await this.mergeFinanceMarketingBudgetFromDb(
       row.financeId,
@@ -6308,7 +6339,7 @@ export class EngagementService {
       `SELECT
         p.[PerformanceID] AS pid,
         CONVERT(varchar(10), p.[PerformanceDate], 120) AS pdate,
-        p.[PerformanceTime] AS ptime,
+        CONVERT(varchar(8), p.[PerformanceTime], 108) AS ptime,
         p.[TicketingStatus] AS pstatus
         ${selectAdv}
        FROM dbo.Performance p
@@ -7709,7 +7740,7 @@ export class EngagementService {
       engagementId: r.engagementId,
       performanceStatus: r.performanceStatus,
       performanceDate: r.performanceDate,
-      performanceTime: r.performanceTime,
+      performanceTime: this.timeToString(r.performanceTime),
     }));
   }
 
