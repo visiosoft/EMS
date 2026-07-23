@@ -140,6 +140,11 @@ export class LearningController {
     return this.learningService.reviewSubmission(id, dto);
   }
 
+  @Delete('submissions/:id')
+  deleteSubmission(@Param('id', ParseIntPipe) id: number) {
+    return this.learningService.deleteSubmission(id);
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // EMPLOYEE SCORES — Leaderboard, Employee Scores, My Stats
   // ═══════════════════════════════════════════════════════════════════════════
