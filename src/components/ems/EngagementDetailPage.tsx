@@ -8046,9 +8046,7 @@ function EngagementMarketingPanel({
     () =>
       (performancesQuery.data ?? []).map((p) => ({
         value: String(p.performanceId),
-        label: `${formatPerformanceDateDisplay(p.performanceDate)} · ${formatPerformanceTimeDisplay(
-          p.performanceTime,
-        )} · ${p.performanceStatus}`,
+        label: `${formatPerformanceDateDisplay(p.performanceDate)} · ${formatPerformanceTimeDisplay(p.performanceTime)} · ${p.performanceStatus}`,
       })),
     [performancesQuery.data],
   );
@@ -9519,6 +9517,7 @@ function EngagementTicketingPanel({
   const invalidateTicketing = async () => {
     await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performance-ticketing', selectedPid] });
     await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performances-ticketing-summary'] });
+    await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
   };
 
   const saveTicketingMainMut = useMutation({
@@ -11433,6 +11432,15 @@ export function EngagementDetailPage({
     enabled: tab === 'Engagement Contacts' && venueId != null && venueId > 0,
   });
 
+  // Performance schedule summary for Overview tab (same data as Ticketing tab)
+  const overviewTicketingSummaryQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'performances-ticketing-summary'],
+    queryFn: () => fetchPerformancesWithTicketingSummary(engagementId),
+    enabled: tab === 'Overview',
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
+
   const tourContactsQuery = useQuery({
     queryKey: ['company-contacts', 'tour-mgmt', tourMgmtCompanyId],
     queryFn: () => fetchCompanyContacts(tourMgmtCompanyId as number),
@@ -11817,6 +11825,8 @@ export function EngagementDetailPage({
     },
     onSuccess: async (createdCount) => {
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performances'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performances-ticketing-summary'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
       addToast(
         `${createdCount} show date${createdCount === 1 ? '' : 's'} saved.`,
         'success',
@@ -12181,14 +12191,14 @@ export function EngagementDetailPage({
           // 'Main Information',
           'Booking',
           'Venues',
-          { label: 'Documents', disabled: row?.engagementStatus !== 'Confirmed', disabledReason: 'SharePoint folders are only available for Confirmed engagements.' },
           'Ticketing',
           'Marketing',
           'Production',
           'Event business',
           'Service Providers',
-          'Sale Summary',
+          'Sales Summary',
           'Contract',
+          { label: 'Documents', disabled: row?.engagementStatus !== 'Confirmed', disabledReason: 'SharePoint folders are only available for Confirmed engagements.' },
           // 'Taxation',
           // 'Artist terms',
           // 'Finance',
@@ -12285,6 +12295,43 @@ export function EngagementDetailPage({
               </div>
             )}
           </div>
+
+          {/* ── Performance Schedule with Gross Potential and Capacity ── */}
+          <div className="rounded-lg border border-border bg-surface/40 p-4 space-y-3">
+            <h3 className="text-sm font-semibold text-text-primary mb-1">Performance Schedule with Gross Potential and Capacity</h3>
+            <p className="text-xs text-text-muted mb-3 italic">Read-only — edit per-performance values in the Engagement Drill Bits tab.</p>
+            {overviewTicketingSummaryQuery.isLoading ? (
+              <div className="flex items-center gap-2 text-text-muted text-sm"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
+            ) : (overviewTicketingSummaryQuery.data ?? []).length === 0 ? (
+              <p className="text-sm text-text-muted">No performances yet.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[600px]">
+                  <thead>
+                    <tr className="text-text-muted text-xs border-b border-border bg-surface">
+                      <th className="text-left py-2 px-3">Date</th>
+                      <th className="text-left py-2 px-3">Time</th>
+                      <th className="text-left py-2 px-3">Status</th>
+                      <th className="text-right py-2 px-3">Sellable Capacity</th>
+                      <th className="text-right py-2 px-3">Gross Potential</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(overviewTicketingSummaryQuery.data ?? []).map((p) => (
+                      <tr key={p.performanceId} className="border-b border-border/50">
+                        <td className="py-2 px-3">{formatPerformanceDateDisplay(p.performanceDate)}</td>
+                        <td className="py-2 px-3">{formatPerformanceTimeDisplay(p.performanceTime)}</td>
+                        <td className="py-2 px-3">{p.performanceStatus}</td>
+                        <td className="py-2 px-3 text-right">{p.sellableCapacity?.toLocaleString() ?? '—'}</td>
+                        <td className="py-2 px-3 text-right">{p.grossPotentialRevenue != null ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(p.grossPotentialRevenue) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-sm">
             <div>
               <span className="text-text-muted text-xs block mb-1 font-medium">Engagement</span>
@@ -12446,8 +12493,8 @@ export function EngagementDetailPage({
         </div>
       )}
 
-      {/* ── Sale Summary ────────────────────────────────────────────────── */}
-      {tab === 'Sale Summary' && (
+      {/* ── Sales Summary ───────────────────────────────────────────────── */}
+      {tab === 'Sales Summary' && (
         <EngagementSalesDashboardPanel
           engagementId={engagementId}
           onBack={() => setTab('Overview')}
