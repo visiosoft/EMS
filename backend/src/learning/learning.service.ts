@@ -234,7 +234,7 @@ export class LearningService {
 
     if (sets.length > 2) {
       await this.dataSource.query(
-        `UPDATE dbo.LearningCertification SET ${sets.join(', ')} WHERE CertificationID = @${idx - 1}`,
+        `UPDATE dbo.LearningCertification SET ${sets.join(', ')} WHERE CertificationID = @${idx}`,
         params,
       );
     }
@@ -307,15 +307,13 @@ export class LearningService {
 
     const certTitle = rows[0].Title;
 
-    // Check for submissions referencing this certification
-    const submissionCheck = await this.dataSource.query(
-      `SELECT COUNT(*) AS Total FROM dbo.LearningSubmission WHERE CertificationID = @0`,
+    // Remove all submissions referencing this certification (and reverse scores)
+    const submissionRows = await this.dataSource.query(
+      `SELECT SubmissionID FROM dbo.LearningSubmission WHERE CertificationID = @0`,
       [id],
     );
-    if (submissionCheck[0].Total > 0) {
-      throw new ConflictException(
-        `Cannot delete this certification because ${submissionCheck[0].Total} employee(s) have already submitted certificates against it. Submitted documents cannot be removed.`,
-      );
+    for (const sub of submissionRows) {
+      await this.deleteSubmission(sub.SubmissionID);
     }
 
     // Delete associated tags
@@ -660,6 +658,96 @@ export class LearningService {
     );
 
     return this.getSubmissionById(id);
+  }
+
+  async deleteSubmission(id: number) {
+    const userDisplayName = this.auditContext.getUserDisplayName() || 'System';
+    const userId = this.auditContext.getUserOid() || userDisplayName;
+
+    // Get submission details
+    const rows = await this.dataSource.query(
+      `SELECT s.SubmissionID, s.ContactID, s.DepartmentID, s.CertificationID,
+              s.Status, s.PointsAwarded, s.CertificationName,
+              ci.FirstName + ' ' + ci.LastName AS EmployeeName
+       FROM dbo.LearningSubmission s
+       LEFT JOIN dbo.Contact ct ON ct.ContactID = s.ContactID
+       LEFT JOIN dbo.ContactInfo ci ON ci.ContactInfoID = ct.ContactInfoID
+       WHERE s.SubmissionID = @0`,
+      [id],
+    );
+    if (rows.length === 0) throw new NotFoundException('Submission not found');
+
+    const submission = rows[0];
+    const wasVerified = submission.Status === 'VERIFIED';
+    const pointsToRemove = wasVerified ? (submission.PointsAwarded || 0) : 0;
+
+    // If verified, reverse the score changes
+    if (wasVerified) {
+      await this.dataSource.query(
+        `UPDATE dbo.LearningEmployeeScore
+         SET TotalPoints = CASE WHEN TotalPoints - @0 < 0 THEN 0 ELSE TotalPoints - @0 END,
+             CertsApproved = CASE WHEN CertsApproved - 1 < 0 THEN 0 ELSE CertsApproved - 1 END,
+             CertsSubmitted = CASE WHEN CertsSubmitted - 1 < 0 THEN 0 ELSE CertsSubmitted - 1 END,
+             UpdatedAt = GETUTCDATE(),
+             CurrentTier = CASE
+               WHEN CASE WHEN TotalPoints - @0 < 0 THEN 0 ELSE TotalPoints - @0 END >= 600 THEN 'Platinum'
+               WHEN CASE WHEN TotalPoints - @0 < 0 THEN 0 ELSE TotalPoints - @0 END >= 400 THEN 'Gold'
+               WHEN CASE WHEN TotalPoints - @0 < 0 THEN 0 ELSE TotalPoints - @0 END >= 200 THEN 'Silver'
+               WHEN CASE WHEN TotalPoints - @0 < 0 THEN 0 ELSE TotalPoints - @0 END >= 100 THEN 'Bronze'
+               ELSE 'Unranked'
+             END
+         WHERE ContactID = @1 AND DepartmentID = @2`,
+        [pointsToRemove, submission.ContactID, submission.DepartmentID],
+      );
+
+      // Remove progress tracking for this certification
+      if (submission.CertificationID) {
+        await this.dataSource.query(
+          `DELETE FROM dbo.LearningProgress WHERE ContactID = @0 AND CertificationID = @1`,
+          [submission.ContactID, submission.CertificationID],
+        );
+      }
+    } else {
+      // Not verified, just decrement CertsSubmitted
+      await this.dataSource.query(
+        `UPDATE dbo.LearningEmployeeScore
+         SET CertsSubmitted = CASE WHEN CertsSubmitted - 1 < 0 THEN 0 ELSE CertsSubmitted - 1 END,
+             UpdatedAt = GETUTCDATE()
+         WHERE ContactID = @0 AND DepartmentID = @1`,
+        [submission.ContactID, submission.DepartmentID],
+      );
+    }
+
+    // Delete associated documents
+    await this.dataSource.query(
+      `DELETE FROM dbo.LearningSubmissionDocument WHERE SubmissionID = @0`,
+      [id],
+    );
+
+    // Delete the submission
+    await this.dataSource.query(
+      `DELETE FROM dbo.LearningSubmission WHERE SubmissionID = @0`,
+      [id],
+    );
+
+    // Audit log
+    await this.dataSource.query(
+      `INSERT INTO dbo.LearningAuditLog (ActionType, EntityType, EntityID, PerformedBy, Details)
+       VALUES ('SUBMISSION_REMOVED', 'Submission', @0, @1, @2)`,
+      [
+        id,
+        userId,
+        JSON.stringify({
+          certificationName: submission.CertificationName,
+          employeeName: submission.EmployeeName,
+          contactId: submission.ContactID,
+          previousStatus: submission.Status,
+          pointsRemoved: pointsToRemove,
+        }),
+      ],
+    );
+
+    return { submissionId: id, deleted: true };
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
