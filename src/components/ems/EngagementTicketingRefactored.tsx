@@ -96,12 +96,16 @@ export function EngagementTicketingRefactored({ engagementId, row, addToast, onD
     queryKey: ['engagements', engagementId, 'performances'],
     queryFn: () => fetchEngagementPerformances(engagementId),
     retry: 1,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   const ticketingSummaryQuery = useQuery({
     queryKey: ['engagements', engagementId, 'performances-ticketing-summary'],
     queryFn: () => fetchPerformancesWithTicketingSummary(engagementId),
     retry: 1,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   const iaeLookupsQuery = useQuery({
@@ -135,6 +139,8 @@ export function EngagementTicketingRefactored({ engagementId, row, addToast, onD
     queryFn: () => fetchEngagementPerformanceTicketing(engagementId, firstPerformanceId!),
     enabled: firstPerformanceId != null && firstPerformanceId > 0,
     retry: 1,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   // Tour Marketing (Ticketing Offer Codes from the tour linked to this engagement)
