@@ -286,11 +286,12 @@ function EditablePerformanceRow({
         grossPotentialRevenue: Number.isFinite(grossVal) ? grossVal : null,
       });
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       setEditing(false);
       onRefresh();
       ticketingQuery.refetch();
-      rowQc.invalidateQueries({ queryKey: ['engagements', engagementId] });
+      await rowQc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performances-ticketing-summary'] });
+      await rowQc.invalidateQueries({ queryKey: ['engagements', engagementId] });
       addToast('Performance updated.', 'success');
     },
     onError: (e) => addToast(friendlyApiError(e), 'error'),
@@ -314,10 +315,11 @@ function EditablePerformanceRow({
         grossPotentialRevenue: grossVal,
       });
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       ticketingQuery.refetch();
       setCapacityDirty(false);
-      rowQc.invalidateQueries({ queryKey: ['engagements', engagementId] });
+      await rowQc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performances-ticketing-summary'] });
+      await rowQc.invalidateQueries({ queryKey: ['engagements', engagementId] });
       addToast('Capacity saved for this performance.', 'success');
     },
     onError: (e) => addToast(friendlyApiError(e), 'error'),
@@ -1052,6 +1054,7 @@ export function EngagementDrillBitsTab({
       }
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] });
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venue-tab-data'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
     },
     onSuccess: () => { clearVenueDealEdited(); addToast('Venue deal saved.', 'success'); },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
@@ -1097,6 +1100,7 @@ export function EngagementDrillBitsTab({
 
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] });
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venue-tab-data'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
     },
     onSuccess: () => { clearVenueDocsEdited(); addToast('Venue documents saved.', 'success'); },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
@@ -1133,6 +1137,7 @@ export function EngagementDrillBitsTab({
 
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] });
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venue-tab-data'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
     },
     onSuccess: () => { clearThirdPartyEdited(); addToast('3rd party partner saved.', 'success'); },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
@@ -1176,6 +1181,7 @@ export function EngagementDrillBitsTab({
       };
       await updateEngagementPerformanceTicketing(engagementId, firstPerformanceId, ticketPayload);
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performance-ticketing'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performances-ticketing-summary'] });
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
     },
     onSuccess: () => { clearTicketingEdited(); addToast('Ticketing saved.', 'success'); },
@@ -1227,6 +1233,7 @@ export function EngagementDrillBitsTab({
       });
       await upsertTravelDrillBits(engagementId, travelTypes);
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'travel'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
     },
     onSuccess: () => { clearTravelEdited(); addToast('Travel saved.', 'success'); },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
@@ -1250,6 +1257,7 @@ export function EngagementDrillBitsTab({
         .filter((x): x is { equipmentRentalTypeId: number; budgetAmount: number | null } => x != null);
       await upsertEquipmentRentals(engagementId, items);
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'equipment-rentals'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
     },
     onSuccess: () => { clearEquipmentEdited(); addToast('Equipment rentals saved.', 'success'); },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
@@ -1272,6 +1280,7 @@ export function EngagementDrillBitsTab({
         productionBuyoutBudgetAmount: buyoutsEnabled === 'Yes' ? buyoutAmt : null,
       });
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'production-misc'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
     },
     onSuccess: () => { clearMiscEdited(); addToast('Miscellaneous saved.', 'success'); },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
@@ -1291,6 +1300,8 @@ export function EngagementDrillBitsTab({
         });
       }
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performances'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performances-ticketing-summary'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
     },
     onSuccess: () => {
       setShowAddPerformance(false);
