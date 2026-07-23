@@ -269,6 +269,15 @@ export function reviewLearningSubmission(
   });
 }
 
+export function deleteLearningSubmission(
+  id: number,
+): Promise<{ submissionId: number; deleted: boolean }> {
+  return apiFetch<{ submissionId: number; deleted: boolean }>(
+    `/internal/learning/submissions/${id}`,
+    { method: 'DELETE' },
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // EMPLOYEE SCORES
 // ═══════════════════════════════════════════════════════════════════════════
