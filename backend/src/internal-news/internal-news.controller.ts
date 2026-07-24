@@ -9,6 +9,9 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { InternalAccessGuard } from '../internal-access/internal-access.guard';
+import { AccessLevelGuard } from '../common/access-level.guard';
+import { RequireAccessLevel } from '../common/require-access-level.decorator';
+import { AccessLevel } from '../common/access-level.enum';
 import { CreateNewsDto } from './dto/create-news.dto';
 import { InternalNewsService } from './internal-news.service';
 
@@ -25,6 +28,8 @@ export class InternalNewsController {
     return this.internalNewsService.findAll(limit, skip);
   }
 
+  @UseGuards(AccessLevelGuard)
+  @RequireAccessLevel(AccessLevel.Administrator)
   @Post()
   create(@Body() dto: CreateNewsDto) {
     return this.internalNewsService.create(dto);
