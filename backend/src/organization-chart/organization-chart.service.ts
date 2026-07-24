@@ -130,11 +130,11 @@ export class OrganizationChartService {
       jobTitleColumnAvailable,
     );
     const warnings: string[] = [];
-    if (!jobTitleColumnAvailable) {
-      warnings.push(
-        'ContactInfo.JobTitle is not installed, so chart titles use existing internal roles.',
-      );
-    }
+    // if (!jobTitleColumnAvailable) {
+    //   warnings.push(
+    //     'ContactInfo.JobTitle is not installed, so chart titles use existing internal roles.',
+    //   );
+    // }
 
     // Try to build hierarchy from Entra manager data
     const accessToken = this.resolveGraphToken(graphAccessToken);
@@ -425,11 +425,11 @@ export class OrganizationChartService {
       jobTitleColumnAvailable,
     );
     const warnings: string[] = [];
-    if (!jobTitleColumnAvailable) {
-      warnings.push(
-        'ContactInfo.JobTitle is not installed, so chart titles use existing internal roles.',
-      );
-    }
+    // if (!jobTitleColumnAvailable) {
+    //   warnings.push(
+    //     'ContactInfo.JobTitle is not installed, so chart titles use existing internal roles.',
+    //   );
+    // }
 
     return {
       configured: true,

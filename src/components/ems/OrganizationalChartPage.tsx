@@ -216,7 +216,7 @@ function HierarchyTeamCard({
                   key={child.nodeId}
                   className={cn(
                     "group flex items-start gap-2.5 px-3 py-2.5 transition-colors",
-                    highlighted && hasFilter ? "bg-ems-accent/15" : "hover:bg-hover/50"
+                    highlighted && hasFilter ? "bg-ems-accent/25" : "hover:bg-hover/50"
                   )}
                 >
                   <Avatar name={child.member.displayName} size="sm" />
@@ -453,7 +453,7 @@ function DepNodeCard({
                 key={member.memberId}
                 className={cn(
                   'group flex min-w-0 gap-2.5 px-3 py-2.5 transition-colors',
-                  highlighted && hasFilter ? 'bg-ems-accent-dim/45' : 'hover:bg-hover/55',
+                  highlighted && hasFilter ? 'bg-ems-accent-dim/60' : 'hover:bg-hover/55',
                 )}
               >
                 <Avatar name={member.displayName} size="sm" />
