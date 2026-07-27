@@ -2425,21 +2425,43 @@ function LinkExistingContactPanel({
             <li key={c.contactId}>
               <button
                 type="button"
-                className="w-full text-left px-3 py-2 hover:bg-hover text-sm flex items-center justify-between gap-2"
+                className="w-full text-left px-3 py-2 hover:bg-hover text-sm flex flex-col gap-1"
                 onClick={() => onSelect(c)}
               >
-                <span className="truncate">
-                  <span className="font-medium text-text-primary">
-                    {c.firstName} {c.lastName}
+                <div className="flex items-center justify-between gap-2 w-full">
+                  <span className="truncate">
+                    <span className="font-medium text-text-primary">
+                      {c.firstName} {c.lastName}
+                    </span>
+                    <span className="text-text-muted ml-2">{c.email}</span>
                   </span>
-                  <span className="text-text-muted ml-2">{c.email}</span>
-                </span>
-                {c.companyNames.length > 0 && (
-                  <span className="text-xs text-text-muted truncate max-w-[10rem]">
-                    {c.companyNames[0]}
-                    {c.companyNames.length > 1 &&
-                      ` +${c.companyNames.length - 1}`}
-                  </span>
+                  {c.companyNames.length > 0 && (
+                    <span className="text-xs text-text-muted truncate max-w-[10rem] shrink-0">
+                      {c.companyNames[0]}
+                      {c.companyNames.length > 1 &&
+                        ` +${c.companyNames.length - 1}`}
+                    </span>
+                  )}
+                </div>
+                {(c.roleNames.length > 0 || c.departmentNames.length > 0) && (
+                  <div className="flex flex-wrap gap-1">
+                    {c.roleNames.map((r, i) => (
+                      <span
+                        key={`role-${i}`}
+                        className="inline-flex items-center rounded-full bg-blue-500/10 px-2 py-0.5 text-xs text-blue-400"
+                      >
+                        {r}
+                      </span>
+                    ))}
+                    {c.departmentNames.map((d, i) => (
+                      <span
+                        key={`dept-${i}`}
+                        className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-400"
+                      >
+                        {d}
+                      </span>
+                    ))}
+                  </div>
                 )}
               </button>
             </li>
@@ -5154,6 +5176,9 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                         contactId: c.contactId,
                         roleId: c.roleIds?.[0],
                         departmentId: c.departmentIds?.[0],
+                        roleIds: c.roleIds,
+                        departmentIds: c.departmentIds,
+                        departmentNames: c.departmentNames,
                       } as Contact);
                       setAddContactMode("create");
                     }}

@@ -9072,14 +9072,16 @@ export class EngagementService {
     if (!production) {
       production = await repo.save(repo.create({ engagementId }));
     }
-    await repo.update({ productionId: production.productionId }, {
-      runnerRequired: dto.runnerRequired,
-      cateringRequired: dto.cateringRequired,
-      cateringBudgetLineItem: dto.cateringBudgetLineItem,
-      productionBuyoutRequired: dto.productionBuyoutRequired,
-      productionBuyoutDescription: dto.productionBuyoutDescription,
-      productionBuyoutBudgetAmount: dto.productionBuyoutBudgetAmount,
-    });
+    const patch: Partial<EngagementProduction> = {};
+    if (dto.runnerRequired !== null) patch.runnerRequired = dto.runnerRequired;
+    if (dto.cateringRequired !== null) patch.cateringRequired = dto.cateringRequired;
+    if (dto.cateringBudgetLineItem !== undefined) patch.cateringBudgetLineItem = dto.cateringBudgetLineItem;
+    if (dto.productionBuyoutRequired !== null) patch.productionBuyoutRequired = dto.productionBuyoutRequired;
+    if (dto.productionBuyoutDescription !== undefined) patch.productionBuyoutDescription = dto.productionBuyoutDescription;
+    if (dto.productionBuyoutBudgetAmount !== undefined) patch.productionBuyoutBudgetAmount = dto.productionBuyoutBudgetAmount;
+    if (Object.keys(patch).length > 0) {
+      await repo.update({ productionId: production.productionId }, patch);
+    }
   }
 
   // ─── Engagement Partner (dbo.EngagementPartner) ─────────────────────────────
