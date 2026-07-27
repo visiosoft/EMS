@@ -5374,7 +5374,7 @@ function EngagementBookingPanel({
               />
             ),
           )}
-          <p className="text-xs text-text-muted">Company also editable in the Main Information tab.</p>
+          {/* <p className="text-xs text-text-muted">Company also editable in the Main Information tab.</p> */}
         </div>
 
         {/* ── TOUR MANAGEMENT ──────────────────────────────────────────── */}
@@ -11481,12 +11481,15 @@ export function EngagementDetailPage({
       ticketingSystemCompanyIdForContacts > 0,
   });
 
+  const ticketingAdminContactIdForContacts = contactsTabTicketingQuery.data?.ticketingAdminContactId ?? null;
   const ticketingSystemContactsWithCompany = useMemo(
-    () => (ticketingSystemContactsQuery.data ?? []).map((c) => ({
-      ...c,
-      companyName: ticketingSystemCompanyNameForContacts ?? 'Ticketing System Company',
-    })),
-    [ticketingSystemContactsQuery.data, ticketingSystemCompanyNameForContacts],
+    () => (ticketingSystemContactsQuery.data ?? [])
+      .filter((c) => ticketingAdminContactIdForContacts != null && c.contactId === ticketingAdminContactIdForContacts)
+      .map((c) => ({
+        ...c,
+        companyName: ticketingSystemCompanyNameForContacts ?? 'Ticketing System Company',
+      })),
+    [ticketingSystemContactsQuery.data, ticketingSystemCompanyNameForContacts, ticketingAdminContactIdForContacts],
   );
 
   const tourSelectedTalentAgentContacts = useMemo(() => {
@@ -11528,12 +11531,15 @@ export function EngagementDetailPage({
       promoterPartnerCompanyIdForContacts > 0,
   });
 
+  const promoterPartnerContactIdForContacts = contactsTabPartnerQuery.data?.partnerContactId ?? null;
   const promoterPartnerContactsWithCompany = useMemo(
-    () => (promoterPartnerContactsQuery.data ?? []).map((c) => ({
-      ...c,
-      companyName: promoterPartnerCompanyNameForContacts ?? 'Promoter Partner',
-    })),
-    [promoterPartnerContactsQuery.data, promoterPartnerCompanyNameForContacts],
+    () => (promoterPartnerContactsQuery.data ?? [])
+      .filter((c) => promoterPartnerContactIdForContacts != null && c.contactId === promoterPartnerContactIdForContacts)
+      .map((c) => ({
+        ...c,
+        companyName: promoterPartnerCompanyNameForContacts ?? 'Promoter Partner',
+      })),
+    [promoterPartnerContactsQuery.data, promoterPartnerCompanyNameForContacts, promoterPartnerContactIdForContacts],
   );
 
   // ── Tour Management Company contacts (from Booking tab / Tour) ─────────
@@ -11555,12 +11561,15 @@ export function EngagementDetailPage({
       tourMgmtCompanyIdForContacts > 0,
   });
 
+  const tourManagerContactIdForContacts = detailQuery.data?.tourManagerContactId ?? null;
   const tourMgmtContactsWithCompany = useMemo(
-    () => (tourMgmtContactsForContactsTab.data ?? []).map((c) => ({
-      ...c,
-      companyName: tourMgmtCompanyNameForContacts ?? 'Tour Management',
-    })),
-    [tourMgmtContactsForContactsTab.data, tourMgmtCompanyNameForContacts],
+    () => (tourMgmtContactsForContactsTab.data ?? [])
+      .filter((c) => tourManagerContactIdForContacts != null && c.contactId === tourManagerContactIdForContacts)
+      .map((c) => ({
+        ...c,
+        companyName: tourMgmtCompanyNameForContacts ?? 'Tour Management',
+      })),
+    [tourMgmtContactsForContactsTab.data, tourMgmtCompanyNameForContacts, tourManagerContactIdForContacts],
   );
 
   // ── Engagement PATCH (split mutations so each Overview card gets a real isPending + loader) ──
@@ -12554,7 +12563,7 @@ export function EngagementDetailPage({
               ) : ticketingSystemContactsQuery.error ? (
                 <p className="text-sm text-ems-coral">{friendlyApiError(ticketingSystemContactsQuery.error)}</p>
               ) : ticketingSystemContactsWithCompany.length === 0 ? (
-                <p className="text-sm text-text-muted">No contacts found on the ticketing system company.</p>
+                <p className="text-sm text-text-muted">No ticketing contact selected in Engagement Drill Bits.</p>
               ) : (
                 <ContactsTable contacts={ticketingSystemContactsWithCompany} />
               )}
@@ -12581,7 +12590,7 @@ export function EngagementDetailPage({
               ) : promoterPartnerContactsQuery.error ? (
                 <p className="text-sm text-ems-coral">{friendlyApiError(promoterPartnerContactsQuery.error)}</p>
               ) : promoterPartnerContactsWithCompany.length === 0 ? (
-                <p className="text-sm text-text-muted">No contacts found on the promoter partner company.</p>
+                <p className="text-sm text-text-muted">No promoter partner contact selected in Booking.</p>
               ) : (
                 <ContactsTable contacts={promoterPartnerContactsWithCompany} />
               )}
@@ -12608,7 +12617,7 @@ export function EngagementDetailPage({
               ) : tourMgmtContactsForContactsTab.error ? (
                 <p className="text-sm text-ems-coral">{friendlyApiError(tourMgmtContactsForContactsTab.error)}</p>
               ) : tourMgmtContactsWithCompany.length === 0 ? (
-                <p className="text-sm text-text-muted">No contacts found on the tour management company.</p>
+                <p className="text-sm text-text-muted">No tour manager contact selected in Booking.</p>
               ) : (
                 <ContactsTable contacts={tourMgmtContactsWithCompany} />
               )}
