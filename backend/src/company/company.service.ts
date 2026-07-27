@@ -4609,7 +4609,6 @@ export class CompanyService {
   async removeContactCompletely(contactAssignmentId: number): Promise<void> {
     const asg = await this.assignmentRepo.findOne({
       where: { contactAssignmentId },
-      relations: { contact: true },
     });
     if (!asg) {
       throw new NotFoundException(
@@ -4617,21 +4616,7 @@ export class CompanyService {
       );
     }
 
-    const contactId = asg.contactId;
-    const contactInfoId = asg.contact.contactInfoId;
-    const allAsgs = await this.assignmentRepo.find({
-      where: { contactId },
-      select: { contactAssignmentId: true },
-    });
-
-    if (allAsgs.length > 1) {
-      await this.assignmentRepo.delete({ contactId });
-    } else {
-      await this.assignmentRepo.delete({ contactAssignmentId });
-    }
-
-    await this.contactRepo.delete({ contactId });
-    await this.contactInfoRepo.delete({ contactInfoId });
+    await this.assignmentRepo.delete({ contactAssignmentId });
   }
 
   /**

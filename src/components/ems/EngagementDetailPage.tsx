@@ -588,7 +588,6 @@ function VenueDetailPanel({
         ['received', venueContractLink],
         ['partially executed', partialContractLink],
         ['fully executed', fullContractLink],
-        ['VenueForcast', forecastLink],
       ];
       for (const [purpose, url] of linkFields) {
         if (url.trim() && !isValidHttpOrHttpsUrl(url)) {
@@ -609,9 +608,31 @@ function VenueDetailPanel({
     },
     onSuccess: async () => {
       await invalidate();
-      addToast('Contract & forecast links saved.', 'success');
+      addToast('Contract links saved.', 'success');
     },
     onError: (e) => addToast(e instanceof Error ? e.message : 'Could not save links.', 'error'),
+  });
+
+  const saveForecastMutation = useMutation({
+    mutationFn: async () => {
+      const url = forecastLink.trim();
+      if (url && !isValidHttpOrHttpsUrl(url)) {
+        throw new Error('Venue Forecast must be a valid http(s) URL, or left empty.');
+      }
+      if (url) {
+        await upsertEngagementLink(engagementId, { linkUrl: url, linkPurpose: 'VenueForcast' });
+      } else {
+        const existing = engagementLinks.find((el) => el.linkPurpose === 'VenueForcast');
+        if (existing) {
+          await removeEngagementLink(engagementId, existing.engagementLinkId);
+        }
+      }
+    },
+    onSuccess: async () => {
+      await invalidate();
+      addToast('Forecast link saved.', 'success');
+    },
+    onError: (e) => addToast(e instanceof Error ? e.message : 'Could not save forecast link.', 'error'),
   });
 
   const handleSaveBookingManager = () =>
@@ -883,14 +904,6 @@ function VenueDetailPanel({
             urlField
             inputBgClass="bg-white"
           />
-          <VenueTabEditField
-            label="Link to SharePoint – Venue Forecast"
-            value={forecastLink}
-            onChange={setForecastLink}
-            disabled={saveContractsMutation.isPending}
-            urlField
-            inputBgClass="bg-white"
-          />
         </div>
         <div className="flex justify-end">
           <Button
@@ -902,7 +915,35 @@ function VenueDetailPanel({
           >
             {saveContractsMutation.isPending ? (
               <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
-            ) : 'Save contracts & forecast links'}
+            ) : 'Save contract links'}
+          </Button>
+        </div>
+      </div>
+
+      {/* Venue Forecast */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Venue Forecast</span>
+        <div className="grid grid-cols-1 gap-3">
+          <VenueTabEditField
+            label="Link to SharePoint – Venue Forecast"
+            value={forecastLink}
+            onChange={setForecastLink}
+            disabled={saveForecastMutation.isPending}
+            urlField
+            inputBgClass="bg-white"
+          />
+        </div>
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            size="sm"
+            className="bg-ems-accent text-white hover:opacity-90"
+            onClick={() => saveForecastMutation.mutate()}
+            disabled={saveForecastMutation.isPending}
+          >
+            {saveForecastMutation.isPending ? (
+              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
+            ) : 'Save forecast link'}
           </Button>
         </div>
       </div>
@@ -11632,19 +11673,30 @@ export function EngagementDetailPage({
   const deleteMutation = useMutation({
     mutationFn: () => deleteEngagement(engagementId),
     onSuccess: async () => {
-      // refetchType: 'all' — the engagements list is unmounted right now (we're still on
-      // this detail page), and the app's QueryClient has refetchOnMount: false, so a plain
-      // invalidate would only mark it stale and never actually refetch before it remounts.
-      // The predicate skips this engagement's own ['engagements', engagementId] detail
-      // query — refetching it would 404 (it's gone) while we're still mounted here, which
-      // flashes the "Could not load engagement" error screen before onNavigate takes over.
+      // Remove all cached queries scoped to this (now-deleted) engagement so they don't
+      // attempt to refetch and 404. This is silent — no network requests.
+      qc.removeQueries({
+        predicate: (query) => {
+          const key = query.queryKey;
+          return key[0] === 'engagements' && key[1] === engagementId;
+        },
+      });
+      // Force-refetch the engagement list (it's unmounted — refetchType:'all' ensures it
+      // actually refetches rather than just going stale).
       await qc.invalidateQueries({
         refetchType: 'all',
         predicate: (query) => {
           const key = query.queryKey;
           if (key[0] !== 'engagements') return false;
-          return !(key.length === 2 && key[1] === engagementId);
+          // Only invalidate list-level queries, not per-engagement detail queries
+          return key[1] !== engagementId;
         },
+      });
+      // Also invalidate venue-level engagement lists so the Companies → Venues tab stays in sync.
+      // Use removeQueries so the data is fully cleared — invalidateQueries alone won't refetch
+      // because the global QueryClient has refetchOnMount: false.
+      qc.removeQueries({
+        predicate: (query) => query.queryKey[0] === 'companies' && query.queryKey[2] === 'engagements',
       });
       addToast('Engagement deleted.', 'warning');
       // This page now stays mounted (hidden) instead of unmounting on navigate, since view
