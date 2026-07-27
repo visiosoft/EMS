@@ -5,6 +5,7 @@ import {
   Mail,
   Minus,
   Network,
+  Phone,
   Plus,
   RotateCcw,
   Search,
@@ -17,10 +18,11 @@ import {
   fetchOrganizationChartHierarchy,
   organizationChartHierarchyQueryKey,
   type OrganizationChartNode,
+  type OrganizationChartMember,
   type HierarchyNode,
   type HierarchyMember,
 } from '@/api/organizationChartApi';
-import { Avatar } from './Primitives';
+import { GraphAvatar } from './GraphAvatar';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { cn } from '@/lib/utils';
 import {
@@ -161,7 +163,7 @@ function HierarchyTeamCard({
         )}
 
         <div className="flex items-start gap-3">
-          <Avatar name={manager.displayName} size="md" />
+          <GraphAvatar name={manager.displayName} email={manager.email} graphToken={undefined} size="md" />
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-1">
               {onNavigate ? (
@@ -219,7 +221,7 @@ function HierarchyTeamCard({
                     highlighted && hasFilter ? "bg-ems-accent/15" : "hover:bg-hover/50"
                   )}
                 >
-                  <Avatar name={child.member.displayName} size="sm" />
+                  <GraphAvatar name={child.member.displayName} email={child.member.email} graphToken={undefined} size="sm" />
                   <div className="min-w-0 flex-1">
                     {onNavigate ? (
                       <button
@@ -337,6 +339,28 @@ function HierarchyBranchContent({
 
 // ─── Department Mode Logic (Fallback) ───
 
+/** Leadership weight so directors sort above managers, managers above coordinators, etc. */
+function memberRoleWeight(member: { jobTitle: string; roleName: string }): number {
+  const r = (member.jobTitle || member.roleName || '').toLowerCase();
+  if (/\b(ceo|chief|president|owner|founder)\b/.test(r)) return 100;
+  if (/\b(evp|svp|vp|vice president)\b/.test(r)) return 80;
+  if (/\b(director|head)\b/.test(r)) return 60;
+  if (/\b(manager|lead|supervisor)\b/.test(r)) return 40;
+  if (/\b(coordinator|assistant)\b/.test(r)) return 20;
+  return 0;
+}
+
+/** Returns a human-readable tier label for display as a sub-heading. */
+function memberTierLabel(member: { jobTitle: string; roleName: string }): string {
+  const weight = memberRoleWeight(member);
+  if (weight >= 100) return 'Executive';
+  if (weight >= 80) return 'Vice President';
+  if (weight >= 60) return 'Director';
+  if (weight >= 40) return 'Manager';
+  if (weight >= 20) return 'Coordinator';
+  return 'Team Member';
+}
+
 function buildDepForest(nodes: OrganizationChartNode[]): DepTreeNode[] {
   const byId = new Map<number, DepTreeNode>();
   nodes.forEach((node) => {
@@ -359,7 +383,7 @@ function buildDepForest(nodes: OrganizationChartNode[]): DepTreeNode[] {
       item.depth = depth;
       item.members.sort(
         (left, right) =>
-          left.sortOrder - right.sortOrder ||
+          memberRoleWeight(right) - memberRoleWeight(left) ||
           left.displayName.localeCompare(right.displayName),
       );
       sortNodes(item.children, depth + 1);
@@ -406,11 +430,13 @@ function DepNodeCard({
   query,
   department,
   onNavigate,
+  graphToken,
 }: {
   node: OrganizationChartNode;
   query: string;
   department: string;
   onNavigate?: (view: string, data?: unknown) => void;
+  graphToken?: string | null;
 }) {
   const hasFilter = Boolean(query || department);
   const matchingMemberIds = new Set(
@@ -425,7 +451,7 @@ function DepNodeCard({
   return (
     <article
       className={cn(
-        'org-hierarchy-card w-[238px] overflow-hidden rounded-lg border border-border border-l-[3px] bg-card text-left shadow-sm transition duration-200',
+        'org-hierarchy-card w-[280px] overflow-hidden rounded-lg border border-border border-l-[3px] bg-card text-left shadow-sm transition duration-200',
         tone,
         hasFilter && !nodeMatches && 'opacity-35 grayscale-[0.35]',
         nodeMatches && hasFilter && 'ring-2 ring-ems-accent/25 shadow-md',
@@ -446,56 +472,73 @@ function DepNodeCard({
 
       <div className="divide-y divide-border/70">
         {node.members.length ? (
-          node.members.map((member) => {
-            const highlighted = matchingMemberIds.has(member.memberId);
-            return (
-              <div
-                key={member.memberId}
-                className={cn(
-                  'group flex min-w-0 gap-2.5 px-3 py-2.5 transition-colors',
-                  highlighted && hasFilter ? 'bg-ems-accent-dim/45' : 'hover:bg-hover/55',
-                )}
-              >
-                <Avatar name={member.displayName} size="sm" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-start gap-1.5">
-                    {onNavigate ? (
-                      <button
-                        type="button"
-                        onClick={() => onNavigate('contacts', { selectedContactId: member.contactId })}
-                        className="min-w-0 flex-1 text-sm font-semibold leading-tight text-text-primary text-left hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
-                        title={`View ${member.displayName}'s profile`}
-                      >
-                        {member.displayName}
-                      </button>
-                    ) : (
-                      <p className="min-w-0 flex-1 text-sm font-semibold leading-tight text-text-primary">
-                        {member.displayName}
-                      </p>
+          (() => {
+            let lastTier = '';
+            return node.members.map((member) => {
+              const highlighted = matchingMemberIds.has(member.memberId);
+              const tier = memberTierLabel(member);
+              const showTierHeader = tier !== lastTier;
+              lastTier = tier;
+              return (
+                <div key={member.memberId}>
+                  {showTierHeader && (
+                    <div className="bg-elevated/60 px-3 py-1">
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-text-muted">{tier}</span>
+                    </div>
+                  )}
+                  <div
+                    className={cn(
+                      'group flex min-w-0 gap-2.5 px-3 py-3 transition-colors',
+                      highlighted && hasFilter ? 'bg-ems-accent-dim/45' : 'hover:bg-hover/55',
                     )}
-                    {member.email ? (
-                      <a
-                        href={`mailto:${member.email}`}
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-text-muted opacity-70 transition hover:bg-surface hover:text-ems-accent group-hover:opacity-100"
-                        title={`Email ${member.displayName}`}
-                        aria-label={`Email ${member.displayName}`}
-                      >
-                        <Mail className="h-3.5 w-3.5" aria-hidden />
-                      </a>
-                    ) : null}
+                  >
+                    <GraphAvatar name={member.displayName} email={member.email} graphToken={graphToken} size="md" />
+                    <div className="min-w-0 flex-1">
+                      {onNavigate ? (
+                        <button
+                          type="button"
+                          onClick={() => onNavigate('contacts', { selectedContactId: member.contactId })}
+                          className="text-sm font-semibold leading-tight text-text-primary text-left hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                          title={`View ${member.displayName}'s profile`}
+                        >
+                          {member.displayName}
+                        </button>
+                      ) : (
+                        <p className="text-sm font-semibold leading-tight text-text-primary">
+                          {member.displayName}
+                        </p>
+                      )}
+                      <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-text-secondary">
+                        {member.departmentName ? `${member.departmentName} · ` : ''}{member.jobTitle || member.roleName || 'Internal staff'}
+                      </p>
+                      {(member.workPhone || member.cellPhone) && (
+                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-text-muted">
+                          {member.workPhone && (
+                            <span className="flex items-center gap-0.5">
+                              <Phone className="h-2.5 w-2.5" aria-hidden />
+                              <a href={`tel:${member.workPhone}`} className="hover:text-ems-accent transition-colors">{member.workPhone}</a>
+                            </span>
+                          )}
+                          {member.cellPhone && (
+                            <span className="flex items-center gap-0.5">
+                              <Phone className="h-2.5 w-2.5" aria-hidden />
+                              <a href={`tel:${member.cellPhone}`} className="hover:text-ems-accent transition-colors">{member.cellPhone}</a>
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {member.email && (
+                        <div className="mt-0.5 flex items-center gap-1 text-[10px] text-text-muted">
+                          <Mail className="h-2.5 w-2.5" aria-hidden />
+                          <a href={`mailto:${member.email}`} className="truncate hover:text-ems-accent transition-colors">{member.email}</a>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-text-secondary">
-                    {member.jobTitle || member.roleName || 'Internal staff'}
-                  </p>
-                  {member.departmentName ? (
-                    <p className="mt-1 truncate text-[10px] font-medium text-text-muted">
-                      {member.departmentName}
-                    </p>
-                  ) : null}
                 </div>
-              </div>
-            );
-          })
+              );
+            });
+          })()
         ) : (
           <div className="px-3 py-3 text-xs text-text-muted">
             {node.label || 'Unassigned chart node'}
@@ -511,15 +554,17 @@ function DepTreeBranch({
   query,
   department,
   onNavigate,
+  graphToken,
 }: {
   node: DepTreeNode;
   query: string;
   department: string;
   onNavigate?: (view: string, data?: unknown) => void;
+  graphToken?: string | null;
 }) {
   return (
     <li>
-      <DepNodeCard node={node} query={query} department={department} onNavigate={onNavigate} />
+      <DepNodeCard node={node} query={query} department={department} onNavigate={onNavigate} graphToken={graphToken} />
       {node.children.length ? (
         <ul>
           {node.children.map((child) => (
@@ -529,6 +574,7 @@ function DepTreeBranch({
               query={query}
               department={department}
               onNavigate={onNavigate}
+              graphToken={graphToken}
             />
           ))}
         </ul>
@@ -554,7 +600,7 @@ export function OrganizationalChartPage({ onNavigate }: { onNavigate?: (view: st
   useEffect(() => {
     let mounted = true;
     const fetchToken = async () => {
-      const account = getActiveAccount(instance, accounts);
+      const account = getActiveAccount();
       if (!account) return;
       try {
         const token = await acquireGraphAccessToken(account);
@@ -574,7 +620,8 @@ export function OrganizationalChartPage({ onNavigate }: { onNavigate?: (view: st
   });
 
   const data = chartQuery.data;
-  const isHierarchyMode = (viewMode === 'auto' && data?.mode === 'hierarchy') || viewMode === 'hierarchy';
+  // Always show department view (hierarchy tab removed per request)
+  const isHierarchyMode = false;
 
   // State setup based on mode
   const { 
@@ -694,30 +741,7 @@ export function OrganizationalChartPage({ onNavigate }: { onNavigate?: (view: st
 
         {data?.configured && members.length ? (
           <div className="flex flex-wrap items-center gap-2 sm:gap-4">
-            {data.mode === 'hierarchy' && (
-              <div className="flex items-center rounded-lg border border-border bg-surface p-1 mr-2 shadow-sm">
-                <button
-                  type="button"
-                  onClick={() => setViewMode('hierarchy')}
-                  className={cn(
-                    "px-3 py-1 text-xs font-semibold rounded-md transition",
-                    isHierarchyMode ? "bg-ems-accent/10 text-ems-accent" : "text-text-muted hover:text-text-primary"
-                  )}
-                >
-                  Hierarchy
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewMode('department')}
-                  className={cn(
-                    "px-3 py-1 text-xs font-semibold rounded-md transition",
-                    !isHierarchyMode ? "bg-ems-accent/10 text-ems-accent" : "text-text-muted hover:text-text-primary"
-                  )}
-                >
-                  Departments
-                </button>
-              </div>
-            )}
+
             <div className="flex flex-wrap items-center gap-4 text-xs">
               <span className="org-stat-badge flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-text-secondary shadow-sm">
                 <strong className="text-text-primary">{members.length}</strong> people
@@ -940,6 +964,7 @@ export function OrganizationalChartPage({ onNavigate }: { onNavigate?: (view: st
                                         query={query}
                                         department={departmentFilter}
                                         onNavigate={onNavigate}
+                                        graphToken={graphToken}
                                       />
                                     </div>
                                   )}
@@ -964,6 +989,7 @@ export function OrganizationalChartPage({ onNavigate }: { onNavigate?: (view: st
                         query={query}
                         department={departmentFilter}
                         onNavigate={onNavigate}
+                        graphToken={graphToken}
                       />
                     ))}
                   </ul>
@@ -1038,6 +1064,7 @@ export function OrganizationalChartPage({ onNavigate }: { onNavigate?: (view: st
                         query={query}
                         department={departmentFilter}
                         onNavigate={onNavigate}
+                        graphToken={graphToken}
                       />
                     ))}
                   </div>

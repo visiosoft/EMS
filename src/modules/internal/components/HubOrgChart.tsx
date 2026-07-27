@@ -1,28 +1,34 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  ChevronDown,
-  ChevronUp,
   Loader2,
   Mail,
   Minus,
   Network,
+  Phone,
   Plus,
-  RotateCcw,
   Search,
   Users,
+  X,
 } from "lucide-react";
 import {
   fetchInternalOrgChartHierarchy,
   internalOrgChartHierarchyQueryKey,
 } from "@/api/internalOrgChartApi";
 import type {
-  HierarchyNode,
   HierarchyMember,
   OrganizationChartMember,
   OrganizationChartNode,
 } from "@/api/organizationChartApi";
 import { getActiveAccount, acquireGraphAccessToken } from "@/auth/entra";
+import { HubGraphAvatar } from "@/components/ems/GraphAvatar";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 1.4;
@@ -51,12 +57,13 @@ function initials(name: string): string {
   return parts.slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";
 }
 
-function memberMatches(m: AnyMember, q: string): boolean {
-  if (!q) return true;
-  return [m.displayName, m.email, m.jobTitle, m.roleName, m.departmentName]
+function memberMatches(m: AnyMember, q: string, department?: string): boolean {
+  const matchesQuery = !q || [m.displayName, m.email, m.jobTitle, m.roleName, m.departmentName]
     .join(" ")
     .toLowerCase()
     .includes(q);
+  const matchesDept = !department || m.departmentName === department;
+  return matchesQuery && matchesDept;
 }
 
 function memberTitle(m: AnyMember): string {
@@ -67,215 +74,73 @@ function memberTitle(m: AnyMember): string {
 function MemberRow({
   member,
   query,
+  department,
   onSelect,
   size = "sm",
+  graphToken,
 }: {
   member: AnyMember;
   query: string;
+  department?: string;
   onSelect?: (contactId: number) => void;
   size?: "sm" | "xs";
+  graphToken?: string | null;
 }) {
   const accent = accentFor(member.displayName || member.email || "?");
-  const dimmed = query ? !memberMatches(member, query) : false;
-  const av = size === "sm" ? "h-9 w-9 text-[11px]" : "h-8 w-8 text-[10px]";
+  const dimmed = (query || department) ? !memberMatches(member, query, department) : false;
   return (
-    <button
-      type="button"
-      onClick={() => onSelect?.(member.contactId)}
-      className={`group flex w-full items-center gap-2.5 rounded-lg border border-transparent px-2 py-1.5 text-left transition-all hover:border-neutral-200 hover:bg-neutral-50 ${
+    <div
+      className={`group flex w-full items-start gap-2.5 rounded-lg border border-transparent px-2 py-2 text-left transition-all hover:border-neutral-200 hover:bg-neutral-50 ${
         dimmed ? "opacity-40" : ""
       }`}
     >
-      <span
-        className={`grid shrink-0 place-items-center rounded-full bg-neutral-900 font-bold text-white ring-2 ring-offset-2 ${accent.ring} transition-transform group-hover:scale-105 ${av}`}
+      <button
+        type="button"
+        onClick={() => onSelect?.(member.contactId)}
+        className="shrink-0 transition-transform group-hover:scale-105"
       >
-        {initials(member.displayName)}
-      </span>
+        <HubGraphAvatar
+          name={member.displayName}
+          email={member.email}
+          graphToken={graphToken}
+          size={size === "sm" ? "sm" : "xs"}
+          ringClass={accent.ring}
+        />
+      </button>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12.5px] font-semibold text-neutral-900">
-          {member.displayName || "—"}
-        </span>
-        <span className="block truncate text-[11px] leading-tight text-neutral-500">
-          {memberTitle(member)}
-        </span>
-      </span>
-    </button>
-  );
-}
-
-// ── Hierarchy: a manager + their leaf reports grouped in one card ──
-function TeamCard({
-  node,
-  query,
-  collapsed,
-  onToggle,
-  onSelect,
-}: {
-  node: HierarchyNode;
-  query: string;
-  collapsed: boolean;
-  onToggle: (id: string) => void;
-  onSelect?: (contactId: number) => void;
-}) {
-  const manager = node.member;
-  const accent = accentFor(manager.displayName || manager.email || "?");
-  const leafReports = node.children.filter((c) => c.children.length === 0);
-  const subManagerCount = node.children.length - leafReports.length;
-  const dimmed = query ? !memberMatches(manager, query) : false;
-  const matched = query ? memberMatches(manager, query) : false;
-
-  return (
-    <article
-      className={`hub-org-card w-[268px] overflow-hidden rounded-2xl border bg-white text-left shadow-sm transition-all duration-300 ${
-        matched ? "border-neutral-900/70 ring-2 ring-neutral-900/60" : "border-neutral-200"
-      } ${dimmed ? "opacity-40" : ""}`}
-    >
-      {/* Manager */}
-      <div className="relative flex items-start gap-3 border-b border-neutral-100 bg-gradient-to-b from-neutral-50/70 to-white p-3">
         <button
           type="button"
-          onClick={() => onSelect?.(manager.contactId)}
-          className="group flex min-w-0 flex-1 items-start gap-3 text-left"
+          onClick={() => onSelect?.(member.contactId)}
+          className="block text-[12.5px] font-semibold text-neutral-900 hover:underline"
         >
-          <span
-            className={`grid h-12 w-12 shrink-0 place-items-center rounded-full bg-neutral-900 text-[14px] font-bold text-white ring-2 ring-offset-2 ${accent.ring} transition-transform group-hover:scale-105`}
-          >
-            {initials(manager.displayName)}
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="flex items-center gap-1.5">
-              <span className="truncate text-[14px] font-bold text-neutral-950">
-                {manager.displayName || "—"}
-              </span>
-              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${accent.dot}`} />
-            </span>
-            <span className="mt-0.5 block truncate text-[11.5px] text-neutral-500">
-              {memberTitle(manager)}
-            </span>
-            {manager.departmentName ? (
-              <span
-                className={`mt-1.5 inline-block truncate rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] ${accent.chip}`}
-              >
-                {manager.departmentName}
-              </span>
-            ) : null}
-          </span>
+          {member.displayName || "—"}
         </button>
-        {manager.email ? (
-          <a
-            href={`mailto:${manager.email}`}
-            className="mt-0.5 shrink-0 text-neutral-300 transition-colors hover:text-neutral-700"
-            aria-label={`Email ${manager.displayName}`}
-            title={`Email ${manager.displayName}`}
-          >
-            <Mail className="h-3.5 w-3.5" aria-hidden />
-          </a>
-        ) : null}
-      </div>
-
-      {/* Leaf reports, listed inside the card */}
-      {leafReports.length > 0 ? (
-        <div className="flex flex-col gap-0.5 p-2">
-          {leafReports.map((child) => (
-            <MemberRow key={child.nodeId} member={child.member} query={query} onSelect={onSelect} />
-          ))}
-        </div>
-      ) : null}
-
-      {/* Footer: report count + collapse toggle for sub-teams */}
-      {(subManagerCount > 0 || node.children.length > 0) && (
-        <div className="flex items-center justify-between border-t border-neutral-100 px-3 py-1.5">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
-            {node.children.length} {node.children.length === 1 ? "report" : "reports"}
+        <span className="block text-[11px] leading-tight text-neutral-500">
+          {member.departmentName ? `${member.departmentName} · ` : ""}{memberTitle(member)}
+        </span>
+        {(member.workPhone || member.cellPhone) && (
+          <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10px] text-neutral-400">
+            {member.workPhone && (
+              <span className="flex items-center gap-0.5">
+                <Phone className="h-2.5 w-2.5" aria-hidden />
+                <a href={`tel:${member.workPhone}`} className="hover:text-neutral-700" onClick={e => e.stopPropagation()}>{member.workPhone}</a>
+              </span>
+            )}
+            {member.cellPhone && (
+              <span className="flex items-center gap-0.5">
+                <Phone className="h-2.5 w-2.5" aria-hidden />
+                <a href={`tel:${member.cellPhone}`} className="hover:text-neutral-700" onClick={e => e.stopPropagation()}>{member.cellPhone}</a>
+              </span>
+            )}
           </span>
-          {subManagerCount > 0 ? (
-            <button
-              type="button"
-              onClick={() => onToggle(node.nodeId)}
-              className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold text-neutral-600 transition-colors hover:bg-neutral-100 hover:text-neutral-900"
-            >
-              {collapsed ? (
-                <>
-                  <ChevronDown className="h-3.5 w-3.5" /> {subManagerCount} teams
-                </>
-              ) : (
-                <>
-                  <ChevronUp className="h-3.5 w-3.5" /> Collapse
-                </>
-              )}
-            </button>
-          ) : null}
-        </div>
-      )}
-    </article>
-  );
-}
-
-// ── Recursive branch: team card + its sub-manager branches ──
-function Branch({
-  node,
-  depth,
-  query,
-  collapsed,
-  onToggle,
-  onSelect,
-}: {
-  node: HierarchyNode;
-  depth: number;
-  query: string;
-  collapsed: Set<string>;
-  onToggle: (id: string) => void;
-  onSelect?: (contactId: number) => void;
-}) {
-  const subManagers = node.children.filter((c) => c.children.length > 0);
-  const isCollapsed = collapsed.has(node.nodeId);
-  const showSub = subManagers.length > 0 && !isCollapsed;
-
-  return (
-    <div className="flex flex-col items-center">
-      <div className="hub-org-branch relative z-10" style={{ animationDelay: `${depth * 50}ms` }}>
-        <TeamCard
-          node={node}
-          query={query}
-          collapsed={isCollapsed}
-          onToggle={onToggle}
-          onSelect={onSelect}
-        />
-      </div>
-
-      {showSub ? (
-        <div className="relative pt-8">
-          <span className="hub-org-line absolute left-1/2 top-0 h-8 w-px -translate-x-1/2 bg-neutral-200" />
-          <ul className="relative flex items-start justify-center">
-            {subManagers.map((child, index) => {
-              const isFirst = index === 0;
-              const isLast = index === subManagers.length - 1;
-              const only = subManagers.length === 1;
-              return (
-                <li key={child.nodeId} className="relative flex flex-col items-center px-6">
-                  {!only ? (
-                    <span
-                      className="absolute top-0 h-px bg-neutral-200"
-                      style={{ left: isFirst ? "50%" : 0, right: isLast ? "50%" : 0 }}
-                    />
-                  ) : null}
-                  <span className="hub-org-line absolute left-1/2 top-0 h-6 w-px -translate-x-1/2 bg-neutral-200" />
-                  <div className="pt-6">
-                    <Branch
-                      node={child}
-                      depth={depth + 1}
-                      query={query}
-                      collapsed={collapsed}
-                      onToggle={onToggle}
-                      onSelect={onSelect}
-                    />
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      ) : null}
+        )}
+        {member.email && (
+          <span className="mt-0.5 flex items-center gap-1 text-[10px] text-neutral-400">
+            <Mail className="h-2.5 w-2.5" aria-hidden />
+            <a href={`mailto:${member.email}`} className="hover:text-neutral-700" onClick={e => e.stopPropagation()}>{member.email}</a>
+          </span>
+        )}
+      </span>
     </div>
   );
 }
@@ -285,19 +150,23 @@ function DepartmentCard({
   label,
   members,
   query,
+  department,
   onSelect,
+  graphToken,
 }: {
   label: string;
   members: AnyMember[];
   query: string;
+  department?: string;
   onSelect?: (contactId: number) => void;
+  graphToken?: string | null;
 }) {
   const accent = accentFor(label);
-  const anyMatch = query ? members.some((m) => memberMatches(m, query)) : true;
+  const anyMatch = (query || department) ? members.some((m) => memberMatches(m, query, department)) : true;
   return (
     <article
-      className={`hub-org-card w-[268px] flex-shrink-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white text-left shadow-sm transition-all duration-300 ${
-        query && !anyMatch ? "opacity-40" : ""
+      className={`hub-org-card w-[340px] flex-shrink-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white text-left shadow-sm transition-all duration-300 ${
+        (query || department) && !anyMatch ? "opacity-40" : ""
       }`}
     >
       <header className="flex items-center gap-2.5 border-b border-neutral-100 bg-gradient-to-b from-neutral-50/70 to-white px-3 py-2.5">
@@ -309,15 +178,31 @@ function DepartmentCard({
           {members.length}
         </span>
       </header>
-      <div className="flex flex-col gap-0.5 p-2">
-        {members.map((member, i) => (
-          <MemberRow
-            key={`${member.contactId}-${i}`}
-            member={member}
-            query={query}
-            onSelect={onSelect}
-          />
-        ))}
+      <div className="flex flex-col p-2">
+        {(() => {
+          let lastTier = '';
+          return members.map((member, i) => {
+            const tier = hubTierLabel(member);
+            const showHeader = tier !== lastTier;
+            lastTier = tier;
+            return (
+              <div key={`${member.contactId}-${i}`}>
+                {showHeader && (
+                  <div className="px-2 pt-2 pb-0.5">
+                    <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">{tier}</span>
+                  </div>
+                )}
+                <MemberRow
+                  member={member}
+                  query={query}
+                  department={department}
+                  onSelect={onSelect}
+                  graphToken={graphToken}
+                />
+              </div>
+            );
+          });
+        })()}
       </div>
     </article>
   );
@@ -338,6 +223,27 @@ function buildDepForest(nodes: OrganizationChartNode[]): DepTreeNode[] {
 }
 
 /** Flatten department forest into department-level groups (skips the empty company root). */
+/** Leadership weight so directors sort above managers, managers above coordinators, etc. */
+function hubMemberRoleWeight(m: AnyMember): number {
+  const r = (m.jobTitle || m.roleName || "").toLowerCase();
+  if (/\b(ceo|chief|president|owner|founder)\b/.test(r)) return 100;
+  if (/\b(evp|svp|vp|vice president)\b/.test(r)) return 80;
+  if (/\b(director|head)\b/.test(r)) return 60;
+  if (/\b(manager|lead|supervisor)\b/.test(r)) return 40;
+  if (/\b(coordinator|assistant)\b/.test(r)) return 20;
+  return 0;
+}
+
+function hubTierLabel(m: AnyMember): string {
+  const weight = hubMemberRoleWeight(m);
+  if (weight >= 100) return 'Executive';
+  if (weight >= 80) return 'Vice President';
+  if (weight >= 60) return 'Director';
+  if (weight >= 40) return 'Manager';
+  if (weight >= 20) return 'Coordinator';
+  return 'Team Member';
+}
+
 function departmentGroups(nodes: OrganizationChartNode[]): { label: string; members: OrganizationChartMember[] }[] {
   const forest = buildDepForest(nodes);
   const tops = forest.flatMap((root) =>
@@ -345,7 +251,12 @@ function departmentGroups(nodes: OrganizationChartNode[]): { label: string; memb
   );
   const groups: { label: string; members: OrganizationChartMember[] }[] = [];
   const walk = (node: DepTreeNode) => {
-    if (node.members.length > 0) groups.push({ label: node.label, members: node.members });
+    if (node.members.length > 0) {
+      const sorted = [...node.members].sort(
+        (a, b) => hubMemberRoleWeight(b) - hubMemberRoleWeight(a) || a.displayName.localeCompare(b.displayName),
+      );
+      groups.push({ label: node.label, members: sorted });
+    }
     node.children.forEach(walk);
   };
   tops.forEach(walk);
@@ -355,8 +266,8 @@ function departmentGroups(nodes: OrganizationChartNode[]): { label: string; memb
 export function HubOrgChart({ onSelectMember }: { onSelectMember?: (contactId: number) => void }) {
   const [graphToken, setGraphToken] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [departmentFilter, setDepartmentFilter] = useState("");
   const [zoom, setZoom] = useState(1);
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const query = search.trim().toLowerCase();
 
   // Silently acquire a Graph token so we can show the true manager hierarchy (same as EMS).
@@ -385,59 +296,41 @@ export function HubOrgChart({ onSelectMember }: { onSelectMember?: (contactId: n
 
   const data = chartQuery.data;
 
-  // Hierarchy mode: real roots (managers with reports) form the tree; everyone else
-  // (lone roots + unmatched) is grouped compactly by department below — exactly like EMS.
-  const { realRoots, looseGroups } = useMemo(() => {
-    if (!data || data.mode !== "hierarchy" || !data.roots) {
-      return { realRoots: [] as HierarchyNode[], looseGroups: [] as { label: string; members: HierarchyMember[] }[] };
-    }
-    const real = data.roots.filter((r) => r.children.length > 0);
-    const lone = data.roots.filter((r) => r.children.length === 0).map((r) => r.member);
-    const loose = [...lone, ...(data.unmatched ?? [])];
-    const byDept = new Map<string, HierarchyMember[]>();
-    loose.forEach((m) => {
-      const dept = m.departmentName || "Unassigned";
-      const bucket = byDept.get(dept);
-      if (bucket) bucket.push(m);
-      else byDept.set(dept, [m]);
-    });
-    const groups = Array.from(byDept.entries())
-      .map(([label, members]) => ({ label, members }))
-      .sort((a, b) => a.label.localeCompare(b.label));
-    return { realRoots: real, looseGroups: groups };
-  }, [data]);
-
+  // Always show department view (same as EMS — hierarchy tab removed per request).
   const depGroups = useMemo(
-    () => (data && data.mode !== "hierarchy" && data.nodes ? departmentGroups(data.nodes) : []),
+    () => (data?.nodes ? departmentGroups(data.nodes) : []),
     [data],
   );
 
-  const isHierarchy = realRoots.length > 0;
-  const hasContent = isHierarchy || looseGroups.length > 0 || depGroups.length > 0;
+  const hasContent = depGroups.length > 0;
 
-  // Children of the company root — mirrors EMS: manager branches first, then
-  // department groups (loose members in hierarchy mode, or plain departments).
+  // All children are department groups — no hierarchy branches.
   const rootChildren = useMemo(() => {
-    // looseGroups (hierarchy mode) and depGroups (department mode) are mutually
-    // exclusive — only one is ever populated — so concatenating both is safe.
-    const groups = [...looseGroups, ...depGroups];
-    return [
-      ...realRoots.map((node) => ({ type: "branch" as const, node })),
-      ...groups.map((group) => ({
-        type: "dept" as const,
-        label: group.label,
-        members: group.members as AnyMember[],
-      })),
-    ];
-  }, [realRoots, looseGroups, depGroups]);
+    return depGroups.map((group) => ({
+      type: "dept" as const,
+      label: group.label,
+      members: group.members as AnyMember[],
+    }));
+  }, [depGroups]);
 
-  const toggle = (id: string) =>
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  // Collect all unique department names for the filter dropdown
+  const departments = useMemo(() => {
+    const set = new Set<string>();
+    for (const child of rootChildren) {
+      if (child.label && child.label !== "Unassigned") set.add(child.label);
+    }
+    return Array.from(set).sort();
+  }, [rootChildren]);
+
+  // Count matching people for the filter badge
+  const matchingPeople = useMemo(() => {
+    if (!query && !departmentFilter) return 0;
+    let count = 0;
+    for (const child of rootChildren) {
+      count += child.members.filter((m) => memberMatches(m, query, departmentFilter)).length;
+    }
+    return count;
+  }, [rootChildren, query, departmentFilter]);
 
   return (
     <div className="rounded-2xl border border-neutral-200 bg-gradient-to-b from-neutral-50 to-white">
@@ -464,16 +357,50 @@ export function HubOrgChart({ onSelectMember }: { onSelectMember?: (contactId: n
           ) : null}
         </div>
 
-        <div className="relative ml-auto w-full max-w-xs">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" aria-hidden />
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search people…"
-            aria-label="Search the org chart"
-            className="h-9 w-full rounded-full border border-neutral-300 bg-white pl-9 pr-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
-          />
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 ml-auto">
+          <div className="relative min-w-[200px] max-w-xs flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" aria-hidden />
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search people, titles, or email"
+              aria-label="Search the org chart"
+              className="h-9 w-full rounded-lg border border-neutral-300 bg-white pl-9 pr-8 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+            />
+            {search ? (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-neutral-400 hover:bg-neutral-100 hover:text-neutral-900 transition"
+                title="Clear search"
+                aria-label="Clear search"
+              >
+                <X className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            ) : null}
+          </div>
+
+          <Select
+            value={departmentFilter || "all"}
+            onValueChange={(val) => setDepartmentFilter(val === "all" ? "" : val)}
+          >
+            <SelectTrigger className="h-9 w-[180px] border-neutral-300 bg-white text-sm focus:ring-1 focus:ring-black">
+              <SelectValue placeholder="All departments" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All departments</SelectItem>
+              {departments.map((name) => (
+                <SelectItem key={name} value={name}>
+                  {name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {(query || departmentFilter) ? (
+            <span className="text-xs font-medium text-neutral-500 px-2">{matchingPeople} matches</span>
+          ) : null}
         </div>
 
         <div className="flex items-center gap-1 rounded-full border border-neutral-200 bg-white p-0.5">
@@ -488,10 +415,10 @@ export function HubOrgChart({ onSelectMember }: { onSelectMember?: (contactId: n
           <button
             type="button"
             onClick={() => setZoom(1)}
-            className="grid h-7 w-7 place-items-center rounded-full text-neutral-600 transition-colors hover:bg-neutral-100 hover:text-neutral-900"
+            className="grid h-7 min-w-10 place-items-center rounded-full text-[11px] font-semibold text-neutral-600 transition-colors hover:bg-neutral-100 hover:text-neutral-900"
             aria-label="Reset zoom"
           >
-            <RotateCcw className="h-3.5 w-3.5" />
+            {Math.round(zoom * 100)}%
           </button>
           <button
             type="button"
@@ -524,7 +451,7 @@ export function HubOrgChart({ onSelectMember }: { onSelectMember?: (contactId: n
           >
             {/* Company root — every branch and department hangs off this node. */}
             <div className="flex flex-col items-center">
-              <article className="hub-org-card relative z-10 w-[268px] flex-shrink-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white p-5 text-center shadow-sm">
+              <article className="hub-org-card relative z-10 w-[340px] flex-shrink-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white p-5 text-center shadow-sm">
                 <span className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full border border-neutral-200 bg-neutral-50 text-neutral-700">
                   <Network className="h-6 w-6" />
                 </span>
@@ -544,8 +471,7 @@ export function HubOrgChart({ onSelectMember }: { onSelectMember?: (contactId: n
                       const isFirst = index === 0;
                       const isLast = index === rootChildren.length - 1;
                       const only = rootChildren.length === 1;
-                      const key =
-                        child.type === "branch" ? child.node.nodeId : `dept-${child.label}`;
+                      const key = `dept-${child.label}`;
                       return (
                         <li key={key} className="relative flex flex-col items-center px-6">
                           {!only ? (
@@ -556,23 +482,14 @@ export function HubOrgChart({ onSelectMember }: { onSelectMember?: (contactId: n
                           ) : null}
                           <span className="hub-org-line absolute left-1/2 top-0 h-6 w-px -translate-x-1/2 bg-neutral-200" />
                           <div className="pt-6">
-                            {child.type === "branch" ? (
-                              <Branch
-                                node={child.node}
-                                depth={0}
-                                query={query}
-                                collapsed={collapsed}
-                                onToggle={toggle}
-                                onSelect={onSelectMember}
-                              />
-                            ) : (
-                              <DepartmentCard
-                                label={child.label}
-                                members={child.members}
-                                query={query}
-                                onSelect={onSelectMember}
-                              />
-                            )}
+                            <DepartmentCard
+                              label={child.label}
+                              members={child.members}
+                              query={query}
+                              department={departmentFilter}
+                              onSelect={onSelectMember}
+                              graphToken={graphToken}
+                            />
                           </div>
                         </li>
                       );
@@ -584,13 +501,6 @@ export function HubOrgChart({ onSelectMember }: { onSelectMember?: (contactId: n
           </div>
         )}
       </div>
-
-      {/* Fallback hint */}
-      {data && data.mode !== "hierarchy" ? (
-        <p className="border-t border-neutral-100 px-4 py-2 text-[11px] text-neutral-400">
-          Showing the department view. Sign in with your iAE account to reveal the full reporting hierarchy.
-        </p>
-      ) : null}
     </div>
   );
 }
