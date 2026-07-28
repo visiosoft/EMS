@@ -1521,9 +1521,18 @@ export class HubSpotService {
     };
   }
 
+  private readonly webhookPropertyMap: Record<string, string> = {
+    email: 'Email',
+    firstname: 'FirstName',
+    lastname: 'LastName',
+    mobilephone: 'CellPhone',
+    phone: 'WorkPhone',
+    work_phone: 'WorkPhone',
+  };
+
   private async handleContactPropertyChanges(
     objectId: number,
-    _events: HubSpotWebhookEventDto[],
+    events: HubSpotWebhookEventDto[],
   ): Promise<void> {
     // 1. Fetch the full contact from HubSpot API (always get latest data)
     const hsContact = await this.fetchHubSpotContact(objectId);
@@ -1532,70 +1541,57 @@ export class HubSpotService {
       return;
     }
 
-    const email = hsContact.email;
-
-    // 2. Look up existing contact by email
-    let contactInfoId: number | null = null;
-
-    if (email) {
-      const byEmail = await this.dataSource.query(
-        `SELECT ContactInfoID FROM dbo.ContactInfo WHERE [Email] = @0`,
-        [email],
-      );
-
-      if (byEmail.length > 0) {
-        contactInfoId = byEmail[0].ContactInfoID;
-        this.logger.log(
-          `contact.propertyChange: Found existing contact by email "${email}" → ContactInfo(${contactInfoId}).`,
-        );
-      }
+    if (!hsContact.email) {
+      this.logger.warn(`contact.propertyChange: HubSpot contact objectId=${objectId} has no email. Skipping.`);
+      return;
     }
 
-    // 3. If contact not found by email, create a new one
-    if (contactInfoId === null) {
-      const insertResult = await this.dataSource.query(
-        `INSERT INTO dbo.ContactInfo (FirstName, LastName, Email, CellPhone, WorkPhone)
-         VALUES ('', '', @0, NULL, NULL);
-         SELECT SCOPE_IDENTITY() AS NewId;`,
-        [email || ''],
-      );
-      const newId = insertResult?.[0]?.NewId;
+    // 2. Find the record by email
+    const byEmail = await this.dataSource.query(
+      `SELECT ContactInfoID FROM dbo.ContactInfo WHERE [Email] = @0`,
+      [hsContact.email],
+    );
 
-      if (!newId) {
-        this.logger.error(`contact.propertyChange: Failed to insert new ContactInfo. Result: ${JSON.stringify(insertResult)}`);
-        return;
+    if (byEmail.length === 0) {
+      this.logger.warn(
+        `contact.propertyChange: No contact found with email "${hsContact.email}" for objectId=${objectId}. Skipping.`,
+      );
+      return;
+    }
+
+    const contactInfoId = byEmail[0].ContactInfoID;
+
+    // 3. Update each changed property
+    for (const event of events) {
+      if (!event.propertyName) continue;
+
+      const dbColumn = this.webhookPropertyMap[event.propertyName.toLowerCase()];
+      if (!dbColumn) {
+        this.logger.debug(
+          `No column mapping for HubSpot property "${event.propertyName}". Skipping.`,
+        );
+        continue;
       }
+
+      // Use the value from HubSpot API (latest) rather than the event payload
+      const valueMap: Record<string, string | null> = {
+        Email: hsContact.email,
+        FirstName: hsContact.firstName,
+        LastName: hsContact.lastName,
+        CellPhone: hsContact.phone,
+        WorkPhone: hsContact.workPhone,
+      };
+      const value = valueMap[dbColumn] ?? null;
 
       await this.dataSource.query(
-        `INSERT INTO dbo.Contact (ContactInfoID) VALUES (@0)`,
-        [newId],
+        `UPDATE dbo.ContactInfo SET [${dbColumn}] = @0 WHERE ContactInfoID = @1`,
+        [value, contactInfoId],
       );
 
-      contactInfoId = newId;
       this.logger.log(
-        `contact.propertyChange: Created new ContactInfo(${newId}) + Contact with email="${email}".`,
+        `contact.propertyChange: Updated ContactInfo(${contactInfoId}) [${dbColumn}] = "${value}"`,
       );
     }
-
-    // 4. Update all fields from the HubSpot contact
-    await this.dataSource.query(
-      `UPDATE dbo.ContactInfo
-       SET [FirstName] = @0, [LastName] = @1, [Email] = @2, [CellPhone] = @3, [WorkPhone] = @4
-       WHERE ContactInfoID = @5`,
-      [
-        hsContact.firstName || '',
-        hsContact.lastName || '',
-        hsContact.email || '',
-        hsContact.phone || null,
-        hsContact.workPhone || null,
-        contactInfoId,
-      ],
-    );
-
-    this.logger.log(
-      `contact.propertyChange: Updated ContactInfo(${contactInfoId}) from HubSpot objectId=${objectId} — ` +
-      `name="${hsContact.firstName} ${hsContact.lastName}", email="${hsContact.email}"`,
-    );
   }
 
   private async handleContactCreation(event: HubSpotWebhookEventDto): Promise<void> {
