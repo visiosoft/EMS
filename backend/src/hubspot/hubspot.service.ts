@@ -1413,18 +1413,6 @@ export class HubSpotService {
   // ─── Webhook event processing ────────────────────────────────────────────────
 
   /**
-   * HubSpot property name → ContactInfo column name mapping.
-   */
-  private readonly contactPropertyMap: Record<string, string> = {
-    email: 'Email',
-    firstname: 'FirstName',
-    lastname: 'LastName',
-    phone: 'CellPhone',
-    mobilephone: 'CellPhone',
-    work_phone: 'WorkPhone',
-  };
-
-  /**
    * Process an array of HubSpot webhook events asynchronously.
    * Called fire-and-forget from the controller after the 200 response is sent.
    */
@@ -1484,19 +1472,70 @@ export class HubSpotService {
     }
   }
 
+  /**
+   * Fetch a single contact from HubSpot CRM API by objectId and return mapped properties.
+   */
+  private async fetchHubSpotContact(objectId: number): Promise<{
+    email: string | null;
+    firstName: string | null;
+    lastName: string | null;
+    phone: string | null;
+    workPhone: string | null;
+  } | null> {
+    const token = this.configService.get<string>('HUBSPOT_ACCESS_TOKEN');
+    if (!token) {
+      this.logger.error('HUBSPOT_ACCESS_TOKEN not configured. Cannot fetch contact from HubSpot.');
+      return null;
+    }
+
+    const url = this.buildHubSpotUrl(
+      `/crm/v3/objects/contacts/${objectId}?properties=email,firstname,lastname,phone,mobilephone,work_phone`,
+    );
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      this.logger.error(
+        `Failed to fetch HubSpot contact objectId=${objectId}: ${response.status} ${response.statusText}`,
+      );
+      return null;
+    }
+
+    const data = (await response.json()) as {
+      properties: Record<string, string | null>;
+    };
+    const props = data.properties;
+
+    return {
+      email: props.email || null,
+      firstName: props.firstname || null,
+      lastName: props.lastname || null,
+      phone: props.mobilephone || null,
+      workPhone: props.phone || props.work_phone || null,
+    };
+  }
+
   private async handleContactPropertyChanges(
     objectId: number,
-    events: HubSpotWebhookEventDto[],
+    _events: HubSpotWebhookEventDto[],
   ): Promise<void> {
-    // Find the email event from the group
-    const emailEvent = events.find(
-      (e) => e.propertyName?.toLowerCase() === 'email' && e.propertyValue,
-    );
-    const email = emailEvent?.propertyValue;
+    // 1. Fetch the full contact from HubSpot API (always get latest data)
+    const hsContact = await this.fetchHubSpotContact(objectId);
+    if (!hsContact) {
+      this.logger.warn(`contact.propertyChange: Could not fetch HubSpot contact objectId=${objectId}. Skipping.`);
+      return;
+    }
 
-    // 1. If we have an email, look up the contact by email
+    const email = hsContact.email;
+
+    // 2. Look up existing contact by email
     let contactInfoId: number | null = null;
-    let foundByEmail = false;
 
     if (email) {
       const byEmail = await this.dataSource.query(
@@ -1506,14 +1545,13 @@ export class HubSpotService {
 
       if (byEmail.length > 0) {
         contactInfoId = byEmail[0].ContactInfoID;
-        foundByEmail = true;
         this.logger.log(
           `contact.propertyChange: Found existing contact by email "${email}" → ContactInfo(${contactInfoId}).`,
         );
       }
     }
 
-    // 2. If contact not found by email, create a new one (auto-generated ID)
+    // 3. If contact not found by email, create a new one
     if (contactInfoId === null) {
       const insertResult = await this.dataSource.query(
         `INSERT INTO dbo.ContactInfo (FirstName, LastName, Email, CellPhone, WorkPhone)
@@ -1534,44 +1572,78 @@ export class HubSpotService {
       );
 
       contactInfoId = newId;
-      foundByEmail = false;
       this.logger.log(
         `contact.propertyChange: Created new ContactInfo(${newId}) + Contact with email="${email}".`,
       );
     }
 
-    // 3. Update properties on the found/created contact (skip email if contact was found by it)
-    for (const event of events) {
-      if (!event.propertyName || event.propertyValue === undefined) continue;
+    // 4. Update all fields from the HubSpot contact
+    await this.dataSource.query(
+      `UPDATE dbo.ContactInfo
+       SET [FirstName] = @0, [LastName] = @1, [Email] = @2, [CellPhone] = @3, [WorkPhone] = @4
+       WHERE ContactInfoID = @5`,
+      [
+        hsContact.firstName || '',
+        hsContact.lastName || '',
+        hsContact.email || '',
+        hsContact.phone || null,
+        hsContact.workPhone || null,
+        contactInfoId,
+      ],
+    );
 
-      // Skip updating email if we found the contact by that email (it's already correct)
-      if (event.propertyName.toLowerCase() === 'email' && foundByEmail) continue;
-
-      const dbColumn = this.contactPropertyMap[event.propertyName.toLowerCase()];
-      if (!dbColumn) {
-        this.logger.debug(
-          `No column mapping for HubSpot property "${event.propertyName}". Skipping.`,
-        );
-        continue;
-      }
-
-      await this.dataSource.query(
-        `UPDATE dbo.ContactInfo SET [${dbColumn}] = @0 WHERE ContactInfoID = @1`,
-        [event.propertyValue, contactInfoId],
-      );
-
-      this.logger.log(
-        `contact.propertyChange: Updated ContactInfo(${contactInfoId}) [${dbColumn}] = "${event.propertyValue}"`,
-      );
-    }
+    this.logger.log(
+      `contact.propertyChange: Updated ContactInfo(${contactInfoId}) from HubSpot objectId=${objectId} — ` +
+      `name="${hsContact.firstName} ${hsContact.lastName}", email="${hsContact.email}"`,
+    );
   }
 
   private async handleContactCreation(event: HubSpotWebhookEventDto): Promise<void> {
-    // Insert a new ContactInfo record (auto-generated ID)
+    // Fetch the full contact from HubSpot API
+    const hsContact = await this.fetchHubSpotContact(event.objectId);
+    if (!hsContact) {
+      this.logger.warn(`contact.creation: Could not fetch HubSpot contact objectId=${event.objectId}. Skipping.`);
+      return;
+    }
+
+    const email = hsContact.email;
+
+    // Check if the contact already exists by email
+    if (email) {
+      const existing = await this.dataSource.query(
+        `SELECT ContactInfoID FROM dbo.ContactInfo WHERE [Email] = @0`,
+        [email],
+      );
+      if (existing.length > 0) {
+        this.logger.log(`contact.creation: Contact with email "${email}" already exists (ContactInfoID=${existing[0].ContactInfoID}). Updating.`);
+        await this.dataSource.query(
+          `UPDATE dbo.ContactInfo
+           SET [FirstName] = @0, [LastName] = @1, [CellPhone] = @2, [WorkPhone] = @3
+           WHERE ContactInfoID = @4`,
+          [
+            hsContact.firstName || '',
+            hsContact.lastName || '',
+            hsContact.phone || null,
+            hsContact.workPhone || null,
+            existing[0].ContactInfoID,
+          ],
+        );
+        return;
+      }
+    }
+
+    // Insert a new ContactInfo record
     const insertResult = await this.dataSource.query(
       `INSERT INTO dbo.ContactInfo (FirstName, LastName, Email, CellPhone, WorkPhone)
-       VALUES ('', '', '', NULL, NULL);
+       VALUES (@0, @1, @2, @3, @4);
        SELECT SCOPE_IDENTITY() AS NewId;`,
+      [
+        hsContact.firstName || '',
+        hsContact.lastName || '',
+        hsContact.email || '',
+        hsContact.phone || null,
+        hsContact.workPhone || null,
+      ],
     );
     const newId = insertResult[0]?.NewId;
 
@@ -1586,6 +1658,9 @@ export class HubSpotService {
       [newId],
     );
 
-    this.logger.log(`contact.creation: Created ContactInfo(${newId}) + Contact for HubSpot objectId=${event.objectId}.`);
+    this.logger.log(
+      `contact.creation: Created ContactInfo(${newId}) + Contact for HubSpot objectId=${event.objectId} — ` +
+      `name="${hsContact.firstName} ${hsContact.lastName}", email="${hsContact.email}"`,
+    );
   }
 }
