@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createHash, createHmac, timingSafeEqual } from 'crypto';
 
 @Injectable()
 export class HubSpotSignatureService {
@@ -41,22 +41,23 @@ export class HubSpotSignatureService {
     }
 
     try {
-      let sourceString: string;
+      let hash: string;
 
       if (signatureVersion === 'v2') {
-        sourceString =
-          clientSecret +
+        // v2: HMAC-SHA256(clientSecret, httpMethod + requestUrl + requestBody)
+        const sourceString =
           (httpMethod || 'POST') +
           (requestUrl || '') +
           requestBody;
+        hash = createHmac('sha256', clientSecret)
+          .update(sourceString)
+          .digest('hex');
       } else {
-        // v1 default
-        sourceString = clientSecret + requestBody;
+        // v1: SHA-256(clientSecret + requestBody)
+        hash = createHash('sha256')
+          .update(clientSecret + requestBody)
+          .digest('hex');
       }
-
-      const hash = createHmac('sha256', clientSecret)
-        .update(sourceString)
-        .digest('hex');
 
       const expected = Buffer.from(hash, 'utf8');
       const received = Buffer.from(signatureHeader, 'utf8');
