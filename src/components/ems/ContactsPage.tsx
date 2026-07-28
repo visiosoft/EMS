@@ -1276,6 +1276,17 @@ export function ContactsPage({ addToast, initialSelectedContactId, onNavigate }:
 
   const isDeletePending = deleteMutation.isPending || isDeleteWorkflowPending;
 
+  const clearCompanyContactCaches = () => {
+    qc.removeQueries({
+      predicate: (query) => {
+        const key = query.queryKey;
+        if (key[0] === 'companies' && typeof key[2] === 'string' && key[2].includes('contact')) return true;
+        if (key[0] === 'company-contacts') return true;
+        return false;
+      },
+    });
+  };
+
   const confirmDeleteContact = async () => {
     const contactToDelete = pendingDelete;
     if (!contactToDelete || isDeletePending) {
@@ -1285,6 +1296,7 @@ export function ContactsPage({ addToast, initialSelectedContactId, onNavigate }:
     try {
       await deleteMutation.mutateAsync(contactToDelete);
       await qc.invalidateQueries({ queryKey: ['contacts', 'managed'] });
+      clearCompanyContactCaches();
       setSelectedContact((current) =>
         current?.contactId === contactToDelete.contactId ? null : current,
       );
@@ -1386,6 +1398,7 @@ export function ContactsPage({ addToast, initialSelectedContactId, onNavigate }:
 
         if (result.isConfirmed) {
           await qc.invalidateQueries({ queryKey: ['contacts', 'managed'] });
+          clearCompanyContactCaches();
           setSelectedContact((current) =>
             current?.contactId === contact.contactId ? null : current,
           );
@@ -1423,6 +1436,7 @@ export function ContactsPage({ addToast, initialSelectedContactId, onNavigate }:
 
         if (result.isConfirmed) {
           await qc.invalidateQueries({ queryKey: ['contacts', 'managed'] });
+          clearCompanyContactCaches();
           setSelectedContact((current) =>
             current?.contactId === contact.contactId ? null : current,
           );

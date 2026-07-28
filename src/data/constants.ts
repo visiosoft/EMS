@@ -190,6 +190,12 @@ export interface Contact {
   roleId?: number;
   departmentId?: number;
   departmentName?: string;
+  /** All role IDs when linking an existing contact with multiple assignments. */
+  roleIds?: number[];
+  /** All department IDs when linking an existing contact with multiple assignments. */
+  departmentIds?: number[];
+  /** All department names when linking an existing contact with multiple assignments. */
+  departmentNames?: string[];
 }
 
 export const CONTACTS: Contact[] = [
