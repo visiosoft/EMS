@@ -1476,6 +1476,7 @@ export class HubSpotService {
    * Fetch a single contact from HubSpot CRM API by objectId and return mapped properties.
    */
   private async fetchHubSpotContact(objectId: number): Promise<{
+    contactInfoId: number | null;
     email: string | null;
     firstName: string | null;
     lastName: string | null;
@@ -1489,7 +1490,7 @@ export class HubSpotService {
     }
 
     const url = this.buildHubSpotUrl(
-      `/crm/v3/objects/contacts/${objectId}?properties=email,firstname,lastname,phone,mobilephone,work_phone`,
+      `/crm/v3/objects/contacts/${objectId}?properties=email,firstname,lastname,phone,mobilephone,work_phone,iae_contact_info_id`,
     );
 
     const response = await fetch(url, {
@@ -1512,7 +1513,9 @@ export class HubSpotService {
     };
     const props = data.properties;
 
+    const rawId = props.iae_contact_info_id;
     return {
+      contactInfoId: rawId ? parseInt(rawId, 10) || null : null,
       email: props.email || null,
       firstName: props.firstname || null,
       lastName: props.lastname || null,
@@ -1541,25 +1544,42 @@ export class HubSpotService {
       return;
     }
 
-    if (!hsContact.email) {
-      this.logger.warn(`contact.propertyChange: HubSpot contact objectId=${objectId} has no email. Skipping.`);
-      return;
-    }
-
-    // 2. Find the record by email from HubSpot
-    const byEmail = await this.dataSource.query(
-      `SELECT ContactInfoID FROM dbo.ContactInfo WHERE [Email] = @0`,
-      [hsContact.email],
+    // 2. Check if this is an email change
+    const isEmailChange = events.some(
+      (e) => e.propertyName?.toLowerCase() === 'email',
     );
 
-    if (byEmail.length === 0) {
+    let contactInfoId: number | null = null;
+
+    if (isEmailChange && hsContact.contactInfoId) {
+      // Email changed — find the record by ContactInfoID (since email in DB is stale)
+      const byId = await this.dataSource.query(
+        `SELECT ContactInfoID FROM dbo.ContactInfo WHERE ContactInfoID = @0`,
+        [hsContact.contactInfoId],
+      );
+      if (byId.length > 0) {
+        contactInfoId = byId[0].ContactInfoID;
+        this.logger.log(
+          `contact.propertyChange (email change): Found contact by iae_contact_info_id=${hsContact.contactInfoId} → ContactInfo(${contactInfoId}).`,
+        );
+      }
+    } else if (hsContact.email) {
+      // Non-email change — find the record by email
+      const byEmail = await this.dataSource.query(
+        `SELECT ContactInfoID FROM dbo.ContactInfo WHERE [Email] = @0`,
+        [hsContact.email],
+      );
+      if (byEmail.length > 0) {
+        contactInfoId = byEmail[0].ContactInfoID;
+      }
+    }
+
+    if (contactInfoId === null) {
       this.logger.warn(
-        `contact.propertyChange: No contact found with email "${hsContact.email}" for objectId=${objectId}. Skipping.`,
+        `contact.propertyChange: No contact found for objectId=${objectId}. Skipping.`,
       );
       return;
     }
-
-    const contactInfoId = byEmail[0].ContactInfoID;
 
     // 3. Update each changed property (including email if that's what changed)
     for (const event of events) {
@@ -1573,15 +1593,8 @@ export class HubSpotService {
         continue;
       }
 
-      // Use the value from HubSpot API (latest) rather than the event payload
-      const valueMap: Record<string, string | null> = {
-        Email: hsContact.email,
-        FirstName: hsContact.firstName,
-        LastName: hsContact.lastName,
-        CellPhone: hsContact.phone,
-        WorkPhone: hsContact.workPhone,
-      };
-      const value = valueMap[dbColumn] ?? null;
+      // Use the event's propertyValue (the new value from HubSpot)
+      const value = event.propertyValue ?? null;
 
       await this.dataSource.query(
         `UPDATE dbo.ContactInfo SET [${dbColumn}] = @0 WHERE ContactInfoID = @1`,
