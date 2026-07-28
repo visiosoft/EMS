@@ -1620,11 +1620,16 @@ export class HubSpotService {
     // Check if the contact already exists by email
     if (email) {
       const existing = await this.dataSource.query(
-        `SELECT ContactInfoID FROM dbo.ContactInfo WHERE [Email] = @0`,
+        `SELECT ci.ContactInfoID, c.ContactID
+         FROM dbo.ContactInfo ci
+         JOIN dbo.Contact c ON c.ContactInfoID = ci.ContactInfoID
+         WHERE ci.[Email] = @0`,
         [email],
       );
       if (existing.length > 0) {
-        this.logger.log(`contact.creation: Contact with email "${email}" already exists (ContactInfoID=${existing[0].ContactInfoID}). Updating.`);
+        const contactInfoId = existing[0].ContactInfoID;
+        const contactId = existing[0].ContactID;
+        this.logger.log(`contact.creation: Contact with email "${email}" already exists (ContactInfoID=${contactInfoId}). Updating.`);
         await this.dataSource.query(
           `UPDATE dbo.ContactInfo
            SET [FirstName] = @0, [LastName] = @1, [CellPhone] = @2, [WorkPhone] = @3
@@ -1634,9 +1639,11 @@ export class HubSpotService {
             hsContact.lastName || '',
             hsContact.phone || null,
             hsContact.workPhone || null,
-            existing[0].ContactInfoID,
+            contactInfoId,
           ],
         );
+        // Write back IDs to HubSpot so future email changes can find this record
+        await this.updateHubSpotContactIds(event.objectId, contactInfoId, contactId);
         return;
       }
     }
@@ -1662,14 +1669,61 @@ export class HubSpotService {
     }
 
     // Create a Contact record linked to this ContactInfo
-    await this.dataSource.query(
-      `INSERT INTO dbo.Contact (ContactInfoID) VALUES (@0)`,
+    const contactResult = await this.dataSource.query(
+      `INSERT INTO dbo.Contact (ContactInfoID) VALUES (@0);
+       SELECT SCOPE_IDENTITY() AS NewContactId;`,
       [newId],
     );
+    const newContactId = contactResult[0]?.NewContactId;
+
+    // Write back IDs to HubSpot so future email changes can find this record
+    await this.updateHubSpotContactIds(event.objectId, newId, newContactId);
 
     this.logger.log(
-      `contact.creation: Created ContactInfo(${newId}) + Contact for HubSpot objectId=${event.objectId} — ` +
+      `contact.creation: Created ContactInfo(${newId}) + Contact(${newContactId}) for HubSpot objectId=${event.objectId} — ` +
       `name="${hsContact.firstName} ${hsContact.lastName}", email="${hsContact.email}"`,
     );
+  }
+
+  /**
+   * Write iae_contact_info_id and iae_contact_id back to HubSpot so future webhooks can look up the record.
+   */
+  private async updateHubSpotContactIds(
+    hubSpotObjectId: number,
+    contactInfoId: number,
+    contactId: number | null,
+  ): Promise<void> {
+    const token = this.configService.get<string>('HUBSPOT_ACCESS_TOKEN');
+    if (!token) {
+      this.logger.error('HUBSPOT_ACCESS_TOKEN not configured. Cannot write IDs back to HubSpot.');
+      return;
+    }
+
+    const properties: Record<string, string> = {
+      iae_contact_info_id: String(contactInfoId),
+    };
+    if (contactId) {
+      properties.iae_contact_id = String(contactId);
+    }
+
+    const url = this.buildHubSpotUrl(`/crm/v3/objects/contacts/${hubSpotObjectId}`);
+    const response = await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ properties }),
+    });
+
+    if (!response.ok) {
+      this.logger.error(
+        `Failed to write IDs back to HubSpot objectId=${hubSpotObjectId}: ${response.status} ${response.statusText}`,
+      );
+    } else {
+      this.logger.log(
+        `Wrote iae_contact_info_id=${contactInfoId}, iae_contact_id=${contactId} to HubSpot objectId=${hubSpotObjectId}.`,
+      );
+    }
   }
 }
