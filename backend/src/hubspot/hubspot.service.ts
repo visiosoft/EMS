@@ -1546,7 +1546,7 @@ export class HubSpotService {
       return;
     }
 
-    // 2. Find the record by email
+    // 2. Find the record by email from HubSpot
     const byEmail = await this.dataSource.query(
       `SELECT ContactInfoID FROM dbo.ContactInfo WHERE [Email] = @0`,
       [hsContact.email],
@@ -1561,7 +1561,7 @@ export class HubSpotService {
 
     const contactInfoId = byEmail[0].ContactInfoID;
 
-    // 3. Update each changed property
+    // 3. Update each changed property (including email if that's what changed)
     for (const event of events) {
       if (!event.propertyName) continue;
 
