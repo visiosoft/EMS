@@ -5623,16 +5623,16 @@ export class EngagementService {
       await this.assertVenueCompany(dto.primaryVenueCompanyId);
 
       await this.dataSource.transaction(async (manager) => {
-        // Demote existing primary
+        // Remove existing venue row for this engagement (unique constraint
+        // allows only one venue per engagement)
         const current = await manager.findOne(EngagementVenue, {
-          where: { engagementId: id, isPrimary: true },
+          where: { engagementId: id },
         });
         if (current && current.venueCompanyId !== dto.primaryVenueCompanyId) {
-          current.isPrimary = false;
-          await manager.save(EngagementVenue, current);
+          await manager.remove(EngagementVenue, current);
         }
 
-        // Promote or insert new primary
+        // Promote existing row or insert new primary
         const targetRow = await manager.findOne(EngagementVenue, {
           where: {
             engagementId: id,
