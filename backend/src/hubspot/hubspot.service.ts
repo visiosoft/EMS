@@ -1419,6 +1419,8 @@ export class HubSpotService {
   async handleWebhookEvents(events: HubSpotWebhookEventDto[]): Promise<void> {
     // Group contact.propertyChange events by objectId to process together
     const contactPropertyEvents = new Map<number, HubSpotWebhookEventDto[]>();
+    // Group company.propertyChange events by objectId to process together
+    const companyPropertyEvents = new Map<number, HubSpotWebhookEventDto[]>();
     const otherEvents: HubSpotWebhookEventDto[] = [];
 
     for (const event of events) {
@@ -1426,6 +1428,10 @@ export class HubSpotService {
         const group = contactPropertyEvents.get(event.objectId) || [];
         group.push(event);
         contactPropertyEvents.set(event.objectId, group);
+      } else if (event.subscriptionType === 'company.propertyChange') {
+        const group = companyPropertyEvents.get(event.objectId) || [];
+        group.push(event);
+        companyPropertyEvents.set(event.objectId, group);
       } else {
         otherEvents.push(event);
       }
@@ -1443,6 +1449,18 @@ export class HubSpotService {
       }
     }
 
+    // Process grouped company property changes
+    for (const [objectId, group] of companyPropertyEvents) {
+      try {
+        await this.handleCompanyPropertyChanges(objectId, group);
+      } catch (error) {
+        this.logger.error(
+          `Webhook processing failed for objectId=${objectId} (company.propertyChange)`,
+          error instanceof Error ? error.stack : error,
+        );
+      }
+    }
+
     // Process other events
     for (const event of otherEvents) {
       try {
@@ -1452,10 +1470,7 @@ export class HubSpotService {
             break;
 
           case 'company.creation':
-          case 'company.propertyChange':
-            this.logger.log(
-              `Webhook: ${event.subscriptionType} for objectId=${event.objectId}. Company sync not yet wired.`,
-            );
+            await this.handleCompanyCreation(event);
             break;
 
           default:
@@ -1723,6 +1738,424 @@ export class HubSpotService {
     } else {
       this.logger.log(
         `Wrote iae_contact_info_id=${contactInfoId}, iae_contact_id=${contactId} to HubSpot objectId=${hubSpotObjectId}.`,
+      );
+    }
+  }
+
+  // --- Company property mapping ---
+  // HubSpot webhook propertyName (exact) → dbo.Address column
+  private readonly hubSpotAddressColumnMap: Record<string, string> = {
+    'street address': 'AddressLine1',
+    'city': 'City',
+    'state/region': 'StateProvince',
+    'country': 'Country',
+    'postal code': 'PostalCode',
+  };
+
+  /**
+   * Fetch a single company from HubSpot CRM API by objectId and return all relevant properties.
+   */
+  private async fetchHubSpotCompany(objectId: number): Promise<{
+    companyId: number | null;
+    name: string | null;
+    type: string | null;
+    address: string | null;
+    city: string | null;
+    state: string | null;
+    country: string | null;
+    zip: string | null;
+  } | null> {
+    const token = this.configService.get<string>('HUBSPOT_ACCESS_TOKEN');
+    if (!token) {
+      this.logger.error('HUBSPOT_ACCESS_TOKEN not configured. Cannot fetch company from HubSpot.');
+      return null;
+    }
+
+    const url = this.buildHubSpotUrl(
+      `/crm/v3/objects/companies/${objectId}?properties=iae_company_id,name,type,address,city,state,country,zip`,
+    );
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      this.logger.error(
+        `Failed to fetch HubSpot company objectId=${objectId}: ${response.status} ${response.statusText}`,
+      );
+      return null;
+    }
+
+    const data = (await response.json()) as {
+      properties: Record<string, string | null>;
+    };
+    const props = data.properties;
+
+    const rawId = props.iae_company_id;
+    return {
+      companyId: rawId ? parseInt(rawId, 10) || null : null,
+      name: props.name || null,
+      type: props.type || null,
+      address: props.address || null,
+      city: props.city || null,
+      state: props.state || null,
+      country: props.country || null,
+      zip: props.zip || null,
+    };
+  }
+
+  /**
+   * Handle company.propertyChange webhook events — update dbo.Company in EMS.
+   */
+  private async handleCompanyPropertyChanges(
+    objectId: number,
+    events: HubSpotWebhookEventDto[],
+  ): Promise<void> {
+    // 1. Fetch the company from HubSpot to get the iae_company_id
+    const hsCompany = await this.fetchHubSpotCompany(objectId);
+    if (!hsCompany) {
+      this.logger.warn(`company.propertyChange: Could not fetch HubSpot company objectId=${objectId}. Skipping.`);
+      return;
+    }
+
+    let companyId = hsCompany.companyId;
+
+    // If iae_company_id exists, verify it matches a real EMS company
+    let companyRows: Record<string, unknown>[] = [];
+    if (companyId) {
+      companyRows = await this.dataSource.query(
+        `SELECT CompanyID, PhysicalAddressID, MailingAddressID FROM dbo.Company WHERE CompanyID = @0`,
+        [companyId],
+      );
+    }
+
+    // If no iae_company_id or CompanyID not found — treat as a new company
+    if (!companyId || companyRows.length === 0) {
+      this.logger.log(
+        `company.propertyChange: No EMS match for HubSpot objectId=${objectId} (iae_company_id=${companyId ?? 'none'}). Creating new company.`,
+      );
+      companyId = await this.createCompanyFromHubSpot(objectId, hsCompany);
+      if (!companyId) return;
+      // Re-fetch the newly created company row
+      companyRows = await this.dataSource.query(
+        `SELECT CompanyID, PhysicalAddressID, MailingAddressID FROM dbo.Company WHERE CompanyID = @0`,
+        [companyId],
+      );
+    }
+
+    const currentPhysicalAddressId: number | null =
+      (companyRows[0]?.PhysicalAddressID as number) ?? null;
+
+    // 2. Separate events by category
+    const addressChanges: Record<string, string | null> = {};
+    let hasAddressChanges = false;
+
+    for (const event of events) {
+      if (!event.propertyName) continue;
+      const propKey = event.propertyName.toLowerCase();
+      const value = event.propertyValue ?? null;
+
+      if (propKey === 'name') {
+        // Direct update on dbo.Company.CompanyName
+        await this.dataSource.query(
+          `UPDATE dbo.Company SET CompanyName = @0 WHERE CompanyID = @1`,
+          [value, companyId],
+        );
+        this.logger.log(
+          `company.propertyChange: Updated Company(${companyId}) [CompanyName] = "${value}"`,
+        );
+      } else if (propKey === 'type') {
+        // Look up CompanyType by name, then update the FK
+        if (!value) {
+          await this.dataSource.query(
+            `UPDATE dbo.Company SET CompanyTypeID = NULL WHERE CompanyID = @0`,
+            [companyId],
+          );
+          this.logger.log(
+            `company.propertyChange: Cleared Company(${companyId}) [CompanyTypeID] (type was empty)`,
+          );
+        } else {
+          const typeId = await this.resolveOrCreateCompanyTypeId(value);
+          await this.dataSource.query(
+            `UPDATE dbo.Company SET CompanyTypeID = @0 WHERE CompanyID = @1`,
+            [typeId, companyId],
+          );
+          this.logger.log(
+            `company.propertyChange: Updated Company(${companyId}) [CompanyTypeID] = ${typeId} (type "${value}")`,
+          );
+        }
+      } else if (this.hubSpotAddressColumnMap[propKey]) {
+        // Collect address field changes to process as a batch
+        const dbColumn = this.hubSpotAddressColumnMap[propKey];
+        addressChanges[dbColumn] = value;
+        hasAddressChanges = true;
+      } else {
+        this.logger.debug(
+          `No company column mapping for HubSpot property "${event.propertyName}". Skipping.`,
+        );
+      }
+    }
+
+    // 3. Process address changes: find-or-create address, update Company FK
+    if (hasAddressChanges) {
+      await this.upsertCompanyAddress(companyId, currentPhysicalAddressId, addressChanges);
+    }
+  }
+
+  /**
+   * Find or create an address, then set both PhysicalAddressID and MailingAddressID on the company.
+   */
+  private async upsertCompanyAddress(
+    companyId: number,
+    currentAddressId: number | null,
+    changes: Record<string, string | null>,
+  ): Promise<void> {
+    // Load current address values (if any) so we can merge with changes
+    let current: Record<string, string> = {
+      AddressLine1: '',
+      City: '',
+      StateProvince: '',
+      PostalCode: '',
+      Country: '',
+    };
+
+    if (currentAddressId) {
+      const rows = await this.dataSource.query(
+        `SELECT AddressLine1, City, StateProvince, PostalCode, Country FROM dbo.Address WHERE AddressID = @0`,
+        [currentAddressId],
+      );
+      if (rows.length > 0) {
+        current = {
+          AddressLine1: rows[0].AddressLine1 ?? '',
+          City: rows[0].City ?? '',
+          StateProvince: rows[0].StateProvince ?? '',
+          PostalCode: rows[0].PostalCode ?? '',
+          Country: rows[0].Country ?? '',
+        };
+      }
+    }
+
+    // Merge: apply incoming changes over current values
+    const merged = { ...current };
+    for (const [col, val] of Object.entries(changes)) {
+      merged[col] = val ?? '';
+    }
+
+    // Look for an existing address that matches all fields
+    const matchRows = await this.dataSource.query(
+      `SELECT TOP 1 AddressID FROM dbo.Address
+       WHERE AddressLine1 = @0 AND City = @1 AND StateProvince = @2 AND PostalCode = @3 AND Country = @4`,
+      [merged.AddressLine1, merged.City, merged.StateProvince, merged.PostalCode, merged.Country],
+    );
+
+    let addressId: number;
+
+    if (matchRows.length > 0) {
+      addressId = matchRows[0].AddressID;
+      this.logger.log(
+        `company.propertyChange: Found existing Address(${addressId}) matching updated fields.`,
+      );
+    } else {
+      // Create a new address
+      const insertResult = await this.dataSource.query(
+        `INSERT INTO dbo.Address (AddressLine1, City, StateProvince, PostalCode, Country)
+         VALUES (@0, @1, @2, @3, @4);
+         SELECT SCOPE_IDENTITY() AS NewId;`,
+        [merged.AddressLine1, merged.City, merged.StateProvince, merged.PostalCode, merged.Country],
+      );
+      addressId = insertResult[0]?.NewId;
+      if (!addressId) {
+        this.logger.error(
+          `company.propertyChange: Failed to insert new Address for Company(${companyId}).`,
+        );
+        return;
+      }
+      this.logger.log(
+        `company.propertyChange: Created new Address(${addressId}).`,
+      );
+    }
+
+    // Update both PhysicalAddressID and MailingAddressID on the company
+    await this.dataSource.query(
+      `UPDATE dbo.Company SET PhysicalAddressID = @0, MailingAddressID = @0 WHERE CompanyID = @1`,
+      [addressId, companyId],
+    );
+    this.logger.log(
+      `company.propertyChange: Updated Company(${companyId}) PhysicalAddressID = ${addressId}, MailingAddressID = ${addressId}`,
+    );
+  }
+
+  /**
+   * Handle company.creation webhook — create a new company in EMS from HubSpot data.
+   */
+  private async handleCompanyCreation(event: HubSpotWebhookEventDto): Promise<void> {
+    const hsCompany = await this.fetchHubSpotCompany(event.objectId);
+    if (!hsCompany) {
+      this.logger.warn(`company.creation: Could not fetch HubSpot company objectId=${event.objectId}. Skipping.`);
+      return;
+    }
+
+    // Check if already linked to an EMS company
+    if (hsCompany.companyId) {
+      const existing = await this.dataSource.query(
+        `SELECT CompanyID FROM dbo.Company WHERE CompanyID = @0`,
+        [hsCompany.companyId],
+      );
+      if (existing.length > 0) {
+        this.logger.log(
+          `company.creation: HubSpot objectId=${event.objectId} already linked to EMS Company(${hsCompany.companyId}). Skipping.`,
+        );
+        return;
+      }
+    }
+
+    await this.createCompanyFromHubSpot(event.objectId, hsCompany);
+  }
+
+  /**
+   * Create a new company + address in EMS from HubSpot data, then write back iae_company_id.
+   * Returns the new CompanyID or null on failure.
+   *
+   * HubSpot API used:
+   *   GET  /crm/v3/objects/companies/{objectId}  — fetch company properties (called by fetchHubSpotCompany)
+   *   PATCH /crm/v3/objects/companies/{objectId} — write back iae_company_id after creation
+   */
+  private async createCompanyFromHubSpot(
+    hubSpotObjectId: number,
+    hsCompany: {
+      name: string | null;
+      type: string | null;
+      address: string | null;
+      city: string | null;
+      state: string | null;
+      country: string | null;
+      zip: string | null;
+    },
+  ): Promise<number | null> {
+    // 1. Resolve CompanyTypeID from the type name (create if not found)
+    let companyTypeId: number | null = null;
+    if (hsCompany.type) {
+      companyTypeId = await this.resolveOrCreateCompanyTypeId(hsCompany.type);
+    }
+
+    // 2. Create address if any address fields are provided
+    let addressId: number | null = null;
+    const addr = hsCompany.address ?? '';
+    const city = hsCompany.city ?? '';
+    const state = hsCompany.state ?? '';
+    const country = hsCompany.country ?? '';
+    const zip = hsCompany.zip ?? '';
+    const hasAddress = addr || city || state || country || zip;
+
+    if (hasAddress) {
+      // Check for existing matching address
+      const matchRows = await this.dataSource.query(
+        `SELECT TOP 1 AddressID FROM dbo.Address
+         WHERE AddressLine1 = @0 AND City = @1 AND StateProvince = @2 AND PostalCode = @3 AND Country = @4`,
+        [addr, city, state, zip, country],
+      );
+
+      if (matchRows.length > 0) {
+        addressId = matchRows[0].AddressID;
+      } else {
+        const insertResult = await this.dataSource.query(
+          `INSERT INTO dbo.Address (AddressLine1, City, StateProvince, PostalCode, Country)
+           VALUES (@0, @1, @2, @3, @4);
+           SELECT SCOPE_IDENTITY() AS NewId;`,
+          [addr, city, state, zip, country],
+        );
+        addressId = insertResult[0]?.NewId ?? null;
+      }
+    }
+
+    // 3. Insert the company
+    const insertResult = await this.dataSource.query(
+      `INSERT INTO dbo.Company (CompanyName, CompanyTypeID, PhysicalAddressID, MailingAddressID)
+       VALUES (@0, @1, @2, @2);
+       SELECT SCOPE_IDENTITY() AS NewId;`,
+      [hsCompany.name ?? '', companyTypeId, addressId],
+    );
+    const newCompanyId = insertResult[0]?.NewId;
+
+    if (!newCompanyId) {
+      this.logger.error(
+        `createCompanyFromHubSpot: Failed to insert company for HubSpot objectId=${hubSpotObjectId}.`,
+      );
+      return null;
+    }
+
+    // 4. Write back iae_company_id to HubSpot so future webhooks can match
+    await this.updateHubSpotCompanyId(hubSpotObjectId, newCompanyId);
+
+    this.logger.log(
+      `createCompanyFromHubSpot: Created Company(${newCompanyId}) for HubSpot objectId=${hubSpotObjectId} — ` +
+      `name="${hsCompany.name}", type="${hsCompany.type}", addressId=${addressId}`,
+    );
+
+    return newCompanyId;
+  }
+
+  /**
+   * Find a CompanyType by name, or create it if it doesn't exist. Returns the CompanyTypeID.
+   */
+  private async resolveOrCreateCompanyTypeId(typeName: string): Promise<number> {
+    const existing = await this.dataSource.query(
+      `SELECT CompanyTypeID FROM dbo.CompanyType WHERE CompanyTypeName = @0`,
+      [typeName],
+    );
+    if (existing.length > 0) {
+      return existing[0].CompanyTypeID;
+    }
+
+    const insertResult = await this.dataSource.query(
+      `INSERT INTO dbo.CompanyType (CompanyTypeName) VALUES (@0);
+       SELECT SCOPE_IDENTITY() AS NewId;`,
+      [typeName],
+    );
+    const newId = insertResult[0]?.NewId;
+    this.logger.log(
+      `resolveOrCreateCompanyTypeId: Created new CompanyType(${newId}) = "${typeName}"`,
+    );
+    return newId;
+  }
+
+  /**
+   * Write iae_company_id back to HubSpot so future webhooks can match.
+   * API: PATCH /crm/v3/objects/companies/{objectId}
+   */
+  private async updateHubSpotCompanyId(
+    hubSpotObjectId: number,
+    companyId: number,
+  ): Promise<void> {
+    const token = this.configService.get<string>('HUBSPOT_ACCESS_TOKEN');
+    if (!token) {
+      this.logger.error('HUBSPOT_ACCESS_TOKEN not configured. Cannot write iae_company_id back to HubSpot.');
+      return;
+    }
+
+    const url = this.buildHubSpotUrl(`/crm/v3/objects/companies/${hubSpotObjectId}`);
+    const response = await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        properties: { iae_company_id: String(companyId) },
+      }),
+    });
+
+    if (!response.ok) {
+      this.logger.error(
+        `Failed to write iae_company_id back to HubSpot objectId=${hubSpotObjectId}: ${response.status} ${response.statusText}`,
+      );
+    } else {
+      this.logger.log(
+        `Wrote iae_company_id=${companyId} to HubSpot objectId=${hubSpotObjectId}.`,
       );
     }
   }
