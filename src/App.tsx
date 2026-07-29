@@ -1,3 +1,4 @@
+// Deploy trigger: 2026-07-22
 import { initializeIcons } from "@fluentui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
