@@ -2051,10 +2051,10 @@ export class HubSpotService {
         `createCompanyFromHubSpot: Attempting INSERT — name="${hsCompany.name}", companyTypeId=${companyTypeId}, addressId=${addressId}`,
       );
       const insertResult = await this.dataSource.query(
-        `INSERT INTO dbo.Company (CompanyName, CompanyTypeID, PhysicalAddressID, MailingAddressID, is_internal, created_by, created_at, modified_by, modified_at)
-         VALUES (@0, @1, @2, @2, @3, @4, GETUTCDATE(), @4, GETUTCDATE());
+        `INSERT INTO dbo.Company (CompanyName, CompanyTypeID, PhysicalAddressID, MailingAddressID, DMAID, is_internal, created_by, created_at, modified_by, modified_at)
+         VALUES (@0, @1, @2, @2, COALESCE((SELECT TOP 1 DMAID FROM dbo.DMA WHERE PostalCode = @5), (SELECT TOP 1 DMAID FROM dbo.DMA)), @3, @4, GETUTCDATE(), @4, GETUTCDATE());
          SELECT SCOPE_IDENTITY() AS NewId;`,
-        [hsCompany.name ?? '', companyTypeId, addressId, 0, 'hubspot-webhook'],
+        [hsCompany.name ?? '', companyTypeId, addressId, 0, 'hubspot-webhook', zip],
       );
       this.logger.log(
         `createCompanyFromHubSpot: INSERT result = ${JSON.stringify(insertResult)}`,
