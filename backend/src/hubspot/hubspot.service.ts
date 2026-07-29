@@ -2037,17 +2037,23 @@ export class HubSpotService {
     // 3. Insert the company
     let newCompanyId: number | null = null;
     try {
+      this.logger.log(
+        `createCompanyFromHubSpot: Attempting INSERT — name="${hsCompany.name}", companyTypeId=${companyTypeId}, addressId=${addressId}`,
+      );
       const insertResult = await this.dataSource.query(
         `INSERT INTO dbo.Company (CompanyName, CompanyTypeID, PhysicalAddressID, MailingAddressID, is_internal, created_by, created_at, modified_by, modified_at)
-         VALUES (@0, @1, @2, @3, 0, 'hubspot-webhook', GETUTCDATE(), 'hubspot-webhook', GETUTCDATE());
+         VALUES (@0, @1, @2, @2, @3, @4, GETUTCDATE(), @4, GETUTCDATE());
          SELECT SCOPE_IDENTITY() AS NewId;`,
-        [hsCompany.name ?? '', companyTypeId, addressId, addressId],
+        [hsCompany.name ?? '', companyTypeId, addressId, 0, 'hubspot-webhook'],
+      );
+      this.logger.log(
+        `createCompanyFromHubSpot: INSERT result = ${JSON.stringify(insertResult)}`,
       );
       newCompanyId = insertResult[0]?.NewId ?? null;
     } catch (error) {
       this.logger.error(
         `createCompanyFromHubSpot: SQL INSERT failed for HubSpot objectId=${hubSpotObjectId} — ` +
-        `name="${hsCompany.name}", companyTypeId=${companyTypeId}, addressId=${addressId}`,
+        `name="${hsCompany.name}", companyTypeId=${companyTypeId}, addressId=${addressId}. Error: ${error instanceof Error ? error.message : JSON.stringify(error)}`,
         error instanceof Error ? error.stack : error,
       );
       return null;
