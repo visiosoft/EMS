@@ -1745,18 +1745,12 @@ export class HubSpotService {
 
   // --- Company property mapping ---
   // HubSpot webhook propertyName → dbo.Address column
-  // Supports both internal API names and display labels
   private readonly hubSpotAddressColumnMap: Record<string, string> = {
-    // Internal API names (what webhooks actually send)
     'address': 'AddressLine1',
     'city': 'City',
     'state': 'StateProvince',
     'country': 'Country',
     'zip': 'PostalCode',
-    // Display labels (fallback)
-    'street address': 'AddressLine1',
-    'state/region': 'StateProvince',
-    'postal code': 'PostalCode',
   };
 
   /**
@@ -2012,39 +2006,32 @@ export class HubSpotService {
     },
   ): Promise<number | null> {
     // 1. Resolve CompanyTypeID from the type name (create if not found)
-    let companyTypeId: number | null = null;
-    if (hsCompany.type) {
-      companyTypeId = await this.resolveOrCreateCompanyTypeId(hsCompany.type);
-    }
+    // If no type provided, use 'Other' as default
+    const typeName = hsCompany.type || 'Other';
+    const companyTypeId = await this.resolveOrCreateCompanyTypeId(typeName);
 
-    // 2. Create address if any address fields are provided
+    // 2. Always create an address record (even if fields are empty)
     let addressId: number | null = null;
     const addr = hsCompany.address ?? '';
     const city = hsCompany.city ?? '';
     const state = hsCompany.state ?? '';
     const country = hsCompany.country ?? '';
     const zip = hsCompany.zip ?? '';
-    const hasAddress = addr || city || state || country || zip;
 
-    if (hasAddress) {
-      // Check for existing matching address
-      const matchRows = await this.dataSource.query(
-        `SELECT TOP 1 AddressID FROM dbo.Address
-         WHERE AddressLine1 = @0 AND City = @1 AND StateProvince = @2 AND PostalCode = @3 AND Country = @4`,
+    try {
+      const addrResult = await this.dataSource.query(
+        `INSERT INTO dbo.Address (AddressLine1, City, StateProvince, PostalCode, Country)
+         VALUES (@0, @1, @2, @3, @4);
+         SELECT SCOPE_IDENTITY() AS NewId;`,
         [addr, city, state, zip, country],
       );
-
-      if (matchRows.length > 0) {
-        addressId = matchRows[0].AddressID;
-      } else {
-        const insertResult = await this.dataSource.query(
-          `INSERT INTO dbo.Address (AddressLine1, City, StateProvince, PostalCode, Country)
-           VALUES (@0, @1, @2, @3, @4);
-           SELECT SCOPE_IDENTITY() AS NewId;`,
-          [addr, city, state, zip, country],
-        );
-        addressId = insertResult[0]?.NewId ?? null;
-      }
+      addressId = addrResult[0]?.NewId ?? null;
+    } catch (error) {
+      this.logger.error(
+        `createCompanyFromHubSpot: Failed to insert address for HubSpot objectId=${hubSpotObjectId}`,
+        error instanceof Error ? error.stack : error,
+      );
+      return null;
     }
 
     // 3. Insert the company
