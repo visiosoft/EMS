@@ -2010,7 +2010,7 @@ export class HubSpotService {
     const typeName = hsCompany.type || 'Other';
     const companyTypeId = await this.resolveOrCreateCompanyTypeId(typeName);
 
-    // 2. Always create an address record (even if fields are empty)
+    // 2. Find existing address or create a new one
     let addressId: number | null = null;
     const addr = hsCompany.address ?? '';
     const city = hsCompany.city ?? '';
@@ -2019,16 +2019,26 @@ export class HubSpotService {
     const zip = hsCompany.zip ?? '';
 
     try {
-      const addrResult = await this.dataSource.query(
-        `INSERT INTO dbo.Address (AddressLine1, City, StateProvince, PostalCode, Country)
-         VALUES (@0, @1, @2, @3, @4);
-         SELECT SCOPE_IDENTITY() AS NewId;`,
+      // Check for existing address first (UX_Address unique index)
+      const existing = await this.dataSource.query(
+        `SELECT AddressID FROM dbo.Address WHERE AddressLine1 = @0 AND City = @1 AND StateProvince = @2 AND PostalCode = @3 AND Country = @4`,
         [addr, city, state, zip, country],
       );
-      addressId = addrResult[0]?.NewId ?? null;
+
+      if (existing.length > 0) {
+        addressId = existing[0].AddressID;
+      } else {
+        const addrResult = await this.dataSource.query(
+          `INSERT INTO dbo.Address (AddressLine1, City, StateProvince, PostalCode, Country)
+           VALUES (@0, @1, @2, @3, @4);
+           SELECT SCOPE_IDENTITY() AS NewId;`,
+          [addr, city, state, zip, country],
+        );
+        addressId = addrResult[0]?.NewId ?? null;
+      }
     } catch (error) {
       this.logger.error(
-        `createCompanyFromHubSpot: Failed to insert address for HubSpot objectId=${hubSpotObjectId}`,
+        `createCompanyFromHubSpot: Failed to resolve address for HubSpot objectId=${hubSpotObjectId}`,
         error instanceof Error ? error.stack : error,
       );
       return null;
