@@ -2074,8 +2074,8 @@ export class HubSpotService {
 
     // 3. Insert the company
     const insertResult = await this.dataSource.query(
-      `INSERT INTO dbo.Company (CompanyName, CompanyTypeID, PhysicalAddressID, MailingAddressID)
-       VALUES (@0, @1, @2, @2);
+      `INSERT INTO dbo.Company (CompanyName, CompanyTypeID, PhysicalAddressID, MailingAddressID, is_internal, created_by, created_at, modified_by, modified_at)
+       VALUES (@0, @1, @2, @2, 0, 'hubspot-webhook', GETUTCDATE(), 'hubspot-webhook', GETUTCDATE());
        SELECT SCOPE_IDENTITY() AS NewId;`,
       [hsCompany.name ?? '', companyTypeId, addressId],
     );
