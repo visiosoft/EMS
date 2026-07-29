@@ -1919,86 +1919,49 @@ export class HubSpotService {
   }
 
   /**
-   * Find or create an address, then set both PhysicalAddressID and MailingAddressID on the company.
+   * Update the existing address record linked to the company.
+   * Finds the company's PhysicalAddressID, then updates only the changed columns on that address row.
    */
   private async upsertCompanyAddress(
     companyId: number,
     currentAddressId: number | null,
     changes: Record<string, string | null>,
   ): Promise<void> {
-    // Load current address values (if any) so we can merge with changes
-    let current: Record<string, string> = {
-      AddressLine1: '',
-      City: '',
-      StateProvince: '',
-      PostalCode: '',
-      Country: '',
-    };
-
-    if (currentAddressId) {
-      const rows = await this.dataSource.query(
-        `SELECT AddressLine1, City, StateProvince, PostalCode, Country FROM dbo.Address WHERE AddressID = @0`,
-        [currentAddressId],
-      );
-      if (rows.length > 0) {
-        current = {
-          AddressLine1: rows[0].AddressLine1 ?? '',
-          City: rows[0].City ?? '',
-          StateProvince: rows[0].StateProvince ?? '',
-          PostalCode: rows[0].PostalCode ?? '',
-          Country: rows[0].Country ?? '',
-        };
-      }
-    }
-
-    // Merge: apply incoming changes over current values
-    const merged = { ...current };
-    for (const [col, val] of Object.entries(changes)) {
-      merged[col] = val ?? '';
-    }
-
-    // Look for an existing address that matches all fields
-    const matchRows = await this.dataSource.query(
-      `SELECT TOP 1 AddressID FROM dbo.Address
-       WHERE AddressLine1 = @0 AND City = @1 AND StateProvince = @2 AND PostalCode = @3 AND Country = @4`,
-      [merged.AddressLine1, merged.City, merged.StateProvince, merged.PostalCode, merged.Country],
-    );
-
-    let addressId: number;
-
-    if (matchRows.length > 0) {
-      addressId = matchRows[0].AddressID;
-      this.logger.log(
-        `company.propertyChange: Found existing Address(${addressId}) matching updated fields.`,
-      );
-    } else {
-      // Create a new address
+    if (!currentAddressId) {
+      // Company has no address yet — create a new one and link it
       const insertResult = await this.dataSource.query(
         `INSERT INTO dbo.Address (AddressLine1, City, StateProvince, PostalCode, Country)
-         VALUES (@0, @1, @2, @3, @4);
+         VALUES ('', '', '', '', '');
          SELECT SCOPE_IDENTITY() AS NewId;`,
-        [merged.AddressLine1, merged.City, merged.StateProvince, merged.PostalCode, merged.Country],
       );
-      addressId = insertResult[0]?.NewId;
-      if (!addressId) {
+      const newAddressId = insertResult[0]?.NewId;
+      if (!newAddressId) {
         this.logger.error(
-          `company.propertyChange: Failed to insert new Address for Company(${companyId}).`,
+          `company.propertyChange: Failed to create address for Company(${companyId}).`,
         );
         return;
       }
+      // Link the new address to the company
+      await this.dataSource.query(
+        `UPDATE dbo.Company SET PhysicalAddressID = @0, MailingAddressID = @0 WHERE CompanyID = @1`,
+        [newAddressId, companyId],
+      );
+      currentAddressId = newAddressId;
       this.logger.log(
-        `company.propertyChange: Created new Address(${addressId}).`,
+        `company.propertyChange: Created new Address(${newAddressId}) and linked to Company(${companyId}).`,
       );
     }
 
-    // Update both PhysicalAddressID and MailingAddressID on the company
-    await this.dataSource.query(
-      `UPDATE dbo.Company SET PhysicalAddressID = @0, MailingAddressID = @0 WHERE CompanyID = @1`,
-      [addressId, companyId],
-    );
-    this.logger.log(
-      `company.propertyChange: Updated Company(${companyId}) PhysicalAddressID = ${addressId}, MailingAddressID = ${addressId}`,
-    );
+    // Update only the changed fields on the existing address record
+    for (const [dbColumn, value] of Object.entries(changes)) {
+      await this.dataSource.query(
+        `UPDATE dbo.Address SET [${dbColumn}] = @0 WHERE AddressID = @1`,
+        [value ?? '', currentAddressId],
+      );
+      this.logger.log(
+        `company.propertyChange: Updated Address(${currentAddressId}) [${dbColumn}] = "${value}"`,
+      );
+    }
   }
 
   /**
