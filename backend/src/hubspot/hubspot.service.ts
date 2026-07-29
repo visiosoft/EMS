@@ -838,6 +838,7 @@ export class HubSpotService {
       idProperty: 'iae_company_id',
       properties: {
         name: company.companyName,
+        type: company.companyTypeName,
         address: [company.addressLine1, company.addressLine2]
           .filter(Boolean)
           .join(', '),
@@ -1743,12 +1744,18 @@ export class HubSpotService {
   }
 
   // --- Company property mapping ---
-  // HubSpot webhook propertyName (exact) → dbo.Address column
+  // HubSpot webhook propertyName → dbo.Address column
+  // Supports both internal API names and display labels
   private readonly hubSpotAddressColumnMap: Record<string, string> = {
-    'street address': 'AddressLine1',
+    // Internal API names (what webhooks actually send)
+    'address': 'AddressLine1',
     'city': 'City',
-    'state/region': 'StateProvince',
+    'state': 'StateProvince',
     'country': 'Country',
+    'zip': 'PostalCode',
+    // Display labels (fallback)
+    'street address': 'AddressLine1',
+    'state/region': 'StateProvince',
     'postal code': 'PostalCode',
   };
 
@@ -1833,13 +1840,18 @@ export class HubSpotService {
       );
     }
 
-    // If no iae_company_id or CompanyID not found — treat as a new company
+    // If no iae_company_id or CompanyID not found — try to create, but don't block updates if creation fails
     if (!companyId || companyRows.length === 0) {
       this.logger.log(
-        `company.propertyChange: No EMS match for HubSpot objectId=${objectId} (iae_company_id=${companyId ?? 'none'}). Creating new company.`,
+        `company.propertyChange: No EMS match for HubSpot objectId=${objectId} (iae_company_id=${companyId ?? 'none'}). Attempting to create new company.`,
       );
       companyId = await this.createCompanyFromHubSpot(objectId, hsCompany);
-      if (!companyId) return;
+      if (!companyId) {
+        this.logger.warn(
+          `company.propertyChange: Could not create EMS company for HubSpot objectId=${objectId}. Skipping property updates.`,
+        );
+        return;
+      }
       // Re-fetch the newly created company row
       companyRows = await this.dataSource.query(
         `SELECT CompanyID, PhysicalAddressID, MailingAddressID FROM dbo.Company WHERE CompanyID = @0`,
@@ -2073,13 +2085,23 @@ export class HubSpotService {
     }
 
     // 3. Insert the company
-    const insertResult = await this.dataSource.query(
-      `INSERT INTO dbo.Company (CompanyName, CompanyTypeID, PhysicalAddressID, MailingAddressID, is_internal, created_by, created_at, modified_by, modified_at)
-       VALUES (@0, @1, @2, @2, 0, 'hubspot-webhook', GETUTCDATE(), 'hubspot-webhook', GETUTCDATE());
-       SELECT SCOPE_IDENTITY() AS NewId;`,
-      [hsCompany.name ?? '', companyTypeId, addressId],
-    );
-    const newCompanyId = insertResult[0]?.NewId;
+    let newCompanyId: number | null = null;
+    try {
+      const insertResult = await this.dataSource.query(
+        `INSERT INTO dbo.Company (CompanyName, CompanyTypeID, PhysicalAddressID, MailingAddressID, is_internal, created_by, created_at, modified_by, modified_at)
+         VALUES (@0, @1, @2, @3, 0, 'hubspot-webhook', GETUTCDATE(), 'hubspot-webhook', GETUTCDATE());
+         SELECT SCOPE_IDENTITY() AS NewId;`,
+        [hsCompany.name ?? '', companyTypeId, addressId, addressId],
+      );
+      newCompanyId = insertResult[0]?.NewId ?? null;
+    } catch (error) {
+      this.logger.error(
+        `createCompanyFromHubSpot: SQL INSERT failed for HubSpot objectId=${hubSpotObjectId} — ` +
+        `name="${hsCompany.name}", companyTypeId=${companyTypeId}, addressId=${addressId}`,
+        error instanceof Error ? error.stack : error,
+      );
+      return null;
+    }
 
     if (!newCompanyId) {
       this.logger.error(
