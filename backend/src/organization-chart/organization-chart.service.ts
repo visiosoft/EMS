@@ -141,6 +141,9 @@ export class OrganizationChartService {
     if (accessToken) {
       try {
         const entraUsers = await this.fetchEntraUsersWithManagers(accessToken);
+        // Overlay Entra job titles onto SQL rows so department nodes also
+        // reflect the user's actual Entra position without a DB column.
+        this.overlayEntraJobTitles(rows, entraUsers);
         const result = this.buildHierarchyFromEntra(
           company,
           rows,
@@ -196,6 +199,36 @@ export class OrganizationChartService {
       provided ?? this.auditContext.getGraphAccessToken() ?? '',
     ).trim();
     return token || null;
+  }
+
+  /**
+   * Mutates SQL rows in-place: for each row whose email matches an Entra user,
+   * writes the Entra jobTitle into the row so downstream builders (department
+   * nodes, hierarchy members) reflect the real Entra position without needing
+   * the DB column.
+   */
+  private overlayEntraJobTitles(
+    rows: ChartRow[],
+    entraUsers: EntraManagerUser[],
+  ): void {
+    const entraByEmail = new Map<string, EntraManagerUser>();
+    for (const user of entraUsers) {
+      const email = user.mail ? normalizeEmail(user.mail) : null;
+      if (email && !entraByEmail.has(email)) {
+        entraByEmail.set(email, user);
+      }
+    }
+    for (const row of rows) {
+      const email = normalizeEmail(
+        (row['email'] as string) ?? (row['Email'] as string) ?? '',
+      );
+      if (!email) continue;
+      const entraUser = entraByEmail.get(email);
+      if (entraUser?.jobTitle) {
+        row['jobTitle'] = entraUser.jobTitle;
+        row['JobTitle'] = entraUser.jobTitle;
+      }
+    }
   }
 
   private async fetchEntraUsersWithManagers(
@@ -293,6 +326,11 @@ export class OrganizationChartService {
       const entraUser = email ? entraByEmail.get(email) : undefined;
       if (entraUser) {
         member.entraUserId = entraUser.id;
+        // Use Entra jobTitle directly so the org chart reflects the user's
+        // actual Entra position even when the DB column doesn't exist.
+        if (entraUser.jobTitle) {
+          member.jobTitle = entraUser.jobTitle;
+        }
         matchedMembers.push({ member, entraUser });
       } else {
         unmatchedMembers.push(member);
@@ -425,6 +463,17 @@ export class OrganizationChartService {
       jobTitleColumnAvailable,
     );
     const warnings: string[] = [];
+
+    // Overlay Entra job titles when a graph token is available
+    const accessToken = this.resolveGraphToken();
+    if (accessToken) {
+      try {
+        const entraUsers = await this.fetchEntraUsersWithManagers(accessToken);
+        this.overlayEntraJobTitles(rows, entraUsers);
+      } catch {
+        // Best-effort: if Graph call fails, we still return the chart with DB/role titles
+      }
+    }
     // if (!jobTitleColumnAvailable) {
     //   warnings.push(
     //     'ContactInfo.JobTitle is not installed, so chart titles use existing internal roles.',
@@ -507,8 +556,8 @@ export class OrganizationChartService {
           FOR XML PATH(''), TYPE
         ).value('.', 'nvarchar(max)'), 1, 2, '') AS roleName
       ) rolePick
-      OUTER APPLY (
-        SELECT TOP 1
+      CROSS APPLY (
+        SELECT
           d.DepartmentID AS departmentId,
           NULLIF(LTRIM(RTRIM(d.DepartmentName)), '') AS departmentName
         FROM dbo.ContactAssignment departmentAssignment
@@ -516,14 +565,6 @@ export class OrganizationChartService {
           ON d.DepartmentID = departmentAssignment.DepartmentID
         WHERE departmentAssignment.ContactID = c.ContactID
           AND departmentAssignment.CompanyID = @0
-        ORDER BY
-          CASE
-            WHEN d.DepartmentName IS NULL
-              OR LTRIM(RTRIM(d.DepartmentName)) = ''
-              OR LOWER(LTRIM(RTRIM(d.DepartmentName))) = 'unknown'
-            THEN 1 ELSE 0
-          END,
-          departmentAssignment.ContactAssignmentID
       ) departmentPick
       WHERE EXISTS (
         SELECT 1
@@ -546,6 +587,8 @@ export class OrganizationChartService {
     rows: ChartRow[],
   ): OrganizationChartNode[] {
     const groups = new Map<number, OrganizationChartNode>();
+    // Track which contacts have already been added to each department
+    const seenPerDepartment = new Map<number, Set<number>>();
 
     for (const row of rows) {
       const contactId = readNumber(row, 'contactId', 'ContactID');
@@ -558,6 +601,16 @@ export class OrganizationChartService {
         rawDepartmentId && departmentName !== 'Unassigned'
           ? rawDepartmentId
           : UNASSIGNED_DEPARTMENT_NODE_ID;
+
+      // Skip if this contact is already in this department
+      let seen = seenPerDepartment.get(departmentId);
+      if (!seen) {
+        seen = new Set<number>();
+        seenPerDepartment.set(departmentId, seen);
+      }
+      if (seen.has(contactId)) continue;
+      seen.add(contactId);
+
       let node = groups.get(departmentId);
       if (!node) {
         node = {

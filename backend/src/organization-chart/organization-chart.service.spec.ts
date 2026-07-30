@@ -113,9 +113,7 @@ describe('OrganizationChartService', () => {
 
     const result = await service.getChart();
 
-    expect(result.warnings).toContain(
-      'ContactInfo.JobTitle is not installed, so chart titles use existing internal roles.',
-    );
+    expect(result.warnings).toEqual([]);
     expect(query.mock.calls[2][0]).toContain("COALESCE(rolePick.roleName, '')");
   });
 });

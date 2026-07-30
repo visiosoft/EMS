@@ -1,9 +1,10 @@
-import { useMemo, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Loader2, RefreshCw, Search } from 'lucide-react';
 import { fetchIaeStaffEmployees, type IaeEmployee } from '@/api/iaeEmployeesApi';
 import { formatE164ForDisplay } from '@/lib/contactPhoneField';
-import { TeamMemberAvatar } from './TeamMemberAvatar';
+import { HubGraphAvatar } from '@/components/ems/GraphAvatar';
+import { getActiveAccount, acquireGraphAccessToken } from '@/auth/entra';
 
 const DEFAULT_VISIBLE_ROW_COUNT = 8;
 
@@ -85,9 +86,11 @@ export function dedupeEmployees(employees: IaeEmployee[]): IaeEmployee[] {
 function EmployeeRow({
   employee,
   onClick,
+  graphToken,
 }: {
   employee: IaeEmployee;
   onClick?: (employee: IaeEmployee) => void;
+  graphToken?: string | null;
 }) {
   const rawMobile = employee.cellPhone || employee.workPhone;
   const mobileDisplay = displayMobile(employee.cellPhone, employee.workPhone);
@@ -109,7 +112,7 @@ function EmployeeRow({
       }
     >
       <td className="px-4 py-3">
-        <TeamMemberAvatar />
+        <HubGraphAvatar name={displayName(employee)} email={employee.email} graphToken={graphToken} size="sm" />
       </td>
       <td className="px-4 py-3 font-medium text-neutral-900">
         {clickable ? (
@@ -118,7 +121,7 @@ function EmployeeRow({
           displayName(employee)
         )}
       </td>
-      <td className="px-4 py-3 text-neutral-800">{employee.roleName || '—'}</td>
+      <td className="px-4 py-3 text-neutral-800">{employee.jobTitle || employee.roleName || '—'}</td>
       <td className="px-4 py-3 text-neutral-800">{employee.departmentName || '—'}</td>
       <td className="px-4 py-3 text-neutral-800">{displayExtension(employee)}</td>
       <td className="px-4 py-3 text-neutral-800" onClick={(e) => e.stopPropagation()}>
@@ -168,10 +171,25 @@ export function IaeEmployeesTable({
   onRowClick,
 }: IaeEmployeesTableProps = {}) {
   const [search, setSearch] = useState('');
+  const [graphToken, setGraphToken] = useState<string | null>(null);
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['iae-staff-employees'],
     queryFn: fetchIaeStaffEmployees,
   });
+
+  // Acquire Graph token for Microsoft profile photos
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const account = getActiveAccount();
+      if (!account) return;
+      try {
+        const token = await acquireGraphAccessToken(account);
+        if (mounted && token) setGraphToken(token);
+      } catch { /* falls back to initials */ }
+    })();
+    return () => { mounted = false; };
+  }, []);
 
   const employees = useMemo(() => dedupeEmployees(data ?? []), [data]);
 
@@ -181,6 +199,7 @@ export function IaeEmployeesTable({
       ? employees.filter((employee) =>
           [
             displayName(employee),
+            employee.jobTitle ?? '',
             employee.roleName ?? '',
             employee.departmentName ?? '',
             employee.email,
@@ -201,7 +220,7 @@ export function IaeEmployeesTable({
   const renderBodyRows = () => {
     if (!groupByDepartment) {
       return filteredEmployees.map((employee) => (
-        <EmployeeRow key={employee.contactId} employee={employee} onClick={onRowClick} />
+        <EmployeeRow key={employee.contactId} employee={employee} onClick={onRowClick} graphToken={graphToken} />
       ));
     }
     const rows: ReactElement[] = [];
@@ -221,7 +240,7 @@ export function IaeEmployeesTable({
           </tr>,
         );
       }
-      rows.push(<EmployeeRow key={employee.contactId} employee={employee} onClick={onRowClick} />);
+      rows.push(<EmployeeRow key={employee.contactId} employee={employee} onClick={onRowClick} graphToken={graphToken} />);
     }
     return rows;
   };
