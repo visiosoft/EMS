@@ -2648,6 +2648,7 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
     mutationFn: createAttraction,
     onSuccess: (row) => {
       upsertAttractionInCache(row);
+      void qc.invalidateQueries({ queryKey: ['engagements-lookups'] });
       setShowAddAttraction(false);
       addToast('Attraction created.', 'success');
     },
@@ -2659,6 +2660,7 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
       updateAttraction(id, body),
     onSuccess: (row) => {
       upsertAttractionInCache(row);
+      void qc.invalidateQueries({ queryKey: ['engagements-lookups'] });
       setEditAttraction(null);
       addToast('Attraction updated.', 'success');
     },
@@ -2670,6 +2672,7 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
     onSuccess: (_, attractionId) => {
       void qc.invalidateQueries({ queryKey: ['attractions'], exact: false });
       void qc.invalidateQueries({ queryKey: ['tours'], exact: false });
+      void qc.invalidateQueries({ queryKey: ['engagements-lookups'] });
       clearAttractionToursServerSearchCaches(qc);
       setPendingDeleteAttraction(null);
       setSelectedAttractionId((cur) => (cur === attractionId ? null : cur));
@@ -2688,6 +2691,7 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
     }) => createTour(body, bannerFile ? { bannerFile } : undefined),
     onSuccess: (row) => {
       upsertTourInCache(row, null);
+      void qc.invalidateQueries({ queryKey: ['engagements-lookups'] });
       setShowAddTour(false);
       addToast('Tour created.', 'success');
     },
@@ -2714,6 +2718,7 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
       }).then((row) => ({ row, prevAttractionId })),
     onSuccess: ({ row, prevAttractionId }) => {
       upsertTourInCache(row, prevAttractionId);
+      void qc.invalidateQueries({ queryKey: ['engagements-lookups'] });
       setEditTour(null);
       addToast('Tour updated.', 'success');
     },
@@ -2725,6 +2730,7 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
     onSuccess: (_, tourId) => {
       void qc.invalidateQueries({ queryKey: ['tours'], exact: false });
       void qc.invalidateQueries({ queryKey: ['attractions'], exact: false });
+      void qc.invalidateQueries({ queryKey: ['engagements-lookups'] });
       clearAttractionToursServerSearchCaches(qc);
       setPendingDeleteTour(null);
       setSelectedTourId((cur) => (cur === tourId ? null : cur));

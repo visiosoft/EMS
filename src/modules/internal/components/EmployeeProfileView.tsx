@@ -339,15 +339,17 @@ export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile })
     { label: "Title", value: textOrDash(profile.employment.title) },
     { label: "Access Level", value: textOrDash(profile.employment.accessLevel), admin: true },
     { label: "Work Email", value: textOrDash(profile.basics.email) },
-    { label: "Office", value: textOrDash(profile.employment.office) },
-    { label: "Workstation", value: textOrDash(profile.employment.workstation) },
+    { label: "Office", value: textOrDash(profile.employment.office), admin: true },
+    { label: "Workstation", value: textOrDash(profile.employment.workstation), admin: true },
     { label: "Work Authorization", value: textOrDash(profile.employment.workAuthorization), admin: true },
     { label: "Department", value: textOrDash(profile.basics.department) },
     { label: "Role", value: textOrDash(profile.basics.role) },
     { label: "Company", value: textOrDash(profile.basics.company) },
-    { label: "Start Date at IAE", value: formatDate(profile.employment.startDate) },
-    { label: "Years of Service", value: textOrDash(profile.employment.yearsOfService) },
+    { label: "Start Date at IAE", value: formatDate(profile.employment.startDate), admin: true },
+    { label: "Years of Service", value: textOrDash(profile.employment.yearsOfService), admin: true },
     { label: "Supervisor", value: textOrDash(profile.employment.supervisor) },
+    { label: "Employment Status", value: textOrDash(profile.employment.employmentStatus), admin: true },
+    { label: "Employment Type", value: textOrDash(profile.employment.employmentType), admin: true },
     { label: "Paid Time Off Accrual Rate", value: textOrDash(profile.employment.ptoAccrualRate), admin: true },
     {
       label: "Employment Agreement Fully Executed",
@@ -373,13 +375,15 @@ export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile })
 
   const visiblePersonalFields = limited ? personalFields.filter((f) => !f.admin) : personalFields;
   const visibleEmploymentFields = limited ? employmentFields.filter((f) => !f.admin) : employmentFields;
-  const visiblePropertyFields = limited ? propertyFields.filter((f) => !f.admin) : propertyFields;
 
-  // Categories that are entirely Administrator-only (per xlsx) are skipped for limited viewers.
+  // Categories that are entirely Administrator-only are skipped for limited viewers.
   const showHealth = !limited;
   const showSoftware = !limited;
   const showHomeAddress = !limited;
   const showEmergency = !limited;
+  const showOfficeAddress = !limited;
+  const showGroups = !limited;
+  const showProperty = !limited;
 
   return (
     <div className="space-y-6">
@@ -425,9 +429,11 @@ export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile })
       {/* ── 2. Employment information ────────────────────────────── */}
       <SectionShell number={2} title="Employment information" icon={<Briefcase className="h-4 w-4" />}>
         <FieldGrid items={visibleEmploymentFields} />
-        <SubGroup label="Office Address">
-          <Field label="Address" value={officeAddress} />
-        </SubGroup>
+        {showOfficeAddress ? (
+          <SubGroup label="Office Address">
+            <Field label="Address" value={officeAddress} />
+          </SubGroup>
+        ) : null}
       </SectionShell>
 
       {/* ── 3. Health Insurance information ──────────────────────── */}
@@ -466,9 +472,11 @@ export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile })
       ) : null}
 
       {/* ── 4. Company Property Assignments ──────────────────────── */}
-      <SectionShell number={4} title="Company Property Assignments" icon={<Laptop className="h-4 w-4" />}>
-        <FieldGrid items={visiblePropertyFields} />
-      </SectionShell>
+      {showProperty ? (
+        <SectionShell number={4} title="Company Property Assignments" icon={<Laptop className="h-4 w-4" />}>
+          <FieldGrid items={propertyFields} />
+        </SectionShell>
+      ) : null}
 
       {/* ── 5. Software assets ───────────────────────────────────── */}
       {showSoftware ? (
@@ -481,12 +489,14 @@ export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile })
       ) : null}
 
       {/* ── 6. Group Membership ──────────────────────────────────── */}
-      <SectionShell number={6} title="Group Membership" icon={<Users className="h-4 w-4" />}>
-        <dt className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">
-          Microsoft Group Membership
-        </dt>
-        <TagList items={groups} empty="No group memberships found." />
-      </SectionShell>
+      {showGroups ? (
+        <SectionShell number={6} title="Group Membership" icon={<Users className="h-4 w-4" />}>
+          <dt className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">
+            Microsoft Group Membership
+          </dt>
+          <TagList items={groups} empty="No group memberships found." />
+        </SectionShell>
+      ) : null}
 
       {/* ── 7. Certifications ────────────────────────────────────── */}
       <SectionShell number={7} title="Certifications" icon={<Award className="h-4 w-4" />}>

@@ -279,7 +279,7 @@ export function EngagementTicketingRefactored({ engagementId, row, addToast, onD
       {/* ── IAE TICKETING ─────────────────────────────────────────────── */}
       <div className="rounded-lg border border-border bg-surface/40 p-4 space-y-2">
         {sectionHeader('IAE Ticketing')}
-        {readOnlyField('IAE Ticketing Manager', iaeTicketingManagerName || '— not assigned —')}
+        {readOnlyField('IAE Ticketing Manager', iaeTicketingManagerName || 'No contacts with role "Ticketing Manager" found in IAE Staff.')}
         <p className="text-xs text-text-muted italic">From Engagement Contacts → IAE Staff.</p>
       </div>
 

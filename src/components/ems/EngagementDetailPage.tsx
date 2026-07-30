@@ -588,7 +588,6 @@ function VenueDetailPanel({
         ['received', venueContractLink],
         ['partially executed', partialContractLink],
         ['fully executed', fullContractLink],
-        ['VenueForcast', forecastLink],
       ];
       for (const [purpose, url] of linkFields) {
         if (url.trim() && !isValidHttpOrHttpsUrl(url)) {
@@ -609,9 +608,31 @@ function VenueDetailPanel({
     },
     onSuccess: async () => {
       await invalidate();
-      addToast('Contract & forecast links saved.', 'success');
+      addToast('Contract links saved.', 'success');
     },
     onError: (e) => addToast(e instanceof Error ? e.message : 'Could not save links.', 'error'),
+  });
+
+  const saveForecastMutation = useMutation({
+    mutationFn: async () => {
+      const url = forecastLink.trim();
+      if (url && !isValidHttpOrHttpsUrl(url)) {
+        throw new Error('Venue Forecast must be a valid http(s) URL, or left empty.');
+      }
+      if (url) {
+        await upsertEngagementLink(engagementId, { linkUrl: url, linkPurpose: 'VenueForcast' });
+      } else {
+        const existing = engagementLinks.find((el) => el.linkPurpose === 'VenueForcast');
+        if (existing) {
+          await removeEngagementLink(engagementId, existing.engagementLinkId);
+        }
+      }
+    },
+    onSuccess: async () => {
+      await invalidate();
+      addToast('Forecast link saved.', 'success');
+    },
+    onError: (e) => addToast(e instanceof Error ? e.message : 'Could not save forecast link.', 'error'),
   });
 
   const handleSaveBookingManager = () =>
@@ -695,12 +716,12 @@ function VenueDetailPanel({
               ) : venueBookingMgrNames.length > 0 ? (
                 venueBookingMgrNames.map((name, i) => <div key={i}>{name}</div>)
               ) : (
-                <span className="text-text-muted">— no contact with role "Venue Booking Manager" —</span>
+                <p className="text-sm text-text-muted">No contacts with role "Venue Booking Manager" found on this venue company.</p>
               )}
             </div>
           </FormField>
         </div>
-        <p className="text-xs text-text-muted italic">Contacts with role "Venue Booking Manager" from the venue company.</p>
+        <p className="text-xs text-text-muted italic">Contacts with role "Venue Booking Manager" from the venue company linked to this engagement.</p>
       </div>
 
       {/* Venue Terms (read-only — from Engagement Drill Bits) */}
@@ -800,7 +821,7 @@ function VenueDetailPanel({
               {venueTicketingSoftwareQuery.isLoading ? <span className="text-text-muted text-xs">Loading…</span>
                 : contactNames(venueTicketingSoftwareQuery.data).length > 0
                   ? contactNames(venueTicketingSoftwareQuery.data).map((n, i) => <div key={i}>{n}</div>)
-                  : <span className="text-text-muted">— no contact with role "Venue Ticketing Software" —</span>}
+                  : <p className="text-sm text-text-muted">No contacts with role "Venue Ticketing Software" found on this venue company.</p>}
             </div>
           </FormField>
           <FormField label="Venue Ticketing Administrator">
@@ -808,11 +829,11 @@ function VenueDetailPanel({
               {venueTicketingAdminQuery.isLoading ? <span className="text-text-muted text-xs">Loading…</span>
                 : contactNames(venueTicketingAdminQuery.data).length > 0
                   ? contactNames(venueTicketingAdminQuery.data).map((n, i) => <div key={i}>{n}</div>)
-                  : <span className="text-text-muted">— no contact with role "Venue Ticketing Administrator" —</span>}
+                  : <p className="text-sm text-text-muted">No contacts with role "Venue Ticketing Administrator" found on this venue company.</p>}
             </div>
           </FormField>
         </div>
-        <p className="text-xs text-text-muted italic">Contacts by role from the venue company.</p>
+        <p className="text-xs text-text-muted italic">Contacts with roles "Venue Ticketing Software" and "Venue Ticketing Administrator" from the venue company linked to this engagement.</p>
       </div>
 
       {/* Venue Production (read-only — from venue company contacts by role) */}
@@ -824,7 +845,7 @@ function VenueDetailPanel({
               {venueProductionMgrQuery.isLoading ? <span className="text-text-muted text-xs">Loading…</span>
                 : contactNames(venueProductionMgrQuery.data).length > 0
                   ? contactNames(venueProductionMgrQuery.data).map((n, i) => <div key={i}>{n}</div>)
-                  : <span className="text-text-muted">— no contact with role "Venue Production Manager" —</span>}
+                  : <p className="text-sm text-text-muted">No contacts with role "Venue Production Manager" found on this venue company.</p>}
             </div>
           </FormField>
           <FormField label="Venue Stage Labor">
@@ -832,11 +853,11 @@ function VenueDetailPanel({
               {venueStageLaborQuery.isLoading ? <span className="text-text-muted text-xs">Loading…</span>
                 : contactNames(venueStageLaborQuery.data).length > 0
                   ? contactNames(venueStageLaborQuery.data).map((n, i) => <div key={i}>{n}</div>)
-                  : <span className="text-text-muted">— no contact with role "Venue Stage Labor" —</span>}
+                  : <p className="text-sm text-text-muted">No contacts with role "Venue Stage Labor" found on this venue company.</p>}
             </div>
           </FormField>
         </div>
-        <p className="text-xs text-text-muted italic">Contacts by role from the venue company.</p>
+        <p className="text-xs text-text-muted italic">Contacts with roles "Venue Production Manager" and "Venue Stage Labor" from the venue company linked to this engagement.</p>
       </div>
 
       {/* Attraction Tech Director (read-only — from venue company contacts by role) */}
@@ -848,11 +869,11 @@ function VenueDetailPanel({
               {attractionTechDirQuery.isLoading ? <span className="text-text-muted text-xs">Loading…</span>
                 : contactNames(attractionTechDirQuery.data).length > 0
                   ? contactNames(attractionTechDirQuery.data).map((n, i) => <div key={i}>{n}</div>)
-                  : <span className="text-text-muted">— no contact with role "Attraction Tech Director" —</span>}
+                  : <p className="text-sm text-text-muted">No contacts with role "Attraction Tech Director" found on this venue company.</p>}
             </div>
           </FormField>
         </div>
-        <p className="text-xs text-text-muted italic">Contacts by role from the venue company.</p>
+        <p className="text-xs text-text-muted italic">Contacts with role "Attraction Tech Director" from the venue company linked to this engagement.</p>
       </div>
 
       {/* Venue Contract */}
@@ -883,14 +904,6 @@ function VenueDetailPanel({
             urlField
             inputBgClass="bg-white"
           />
-          <VenueTabEditField
-            label="Link to SharePoint – Venue Forecast"
-            value={forecastLink}
-            onChange={setForecastLink}
-            disabled={saveContractsMutation.isPending}
-            urlField
-            inputBgClass="bg-white"
-          />
         </div>
         <div className="flex justify-end">
           <Button
@@ -902,7 +915,35 @@ function VenueDetailPanel({
           >
             {saveContractsMutation.isPending ? (
               <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
-            ) : 'Save contracts & forecast links'}
+            ) : 'Save contract links'}
+          </Button>
+        </div>
+      </div>
+
+      {/* Venue Forecast */}
+      <div className={sectionCls}>
+        <span className={labelCls}>Venue Forecast</span>
+        <div className="grid grid-cols-1 gap-3">
+          <VenueTabEditField
+            label="Link to SharePoint – Venue Forecast"
+            value={forecastLink}
+            onChange={setForecastLink}
+            disabled={saveForecastMutation.isPending}
+            urlField
+            inputBgClass="bg-white"
+          />
+        </div>
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            size="sm"
+            className="bg-ems-accent text-white hover:opacity-90"
+            onClick={() => saveForecastMutation.mutate()}
+            disabled={saveForecastMutation.isPending}
+          >
+            {saveForecastMutation.isPending ? (
+              <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span>
+            ) : 'Save forecast link'}
           </Button>
         </div>
       </div>
@@ -2129,7 +2170,7 @@ function EngagementProductionPanel({
         <span className="text-xs font-semibold text-text-primary block">IAE Production Manager</span>
         <div className="min-h-[42px] rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary">
           {(venueTabDataQuery.data?.iaeProductionManagers ?? []).length === 0 ? (
-            <span className="text-text-muted">No IAE production manager assigned.</span>
+            <span className="text-text-muted">No contacts with role "Production Manager" found in IAE Staff.</span>
           ) : (
             <ul className="space-y-2">
               {venueTabDataQuery.data!.iaeProductionManagers.map((c) => (
@@ -2149,7 +2190,7 @@ function EngagementProductionPanel({
         <span className="text-xs font-semibold text-text-primary block">Venue Production Manager</span>
         <div className="min-h-[42px] rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary">
           {(venueRoleContactsForVenue?.venueProductionManager ?? []).length === 0 ? (
-            <span className="text-text-muted">No venue production manager contact assigned.</span>
+            <span className="text-text-muted">No contacts with role "Venue Production Manager" found on this venue company.</span>
           ) : (
             <ul className="space-y-2">
               {venueRoleContactsForVenue!.venueProductionManager.map((c) => (
@@ -2169,7 +2210,7 @@ function EngagementProductionPanel({
         <span className="text-xs font-semibold text-text-primary block">Stagehand Provider</span>
         <div className="min-h-[42px] rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary">
           {(venueRoleContactsForVenue?.venueStageLaborCompany ?? []).length === 0 ? (
-            <span className="text-text-muted">No stage labor contact assigned.</span>
+            <span className="text-text-muted">No contacts with role "Venue Stage Labor" found on this venue company.</span>
           ) : (
             <ul className="space-y-2">
               {venueRoleContactsForVenue!.venueStageLaborCompany.map((c) => (
@@ -2220,7 +2261,7 @@ function EngagementProductionPanel({
             )}
           </div>
         </div>
-        <p className="text-xs text-text-muted italic">From the venue profile. Editable on the Venue tab.</p>
+        <p className="text-xs text-text-muted italic">Editable on the Venue tab.</p>
       </div>
 
       {/* Attraction Travel */}
@@ -5273,11 +5314,11 @@ function EngagementBookingPanel({
           {sectionTitle('IAE Booking')}
           {fieldRow(
             'IAE Talent Buyer',
-            <span className="text-sm text-text-primary">{iaeRowsByKey.talentBuyer || '— not set —'}</span>,
+            <span className="text-sm text-text-primary">{iaeRowsByKey.talentBuyer || <span className="text-text-muted">No contacts with role "IAE Talent Buyer" found in IAE Staff.</span>}</span>,
           )}
           {fieldRow(
             'IAE Booking Manager',
-            <span className="text-sm text-text-primary">{iaeRowsByKey.bookingManager || '— not set —'}</span>,
+            <span className="text-sm text-text-primary">{iaeRowsByKey.bookingManager || <span className="text-text-muted">No contacts with role "IAE Booking Manager" found in IAE Staff.</span>}</span>,
           )}
           <p className="text-xs text-text-muted">Managed in the Engagement Contacts tab under "IAE Staff Working on this".</p>
         </div>
@@ -5374,7 +5415,7 @@ function EngagementBookingPanel({
               />
             ),
           )}
-          <p className="text-xs text-text-muted">Company also editable in the Main Information tab.</p>
+          {/* <p className="text-xs text-text-muted">Company also editable in the Main Information tab.</p> */}
         </div>
 
         {/* ── TOUR MANAGEMENT ──────────────────────────────────────────── */}
@@ -6326,14 +6367,14 @@ function EngagementEventBusinessPanel({
               {iaeContactsQuery.isLoading ? 'Loading…' :
                 iaeEventBusinessManagers.length > 0
                   ? iaeEventBusinessManagers.map((c) => c.contactLabel).join(', ')
-                  : <span className="text-text-muted italic">—</span>}
+                  : <span className="text-text-muted">No contacts with role "Event Business Manager" found in IAE Staff.</span>}
             </span>)}
           {fieldRow('Event Business Assistant Manager',
             <span className="text-sm text-text-primary">
               {iaeContactsQuery.isLoading ? 'Loading…' :
                 iaeEventBusinessAssistantManagers.length > 0
                   ? iaeEventBusinessAssistantManagers.map((c) => c.contactLabel).join(', ')
-                  : <span className="text-text-muted italic">—</span>}
+                  : <span className="text-text-muted">No contacts with role "Event Business Assistant Manager" found in IAE Staff.</span>}
             </span>)}
         </div>
         <p className="text-xs text-text-muted italic mt-1">From Engagement Contacts → IAE Staff.</p>
@@ -6343,11 +6384,11 @@ function EngagementEventBusinessPanel({
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
           {fieldRow('Venue Settlement Manager',
             <span className="text-sm text-text-primary">
-              {venueCompanyId == null ? <span className="text-text-muted italic">No venue assigned</span> :
+              {venueCompanyId == null ? <span className="text-text-muted">No venue assigned</span> :
                 venueDetailsQuery.isLoading ? 'Loading…' :
                 venueSettlementManagers.length > 0
                   ? venueSettlementManagers.map((m) => m.fullName).join(', ')
-                  : <span className="text-text-muted italic">—</span>}
+                  : <span className="text-text-muted">No contacts with the "Settlement Manager" role were found for the venue company, and the additional section for linking the Settlement Manager to the venue is not defined for this venue company.</span>}
             </span>)}
         </div>
         <p className="text-xs text-text-muted italic mt-1">From Engagement Contacts → Non-IAE Contacts.</p>
@@ -6706,7 +6747,8 @@ function EngagementEventBusinessPanel({
         {/* ── Finance ──────────────────────────────────────────────── */}
         {sectionHeader('Finance')}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
-          {fieldRow('Customer', <span className="text-sm text-text-primary">{d?.financeCustomer ?? '—'}</span>)}
+          {/* {fieldRow('Customer', <span className="text-sm text-text-primary">{d?.financeCustomer ?? '—'}</span>)} */}
+          {fieldRow('Customer (City, State/Province)', <span className="text-sm text-text-primary">{[venueCity, venueState].filter(Boolean).join(', ') || '—'}</span>)}
           {fieldRow('Job', <span className="text-sm text-text-primary">{d?.financeJob ?? '—'}</span>)}
         </div>
 
@@ -8839,7 +8881,7 @@ function EngagementMarketingPanel({
                         ))}
                       </div>
                     ) : (
-                      <p className="text-sm text-text-muted">—</p>
+                      <p className="text-sm text-text-muted">No contacts with role "{role}" found in IAE Staff.</p>
                     ),
                   )}
                 </React.Fragment>
@@ -9731,7 +9773,7 @@ function EngagementTicketingPanel({
                   (r) => (r.roleName ?? '').trim().toLowerCase() === 'ticketing manager',
                 );
                 if (iaeContactsQuery.isLoading) return <span className="text-text-muted">Loading…</span>;
-                if (managers.length === 0) return <span className="text-text-muted">No Ticketing Managers assigned</span>;
+                if (managers.length === 0) return <span className="text-text-muted">No contacts with role "Ticketing Manager" found in IAE Staff.</span>;
                 return (
                   <ul className="list-disc list-inside space-y-0.5">
                     {managers.map((m) => <li key={m.engagementIaeContactId}>{m.contactLabel}</li>)}
@@ -11450,6 +11492,47 @@ export function EngagementDetailPage({
       tourMgmtCompanyId > 0,
   });
 
+  // ── Ticketing System Company contacts (from Drill Bits / PerformanceTicketing) ─────────
+  const contactsTabPerformancesQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'performances'],
+    queryFn: () => fetchEngagementPerformances(engagementId),
+    enabled: tab === 'Engagement Contacts',
+    staleTime: 60_000,
+  });
+  const firstPerformanceIdForContacts = (contactsTabPerformancesQuery.data ?? [])[0]?.performanceId ?? null;
+
+  const contactsTabTicketingQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'performance-ticketing', firstPerformanceIdForContacts],
+    queryFn: () => fetchEngagementPerformanceTicketing(engagementId, firstPerformanceIdForContacts!),
+    enabled: tab === 'Engagement Contacts' && firstPerformanceIdForContacts != null && firstPerformanceIdForContacts > 0,
+    staleTime: 60_000,
+  });
+  const ticketingSystemCompanyIdForContacts = contactsTabTicketingQuery.data?.ticketingSystemCompanyId ?? null;
+  const ticketingSystemCompanyNameForContacts = useMemo(() => {
+    if (ticketingSystemCompanyIdForContacts == null) return null;
+    return (lookupsQuery.data?.companies ?? []).find((c) => c.companyId === ticketingSystemCompanyIdForContacts)?.companyName ?? null;
+  }, [lookupsQuery.data?.companies, ticketingSystemCompanyIdForContacts]);
+
+  const ticketingSystemContactsQuery = useQuery({
+    queryKey: ['company-contacts', 'ticketing-system', ticketingSystemCompanyIdForContacts],
+    queryFn: () => fetchCompanyContacts(ticketingSystemCompanyIdForContacts!),
+    enabled:
+      tab === 'Engagement Contacts' &&
+      ticketingSystemCompanyIdForContacts != null &&
+      ticketingSystemCompanyIdForContacts > 0,
+  });
+
+  const ticketingAdminContactIdForContacts = contactsTabTicketingQuery.data?.ticketingAdminContactId ?? null;
+  const ticketingSystemContactsWithCompany = useMemo(
+    () => (ticketingSystemContactsQuery.data ?? [])
+      .filter((c) => ticketingAdminContactIdForContacts != null && c.contactId === ticketingAdminContactIdForContacts)
+      .map((c) => ({
+        ...c,
+        companyName: ticketingSystemCompanyNameForContacts ?? 'Ticketing System Company',
+      })),
+    [ticketingSystemContactsQuery.data, ticketingSystemCompanyNameForContacts, ticketingAdminContactIdForContacts],
+  );
+
   const tourSelectedTalentAgentContacts = useMemo(() => {
     if (tourSelectedTalentAgentIds.size === 0) return [] as ApiCompanyContact[];
     return (tourContactsQuery.data ?? []).filter((contact) =>
@@ -11465,6 +11548,69 @@ export function EngagementDetailPage({
   const talentAgentContactsWithCompany = useMemo(
     () => tourSelectedTalentAgentContacts.map((c) => ({ ...c, companyName: talentAgencyCompanyName })),
     [tourSelectedTalentAgentContacts, talentAgencyCompanyName],
+  );
+
+  // ── Promoter Partner contacts (from Booking tab / EngagementPartner) ─────────
+  const contactsTabPartnerQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'partner'],
+    queryFn: () => fetchEngagementPartner(engagementId),
+    enabled: tab === 'Engagement Contacts',
+    staleTime: 60_000,
+  });
+  const promoterPartnerCompanyIdForContacts = contactsTabPartnerQuery.data?.partnerCompanyId ?? null;
+  const promoterPartnerCompanyNameForContacts = useMemo(() => {
+    if (promoterPartnerCompanyIdForContacts == null) return null;
+    return (lookupsQuery.data?.companies ?? []).find((c) => c.companyId === promoterPartnerCompanyIdForContacts)?.companyName ?? null;
+  }, [lookupsQuery.data?.companies, promoterPartnerCompanyIdForContacts]);
+
+  const promoterPartnerContactsQuery = useQuery({
+    queryKey: ['company-contacts', 'promoter-partner', promoterPartnerCompanyIdForContacts],
+    queryFn: () => fetchCompanyContacts(promoterPartnerCompanyIdForContacts!),
+    enabled:
+      tab === 'Engagement Contacts' &&
+      promoterPartnerCompanyIdForContacts != null &&
+      promoterPartnerCompanyIdForContacts > 0,
+  });
+
+  const promoterPartnerContactIdForContacts = contactsTabPartnerQuery.data?.partnerContactId ?? null;
+  const promoterPartnerContactsWithCompany = useMemo(
+    () => (promoterPartnerContactsQuery.data ?? [])
+      .filter((c) => promoterPartnerContactIdForContacts != null && c.contactId === promoterPartnerContactIdForContacts)
+      .map((c) => ({
+        ...c,
+        companyName: promoterPartnerCompanyNameForContacts ?? 'Promoter Partner',
+      })),
+    [promoterPartnerContactsQuery.data, promoterPartnerCompanyNameForContacts, promoterPartnerContactIdForContacts],
+  );
+
+  // ── Tour Management Company contacts (from Booking tab / Tour) ─────────
+  const tourMgmtCompanyIdForContacts = useMemo(() => {
+    return selectedTourForContacts?.tourManagementCompanyId ?? null;
+  }, [selectedTourForContacts]);
+  const tourMgmtCompanyNameForContacts = useMemo(() => {
+    if (tourMgmtCompanyIdForContacts == null) return null;
+    return (lookupsQuery.data?.companies ?? []).find((c) => c.companyId === tourMgmtCompanyIdForContacts)?.companyName
+      ?? selectedTourForContacts?.tourManagementCompanyName ?? null;
+  }, [lookupsQuery.data?.companies, tourMgmtCompanyIdForContacts, selectedTourForContacts?.tourManagementCompanyName]);
+
+  const tourMgmtContactsForContactsTab = useQuery({
+    queryKey: ['company-contacts', 'tour-mgmt-contacts-tab', tourMgmtCompanyIdForContacts],
+    queryFn: () => fetchCompanyContacts(tourMgmtCompanyIdForContacts!),
+    enabled:
+      tab === 'Engagement Contacts' &&
+      tourMgmtCompanyIdForContacts != null &&
+      tourMgmtCompanyIdForContacts > 0,
+  });
+
+  const tourManagerContactIdForContacts = detailQuery.data?.tourManagerContactId ?? null;
+  const tourMgmtContactsWithCompany = useMemo(
+    () => (tourMgmtContactsForContactsTab.data ?? [])
+      .filter((c) => tourManagerContactIdForContacts != null && c.contactId === tourManagerContactIdForContacts)
+      .map((c) => ({
+        ...c,
+        companyName: tourMgmtCompanyNameForContacts ?? 'Tour Management',
+      })),
+    [tourMgmtContactsForContactsTab.data, tourMgmtCompanyNameForContacts, tourManagerContactIdForContacts],
   );
 
   // ── Engagement PATCH (split mutations so each Overview card gets a real isPending + loader) ──
@@ -11527,19 +11673,30 @@ export function EngagementDetailPage({
   const deleteMutation = useMutation({
     mutationFn: () => deleteEngagement(engagementId),
     onSuccess: async () => {
-      // refetchType: 'all' — the engagements list is unmounted right now (we're still on
-      // this detail page), and the app's QueryClient has refetchOnMount: false, so a plain
-      // invalidate would only mark it stale and never actually refetch before it remounts.
-      // The predicate skips this engagement's own ['engagements', engagementId] detail
-      // query — refetching it would 404 (it's gone) while we're still mounted here, which
-      // flashes the "Could not load engagement" error screen before onNavigate takes over.
+      // Remove all cached queries scoped to this (now-deleted) engagement so they don't
+      // attempt to refetch and 404. This is silent — no network requests.
+      qc.removeQueries({
+        predicate: (query) => {
+          const key = query.queryKey;
+          return key[0] === 'engagements' && key[1] === engagementId;
+        },
+      });
+      // Force-refetch the engagement list (it's unmounted — refetchType:'all' ensures it
+      // actually refetches rather than just going stale).
       await qc.invalidateQueries({
         refetchType: 'all',
         predicate: (query) => {
           const key = query.queryKey;
           if (key[0] !== 'engagements') return false;
-          return !(key.length === 2 && key[1] === engagementId);
+          // Only invalidate list-level queries, not per-engagement detail queries
+          return key[1] !== engagementId;
         },
+      });
+      // Also invalidate venue-level engagement lists so the Companies → Venues tab stays in sync.
+      // Use removeQueries so the data is fully cleared — invalidateQueries alone won't refetch
+      // because the global QueryClient has refetchOnMount: false.
+      qc.removeQueries({
+        predicate: (query) => query.queryKey[0] === 'companies' && query.queryKey[2] === 'engagements',
       });
       addToast('Engagement deleted.', 'warning');
       // This page now stays mounted (hidden) instead of unmounting on navigate, since view
@@ -12380,60 +12537,143 @@ export function EngagementDetailPage({
           </div>
 
           {/* ── Non-IAE Contacts Working on this Engagement ───────────────── */}
-          <div className="bg-card border border-border rounded-lg p-5">
+          <div className="bg-card border border-border rounded-lg p-5 space-y-6">
             <h3 className="text-sm font-semibold text-text-primary mb-1">Non-IAE Contacts Working on this Engagement</h3>
             <p className="text-xs text-text-muted mb-3">External contacts grouped by company type.</p>
-          </div>
 
-          {venueCompanyTypeNames.map((companyTypeName) => (
-            <div key={`venue-${companyTypeName}`} className="bg-card border border-border rounded-lg p-5">
-              <h3 className="text-sm font-semibold text-text-primary mb-1">{companyTypeName} contacts</h3>
+            {/* ── Venue Contacts ── */}
+            {venueCompanyTypeNames.map((companyTypeName) => (
+              <div key={`venue-${companyTypeName}`} className="rounded-md border border-border bg-surface/40 p-4">
+                <h4 className="text-sm font-semibold text-text-primary mb-1">{companyTypeName} contacts</h4>
+                <p className="text-xs text-text-muted mb-3">
+                  Contacts for the venue company linked to this engagement.
+                </p>
+                {!venueId ? (
+                  <p className="text-sm text-text-muted">No venue is linked.</p>
+                ) : venueContactsQuery.isLoading ? (
+                  <div className="flex items-center gap-2 text-text-muted text-sm">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading contacts…
+                  </div>
+                ) : venueContactsQuery.error ? (
+                  <p className="text-sm text-ems-coral">{friendlyApiError(venueContactsQuery.error)}</p>
+                ) : (
+                  <ContactsTable contacts={venueContactsWithCompany} />
+                )}
+              </div>
+            ))}
+
+            {/* ── Talent Agency Contacts ── */}
+            <div className="rounded-md border border-border bg-surface/40 p-4">
+              <h4 className="text-sm font-semibold text-text-primary mb-1">Talent Agency contacts</h4>
               <p className="text-xs text-text-muted mb-3">
-                Contacts for the venue company linked to this engagement.
+                Only talent agents selected on the linked tour are shown here.
               </p>
-              {!venueId ? (
-                <p className="text-sm text-text-muted">No venue is linked.</p>
-              ) : venueContactsQuery.isLoading ? (
+              {row.tourId == null ? (
+                <p className="text-sm text-text-muted">No tour linked.</p>
+              ) : lookupsQuery.isPending ? (
+                <div className="flex items-center gap-2 text-text-muted text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading tour details…
+                </div>
+              ) : tourMgmtCompanyId === null ? (
+                <p className="text-sm text-text-muted">
+                  No Tour Management Company assigned to this tour.
+                </p>
+              ) : tourContactsQuery.isLoading ? (
                 <div className="flex items-center gap-2 text-text-muted text-sm">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Loading contacts…
                 </div>
-              ) : venueContactsQuery.error ? (
-                <p className="text-sm text-ems-coral">{friendlyApiError(venueContactsQuery.error)}</p>
+              ) : tourContactsQuery.error ? (
+                <p className="text-sm text-ems-coral">{friendlyApiError(tourContactsQuery.error)}</p>
+              ) : talentAgentContactsWithCompany.length === 0 ? (
+                <p className="text-sm text-text-muted">No talent agents are selected for this tour.</p>
               ) : (
-                <ContactsTable contacts={venueContactsWithCompany} />
+                <ContactsTable contacts={talentAgentContactsWithCompany} />
               )}
             </div>
-          ))}
 
-          <div className="bg-card border border-border rounded-lg p-5">
-            <h3 className="text-sm font-semibold text-text-primary mb-1">Talent Agency contacts</h3>
-            <p className="text-xs text-text-muted mb-3">
-              Only talent agents selected on the linked tour are shown here.
-            </p>
-            {row.tourId == null ? (
-              <p className="text-sm text-text-muted">No tour linked.</p>
-            ) : lookupsQuery.isPending ? (
-              <div className="flex items-center gap-2 text-text-muted text-sm">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading tour details…
-              </div>
-            ) : tourMgmtCompanyId === null ? (
-              <p className="text-sm text-text-muted">
-                No Tour Management Company assigned to this tour.
+            {/* ── Ticketing System Company Contacts ── */}
+            <div className="rounded-md border border-border bg-surface/40 p-4">
+              <h4 className="text-sm font-semibold text-text-primary mb-1">Ticketing System Company contacts</h4>
+              <p className="text-xs text-text-muted mb-3">
+                Contacts from the ticketing system company set in the Engagement Drill Bits tab.
               </p>
-            ) : tourContactsQuery.isLoading ? (
-              <div className="flex items-center gap-2 text-text-muted text-sm">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading contacts…
-              </div>
-            ) : tourContactsQuery.error ? (
-              <p className="text-sm text-ems-coral">{friendlyApiError(tourContactsQuery.error)}</p>
-            ) : talentAgentContactsWithCompany.length === 0 ? (
-              <p className="text-sm text-text-muted">No talent agents are selected for this tour.</p>
-            ) : (
-              <ContactsTable contacts={talentAgentContactsWithCompany} />
-            )}
+              {(contactsTabPerformancesQuery.isLoading || contactsTabTicketingQuery.isLoading) ? (
+                <div className="flex items-center gap-2 text-text-muted text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading…
+                </div>
+              ) : ticketingSystemCompanyIdForContacts == null ? (
+                <p className="text-sm text-text-muted">No ticketing system company assigned in Engagement Drill Bits.</p>
+              ) : ticketingSystemContactsQuery.isLoading ? (
+                <div className="flex items-center gap-2 text-text-muted text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading contacts…
+                </div>
+              ) : ticketingSystemContactsQuery.error ? (
+                <p className="text-sm text-ems-coral">{friendlyApiError(ticketingSystemContactsQuery.error)}</p>
+              ) : ticketingSystemContactsWithCompany.length === 0 ? (
+                <p className="text-sm text-text-muted">No ticketing contact selected in Engagement Drill Bits.</p>
+              ) : (
+                <ContactsTable contacts={ticketingSystemContactsWithCompany} />
+              )}
+            </div>
+
+            {/* ── Promoter Partner Contacts ── */}
+            <div className="rounded-md border border-border bg-surface/40 p-4">
+              <h4 className="text-sm font-semibold text-text-primary mb-1">Promoter Partner contacts</h4>
+              <p className="text-xs text-text-muted mb-3">
+                Contacts from the promoter partner company set in the Booking tab.
+              </p>
+              {contactsTabPartnerQuery.isLoading ? (
+                <div className="flex items-center gap-2 text-text-muted text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading…
+                </div>
+              ) : promoterPartnerCompanyIdForContacts == null ? (
+                <p className="text-sm text-text-muted">No promoter partner company assigned in the Booking tab.</p>
+              ) : promoterPartnerContactsQuery.isLoading ? (
+                <div className="flex items-center gap-2 text-text-muted text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading contacts…
+                </div>
+              ) : promoterPartnerContactsQuery.error ? (
+                <p className="text-sm text-ems-coral">{friendlyApiError(promoterPartnerContactsQuery.error)}</p>
+              ) : promoterPartnerContactsWithCompany.length === 0 ? (
+                <p className="text-sm text-text-muted">No promoter partner contact selected in Booking.</p>
+              ) : (
+                <ContactsTable contacts={promoterPartnerContactsWithCompany} />
+              )}
+            </div>
+
+            {/* ── Tour Management Company Contacts ── */}
+            <div className="rounded-md border border-border bg-surface/40 p-4">
+              <h4 className="text-sm font-semibold text-text-primary mb-1">Tour Management Company contacts</h4>
+              <p className="text-xs text-text-muted mb-3">
+                Contacts from the tour management company set in the Booking tab.
+              </p>
+              {lookupsQuery.isPending ? (
+                <div className="flex items-center gap-2 text-text-muted text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading…
+                </div>
+              ) : tourMgmtCompanyIdForContacts == null ? (
+                <p className="text-sm text-text-muted">No tour management company assigned in the Booking tab.</p>
+              ) : tourMgmtContactsForContactsTab.isLoading ? (
+                <div className="flex items-center gap-2 text-text-muted text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading contacts…
+                </div>
+              ) : tourMgmtContactsForContactsTab.error ? (
+                <p className="text-sm text-ems-coral">{friendlyApiError(tourMgmtContactsForContactsTab.error)}</p>
+              ) : tourMgmtContactsWithCompany.length === 0 ? (
+                <p className="text-sm text-text-muted">No tour manager contact selected in Booking.</p>
+              ) : (
+                <ContactsTable contacts={tourMgmtContactsWithCompany} />
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -12973,6 +13213,7 @@ function ContactsTable({
               <th className="text-left py-2 px-3">Email</th>
               <th className="text-left py-2 px-3">Phone</th>
               <th className="text-left py-2 px-3">Role</th>
+              <th className="text-left py-2 px-3">Department</th>
             </tr>
           </thead>
           <tbody>
@@ -12984,15 +13225,15 @@ function ContactsTable({
                 <td className="py-2 px-3 text-text-secondary text-xs">
                   {c.companyName || '—'}
                 </td>
-                <td className="py-2 px-3 text-text-secondary text-xs">
-                  {c.departmentName || '—'}
-                </td>
                 <td className="py-2 px-3 text-ems-blue text-xs">{c.email ? <a href={`mailto:${c.email}`} className="hover:underline">{c.email}</a> : '—'}</td>
                 <td className="py-2 px-3 text-text-secondary text-xs">
                   {(c.cellPhone || c.workPhone) ? <a href={`tel:${c.cellPhone || c.workPhone}`} className="hover:underline">{formatE164ForDisplay(c.cellPhone || c.workPhone)}</a> : '—'}
                 </td>
                 <td className="py-2 px-3 text-text-secondary text-xs">
                   {c.roleName || '—'}
+                </td>
+                <td className="py-2 px-3 text-text-secondary text-xs">
+                  {c.departmentName || '—'}
                 </td>
               </tr>
             ))}

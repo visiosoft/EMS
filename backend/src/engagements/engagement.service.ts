@@ -5623,16 +5623,16 @@ export class EngagementService {
       await this.assertVenueCompany(dto.primaryVenueCompanyId);
 
       await this.dataSource.transaction(async (manager) => {
-        // Demote existing primary
+        // Remove existing venue row for this engagement (unique constraint
+        // allows only one venue per engagement)
         const current = await manager.findOne(EngagementVenue, {
-          where: { engagementId: id, isPrimary: true },
+          where: { engagementId: id },
         });
         if (current && current.venueCompanyId !== dto.primaryVenueCompanyId) {
-          current.isPrimary = false;
-          await manager.save(EngagementVenue, current);
+          await manager.remove(EngagementVenue, current);
         }
 
-        // Promote or insert new primary
+        // Promote existing row or insert new primary
         const targetRow = await manager.findOne(EngagementVenue, {
           where: {
             engagementId: id,
@@ -9072,14 +9072,16 @@ export class EngagementService {
     if (!production) {
       production = await repo.save(repo.create({ engagementId }));
     }
-    await repo.update({ productionId: production.productionId }, {
-      runnerRequired: dto.runnerRequired,
-      cateringRequired: dto.cateringRequired,
-      cateringBudgetLineItem: dto.cateringBudgetLineItem,
-      productionBuyoutRequired: dto.productionBuyoutRequired,
-      productionBuyoutDescription: dto.productionBuyoutDescription,
-      productionBuyoutBudgetAmount: dto.productionBuyoutBudgetAmount,
-    });
+    const patch: Partial<EngagementProduction> = {};
+    if (dto.runnerRequired !== null) patch.runnerRequired = dto.runnerRequired;
+    if (dto.cateringRequired !== null) patch.cateringRequired = dto.cateringRequired;
+    if (dto.cateringBudgetLineItem !== undefined) patch.cateringBudgetLineItem = dto.cateringBudgetLineItem;
+    if (dto.productionBuyoutRequired !== null) patch.productionBuyoutRequired = dto.productionBuyoutRequired;
+    if (dto.productionBuyoutDescription !== undefined) patch.productionBuyoutDescription = dto.productionBuyoutDescription;
+    if (dto.productionBuyoutBudgetAmount !== undefined) patch.productionBuyoutBudgetAmount = dto.productionBuyoutBudgetAmount;
+    if (Object.keys(patch).length > 0) {
+      await repo.update({ productionId: production.productionId }, patch);
+    }
   }
 
   // ─── Engagement Partner (dbo.EngagementPartner) ─────────────────────────────

@@ -218,7 +218,7 @@ function HierarchyTeamCard({
                   key={child.nodeId}
                   className={cn(
                     "group flex items-start gap-2.5 px-3 py-2.5 transition-colors",
-                    highlighted && hasFilter ? "bg-ems-accent/15" : "hover:bg-hover/50"
+                    highlighted && hasFilter ? "bg-ems-accent/25" : "hover:bg-hover/50"
                   )}
                 >
                   <GraphAvatar name={child.member.displayName} email={child.member.email} graphToken={undefined} size="sm" />
