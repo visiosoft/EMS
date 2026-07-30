@@ -1,12 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutGrid, Loader2, Network, RefreshCw, Rows3, Search } from "lucide-react";
+import { LayoutGrid, Loader2, Mail, Network, Phone, RefreshCw, Rows3, Search } from "lucide-react";
 import { HubOrgChart } from "../components/HubOrgChart";
 import { fetchIaeStaffEmployees, type IaeEmployee } from "@/api/iaeEmployeesApi";
 import { formatE164ForDisplay } from "@/lib/contactPhoneField";
 import { InternalPageHero } from "../components/InternalPageHero";
 import { InternalPageFrame } from "../layout/InternalPageFrame";
-import { TeamMemberAvatar } from "../components/TeamMemberAvatar";
+import { HubGraphAvatar } from "@/components/ems/GraphAvatar";
+import { getActiveAccount, acquireGraphAccessToken } from "@/auth/entra";
 import {
   IaeEmployeesTable,
   dedupeEmployees,
@@ -92,29 +93,53 @@ function SegBtn({
 function PersonTile({
   employee,
   onOpen,
+  graphToken,
 }: {
   employee: IaeEmployee;
   onOpen: (contactId: number) => void;
+  graphToken?: string | null;
 }) {
-  const mobile = formatE164ForDisplay(employee.cellPhone) || formatE164ForDisplay(employee.workPhone);
+  const workPhone = formatE164ForDisplay(employee.workPhone);
+  const cellPhone = formatE164ForDisplay(employee.cellPhone);
   return (
     <button
       type="button"
       onClick={() => onOpen(employee.contactId)}
       className="group flex flex-col items-center gap-3 rounded-lg border border-neutral-200 bg-white p-5 text-center transition-all hover:-translate-y-0.5 hover:border-neutral-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900"
     >
-      <TeamMemberAvatar className="h-16 w-16 rounded-full" alt={displayName(employee)} />
-      <div className="min-w-0">
-        <p className="truncate text-sm font-semibold text-neutral-950">{displayName(employee)}</p>
-        <p className="mt-0.5 truncate text-[13px] text-neutral-600">
-          {employee.roleName || "Internal staff"}
+      <HubGraphAvatar
+        name={displayName(employee)}
+        email={employee.email}
+        graphToken={graphToken}
+        size="lg"
+      />
+      <div className="min-w-0 w-full">
+        <p className="text-sm font-semibold text-neutral-950">{displayName(employee)}</p>
+        <p className="mt-0.5 text-[13px] text-neutral-600">
+          {employee.departmentName ? `${employee.departmentName} · ` : ""}{employee.jobTitle || employee.roleName || "Internal staff"}
         </p>
-        {employee.departmentName ? (
-          <p className="mt-1 truncate text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">
-            {employee.departmentName}
+        {(workPhone || cellPhone) && (
+          <div className="mt-2 flex flex-col items-center gap-0.5 text-[12px] text-neutral-500">
+            {workPhone && (
+              <span className="flex items-center gap-1">
+                <Phone className="h-3 w-3 text-neutral-400" aria-hidden />
+                {workPhone}
+              </span>
+            )}
+            {cellPhone && (
+              <span className="flex items-center gap-1">
+                <Phone className="h-3 w-3 text-neutral-400" aria-hidden />
+                {cellPhone}
+              </span>
+            )}
+          </div>
+        )}
+        {employee.email && (
+          <p className="mt-1 flex items-center justify-center gap-1 text-[11px] text-neutral-400">
+            <Mail className="h-3 w-3" aria-hidden />
+            <span className="truncate">{employee.email}</span>
           </p>
-        ) : null}
-        {mobile ? <p className="mt-2 truncate text-[12px] text-neutral-500">{mobile}</p> : null}
+        )}
       </div>
     </button>
   );
@@ -123,14 +148,16 @@ function PersonTile({
 function TilesGrid({
   employees,
   onOpen,
+  graphToken,
 }: {
   employees: IaeEmployee[];
   onOpen: (contactId: number) => void;
+  graphToken?: string | null;
 }) {
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
       {employees.map((employee) => (
-        <PersonTile key={employee.contactId} employee={employee} onOpen={onOpen} />
+        <PersonTile key={employee.contactId} employee={employee} onOpen={onOpen} graphToken={graphToken} />
       ))}
     </div>
   );
@@ -149,6 +176,21 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
   const [tableView, setTableView] = useState<TableView>("alpha");
   const [alphaSort, setAlphaSort] = useState<AlphaSort>("first");
   const [search, setSearch] = useState("");
+  const [graphToken, setGraphToken] = useState<string | null>(null);
+
+  // Acquire Graph token for Microsoft profile photos
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const account = getActiveAccount();
+      if (!account) return;
+      try {
+        const token = await acquireGraphAccessToken(account);
+        if (mounted && token) setGraphToken(token);
+      } catch { /* no token — falls back to initials */ }
+    })();
+    return () => { mounted = false; };
+  }, []);
 
   const openProfile = (contactId: number) => navigate("employee-profile", { contactId, fromView });
 
@@ -163,7 +205,7 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
     const q = search.trim().toLowerCase();
     if (!q) return employees;
     return employees.filter((employee) =>
-      [displayName(employee), employee.roleName ?? "", employee.departmentName ?? "", employee.email]
+      [displayName(employee), employee.jobTitle ?? "", employee.roleName ?? "", employee.departmentName ?? "", employee.email]
         .join(" ")
         .toLowerCase()
         .includes(q),
@@ -313,12 +355,12 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
                 <h2 className="mb-3 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">
                   {dept} <span className="text-neutral-400">· {members.length}</span>
                 </h2>
-                <TilesGrid employees={members} onOpen={openProfile} />
+                <TilesGrid employees={members} onOpen={openProfile} graphToken={graphToken} />
               </section>
             ))}
           </div>
         ) : (
-          <TilesGrid employees={alphaSorted} onOpen={openProfile} />
+          <TilesGrid employees={alphaSorted} onOpen={openProfile} graphToken={graphToken} />
         )}
     </>
   );
