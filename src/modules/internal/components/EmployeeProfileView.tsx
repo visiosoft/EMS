@@ -186,7 +186,7 @@ const currency = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 
-function InsuranceCard({ election }: { election: SelfProfileInsuranceElection }) {
+function InsuranceCard({ election, companyContributionPerPayPeriod }: { election: SelfProfileInsuranceElection; companyContributionPerPayPeriod?: number }) {
   const optedIn = election.optInStatus.toLowerCase().includes("opt-in");
   const benefits = election.planBenefits
     .split(";")
@@ -212,6 +212,9 @@ function InsuranceCard({ election }: { election: SelfProfileInsuranceElection })
             <Field label="Plan Price" value={textOrDash(election.planPrice)} />
             <Field label="Monthly Rate" value={textOrDash(election.monthlyRate)} />
             <Field label="Payroll Deduction" value={textOrDash(election.payrollDeduction)} />
+            {companyContributionPerPayPeriod != null && companyContributionPerPayPeriod > 0 ? (
+              <Field label="Company Contribution Per Pay Period" value={currency.format(companyContributionPerPayPeriod)} />
+            ) : null}
           </dl>
           {benefits.length > 0 ? (
             <div className="mt-4">
@@ -336,21 +339,17 @@ export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile })
     { label: "Title", value: textOrDash(profile.employment.title) },
     { label: "Access Level", value: textOrDash(profile.employment.accessLevel), admin: true },
     { label: "Work Email", value: textOrDash(profile.basics.email) },
-    { label: "Office", value: textOrDash(profile.employment.office) },
-    { label: "Workstation", value: textOrDash(profile.employment.workstation) },
+    { label: "Office", value: textOrDash(profile.employment.office), admin: true },
+    { label: "Workstation", value: textOrDash(profile.employment.workstation), admin: true },
     { label: "Work Authorization", value: textOrDash(profile.employment.workAuthorization), admin: true },
     { label: "Department", value: textOrDash(profile.basics.department) },
     { label: "Role", value: textOrDash(profile.basics.role) },
     { label: "Company", value: textOrDash(profile.basics.company) },
-    { label: "Hire Date", value: formatDate(profile.employment.hireDate) },
-    { label: "Start Date at IAE", value: formatDate(profile.employment.startDate) },
-    { label: "Termination Date", value: formatDate(profile.employment.terminationDate) },
-    { label: "Employment Status", value: textOrDash(profile.employment.employmentStatus) },
-    { label: "Employment Type", value: textOrDash(profile.employment.employmentType) },
-    // Pay Type / Pay Rate intentionally omitted: not in the client's Employee
-    // Profiles.xlsx field list, so they are not part of the profile.
-    { label: "Years of Service", value: textOrDash(profile.employment.yearsOfService) },
+    { label: "Start Date at IAE", value: formatDate(profile.employment.startDate), admin: true },
+    { label: "Years of Service", value: textOrDash(profile.employment.yearsOfService), admin: true },
     { label: "Supervisor", value: textOrDash(profile.employment.supervisor) },
+    { label: "Employment Status", value: textOrDash(profile.employment.employmentStatus), admin: true },
+    { label: "Employment Type", value: textOrDash(profile.employment.employmentType), admin: true },
     { label: "Paid Time Off Accrual Rate", value: textOrDash(profile.employment.ptoAccrualRate), admin: true },
     {
       label: "Employment Agreement Fully Executed",
@@ -376,13 +375,15 @@ export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile })
 
   const visiblePersonalFields = limited ? personalFields.filter((f) => !f.admin) : personalFields;
   const visibleEmploymentFields = limited ? employmentFields.filter((f) => !f.admin) : employmentFields;
-  const visiblePropertyFields = limited ? propertyFields.filter((f) => !f.admin) : propertyFields;
 
-  // Categories that are entirely Administrator-only (per xlsx) are skipped for limited viewers.
+  // Categories that are entirely Administrator-only are skipped for limited viewers.
   const showHealth = !limited;
   const showSoftware = !limited;
   const showHomeAddress = !limited;
   const showEmergency = !limited;
+  const showOfficeAddress = !limited;
+  const showGroups = !limited;
+  const showProperty = !limited;
 
   return (
     <div className="space-y-6">
@@ -415,7 +416,6 @@ export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile })
                         </span>
                       ) : null}
                     </div>
-                    <Field label="Relationship" value={textOrDash(contact.relationship)} />
                     <Field label="Phone" value={phoneOrDash(contact.phoneNumber)} />
                     <Field label="Email" value={textOrDash(contact.email)} />
                   </dl>
@@ -429,9 +429,11 @@ export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile })
       {/* ── 2. Employment information ────────────────────────────── */}
       <SectionShell number={2} title="Employment information" icon={<Briefcase className="h-4 w-4" />}>
         <FieldGrid items={visibleEmploymentFields} />
-        <SubGroup label="Office Address">
-          <Field label="Address" value={officeAddress} />
-        </SubGroup>
+        {showOfficeAddress ? (
+          <SubGroup label="Office Address">
+            <Field label="Address" value={officeAddress} />
+          </SubGroup>
+        ) : null}
       </SectionShell>
 
       {/* ── 3. Health Insurance information ──────────────────────── */}
@@ -442,21 +444,21 @@ export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile })
               <dl className="mb-5 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
                 <Field label="Health Insurance Status" value={textOrDash(health.insuranceEligibility)} />
                 <Field label="Tenure Tier" value={health.tenureTier || "—"} />
-                <Field
-                  label="Company Contribution Per Pay Period"
-                  value={
-                    health.companyContributionPerPayPeriod > 0
-                      ? currency.format(health.companyContributionPerPayPeriod)
-                      : "—"
-                  }
-                />
               </dl>
               {health.elections.length === 0 ? (
                 <p className="text-sm font-medium text-neutral-500">No insurance elections on file.</p>
               ) : (
                 <div className="space-y-4">
                   {health.elections.map((election) => (
-                    <InsuranceCard key={election.insuranceType} election={election} />
+                    <InsuranceCard
+                      key={election.insuranceType}
+                      election={election}
+                      companyContributionPerPayPeriod={
+                        election.insuranceType === "Medical"
+                          ? health.companyContributionPerPayPeriod
+                          : undefined
+                      }
+                    />
                   ))}
                 </div>
               )}
@@ -470,9 +472,11 @@ export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile })
       ) : null}
 
       {/* ── 4. Company Property Assignments ──────────────────────── */}
-      <SectionShell number={4} title="Company Property Assignments" icon={<Laptop className="h-4 w-4" />}>
-        <FieldGrid items={visiblePropertyFields} />
-      </SectionShell>
+      {showProperty ? (
+        <SectionShell number={4} title="Company Property Assignments" icon={<Laptop className="h-4 w-4" />}>
+          <FieldGrid items={propertyFields} />
+        </SectionShell>
+      ) : null}
 
       {/* ── 5. Software assets ───────────────────────────────────── */}
       {showSoftware ? (
@@ -485,12 +489,14 @@ export function EmployeeProfileView({ profile }: { profile: LinkedSelfProfile })
       ) : null}
 
       {/* ── 6. Group Membership ──────────────────────────────────── */}
-      <SectionShell number={6} title="Group Membership" icon={<Users className="h-4 w-4" />}>
-        <dt className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">
-          Microsoft Group Membership
-        </dt>
-        <TagList items={groups} empty="No group memberships found." />
-      </SectionShell>
+      {showGroups ? (
+        <SectionShell number={6} title="Group Membership" icon={<Users className="h-4 w-4" />}>
+          <dt className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">
+            Microsoft Group Membership
+          </dt>
+          <TagList items={groups} empty="No group memberships found." />
+        </SectionShell>
+      ) : null}
 
       {/* ── 7. Certifications ────────────────────────────────────── */}
       <SectionShell number={7} title="Certifications" icon={<Award className="h-4 w-4" />}>

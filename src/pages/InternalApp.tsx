@@ -1,27 +1,25 @@
 import { InternalLayout } from "@/modules/internal/layout/InternalLayout";
 import { InternalNavigationProvider, useInternalNavigation } from "@/modules/internal/routing/InternalNavigationContext";
-import { ArtGraphicDesignPage } from "@/modules/internal/pages/ArtGraphicDesignPage";
-import { BookingPage } from "@/modules/internal/pages/BookingPage";
+import { DepartmentDetailPage } from "@/modules/internal/pages/DepartmentDetailPage";
+import { EventBusinessPage } from "@/modules/internal/pages/EventBusinessPage";
 import { CompanyNewsPage } from "@/modules/internal/pages/CompanyNewsPage";
 import { DepartmentsPage } from "@/modules/internal/pages/DepartmentsPage";
 import { EmployeeServicesPage } from "@/modules/internal/pages/EmployeeServicesPage";
 import { EmployeeDirectoryPage } from "@/modules/internal/pages/EmployeeDirectoryPage";
 import { EmployeeProfilePage } from "@/modules/internal/pages/EmployeeProfilePage";
-import { EventBusinessPage } from "@/modules/internal/pages/EventBusinessPage";
 import { InternalHomePage } from "@/modules/internal/pages/HomePage";
 import { LeadershipPage } from "@/modules/internal/pages/LeadershipPage";
 import { MarketsPage } from "@/modules/internal/pages/MarketsPage";
 import { VenuesPage } from "@/modules/internal/pages/VenuesPage";
 import { AttractionsPage } from "@/modules/internal/pages/AttractionsPage";
-import { MarketingPage } from "@/modules/internal/pages/MarketingPage";
-import { ProductionPage } from "@/modules/internal/pages/ProductionPage";
-import { TicketingSalesPage } from "@/modules/internal/pages/TicketingSalesPage";
 import { LearningPortalPage } from "@/modules/internal/pages/LearningPortalPage";
 import { LearningAdminPage } from "@/modules/internal/pages/LearningAdminPage";
 import { MyProfilePage } from "@/modules/internal/pages/MyProfilePage";
 import { PayrollSchedulePage } from "@/modules/internal/pages/PayrollSchedulePage";
 import { HealthInsurancePage } from "@/modules/internal/pages/HealthInsurancePage";
 import { DocumentLibraryPage } from "@/features/document-library/pages/DocumentLibraryPage";
+import { useAccessLevel } from "@/hooks/useAccessLevel";
+import { ShieldAlert } from "lucide-react";
 
 function InternalAppViews() {
   const { currentView } = useInternalNavigation();
@@ -45,18 +43,15 @@ function InternalAppViews() {
       return <AttractionsPage />;
     case "departments":
       return <DepartmentsPage />;
-    case "department-art-graphic-design":
-      return <ArtGraphicDesignPage />;
-    case "department-booking":
-      return <BookingPage />;
     case "department-event-business":
       return <EventBusinessPage />;
+    case "department":
+    case "department-art-graphic-design":
+    case "department-booking":
     case "department-marketing":
-      return <MarketingPage />;
     case "department-production":
-      return <ProductionPage />;
     case "department-ticketing-sales":
-      return <TicketingSalesPage />;
+      return <DepartmentDetailPage />;
     case "learning-portal":
       return <LearningPortalPage />;
     case "document-library":
@@ -83,9 +78,32 @@ export default function InternalApp() {
 }
 
 function InternalAppShell() {
-  const { currentView } = useInternalNavigation();
+  const { currentView, navigate } = useInternalNavigation();
+  const { isAdministrator, isLoading: accessLevelLoading } = useAccessLevel();
   
   if (currentView === "learning-admin") {
+    if (accessLevelLoading) return null;
+    if (!isAdministrator) {
+      return (
+        <div className="flex min-h-screen flex-col items-center justify-center bg-neutral-50 px-4">
+          <div className="mx-auto max-w-md rounded-lg border border-red-200 bg-white p-8 text-center shadow-sm">
+            <ShieldAlert className="mx-auto mb-4 h-12 w-12 text-red-500" />
+            <h1 className="mb-2 text-xl font-semibold text-gray-900">Access Denied</h1>
+            <p className="mb-6 text-sm text-gray-600">
+              You do not have the required permission to access the Admin Panel.
+              This area is restricted to Administrators only.
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate("learning-portal")}
+              className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-800"
+            >
+              Back to Learning Portal
+            </button>
+          </div>
+        </div>
+      );
+    }
     return <LearningAdminPage />;
   }
 

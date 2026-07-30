@@ -7,6 +7,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { IsOptional, IsString, IsNumber } from 'class-validator';
 import { AuditRequestContext } from '../audit/audit-request-context.service';
+import { EmployeeHealthInsuranceService } from './employee-health-insurance.service';
 
 // ─── Response / DTO Types ─────────────────────────────────────────────────────
 
@@ -144,6 +145,7 @@ export class EmployeeEmploymentService {
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly auditContext: AuditRequestContext,
+    private readonly healthInsuranceService: EmployeeHealthInsuranceService,
   ) {}
 
   async getEmploymentProfile(
@@ -411,6 +413,12 @@ export class EmployeeEmploymentService {
         }
       }
     });
+
+    // If startDate was changed, recalculate health insurance deductions so the
+    // tenure-based employer contribution stays in sync with the stored payroll figure.
+    if (dto.startDate !== undefined) {
+      await this.healthInsuranceService.recalculateDeductionsForContact(current.contactId);
+    }
 
     return this.loadEmploymentProfile(email);
   }

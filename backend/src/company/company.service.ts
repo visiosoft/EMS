@@ -4119,6 +4119,10 @@ export class CompanyService {
     return out;
   }
 
+  async findManagedContactById(contactId: number): Promise<ManagedContactRow | null> {
+    return this.getManagedContactRowById(contactId);
+  }
+
   async createManagedContact(
     dto: ManageContactDto,
   ): Promise<ManagedContactRow> {
@@ -4286,15 +4290,15 @@ export class CompanyService {
         ));
 
       const existingAssignment = await em.findOne(ContactAssignment, {
-        where: { companyId, contactId: savedContact.contactId },
+        where: { companyId, contactId: savedContact.contactId, roleId: dto.roleId, departmentId: dto.departmentId },
       });
       if (existingAssignment) {
         throw new ConflictException({
           statusCode: HttpStatus.CONFLICT,
           error: 'Conflict',
-          message: 'This contact is already linked to this company.',
+          message: 'This contact is already linked to this company with the same role and department.',
           detail:
-            'A contact assignment already exists for this company/contact pair.',
+            'A contact assignment already exists for this company/contact/role/department combination.',
         });
       }
 
@@ -4515,6 +4519,28 @@ export class CompanyService {
 
       if (dto.roleId !== undefined) asg.roleId = dto.roleId;
       if (dto.departmentId !== undefined) asg.departmentId = dto.departmentId;
+      if (dto.companyId !== undefined && dto.companyId !== asg.companyId) {
+        const duplicateAssignment = await asgRepo.findOne({
+          where: {
+            companyId: dto.companyId,
+            contactId: asg.contactId,
+          },
+        });
+        if (
+          duplicateAssignment &&
+          duplicateAssignment.contactAssignmentId !== asg.contactAssignmentId
+        ) {
+          throw new ConflictException({
+            statusCode: HttpStatus.CONFLICT,
+            error: 'Conflict',
+            message:
+              'This contact is already assigned to the selected company.',
+            detail:
+              'A contact assignment already exists for this company/contact pair.',
+          });
+        }
+        asg.companyId = dto.companyId;
+      }
       try {
         await asgRepo.save(asg);
       } catch (e: unknown) {
@@ -4583,7 +4609,6 @@ export class CompanyService {
   async removeContactCompletely(contactAssignmentId: number): Promise<void> {
     const asg = await this.assignmentRepo.findOne({
       where: { contactAssignmentId },
-      relations: { contact: true },
     });
     if (!asg) {
       throw new NotFoundException(
@@ -4591,21 +4616,7 @@ export class CompanyService {
       );
     }
 
-    const contactId = asg.contactId;
-    const contactInfoId = asg.contact.contactInfoId;
-    const allAsgs = await this.assignmentRepo.find({
-      where: { contactId },
-      select: { contactAssignmentId: true },
-    });
-
-    if (allAsgs.length > 1) {
-      await this.assignmentRepo.delete({ contactId });
-    } else {
-      await this.assignmentRepo.delete({ contactAssignmentId });
-    }
-
-    await this.contactRepo.delete({ contactId });
-    await this.contactInfoRepo.delete({ contactInfoId });
+    await this.assignmentRepo.delete({ contactAssignmentId });
   }
 
   /**

@@ -46,8 +46,13 @@ export async function apiFetch<T>(
         retryHeaders.set('Authorization', `Bearer ${freshToken}`);
         res = await fetch(url, { ...requestInit, headers: retryHeaders });
       } catch {
-        // interactive token acquisition failed — return original 401
+        // interactive token acquisition failed — redirect to login
+        window.location.assign('/login');
+        throw new Error('Session expired. Redirecting to sign-in.');
       }
+    } else {
+      window.location.assign('/login');
+      throw new Error('Session expired. Redirecting to sign-in.');
     }
   }
 
@@ -144,11 +149,8 @@ async function buildApiHeaders(
     }
 
     if (!headers.has('Authorization') && isApiAccessTokenConfigured()) {
-      try {
-        headers.set('Authorization', `Bearer ${await acquireApiAccessToken(account)}`);
-      } catch {
-        headers.delete('Authorization');
-      }
+      const token = await acquireApiAccessToken(account);
+      headers.set('Authorization', `Bearer ${token}`);
     }
 
     if (!headers.has('x-entra-graph-access-token')) {

@@ -17,4 +17,22 @@ export class EngagementProduction {
 
   @Column({ name: 'AnnouncementDate', type: 'date', nullable: true })
   announcementDate: string | null;
+
+  @Column({ name: 'RunnerRequired', type: 'bit', nullable: true })
+  runnerRequired: boolean | null;
+
+  @Column({ name: 'CateringRequired', type: 'bit', nullable: true })
+  cateringRequired: boolean | null;
+
+  @Column({ name: 'CateringBudgetLineItem', type: 'nvarchar', length: 500, nullable: true })
+  cateringBudgetLineItem: string | null;
+
+  @Column({ name: 'ProductionBuyoutRequired', type: 'bit', nullable: true })
+  productionBuyoutRequired: boolean | null;
+
+  @Column({ name: 'ProductionBuyoutDescription', type: 'nvarchar', length: 500, nullable: true })
+  productionBuyoutDescription: string | null;
+
+  @Column({ name: 'ProductionBuyoutBudgetAmount', type: 'decimal', precision: 18, scale: 2, nullable: true })
+  productionBuyoutBudgetAmount: number | null;
 }

@@ -52,6 +52,11 @@ export class TourController {
     return this.tourService.create(dto, bannerImage);
   }
 
+  @Get(':id/projects')
+  listProjectsByTour(@Param('id', ParseIntPipe) id: number) {
+    return this.tourService.listProjectsByTour(id);
+  }
+
   @Patch(':id')
   @UseInterceptors(FileInterceptor('bannerImage', tourBannerMulterOptions()))
   update(

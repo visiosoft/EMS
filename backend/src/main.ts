@@ -10,15 +10,20 @@ import { TOUR_BANNER_UPLOAD_DIR } from './attraction-tours/tour-banner-multer.co
 import { SEATING_CHART_UPLOAD_DIR } from './engagements/seating-chart-multer.config';
 import { CONTRACT_UPLOAD_DIR } from './engagements/contract-multer.config';
 import { CONFIRMED_OFFER_UPLOAD_DIR } from './projects/confirmed-offer-multer.config';
+import { getUploadRoot } from './common/upload-path';
 
 const DEFAULT_PORT = 3001;
 
 async function bootstrap() {
+  const certificateUploadDir = path.join(getUploadRoot(), 'certificates');
   fs.mkdirSync(TOUR_BANNER_UPLOAD_DIR, { recursive: true });
   fs.mkdirSync(SEATING_CHART_UPLOAD_DIR, { recursive: true });
   fs.mkdirSync(CONTRACT_UPLOAD_DIR, { recursive: true });
   fs.mkdirSync(CONFIRMED_OFFER_UPLOAD_DIR, { recursive: true });
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  fs.mkdirSync(certificateUploadDir, { recursive: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    rawBody: true,
+  });
   const logger = new Logger('Bootstrap');
 
   app.useStaticAssets(TOUR_BANNER_UPLOAD_DIR, {
@@ -32,6 +37,9 @@ async function bootstrap() {
   });
   app.useStaticAssets(CONFIRMED_OFFER_UPLOAD_DIR, {
     prefix: '/uploads/confirmed-offers/',
+  });
+  app.useStaticAssets(certificateUploadDir, {
+    prefix: '/uploads/certificates/',
   });
   app.enableCors();
   app.setGlobalPrefix('api');

@@ -129,7 +129,7 @@ export class InternalHandbookService {
         .replace(/^<[^>]+>/, '')
         .replace(/<\/[^>]+>$/, '')
         .trim();
-      const text = this.stripHtml(innerHtml).trim();
+      const text = this.normalizeText(innerHtml);
 
       if (!text) continue;
 
@@ -139,16 +139,19 @@ export class InternalHandbookService {
         tagName === 'section' ||
         tagName === 'article'
       ) {
-        blocks.push({ kind: 'paragraph', text: this.decodeEntities(text) });
+        blocks.push({
+          kind: this.isFullyBold(innerHtml, text) ? 'heading' : 'paragraph',
+          text,
+        });
       } else if (tagName.match(/^h[1-6]$/)) {
-        blocks.push({ kind: 'heading', text: this.decodeEntities(text) });
+        blocks.push({ kind: 'heading', text });
       } else if (tagName === 'ul' || tagName === 'ol') {
         const items: string[] = [];
         const liRegex = /<li[^>]*>([\s\S]*?)<\/li>/gi;
         let liMatch: RegExpExecArray | null;
         while ((liMatch = liRegex.exec(innerHtml)) !== null) {
-          const liText = this.stripHtml(liMatch[1]).trim();
-          if (liText) items.push(this.decodeEntities(liText));
+          const liText = this.normalizeText(liMatch[1]);
+          if (liText) items.push(liText);
         }
         if (items.length > 0) {
           blocks.push({ kind: 'list', items });
@@ -161,6 +164,36 @@ export class InternalHandbookService {
 
   private stripHtml(html: string): string {
     return html.replace(/<[^>]+>/g, '');
+  }
+
+  /**
+   * Extract visible text with whitespace normalized. The stored Word-exported HTML
+   * is full of literal non-breaking spaces (U+00A0); left in place they form
+   * unbreakable word runs that wrap early and stretch justified lines in the
+   * rendered handbook. \s matches U+00A0, so all whitespace collapses to plain
+   * single spaces here.
+   */
+  private normalizeText(html: string): string {
+    return this.decodeEntities(this.stripHtml(html))
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /**
+   * A paragraph whose entire visible text sits inside <strong>/<b> is a
+   * sub-heading in the source document (Word exports mark them this way, e.g.
+   * "<p><strong>Marketing</strong></p>"); stripHtml alone would silently drop
+   * the emphasis and render it as body text.
+   */
+  private isFullyBold(innerHtml: string, text: string): boolean {
+    if (!text) return false;
+    let bold = '';
+    const boldRegex = /<(strong|b)\b[^>]*>([\s\S]*?)<\/\1>/gi;
+    let match: RegExpExecArray | null;
+    while ((match = boldRegex.exec(innerHtml)) !== null) {
+      bold += ` ${match[2]} `;
+    }
+    return this.normalizeText(bold) === text;
   }
 
   private decodeEntities(text: string): string {

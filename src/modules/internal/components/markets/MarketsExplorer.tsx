@@ -3,6 +3,7 @@ import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient, type UseQ
 import {
   Building2,
   ChevronDown,
+  ExternalLink,
   LayoutGrid,
   List,
   Loader2,
@@ -19,6 +20,7 @@ import {
 } from '@/api/internalMarketsApi';
 import { cn } from '@/lib/utils';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import { primeEmsOpenIntent } from '../../lib/emsOpenIntent';
 import {
   internalMarketsQueryKeys,
   marketsHubFreshCache,
@@ -107,9 +109,17 @@ function MarketVenuesPanel({ market, isOpen }: { market: InternalHubMarket; isOp
                     className="rounded-md border border-neutral-200 bg-white px-3 py-2.5 shadow-sm transition-colors hover:border-neutral-400"
                   >
                     <div className="flex items-baseline justify-between gap-3">
-                      <p className="min-w-0 truncate text-sm font-semibold text-neutral-900" title={venue.venueName}>
+                      <a
+                        href="/"
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={() => primeEmsOpenIntent({ view: 'companies', selectedCompanyId: venue.companyId })}
+                        className="min-w-0 truncate text-sm font-semibold text-neutral-900 hover:text-blue-700 hover:underline inline-flex items-center gap-1.5 transition-colors"
+                        title={`Open ${venue.venueName} in EMS`}
+                      >
                         {venue.venueName}
-                      </p>
+                        <ExternalLink className="h-3 w-3 shrink-0 opacity-50" aria-hidden />
+                      </a>
                       {venueLocation(venue) ? (
                         <span className="shrink-0 text-xs font-medium text-neutral-600">{venueLocation(venue)}</span>
                       ) : null}

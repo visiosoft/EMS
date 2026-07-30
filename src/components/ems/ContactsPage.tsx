@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Building2, Loader2, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { Check, Building2, Eye, Loader2, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import Swal from 'sweetalert2';
 import 'sweetalert2/dist/sweetalert2.min.css';
 import {
@@ -9,6 +9,7 @@ import {
   fetchContactConnections,
   fetchCompaniesPickerRows,
   fetchLookups,
+  fetchManagedContactById,
   fetchManagedContacts,
   managedContactsQueryKey,
   updateManagedContact,
@@ -29,6 +30,7 @@ import { companyToSelect2Options } from './companySelectOptions';
 import { DEFAULT_PHONE_COUNTRY } from '@/lib/contactPhoneOptions';
 import {
   type PhoneCountrySelection,
+  formatE164ForDisplay,
   parsePhoneFieldValue,
   tryE164FromDisplay,
 } from '@/lib/contactPhoneField';
@@ -423,6 +425,7 @@ function ContactDetailDrawer({
   onClose,
   onDelete,
   onSave,
+  onNavigate,
   onRemoveCompany,
 }: {
   row: ApiManagedContact;
@@ -434,14 +437,19 @@ function ContactDetailDrawer({
   onClose: () => void;
   onDelete: () => void;
   onSave: (payload: ManagedContactPayload) => void;
+  onNavigate?: (view: string, data?: unknown) => void;
   onRemoveCompany: (assignments: ManagedContactAssignmentInput[]) => Promise<void>;
 }) {
   const [draft, setDraft] = useState<ContactDraft>(() => makeDraftFromRow(row));
   const [error, setError] = useState<string | null>(null);
+  const [editingAssignments, setEditingAssignments] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     setDraft(makeDraftFromRow(row));
     setError(null);
+    setEditingAssignments(false);
+    setEditing(false);
   }, [row]);
 
   const initialDraft = useMemo(() => makeDraftFromRow(row), [row]);
@@ -461,6 +469,7 @@ function ContactDetailDrawer({
   const discard = () => {
     setDraft(makeDraftFromRow(row));
     setError(null);
+    setEditing(false);
   };
 
   /**
@@ -564,14 +573,27 @@ function ContactDetailDrawer({
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-muted">
             {row.companyNames.length > 0 ? (
               <>
-                {row.companyNames.map((name) => (
-                  <span
-                    key={name}
-                    className="inline-flex items-center gap-1 rounded-md bg-ems-accent-dim px-2 py-0.5 text-[11px] font-medium text-ems-accent"
-                  >
-                    <Building2 className="h-3 w-3" aria-hidden />
-                    {name}
-                  </span>
+                {row.companyNames.map((name, idx) => (
+                  onNavigate && row.companyIds[idx] ? (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => onNavigate('companies', { selectedCompanyId: row.companyIds[idx] })}
+                      className="inline-flex items-center gap-1 rounded-md bg-ems-accent-dim px-2 py-0.5 text-[11px] font-medium text-ems-accent hover:bg-ems-accent/20 hover:underline transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40"
+                      title={`Open ${name}`}
+                    >
+                      <Building2 className="h-3 w-3" aria-hidden />
+                      {name}
+                    </button>
+                  ) : (
+                    <span
+                      key={name}
+                      className="inline-flex items-center gap-1 rounded-md bg-ems-accent-dim px-2 py-0.5 text-[11px] font-medium text-ems-accent"
+                    >
+                      <Building2 className="h-3 w-3" aria-hidden />
+                      {name}
+                    </span>
+                  )
                 ))}
                 {row.isStaff ? internalStaffChip() : null}
               </>
@@ -601,10 +623,122 @@ function ContactDetailDrawer({
       </div>
 
       <div className="p-4">
-        <p className="mb-4 inline-flex items-center gap-1.5 text-xs text-text-muted">
-          <Pencil className="h-3.5 w-3.5" aria-hidden />
-          Click any field to edit inline
-        </p>
+        {!editing ? (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <p className="inline-flex items-center gap-1.5 text-xs text-text-muted">
+                <Eye className="h-3.5 w-3.5" aria-hidden />
+                Viewing contact details
+              </p>
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:border-ems-accent/50 hover:bg-elevated transition-colors"
+              >
+                <Pencil className="h-3 w-3" />
+                Edit
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              <section className="space-y-4">
+                <div className="border-b border-border pb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  Contact details
+                </div>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div>
+                    <span className="text-xs text-text-muted">First Name</span>
+                    <div className="text-sm text-text-primary mt-0.5 font-medium">{row.firstName || '—'}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-text-muted">Last Name</span>
+                    <div className="text-sm text-text-primary mt-0.5 font-medium">{row.lastName || '—'}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-text-muted">Email</span>
+                    <div className="text-sm text-text-primary mt-0.5">
+                      {row.email ? <a href={`mailto:${row.email}`} className="text-ems-blue hover:underline">{row.email}</a> : '—'}
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-4">
+                <div className="border-b border-border pb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  Company assignments
+                </div>
+                <div className="space-y-2">
+                  {row.assignments.length === 0 ? (
+                    <p className="text-sm text-text-muted">No company assignments.</p>
+                  ) : (
+                    row.assignments.map((asg, idx) => {
+                      const companyName = row.companyNames[idx] || `Company #${asg.companyId}`;
+                      return (
+                        <div key={`${asg.companyId}-${idx}`} className="flex items-center gap-3 rounded-md border border-border bg-elevated px-3 py-2">
+                          <Building2 className="h-4 w-4 shrink-0 text-text-muted" aria-hidden />
+                          <div className="min-w-0 flex-1">
+                            {onNavigate ? (
+                              <button
+                                type="button"
+                                onClick={() => onNavigate('companies', { selectedCompanyId: asg.companyId })}
+                                className="text-sm font-medium text-text-primary hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                                title={`Open ${companyName}`}
+                              >
+                                {companyName}
+                              </button>
+                            ) : (
+                              <span className="text-sm font-medium text-text-primary">{companyName}</span>
+                            )}
+                            {((asg.roleNames ?? []).length > 0 || (asg.departmentNames ?? []).length > 0) && (
+                              <p className="text-xs text-text-secondary mt-0.5">
+                                {[(asg.roleNames ?? []).join(', '), (asg.departmentNames ?? []).join(', ')].filter(Boolean).join(' · ')}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </section>
+
+              <section className="space-y-4">
+                <div className="border-b border-border pb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  Phone numbers
+                </div>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div>
+                    <span className="text-xs text-text-muted">Work Phone</span>
+                    <div className="text-sm text-text-primary mt-0.5">
+                      {row.workPhone ? <a href={`tel:${row.workPhone}`} className="hover:underline">{formatE164ForDisplay(row.workPhone)}</a> : '—'}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-text-muted">Cell Phone</span>
+                    <div className="text-sm text-text-primary mt-0.5">
+                      {row.cellPhone ? <a href={`tel:${row.cellPhone}`} className="hover:underline">{formatE164ForDisplay(row.cellPhone)}</a> : '—'}
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </>
+        ) : (
+          <>
+        <div className="flex items-center justify-between mb-4">
+          <p className="inline-flex items-center gap-1.5 text-xs text-text-muted">
+            <Pencil className="h-3.5 w-3.5" aria-hidden />
+            Click any field to edit inline
+          </p>
+          <button
+            type="button"
+            onClick={() => { setEditing(false); discard(); }}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors"
+          >
+            <Eye className="h-3 w-3" />
+            View only
+          </button>
+        </div>
 
         <div className="space-y-6">
           <section className="space-y-4">
@@ -638,10 +772,21 @@ function ContactDetailDrawer({
           </section>
 
           <section className="space-y-4">
-            <div className="border-b border-border pb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
-              Company assignments
+            <div className="flex items-center justify-between border-b border-border pb-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+                Company assignments
+              </span>
+              <button
+                type="button"
+                onClick={() => setEditingAssignments((v) => !v)}
+                className="text-xs font-medium text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm"
+              >
+                {editingAssignments ? 'Done' : 'Edit'}
+              </button>
             </div>
-            <p className="text-xs text-text-muted">
+            {editingAssignments ? (
+              <>
+                  <p className="text-xs text-text-muted">
               A contact can belong to multiple companies at once — add each one with its own roles and departments.
             </p>
             <CompanyAssignmentEditor
@@ -653,6 +798,50 @@ function ContactDetailDrawer({
               departmentOptions={departmentOptions}
               loading={lookupsLoading}
             />
+              </>
+            ) : (
+              <div className="space-y-2">
+                {row.assignments.length === 0 ? (
+                  <p className="text-sm text-text-muted">No company assignments.</p>
+                ) : (
+                  row.assignments.map((asg, idx) => {
+                    const companyName = row.companyNames[idx] || `Company #${asg.companyId}`;
+                    return (
+                      <div key={`${asg.companyId}-${idx}`} className="flex items-center gap-3 rounded-md border border-border bg-elevated px-3 py-2">
+                        <Building2 className="h-4 w-4 shrink-0 text-text-muted" aria-hidden />
+                        <div className="min-w-0 flex-1">
+                          {onNavigate ? (
+                            <button
+                              type="button"
+                              onClick={() => onNavigate('companies', { selectedCompanyId: asg.companyId })}
+                              className="text-sm font-medium text-text-primary hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                              title={`Open ${companyName}`}
+                            >
+                              {companyName}
+                            </button>
+                          ) : (
+                            <span className="text-sm font-medium text-text-primary">{companyName}</span>
+                          )}
+                          {((asg.roleNames ?? []).length > 0 || (asg.departmentNames ?? []).length > 0) && (
+                            <p className="text-xs text-text-secondary mt-0.5">
+                              {[(asg.roleNames ?? []).join(', '), (asg.departmentNames ?? []).join(', ')].filter(Boolean).join(' · ')}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+                <button
+                  type="button"
+                  onClick={() => setEditingAssignments(true)}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-2 text-xs font-medium text-text-secondary transition hover:border-ems-accent hover:text-ems-accent"
+                >
+                  <Plus className="h-3.5 w-3.5" aria-hidden />
+                  Add company
+                </button>
+              </div>
+            )}
           </section>
 
           <section className="space-y-4">
@@ -710,6 +899,8 @@ function ContactDetailDrawer({
               </button>
             </div>
           </div>
+        )}
+          </>
         )}
       </div>
     </Drawer>
@@ -930,7 +1121,7 @@ function SearchSuggestions({
 
 /* ── Main Contacts Page ──────────────────────────────────────────────── */
 
-export function ContactsPage({ addToast }: { addToast: ToastFn }) {
+export function ContactsPage({ addToast, initialSelectedContactId, onNavigate }: { addToast: ToastFn; initialSelectedContactId?: number | null; onNavigate?: (view: string, data?: unknown) => void }) {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [committedSearch, setCommittedSearch] = useState('');
@@ -987,6 +1178,28 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
     const refreshed = rows.find((row) => row.contactId === selectedContact.contactId);
     if (refreshed) setSelectedContact(refreshed);
   }, [rows, selectedContact]);
+
+  // Auto-open contact detail when navigated with initialSelectedContactId
+  useEffect(() => {
+    if (initialSelectedContactId == null) return;
+    const match = rows.find((r) => r.contactId === initialSelectedContactId);
+    if (match) {
+      setSelectedContact(match);
+      setSearch(`${match.firstName} ${match.lastName}`.trim());
+      setCommittedSearch(`${match.firstName} ${match.lastName}`.trim());
+      return;
+    }
+    // Contact not in current page — fetch it directly
+    let cancelled = false;
+    fetchManagedContactById(initialSelectedContactId).then((contact) => {
+      if (!cancelled && contact) {
+        setSelectedContact(contact);
+        setSearch(`${contact.firstName} ${contact.lastName}`.trim());
+        setCommittedSearch(`${contact.firstName} ${contact.lastName}`.trim());
+      }
+    }).catch(() => { /* ignore – contact may not exist */ });
+    return () => { cancelled = true; };
+  }, [initialSelectedContactId, rows]);
 
   // Build a lookup map for company details
   const companyById = useMemo(() => {
@@ -1063,6 +1276,17 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
 
   const isDeletePending = deleteMutation.isPending || isDeleteWorkflowPending;
 
+  const clearCompanyContactCaches = () => {
+    qc.removeQueries({
+      predicate: (query) => {
+        const key = query.queryKey;
+        if (key[0] === 'companies' && typeof key[2] === 'string' && key[2].includes('contact')) return true;
+        if (key[0] === 'company-contacts') return true;
+        return false;
+      },
+    });
+  };
+
   const confirmDeleteContact = async () => {
     const contactToDelete = pendingDelete;
     if (!contactToDelete || isDeletePending) {
@@ -1072,6 +1296,7 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
     try {
       await deleteMutation.mutateAsync(contactToDelete);
       await qc.invalidateQueries({ queryKey: ['contacts', 'managed'] });
+      clearCompanyContactCaches();
       setSelectedContact((current) =>
         current?.contactId === contactToDelete.contactId ? null : current,
       );
@@ -1173,6 +1398,7 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
 
         if (result.isConfirmed) {
           await qc.invalidateQueries({ queryKey: ['contacts', 'managed'] });
+          clearCompanyContactCaches();
           setSelectedContact((current) =>
             current?.contactId === contact.contactId ? null : current,
           );
@@ -1210,6 +1436,7 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
 
         if (result.isConfirmed) {
           await qc.invalidateQueries({ queryKey: ['contacts', 'managed'] });
+          clearCompanyContactCaches();
           setSelectedContact((current) =>
             current?.contactId === contact.contactId ? null : current,
           );
@@ -1392,6 +1619,7 @@ export function ContactsPage({ addToast }: { addToast: ToastFn }) {
             void handleDeleteContact(selectedContact);
           }}
           onSave={(body) => saveMutation.mutate({ row: selectedContact, body })}
+          onNavigate={onNavigate}
           onRemoveCompany={async (assignments) => {
             await removeCompanyMutation.mutateAsync({
               contactId: selectedContact.contactId,

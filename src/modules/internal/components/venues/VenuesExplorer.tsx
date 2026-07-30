@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import {
   ChevronDown,
+  ExternalLink,
   Landmark,
   LayoutGrid,
   List,
@@ -22,6 +23,7 @@ import {
   normalizeVenuesSearchQuery,
   venuesHubFreshCache,
 } from './venuesHubCache';
+import { primeEmsOpenIntent } from '../../lib/emsOpenIntent';
 
 const VENUES_PAGE_SIZE = 10;
 const SUGGESTION_LIMIT = 8;
@@ -132,7 +134,16 @@ function VenueCard({
                 )}
                 title={venue.venueName}
               >
-                {venue.venueName}
+                <a
+                  href="/"
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => primeEmsOpenIntent({ view: 'companies', selectedCompanyId: venue.companyId })}
+                  className="inline-flex items-center gap-1.5 text-left hover:text-blue-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 rounded-sm transition-colors"
+                >
+                  {venue.venueName}
+                  <ExternalLink className="h-3.5 w-3.5 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity" aria-hidden />
+                </a>
               </h3>
               <button
                 type="button"

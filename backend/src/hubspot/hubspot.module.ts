@@ -4,11 +4,12 @@ import { Company } from '../entities/company.entity';
 import { Contact } from '../entities/contact.entity';
 import { HubSpotController } from './hubspot.controller';
 import { HubSpotService } from './hubspot.service';
+import { HubSpotSignatureService } from './hubspot-signature.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Contact, Company])],
   controllers: [HubSpotController],
-  providers: [HubSpotService],
+  providers: [HubSpotService, HubSpotSignatureService],
   exports: [HubSpotService],
 })
 export class HubSpotModule {}

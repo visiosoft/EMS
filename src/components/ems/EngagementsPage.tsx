@@ -1265,6 +1265,11 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
           addToast={addToast}
           onCreated={async () => {
             await qc.invalidateQueries({ queryKey: ['engagements'] });
+            // Clear venue-level engagement caches so the Companies → Venues tab fetches fresh data.
+            // removeQueries is needed because the global QueryClient has refetchOnMount: false.
+            qc.removeQueries({
+              predicate: (query) => query.queryKey[0] === 'companies' && query.queryKey[2] === 'engagements',
+            });
             setShowCreate(false);
           }}
         />

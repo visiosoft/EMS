@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Patch, Put, Post, UseGuards } from '@nestjs/common';
 import { AdminUsersService } from './admin-users.service';
 import { EmployeeCertificationsService } from './employee-certifications.service';
 import {
@@ -11,6 +11,7 @@ import {
 import {
   EmployeeHealthInsuranceService,
   UpdateEmployeeHealthInsuranceDto,
+  BulkUpdateHealthInsuranceDto,
 } from './employee-health-insurance.service';
 import {
   EmployeeProfileService,
@@ -138,6 +139,15 @@ export class AdminUsersController {
     @Body() dto: UpdateEmployeeHealthInsuranceDto,
   ) {
     return this.employeeHealthInsuranceService.updateHealthInsurance(email, dto);
+  }
+
+  @Put('users/:email/health-insurance')
+  @UseGuards(AdminOrSelfGuard)
+  async bulkUpdateHealthInsurance(
+    @Param('email') email: string,
+    @Body() dto: BulkUpdateHealthInsuranceDto,
+  ) {
+    return this.employeeHealthInsuranceService.bulkUpdateHealthInsurance(email, dto);
   }
 
   @Get('workstations')

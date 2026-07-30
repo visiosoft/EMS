@@ -2,10 +2,10 @@ import { BadRequestException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { diskStorage } from 'multer';
 import { join } from 'path';
+import { getUploadRoot } from '../common/upload-path';
 
 export const TOUR_BANNER_UPLOAD_DIR = join(
-  process.cwd(),
-  'uploads',
+  getUploadRoot(),
   'tour-banners',
 );
 

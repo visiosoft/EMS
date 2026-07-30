@@ -125,19 +125,8 @@ export function fetchLearningPlatforms(): Promise<LearningPlatform[]> {
 
 export type LearningDepartment = { departmentId: number; departmentName: string };
 
-const ALLOWED_DEPARTMENT_NAMES = [
-  "Art & Graphic Design",
-  "Marketing",
-  "Finance",
-  "Booking",
-  "Production",
-  "Ticketing & Sales",
-];
-
 export function fetchLearningDepartments(): Promise<LearningDepartment[]> {
-  return apiFetch<LearningDepartment[]>('/lookups/departments').then((depts) =>
-    depts.filter((d) => ALLOWED_DEPARTMENT_NAMES.includes(d.departmentName))
-  );
+  return apiFetch<LearningDepartment[]>('/lookups/departments');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -209,6 +198,15 @@ export function toggleLearningCertificationStatus(
   );
 }
 
+export function deleteLearningCertification(
+  id: number,
+): Promise<{ certificationId: number; deleted: boolean }> {
+  return apiFetch<{ certificationId: number; deleted: boolean }>(
+    `/internal/learning/certifications/${id}`,
+    { method: 'DELETE' },
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // SUBMISSIONS
 // ═══════════════════════════════════════════════════════════════════════════
@@ -269,6 +267,15 @@ export function reviewLearningSubmission(
     method: 'PATCH',
     body: JSON.stringify(data),
   });
+}
+
+export function deleteLearningSubmission(
+  id: number,
+): Promise<{ submissionId: number; deleted: boolean }> {
+  return apiFetch<{ submissionId: number; deleted: boolean }>(
+    `/internal/learning/submissions/${id}`,
+    { method: 'DELETE' },
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

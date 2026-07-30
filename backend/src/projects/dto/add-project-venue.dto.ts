@@ -1,5 +1,6 @@
 import {
   IsArray,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -9,6 +10,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { CreatePerformanceOptionDto } from './create-project.dto';
+import { PROJECT_STAGE_VALUES } from '../project-stage.constants';
 
 export class AddProjectVenueDto {
   @Type(() => Number)
@@ -19,6 +21,11 @@ export class AddProjectVenueDto {
   @IsString()
   @MaxLength(50)
   venueStatus: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn([...PROJECT_STAGE_VALUES])
+  offerCreationStatus?: string;
 
   @IsOptional()
   @IsArray()

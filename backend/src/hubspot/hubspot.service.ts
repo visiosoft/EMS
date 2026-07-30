@@ -12,6 +12,7 @@ import { ContactAssignment } from '../entities/contact-assignment.entity';
 import { Contact } from '../entities/contact.entity';
 import { Department } from '../entities/department.entity';
 import { Role } from '../entities/role.entity';
+import { HubSpotWebhookEventDto } from './dto/hubspot-webhook-event.dto';
 
 interface ExternalContactSyncRow {
   contactId: number;
@@ -837,6 +838,7 @@ export class HubSpotService {
       idProperty: 'iae_company_id',
       properties: {
         name: company.companyName,
+        type: company.companyTypeName,
         address: [company.addressLine1, company.addressLine2]
           .filter(Boolean)
           .join(', '),
@@ -919,18 +921,56 @@ export class HubSpotService {
       return { idsBySyncKey, batches: 0, hubSpotInvalidEmail: 0 };
     }
 
-    const existingIdsByEmail = await this.findExistingContactIdsByEmail(
-      inputs.map((input) => clean(input.properties.email)).filter(Boolean),
-      token,
+    // 1. Try to find existing HubSpot contacts by iae_contact_sync_key (stable ID).
+    //    This handles email-change scenarios where the old email no longer matches.
+    const existingIdsBySyncKey =
+      await this.findExistingContactIdsBySyncKey(
+        inputs.map((input) => clean(input.id)).filter(Boolean),
+        token,
+      );
+
+    // 2. For contacts not found by sync key, try iae_contact_id lookup.
+    //    Contacts created via HubSpot webhook have iae_contact_id/iae_contact_info_id
+    //    written back but may not have iae_contact_sync_key set yet.
+    const unmatchedBySyncKey = inputs.filter(
+      (input) => !existingIdsBySyncKey.has(clean(input.id)),
     );
+    const existingIdsByContactId =
+      unmatchedBySyncKey.length > 0
+        ? await this.findExistingContactIdsByEmsIds(
+            unmatchedBySyncKey.map((input) => ({
+              syncKey: clean(input.id),
+              contactId: clean(input.properties.iae_contact_id),
+              contactInfoId: clean(input.properties.iae_contact_info_id),
+            })),
+            token,
+          )
+        : new Map<string, string>();
+
+    // 3. Fall back to email lookup for contacts not yet linked via sync key or EMS IDs.
+    const unmatchedByKey = unmatchedBySyncKey.filter(
+      (input) => !existingIdsByContactId.has(clean(input.id)),
+    );
+    const existingIdsByEmail =
+      unmatchedByKey.length > 0
+        ? await this.findExistingContactIdsByEmail(
+            unmatchedByKey
+              .map((input) => clean(input.properties.email))
+              .filter(Boolean),
+            token,
+          )
+        : new Map<string, string>();
 
     const updates: { id: string; input: HubSpotObjectInput }[] = [];
     const creates: HubSpotObjectInput[] = [];
     for (const input of inputs) {
       const syncKey = input.id;
-      const existingHubSpotId = existingIdsByEmail.get(
-        clean(input.properties.email).toLowerCase(),
-      );
+      const existingHubSpotId =
+        existingIdsBySyncKey.get(clean(syncKey)) ??
+        existingIdsByContactId.get(clean(syncKey)) ??
+        existingIdsByEmail.get(
+          clean(input.properties.email).toLowerCase(),
+        );
       if (existingHubSpotId) {
         updates.push({ id: existingHubSpotId, input });
         idsBySyncKey.set(syncKey, existingHubSpotId);
@@ -1007,6 +1047,144 @@ export class HubSpotService {
         const email = normalizeEmail(result.properties?.email);
         const id = clean(result.id);
         if (email && id) out.set(email, id);
+      }
+    }
+
+    return out;
+  }
+
+  private async findExistingContactIdsBySyncKey(
+    syncKeys: string[],
+    token: string,
+  ): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    const uniqueKeys = [...new Set(syncKeys.filter(Boolean))];
+    if (uniqueKeys.length === 0) return out;
+
+    for (let i = 0; i < uniqueKeys.length; i += 100) {
+      const batch = uniqueKeys.slice(i, i + 100);
+      const response = await fetch(
+        this.buildHubSpotUrl('/crm/v3/objects/contacts/batch/read'),
+        {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({
+            idProperty: 'iae_contact_sync_key',
+            properties: ['email', 'iae_contact_sync_key'],
+            inputs: batch.map((key) => ({ id: key })),
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        // Sync-key lookup is best-effort; fall back to email matching
+        // if the custom property doesn't exist yet or the call fails.
+        this.logger.warn(
+          `HubSpot sync-key batch lookup failed (status ${response.status}). Falling back to email lookup.`,
+        );
+        return out;
+      }
+
+      const payload = (await response.json()) as {
+        results?: { id?: string; properties?: Record<string, unknown> }[];
+      };
+      for (const result of payload.results ?? []) {
+        const key = clean(result.properties?.iae_contact_sync_key);
+        const id = clean(result.id);
+        if (key && id) out.set(key, id);
+      }
+    }
+
+    return out;
+  }
+
+  /**
+   * Look up HubSpot contacts by iae_contact_id. This catches contacts created
+   * via the HubSpot webhook that had iae_contact_id / iae_contact_info_id written
+   * back but not iae_contact_sync_key. Returns a map of syncKey → HubSpot ID,
+   * only for entries where both iae_contact_id and iae_contact_info_id match.
+   */
+  private async findExistingContactIdsByEmsIds(
+    entries: { syncKey: string; contactId: string; contactInfoId: string }[],
+    token: string,
+  ): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    const validEntries = entries.filter(
+      (e) => e.contactId && e.contactInfoId && e.syncKey,
+    );
+    if (validEntries.length === 0) return out;
+
+    const uniqueContactIds = [
+      ...new Set(validEntries.map((e) => e.contactId)),
+    ];
+
+    // Build a lookup: iae_contact_id → { syncKey, contactInfoId }
+    const entryByContactId = new Map<
+      string,
+      { syncKey: string; contactInfoId: string }
+    >();
+    for (const e of validEntries) {
+      entryByContactId.set(e.contactId, {
+        syncKey: e.syncKey,
+        contactInfoId: e.contactInfoId,
+      });
+    }
+
+    for (let i = 0; i < uniqueContactIds.length; i += 100) {
+      const batch = uniqueContactIds.slice(i, i + 100);
+      const response = await fetch(
+        this.buildHubSpotUrl('/crm/v3/objects/contacts/batch/read'),
+        {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({
+            idProperty: 'iae_contact_id',
+            properties: [
+              'email',
+              'iae_contact_id',
+              'iae_contact_info_id',
+              'iae_contact_sync_key',
+            ],
+            inputs: batch.map((id) => ({ id })),
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        this.logger.warn(
+          `HubSpot iae_contact_id batch lookup failed (status ${response.status}). Falling back to email lookup.`,
+        );
+        return out;
+      }
+
+      const payload = (await response.json()) as {
+        results?: { id?: string; properties?: Record<string, unknown> }[];
+      };
+      for (const result of payload.results ?? []) {
+        const hubSpotId = clean(result.id);
+        const hsContactId = clean(result.properties?.iae_contact_id);
+        const hsContactInfoId = clean(result.properties?.iae_contact_info_id);
+        if (!hubSpotId || !hsContactId) continue;
+
+        const entry = entryByContactId.get(hsContactId);
+        if (!entry) continue;
+
+        // Verify iae_contact_info_id matches to avoid updating the wrong record
+        if (hsContactInfoId && entry.contactInfoId !== hsContactInfoId) {
+          this.logger.warn(
+            `HubSpot contact ${hubSpotId} has iae_contact_id=${hsContactId} but iae_contact_info_id=${hsContactInfoId} ` +
+              `does not match EMS value ${entry.contactInfoId}. Skipping.`,
+          );
+          continue;
+        }
+
+        out.set(entry.syncKey, hubSpotId);
       }
     }
 
@@ -1406,6 +1584,785 @@ export class HubSpotService {
       } else {
         (target as Map<string, string>).set(sourceId, hubSpotId);
       }
+    }
+  }
+
+  // ─── Webhook event processing ────────────────────────────────────────────────
+
+  /**
+   * Process an array of HubSpot webhook events asynchronously.
+   * Called fire-and-forget from the controller after the 200 response is sent.
+   */
+  async handleWebhookEvents(events: HubSpotWebhookEventDto[]): Promise<void> {
+    // Group contact.propertyChange events by objectId to process together
+    const contactPropertyEvents = new Map<number, HubSpotWebhookEventDto[]>();
+    // Group company.propertyChange events by objectId to process together
+    const companyPropertyEvents = new Map<number, HubSpotWebhookEventDto[]>();
+    const otherEvents: HubSpotWebhookEventDto[] = [];
+
+    for (const event of events) {
+      if (event.subscriptionType === 'contact.propertyChange') {
+        const group = contactPropertyEvents.get(event.objectId) || [];
+        group.push(event);
+        contactPropertyEvents.set(event.objectId, group);
+      } else if (event.subscriptionType === 'company.propertyChange') {
+        const group = companyPropertyEvents.get(event.objectId) || [];
+        group.push(event);
+        companyPropertyEvents.set(event.objectId, group);
+      } else {
+        otherEvents.push(event);
+      }
+    }
+
+    // Process grouped contact property changes
+    for (const [objectId, group] of contactPropertyEvents) {
+      try {
+        await this.handleContactPropertyChanges(objectId, group);
+      } catch (error) {
+        this.logger.error(
+          `Webhook processing failed for objectId=${objectId} (contact.propertyChange)`,
+          error instanceof Error ? error.stack : error,
+        );
+      }
+    }
+
+    // Process grouped company property changes
+    for (const [objectId, group] of companyPropertyEvents) {
+      try {
+        await this.handleCompanyPropertyChanges(objectId, group);
+      } catch (error) {
+        this.logger.error(
+          `Webhook processing failed for objectId=${objectId} (company.propertyChange)`,
+          error instanceof Error ? error.stack : error,
+        );
+      }
+    }
+
+    // Process other events
+    for (const event of otherEvents) {
+      try {
+        switch (event.subscriptionType) {
+          case 'contact.creation':
+            await this.handleContactCreation(event);
+            break;
+
+          case 'company.creation':
+            await this.handleCompanyCreation(event);
+            break;
+
+          default:
+            this.logger.debug(
+              `Webhook: unhandled subscriptionType "${event.subscriptionType}" (eventId=${event.eventId}, objectId=${event.objectId})`,
+            );
+        }
+      } catch (error) {
+        this.logger.error(
+          `Webhook processing failed for eventId=${event.eventId} (${event.subscriptionType})`,
+          error instanceof Error ? error.stack : error,
+        );
+      }
+    }
+  }
+
+  /**
+   * Fetch a single contact from HubSpot CRM API by objectId and return mapped properties.
+   */
+  private async fetchHubSpotContact(objectId: number): Promise<{
+    contactInfoId: number | null;
+    email: string | null;
+    firstName: string | null;
+    lastName: string | null;
+    phone: string | null;
+    workPhone: string | null;
+  } | null> {
+    const token = this.configService.get<string>('HUBSPOT_ACCESS_TOKEN');
+    if (!token) {
+      this.logger.error('HUBSPOT_ACCESS_TOKEN not configured. Cannot fetch contact from HubSpot.');
+      return null;
+    }
+
+    const url = this.buildHubSpotUrl(
+      `/crm/v3/objects/contacts/${objectId}?properties=email,firstname,lastname,phone,mobilephone,work_phone,iae_contact_info_id`,
+    );
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      this.logger.error(
+        `Failed to fetch HubSpot contact objectId=${objectId}: ${response.status} ${response.statusText}`,
+      );
+      return null;
+    }
+
+    const data = (await response.json()) as {
+      properties: Record<string, string | null>;
+    };
+    const props = data.properties;
+
+    const rawId = props.iae_contact_info_id;
+    return {
+      contactInfoId: rawId ? parseInt(rawId, 10) || null : null,
+      email: props.email || null,
+      firstName: props.firstname || null,
+      lastName: props.lastname || null,
+      phone: props.mobilephone || null,
+      workPhone: props.phone || props.work_phone || null,
+    };
+  }
+
+  private readonly webhookPropertyMap: Record<string, string> = {
+    email: 'Email',
+    firstname: 'FirstName',
+    lastname: 'LastName',
+    mobilephone: 'CellPhone',
+    phone: 'WorkPhone',
+    work_phone: 'WorkPhone',
+  };
+
+  private async handleContactPropertyChanges(
+    objectId: number,
+    events: HubSpotWebhookEventDto[],
+  ): Promise<void> {
+    // 1. Fetch the full contact from HubSpot API (always get latest data)
+    const hsContact = await this.fetchHubSpotContact(objectId);
+    if (!hsContact) {
+      this.logger.warn(`contact.propertyChange: Could not fetch HubSpot contact objectId=${objectId}. Skipping.`);
+      return;
+    }
+
+    // 2. Check if this is an email change
+    const isEmailChange = events.some(
+      (e) => e.propertyName?.toLowerCase() === 'email',
+    );
+
+    let contactInfoId: number | null = null;
+
+    if (isEmailChange && hsContact.contactInfoId) {
+      // Email changed — find the record by ContactInfoID (since email in DB is stale)
+      const byId = await this.dataSource.query(
+        `SELECT ContactInfoID FROM dbo.ContactInfo WHERE ContactInfoID = @0`,
+        [hsContact.contactInfoId],
+      );
+      if (byId.length > 0) {
+        contactInfoId = byId[0].ContactInfoID;
+        this.logger.log(
+          `contact.propertyChange (email change): Found contact by iae_contact_info_id=${hsContact.contactInfoId} → ContactInfo(${contactInfoId}).`,
+        );
+      }
+    } else if (hsContact.email) {
+      // Non-email change — find the record by email
+      const byEmail = await this.dataSource.query(
+        `SELECT ContactInfoID FROM dbo.ContactInfo WHERE [Email] = @0`,
+        [hsContact.email],
+      );
+      if (byEmail.length > 0) {
+        contactInfoId = byEmail[0].ContactInfoID;
+      }
+    }
+
+    if (contactInfoId === null) {
+      this.logger.warn(
+        `contact.propertyChange: No contact found for objectId=${objectId}. Skipping.`,
+      );
+      return;
+    }
+
+    // 3. Update each changed property (including email if that's what changed)
+    for (const event of events) {
+      if (!event.propertyName) continue;
+
+      const dbColumn = this.webhookPropertyMap[event.propertyName.toLowerCase()];
+      if (!dbColumn) {
+        this.logger.debug(
+          `No column mapping for HubSpot property "${event.propertyName}". Skipping.`,
+        );
+        continue;
+      }
+
+      // Use the event's propertyValue (the new value from HubSpot)
+      const value = event.propertyValue ?? null;
+
+      await this.dataSource.query(
+        `UPDATE dbo.ContactInfo SET [${dbColumn}] = @0 WHERE ContactInfoID = @1`,
+        [value, contactInfoId],
+      );
+
+      this.logger.log(
+        `contact.propertyChange: Updated ContactInfo(${contactInfoId}) [${dbColumn}] = "${value}"`,
+      );
+    }
+  }
+
+  private async handleContactCreation(event: HubSpotWebhookEventDto): Promise<void> {
+    // Fetch the full contact from HubSpot API
+    const hsContact = await this.fetchHubSpotContact(event.objectId);
+    if (!hsContact) {
+      this.logger.warn(`contact.creation: Could not fetch HubSpot contact objectId=${event.objectId}. Skipping.`);
+      return;
+    }
+
+    const email = hsContact.email;
+
+    // Check if the contact already exists by email
+    if (email) {
+      const existing = await this.dataSource.query(
+        `SELECT ci.ContactInfoID, c.ContactID
+         FROM dbo.ContactInfo ci
+         JOIN dbo.Contact c ON c.ContactInfoID = ci.ContactInfoID
+         WHERE ci.[Email] = @0`,
+        [email],
+      );
+      if (existing.length > 0) {
+        const contactInfoId = existing[0].ContactInfoID;
+        const contactId = existing[0].ContactID;
+        this.logger.log(`contact.creation: Contact with email "${email}" already exists (ContactInfoID=${contactInfoId}). Updating.`);
+        await this.dataSource.query(
+          `UPDATE dbo.ContactInfo
+           SET [FirstName] = @0, [LastName] = @1, [CellPhone] = @2, [WorkPhone] = @3
+           WHERE ContactInfoID = @4`,
+          [
+            hsContact.firstName || '',
+            hsContact.lastName || '',
+            hsContact.phone || null,
+            hsContact.workPhone || null,
+            contactInfoId,
+          ],
+        );
+        // Write back IDs to HubSpot so future email changes can find this record
+        await this.updateHubSpotContactIds(event.objectId, contactInfoId, contactId);
+        return;
+      }
+    }
+
+    // Insert a new ContactInfo record
+    const insertResult = await this.dataSource.query(
+      `INSERT INTO dbo.ContactInfo (FirstName, LastName, Email, CellPhone, WorkPhone)
+       VALUES (@0, @1, @2, @3, @4);
+       SELECT SCOPE_IDENTITY() AS NewId;`,
+      [
+        hsContact.firstName || '',
+        hsContact.lastName || '',
+        hsContact.email || '',
+        hsContact.phone || null,
+        hsContact.workPhone || null,
+      ],
+    );
+    const newId = insertResult[0]?.NewId;
+
+    if (!newId) {
+      this.logger.error(`contact.creation: Failed to insert new ContactInfo for objectId=${event.objectId}.`);
+      return;
+    }
+
+    // Create a Contact record linked to this ContactInfo
+    const contactResult = await this.dataSource.query(
+      `INSERT INTO dbo.Contact (ContactInfoID) VALUES (@0);
+       SELECT SCOPE_IDENTITY() AS NewContactId;`,
+      [newId],
+    );
+    const newContactId = contactResult[0]?.NewContactId;
+
+    // Write back IDs to HubSpot so future email changes can find this record
+    await this.updateHubSpotContactIds(event.objectId, newId, newContactId);
+
+    this.logger.log(
+      `contact.creation: Created ContactInfo(${newId}) + Contact(${newContactId}) for HubSpot objectId=${event.objectId} — ` +
+      `name="${hsContact.firstName} ${hsContact.lastName}", email="${hsContact.email}"`,
+    );
+  }
+
+  /**
+   * Write iae_contact_info_id, iae_contact_id, and iae_contact_sync_key back
+   * to HubSpot so future syncs (including email-change scenarios) can find the record.
+   */
+  private async updateHubSpotContactIds(
+    hubSpotObjectId: number,
+    contactInfoId: number,
+    contactId: number | null,
+  ): Promise<void> {
+    const token = this.configService.get<string>('HUBSPOT_ACCESS_TOKEN');
+    if (!token) {
+      this.logger.error('HUBSPOT_ACCESS_TOKEN not configured. Cannot write IDs back to HubSpot.');
+      return;
+    }
+
+    const properties: Record<string, string> = {
+      iae_contact_info_id: String(contactInfoId),
+    };
+    if (contactId) {
+      properties.iae_contact_id = String(contactId);
+      properties.iae_contact_sync_key = `contact:${contactId}`;
+    }
+
+    const url = this.buildHubSpotUrl(`/crm/v3/objects/contacts/${hubSpotObjectId}`);
+    const response = await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ properties }),
+    });
+
+    if (!response.ok) {
+      this.logger.error(
+        `Failed to write IDs back to HubSpot objectId=${hubSpotObjectId}: ${response.status} ${response.statusText}`,
+      );
+    } else {
+      this.logger.log(
+        `Wrote iae_contact_info_id=${contactInfoId}, iae_contact_id=${contactId} to HubSpot objectId=${hubSpotObjectId}.`,
+      );
+    }
+  }
+
+  // --- Company property mapping ---
+  // HubSpot webhook propertyName → dbo.Address column
+  private readonly hubSpotAddressColumnMap: Record<string, string> = {
+    'address': 'AddressLine1',
+    'city': 'City',
+    'state': 'StateProvince',
+    'country': 'Country',
+    'zip': 'PostalCode',
+  };
+
+  /**
+   * Fetch a single company from HubSpot CRM API by objectId and return all relevant properties.
+   */
+  private async fetchHubSpotCompany(objectId: number): Promise<{
+    companyId: number | null;
+    name: string | null;
+    type: string | null;
+    address: string | null;
+    city: string | null;
+    state: string | null;
+    country: string | null;
+    zip: string | null;
+  } | null> {
+    const token = this.configService.get<string>('HUBSPOT_ACCESS_TOKEN');
+    if (!token) {
+      this.logger.error('HUBSPOT_ACCESS_TOKEN not configured. Cannot fetch company from HubSpot.');
+      return null;
+    }
+
+    const url = this.buildHubSpotUrl(
+      `/crm/v3/objects/companies/${objectId}?properties=iae_company_id,name,type,address,city,state,country,zip`,
+    );
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      this.logger.error(
+        `Failed to fetch HubSpot company objectId=${objectId}: ${response.status} ${response.statusText}`,
+      );
+      return null;
+    }
+
+    const data = (await response.json()) as {
+      properties: Record<string, string | null>;
+    };
+    const props = data.properties;
+
+    const rawId = props.iae_company_id;
+    return {
+      companyId: rawId ? parseInt(rawId, 10) || null : null,
+      name: props.name || null,
+      type: props.type || null,
+      address: props.address || null,
+      city: props.city || null,
+      state: props.state || null,
+      country: props.country || null,
+      zip: props.zip || null,
+    };
+  }
+
+  /**
+   * Handle company.propertyChange webhook events — update dbo.Company in EMS.
+   */
+  private async handleCompanyPropertyChanges(
+    objectId: number,
+    events: HubSpotWebhookEventDto[],
+  ): Promise<void> {
+    // 1. Fetch the company from HubSpot to get the iae_company_id
+    const hsCompany = await this.fetchHubSpotCompany(objectId);
+    if (!hsCompany) {
+      this.logger.warn(`company.propertyChange: Could not fetch HubSpot company objectId=${objectId}. Skipping.`);
+      return;
+    }
+
+    let companyId = hsCompany.companyId;
+
+    // If iae_company_id exists, verify it matches a real EMS company
+    let companyRows: Record<string, unknown>[] = [];
+    if (companyId) {
+      companyRows = await this.dataSource.query(
+        `SELECT CompanyID, PhysicalAddressID, MailingAddressID FROM dbo.Company WHERE CompanyID = @0`,
+        [companyId],
+      );
+    }
+
+    // If no iae_company_id or CompanyID not found — try matching by name before creating
+    if (!companyId || companyRows.length === 0) {
+      // Try to find by company name first to avoid creating duplicates
+      if (hsCompany.name) {
+        const byName = await this.dataSource.query(
+          `SELECT CompanyID, PhysicalAddressID, MailingAddressID FROM dbo.Company WHERE CompanyName = @0`,
+          [hsCompany.name],
+        );
+        if (byName.length > 0) {
+          companyId = byName[0].CompanyID;
+          companyRows = byName;
+          this.logger.log(
+            `company.propertyChange: Matched HubSpot objectId=${objectId} to EMS Company(${companyId}) by name "${hsCompany.name}". Writing back iae_company_id.`,
+          );
+          if (companyId != null) {
+            await this.updateHubSpotCompanyId(objectId, companyId);
+          }
+        }
+      }
+
+      // If still no match, create a new company
+      if (!companyId || companyRows.length === 0) {
+        this.logger.log(
+          `company.propertyChange: No EMS match for HubSpot objectId=${objectId} (iae_company_id=${companyId ?? 'none'}). Attempting to create new company.`,
+        );
+        companyId = await this.createCompanyFromHubSpot(objectId, hsCompany);
+        if (!companyId) {
+          this.logger.warn(
+            `company.propertyChange: Could not create EMS company for HubSpot objectId=${objectId}. Skipping property updates.`,
+          );
+          return;
+        }
+        // Re-fetch the newly created company row
+        companyRows = await this.dataSource.query(
+          `SELECT CompanyID, PhysicalAddressID, MailingAddressID FROM dbo.Company WHERE CompanyID = @0`,
+          [companyId],
+        );
+      }
+    }
+
+    const currentPhysicalAddressId: number | null =
+      (companyRows[0]?.PhysicalAddressID as number) ?? null;
+
+    // 2. Separate events by category
+    const addressChanges: Record<string, string | null> = {};
+    let hasAddressChanges = false;
+
+    for (const event of events) {
+      if (!event.propertyName) continue;
+      const propKey = event.propertyName.toLowerCase();
+      const value = event.propertyValue ?? null;
+
+      if (propKey === 'name') {
+        // Direct update on dbo.Company.CompanyName
+        await this.dataSource.query(
+          `UPDATE dbo.Company SET CompanyName = @0 WHERE CompanyID = @1`,
+          [value, companyId],
+        );
+        this.logger.log(
+          `company.propertyChange: Updated Company(${companyId}) [CompanyName] = "${value}"`,
+        );
+      } else if (propKey === 'type') {
+        // Look up CompanyType by name, then update the FK
+        if (!value) {
+          await this.dataSource.query(
+            `UPDATE dbo.Company SET CompanyTypeID = NULL WHERE CompanyID = @0`,
+            [companyId],
+          );
+          this.logger.log(
+            `company.propertyChange: Cleared Company(${companyId}) [CompanyTypeID] (type was empty)`,
+          );
+        } else {
+          const typeId = await this.resolveOrCreateCompanyTypeId(value);
+          await this.dataSource.query(
+            `UPDATE dbo.Company SET CompanyTypeID = @0 WHERE CompanyID = @1`,
+            [typeId, companyId],
+          );
+          this.logger.log(
+            `company.propertyChange: Updated Company(${companyId}) [CompanyTypeID] = ${typeId} (type "${value}")`,
+          );
+        }
+      } else if (this.hubSpotAddressColumnMap[propKey]) {
+        // Collect address field changes to process as a batch
+        const dbColumn = this.hubSpotAddressColumnMap[propKey];
+        addressChanges[dbColumn] = value;
+        hasAddressChanges = true;
+      } else {
+        this.logger.debug(
+          `No company column mapping for HubSpot property "${event.propertyName}". Skipping.`,
+        );
+      }
+    }
+
+    // 3. Process address changes: find-or-create address, update Company FK
+    if (hasAddressChanges) {
+      await this.upsertCompanyAddress(companyId, currentPhysicalAddressId, addressChanges);
+    }
+  }
+
+  /**
+   * Update the existing address record linked to the company.
+   * Finds the company's PhysicalAddressID, then updates only the changed columns on that address row.
+   */
+  private async upsertCompanyAddress(
+    companyId: number,
+    currentAddressId: number | null,
+    changes: Record<string, string | null>,
+  ): Promise<void> {
+    if (!currentAddressId) {
+      // Company has no address yet — create a new one and link it
+      const insertResult = await this.dataSource.query(
+        `INSERT INTO dbo.Address (AddressLine1, City, StateProvince, PostalCode, Country)
+         VALUES ('', '', '', '', '');
+         SELECT SCOPE_IDENTITY() AS NewId;`,
+      );
+      const newAddressId = insertResult[0]?.NewId;
+      if (!newAddressId) {
+        this.logger.error(
+          `company.propertyChange: Failed to create address for Company(${companyId}).`,
+        );
+        return;
+      }
+      // Link the new address to the company
+      await this.dataSource.query(
+        `UPDATE dbo.Company SET PhysicalAddressID = @0, MailingAddressID = @0 WHERE CompanyID = @1`,
+        [newAddressId, companyId],
+      );
+      currentAddressId = newAddressId;
+      this.logger.log(
+        `company.propertyChange: Created new Address(${newAddressId}) and linked to Company(${companyId}).`,
+      );
+    }
+
+    // Update only the changed fields on the existing address record
+    for (const [dbColumn, value] of Object.entries(changes)) {
+      await this.dataSource.query(
+        `UPDATE dbo.Address SET [${dbColumn}] = @0 WHERE AddressID = @1`,
+        [value ?? '', currentAddressId],
+      );
+      this.logger.log(
+        `company.propertyChange: Updated Address(${currentAddressId}) [${dbColumn}] = "${value}"`,
+      );
+    }
+  }
+
+  /**
+   * Handle company.creation webhook — create a new company in EMS from HubSpot data.
+   */
+  private async handleCompanyCreation(event: HubSpotWebhookEventDto): Promise<void> {
+    const hsCompany = await this.fetchHubSpotCompany(event.objectId);
+    if (!hsCompany) {
+      this.logger.warn(`company.creation: Could not fetch HubSpot company objectId=${event.objectId}. Skipping.`);
+      return;
+    }
+
+    // Check if already linked to an EMS company by iae_company_id
+    if (hsCompany.companyId) {
+      const existing = await this.dataSource.query(
+        `SELECT CompanyID FROM dbo.Company WHERE CompanyID = @0`,
+        [hsCompany.companyId],
+      );
+      if (existing.length > 0) {
+        this.logger.log(
+          `company.creation: HubSpot objectId=${event.objectId} already linked to EMS Company(${hsCompany.companyId}). Skipping.`,
+        );
+        return;
+      }
+    }
+
+    // Also check by company name to prevent duplicates when iae_company_id is not yet set
+    // (e.g. race condition: EMS creates company, syncs to HubSpot, webhook fires before
+    //  iae_company_id is readable)
+    if (hsCompany.name) {
+      const byName = await this.dataSource.query(
+        `SELECT CompanyID FROM dbo.Company WHERE CompanyName = @0`,
+        [hsCompany.name],
+      );
+      if (byName.length > 0) {
+        const matchedCompanyId = byName[0].CompanyID;
+        this.logger.log(
+          `company.creation: HubSpot objectId=${event.objectId} matches existing EMS Company(${matchedCompanyId}) by name "${hsCompany.name}". Writing back iae_company_id.`,
+        );
+        // Write iae_company_id back to HubSpot so future syncs use the correct ID
+        await this.updateHubSpotCompanyId(event.objectId, matchedCompanyId);
+        return;
+      }
+    }
+
+    await this.createCompanyFromHubSpot(event.objectId, hsCompany);
+  }
+
+  /**
+   * Create a new company + address in EMS from HubSpot data, then write back iae_company_id.
+   * Returns the new CompanyID or null on failure.
+   *
+   * HubSpot API used:
+   *   GET  /crm/v3/objects/companies/{objectId}  — fetch company properties (called by fetchHubSpotCompany)
+   *   PATCH /crm/v3/objects/companies/{objectId} — write back iae_company_id after creation
+   */
+  private async createCompanyFromHubSpot(
+    hubSpotObjectId: number,
+    hsCompany: {
+      name: string | null;
+      type: string | null;
+      address: string | null;
+      city: string | null;
+      state: string | null;
+      country: string | null;
+      zip: string | null;
+    },
+  ): Promise<number | null> {
+    // 1. Resolve CompanyTypeID from the type name (create if not found)
+    // If no type provided, use 'Other' as default
+    const typeName = hsCompany.type || 'Other';
+    const companyTypeId = await this.resolveOrCreateCompanyTypeId(typeName);
+
+    // 2. Find existing address or create a new one
+    let addressId: number | null = null;
+    const addr = hsCompany.address ?? '';
+    const city = hsCompany.city ?? '';
+    const state = hsCompany.state ?? '';
+    const country = hsCompany.country ?? '';
+    const zip = hsCompany.zip ?? '';
+
+    try {
+      // Check for existing address first (UX_Address unique index)
+      const existing = await this.dataSource.query(
+        `SELECT AddressID FROM dbo.Address WHERE AddressLine1 = @0 AND City = @1 AND StateProvince = @2 AND PostalCode = @3 AND Country = @4`,
+        [addr, city, state, zip, country],
+      );
+
+      if (existing.length > 0) {
+        addressId = existing[0].AddressID;
+      } else {
+        const addrResult = await this.dataSource.query(
+          `INSERT INTO dbo.Address (AddressLine1, City, StateProvince, PostalCode, Country)
+           VALUES (@0, @1, @2, @3, @4);
+           SELECT SCOPE_IDENTITY() AS NewId;`,
+          [addr, city, state, zip, country],
+        );
+        addressId = addrResult[0]?.NewId ?? null;
+      }
+    } catch (error) {
+      this.logger.error(
+        `createCompanyFromHubSpot: Failed to resolve address for HubSpot objectId=${hubSpotObjectId}`,
+        error instanceof Error ? error.stack : error,
+      );
+      return null;
+    }
+
+    // 3. Insert the company
+    let newCompanyId: number | null = null;
+    try {
+      this.logger.log(
+        `createCompanyFromHubSpot: Attempting INSERT — name="${hsCompany.name}", companyTypeId=${companyTypeId}, addressId=${addressId}`,
+      );
+      const insertResult = await this.dataSource.query(
+        `INSERT INTO dbo.Company (CompanyName, CompanyTypeID, PhysicalAddressID, MailingAddressID, DMAID, is_internal, created_by, created_at, modified_by, modified_at)
+         VALUES (@0, @1, @2, @2, COALESCE((SELECT TOP 1 DMAID FROM dbo.DMA WHERE PostalCode = @5), (SELECT TOP 1 DMAID FROM dbo.DMA)), @3, @4, GETUTCDATE(), @4, GETUTCDATE());
+         SELECT SCOPE_IDENTITY() AS NewId;`,
+        [hsCompany.name ?? '', companyTypeId, addressId, 0, 'hubspot-webhook', zip],
+      );
+      this.logger.log(
+        `createCompanyFromHubSpot: INSERT result = ${JSON.stringify(insertResult)}`,
+      );
+      newCompanyId = insertResult[0]?.NewId ?? null;
+    } catch (error) {
+      this.logger.error(
+        `createCompanyFromHubSpot: SQL INSERT failed for HubSpot objectId=${hubSpotObjectId} — ` +
+        `name="${hsCompany.name}", companyTypeId=${companyTypeId}, addressId=${addressId}. Error: ${error instanceof Error ? error.message : JSON.stringify(error)}`,
+        error instanceof Error ? error.stack : error,
+      );
+      return null;
+    }
+
+    if (!newCompanyId) {
+      this.logger.error(
+        `createCompanyFromHubSpot: Failed to insert company for HubSpot objectId=${hubSpotObjectId}.`,
+      );
+      return null;
+    }
+
+    // 4. Write back iae_company_id to HubSpot so future webhooks can match
+    await this.updateHubSpotCompanyId(hubSpotObjectId, newCompanyId);
+
+    this.logger.log(
+      `createCompanyFromHubSpot: Created Company(${newCompanyId}) for HubSpot objectId=${hubSpotObjectId} — ` +
+      `name="${hsCompany.name}", type="${hsCompany.type}", addressId=${addressId}`,
+    );
+
+    return newCompanyId;
+  }
+
+  /**
+   * Find a CompanyType by name, or create it if it doesn't exist. Returns the CompanyTypeID.
+   */
+  private async resolveOrCreateCompanyTypeId(typeName: string): Promise<number> {
+    const existing = await this.dataSource.query(
+      `SELECT CompanyTypeID FROM dbo.CompanyType WHERE CompanyTypeName = @0`,
+      [typeName],
+    );
+    if (existing.length > 0) {
+      return existing[0].CompanyTypeID;
+    }
+
+    const insertResult = await this.dataSource.query(
+      `INSERT INTO dbo.CompanyType (CompanyTypeName) VALUES (@0);
+       SELECT SCOPE_IDENTITY() AS NewId;`,
+      [typeName],
+    );
+    const newId = insertResult[0]?.NewId;
+    this.logger.log(
+      `resolveOrCreateCompanyTypeId: Created new CompanyType(${newId}) = "${typeName}"`,
+    );
+    return newId;
+  }
+
+  /**
+   * Write iae_company_id back to HubSpot so future webhooks can match.
+   * API: PATCH /crm/v3/objects/companies/{objectId}
+   */
+  private async updateHubSpotCompanyId(
+    hubSpotObjectId: number,
+    companyId: number,
+  ): Promise<void> {
+    const token = this.configService.get<string>('HUBSPOT_ACCESS_TOKEN');
+    if (!token) {
+      this.logger.error('HUBSPOT_ACCESS_TOKEN not configured. Cannot write iae_company_id back to HubSpot.');
+      return;
+    }
+
+    const url = this.buildHubSpotUrl(`/crm/v3/objects/companies/${hubSpotObjectId}`);
+    const response = await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        properties: { iae_company_id: String(companyId) },
+      }),
+    });
+
+    if (!response.ok) {
+      this.logger.error(
+        `Failed to write iae_company_id back to HubSpot objectId=${hubSpotObjectId}: ${response.status} ${response.statusText}`,
+      );
+    } else {
+      this.logger.log(
+        `Wrote iae_company_id=${companyId} to HubSpot objectId=${hubSpotObjectId}.`,
+      );
     }
   }
 }

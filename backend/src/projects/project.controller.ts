@@ -111,7 +111,6 @@ export class ProjectController {
   }
 
   @Patch(':id/venues/:venueId')
-  @HttpCode(HttpStatus.NO_CONTENT)
   updateVenue(
     @Param('id', ParseIntPipe) id: number,
     @Param('venueId', ParseIntPipe) venueId: number,
@@ -159,26 +158,28 @@ export class ProjectController {
     return this.projectService.removePerformanceOption(id, optionId);
   }
 
-  // ─── Confirmed Offer PDF Upload ────────────────────────────────────────
+  // ─── Confirmed Offer PDF Upload (venue-level) ───────────────────────────
 
-  @Post(':id/confirmed-offer-pdf')
+  @Post(':id/venues/:venueId/confirmed-offer-pdf')
   @UseInterceptors(FileInterceptor('file', confirmedOfferMulterOptions()))
   uploadConfirmedOfferPdf(
     @Param('id', ParseIntPipe) id: number,
+    @Param('venueId', ParseIntPipe) venueId: number,
     @UploadedFile() file: Express.Multer.File,
   ) {
     if (!file) {
       throw new BadRequestException('No file was provided.');
     }
-    return this.projectService.uploadConfirmedOfferPdf(id, file);
+    return this.projectService.uploadConfirmedOfferPdf(id, venueId, file);
   }
 
-  @Get(':id/confirmed-offer-pdf')
+  @Get(':id/venues/:venueId/confirmed-offer-pdf')
   async downloadConfirmedOfferPdf(
     @Param('id', ParseIntPipe) id: number,
+    @Param('venueId', ParseIntPipe) venueId: number,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
-    const { filePath, linkName } = await this.projectService.getConfirmedOfferPdfPath(id);
+    const { filePath, linkName } = await this.projectService.getConfirmedOfferPdfPath(id, venueId);
     res.set({
       'Content-Type': 'application/pdf',
       'Content-Disposition': `inline; filename="${encodeURIComponent(linkName)}"`,

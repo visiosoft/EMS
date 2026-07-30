@@ -13,4 +13,13 @@ export class EngagementProjectVenue {
 
   @Column({ name: 'VenueStatus', type: 'nvarchar', length: 50 })
   venueStatus: string;
+
+  @Column({ name: 'OfferCreationStatus', type: 'nvarchar', length: 50, nullable: true })
+  offerCreationStatus: string | null;
+
+  @Column({ name: 'OfferReviewStatus', type: 'nvarchar', length: 50, nullable: true })
+  offerReviewStatus: string | null;
+
+  @Column({ name: 'ConfirmedOfferLinkID', type: 'int', nullable: true })
+  confirmedOfferLinkId: number | null;
 }
