@@ -2026,7 +2026,9 @@ export class HubSpotService {
           this.logger.log(
             `company.propertyChange: Matched HubSpot objectId=${objectId} to EMS Company(${companyId}) by name "${hsCompany.name}". Writing back iae_company_id.`,
           );
-          await this.updateHubSpotCompanyId(objectId, companyId);
+          if (companyId != null) {
+            await this.updateHubSpotCompanyId(objectId, companyId);
+          }
         }
       }
 
