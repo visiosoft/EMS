@@ -5,9 +5,11 @@ import { AppSuiteSwitcher } from "@/components/AppSuiteSwitcher";
 import { IaeLogoIcon } from "@/components/brand/IaeBrandMark";
 import { INTERNAL_NAV_ITEMS } from "../constants/navigation";
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
+import { useAccessLevel } from "@/hooks/useAccessLevel";
 
 export function InternalHeader() {
   const { currentView, navigate, viewData } = useInternalNavigation();
+  const { isAdministrator } = useAccessLevel();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   function isActive(itemKey: string) {
@@ -114,7 +116,7 @@ export function InternalHeader() {
               <User className="h-3.5 w-3.5" />
               <span>Profile</span>
             </button>
-            {currentView === "learning-portal" && (
+            {currentView === "learning-portal" && isAdministrator && (
               <a
                 href="/internal/admin"
                 target="_blank"
@@ -153,7 +155,7 @@ export function InternalHeader() {
               <User className={cn("h-4 w-4", currentView === "my-profile" ? "text-black/85" : "text-white/85")} />
               <span>My Profile</span>
             </button>
-            {currentView === "learning-portal" && (
+            {currentView === "learning-portal" && isAdministrator && (
               <a
                 href="/internal/admin"
                 target="_blank"

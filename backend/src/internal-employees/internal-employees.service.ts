@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { AuditRequestContext } from '../audit/audit-request-context.service';
 
 export type IaeEmployeeRow = {
   contactId: number;
@@ -10,6 +11,8 @@ export type IaeEmployeeRow = {
   cellPhone: string | null;
   workPhone: string | null;
   roleName: string | null;
+  /** Entra job title when available, otherwise null. */
+  jobTitle: string | null;
   /** Current desk extension (dbo.EmployeePhoneExtension → dbo.PhoneExtension). */
   extension: string | null;
   departmentName: string | null;
@@ -19,6 +22,7 @@ export type IaeEmployeeRow = {
 export class InternalEmployeesService {
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly auditContext: AuditRequestContext,
   ) {}
 
   /**
@@ -80,12 +84,13 @@ export class InternalEmployeesService {
         ) extPick
         OUTER APPLY (
           SELECT STUFF((
-            SELECT ', ' + dep.DepartmentName
+            SELECT DISTINCT ', ' + LTRIM(RTRIM(dep.DepartmentName))
             FROM dbo.ContactAssignment caD
             INNER JOIN dbo.Company coD
               ON coD.CompanyID = caD.CompanyID AND coD.is_internal = 1
             INNER JOIN dbo.Department dep ON dep.DepartmentID = caD.DepartmentID
             WHERE caD.ContactID = c.ContactID
+              AND NULLIF(LTRIM(RTRIM(dep.DepartmentName)), '') IS NOT NULL
             FOR XML PATH(''), TYPE
           ).value('.', 'NVARCHAR(MAX)'), 1, 2, '') AS departmentName
         ) deptPick
@@ -115,26 +120,36 @@ export class InternalEmployeesService {
       deduped.push(row);
     }
 
-    return deduped.map((row) => ({
-      contactId: Number(row.contactId),
-      firstName: String(row.firstName ?? '').trim(),
-      lastName: String(row.lastName ?? '').trim(),
-      email: String(row.email ?? '').trim(),
-      cellPhone: row.cellPhone != null ? String(row.cellPhone).trim() : null,
-      workPhone: row.workPhone != null ? String(row.workPhone).trim() : null,
-      roleName: (() => {
-        const name = String(row.roleName ?? '').trim();
-        return name && name.toLowerCase() !== 'unknown' ? name : null;
-      })(),
-      extension: row.extension != null && String(row.extension).trim() ? String(row.extension).trim() : null,
-      departmentName: (() => {
-        const names = String(row.departmentName ?? '')
-          .split(',')
-          .map((name) => name.trim())
-          .filter((name) => name && name.toLowerCase() !== 'unknown');
-        return names.length ? names.join(', ') : null;
-      })(),
-    }));
+    // Build Entra job title lookup from Graph if token available
+    const entraJobTitles = await this.fetchEntraJobTitleMap();
+
+    return deduped.map((row) => {
+      const email = String(row.email ?? '').trim();
+      const entraTitle = email ? (entraJobTitles.get(email.toLowerCase()) ?? null) : null;
+      return {
+        contactId: Number(row.contactId),
+        firstName: String(row.firstName ?? '').trim(),
+        lastName: String(row.lastName ?? '').trim(),
+        email,
+        cellPhone: row.cellPhone != null ? String(row.cellPhone).trim() : null,
+        workPhone: row.workPhone != null ? String(row.workPhone).trim() : null,
+        roleName: (() => {
+          const name = String(row.roleName ?? '').trim();
+          return name && name.toLowerCase() !== 'unknown' ? name : null;
+        })(),
+        jobTitle: entraTitle,
+        extension: row.extension != null && String(row.extension).trim() ? String(row.extension).trim() : null,
+        departmentName: (() => {
+          const names = [...new Set(
+            String(row.departmentName ?? '')
+              .split(',')
+              .map((name) => name.trim())
+              .filter((name) => name && name.toLowerCase() !== 'unknown'),
+          )];
+          return names.length ? names.join(', ') : null;
+        })(),
+      };
+    });
   }
 
   async listEmployeesByDepartment(departmentId: number): Promise<IaeEmployeeRow[]> {
@@ -172,19 +187,71 @@ export class InternalEmployeesService {
       [departmentId],
     );
 
-    return rows.map((row: any) => ({
-      contactId: Number(row.contactId),
-      firstName: String(row.firstName ?? '').trim(),
-      lastName: String(row.lastName ?? '').trim(),
-      email: String(row.email ?? '').trim(),
-      cellPhone: row.cellPhone != null ? String(row.cellPhone).trim() : null,
-      workPhone: row.workPhone != null ? String(row.workPhone).trim() : null,
-      roleName: (() => {
-        const name = String(row.roleName ?? '').trim();
-        return name && name.toLowerCase() !== 'unknown' ? name : null;
-      })(),
-      extension: null,
-      departmentName: null,
-    }));
+    const entraJobTitles = await this.fetchEntraJobTitleMap();
+
+    return rows.map((row: any) => {
+      const email = String(row.email ?? '').trim();
+      const entraTitle = email ? (entraJobTitles.get(email.toLowerCase()) ?? null) : null;
+      return {
+        contactId: Number(row.contactId),
+        firstName: String(row.firstName ?? '').trim(),
+        lastName: String(row.lastName ?? '').trim(),
+        email,
+        cellPhone: row.cellPhone != null ? String(row.cellPhone).trim() : null,
+        workPhone: row.workPhone != null ? String(row.workPhone).trim() : null,
+        roleName: (() => {
+          const name = String(row.roleName ?? '').trim();
+          return name && name.toLowerCase() !== 'unknown' ? name : null;
+        })(),
+        jobTitle: entraTitle,
+        extension: null,
+        departmentName: null,
+      };
+    });
+  }
+
+  /**
+   * Fetches job titles from Entra via Microsoft Graph using the delegated token
+   * from the request. Returns a map of lowercase email → jobTitle.
+   */
+  private async fetchEntraJobTitleMap(): Promise<Map<string, string>> {
+    const token = this.auditContext.getGraphAccessToken();
+    if (!token) return new Map();
+
+    const map = new Map<string, string>();
+    let nextUrl: string | null =
+      'https://graph.microsoft.com/v1.0/users?$select=mail,userPrincipalName,jobTitle&$top=999';
+
+    try {
+      while (nextUrl) {
+        const response = await fetch(nextUrl, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!response.ok) break;
+
+        const payload = (await response.json()) as {
+          value?: Array<{
+            mail?: string;
+            userPrincipalName?: string;
+            jobTitle?: string;
+          }>;
+          '@odata.nextLink'?: string;
+        };
+
+        for (const user of payload.value ?? []) {
+          const email = (user.mail ?? user.userPrincipalName ?? '').trim().toLowerCase();
+          const title = (user.jobTitle ?? '').trim();
+          if (email && title) {
+            map.set(email, title);
+          }
+        }
+
+        nextUrl = payload['@odata.nextLink'] ?? null;
+      }
+    } catch {
+      // Best-effort: return whatever we have so far
+    }
+
+    return map;
   }
 }

@@ -18,6 +18,8 @@ import { MyProfilePage } from "@/modules/internal/pages/MyProfilePage";
 import { PayrollSchedulePage } from "@/modules/internal/pages/PayrollSchedulePage";
 import { HealthInsurancePage } from "@/modules/internal/pages/HealthInsurancePage";
 import { DocumentLibraryPage } from "@/features/document-library/pages/DocumentLibraryPage";
+import { useAccessLevel } from "@/hooks/useAccessLevel";
+import { ShieldAlert } from "lucide-react";
 
 function InternalAppViews() {
   const { currentView } = useInternalNavigation();
@@ -76,9 +78,32 @@ export default function InternalApp() {
 }
 
 function InternalAppShell() {
-  const { currentView } = useInternalNavigation();
+  const { currentView, navigate } = useInternalNavigation();
+  const { isAdministrator, isLoading: accessLevelLoading } = useAccessLevel();
   
   if (currentView === "learning-admin") {
+    if (accessLevelLoading) return null;
+    if (!isAdministrator) {
+      return (
+        <div className="flex min-h-screen flex-col items-center justify-center bg-neutral-50 px-4">
+          <div className="mx-auto max-w-md rounded-lg border border-red-200 bg-white p-8 text-center shadow-sm">
+            <ShieldAlert className="mx-auto mb-4 h-12 w-12 text-red-500" />
+            <h1 className="mb-2 text-xl font-semibold text-gray-900">Access Denied</h1>
+            <p className="mb-6 text-sm text-gray-600">
+              You do not have the required permission to access the Admin Panel.
+              This area is restricted to Administrators only.
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate("learning-portal")}
+              className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-800"
+            >
+              Back to Learning Portal
+            </button>
+          </div>
+        </div>
+      );
+    }
     return <LearningAdminPage />;
   }
 
