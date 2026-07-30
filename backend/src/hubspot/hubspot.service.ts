@@ -921,18 +921,56 @@ export class HubSpotService {
       return { idsBySyncKey, batches: 0, hubSpotInvalidEmail: 0 };
     }
 
-    const existingIdsByEmail = await this.findExistingContactIdsByEmail(
-      inputs.map((input) => clean(input.properties.email)).filter(Boolean),
-      token,
+    // 1. Try to find existing HubSpot contacts by iae_contact_sync_key (stable ID).
+    //    This handles email-change scenarios where the old email no longer matches.
+    const existingIdsBySyncKey =
+      await this.findExistingContactIdsBySyncKey(
+        inputs.map((input) => clean(input.id)).filter(Boolean),
+        token,
+      );
+
+    // 2. For contacts not found by sync key, try iae_contact_id lookup.
+    //    Contacts created via HubSpot webhook have iae_contact_id/iae_contact_info_id
+    //    written back but may not have iae_contact_sync_key set yet.
+    const unmatchedBySyncKey = inputs.filter(
+      (input) => !existingIdsBySyncKey.has(clean(input.id)),
     );
+    const existingIdsByContactId =
+      unmatchedBySyncKey.length > 0
+        ? await this.findExistingContactIdsByEmsIds(
+            unmatchedBySyncKey.map((input) => ({
+              syncKey: clean(input.id),
+              contactId: clean(input.properties.iae_contact_id),
+              contactInfoId: clean(input.properties.iae_contact_info_id),
+            })),
+            token,
+          )
+        : new Map<string, string>();
+
+    // 3. Fall back to email lookup for contacts not yet linked via sync key or EMS IDs.
+    const unmatchedByKey = unmatchedBySyncKey.filter(
+      (input) => !existingIdsByContactId.has(clean(input.id)),
+    );
+    const existingIdsByEmail =
+      unmatchedByKey.length > 0
+        ? await this.findExistingContactIdsByEmail(
+            unmatchedByKey
+              .map((input) => clean(input.properties.email))
+              .filter(Boolean),
+            token,
+          )
+        : new Map<string, string>();
 
     const updates: { id: string; input: HubSpotObjectInput }[] = [];
     const creates: HubSpotObjectInput[] = [];
     for (const input of inputs) {
       const syncKey = input.id;
-      const existingHubSpotId = existingIdsByEmail.get(
-        clean(input.properties.email).toLowerCase(),
-      );
+      const existingHubSpotId =
+        existingIdsBySyncKey.get(clean(syncKey)) ??
+        existingIdsByContactId.get(clean(syncKey)) ??
+        existingIdsByEmail.get(
+          clean(input.properties.email).toLowerCase(),
+        );
       if (existingHubSpotId) {
         updates.push({ id: existingHubSpotId, input });
         idsBySyncKey.set(syncKey, existingHubSpotId);
@@ -1009,6 +1047,144 @@ export class HubSpotService {
         const email = normalizeEmail(result.properties?.email);
         const id = clean(result.id);
         if (email && id) out.set(email, id);
+      }
+    }
+
+    return out;
+  }
+
+  private async findExistingContactIdsBySyncKey(
+    syncKeys: string[],
+    token: string,
+  ): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    const uniqueKeys = [...new Set(syncKeys.filter(Boolean))];
+    if (uniqueKeys.length === 0) return out;
+
+    for (let i = 0; i < uniqueKeys.length; i += 100) {
+      const batch = uniqueKeys.slice(i, i + 100);
+      const response = await fetch(
+        this.buildHubSpotUrl('/crm/v3/objects/contacts/batch/read'),
+        {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({
+            idProperty: 'iae_contact_sync_key',
+            properties: ['email', 'iae_contact_sync_key'],
+            inputs: batch.map((key) => ({ id: key })),
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        // Sync-key lookup is best-effort; fall back to email matching
+        // if the custom property doesn't exist yet or the call fails.
+        this.logger.warn(
+          `HubSpot sync-key batch lookup failed (status ${response.status}). Falling back to email lookup.`,
+        );
+        return out;
+      }
+
+      const payload = (await response.json()) as {
+        results?: { id?: string; properties?: Record<string, unknown> }[];
+      };
+      for (const result of payload.results ?? []) {
+        const key = clean(result.properties?.iae_contact_sync_key);
+        const id = clean(result.id);
+        if (key && id) out.set(key, id);
+      }
+    }
+
+    return out;
+  }
+
+  /**
+   * Look up HubSpot contacts by iae_contact_id. This catches contacts created
+   * via the HubSpot webhook that had iae_contact_id / iae_contact_info_id written
+   * back but not iae_contact_sync_key. Returns a map of syncKey → HubSpot ID,
+   * only for entries where both iae_contact_id and iae_contact_info_id match.
+   */
+  private async findExistingContactIdsByEmsIds(
+    entries: { syncKey: string; contactId: string; contactInfoId: string }[],
+    token: string,
+  ): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    const validEntries = entries.filter(
+      (e) => e.contactId && e.contactInfoId && e.syncKey,
+    );
+    if (validEntries.length === 0) return out;
+
+    const uniqueContactIds = [
+      ...new Set(validEntries.map((e) => e.contactId)),
+    ];
+
+    // Build a lookup: iae_contact_id → { syncKey, contactInfoId }
+    const entryByContactId = new Map<
+      string,
+      { syncKey: string; contactInfoId: string }
+    >();
+    for (const e of validEntries) {
+      entryByContactId.set(e.contactId, {
+        syncKey: e.syncKey,
+        contactInfoId: e.contactInfoId,
+      });
+    }
+
+    for (let i = 0; i < uniqueContactIds.length; i += 100) {
+      const batch = uniqueContactIds.slice(i, i + 100);
+      const response = await fetch(
+        this.buildHubSpotUrl('/crm/v3/objects/contacts/batch/read'),
+        {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({
+            idProperty: 'iae_contact_id',
+            properties: [
+              'email',
+              'iae_contact_id',
+              'iae_contact_info_id',
+              'iae_contact_sync_key',
+            ],
+            inputs: batch.map((id) => ({ id })),
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        this.logger.warn(
+          `HubSpot iae_contact_id batch lookup failed (status ${response.status}). Falling back to email lookup.`,
+        );
+        return out;
+      }
+
+      const payload = (await response.json()) as {
+        results?: { id?: string; properties?: Record<string, unknown> }[];
+      };
+      for (const result of payload.results ?? []) {
+        const hubSpotId = clean(result.id);
+        const hsContactId = clean(result.properties?.iae_contact_id);
+        const hsContactInfoId = clean(result.properties?.iae_contact_info_id);
+        if (!hubSpotId || !hsContactId) continue;
+
+        const entry = entryByContactId.get(hsContactId);
+        if (!entry) continue;
+
+        // Verify iae_contact_info_id matches to avoid updating the wrong record
+        if (hsContactInfoId && entry.contactInfoId !== hsContactInfoId) {
+          this.logger.warn(
+            `HubSpot contact ${hubSpotId} has iae_contact_id=${hsContactId} but iae_contact_info_id=${hsContactInfoId} ` +
+              `does not match EMS value ${entry.contactInfoId}. Skipping.`,
+          );
+          continue;
+        }
+
+        out.set(entry.syncKey, hubSpotId);
       }
     }
 
@@ -1702,7 +1878,8 @@ export class HubSpotService {
   }
 
   /**
-   * Write iae_contact_info_id and iae_contact_id back to HubSpot so future webhooks can look up the record.
+   * Write iae_contact_info_id, iae_contact_id, and iae_contact_sync_key back
+   * to HubSpot so future syncs (including email-change scenarios) can find the record.
    */
   private async updateHubSpotContactIds(
     hubSpotObjectId: number,
@@ -1720,6 +1897,7 @@ export class HubSpotService {
     };
     if (contactId) {
       properties.iae_contact_id = String(contactId);
+      properties.iae_contact_sync_key = `contact:${contactId}`;
     }
 
     const url = this.buildHubSpotUrl(`/crm/v3/objects/contacts/${hubSpotObjectId}`);
