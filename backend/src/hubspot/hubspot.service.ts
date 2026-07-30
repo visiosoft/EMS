@@ -2012,23 +2012,42 @@ export class HubSpotService {
       );
     }
 
-    // If no iae_company_id or CompanyID not found — try to create, but don't block updates if creation fails
+    // If no iae_company_id or CompanyID not found — try matching by name before creating
     if (!companyId || companyRows.length === 0) {
-      this.logger.log(
-        `company.propertyChange: No EMS match for HubSpot objectId=${objectId} (iae_company_id=${companyId ?? 'none'}). Attempting to create new company.`,
-      );
-      companyId = await this.createCompanyFromHubSpot(objectId, hsCompany);
-      if (!companyId) {
-        this.logger.warn(
-          `company.propertyChange: Could not create EMS company for HubSpot objectId=${objectId}. Skipping property updates.`,
+      // Try to find by company name first to avoid creating duplicates
+      if (hsCompany.name) {
+        const byName = await this.dataSource.query(
+          `SELECT CompanyID, PhysicalAddressID, MailingAddressID FROM dbo.Company WHERE CompanyName = @0`,
+          [hsCompany.name],
         );
-        return;
+        if (byName.length > 0) {
+          companyId = byName[0].CompanyID;
+          companyRows = byName;
+          this.logger.log(
+            `company.propertyChange: Matched HubSpot objectId=${objectId} to EMS Company(${companyId}) by name "${hsCompany.name}". Writing back iae_company_id.`,
+          );
+          await this.updateHubSpotCompanyId(objectId, companyId);
+        }
       }
-      // Re-fetch the newly created company row
-      companyRows = await this.dataSource.query(
-        `SELECT CompanyID, PhysicalAddressID, MailingAddressID FROM dbo.Company WHERE CompanyID = @0`,
-        [companyId],
-      );
+
+      // If still no match, create a new company
+      if (!companyId || companyRows.length === 0) {
+        this.logger.log(
+          `company.propertyChange: No EMS match for HubSpot objectId=${objectId} (iae_company_id=${companyId ?? 'none'}). Attempting to create new company.`,
+        );
+        companyId = await this.createCompanyFromHubSpot(objectId, hsCompany);
+        if (!companyId) {
+          this.logger.warn(
+            `company.propertyChange: Could not create EMS company for HubSpot objectId=${objectId}. Skipping property updates.`,
+          );
+          return;
+        }
+        // Re-fetch the newly created company row
+        companyRows = await this.dataSource.query(
+          `SELECT CompanyID, PhysicalAddressID, MailingAddressID FROM dbo.Company WHERE CompanyID = @0`,
+          [companyId],
+        );
+      }
     }
 
     const currentPhysicalAddressId: number | null =
@@ -2146,7 +2165,7 @@ export class HubSpotService {
       return;
     }
 
-    // Check if already linked to an EMS company
+    // Check if already linked to an EMS company by iae_company_id
     if (hsCompany.companyId) {
       const existing = await this.dataSource.query(
         `SELECT CompanyID FROM dbo.Company WHERE CompanyID = @0`,
@@ -2156,6 +2175,25 @@ export class HubSpotService {
         this.logger.log(
           `company.creation: HubSpot objectId=${event.objectId} already linked to EMS Company(${hsCompany.companyId}). Skipping.`,
         );
+        return;
+      }
+    }
+
+    // Also check by company name to prevent duplicates when iae_company_id is not yet set
+    // (e.g. race condition: EMS creates company, syncs to HubSpot, webhook fires before
+    //  iae_company_id is readable)
+    if (hsCompany.name) {
+      const byName = await this.dataSource.query(
+        `SELECT CompanyID FROM dbo.Company WHERE CompanyName = @0`,
+        [hsCompany.name],
+      );
+      if (byName.length > 0) {
+        const matchedCompanyId = byName[0].CompanyID;
+        this.logger.log(
+          `company.creation: HubSpot objectId=${event.objectId} matches existing EMS Company(${matchedCompanyId}) by name "${hsCompany.name}". Writing back iae_company_id.`,
+        );
+        // Write iae_company_id back to HubSpot so future syncs use the correct ID
+        await this.updateHubSpotCompanyId(event.objectId, matchedCompanyId);
         return;
       }
     }
