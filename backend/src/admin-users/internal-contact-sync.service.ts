@@ -1567,29 +1567,76 @@ export class InternalContactSyncService {
       [contactId, companyId]
     );
 
-    const existingIds = existing
-      .map((e: Record<string, unknown>) => readNumber(e, 'id', 'ContactAssignmentID'))
-      .filter((id: number | null): id is number => id !== null);
-    
-    for (let i = 0; i < Math.max(departmentIds.length, existingIds.length); i++) {
-      if (i < departmentIds.length && i < existingIds.length) {
-        const existingRoleId = readNumber(existing[i], 'roleId', 'RoleID') || roleId;
+    const existingById = new Map<number, { id: number; departmentId: number; roleId: number }>();
+    const existingByDept = new Map<number, number>(); // departmentId → ContactAssignmentID
+    for (const row of existing) {
+      const id = readNumber(row, 'id', 'ContactAssignmentID');
+      const deptId = readNumber(row, 'departmentId', 'DepartmentID');
+      const rId = readNumber(row, 'roleId', 'RoleID');
+      if (id != null && deptId != null) {
+        existingById.set(id, { id, departmentId: deptId, roleId: rId ?? roleId });
+        existingByDept.set(deptId, id);
+      }
+    }
+
+    const existingIds = Array.from(existingById.keys());
+    const desiredDeptSet = new Set(departmentIds);
+
+    // Determine which existing assignments to keep, update, or remove
+    const keptAssignmentIds = new Set<number>();
+
+    // First pass: mark assignments that already match a desired department as kept
+    for (const deptId of departmentIds) {
+      const existingAssignmentId = existingByDept.get(deptId);
+      if (existingAssignmentId != null) {
+        keptAssignmentIds.add(existingAssignmentId);
+      }
+    }
+
+    // Second pass: for departments that need new assignments, reuse unmatched existing
+    // slots (update their department) or insert new rows
+    const unmatched = existingIds.filter((id) => !keptAssignmentIds.has(id));
+    const deptsThatNeedSlot = departmentIds.filter((deptId) => !existingByDept.has(deptId));
+
+    for (let i = 0; i < deptsThatNeedSlot.length; i++) {
+      const deptId = deptsThatNeedSlot[i];
+      if (i < unmatched.length) {
+        // Reuse an existing assignment row by updating its department
+        const reuseId = unmatched[i];
+        const existingRoleId = existingById.get(reuseId)?.roleId ?? roleId;
         await manager.query(
           `UPDATE dbo.ContactAssignment SET DepartmentID = @0, RoleID = @1, modified_by = @2, modified_at = SYSUTCDATETIME() WHERE ContactAssignmentID = @3`,
-          [departmentIds[i], existingRoleId, SYNC_AUDIT_USER, existingIds[i]]
+          [deptId, existingRoleId, SYNC_AUDIT_USER, reuseId]
         );
-      } else if (i < departmentIds.length) {
-        await manager.query(
-          `INSERT INTO dbo.ContactAssignment (ContactID, CompanyID, RoleID, DepartmentID, created_by, created_at) VALUES (@0, @1, @2, @3, @4, SYSUTCDATETIME())`,
-          [contactId, companyId, roleId, departmentIds[i], SYNC_AUDIT_USER]
-        );
+        keptAssignmentIds.add(reuseId);
       } else {
-        const obsoleteId = existingIds[i];
-        await manager.query(`DELETE FROM dbo.EmployeeComputer WHERE ContactAssignmentID = @0`, [obsoleteId]);
-        await manager.query(`DELETE FROM dbo.EmployeeWorkLocation WHERE ContactAssignmentID = @0`, [obsoleteId]);
-        await manager.query(`DELETE FROM dbo.EmployeePhoneExtension WHERE ContactAssignmentID = @0`, [obsoleteId]);
-        await manager.query(`DELETE FROM dbo.ContactAssignment WHERE ContactAssignmentID = @0`, [obsoleteId]);
+        // Check for existing row with same unique key before inserting
+        const duplicateCheck = await manager.query(
+          `SELECT ContactAssignmentID AS id FROM dbo.ContactAssignment WHERE ContactID = @0 AND CompanyID = @1 AND RoleID = @2 AND DepartmentID = @3`,
+          [contactId, companyId, roleId, deptId]
+        );
+        if (duplicateCheck.length === 0) {
+          try {
+            await manager.query(
+              `INSERT INTO dbo.ContactAssignment (ContactID, CompanyID, RoleID, DepartmentID, created_by, created_at) VALUES (@0, @1, @2, @3, @4, SYSUTCDATETIME())`,
+              [contactId, companyId, roleId, deptId, SYNC_AUDIT_USER]
+            );
+          } catch (err: unknown) {
+            // Race condition: another request inserted the same row between our check and insert
+            const msg = err instanceof Error ? err.message : '';
+            if (!msg.includes('UQ_CA_Contact_Company_Role_Department')) throw err;
+          }
+        }
       }
+    }
+
+    // Third pass: remove assignments that are neither kept nor reused
+    const obsoleteIds = unmatched.slice(deptsThatNeedSlot.length);
+    for (const obsoleteId of obsoleteIds) {
+      await manager.query(`DELETE FROM dbo.EmployeeComputer WHERE ContactAssignmentID = @0`, [obsoleteId]);
+      await manager.query(`DELETE FROM dbo.EmployeeWorkLocation WHERE ContactAssignmentID = @0`, [obsoleteId]);
+      await manager.query(`DELETE FROM dbo.EmployeePhoneExtension WHERE ContactAssignmentID = @0`, [obsoleteId]);
+      await manager.query(`DELETE FROM dbo.ContactAssignment WHERE ContactAssignmentID = @0`, [obsoleteId]);
     }
   }
 
@@ -1715,7 +1762,13 @@ export class InternalContactSyncService {
       `${GRAPH_BASE_URL}/users/${encodeURIComponent(entraUserId)}`,
       payload,
     );
-    await this.verifyEntraUserPayload(graphAccessToken, entraUserId, payload);
+    try {
+      await this.verifyEntraUserPayload(graphAccessToken, entraUserId, payload);
+    } catch (verifyErr) {
+      // Log as warning but don't fail — the app may lack User.ReadWrite.All permission
+      const msg = verifyErr instanceof Error ? verifyErr.message : String(verifyErr);
+      console.warn(`[ContactSync] Verify warning for ${entraUserId}: ${msg}`);
+    }
   }
 
   private async disableEntraUser(
@@ -1763,8 +1816,15 @@ export class InternalContactSyncService {
     }
 
     if (includeEmailFields && (!selectedFields || selectedFields.has('email'))) {
-      payload.userPrincipalName = email;
-      payload.mailNickname = makeMailNickname(email, displayName);
+      // Only set UPN if the email looks like a valid email with a domain.
+      // For updates (not creates), skip UPN to avoid verified-domain errors
+      // when the EMS email doesn't match a tenant-verified domain.
+      if (email && email.includes('@') && !email.includes(' ')) {
+        if (forCreate) {
+          payload.userPrincipalName = email;
+          payload.mailNickname = makeMailNickname(email, displayName);
+        }
+      }
     }
 
     if (jobTitleColumnAvailable && (!selectedFields || selectedFields.has('jobTitle'))) {
@@ -1862,6 +1922,12 @@ export class InternalContactSyncService {
     });
     if (response.ok) return;
     const detail = await readResponseText(response);
+    console.warn(
+      `[EntraSync] Graph ${method} ${url} failed (${response.status}):`,
+      detail,
+      'Payload:',
+      JSON.stringify(payload),
+    );
     throw new BadGatewayException({
       message:
         response.status === 403
@@ -2276,6 +2342,12 @@ function isGraphAuthorizationDenied(error: unknown): boolean {
 }
 
 function formatSyncError(prefix: string, error: unknown): string {
+  if (error && typeof error === 'object' && 'getResponse' in error) {
+    const resp = (error as { getResponse(): unknown }).getResponse();
+    if (resp && typeof resp === 'object' && 'detail' in resp) {
+      return `${prefix}: ${(resp as { detail: string }).detail}`;
+    }
+  }
   if (error instanceof Error && error.message) {
     return `${prefix}: ${error.message}`;
   }

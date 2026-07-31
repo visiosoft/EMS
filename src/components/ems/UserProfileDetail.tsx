@@ -485,6 +485,9 @@ function PersonalTab({ user, isAdmin, addToast }: { user: UserProfileUser; isAdm
   });
 
   // ── Local form state ──────────────────────────────────────────────────────
+  const [firstName, setFirstName] = useState(user.name.split(' ')[0] || '');
+  const [lastName, setLastName] = useState(user.name.split(' ').slice(1).join(' ') || '');
+  const [cellPhone, setCellPhone] = useState(user.mobilePhone || '');
   const [middleName, setMiddleName] = useState('');
   const [personalEmail, setPersonalEmail] = useState('');
   const [birthDate, setBirthDate] = useState('');
@@ -546,6 +549,9 @@ function PersonalTab({ user, isAdmin, addToast }: { user: UserProfileUser; isAdm
 
   const handleSave = () => {
     saveMutation.mutate({
+      firstName: firstName || null,
+      lastName: lastName || null,
+      cellPhone: cellPhone || null,
       middleName: middleName || null,
       personalEmail: personalEmail || null,
       birthDate: birthDate || null,
@@ -603,13 +609,13 @@ function PersonalTab({ user, isAdmin, addToast }: { user: UserProfileUser; isAdm
       {/* Basic Info */}
       <SectionCard title="Basic Information" icon={<User className="h-4 w-4 text-ems-accent" />}>
         <div className="grid gap-4 md:grid-cols-3">
-          <ReadOnlyField label="First Name" value={user.name.split(' ')[0] || ''} source="entra" />
+          <EditableField label="First Name" value={firstName} onChange={setFirstName} source="entra" maxLength={100} />
           <EditableField label="Middle Name" value={middleName} onChange={setMiddleName} placeholder="Enter middle name" source="employee" maxLength={100} />
-          <ReadOnlyField label="Last Name" value={user.name.split(' ').slice(1).join(' ') || ''} source="entra" />
+          <EditableField label="Last Name" value={lastName} onChange={setLastName} source="entra" maxLength={100} />
           {canEditPersonal && (
             <EditableField label="Personal Email" value={personalEmail} onChange={setPersonalEmail} type="text" placeholder="personal@example.com" source="employee" maxLength={254} />
           )}
-          <ReadOnlyField label="Cell Phone Number" value={user.mobilePhone || ''} source="entra" />
+          <EditableField label="Cell Phone Number" value={cellPhone} onChange={setCellPhone} source="entra" maxLength={30} />
           <EditableField label="Birth Date" value={birthDate} onChange={setBirthDate} type="date" source="employee" />
           {canEditPersonal && (
             <HashedEditableField label="Social Security Number" value={ssn} onChange={setSsn} placeholder="•••-••-••••" source="employee" maxLength={11} />
@@ -829,6 +835,8 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
 
   // ── Local form state ──────────────────────────────────────────────────────
   const [accessLevel, setAccessLevel] = useState('');
+  const [title, setTitle] = useState(user.jobTitle || '');
+  const [office, setOffice] = useState(user.officeLocation || '');
   const [workAuthorization, setWorkAuthorization] = useState('');
   const [workstation, setWorkstation] = useState('');
   const [officeAddress, setOfficeAddress] = useState({
@@ -924,6 +932,8 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
   const handleSave = () => {
     saveMutation.mutate({
       accessLevel: accessLevel || null,
+      title: title || null,
+      office: office || null,
       workAuthorization: workAuthorization || null,
       workstation: workstation || null,
       startDate: startDate || null,
@@ -967,12 +977,12 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
   return (
     <div className="space-y-4">
       <SavingOverlay visible={saveMutation.isPending} />
-      {/* Entra-fed fields */}
-      <SectionCard title="Entra Directory Info (Read-Only)" icon={<Briefcase className="h-4 w-4 text-ems-accent" />}>
+      {/* Entra-connected fields (editable, syncs to Entra) */}
+      <SectionCard title="Directory Info" icon={<Briefcase className="h-4 w-4 text-ems-accent" />}>
         <div className="grid gap-4 md:grid-cols-2">
-          <ReadOnlyField label="Title" value={user.jobTitle || ''} source="entra" />
+          <EditableField label="Title" value={title} onChange={setTitle} source="entra" maxLength={128} disabled={!isAdmin} />
           <ReadOnlyField label="Work Email" value={user.email} source="entra" />
-          <ReadOnlyField label="Office" value={user.officeLocation || ''} source="entra" />
+          <EditableField label="Office" value={office} onChange={setOffice} source="entra" maxLength={100} disabled={!isAdmin} />
           {isAdmin && (
             <ReadOnlyField
               label="Microsoft Office License"

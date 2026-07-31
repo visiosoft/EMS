@@ -168,6 +168,15 @@ export class SelfProfileService {
     return this.buildFullProfile(base, { isSelf: true, isAdmin: true });
   }
 
+  /** Return the signed-in user's email (first candidate). Used by the sync-from-entra endpoint. */
+  getSignedInEmail(): string {
+    const emails = this.signedInEmailCandidates();
+    if (emails.length === 0) {
+      throw new Error('Signed-in user email was not found.');
+    }
+    return emails[0];
+  }
+
   /**
    * Another employee's profile as seen by the signed-in viewer. Administrator-only
    * fields are stripped unless the viewer is an Administrator or is the employee.

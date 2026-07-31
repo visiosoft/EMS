@@ -1,13 +1,16 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { IsOptional, IsString, IsNumber } from 'class-validator';
 import { AuditRequestContext } from '../audit/audit-request-context.service';
 import { EmployeeHealthInsuranceService } from './employee-health-insurance.service';
+import { EntraProfileSyncService } from './entra-profile-sync.service';
 
 // ─── Response / DTO Types ─────────────────────────────────────────────────────
 
@@ -102,6 +105,10 @@ export class UpdateEmployeeEmploymentProfileDto {
   @IsOptional() @IsString()
   accessLevel?: string | null;
   @IsOptional() @IsString()
+  title?: string | null;
+  @IsOptional() @IsString()
+  office?: string | null;
+  @IsOptional() @IsString()
   workAuthorization?: string | null;
   @IsOptional() @IsString()
   workstation?: string | null;
@@ -146,6 +153,8 @@ export class EmployeeEmploymentService {
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly auditContext: AuditRequestContext,
     private readonly healthInsuranceService: EmployeeHealthInsuranceService,
+    @Inject(forwardRef(() => EntraProfileSyncService))
+    private readonly entraProfileSyncService: EntraProfileSyncService,
   ) {}
 
   async getEmploymentProfile(
@@ -210,6 +219,21 @@ export class EmployeeEmploymentService {
     }
 
     await this.dataSource.transaction(async (manager) => {
+      // 0. Update title in ContactInfo (if provided and column exists)
+      if (dto.title !== undefined) {
+        const hasJobTitleCol = await this.hasColumn(manager, 'ContactInfo', 'JobTitle');
+        if (hasJobTitleCol) {
+          await manager.query(
+            `UPDATE dbo.ContactInfo SET JobTitle = @0 WHERE ContactInfoID = (
+              SELECT c.ContactInfoID FROM dbo.Contact c
+              INNER JOIN dbo.ContactAssignment ca ON ca.ContactID = c.ContactID
+              WHERE ca.ContactAssignmentID = @1
+            )`,
+            [nullableText(dto.title), current.contactAssignmentId],
+          );
+        }
+      }
+
       // 1. Upsert EmployeeProfile employment columns
       const epExists = await manager.query(
         `SELECT 1 AS found FROM dbo.EmployeeProfile WHERE ContactID = @0`,
@@ -223,6 +247,7 @@ export class EmployeeEmploymentService {
         const setClauses: string[] = [];
         const params: (string | null)[] = [];
         let paramIdx = 0;
+        const hasOfficeCol = await this.hasColumn(manager, 'EmployeeProfile', 'Office');
 
         if (dto.accessLevel !== undefined) { setClauses.push(`AccessLevel = @${paramIdx}`); params.push(nullableText(dto.accessLevel)); paramIdx++; }
         if (dto.workAuthorization !== undefined) { setClauses.push(`WorkAuthorization = @${paramIdx}`); params.push(nullableText(dto.workAuthorization)); paramIdx++; }
@@ -233,6 +258,7 @@ export class EmployeeEmploymentService {
         if (dto.rampAccount !== undefined) { setClauses.push(`RampAccount = @${paramIdx}`); params.push(nullableText(dto.rampAccount)); paramIdx++; }
         if (dto.rampCreditCard !== undefined) { setClauses.push(`RampCreditCard = @${paramIdx}`); params.push(nullableText(dto.rampCreditCard)); paramIdx++; }
         if (dto.workstation !== undefined) { setClauses.push(`Workstation = @${paramIdx}`); params.push(nullableText(dto.workstation)); paramIdx++; }
+        if (dto.office !== undefined && hasOfficeCol) { setClauses.push(`Office = @${paramIdx}`); params.push(nullableText(dto.office)); paramIdx++; }
 
         if (setClauses.length > 0) {
           setClauses.push(`modified_by = @${paramIdx}`); params.push(modifiedBy); paramIdx++;
@@ -420,7 +446,109 @@ export class EmployeeEmploymentService {
       await this.healthInsuranceService.recalculateDeductionsForContact(current.contactId);
     }
 
+    // Push employment fields to Entra (native props + CSAs), best-effort
+    this.syncEmploymentFieldsToEntra(email, dto, current.contactAssignmentId).catch(() => {});
+
     return this.loadEmploymentProfile(email);
+  }
+
+  /**
+   * Push updated employment fields to Entra (best-effort, non-blocking).
+   */
+  private async syncEmploymentFieldsToEntra(
+    email: string,
+    dto: UpdateEmployeeEmploymentProfileDto,
+    contactAssignmentId: number,
+  ): Promise<void> {
+    const graphToken = this.auditContext.getGraphAccessToken();
+    const nativePayload: Record<string, unknown> = {};
+    const csaPayload: Record<string, string | null> = {};
+
+    // Native Graph properties
+    if (dto.startDate !== undefined) {
+      nativePayload.employeeHireDate = dto.startDate
+        ? `${dto.startDate}T00:00:00Z`
+        : null;
+    }
+    if (dto.title !== undefined) {
+      nativePayload.jobTitle = dto.title?.trim() || null;
+    }
+    if (dto.office !== undefined) {
+      nativePayload.officeLocation = dto.office?.trim() || null;
+      csaPayload.Office = dto.office?.trim() || null;
+    }
+
+    // Custom Security Attributes
+    if (dto.supervisor !== undefined) csaPayload.Supervisor = dto.supervisor?.trim() || null;
+    if (dto.workAuthorization !== undefined) csaPayload.WorkAuthorization = dto.workAuthorization?.trim() || null;
+    if (dto.workstation !== undefined) csaPayload.Workstation = dto.workstation?.trim() || null;
+    if (dto.ptoAccrualRate !== undefined) csaPayload.PTOAccrualRate = dto.ptoAccrualRate?.trim() || null;
+    if (dto.employmentAgreement !== undefined) csaPayload.EmploymentAgreement = dto.employmentAgreement?.trim() || null;
+    if (dto.rampAccount !== undefined) csaPayload.RampAccount = dto.rampAccount?.trim() || null;
+    if (dto.rampCreditCard !== undefined) csaPayload.RampCreditCard = dto.rampCreditCard?.trim() || null;
+
+    // Equipment — look up newly assigned phone/computer properties and push to Entra
+    if (dto.deskPhoneId !== undefined) {
+      if (dto.deskPhoneId) {
+        const phoneRows = await this.dataSource.query(
+          `SELECT MACAddress, Make, Model FROM dbo.EquipmentPhone WHERE PhoneID = @0`,
+          [dto.deskPhoneId],
+        );
+        if (phoneRows.length > 0) {
+          const p = phoneRows[0] as Record<string, unknown>;
+          csaPayload.DeskPhoneMACAddress = readString(p, 'MACAddress') || null;
+          csaPayload.DeskPhoneBrand = readString(p, 'Make') || null;
+          csaPayload.DeskPhoneModel = readString(p, 'Model') || null;
+        }
+      } else {
+        // Unassigned — clear phone CSAs
+        csaPayload.DeskPhoneMACAddress = null;
+        csaPayload.DeskPhoneBrand = null;
+        csaPayload.DeskPhoneModel = null;
+      }
+    }
+
+    if (dto.pcComputerId !== undefined) {
+      if (dto.pcComputerId) {
+        const pcRows = await this.dataSource.query(
+          `SELECT Make, Model, AssetID, BluetoothStatus, PCName FROM dbo.EquipmentComputer WHERE ComputerID = @0`,
+          [dto.pcComputerId],
+        );
+        if (pcRows.length > 0) {
+          const pc = pcRows[0] as Record<string, unknown>;
+          csaPayload.PCBrand = readString(pc, 'Make') || null;
+          csaPayload.PCModel = readString(pc, 'Model') || null;
+          csaPayload.PCServiceTag = readString(pc, 'AssetID') || null;
+          csaPayload.BluetoothStatus = readString(pc, 'BluetoothStatus') || null;
+          csaPayload.PCWindowsName = readString(pc, 'PCName') || null;
+        }
+      } else {
+        // Unassigned — clear PC CSAs
+        csaPayload.PCBrand = null;
+        csaPayload.PCModel = null;
+        csaPayload.PCServiceTag = null;
+        csaPayload.BluetoothStatus = null;
+        csaPayload.PCWindowsName = null;
+      }
+    }
+
+    const hasNative = Object.keys(nativePayload).length > 0;
+    const hasCsa = Object.keys(csaPayload).length > 0;
+
+    if (hasNative) {
+      await this.entraProfileSyncService.pushNativeAndCustomAttributes(
+        email,
+        nativePayload,
+        hasCsa ? csaPayload : undefined,
+        graphToken || undefined,
+      );
+    } else if (hasCsa) {
+      await this.entraProfileSyncService.pushCustomSecurityAttributes(
+        email,
+        csaPayload,
+        graphToken || undefined,
+      );
+    }
   }
 
   /** List all active workstations grouped by office, with assignment status. */
@@ -772,6 +900,18 @@ export class EmployeeEmploymentService {
     const rows = await this.dataSource.query(
       `SELECT 1 AS found FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = @0`,
       [tableName],
+    );
+    return rows.length > 0;
+  }
+
+  private async hasColumn(
+    executor: Pick<DataSource, 'query'>,
+    tableName: string,
+    columnName: string,
+  ): Promise<boolean> {
+    const rows = await executor.query(
+      `SELECT 1 AS found FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = @0 AND COLUMN_NAME = @1`,
+      [tableName, columnName],
     );
     return rows.length > 0;
   }

@@ -47,6 +47,8 @@ export interface EmployeeEmploymentProfile {
 
 export interface UpdateEmployeeEmploymentProfileRequest {
   accessLevel?: string | null;
+  title?: string | null;
+  office?: string | null;
   workAuthorization?: string | null;
   workstation?: string | null;
   startDate?: string | null;

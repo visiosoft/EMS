@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Patch, Put, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Patch, Put, Post, Query, UseGuards } from '@nestjs/common';
 import { AdminUsersService } from './admin-users.service';
 import { EmployeeCertificationsService } from './employee-certifications.service';
 import {
@@ -18,6 +18,7 @@ import {
   UpdateEmployeePersonalProfileDto,
 } from './employee-profile.service';
 import { EntraAuthGuard } from './entra-auth.guard';
+import { EntraProfileSyncService } from './entra-profile-sync.service';
 import { InternalContactSyncService } from './internal-contact-sync.service';
 import type { ApplyInternalContactSyncDto } from './internal-contact-sync.service';
 import { UserProfileService } from './user-profile.service';
@@ -41,6 +42,7 @@ export class AdminUsersController {
     private readonly employeeExperienceService: EmployeeExperienceService,
     private readonly employeeHealthInsuranceService: EmployeeHealthInsuranceService,
     private readonly employeeProfileService: EmployeeProfileService,
+    private readonly entraProfileSyncService: EntraProfileSyncService,
     private readonly internalContactSyncService: InternalContactSyncService,
     private readonly userProfileService: UserProfileService,
   ) {}
@@ -80,7 +82,14 @@ export class AdminUsersController {
 
   @Get('users/:email/personal-profile')
   @UseGuards(AdminOrSelfGuard)
-  async getPersonalProfile(@Param('email') email: string) {
+  async getPersonalProfile(
+    @Param('email') email: string,
+    @Headers('x-entra-graph-access-token') graphAccessToken?: string,
+  ) {
+    // Auto-sync from Entra so EMS always reflects the latest Entra data
+    try {
+      await this.entraProfileSyncService.syncSingleUserFromEntra(email, graphAccessToken);
+    } catch { /* Entra unavailable — serve local data */ }
     return this.employeeProfileService.getPersonalProfile(email);
   }
 
@@ -95,7 +104,14 @@ export class AdminUsersController {
 
   @Get('users/:email/employment-profile')
   @UseGuards(AdminOrSelfGuard)
-  async getEmploymentProfile(@Param('email') email: string) {
+  async getEmploymentProfile(
+    @Param('email') email: string,
+    @Headers('x-entra-graph-access-token') graphAccessToken?: string,
+  ) {
+    // Auto-sync from Entra so EMS always reflects the latest Entra data
+    try {
+      await this.entraProfileSyncService.syncSingleUserFromEntra(email, graphAccessToken);
+    } catch { /* Entra unavailable — serve local data */ }
     return this.employeeEmploymentService.getEmploymentProfile(email);
   }
 
@@ -255,6 +271,70 @@ export class AdminUsersController {
     return this.internalContactSyncService.applyInternalContactSync(
       dto,
       graphAccessToken,
+    );
+  }
+
+  // ─── Entra Profile Sync (all Employee Profile fields) ─────────────────────
+
+  @Post('entra-profile-sync/entra-to-ems/preview')
+  @RequireAccessLevel(AccessLevel.Administrator)
+  async previewEntraToEmsProfileSync(
+    @Headers('x-entra-graph-access-token') graphAccessToken?: string,
+  ) {
+    return this.entraProfileSyncService.previewProfileSync(graphAccessToken);
+  }
+
+  @Post('entra-profile-sync/entra-to-ems/apply')
+  @RequireAccessLevel(AccessLevel.Administrator)
+  async applyEntraToEmsProfileSync(
+    @Headers('x-entra-graph-access-token') graphAccessToken?: string,
+    @Query('email') targetEmail?: string,
+  ) {
+    return this.entraProfileSyncService.applyProfileSync(
+      graphAccessToken,
+      targetEmail,
+    );
+  }
+
+  @Post('entra-profile-sync/ems-to-entra/preview')
+  @RequireAccessLevel(AccessLevel.Administrator)
+  async previewEmsToEntraProfileSync(
+    @Headers('x-entra-graph-access-token') graphAccessToken?: string,
+  ) {
+    return this.entraProfileSyncService.previewEmsToEntraProfileSync(graphAccessToken);
+  }
+
+  @Post('entra-profile-sync/ems-to-entra/apply')
+  @RequireAccessLevel(AccessLevel.Administrator)
+  async applyEmsToEntraProfileSync(
+    @Headers('x-entra-graph-access-token') graphAccessToken?: string,
+    @Query('email') targetEmail?: string,
+  ) {
+    return this.entraProfileSyncService.applyEmsToEntraProfileSync(
+      graphAccessToken,
+      targetEmail,
+    );
+  }
+
+  /** Legacy alias — kept for backward compatibility. */
+  @Post('entra-profile-sync/preview')
+  @RequireAccessLevel(AccessLevel.Administrator)
+  async previewEntraProfileSync(
+    @Headers('x-entra-graph-access-token') graphAccessToken?: string,
+  ) {
+    return this.entraProfileSyncService.previewProfileSync(graphAccessToken);
+  }
+
+  /** Legacy alias — kept for backward compatibility. */
+  @Post('entra-profile-sync/apply')
+  @RequireAccessLevel(AccessLevel.Administrator)
+  async applyEntraProfileSync(
+    @Headers('x-entra-graph-access-token') graphAccessToken?: string,
+    @Query('email') targetEmail?: string,
+  ) {
+    return this.entraProfileSyncService.applyProfileSync(
+      graphAccessToken,
+      targetEmail,
     );
   }
 }

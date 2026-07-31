@@ -9,6 +9,7 @@ import { EmployeeExperienceService } from './employee-experience.service';
 import { EmployeeHealthInsuranceService } from './employee-health-insurance.service';
 import { EmployeeProfileService } from './employee-profile.service';
 import { EntraAuthGuard } from './entra-auth.guard';
+import { EntraProfileSyncService } from './entra-profile-sync.service';
 import { InternalContactSyncService } from './internal-contact-sync.service';
 import { SelfProfileController } from './self-profile.controller';
 import { SelfProfileService } from './self-profile.service';
@@ -25,6 +26,7 @@ import { UserProfileService } from './user-profile.service';
     EmployeeHealthInsuranceService,
     EmployeeProfileService,
     EntraAuthGuard,
+    EntraProfileSyncService,
     InternalContactSyncService,
     SelfProfileService,
     UserProfileService,

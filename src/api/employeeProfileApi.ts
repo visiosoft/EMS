@@ -26,6 +26,9 @@ export interface EmployeePersonalProfile {
 }
 
 export interface UpdateEmployeePersonalProfileRequest {
+  firstName?: string | null;
+  lastName?: string | null;
+  cellPhone?: string | null;
   middleName?: string | null;
   personalEmail?: string | null;
   birthDate?: string | null;
