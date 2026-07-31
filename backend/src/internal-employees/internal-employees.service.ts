@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
+import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 import { AuditRequestContext } from '../audit/audit-request-context.service';
 
@@ -23,6 +24,7 @@ export class InternalEmployeesService {
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly auditContext: AuditRequestContext,
+    private readonly configService: ConfigService,
   ) {}
 
   /**
@@ -211,13 +213,63 @@ export class InternalEmployeesService {
   }
 
   /**
-   * Fetches job titles from Entra via Microsoft Graph using the delegated token
-   * from the request. Returns a map of lowercase email → jobTitle.
+   * Fetches job titles from Entra via Microsoft Graph.
+   * Tries the delegated token first; falls back to client credentials flow.
    */
   private async fetchEntraJobTitleMap(): Promise<Map<string, string>> {
-    const token = this.auditContext.getGraphAccessToken();
-    if (!token) return new Map();
+    let token = this.auditContext.getGraphAccessToken();
 
+    if (!token) {
+      token = await this.acquireAppOnlyGraphToken();
+    }
+
+    if (!token) {
+      console.warn('[EmployeeDirectory] No Graph token available (delegated or app) — jobTitle will be empty');
+      return new Map();
+    }
+
+    return this.fetchJobTitlesWithToken(token);
+  }
+
+  /**
+   * Acquire a Graph token via OAuth2 client credentials (app-only).
+   */
+  private async acquireAppOnlyGraphToken(): Promise<string | null> {
+    const tenantId = this.configService.get<string>('ENTRA_TENANT_ID');
+    const clientId = this.configService.get<string>('ENTRA_CLIENT_ID');
+    const clientSecret = this.configService.get<string>('ENTRA_CLIENT_SECRET');
+
+    if (!tenantId || !clientId || !clientSecret) return null;
+
+    try {
+      const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
+      const body = new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: clientId,
+        client_secret: clientSecret,
+        scope: 'https://graph.microsoft.com/.default',
+      });
+
+      const response = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      });
+
+      if (!response.ok) {
+        console.warn(`[EmployeeDirectory] Client credentials token request failed: ${response.status}`);
+        return null;
+      }
+
+      const data = (await response.json()) as { access_token?: string };
+      return data.access_token ?? null;
+    } catch (err) {
+      console.warn('[EmployeeDirectory] Error acquiring app-only Graph token:', err);
+      return null;
+    }
+  }
+
+  private async fetchJobTitlesWithToken(token: string): Promise<Map<string, string>> {
     const map = new Map<string, string>();
     let nextUrl: string | null =
       'https://graph.microsoft.com/v1.0/users?$select=mail,userPrincipalName,jobTitle&$top=999';
@@ -227,7 +279,12 @@ export class InternalEmployeesService {
         const response = await fetch(nextUrl, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (!response.ok) break;
+        if (!response.ok) {
+          console.warn(
+            `[EmployeeDirectory] Graph API returned ${response.status} ${response.statusText}`,
+          );
+          break;
+        }
 
         const payload = (await response.json()) as {
           value?: Array<{
@@ -248,10 +305,11 @@ export class InternalEmployeesService {
 
         nextUrl = payload['@odata.nextLink'] ?? null;
       }
-    } catch {
-      // Best-effort: return whatever we have so far
+    } catch (err) {
+      console.warn('[EmployeeDirectory] Graph API error fetching job titles:', err);
     }
 
+    console.log(`[EmployeeDirectory] Fetched ${map.size} job titles from Graph`);
     return map;
   }
 }

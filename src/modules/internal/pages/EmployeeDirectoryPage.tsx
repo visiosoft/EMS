@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutGrid, Loader2, Mail, Network, Phone, RefreshCw, Rows3, Search } from "lucide-react";
-import { HubOrgChart } from "../components/HubOrgChart";
+import {
+  AlignLeft,
+  Grid2x2,
+  LayoutGrid,
+  Loader2,
+  Mail,
+  Phone,
+  RefreshCw,
+  Rows3,
+  Search,
+  Smartphone,
+} from "lucide-react";
 import { fetchIaeStaffEmployees, type IaeEmployee } from "@/api/iaeEmployeesApi";
 import { formatE164ForDisplay } from "@/lib/contactPhoneField";
 import { InternalPageHero } from "../components/InternalPageHero";
@@ -24,9 +34,16 @@ import {
 } from "@/components/ui/select";
 
 type DirectoryMode = "tiles" | "table";
-type TilesView = "org" | "alpha" | "dept";
+type TilesView = "alpha" | "dept";
 type TableView = "alpha" | "dept";
 type AlphaSort = "first" | "last";
+
+/** Sentinel for the "All" department chip — no real department can collide with it. */
+const ALL_DEPARTMENTS = "__all__";
+
+function departmentOf(employee: IaeEmployee): string {
+  return employee.departmentName?.trim() || "Unassigned";
+}
 
 function displayName(employee: IaeEmployee): string {
   return [employee.firstName, employee.lastName].filter(Boolean).join(" ").trim() || "—";
@@ -90,6 +107,77 @@ function SegBtn({
   );
 }
 
+/** One department filter pill. `count` renders as a muted trailing badge. */
+function DepartmentChip({
+  label,
+  count,
+  active,
+  showDot,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  showDot: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`inline-flex h-8 max-w-full items-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-1 ${
+        active
+          ? "bg-neutral-900 text-white"
+          : "border border-neutral-200 bg-white text-neutral-700 hover:border-neutral-400 hover:text-neutral-900"
+      }`}
+    >
+      {showDot ? (
+        <span
+          className={`h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] ${
+            active ? "border-white/60" : "border-neutral-300"
+          }`}
+          aria-hidden
+        />
+      ) : null}
+      <span className="truncate">{label}</span>
+      <span className={active ? "text-white/55" : "text-neutral-400"}>{count}</span>
+    </button>
+  );
+}
+
+/**
+ * Desk line: full work number with the extension appended, e.g. "(312) 274-1800 x226".
+ * Some records store only the extension in `workPhone` (3–5 digits), so that case is
+ * rendered as a bare extension rather than a bogus phone number.
+ */
+function deskPhoneLine(employee: IaeEmployee): string {
+  const digits = (employee.workPhone ?? "").replace(/\D/g, "");
+  const extensionOnly = digits.length >= 3 && digits.length <= 5;
+  const base = extensionOnly ? "" : formatE164ForDisplay(employee.workPhone);
+  const extension = employee.extension?.trim() || (extensionOnly ? digits : "");
+  if (base && extension) return `${base} x${extension}`;
+  return base || (extension ? `x${extension}` : "");
+}
+
+/** One icon + value row inside a tile's contact block. */
+function ContactLine({
+  icon: Icon,
+  value,
+  mono = true,
+}: {
+  icon: typeof Phone;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <span className="flex min-w-0 items-center justify-center gap-1.5">
+      <Icon className="h-3.5 w-3.5 shrink-0 text-neutral-400" aria-hidden />
+      <span className={`truncate ${mono ? "font-mono tracking-tight" : ""}`}>{value}</span>
+    </span>
+  );
+}
+
 function PersonTile({
   employee,
   onOpen,
@@ -99,48 +187,52 @@ function PersonTile({
   onOpen: (contactId: number) => void;
   graphToken?: string | null;
 }) {
-  const workPhone = formatE164ForDisplay(employee.workPhone);
+  const name = displayName(employee);
+  const deskPhone = deskPhoneLine(employee);
   const cellPhone = formatE164ForDisplay(employee.cellPhone);
+  // Entra job title only — no role fallback; employees without one show no title line.
+  const title = employee.jobTitle?.trim();
+  const department = employee.departmentName?.trim();
+  const hasContact = Boolean(deskPhone || cellPhone || employee.email);
+
   return (
     <button
       type="button"
       onClick={() => onOpen(employee.contactId)}
-      className="group flex flex-col items-center gap-3 rounded-lg border border-neutral-200 bg-white p-5 text-center transition-all hover:-translate-y-0.5 hover:border-neutral-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900"
+      className="group flex h-full flex-col items-center rounded-lg border border-neutral-200 border-t-[3px] border-t-neutral-900 bg-white px-5 pb-5 pt-6 text-center transition-all hover:-translate-y-0.5 hover:border-neutral-300 hover:border-t-neutral-900 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900"
     >
       <HubGraphAvatar
-        name={displayName(employee)}
+        name={name}
         email={employee.email}
         graphToken={graphToken}
-        size="lg"
+        size="xl"
+        ringClass="ring-transparent"
       />
-      <div className="min-w-0 w-full">
-        <p className="text-sm font-semibold text-neutral-950">{displayName(employee)}</p>
-        <p className="mt-0.5 text-[13px] text-neutral-600">
-          {employee.departmentName ? `${employee.departmentName} · ` : ""}{employee.jobTitle || employee.roleName || "Internal staff"}
-        </p>
-        {(workPhone || cellPhone) && (
-          <div className="mt-2 flex flex-col items-center gap-0.5 text-[12px] text-neutral-500">
-            {workPhone && (
-              <span className="flex items-center gap-1">
-                <Phone className="h-3 w-3 text-neutral-400" aria-hidden />
-                {workPhone}
-              </span>
-            )}
-            {cellPhone && (
-              <span className="flex items-center gap-1">
-                <Phone className="h-3 w-3 text-neutral-400" aria-hidden />
-                {cellPhone}
-              </span>
-            )}
+
+      <p className="mt-4 w-full truncate text-[15px] font-bold text-neutral-950">{name}</p>
+
+      {title ? (
+        <p className="mt-2 w-full text-[13px] leading-snug text-neutral-600">{title}</p>
+      ) : null}
+
+      {department ? (
+        <span className="mt-2 max-w-full truncate rounded border border-neutral-300 px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-700">
+          {department}
+        </span>
+      ) : null}
+
+      {/* Pushes the contact block to the card's bottom edge so tiles in a row align. */}
+      <div className="min-h-[16px] flex-1" aria-hidden />
+
+      {hasContact ? (
+        <div className="w-full min-w-0 border-t border-neutral-200 pt-4">
+          <div className="flex flex-col gap-1.5 text-[12px] text-neutral-600">
+            {deskPhone ? <ContactLine icon={Phone} value={deskPhone} /> : null}
+            {cellPhone ? <ContactLine icon={Smartphone} value={cellPhone} /> : null}
+            {employee.email ? <ContactLine icon={Mail} value={employee.email} mono={false} /> : null}
           </div>
-        )}
-        {employee.email && (
-          <p className="mt-1 flex items-center justify-center gap-1 text-[11px] text-neutral-400">
-            <Mail className="h-3 w-3" aria-hidden />
-            <span className="truncate">{employee.email}</span>
-          </p>
-        )}
-      </div>
+        </div>
+      ) : null}
     </button>
   );
 }
@@ -155,7 +247,7 @@ function TilesGrid({
   graphToken?: string | null;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {employees.map((employee) => (
         <PersonTile key={employee.contactId} employee={employee} onOpen={onOpen} graphToken={graphToken} />
       ))}
@@ -164,8 +256,9 @@ function TilesGrid({
 }
 
 /**
- * Directory body: search, view toggles (tiles/table, org/alpha/dept), and the
- * resulting grid/chart/table. Shared by the standalone Employee Directory page and
+ * Directory body: search, department filter chips, view toggles (tiles/table,
+ * alpha/dept), and the resulting grid or table.
+ * Shared by the standalone Employee Directory page and
  * the inline reveal-under-button panel on Employee Services — both need the exact
  * same browsing behavior, just different surrounding chrome.
  */
@@ -176,6 +269,7 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
   const [tableView, setTableView] = useState<TableView>("alpha");
   const [alphaSort, setAlphaSort] = useState<AlphaSort>("first");
   const [search, setSearch] = useState("");
+  const [department, setDepartment] = useState<string>(ALL_DEPARTMENTS);
   const [graphToken, setGraphToken] = useState<string | null>(null);
 
   // Acquire Graph token for Microsoft profile photos
@@ -201,7 +295,7 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
 
   const employees = useMemo(() => dedupeEmployees(data ?? []), [data]);
 
-  const filtered = useMemo(() => {
+  const searched = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return employees;
     return employees.filter((employee) =>
@@ -211,6 +305,40 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
         .includes(q),
     );
   }, [employees, search]);
+
+  /**
+   * Chips are built from the search results, so their counts always match what a
+   * click will actually show. Leadership-heavy departments sort first (Executive at
+   * the top), then by headcount, then alphabetically.
+   */
+  const departmentChips = useMemo(() => {
+    const counts = new Map<string, { count: number; weight: number }>();
+    for (const employee of searched) {
+      const name = departmentOf(employee);
+      const entry = counts.get(name) ?? { count: 0, weight: 0 };
+      entry.count += 1;
+      entry.weight = Math.max(entry.weight, roleWeight(employee.roleName));
+      counts.set(name, entry);
+    }
+    return Array.from(counts.entries())
+      .map(([name, entry]) => ({ name, ...entry }))
+      .sort((a, b) => b.weight - a.weight || b.count - a.count || a.name.localeCompare(b.name));
+  }, [searched]);
+
+  // A search can narrow away the chip that was selected; fall back to All rather than
+  // leaving an invisible filter that renders an empty grid.
+  const activeDepartment =
+    department !== ALL_DEPARTMENTS && departmentChips.some((chip) => chip.name === department)
+      ? department
+      : ALL_DEPARTMENTS;
+
+  const filtered = useMemo(
+    () =>
+      activeDepartment === ALL_DEPARTMENTS
+        ? searched
+        : searched.filter((employee) => departmentOf(employee) === activeDepartment),
+    [searched, activeDepartment],
+  );
 
   const alphaSorted = useMemo(
     () => [...filtered].sort((a, b) => compareByName(a, b, alphaSort)),
@@ -235,33 +363,30 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
       }));
   }, [filtered]);
 
-  const isOrgView = mode === "tiles" && tilesView === "org";
-  const showSearch = !isOrgView;
   const alphaActive =
     (mode === "tiles" && tilesView === "alpha") || (mode === "table" && tableView === "alpha");
+  // Chips belong to the Department tab only: Alphabetical is a flat A–Z list, and the
+  // table pulls its own rows so it can't be filtered from here either.
+  const showChips = mode === "tiles" && tilesView === "dept" && departmentChips.length > 0;
 
   return (
     <>
       {/* Toolbar: search on the left, view/sort controls on the right */}
         <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center">
-          {showSearch ? (
-            <div className="relative w-full lg:max-w-sm lg:flex-1">
-              <Search
-                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400"
-                aria-hidden
-              />
-              <input
-                type="search"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search employees by name, title, or department"
-                aria-label="Search employees"
-                className="h-10 w-full rounded-lg border border-neutral-300 bg-white pl-9 pr-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
-              />
-            </div>
-          ) : (
-            <div className="hidden lg:block lg:flex-1" />
-          )}
+          <div className="relative w-full lg:max-w-sm lg:flex-1">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400"
+              aria-hidden
+            />
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search employees by name, title, or department"
+              aria-label="Search employees"
+              className="h-10 w-full rounded-lg border border-neutral-300 bg-white pl-9 pr-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+            />
+          </div>
 
           <div className="flex flex-wrap items-center gap-2 lg:ml-auto lg:justify-end">
             {alphaActive ? (
@@ -282,43 +407,81 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
             <Segmented>
               {mode === "tiles" ? (
                 <>
-                  <SegBtn active={tilesView === "org"} onClick={() => setTilesView("org")}>
-                    <Network className="h-4 w-4" /> Org Chart
-                  </SegBtn>
-                  <SegBtn active={tilesView === "alpha"} onClick={() => setTilesView("alpha")}>
-                    Alphabetical
+                  <SegBtn
+                    active={tilesView === "alpha"}
+                    onClick={() => {
+                      // Chips are hidden here, so drop the filter rather than apply it unseen.
+                      setDepartment(ALL_DEPARTMENTS);
+                      setTilesView("alpha");
+                    }}
+                  >
+                    <AlignLeft className="h-4 w-4" /> Alphabetical
                   </SegBtn>
                   <SegBtn active={tilesView === "dept"} onClick={() => setTilesView("dept")}>
-                    Department
+                    <Grid2x2 className="h-4 w-4" /> Department
                   </SegBtn>
                 </>
               ) : (
                 <>
                   <SegBtn active={tableView === "dept"} onClick={() => setTableView("dept")}>
-                    Department
+                    <Grid2x2 className="h-4 w-4" /> Department
                   </SegBtn>
                   <SegBtn active={tableView === "alpha"} onClick={() => setTableView("alpha")}>
-                    Alphabetical
+                    <AlignLeft className="h-4 w-4" /> Alphabetical
                   </SegBtn>
                 </>
               )}
             </Segmented>
 
             <Segmented>
-              <SegBtn active={mode === "tiles"} onClick={() => setMode("tiles")} ariaLabel="Tile view">
+              <SegBtn
+                active={mode === "tiles"}
+                onClick={() => setMode("tiles")}
+                ariaLabel="Tile view"
+              >
                 <LayoutGrid className="h-4 w-4" /> Tiles
               </SegBtn>
-              <SegBtn active={mode === "table"} onClick={() => setMode("table")} ariaLabel="Table view">
+              <SegBtn
+                active={mode === "table"}
+                onClick={() => {
+                  // The table ignores the chips, so drop the filter on the way in.
+                  setDepartment(ALL_DEPARTMENTS);
+                  setMode("table");
+                }}
+                ariaLabel="Table view"
+              >
                 <Rows3 className="h-4 w-4" /> Table
               </SegBtn>
             </Segmented>
           </div>
         </div>
 
+        {showChips ? (
+          <div className="mb-6 flex flex-wrap items-center gap-2" role="group" aria-label="Filter by department">
+            <DepartmentChip
+              label="All"
+              count={searched.length}
+              active={activeDepartment === ALL_DEPARTMENTS}
+              showDot={false}
+              onClick={() => setDepartment(ALL_DEPARTMENTS)}
+            />
+            {departmentChips.map((chip) => (
+              <DepartmentChip
+                key={chip.name}
+                label={chip.name}
+                count={chip.count}
+                active={activeDepartment === chip.name}
+                showDot
+                onClick={() =>
+                  setDepartment((current) => (current === chip.name ? ALL_DEPARTMENTS : chip.name))
+                }
+              />
+            ))}
+          </div>
+        ) : null}
+
         {/* Content */}
-        {mode === "tiles" && tilesView === "org" ? (
-          <HubOrgChart onSelectMember={openProfile} />
-        ) : mode === "table" ? (
+        {mode === "table" ? (
           <IaeEmployeesTable
             searchable={false}
             maxVisibleRows={null}
@@ -371,7 +534,7 @@ export function EmployeeDirectoryPage() {
     <InternalPageFrame>
       <InternalPageHero
         title="Employee Directory"
-        subtitle="Browse the iAE team by tiles, org chart, department, or name — and open any profile."
+        subtitle="Browse the iAE team by tiles, department, or name — and open any profile."
       />
 
       <main className="mx-auto w-full max-w-[1800px] px-4 pb-16 pt-10 sm:px-6 lg:px-6">
