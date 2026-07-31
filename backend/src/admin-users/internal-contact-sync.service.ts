@@ -1806,13 +1806,14 @@ export class InternalContactSyncService {
       payload.surname = nullableText(trimToMax(contact.lastName, 64));
     }
     if (!selectedFields || selectedFields.has('cellPhone')) {
-      payload.mobilePhone = nullableText(trimToMax(contact.cellPhone, 30));
+      payload.mobilePhone = nullableText(trimToMax(sanitizePhoneForGraph(contact.cellPhone), 30));
     }
     if (!selectedFields || selectedFields.has('workPhone')) {
-      payload.businessPhones = contact.workPhone ? [trimToMax(contact.workPhone, 30)] : [];
+      const sanitized = sanitizePhoneForGraph(contact.workPhone);
+      payload.businessPhones = sanitized ? [trimToMax(sanitized, 30)] : [];
     }
     if (!selectedFields || selectedFields.has('department')) {
-      payload.department = nullableText(primaryDepartmentName(contact));
+      payload.department = nullableText(trimToMax(primaryDepartmentName(contact), 64));
     }
 
     if (includeEmailFields && (!selectedFields || selectedFields.has('email'))) {
@@ -2342,10 +2343,20 @@ function isGraphAuthorizationDenied(error: unknown): boolean {
 }
 
 function formatSyncError(prefix: string, error: unknown): string {
-  if (error && typeof error === 'object' && 'getResponse' in error) {
-    const resp = (error as { getResponse(): unknown }).getResponse();
-    if (resp && typeof resp === 'object' && 'detail' in resp) {
-      return `${prefix}: ${(resp as { detail: string }).detail}`;
+  if (error && typeof error === 'object') {
+    // NestJS HttpException (BadGatewayException, etc.) — extract detail from response
+    if ('getResponse' in error && typeof (error as any).getResponse === 'function') {
+      const resp = (error as { getResponse(): unknown }).getResponse();
+      if (resp && typeof resp === 'object') {
+        const detail = (resp as Record<string, unknown>).detail;
+        if (typeof detail === 'string' && detail) {
+          return `${prefix}: ${detail}`;
+        }
+        const message = (resp as Record<string, unknown>).message;
+        if (typeof message === 'string' && message) {
+          return `${prefix}: ${message}`;
+        }
+      }
     }
   }
   if (error instanceof Error && error.message) {
@@ -2428,6 +2439,17 @@ function levenshteinDistance(a: string, b: string): number {
 
 function trimToMax(value: string | null | undefined, maxLength: number): string {
   return cleanText(value).slice(0, maxLength);
+}
+
+/**
+ * Strip extension notation (e.g. "x225", "ext 225") from phone numbers
+ * before sending to Microsoft Graph, which rejects such formats with 400.
+ */
+function sanitizePhoneForGraph(value: string | null | undefined): string {
+  const cleaned = cleanText(value);
+  if (!cleaned) return '';
+  // Remove extension suffixes like "x225", "ext225", "ext. 225", "extension 225"
+  return cleaned.replace(/\s*(x|ext\.?|extension)\s*\d+$/i, '').trim();
 }
 
 function readString(row: Record<string, unknown> | undefined, ...keys: string[]): string {
