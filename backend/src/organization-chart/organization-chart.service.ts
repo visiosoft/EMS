@@ -15,6 +15,7 @@ export type OrganizationChartMember = {
   email: string;
   cellPhone: string;
   workPhone: string;
+  extension: string;
   jobTitle: string;
   roleName: string;
   departmentName: string;
@@ -47,6 +48,7 @@ export type HierarchyMember = {
   email: string;
   cellPhone: string;
   workPhone: string;
+  extension: string;
   jobTitle: string;
   roleName: string;
   departmentName: string;
@@ -425,7 +427,8 @@ export class OrganizationChartService {
         email: readString(row, 'email', 'Email'),
         cellPhone: readString(row, 'cellPhone', 'CellPhone'),
         workPhone: readString(row, 'workPhone', 'WorkPhone'),
-        jobTitle: rawJobTitle || roleName || '',
+        extension: readString(row, 'extension', 'Extension'),
+        jobTitle: rawJobTitle || '',
         roleName,
         departmentName,
       });
@@ -528,8 +531,8 @@ export class OrganizationChartService {
     jobTitleColumnAvailable: boolean,
   ): Promise<ChartRow[]> {
     const jobTitleSelect = jobTitleColumnAvailable
-      ? "COALESCE(NULLIF(LTRIM(RTRIM(ci.JobTitle)), ''), rolePick.roleName, '')"
-      : "COALESCE(rolePick.roleName, '')";
+      ? "COALESCE(NULLIF(LTRIM(RTRIM(ci.JobTitle)), ''), '')"
+      : "''";
     return this.dataSource.query(
       `
       SELECT
@@ -539,6 +542,7 @@ export class OrganizationChartService {
         COALESCE(ci.Email, '') AS email,
         COALESCE(ci.CellPhone, '') AS cellPhone,
         COALESCE(ci.WorkPhone, '') AS workPhone,
+        COALESCE(ci.WorkPhoneExtension, '') AS extension,
         ${jobTitleSelect} AS jobTitle,
         COALESCE(rolePick.roleName, '') AS roleName,
         departmentPick.departmentId,
@@ -636,6 +640,7 @@ export class OrganizationChartService {
         email: readString(row, 'email', 'Email'),
         cellPhone: readString(row, 'cellPhone', 'CellPhone'),
         workPhone: readString(row, 'workPhone', 'WorkPhone'),
+        extension: readString(row, 'extension', 'Extension'),
         jobTitle: readString(row, 'jobTitle', 'JobTitle'),
         roleName: readString(row, 'roleName', 'RoleName'),
         departmentName,
