@@ -1,5 +1,6 @@
 import type { Config } from "tailwindcss";
 import tailwindcssAnimate from "tailwindcss-animate";
+import plugin from "tailwindcss/plugin";
 
 export default {
   darkMode: ["class"],
@@ -54,6 +55,10 @@ export default {
         "ems-purple-dim": "hsl(var(--ems-purple-dim))",
         "ems-green": "hsl(var(--ems-green))",
         "ems-green-dim": "hsl(var(--ems-green-dim))",
+        "ems-pink": "hsl(var(--ems-pink))",
+        "ems-pink-dim": "hsl(var(--ems-pink-dim))",
+        "ems-indigo": "hsl(var(--ems-indigo))",
+        "ems-indigo-dim": "hsl(var(--ems-indigo-dim))",
         "text-primary": "hsl(var(--text-primary))",
         "text-secondary": "hsl(var(--text-secondary))",
         "text-muted": "hsl(var(--text-muted))",
@@ -80,5 +85,16 @@ export default {
       },
     },
   },
-  plugins: [tailwindcssAnimate],
+  plugins: [
+    tailwindcssAnimate,
+    /**
+     * `dk:` — dark-theme variant.
+     * The theme is applied by next-themes as `data-theme="dark"` on <html>, which the
+     * built-in class-based `dark:` variant (`.dark`) never matches. Use `dk:` for
+     * styles that should only apply in dark mode.
+     */
+    plugin(({ addVariant }) => {
+      addVariant("dk", '&:is([data-theme="dark"] *)');
+    }),
+  ],
 } satisfies Config;
