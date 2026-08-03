@@ -10,6 +10,7 @@ export interface OrganizationChartMember {
   email: string;
   cellPhone: string;
   workPhone: string;
+  extension: string;
   jobTitle: string;
   roleName: string;
   departmentName: string;
@@ -40,6 +41,7 @@ export interface HierarchyMember {
   email: string;
   cellPhone: string;
   workPhone: string;
+  extension: string;
   jobTitle: string;
   roleName: string;
   departmentName: string;
