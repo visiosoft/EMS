@@ -363,6 +363,19 @@ export class EmployeeEmploymentService {
             [current.contactAssignmentId, dto.deskPhoneExtensionId, modifiedBy],
           );
         }
+        // Sync extension number to ContactInfo.WorkPhoneExtension
+        const extNumRows = dto.deskPhoneExtensionId
+          ? await manager.query(
+              `SELECT ExtensionNumber FROM dbo.PhoneExtension WHERE ExtensionID = @0`,
+              [dto.deskPhoneExtensionId],
+            )
+          : [];
+        const extNumber = extNumRows.length > 0 ? (extNumRows[0].ExtensionNumber ?? '') : '';
+        await manager.query(
+          `UPDATE dbo.ContactInfo SET WorkPhoneExtension = @0
+           WHERE ContactInfoID = (SELECT c.ContactInfoID FROM dbo.Contact c WHERE c.ContactID = @1)`,
+          [extNumber || null, current.contactId],
+        );
       }
 
       // 4. Assign phone device (if changed)
