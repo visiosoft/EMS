@@ -546,7 +546,8 @@ export class OrganizationChartService {
         ${jobTitleSelect} AS jobTitle,
         COALESCE(rolePick.roleName, '') AS roleName,
         departmentPick.departmentId,
-        COALESCE(departmentPick.departmentName, 'Unassigned') AS departmentName
+        COALESCE(departmentPick.departmentName, 'Unassigned') AS departmentName,
+        COALESCE(allDepts.allDepartmentNames, 'Unassigned') AS allDepartmentNames
       FROM dbo.Contact c
       INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
       OUTER APPLY (
@@ -560,6 +561,17 @@ export class OrganizationChartService {
           FOR XML PATH(''), TYPE
         ).value('.', 'nvarchar(max)'), 1, 2, '') AS roleName
       ) rolePick
+      OUTER APPLY (
+        SELECT STUFF((
+          SELECT DISTINCT ', ' + LTRIM(RTRIM(d2.DepartmentName))
+          FROM dbo.ContactAssignment da2
+          INNER JOIN dbo.Department d2 ON d2.DepartmentID = da2.DepartmentID
+          WHERE da2.ContactID = c.ContactID
+            AND da2.CompanyID = @0
+            AND NULLIF(LTRIM(RTRIM(d2.DepartmentName)), '') IS NOT NULL
+          FOR XML PATH(''), TYPE
+        ).value('.', 'nvarchar(max)'), 1, 2, '') AS allDepartmentNames
+      ) allDepts
       CROSS APPLY (
         SELECT
           d.DepartmentID AS departmentId,
@@ -643,7 +655,7 @@ export class OrganizationChartService {
         extension: readString(row, 'extension', 'Extension'),
         jobTitle: readString(row, 'jobTitle', 'JobTitle'),
         roleName: readString(row, 'roleName', 'RoleName'),
-        departmentName,
+        departmentName: readString(row, 'allDepartmentNames', 'AllDepartmentNames') || departmentName,
       });
     }
 
