@@ -19,7 +19,6 @@ import { InternalPageFrame } from "../layout/InternalPageFrame";
 import { HubGraphAvatar } from "@/components/ems/GraphAvatar";
 import { getActiveAccount, acquireGraphAccessToken } from "@/auth/entra";
 import {
-  IaeEmployeesTable,
   dedupeEmployees,
   roleWeight,
 } from "../components/IaeEmployeesTable";
@@ -188,37 +187,48 @@ function PersonTile({
   graphToken?: string | null;
 }) {
   const name = displayName(employee);
-  const deskPhone = deskPhoneLine(employee);
+  const deskBase = (() => {
+    const digits = (employee.workPhone ?? "").replace(/\D/g, "");
+    if (digits.length >= 3 && digits.length <= 5) return "";
+    return formatE164ForDisplay(employee.workPhone) || "";
+  })();
+  const deskExtension = employee.extension?.trim() || (() => {
+    const digits = (employee.workPhone ?? "").replace(/\D/g, "");
+    return digits.length >= 3 && digits.length <= 5 ? digits : "";
+  })();
+  const hasDeskPhone = Boolean(deskBase || deskExtension);
   const cellPhone = formatE164ForDisplay(employee.cellPhone);
   // Entra job title only — no role fallback; employees without one show no title line.
   const title = employee.jobTitle?.trim();
   const department = employee.departmentName?.trim();
-  const hasContact = Boolean(deskPhone || cellPhone || employee.email);
+  const hasContact = Boolean(hasDeskPhone || cellPhone || employee.email);
 
   return (
     <button
       type="button"
       onClick={() => onOpen(employee.contactId)}
-      className="group flex h-full flex-col items-center rounded-lg border border-neutral-200 border-t-[3px] border-t-neutral-900 bg-white px-5 pb-5 pt-6 text-center transition-all hover:-translate-y-0.5 hover:border-neutral-300 hover:border-t-neutral-900 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900"
+      className="group relative flex h-full min-h-[290px] flex-col items-center rounded-lg border-2 border-neutral-900 bg-white px-4 pb-4 pt-5 text-center transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900"
     >
+      <img src="/iae_logo.png" alt="" className="absolute top-3 right-3 h-5 w-auto invert" aria-hidden />
       <HubGraphAvatar
         name={name}
         email={employee.email}
         graphToken={graphToken}
         size="xl"
         ringClass="ring-transparent"
+        className="!w-24 !h-24 !text-2xl"
       />
 
-      <p className="mt-4 w-full truncate text-[15px] font-bold text-neutral-950">{name}</p>
-
-      {title ? (
-        <p className="mt-2 w-full text-[13px] leading-snug text-neutral-600">{title}</p>
-      ) : null}
+      <p className="mt-4 w-full text-[15px] font-bold text-neutral-950 break-words leading-tight">{name}</p>
 
       {department ? (
-        <span className="mt-2 max-w-full truncate rounded border border-neutral-300 px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-700">
+        <span className="mt-2 max-w-full rounded border border-neutral-300 px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-700 break-words text-center leading-tight">
           {department}
         </span>
+      ) : null}
+
+      {title ? (
+        <p className="mt-2 w-full text-[13px] font-bold leading-snug text-neutral-600">{title}</p>
       ) : null}
 
       {/* Pushes the contact block to the card's bottom edge so tiles in a row align. */}
@@ -227,7 +237,17 @@ function PersonTile({
       {hasContact ? (
         <div className="w-full min-w-0 border-t border-neutral-200 pt-4">
           <div className="flex flex-col gap-1.5 text-[12px] text-neutral-600">
-            {deskPhone ? <ContactLine icon={Phone} value={deskPhone} /> : null}
+            {hasDeskPhone ? (
+              <span className="flex min-w-0 items-center justify-center gap-1.5">
+                <Phone className="h-3.5 w-3.5 shrink-0 text-neutral-400" aria-hidden />
+                {deskBase ? <span className="truncate font-mono tracking-tight">{deskBase}</span> : null}
+                {deskExtension ? (
+                  <span className="shrink-0 rounded bg-neutral-900 px-1.5 py-[1px] text-[10px] font-bold text-white">
+                    x{deskExtension}
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
             {cellPhone ? <ContactLine icon={Smartphone} value={cellPhone} /> : null}
             {employee.email ? <ContactLine icon={Mail} value={employee.email} mono={false} /> : null}
           </div>
@@ -247,10 +267,67 @@ function TilesGrid({
   graphToken?: string | null;
 }) {
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4 lg:grid-cols-6">
       {employees.map((employee) => (
         <PersonTile key={employee.contactId} employee={employee} onOpen={onOpen} graphToken={graphToken} />
       ))}
+    </div>
+  );
+}
+
+function DirectoryTable({
+  employees,
+  onRowClick,
+  graphToken,
+}: {
+  employees: IaeEmployee[];
+  onRowClick: (contactId: number) => void;
+  graphToken?: string | null;
+}) {
+  return (
+    <div className="overflow-x-auto rounded-lg border border-neutral-200">
+      <table className="w-full text-left text-sm">
+        <thead className="border-b border-neutral-200 bg-neutral-50">
+          <tr>
+            <th className="px-4 py-3 font-semibold text-neutral-700">Name</th>
+            <th className="px-4 py-3 font-semibold text-neutral-700">Title</th>
+            <th className="px-4 py-3 font-semibold text-neutral-700">Department</th>
+            <th className="px-4 py-3 font-semibold text-neutral-700">Desk Phone</th>
+            <th className="px-4 py-3 font-semibold text-neutral-700">Mobile</th>
+            <th className="px-4 py-3 font-semibold text-neutral-700">Email</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-neutral-100">
+          {employees.map((employee) => {
+            const name = displayName(employee);
+            const title = employee.jobTitle?.trim() || employee.roleName?.trim() || "";
+            const dept = departmentOf(employee);
+            const deskBase = formatE164ForDisplay(employee.workPhone) || "";
+            const ext = employee.extension?.trim() || "";
+            const desk = deskBase && ext ? `${deskBase} x${ext}` : deskBase || (ext ? `x${ext}` : "");
+            const cell = formatE164ForDisplay(employee.cellPhone) || "";
+            return (
+              <tr
+                key={employee.contactId}
+                onClick={() => onRowClick(employee.contactId)}
+                className="cursor-pointer transition-colors hover:bg-neutral-50"
+              >
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <HubGraphAvatar name={name} email={employee.email} graphToken={graphToken} size="xl" />
+                    <span className="font-medium text-neutral-900">{name}</span>
+                  </div>
+                </td>
+                <td className="px-4 py-3 text-neutral-600">{title}</td>
+                <td className="px-4 py-3 text-neutral-600">{dept}</td>
+                <td className="px-4 py-3 font-mono text-xs text-neutral-500">{desk}</td>
+                <td className="px-4 py-3 font-mono text-xs text-neutral-500">{cell}</td>
+                <td className="px-4 py-3 text-neutral-500">{employee.email}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -363,11 +440,9 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
       }));
   }, [filtered]);
 
-  const alphaActive =
-    (mode === "tiles" && tilesView === "alpha") || (mode === "table" && tableView === "alpha");
-  // Chips belong to the Department tab only: Alphabetical is a flat A–Z list, and the
-  // table pulls its own rows so it can't be filtered from here either.
-  const showChips = mode === "tiles" && tilesView === "dept" && departmentChips.length > 0;
+  const showChips =
+    ((mode === "tiles" && tilesView === "dept") || (mode === "table" && tableView === "dept"))
+    && departmentChips.length > 0;
 
   return (
     <>
@@ -389,49 +464,75 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
           </div>
 
           <div className="flex flex-wrap items-center gap-2 lg:ml-auto lg:justify-end">
-            {alphaActive ? (
-              <Select value={alphaSort} onValueChange={(value) => setAlphaSort(value as AlphaSort)}>
-                <SelectTrigger
-                  aria-label="Sort employees"
-                  className="h-10 w-[170px] rounded-lg border-neutral-200 bg-white text-[13px] font-medium text-neutral-800 focus:ring-1 focus:ring-black"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="first">Sort: First name</SelectItem>
-                  <SelectItem value="last">Sort: Last name</SelectItem>
-                </SelectContent>
-              </Select>
-            ) : null}
-
-            <Segmented>
-              {mode === "tiles" ? (
-                <>
+            {mode === "tiles" && (
+              <Segmented>
+                {tilesView === "alpha" ? (
+                  <span className="inline-flex items-center">
+                    <Select
+                      value={alphaSort}
+                      onValueChange={(v) => setAlphaSort(v as AlphaSort)}
+                    >
+                      <SelectTrigger
+                        aria-label="Alphabetical sort"
+                        className="h-8 w-[145px] gap-1.5 rounded-md border-0 bg-white px-3 text-[13px] font-medium text-neutral-900 shadow-sm ring-1 ring-black/[0.06] focus:ring-1 focus:ring-black/[0.06]"
+                      >
+                        <AlignLeft className="h-4 w-4 shrink-0" />
+                        <span>Alphabetical</span>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="first">Sort: First Name</SelectItem>
+                        <SelectItem value="last">Sort: Last Name</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </span>
+                ) : (
                   <SegBtn
-                    active={tilesView === "alpha"}
-                    onClick={() => {
-                      // Chips are hidden here, so drop the filter rather than apply it unseen.
-                      setDepartment(ALL_DEPARTMENTS);
-                      setTilesView("alpha");
-                    }}
+                    active={false}
+                    onClick={() => { setDepartment(ALL_DEPARTMENTS); setTilesView("alpha"); }}
                   >
                     <AlignLeft className="h-4 w-4" /> Alphabetical
                   </SegBtn>
-                  <SegBtn active={tilesView === "dept"} onClick={() => setTilesView("dept")}>
-                    <Grid2x2 className="h-4 w-4" /> Department
-                  </SegBtn>
-                </>
-              ) : (
-                <>
-                  <SegBtn active={tableView === "dept"} onClick={() => setTableView("dept")}>
-                    <Grid2x2 className="h-4 w-4" /> Department
-                  </SegBtn>
-                  <SegBtn active={tableView === "alpha"} onClick={() => setTableView("alpha")}>
+                )}
+                <SegBtn active={tilesView === "dept"} onClick={() => setTilesView("dept")}>
+                  <Grid2x2 className="h-4 w-4" /> Department
+                </SegBtn>
+              </Segmented>
+            )}
+
+            {mode === "table" && (
+              <Segmented>
+                {tableView === "alpha" ? (
+                  <span className="inline-flex items-center">
+                    <Select
+                      value={alphaSort}
+                      onValueChange={(v) => setAlphaSort(v as AlphaSort)}
+                    >
+                      <SelectTrigger
+                        aria-label="Alphabetical sort"
+                        className="h-8 w-[145px] gap-1.5 rounded-md border-0 bg-white px-3 text-[13px] font-medium text-neutral-900 shadow-sm ring-1 ring-black/[0.06] focus:ring-1 focus:ring-black/[0.06]"
+                      >
+                        <AlignLeft className="h-4 w-4 shrink-0" />
+                        <span>Alphabetical</span>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="first">Sort: First Name</SelectItem>
+                        <SelectItem value="last">Sort: Last Name</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </span>
+                ) : (
+                  <SegBtn
+                    active={false}
+                    onClick={() => { setDepartment(ALL_DEPARTMENTS); setTableView("alpha"); }}
+                  >
                     <AlignLeft className="h-4 w-4" /> Alphabetical
                   </SegBtn>
-                </>
-              )}
-            </Segmented>
+                )}
+                <SegBtn active={tableView === "dept"} onClick={() => setTableView("dept")}>
+                  <Grid2x2 className="h-4 w-4" /> Department
+                </SegBtn>
+              </Segmented>
+            )}
 
             <Segmented>
               <SegBtn
@@ -443,11 +544,7 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
               </SegBtn>
               <SegBtn
                 active={mode === "table"}
-                onClick={() => {
-                  // The table ignores the chips, so drop the filter on the way in.
-                  setDepartment(ALL_DEPARTMENTS);
-                  setMode("table");
-                }}
+                onClick={() => setMode("table")}
                 ariaLabel="Table view"
               >
                 <Rows3 className="h-4 w-4" /> Table
@@ -482,14 +579,41 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
 
         {/* Content */}
         {mode === "table" ? (
-          <IaeEmployeesTable
-            searchable={false}
-            maxVisibleRows={null}
-            title={null}
-            onRowClick={(employee) => openProfile(employee.contactId)}
-            groupByDepartment={tableView === "dept"}
-            sortMode={tableView === "alpha" ? (alphaSort === "last" ? "name-last" : "name-first") : undefined}
-          />
+          isLoading ? (
+            <div className="flex items-center justify-center py-24">
+              <Loader2 className="h-8 w-8 animate-spin text-neutral-400" aria-hidden />
+              <span className="sr-only">Loading employees</span>
+            </div>
+          ) : isError ? (
+            <div className="flex items-center justify-between gap-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <span>Employee directory could not be loaded.</span>
+              <button
+                type="button"
+                onClick={() => void refetch()}
+                className="inline-flex items-center gap-1 font-semibold hover:underline"
+              >
+                <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+                Retry
+              </button>
+            </div>
+          ) : filtered.length === 0 ? (
+            <p className="py-16 text-center text-sm text-neutral-500">
+              {employees.length === 0 ? "No staff employees found." : "No employees match your search."}
+            </p>
+          ) : tableView === "dept" ? (
+            <div className="space-y-8">
+              {byDepartment.map(({ dept, members }) => (
+                <section key={dept}>
+                  <h2 className="mb-3 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">
+                    {dept} <span className="text-neutral-400">· {members.length}</span>
+                  </h2>
+                  <DirectoryTable employees={members} onRowClick={openProfile} graphToken={graphToken} />
+                </section>
+              ))}
+            </div>
+          ) : (
+            <DirectoryTable employees={alphaSorted} onRowClick={openProfile} graphToken={graphToken} />
+          )
         ) : isLoading ? (
           <div className="flex items-center justify-center py-24">
             <Loader2 className="h-8 w-8 animate-spin text-neutral-400" aria-hidden />

@@ -112,7 +112,7 @@ function fetchGraphPhoto(graphToken: string, email: string): Promise<string> {
   });
 }
 
-type GraphAvatarSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+type GraphAvatarSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
 
 const sizeClasses: Record<GraphAvatarSize, string> = {
   xs: 'w-6 h-6 text-[9px]',
@@ -120,6 +120,7 @@ const sizeClasses: Record<GraphAvatarSize, string> = {
   md: 'w-10 h-10 text-xs',
   lg: 'w-12 h-12 text-sm',
   xl: 'w-16 h-16 text-lg',
+  '2xl': 'w-36 h-36 text-4xl',
 };
 
 /**
@@ -133,12 +134,15 @@ export function GraphAvatar({
   graphToken,
   size = 'sm',
   className = '',
+  accent,
 }: {
   email?: string | null;
   name: string;
   graphToken?: string | null;
   size?: GraphAvatarSize;
   className?: string;
+  /** CSS color for the initials fallback — solid fill with card-colored initials. */
+  accent?: string;
 }) {
   const [photoUrl, setPhotoUrl] = useState<string | null>(() => {
     if (!email) return null;
@@ -172,6 +176,17 @@ export function GraphAvatar({
         alt={name}
         className={`${sizeClass} rounded-full object-cover shrink-0 ${className}`}
       />
+    );
+  }
+
+  if (accent) {
+    return (
+      <div
+        style={{ backgroundColor: accent, color: 'hsl(var(--card))' }}
+        className={`${sizeClass} rounded-full flex items-center justify-center font-bold shrink-0 ${className}`}
+      >
+        {getInitials(name)}
+      </div>
     );
   }
 

@@ -52,8 +52,8 @@ export class InternalEmployeesService {
           ci.Email AS email,
           ci.CellPhone AS cellPhone,
           ci.WorkPhone AS workPhone,
+          ci.WorkPhoneExtension AS extension,
           rolePick.roleName AS roleName,
-          extPick.extensionNumber AS extension,
           deptPick.departmentName AS departmentName,
           ROW_NUMBER() OVER (
             PARTITION BY ci.ContactInfoID
@@ -73,17 +73,6 @@ export class InternalEmployeesService {
             FOR XML PATH(''), TYPE
           ).value('.', 'NVARCHAR(MAX)'), 1, 2, '') AS roleName
         ) rolePick
-        OUTER APPLY (
-          SELECT TOP 1 pe.ExtensionNumber AS extensionNumber
-          FROM dbo.ContactAssignment caExt
-          INNER JOIN dbo.Company coExt
-            ON coExt.CompanyID = caExt.CompanyID AND coExt.is_internal = 1
-          INNER JOIN dbo.EmployeePhoneExtension epe
-            ON epe.ContactAssignmentID = caExt.ContactAssignmentID AND epe.IsCurrent = 1
-          INNER JOIN dbo.PhoneExtension pe ON pe.ExtensionID = epe.ExtensionID
-          WHERE caExt.ContactID = c.ContactID
-          ORDER BY epe.AssignedDate DESC
-        ) extPick
         OUTER APPLY (
           SELECT STUFF((
             SELECT DISTINCT ', ' + LTRIM(RTRIM(dep.DepartmentName))
@@ -163,7 +152,9 @@ export class InternalEmployeesService {
          ci.Email AS email,
          ci.CellPhone AS cellPhone,
          ci.WorkPhone AS workPhone,
-         rolePick.roleName AS roleName
+         ci.WorkPhoneExtension AS extension,
+         rolePick.roleName AS roleName,
+         deptPick.departmentName AS departmentName
        FROM dbo.Contact c
        INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
        OUTER APPLY (
@@ -177,6 +168,18 @@ export class InternalEmployeesService {
            FOR XML PATH(''), TYPE
          ).value('.', 'NVARCHAR(MAX)'), 1, 2, '') AS roleName
        ) rolePick
+       OUTER APPLY (
+         SELECT STUFF((
+           SELECT DISTINCT ', ' + LTRIM(RTRIM(dep.DepartmentName))
+           FROM dbo.ContactAssignment caD
+           INNER JOIN dbo.Company coD
+             ON coD.CompanyID = caD.CompanyID AND coD.is_internal = 1
+           INNER JOIN dbo.Department dep ON dep.DepartmentID = caD.DepartmentID
+           WHERE caD.ContactID = c.ContactID
+             AND NULLIF(LTRIM(RTRIM(dep.DepartmentName)), '') IS NOT NULL
+           FOR XML PATH(''), TYPE
+         ).value('.', 'NVARCHAR(MAX)'), 1, 2, '') AS departmentName
+       ) deptPick
        WHERE EXISTS (
          SELECT 1
          FROM dbo.ContactAssignment ca
@@ -206,8 +209,16 @@ export class InternalEmployeesService {
           return name && name.toLowerCase() !== 'unknown' ? name : null;
         })(),
         jobTitle: entraTitle,
-        extension: null,
-        departmentName: null,
+        extension: row.extension != null && String(row.extension).trim() ? String(row.extension).trim() : null,
+        departmentName: (() => {
+          const names = [...new Set(
+            String(row.departmentName ?? '')
+              .split(',')
+              .map((name) => name.trim())
+              .filter((name) => name && name.toLowerCase() !== 'unknown'),
+          )];
+          return names.length ? names.join(', ') : null;
+        })(),
       };
     });
   }
