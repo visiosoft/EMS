@@ -2267,27 +2267,34 @@ export function SettingsPage({
                             <table className="w-full text-left text-sm">
                               <thead className="border-b border-neutral-200 bg-neutral-50">
                                 <tr>
-                                  <th className="px-4 py-3 font-semibold text-neutral-700">Name</th>
-                                  <th className="px-4 py-3 font-semibold text-neutral-700">Title</th>
-                                  <th className="px-4 py-3 font-semibold text-neutral-700">Department</th>
-                                  <th className="px-4 py-3 font-semibold text-neutral-700">Mobile</th>
-                                  <th className="px-4 py-3 font-semibold text-neutral-700">Email</th>
-                                  <th className="px-4 py-3 font-semibold text-neutral-700">Status</th>
-                                  {canViewUserProfiles && <th className="px-4 py-3 font-semibold text-neutral-700">Access Level</th>}
+                                  <th className="w-[20%] px-4 py-3 font-semibold text-neutral-700">Name</th>
+                                  <th className="w-[12%] px-4 py-3 font-semibold text-neutral-700">Department</th>
+                                  <th className="w-[12%] px-4 py-3 font-semibold text-neutral-700">Title</th>
+                                  <th className="w-[11%] px-4 py-3 font-semibold text-neutral-700">Desk Phone</th>
+                                  <th className="w-[8%] px-4 py-3 font-semibold text-neutral-700">Extension</th>
+                                  <th className="w-[11%] px-4 py-3 font-semibold text-neutral-700">Mobile</th>
+                                  <th className="w-[14%] px-4 py-3 font-semibold text-neutral-700">Email</th>
+                                  <th className="w-[7%] px-4 py-3 font-semibold text-neutral-700">Status</th>
+                                  {canViewUserProfiles && <th className="w-[10%] px-4 py-3 font-semibold text-neutral-700">Access Level</th>}
                                 </tr>
                               </thead>
-                              <tbody className="divide-y divide-neutral-100">
-                                {members.map((u) => (
+                              <tbody className="divide-y divide-neutral-300">
+                                {members.map((u) => {
+                                  const raw = u.businessPhones?.[0] || ''; const xIdx = raw.search(/[xX]/); const ext = xIdx > 0 ? raw.slice(xIdx + 1).trim() : ''; const deskPhone = xIdx > 0 ? raw.slice(0, xIdx).trim() : raw;
+                                  return (
                                   <tr key={u.id} onClick={canViewUserProfiles ? () => setSelectedUser({ id: u.id, name: u.name, email: u.email, jobTitle: u.jobTitle, department: u.department, employeeType: u.employeeType, officeLocation: u.officeLocation, city: u.city, mobilePhone: u.mobilePhone, businessPhones: u.businessPhones, companyName: u.companyName, accountEnabled: u.accountEnabled, status: u.status }) : undefined} className={`transition-colors hover:bg-neutral-50 ${canViewUserProfiles ? 'cursor-pointer' : ''}`}>
                                     <td className="px-4 py-3"><div className="flex items-center gap-3"><GraphAvatar name={u.name} email={u.email} graphToken={graphToken} size="xl" accent="#171717" /><span className="font-medium text-neutral-900">{u.name}</span></div></td>
-                                    <td className="px-4 py-3 text-neutral-600">{u.jobTitle || '—'}</td>
                                     <td className="px-4 py-3 text-neutral-600">{u.department || '—'}</td>
-                                    <td className="px-4 py-3 font-mono text-xs text-neutral-500">{formatE164ForDisplay(u.mobilePhone) || u.businessPhones?.[0] || '—'}</td>
+                                    <td className="px-4 py-3 text-neutral-600">{u.jobTitle || '—'}</td>
+                                    <td className="px-4 py-3 font-mono text-xs text-neutral-500">{deskPhone ? formatE164ForDisplay(deskPhone) || deskPhone : '—'}</td>
+                                    <td className="px-4 py-3 font-mono text-xs text-neutral-500">{ext || '—'}</td>
+                                    <td className="px-4 py-3 font-mono text-xs text-neutral-500">{formatE164ForDisplay(u.mobilePhone) || '—'}</td>
                                     <td className="px-4 py-3 text-neutral-500">{u.email || '—'}</td>
                                     <td className="px-4 py-3"><StatusBadge status={u.status ?? 'Active'} /></td>
                                     {canViewUserProfiles && <td className="px-4 py-3">{u.email ? <AccessLevelDropdown email={u.email} currentLevel={accessLevelMap[u.email.toLowerCase()] || ''} addToast={addToast} onUpdated={handleAccessLevelUpdated} /> : <span className="text-text-muted text-xs">—</span>}</td>}
                                   </tr>
-                                ))}
+                                  );
+                                })}
                               </tbody>
                             </table>
                           </div>
@@ -2299,27 +2306,34 @@ export function SettingsPage({
                       <table className="w-full text-left text-sm">
                         <thead className="border-b border-neutral-200 bg-neutral-50">
                           <tr>
-                            <th className="px-4 py-3 font-semibold text-neutral-700">Name</th>
-                            <th className="px-4 py-3 font-semibold text-neutral-700">Title</th>
-                            <th className="px-4 py-3 font-semibold text-neutral-700">Department</th>
-                            <th className="px-4 py-3 font-semibold text-neutral-700">Mobile</th>
-                            <th className="px-4 py-3 font-semibold text-neutral-700">Email</th>
-                            <th className="px-4 py-3 font-semibold text-neutral-700">Status</th>
-                            {canViewUserProfiles && <th className="px-4 py-3 font-semibold text-neutral-700">Access Level</th>}
+                            <th className="w-[20%] px-4 py-3 font-semibold text-neutral-700">Name</th>
+                            <th className="w-[12%] px-4 py-3 font-semibold text-neutral-700">Department</th>
+                            <th className="w-[12%] px-4 py-3 font-semibold text-neutral-700">Title</th>
+                            <th className="w-[11%] px-4 py-3 font-semibold text-neutral-700">Desk Phone</th>
+                            <th className="w-[8%] px-4 py-3 font-semibold text-neutral-700">Extension</th>
+                            <th className="w-[11%] px-4 py-3 font-semibold text-neutral-700">Mobile</th>
+                            <th className="w-[14%] px-4 py-3 font-semibold text-neutral-700">Email</th>
+                            <th className="w-[7%] px-4 py-3 font-semibold text-neutral-700">Status</th>
+                            {canViewUserProfiles && <th className="w-[10%] px-4 py-3 font-semibold text-neutral-700">Access Level</th>}
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-neutral-100">
-                          {usersAlphaSorted.map((u) => (
+                        <tbody className="divide-y divide-neutral-300">
+                          {usersAlphaSorted.map((u) => {
+                            const raw = u.businessPhones?.[0] || ''; const xIdx = raw.search(/[xX]/); const ext = xIdx > 0 ? raw.slice(xIdx + 1).trim() : ''; const deskPhone = xIdx > 0 ? raw.slice(0, xIdx).trim() : raw;
+                            return (
                             <tr key={u.id} onClick={canViewUserProfiles ? () => setSelectedUser({ id: u.id, name: u.name, email: u.email, jobTitle: u.jobTitle, department: u.department, employeeType: u.employeeType, officeLocation: u.officeLocation, city: u.city, mobilePhone: u.mobilePhone, businessPhones: u.businessPhones, companyName: u.companyName, accountEnabled: u.accountEnabled, status: u.status }) : undefined} className={`transition-colors hover:bg-neutral-50 ${canViewUserProfiles ? 'cursor-pointer' : ''}`}>
                               <td className="px-4 py-3"><div className="flex items-center gap-3"><GraphAvatar name={u.name} email={u.email} graphToken={graphToken} size="xl" accent="#171717" /><span className="font-medium text-neutral-900">{u.name}</span></div></td>
-                              <td className="px-4 py-3 text-neutral-600">{u.jobTitle || '—'}</td>
                               <td className="px-4 py-3 text-neutral-600">{u.department || '—'}</td>
-                              <td className="px-4 py-3 font-mono text-xs text-neutral-500">{formatE164ForDisplay(u.mobilePhone) || u.businessPhones?.[0] || '—'}</td>
+                              <td className="px-4 py-3 text-neutral-600">{u.jobTitle || '—'}</td>
+                              <td className="px-4 py-3 font-mono text-xs text-neutral-500">{deskPhone ? formatE164ForDisplay(deskPhone) || deskPhone : '—'}</td>
+                              <td className="px-4 py-3 font-mono text-xs text-neutral-500">{ext || '—'}</td>
+                              <td className="px-4 py-3 font-mono text-xs text-neutral-500">{formatE164ForDisplay(u.mobilePhone) || '—'}</td>
                               <td className="px-4 py-3 text-neutral-500">{u.email || '—'}</td>
                               <td className="px-4 py-3"><StatusBadge status={u.status ?? 'Active'} /></td>
                               {canViewUserProfiles && <td className="px-4 py-3">{u.email ? <AccessLevelDropdown email={u.email} currentLevel={accessLevelMap[u.email.toLowerCase()] || ''} addToast={addToast} onUpdated={handleAccessLevelUpdated} /> : <span className="text-text-muted text-xs">—</span>}</td>}
                             </tr>
-                          ))}
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -2333,7 +2347,7 @@ export function SettingsPage({
                         </h2>
                         <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4 lg:grid-cols-6">
                           {members.map((u) => (
-                            <button key={u.id} type="button" onClick={canViewUserProfiles ? () => setSelectedUser({ id: u.id, name: u.name, email: u.email, jobTitle: u.jobTitle, department: u.department, employeeType: u.employeeType, officeLocation: u.officeLocation, city: u.city, mobilePhone: u.mobilePhone, businessPhones: u.businessPhones, companyName: u.companyName, accountEnabled: u.accountEnabled, status: u.status }) : undefined} className="group relative flex h-full min-h-[290px] flex-col items-center rounded-lg border-2 border-neutral-900 bg-white px-4 pb-4 pt-5 text-center transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900">
+                            <button key={u.id} type="button" onClick={canViewUserProfiles ? () => setSelectedUser({ id: u.id, name: u.name, email: u.email, jobTitle: u.jobTitle, department: u.department, employeeType: u.employeeType, officeLocation: u.officeLocation, city: u.city, mobilePhone: u.mobilePhone, businessPhones: u.businessPhones, companyName: u.companyName, accountEnabled: u.accountEnabled, status: u.status }) : undefined} className="group relative flex h-full min-h-[290px] flex-col items-center rounded-lg border-2 border-neutral-900 bg-white px-4 pb-4 pt-5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.75)] transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900">
                               <img src="/iae_logo.png" alt="" className="absolute top-3 right-3 h-5 w-auto invert" aria-hidden />
                               <GraphAvatar name={u.name} email={u.email} graphToken={graphToken} size="xl" accent="#171717" className="!w-24 !h-24 !text-2xl" />
                               <p className="mt-4 w-full text-[15px] font-bold text-neutral-950 break-words leading-tight">{u.name}</p>
@@ -2358,7 +2372,7 @@ export function SettingsPage({
                 ) : (
                   <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4 lg:grid-cols-6">
                     {usersAlphaSorted.map((u) => (
-                      <button key={u.id} type="button" onClick={canViewUserProfiles ? () => setSelectedUser({ id: u.id, name: u.name, email: u.email, jobTitle: u.jobTitle, department: u.department, employeeType: u.employeeType, officeLocation: u.officeLocation, city: u.city, mobilePhone: u.mobilePhone, businessPhones: u.businessPhones, companyName: u.companyName, accountEnabled: u.accountEnabled, status: u.status }) : undefined} className="group relative flex h-full min-h-[290px] flex-col items-center rounded-lg border-2 border-neutral-900 bg-white px-4 pb-4 pt-5 text-center transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900">
+                      <button key={u.id} type="button" onClick={canViewUserProfiles ? () => setSelectedUser({ id: u.id, name: u.name, email: u.email, jobTitle: u.jobTitle, department: u.department, employeeType: u.employeeType, officeLocation: u.officeLocation, city: u.city, mobilePhone: u.mobilePhone, businessPhones: u.businessPhones, companyName: u.companyName, accountEnabled: u.accountEnabled, status: u.status }) : undefined} className="group relative flex h-full min-h-[290px] flex-col items-center rounded-lg border-2 border-neutral-900 bg-white px-4 pb-4 pt-5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900">
                         <img src="/iae_logo.png" alt="" className="absolute top-3 right-3 h-5 w-auto invert" aria-hidden />
                         <GraphAvatar name={u.name} email={u.email} graphToken={graphToken} size="xl" accent="#171717" className="!w-24 !h-24 !text-2xl" />
                         <p className="mt-4 w-full text-[15px] font-bold text-neutral-950 break-words leading-tight">{u.name}</p>

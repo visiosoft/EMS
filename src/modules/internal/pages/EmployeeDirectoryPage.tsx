@@ -207,7 +207,7 @@ function PersonTile({
     <button
       type="button"
       onClick={() => onOpen(employee.contactId)}
-      className="group relative flex h-full min-h-[290px] flex-col items-center rounded-lg border-2 border-neutral-900 bg-white px-4 pb-4 pt-5 text-center transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900"
+      className="group relative flex h-full min-h-[290px] flex-col items-center rounded-lg border-2 border-neutral-900 bg-white px-4 pb-4 pt-5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.75)] transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900"
     >
       <img src="/iae_logo.png" alt="" className="absolute top-3 right-3 h-5 w-auto invert" aria-hidden />
       <HubGraphAvatar
@@ -289,22 +289,23 @@ function DirectoryTable({
       <table className="w-full text-left text-sm">
         <thead className="border-b border-neutral-200 bg-neutral-50">
           <tr>
-            <th className="px-4 py-3 font-semibold text-neutral-700">Name</th>
-            <th className="px-4 py-3 font-semibold text-neutral-700">Title</th>
-            <th className="px-4 py-3 font-semibold text-neutral-700">Department</th>
-            <th className="px-4 py-3 font-semibold text-neutral-700">Desk Phone</th>
-            <th className="px-4 py-3 font-semibold text-neutral-700">Mobile</th>
-            <th className="px-4 py-3 font-semibold text-neutral-700">Email</th>
+            <th className="w-[20%] px-4 py-3 font-semibold text-neutral-700">Name</th>
+            <th className="w-[14%] px-4 py-3 font-semibold text-neutral-700">Department</th>
+            <th className="w-[15%] px-4 py-3 font-semibold text-neutral-700">Title</th>
+            <th className="w-[13%] px-4 py-3 font-semibold text-neutral-700">Desk Phone</th>
+            <th className="w-[10%] px-4 py-3 font-semibold text-neutral-700">Extension</th>
+            <th className="w-[13%] px-4 py-3 font-semibold text-neutral-700">Mobile</th>
+            <th className="w-[15%] px-4 py-3 font-semibold text-neutral-700">Email</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-neutral-100">
+        <tbody className="divide-y divide-neutral-300">
           {employees.map((employee) => {
             const name = displayName(employee);
             const title = employee.jobTitle?.trim() || employee.roleName?.trim() || "";
             const dept = departmentOf(employee);
             const deskBase = formatE164ForDisplay(employee.workPhone) || "";
             const ext = employee.extension?.trim() || "";
-            const desk = deskBase && ext ? `${deskBase} x${ext}` : deskBase || (ext ? `x${ext}` : "");
+            const desk = deskBase;
             const cell = formatE164ForDisplay(employee.cellPhone) || "";
             return (
               <tr
@@ -318,9 +319,10 @@ function DirectoryTable({
                     <span className="font-medium text-neutral-900">{name}</span>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-neutral-600">{title}</td>
                 <td className="px-4 py-3 text-neutral-600">{dept}</td>
+                <td className="px-4 py-3 text-neutral-600">{title}</td>
                 <td className="px-4 py-3 font-mono text-xs text-neutral-500">{desk}</td>
+                <td className="px-4 py-3 font-mono text-xs text-neutral-500">{ext || ""}</td>
                 <td className="px-4 py-3 font-mono text-xs text-neutral-500">{cell}</td>
                 <td className="px-4 py-3 text-neutral-500">{employee.email}</td>
               </tr>

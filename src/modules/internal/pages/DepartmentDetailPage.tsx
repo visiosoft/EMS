@@ -257,7 +257,7 @@ export function DepartmentDetailPage() {
       {/* Main Content */}
       <main className="mx-auto grid max-w-[1120px] gap-10 px-4 py-6 sm:px-8 lg:grid-cols-[1.05fr_1fr] lg:px-0">
         {/* Team Members */}
-        <section>
+        <section className="min-w-0">
           <div className="flex items-center justify-between">
             <h2 className="text-2xl font-semibold">Team Members</h2>
             {teamMembers.length > 0 && (
@@ -282,17 +282,18 @@ export function DepartmentDetailPage() {
                 </div>
               ) : teamView === "table" ? (
                 <div className="overflow-x-auto rounded-lg border border-neutral-200">
-                  <table className="w-full text-left text-sm">
+                  <table className="min-w-[900px] w-full text-left text-sm">
                     <thead className="border-b border-neutral-200 bg-neutral-50">
                       <tr>
-                        <th className="px-4 py-3 font-semibold text-neutral-700">Name</th>
-                        <th className="px-4 py-3 font-semibold text-neutral-700">Title</th>
-                        <th className="px-4 py-3 font-semibold text-neutral-700">Desk Phone</th>
-                        <th className="px-4 py-3 font-semibold text-neutral-700">Mobile</th>
-                        <th className="px-4 py-3 font-semibold text-neutral-700">Email</th>
+                        <th className="w-[20%] px-4 py-3 font-semibold text-neutral-700">Name</th>
+                        <th className="w-[15%] px-4 py-3 font-semibold text-neutral-700">Title</th>
+                        <th className="w-[13%] px-4 py-3 font-semibold text-neutral-700">Desk Phone</th>
+                        <th className="w-[10%] px-4 py-3 font-semibold text-neutral-700">Extension</th>
+                        <th className="w-[13%] px-4 py-3 font-semibold text-neutral-700">Mobile</th>
+                        <th className="w-[15%] px-4 py-3 font-semibold text-neutral-700">Email</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-neutral-100">
+                    <tbody className="divide-y divide-neutral-300">
                       {teamMembers.map((member) => {
                         const name = `${member.firstName} ${member.lastName}`.trim() || "\u2014";
                         const title = member.jobTitle?.trim() || member.roleName?.trim() || "";
@@ -325,7 +326,8 @@ export function DepartmentDetailPage() {
                               </div>
                             </td>
                             <td className="px-4 py-3 text-neutral-600">{title}</td>
-                            <td className="px-4 py-3 font-mono text-xs text-neutral-500">{desk}</td>
+                            <td className="px-4 py-3 font-mono text-xs text-neutral-500">{deskBase}</td>
+                            <td className="px-4 py-3 font-mono text-xs text-neutral-500">{ext || ''}</td>
                             <td className="px-4 py-3 font-mono text-xs text-neutral-500">{cellPhone}</td>
                             <td className="px-4 py-3 text-neutral-500">{member.email}</td>
                           </tr>
@@ -335,7 +337,7 @@ export function DepartmentDetailPage() {
                   </table>
                 </div>
               ) : (
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4 lg:grid-cols-3">
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4 lg:grid-cols-2">
                   {teamMembers.map((member) => {
                     const name = `${member.firstName} ${member.lastName}`.trim() || "\u2014";
                     const title = member.jobTitle?.trim() || member.roleName?.trim();
@@ -357,7 +359,7 @@ export function DepartmentDetailPage() {
                         key={member.contactId}
                         type="button"
                         onClick={() => navigate("employee-profile", { contactId: member.contactId, fromView: "departments" })}
-                        className={`group relative flex h-full min-h-[290px] flex-col items-center rounded-lg border-2 border-neutral-900 bg-white px-4 pb-4 pt-5 text-center transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 ${
+                        className={`group relative flex h-full min-h-[290px] flex-col items-center rounded-lg border-2 border-neutral-900 bg-white px-4 pb-4 pt-5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.75)] transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 ${
                           member.contactId === currentContactId ? "ring-2 ring-blue-500" : ""
                         }`}
                       >
