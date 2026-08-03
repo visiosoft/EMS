@@ -18,6 +18,7 @@ import { InternalPageHero } from "../components/InternalPageHero";
 import { InternalPageFrame } from "../layout/InternalPageFrame";
 import { HubGraphAvatar } from "@/components/ems/GraphAvatar";
 import { getActiveAccount, acquireGraphAccessToken } from "@/auth/entra";
+import { fetchEntraJobTitles, type EntraJobTitleMap } from "@/api/entraJobTitles";
 import {
   dedupeEmployees,
   roleWeight,
@@ -301,7 +302,7 @@ function DirectoryTable({
         <tbody className="divide-y divide-neutral-300">
           {employees.map((employee) => {
             const name = displayName(employee);
-            const title = employee.jobTitle?.trim() || employee.roleName?.trim() || "";
+            const title = employee.jobTitle?.trim() || "";
             const dept = departmentOf(employee);
             const deskBase = formatE164ForDisplay(employee.workPhone) || "";
             const ext = employee.extension?.trim() || "";
@@ -350,8 +351,9 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState<string>(ALL_DEPARTMENTS);
   const [graphToken, setGraphToken] = useState<string | null>(null);
+  const [entraJobTitles, setEntraJobTitles] = useState<EntraJobTitleMap>(new Map());
 
-  // Acquire Graph token for Microsoft profile photos
+  // Acquire Graph token for Microsoft profile photos + job titles
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -360,6 +362,8 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
       try {
         const token = await acquireGraphAccessToken(account);
         if (mounted && token) setGraphToken(token);
+        const titles = await fetchEntraJobTitles(token);
+        if (mounted) setEntraJobTitles(titles);
       } catch { /* no token — falls back to initials */ }
     })();
     return () => { mounted = false; };
@@ -372,7 +376,16 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
     queryFn: fetchIaeStaffEmployees,
   });
 
-  const employees = useMemo(() => dedupeEmployees(data ?? []), [data]);
+  const employees = useMemo(() => {
+    const deduped = dedupeEmployees(data ?? []);
+    if (entraJobTitles.size === 0) return deduped;
+    return deduped.map((e) => {
+      if (e.jobTitle?.trim()) return e;
+      const emailKey = (e.email ?? '').trim().toLowerCase();
+      const entraTitle = emailKey ? entraJobTitles.get(emailKey) : undefined;
+      return entraTitle ? { ...e, jobTitle: entraTitle } : e;
+    });
+  }, [data, entraJobTitles]);
 
   const searched = useMemo(() => {
     const q = search.trim().toLowerCase();

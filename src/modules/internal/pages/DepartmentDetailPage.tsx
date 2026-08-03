@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   ArrowLeft,
   Layers,
@@ -20,6 +20,7 @@ import { apiFetch } from "@/api/config";
 import { HubGraphAvatar } from "@/components/ems/GraphAvatar";
 import { getActiveAccount, acquireGraphAccessToken } from "@/auth/entra";
 import { formatE164ForDisplay } from "@/lib/contactPhoneField";
+import { fetchEntraJobTitles, type EntraJobTitleMap } from "@/api/entraJobTitles";
 
 type DepartmentLookup = { departmentId: number; departmentName: string };
 
@@ -136,6 +137,7 @@ export function DepartmentDetailPage() {
   const [teamMembers, setTeamMembers] = useState<IaeEmployee[]>([]);
   const [currentContactId, setCurrentContactId] = useState<number | null>(null);
   const [graphToken, setGraphToken] = useState<string | null>(null);
+  const [entraJobTitles, setEntraJobTitles] = useState<EntraJobTitleMap>(new Map());
   const [isLoadingDept, setIsLoadingDept] = useState(true);
   const [isLoadingTeam, setIsLoadingTeam] = useState(true);
   const [teamView, setTeamView] = useState<TeamViewMode>("tiles");
@@ -163,7 +165,7 @@ export function DepartmentDetailPage() {
     }
     setIsLoadingTeam(true);
     fetchDepartmentEmployees(departmentId)
-      .then(setTeamMembers)
+      .then((members) => setTeamMembers(members))
       .catch(console.error)
       .finally(() => setIsLoadingTeam(false));
   }, [departmentId]);
@@ -175,7 +177,7 @@ export function DepartmentDetailPage() {
       .catch(console.error);
   }, []);
 
-  // Acquire Graph token for profile photos
+  // Acquire Graph token for profile photos + job titles
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -184,10 +186,22 @@ export function DepartmentDetailPage() {
       try {
         const token = await acquireGraphAccessToken(account);
         if (mounted && token) setGraphToken(token);
+        const titles = await fetchEntraJobTitles(token);
+        if (mounted) setEntraJobTitles(titles);
       } catch { /* falls back to initials */ }
     })();
     return () => { mounted = false; };
   }, []);
+
+  const enrichedTeamMembers = useMemo(() => {
+    if (entraJobTitles.size === 0) return teamMembers;
+    return teamMembers.map((m) => {
+      if (m.jobTitle?.trim()) return m;
+      const emailKey = (m.email ?? '').trim().toLowerCase();
+      const entraTitle = emailKey ? entraJobTitles.get(emailKey) : undefined;
+      return entraTitle ? { ...m, jobTitle: entraTitle } : m;
+    });
+  }, [teamMembers, entraJobTitles]);
 
   if (!departmentId) {
     return (
@@ -260,7 +274,7 @@ export function DepartmentDetailPage() {
         <section className="min-w-0">
           <div className="flex items-center justify-between">
             <h2 className="text-2xl font-semibold">Team Members</h2>
-            {teamMembers.length > 0 && (
+            {enrichedTeamMembers.length > 0 && (
               <Segmented>
                 <SegBtn active={teamView === "tiles"} onClick={() => setTeamView("tiles")} ariaLabel="Tile view">
                   <LayoutGrid className="h-4 w-4" /> Tiles
@@ -294,9 +308,9 @@ export function DepartmentDetailPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-neutral-300">
-                      {teamMembers.map((member) => {
+                      {enrichedTeamMembers.map((member) => {
                         const name = `${member.firstName} ${member.lastName}`.trim() || "\u2014";
-                        const title = member.jobTitle?.trim() || member.roleName?.trim() || "";
+                        const title = member.jobTitle?.trim() || "";
                         const cellPhone = formatE164ForDisplay(member.cellPhone) || "";
                         const deskBase = (() => {
                           const digits = (member.workPhone ?? "").replace(/\D/g, "");
@@ -338,9 +352,9 @@ export function DepartmentDetailPage() {
                 </div>
               ) : (
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4 lg:grid-cols-2">
-                  {teamMembers.map((member) => {
+                  {enrichedTeamMembers.map((member) => {
                     const name = `${member.firstName} ${member.lastName}`.trim() || "\u2014";
-                    const title = member.jobTitle?.trim() || member.roleName?.trim();
+                    const title = member.jobTitle?.trim();
                     const department = member.departmentName?.trim();
                     const cellPhone = formatE164ForDisplay(member.cellPhone);
                     const deskBase = (() => {

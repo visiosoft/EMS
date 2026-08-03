@@ -374,7 +374,7 @@ function AccessLevelDropdown({ email, currentLevel, addToast, onUpdated }: {
       onChange={handleChange}
       onClick={(e) => e.stopPropagation()}
       disabled={mutation.isPending || isSuperAdmin}
-      className="rounded-md border border-border bg-white dark:bg-white/5 px-2 py-1 text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-ems-blue disabled:opacity-50"
+      className="rounded-md border border-border bg-white dk:bg-elevated px-2 py-1 text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-ems-blue disabled:opacity-50"
     >
       <option value="">— Select —</option>
       {isSuperAdmin && <option value="Super Admin">Super Admin</option>}
@@ -2160,24 +2160,24 @@ export function SettingsPage({
                 {/* Search + controls toolbar */}
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
                   <div className="relative w-full lg:max-w-sm lg:flex-1">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" aria-hidden />
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400 dk:text-neutral-500" aria-hidden />
                     <input
                       type="search"
                       value={usersSearch}
                       onChange={(e) => setUsersSearch(e.target.value)}
                       placeholder="Search by name, title, department, or email"
                       aria-label="Search users"
-                      className="h-10 w-full rounded-lg border border-neutral-300 bg-white pl-9 pr-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+                      className="h-10 w-full rounded-lg border border-neutral-300 bg-white pl-9 pr-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-black focus:outline-none focus:ring-1 focus:ring-black dk:border-white/10 dk:bg-white/[0.04] dk:text-white dk:placeholder:text-neutral-500 dk:focus:border-white/40 dk:focus:ring-white/30"
                     />
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 lg:ml-auto lg:justify-end">
                     {usersViewMode === 'tiles' && (
-                      <div className="inline-flex h-10 items-center gap-0.5 rounded-lg border border-neutral-200 bg-neutral-100/80 p-1">
+                      <div className="inline-flex h-10 items-center gap-0.5 rounded-lg border border-neutral-200 bg-neutral-100/80 p-1 dk:border-white/10 dk:bg-white/[0.04]">
                         {usersViewTab === 'alpha' ? (
                           <span className="inline-flex items-center">
                             <Select value={usersAlphaSort} onValueChange={(v) => setUsersAlphaSort(v as 'first' | 'last')}>
-                              <SelectTrigger aria-label="Alphabetical sort" className="h-8 w-[145px] gap-1.5 rounded-md border-0 bg-white px-3 text-[13px] font-medium text-neutral-900 shadow-sm ring-1 ring-black/[0.06] focus:ring-1 focus:ring-black/[0.06]">
+                              <SelectTrigger aria-label="Alphabetical sort" className="h-8 w-[145px] gap-1.5 rounded-md border-0 bg-white px-3 text-[13px] font-medium text-neutral-900 shadow-sm ring-1 ring-black/[0.06] focus:ring-1 focus:ring-black/[0.06] dk:bg-white/[0.14] dk:text-white dk:shadow-none dk:ring-white/10 dk:focus:ring-white/20">
                                 <AlignLeft className="h-4 w-4 shrink-0" />
                                 <span>Alphabetical</span>
                               </SelectTrigger>
@@ -2188,22 +2188,22 @@ export function SettingsPage({
                             </Select>
                           </span>
                         ) : (
-                          <button type="button" onClick={() => { setUsersDepartment('__all__'); setUsersViewTab('alpha'); }} className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium text-neutral-500 hover:text-neutral-900 transition-all">
+                          <button type="button" onClick={() => { setUsersDepartment('__all__'); setUsersViewTab('alpha'); }} className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium text-neutral-500 hover:text-neutral-900 transition-all dk:text-neutral-400 dk:hover:text-white">
                             <AlignLeft className="h-4 w-4" /> Alphabetical
                           </button>
                         )}
-                        <button type="button" onClick={() => setUsersViewTab('dept')} className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-all ${usersViewTab === 'dept' ? 'bg-white text-neutral-900 shadow-sm ring-1 ring-black/[0.06]' : 'text-neutral-500 hover:text-neutral-900'}`}>
+                        <button type="button" onClick={() => setUsersViewTab('dept')} className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-all ${usersViewTab === 'dept' ? 'bg-white text-neutral-900 shadow-sm ring-1 ring-black/[0.06] dk:bg-white/[0.14] dk:text-white dk:ring-white/10' : 'text-neutral-500 hover:text-neutral-900 dk:text-neutral-400 dk:hover:text-white'}`}>
                           <Grid2x2 className="h-4 w-4" /> Department
                         </button>
                       </div>
                     )}
 
                     {usersViewMode === 'table' && (
-                      <div className="inline-flex h-10 items-center gap-0.5 rounded-lg border border-neutral-200 bg-neutral-100/80 p-1">
+                      <div className="inline-flex h-10 items-center gap-0.5 rounded-lg border border-neutral-200 bg-neutral-100/80 p-1 dk:border-white/10 dk:bg-white/[0.04]">
                         {usersViewTab === 'alpha' ? (
                           <span className="inline-flex items-center">
                             <Select value={usersAlphaSort} onValueChange={(v) => setUsersAlphaSort(v as 'first' | 'last')}>
-                              <SelectTrigger aria-label="Alphabetical sort" className="h-8 w-[145px] gap-1.5 rounded-md border-0 bg-white px-3 text-[13px] font-medium text-neutral-900 shadow-sm ring-1 ring-black/[0.06] focus:ring-1 focus:ring-black/[0.06]">
+                              <SelectTrigger aria-label="Alphabetical sort" className="h-8 w-[145px] gap-1.5 rounded-md border-0 bg-white px-3 text-[13px] font-medium text-neutral-900 shadow-sm ring-1 ring-black/[0.06] focus:ring-1 focus:ring-black/[0.06] dk:bg-white/[0.14] dk:text-white dk:shadow-none dk:ring-white/10 dk:focus:ring-white/20">
                                 <AlignLeft className="h-4 w-4 shrink-0" />
                                 <span>Alphabetical</span>
                               </SelectTrigger>
@@ -2214,21 +2214,21 @@ export function SettingsPage({
                             </Select>
                           </span>
                         ) : (
-                          <button type="button" onClick={() => { setUsersDepartment('__all__'); setUsersViewTab('alpha'); }} className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium text-neutral-500 hover:text-neutral-900 transition-all">
+                          <button type="button" onClick={() => { setUsersDepartment('__all__'); setUsersViewTab('alpha'); }} className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium text-neutral-500 hover:text-neutral-900 transition-all dk:text-neutral-400 dk:hover:text-white">
                             <AlignLeft className="h-4 w-4" /> Alphabetical
                           </button>
                         )}
-                        <button type="button" onClick={() => setUsersViewTab('dept')} className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-all ${usersViewTab === 'dept' ? 'bg-white text-neutral-900 shadow-sm ring-1 ring-black/[0.06]' : 'text-neutral-500 hover:text-neutral-900'}`}>
+                        <button type="button" onClick={() => setUsersViewTab('dept')} className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-all ${usersViewTab === 'dept' ? 'bg-white text-neutral-900 shadow-sm ring-1 ring-black/[0.06] dk:bg-white/[0.14] dk:text-white dk:ring-white/10' : 'text-neutral-500 hover:text-neutral-900 dk:text-neutral-400 dk:hover:text-white'}`}>
                           <Grid2x2 className="h-4 w-4" /> Department
                         </button>
                       </div>
                     )}
 
-                    <div className="inline-flex h-10 items-center gap-0.5 rounded-lg border border-neutral-200 bg-neutral-100/80 p-1">
-                      <button type="button" onClick={() => setUsersViewMode('tiles')} className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-all ${usersViewMode === 'tiles' ? 'bg-white text-neutral-900 shadow-sm ring-1 ring-black/[0.06]' : 'text-neutral-500 hover:text-neutral-900'}`} aria-label="Tile view">
+                    <div className="inline-flex h-10 items-center gap-0.5 rounded-lg border border-neutral-200 bg-neutral-100/80 p-1 dk:border-white/10 dk:bg-white/[0.04]">
+                      <button type="button" onClick={() => setUsersViewMode('tiles')} className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-all ${usersViewMode === 'tiles' ? 'bg-white text-neutral-900 shadow-sm ring-1 ring-black/[0.06] dk:bg-white/[0.14] dk:text-white dk:ring-white/10' : 'text-neutral-500 hover:text-neutral-900 dk:text-neutral-400 dk:hover:text-white'}`} aria-label="Tile view">
                         <LayoutGrid className="h-4 w-4" /> Tiles
                       </button>
-                      <button type="button" onClick={() => setUsersViewMode('table')} className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-all ${usersViewMode === 'table' ? 'bg-white text-neutral-900 shadow-sm ring-1 ring-black/[0.06]' : 'text-neutral-500 hover:text-neutral-900'}`} aria-label="Table view">
+                      <button type="button" onClick={() => setUsersViewMode('table')} className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-all ${usersViewMode === 'table' ? 'bg-white text-neutral-900 shadow-sm ring-1 ring-black/[0.06] dk:bg-white/[0.14] dk:text-white dk:ring-white/10' : 'text-neutral-500 hover:text-neutral-900 dk:text-neutral-400 dk:hover:text-white'}`} aria-label="Table view">
                         <Rows3 className="h-4 w-4" /> Table
                       </button>
                     </div>
@@ -2238,15 +2238,15 @@ export function SettingsPage({
                 {/* Department chips */}
                 {usersShowChips && (
                   <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filter by department">
-                    <button type="button" onClick={() => setUsersDepartment('__all__')} className={`inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition-colors ${usersActiveDepartment === '__all__' ? 'bg-neutral-900 text-white' : 'border border-neutral-200 bg-white text-neutral-700 hover:border-neutral-400'}`}>
+                    <button type="button" onClick={() => setUsersDepartment('__all__')} className={`inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition-colors ${usersActiveDepartment === '__all__' ? 'bg-neutral-900 text-white dk:bg-white dk:text-neutral-900' : 'border border-neutral-200 bg-white text-neutral-700 hover:border-neutral-400 dk:border-white/10 dk:bg-white/[0.04] dk:text-neutral-300 dk:hover:border-white/30 dk:hover:text-white'}`}>
                       <span>All</span>
-                      <span className={usersActiveDepartment === '__all__' ? 'text-white/55' : 'text-neutral-400'}>{usersSearched.length}</span>
+                      <span className={usersActiveDepartment === '__all__' ? 'text-white/55 dk:text-neutral-900/55' : 'text-neutral-400 dk:text-neutral-500'}>{usersSearched.length}</span>
                     </button>
                     {usersDepartmentChips.map((chip) => (
-                      <button key={chip.name} type="button" onClick={() => setUsersDepartment((c) => c === chip.name ? '__all__' : chip.name)} className={`inline-flex h-8 max-w-full items-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition-colors ${usersActiveDepartment === chip.name ? 'bg-neutral-900 text-white' : 'border border-neutral-200 bg-white text-neutral-700 hover:border-neutral-400'}`}>
-                        <span className={`h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] ${usersActiveDepartment === chip.name ? 'border-white/60' : 'border-neutral-300'}`} aria-hidden />
+                      <button key={chip.name} type="button" onClick={() => setUsersDepartment((c) => c === chip.name ? '__all__' : chip.name)} className={`inline-flex h-8 max-w-full items-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition-colors ${usersActiveDepartment === chip.name ? 'bg-neutral-900 text-white dk:bg-white dk:text-neutral-900' : 'border border-neutral-200 bg-white text-neutral-700 hover:border-neutral-400 dk:border-white/10 dk:bg-white/[0.04] dk:text-neutral-300 dk:hover:border-white/30 dk:hover:text-white'}`}>
+                        <span className={`h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] ${usersActiveDepartment === chip.name ? 'border-white/60 dk:border-neutral-900/40' : 'border-neutral-300 dk:border-white/25'}`} aria-hidden />
                         <span className="truncate">{chip.name}</span>
-                        <span className={usersActiveDepartment === chip.name ? 'text-white/55' : 'text-neutral-400'}>{chip.count}</span>
+                        <span className={usersActiveDepartment === chip.name ? 'text-white/55 dk:text-neutral-900/55' : 'text-neutral-400 dk:text-neutral-500'}>{chip.count}</span>
                       </button>
                     ))}
                   </div>
@@ -2254,42 +2254,42 @@ export function SettingsPage({
 
                 {/* Content */}
                 {usersFiltered.length === 0 ? (
-                  <p className="py-16 text-center text-sm text-neutral-500">No users match your search.</p>
+                  <p className="py-16 text-center text-sm text-neutral-500 dk:text-neutral-400">No users match your search.</p>
                 ) : usersViewMode === 'table' ? (
                   usersViewTab === 'dept' ? (
                     <div className="space-y-8">
                       {usersByDepartment.map(({ dept, members }) => (
                         <section key={dept}>
-                          <h2 className="mb-3 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">
-                            {dept} <span className="text-neutral-400">· {members.length}</span>
+                          <h2 className="mb-3 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500 dk:text-neutral-400">
+                            {dept} <span className="text-neutral-400 dk:text-neutral-500">· {members.length}</span>
                           </h2>
-                          <div className="overflow-x-auto rounded-lg border border-neutral-200">
+                          <div className="overflow-x-auto rounded-lg border border-neutral-200 dk:border-white/10">
                             <table className="w-full text-left text-sm">
-                              <thead className="border-b border-neutral-200 bg-neutral-50">
+                              <thead className="border-b border-neutral-200 bg-neutral-50 dk:border-white/10 dk:bg-white/[0.04]">
                                 <tr>
-                                  <th className="w-[20%] px-4 py-3 font-semibold text-neutral-700">Name</th>
-                                  <th className="w-[12%] px-4 py-3 font-semibold text-neutral-700">Department</th>
-                                  <th className="w-[12%] px-4 py-3 font-semibold text-neutral-700">Title</th>
-                                  <th className="w-[11%] px-4 py-3 font-semibold text-neutral-700">Desk Phone</th>
-                                  <th className="w-[8%] px-4 py-3 font-semibold text-neutral-700">Extension</th>
-                                  <th className="w-[11%] px-4 py-3 font-semibold text-neutral-700">Mobile</th>
-                                  <th className="w-[14%] px-4 py-3 font-semibold text-neutral-700">Email</th>
-                                  <th className="w-[7%] px-4 py-3 font-semibold text-neutral-700">Status</th>
-                                  {canViewUserProfiles && <th className="w-[10%] px-4 py-3 font-semibold text-neutral-700">Access Level</th>}
+                                  <th className="w-[20%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Name</th>
+                                  <th className="w-[12%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Department</th>
+                                  <th className="w-[12%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Title</th>
+                                  <th className="w-[11%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Desk Phone</th>
+                                  <th className="w-[8%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Extension</th>
+                                  <th className="w-[11%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Mobile</th>
+                                  <th className="w-[14%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Email</th>
+                                  <th className="w-[7%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Status</th>
+                                  {canViewUserProfiles && <th className="w-[10%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Access Level</th>}
                                 </tr>
                               </thead>
-                              <tbody className="divide-y divide-neutral-300">
+                              <tbody className="divide-y divide-neutral-300 dk:divide-white/10">
                                 {members.map((u) => {
                                   const raw = u.businessPhones?.[0] || ''; const xIdx = raw.search(/[xX]/); const ext = xIdx > 0 ? raw.slice(xIdx + 1).trim() : ''; const deskPhone = xIdx > 0 ? raw.slice(0, xIdx).trim() : raw;
                                   return (
-                                  <tr key={u.id} onClick={canViewUserProfiles ? () => setSelectedUser({ id: u.id, name: u.name, email: u.email, jobTitle: u.jobTitle, department: u.department, employeeType: u.employeeType, officeLocation: u.officeLocation, city: u.city, mobilePhone: u.mobilePhone, businessPhones: u.businessPhones, companyName: u.companyName, accountEnabled: u.accountEnabled, status: u.status }) : undefined} className={`transition-colors hover:bg-neutral-50 ${canViewUserProfiles ? 'cursor-pointer' : ''}`}>
-                                    <td className="px-4 py-3"><div className="flex items-center gap-3"><GraphAvatar name={u.name} email={u.email} graphToken={graphToken} size="xl" accent="#171717" /><span className="font-medium text-neutral-900">{u.name}</span></div></td>
-                                    <td className="px-4 py-3 text-neutral-600">{u.department || '—'}</td>
-                                    <td className="px-4 py-3 text-neutral-600">{u.jobTitle || '—'}</td>
-                                    <td className="px-4 py-3 font-mono text-xs text-neutral-500">{deskPhone ? formatE164ForDisplay(deskPhone) || deskPhone : '—'}</td>
-                                    <td className="px-4 py-3 font-mono text-xs text-neutral-500">{ext || '—'}</td>
-                                    <td className="px-4 py-3 font-mono text-xs text-neutral-500">{formatE164ForDisplay(u.mobilePhone) || '—'}</td>
-                                    <td className="px-4 py-3 text-neutral-500">{u.email || '—'}</td>
+                                  <tr key={u.id} onClick={canViewUserProfiles ? () => setSelectedUser({ id: u.id, name: u.name, email: u.email, jobTitle: u.jobTitle, department: u.department, employeeType: u.employeeType, officeLocation: u.officeLocation, city: u.city, mobilePhone: u.mobilePhone, businessPhones: u.businessPhones, companyName: u.companyName, accountEnabled: u.accountEnabled, status: u.status }) : undefined} className={`transition-colors hover:bg-neutral-50 dk:hover:bg-white/[0.05] ${canViewUserProfiles ? 'cursor-pointer' : ''}`}>
+                                    <td className="px-4 py-3"><div className="flex items-center gap-3"><GraphAvatar name={u.name} email={u.email} graphToken={graphToken} size="xl" accent="hsl(var(--text-primary))" /><span className="font-medium text-neutral-900 dk:text-white">{u.name}</span></div></td>
+                                    <td className="px-4 py-3 text-neutral-600 dk:text-neutral-300">{u.department || '—'}</td>
+                                    <td className="px-4 py-3 text-neutral-600 dk:text-neutral-300">{u.jobTitle || '—'}</td>
+                                    <td className="px-4 py-3 font-mono text-xs text-neutral-500 dk:text-neutral-400">{deskPhone ? formatE164ForDisplay(deskPhone) || deskPhone : '—'}</td>
+                                    <td className="px-4 py-3 font-mono text-xs text-neutral-500 dk:text-neutral-400">{ext || '—'}</td>
+                                    <td className="px-4 py-3 font-mono text-xs text-neutral-500 dk:text-neutral-400">{formatE164ForDisplay(u.mobilePhone) || '—'}</td>
+                                    <td className="px-4 py-3 text-neutral-500 dk:text-neutral-400">{u.email || '—'}</td>
                                     <td className="px-4 py-3"><StatusBadge status={u.status ?? 'Active'} /></td>
                                     {canViewUserProfiles && <td className="px-4 py-3">{u.email ? <AccessLevelDropdown email={u.email} currentLevel={accessLevelMap[u.email.toLowerCase()] || ''} addToast={addToast} onUpdated={handleAccessLevelUpdated} /> : <span className="text-text-muted text-xs">—</span>}</td>}
                                   </tr>
@@ -2302,33 +2302,33 @@ export function SettingsPage({
                       ))}
                     </div>
                   ) : (
-                    <div className="overflow-x-auto rounded-lg border border-neutral-200">
+                    <div className="overflow-x-auto rounded-lg border border-neutral-200 dk:border-white/10">
                       <table className="w-full text-left text-sm">
-                        <thead className="border-b border-neutral-200 bg-neutral-50">
+                        <thead className="border-b border-neutral-200 bg-neutral-50 dk:border-white/10 dk:bg-white/[0.04]">
                           <tr>
-                            <th className="w-[20%] px-4 py-3 font-semibold text-neutral-700">Name</th>
-                            <th className="w-[12%] px-4 py-3 font-semibold text-neutral-700">Department</th>
-                            <th className="w-[12%] px-4 py-3 font-semibold text-neutral-700">Title</th>
-                            <th className="w-[11%] px-4 py-3 font-semibold text-neutral-700">Desk Phone</th>
-                            <th className="w-[8%] px-4 py-3 font-semibold text-neutral-700">Extension</th>
-                            <th className="w-[11%] px-4 py-3 font-semibold text-neutral-700">Mobile</th>
-                            <th className="w-[14%] px-4 py-3 font-semibold text-neutral-700">Email</th>
-                            <th className="w-[7%] px-4 py-3 font-semibold text-neutral-700">Status</th>
-                            {canViewUserProfiles && <th className="w-[10%] px-4 py-3 font-semibold text-neutral-700">Access Level</th>}
+                            <th className="w-[20%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Name</th>
+                            <th className="w-[12%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Department</th>
+                            <th className="w-[12%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Title</th>
+                            <th className="w-[11%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Desk Phone</th>
+                            <th className="w-[8%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Extension</th>
+                            <th className="w-[11%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Mobile</th>
+                            <th className="w-[14%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Email</th>
+                            <th className="w-[7%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Status</th>
+                            {canViewUserProfiles && <th className="w-[10%] px-4 py-3 font-semibold text-neutral-700 dk:text-neutral-200">Access Level</th>}
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-neutral-300">
+                        <tbody className="divide-y divide-neutral-300 dk:divide-white/10">
                           {usersAlphaSorted.map((u) => {
                             const raw = u.businessPhones?.[0] || ''; const xIdx = raw.search(/[xX]/); const ext = xIdx > 0 ? raw.slice(xIdx + 1).trim() : ''; const deskPhone = xIdx > 0 ? raw.slice(0, xIdx).trim() : raw;
                             return (
-                            <tr key={u.id} onClick={canViewUserProfiles ? () => setSelectedUser({ id: u.id, name: u.name, email: u.email, jobTitle: u.jobTitle, department: u.department, employeeType: u.employeeType, officeLocation: u.officeLocation, city: u.city, mobilePhone: u.mobilePhone, businessPhones: u.businessPhones, companyName: u.companyName, accountEnabled: u.accountEnabled, status: u.status }) : undefined} className={`transition-colors hover:bg-neutral-50 ${canViewUserProfiles ? 'cursor-pointer' : ''}`}>
-                              <td className="px-4 py-3"><div className="flex items-center gap-3"><GraphAvatar name={u.name} email={u.email} graphToken={graphToken} size="xl" accent="#171717" /><span className="font-medium text-neutral-900">{u.name}</span></div></td>
-                              <td className="px-4 py-3 text-neutral-600">{u.department || '—'}</td>
-                              <td className="px-4 py-3 text-neutral-600">{u.jobTitle || '—'}</td>
-                              <td className="px-4 py-3 font-mono text-xs text-neutral-500">{deskPhone ? formatE164ForDisplay(deskPhone) || deskPhone : '—'}</td>
-                              <td className="px-4 py-3 font-mono text-xs text-neutral-500">{ext || '—'}</td>
-                              <td className="px-4 py-3 font-mono text-xs text-neutral-500">{formatE164ForDisplay(u.mobilePhone) || '—'}</td>
-                              <td className="px-4 py-3 text-neutral-500">{u.email || '—'}</td>
+                            <tr key={u.id} onClick={canViewUserProfiles ? () => setSelectedUser({ id: u.id, name: u.name, email: u.email, jobTitle: u.jobTitle, department: u.department, employeeType: u.employeeType, officeLocation: u.officeLocation, city: u.city, mobilePhone: u.mobilePhone, businessPhones: u.businessPhones, companyName: u.companyName, accountEnabled: u.accountEnabled, status: u.status }) : undefined} className={`transition-colors hover:bg-neutral-50 dk:hover:bg-white/[0.05] ${canViewUserProfiles ? 'cursor-pointer' : ''}`}>
+                              <td className="px-4 py-3"><div className="flex items-center gap-3"><GraphAvatar name={u.name} email={u.email} graphToken={graphToken} size="xl" accent="hsl(var(--text-primary))" /><span className="font-medium text-neutral-900 dk:text-white">{u.name}</span></div></td>
+                              <td className="px-4 py-3 text-neutral-600 dk:text-neutral-300">{u.department || '—'}</td>
+                              <td className="px-4 py-3 text-neutral-600 dk:text-neutral-300">{u.jobTitle || '—'}</td>
+                              <td className="px-4 py-3 font-mono text-xs text-neutral-500 dk:text-neutral-400">{deskPhone ? formatE164ForDisplay(deskPhone) || deskPhone : '—'}</td>
+                              <td className="px-4 py-3 font-mono text-xs text-neutral-500 dk:text-neutral-400">{ext || '—'}</td>
+                              <td className="px-4 py-3 font-mono text-xs text-neutral-500 dk:text-neutral-400">{formatE164ForDisplay(u.mobilePhone) || '—'}</td>
+                              <td className="px-4 py-3 text-neutral-500 dk:text-neutral-400">{u.email || '—'}</td>
                               <td className="px-4 py-3"><StatusBadge status={u.status ?? 'Active'} /></td>
                               {canViewUserProfiles && <td className="px-4 py-3">{u.email ? <AccessLevelDropdown email={u.email} currentLevel={accessLevelMap[u.email.toLowerCase()] || ''} addToast={addToast} onUpdated={handleAccessLevelUpdated} /> : <span className="text-text-muted text-xs">—</span>}</td>}
                             </tr>
@@ -2342,24 +2342,24 @@ export function SettingsPage({
                   <div className="space-y-8">
                     {usersByDepartment.map(({ dept, members }) => (
                       <section key={dept}>
-                        <h2 className="mb-3 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">
-                          {dept} <span className="text-neutral-400">· {members.length}</span>
+                        <h2 className="mb-3 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500 dk:text-neutral-400">
+                          {dept} <span className="text-neutral-400 dk:text-neutral-500">· {members.length}</span>
                         </h2>
                         <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4 lg:grid-cols-6">
                           {members.map((u) => (
-                            <button key={u.id} type="button" onClick={canViewUserProfiles ? () => setSelectedUser({ id: u.id, name: u.name, email: u.email, jobTitle: u.jobTitle, department: u.department, employeeType: u.employeeType, officeLocation: u.officeLocation, city: u.city, mobilePhone: u.mobilePhone, businessPhones: u.businessPhones, companyName: u.companyName, accountEnabled: u.accountEnabled, status: u.status }) : undefined} className="group relative flex h-full min-h-[290px] flex-col items-center rounded-lg border-2 border-neutral-900 bg-white px-4 pb-4 pt-5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.75)] transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900">
-                              <img src="/iae_logo.png" alt="" className="absolute top-3 right-3 h-5 w-auto invert" aria-hidden />
-                              <GraphAvatar name={u.name} email={u.email} graphToken={graphToken} size="xl" accent="#171717" className="!w-24 !h-24 !text-2xl" />
-                              <p className="mt-4 w-full text-[15px] font-bold text-neutral-950 break-words leading-tight">{u.name}</p>
-                              {u.department ? <span className="mt-2 max-w-full rounded border border-neutral-300 px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-700 break-words text-center leading-tight">{u.department}</span> : null}
-                              {u.jobTitle ? <p className="mt-2 w-full text-[13px] font-bold leading-snug text-neutral-600">{u.jobTitle}</p> : null}
+                            <button key={u.id} type="button" onClick={canViewUserProfiles ? () => setSelectedUser({ id: u.id, name: u.name, email: u.email, jobTitle: u.jobTitle, department: u.department, employeeType: u.employeeType, officeLocation: u.officeLocation, city: u.city, mobilePhone: u.mobilePhone, businessPhones: u.businessPhones, companyName: u.companyName, accountEnabled: u.accountEnabled, status: u.status }) : undefined} className="group relative flex h-full min-h-[290px] flex-col items-center rounded-lg border-2 border-neutral-900 bg-white px-4 pb-4 pt-5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.75)] transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 dk:border-white/10 dk:bg-elevated dk:shadow-none dk:hover:border-white/25 dk:hover:shadow-[0_8px_24px_rgba(0,0,0,0.6)] dk:focus-visible:ring-white/60">
+                              <img src="/iae_logo.png" alt="" className="absolute top-3 right-3 h-5 w-auto invert dk:invert-0" aria-hidden />
+                              <GraphAvatar name={u.name} email={u.email} graphToken={graphToken} size="xl" accent="hsl(var(--text-primary))" className="!w-24 !h-24 !text-2xl" />
+                              <p className="mt-4 w-full text-[15px] font-bold text-neutral-950 break-words leading-tight dk:text-white">{u.name}</p>
+                              {u.department ? <span className="mt-2 max-w-full rounded border border-neutral-300 px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-700 break-words text-center leading-tight dk:border-white/20 dk:text-neutral-200">{u.department}</span> : null}
+                              {u.jobTitle ? <p className="mt-2 w-full text-[13px] font-bold leading-snug text-neutral-600 dk:text-text-secondary">{u.jobTitle}</p> : null}
                               <div className="min-h-[16px] flex-1" aria-hidden />
                               {(u.mobilePhone || u.businessPhones?.[0] || u.email) ? (
-                                <div className="w-full min-w-0 border-t border-neutral-200 pt-4">
-                                  <div className="flex flex-col gap-1.5 text-[12px] text-neutral-600">
-                                    {u.businessPhones?.[0] ? (() => { const raw = u.businessPhones![0]; const xIdx = raw.search(/[xX]/); const base = xIdx > 0 ? raw.slice(0, xIdx).trim() : raw; const ext = xIdx > 0 ? raw.slice(xIdx + 1).trim() : ''; return (<span className="flex min-w-0 items-center justify-center gap-1.5"><Phone className="h-3.5 w-3.5 shrink-0 text-neutral-400" aria-hidden />{base ? <span className="truncate font-mono tracking-tight">{formatE164ForDisplay(base) || base}</span> : null}{ext ? <span className="shrink-0 rounded bg-neutral-900 px-1.5 py-[1px] text-[10px] font-bold text-white">x{ext}</span> : null}</span>); })() : null}
-                                    {u.mobilePhone ? <span className="flex min-w-0 items-center justify-center gap-1.5"><Smartphone className="h-3.5 w-3.5 shrink-0 text-neutral-400" aria-hidden /><span className="truncate font-mono tracking-tight">{formatE164ForDisplay(u.mobilePhone) || u.mobilePhone}</span></span> : null}
-                                    {u.email ? <span className="flex min-w-0 items-center justify-center gap-1.5"><Mail className="h-3.5 w-3.5 shrink-0 text-neutral-400" aria-hidden /><span className="truncate">{u.email}</span></span> : null}
+                                <div className="w-full min-w-0 border-t border-neutral-200 pt-4 dk:border-white/10">
+                                  <div className="flex flex-col gap-1.5 text-[12px] text-neutral-600 dk:text-neutral-300">
+                                    {u.businessPhones?.[0] ? (() => { const raw = u.businessPhones![0]; const xIdx = raw.search(/[xX]/); const base = xIdx > 0 ? raw.slice(0, xIdx).trim() : raw; const ext = xIdx > 0 ? raw.slice(xIdx + 1).trim() : ''; return (<span className="flex min-w-0 items-center justify-center gap-1.5"><Phone className="h-3.5 w-3.5 shrink-0 text-neutral-400 dk:text-neutral-500" aria-hidden />{base ? <span className="truncate font-mono tracking-tight">{formatE164ForDisplay(base) || base}</span> : null}{ext ? <span className="shrink-0 rounded bg-neutral-900 px-1.5 py-[1px] text-[10px] font-bold text-white dk:bg-white dk:text-neutral-900">x{ext}</span> : null}</span>); })() : null}
+                                    {u.mobilePhone ? <span className="flex min-w-0 items-center justify-center gap-1.5"><Smartphone className="h-3.5 w-3.5 shrink-0 text-neutral-400 dk:text-neutral-500" aria-hidden /><span className="truncate font-mono tracking-tight">{formatE164ForDisplay(u.mobilePhone) || u.mobilePhone}</span></span> : null}
+                                    {u.email ? <span className="flex min-w-0 items-center justify-center gap-1.5"><Mail className="h-3.5 w-3.5 shrink-0 text-neutral-400 dk:text-neutral-500" aria-hidden /><span className="truncate">{u.email}</span></span> : null}
                                   </div>
                                 </div>
                               ) : null}
@@ -2372,19 +2372,19 @@ export function SettingsPage({
                 ) : (
                   <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4 lg:grid-cols-6">
                     {usersAlphaSorted.map((u) => (
-                      <button key={u.id} type="button" onClick={canViewUserProfiles ? () => setSelectedUser({ id: u.id, name: u.name, email: u.email, jobTitle: u.jobTitle, department: u.department, employeeType: u.employeeType, officeLocation: u.officeLocation, city: u.city, mobilePhone: u.mobilePhone, businessPhones: u.businessPhones, companyName: u.companyName, accountEnabled: u.accountEnabled, status: u.status }) : undefined} className="group relative flex h-full min-h-[290px] flex-col items-center rounded-lg border-2 border-neutral-900 bg-white px-4 pb-4 pt-5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900">
-                        <img src="/iae_logo.png" alt="" className="absolute top-3 right-3 h-5 w-auto invert" aria-hidden />
-                        <GraphAvatar name={u.name} email={u.email} graphToken={graphToken} size="xl" accent="#171717" className="!w-24 !h-24 !text-2xl" />
-                        <p className="mt-4 w-full text-[15px] font-bold text-neutral-950 break-words leading-tight">{u.name}</p>
-                        {u.department ? <span className="mt-2 max-w-full rounded border border-neutral-300 px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-700 break-words text-center leading-tight">{u.department}</span> : null}
-                        {u.jobTitle ? <p className="mt-2 w-full text-[13px] font-bold leading-snug text-neutral-600">{u.jobTitle}</p> : null}
+                      <button key={u.id} type="button" onClick={canViewUserProfiles ? () => setSelectedUser({ id: u.id, name: u.name, email: u.email, jobTitle: u.jobTitle, department: u.department, employeeType: u.employeeType, officeLocation: u.officeLocation, city: u.city, mobilePhone: u.mobilePhone, businessPhones: u.businessPhones, companyName: u.companyName, accountEnabled: u.accountEnabled, status: u.status }) : undefined} className="group relative flex h-full min-h-[290px] flex-col items-center rounded-lg border-2 border-neutral-900 bg-white px-4 pb-4 pt-5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 dk:border-white/10 dk:bg-elevated dk:shadow-none dk:hover:border-white/25 dk:hover:shadow-[0_8px_24px_rgba(0,0,0,0.6)] dk:focus-visible:ring-white/60">
+                        <img src="/iae_logo.png" alt="" className="absolute top-3 right-3 h-5 w-auto invert dk:invert-0" aria-hidden />
+                        <GraphAvatar name={u.name} email={u.email} graphToken={graphToken} size="xl" accent="hsl(var(--text-primary))" className="!w-24 !h-24 !text-2xl" />
+                        <p className="mt-4 w-full text-[15px] font-bold text-neutral-950 break-words leading-tight dk:text-white">{u.name}</p>
+                        {u.department ? <span className="mt-2 max-w-full rounded border border-neutral-300 px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-700 break-words text-center leading-tight dk:border-white/20 dk:text-neutral-200">{u.department}</span> : null}
+                        {u.jobTitle ? <p className="mt-2 w-full text-[13px] font-bold leading-snug text-neutral-600 dk:text-text-secondary">{u.jobTitle}</p> : null}
                         <div className="min-h-[16px] flex-1" aria-hidden />
                         {(u.mobilePhone || u.businessPhones?.[0] || u.email) ? (
-                          <div className="w-full min-w-0 border-t border-neutral-200 pt-4">
-                            <div className="flex flex-col gap-1.5 text-[12px] text-neutral-600">
-                              {u.businessPhones?.[0] ? (() => { const raw = u.businessPhones![0]; const xIdx = raw.search(/[xX]/); const base = xIdx > 0 ? raw.slice(0, xIdx).trim() : raw; const ext = xIdx > 0 ? raw.slice(xIdx + 1).trim() : ''; return (<span className="flex min-w-0 items-center justify-center gap-1.5"><Phone className="h-3.5 w-3.5 shrink-0 text-neutral-400" aria-hidden />{base ? <span className="truncate font-mono tracking-tight">{formatE164ForDisplay(base) || base}</span> : null}{ext ? <span className="shrink-0 rounded bg-neutral-900 px-1.5 py-[1px] text-[10px] font-bold text-white">x{ext}</span> : null}</span>); })() : null}
-                              {u.mobilePhone ? <span className="flex min-w-0 items-center justify-center gap-1.5"><Smartphone className="h-3.5 w-3.5 shrink-0 text-neutral-400" aria-hidden /><span className="truncate font-mono tracking-tight">{formatE164ForDisplay(u.mobilePhone) || u.mobilePhone}</span></span> : null}
-                              {u.email ? <span className="flex min-w-0 items-center justify-center gap-1.5"><Mail className="h-3.5 w-3.5 shrink-0 text-neutral-400" aria-hidden /><span className="truncate">{u.email}</span></span> : null}
+                          <div className="w-full min-w-0 border-t border-neutral-200 pt-4 dk:border-white/10">
+                            <div className="flex flex-col gap-1.5 text-[12px] text-neutral-600 dk:text-neutral-300">
+                              {u.businessPhones?.[0] ? (() => { const raw = u.businessPhones![0]; const xIdx = raw.search(/[xX]/); const base = xIdx > 0 ? raw.slice(0, xIdx).trim() : raw; const ext = xIdx > 0 ? raw.slice(xIdx + 1).trim() : ''; return (<span className="flex min-w-0 items-center justify-center gap-1.5"><Phone className="h-3.5 w-3.5 shrink-0 text-neutral-400 dk:text-neutral-500" aria-hidden />{base ? <span className="truncate font-mono tracking-tight">{formatE164ForDisplay(base) || base}</span> : null}{ext ? <span className="shrink-0 rounded bg-neutral-900 px-1.5 py-[1px] text-[10px] font-bold text-white dk:bg-white dk:text-neutral-900">x{ext}</span> : null}</span>); })() : null}
+                              {u.mobilePhone ? <span className="flex min-w-0 items-center justify-center gap-1.5"><Smartphone className="h-3.5 w-3.5 shrink-0 text-neutral-400 dk:text-neutral-500" aria-hidden /><span className="truncate font-mono tracking-tight">{formatE164ForDisplay(u.mobilePhone) || u.mobilePhone}</span></span> : null}
+                              {u.email ? <span className="flex min-w-0 items-center justify-center gap-1.5"><Mail className="h-3.5 w-3.5 shrink-0 text-neutral-400 dk:text-neutral-500" aria-hidden /><span className="truncate">{u.email}</span></span> : null}
                             </div>
                           </div>
                         ) : null}

@@ -428,7 +428,7 @@ export class OrganizationChartService {
         cellPhone: readString(row, 'cellPhone', 'CellPhone'),
         workPhone: readString(row, 'workPhone', 'WorkPhone'),
         extension: readString(row, 'extension', 'Extension'),
-        jobTitle: rawJobTitle || roleName || '',
+        jobTitle: rawJobTitle || '',
         roleName,
         departmentName,
       });
@@ -531,8 +531,8 @@ export class OrganizationChartService {
     jobTitleColumnAvailable: boolean,
   ): Promise<ChartRow[]> {
     const jobTitleSelect = jobTitleColumnAvailable
-      ? "COALESCE(NULLIF(LTRIM(RTRIM(ci.JobTitle)), ''), rolePick.roleName, '')"
-      : "COALESCE(rolePick.roleName, '')";
+      ? "COALESCE(NULLIF(LTRIM(RTRIM(ci.JobTitle)), ''), '')"
+      : "''";
     return this.dataSource.query(
       `
       SELECT

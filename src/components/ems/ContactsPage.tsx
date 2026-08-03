@@ -1193,9 +1193,25 @@ export function ContactsPage({ addToast, initialSelectedContactId, onNavigate }:
     let cancelled = false;
     fetchManagedContactById(initialSelectedContactId).then((contact) => {
       if (!cancelled && contact) {
-        setSelectedContact(contact);
-        setSearch(`${contact.firstName} ${contact.lastName}`.trim());
-        setCommittedSearch(`${contact.firstName} ${contact.lastName}`.trim());
+        const safe: ApiManagedContact = {
+          ...contact,
+          companyIds: contact.companyIds ?? [],
+          companyNames: contact.companyNames ?? [],
+          roleIds: contact.roleIds ?? [],
+          roleNames: contact.roleNames ?? [],
+          departmentIds: contact.departmentIds ?? [],
+          departmentNames: contact.departmentNames ?? [],
+          assignments: (contact.assignments ?? []).map((a) => ({
+            ...a,
+            roleIds: a.roleIds ?? [],
+            roleNames: a.roleNames ?? [],
+            departmentIds: a.departmentIds ?? [],
+            departmentNames: a.departmentNames ?? [],
+          })),
+        };
+        setSelectedContact(safe);
+        setSearch(`${safe.firstName} ${safe.lastName}`.trim());
+        setCommittedSearch(`${safe.firstName} ${safe.lastName}`.trim());
       }
     }).catch(() => { /* ignore – contact may not exist */ });
     return () => { cancelled = true; };
