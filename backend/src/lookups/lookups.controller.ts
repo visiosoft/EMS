@@ -89,6 +89,11 @@ export class LookupsController {
     return this.lookupsService.findDepartmentRoles();
   }
 
+  @Get('department-roles/:departmentId/contact-usage')
+  departmentRoleContactUsage(@Param('departmentId', ParseIntPipe) departmentId: number) {
+    return this.lookupsService.getContactsUsingDepartmentRoles(departmentId);
+  }
+
   @Get('non-resident-withholdings')
   nonResidentWithholdings() {
     return this.lookupsService.findNonResidentWithholdings();
