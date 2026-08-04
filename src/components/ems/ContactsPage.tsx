@@ -8,12 +8,14 @@ import {
   deleteManagedContact,
   fetchContactConnections,
   fetchCompaniesPickerRows,
+  fetchDepartmentRoleMappings,
   fetchLookups,
   fetchManagedContactById,
   fetchManagedContacts,
   managedContactsQueryKey,
   updateManagedContact,
   type ApiCompanyListRow,
+  type ApiDepartmentRoleMapping,
   type ApiManagedContact,
   type ApiManagedContactAssignment,
   type ManagedContactAssignmentInput,
@@ -268,6 +270,7 @@ function CompanyAssignmentEditor({
   companies,
   roleOptions,
   departmentOptions,
+  departmentRoleMappings,
   loading,
 }: {
   assignments: ContactCompanyAssignmentDraft[];
@@ -281,6 +284,7 @@ function CompanyAssignmentEditor({
   companies: ApiCompanyListRow[];
   roleOptions: { value: string; label: string }[];
   departmentOptions: { value: string; label: string }[];
+  departmentRoleMappings: ApiDepartmentRoleMapping[];
   /** The company/role/department lists are still in flight. */
   loading?: boolean;
 }) {
@@ -293,6 +297,33 @@ function CompanyAssignmentEditor({
 
   const updateAssignment = (id: string, patch: Partial<ContactCompanyAssignmentDraft>) => {
     onChange(assignments.map((a) => (a.id === id ? { ...a, ...patch } : a)));
+  };
+
+  /** When departments change, also remove any roles that are no longer valid for those departments. */
+  const updateDepartments = (id: string, departmentIds: string[]) => {
+    const allowedRoleIds = new Set(
+      departmentRoleMappings
+        .filter((m) => departmentIds.includes(String(m.departmentId)))
+        .map((m) => String(m.roleId)),
+    );
+    onChange(
+      assignments.map((a) =>
+        a.id === id
+          ? { ...a, departmentIds, roleIds: a.roleIds.filter((r) => allowedRoleIds.has(r)) }
+          : a,
+      ),
+    );
+  };
+
+  /** Returns role options filtered by the selected departments for a given assignment. */
+  const getRoleOptionsForAssignment = (assignment: ContactCompanyAssignmentDraft) => {
+    if (assignment.departmentIds.length === 0) return [];
+    const allowedRoleIds = new Set(
+      departmentRoleMappings
+        .filter((m) => assignment.departmentIds.includes(String(m.departmentId)))
+        .map((m) => String(m.roleId)),
+    );
+    return roleOptions.filter((opt) => allowedRoleIds.has(opt.value));
   };
   const removeAssignment = async (assignment: ContactCompanyAssignmentDraft, companyLabel: string) => {
     if (onRequestRemove) {
@@ -320,7 +351,7 @@ function CompanyAssignmentEditor({
               Loading company {index + 1}…
             </div>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              {['Company', 'Roles', 'Departments'].map((label) => (
+              {['Company', 'Departments', 'Roles'].map((label) => (
                 <div key={label}>
                   <div className="mb-1.5 text-xs text-text-muted">{label}</div>
                   <div className="h-9 animate-pulse rounded-md bg-elevated" />
@@ -374,20 +405,21 @@ function CompanyAssignmentEditor({
                     placeholder="Select a company"
                   />
                 </FormField>
-                <FormField label="Roles" required>
-                  <Select2Multi
-                    options={roleOptions}
-                    values={assignment.roleIds}
-                    onChange={(roleIds) => updateAssignment(assignment.id, { roleIds })}
-                    placeholder="Select one or more roles…"
-                  />
-                </FormField>
                 <FormField label="Departments" required>
                   <Select2Multi
                     options={departmentOptions}
                     values={assignment.departmentIds}
-                    onChange={(departmentIds) => updateAssignment(assignment.id, { departmentIds })}
+                    onChange={(departmentIds) => updateDepartments(assignment.id, departmentIds)}
                     placeholder="Select one or more departments…"
+                  />
+                </FormField>
+                <FormField label="Roles" required>
+                  <Select2Multi
+                    options={getRoleOptionsForAssignment(assignment)}
+                    values={assignment.roleIds}
+                    onChange={(roleIds) => updateAssignment(assignment.id, { roleIds })}
+                    placeholder={assignment.departmentIds.length === 0 ? 'Select department first…' : 'Select one or more roles…'}
+                    disabled={assignment.departmentIds.length === 0}
                   />
                 </FormField>
               </div>
@@ -420,6 +452,7 @@ function ContactDetailDrawer({
   companies,
   roles,
   departments,
+  departmentRoleMappings,
   lookupsLoading,
   saving,
   onClose,
@@ -432,6 +465,7 @@ function ContactDetailDrawer({
   companies: ApiCompanyListRow[];
   roles: { roleId: number; roleName: string }[];
   departments: { departmentId: number; departmentName: string }[];
+  departmentRoleMappings: ApiDepartmentRoleMapping[];
   lookupsLoading: boolean;
   saving: boolean;
   onClose: () => void;
@@ -796,6 +830,7 @@ function ContactDetailDrawer({
               companies={companies}
               roleOptions={roleOptions}
               departmentOptions={departmentOptions}
+              departmentRoleMappings={departmentRoleMappings}
               loading={lookupsLoading}
             />
               </>
@@ -914,6 +949,7 @@ function ContactModal({
   companies,
   roles,
   departments,
+  departmentRoleMappings,
   lookupsLoading,
   saving,
   onClose,
@@ -923,6 +959,7 @@ function ContactModal({
   companies: ApiCompanyListRow[];
   roles: { roleId: number; roleName: string }[];
   departments: { departmentId: number; departmentName: string }[];
+  departmentRoleMappings: ApiDepartmentRoleMapping[];
   lookupsLoading: boolean;
   saving: boolean;
   onClose: () => void;
@@ -1059,6 +1096,7 @@ function ContactModal({
             companies={companies}
             roleOptions={roleOptions}
             departmentOptions={departmentOptions}
+            departmentRoleMappings={departmentRoleMappings}
             loading={lookupsLoading}
           />
         </section>
@@ -1139,11 +1177,12 @@ export function ContactsPage({ addToast, initialSelectedContactId, onNavigate }:
   const lookupsQuery = useQuery({
     queryKey: ['contacts-page-lookups'],
     queryFn: async () => {
-      const [companies, lookups] = await Promise.all([
+      const [companies, lookups, departmentRoleMappings] = await Promise.all([
         fetchCompaniesPickerRows(),
         fetchLookups(),
+        fetchDepartmentRoleMappings(),
       ]);
-      return { companies, roles: lookups.roles, departments: lookups.departments };
+      return { companies, roles: lookups.roles, departments: lookups.departments, departmentRoleMappings };
     },
     staleTime: 10 * 60 * 1000,
   });
@@ -1612,6 +1651,7 @@ export function ContactsPage({ addToast, initialSelectedContactId, onNavigate }:
           companies={companies}
           roles={lookupsQuery.data?.roles ?? []}
           departments={lookupsQuery.data?.departments ?? []}
+          departmentRoleMappings={lookupsQuery.data?.departmentRoleMappings ?? []}
           lookupsLoading={lookupsQuery.isLoading}
           saving={saveMutation.isPending}
           onClose={() => setSelectedContact(null)}
@@ -1645,6 +1685,7 @@ export function ContactsPage({ addToast, initialSelectedContactId, onNavigate }:
           companies={companies}
           roles={lookupsQuery.data?.roles ?? []}
           departments={lookupsQuery.data?.departments ?? []}
+          departmentRoleMappings={lookupsQuery.data?.departmentRoleMappings ?? []}
           lookupsLoading={lookupsQuery.isLoading}
           saving={saveMutation.isPending}
           onClose={() => setEditing(undefined)}
