@@ -29,6 +29,10 @@
     --ems-purple-dim: 264 40% 12%;
     --ems-green: 130 52% 53%;
     --ems-green-dim: 140 50% 12%;
+    --ems-pink: 330 90% 66%;
+    --ems-pink-dim: 330 50% 13%;
+    --ems-indigo: 245 90% 72%;
+    --ems-indigo-dim: 245 50% 14%;
 
     --background: var(--bg-base);
     --foreground: var(--text-primary);
@@ -85,6 +89,10 @@
     --ems-purple-dim: 264 40% 91%;
     --ems-green: 130 50% 36%;
     --ems-green-dim: 140 50% 87%;
+    --ems-pink: 330 72% 47%;
+    --ems-pink-dim: 330 70% 93%;
+    --ems-indigo: 245 65% 52%;
+    --ems-indigo-dim: 245 60% 93%;
 
     --background: var(--bg-base);
     --foreground: var(--text-primary);

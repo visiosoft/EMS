@@ -1,22 +1,58 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   ArrowLeft,
   Layers,
+  LayoutGrid,
   Loader2,
   Building2,
   Landmark,
+  Phone,
+  Rows3,
+  Smartphone,
+  Mail,
 } from "lucide-react";
-import { TeamMemberAvatar } from "../components/TeamMemberAvatar";
 import { UrgentUpcomingSection } from "../components/UrgentUpcomingSection";
 import { InternalPageFrame } from "../layout/InternalPageFrame";
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
 import { fetchDepartmentEmployees, type IaeEmployee } from "@/api/iaeEmployeesApi";
 import { fetchMyProfile } from "@/api/myProfileApi";
 import { apiFetch } from "@/api/config";
+import { HubGraphAvatar } from "@/components/ems/GraphAvatar";
+import { getActiveAccount, acquireGraphAccessToken } from "@/auth/entra";
+import { formatE164ForDisplay } from "@/lib/contactPhoneField";
+import { fetchEntraJobTitles, type EntraJobTitleMap } from "@/api/entraJobTitles";
 
 type DepartmentLookup = { departmentId: number; departmentName: string };
 
 type QuickLinkIconProps = { className?: string };
+
+type TeamViewMode = "tiles" | "table";
+
+function Segmented({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="inline-flex h-10 items-center gap-0.5 rounded-lg border border-neutral-200 bg-neutral-100/80 p-1">
+      {children}
+    </div>
+  );
+}
+
+function SegBtn({ active, onClick, children, ariaLabel }: { active: boolean; onClick: () => void; children: React.ReactNode; ariaLabel?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      aria-label={ariaLabel}
+      className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-all ${
+        active
+          ? "bg-white text-neutral-900 shadow-sm ring-1 ring-black/[0.06]"
+          : "text-neutral-500 hover:text-neutral-900"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
 
 function BookingQuickIcon({ className }: QuickLinkIconProps) {
   return (
@@ -100,8 +136,11 @@ export function DepartmentDetailPage() {
   const [departmentName, setDepartmentName] = useState<string>("");
   const [teamMembers, setTeamMembers] = useState<IaeEmployee[]>([]);
   const [currentContactId, setCurrentContactId] = useState<number | null>(null);
+  const [graphToken, setGraphToken] = useState<string | null>(null);
+  const [entraJobTitles, setEntraJobTitles] = useState<EntraJobTitleMap>(new Map());
   const [isLoadingDept, setIsLoadingDept] = useState(true);
   const [isLoadingTeam, setIsLoadingTeam] = useState(true);
+  const [teamView, setTeamView] = useState<TeamViewMode>("tiles");
 
   // Fetch department name
   useEffect(() => {
@@ -126,7 +165,7 @@ export function DepartmentDetailPage() {
     }
     setIsLoadingTeam(true);
     fetchDepartmentEmployees(departmentId)
-      .then(setTeamMembers)
+      .then((members) => setTeamMembers(members))
       .catch(console.error)
       .finally(() => setIsLoadingTeam(false));
   }, [departmentId]);
@@ -137,6 +176,32 @@ export function DepartmentDetailPage() {
       .then((profile) => setCurrentContactId(profile.contactId))
       .catch(console.error);
   }, []);
+
+  // Acquire Graph token for profile photos + job titles
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const account = getActiveAccount();
+      if (!account) return;
+      try {
+        const token = await acquireGraphAccessToken(account);
+        if (mounted && token) setGraphToken(token);
+        const titles = await fetchEntraJobTitles(token);
+        if (mounted) setEntraJobTitles(titles);
+      } catch { /* falls back to initials */ }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  const enrichedTeamMembers = useMemo(() => {
+    if (entraJobTitles.size === 0) return teamMembers;
+    return teamMembers.map((m) => {
+      if (m.jobTitle?.trim()) return m;
+      const emailKey = (m.email ?? '').trim().toLowerCase();
+      const entraTitle = emailKey ? entraJobTitles.get(emailKey) : undefined;
+      return entraTitle ? { ...m, jobTitle: entraTitle } : m;
+    });
+  }, [teamMembers, entraJobTitles]);
 
   if (!departmentId) {
     return (
@@ -206,10 +271,21 @@ export function DepartmentDetailPage() {
       {/* Main Content */}
       <main className="mx-auto grid max-w-[1120px] gap-10 px-4 py-6 sm:px-8 lg:grid-cols-[1.05fr_1fr] lg:px-0">
         {/* Team Members */}
-        <section>
-          <h2 className="text-2xl font-semibold">Team Members</h2>
-          <div className="mt-7 border-t border-neutral-600">
-            <div className="mt-5 max-h-[248px] overflow-y-auto pr-2 [scrollbar-color:#9ca3af_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-neutral-400 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-1.5">
+        <section className="min-w-0">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-semibold">Team Members</h2>
+            {enrichedTeamMembers.length > 0 && (
+              <Segmented>
+                <SegBtn active={teamView === "tiles"} onClick={() => setTeamView("tiles")} ariaLabel="Tile view">
+                  <LayoutGrid className="h-4 w-4" /> Tiles
+                </SegBtn>
+                <SegBtn active={teamView === "table"} onClick={() => setTeamView("table")} ariaLabel="Table view">
+                  <Rows3 className="h-4 w-4" /> Table
+                </SegBtn>
+              </Segmented>
+            )}
+          </div>
+          <div className="mt-7 border-t border-neutral-600 pt-5">
               {isLoadingTeam ? (
                 <div className="flex items-center justify-center py-10">
                   <Loader2 className="h-6 w-6 animate-spin text-neutral-400" />
@@ -218,39 +294,140 @@ export function DepartmentDetailPage() {
                 <div className="flex items-center justify-center py-10 text-sm text-neutral-400">
                   No team members found
                 </div>
+              ) : teamView === "table" ? (
+                <div className="overflow-x-auto rounded-lg border border-neutral-200">
+                  <table className="min-w-[900px] w-full text-left text-sm">
+                    <thead className="border-b border-neutral-200 bg-neutral-50">
+                      <tr>
+                        <th className="w-[20%] px-4 py-3 font-semibold text-neutral-700">Name</th>
+                        <th className="w-[15%] px-4 py-3 font-semibold text-neutral-700">Title</th>
+                        <th className="w-[13%] px-4 py-3 font-semibold text-neutral-700">Desk Phone</th>
+                        <th className="w-[10%] px-4 py-3 font-semibold text-neutral-700">Extension</th>
+                        <th className="w-[13%] px-4 py-3 font-semibold text-neutral-700">Mobile</th>
+                        <th className="w-[15%] px-4 py-3 font-semibold text-neutral-700">Email</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-neutral-300">
+                      {enrichedTeamMembers.map((member) => {
+                        const name = `${member.firstName} ${member.lastName}`.trim() || "\u2014";
+                        const title = member.jobTitle?.trim() || "";
+                        const cellPhone = formatE164ForDisplay(member.cellPhone) || "";
+                        const deskBase = (() => {
+                          const digits = (member.workPhone ?? "").replace(/\D/g, "");
+                          if (digits.length >= 3 && digits.length <= 5) return "";
+                          return formatE164ForDisplay(member.workPhone) || "";
+                        })();
+                        const ext = member.extension?.trim() || (() => {
+                          const digits = (member.workPhone ?? "").replace(/\D/g, "");
+                          return digits.length >= 3 && digits.length <= 5 ? digits : "";
+                        })();
+                        const desk = deskBase && ext ? `${deskBase} x${ext}` : deskBase || (ext ? `x${ext}` : "");
+                        return (
+                          <tr
+                            key={member.contactId}
+                            onClick={() => navigate("employee-profile", { contactId: member.contactId, fromView: "departments" })}
+                            className="cursor-pointer transition-colors hover:bg-neutral-50"
+                          >
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-3">
+                                <HubGraphAvatar name={name} email={member.email} graphToken={graphToken} size="sm" />
+                                <span className="font-medium text-neutral-900">
+                                  {name}
+                                  {member.contactId === currentContactId && (
+                                    <span className="ml-2 text-xs font-bold text-blue-600">(You)</span>
+                                  )}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-neutral-600">{title}</td>
+                            <td className="px-4 py-3 font-mono text-xs text-neutral-500">{deskBase}</td>
+                            <td className="px-4 py-3 font-mono text-xs text-neutral-500">{ext || ''}</td>
+                            <td className="px-4 py-3 font-mono text-xs text-neutral-500">{cellPhone}</td>
+                            <td className="px-4 py-3 text-neutral-500">{member.email}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               ) : (
-                <table className="w-full text-left text-sm">
-                  <thead className="sticky top-0 z-10 bg-white">
-                    <tr className="border-b border-neutral-200 text-xs font-semibold text-neutral-900">
-                      <th className="w-[150px] px-4 py-3">Picture</th>
-                      <th className="px-4 py-3">Name</th>
-                      <th className="px-4 py-3">Role</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-neutral-100">
-                    {teamMembers.map((member) => (
-                      <tr
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4 lg:grid-cols-2">
+                  {enrichedTeamMembers.map((member) => {
+                    const name = `${member.firstName} ${member.lastName}`.trim() || "\u2014";
+                    const title = member.jobTitle?.trim();
+                    const department = member.departmentName?.trim();
+                    const cellPhone = formatE164ForDisplay(member.cellPhone);
+                    const deskBase = (() => {
+                      const digits = (member.workPhone ?? "").replace(/\D/g, "");
+                      if (digits.length >= 3 && digits.length <= 5) return "";
+                      return formatE164ForDisplay(member.workPhone) || "";
+                    })();
+                    const deskExtension = member.extension?.trim() || (() => {
+                      const digits = (member.workPhone ?? "").replace(/\D/g, "");
+                      return digits.length >= 3 && digits.length <= 5 ? digits : "";
+                    })();
+                    const hasDeskPhone = Boolean(deskBase || deskExtension);
+                    const hasContact = Boolean(hasDeskPhone || cellPhone || member.email);
+                    return (
+                      <button
                         key={member.contactId}
-                        className={`relative ${member.contactId === currentContactId ? "bg-blue-50" : ""}`}
+                        type="button"
+                        onClick={() => navigate("employee-profile", { contactId: member.contactId, fromView: "departments" })}
+                        className={`group relative flex h-full min-h-[290px] flex-col items-center rounded-lg border-2 border-neutral-900 bg-white px-4 pb-4 pt-5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.75)] transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 ${
+                          member.contactId === currentContactId ? "ring-2 ring-blue-500" : ""
+                        }`}
                       >
-                        <td className="relative px-4 py-4 before:absolute before:left-0 before:top-1/2 before:h-10 before:w-1 before:-translate-y-1/2 before:rounded-full before:bg-neutral-300">
-                          <TeamMemberAvatar />
-                        </td>
-                        <td className="px-4 py-4 text-sm text-neutral-700">
-                          {member.firstName} {member.lastName}
+                        <img src="/iae_logo.png" alt="" className="absolute top-3 right-3 h-5 w-auto invert" aria-hidden />
+                        <HubGraphAvatar name={name} email={member.email} graphToken={graphToken} size="xl" ringClass="ring-transparent" className="!w-24 !h-24 !text-2xl" />
+                        <p className="mt-4 w-full text-[15px] font-bold text-neutral-950 break-words leading-tight">
+                          {name}
                           {member.contactId === currentContactId && (
                             <span className="ml-2 text-xs font-bold text-blue-600">(You)</span>
                           )}
-                        </td>
-                        <td className="px-4 py-4 text-sm font-semibold text-neutral-900">
-                          {member.roleName || "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        </p>
+                        {department ? (
+                          <span className="mt-2 max-w-full rounded border border-neutral-300 px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-700 break-words text-center leading-tight">
+                            {department}
+                          </span>
+                        ) : null}
+                        {title ? (
+                          <p className="mt-2 w-full text-[13px] font-bold leading-snug text-neutral-600">{title}</p>
+                        ) : null}
+                        <div className="min-h-[16px] flex-1" aria-hidden />
+                        {hasContact ? (
+                          <div className="w-full min-w-0 border-t border-neutral-200 pt-4">
+                            <div className="flex flex-col gap-1.5 text-[12px] text-neutral-600">
+                              {hasDeskPhone ? (
+                                <span className="flex min-w-0 items-center justify-center gap-1.5">
+                                  <Phone className="h-3.5 w-3.5 shrink-0 text-neutral-400" aria-hidden />
+                                  {deskBase ? <span className="truncate font-mono tracking-tight">{deskBase}</span> : null}
+                                  {deskExtension ? (
+                                    <span className="shrink-0 rounded bg-neutral-900 px-1.5 py-[1px] text-[10px] font-bold text-white">
+                                      x{deskExtension}
+                                    </span>
+                                  ) : null}
+                                </span>
+                              ) : null}
+                              {cellPhone ? (
+                                <span className="flex min-w-0 items-center justify-center gap-1.5">
+                                  <Smartphone className="h-3.5 w-3.5 shrink-0 text-neutral-400" aria-hidden />
+                                  <span className="truncate font-mono tracking-tight">{cellPhone}</span>
+                                </span>
+                              ) : null}
+                              {member.email ? (
+                                <span className="flex min-w-0 items-center justify-center gap-1.5">
+                                  <Mail className="h-3.5 w-3.5 shrink-0 text-neutral-400" aria-hidden />
+                                  <span className="truncate">{member.email}</span>
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
               )}
-            </div>
           </div>
         </section>
 
