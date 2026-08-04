@@ -4616,7 +4616,16 @@ export class CompanyService {
       );
     }
 
-    await this.assignmentRepo.delete({ contactAssignmentId });
+    // Remove all assignments for this contact+company pair, not just the one row
+    const allForPair = await this.assignmentRepo.find({
+      where: { contactId: asg.contactId, companyId: asg.companyId },
+      select: { contactAssignmentId: true },
+    });
+    const ids = allForPair.map((r) => r.contactAssignmentId);
+    await this.deleteContactAssignmentsWithDependents(
+      this.dataSource.manager,
+      ids,
+    );
   }
 
   /**
