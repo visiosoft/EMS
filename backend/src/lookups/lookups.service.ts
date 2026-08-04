@@ -246,6 +246,27 @@ export class LookupsService {
     }));
   }
 
+  async getCompaniesUsingCompanyTypeServices(companyTypeId: number) {
+    const mappings = await this.companyTypeServiceRepo.find({ where: { companyTypeId } });
+    if (mappings.length === 0) return [];
+    const serviceIds = mappings.map((m) => m.serviceProvidedId);
+    const em = this.companyTypeServiceRepo.manager;
+    const rows: Record<string, unknown>[] = await em.query(
+      `SELECT co.CompanyName AS companyName, sp.ServiceName AS serviceName
+       FROM dbo.CompanyService cs
+       INNER JOIN dbo.Company co ON co.CompanyID = cs.CompanyID
+       INNER JOIN dbo.ServiceProvided sp ON sp.ServiceProvidedID = cs.ServiceProvidedID
+       WHERE co.CompanyTypeID = @0
+         AND cs.ServiceProvidedID IN (${serviceIds.map((_, i) => `@${i + 1}`).join(', ')})
+       ORDER BY co.CompanyName, sp.ServiceName`,
+      [companyTypeId, ...serviceIds],
+    );
+    return rows.map((r) => ({
+      companyName: String(r['companyName'] ?? r['CompanyName'] ?? ''),
+      serviceName: String(r['serviceName'] ?? r['ServiceName'] ?? ''),
+    }));
+  }
+
   findSeatingTypes() {
     return this.seatingTypeRepo.find({ order: { seatingName: 'ASC' } });
   }

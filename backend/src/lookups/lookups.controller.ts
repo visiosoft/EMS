@@ -94,6 +94,11 @@ export class LookupsController {
     return this.lookupsService.getContactsUsingDepartmentRoles(departmentId);
   }
 
+  @Get('company-type-services/:companyTypeId/company-usage')
+  companyTypeServiceUsage(@Param('companyTypeId', ParseIntPipe) companyTypeId: number) {
+    return this.lookupsService.getCompaniesUsingCompanyTypeServices(companyTypeId);
+  }
+
   @Get('non-resident-withholdings')
   nonResidentWithholdings() {
     return this.lookupsService.findNonResidentWithholdings();

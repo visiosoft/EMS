@@ -51,6 +51,8 @@ import {
   updateLookupManageRow,
   fetchDepartmentRoleContactUsage,
   type DepartmentRoleContactUsage,
+  fetchCompanyTypeServiceUsage,
+  type CompanyTypeServiceUsage,
 } from '@/api/lookupManagementApi';
 import {
   AlertDialog,
@@ -1308,6 +1310,7 @@ export function SettingsPage({
   const [editLookupRow, setEditLookupRow] = useState<LookupManageRow | null>(null);
   const [deleteLookupRow, setDeleteLookupRow] = useState<LookupManageRow | null>(null);
   const [deleteContactUsage, setDeleteContactUsage] = useState<DepartmentRoleContactUsage[] | null>(null);
+  const [deleteCompanyTypeUsage, setDeleteCompanyTypeUsage] = useState<CompanyTypeServiceUsage[] | null>(null);
   const [selectedLookupRow, setSelectedLookupRow] = useState<LookupManageRow | null>(null);
   const [detailsTab, setDetailsTab] = useState('Overview');
   const [directoryPermissionBusy, setDirectoryPermissionBusy] = useState(false);
@@ -1941,6 +1944,17 @@ export function SettingsPage({
     if (!deptId) return;
     setDeleteContactUsage(null);
     fetchDepartmentRoleContactUsage(deptId).then(setDeleteContactUsage).catch(() => setDeleteContactUsage(null));
+  }, [deleteLookupRow, activeLookupKey, activeLookupConfig]);
+
+  useEffect(() => {
+    if (!deleteLookupRow || activeLookupKey !== 'company-type-services') {
+      setDeleteCompanyTypeUsage(null);
+      return;
+    }
+    const ctId = getRowId(deleteLookupRow, activeLookupConfig);
+    if (!ctId) return;
+    setDeleteCompanyTypeUsage(null);
+    fetchCompanyTypeServiceUsage(ctId).then(setDeleteCompanyTypeUsage).catch(() => setDeleteCompanyTypeUsage(null));
   }, [deleteLookupRow, activeLookupKey, activeLookupConfig]);
 
   const lookupRows = lookupListQuery.data?.data ?? [];
@@ -2805,13 +2819,12 @@ export function SettingsPage({
                   `${activeLookupConfig.label} #${getRowId(deleteLookupRow, activeLookupConfig)}`
                   : 'this row'}
               </span>{' '}
-              from the database. If something blocks the removal, you’ll see a short
-              explanation right after you confirm.
+              from the database.
             </AlertDialogDescription>
             {activeLookupKey === 'department-roles' && deleteContactUsage != null && deleteContactUsage.length > 0 && (
-              <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+              <div className="mt-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-400">
                 <p className="font-medium mb-1">
-                  Warning: {deleteContactUsage.length} contact{deleteContactUsage.length === 1 ? '' : 's'} currently use{deleteContactUsage.length === 1 ? 's' : ''} this mapping:
+                  Cannot remove — {deleteContactUsage.length} contact{deleteContactUsage.length === 1 ? '' : 's'} currently use{deleteContactUsage.length === 1 ? 's' : ''} this mapping:
                 </p>
                 <ul className="max-h-40 overflow-y-auto space-y-0.5 pl-4 list-disc text-xs">
                   {deleteContactUsage.map((c, i) => (
@@ -2820,8 +2833,33 @@ export function SettingsPage({
                     </li>
                   ))}
                 </ul>
-                <p className="mt-1 text-xs opacity-80">Removing the mapping won't delete these contacts, but the role will no longer appear in filtered dropdowns.</p>
+                <p className="mt-1 text-xs opacity-80">Remove this department–role mapping from the contacts listed above before deleting it.</p>
               </div>
+            )}
+            {activeLookupKey === 'department-roles' && deleteContactUsage != null && deleteContactUsage.length === 0 && (
+              <p className="mt-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400">
+                No contacts are using this mapping — safe to remove.
+              </p>
+            )}
+            {activeLookupKey === 'company-type-services' && deleteCompanyTypeUsage != null && deleteCompanyTypeUsage.length > 0 && (
+              <div className="mt-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-400">
+                <p className="font-medium mb-1">
+                  Cannot remove — {deleteCompanyTypeUsage.length} compan{deleteCompanyTypeUsage.length === 1 ? 'y' : 'ies'} currently use{deleteCompanyTypeUsage.length === 1 ? 's' : ''} this mapping:
+                </p>
+                <ul className="max-h-40 overflow-y-auto space-y-0.5 pl-4 list-disc text-xs">
+                  {deleteCompanyTypeUsage.map((c, i) => (
+                    <li key={i}>
+                      {c.companyName} — {c.serviceName}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1 text-xs opacity-80">Remove this company type–service mapping from the companies listed above before deleting it.</p>
+              </div>
+            )}
+            {activeLookupKey === 'company-type-services' && deleteCompanyTypeUsage != null && deleteCompanyTypeUsage.length === 0 && (
+              <p className="mt-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400">
+                No companies are using this mapping — safe to remove.
+              </p>
             )}
           </AlertDialogHeader>
           {deleteLookupMut.isPending && (
@@ -2847,7 +2885,7 @@ export function SettingsPage({
             <Button
               type="button"
               variant="destructive"
-              disabled={deleteLookupMut.isPending || (activeLookupKey === 'department-roles' && deleteContactUsage === null)}
+              disabled={deleteLookupMut.isPending || (activeLookupKey === 'department-roles' && (deleteContactUsage === null || deleteContactUsage.length > 0)) || (activeLookupKey === 'company-type-services' && (deleteCompanyTypeUsage === null || deleteCompanyTypeUsage.length > 0))}
               className="bg-ems-coral text-white hover:bg-ems-coral/90 sm:ml-0"
               onClick={() => void confirmDeleteLookup()}
             >
