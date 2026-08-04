@@ -13,8 +13,10 @@ import {
   fetchLearningPlatforms,
   fetchLearningDepartments,
   createLearningCertification,
+  updateLearningCertification,
   toggleLearningCertificationStatus,
   deleteLearningCertification,
+  deleteLearningSubmission,
   reviewLearningSubmission,
   type LearningCertification,
   type LearningSubmission,
@@ -80,6 +82,13 @@ export function LearningAdminPage() {
   const [reviewNotes, setReviewNotes] = useState("");
   const [isReviewing, setIsReviewing] = useState(false);
 
+  // Remove submission modal
+  const [removingSubmission, setRemovingSubmission] = useState<LearningSubmission | null>(null);
+  const [isRemovingSubmission, setIsRemovingSubmission] = useState(false);
+
+  // Approve confirmation modal
+  const [approvingSubmission, setApprovingSubmission] = useState<LearningSubmission | null>(null);
+
   // Publish form
   const [formName, setFormName] = useState("");
   const [formPlatform, setFormPlatform] = useState("");
@@ -91,6 +100,60 @@ export function LearningAdminPage() {
   const [formDescription, setFormDescription] = useState("");
   const [formDepartment, setFormDepartment] = useState(String(activeDeptId));
   const [isPublishing, setIsPublishing] = useState(false);
+
+  // Edit certification modal
+  const [editingCert, setEditingCert] = useState<LearningCertification | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editPlatform, setEditPlatform] = useState("");
+  const [editPoints, setEditPoints] = useState("");
+  const [editLevel, setEditLevel] = useState("Beginner");
+  const [editDuration, setEditDuration] = useState("");
+  const [editUrl, setEditUrl] = useState("");
+  const [editTags, setEditTags] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editDepartment, setEditDepartment] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+
+  const openEditModal = (cert: LearningCertification) => {
+    setEditingCert(cert);
+    setEditName(cert.title);
+    setEditPlatform(String(cert.platformId));
+    setEditPoints(String(cert.pointsAwarded));
+    setEditLevel(cert.difficultyLevel);
+    setEditDuration(cert.estimatedDuration || "");
+    setEditUrl(cert.externalCourseUrl || "");
+    setEditTags(cert.tags.join(", "));
+    setEditDescription(cert.description || "");
+    setEditDepartment(String(cert.departmentId));
+  };
+
+  const handleEditCertification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCert) return;
+    if (!editName.trim()) { showToast("Certification Title is required", "error"); return; }
+    if (!editPlatform) { showToast("Platform / Issuer is required", "error"); return; }
+    if (!editUrl.trim()) { showToast("External Course URL is required", "error"); return; }
+    setIsEditing(true);
+    try {
+      await updateLearningCertification(editingCert.certificationId, {
+        title: editName.trim(),
+        description: editDescription.trim() || undefined,
+        platformId: Number(editPlatform),
+        departmentId: Number(editDepartment) || activeDeptId,
+        difficultyLevel: editLevel,
+        pointsAwarded: Number(editPoints) || 0,
+        estimatedDuration: editDuration.trim() || undefined,
+        externalCourseUrl: editUrl.trim(),
+        tags: editTags.trim() || undefined,
+      });
+      showToast("Certification updated successfully!");
+      setEditingCert(null);
+      loadCertifications();
+    } catch (e: any) {
+      const message = e?.message || e?.body?.message || "Failed to update certification";
+      showToast(message, "error");
+    } finally { setIsEditing(false); }
+  };
 
   // Load platforms & departments once
   useEffect(() => {
@@ -171,11 +234,13 @@ export function LearningAdminPage() {
   const pendingCount = submissions.filter((s) => s.status === "PENDING").length;
 
   // ─── Actions ────────────────────────────────────────────────────────────
-  const handleApprove = async (sub: LearningSubmission) => {
+  const handleConfirmApprove = async () => {
+    if (!approvingSubmission) return;
     setIsReviewing(true);
     try {
-      await reviewLearningSubmission(sub.submissionId, { action: "VERIFIED", adminNotes: reviewNotes || undefined });
-      showToast(`Approved certification for ${sub.employeeName}. +${sub.pointsAwarded || "?"} pts awarded!`);
+      await reviewLearningSubmission(approvingSubmission.submissionId, { action: "VERIFIED", adminNotes: reviewNotes || undefined });
+      showToast(`Approved certification for ${approvingSubmission.employeeName}. +${approvingSubmission.pointsAwarded || "?"} pts awarded!`);
+      setApprovingSubmission(null);
       setReviewingSubmission(null);
       setReviewNotes("");
       loadSubmissions();
@@ -226,12 +291,20 @@ export function LearningAdminPage() {
     finally { setIsPublishing(false); }
   };
 
-  const handleToggleStatus = async (certId: number) => {
+  // Toggle status confirmation
+  const [togglingCert, setTogglingCert] = useState<LearningCertification | null>(null);
+  const [isToggling, setIsToggling] = useState(false);
+
+  const handleConfirmToggleStatus = async () => {
+    if (!togglingCert) return;
+    setIsToggling(true);
     try {
-      const result = await toggleLearningCertificationStatus(certId);
+      const result = await toggleLearningCertificationStatus(togglingCert.certificationId);
       showToast(`Certification is now ${result.status.toLowerCase()}.`, "info");
+      setTogglingCert(null);
       loadCertifications();
     } catch (e) { showToast("Failed to update status", "error"); }
+    finally { setIsToggling(false); }
   };
 
   // Delete certification
@@ -250,6 +323,20 @@ export function LearningAdminPage() {
       const message = e?.message || e?.body?.message || "Failed to delete certification";
       showToast(message, "error");
     } finally { setIsDeleting(false); }
+  };
+
+  const handleRemoveSubmission = async () => {
+    if (!removingSubmission) return;
+    setIsRemovingSubmission(true);
+    try {
+      await deleteLearningSubmission(removingSubmission.submissionId);
+      showToast(`Removed "${removingSubmission.certificationName}" from ${removingSubmission.employeeName}.`);
+      setRemovingSubmission(null);
+      loadSubmissions();
+    } catch (e: any) {
+      const message = e?.message || e?.body?.message || "Failed to remove submission";
+      showToast(message, "error");
+    } finally { setIsRemovingSubmission(false); }
   };
 
   const handleExitAdmin = () => {
@@ -587,7 +674,7 @@ export function LearningAdminPage() {
                                 <td className="whitespace-nowrap px-6 py-4">
                                   {sub.status === "PENDING" ? (
                                     <div className="flex gap-2">
-                                      <button onClick={() => handleApprove(sub)} className="flex h-7 items-center justify-center rounded-full bg-black px-3 text-[10px] font-bold tracking-widest text-white hover:bg-neutral-800">
+                                      <button onClick={() => setApprovingSubmission(sub)} className="flex h-7 items-center justify-center rounded-full bg-black px-3 text-[10px] font-bold tracking-widest text-white hover:bg-neutral-800">
                                         APPROVE
                                       </button>
                                       <button onClick={() => { setReviewingSubmission(sub); setReviewNotes(""); }} className="flex h-7 items-center justify-center rounded-full border border-neutral-200 bg-white px-3 text-[10px] font-bold tracking-widest text-neutral-500 hover:bg-neutral-50 hover:text-black">
@@ -595,9 +682,18 @@ export function LearningAdminPage() {
                                       </button>
                                     </div>
                                   ) : (
-                                    <button onClick={() => setReviewingSubmission(sub)} className="flex h-7 items-center justify-center rounded-full border border-neutral-200 bg-white px-3 text-[10px] font-bold tracking-widest text-neutral-500 hover:bg-neutral-50 hover:text-black">
-                                      View
-                                    </button>
+                                    <div className="flex gap-2">
+                                      <button onClick={() => setReviewingSubmission(sub)} className="flex h-7 items-center justify-center rounded-full border border-neutral-200 bg-white px-3 text-[10px] font-bold tracking-widest text-neutral-500 hover:bg-neutral-50 hover:text-black">
+                                        View
+                                      </button>
+                                      <button
+                                        onClick={() => setRemovingSubmission(sub)}
+                                        className="flex h-7 items-center justify-center gap-1 rounded-full border border-neutral-200 bg-white px-3 text-[10px] font-bold tracking-widest text-red-600 hover:bg-red-50 hover:border-red-200 transition-colors"
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                        Remove
+                                      </button>
+                                    </div>
                                   )}
                                 </td>
                               </tr>
@@ -694,8 +790,17 @@ export function LearningAdminPage() {
                               </td>
                               <td className="whitespace-nowrap px-6 py-4">
                                 <div className="flex gap-2">
+                                  {!submissions.some((s) => s.certificationId === cert.certificationId) && (
+                                    <button
+                                      onClick={() => openEditModal(cert)}
+                                      className="flex h-7 items-center justify-center gap-1 rounded-full border border-neutral-200 bg-white px-3 text-[10px] font-bold tracking-widest text-neutral-700 hover:bg-neutral-50 hover:border-neutral-300 transition-colors"
+                                    >
+                                      <PenSquare className="h-3 w-3" />
+                                      Edit
+                                    </button>
+                                  )}
                                   <button
-                                    onClick={() => handleToggleStatus(cert.certificationId)}
+                                    onClick={() => setTogglingCert(cert)}
                                     className={`flex h-7 items-center justify-center rounded-full border px-3 text-[10px] font-bold tracking-widest transition-colors ${
                                       cert.status === "Active"
                                         ? "border-neutral-200 bg-white text-red-500 hover:bg-red-50 hover:border-red-200"
@@ -733,61 +838,249 @@ export function LearningAdminPage() {
       {/* Review Modal */}
       {reviewingSubmission && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="w-[500px] rounded-xl bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 relative">
+          <div className="w-[440px] rounded-xl bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 relative">
             <button onClick={() => setReviewingSubmission(null)} className="absolute right-4 top-4 text-neutral-400 hover:text-black transition-colors">
               <X className="h-5 w-5" />
             </button>
-            <h3 className="text-lg font-bold text-black">Review Submission</h3>
-            <p className="mt-1 text-[11px] font-semibold text-neutral-500">{reviewingSubmission.employeeName} — {reviewingSubmission.certificationName}</p>
-
-            <div className="mt-5 grid grid-cols-2 gap-4 rounded-lg bg-neutral-50 p-4 text-xs">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100">
+                <Eye className="h-5 w-5 text-neutral-700" />
+              </div>
+              <h3 className="text-lg font-bold text-black">Review Submission</h3>
+            </div>
+            <p className="text-sm text-neutral-700 leading-relaxed">
+              Review the details of this certification submission.
+            </p>
+            <div className="mt-4 rounded-lg bg-neutral-50 p-3 border border-neutral-100">
+              <span className="text-xs font-bold text-neutral-900">{reviewingSubmission.certificationName}</span>
+              <span className="block text-[11px] text-neutral-500 mt-0.5">
+                {reviewingSubmission.employeeName} · {reviewingSubmission.platformName || "N/A"}
+                {reviewingSubmission.pointsAwarded > 0 && ` · +${reviewingSubmission.pointsAwarded} pts`}
+              </span>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
               <div>
                 <span className="block text-[10px] font-medium text-neutral-500 mb-0.5">Submitted:</span>
                 <span className="font-bold text-black">{new Date(reviewingSubmission.submittedAt).toLocaleDateString()}</span>
               </div>
               <div>
-                <span className="block text-[10px] font-medium text-neutral-500 mb-0.5">Platform:</span>
-                <span className="font-bold text-black">{reviewingSubmission.platformName || "—"}</span>
+                <span className="block text-[10px] font-medium text-neutral-500 mb-0.5">Status:</span>
+                <span className="font-bold text-black">{reviewingSubmission.status}</span>
               </div>
-              <div>
+              <div className="col-span-2">
                 <span className="block text-[10px] font-medium text-neutral-500 mb-0.5">Credential URL:</span>
                 {reviewingSubmission.credentialUrl ? (
-                  <a href={reviewingSubmission.credentialUrl} target="_blank" rel="noreferrer" className="font-bold text-black underline hover:text-blue-600">View Document ↗</a>
+                  <a href={reviewingSubmission.credentialUrl} target="_blank" rel="noreferrer" className="font-bold text-black underline hover:text-blue-600 text-xs">View Document ↗</a>
                 ) : <span className="font-bold text-black">—</span>}
               </div>
-              <div>
-                <span className="block text-[10px] font-medium text-neutral-500 mb-0.5">Points on Approval:</span>
-                <span className="font-bold text-black">+{reviewingSubmission.pointsAwarded} pts</span>
-              </div>
-            </div>
-
-            <div className="mt-5">
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-700 mb-2">ADMIN NOTES (OPTIONAL)</label>
-              <textarea
-                value={reviewNotes}
-                onChange={(e) => setReviewNotes(e.target.value)}
-                className="w-full rounded-md border border-neutral-300 p-3 text-sm font-semibold focus:border-black focus:outline-none focus:ring-1 focus:ring-black placeholder:text-neutral-400 min-h-[80px]"
-                placeholder="Leave a note for the employee..."
-              />
             </div>
 
             {reviewingSubmission.status === "PENDING" && (
-              <div className="mt-6 flex gap-3">
-                <button disabled={isReviewing} onClick={() => handleApprove(reviewingSubmission)} className="flex-1 items-center justify-center gap-2 rounded-full bg-black py-2.5 text-[10px] font-bold tracking-widest text-white hover:bg-neutral-800 disabled:opacity-50 flex">
-                  {isReviewing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  APPROVE & AWARD POINTS
-                </button>
-                <button disabled={isReviewing} onClick={() => handleReject(reviewingSubmission)} className="flex-1 items-center justify-center gap-2 rounded-full border border-neutral-300 bg-white py-2.5 text-[10px] font-bold tracking-widest text-black hover:bg-neutral-50 disabled:opacity-50 flex">
-                  {isReviewing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  REJECT
-                </button>
-              </div>
+              <>
+                <div className="mt-4">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-700 mb-2">Admin Notes (Optional)</label>
+                  <textarea
+                    value={reviewNotes}
+                    onChange={(e) => setReviewNotes(e.target.value)}
+                    className="w-full rounded-md border border-neutral-300 p-3 text-sm font-semibold focus:border-black focus:outline-none focus:ring-1 focus:ring-black placeholder:text-neutral-400 min-h-[60px]"
+                    placeholder="Leave a note..."
+                  />
+                </div>
+                <div className="mt-6 flex gap-3">
+                  <button
+                    disabled={isReviewing}
+                    onClick={() => { setApprovingSubmission(reviewingSubmission); }}
+                    className="flex-1 flex items-center justify-center gap-2 rounded-full bg-emerald-600 py-2.5 text-[10px] font-bold tracking-widest text-white hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    {isReviewing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                    APPROVE
+                  </button>
+                  <button
+                    disabled={isReviewing}
+                    onClick={() => handleReject(reviewingSubmission)}
+                    className="flex-1 flex items-center justify-center gap-2 rounded-full border border-neutral-300 bg-white py-2.5 text-[10px] font-bold tracking-widest text-black hover:bg-neutral-50 disabled:opacity-50"
+                  >
+                    {isReviewing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                    REJECT
+                  </button>
+                </div>
+              </>
             )}
             {reviewingSubmission.status !== "PENDING" && (
               <div className="mt-6 flex justify-end">
-                <button onClick={() => setReviewingSubmission(null)} className="rounded-full bg-black px-6 py-2.5 text-[10px] font-bold tracking-widest text-white hover:bg-neutral-800">CLOSE</button>
+                <button onClick={() => setReviewingSubmission(null)} className="flex items-center justify-center rounded-full bg-black px-6 py-2.5 text-[10px] font-bold tracking-widest text-white hover:bg-neutral-800">CLOSE</button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Approve Confirmation Modal */}
+      {approvingSubmission && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="w-[440px] rounded-xl bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 relative">
+            <button onClick={() => setApprovingSubmission(null)} className="absolute right-4 top-4 text-neutral-400 hover:text-black transition-colors">
+              <X className="h-5 w-5" />
+            </button>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100">
+                <Check className="h-5 w-5 text-emerald-600" />
+              </div>
+              <h3 className="text-lg font-bold text-black">Approve Submission</h3>
+            </div>
+            <p className="text-sm text-neutral-700 leading-relaxed">
+              Are you sure you want to approve this certification submission? Points will be awarded to the employee.
+            </p>
+            <div className="mt-4 rounded-lg bg-neutral-50 p-3 border border-neutral-100">
+              <span className="text-xs font-bold text-neutral-900">{approvingSubmission.certificationName}</span>
+              <span className="block text-[11px] text-neutral-500 mt-0.5">
+                {approvingSubmission.employeeName} · {approvingSubmission.platformName || "N/A"}
+                {approvingSubmission.pointsAwarded > 0 && ` · +${approvingSubmission.pointsAwarded} pts`}
+              </span>
+            </div>
+            <div className="mt-6 flex gap-3">
+              <button
+                disabled={isReviewing}
+                onClick={handleConfirmApprove}
+                className="flex-1 flex items-center justify-center gap-2 rounded-full bg-emerald-600 py-2.5 text-[10px] font-bold tracking-widest text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {isReviewing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                APPROVE
+              </button>
+              <button
+                disabled={isReviewing}
+                onClick={() => setApprovingSubmission(null)}
+                className="flex-1 flex items-center justify-center rounded-full border border-neutral-300 bg-white py-2.5 text-[10px] font-bold tracking-widest text-black hover:bg-neutral-50 disabled:opacity-50"
+              >
+                CANCEL
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Certification Modal */}
+      {editingCert && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm overflow-y-auto py-8">
+          <div className="w-[560px] rounded-xl bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 relative">
+            <button onClick={() => setEditingCert(null)} className="absolute right-4 top-4 text-neutral-400 hover:text-black transition-colors">
+              <X className="h-5 w-5" />
+            </button>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100">
+                <PenSquare className="h-5 w-5 text-neutral-700" />
+              </div>
+              <h3 className="text-lg font-bold text-black">Edit Certification</h3>
+            </div>
+
+            <form onSubmit={handleEditCertification} className="space-y-5">
+              <div>
+                <label className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-neutral-700">Certification Title *</label>
+                <input type="text" required value={editName} onChange={(e) => setEditName(e.target.value)} className="h-10 w-full rounded-md border border-neutral-300 px-3 text-sm font-semibold focus:border-black focus:outline-none focus:ring-1 focus:ring-black" />
+              </div>
+              <div className="grid gap-5 sm:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-neutral-700">Platform / Issuer *</label>
+                  <CustomDropdown
+                    value={editPlatform}
+                    onChange={setEditPlatform}
+                    options={platforms.map((p) => ({ label: p.platformName, value: String(p.platformId) }))}
+                  />
+                </div>
+                <div>
+                  <label className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-neutral-700">Points Awarded *</label>
+                  <input type="number" required value={editPoints} onChange={(e) => setEditPoints(e.target.value)} className="h-10 w-full rounded-md border border-neutral-300 px-3 text-sm font-semibold focus:border-black focus:outline-none focus:ring-1 focus:ring-black" />
+                </div>
+              </div>
+              <div className="grid gap-5 sm:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-neutral-700">Difficulty Level</label>
+                  <CustomDropdown value={editLevel} onChange={setEditLevel} options={[
+                    { label: "Beginner", value: "Beginner" },
+                    { label: "Intermediate", value: "Intermediate" },
+                    { label: "Advanced", value: "Advanced" },
+                  ]} />
+                </div>
+                <div>
+                  <label className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-neutral-700">Estimated Duration</label>
+                  <input type="text" value={editDuration} onChange={(e) => setEditDuration(e.target.value)} placeholder="e.g. 40 hrs / 6 months" className="h-10 w-full rounded-md border border-neutral-300 px-3 text-sm font-semibold focus:border-black focus:outline-none focus:ring-1 focus:ring-black placeholder:text-neutral-300" />
+                </div>
+              </div>
+              <div>
+                <label className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-neutral-700">External Course URL *</label>
+                <input type="url" required value={editUrl} onChange={(e) => setEditUrl(e.target.value)} className="h-10 w-full rounded-md border border-neutral-300 px-3 text-sm font-semibold focus:border-black focus:outline-none focus:ring-1 focus:ring-black" />
+              </div>
+              <div>
+                <label className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-neutral-700">Short Description</label>
+                <textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} className="h-20 w-full rounded-md border border-neutral-300 p-3 text-sm font-semibold focus:border-black focus:outline-none focus:ring-1 focus:ring-black placeholder:text-neutral-300" />
+              </div>
+              <div className="grid gap-5 sm:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-neutral-700">Tags (comma-separated)</label>
+                  <input type="text" value={editTags} onChange={(e) => setEditTags(e.target.value)} className="h-10 w-full rounded-md border border-neutral-300 px-3 text-sm font-semibold focus:border-black focus:outline-none focus:ring-1 focus:ring-black" />
+                </div>
+                <div>
+                  <label className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-neutral-700">Assign to Department</label>
+                  <CustomDropdown value={editDepartment} onChange={setEditDepartment} options={departments.map((d) => ({ label: d.name, value: String(d.id) }))} />
+                </div>
+              </div>
+              <div className="pt-4 flex gap-3">
+                <button type="submit" disabled={isEditing} className="flex h-9 items-center justify-center gap-2 rounded-full bg-black px-5 text-[10px] font-bold tracking-widest text-white hover:bg-neutral-800 disabled:opacity-50">
+                  {isEditing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  SAVE CHANGES
+                </button>
+                <button type="button" disabled={isEditing} onClick={() => setEditingCert(null)} className="flex h-9 items-center justify-center rounded-full border border-neutral-300 bg-white px-5 text-[10px] font-bold tracking-widest text-black hover:bg-neutral-50 disabled:opacity-50">
+                  CANCEL
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Toggle Status Confirmation Modal */}
+      {togglingCert && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="w-[440px] rounded-xl bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 relative">
+            <button onClick={() => setTogglingCert(null)} className="absolute right-4 top-4 text-neutral-400 hover:text-black transition-colors">
+              <X className="h-5 w-5" />
+            </button>
+            <div className="flex items-center gap-3 mb-4">
+              <div className={`flex h-10 w-10 items-center justify-center rounded-full ${togglingCert.status === "Active" ? "bg-red-100" : "bg-emerald-100"}`}>
+                <AlertCircle className={`h-5 w-5 ${togglingCert.status === "Active" ? "text-red-600" : "text-emerald-600"}`} />
+              </div>
+              <h3 className="text-lg font-bold text-black">
+                {togglingCert.status === "Active" ? "Unpublish Certification" : "Republish Certification"}
+              </h3>
+            </div>
+            <p className="text-sm text-neutral-700 leading-relaxed">
+              {togglingCert.status === "Active"
+                ? "Are you sure you want to unpublish this certification? It will no longer be visible to employees in the Learning Portal."
+                : "Are you sure you want to republish this certification? It will become visible to employees in the Learning Portal again."}
+            </p>
+            <div className="mt-4 rounded-lg bg-neutral-50 p-3 border border-neutral-100">
+              <span className="text-xs font-bold text-neutral-900">{togglingCert.title}</span>
+              <span className="block text-[11px] text-neutral-500 mt-0.5">{togglingCert.platformName} · +{togglingCert.pointsAwarded} pts</span>
+            </div>
+            <div className="mt-6 flex gap-3">
+              <button
+                disabled={isToggling}
+                onClick={handleConfirmToggleStatus}
+                className={`flex-1 flex items-center justify-center gap-2 rounded-full py-2.5 text-[10px] font-bold tracking-widest text-white disabled:opacity-50 ${
+                  togglingCert.status === "Active" ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
+                }`}
+              >
+                {isToggling && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {togglingCert.status === "Active" ? "UNPUBLISH" : "REPUBLISH"}
+              </button>
+              <button
+                disabled={isToggling}
+                onClick={() => setTogglingCert(null)}
+                className="flex-1 flex items-center justify-center rounded-full border border-neutral-300 bg-white py-2.5 text-[10px] font-bold tracking-widest text-black hover:bg-neutral-50 disabled:opacity-50"
+              >
+                CANCEL
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -824,6 +1117,50 @@ export function LearningAdminPage() {
               <button
                 disabled={isDeleting}
                 onClick={() => setDeletingCert(null)}
+                className="flex-1 flex items-center justify-center rounded-full border border-neutral-300 bg-white py-2.5 text-[10px] font-bold tracking-widest text-black hover:bg-neutral-50 disabled:opacity-50"
+              >
+                CANCEL
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Remove Submission Confirmation Modal */}
+      {removingSubmission && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="w-[440px] rounded-xl bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 relative">
+            <button onClick={() => setRemovingSubmission(null)} className="absolute right-4 top-4 text-neutral-400 hover:text-black transition-colors">
+              <X className="h-5 w-5" />
+            </button>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
+                <Trash2 className="h-5 w-5 text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-black">Remove Certification</h3>
+            </div>
+            <p className="text-sm text-neutral-700 leading-relaxed">
+              Are you sure you want to remove this certification from <strong>{removingSubmission.employeeName}</strong>? This will unassign the certification and reverse any points awarded. This action cannot be undone.
+            </p>
+            <div className="mt-4 rounded-lg bg-neutral-50 p-3 border border-neutral-100">
+              <span className="text-xs font-bold text-neutral-900">{removingSubmission.certificationName}</span>
+              <span className="block text-[11px] text-neutral-500 mt-0.5">
+                {removingSubmission.employeeName} · {removingSubmission.platformName || "N/A"}
+                {removingSubmission.status === "VERIFIED" && removingSubmission.pointsAwarded > 0 && ` · +${removingSubmission.pointsAwarded} pts will be reversed`}
+              </span>
+            </div>
+            <div className="mt-6 flex gap-3">
+              <button
+                disabled={isRemovingSubmission}
+                onClick={handleRemoveSubmission}
+                className="flex-1 flex items-center justify-center gap-2 rounded-full bg-red-600 py-2.5 text-[10px] font-bold tracking-widest text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {isRemovingSubmission && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                REMOVE
+              </button>
+              <button
+                disabled={isRemovingSubmission}
+                onClick={() => setRemovingSubmission(null)}
                 className="flex-1 flex items-center justify-center rounded-full border border-neutral-300 bg-white py-2.5 text-[10px] font-bold tracking-widest text-black hover:bg-neutral-50 disabled:opacity-50"
               >
                 CANCEL

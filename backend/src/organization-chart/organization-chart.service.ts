@@ -15,6 +15,7 @@ export type OrganizationChartMember = {
   email: string;
   cellPhone: string;
   workPhone: string;
+  extension: string;
   jobTitle: string;
   roleName: string;
   departmentName: string;
@@ -47,6 +48,7 @@ export type HierarchyMember = {
   email: string;
   cellPhone: string;
   workPhone: string;
+  extension: string;
   jobTitle: string;
   roleName: string;
   departmentName: string;
@@ -130,17 +132,20 @@ export class OrganizationChartService {
       jobTitleColumnAvailable,
     );
     const warnings: string[] = [];
-    if (!jobTitleColumnAvailable) {
-      warnings.push(
-        'ContactInfo.JobTitle is not installed, so chart titles use existing internal roles.',
-      );
-    }
+    // if (!jobTitleColumnAvailable) {
+    //   warnings.push(
+    //     'ContactInfo.JobTitle is not installed, so chart titles use existing internal roles.',
+    //   );
+    // }
 
     // Try to build hierarchy from Entra manager data
     const accessToken = this.resolveGraphToken(graphAccessToken);
     if (accessToken) {
       try {
         const entraUsers = await this.fetchEntraUsersWithManagers(accessToken);
+        // Overlay Entra job titles onto SQL rows so department nodes also
+        // reflect the user's actual Entra position without a DB column.
+        this.overlayEntraJobTitles(rows, entraUsers);
         const result = this.buildHierarchyFromEntra(
           company,
           rows,
@@ -196,6 +201,36 @@ export class OrganizationChartService {
       provided ?? this.auditContext.getGraphAccessToken() ?? '',
     ).trim();
     return token || null;
+  }
+
+  /**
+   * Mutates SQL rows in-place: for each row whose email matches an Entra user,
+   * writes the Entra jobTitle into the row so downstream builders (department
+   * nodes, hierarchy members) reflect the real Entra position without needing
+   * the DB column.
+   */
+  private overlayEntraJobTitles(
+    rows: ChartRow[],
+    entraUsers: EntraManagerUser[],
+  ): void {
+    const entraByEmail = new Map<string, EntraManagerUser>();
+    for (const user of entraUsers) {
+      const email = user.mail ? normalizeEmail(user.mail) : null;
+      if (email && !entraByEmail.has(email)) {
+        entraByEmail.set(email, user);
+      }
+    }
+    for (const row of rows) {
+      const email = normalizeEmail(
+        (row['email'] as string) ?? (row['Email'] as string) ?? '',
+      );
+      if (!email) continue;
+      const entraUser = entraByEmail.get(email);
+      if (entraUser?.jobTitle) {
+        row['jobTitle'] = entraUser.jobTitle;
+        row['JobTitle'] = entraUser.jobTitle;
+      }
+    }
   }
 
   private async fetchEntraUsersWithManagers(
@@ -293,6 +328,11 @@ export class OrganizationChartService {
       const entraUser = email ? entraByEmail.get(email) : undefined;
       if (entraUser) {
         member.entraUserId = entraUser.id;
+        // Use Entra jobTitle directly so the org chart reflects the user's
+        // actual Entra position even when the DB column doesn't exist.
+        if (entraUser.jobTitle) {
+          member.jobTitle = entraUser.jobTitle;
+        }
         matchedMembers.push({ member, entraUser });
       } else {
         unmatchedMembers.push(member);
@@ -387,7 +427,8 @@ export class OrganizationChartService {
         email: readString(row, 'email', 'Email'),
         cellPhone: readString(row, 'cellPhone', 'CellPhone'),
         workPhone: readString(row, 'workPhone', 'WorkPhone'),
-        jobTitle: rawJobTitle || roleName || '',
+        extension: readString(row, 'extension', 'Extension'),
+        jobTitle: rawJobTitle || '',
         roleName,
         departmentName,
       });
@@ -425,11 +466,22 @@ export class OrganizationChartService {
       jobTitleColumnAvailable,
     );
     const warnings: string[] = [];
-    if (!jobTitleColumnAvailable) {
-      warnings.push(
-        'ContactInfo.JobTitle is not installed, so chart titles use existing internal roles.',
-      );
+
+    // Overlay Entra job titles when a graph token is available
+    const accessToken = this.resolveGraphToken();
+    if (accessToken) {
+      try {
+        const entraUsers = await this.fetchEntraUsersWithManagers(accessToken);
+        this.overlayEntraJobTitles(rows, entraUsers);
+      } catch {
+        // Best-effort: if Graph call fails, we still return the chart with DB/role titles
+      }
     }
+    // if (!jobTitleColumnAvailable) {
+    //   warnings.push(
+    //     'ContactInfo.JobTitle is not installed, so chart titles use existing internal roles.',
+    //   );
+    // }
 
     return {
       configured: true,
@@ -479,8 +531,8 @@ export class OrganizationChartService {
     jobTitleColumnAvailable: boolean,
   ): Promise<ChartRow[]> {
     const jobTitleSelect = jobTitleColumnAvailable
-      ? "COALESCE(NULLIF(LTRIM(RTRIM(ci.JobTitle)), ''), rolePick.roleName, '')"
-      : "COALESCE(rolePick.roleName, '')";
+      ? "COALESCE(NULLIF(LTRIM(RTRIM(ci.JobTitle)), ''), '')"
+      : "''";
     return this.dataSource.query(
       `
       SELECT
@@ -490,10 +542,12 @@ export class OrganizationChartService {
         COALESCE(ci.Email, '') AS email,
         COALESCE(ci.CellPhone, '') AS cellPhone,
         COALESCE(ci.WorkPhone, '') AS workPhone,
+        COALESCE(ci.WorkPhoneExtension, '') AS extension,
         ${jobTitleSelect} AS jobTitle,
         COALESCE(rolePick.roleName, '') AS roleName,
         departmentPick.departmentId,
-        COALESCE(departmentPick.departmentName, 'Unassigned') AS departmentName
+        COALESCE(departmentPick.departmentName, 'Unassigned') AS departmentName,
+        COALESCE(allDepts.allDepartmentNames, 'Unassigned') AS allDepartmentNames
       FROM dbo.Contact c
       INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
       OUTER APPLY (
@@ -508,7 +562,18 @@ export class OrganizationChartService {
         ).value('.', 'nvarchar(max)'), 1, 2, '') AS roleName
       ) rolePick
       OUTER APPLY (
-        SELECT TOP 1
+        SELECT STUFF((
+          SELECT DISTINCT ', ' + LTRIM(RTRIM(d2.DepartmentName))
+          FROM dbo.ContactAssignment da2
+          INNER JOIN dbo.Department d2 ON d2.DepartmentID = da2.DepartmentID
+          WHERE da2.ContactID = c.ContactID
+            AND da2.CompanyID = @0
+            AND NULLIF(LTRIM(RTRIM(d2.DepartmentName)), '') IS NOT NULL
+          FOR XML PATH(''), TYPE
+        ).value('.', 'nvarchar(max)'), 1, 2, '') AS allDepartmentNames
+      ) allDepts
+      CROSS APPLY (
+        SELECT
           d.DepartmentID AS departmentId,
           NULLIF(LTRIM(RTRIM(d.DepartmentName)), '') AS departmentName
         FROM dbo.ContactAssignment departmentAssignment
@@ -516,14 +581,6 @@ export class OrganizationChartService {
           ON d.DepartmentID = departmentAssignment.DepartmentID
         WHERE departmentAssignment.ContactID = c.ContactID
           AND departmentAssignment.CompanyID = @0
-        ORDER BY
-          CASE
-            WHEN d.DepartmentName IS NULL
-              OR LTRIM(RTRIM(d.DepartmentName)) = ''
-              OR LOWER(LTRIM(RTRIM(d.DepartmentName))) = 'unknown'
-            THEN 1 ELSE 0
-          END,
-          departmentAssignment.ContactAssignmentID
       ) departmentPick
       WHERE EXISTS (
         SELECT 1
@@ -546,6 +603,8 @@ export class OrganizationChartService {
     rows: ChartRow[],
   ): OrganizationChartNode[] {
     const groups = new Map<number, OrganizationChartNode>();
+    // Track which contacts have already been added to each department
+    const seenPerDepartment = new Map<number, Set<number>>();
 
     for (const row of rows) {
       const contactId = readNumber(row, 'contactId', 'ContactID');
@@ -558,6 +617,16 @@ export class OrganizationChartService {
         rawDepartmentId && departmentName !== 'Unassigned'
           ? rawDepartmentId
           : UNASSIGNED_DEPARTMENT_NODE_ID;
+
+      // Skip if this contact is already in this department
+      let seen = seenPerDepartment.get(departmentId);
+      if (!seen) {
+        seen = new Set<number>();
+        seenPerDepartment.set(departmentId, seen);
+      }
+      if (seen.has(contactId)) continue;
+      seen.add(contactId);
+
       let node = groups.get(departmentId);
       if (!node) {
         node = {
@@ -583,9 +652,10 @@ export class OrganizationChartService {
         email: readString(row, 'email', 'Email'),
         cellPhone: readString(row, 'cellPhone', 'CellPhone'),
         workPhone: readString(row, 'workPhone', 'WorkPhone'),
+        extension: readString(row, 'extension', 'Extension'),
         jobTitle: readString(row, 'jobTitle', 'JobTitle'),
         roleName: readString(row, 'roleName', 'RoleName'),
-        departmentName,
+        departmentName: readString(row, 'allDepartmentNames', 'AllDepartmentNames') || departmentName,
       });
     }
 

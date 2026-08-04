@@ -530,6 +530,8 @@ function SubmitCertificate({
                 setIsDirty(true);
                 const matched = certList.find((c) => c.title === val);
                 if (matched?.platformName) setPlatform(matched.platformName);
+                if (matched?.externalCourseUrl) setCredentialUrl(matched.externalCourseUrl);
+                else setCredentialUrl("");
               }}
               options={certOptions}
             />

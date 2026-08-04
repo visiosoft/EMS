@@ -67,6 +67,8 @@ import {
   type ApiEngagementRow,
   type CreateCompanyPayload,
   type UpdateCompanyPayload,
+  fetchManagedContacts,
+  type ApiManagedContact,
 } from "@/api/companyApi";
 import { upsertInList, removeFromList, removeQueriesByPrefix } from "@/api/cacheHelpers";
 import { mapApiCompanyToCompany } from "./companyMapping";
@@ -87,6 +89,7 @@ import {
   Trash2,
   Check,
   X,
+  Eye,
   Link2,
   MapPin,
   CalendarRange,
@@ -96,6 +99,8 @@ import {
   Wrench,
   Building2,
   Building,
+  Search,
+  UserPlus,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -526,6 +531,7 @@ function InlineEditableOverview({
   const [mailCountry, setMailCountry] = useState(
     company.mailingCountry ?? company.physicalCountry ?? "US",
   );
+  const [editing, setEditing] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [nameEditing, setNameEditing] = useState(false);
@@ -850,6 +856,7 @@ function InlineEditableOverview({
     );
     setDirty(false);
     setInlineSaveErrors([]);
+    setEditing(false);
   };
 
   const openServiceAreaEditor = () => {
@@ -1110,6 +1117,7 @@ function InlineEditableOverview({
       await Promise.resolve(onSaved(updated));
       setDirty(false);
       setInlineSaveErrors([]);
+      setEditing(false);
       addToast("Company updated successfully.", "success");
     } catch (e) {
       const message = friendlyApiError(e, "Could not update company.");
@@ -1347,11 +1355,153 @@ function InlineEditableOverview({
         </Modal>
       )}
 
+      {/* View / Edit toggle */}
+      {!editing ? (
+        <>
+          <div className="flex items-center justify-between mb-4">
+            <p className="flex items-center gap-1.5 text-[11px] text-text-muted select-none">
+              <Eye className="h-3 w-3 shrink-0" />
+              Viewing company details
+            </p>
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:border-ems-accent/50 hover:bg-elevated transition-colors"
+            >
+              <Pencil className="h-3 w-3" />
+              Edit
+            </button>
+          </div>
+
+          <div className="space-y-6 pb-2">
+            {/* Name */}
+            <div className="border-b border-border/80 pb-5">
+              <span className="text-xs text-text-muted">Company Name</span>
+              <div className="text-sm text-text-primary mt-0.5 font-medium">{company.name || '—'}</div>
+            </div>
+
+            {/* Type + DMA */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
+              <div>
+                <span className="text-xs text-text-muted">Internal</span>
+                <div className="text-sm text-text-primary mt-0.5">{company.isInternal ? 'Yes' : 'No'}</div>
+              </div>
+              <div>
+                <span className="text-xs text-text-muted">Company Type</span>
+                <div className="text-sm text-text-primary mt-0.5">
+                  {(company.companyTypeNames ?? []).join(', ') || '—'}
+                </div>
+              </div>
+              <div>
+                <span className="text-xs text-text-muted">Company Services</span>
+                <div className="text-sm text-text-primary mt-0.5">
+                  {(company.serviceProvidedIds ?? []).length > 0
+                    ? (company.serviceProvidedIds ?? []).map((id) => {
+                        const svc = servicesProvided.find((s) => s.serviceProvidedId === Number(id));
+                        return svc?.serviceName ?? `#${id}`;
+                      }).join(', ')
+                    : '—'}
+                </div>
+              </div>
+              <div>
+                <span className="text-xs text-text-muted">DMA</span>
+                <div className="text-sm text-text-primary mt-0.5">{company.dmaMarketName ?? '—'}</div>
+              </div>
+            </div>
+
+            {/* Service Area */}
+            <div className="bg-elevated border border-border rounded-lg p-4 space-y-3">
+              <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wide">Service Area</h4>
+              {company.allDmas ? (
+                <p className="text-sm text-text-primary">All DMAs (Nationwide)</p>
+              ) : (company.serviceAreas ?? []).length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {(company.serviceAreas ?? []).slice(0, 5).map((sa, i) => (
+                    <span key={`sa-view-${i}`} className="inline-flex items-center rounded-full border border-border bg-surface px-2.5 py-1 text-xs text-text-primary">
+                      {sa.dmaMarketName ?? `DMA #${sa.dmaid}`}
+                    </span>
+                  ))}
+                  {(company.serviceAreas ?? []).length > 5 && (
+                    <span className="text-[11px] text-text-muted self-center">+{(company.serviceAreas ?? []).length - 5} more</span>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-text-muted">No service areas configured.</p>
+              )}
+            </div>
+
+            {/* Physical Address */}
+            <div className="space-y-3">
+              <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wide border-b border-border/60 pb-1.5">Physical Address</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-3">
+                <div>
+                  <span className="text-xs text-text-muted">Street</span>
+                  <div className="text-sm text-text-primary mt-0.5">{company.physicalStreet || '—'}</div>
+                </div>
+                <div>
+                  <span className="text-xs text-text-muted">City</span>
+                  <div className="text-sm text-text-primary mt-0.5">{company.physicalCity || company.city || '—'}</div>
+                </div>
+                <div>
+                  <span className="text-xs text-text-muted">State / Province</span>
+                  <div className="text-sm text-text-primary mt-0.5">{company.physicalState || company.state || '—'}</div>
+                </div>
+                <div>
+                  <span className="text-xs text-text-muted">Postal Code</span>
+                  <div className="text-sm text-text-primary mt-0.5">{company.physicalPostalCode || '—'}</div>
+                </div>
+                <div>
+                  <span className="text-xs text-text-muted">Country</span>
+                  <div className="text-sm text-text-primary mt-0.5">{company.physicalCountry || '—'}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Mailing Address */}
+            <div className="space-y-3">
+              <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wide border-b border-border/60 pb-1.5">Mailing Address</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-3">
+                <div>
+                  <span className="text-xs text-text-muted">Street</span>
+                  <div className="text-sm text-text-primary mt-0.5">{company.mailingStreet || company.physicalStreet || '—'}</div>
+                </div>
+                <div>
+                  <span className="text-xs text-text-muted">City</span>
+                  <div className="text-sm text-text-primary mt-0.5">{company.mailingCity || company.physicalCity || company.city || '—'}</div>
+                </div>
+                <div>
+                  <span className="text-xs text-text-muted">State / Province</span>
+                  <div className="text-sm text-text-primary mt-0.5">{company.mailingState || company.physicalState || company.state || '—'}</div>
+                </div>
+                <div>
+                  <span className="text-xs text-text-muted">Postal Code</span>
+                  <div className="text-sm text-text-primary mt-0.5">{company.mailingPostalCode || company.physicalPostalCode || '—'}</div>
+                </div>
+                <div>
+                  <span className="text-xs text-text-muted">Country</span>
+                  <div className="text-sm text-text-primary mt-0.5">{company.mailingCountry || company.physicalCountry || '—'}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
       {/* Edit hint */}
-      <p className="flex items-center gap-1.5 text-[11px] text-text-muted mb-4 select-none">
-        <Pencil className="h-3 w-3 shrink-0" />
-        Click any field to edit it inline
-      </p>
+      <div className="flex items-center justify-between mb-4">
+        <p className="flex items-center gap-1.5 text-[11px] text-text-muted select-none">
+          <Pencil className="h-3 w-3 shrink-0" />
+          Click any field to edit it inline
+        </p>
+        <button
+          type="button"
+          onClick={() => discard()}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors"
+        >
+          <Eye className="h-3 w-3" />
+          View only
+        </button>
+      </div>
 
       {inlineSaveErrors.length > 0 && (
         <div
@@ -1817,6 +1967,8 @@ function InlineEditableOverview({
           </div>
         </div>
       )}
+        </>
+      )}
     </div>
   );
 }
@@ -2214,6 +2366,126 @@ function mapContactRow(
   };
 }
 
+function LinkExistingContactPanel({
+  onSelect,
+  onCancel,
+}: {
+  onSelect: (contact: ApiManagedContact) => void;
+  onCancel: () => void;
+}) {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedTerm, setDebouncedTerm] = useState("");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setDebouncedTerm(searchTerm), 300);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [searchTerm]);
+
+  const searchQuery = useQuery({
+    queryKey: ["contacts", "link-search", debouncedTerm],
+    queryFn: () => fetchManagedContacts(0, 20, { q: debouncedTerm }),
+    enabled: debouncedTerm.trim().length >= 2,
+    staleTime: 30_000,
+  });
+
+  const results = searchQuery.data?.data ?? [];
+
+  return (
+    <div className="bg-elevated border border-border rounded-lg p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <Search className="h-4 w-4 text-text-muted shrink-0" />
+        <input
+          className="w-full min-w-0 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent"
+          placeholder="Search contacts by name or email…"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          autoFocus
+        />
+      </div>
+      {debouncedTerm.trim().length >= 2 && searchQuery.isLoading && (
+        <div className="flex items-center gap-2 text-sm text-text-muted py-1">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+          <span>Searching…</span>
+        </div>
+      )}
+      {debouncedTerm.trim().length >= 2 &&
+        !searchQuery.isLoading &&
+        results.length === 0 && (
+          <p className="text-sm text-text-muted py-1">
+            No contacts found. Try a different search or create a new contact.
+          </p>
+        )}
+      {results.length > 0 && (
+        <ul className="max-h-48 overflow-y-auto divide-y divide-border border border-border rounded">
+          {results.map((c) => (
+            <li key={c.contactId}>
+              <button
+                type="button"
+                className="w-full text-left px-3 py-2 hover:bg-hover text-sm flex flex-col gap-1"
+                onClick={() => onSelect(c)}
+              >
+                <div className="flex items-center justify-between gap-2 w-full">
+                  <span className="truncate">
+                    <span className="font-medium text-text-primary">
+                      {c.firstName} {c.lastName}
+                    </span>
+                    <span className="text-text-muted ml-2">{c.email}</span>
+                  </span>
+                  {c.companyNames.length > 0 && (
+                    <span className="text-xs text-text-muted truncate max-w-[10rem] shrink-0">
+                      {c.companyNames[0]}
+                      {c.companyNames.length > 1 &&
+                        ` +${c.companyNames.length - 1}`}
+                    </span>
+                  )}
+                </div>
+                {(c.roleNames.length > 0 || c.departmentNames.length > 0) && (
+                  <div className="flex flex-wrap gap-1">
+                    {c.roleNames.map((r, i) => (
+                      <span
+                        key={`role-${i}`}
+                        className="inline-flex items-center rounded-full bg-blue-500/10 px-2 py-0.5 text-xs text-blue-400"
+                      >
+                        {r}
+                      </span>
+                    ))}
+                    {c.departmentNames.map((d, i) => (
+                      <span
+                        key={`dept-${i}`}
+                        className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-400"
+                      >
+                        {d}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {debouncedTerm.trim().length < 2 && (
+        <p className="text-xs text-text-muted">
+          Type at least 2 characters to search.
+        </p>
+      )}
+      <div className="flex justify-end pt-2 border-t border-border">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-text-secondary text-sm px-3 py-1.5 hover:text-text-primary"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ContactFormDb({
   roles,
   departments,
@@ -2510,10 +2782,26 @@ function ContactFormDb({
             }
             const wE = tryE164FromDisplay(workPhoneDisplay, workPhoneCountry);
             const cE = tryE164FromDisplay(cellPhoneDisplay, cellPhoneCountry);
-            if (workPhoneDisplay.trim() && !wE) {
+            /* When pre-filling from an existing contact whose phone is already
+               stored in E.164, the display↔E.164 round-trip can fail for some
+               legacy formats. Fall back to the original initial value when the
+               user hasn't touched the field. */
+            const initialWorkRaw = initial?.workPhone ?? initial?.phone ?? "";
+            const initialCellRaw = initial?.cellPhone ?? "";
+            const wFinal = wE || (() => {
+              if (!workPhoneDisplay.trim() || !initialWorkRaw.startsWith("+")) return "";
+              const parsed = parsePhoneFieldValue(initialWorkRaw, DEFAULT_PHONE_COUNTRY, { noCountryWhenEmpty: true });
+              return workPhoneDisplay === parsed.display ? initialWorkRaw : "";
+            })();
+            const cFinal = cE || (() => {
+              if (!cellPhoneDisplay.trim() || !initialCellRaw.startsWith("+")) return "";
+              const parsed = parsePhoneFieldValue(initialCellRaw, DEFAULT_PHONE_COUNTRY, { noCountryWhenEmpty: true });
+              return cellPhoneDisplay === parsed.display ? initialCellRaw : "";
+            })();
+            if (workPhoneDisplay.trim() && !wFinal) {
               wErr = PHONE_INVALID_MESSAGE;
             }
-            if (cellPhoneDisplay.trim() && !cE) {
+            if (cellPhoneDisplay.trim() && !cFinal) {
               cErr = PHONE_INVALID_MESSAGE;
             }
             setWorkPhoneError(wErr);
@@ -2528,8 +2816,8 @@ function ContactFormDb({
                 firstName: firstName.trim(),
                 lastName: lastName.trim(),
                 email: email.trim(),
-                workPhone: hasWork ? wE! : isEditing ? null : undefined,
-                cellPhone: hasCell ? cE! : isEditing ? null : undefined,
+                workPhone: hasWork ? wFinal! : isEditing ? null : undefined,
+                cellPhone: hasCell ? cFinal! : isEditing ? null : undefined,
                 roleId: Number(roleId),
                 departmentId: Number(departmentId),
               };
@@ -3818,6 +4106,8 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
   const [showAddModal, setShowAddModal] = useState(false);
   const [drawerTab, setDrawerTab] = useState("Overview");
   const [showAddContact, setShowAddContact] = useState(false);
+  const [addContactMode, setAddContactMode] = useState<"choose" | "link" | "create">("choose");
+  const [linkPrefill, setLinkPrefill] = useState<Contact | null>(null);
   const [editContact, setEditContact] = useState<Contact | null>(null);
   const [contactPendingDelete, setContactPendingDelete] =
     useState<Contact | null>(null);
@@ -4829,26 +5119,91 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
               <div className="space-y-3">
                 <button
                   type="button"
-                  onClick={() => setShowAddContact(!showAddContact)}
+                  onClick={() => {
+                    setShowAddContact(!showAddContact);
+                    setAddContactMode("choose");
+                    setLinkPrefill(null);
+                  }}
                   className="text-ems-accent text-sm hover:underline"
                 >
                   + Add Contact
                 </button>
-                {showAddContact && lookupsQuery.data && (
+                {showAddContact && lookupsQuery.data && addContactMode === "choose" && (
+                  <div className="bg-elevated border border-border rounded-lg p-4 space-y-3">
+                    <p className="text-sm text-text-primary font-medium">How would you like to add a contact?</p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setAddContactMode("link")}
+                        className="flex-1 flex items-center justify-center gap-2 border border-border rounded-md px-3 py-2 text-sm hover:bg-hover hover:border-ems-accent transition-colors"
+                      >
+                        <Search className="h-4 w-4" />
+                        Link Existing
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAddContactMode("create")}
+                        className="flex-1 flex items-center justify-center gap-2 border border-border rounded-md px-3 py-2 text-sm hover:bg-hover hover:border-ems-accent transition-colors"
+                      >
+                        <UserPlus className="h-4 w-4" />
+                        Create New
+                      </button>
+                    </div>
+                    <div className="flex justify-end pt-2 border-t border-border">
+                      <button
+                        type="button"
+                        onClick={() => setShowAddContact(false)}
+                        className="text-text-secondary text-sm px-3 py-1.5 hover:text-text-primary"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {showAddContact && lookupsQuery.data && addContactMode === "link" && (
+                  <LinkExistingContactPanel
+                    onSelect={(c) => {
+                      setLinkPrefill({
+                        id: `ca-new`,
+                        firstName: c.firstName,
+                        lastName: c.lastName,
+                        email: c.email,
+                        phone: c.workPhone || "",
+                        workPhone: c.workPhone || "",
+                        cellPhone: c.cellPhone || "",
+                        roles: c.roleNames,
+                        status: "Active",
+                        contactId: c.contactId,
+                        roleId: c.roleIds?.[0],
+                        departmentId: c.departmentIds?.[0],
+                        roleIds: c.roleIds,
+                        departmentIds: c.departmentIds,
+                        departmentNames: c.departmentNames,
+                      } as Contact);
+                      setAddContactMode("create");
+                    }}
+                    onCancel={() => {
+                      setAddContactMode("choose");
+                      setLinkPrefill(null);
+                    }}
+                  />
+                )}
+                {showAddContact && lookupsQuery.data && addContactMode === "create" && (
                   <ContactFormDb
                     roles={roles}
                     departments={departments}
-                    onCancel={() => setShowAddContact(false)}
+                    initial={linkPrefill ?? undefined}
+                    onCancel={() => {
+                      setShowAddContact(false);
+                      setAddContactMode("choose");
+                      setLinkPrefill(null);
+                    }}
                     onSave={async (payload) => {
                       try {
                         const created = await createCompanyContact(
                           Number(selectedCompany.id),
                           payload,
                         );
-                        /**
-                         * Splice the brand-new contact into the drawer's contacts
-                         * cache directly — no refetch, no drawer flicker.
-                         */
                         const mapped = mapContactRow(
                           created as ApiCompanyContact,
                           String(selectedCompany.id),
@@ -4870,6 +5225,8 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                           exact: true,
                         });
                         setShowAddContact(false);
+                        setAddContactMode("choose");
+                        setLinkPrefill(null);
                         addToast("Contact added to this company.", "success");
                       } catch (e) {
                         addToast(

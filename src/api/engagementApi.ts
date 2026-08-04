@@ -362,6 +362,9 @@ export type UpdateEngagementFinancePayload = {
     | 'CoPro'
     | '3rd Party Renting Venue'
     | 'Silent CoPro with Venue'
+    | 'CoPro with 3rd Party'
+    | 'CoPro with 3rd Party, 3rd Party Renting Venue'
+    | 'Silent CoPro with 3rd Party, 3rd Party Renting Venue'
     | null;
   thirdPartyPartnerDealStructure?:
     | 'CoPro with 3rd Party'
@@ -1157,9 +1160,11 @@ export interface ApiTravelHotelRow {
 
 export interface ApiEngagementTravelRow {
   engagementTravelId: number;
-  travelType: 'Hotel' | 'Car';
+  travelType: string;
   hotel: ApiTravelHotelRow | null;
   carServices: ApiTravelCarServiceRow[];
+  iaePays?: boolean | null;
+  iaeArranges?: boolean | null;
 }
 
 export interface CreateTravelHotelPayload {
@@ -1183,6 +1188,62 @@ export interface CreateTravelCarServicePayload {
 
 export const fetchEngagementTravel = (engagementId: number) =>
   apiFetch<ApiEngagementTravelRow[]>(`/engagements/${engagementId}/travel`);
+
+export interface ApiTravelDrillBitsRow {
+  travelType: string;
+  iaePays: boolean | null;
+  iaeArranges: boolean | null;
+}
+
+export const upsertTravelDrillBits = (engagementId: number, travelTypes: ApiTravelDrillBitsRow[]) =>
+  apiFetch<void>(`/engagements/${engagementId}/travel/drillbits`, {
+    method: 'PUT',
+    body: JSON.stringify({ travelTypes }),
+  });
+
+// ─── Equipment Rentals ─────────────────────────────────────────────────────────
+
+export interface ApiEquipmentRentalTypeRow {
+  equipmentRentalTypeId: number;
+  typeName: string;
+}
+
+export const fetchEquipmentRentalTypes = () =>
+  apiFetch<ApiEquipmentRentalTypeRow[]>('/engagements/equipment-rental-types');
+
+export interface ApiEquipmentRentalRow {
+  equipmentRentalTypeId: number;
+  budgetAmount: number | null;
+}
+
+export const fetchEquipmentRentals = (engagementId: number) =>
+  apiFetch<ApiEquipmentRentalRow[]>(`/engagements/${engagementId}/equipment-rentals`);
+
+export const upsertEquipmentRentals = (engagementId: number, items: ApiEquipmentRentalRow[]) =>
+  apiFetch<void>(`/engagements/${engagementId}/equipment-rentals`, {
+    method: 'PUT',
+    body: JSON.stringify({ items }),
+  });
+
+// ─── Production Miscellaneous ──────────────────────────────────────────────────
+
+export interface ApiProductionMisc {
+  runnerRequired: boolean | null;
+  cateringRequired: boolean | null;
+  cateringBudgetLineItem: string | null;
+  productionBuyoutRequired: boolean | null;
+  productionBuyoutDescription: string | null;
+  productionBuyoutBudgetAmount: number | null;
+}
+
+export const fetchProductionMisc = (engagementId: number) =>
+  apiFetch<ApiProductionMisc>(`/engagements/${engagementId}/production-misc`);
+
+export const updateProductionMisc = (engagementId: number, body: ApiProductionMisc) =>
+  apiFetch<void>(`/engagements/${engagementId}/production-misc`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
 
 export const addEngagementTravelHotel = (engagementId: number, body: CreateTravelHotelPayload) =>
   apiFetch<{ engagementTravelId: number; hotelTravelId: number }>(
