@@ -124,3 +124,12 @@ export type DepartmentRoleContactUsage = {
 export function fetchDepartmentRoleContactUsage(departmentId: number) {
   return apiFetch<DepartmentRoleContactUsage[]>(`/lookups/department-roles/${departmentId}/contact-usage`);
 }
+
+export type CompanyTypeServiceUsage = {
+  companyName: string;
+  serviceName: string;
+};
+
+export function fetchCompanyTypeServiceUsage(companyTypeId: number) {
+  return apiFetch<CompanyTypeServiceUsage[]>(`/lookups/company-type-services/${companyTypeId}/company-usage`);
+}
