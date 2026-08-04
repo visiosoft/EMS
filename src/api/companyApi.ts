@@ -40,6 +40,7 @@ export interface ApiCompanyListRow {
 export interface ApiCompanyType { companyTypeId: number; companyTypeName: string; }
 export interface ApiRole { roleId: number; roleName: string; }
 export interface ApiDepartment { departmentId: number; departmentName: string; }
+export interface ApiDepartmentRoleMapping { departmentRoleId: number; departmentId: number; roleId: number; departmentName: string; roleName: string; }
 export interface ApiSeatingType { seatingTypeId: number; seatingName: string; }
 export interface ApiVenueType { venueTypeId: number; venueTypeName: string; }
 export interface ApiBrand { brandId: number; brandName: string; }
@@ -93,6 +94,10 @@ export interface ApiCompanyContact {
   roleName: string;
   departmentId: number;
   departmentName: string;
+  /** Populated after grouping — all role IDs for this contact+company. */
+  roleIds?: number[];
+  /** Populated after grouping — all department IDs for this contact+company. */
+  departmentIds?: number[];
 }
 
 /** One company link for a managed contact, with roles/departments scoped to that company. */
@@ -315,31 +320,37 @@ function installContactDepartmentColumnPatch() {}
 
 function groupApiCompanyContacts(rows: ApiCompanyContact[]): ApiCompanyContact[] {
   rememberContactDepartments(rows);
-  const groups = new Map<string, ApiCompanyContact & { roleNames?: string[]; departmentNames?: string[] }>();
+  const groups = new Map<string, ApiCompanyContact & { roleNames?: string[]; departmentNames?: string[]; _roleIds?: number[]; _departmentIds?: number[] }>();
   for (const row of rows) {
     const key = row.contactId && row.contactId > 0
       ? `contact:${row.contactId}`
       : `email:${normalizeContactEmail(row.email)}|name:${normalizeContactText(row.firstName).toLowerCase()} ${normalizeContactText(row.lastName).toLowerCase()}`;
     const existing = groups.get(key);
     if (!existing) {
-      const copy = { ...row, roleNames: [], departmentNames: [] };
+      const copy = { ...row, roleNames: [] as string[], departmentNames: [] as string[], _roleIds: [] as number[], _departmentIds: [] as number[] };
       uniqueAdd(copy.roleNames!, row.roleName);
       uniqueAdd(copy.departmentNames!, row.departmentName);
+      if (row.roleId && !copy._roleIds.includes(row.roleId)) copy._roleIds.push(row.roleId);
+      if (row.departmentId && !copy._departmentIds.includes(row.departmentId)) copy._departmentIds.push(row.departmentId);
       groups.set(key, copy);
       continue;
     }
     uniqueAdd(existing.roleNames!, row.roleName);
     uniqueAdd(existing.departmentNames!, row.departmentName);
+    if (row.roleId && !existing._roleIds!.includes(row.roleId)) existing._roleIds!.push(row.roleId);
+    if (row.departmentId && !existing._departmentIds!.includes(row.departmentId)) existing._departmentIds!.push(row.departmentId);
     if ((row.contactAssignmentId ?? 0) < (existing.contactAssignmentId ?? Number.MAX_SAFE_INTEGER)) {
       existing.contactAssignmentId = row.contactAssignmentId;
     }
   }
   const grouped = Array.from(groups.values()).map((row) => {
-    const { roleNames, departmentNames, ...rest } = row;
+    const { roleNames, departmentNames, _roleIds, _departmentIds, ...rest } = row;
     return {
       ...rest,
       roleName: (roleNames ?? []).join(CONTACT_VALUE_SEPARATOR),
       departmentName: (departmentNames ?? []).join(CONTACT_VALUE_SEPARATOR),
+      roleIds: _roleIds ?? [],
+      departmentIds: _departmentIds ?? [],
     };
   });
   rememberContactDepartments(grouped);
@@ -543,6 +554,10 @@ export function fetchLookups() {
     apiFetch<ApiStagehandProviderCompany[]>('/lookups/stagehand-providers'),
     apiFetch<ApiNonResidentWithholdingOption[]>('/lookups/non-resident-withholdings'),
   ]).then(([companyTypes, roles, departments, seatingTypes, venueTypes, brands, taxes, servicesProvided, stagehandProviders, nonResidentWithholdings]) => ({ companyTypes, roles, departments, seatingTypes, venueTypes, brands, taxes, servicesProvided, stagehandProviders, nonResidentWithholdings }));
+}
+
+export function fetchDepartmentRoleMappings() {
+  return apiFetch<ApiDepartmentRoleMapping[]>('/lookups/department-roles');
 }
 
 export function fetchServicesAllowedForCompanyTypes(companyTypeIds: number[]) {

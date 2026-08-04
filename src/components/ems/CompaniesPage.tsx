@@ -49,6 +49,7 @@ import {
   fetchCompanyEngagements,
   fetchCompanyLinks,
   type ApiCompanyLinks,
+  fetchDepartmentRoleMappings,
   fetchDmaByPostal,
   fetchDmaMarketsPage,
   fetchLookups,
@@ -57,6 +58,7 @@ import {
   updateContactAssignment,
   type ApiCompanyListRow,
   type ApiDepartment,
+  type ApiDepartmentRoleMapping,
   type ApiRole,
   type ApiSeatingType,
   type ApiCompanyVenueLinkedContactsSection,
@@ -2338,6 +2340,8 @@ function mapContactRow(
     roleName: string;
     departmentId: number;
     departmentName: string;
+    roleIds?: number[];
+    departmentIds?: number[];
   },
   companyId: string,
 ): Contact {
@@ -2361,7 +2365,9 @@ function mapContactRow(
     workPhone: row.workPhone || "",
     cellPhone: row.cellPhone || undefined,
     roleId: row.roleId,
+    roleIds: row.roleIds ?? (row.roleId ? [row.roleId] : []),
     departmentId: row.departmentId,
+    departmentIds: row.departmentIds ?? (row.departmentId ? [row.departmentId] : []),
     departmentName: row.departmentName,
   };
 }
@@ -2489,6 +2495,7 @@ function LinkExistingContactPanel({
 function ContactFormDb({
   roles,
   departments,
+  departmentRoleMappings,
   companies,
   onSave,
   onCancel,
@@ -2496,6 +2503,7 @@ function ContactFormDb({
 }: {
   roles: ApiRole[];
   departments: ApiDepartment[];
+  departmentRoleMappings: ApiDepartmentRoleMapping[];
   companies?: ApiCompanyListRow[];
   onSave: (payload: {
     firstName: string;
@@ -2504,8 +2512,10 @@ function ContactFormDb({
     /** Omitted on create when empty; `null` on edit clears the stored value. */
     cellPhone?: string | null;
     workPhone?: string | null;
-    roleId: number;
-    departmentId: number;
+    roleId?: number;
+    roleIds?: number[];
+    departmentId?: number;
+    departmentIds?: number[];
     companyId?: number;
   }) => void | Promise<void>;
   onCancel: () => void;
@@ -2556,12 +2566,20 @@ function ContactFormDb({
   });
   const [workPhoneError, setWorkPhoneError] = useState<string | undefined>();
   const [cellPhoneError, setCellPhoneError] = useState<string | undefined>();
-  const [roleId, setRoleId] = useState(
-    initial?.roleId != null ? String(initial.roleId) : "",
+  const [departmentIds, setDepartmentIds] = useState<string[]>(
+    initial?.departmentIds?.length ? initial.departmentIds.map(String) : initial?.departmentId != null ? [String(initial.departmentId)] : [],
   );
-  const [departmentId, setDepartmentId] = useState(
-    initial?.departmentId != null ? String(initial.departmentId) : "",
-  );
+  const [roleIds, setRoleIds] = useState<string[]>(() => {
+    const allRoleIds = initial?.roleIds?.length ? initial.roleIds : initial?.roleId != null ? [initial.roleId] : [];
+    const deptIds = initial?.departmentIds?.length ? initial.departmentIds : initial?.departmentId != null ? [initial.departmentId] : [];
+    if (!allRoleIds.length || !deptIds.length) return [];
+    const mapped = new Set(
+      departmentRoleMappings
+        .filter((m) => deptIds.includes(m.departmentId))
+        .map((m) => m.roleId),
+    );
+    return allRoleIds.filter((id) => mapped.has(id)).map(String);
+  });
   const [companyId, setCompanyId] = useState(
     initial?.companyId != null ? String(initial.companyId) : "",
   );
@@ -2595,10 +2613,19 @@ function ContactFormDb({
     });
     setCellPhoneCountry(c.country || DEFAULT_PHONE_COUNTRY);
     setCellPhoneDisplay(c.display);
-    setRoleId(initial?.roleId != null ? String(initial.roleId) : "");
-    setDepartmentId(
-      initial?.departmentId != null ? String(initial.departmentId) : "",
-    );
+    const deptIds = initial?.departmentIds?.length ? initial.departmentIds : initial?.departmentId != null ? [initial.departmentId] : [];
+    setDepartmentIds(deptIds.map(String));
+    const allRoleIds = initial?.roleIds?.length ? initial.roleIds : initial?.roleId != null ? [initial.roleId] : [];
+    if (deptIds.length && allRoleIds.length) {
+      const mapped = new Set(
+        departmentRoleMappings
+          .filter((m) => deptIds.includes(m.departmentId))
+          .map((m) => m.roleId),
+      );
+      setRoleIds(allRoleIds.filter((id) => mapped.has(id)).map(String));
+    } else {
+      setRoleIds([]);
+    }
     setCompanyId(initial?.companyId != null ? String(initial.companyId) : "");
   }, [initial]);
 
@@ -2606,12 +2633,21 @@ function ContactFormDb({
     "w-full min-w-0 cursor-text bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent";
 
   const roleOpts = useMemo(
-    () =>
-      (roles ?? []).map((r) => ({
-        value: String(r.roleId),
-        label: r.roleName,
-      })),
-    [roles],
+    () => {
+      if (departmentIds.length === 0) return [];
+      const allowedRoleIds = new Set(
+        departmentRoleMappings
+          .filter((m) => departmentIds.includes(String(m.departmentId)))
+          .map((m) => m.roleId),
+      );
+      return (roles ?? [])
+        .filter((r) => allowedRoleIds.has(r.roleId))
+        .map((r) => ({
+          value: String(r.roleId),
+          label: r.roleName,
+        }));
+    },
+    [roles, departmentIds, departmentRoleMappings],
   );
   const deptOpts = useMemo(
     () =>
@@ -2711,31 +2747,36 @@ function ContactFormDb({
           }}
           error={cellPhoneError}
         />
-        <FormField label="Role" required error={fieldErrors.role}>
-          <Select2
-            options={[{ value: "", label: "Select role…" }, ...roleOpts]}
-            value={roleId}
+        <FormField label="Department" required error={fieldErrors.department}>
+          <Select2Multi
+            options={deptOpts}
+            values={departmentIds}
             onChange={(v) => {
-              setRoleId(v);
-              setFieldErrors((prev) => ({ ...prev, role: undefined }));
+              setDepartmentIds(v);
+              // Remove roles no longer valid for the new department selection
+              const allowedRoleIds = new Set(
+                departmentRoleMappings
+                  .filter((m) => v.includes(String(m.departmentId)))
+                  .map((m) => String(m.roleId)),
+              );
+              setRoleIds((prev) => prev.filter((r) => allowedRoleIds.has(r)));
+              setFieldErrors((prev) => ({ ...prev, department: undefined }));
             }}
+            placeholder="Select one or more departments…"
           />
         </FormField>
-        <div className="sm:col-span-2">
-          <FormField label="Department" required error={fieldErrors.department}>
-            <Select2
-              options={[
-                { value: "", label: "Select department…" },
-                ...deptOpts,
-              ]}
-              value={departmentId}
-              onChange={(v) => {
-                setDepartmentId(v);
-                setFieldErrors((prev) => ({ ...prev, department: undefined }));
-              }}
-            />
-          </FormField>
-        </div>
+        <FormField label="Role" required error={fieldErrors.role}>
+          <Select2Multi
+            options={roleOpts}
+            values={roleIds}
+            disabled={departmentIds.length === 0}
+            onChange={(v) => {
+              setRoleIds(v);
+              setFieldErrors((prev) => ({ ...prev, role: undefined }));
+            }}
+            placeholder={departmentIds.length > 0 ? "Select one or more roles…" : "Select department first…"}
+          />
+        </FormField>
       </div>
       <div className="flex gap-2 justify-end pt-2 border-t border-border">
         <button
@@ -2760,8 +2801,8 @@ function ContactFormDb({
             if (!firstName.trim()) next.firstName = "First name is required.";
             if (!lastName.trim()) next.lastName = "Last name is required.";
             if (!email.trim()) next.email = "Email is required.";
-            if (!roleId) next.role = "Select a role.";
-            if (!departmentId) next.department = "Select a department.";
+            if (roleIds.length === 0) next.role = "Select at least one role.";
+            if (departmentIds.length === 0) next.department = "Select at least one department.";
             if (Object.keys(next).length > 0) {
               setFieldErrors(next);
               return;
@@ -2818,8 +2859,8 @@ function ContactFormDb({
                 email: email.trim(),
                 workPhone: hasWork ? wFinal! : isEditing ? null : undefined,
                 cellPhone: hasCell ? cFinal! : isEditing ? null : undefined,
-                roleId: Number(roleId),
-                departmentId: Number(departmentId),
+                roleIds: roleIds.map(Number).filter((id) => id > 0),
+                departmentIds: departmentIds.map(Number).filter((id) => id > 0),
               };
               if (companyId && initial?.companyId && String(initial.companyId) !== companyId) {
                 savePayload.companyId = Number(companyId);
@@ -4371,6 +4412,12 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
     lookupsQuery.data?.nonResidentWithholdings ?? [];
   const roles: ApiRole[] = lookupsQuery.data?.roles ?? [];
   const departments: ApiDepartment[] = lookupsQuery.data?.departments ?? [];
+  const departmentRoleMappingsQuery = useQuery({
+    queryKey: ['lookups', 'department-role-mappings'],
+    queryFn: fetchDepartmentRoleMappings,
+    staleTime: 10 * 60 * 1000,
+  });
+  const departmentRoleMappings: ApiDepartmentRoleMapping[] = departmentRoleMappingsQuery.data ?? [];
 
   const typeOptions = useMemo(() => {
     const lookupTypes = lookupsQuery.data?.companyTypes ?? [];
@@ -5192,6 +5239,7 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
                   <ContactFormDb
                     roles={roles}
                     departments={departments}
+                    departmentRoleMappings={departmentRoleMappings}
                     initial={linkPrefill ?? undefined}
                     onCancel={() => {
                       setShowAddContact(false);
@@ -5585,6 +5633,7 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
             key={editContact.contactAssignmentId ?? editContact.id}
             roles={roles}
             departments={departments}
+            departmentRoleMappings={departmentRoleMappings}
             companies={companiesPickerQuery.data ?? []}
             initial={editContact}
             onCancel={() => setEditContact(null)}

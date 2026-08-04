@@ -84,6 +84,11 @@ export class LookupsController {
     return this.lookupsService.findStagehandProviders();
   }
 
+  @Get('department-roles')
+  departmentRoles() {
+    return this.lookupsService.findDepartmentRoles();
+  }
+
   @Get('non-resident-withholdings')
   nonResidentWithholdings() {
     return this.lookupsService.findNonResidentWithholdings();

@@ -10,6 +10,7 @@ export type LookupManageTableKey =
   | 'brands'
   | 'company-services'
   | 'company-type-services'
+  | 'department-roles'
   | 'services-provided'
   | 'dmas';
 
@@ -66,8 +67,11 @@ export type LookupManageCreatePayload = {
   name?: string;
   companyId?: number;
   companyTypeId?: number;
+  departmentId?: number;
   serviceProvidedId?: number;
   serviceProvidedIds?: number[];
+  roleId?: number;
+  roleIds?: number[];
   postalCode?: string;
 };
 
@@ -85,8 +89,11 @@ export type LookupManageUpdatePayload = {
   name?: string;
   companyId?: number;
   companyTypeId?: number;
+  departmentId?: number;
   serviceProvidedId?: number;
   serviceProvidedIds?: number[];
+  roleId?: number;
+  roleIds?: number[];
   postalCode?: string;
 };
 
