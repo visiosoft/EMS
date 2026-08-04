@@ -49,6 +49,8 @@ import {
   type LookupManageUpdatePayload,
   type LookupManageListResponse,
   updateLookupManageRow,
+  fetchDepartmentRoleContactUsage,
+  type DepartmentRoleContactUsage,
 } from '@/api/lookupManagementApi';
 import {
   AlertDialog,
@@ -1305,6 +1307,7 @@ export function SettingsPage({
   const [showAddLookup, setShowAddLookup] = useState(false);
   const [editLookupRow, setEditLookupRow] = useState<LookupManageRow | null>(null);
   const [deleteLookupRow, setDeleteLookupRow] = useState<LookupManageRow | null>(null);
+  const [deleteContactUsage, setDeleteContactUsage] = useState<DepartmentRoleContactUsage[] | null>(null);
   const [selectedLookupRow, setSelectedLookupRow] = useState<LookupManageRow | null>(null);
   const [detailsTab, setDetailsTab] = useState('Overview');
   const [directoryPermissionBusy, setDirectoryPermissionBusy] = useState(false);
@@ -1928,6 +1931,17 @@ export function SettingsPage({
       }
     },
   });
+
+  useEffect(() => {
+    if (!deleteLookupRow || activeLookupKey !== 'department-roles') {
+      setDeleteContactUsage(null);
+      return;
+    }
+    const deptId = getRowId(deleteLookupRow, activeLookupConfig);
+    if (!deptId) return;
+    setDeleteContactUsage(null);
+    fetchDepartmentRoleContactUsage(deptId).then(setDeleteContactUsage).catch(() => setDeleteContactUsage(null));
+  }, [deleteLookupRow, activeLookupKey, activeLookupConfig]);
 
   const lookupRows = lookupListQuery.data?.data ?? [];
   const lookupDisplayRows = useMemo(() => {
@@ -2794,6 +2808,21 @@ export function SettingsPage({
               from the database. If something blocks the removal, you’ll see a short
               explanation right after you confirm.
             </AlertDialogDescription>
+            {activeLookupKey === 'department-roles' && deleteContactUsage != null && deleteContactUsage.length > 0 && (
+              <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+                <p className="font-medium mb-1">
+                  Warning: {deleteContactUsage.length} contact{deleteContactUsage.length === 1 ? '' : 's'} currently use{deleteContactUsage.length === 1 ? 's' : ''} this mapping:
+                </p>
+                <ul className="max-h-40 overflow-y-auto space-y-0.5 pl-4 list-disc text-xs">
+                  {deleteContactUsage.map((c, i) => (
+                    <li key={i}>
+                      {c.firstName} {c.lastName} — {c.roleName} @ {c.companyName}{c.source === 'IAE' ? ' (IAE)' : ''}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1 text-xs opacity-80">Removing the mapping won't delete these contacts, but the role will no longer appear in filtered dropdowns.</p>
+              </div>
+            )}
           </AlertDialogHeader>
           {deleteLookupMut.isPending && (
             <div
@@ -2818,7 +2847,7 @@ export function SettingsPage({
             <Button
               type="button"
               variant="destructive"
-              disabled={deleteLookupMut.isPending}
+              disabled={deleteLookupMut.isPending || (activeLookupKey === 'department-roles' && deleteContactUsage === null)}
               className="bg-ems-coral text-white hover:bg-ems-coral/90 sm:ml-0"
               onClick={() => void confirmDeleteLookup()}
             >

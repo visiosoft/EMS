@@ -30,6 +30,7 @@ import { EngagementProjectVenue } from '../entities/engagement-project-venue.ent
 import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { Department } from '../entities/department.entity';
 import { Role } from '../entities/role.entity';
+import { DepartmentRole } from '../entities/department-role.entity';
 import { Tour } from '../entities/tour.entity';
 import { EngagementIAEContact } from '../entities/engagement-iae-contact.entity';
 import { TourTalentAgent } from '../entities/tour-talent-agent.entity';
@@ -3653,14 +3654,29 @@ export class CompanyService {
       }
     }
 
-    // The desired end state, as one row per company × role × department triple.
+    // The desired end state: only (company, role, dept) triples where (dept, role) exists in DepartmentRole.
+    const allRoleIds = [...new Set(normalized.flatMap((a) => a.roleIdList))];
+    const allDeptIds = [...new Set(normalized.flatMap((a) => a.departmentIdList))];
+    const validPairs = await em.find(DepartmentRole, {
+      where: { departmentId: In(allDeptIds), roleId: In(allRoleIds) },
+    });
+    const validPairSet = new Set(validPairs.map((p) => `${p.roleId}:${p.departmentId}`));
+
     const desired = new Set<string>();
     for (const assignment of normalized) {
       for (const roleId of assignment.roleIdList) {
         for (const departmentId of assignment.departmentIdList) {
-          desired.add(`${assignment.companyId}:${roleId}:${departmentId}`);
+          if (validPairSet.has(`${roleId}:${departmentId}`)) {
+            desired.add(`${assignment.companyId}:${roleId}:${departmentId}`);
+          }
         }
       }
+    }
+
+    if (desired.size === 0) {
+      throw new BadRequestException({
+        message: 'None of the selected role/department combinations exist in the DepartmentRole mappings.',
+      });
     }
 
     // Diff rather than delete-all-and-reinsert: ContactAssignmentID is referenced by
@@ -4246,6 +4262,15 @@ export class CompanyService {
       await this.ensureRole(dto.roleId, em);
       await this.ensureDepartment(dto.departmentId, em);
 
+      const validPair = await em.findOne(DepartmentRole, {
+        where: { departmentId: dto.departmentId, roleId: dto.roleId },
+      });
+      if (!validPair) {
+        throw new BadRequestException({
+          message: 'The selected role is not mapped to the selected department.',
+        });
+      }
+
       const email = dto.email.trim();
       const existingInfo = await em
         .createQueryBuilder(ContactInfo, 'ci')
@@ -4519,6 +4544,19 @@ export class CompanyService {
 
       if (dto.roleId !== undefined) asg.roleId = dto.roleId;
       if (dto.departmentId !== undefined) asg.departmentId = dto.departmentId;
+
+      // Validate the final (dept, role) pair exists in DepartmentRole
+      if (dto.roleId !== undefined || dto.departmentId !== undefined) {
+        const validPair = await em.findOne(DepartmentRole, {
+          where: { departmentId: asg.departmentId, roleId: asg.roleId },
+        });
+        if (!validPair) {
+          throw new BadRequestException({
+            message: 'The selected role is not mapped to the selected department.',
+          });
+        }
+      }
+
       if (dto.companyId !== undefined && dto.companyId !== asg.companyId) {
         const duplicateAssignment = await asgRepo.findOne({
           where: {
