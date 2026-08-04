@@ -111,3 +111,16 @@ export function updateLookupManageRow(
 export function deleteLookupManageRow(table: LookupManageTableKey, id: number) {
   return apiFetch<void>(`/lookups/manage/${table}/${id}`, { method: 'DELETE' });
 }
+
+export type DepartmentRoleContactUsage = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  roleName: string;
+  companyName: string;
+  source: string;
+};
+
+export function fetchDepartmentRoleContactUsage(departmentId: number) {
+  return apiFetch<DepartmentRoleContactUsage[]>(`/lookups/department-roles/${departmentId}/contact-usage`);
+}

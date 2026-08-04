@@ -28,6 +28,7 @@ import { ContactInfo } from '../entities/contact-info.entity';
 import { Contact } from '../entities/contact.entity';
 import { Role } from '../entities/role.entity';
 import { Department } from '../entities/department.entity';
+import { DepartmentRole } from '../entities/department-role.entity';
 
 class UpdateContactAssignmentBulkDto {
   @IsOptional()
@@ -246,19 +247,26 @@ export class ContactAssignmentBulkUpdateController {
         await assignmentRepo.delete({ companyId, contactId: targetContactId });
       }
 
+      // Only create assignments for (dept, role) pairs that exist in DepartmentRole
+      const validPairs = await em.find(DepartmentRole, {
+        where: { departmentId: In(departmentIds), roleId: In(roleIds) },
+      });
+      if (validPairs.length === 0)
+        throw new BadRequestException({
+          message: 'None of the selected role/department combinations exist in the DepartmentRole mappings.',
+        });
+
       const createdIds: number[] = [];
-      for (const roleId of roleIds) {
-        for (const departmentId of departmentIds) {
-          const saved = await assignmentRepo.save(
-            assignmentRepo.create({
-              companyId,
-              contactId: targetContactId,
-              roleId,
-              departmentId,
-            }),
-          );
-          createdIds.push(saved.contactAssignmentId);
-        }
+      for (const pair of validPairs) {
+        const saved = await assignmentRepo.save(
+          assignmentRepo.create({
+            companyId,
+            contactId: targetContactId,
+            roleId: pair.roleId,
+            departmentId: pair.departmentId,
+          }),
+        );
+        createdIds.push(saved.contactAssignmentId);
       }
 
       if (targetContactId !== oldContactId) {

@@ -24,6 +24,8 @@ import { CompanyService as CompanyServiceEntity } from '../entities/company-serv
 import { CompanyTypeService } from '../entities/company-type-service.entity';
 import { DepartmentRole } from '../entities/department-role.entity';
 import { Company } from '../entities/company.entity';
+import { ContactAssignment } from '../entities/contact-assignment.entity';
+import { EngagementIAEContact } from '../entities/engagement-iae-contact.entity';
 import { NonResidentWithholding } from '../entities/non-resident-withholding.entity';
 import {
   CreateLookupRowDto,
@@ -184,6 +186,63 @@ export class LookupsService {
       roleId: Number(r.roleId),
       departmentName: String(r.departmentName ?? ''),
       roleName: String(r.roleName ?? ''),
+    }));
+  }
+
+  async getContactsUsingDepartmentRoles(departmentId: number) {
+    const mappings = await this.departmentRoleRepo.find({ where: { departmentId } });
+    if (mappings.length === 0) return [];
+    const roleIds = mappings.map((m) => m.roleId);
+    const em = this.departmentRoleRepo.manager;
+
+    // Company contact assignments
+    const caRows = await em.getRepository(ContactAssignment)
+      .createQueryBuilder('ca')
+      .innerJoin('ca.contact', 'ct')
+      .innerJoin('ct.contactInfo', 'ci')
+      .innerJoin('ca.role', 'r')
+      .innerJoin('ca.company', 'co')
+      .where('ca.departmentId = :departmentId', { departmentId })
+      .andWhere('ca.roleId IN (:...roleIds)', { roleIds })
+      .select([
+        'ci.firstName AS firstName',
+        'ci.lastName AS lastName',
+        'ci.email AS email',
+        'r.roleName AS roleName',
+        'co.companyName AS companyName',
+        `'Company' AS source`,
+      ])
+      .getRawMany();
+
+    // IAE engagement contacts
+    const iaeRawRows: Record<string, unknown>[] = await em.query(
+      `SELECT ci.FirstName AS firstName, ci.LastName AS lastName, ci.Email AS email,
+              r.RoleName AS roleName, t.TourName AS companyName, 'IAE' AS source
+       FROM dbo.EngagementIAEContact eic
+       INNER JOIN dbo.Contact ct ON ct.ContactID = eic.ContactID
+       INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = ct.ContactInfoID
+       INNER JOIN dbo.Role r ON r.RoleID = eic.RoleID
+       INNER JOIN dbo.Engagement e ON e.EngagementID = eic.EngagementID
+       INNER JOIN dbo.Tour t ON t.TourID = e.TourID
+       WHERE eic.DepartmentID = @0
+         AND eic.RoleID IN (${roleIds.map((_, i) => `@${i + 1}`).join(', ')})`,
+      [departmentId, ...roleIds],
+    );
+
+    const allRows = [...caRows, ...iaeRawRows];
+    allRows.sort((a, b) => {
+      const aName = String(a['lastName'] ?? a['lastname'] ?? '').toLowerCase();
+      const bName = String(b['lastName'] ?? b['lastname'] ?? '').toLowerCase();
+      return aName.localeCompare(bName);
+    });
+
+    return allRows.map((r: Record<string, unknown>) => ({
+      firstName: String(r['firstName'] ?? r['firstname'] ?? ''),
+      lastName: String(r['lastName'] ?? r['lastname'] ?? ''),
+      email: String(r['email'] ?? ''),
+      roleName: String(r['roleName'] ?? r['rolename'] ?? ''),
+      companyName: String(r['companyName'] ?? r['companyname'] ?? ''),
+      source: String(r['source'] ?? ''),
     }));
   }
 
