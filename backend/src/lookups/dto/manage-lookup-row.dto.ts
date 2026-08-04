@@ -37,6 +37,12 @@ export class CreateLookupRowDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  departmentId?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   serviceProvidedId?: number;
 
   @IsOptional()
@@ -46,6 +52,20 @@ export class CreateLookupRowDto {
   @IsInt({ each: true })
   @Min(1, { each: true })
   serviceProvidedIds?: number[];
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  roleId?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @Type(() => Number)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  roleIds?: number[];
 
   @IsOptional()
   @IsString()
@@ -75,6 +95,12 @@ export class UpdateLookupRowDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  departmentId?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   serviceProvidedId?: number;
 
   @IsOptional()
@@ -84,6 +110,20 @@ export class UpdateLookupRowDto {
   @IsInt({ each: true })
   @Min(1, { each: true })
   serviceProvidedIds?: number[];
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  roleId?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @Type(() => Number)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  roleIds?: number[];
 
   @IsOptional()
   @IsString()

@@ -84,6 +84,21 @@ export class LookupsController {
     return this.lookupsService.findStagehandProviders();
   }
 
+  @Get('department-roles')
+  departmentRoles() {
+    return this.lookupsService.findDepartmentRoles();
+  }
+
+  @Get('department-roles/:departmentId/contact-usage')
+  departmentRoleContactUsage(@Param('departmentId', ParseIntPipe) departmentId: number) {
+    return this.lookupsService.getContactsUsingDepartmentRoles(departmentId);
+  }
+
+  @Get('company-type-services/:companyTypeId/company-usage')
+  companyTypeServiceUsage(@Param('companyTypeId', ParseIntPipe) companyTypeId: number) {
+    return this.lookupsService.getCompaniesUsingCompanyTypeServices(companyTypeId);
+  }
+
   @Get('non-resident-withholdings')
   nonResidentWithholdings() {
     return this.lookupsService.findNonResidentWithholdings();

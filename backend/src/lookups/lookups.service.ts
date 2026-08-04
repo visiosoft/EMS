@@ -22,7 +22,10 @@ import { ServiceProvided } from '../entities/service-provided.entity';
 import { Tax } from '../entities/tax.entity';
 import { CompanyService as CompanyServiceEntity } from '../entities/company-service.entity';
 import { CompanyTypeService } from '../entities/company-type-service.entity';
+import { DepartmentRole } from '../entities/department-role.entity';
 import { Company } from '../entities/company.entity';
+import { ContactAssignment } from '../entities/contact-assignment.entity';
+import { EngagementIAEContact } from '../entities/engagement-iae-contact.entity';
 import { NonResidentWithholding } from '../entities/non-resident-withholding.entity';
 import {
   CreateLookupRowDto,
@@ -39,6 +42,7 @@ type ManagedLookupTable =
   | 'brands'
   | 'company-services'
   | 'company-type-services'
+  | 'department-roles'
   | 'services-provided'
   | 'dmas';
 
@@ -71,6 +75,8 @@ export class LookupsService {
     private readonly companyServiceRepo: Repository<CompanyServiceEntity>,
     @InjectRepository(CompanyTypeService)
     private readonly companyTypeServiceRepo: Repository<CompanyTypeService>,
+    @InjectRepository(DepartmentRole)
+    private readonly departmentRoleRepo: Repository<DepartmentRole>,
     @InjectRepository(Company)
     private readonly companyRepo: Repository<Company>,
     @InjectRepository(NonResidentWithholding)
@@ -157,6 +163,108 @@ export class LookupsService {
 
   findDepartments() {
     return this.departmentRepo.find({ order: { departmentName: 'ASC' } });
+  }
+
+  async findDepartmentRoles() {
+    const rows = await this.departmentRoleRepo
+      .createQueryBuilder('dr')
+      .leftJoin(Department, 'd', 'd.departmentId = dr.departmentId')
+      .leftJoin(Role, 'r', 'r.roleId = dr.roleId')
+      .select([
+        'dr.departmentRoleId AS departmentRoleId',
+        'dr.departmentId AS departmentId',
+        'dr.roleId AS roleId',
+        'd.departmentName AS departmentName',
+        'r.roleName AS roleName',
+      ])
+      .orderBy('d.departmentName', 'ASC')
+      .addOrderBy('r.roleName', 'ASC')
+      .getRawMany<Record<string, unknown>>();
+    return rows.map((r) => ({
+      departmentRoleId: Number(r.departmentRoleId),
+      departmentId: Number(r.departmentId),
+      roleId: Number(r.roleId),
+      departmentName: String(r.departmentName ?? ''),
+      roleName: String(r.roleName ?? ''),
+    }));
+  }
+
+  async getContactsUsingDepartmentRoles(departmentId: number) {
+    const mappings = await this.departmentRoleRepo.find({ where: { departmentId } });
+    if (mappings.length === 0) return [];
+    const roleIds = mappings.map((m) => m.roleId);
+    const em = this.departmentRoleRepo.manager;
+
+    // Company contact assignments
+    const caRows = await em.getRepository(ContactAssignment)
+      .createQueryBuilder('ca')
+      .innerJoin('ca.contact', 'ct')
+      .innerJoin('ct.contactInfo', 'ci')
+      .innerJoin('ca.role', 'r')
+      .innerJoin('ca.company', 'co')
+      .where('ca.departmentId = :departmentId', { departmentId })
+      .andWhere('ca.roleId IN (:...roleIds)', { roleIds })
+      .select([
+        'ci.firstName AS firstName',
+        'ci.lastName AS lastName',
+        'ci.email AS email',
+        'r.roleName AS roleName',
+        'co.companyName AS companyName',
+        `'Company' AS source`,
+      ])
+      .getRawMany();
+
+    // IAE engagement contacts
+    const iaeRawRows: Record<string, unknown>[] = await em.query(
+      `SELECT ci.FirstName AS firstName, ci.LastName AS lastName, ci.Email AS email,
+              r.RoleName AS roleName, t.TourName AS companyName, 'IAE' AS source
+       FROM dbo.EngagementIAEContact eic
+       INNER JOIN dbo.Contact ct ON ct.ContactID = eic.ContactID
+       INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = ct.ContactInfoID
+       INNER JOIN dbo.Role r ON r.RoleID = eic.RoleID
+       INNER JOIN dbo.Engagement e ON e.EngagementID = eic.EngagementID
+       INNER JOIN dbo.Tour t ON t.TourID = e.TourID
+       WHERE eic.DepartmentID = @0
+         AND eic.RoleID IN (${roleIds.map((_, i) => `@${i + 1}`).join(', ')})`,
+      [departmentId, ...roleIds],
+    );
+
+    const allRows = [...caRows, ...iaeRawRows];
+    allRows.sort((a, b) => {
+      const aName = String(a['lastName'] ?? a['lastname'] ?? '').toLowerCase();
+      const bName = String(b['lastName'] ?? b['lastname'] ?? '').toLowerCase();
+      return aName.localeCompare(bName);
+    });
+
+    return allRows.map((r: Record<string, unknown>) => ({
+      firstName: String(r['firstName'] ?? r['firstname'] ?? ''),
+      lastName: String(r['lastName'] ?? r['lastname'] ?? ''),
+      email: String(r['email'] ?? ''),
+      roleName: String(r['roleName'] ?? r['rolename'] ?? ''),
+      companyName: String(r['companyName'] ?? r['companyname'] ?? ''),
+      source: String(r['source'] ?? ''),
+    }));
+  }
+
+  async getCompaniesUsingCompanyTypeServices(companyTypeId: number) {
+    const mappings = await this.companyTypeServiceRepo.find({ where: { companyTypeId } });
+    if (mappings.length === 0) return [];
+    const serviceIds = mappings.map((m) => m.serviceProvidedId);
+    const em = this.companyTypeServiceRepo.manager;
+    const rows: Record<string, unknown>[] = await em.query(
+      `SELECT co.CompanyName AS companyName, sp.ServiceName AS serviceName
+       FROM dbo.CompanyService cs
+       INNER JOIN dbo.Company co ON co.CompanyID = cs.CompanyID
+       INNER JOIN dbo.ServiceProvided sp ON sp.ServiceProvidedID = cs.ServiceProvidedID
+       WHERE co.CompanyTypeID = @0
+         AND cs.ServiceProvidedID IN (${serviceIds.map((_, i) => `@${i + 1}`).join(', ')})
+       ORDER BY co.CompanyName, sp.ServiceName`,
+      [companyTypeId, ...serviceIds],
+    );
+    return rows.map((r) => ({
+      companyName: String(r['companyName'] ?? r['CompanyName'] ?? ''),
+      serviceName: String(r['serviceName'] ?? r['ServiceName'] ?? ''),
+    }));
   }
 
   findSeatingTypes() {
@@ -652,6 +760,7 @@ export class LookupsService {
       'brands',
       'company-services',
       'company-type-services',
+      'department-roles',
       'services-provided',
       'dmas',
     ];
@@ -660,7 +769,7 @@ export class LookupsService {
     }
     throw new BadRequestException({
       message:
-        'Unknown lookup table. Supported values: company-types, venue-types, seating-types, departments, classes, roles, brands, company-services, company-type-services, services-provided, dmas.',
+        'Unknown lookup table. Supported values: company-types, venue-types, seating-types, departments, classes, roles, brands, company-services, company-type-services, department-roles, services-provided, dmas.',
     });
   }
 
@@ -722,6 +831,46 @@ export class LookupsService {
     return services;
   }
 
+  private normalizeRoleIds(
+    dto: Pick<
+      CreateLookupRowDto | UpdateLookupRowDto,
+      'roleId' | 'roleIds'
+    >,
+  ): number[] {
+    const rawValues =
+      Array.isArray(dto.roleIds) && dto.roleIds.length > 0
+        ? dto.roleIds
+        : dto.roleId != null
+          ? [dto.roleId]
+          : [];
+    const ids = [
+      ...new Set(
+        rawValues
+          .map((value) => Number(value))
+          .filter((id) => Number.isInteger(id) && id > 0),
+      ),
+    ];
+    if (ids.length === 0) {
+      throw new BadRequestException({
+        message: 'Select at least one role.',
+      });
+    }
+    return ids;
+  }
+
+  private async assertRolesExist(roleIds: number[]) {
+    const roles = await this.roleRepo.find({
+      where: { roleId: In(roleIds) },
+      order: { roleName: 'ASC' },
+    });
+    if (roles.length !== roleIds.length) {
+      throw new BadRequestException({
+        message: 'One or more selected roles do not exist.',
+      });
+    }
+    return roles;
+  }
+
   private async companyTypeServiceGroup(companyTypeId: number) {
     const companyType = await this.companyTypeRepo.findOne({
       where: { companyTypeId },
@@ -763,6 +912,45 @@ export class LookupsService {
       serviceNames: services.map((row) => row.serviceName),
       serviceName: services.map((row) => row.serviceName).join(', '),
       services,
+    };
+  }
+
+  private async departmentRoleGroup(departmentId: number) {
+    const department = await this.departmentRepo.findOne({
+      where: { departmentId },
+    });
+    if (!department) {
+      throw new NotFoundException(
+        `Department ${departmentId} was not found.`,
+      );
+    }
+    const rows = await this.departmentRoleRepo
+      .createQueryBuilder('dr')
+      .leftJoin(Role, 'r', 'r.roleId = dr.roleId')
+      .select([
+        'dr.departmentId AS departmentId',
+        'dr.roleId AS roleId',
+        'r.roleName AS roleName',
+      ])
+      .where('dr.departmentId = :departmentId', { departmentId })
+      .orderBy('r.roleName', 'ASC')
+      .getRawMany<Record<string, unknown>>();
+    const roles = rows
+      .map((row) => ({
+        roleId: Number(row.roleId),
+        roleName: String(row.roleName ?? ''),
+      }))
+      .filter(
+        (row) => Number.isInteger(row.roleId) && row.roleId > 0,
+      );
+    return {
+      departmentRoleId: departmentId,
+      departmentId,
+      departmentName: department.departmentName,
+      roleIds: roles.map((row) => row.roleId),
+      roleNames: roles.map((row) => row.roleName),
+      roleName: roles.map((row) => row.roleName).join(', '),
+      roles,
     };
   }
 
@@ -994,6 +1182,98 @@ export class LookupsService {
       };
     }
 
+    if (table === 'department-roles') {
+      const qb = this.departmentRoleRepo
+        .createQueryBuilder('dr')
+        .leftJoin(Department, 'd', 'd.departmentId = dr.departmentId')
+        .leftJoin(Role, 'r', 'r.roleId = dr.roleId')
+        .select([
+          'dr.departmentRoleId AS departmentRoleId',
+          'dr.departmentId AS departmentId',
+          'dr.roleId AS roleId',
+          'd.departmentName AS departmentName',
+          'r.roleName AS roleName',
+        ]);
+
+      searchTokens.forEach((token, index) => {
+        const param = `departmentRoleSearch${index}`;
+        qb.andWhere(
+          `(
+            LOWER(ISNULL(d.departmentName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR LOWER(ISNULL(r.roleName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
+            OR CAST(dr.departmentRoleId AS nvarchar(30)) LIKE :${param} ESCAPE '\\'
+            OR CAST(dr.departmentId AS nvarchar(30)) LIKE :${param} ESCAPE '\\'
+            OR CAST(dr.roleId AS nvarchar(30)) LIKE :${param} ESCAPE '\\'
+          )`,
+          { [param]: `%${this.escapeLikePattern(token)}%` },
+        );
+      });
+
+      qb.orderBy('d.departmentName', 'ASC').addOrderBy('r.roleName', 'ASC');
+
+      const rows = await qb.getRawMany<Record<string, unknown>>();
+      const grouped = new Map<
+        number,
+        {
+          departmentRoleId: number;
+          departmentId: number;
+          departmentName: string;
+          roleIds: number[];
+          roleNames: string[];
+          roles: { roleId: number; roleName: string }[];
+        }
+      >();
+      for (const r of rows) {
+        const departmentId = Number(r.departmentId);
+        const roleId = Number(r.roleId);
+        if (!Number.isInteger(departmentId) || departmentId < 1) continue;
+        const current = grouped.get(departmentId) ?? {
+          departmentRoleId: departmentId,
+          departmentId,
+          departmentName: String(r.departmentName ?? ''),
+          roleIds: [],
+          roleNames: [],
+          roles: [],
+        };
+        if (
+          Number.isInteger(roleId) &&
+          roleId > 0 &&
+          !current.roleIds.includes(roleId)
+        ) {
+          const roleName = String(r.roleName ?? '');
+          current.roleIds.push(roleId);
+          current.roleNames.push(roleName);
+          current.roles.push({ roleId, roleName });
+        }
+        grouped.set(departmentId, current);
+      }
+      const data = [...grouped.values()].map((row) => ({
+        ...row,
+        roleName: row.roleNames.join(', '),
+      }));
+      const dir = sortDir === 'DESC' ? -1 : 1;
+      data.sort((a, b) => {
+        const av =
+          sortBy === 'rolename'
+            ? String(a.roleName ?? '')
+            : sortBy === 'departmentid'
+              ? String(a.departmentId).padStart(10, '0')
+              : String(a.departmentName ?? '');
+        const bv =
+          sortBy === 'rolename'
+            ? String(b.roleName ?? '')
+            : sortBy === 'departmentid'
+              ? String(b.departmentId).padStart(10, '0')
+              : String(b.departmentName ?? '');
+        return av.localeCompare(bv, undefined, { sensitivity: 'base' }) * dir;
+      });
+      const total = data.length;
+      return {
+        data: data.slice(opts.offset, opts.offset + opts.limit),
+        total,
+      };
+    }
+
     if (table === 'dmas') {
       const qb = this.dmaRepo
         .createQueryBuilder('d')
@@ -1203,6 +1483,41 @@ export class LookupsService {
       return this.companyTypeServiceGroup(companyTypeId);
     }
 
+    if (table === 'department-roles') {
+      const departmentId = this.toPositiveInt(
+        dto.departmentId,
+        'departmentId',
+      );
+      const roleIds = this.normalizeRoleIds(dto);
+      const [department, roles] = await Promise.all([
+        this.departmentRepo.findOne({ where: { departmentId } }),
+        this.assertRolesExist(roleIds),
+      ]);
+      if (!department) {
+        throw new BadRequestException({
+          message: 'Selected department does not exist.',
+        });
+      }
+      const existing = await this.departmentRoleRepo.count({
+        where: { departmentId },
+      });
+      if (existing > 0) {
+        throw new BadRequestException({
+          message:
+            'This department already has role mappings. Open it and edit the roles instead.',
+        });
+      }
+      await this.departmentRoleRepo.save(
+        roles.map((role) =>
+          this.departmentRoleRepo.create({
+            departmentId,
+            roleId: role.roleId,
+          }),
+        ),
+      );
+      return this.departmentRoleGroup(departmentId);
+    }
+
     if (table === 'brands') {
       const brandName = this.normalizeRequiredName(dto.name);
       const saved = await this.brandRepo.save(
@@ -1399,6 +1714,55 @@ export class LookupsService {
       return this.companyTypeServiceGroup(nextCompanyTypeId);
     }
 
+    if (table === 'department-roles') {
+      const nextDepartmentId =
+        dto.departmentId != null
+          ? this.toPositiveInt(dto.departmentId, 'departmentId')
+          : id;
+      const roleIds = this.normalizeRoleIds(dto);
+      const existingCount = await this.departmentRoleRepo.count({
+        where: { departmentId: id },
+      });
+      if (existingCount < 1) {
+        throw new NotFoundException(`DepartmentRole ${id} was not found.`);
+      }
+      const [department, roles] = await Promise.all([
+        this.departmentRepo.findOne({
+          where: { departmentId: nextDepartmentId },
+        }),
+        this.assertRolesExist(roleIds),
+      ]);
+      if (!department)
+        throw new BadRequestException({
+          message: 'Selected department does not exist.',
+        });
+      if (nextDepartmentId !== id) {
+        const duplicateDepartment = await this.departmentRoleRepo.count({
+          where: { departmentId: nextDepartmentId },
+        });
+        if (duplicateDepartment > 0) {
+          throw new BadRequestException({
+            message:
+              'This department already has role mappings. Edit that row instead.',
+          });
+        }
+      }
+
+      await this.departmentRoleRepo.manager.transaction(async (em) => {
+        await em.delete(DepartmentRole, { departmentId: id });
+        await em.save(
+          DepartmentRole,
+          roles.map((role) =>
+            em.create(DepartmentRole, {
+              departmentId: nextDepartmentId,
+              roleId: role.roleId,
+            }),
+          ),
+        );
+      });
+      return this.departmentRoleGroup(nextDepartmentId);
+    }
+
     const name = this.normalizeRequiredName(dto.name);
     if (table === 'company-types') {
       const row = await this.companyTypeRepo.findOne({
@@ -1557,6 +1921,16 @@ export class LookupsService {
         if (!res.affected)
           throw new NotFoundException(
             `CompanyTypeService ${id} was not found.`,
+          );
+        return;
+      }
+      if (table === 'department-roles') {
+        const res = await this.departmentRoleRepo.delete({
+          departmentId: id,
+        });
+        if (!res.affected)
+          throw new NotFoundException(
+            `DepartmentRole ${id} was not found.`,
           );
         return;
       }
