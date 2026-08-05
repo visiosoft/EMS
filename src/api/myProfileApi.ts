@@ -9,6 +9,7 @@ export interface MyProfile {
   cellPhone: string;
   workPhone: string;
   departmentName: string;
+  departmentRank: string;
   roleNames: string[];
   jobTitle: string;
   jobTitleColumnAvailable: boolean;

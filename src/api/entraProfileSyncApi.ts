@@ -127,6 +127,36 @@ export function syncMyProfileFromEntra(): Promise<SingleUserSyncResult> {
   );
 }
 
+/**
+ * Preview Entra changes for a specific user (admin endpoint).
+ */
+export function previewUserSyncFromEntra(email: string): Promise<SingleUserSyncPreview> {
+  return apiFetch<SingleUserSyncPreview>(
+    `/admin/users/${encodeURIComponent(email)}/sync-from-entra/preview`,
+    { method: 'POST' },
+  );
+}
+
+/**
+ * Apply only selected fields from Entra for the signed-in user.
+ */
+export function applySelectedSyncFromEntra(fields: string[]): Promise<SingleUserSyncResult> {
+  return apiFetch<SingleUserSyncResult>(
+    '/internal/my-profile/sync-from-entra/apply-selected',
+    { method: 'POST', body: JSON.stringify({ fields }), headers: { 'Content-Type': 'application/json' } },
+  );
+}
+
+/**
+ * Apply only selected fields from Entra for a specific user (admin endpoint).
+ */
+export function applySelectedUserSyncFromEntra(email: string, fields: string[]): Promise<SingleUserSyncResult> {
+  return apiFetch<SingleUserSyncResult>(
+    `/admin/users/${encodeURIComponent(email)}/sync-from-entra/apply-selected`,
+    { method: 'POST', body: JSON.stringify({ fields }), headers: { 'Content-Type': 'application/json' } },
+  );
+}
+
 // ─── Legacy aliases (backward compat) ────────────────────────────────────────
 
 /** @deprecated Use `previewEntraToEmsProfileSync` instead. */

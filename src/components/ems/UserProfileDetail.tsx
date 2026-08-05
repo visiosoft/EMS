@@ -1,22 +1,21 @@
-import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, User, Briefcase, Heart, Star, Award, Lock, MapPin, Loader2, Eye, EyeOff, ExternalLink, RefreshCw, CheckCircle2, ArrowRight, X } from 'lucide-react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, User, UserRound, Briefcase, Heart, HeartPulse, Star, Award, Lock, MapPin, Loader2, Eye, EyeOff, ExternalLink, RefreshCw, Save, Laptop, KeyRound, Ticket, Users } from 'lucide-react';
 import { fetchEmployeePersonalProfile } from '@/api/employeeProfileApi';
 import {
   fetchEmployeeEmploymentProfile,
   fetchUserLicenses,
   fetchUserGroups,
 } from '@/api/employeeEmploymentApi';
-import { fetchEmployeeHealthInsurance } from '@/api/employeeHealthInsuranceApi';
+import { fetchEmployeeHealthInsurance, bulkUpdateHealthInsurance, type HealthPlanOption, type BulkUpdateHealthInsuranceRequest, type EmployeeHealthInsurance } from '@/api/employeeHealthInsuranceApi';
 import { fetchEmployeeExperience } from '@/api/employeeExperienceApi';
 import { fetchEmployeeCertifications } from '@/api/employeeCertificationsApi';
-import { fetchMyProfile } from '@/api/myProfileApi';
-import { previewMyProfileSyncFromEntra, syncMyProfileFromEntra } from '@/api/entraProfileSyncApi';
-import type { EntraProfileSyncFieldChange } from '@/api/entraProfileSyncApi';
+import { previewUserSyncFromEntra } from '@/api/entraProfileSyncApi';
+import { EntraSyncPreviewDialog } from '@/components/ems/EntraSyncPreviewDialog';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { getActiveAccount, getAccountEmail } from '@/auth/entra';
 import { INTERNAL_ROOT } from '@/routing/paths';
-import { TabBar } from './Primitives';
+
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -42,7 +41,39 @@ interface UserProfileDetailProps {
   addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 }
 
-type ProfileTab = 'Overview' | 'Personal' | 'Employment' | 'Health Insurance' | 'Experience' | 'Certifications';
+type ProfileTab = 'Personal' | 'Employment' | 'Health Insurance' | 'Property' | 'Licenses & Groups' | 'Certifications' | 'Experience';
+
+const tabIcons: Record<ProfileTab, React.ReactNode> = {
+  Personal: <UserRound className="h-3.5 w-3.5" />,
+  Employment: <Briefcase className="h-3.5 w-3.5" />,
+  'Health Insurance': <HeartPulse className="h-3.5 w-3.5" />,
+  Property: <Laptop className="h-3.5 w-3.5" />,
+  'Licenses & Groups': <KeyRound className="h-3.5 w-3.5" />,
+  Certifications: <Award className="h-3.5 w-3.5" />,
+  Experience: <Ticket className="h-3.5 w-3.5" />,
+};
+
+function ProfileTabBar({ tabs, active, onChange }: { tabs: readonly ProfileTab[]; active: ProfileTab; onChange: (t: ProfileTab) => void }) {
+  return (
+    <div className="flex border-b border-border overflow-x-auto">
+      {tabs.map((tab) => (
+        <button
+          key={tab}
+          type="button"
+          onClick={() => onChange(tab)}
+          className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium transition-colors relative whitespace-nowrap ${
+            active === tab
+              ? 'text-ems-accent after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-ems-accent'
+              : 'text-text-secondary hover:text-text-primary'
+          }`}
+        >
+          {tabIcons[tab]}
+          {tab}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 // ─── Source Badges ────────────────────────────────────────────────────────────
 
@@ -70,10 +101,7 @@ function SourceBadge({ source }: { source: DataSource }) {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function UserProfileDetail({ user, onBack, addToast }: UserProfileDetailProps) {
-  // When opened from Settings (onBack present), skip Overview tab
-  const availableTabs = onBack
-    ? ['Personal', 'Employment', 'Health Insurance', 'Experience', 'Certifications'] as const
-    : ['Overview', 'Personal', 'Employment', 'Health Insurance', 'Experience', 'Certifications'] as const;
+  const availableTabs = ['Personal', 'Employment', 'Health Insurance', 'Property', 'Licenses & Groups', 'Certifications', 'Experience'] as const;
   const [profileTab, setProfileTab] = useState<ProfileTab>(availableTabs[0]);
 
   // Determine current viewer's access level from their own employment profile
@@ -109,19 +137,20 @@ export function UserProfileDetail({ user, onBack, addToast }: UserProfileDetailP
       </div>
 
       {/* Profile Tabs */}
-      <TabBar
-        tabs={availableTabs as unknown as string[]}
+      <ProfileTabBar
+        tabs={availableTabs}
         active={profileTab}
-        onChange={(t) => setProfileTab(t as ProfileTab)}
+        onChange={setProfileTab}
       />
 
       {/* Tab Content */}
-      {profileTab === 'Overview' && !onBack && <OverviewTab user={user} addToast={addToast} />}
       {profileTab === 'Personal' && <PersonalTab user={user} isAdmin={isAdmin} addToast={addToast} />}
       {profileTab === 'Employment' && <EmploymentTab user={user} isAdmin={isAdmin} addToast={addToast} />}
       {profileTab === 'Health Insurance' && <HealthInsuranceTab user={user} isAdmin={isAdmin} addToast={addToast} />}
-      {profileTab === 'Experience' && <ExperienceTab user={user} />}
+      {profileTab === 'Property' && <PropertyTab user={user} isAdmin={isAdmin} addToast={addToast} />}
+      {profileTab === 'Licenses & Groups' && <LicensesGroupsTab user={user} />}
       {profileTab === 'Certifications' && <CertificationsTab user={user} />}
+      {profileTab === 'Experience' && <ExperienceTab user={user} />}
     </div>
   );
 }
@@ -146,6 +175,55 @@ function ReadOnlyField({ label, value, source }: { label: string; value: string;
 
 
 
+function SelectField({
+  label,
+  value,
+  onChange,
+  options,
+  disabled,
+  source,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  disabled?: boolean;
+  source?: DataSource;
+}) {
+  const isEntra = source === 'entra';
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-1.5">
+        <label className="text-xs font-medium text-text-muted">{label}</label>
+        {isEntra && <SourceBadge source={source!} />}
+      </div>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        className={`w-full rounded-md border border-border px-3 py-2 text-sm text-text-primary focus:border-ems-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${isEntra ? 'bg-gray-100 dark:bg-gray-800' : 'bg-white dark:bg-white/5'}`}
+      >
+        <option value="">— Select —</option>
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function SavingOverlay({ visible }: { visible: boolean }) {
+  if (!visible) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+      <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-6 py-4 shadow-xl">
+        <Loader2 className="h-5 w-5 animate-spin text-ems-accent" />
+        <span className="text-sm font-medium text-text-primary">Saving…</span>
+      </div>
+    </div>
+  );
+}
+
 function SectionCard({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="rounded-lg border border-border bg-card">
@@ -161,8 +239,10 @@ function SectionCard({ title, icon, children }: { title: string; icon: React.Rea
 }
 
 /** Read-only field with a link to edit the value in the WMS (Company Hub) */
-function ReadOnlyWithWmsLink({ label, value, source }: { label: string; value: string; source?: DataSource }) {
-  const wmsProfileUrl = `${INTERNAL_ROOT}#my-profile`;
+function ReadOnlyWithWmsLink({ label, value, source, contactId }: { label: string; value: string; source?: DataSource; contactId?: number }) {
+  const wmsProfileUrl = contactId
+    ? `${INTERNAL_ROOT}?view=employee-profile&contactId=${contactId}`
+    : `${INTERNAL_ROOT}?view=my-profile`;
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-1.5">
@@ -217,203 +297,64 @@ function HashedField({ label, value, source }: { label: string; value: string; s
 
 
 
-/** Banner indicating data is auto-synced from Entra on each page load */
-function EntraSyncBanner({ queryKey, dataUpdatedAt }: { queryKey: string[]; dataUpdatedAt: number }) {
-  const qc = useQueryClient();
-  const [showPreview, setShowPreview] = useState(false);
-  const [previewChanges, setPreviewChanges] = useState<EntraProfileSyncFieldChange[]>([]);
-  const [loadingPreview, setLoadingPreview] = useState(false);
-  const [applying, setApplying] = useState(false);
+/** Banner with "Sync from Entra" button — opens selective field dialog */
+function EntraSyncBanner({ email, tabFields, invalidateKeys }: { email: string; tabFields: string[]; invalidateKeys: string[][] }) {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [fetchEnabled, setFetchEnabled] = useState(false);
 
-  const handleSyncClick = async () => {
-    setLoadingPreview(true);
-    try {
-      const result = await previewMyProfileSyncFromEntra();
-      if (result.changes.length === 0) {
-        // No changes — just refresh the query data
-        await qc.invalidateQueries({ queryKey });
-      } else {
-        setPreviewChanges(result.changes);
-        setShowPreview(true);
-      }
-    } catch {
-      // Fallback: just do the sync if preview fails
-      await qc.invalidateQueries({ queryKey });
-    } finally {
-      setLoadingPreview(false);
+  const previewQuery = useQuery({
+    queryKey: ['entra-sync-preview', email],
+    queryFn: () => previewUserSyncFromEntra(email),
+    enabled: fetchEnabled,
+    staleTime: 30_000,
+  });
+
+  function handleClick() {
+    setFetchEnabled(true);
+    if (previewQuery.data) {
+      setDialogOpen(true);
     }
-  };
+  }
 
-  const handleConfirmSync = async () => {
-    setApplying(true);
-    try {
-      await syncMyProfileFromEntra();
-      await qc.invalidateQueries({ queryKey });
-    } finally {
-      setApplying(false);
-      setShowPreview(false);
-      setPreviewChanges([]);
-    }
-  };
+  // Open dialog once data arrives
+  if (fetchEnabled && previewQuery.data && !dialogOpen && !previewQuery.isFetching) {
+    setDialogOpen(true);
+  }
 
-  const syncTime = dataUpdatedAt
-    ? new Date(dataUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    : null;
+  const loading = fetchEnabled && previewQuery.isFetching;
 
   return (
     <>
       <div className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20 px-3 py-2">
-        <CheckCircle2 className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+        <RefreshCw className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
         <span className="text-xs text-blue-700 dark:text-blue-300">
-          Auto-synced from Entra{syncTime ? ` at ${syncTime}` : ''}
+          Pull latest field values from Microsoft Entra
         </span>
         <button
           type="button"
-          onClick={handleSyncClick}
-          disabled={loadingPreview}
+          onClick={handleClick}
+          disabled={loading}
           className="ml-auto inline-flex items-center gap-1 rounded border border-blue-300 bg-white dark:bg-blue-900/40 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-800/50 transition-colors disabled:opacity-50"
         >
-          <RefreshCw className={`h-3 w-3 ${loadingPreview ? 'animate-spin' : ''}`} />
-          Sync Now
+          <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
+          Sync from Entra
         </button>
       </div>
 
-      {showPreview && (
-        <SyncPreviewModal
-          changes={previewChanges}
-          applying={applying}
-          onConfirm={handleConfirmSync}
-          onCancel={() => { setShowPreview(false); setPreviewChanges([]); }}
+      {previewQuery.data && (
+        <EntraSyncPreviewDialog
+          open={dialogOpen}
+          onOpenChange={(open) => {
+            setDialogOpen(open);
+            if (!open) setFetchEnabled(false);
+          }}
+          changes={previewQuery.data.changes}
+          targetEmail={email}
+          tabFields={tabFields}
+          invalidateKeys={invalidateKeys}
         />
       )}
     </>
-  );
-}
-
-/** Modal showing field-level changes from Entra before applying sync */
-function SyncPreviewModal({
-  changes,
-  applying,
-  onConfirm,
-  onCancel,
-}: {
-  changes: EntraProfileSyncFieldChange[];
-  applying: boolean;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="fixed inset-0 bg-black/50" onClick={onCancel} />
-      <div className="relative z-50 w-full max-w-lg rounded-lg border border-border bg-surface shadow-xl max-h-[80vh] flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <div>
-            <h2 className="text-base font-semibold text-text-primary">Sync Preview</h2>
-            <p className="text-xs text-text-muted mt-0.5">
-              {changes.length} field{changes.length !== 1 ? 's' : ''} will be updated from Entra
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-md p-1 text-text-muted hover:bg-hover transition-colors"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        {/* Changes list */}
-        <div className="flex-1 overflow-y-auto px-5 py-3">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-text-muted border-b border-border">
-                <th className="pb-2 font-medium">Field</th>
-                <th className="pb-2 font-medium">Current (EMS)</th>
-                <th className="pb-2 w-6" />
-                <th className="pb-2 font-medium">New (Entra)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {changes.map((change) => (
-                <tr key={change.field} className="border-b border-border/50 last:border-0">
-                  <td className="py-2 pr-2 text-xs font-medium text-text-secondary whitespace-nowrap">
-                    {change.label}
-                  </td>
-                  <td className="py-2 pr-1 text-xs text-text-muted max-w-[120px] truncate" title={change.from || '—'}>
-                    {change.from || <span className="italic text-text-muted/60">empty</span>}
-                  </td>
-                  <td className="py-2 px-1">
-                    <ArrowRight className="h-3 w-3 text-blue-500" />
-                  </td>
-                  <td className="py-2 text-xs text-text-primary font-medium max-w-[120px] truncate" title={change.to || '—'}>
-                    {change.to || <span className="italic text-text-muted/60">empty</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={applying}
-            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-hover transition-colors disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={applying}
-            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
-          >
-            {applying && <Loader2 className="h-3 w-3 animate-spin" />}
-            Confirm Sync
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Overview Tab ─────────────────────────────────────────────────────────────
-
-function OverviewTab({ user }: { user: UserProfileUser; addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void }) {
-  const profileQuery = useQuery({
-    queryKey: ['my-profile'],
-    queryFn: fetchMyProfile,
-    staleTime: 30_000,
-  });
-
-  if (profileQuery.isLoading) {
-    return (
-      <div className="flex items-center justify-center py-16 text-text-muted">
-        <Loader2 className="h-5 w-5 animate-spin mr-2" />
-        Loading profile…
-      </div>
-    );
-  }
-
-  const data = profileQuery.data;
-
-  return (
-    <div className="space-y-4">
-      <SectionCard title="Profile" icon={<User className="h-4 w-4 text-ems-accent" />}>
-        <div className="grid gap-4 md:grid-cols-2">
-          <ReadOnlyField label="First Name" value={data?.firstName || ''} source="entra" />
-          <ReadOnlyField label="Last Name" value={data?.lastName || ''} source="entra" />
-          <ReadOnlyField label="Email" value={user.email} source="entra" />
-          <ReadOnlyField label="Department" value={data?.departmentName || ''} source="entra" />
-          <ReadOnlyField label="Roles" value={data?.roleNames?.join(', ') || ''} source="entra" />
-          <ReadOnlyWithWmsLink label="Mobile Phone" value={data?.cellPhone || ''} source="ems" />
-          <ReadOnlyWithWmsLink label="Work Phone" value={data?.workPhone || ''} source="ems" />
-        </div>
-      </SectionCard>
-    </div>
   );
 }
 
@@ -452,14 +393,24 @@ function PersonalTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolea
 
   return (
     <div className="space-y-4">
-      <EntraSyncBanner queryKey={['employee-personal-profile', user.email]} dataUpdatedAt={profileQuery.dataUpdatedAt} />
+      <EntraSyncBanner
+        email={user.email}
+        tabFields={[
+          'firstName', 'lastName', 'cellPhone', 'workPhone', 'middleName',
+          'personalEmail', 'birthDate', 'ssn',
+          'streetAddress', 'city', 'state', 'postalCode', 'country',
+          'emergencyContactName', 'emergencyContactPhone', 'emergencyContactEmail',
+        ]}
+        invalidateKeys={[['employee-personal-profile', user.email]]}
+      />
       {/* Basic Info */}
       <SectionCard title="Basic Information" icon={<User className="h-4 w-4 text-ems-accent" />}>
         <div className="grid gap-4 md:grid-cols-3">
           <ReadOnlyField label="First Name" value={user.name.split(' ')[0] || ''} source="entra" />
           <ReadOnlyField label="Middle Name" value={data?.middleName || ''} source="employee" />
           <ReadOnlyField label="Last Name" value={user.name.split(' ').slice(1).join(' ') || ''} source="entra" />
-          <ReadOnlyWithWmsLink label="Cell Phone Number" value={data?.cellPhone || user.mobilePhone || ''} source="entra" />
+          <ReadOnlyWithWmsLink label="Cell Phone Number" value={data?.cellPhone || user.mobilePhone || ''} source="entra" contactId={data?.contactId} />
+          <ReadOnlyField label="Personal Email" value={data?.personalEmail || ''} source="employee" />
           <ReadOnlyField label="Birth Date" value={birthDate} source="employee" />
           {isAdmin && (
             <HashedField label="Social Security Number" value={data?.ssn || ''} source="employee" />
@@ -475,22 +426,22 @@ function PersonalTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolea
       {/* Home Address */}
       <SectionCard title="Home Address" icon={<MapPin className="h-4 w-4 text-ems-accent" />}>
         <div className="grid gap-4 md:grid-cols-2">
-          <ReadOnlyWithWmsLink label="Street Address" value={data?.homeStreet || ''} />
-          <ReadOnlyWithWmsLink label="Address Line 2" value={data?.homeAddress2 || ''} />
-          <ReadOnlyWithWmsLink label="City" value={data?.homeCity || ''} />
-          <ReadOnlyWithWmsLink label="State" value={data?.homeState || ''} />
-          <ReadOnlyWithWmsLink label="Postal Code" value={data?.homePostalCode || ''} />
-          <ReadOnlyWithWmsLink label="Country" value={data?.homeCountry || ''} />
+          <ReadOnlyWithWmsLink label="Street Address" value={data?.homeStreet || ''} contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="Address Line 2" value={data?.homeAddress2 || ''} contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="City" value={data?.homeCity || ''} contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="State" value={data?.homeState || ''} contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="Postal Code" value={data?.homePostalCode || ''} contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="Country" value={data?.homeCountry || ''} contactId={data?.contactId} />
         </div>
       </SectionCard>
 
       {/* Emergency Contact */}
       <SectionCard title="Emergency Contact" icon={<User className="h-4 w-4 text-ems-coral" />}>
         <div className="grid gap-4 md:grid-cols-2">
-          <ReadOnlyWithWmsLink label="First Name" value={data?.emergencyFirstName || ''} source="employee" />
-          <ReadOnlyWithWmsLink label="Last Name" value={data?.emergencyLastName || ''} source="employee" />
-          <ReadOnlyWithWmsLink label="Email" value={data?.emergencyEmail || ''} source="employee" />
-          <ReadOnlyWithWmsLink label="Cell Phone" value={data?.emergencyCellPhone || ''} source="employee" />
+          <ReadOnlyWithWmsLink label="First Name" value={data?.emergencyFirstName || ''} source="employee" contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="Last Name" value={data?.emergencyLastName || ''} source="employee" contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="Email" value={data?.emergencyEmail || ''} source="employee" contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="Cell Phone" value={data?.emergencyCellPhone || ''} source="employee" contactId={data?.contactId} />
         </div>
       </SectionCard>
     </div>
@@ -506,21 +457,6 @@ function EmploymentTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: bool
     queryFn: () => fetchEmployeeEmploymentProfile(user.email),
     enabled: !!user.email,
     staleTime: 30_000,
-  });
-
-  // ── Fetch Entra licenses & group membership ───────────────────────────────
-  const licensesQuery = useQuery({
-    queryKey: ['user-licenses', user.email],
-    queryFn: () => fetchUserLicenses(user.email),
-    enabled: !!user.email,
-    staleTime: 60_000,
-  });
-
-  const groupsQuery = useQuery({
-    queryKey: ['user-groups', user.email],
-    queryFn: () => fetchUserGroups(user.email),
-    enabled: !!user.email,
-    staleTime: 60_000,
   });
 
   // ── Loading / error states ────────────────────────────────────────────────
@@ -547,25 +483,22 @@ function EmploymentTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: bool
 
   return (
     <div className="space-y-4">
-      <EntraSyncBanner queryKey={['employee-employment-profile', user.email]} dataUpdatedAt={profileQuery.dataUpdatedAt} />
+      <EntraSyncBanner
+        email={user.email}
+        tabFields={[
+          'title', 'accessLevel', 'office', 'workstation', 'workAuthorization',
+          'departmentRank', 'startDate', 'supervisor', 'ptoAccrualRate',
+          'employmentAgreement', 'rampAccount', 'rampCreditCard',
+        ]}
+        invalidateKeys={[['employee-employment-profile', user.email]]}
+      />
       {/* Directory Info */}
       <SectionCard title="Directory Info" icon={<Briefcase className="h-4 w-4 text-ems-accent" />}>
         <div className="grid gap-4 md:grid-cols-2">
           <ReadOnlyField label="Title" value={user.jobTitle || ''} source="entra" />
           <ReadOnlyField label="Work Email" value={user.email} source="entra" />
+          <ReadOnlyField label="Department" value={user.department || ''} source="entra" />
           <ReadOnlyField label="Office" value={user.officeLocation || ''} source="entra" />
-          <ReadOnlyField
-            label="Microsoft Office License"
-            value={licensesQuery.isLoading ? 'Loading…' : licensesQuery.data?.length ? licensesQuery.data.join(', ') : 'None'}
-            source="entra"
-          />
-          <div className="md:col-span-2">
-            <ReadOnlyField
-              label="Microsoft Group Membership"
-              value={groupsQuery.isLoading ? 'Loading…' : groupsQuery.data?.length ? groupsQuery.data.join(', ') : 'None'}
-              source="entra"
-            />
-          </div>
         </div>
       </SectionCard>
 
@@ -574,7 +507,7 @@ function EmploymentTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: bool
         <div className="grid gap-4 md:grid-cols-2">
           {isAdmin && <ReadOnlyField label="Access Level" value={data?.accessLevel || ''} source="admin" />}
           {isAdmin && <ReadOnlyField label="Work Authorization" value={data?.workAuthorization || ''} source="admin" />}
-          <ReadOnlyWithWmsLink label="Workstation" value={data?.workstation || ''} source="admin" />
+          <ReadOnlyWithWmsLink label="Workstation" value={data?.workstation || ''} source="admin" contactId={data?.contactId} />
           <ReadOnlyField label="Start Date at IAE" value={startDate} source="admin" />
           {yearsOfService !== null ? (
             <ReadOnlyField label="Years of Service" value={yearsOfService} source="calculated" />
@@ -586,6 +519,11 @@ function EmploymentTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: bool
           {isAdmin && <ReadOnlyField label="Employment Agreement Fully Executed" value={data?.employmentAgreement || ''} source="admin" />}
           {isAdmin && <ReadOnlyField label="Ramp Account" value={data?.rampAccount || ''} source="admin" />}
           {isAdmin && <ReadOnlyField label="Ramp Credit Card" value={data?.rampCreditCard || ''} source="admin" />}
+          <ReadOnlyField label="Department Rank" value={data?.departmentRank || ''} source="admin" />
+          <ReadOnlyField label="Role" value={data?.role || ''} source="admin" />
+          <ReadOnlyField label="Company" value={user.companyName || ''} source="entra" />
+          <ReadOnlyField label="Employment Status" value={data?.employmentStatus || ''} source="admin" />
+          <ReadOnlyField label="Employment Type" value={data?.employmentType || ''} source="admin" />
         </div>
       </SectionCard>
 
@@ -601,20 +539,103 @@ function EmploymentTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: bool
         </div>
       </SectionCard>
 
-      {/* Desk Phone & Equipment */}
-      <SectionCard title="Desk Phone & Equipment" icon={<Briefcase className="h-4 w-4 text-ems-green" />}>
+    </div>
+  );
+}
+
+// ─── Property Tab ─────────────────────────────────────────────────────────────
+
+function PropertyTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolean; addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void }) {
+  const profileQuery = useQuery({
+    queryKey: ['employee-employment-profile', user.email],
+    queryFn: () => fetchEmployeeEmploymentProfile(user.email),
+    enabled: !!user.email,
+    staleTime: 30_000,
+  });
+
+  if (profileQuery.isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16 text-text-muted">
+        <Loader2 className="h-5 w-5 animate-spin mr-2" />
+        Loading property assignments…
+      </div>
+    );
+  }
+
+  const data = profileQuery.data;
+
+  return (
+    <div className="space-y-4">
+      <EntraSyncBanner
+        email={user.email}
+        tabFields={['deskPhoneMac', 'deskPhoneBrand', 'pcServiceTag', 'pcWindowsName']}
+        invalidateKeys={[['employee-employment-profile', user.email]]}
+      />
+      <SectionCard title="Desk Phone" icon={<Laptop className="h-4 w-4 text-ems-accent" />}>
         <div className="grid gap-4 md:grid-cols-2">
-          <ReadOnlyWithWmsLink label="Desk Phone Number" value="(312) 274-1800" source="admin" />
-          <ReadOnlyWithWmsLink label="Desk Phone Extension" value={data?.deskPhoneExtension || ''} source="inventory" />
-          <ReadOnlyWithWmsLink label="Desk Phone MAC Address" value={data?.deskPhoneMac || ''} source="inventory" />
-          <ReadOnlyWithWmsLink label="Desk Phone Brand" value={data?.deskPhoneBrand || ''} source="inventory" />
-          <ReadOnlyWithWmsLink label="Desk Phone Model" value={data?.deskPhoneModel || ''} source="inventory" />
-          <ReadOnlyWithWmsLink label="PC Service Tag" value={data?.pcServiceTag || ''} source="inventory" />
-          <ReadOnlyWithWmsLink label="PC Brand" value={data?.pcBrand || ''} source="inventory" />
-          <ReadOnlyWithWmsLink label="PC Model" value={data?.pcModel || ''} source="inventory" />
-          <ReadOnlyWithWmsLink label="Bluetooth Status" value={data?.bluetoothStatus || ''} source="inventory" />
-          <ReadOnlyWithWmsLink label="PC Windows Name" value={data?.pcWindowsName || ''} source="inventory" />
+          <ReadOnlyWithWmsLink label="Desk Phone Number" value="(312) 274-1800" source="admin" contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="Desk Phone Extension" value={data?.deskPhoneExtension || ''} source="inventory" contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="Desk Phone MAC Address" value={data?.deskPhoneMac || ''} source="inventory" contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="Desk Phone Brand" value={data?.deskPhoneBrand || ''} source="inventory" contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="Desk Phone Model" value={data?.deskPhoneModel || ''} source="inventory" contactId={data?.contactId} />
         </div>
+      </SectionCard>
+
+      <SectionCard title="PC" icon={<Laptop className="h-4 w-4 text-ems-blue" />}>
+        <div className="grid gap-4 md:grid-cols-2">
+          <ReadOnlyWithWmsLink label="PC Service Tag" value={data?.pcServiceTag || ''} source="inventory" contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="PC Brand" value={data?.pcBrand || ''} source="inventory" contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="PC Model" value={data?.pcModel || ''} source="inventory" contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="Bluetooth Status" value={data?.bluetoothStatus || ''} source="inventory" contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="PC Windows Name" value={data?.pcWindowsName || ''} source="inventory" contactId={data?.contactId} />
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
+// ─── Licenses & Groups Tab ────────────────────────────────────────────────────
+
+function LicensesGroupsTab({ user }: { user: UserProfileUser }) {
+  const licensesQuery = useQuery({
+    queryKey: ['user-licenses', user.email],
+    queryFn: () => fetchUserLicenses(user.email),
+    enabled: !!user.email,
+    staleTime: 60_000,
+  });
+
+  const groupsQuery = useQuery({
+    queryKey: ['user-groups', user.email],
+    queryFn: () => fetchUserGroups(user.email),
+    enabled: !!user.email,
+    staleTime: 60_000,
+  });
+
+  if (licensesQuery.isLoading && groupsQuery.isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16 text-text-muted">
+        <Loader2 className="h-5 w-5 animate-spin mr-2" />
+        Loading licenses & groups…
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <SectionCard title="Software Assets" icon={<KeyRound className="h-4 w-4 text-ems-accent" />}>
+        <ReadOnlyField
+          label="Microsoft Office License"
+          value={licensesQuery.isLoading ? 'Loading…' : licensesQuery.data?.length ? licensesQuery.data.join(', ') : 'None'}
+          source="entra"
+        />
+      </SectionCard>
+
+      <SectionCard title="Group Membership" icon={<Users className="h-4 w-4 text-ems-blue" />}>
+        <ReadOnlyField
+          label="Microsoft Group Membership"
+          value={groupsQuery.isLoading ? 'Loading…' : groupsQuery.data?.length ? groupsQuery.data.join(', ') : 'None'}
+          source="entra"
+        />
       </SectionCard>
     </div>
   );
@@ -622,42 +643,319 @@ function EmploymentTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: bool
 
 // ─── Health Insurance Tab ─────────────────────────────────────────────────────
 
-function ReadOnlyInsuranceSection({
+function InsuranceSection({
   title,
   icon,
-  election,
+  insuranceType,
+  optIn,
+  setOptIn,
+  planId,
+  setPlanId,
+  plans,
+  additionalInsureds,
+  setAdditionalInsureds,
+  planPrice,
+  setPlanPrice,
+  planBenefits,
+  setPlanBenefits,
+  monthlyRate,
+  setMonthlyRate,
+  payrollDeduction,
+  setPayrollDeduction,
+  companyContribution,
+  setCompanyContribution,
+  tenureTier,
+  companyContribPP,
+  benchmarkBiweekly,
+  showAdditional,
 }: {
   title: string;
   icon: React.ReactNode;
-  election?: { optInStatus: string; planName?: string; additionalInsureds?: string; planPrice?: string; planBenefits?: string; monthlyRate?: string; payrollDeduction?: string };
+  insuranceType: string;
+  optIn: string;
+  setOptIn: (v: string) => void;
+  planId: string;
+  setPlanId: (v: string) => void;
+  plans: HealthPlanOption[];
+  additionalInsureds?: string;
+  setAdditionalInsureds?: (v: string) => void;
+  planPrice: string;
+  setPlanPrice?: (v: string) => void;
+  planBenefits: string;
+  setPlanBenefits?: (v: string) => void;
+  monthlyRate?: string;
+  setMonthlyRate?: (v: string) => void;
+  payrollDeduction?: string;
+  setPayrollDeduction?: (v: string) => void;
+  companyContribution?: string;
+  setCompanyContribution?: (v: string) => void;
+  tenureTier?: '<1 yr' | '1+ yr' | null;
+  companyContribPP?: number;
+  benchmarkBiweekly?: number;
+  showAdditional?: boolean;
 }) {
-  const optedIn = election?.optInStatus?.toLowerCase().includes('opt-in');
+  const typePlans = plans.filter((p) => p.planType === insuranceType);
+
+  const coverageOptions = useMemo(() => {
+    if (!planId) return [];
+    const plan = plans.find((p) => String(p.healthPlanId) === planId);
+    if (!plan) return [];
+    const bases = new Set<string>();
+    for (const p of plan.pricing) {
+      const base = p.coverageType.replace(/\s*\(<1 yr\)|\s*\(1\+ yr\)/g, '');
+      bases.add(base);
+    }
+    return Array.from(bases).sort();
+  }, [planId, plans]);
+
+  const recalcPricing = useCallback((currentPlanId: string, currentAdditionalInsureds?: string) => {
+    if (!currentPlanId) {
+      setPlanPrice?.('');
+      setPlanBenefits?.('');
+      setPayrollDeduction?.('');
+      setMonthlyRate?.('');
+      setCompanyContribution?.('');
+      return;
+    }
+    const plan = plans.find((p) => String(p.healthPlanId) === currentPlanId);
+    if (plan) {
+      setPlanBenefits?.(plan.benefits.join('; '));
+
+      let base = currentAdditionalInsureds || 'Employee';
+      if (base === 'Employee Only') base = 'Employee';
+      else if (base === 'Spouse') base = 'Employee + Spouse';
+      else if (base === 'Child' || base === 'Children') base = 'Employee + Child(ren)';
+      else if (base === 'N/A') base = 'Employee';
+
+      const coverageType = tenureTier ? `${base} (${tenureTier})` : base;
+
+      let priceEntry = plan.pricing.find((p) => p.coverageType === coverageType);
+      if (!priceEntry) {
+        const baseLower = base.toLowerCase();
+        const candidates = plan.pricing.filter((p) =>
+          p.coverageType.replace(/\s*\(.*\)\s*$/, '').trim().toLowerCase() === baseLower,
+        );
+        if (candidates.length === 1) {
+          priceEntry = candidates[0];
+        } else if (candidates.length > 1) {
+          const marker = tenureTier === '<1 yr' ? '<1' : '1+';
+          priceEntry = candidates.find((p) => p.coverageType.includes(marker)) ?? candidates[0];
+        }
+        if (!priceEntry) {
+          const altMap: Record<string, string> = {
+            'family': 'employee + family',
+            'employee + family': 'family',
+            'children': 'employee + children',
+            'employee + children': 'children',
+            'child': 'employee + child',
+            'employee + child': 'child',
+          };
+          const alt = altMap[baseLower];
+          if (alt) {
+            const altCandidates = plan.pricing.filter((p) =>
+              p.coverageType.replace(/\s*\(.*\)\s*$/, '').trim().toLowerCase() === alt,
+            );
+            priceEntry = altCandidates[0];
+          }
+        }
+      }
+
+      if (priceEntry) {
+        const empMonthly = priceEntry.monthlyPremium;
+        setPlanPrice?.(`$${empMonthly.toFixed(2)}/mo`);
+        setMonthlyRate?.(`$${empMonthly.toFixed(2)}/mo`);
+
+        const rules = plan.contributionRules ?? [];
+        let employerPct = 0;
+        if (rules.length > 0 && tenureTier) {
+          const match = rules.find((r) => {
+            const t = r.tenureTier.toLowerCase();
+            if (tenureTier === '1+ yr') return t.startsWith('1+');
+            if (tenureTier === '<1 yr') return t.includes('less than') || t.includes('<1');
+            return false;
+          });
+          if (match) employerPct = match.employerContributionPct;
+        }
+        const planPriceBiweekly = (empMonthly * 12) / 26;
+        const employerPerPP = employerPct * (benchmarkBiweekly ?? 0);
+        const employerApplied = Math.min(employerPerPP, planPriceBiweekly);
+        const payrollDed = Math.round((planPriceBiweekly - employerApplied) * 100) / 100;
+        setPayrollDeduction?.(`$${payrollDed.toFixed(2)}/pay period`);
+        setCompanyContribution?.(`$${employerApplied.toFixed(2)}/pay period`);
+      } else {
+        setPlanPrice?.('');
+        setMonthlyRate?.('');
+        setPayrollDeduction?.('');
+        setCompanyContribution?.('');
+      }
+    }
+  }, [plans, tenureTier, benchmarkBiweekly, setPlanPrice, setPlanBenefits, setPayrollDeduction, setMonthlyRate, setCompanyContribution]);
+
+  useEffect(() => {
+    if (planId) recalcPricing(planId, additionalInsureds);
+  }, [additionalInsureds]);
+
+  const handlePlanChange = (newPlanId: string) => {
+    setPlanId(newPlanId);
+    recalcPricing(newPlanId, additionalInsureds);
+  };
+
   return (
     <SectionCard title={title} icon={icon}>
       <div className="grid gap-4 md:grid-cols-2">
-        <ReadOnlyField label="Opt-In / Opt-Out" value={election?.optInStatus || '—'} source="admin" />
-        {optedIn && (
-          <>
-            <ReadOnlyField label="Chosen Plan" value={election?.planName || '—'} source="admin" />
-            <ReadOnlyField label="Additional Insureds" value={election?.additionalInsureds || '—'} source="admin" />
-            <ReadOnlyField label="Plan Price" value={election?.planPrice || '—'} source="calculated" />
-            <ReadOnlyField label="Plan Benefits" value={election?.planBenefits || '—'} source="calculated" />
-            {election?.monthlyRate && <ReadOnlyField label="Monthly Rate" value={election.monthlyRate} source="calculated" />}
-            {election?.payrollDeduction && <ReadOnlyField label="Payroll Deduction" value={election.payrollDeduction} source="calculated" />}
-          </>
+        <SelectField
+          label={`${insuranceType} Insurance Opt-In / Opt-Out`}
+          value={optIn}
+          onChange={(v) => {
+            setOptIn(v);
+            if (v === 'Opt-Out') setPlanId('');
+          }}
+          options={[
+            { value: 'Opt-In', label: 'Opt-In' },
+            { value: 'Opt-Out', label: 'Opt-Out' },
+          ]}
+          source="admin"
+        />
+        <SelectField
+          label="Chosen Plan"
+          value={planId}
+          onChange={handlePlanChange}
+          disabled={optIn !== 'Opt-In'}
+          options={[
+            ...typePlans.map((p) => ({ value: String(p.healthPlanId), label: p.planName })),
+            { value: '', label: 'Declined' },
+          ]}
+          source="admin"
+        />
+        <ReadOnlyField label="Plan Price" value={optIn !== 'Opt-In' ? '—' : (planPrice || '— From Pricing Table —')} source="calculated" />
+        <ReadOnlyField label="Plan Benefits" value={optIn !== 'Opt-In' ? '—' : (planBenefits || '— From Benefits Table —')} source="calculated" />
+        {monthlyRate !== undefined && (
+          <ReadOnlyField label="Monthly Rate" value={optIn !== 'Opt-In' ? '—' : (monthlyRate || '— From Pricing Table —')} source="calculated" />
+        )}
+        {showAdditional && setAdditionalInsureds && (
+          <SelectField
+            label="Additional Insureds"
+            value={additionalInsureds || ''}
+            onChange={(v) => { setAdditionalInsureds(v); }}
+            options={coverageOptions.map((ct) => ({ value: ct, label: ct }))}
+            disabled={optIn !== 'Opt-In'}
+            source="admin"
+          />
+        )}
+        {showAdditional && payrollDeduction !== undefined && (
+          <ReadOnlyField label="Payroll Deduction" value={optIn !== 'Opt-In' ? '—' : (payrollDeduction || '—')} source="calculated" />
+        )}
+        {showAdditional && companyContribution !== undefined && (
+          <ReadOnlyField label="Company Contribution Per Pay Period" value={optIn !== 'Opt-In' ? '—' : (companyContribution || '—')} source="calculated" />
         )}
       </div>
     </SectionCard>
   );
 }
 
-function HealthInsuranceTab({ user }: { user: UserProfileUser; isAdmin: boolean; addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void }) {
+function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser; isAdmin: boolean; addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void }) {
+  const qc = useQueryClient();
+
   const insuranceQuery = useQuery({
     queryKey: ['employee-health-insurance', user.email],
     queryFn: () => fetchEmployeeHealthInsurance(user.email),
     enabled: !!user.email,
     staleTime: 30_000,
   });
+
+  const [healthOptIn, setHealthOptIn] = useState('');
+  const [healthPlanId, setHealthPlanId] = useState('');
+  const [additionalInsureds, setAdditionalInsureds] = useState('');
+  const [dentalOptIn, setDentalOptIn] = useState('');
+  const [dentalPlanId, setDentalPlanId] = useState('');
+  const [dentalAdditionalInsureds, setDentalAdditionalInsureds] = useState('');
+  const [visionOptIn, setVisionOptIn] = useState('');
+  const [visionPlanId, setVisionPlanId] = useState('');
+  const [visionAdditionalInsureds, setVisionAdditionalInsureds] = useState('');
+
+  const [healthPrice, setHealthPrice] = useState('');
+  const [healthBenefits, setHealthBenefits] = useState('');
+  const [healthRate, setHealthRate] = useState('');
+  const [healthDeduction, setHealthDeduction] = useState('');
+  const [dentalPrice, setDentalPrice] = useState('');
+  const [dentalBenefits, setDentalBenefits] = useState('');
+  const [dentalDeduction, setDentalDeduction] = useState('');
+  const [visionPrice, setVisionPrice] = useState('');
+  const [visionBenefits, setVisionBenefits] = useState('');
+  const [visionDeduction, setVisionDeduction] = useState('');
+  const [healthCompanyContrib, setHealthCompanyContrib] = useState('');
+  const [dentalCompanyContrib, setDentalCompanyContrib] = useState('');
+  const [visionCompanyContrib, setVisionCompanyContrib] = useState('');
+
+  const populateForm = useCallback((data: EmployeeHealthInsurance) => {
+    const health = data.elections.find((e) => e.insuranceType === 'Medical');
+    const dental = data.elections.find((e) => e.insuranceType === 'Dental');
+    const vision = data.elections.find((e) => e.insuranceType === 'Vision');
+
+    const normTier = (v: string | undefined) => {
+      const t = v || '';
+      return t === 'Employee Only' ? 'Employee' : t;
+    };
+
+    setHealthOptIn(health?.optInStatus || '');
+    setHealthPlanId(health?.healthPlanId ? String(health.healthPlanId) : '');
+    setAdditionalInsureds(normTier(health?.additionalInsureds));
+    setHealthPrice(health?.planPrice || '');
+    setHealthBenefits(health?.planBenefits || '');
+    setHealthRate(health?.monthlyRate || '');
+    setHealthDeduction(health?.payrollDeduction || '');
+
+    setDentalOptIn(dental?.optInStatus || '');
+    setDentalPlanId(dental?.healthPlanId ? String(dental.healthPlanId) : '');
+    setDentalAdditionalInsureds(normTier(dental?.additionalInsureds));
+    setDentalPrice(dental?.planPrice || '');
+    setDentalBenefits(dental?.planBenefits || '');
+    setDentalDeduction(dental?.payrollDeduction || '');
+
+    setVisionOptIn(vision?.optInStatus || '');
+    setVisionPlanId(vision?.healthPlanId ? String(vision.healthPlanId) : '');
+    setVisionAdditionalInsureds(normTier(vision?.additionalInsureds));
+    setVisionPrice(vision?.planPrice || '');
+    setVisionBenefits(vision?.planBenefits || '');
+    setVisionDeduction(vision?.payrollDeduction || '');
+  }, []);
+
+  useEffect(() => {
+    if (insuranceQuery.data) populateForm(insuranceQuery.data);
+  }, [insuranceQuery.data, populateForm]);
+
+  const saveMutation = useMutation({
+    mutationFn: (payload: BulkUpdateHealthInsuranceRequest) =>
+      bulkUpdateHealthInsurance(user.email, payload),
+    onSuccess: (data) => {
+      qc.setQueryData(['employee-health-insurance', user.email], data);
+      populateForm(data);
+      addToast?.('Health insurance saved.', 'success');
+    },
+    onError: (error) => {
+      addToast?.(friendlyApiError(error, 'Could not save health insurance.'), 'error');
+    },
+  });
+
+  const handleSave = () => {
+    saveMutation.mutate({
+      medical: {
+        optInStatus: healthOptIn || null,
+        healthPlanId: healthPlanId ? Number(healthPlanId) : null,
+        additionalInsureds: additionalInsureds || null,
+      },
+      dental: {
+        optInStatus: dentalOptIn || null,
+        healthPlanId: dentalPlanId ? Number(dentalPlanId) : null,
+        additionalInsureds: dentalAdditionalInsureds || null,
+      },
+      vision: {
+        optInStatus: visionOptIn || null,
+        healthPlanId: visionPlanId ? Number(visionPlanId) : null,
+        additionalInsureds: visionAdditionalInsureds || null,
+      },
+    });
+  };
 
   if (insuranceQuery.isLoading) {
     return (
@@ -676,35 +974,122 @@ function HealthInsuranceTab({ user }: { user: UserProfileUser; isAdmin: boolean;
     );
   }
 
+  const plans = insuranceQuery.data?.plans ?? [];
   const insuranceEligibility = insuranceQuery.data?.insuranceEligibility ?? 'Ineligible';
-  const elections = insuranceQuery.data?.elections ?? [];
-  const health = elections.find((e) => e.insuranceType === 'Medical');
-  const dental = elections.find((e) => e.insuranceType === 'Dental');
-  const vision = elections.find((e) => e.insuranceType === 'Vision');
+  const tenureTier = insuranceQuery.data?.tenureTier ?? null;
+  const companyContribPP = insuranceQuery.data?.companyContributionPerPayPeriod ?? 0;
+
+  if (!isAdmin) {
+    return (
+      <div className="space-y-4">
+        <SectionCard title="Health Insurance Information" icon={<Heart className="h-4 w-4 text-ems-coral" />}>
+          <div className="grid gap-4 md:grid-cols-2">
+            <ReadOnlyField label="Health Insurance Status" value={insuranceEligibility} source="calculated" />
+            <ReadOnlyField label="Tenure Tier" value={tenureTier || '—'} source="calculated" />
+          </div>
+        </SectionCard>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
+      <SavingOverlay visible={saveMutation.isPending} />
       <SectionCard title="Health Insurance Information" icon={<Heart className="h-4 w-4 text-ems-coral" />}>
         <div className="grid gap-4 md:grid-cols-2">
           <ReadOnlyField label="Health Insurance Status" value={insuranceEligibility} source="calculated" />
+          <ReadOnlyField label="Tenure Tier" value={tenureTier || '—'} source="calculated" />
         </div>
       </SectionCard>
 
-      <ReadOnlyInsuranceSection
+      <InsuranceSection
         title="Medical Insurance"
         icon={<Heart className="h-4 w-4 text-ems-coral" />}
-        election={health}
+        insuranceType="Medical"
+        optIn={healthOptIn}
+        setOptIn={setHealthOptIn}
+        planId={healthPlanId}
+        setPlanId={setHealthPlanId}
+        plans={plans}
+        additionalInsureds={additionalInsureds}
+        setAdditionalInsureds={setAdditionalInsureds}
+        planPrice={healthPrice}
+        setPlanPrice={setHealthPrice}
+        planBenefits={healthBenefits}
+        setPlanBenefits={setHealthBenefits}
+        monthlyRate={healthRate}
+        setMonthlyRate={setHealthRate}
+        payrollDeduction={healthDeduction}
+        setPayrollDeduction={setHealthDeduction}
+        companyContribution={healthCompanyContrib}
+        setCompanyContribution={setHealthCompanyContrib}
+        tenureTier={tenureTier}
+        companyContribPP={companyContribPP}
+        benchmarkBiweekly={insuranceQuery.data?.benchmarkBiweekly ?? 0}
+        showAdditional
       />
-      <ReadOnlyInsuranceSection
+
+      <InsuranceSection
         title="Dental Insurance"
         icon={<Heart className="h-4 w-4 text-ems-blue" />}
-        election={dental}
+        insuranceType="Dental"
+        optIn={dentalOptIn}
+        setOptIn={setDentalOptIn}
+        planId={dentalPlanId}
+        setPlanId={setDentalPlanId}
+        plans={plans}
+        additionalInsureds={dentalAdditionalInsureds}
+        setAdditionalInsureds={setDentalAdditionalInsureds}
+        planPrice={dentalPrice}
+        setPlanPrice={setDentalPrice}
+        planBenefits={dentalBenefits}
+        setPlanBenefits={setDentalBenefits}
+        payrollDeduction={dentalDeduction}
+        setPayrollDeduction={setDentalDeduction}
+        tenureTier={tenureTier}
+        companyContribPP={companyContribPP}
+        benchmarkBiweekly={insuranceQuery.data?.benchmarkBiweekly ?? 0}
+        showAdditional
       />
-      <ReadOnlyInsuranceSection
+
+      <InsuranceSection
         title="Vision Insurance"
         icon={<Heart className="h-4 w-4 text-ems-green" />}
-        election={vision}
+        insuranceType="Vision"
+        optIn={visionOptIn}
+        setOptIn={setVisionOptIn}
+        planId={visionPlanId}
+        setPlanId={setVisionPlanId}
+        plans={plans}
+        additionalInsureds={visionAdditionalInsureds}
+        setAdditionalInsureds={setVisionAdditionalInsureds}
+        planPrice={visionPrice}
+        setPlanPrice={setVisionPrice}
+        planBenefits={visionBenefits}
+        setPlanBenefits={setVisionBenefits}
+        payrollDeduction={visionDeduction}
+        setPayrollDeduction={setVisionDeduction}
+        tenureTier={tenureTier}
+        companyContribPP={companyContribPP}
+        benchmarkBiweekly={insuranceQuery.data?.benchmarkBiweekly ?? 0}
+        showAdditional
       />
+
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saveMutation.isPending}
+          className="inline-flex items-center gap-2 rounded-md bg-ems-accent px-4 py-2 text-sm font-medium text-white hover:bg-ems-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {saveMutation.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Save className="h-4 w-4" />
+          )}
+          {saveMutation.isPending ? 'Saving…' : 'Save Health Insurance'}
+        </button>
+      </div>
     </div>
   );
 }

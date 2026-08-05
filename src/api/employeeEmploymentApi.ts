@@ -43,6 +43,10 @@ export interface EmployeeEmploymentProfile {
   pcServiceTag: string;
   bluetoothStatus: string;
   pcWindowsName: string;
+  departmentRank: string;
+  role: string;
+  employmentStatus: string;
+  employmentType: string;
 }
 
 export interface UpdateEmployeeEmploymentProfileRequest {

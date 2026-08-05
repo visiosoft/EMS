@@ -16,17 +16,7 @@ export class SelfProfileController {
   ) {}
 
   @Get('my-profile')
-  async getMyProfile(
-    @Headers('x-entra-graph-access-token') graphAccessToken?: string,
-  ) {
-    // Auto-sync from Entra on profile load so data is always fresh
-    const email = this.selfProfileService.getSignedInEmail();
-    try {
-      await this.entraProfileSyncService.syncSingleUserFromEntra(email, graphAccessToken);
-    } catch {
-      // If Entra sync fails, still return local data
-    }
-
+  async getMyProfile() {
     return this.selfProfileService.getMyFullProfile();
   }
 
@@ -71,6 +61,19 @@ export class SelfProfileController {
     const email = this.selfProfileService.getSignedInEmail();
     return this.entraProfileSyncService.syncSingleUserFromEntra(
       email,
+      graphAccessToken,
+    );
+  }
+
+  @Post('my-profile/sync-from-entra/apply-selected')
+  async applySelectedSync(
+    @Body() body: { fields: string[] },
+    @Headers('x-entra-graph-access-token') graphAccessToken?: string,
+  ) {
+    const email = this.selfProfileService.getSignedInEmail();
+    return this.entraProfileSyncService.syncSelectedFieldsFromEntra(
+      email,
+      body.fields ?? [],
       graphAccessToken,
     );
   }

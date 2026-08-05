@@ -133,6 +133,7 @@ type InternalContactSyncModel = {
   preview: InternalContactSyncPreview;
   usersById: Map<string, AdminDirectorySyncUser>;
   contactsById: Map<number, InternalContactSnapshot>;
+  ciJobTitleAvailable: boolean;
 };
 
 type SqlExecutor = Pick<DataSource | EntityManager, 'query'>;
@@ -323,7 +324,7 @@ export class InternalContactSyncService {
             manager,
             model.preview.internalCompany.companyId,
             user,
-            model.preview.jobTitleColumnAvailable,
+            model.ciJobTitleAvailable,
           );
           created += 1;
           skippedJobTitleWrites += result.skippedJobTitleWrites;
@@ -335,7 +336,7 @@ export class InternalContactSyncService {
             model.preview.internalCompany.companyId,
             contact,
             user,
-            model.preview.jobTitleColumnAvailable,
+            model.ciJobTitleAvailable,
             selectedFields,
           );
           updated += 1;
@@ -513,10 +514,11 @@ export class InternalContactSyncService {
   private async buildEntraToEmsSyncModel(
     graphAccessToken?: string,
   ): Promise<InternalContactSyncModel> {
-    const [internalCompany, jobTitleColumnAvailable, users] =
+    const [internalCompany, jobTitleColumnAvailable, ciJobTitleAvailable, users] =
       await Promise.all([
         this.getInternalCompany(),
         this.hasContactInfoJobTitleColumn(),
+        this.hasContactInfoJobTitleColumnOnly(),
         this.adminUsersService.listUsersForSync(graphAccessToken),
       ]);
     const contacts = await this.loadInternalContacts(
@@ -709,6 +711,7 @@ export class InternalContactSyncService {
       },
       usersById,
       contactsById,
+      ciJobTitleAvailable,
     };
   }
 
@@ -907,6 +910,7 @@ export class InternalContactSyncService {
       },
       usersById,
       contactsById,
+      ciJobTitleAvailable: jobTitleColumnAvailable,
     };
   }
 
@@ -945,20 +949,65 @@ export class InternalContactSyncService {
       SELECT 1 AS hasColumn
       FROM INFORMATION_SCHEMA.COLUMNS
       WHERE TABLE_SCHEMA = 'dbo'
-        AND TABLE_NAME = 'ContactInfo'
-        AND COLUMN_NAME = 'JobTitle'
+        AND (
+          (TABLE_NAME = 'ContactInfo' AND COLUMN_NAME = 'JobTitle')
+          OR (TABLE_NAME = 'EmployeeProfile' AND COLUMN_NAME = 'JobTitle')
+        )
       `,
     );
     return rows.length > 0;
+  }
+
+  private async hasContactInfoJobTitleColumnOnly(
+    executor: SqlExecutor = this.dataSource,
+  ): Promise<boolean> {
+    const rows = await executor.query(
+      `SELECT 1 AS x FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='ContactInfo' AND COLUMN_NAME='JobTitle'`,
+    );
+    return rows.length > 0;
+  }
+
+  private async upsertEmployeeProfileJobTitle(
+    manager: EntityManager,
+    contactId: number,
+    jobTitle: string,
+  ): Promise<void> {
+    const hasCol = await manager.query(
+      `SELECT 1 AS x FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='EmployeeProfile' AND COLUMN_NAME='JobTitle'`,
+    );
+    if (hasCol.length === 0) return;
+
+    const exists = await manager.query(
+      `SELECT 1 AS x FROM dbo.EmployeeProfile WHERE ContactID = @0`,
+      [contactId],
+    );
+    if (exists.length > 0) {
+      await manager.query(
+        `UPDATE dbo.EmployeeProfile SET JobTitle = @0 WHERE ContactID = @1`,
+        [jobTitle, contactId],
+      );
+    } else {
+      await manager.query(
+        `INSERT INTO dbo.EmployeeProfile (ContactID, JobTitle, created_by, created_at, modified_by, modified_at)
+         VALUES (@0, @1, @2, SYSUTCDATETIME(), @2, SYSUTCDATETIME())`,
+        [contactId, jobTitle, 'Entra contact sync'],
+      );
+    }
   }
 
   private async loadInternalContacts(
     companyId: number,
     jobTitleColumnAvailable: boolean,
   ): Promise<InternalContactSnapshot[]> {
-    const jobTitleSelect = jobTitleColumnAvailable
+    const ciHasJobTitle = await this.hasContactInfoJobTitleColumnOnly();
+    const jobTitleSelect = ciHasJobTitle
       ? 'ci.JobTitle AS jobTitle'
-      : 'CAST(NULL AS nvarchar(150)) AS jobTitle';
+      : 'ep.JobTitle AS jobTitle';
+    const epJoin = ciHasJobTitle
+      ? ''
+      : 'LEFT JOIN dbo.EmployeeProfile ep ON ep.ContactID = c.ContactID';
     const rows = await this.dataSource.query(
       `
       SELECT
@@ -978,6 +1027,7 @@ export class InternalContactSyncService {
       FROM dbo.ContactAssignment ca
       INNER JOIN dbo.Contact c ON c.ContactID = ca.ContactID
       INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+      ${epJoin}
       LEFT JOIN dbo.Role r ON r.RoleID = ca.RoleID
       LEFT JOIN dbo.Department d ON d.DepartmentID = ca.DepartmentID
       WHERE ca.CompanyID = @0
@@ -1463,6 +1513,11 @@ export class InternalContactSyncService {
     // 4. Upsert ContactAssignment for this Company
     await this.syncContactAssignments(manager, contactId, companyId, roleId, departmentIds);
 
+    // 5. Upsert EmployeeProfile.JobTitle
+    if (jobTitle) {
+      await this.upsertEmployeeProfileJobTitle(manager, contactId, jobTitle);
+    }
+
     return {
       skippedJobTitleWrites: jobTitle && !jobTitleColumnAvailable ? 1 : 0,
     };
@@ -1545,6 +1600,11 @@ export class InternalContactSyncService {
         const roleId = await this.findOrCreateRole(manager, DEFAULT_INTERNAL_ROLE_NAME);
         await this.syncContactAssignments(manager, contact.contactId, companyId, roleId, departmentIds);
       }
+    }
+
+    // Upsert EmployeeProfile.JobTitle
+    if (finalJobTitle && (!selectedFields || selectedFields.has('jobTitle'))) {
+      await this.upsertEmployeeProfileJobTitle(manager, contact.contactId, finalJobTitle);
     }
 
     return {

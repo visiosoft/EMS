@@ -99,6 +99,10 @@ export type EmployeeEmploymentProfileResponse = {
   pcServiceTag: string;
   bluetoothStatus: string;
   pcWindowsName: string;
+  departmentRank: string;
+  role: string;
+  employmentStatus: string;
+  employmentType: string;
 };
 
 export class UpdateEmployeeEmploymentProfileDto {
@@ -803,7 +807,11 @@ export class EmployeeEmploymentService {
       CAST('' AS nvarchar(10)) AS rampAccount,
       CAST('' AS nvarchar(20)) AS rampCreditCard,
       CAST('' AS nvarchar(100)) AS workstation,
-      CAST(NULL AS int) AS officeAddressId`;
+      CAST(NULL AS int) AS officeAddressId,
+      CAST('' AS nvarchar(100)) AS departmentRank,
+      CAST('' AS nvarchar(200)) AS role,
+      CAST('' AS nvarchar(100)) AS employmentStatus,
+      CAST('' AS nvarchar(100)) AS employmentType`;
     let officeAddressSelect = `
       CAST('' AS nvarchar(200)) AS officeStreet,
       CAST('' AS nvarchar(200)) AS officeAddress2,
@@ -825,7 +833,11 @@ export class EmployeeEmploymentService {
       COALESCE(ep.RampAccount, '') AS rampAccount,
       COALESCE(ep.RampCreditCard, '') AS rampCreditCard,
       COALESCE(ep.Workstation, '') AS workstation,
-      ep.OfficeAddressID AS officeAddressId`;
+      ep.OfficeAddressID AS officeAddressId,
+      COALESCE(ep.DepartmentRank, '') AS departmentRank,
+      COALESCE(rl.RoleName, '') AS role,
+      COALESCE(ep.EmploymentStatus, '') AS employmentStatus,
+      COALESCE(ep.EmploymentType, '') AS employmentType`;
       officeAddressJoin =
         'LEFT JOIN dbo.Address oa ON oa.AddressID = ep.OfficeAddressID';
       officeAddressSelect = `
@@ -857,6 +869,7 @@ export class EmployeeEmploymentService {
       INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
       INNER JOIN dbo.ContactAssignment ca ON ca.ContactID = c.ContactID
       INNER JOIN dbo.Company co ON co.CompanyID = ca.CompanyID AND co.is_internal = 1
+      LEFT JOIN dbo.Role rl ON rl.RoleID = ca.RoleID
       ${epJoin}
       ${officeAddressJoin}
       LEFT JOIN dbo.EmployeePhoneExtension epe ON epe.ContactAssignmentID = ca.ContactAssignmentID AND epe.IsCurrent = 1
@@ -906,6 +919,10 @@ export class EmployeeEmploymentService {
       pcServiceTag: readString(r, 'pcServiceTag'),
       bluetoothStatus: readString(r, 'bluetoothStatus'),
       pcWindowsName: readString(r, 'pcWindowsName'),
+      departmentRank: readString(r, 'departmentRank'),
+      role: readString(r, 'role'),
+      employmentStatus: readString(r, 'employmentStatus'),
+      employmentType: readString(r, 'employmentType'),
     };
   }
 

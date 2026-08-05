@@ -84,12 +84,7 @@ export class AdminUsersController {
   @UseGuards(AdminOrSelfGuard)
   async getPersonalProfile(
     @Param('email') email: string,
-    @Headers('x-entra-graph-access-token') graphAccessToken?: string,
   ) {
-    // Auto-sync from Entra so EMS always reflects the latest Entra data
-    try {
-      await this.entraProfileSyncService.syncSingleUserFromEntra(email, graphAccessToken);
-    } catch { /* Entra unavailable — serve local data */ }
     return this.employeeProfileService.getPersonalProfile(email);
   }
 
@@ -106,13 +101,31 @@ export class AdminUsersController {
   @UseGuards(AdminOrSelfGuard)
   async getEmploymentProfile(
     @Param('email') email: string,
+  ) {
+    return this.employeeEmploymentService.getEmploymentProfile(email);
+  }
+
+  @Post('users/:email/sync-from-entra/preview')
+  @UseGuards(AdminOrSelfGuard)
+  async previewUserSyncFromEntra(
+    @Param('email') email: string,
     @Headers('x-entra-graph-access-token') graphAccessToken?: string,
   ) {
-    // Auto-sync from Entra so EMS always reflects the latest Entra data
-    try {
-      await this.entraProfileSyncService.syncSingleUserFromEntra(email, graphAccessToken);
-    } catch { /* Entra unavailable — serve local data */ }
-    return this.employeeEmploymentService.getEmploymentProfile(email);
+    return this.entraProfileSyncService.previewSingleUserFromEntra(email, graphAccessToken);
+  }
+
+  @Post('users/:email/sync-from-entra/apply-selected')
+  @UseGuards(AdminOrSelfGuard)
+  async applySelectedUserSync(
+    @Param('email') email: string,
+    @Body() body: { fields: string[] },
+    @Headers('x-entra-graph-access-token') graphAccessToken?: string,
+  ) {
+    return this.entraProfileSyncService.syncSelectedFieldsFromEntra(
+      email,
+      body.fields ?? [],
+      graphAccessToken,
+    );
   }
 
   @Get('access-levels')

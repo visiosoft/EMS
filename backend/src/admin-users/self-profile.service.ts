@@ -3,6 +3,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AuditRequestContext } from '../audit/audit-request-context.service';
 import { AdminUsersService } from './admin-users.service';
+import { EntraProfileSyncService } from './entra-profile-sync.service';
 import {
   EmployeeExperienceService,
   type EmployeeExperienceResponse,
@@ -157,6 +158,7 @@ export class SelfProfileService {
     private readonly experienceService: EmployeeExperienceService,
     private readonly certificationsService: EmployeeCertificationsService,
     private readonly adminUsersService: AdminUsersService,
+    private readonly entraProfileSyncService: EntraProfileSyncService,
   ) {}
 
   /** The signed-in employee's own profile — self always sees every field. */
@@ -323,6 +325,11 @@ export class SelfProfileService {
         );
       }
     }
+
+    // Push updated fields to Entra in the background (fire-and-forget)
+    this.entraProfileSyncService
+      .applyEmsToEntraProfileSync(undefined, base.email)
+      .catch(() => { /* best-effort — don't block the response */ });
 
     return { success: true };
   }
