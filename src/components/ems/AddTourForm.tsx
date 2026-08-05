@@ -7,6 +7,7 @@ import type { ApiAttractionListRow, ApiClass, CreateTourPayload } from '@/api/at
 import {
   createCompanyContact,
   fetchCompanyContacts,
+  fetchDepartmentRoleMappings,
   fetchLookups,
   type ApiCompanyContact,
 } from '@/api/companyApi';
@@ -124,7 +125,13 @@ export function AddTourForm({
   });
   const contactLookupsQuery = useQuery({
     queryKey: ['contact-form-lookups'],
-    queryFn: () => fetchLookups().then(({ roles, departments }) => ({ roles, departments })),
+    queryFn: async () => {
+      const [lookups, departmentRoleMappings] = await Promise.all([
+        fetchLookups().then(({ roles, departments }) => ({ roles, departments })),
+        fetchDepartmentRoleMappings(),
+      ]);
+      return { ...lookups, departmentRoleMappings };
+    },
     enabled: showAddContact,
     staleTime: 30 * 60 * 1000,
   });
@@ -440,40 +447,53 @@ export function AddTourForm({
                     }}
                     error={cellPhoneError}
                   />
-                  <FormField label="Role" required>
+                  <FormField label="Department" required>
                     <Select2Multi
-                      options={(contactLookupsQuery.data?.roles ?? []).map((r) => ({
-                        value: String(r.roleId),
-                        label: r.roleName,
+                      options={(contactLookupsQuery.data?.departments ?? []).map((d) => ({
+                        value: String(d.departmentId),
+                        label: d.departmentName,
                       }))}
-                      values={contactRoleIds}
-                      onChange={setContactRoleIds}
+                      values={contactDepartmentIds}
+                      onChange={(v) => {
+                        setContactDepartmentIds(v);
+                        const allowedRoleIds = new Set(
+                          (contactLookupsQuery.data?.departmentRoleMappings ?? [])
+                            .filter((m) => v.includes(String(m.departmentId)))
+                            .map((m) => String(m.roleId)),
+                        );
+                        setContactRoleIds((prev) => prev.filter((r) => allowedRoleIds.has(r)));
+                      }}
                       placeholder={
                         contactLookupsQuery.isLoading
-                          ? 'Loading roles…'
-                          : 'Select one or more roles…'
+                          ? 'Loading departments…'
+                          : 'Select one or more departments…'
                       }
                       disabled={contactSaving || contactLookupsQuery.isLoading}
                     />
                   </FormField>
-                  <div className="sm:col-span-2">
-                    <FormField label="Department" required>
-                      <Select2Multi
-                        options={(contactLookupsQuery.data?.departments ?? []).map((d) => ({
-                          value: String(d.departmentId),
-                          label: d.departmentName,
-                        }))}
-                        values={contactDepartmentIds}
-                        onChange={setContactDepartmentIds}
-                        placeholder={
-                          contactLookupsQuery.isLoading
-                            ? 'Loading departments…'
-                            : 'Select one or more departments…'
-                        }
-                        disabled={contactSaving || contactLookupsQuery.isLoading}
-                      />
-                    </FormField>
-                  </div>
+                  <FormField label="Role" required>
+                    <Select2Multi
+                      options={(() => {
+                        if (contactDepartmentIds.length === 0) return [];
+                        const allowedRoleIds = new Set(
+                          (contactLookupsQuery.data?.departmentRoleMappings ?? [])
+                            .filter((m) => contactDepartmentIds.includes(String(m.departmentId)))
+                            .map((m) => m.roleId),
+                        );
+                        return (contactLookupsQuery.data?.roles ?? [])
+                          .filter((r) => allowedRoleIds.has(r.roleId))
+                          .map((r) => ({ value: String(r.roleId), label: r.roleName }));
+                      })()}
+                      values={contactRoleIds}
+                      onChange={setContactRoleIds}
+                      disabled={contactSaving || contactDepartmentIds.length === 0}
+                      placeholder={
+                        contactDepartmentIds.length === 0
+                          ? 'Select department first…'
+                          : 'Select one or more roles…'
+                      }
+                    />
+                  </FormField>
                 </div>
                 {contactError && <p className="text-xs text-ems-coral">{contactError}</p>}
                 <div className="flex justify-end gap-2">

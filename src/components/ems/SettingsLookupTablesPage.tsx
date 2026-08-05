@@ -49,6 +49,10 @@ import {
   type LookupManageUpdatePayload,
   type LookupManageListResponse,
   updateLookupManageRow,
+  fetchDepartmentRoleContactUsage,
+  type DepartmentRoleContactUsage,
+  fetchCompanyTypeServiceUsage,
+  type CompanyTypeServiceUsage,
 } from '@/api/lookupManagementApi';
 import {
   AlertDialog,
@@ -214,6 +218,17 @@ const LOOKUP_TABLES: LookupTableConfig[] = [
     ],
   },
   {
+    key: 'department-roles',
+    label: 'DepartmentRoles',
+    idField: 'departmentId',
+    nameField: 'departmentName',
+    manualIdOnCreate: false,
+    columns: [
+      { label: 'Department', field: 'departmentName', sortBy: 'departmentName' },
+      { label: 'Roles', field: 'roleNames', sortBy: 'roleName' },
+    ],
+  },
+  {
     key: 'services-provided',
     label: 'ServiceProvided',
     idField: 'serviceProvidedId',
@@ -259,10 +274,10 @@ function getLookupRowElementKey(row: LookupManageRow, config: LookupTableConfig,
 }
 
 function renderLookupCell(row: LookupManageRow, field: string) {
-  if (field === 'serviceNames') {
-    const names = Array.isArray(row.serviceNames)
-      ? row.serviceNames.map((v) => String(v ?? '').trim()).filter(Boolean)
-      : String(row.serviceName ?? '')
+  if (field === 'serviceNames' || field === 'roleNames') {
+    const names = Array.isArray(row[field])
+      ? (row[field] as string[]).map((v) => String(v ?? '').trim()).filter(Boolean)
+      : String(row[field === 'serviceNames' ? 'serviceName' : 'roleName'] ?? '')
           .split(',')
           .map((v) => v.trim())
           .filter(Boolean);
@@ -289,7 +304,9 @@ const EMS_SAVED_VIEWS_ENABLED_KEY = 'iae-ems-saved-views-enabled-v1';
 function defaultLookupSortBy(lookupKey: string): string {
   return lookupKey === 'company-type-services'
     ? 'companyTypeName'
-    : 'name';
+    : lookupKey === 'department-roles'
+      ? 'departmentName'
+      : 'name';
 }
 
 function loadLookupSortStateForKey(lookupKey: string): { sortBy: string; sortDir: 'asc' | 'desc' } {
@@ -1292,6 +1309,8 @@ export function SettingsPage({
   const [showAddLookup, setShowAddLookup] = useState(false);
   const [editLookupRow, setEditLookupRow] = useState<LookupManageRow | null>(null);
   const [deleteLookupRow, setDeleteLookupRow] = useState<LookupManageRow | null>(null);
+  const [deleteContactUsage, setDeleteContactUsage] = useState<DepartmentRoleContactUsage[] | null>(null);
+  const [deleteCompanyTypeUsage, setDeleteCompanyTypeUsage] = useState<CompanyTypeServiceUsage[] | null>(null);
   const [selectedLookupRow, setSelectedLookupRow] = useState<LookupManageRow | null>(null);
   const [detailsTab, setDetailsTab] = useState('Overview');
   const [directoryPermissionBusy, setDirectoryPermissionBusy] = useState(false);
@@ -1641,6 +1660,9 @@ export function SettingsPage({
     setLookupSearch('');
     setShowLookupSuggestions(false);
     setLookupSort(loadLookupSortStateForKey(activeLookupKey));
+    if (activeLookupKey === 'department-roles') {
+      void qc.invalidateQueries({ queryKey: ['lookup-manage', 'dependencies'], exact: false });
+    }
   }, [activeLookupKey]);
 
   useEffect(() => {
@@ -1716,9 +1738,11 @@ export function SettingsPage({
   const suggestionSortBy =
     activeLookupKey === 'company-type-services'
       ? 'companyTypeName'
-      : activeLookupKey === 'dmas'
-        ? 'name'
-        : 'name';
+      : activeLookupKey === 'department-roles'
+        ? 'departmentName'
+        : activeLookupKey === 'dmas'
+          ? 'name'
+          : 'name';
   const lookupSuggestionsQuery = useQuery({
     queryKey: [
       'lookup-manage',
@@ -1755,6 +1779,17 @@ export function SettingsPage({
                     .map((value) => value.trim())
                     .filter(Boolean);
               return [typeName, ...serviceNames].filter(Boolean);
+            })
+        : activeLookupKey === 'department-roles'
+          ? rows.flatMap((row) => {
+              const deptName = String(row.departmentName ?? '').trim();
+              const roleNames = Array.isArray(row.roleNames)
+                ? row.roleNames.map((value) => String(value ?? '').trim()).filter(Boolean)
+                : String(row.roleName ?? '')
+                    .split(',')
+                    .map((value) => value.trim())
+                    .filter(Boolean);
+              return [deptName, ...roleNames].filter(Boolean);
             })
         : rows.map((row) => String(row[activeLookupConfig.nameField ?? activeLookupConfig.idField] ?? '').trim());
     const deduped: string[] = [];
@@ -1808,6 +1843,8 @@ export function SettingsPage({
         companies,
         companyTypes: lookups.companyTypes,
         services: lookups.servicesProvided,
+        departments: lookups.departments,
+        roles: lookups.roles,
       };
     },
     enabled: tab === 'Lookup Tables',
@@ -1835,6 +1872,24 @@ export function SettingsPage({
         label: companyType.companyTypeName,
       })),
     [lookupDepsQuery.data?.companyTypes],
+  );
+
+  const departmentOptions = useMemo<Select2Option[]>(
+    () =>
+      (lookupDepsQuery.data?.departments ?? []).map((dept) => ({
+        value: String(dept.departmentId),
+        label: dept.departmentName,
+      })),
+    [lookupDepsQuery.data?.departments],
+  );
+
+  const roleOptions = useMemo<Select2Option[]>(
+    () =>
+      (lookupDepsQuery.data?.roles ?? []).map((role) => ({
+        value: String(role.roleId),
+        label: role.roleName,
+      })),
+    [lookupDepsQuery.data?.roles],
   );
 
   const upsertLookupMut = useMutation({
@@ -1879,6 +1934,28 @@ export function SettingsPage({
       }
     },
   });
+
+  useEffect(() => {
+    if (!deleteLookupRow || activeLookupKey !== 'department-roles') {
+      setDeleteContactUsage(null);
+      return;
+    }
+    const deptId = getRowId(deleteLookupRow, activeLookupConfig);
+    if (!deptId) return;
+    setDeleteContactUsage(null);
+    fetchDepartmentRoleContactUsage(deptId).then(setDeleteContactUsage).catch(() => setDeleteContactUsage(null));
+  }, [deleteLookupRow, activeLookupKey, activeLookupConfig]);
+
+  useEffect(() => {
+    if (!deleteLookupRow || activeLookupKey !== 'company-type-services') {
+      setDeleteCompanyTypeUsage(null);
+      return;
+    }
+    const ctId = getRowId(deleteLookupRow, activeLookupConfig);
+    if (!ctId) return;
+    setDeleteCompanyTypeUsage(null);
+    fetchCompanyTypeServiceUsage(ctId).then(setDeleteCompanyTypeUsage).catch(() => setDeleteCompanyTypeUsage(null));
+  }, [deleteLookupRow, activeLookupKey, activeLookupConfig]);
 
   const lookupRows = lookupListQuery.data?.data ?? [];
   const lookupDisplayRows = useMemo(() => {
@@ -1943,9 +2020,11 @@ export function SettingsPage({
       ? ''
       : activeLookupKey === 'company-type-services'
         ? String(selectedLookupRow.companyTypeName ?? '').trim() || 'Company type'
-        : String(
-          selectedLookupRow[activeLookupConfig.nameField ?? activeLookupConfig.idField] ?? '',
-        ).trim() || `${activeLookupConfig.label} #${selectedLookupId ?? ''}`;
+        : activeLookupKey === 'department-roles'
+          ? String(selectedLookupRow.departmentName ?? '').trim() || 'Department'
+          : String(
+            selectedLookupRow[activeLookupConfig.nameField ?? activeLookupConfig.idField] ?? '',
+          ).trim() || `${activeLookupConfig.label} #${selectedLookupId ?? ''}`;
 
   return (
     <div className="space-y-4">
@@ -2711,6 +2790,8 @@ export function SettingsPage({
             companyOptions={companyOptions}
             companyTypeOptions={companyTypeOptions}
             serviceOptions={serviceOptions}
+            departmentOptions={departmentOptions}
+            roleOptions={roleOptions}
             loadingDependencies={lookupDepsQuery.isPending}
             saving={upsertLookupMut.isPending}
             onCancel={() => setShowAddLookup(false)}
@@ -2750,9 +2831,48 @@ export function SettingsPage({
                   `${activeLookupConfig.label} #${getRowId(deleteLookupRow, activeLookupConfig)}`
                   : 'this row'}
               </span>{' '}
-              from the database. If something blocks the removal, you’ll see a short
-              explanation right after you confirm.
+              from the database.
             </AlertDialogDescription>
+            {activeLookupKey === 'department-roles' && deleteContactUsage != null && deleteContactUsage.length > 0 && (
+              <div className="mt-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-400">
+                <p className="font-medium mb-1">
+                  Cannot remove — {deleteContactUsage.length} contact{deleteContactUsage.length === 1 ? '' : 's'} currently use{deleteContactUsage.length === 1 ? 's' : ''} this mapping:
+                </p>
+                <ul className="max-h-40 overflow-y-auto space-y-0.5 pl-4 list-disc text-xs">
+                  {deleteContactUsage.map((c, i) => (
+                    <li key={i}>
+                      {c.firstName} {c.lastName} — {c.roleName} @ {c.companyName}{c.source === 'IAE' ? ' (IAE)' : ''}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1 text-xs opacity-80">Remove this department–role mapping from the contacts listed above before deleting it.</p>
+              </div>
+            )}
+            {activeLookupKey === 'department-roles' && deleteContactUsage != null && deleteContactUsage.length === 0 && (
+              <p className="mt-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400">
+                No contacts are using this mapping — safe to remove.
+              </p>
+            )}
+            {activeLookupKey === 'company-type-services' && deleteCompanyTypeUsage != null && deleteCompanyTypeUsage.length > 0 && (
+              <div className="mt-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-400">
+                <p className="font-medium mb-1">
+                  Cannot remove — {deleteCompanyTypeUsage.length} compan{deleteCompanyTypeUsage.length === 1 ? 'y' : 'ies'} currently use{deleteCompanyTypeUsage.length === 1 ? 's' : ''} this mapping:
+                </p>
+                <ul className="max-h-40 overflow-y-auto space-y-0.5 pl-4 list-disc text-xs">
+                  {deleteCompanyTypeUsage.map((c, i) => (
+                    <li key={i}>
+                      {c.companyName} — {c.serviceName}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1 text-xs opacity-80">Remove this company type–service mapping from the companies listed above before deleting it.</p>
+              </div>
+            )}
+            {activeLookupKey === 'company-type-services' && deleteCompanyTypeUsage != null && deleteCompanyTypeUsage.length === 0 && (
+              <p className="mt-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400">
+                No companies are using this mapping — safe to remove.
+              </p>
+            )}
           </AlertDialogHeader>
           {deleteLookupMut.isPending && (
             <div
@@ -2777,7 +2897,7 @@ export function SettingsPage({
             <Button
               type="button"
               variant="destructive"
-              disabled={deleteLookupMut.isPending}
+              disabled={deleteLookupMut.isPending || (activeLookupKey === 'department-roles' && (deleteContactUsage === null || deleteContactUsage.length > 0)) || (activeLookupKey === 'company-type-services' && (deleteCompanyTypeUsage === null || deleteCompanyTypeUsage.length > 0))}
               className="bg-ems-coral text-white hover:bg-ems-coral/90 sm:ml-0"
               onClick={() => void confirmDeleteLookup()}
             >
@@ -2832,6 +2952,8 @@ export function SettingsPage({
               companyOptions={companyOptions}
               companyTypeOptions={companyTypeOptions}
               serviceOptions={serviceOptions}
+              departmentOptions={departmentOptions}
+              roleOptions={roleOptions}
               loadingDependencies={lookupDepsQuery.isPending}
               saving={upsertLookupMut.isPending}
               onSave={async (payload) => {
@@ -2930,6 +3052,8 @@ function LookupRowForm({
   companyOptions,
   companyTypeOptions,
   serviceOptions,
+  departmentOptions,
+  roleOptions,
   loadingDependencies,
   saving,
   onSave,
@@ -2941,6 +3065,8 @@ function LookupRowForm({
   companyOptions: Select2Option[];
   companyTypeOptions: Select2Option[];
   serviceOptions: Select2Option[];
+  departmentOptions: Select2Option[];
+  roleOptions: Select2Option[];
   loadingDependencies: boolean;
   saving: boolean;
   onSave: (payload: LookupManageCreatePayload | LookupManageUpdatePayload) => Promise<void>;
@@ -2949,6 +3075,7 @@ function LookupRowForm({
   const isEdit = !!initial;
   const isCompanyService = config.key === 'company-services';
   const isCompanyTypeService = config.key === 'company-type-services';
+  const isDepartmentRole = config.key === 'department-roles';
   const isDma = config.key === 'dmas';
   const [idInput, setIdInput] = useState(
     config.manualIdOnCreate && !isEdit ? '' : String(initial?.[config.idField] ?? ''),
@@ -2971,6 +3098,16 @@ function LookupRowForm({
         : [],
   );
   const [postalCode, setPostalCode] = useState(String(initial?.postalCode ?? ''));
+  const [departmentId, setDepartmentId] = useState(String(initial?.departmentId ?? ''));
+  const [roleIds, setRoleIds] = useState<string[]>(() =>
+    Array.isArray(initial?.roleIds)
+      ? initial.roleIds
+          .map((value) => String(value))
+          .filter((value) => Number.isInteger(Number(value)) && Number(value) > 0)
+      : initial?.roleId != null
+        ? [String(initial.roleId)]
+        : [],
+  );
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const companyServiceOptionsState = useCompanyServiceLookupOptions({
@@ -3039,6 +3176,28 @@ function LookupRowForm({
       setSubmitting(true);
       try {
         await onSave({ companyId: cId, serviceProvidedId: sId });
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
+    if (isDepartmentRole) {
+      const dId = Number(departmentId);
+      if (!Number.isInteger(dId) || dId < 1) {
+        setError('Department is required.');
+        return;
+      }
+      const ids = roleIds
+        .map(Number)
+        .filter((value) => Number.isInteger(value) && value > 0);
+      if (ids.length === 0) {
+        setError('Select at least one role.');
+        return;
+      }
+      setSubmitting(true);
+      try {
+        await onSave({ departmentId: dId, roleIds: [...new Set(ids)] });
       } finally {
         setSubmitting(false);
       }
@@ -3179,6 +3338,36 @@ function LookupRowForm({
             </FormField>
           )}
         </>
+      ) : isDepartmentRole ? (
+        <>
+          <FormField label="Department" required>
+            <Select2
+              options={departmentOptions}
+              value={departmentId}
+              onChange={setDepartmentId}
+              placeholder={loadingDependencies ? 'Loading departments...' : 'Select department'}
+              disabled={loadingDependencies || saving || submitting}
+            />
+          </FormField>
+          <FormField label="Roles" required>
+            <Select2Multi
+              options={roleOptions}
+              values={roleIds}
+              onChange={setRoleIds}
+              placeholder={loadingDependencies ? 'Loading roles...' : 'Select one or more roles'}
+              disabled={loadingDependencies || saving || submitting}
+            />
+          </FormField>
+          {isEdit && (
+            <FormField label="Department ID">
+              <input
+                className={inputCls}
+                value={String(initial?.[config.idField] ?? '')}
+                disabled
+              />
+            </FormField>
+          )}
+        </>
       ) : (
         <>
           {(config.manualIdOnCreate || isEdit) && (
@@ -3228,7 +3417,7 @@ function LookupRowForm({
         <button
           type="button"
           onClick={() => void submit()}
-          disabled={saving || submitting || (loadingDependencies && (isCompanyService || isCompanyTypeService))}
+          disabled={saving || submitting || (loadingDependencies && (isCompanyService || isCompanyTypeService || isDepartmentRole))}
           className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50"
         >
           {saving || submitting ? 'Saving…' : 'Save'}
@@ -3245,6 +3434,8 @@ function LookupDetailsEditor({
   companyOptions,
   companyTypeOptions,
   serviceOptions,
+  departmentOptions,
+  roleOptions,
   loadingDependencies,
   saving,
   onSave,
@@ -3255,12 +3446,15 @@ function LookupDetailsEditor({
   companyOptions: Select2Option[];
   companyTypeOptions: Select2Option[];
   serviceOptions: Select2Option[];
+  departmentOptions: Select2Option[];
+  roleOptions: Select2Option[];
   loadingDependencies: boolean;
   saving: boolean;
   onSave: (payload: LookupManageUpdatePayload) => Promise<void>;
 }) {
   const isCompanyService = config.key === 'company-services';
   const isCompanyTypeService = config.key === 'company-type-services';
+  const isDepartmentRole = config.key === 'department-roles';
   const isDma = config.key === 'dmas';
   const [name, setName] = useState(
     config.nameField ? String(row[config.nameField] ?? '') : '',
@@ -3269,6 +3463,16 @@ function LookupDetailsEditor({
   const [companyId, setCompanyId] = useState(String(row.companyId ?? ''));
   const [companyTypeId, setCompanyTypeId] = useState(String(row.companyTypeId ?? ''));
   const [serviceProvidedId, setServiceProvidedId] = useState(String(row.serviceProvidedId ?? ''));
+  const [departmentId, setDepartmentId] = useState(String(row.departmentId ?? ''));
+  const [roleIds, setRoleIds] = useState<string[]>(() =>
+    Array.isArray(row.roleIds)
+      ? row.roleIds
+          .map((value) => String(value))
+          .filter((value) => Number.isInteger(Number(value)) && Number(value) > 0)
+      : row.roleId != null
+        ? [String(row.roleId)]
+        : [],
+  );
   const [serviceProvidedIds, setServiceProvidedIds] = useState<string[]>(() =>
     Array.isArray(row.serviceProvidedIds)
       ? row.serviceProvidedIds
@@ -3341,6 +3545,23 @@ function LookupDetailsEditor({
       return;
     }
 
+    if (isDepartmentRole) {
+      const dId = Number(departmentId);
+      if (!Number.isInteger(dId) || dId < 1) {
+        setError('Department is required.');
+        return;
+      }
+      const ids = roleIds
+        .map(Number)
+        .filter((value) => Number.isInteger(value) && value > 0);
+      if (ids.length === 0) {
+        setError('Select at least one role.');
+        return;
+      }
+      await onSave({ departmentId: dId, roleIds: [...new Set(ids)] });
+      return;
+    }
+
     const trimmed = name.trim();
     if (!trimmed) {
       setError(isDma ? 'Market name is required.' : 'Name is required.');
@@ -3399,6 +3620,21 @@ function LookupDetailsEditor({
                     {isCompanyTypeService
                       ? serviceProvidedIds.map((id) => serviceOptions.find((o) => o.value === id)?.label ?? `#${id}`).join(', ') || '—'
                       : serviceOptions.find((o) => o.value === serviceProvidedId)?.label || serviceProvidedId || '—'}
+                  </div>
+                </div>
+              </>
+            ) : isDepartmentRole ? (
+              <>
+                <div>
+                  <span className="text-xs text-text-muted">Department</span>
+                  <div className="text-sm text-text-primary mt-0.5">
+                    {departmentOptions.find((o) => o.value === departmentId)?.label || departmentId || '—'}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-xs text-text-muted">Roles</span>
+                  <div className="text-sm text-text-primary mt-0.5">
+                    {roleIds.map((id) => roleOptions.find((o) => o.value === id)?.label ?? `#${id}`).join(', ') || '—'}
                   </div>
                 </div>
               </>
@@ -3501,6 +3737,27 @@ function LookupDetailsEditor({
               ) : null}
             </FormField>
           </>
+        ) : isDepartmentRole ? (
+          <>
+            <FormField label="Department" required>
+              <Select2
+                options={departmentOptions}
+                value={departmentId}
+                onChange={setDepartmentId}
+                placeholder={loadingDependencies ? 'Loading departments...' : 'Select department'}
+                disabled={loadingDependencies || saving}
+              />
+            </FormField>
+            <FormField label="Roles" required>
+              <Select2Multi
+                options={roleOptions}
+                values={roleIds}
+                onChange={setRoleIds}
+                placeholder={loadingDependencies ? 'Loading roles...' : 'Select one or more roles'}
+                disabled={loadingDependencies || saving}
+              />
+            </FormField>
+          </>
         ) : (
           <>
             <FormField label={isDma ? 'Market Name' : 'Name'} required>
@@ -3533,7 +3790,7 @@ function LookupDetailsEditor({
         <button
           type="button"
           onClick={() => void submit()}
-          disabled={saving || (loadingDependencies && (isCompanyService || isCompanyTypeService))}
+          disabled={saving || (loadingDependencies && (isCompanyService || isCompanyTypeService || isDepartmentRole))}
           className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50"
         >
           {saving ? 'Saving…' : 'Save changes'}
