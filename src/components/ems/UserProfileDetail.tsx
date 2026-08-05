@@ -1,45 +1,21 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, User, Briefcase, Heart, Star, Award, Lock, MapPin, Loader2, Save, Eye, EyeOff } from 'lucide-react';
-import {
-  fetchEmployeePersonalProfile,
-  updateEmployeePersonalProfile,
-  type EmployeePersonalProfile,
-  type UpdateEmployeePersonalProfileRequest,
-} from '@/api/employeeProfileApi';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, User, Briefcase, Heart, Star, Award, Lock, MapPin, Loader2, Eye, EyeOff, ExternalLink, RefreshCw, CheckCircle2, ArrowRight, X } from 'lucide-react';
+import { fetchEmployeePersonalProfile } from '@/api/employeeProfileApi';
 import {
   fetchEmployeeEmploymentProfile,
-  updateEmployeeEmploymentProfile,
-  fetchWorkstations,
-  fetchPhoneExtensions,
-  fetchPhoneDevices,
-  fetchPcDevices,
   fetchUserLicenses,
   fetchUserGroups,
-  type EmployeeEmploymentProfile,
-  type UpdateEmployeeEmploymentProfileRequest,
 } from '@/api/employeeEmploymentApi';
-import {
-  fetchEmployeeHealthInsurance,
-  bulkUpdateHealthInsurance,
-  type EmployeeHealthInsurance,
-  type BulkUpdateHealthInsuranceRequest,
-  type HealthPlanOption,
-} from '@/api/employeeHealthInsuranceApi';
-import {
-  fetchEmployeeExperience,
-} from '@/api/employeeExperienceApi';
+import { fetchEmployeeHealthInsurance } from '@/api/employeeHealthInsuranceApi';
+import { fetchEmployeeExperience } from '@/api/employeeExperienceApi';
 import { fetchEmployeeCertifications } from '@/api/employeeCertificationsApi';
-import { fetchIaeStaffEmployees } from '@/api/iaeEmployeesApi';
-import {
-  fetchMyProfile,
-  updateMyProfile,
-  type MyProfile,
-  type UpdateMyProfileRequest,
-} from '@/api/myProfileApi';
+import { fetchMyProfile } from '@/api/myProfileApi';
+import { previewMyProfileSyncFromEntra, syncMyProfileFromEntra } from '@/api/entraProfileSyncApi';
+import type { EntraProfileSyncFieldChange } from '@/api/entraProfileSyncApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
-import { useAddressAutofill } from '@/hooks/useAddressAutofill';
 import { getActiveAccount, getAccountEmail } from '@/auth/entra';
+import { INTERNAL_ROOT } from '@/routing/paths';
 import { TabBar } from './Primitives';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -168,95 +144,7 @@ function ReadOnlyField({ label, value, source }: { label: string; value: string;
   );
 }
 
-function EditableField({
-  label,
-  value,
-  onChange,
-  type = 'text',
-  placeholder,
-  disabled,
-  source,
-  maxLength,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  type?: string;
-  placeholder?: string;
-  disabled?: boolean;
-  source?: DataSource;
-  maxLength?: number;
-}) {
-  const isEntra = source === 'entra';
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center gap-1.5">
-        <label className="text-xs font-medium text-text-muted">{label}</label>
-        {isEntra && <SourceBadge source={source!} />}
-      </div>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        disabled={disabled}
-        maxLength={maxLength}
-        autoComplete="off"
-        className={`w-full rounded-md border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${isEntra ? 'bg-gray-100 dark:bg-gray-800' : 'bg-white dark:bg-white/5'}`}
-      />
-    </div>
-  );
-}
 
-function SelectField({
-  label,
-  value,
-  onChange,
-  options,
-  disabled,
-  source,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: { value: string; label: string }[];
-  disabled?: boolean;
-  source?: DataSource;
-}) {
-  const isEntra = source === 'entra';
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center gap-1.5">
-        <label className="text-xs font-medium text-text-muted">{label}</label>
-        {isEntra && <SourceBadge source={source!} />}
-      </div>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        disabled={disabled}
-        className={`w-full rounded-md border border-border px-3 py-2 text-sm text-text-primary focus:border-ems-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${isEntra ? 'bg-gray-100 dark:bg-gray-800' : 'bg-white dark:bg-white/5'}`}
-      >
-        <option value="">— Select —</option>
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>{opt.label}</option>
-        ))}
-      </select>
-    </div>
-  );
-}
-
-/** Full-screen saving overlay */
-function SavingOverlay({ visible }: { visible: boolean }) {
-  if (!visible) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-      <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-6 py-4 shadow-xl">
-        <Loader2 className="h-5 w-5 animate-spin text-ems-accent" />
-        <span className="text-sm font-medium text-text-primary">Saving…</span>
-      </div>
-    </div>
-  );
-}
 
 function SectionCard({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
@@ -268,6 +156,30 @@ function SectionCard({ title, icon, children }: { title: string; icon: React.Rea
       <div className="px-4 py-4">
         {children}
       </div>
+    </div>
+  );
+}
+
+/** Read-only field with a link to edit the value in the WMS (Company Hub) */
+function ReadOnlyWithWmsLink({ label, value, source }: { label: string; value: string; source?: DataSource }) {
+  const wmsProfileUrl = `${INTERNAL_ROOT}#my-profile`;
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-1.5">
+        <label className="text-xs font-medium text-text-muted">{label}</label>
+        {source && <SourceBadge source={source} />}
+        <Lock className="h-3 w-3 text-text-muted/50" />
+      </div>
+      <div className="rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-secondary">
+        {value || '—'}
+      </div>
+      <a
+        href={wmsProfileUrl}
+        className="inline-flex items-center gap-1 text-[11px] font-medium text-ems-blue hover:underline"
+      >
+        <ExternalLink className="h-3 w-3" />
+        Edit in Company Hub
+      </a>
     </div>
   );
 }
@@ -303,58 +215,166 @@ function HashedField({ label, value, source }: { label: string; value: string; s
   );
 }
 
-/** An editable field that masks its value by default with a Show/Hide toggle button */
-function HashedEditableField({
-  label,
-  value,
-  onChange,
-  placeholder,
-  source,
-  maxLength,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  source?: DataSource;
-  maxLength?: number;
-}) {
-  const [revealed, setRevealed] = useState(false);
+
+
+/** Banner indicating data is auto-synced from Entra on each page load */
+function EntraSyncBanner({ queryKey, dataUpdatedAt }: { queryKey: string[]; dataUpdatedAt: number }) {
+  const qc = useQueryClient();
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewChanges, setPreviewChanges] = useState<EntraProfileSyncFieldChange[]>([]);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [applying, setApplying] = useState(false);
+
+  const handleSyncClick = async () => {
+    setLoadingPreview(true);
+    try {
+      const result = await previewMyProfileSyncFromEntra();
+      if (result.changes.length === 0) {
+        // No changes — just refresh the query data
+        await qc.invalidateQueries({ queryKey });
+      } else {
+        setPreviewChanges(result.changes);
+        setShowPreview(true);
+      }
+    } catch {
+      // Fallback: just do the sync if preview fails
+      await qc.invalidateQueries({ queryKey });
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
+
+  const handleConfirmSync = async () => {
+    setApplying(true);
+    try {
+      await syncMyProfileFromEntra();
+      await qc.invalidateQueries({ queryKey });
+    } finally {
+      setApplying(false);
+      setShowPreview(false);
+      setPreviewChanges([]);
+    }
+  };
+
+  const syncTime = dataUpdatedAt
+    ? new Date(dataUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : null;
+
   return (
-    <div className="space-y-1">
-      <div className="flex items-center gap-1.5">
-        <label className="text-xs font-medium text-text-muted">{label}</label>
-        {source && <SourceBadge source={source} />}
-      </div>
-      <div className="flex items-center gap-2">
-        {revealed ? (
-          <input
-            type="text"
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder={placeholder}
-            maxLength={maxLength}
-            autoComplete="one-time-code"
-            name="ssn_field_no_autofill"
-            className="flex-1 rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none"
-          />
-        ) : (
-          <div
-            className="flex-1 rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-secondary cursor-text"
-            onClick={() => setRevealed(true)}
-          >
-            {value ? '••••••••' : <span className="text-text-muted">{placeholder || '—'}</span>}
-          </div>
-        )}
+    <>
+      <div className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20 px-3 py-2">
+        <CheckCircle2 className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+        <span className="text-xs text-blue-700 dark:text-blue-300">
+          Auto-synced from Entra{syncTime ? ` at ${syncTime}` : ''}
+        </span>
         <button
           type="button"
-          onClick={() => setRevealed(!revealed)}
-          className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-2 text-xs font-medium text-text-secondary hover:bg-hover transition-colors"
-          title={revealed ? 'Hide' : 'Show'}
+          onClick={handleSyncClick}
+          disabled={loadingPreview}
+          className="ml-auto inline-flex items-center gap-1 rounded border border-blue-300 bg-white dark:bg-blue-900/40 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-800/50 transition-colors disabled:opacity-50"
         >
-          {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-          {revealed ? 'Hide' : 'Show'}
+          <RefreshCw className={`h-3 w-3 ${loadingPreview ? 'animate-spin' : ''}`} />
+          Sync Now
         </button>
+      </div>
+
+      {showPreview && (
+        <SyncPreviewModal
+          changes={previewChanges}
+          applying={applying}
+          onConfirm={handleConfirmSync}
+          onCancel={() => { setShowPreview(false); setPreviewChanges([]); }}
+        />
+      )}
+    </>
+  );
+}
+
+/** Modal showing field-level changes from Entra before applying sync */
+function SyncPreviewModal({
+  changes,
+  applying,
+  onConfirm,
+  onCancel,
+}: {
+  changes: EntraProfileSyncFieldChange[];
+  applying: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="fixed inset-0 bg-black/50" onClick={onCancel} />
+      <div className="relative z-50 w-full max-w-lg rounded-lg border border-border bg-surface shadow-xl max-h-[80vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <div>
+            <h2 className="text-base font-semibold text-text-primary">Sync Preview</h2>
+            <p className="text-xs text-text-muted mt-0.5">
+              {changes.length} field{changes.length !== 1 ? 's' : ''} will be updated from Entra
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-md p-1 text-text-muted hover:bg-hover transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Changes list */}
+        <div className="flex-1 overflow-y-auto px-5 py-3">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-text-muted border-b border-border">
+                <th className="pb-2 font-medium">Field</th>
+                <th className="pb-2 font-medium">Current (EMS)</th>
+                <th className="pb-2 w-6" />
+                <th className="pb-2 font-medium">New (Entra)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {changes.map((change) => (
+                <tr key={change.field} className="border-b border-border/50 last:border-0">
+                  <td className="py-2 pr-2 text-xs font-medium text-text-secondary whitespace-nowrap">
+                    {change.label}
+                  </td>
+                  <td className="py-2 pr-1 text-xs text-text-muted max-w-[120px] truncate" title={change.from || '—'}>
+                    {change.from || <span className="italic text-text-muted/60">empty</span>}
+                  </td>
+                  <td className="py-2 px-1">
+                    <ArrowRight className="h-3 w-3 text-blue-500" />
+                  </td>
+                  <td className="py-2 text-xs text-text-primary font-medium max-w-[120px] truncate" title={change.to || '—'}>
+                    {change.to || <span className="italic text-text-muted/60">empty</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={applying}
+            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-hover transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={applying}
+            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
+          >
+            {applying && <Loader2 className="h-3 w-3 animate-spin" />}
+            Confirm Sync
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -362,58 +382,12 @@ function HashedEditableField({
 
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 
-function OverviewTab({ user, addToast }: { user: UserProfileUser; addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void }) {
-  const qc = useQueryClient();
-
+function OverviewTab({ user }: { user: UserProfileUser; addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void }) {
   const profileQuery = useQuery({
     queryKey: ['my-profile'],
     queryFn: fetchMyProfile,
     staleTime: 30_000,
   });
-
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [department, setDepartment] = useState('');
-  const [mobilePhone, setMobilePhone] = useState('');
-  const [workPhone, setWorkPhone] = useState('');
-
-  const populateForm = useCallback((data: MyProfile) => {
-    setFirstName(data.firstName || '');
-    setLastName(data.lastName || '');
-    setDepartment(data.departmentName || '');
-    setMobilePhone(data.cellPhone || '');
-    setWorkPhone(data.workPhone || '');
-  }, []);
-
-  useEffect(() => {
-    if (profileQuery.data) populateForm(profileQuery.data);
-  }, [profileQuery.data, populateForm]);
-
-  const saveMutation = useMutation({
-    mutationFn: (payload: UpdateMyProfileRequest) => updateMyProfile(payload),
-    onSuccess: (data) => {
-      qc.setQueryData(['my-profile'], data);
-      populateForm(data);
-      addToast?.('Profile saved.', 'success');
-    },
-    onError: (error) => {
-      addToast?.(friendlyApiError(error, 'Could not save profile.'), 'error');
-    },
-  });
-
-  const handleSave = () => {
-    saveMutation.mutate({
-      firstName,
-      lastName,
-      cellPhone: mobilePhone,
-      workPhone,
-      departmentName: department,
-    });
-  };
-
-  const handleReset = () => {
-    if (profileQuery.data) populateForm(profileQuery.data);
-  };
 
   if (profileQuery.isLoading) {
     return (
@@ -424,165 +398,34 @@ function OverviewTab({ user, addToast }: { user: UserProfileUser; addToast?: (me
     );
   }
 
+  const data = profileQuery.data;
+
   return (
     <div className="space-y-4">
-      <SavingOverlay visible={saveMutation.isPending} />
       <SectionCard title="Profile" icon={<User className="h-4 w-4 text-ems-accent" />}>
         <div className="grid gap-4 md:grid-cols-2">
-          <EditableField label="First Name *" value={firstName} onChange={setFirstName} source="ems" maxLength={100} />
-          <EditableField label="Last Name" value={lastName} onChange={setLastName} source="ems" maxLength={100} />
+          <ReadOnlyField label="First Name" value={data?.firstName || ''} source="entra" />
+          <ReadOnlyField label="Last Name" value={data?.lastName || ''} source="entra" />
           <ReadOnlyField label="Email" value={user.email} source="entra" />
-          <EditableField label="Department *" value={department} onChange={setDepartment} source="ems" maxLength={100} />
-          <ReadOnlyField label="Roles" value={profileQuery.data?.roleNames?.join(', ') || ''} source="ems" />
-          <EditableField label="Mobile Phone" value={mobilePhone} onChange={setMobilePhone} source="ems" maxLength={30} />
-          <EditableField label="Work Phone" value={workPhone} onChange={setWorkPhone} source="ems" maxLength={30} />
+          <ReadOnlyField label="Department" value={data?.departmentName || ''} source="entra" />
+          <ReadOnlyField label="Roles" value={data?.roleNames?.join(', ') || ''} source="entra" />
+          <ReadOnlyWithWmsLink label="Mobile Phone" value={data?.cellPhone || ''} source="ems" />
+          <ReadOnlyWithWmsLink label="Work Phone" value={data?.workPhone || ''} source="ems" />
         </div>
       </SectionCard>
-
-      {/* Save / Reset Bar */}
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={handleReset}
-          className="inline-flex items-center gap-2 rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium text-text-secondary hover:bg-hover transition-colors"
-        >
-          Reset
-        </button>
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saveMutation.isPending}
-          className="inline-flex items-center gap-2 rounded-md bg-ems-accent px-4 py-2 text-sm font-medium text-white hover:bg-ems-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {saveMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Save className="h-4 w-4" />
-          )}
-          {saveMutation.isPending ? 'Saving…' : 'Save Profile'}
-        </button>
-      </div>
     </div>
   );
 }
 
 // ─── Personal Tab ─────────────────────────────────────────────────────────────
 
-function PersonalTab({ user, isAdmin, addToast }: { user: UserProfileUser; isAdmin: boolean; addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void }) {
-  const qc = useQueryClient();
-
-  // Determine if the logged-in user is viewing their own profile
-  const currentUserEmail = getAccountEmail(getActiveAccount()) || '';
-  const isSelf = currentUserEmail.toLowerCase() === user.email.toLowerCase();
-  const canEditPersonal = isAdmin || isSelf;
-
+function PersonalTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolean; addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void }) {
   // ── Fetch existing profile ────────────────────────────────────────────────
   const profileQuery = useQuery({
     queryKey: ['employee-personal-profile', user.email],
     queryFn: () => fetchEmployeePersonalProfile(user.email),
     enabled: !!user.email,
     staleTime: 30_000,
-  });
-
-  // ── Local form state ──────────────────────────────────────────────────────
-  const [firstName, setFirstName] = useState(user.name.split(' ')[0] || '');
-  const [lastName, setLastName] = useState(user.name.split(' ').slice(1).join(' ') || '');
-  const [cellPhone, setCellPhone] = useState(user.mobilePhone || '');
-  const [middleName, setMiddleName] = useState('');
-  const [personalEmail, setPersonalEmail] = useState('');
-  const [birthDate, setBirthDate] = useState('');
-  const [ssn, setSsn] = useState('');
-  const [homeAddress, setHomeAddress] = useState({
-    street: '',
-    address2: '',
-    city: '',
-    state: '',
-    postalCode: '',
-    country: '',
-  });
-  const [emergencyContact, setEmergencyContact] = useState({
-    firstName: '',
-    lastName: '',
-    email: '',
-    cellPhone: '',
-  });
-
-  // ── Sync fetched data into form state ─────────────────────────────────────
-  const populateForm = useCallback((data: EmployeePersonalProfile) => {
-    setMiddleName(data.middleName || '');
-    setPersonalEmail(data.personalEmail || '');
-    setBirthDate(data.birthDate || '');
-    setSsn(data.ssn || '');
-    setHomeAddress({
-      street: data.homeStreet || '',
-      address2: data.homeAddress2 || '',
-      city: data.homeCity || '',
-      state: data.homeState || '',
-      postalCode: data.homePostalCode || '',
-      country: data.homeCountry || '',
-    });
-    setEmergencyContact({
-      firstName: data.emergencyFirstName || '',
-      lastName: data.emergencyLastName || '',
-      email: data.emergencyEmail || '',
-      cellPhone: data.emergencyCellPhone || '',
-    });
-  }, []);
-
-  useEffect(() => {
-    if (profileQuery.data) populateForm(profileQuery.data);
-  }, [profileQuery.data, populateForm]);
-
-  // ── Save mutation ─────────────────────────────────────────────────────────
-  const saveMutation = useMutation({
-    mutationFn: (payload: UpdateEmployeePersonalProfileRequest) =>
-      updateEmployeePersonalProfile(user.email, payload),
-    onSuccess: (data) => {
-      qc.setQueryData(['employee-personal-profile', user.email], data);
-      populateForm(data);
-      addToast?.('Personal profile saved.', 'success');
-    },
-    onError: (error) => {
-      addToast?.(friendlyApiError(error, 'Could not save profile.'), 'error');
-    },
-  });
-
-  const handleSave = () => {
-    saveMutation.mutate({
-      firstName: firstName || null,
-      lastName: lastName || null,
-      cellPhone: cellPhone || null,
-      middleName: middleName || null,
-      personalEmail: personalEmail || null,
-      birthDate: birthDate || null,
-      ssn: ssn || null,
-      homeStreet: homeAddress.street || null,
-      homeAddress2: homeAddress.address2 || null,
-      homeCity: homeAddress.city || null,
-      homeState: homeAddress.state || null,
-      homePostalCode: homeAddress.postalCode || null,
-      homeCountry: homeAddress.country || null,
-      emergencyFirstName: emergencyContact.firstName || null,
-      emergencyLastName: emergencyContact.lastName || null,
-      emergencyEmail: emergencyContact.email || null,
-      emergencyCellPhone: emergencyContact.cellPhone || null,
-    });
-  };
-
-  const age = birthDate ? calculateAge(birthDate) : null;
-
-  // ── Address autofill (Google Places) ──────────────────────────────────────
-  const homeAutofill = useAddressAutofill({
-    value: {
-      street: homeAddress.street,
-      city: homeAddress.city,
-      state: homeAddress.state,
-      postalCode: homeAddress.postalCode,
-      country: '', // keep unrestricted — allow searching any country
-    },
-    onPatch: (patch) => {
-      setHomeAddress((prev) => ({ ...prev, ...patch }));
-    },
   });
 
   // ── Loading / error states ────────────────────────────────────────────────
@@ -603,219 +446,66 @@ function PersonalTab({ user, isAdmin, addToast }: { user: UserProfileUser; isAdm
     );
   }
 
+  const data = profileQuery.data;
+  const birthDate = data?.birthDate || '';
+  const age = birthDate ? calculateAge(birthDate) : null;
+
   return (
     <div className="space-y-4">
-      <SavingOverlay visible={saveMutation.isPending} />
+      <EntraSyncBanner queryKey={['employee-personal-profile', user.email]} dataUpdatedAt={profileQuery.dataUpdatedAt} />
       {/* Basic Info */}
       <SectionCard title="Basic Information" icon={<User className="h-4 w-4 text-ems-accent" />}>
         <div className="grid gap-4 md:grid-cols-3">
-          <EditableField label="First Name" value={firstName} onChange={setFirstName} source="entra" maxLength={100} />
-          <EditableField label="Middle Name" value={middleName} onChange={setMiddleName} placeholder="Enter middle name" source="employee" maxLength={100} />
-          <EditableField label="Last Name" value={lastName} onChange={setLastName} source="entra" maxLength={100} />
-          {canEditPersonal && (
-            <EditableField label="Personal Email" value={personalEmail} onChange={setPersonalEmail} type="text" placeholder="personal@example.com" source="employee" maxLength={254} />
-          )}
-          <EditableField label="Cell Phone Number" value={cellPhone} onChange={setCellPhone} source="entra" maxLength={30} />
-          <EditableField label="Birth Date" value={birthDate} onChange={setBirthDate} type="date" source="employee" />
-          {canEditPersonal && (
-            <HashedEditableField label="Social Security Number" value={ssn} onChange={setSsn} placeholder="•••-••-••••" source="employee" maxLength={11} />
-          )}
+          <ReadOnlyField label="First Name" value={user.name.split(' ')[0] || ''} source="entra" />
+          <ReadOnlyField label="Middle Name" value={data?.middleName || ''} source="employee" />
+          <ReadOnlyField label="Last Name" value={user.name.split(' ').slice(1).join(' ') || ''} source="entra" />
+          <ReadOnlyWithWmsLink label="Cell Phone Number" value={data?.cellPhone || user.mobilePhone || ''} source="entra" />
+          <ReadOnlyField label="Birth Date" value={birthDate} source="employee" />
           {isAdmin && (
-            age !== null ? (
-              <HashedField label="Age" value={`${age} years`} source="calculated" />
-            ) : (
-              <ReadOnlyField label="Age" value="Enter birth date" source="calculated" />
-            )
+            <HashedField label="Social Security Number" value={data?.ssn || ''} source="employee" />
+          )}
+          {age !== null ? (
+            <HashedField label="Age" value={`${age} years`} source="calculated" />
+          ) : (
+            <ReadOnlyField label="Age" value={birthDate ? '—' : 'Conditional on Birth Date'} source="calculated" />
           )}
         </div>
       </SectionCard>
 
-      {/* Home Address (Admin or Self) */}
-      {canEditPersonal && (
+      {/* Home Address */}
       <SectionCard title="Home Address" icon={<MapPin className="h-4 w-4 text-ems-accent" />}>
         <div className="grid gap-4 md:grid-cols-2">
-          {/* Street Address with Google Places autocomplete */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-1.5">
-              <label className="text-xs font-medium text-text-muted">Street Address</label>
-            </div>
-            <div className="relative">
-              <input
-                type="text"
-                value={homeAddress.street}
-                onChange={(e) => setHomeAddress((prev) => ({ ...prev, street: e.target.value }))}
-                onFocus={homeAutofill.onStreetFocus}
-                onBlur={homeAutofill.onStreetBlur}
-                placeholder="Start typing to search…"
-                className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none"
-              />
-              {homeAutofill.showSuggestions && (
-                <div className="absolute z-20 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-48 overflow-auto">
-                  {homeAutofill.suggestions.map((suggestion) => (
-                    <button
-                      key={suggestion.placeId}
-                      type="button"
-                      className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        homeAutofill.selectSuggestion(suggestion);
-                      }}
-                    >
-                      {suggestion.description}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-          <EditableField
-            label="Address Line 2"
-            value={homeAddress.address2}
-            onChange={(v) => setHomeAddress((prev) => ({ ...prev, address2: v }))}
-            placeholder="Apartment, unit, etc."
-            source="google"
-            maxLength={200}
-          />
-          <EditableField
-            label="City"
-            value={homeAddress.city}
-            onChange={(v) => setHomeAddress((prev) => ({ ...prev, city: v }))}
-            source="google"
-            maxLength={100}
-          />
-          <EditableField
-            label="State"
-            value={homeAddress.state}
-            onChange={(v) => setHomeAddress((prev) => ({ ...prev, state: v }))}
-            source="google"
-            maxLength={100}
-          />
-          <EditableField
-            label="Postal Code"
-            value={homeAddress.postalCode}
-            onChange={(v) => setHomeAddress((prev) => ({ ...prev, postalCode: v }))}
-            source="google"
-            maxLength={20}
-          />
-          <EditableField
-            label="Country"
-            value={homeAddress.country}
-            onChange={(v) => setHomeAddress((prev) => ({ ...prev, country: v }))}
-            source="google"
-            maxLength={100}
-          />
+          <ReadOnlyWithWmsLink label="Street Address" value={data?.homeStreet || ''} />
+          <ReadOnlyWithWmsLink label="Address Line 2" value={data?.homeAddress2 || ''} />
+          <ReadOnlyWithWmsLink label="City" value={data?.homeCity || ''} />
+          <ReadOnlyWithWmsLink label="State" value={data?.homeState || ''} />
+          <ReadOnlyWithWmsLink label="Postal Code" value={data?.homePostalCode || ''} />
+          <ReadOnlyWithWmsLink label="Country" value={data?.homeCountry || ''} />
         </div>
       </SectionCard>
-      )}
 
-      {/* Emergency Contact (Admin or Self) */}
-      {canEditPersonal && (
+      {/* Emergency Contact */}
       <SectionCard title="Emergency Contact" icon={<User className="h-4 w-4 text-ems-coral" />}>
         <div className="grid gap-4 md:grid-cols-2">
-          <EditableField
-            label="First Name"
-            value={emergencyContact.firstName}
-            onChange={(v) => setEmergencyContact((prev) => ({ ...prev, firstName: v }))}
-            source="employee"
-            maxLength={100}
-          />
-          <EditableField
-            label="Last Name"
-            value={emergencyContact.lastName}
-            onChange={(v) => setEmergencyContact((prev) => ({ ...prev, lastName: v }))}
-            source="employee"
-            maxLength={100}
-          />
-          <EditableField
-            label="Email"
-            value={emergencyContact.email}
-            onChange={(v) => setEmergencyContact((prev) => ({ ...prev, email: v }))}
-            type="email"
-            source="employee"
-            maxLength={200}
-          />
-          <EditableField
-            label="Cell Phone"
-            value={emergencyContact.cellPhone}
-            onChange={(v) => setEmergencyContact((prev) => ({ ...prev, cellPhone: v }))}
-            source="employee"
-            maxLength={30}
-          />
+          <ReadOnlyWithWmsLink label="First Name" value={data?.emergencyFirstName || ''} source="employee" />
+          <ReadOnlyWithWmsLink label="Last Name" value={data?.emergencyLastName || ''} source="employee" />
+          <ReadOnlyWithWmsLink label="Email" value={data?.emergencyEmail || ''} source="employee" />
+          <ReadOnlyWithWmsLink label="Cell Phone" value={data?.emergencyCellPhone || ''} source="employee" />
         </div>
       </SectionCard>
-      )}
-
-      {/* Save Bar */}
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saveMutation.isPending}
-          className="inline-flex items-center gap-2 rounded-md bg-ems-accent px-4 py-2 text-sm font-medium text-white hover:bg-ems-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {saveMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Save className="h-4 w-4" />
-          )}
-          {saveMutation.isPending ? 'Saving…' : 'Save Personal Info'}
-        </button>
-      </div>
     </div>
   );
 }
 
 // ─── Employment Tab ───────────────────────────────────────────────────────────
 
-function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isAdmin: boolean; addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void }) {
-  const qc = useQueryClient();
-
+function EmploymentTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolean; addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void }) {
   // ── Fetch existing employment profile ─────────────────────────────────────
   const profileQuery = useQuery({
     queryKey: ['employee-employment-profile', user.email],
     queryFn: () => fetchEmployeeEmploymentProfile(user.email),
     enabled: !!user.email,
     staleTime: 30_000,
-  });
-
-  // ── Fetch workstation options ─────────────────────────────────────────────
-  const workstationsQuery = useQuery({
-    queryKey: ['workstations'],
-    queryFn: fetchWorkstations,
-    staleTime: 60_000,
-    enabled: isAdmin,
-  });
-
-  // ── Fetch phone extension options ─────────────────────────────────────────
-  const phoneExtensionsQuery = useQuery({
-    queryKey: ['phone-extensions'],
-    queryFn: fetchPhoneExtensions,
-    staleTime: 60_000,
-    enabled: isAdmin,
-  });
-
-  // ── Fetch phone device options ────────────────────────────────────────────
-  const phoneDevicesQuery = useQuery({
-    queryKey: ['phone-devices'],
-    queryFn: fetchPhoneDevices,
-    staleTime: 60_000,
-    enabled: isAdmin,
-  });
-
-  // ── Fetch PC device options ───────────────────────────────────────────────
-  const pcDevicesQuery = useQuery({
-    queryKey: ['pc-devices'],
-    queryFn: fetchPcDevices,
-    staleTime: 60_000,
-    enabled: isAdmin,
-  });
-
-  // ── Fetch internal employees (for Supervisor dropdown) ────────────────────
-  const employeesQuery = useQuery({
-    queryKey: ['iae-staff-employees'],
-    queryFn: fetchIaeStaffEmployees,
-    staleTime: 60_000,
-    enabled: isAdmin,
   });
 
   // ── Fetch Entra licenses & group membership ───────────────────────────────
@@ -832,129 +522,6 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
     enabled: !!user.email,
     staleTime: 60_000,
   });
-
-  // ── Local form state ──────────────────────────────────────────────────────
-  const [accessLevel, setAccessLevel] = useState('');
-  const [title, setTitle] = useState(user.jobTitle || '');
-  const [office, setOffice] = useState(user.officeLocation || '');
-  const [workAuthorization, setWorkAuthorization] = useState('');
-  const [workstation, setWorkstation] = useState('');
-  const [officeAddress, setOfficeAddress] = useState({
-    street: '',
-    address2: '',
-    city: '',
-    state: '',
-    postalCode: '',
-    country: '',
-  });
-  const [deskPhoneExtension, setDeskPhoneExtension] = useState('');
-  const [deskPhoneMac, setDeskPhoneMac] = useState('');
-  const [deskPhoneBrand, setDeskPhoneBrand] = useState('');
-  const [deskPhoneModel, setDeskPhoneModel] = useState('');
-  const [pcBrand, setPcBrand] = useState('');
-  const [pcModel, setPcModel] = useState('');
-  const [pcServiceTag, setPcServiceTag] = useState('');
-  const [bluetoothStatus, setBluetoothStatus] = useState('');
-  const [pcWindowsName, setPcWindowsName] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [supervisor, setSupervisor] = useState('');
-  const [ptoAccrualRate, setPtoAccrualRate] = useState('');
-  const [employmentAgreement, setEmploymentAgreement] = useState('');
-  const [rampAccount, setRampAccount] = useState('');
-  const [rampCreditCard, setRampCreditCard] = useState('');
-  // Track selected equipment IDs for save
-  const [selectedExtensionId, setSelectedExtensionId] = useState<number | null>(null);
-  const [selectedPhoneId, setSelectedPhoneId] = useState<number | null>(null);
-  const [selectedComputerId, setSelectedComputerId] = useState<number | null>(null);
-
-  // ── Sync fetched data into form ───────────────────────────────────────────
-  const populateForm = useCallback((data: EmployeeEmploymentProfile) => {
-    setAccessLevel(data.accessLevel || '');
-    setWorkAuthorization(data.workAuthorization || '');
-    setWorkstation(data.workstation || '');
-    setStartDate(data.startDate || '');
-    setSupervisor(data.supervisor || '');
-    setPtoAccrualRate(data.ptoAccrualRate || '');
-    setEmploymentAgreement(data.employmentAgreement || '');
-    setRampAccount(data.rampAccount || '');
-    setRampCreditCard(data.rampCreditCard || '');
-    setOfficeAddress({
-      street: data.officeStreet || '',
-      address2: data.officeAddress2 || '',
-      city: data.officeCity || '',
-      state: data.officeState || '',
-      postalCode: data.officePostalCode || '',
-      country: data.officeCountry || '',
-    });
-    setDeskPhoneExtension(data.deskPhoneExtension || '');
-    setDeskPhoneMac(data.deskPhoneMac || '');
-    setDeskPhoneBrand(data.deskPhoneBrand || '');
-    setDeskPhoneModel(data.deskPhoneModel || '');
-    setPcBrand(data.pcBrand || '');
-    setPcModel(data.pcModel || '');
-    setPcServiceTag(data.pcServiceTag || '');
-    setBluetoothStatus(data.bluetoothStatus || '');
-    setPcWindowsName(data.pcWindowsName || '');
-  }, []);
-
-  useEffect(() => {
-    if (profileQuery.data) populateForm(profileQuery.data);
-  }, [profileQuery.data, populateForm]);
-
-  // ── Address autofill ──────────────────────────────────────────────────────
-  const officeAutofill = useAddressAutofill({
-    value: {
-      street: officeAddress.street,
-      city: officeAddress.city,
-      state: officeAddress.state,
-      postalCode: officeAddress.postalCode,
-      country: '',
-    },
-    onPatch: (patch) => {
-      setOfficeAddress((prev) => ({ ...prev, ...patch }));
-    },
-  });
-
-  // ── Save mutation ─────────────────────────────────────────────────────────
-  const saveMutation = useMutation({
-    mutationFn: (payload: UpdateEmployeeEmploymentProfileRequest) =>
-      updateEmployeeEmploymentProfile(user.email, payload),
-    onSuccess: (data) => {
-      qc.setQueryData(['employee-employment-profile', user.email], data);
-      populateForm(data);
-      addToast?.('Employment profile saved.', 'success');
-    },
-    onError: (error) => {
-      addToast?.(friendlyApiError(error, 'Could not save employment profile.'), 'error');
-    },
-  });
-
-  const handleSave = () => {
-    saveMutation.mutate({
-      accessLevel: accessLevel || null,
-      title: title || null,
-      office: office || null,
-      workAuthorization: workAuthorization || null,
-      workstation: workstation || null,
-      startDate: startDate || null,
-      supervisor: supervisor || null,
-      ptoAccrualRate: ptoAccrualRate || null,
-      employmentAgreement: employmentAgreement || null,
-      rampAccount: rampAccount || null,
-      rampCreditCard: rampCreditCard || null,
-      officeStreet: officeAddress.street || null,
-      officeAddress2: officeAddress.address2 || null,
-      officeCity: officeAddress.city || null,
-      officeState: officeAddress.state || null,
-      officePostalCode: officeAddress.postalCode || null,
-      officeCountry: officeAddress.country || null,
-      deskPhoneExtensionId: selectedExtensionId,
-      deskPhoneId: selectedPhoneId,
-      pcComputerId: selectedComputerId,
-    });
-  };
-
-  const yearsOfService = startDate ? calculateYearsOfService(startDate) : null;
 
   // ── Loading / error states ────────────────────────────────────────────────
   if (profileQuery.isLoading) {
@@ -974,22 +541,24 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
     );
   }
 
+  const data = profileQuery.data;
+  const startDate = data?.startDate || '';
+  const yearsOfService = startDate ? calculateYearsOfService(startDate) : null;
+
   return (
     <div className="space-y-4">
-      <SavingOverlay visible={saveMutation.isPending} />
-      {/* Entra-connected fields (editable, syncs to Entra) */}
+      <EntraSyncBanner queryKey={['employee-employment-profile', user.email]} dataUpdatedAt={profileQuery.dataUpdatedAt} />
+      {/* Directory Info */}
       <SectionCard title="Directory Info" icon={<Briefcase className="h-4 w-4 text-ems-accent" />}>
         <div className="grid gap-4 md:grid-cols-2">
-          <EditableField label="Title" value={title} onChange={setTitle} source="entra" maxLength={128} disabled={!isAdmin} />
+          <ReadOnlyField label="Title" value={user.jobTitle || ''} source="entra" />
           <ReadOnlyField label="Work Email" value={user.email} source="entra" />
-          <EditableField label="Office" value={office} onChange={setOffice} source="entra" maxLength={100} disabled={!isAdmin} />
-          {isAdmin && (
-            <ReadOnlyField
-              label="Microsoft Office License"
-              value={licensesQuery.isLoading ? 'Loading…' : licensesQuery.data?.length ? licensesQuery.data.join(', ') : 'None'}
-              source="entra"
-            />
-          )}
+          <ReadOnlyField label="Office" value={user.officeLocation || ''} source="entra" />
+          <ReadOnlyField
+            label="Microsoft Office License"
+            value={licensesQuery.isLoading ? 'Loading…' : licensesQuery.data?.length ? licensesQuery.data.join(', ') : 'None'}
+            source="entra"
+          />
           <div className="md:col-span-2">
             <ReadOnlyField
               label="Microsoft Group Membership"
@@ -1000,706 +569,95 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
         </div>
       </SectionCard>
 
-      {/* Admin-entered fields */}
+      {/* Employment Details */}
       <SectionCard title="Employment Details" icon={<Briefcase className="h-4 w-4 text-ems-blue" />}>
         <div className="grid gap-4 md:grid-cols-2">
-          {isAdmin && accessLevel === 'Super Admin' ? (
-            <SelectField
-              label="Access Level"
-              value={accessLevel}
-              onChange={() => {}}
-              options={[
-                { value: 'Super Admin', label: 'Super Admin' },
-              ]}
-              source="admin"
-              disabled
-            />
-          ) : isAdmin ? (
-            <SelectField
-              label="Access Level"
-              value={accessLevel}
-              onChange={setAccessLevel}
-              options={[
-                { value: 'Administrator', label: 'Administrator' },
-                { value: 'Employee', label: 'Employee' },
-              ]}
-              source="admin"
-            />
-          ) : null}
-          {isAdmin && (
-            <SelectField
-              label="Work Authorization"
-              value={workAuthorization}
-              onChange={setWorkAuthorization}
-              options={[
-                { value: 'US Citizen', label: 'US Citizen' },
-                { value: 'Foreign National with Work Authorization', label: 'Foreign National with Work Authorization' },
-              ]}
-              source="admin"
-            />
-          )}
-          {/* Workstation grouped select */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <label className="text-xs font-medium text-text-muted">Workstation</label>
-            </div>
-            <select
-              value={workstation}
-              onChange={(e) => setWorkstation(e.target.value)}
-              disabled={!isAdmin}
-              className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <option value="">Select workstation…</option>
-              {workstationsQuery.data?.offices.map((office) => (
-                <optgroup key={office.officeCode} label={office.officeCode}>
-                  {office.workstations.map((ws) => (
-                    <option
-                      key={ws.workLocationId}
-                      value={ws.locationCode}
-                      disabled={ws.isAssigned}
-                    >
-                      {ws.locationCode}{ws.isAssigned ? ' (assigned)' : ''}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-          </div>
-          <EditableField label="Start Date at IAE" value={startDate} onChange={setStartDate} type="date" source="admin" disabled={!isAdmin} />
+          {isAdmin && <ReadOnlyField label="Access Level" value={data?.accessLevel || ''} source="admin" />}
+          {isAdmin && <ReadOnlyField label="Work Authorization" value={data?.workAuthorization || ''} source="admin" />}
+          <ReadOnlyWithWmsLink label="Workstation" value={data?.workstation || ''} source="admin" />
+          <ReadOnlyField label="Start Date at IAE" value={startDate} source="admin" />
           {yearsOfService !== null ? (
             <ReadOnlyField label="Years of Service" value={yearsOfService} source="calculated" />
           ) : (
-            <ReadOnlyField label="Years of Service" value="Enter start date" source="calculated" />
+            <ReadOnlyField label="Years of Service" value={startDate ? '—' : 'Conditional on Start Date'} source="calculated" />
           )}
-          {/* Supervisor dropdown from employee list */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <label className="text-xs font-medium text-text-muted">Supervisor</label>
-            </div>
-            <select
-              value={supervisor}
-              onChange={(e) => setSupervisor(e.target.value)}
-              disabled={!isAdmin}
-              className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <option value="">Select supervisor…</option>
-              {employeesQuery.data
-                ?.filter((emp) => emp.email.toLowerCase() !== user.email.toLowerCase())
-                .map((emp) => {
-                  const fullName = `${emp.firstName} ${emp.lastName}`.trim();
-                  return (
-                    <option key={emp.contactId} value={fullName}>
-                      {fullName}{emp.roleName ? ` — ${emp.roleName}` : ''}
-                    </option>
-                  );
-                })}
-            </select>
-          </div>
-          {isAdmin && (
-            <EditableField label="Paid Time Off Accrual Rate (days/year)" value={ptoAccrualRate} onChange={setPtoAccrualRate} type="number" placeholder="e.g. 15" source="admin" maxLength={100} />
-          )}
-          {isAdmin && (
-            <SelectField
-              label="Employment Agreement Fully Executed"
-              value={employmentAgreement}
-              onChange={setEmploymentAgreement}
-              options={[
-                { value: 'Yes', label: 'Yes' },
-                { value: 'No', label: 'No' },
-              ]}
-              source="admin"
-            />
-          )}
-          {isAdmin && (
-            <SelectField
-              label="Ramp Account"
-              value={rampAccount}
-              onChange={setRampAccount}
-              options={[
-                { value: 'Yes', label: 'Yes' },
-                { value: 'No', label: 'No' },
-              ]}
-              source="admin"
-            />
-          )}
-          {isAdmin && (
-            <SelectField
-              label="Ramp Credit Card"
-              value={rampCreditCard}
-              onChange={setRampCreditCard}
-              options={[
-                { value: 'Assigned', label: 'Assigned' },
-                { value: 'Unassigned', label: 'Unassigned' },
-              ]}
-              source="admin"
-            />
-          )}
+          <ReadOnlyField label="Supervisor" value={data?.supervisor || ''} source="admin" />
+          {isAdmin && <ReadOnlyField label="Paid Time Off Accrual Rate" value={data?.ptoAccrualRate || ''} source="admin" />}
+          {isAdmin && <ReadOnlyField label="Employment Agreement Fully Executed" value={data?.employmentAgreement || ''} source="admin" />}
+          {isAdmin && <ReadOnlyField label="Ramp Account" value={data?.rampAccount || ''} source="admin" />}
+          {isAdmin && <ReadOnlyField label="Ramp Credit Card" value={data?.rampCreditCard || ''} source="admin" />}
         </div>
       </SectionCard>
 
       {/* Office Address */}
       <SectionCard title="Office Address" icon={<MapPin className="h-4 w-4 text-ems-accent" />}>
         <div className="grid gap-4 md:grid-cols-2">
-          {/* Street Address with Google Places autocomplete */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-1.5">
-              <label className="text-xs font-medium text-text-muted">Street Address</label>
-            </div>
-            <div className="relative">
-              <input
-                type="text"
-                value={officeAddress.street}
-                onChange={(e) => setOfficeAddress((prev) => ({ ...prev, street: e.target.value }))}
-                onFocus={officeAutofill.onStreetFocus}
-                onBlur={officeAutofill.onStreetBlur}
-                placeholder="Start typing to search…"
-                disabled={!isAdmin}
-                className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-              />
-              {officeAutofill.showSuggestions && (
-                <div className="absolute z-20 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-48 overflow-auto">
-                  {officeAutofill.suggestions.map((suggestion) => (
-                    <button
-                      key={suggestion.placeId}
-                      type="button"
-                      className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        officeAutofill.selectSuggestion(suggestion);
-                      }}
-                    >
-                      {suggestion.description}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-          <EditableField
-            label="Address Line 2"
-            value={officeAddress.address2}
-            onChange={(v) => setOfficeAddress((prev) => ({ ...prev, address2: v }))}
-            placeholder="Suite, floor, etc."
-            disabled={!isAdmin}
-            source="google"
-            maxLength={200}
-          />
-          <EditableField
-            label="City"
-            value={officeAddress.city}
-            onChange={(v) => setOfficeAddress((prev) => ({ ...prev, city: v }))}
-            disabled={!isAdmin}
-            source="google"
-            maxLength={100}
-          />
-          <EditableField
-            label="State"
-            value={officeAddress.state}
-            onChange={(v) => setOfficeAddress((prev) => ({ ...prev, state: v }))}
-            disabled={!isAdmin}
-            source="google"
-            maxLength={100}
-          />
-          <EditableField
-            label="Postal Code"
-            value={officeAddress.postalCode}
-            onChange={(v) => setOfficeAddress((prev) => ({ ...prev, postalCode: v }))}
-            disabled={!isAdmin}
-            source="google"
-            maxLength={20}
-          />
-          <EditableField
-            label="Country"
-            value={officeAddress.country}
-            onChange={(v) => setOfficeAddress((prev) => ({ ...prev, country: v }))}
-            disabled={!isAdmin}
-            source="google"
-            maxLength={100}
-          />
+          <ReadOnlyField label="Street Address" value={data?.officeStreet || ''} source="admin" />
+          <ReadOnlyField label="Address Line 2" value={data?.officeAddress2 || ''} source="admin" />
+          <ReadOnlyField label="City" value={data?.officeCity || ''} source="admin" />
+          <ReadOnlyField label="State" value={data?.officeState || ''} source="admin" />
+          <ReadOnlyField label="Postal Code" value={data?.officePostalCode || ''} source="admin" />
+          <ReadOnlyField label="Country" value={data?.officeCountry || ''} source="admin" />
         </div>
       </SectionCard>
 
       {/* Desk Phone & Equipment */}
       <SectionCard title="Desk Phone & Equipment" icon={<Briefcase className="h-4 w-4 text-ems-green" />}>
         <div className="grid gap-4 md:grid-cols-2">
-          <ReadOnlyField label="Desk Phone Number" value="(312) 274-1800" source="admin" />
-          {/* Desk Phone Extension dropdown */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <label className="text-xs font-medium text-text-muted">Desk Phone Extension</label>
-            </div>
-            <select
-              value={deskPhoneExtension}
-              onChange={(e) => {
-                const extNumber = e.target.value;
-                setDeskPhoneExtension(extNumber);
-                const ext = phoneExtensionsQuery.data?.extensions.find(
-                  (x) => x.extensionNumber === extNumber,
-                );
-                setSelectedExtensionId(ext?.extensionId ?? null);
-              }}
-              disabled={!isAdmin}
-              className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <option value="">Select extension…</option>
-              {phoneExtensionsQuery.data?.extensions.map((ext) => (
-                <option
-                  key={ext.extensionId}
-                  value={ext.extensionNumber}
-                  disabled={ext.isAssigned}
-                >
-                  {ext.extensionNumber}{ext.isAssigned ? ' (assigned)' : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-          {/* Admin-only: Desk Phone MAC dropdown */}
-          {isAdmin && (
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-medium text-text-muted">Desk Phone MAC Address</label>
-              </div>
-              <select
-                value={deskPhoneMac}
-                onChange={(e) => {
-                  const mac = e.target.value;
-                  setDeskPhoneMac(mac);
-                  const phone = phoneDevicesQuery.data?.phones.find(
-                    (p) => p.macAddress === mac,
-                  );
-                  if (phone) {
-                    setDeskPhoneBrand(phone.make || '');
-                    setDeskPhoneModel(phone.model || '');
-                    setSelectedPhoneId(phone.phoneId);
-                  } else {
-                    setDeskPhoneBrand('');
-                    setDeskPhoneModel('');
-                    setSelectedPhoneId(null);
-                  }
-                }}
-                className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue"
-              >
-                <option value="">Select phone…</option>
-                {phoneDevicesQuery.data?.phones.map((phone) => (
-                  <option
-                    key={phone.phoneId}
-                    value={phone.macAddress}
-                    disabled={phone.isAssigned}
-                  >
-                    {phone.macAddress} — {phone.make} {phone.model}{phone.isAssigned ? ' (assigned)' : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          {isAdmin && <ReadOnlyField label="Desk Phone Brand" value={deskPhoneBrand || '—'} source="inventory" />}
-          {isAdmin && <ReadOnlyField label="Desk Phone Model" value={deskPhoneModel || '—'} source="inventory" />}
-          {/* Admin-only: PC Service Tag dropdown */}
-          {isAdmin && (
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-medium text-text-muted">PC Service Tag</label>
-              </div>
-              <select
-                value={pcServiceTag}
-                onChange={(e) => {
-                  const tag = e.target.value;
-                  setPcServiceTag(tag);
-                  const pc = pcDevicesQuery.data?.computers.find(
-                    (c) => c.serviceTag === tag,
-                  );
-                  if (pc) {
-                    setPcBrand(pc.make || '');
-                    setPcModel(pc.model || '');
-                    setBluetoothStatus(pc.bluetoothStatus || '');
-                    setPcWindowsName(pc.pcName || '');
-                    setSelectedComputerId(pc.computerId);
-                  } else {
-                    setPcBrand('');
-                    setPcModel('');
-                    setBluetoothStatus('');
-                    setPcWindowsName('');
-                    setSelectedComputerId(null);
-                  }
-                }}
-                className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue"
-              >
-                <option value="">Select PC…</option>
-                {pcDevicesQuery.data?.computers.map((pc) => (
-                  <option
-                    key={pc.computerId}
-                    value={pc.serviceTag}
-                    disabled={pc.isAssigned}
-                  >
-                    {pc.serviceTag} — {pc.pcName}{pc.isAssigned ? ' (assigned)' : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          {isAdmin && <ReadOnlyField label="PC Brand" value={pcBrand || '—'} source="inventory" />}
-          {isAdmin && <ReadOnlyField label="PC Model" value={pcModel || '—'} source="inventory" />}
-          {isAdmin && <ReadOnlyField label="Bluetooth Status" value={bluetoothStatus || '—'} source="inventory" />}
-          {isAdmin && <ReadOnlyField label="PC Windows Name" value={pcWindowsName || '—'} source="inventory" />}
+          <ReadOnlyWithWmsLink label="Desk Phone Number" value="(312) 274-1800" source="admin" />
+          <ReadOnlyWithWmsLink label="Desk Phone Extension" value={data?.deskPhoneExtension || ''} source="inventory" />
+          <ReadOnlyWithWmsLink label="Desk Phone MAC Address" value={data?.deskPhoneMac || ''} source="inventory" />
+          <ReadOnlyWithWmsLink label="Desk Phone Brand" value={data?.deskPhoneBrand || ''} source="inventory" />
+          <ReadOnlyWithWmsLink label="Desk Phone Model" value={data?.deskPhoneModel || ''} source="inventory" />
+          <ReadOnlyWithWmsLink label="PC Service Tag" value={data?.pcServiceTag || ''} source="inventory" />
+          <ReadOnlyWithWmsLink label="PC Brand" value={data?.pcBrand || ''} source="inventory" />
+          <ReadOnlyWithWmsLink label="PC Model" value={data?.pcModel || ''} source="inventory" />
+          <ReadOnlyWithWmsLink label="Bluetooth Status" value={data?.bluetoothStatus || ''} source="inventory" />
+          <ReadOnlyWithWmsLink label="PC Windows Name" value={data?.pcWindowsName || ''} source="inventory" />
         </div>
       </SectionCard>
-
-      {/* Save Bar */}
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saveMutation.isPending}
-          className="inline-flex items-center gap-2 rounded-md bg-ems-accent px-4 py-2 text-sm font-medium text-white hover:bg-ems-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {saveMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Save className="h-4 w-4" />
-          )}
-          {saveMutation.isPending ? 'Saving…' : 'Save Employment Info'}
-        </button>
-      </div>
     </div>
   );
 }
 
 // ─── Health Insurance Tab ─────────────────────────────────────────────────────
 
-function InsuranceSection({
+function ReadOnlyInsuranceSection({
   title,
   icon,
-  insuranceType,
-  optIn,
-  setOptIn,
-  planId,
-  setPlanId,
-  plans,
-  additionalInsureds,
-  setAdditionalInsureds,
-  planPrice,
-  setPlanPrice,
-  planBenefits,
-  setPlanBenefits,
-  monthlyRate,
-  setMonthlyRate,
-  payrollDeduction,
-  setPayrollDeduction,
-  companyContribution,
-  setCompanyContribution,
-  tenureTier,
-  companyContribPP,
-  benchmarkBiweekly,
-  showAdditional,
+  election,
 }: {
   title: string;
   icon: React.ReactNode;
-  insuranceType: string;
-  optIn: string;
-  setOptIn: (v: string) => void;
-  planId: string;
-  setPlanId: (v: string) => void;
-  plans: HealthPlanOption[];
-  additionalInsureds?: string;
-  setAdditionalInsureds?: (v: string) => void;
-  planPrice: string;
-  setPlanPrice?: (v: string) => void;
-  planBenefits: string;
-  setPlanBenefits?: (v: string) => void;
-  monthlyRate?: string;
-  setMonthlyRate?: (v: string) => void;
-  payrollDeduction?: string;
-  setPayrollDeduction?: (v: string) => void;
-  companyContribution?: string;
-  setCompanyContribution?: (v: string) => void;
-  tenureTier?: '<1 yr' | '1+ yr' | null;
-  companyContribPP?: number;
-  benchmarkBiweekly?: number;
-  showAdditional?: boolean;
+  election?: { optInStatus: string; planName?: string; additionalInsureds?: string; planPrice?: string; planBenefits?: string; monthlyRate?: string; payrollDeduction?: string };
 }) {
-  const typePlans = plans.filter((p) => p.planType === insuranceType);
-
-  // Derive coverage options dynamically from the selected plan's pricing data
-  const coverageOptions = useMemo(() => {
-    if (!planId) return [];
-    const plan = plans.find((p) => String(p.healthPlanId) === planId);
-    if (!plan) return [];
-    // Extract base coverage types (strip tenure suffix for Health plans)
-    const bases = new Set<string>();
-    for (const p of plan.pricing) {
-      const base = p.coverageType.replace(/\s*\(<1 yr\)|\s*\(1\+ yr\)/g, '');
-      bases.add(base);
-    }
-    return Array.from(bases).sort();
-  }, [planId, plans]);
-
-  const recalcPricing = useCallback((currentPlanId: string, currentAdditionalInsureds?: string) => {
-    if (!currentPlanId) {
-      setPlanPrice?.('');
-      setPlanBenefits?.('');
-      setPayrollDeduction?.('');
-      setMonthlyRate?.('');
-      setCompanyContribution?.('');
-      return;
-    }
-    const plan = plans.find((p) => String(p.healthPlanId) === currentPlanId);
-    if (plan) {
-      setPlanBenefits?.(plan.benefits.join('; '));
-
-      // Build coverage type: use selected value directly as base
-      let base = currentAdditionalInsureds || 'Employee';
-      // Normalize DB-stored values to match HealthPlanPricing.CoverageType
-      if (base === 'Employee Only') base = 'Employee';
-      else if (base === 'Spouse') base = 'Employee + Spouse';
-      else if (base === 'Child' || base === 'Children') base = 'Employee + Child(ren)';
-      else if (base === 'N/A') base = 'Employee';
-      // Note: "Family" and "Employee + Family" are used as-is (they differ per plan type)
-      // For Health plans, append tenure suffix
-      const coverageType = tenureTier ? `${base} (${tenureTier})` : base;
-
-      // Try exact match first, then fall back to base-only match (for pricing rows
-      // that don't include tenure markers in CoverageType)
-      let priceEntry = plan.pricing.find((p) => p.coverageType === coverageType);
-      if (!priceEntry) {
-        const baseLower = base.toLowerCase();
-        const candidates = plan.pricing.filter((p) =>
-          p.coverageType.replace(/\s*\(.*\)\s*$/, '').trim().toLowerCase() === baseLower,
-        );
-        if (candidates.length === 1) {
-          priceEntry = candidates[0];
-        } else if (candidates.length > 1) {
-          // Pick the one matching tenure
-          const marker = tenureTier === '<1 yr' ? '<1' : '1+';
-          priceEntry = candidates.find((p) => p.coverageType.includes(marker)) ?? candidates[0];
-        }
-        // Fallback: "Family" ↔ "Employee + Family", "Children" ↔ "Employee + Children"
-        if (!priceEntry) {
-          const altMap: Record<string, string> = {
-            'family': 'employee + family',
-            'employee + family': 'family',
-            'children': 'employee + children',
-            'employee + children': 'children',
-            'child': 'employee + child',
-            'employee + child': 'child',
-          };
-          const alt = altMap[baseLower];
-          if (alt) {
-            const altCandidates = plan.pricing.filter((p) =>
-              p.coverageType.replace(/\s*\(.*\)\s*$/, '').trim().toLowerCase() === alt,
-            );
-            priceEntry = altCandidates[0];
-          }
-        }
-      }
-
-      if (priceEntry) {
-        const empMonthly = priceEntry.monthlyPremium;
-
-        // Plan Price and Monthly Rate both show MonthlyPremium from pricing table
-        setPlanPrice?.(`$${empMonthly.toFixed(2)}/mo`);
-        setMonthlyRate?.(`$${empMonthly.toFixed(2)}/mo`);
-
-        // Payroll deduction calculation:
-        // 1. planPriceBiweekly = MonthlyPremium × 12 ÷ 26
-        // 2. employerPerPP = EmployerContributionPct × benchmarkBiweekly
-        // 3. employerApplied = MIN(employerPerPP, planPriceBiweekly)
-        // 4. PayrollDeduction = ROUND(planPriceBiweekly − employerApplied, 2)
-        // Dental/Vision have no contribution rules → employerPerPP = 0 → deduction = planPrice
-        const rules = plan.contributionRules ?? [];
-        let employerPct = 0;
-        if (rules.length > 0 && tenureTier) {
-          const match = rules.find((r) => {
-            const t = r.tenureTier.toLowerCase();
-            if (tenureTier === '1+ yr') return t.startsWith('1+');
-            if (tenureTier === '<1 yr') return t.includes('less than') || t.includes('<1');
-            return false;
-          });
-          if (match) employerPct = match.employerContributionPct;
-        }
-        const planPriceBiweekly = (empMonthly * 12) / 26;
-        const employerPerPP = employerPct * (benchmarkBiweekly ?? 0);
-        const employerApplied = Math.min(employerPerPP, planPriceBiweekly);
-        const payrollDed = Math.round((planPriceBiweekly - employerApplied) * 100) / 100;
-        setPayrollDeduction?.(`$${payrollDed.toFixed(2)}/pay period`);
-        setCompanyContribution?.(`$${employerApplied.toFixed(2)}/pay period`);
-      } else {
-        setPlanPrice?.('');
-        setMonthlyRate?.('');
-        setPayrollDeduction?.('');
-        setCompanyContribution?.('');
-      }
-    }
-  }, [plans, tenureTier, companyContribPP, benchmarkBiweekly, setPlanPrice, setPlanBenefits, setPayrollDeduction, setMonthlyRate, setCompanyContribution]);
-
-  // Recalculate pricing when additionalInsureds changes
-  useEffect(() => {
-    if (planId) recalcPricing(planId, additionalInsureds);
-  }, [additionalInsureds]);
-
-  const handlePlanChange = (newPlanId: string) => {
-    setPlanId(newPlanId);
-    recalcPricing(newPlanId, additionalInsureds);
-  };
-
+  const optedIn = election?.optInStatus?.toLowerCase().includes('opt-in');
   return (
     <SectionCard title={title} icon={icon}>
       <div className="grid gap-4 md:grid-cols-2">
-        <SelectField
-          label={`${insuranceType} Insurance Opt-In / Opt-Out`}
-          value={optIn}
-          onChange={(v) => {
-            setOptIn(v);
-            if (v === 'Opt-Out') setPlanId('');
-          }}
-          options={[
-            { value: 'Opt-In', label: 'Opt-In' },
-            { value: 'Opt-Out', label: 'Opt-Out' },
-          ]}
-          source="admin"
-        />
-        <SelectField
-          label="Chosen Plan"
-          value={planId}
-          onChange={handlePlanChange}
-          disabled={optIn !== 'Opt-In'}
-          options={[
-            ...typePlans.map((p) => ({ value: String(p.healthPlanId), label: p.planName })),
-            { value: '', label: 'Declined' },
-          ]}
-          source="admin"
-        />
-        <ReadOnlyField label="Plan Price" value={optIn !== 'Opt-In' ? '—' : (planPrice || '— From Pricing Table —')} source="calculated" />
-        <ReadOnlyField label="Plan Benefits" value={optIn !== 'Opt-In' ? '—' : (planBenefits || '— From Benefits Table —')} source="calculated" />
-        {monthlyRate !== undefined && (
-          <ReadOnlyField label="Monthly Rate" value={optIn !== 'Opt-In' ? '—' : (monthlyRate || '— From Pricing Table —')} source="calculated" />
-        )}
-        {showAdditional && setAdditionalInsureds && (
-          <SelectField
-            label="Additional Insureds"
-            value={additionalInsureds || ''}
-            onChange={(v) => { setAdditionalInsureds(v); }}
-            options={coverageOptions.map((ct) => ({ value: ct, label: ct }))}
-            disabled={optIn !== 'Opt-In'}
-            source="admin"
-          />
-        )}
-        {showAdditional && payrollDeduction !== undefined && (
-          <ReadOnlyField label="Payroll Deduction" value={optIn !== 'Opt-In' ? '—' : (payrollDeduction || '—')} source="calculated" />
-        )}
-        {showAdditional && companyContribution !== undefined && (
-          <ReadOnlyField label="Company Contribution Per Pay Period" value={optIn !== 'Opt-In' ? '—' : (companyContribution || '—')} source="calculated" />
+        <ReadOnlyField label="Opt-In / Opt-Out" value={election?.optInStatus || '—'} source="admin" />
+        {optedIn && (
+          <>
+            <ReadOnlyField label="Chosen Plan" value={election?.planName || '—'} source="admin" />
+            <ReadOnlyField label="Additional Insureds" value={election?.additionalInsureds || '—'} source="admin" />
+            <ReadOnlyField label="Plan Price" value={election?.planPrice || '—'} source="calculated" />
+            <ReadOnlyField label="Plan Benefits" value={election?.planBenefits || '—'} source="calculated" />
+            {election?.monthlyRate && <ReadOnlyField label="Monthly Rate" value={election.monthlyRate} source="calculated" />}
+            {election?.payrollDeduction && <ReadOnlyField label="Payroll Deduction" value={election.payrollDeduction} source="calculated" />}
+          </>
         )}
       </div>
     </SectionCard>
   );
 }
 
-function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser; isAdmin: boolean; addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void }) {
-  const qc = useQueryClient();
-
+function HealthInsuranceTab({ user }: { user: UserProfileUser; isAdmin: boolean; addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void }) {
   const insuranceQuery = useQuery({
     queryKey: ['employee-health-insurance', user.email],
     queryFn: () => fetchEmployeeHealthInsurance(user.email),
     enabled: !!user.email,
     staleTime: 30_000,
   });
-
-  // Local form state per insurance type
-  const [healthOptIn, setHealthOptIn] = useState('');
-  const [healthPlanId, setHealthPlanId] = useState('');
-  const [additionalInsureds, setAdditionalInsureds] = useState('');
-  const [dentalOptIn, setDentalOptIn] = useState('');
-  const [dentalPlanId, setDentalPlanId] = useState('');
-  const [dentalAdditionalInsureds, setDentalAdditionalInsureds] = useState('');
-  const [visionOptIn, setVisionOptIn] = useState('');
-  const [visionPlanId, setVisionPlanId] = useState('');
-  const [visionAdditionalInsureds, setVisionAdditionalInsureds] = useState('');
-
-  // Derived from fetched data
-  const [healthPrice, setHealthPrice] = useState('');
-  const [healthBenefits, setHealthBenefits] = useState('');
-  const [healthRate, setHealthRate] = useState('');
-  const [healthDeduction, setHealthDeduction] = useState('');
-  const [dentalPrice, setDentalPrice] = useState('');
-  const [dentalBenefits, setDentalBenefits] = useState('');
-  const [dentalDeduction, setDentalDeduction] = useState('');
-  const [visionPrice, setVisionPrice] = useState('');
-  const [visionBenefits, setVisionBenefits] = useState('');
-  const [visionDeduction, setVisionDeduction] = useState('');
-  const [healthCompanyContrib, setHealthCompanyContrib] = useState('');
-  const [dentalCompanyContrib, setDentalCompanyContrib] = useState('');
-  const [visionCompanyContrib, setVisionCompanyContrib] = useState('');
-
-  const populateForm = useCallback((data: EmployeeHealthInsurance) => {
-    const health = data.elections.find((e) => e.insuranceType === 'Medical');
-    const dental = data.elections.find((e) => e.insuranceType === 'Dental');
-    const vision = data.elections.find((e) => e.insuranceType === 'Vision');
-
-    // Normalize "Employee Only" from DB to "Employee" to match HealthPlanPricing.CoverageType
-    const normTier = (v: string | undefined) => {
-      const t = v || '';
-      return t === 'Employee Only' ? 'Employee' : t;
-    };
-
-    setHealthOptIn(health?.optInStatus || '');
-    setHealthPlanId(health?.healthPlanId ? String(health.healthPlanId) : '');
-    setAdditionalInsureds(normTier(health?.additionalInsureds));
-    setHealthPrice(health?.planPrice || '');
-    setHealthBenefits(health?.planBenefits || '');
-    setHealthRate(health?.monthlyRate || '');
-    setHealthDeduction(health?.payrollDeduction || '');
-
-    setDentalOptIn(dental?.optInStatus || '');
-    setDentalPlanId(dental?.healthPlanId ? String(dental.healthPlanId) : '');
-    setDentalAdditionalInsureds(normTier(dental?.additionalInsureds));
-    setDentalPrice(dental?.planPrice || '');
-    setDentalBenefits(dental?.planBenefits || '');
-    setDentalDeduction(dental?.payrollDeduction || '');
-
-    setVisionOptIn(vision?.optInStatus || '');
-    setVisionPlanId(vision?.healthPlanId ? String(vision.healthPlanId) : '');
-    setVisionAdditionalInsureds(normTier(vision?.additionalInsureds));
-    setVisionPrice(vision?.planPrice || '');
-    setVisionBenefits(vision?.planBenefits || '');
-    setVisionDeduction(vision?.payrollDeduction || '');
-  }, []);
-
-  useEffect(() => {
-    if (insuranceQuery.data) populateForm(insuranceQuery.data);
-  }, [insuranceQuery.data, populateForm]);
-
-  const saveMutation = useMutation({
-    mutationFn: (payload: BulkUpdateHealthInsuranceRequest) =>
-      bulkUpdateHealthInsurance(user.email, payload),
-    onSuccess: (data) => {
-      qc.setQueryData(['employee-health-insurance', user.email], data);
-      populateForm(data);
-      addToast?.('Health insurance saved.', 'success');
-    },
-    onError: (error) => {
-      addToast?.(friendlyApiError(error, 'Could not save health insurance.'), 'error');
-    },
-  });
-
-  const handleSave = async () => {
-    saveMutation.mutate({
-      medical: {
-        optInStatus: healthOptIn || null,
-        healthPlanId: healthPlanId ? Number(healthPlanId) : null,
-        additionalInsureds: additionalInsureds || null,
-      },
-      dental: {
-        optInStatus: dentalOptIn || null,
-        healthPlanId: dentalPlanId ? Number(dentalPlanId) : null,
-        additionalInsureds: dentalAdditionalInsureds || null,
-      },
-      vision: {
-        optInStatus: visionOptIn || null,
-        healthPlanId: visionPlanId ? Number(visionPlanId) : null,
-        additionalInsureds: visionAdditionalInsureds || null,
-      },
-    });
-  };
 
   if (insuranceQuery.isLoading) {
     return (
@@ -1718,122 +676,35 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
     );
   }
 
-  const plans = insuranceQuery.data?.plans ?? [];
   const insuranceEligibility = insuranceQuery.data?.insuranceEligibility ?? 'Ineligible';
-  const tenureTier = insuranceQuery.data?.tenureTier ?? null;
-  const companyContribPP = insuranceQuery.data?.companyContributionPerPayPeriod ?? 0;
-
-  // Non-admin users only see Health Insurance Status
-  if (!isAdmin) {
-    return (
-      <div className="space-y-4">
-        <SectionCard title="Health Insurance Information" icon={<Heart className="h-4 w-4 text-ems-coral" />}>
-          <div className="grid gap-4 md:grid-cols-2">
-            <ReadOnlyField label="Health Insurance Status" value={insuranceEligibility} source="calculated" />
-          </div>
-        </SectionCard>
-      </div>
-    );
-  }
+  const elections = insuranceQuery.data?.elections ?? [];
+  const health = elections.find((e) => e.insuranceType === 'Medical');
+  const dental = elections.find((e) => e.insuranceType === 'Dental');
+  const vision = elections.find((e) => e.insuranceType === 'Vision');
 
   return (
     <div className="space-y-4">
-      <SavingOverlay visible={saveMutation.isPending} />
       <SectionCard title="Health Insurance Information" icon={<Heart className="h-4 w-4 text-ems-coral" />}>
         <div className="grid gap-4 md:grid-cols-2">
           <ReadOnlyField label="Health Insurance Status" value={insuranceEligibility} source="calculated" />
         </div>
       </SectionCard>
 
-      <InsuranceSection
+      <ReadOnlyInsuranceSection
         title="Medical Insurance"
         icon={<Heart className="h-4 w-4 text-ems-coral" />}
-        insuranceType="Medical"
-        optIn={healthOptIn}
-        setOptIn={setHealthOptIn}
-        planId={healthPlanId}
-        setPlanId={setHealthPlanId}
-        plans={plans}
-        additionalInsureds={additionalInsureds}
-        setAdditionalInsureds={setAdditionalInsureds}
-        planPrice={healthPrice}
-        setPlanPrice={setHealthPrice}
-        planBenefits={healthBenefits}
-        setPlanBenefits={setHealthBenefits}
-        monthlyRate={healthRate}
-        setMonthlyRate={setHealthRate}
-        payrollDeduction={healthDeduction}
-        setPayrollDeduction={setHealthDeduction}
-        companyContribution={healthCompanyContrib}
-        setCompanyContribution={setHealthCompanyContrib}
-        tenureTier={tenureTier}
-        companyContribPP={companyContribPP}
-        benchmarkBiweekly={insuranceQuery.data?.benchmarkBiweekly ?? 0}
-        showAdditional
+        election={health}
       />
-
-      <InsuranceSection
+      <ReadOnlyInsuranceSection
         title="Dental Insurance"
         icon={<Heart className="h-4 w-4 text-ems-blue" />}
-        insuranceType="Dental"
-        optIn={dentalOptIn}
-        setOptIn={setDentalOptIn}
-        planId={dentalPlanId}
-        setPlanId={setDentalPlanId}
-        plans={plans}
-        additionalInsureds={dentalAdditionalInsureds}
-        setAdditionalInsureds={setDentalAdditionalInsureds}
-        planPrice={dentalPrice}
-        setPlanPrice={setDentalPrice}
-        planBenefits={dentalBenefits}
-        setPlanBenefits={setDentalBenefits}
-        payrollDeduction={dentalDeduction}
-        setPayrollDeduction={setDentalDeduction}
-        tenureTier={tenureTier}
-        companyContribPP={companyContribPP}
-        benchmarkBiweekly={insuranceQuery.data?.benchmarkBiweekly ?? 0}
-        showAdditional
+        election={dental}
       />
-
-      <InsuranceSection
+      <ReadOnlyInsuranceSection
         title="Vision Insurance"
         icon={<Heart className="h-4 w-4 text-ems-green" />}
-        insuranceType="Vision"
-        optIn={visionOptIn}
-        setOptIn={setVisionOptIn}
-        planId={visionPlanId}
-        setPlanId={setVisionPlanId}
-        plans={plans}
-        additionalInsureds={visionAdditionalInsureds}
-        setAdditionalInsureds={setVisionAdditionalInsureds}
-        planPrice={visionPrice}
-        setPlanPrice={setVisionPrice}
-        planBenefits={visionBenefits}
-        setPlanBenefits={setVisionBenefits}
-        payrollDeduction={visionDeduction}
-        setPayrollDeduction={setVisionDeduction}
-        tenureTier={tenureTier}
-        companyContribPP={companyContribPP}
-        benchmarkBiweekly={insuranceQuery.data?.benchmarkBiweekly ?? 0}
-        showAdditional
+        election={vision}
       />
-
-      {/* Save Bar */}
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saveMutation.isPending}
-          className="inline-flex items-center gap-2 rounded-md bg-ems-accent px-4 py-2 text-sm font-medium text-white hover:bg-ems-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {saveMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Save className="h-4 w-4" />
-          )}
-          {saveMutation.isPending ? 'Saving…' : 'Save Health Insurance'}
-        </button>
-      </div>
     </div>
   );
 }

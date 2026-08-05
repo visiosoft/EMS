@@ -1,4 +1,4 @@
-import { Controller, Get, Headers, Param, ParseIntPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
 import { EntraProfileSyncService } from './entra-profile-sync.service';
 import { SelfProfileService } from './self-profile.service';
 
@@ -41,6 +41,26 @@ export class SelfProfileController {
   }
 
   /**
+   * Preview changes from Entra without applying them.
+   */
+  @Post('my-profile/sync-from-entra/preview')
+  async previewSyncFromEntra(
+    @Headers('x-entra-graph-access-token') graphAccessToken?: string,
+  ) {
+    const email = this.selfProfileService.getSignedInEmail();
+    return this.entraProfileSyncService.previewSingleUserFromEntra(
+      email,
+      graphAccessToken,
+    );
+  }
+
+  /** Temporary: test Graph CSA fetch directly for any email */
+  @Get('debug/entra-csa')
+  async debugEntraCsa(@Query('email') email: string) {
+    return this.entraProfileSyncService.debugFetchEntraProfile(email);
+  }
+
+  /**
    * Pull the signed-in user's profile fields from Entra into EMS.
    * Triggered by a "Sync from Entra" action on the profile page.
    */
@@ -54,4 +74,49 @@ export class SelfProfileController {
       graphAccessToken,
     );
   }
+
+  /**
+   * Update the signed-in employee's WMS-editable profile fields.
+   * Only fields the employee is allowed to edit from WMS are accepted.
+   */
+  @Patch('my-profile')
+  async updateMyProfile(@Body() body: UpdateMyProfileDto) {
+    return this.selfProfileService.updateMyProfile(body);
+  }
+
+  /**
+   * Administrator edits another employee's WMS-editable profile fields.
+   * Rejects if the signed-in user is not an Administrator or Super Admin.
+   */
+  @Patch('employees/:contactId/profile')
+  async updateEmployeeProfile(
+    @Param('contactId', ParseIntPipe) contactId: number,
+    @Body() body: UpdateMyProfileDto,
+  ) {
+    return this.selfProfileService.updateEmployeeProfile(contactId, body);
+  }
+}
+
+/** DTO for WMS-editable profile fields. All fields optional — only send what changed. */
+export interface UpdateMyProfileDto {
+  cellPhone?: string;
+  workPhone?: string;
+  homeAddress?: {
+    line1?: string;
+    line2?: string;
+    city?: string;
+    stateProvince?: string;
+    postalCode?: string;
+    country?: string;
+  };
+  emergencyContacts?: {
+    fullName: string;
+    phoneNumber: string;
+    email: string;
+    isPrimary: boolean;
+  }[];
+  workstation?: string;
+  deskPhoneExtensionId?: number | null;
+  deskPhoneId?: number | null;
+  pcComputerId?: number | null;
 }

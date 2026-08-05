@@ -103,6 +103,20 @@ export interface SingleUserSyncResult {
   changes: EntraProfileSyncFieldChange[];
 }
 
+export interface SingleUserSyncPreview {
+  changes: EntraProfileSyncFieldChange[];
+}
+
+/**
+ * Preview what Entra → EMS sync would change for the signed-in user (no writes).
+ */
+export function previewMyProfileSyncFromEntra(): Promise<SingleUserSyncPreview> {
+  return apiFetch<SingleUserSyncPreview>(
+    '/internal/my-profile/sync-from-entra/preview',
+    { method: 'POST' },
+  );
+}
+
 /**
  * Pull the signed-in user's profile from Entra into EMS (updates all profile fields).
  */

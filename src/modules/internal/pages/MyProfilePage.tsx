@@ -53,7 +53,7 @@ export function MyProfilePage() {
           </div>
         ) : null}
 
-        {profile ? <EmployeeProfileView profile={profile} /> : null}
+        {profile ? <EmployeeProfileView profile={profile} editable /> : null}
       </main>
     </InternalPageFrame>
   );

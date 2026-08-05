@@ -15,6 +15,7 @@ import {
   EmployeeCertificationsService,
   type EmployeeCertificationResponse,
 } from './employee-certifications.service';
+import type { UpdateMyProfileDto } from './self-profile.controller';
 
 /**
  * Aggregate self-service profile for the signed-in internal employee. Resolves the user
@@ -95,6 +96,7 @@ export type MyFullProfileResponse =
         rampAccount: string;
         rampCreditCard: string;
         workstation: string;
+        departmentRank: string;
       };
       officeAddress: ProfileAddress | null;
       equipment: {
@@ -175,6 +177,233 @@ export class SelfProfileService {
       throw new Error('Signed-in user email was not found.');
     }
     return emails[0];
+  }
+
+  /**
+   * Save WMS-editable fields for the signed-in employee.
+   */
+  async updateMyProfile(dto: UpdateMyProfileDto): Promise<{ success: true }> {
+    const emails = this.signedInEmailCandidates();
+    if (emails.length === 0) throw new Error('Signed-in user email was not found.');
+
+    const base = await this.resolveInternalContact(emails);
+    if (!base) throw new Error('Employee profile not found for the signed-in user.');
+
+    return this.applyProfileUpdate(base, dto);
+  }
+
+  /** Administrator edits another employee — rejects if the viewer is not admin. */
+  async updateEmployeeProfile(targetContactId: number, dto: UpdateMyProfileDto): Promise<{ success: true }> {
+    const viewerEmails = this.signedInEmailCandidates();
+    if (viewerEmails.length === 0) throw new Error('Signed-in user email was not found.');
+
+    const viewer = await this.resolveInternalContact(viewerEmails);
+    if (!viewer) throw new Error('Viewer profile not found.');
+
+    const isAdmin = await this.isAccessLevelAdmin(viewer.contactId);
+    if (!isAdmin) throw new Error('Only Administrators can edit other employee profiles.');
+
+    const target = await this.resolveInternalContactById(targetContactId);
+    if (!target) throw new Error('Target employee not found.');
+
+    return this.applyProfileUpdate(target, dto);
+  }
+
+  private async applyProfileUpdate(
+    base: ResolvedContact,
+    dto: UpdateMyProfileDto,
+  ): Promise<{ success: true }> {
+    const { contactId, contactInfoId, contactAssignmentId } = base;
+
+    // 1. Update ContactInfo (CellPhone, WorkPhone)
+    if (dto.cellPhone !== undefined || dto.workPhone !== undefined) {
+      const sets: string[] = [];
+      const params: unknown[] = [];
+      let idx = 0;
+      if (dto.cellPhone !== undefined) {
+        sets.push(`CellPhone = @${idx}`);
+        params.push(dto.cellPhone);
+        idx++;
+      }
+      if (dto.workPhone !== undefined) {
+        sets.push(`WorkPhone = @${idx}`);
+        params.push(dto.workPhone);
+        idx++;
+      }
+      params.push(contactInfoId);
+      await this.dataSource.query(
+        `UPDATE dbo.ContactInfo SET ${sets.join(', ')} WHERE ContactInfoID = @${idx}`,
+        params,
+      );
+    }
+
+    // 2. Update EmployeeProfile (Workstation)
+    if (dto.workstation !== undefined) {
+      if (await this.tableExists('EmployeeProfile')) {
+        const exists = await this.dataSource.query(
+          `SELECT 1 AS found FROM dbo.EmployeeProfile WHERE ContactID = @0`,
+          [contactId],
+        );
+        if (exists.length > 0) {
+          await this.dataSource.query(
+            `UPDATE dbo.EmployeeProfile SET Workstation = @0 WHERE ContactID = @1`,
+            [dto.workstation, contactId],
+          );
+        } else {
+          await this.dataSource.query(
+            `INSERT INTO dbo.EmployeeProfile (ContactID, Workstation) VALUES (@0, @1)`,
+            [contactId, dto.workstation],
+          );
+        }
+      }
+    }
+
+    // 3. Update Home Address
+    if (dto.homeAddress) {
+      await this.upsertHomeAddress(contactId, dto.homeAddress);
+    }
+
+    // 4. Update Emergency Contacts (replace all)
+    if (dto.emergencyContacts !== undefined) {
+      await this.replaceEmergencyContacts(contactId, dto.emergencyContacts);
+    }
+
+    // 5. Assign phone extension (same logic as EMS)
+    if (dto.deskPhoneExtensionId !== undefined) {
+      await this.dataSource.query(
+        `UPDATE dbo.EmployeePhoneExtension SET IsCurrent = 0, UnassignedDate = CAST(SYSUTCDATETIME() AS date)
+         WHERE ContactAssignmentID = @0 AND IsCurrent = 1`,
+        [contactAssignmentId],
+      );
+      if (dto.deskPhoneExtensionId) {
+        await this.dataSource.query(
+          `INSERT INTO dbo.EmployeePhoneExtension (ContactAssignmentID, ExtensionID, AssignedDate, IsCurrent, AssignedBy)
+           VALUES (@0, @1, CAST(SYSUTCDATETIME() AS date), 1, @2)`,
+          [contactAssignmentId, dto.deskPhoneExtensionId, 'WMS profile update'],
+        );
+      }
+    }
+
+    // 6. Assign phone device
+    if (dto.deskPhoneId !== undefined) {
+      const activeExtRows = await this.dataSource.query(
+        `SELECT ExtensionID FROM dbo.EmployeePhoneExtension
+         WHERE ContactAssignmentID = @0 AND IsCurrent = 1`,
+        [contactAssignmentId],
+      );
+      const activeExtId = activeExtRows.length > 0 ? readNumber(activeExtRows[0], 'ExtensionID') : null;
+      if (activeExtId) {
+        await this.dataSource.query(
+          `UPDATE dbo.PhoneExtensionDevice SET IsCurrent = 0, UnassignedDate = CAST(SYSUTCDATETIME() AS date)
+           WHERE ExtensionID = @0 AND IsCurrent = 1`,
+          [activeExtId],
+        );
+        if (dto.deskPhoneId) {
+          await this.dataSource.query(
+            `INSERT INTO dbo.PhoneExtensionDevice (ExtensionID, PhoneID, AssignedDate, IsCurrent, AssignedBy)
+             VALUES (@0, @1, CAST(SYSUTCDATETIME() AS date), 1, @2)`,
+            [activeExtId, dto.deskPhoneId, 'WMS profile update'],
+          );
+        }
+      }
+    }
+
+    // 7. Assign computer
+    if (dto.pcComputerId !== undefined) {
+      await this.dataSource.query(
+        `UPDATE dbo.EmployeeComputer SET IsCurrent = 0, UnassignedDate = CAST(SYSUTCDATETIME() AS date)
+         WHERE ContactAssignmentID = @0 AND IsCurrent = 1`,
+        [contactAssignmentId],
+      );
+      if (dto.pcComputerId) {
+        await this.dataSource.query(
+          `INSERT INTO dbo.EmployeeComputer (ContactAssignmentID, ComputerID, AssignedDate, IsCurrent, AssignedBy)
+           VALUES (@0, @1, CAST(SYSUTCDATETIME() AS date), 1, @2)`,
+          [contactAssignmentId, dto.pcComputerId, 'WMS profile update'],
+        );
+      }
+    }
+
+    return { success: true };
+  }
+
+  private async upsertHomeAddress(
+    contactId: number,
+    addr: NonNullable<UpdateMyProfileDto['homeAddress']>,
+  ): Promise<void> {
+    if (!(await this.tableExists('EmployeeProfile'))) return;
+
+    // Check if employee profile exists and has a home address
+    const profileRows = await this.dataSource.query(
+      `SELECT HomeAddressID FROM dbo.EmployeeProfile WHERE ContactID = @0`,
+      [contactId],
+    );
+    const profileRow = profileRows[0] as Record<string, unknown> | undefined;
+    const existingAddressId = profileRow ? readNumber(profileRow, 'HomeAddressID') : null;
+
+    if (existingAddressId) {
+      // Update existing address
+      await this.dataSource.query(
+        `UPDATE dbo.Address SET AddressLine1 = @0, AddressLine2 = @1, City = @2, StateProvince = @3, PostalCode = @4, Country = @5 WHERE AddressID = @6`,
+        [
+          addr.line1 ?? '',
+          addr.line2 ?? '',
+          addr.city ?? '',
+          addr.stateProvince ?? '',
+          addr.postalCode ?? '',
+          addr.country ?? '',
+          existingAddressId,
+        ],
+      );
+    } else {
+      // Insert new address and link to employee profile
+      const insertResult = await this.dataSource.query(
+        `INSERT INTO dbo.Address (AddressLine1, AddressLine2, City, StateProvince, PostalCode, Country) OUTPUT INSERTED.AddressID VALUES (@0, @1, @2, @3, @4, @5)`,
+        [
+          addr.line1 ?? '',
+          addr.line2 ?? '',
+          addr.city ?? '',
+          addr.stateProvince ?? '',
+          addr.postalCode ?? '',
+          addr.country ?? '',
+        ],
+      );
+      const newAddressId = insertResult[0]?.AddressID;
+      if (newAddressId) {
+        if (profileRow) {
+          await this.dataSource.query(
+            `UPDATE dbo.EmployeeProfile SET HomeAddressID = @0 WHERE ContactID = @1`,
+            [newAddressId, contactId],
+          );
+        } else {
+          await this.dataSource.query(
+            `INSERT INTO dbo.EmployeeProfile (ContactID, HomeAddressID) VALUES (@0, @1)`,
+            [contactId, newAddressId],
+          );
+        }
+      }
+    }
+  }
+
+  private async replaceEmergencyContacts(
+    contactId: number,
+    contacts: NonNullable<UpdateMyProfileDto['emergencyContacts']>,
+  ): Promise<void> {
+    if (!(await this.tableExists('EmergencyContact'))) return;
+
+    // Delete existing contacts for this employee
+    await this.dataSource.query(
+      `DELETE FROM dbo.EmergencyContact WHERE ContactID = @0`,
+      [contactId],
+    );
+
+    // Insert new ones
+    for (const c of contacts) {
+      await this.dataSource.query(
+        `INSERT INTO dbo.EmergencyContact (ContactID, FullName, PhoneNumber, Email, IsPrimary) VALUES (@0, @1, @2, @3, @4)`,
+        [contactId, c.fullName, c.phoneNumber, c.email, c.isPrimary ? 1 : 0],
+      );
+    }
   }
 
   /**
@@ -308,6 +537,7 @@ export class SelfProfileService {
         rampAccount: readString(profileRow, 'RampAccount'),
         rampCreditCard: readString(profileRow, 'RampCreditCard'),
         workstation: readString(profileRow, 'Workstation'),
+        departmentRank: readString(profileRow, 'DepartmentRank'),
       },
       officeAddress,
       equipment: { deskPhoneNumber: STATIC_DESK_PHONE_NUMBER, ...equipment },
