@@ -22,7 +22,6 @@ import { GraphAvatar } from './GraphAvatar';
 import { cn } from '@/lib/utils';
 import { getActiveAccount, acquireGraphAccessToken } from '@/auth/entra';
 import { formatE164ForDisplay } from '@/lib/contactPhoneField';
-import { fetchEntraJobTitles, type EntraJobTitleMap } from '@/api/entraJobTitles';
 import {
   Select,
   SelectContent,
@@ -190,7 +189,6 @@ export function OrganizationalChartPage({ onNavigate }: { onNavigate?: (view: st
   const [tableView, setTableView] = useState<TilesView>('alpha');
   const [alphaSort, setAlphaSort] = useState<AlphaSort>('first');
   const [graphToken, setGraphToken] = useState<string | null>(null);
-  const [entraJobTitles, setEntraJobTitles] = useState<EntraJobTitleMap>(new Map());
 
   useEffect(() => {
     let mounted = true;
@@ -200,9 +198,6 @@ export function OrganizationalChartPage({ onNavigate }: { onNavigate?: (view: st
       try {
         const token = await acquireGraphAccessToken(account);
         if (mounted && token) setGraphToken(token);
-        // Fetch Entra job titles separately
-        const titles = await fetchEntraJobTitles(token);
-        if (mounted) setEntraJobTitles(titles);
       } catch { /* fallback to initials */ }
     })();
     return () => { mounted = false; };
@@ -225,17 +220,11 @@ export function OrganizationalChartPage({ onNavigate }: { onNavigate?: (view: st
       for (const m of node.members) {
         if (seen.has(m.contactId)) continue;
         seen.add(m.contactId);
-        // Enrich with Entra job title if the backend didn't provide one
-        const emailKey = (m.email ?? '').trim().toLowerCase();
-        const entraTitle = emailKey ? entraJobTitles.get(emailKey) : undefined;
-        members.push(entraTitle && !m.jobTitle?.trim()
-          ? { ...m, jobTitle: entraTitle }
-          : m,
-        );
+        members.push(m);
       }
     }
     return members.sort((a, b) => a.displayName.localeCompare(b.displayName));
-  }, [data, entraJobTitles]);
+  }, [data]);
 
   const departmentChips = useMemo(() => {
     const counts = new Map<string, number>();
@@ -291,7 +280,7 @@ export function OrganizationalChartPage({ onNavigate }: { onNavigate?: (view: st
     }
     return Array.from(groups.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([dept, members]) => ({ dept, members }));
+      .map(([dept, members]) => ({ dept, members: members.sort((a, b) => a.sortOrder - b.sortOrder || compareByName(a, b, 'last')) }));
   }, [filtered]);
 
   const handleRowClick = onNavigate

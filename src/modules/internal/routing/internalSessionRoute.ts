@@ -187,6 +187,10 @@ export function readLegacyInternalRoute(pathname: string, hash: string, search: 
     const parsed = Number(searchParams.get("departmentId"));
     if (Number.isFinite(parsed) && parsed > 0) viewData.departmentId = parsed;
   }
+  if (searchParams.has("contactId")) {
+    const parsed = Number(searchParams.get("contactId"));
+    if (Number.isFinite(parsed) && parsed > 0) viewData.contactId = parsed;
+  }
 
   // Handle ?view= query param (used for new-tab views like learning-admin)
   const viewParam = searchParams.get("view");

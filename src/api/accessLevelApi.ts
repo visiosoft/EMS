@@ -1,6 +1,6 @@
 import { apiFetch } from './config';
 
-export type AccessLevel = 'Employee' | 'Administrator' | 'Super Admin';
+export type AccessLevel = 'Employee' | 'Administrator' | 'Admin' | 'Super Admin';
 
 export interface MyAccessLevelResponse {
   accessLevel: AccessLevel;

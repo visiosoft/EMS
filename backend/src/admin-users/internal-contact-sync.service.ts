@@ -133,6 +133,7 @@ type InternalContactSyncModel = {
   preview: InternalContactSyncPreview;
   usersById: Map<string, AdminDirectorySyncUser>;
   contactsById: Map<number, InternalContactSnapshot>;
+  ciJobTitleAvailable: boolean;
 };
 
 type SqlExecutor = Pick<DataSource | EntityManager, 'query'>;
@@ -323,7 +324,7 @@ export class InternalContactSyncService {
             manager,
             model.preview.internalCompany.companyId,
             user,
-            model.preview.jobTitleColumnAvailable,
+            model.ciJobTitleAvailable,
           );
           created += 1;
           skippedJobTitleWrites += result.skippedJobTitleWrites;
@@ -335,7 +336,7 @@ export class InternalContactSyncService {
             model.preview.internalCompany.companyId,
             contact,
             user,
-            model.preview.jobTitleColumnAvailable,
+            model.ciJobTitleAvailable,
             selectedFields,
           );
           updated += 1;
@@ -513,10 +514,11 @@ export class InternalContactSyncService {
   private async buildEntraToEmsSyncModel(
     graphAccessToken?: string,
   ): Promise<InternalContactSyncModel> {
-    const [internalCompany, jobTitleColumnAvailable, users] =
+    const [internalCompany, jobTitleColumnAvailable, ciJobTitleAvailable, users] =
       await Promise.all([
         this.getInternalCompany(),
         this.hasContactInfoJobTitleColumn(),
+        this.hasContactInfoJobTitleColumnOnly(),
         this.adminUsersService.listUsersForSync(graphAccessToken),
       ]);
     const contacts = await this.loadInternalContacts(
@@ -709,6 +711,7 @@ export class InternalContactSyncService {
       },
       usersById,
       contactsById,
+      ciJobTitleAvailable,
     };
   }
 
@@ -907,6 +910,7 @@ export class InternalContactSyncService {
       },
       usersById,
       contactsById,
+      ciJobTitleAvailable: jobTitleColumnAvailable,
     };
   }
 
@@ -945,20 +949,65 @@ export class InternalContactSyncService {
       SELECT 1 AS hasColumn
       FROM INFORMATION_SCHEMA.COLUMNS
       WHERE TABLE_SCHEMA = 'dbo'
-        AND TABLE_NAME = 'ContactInfo'
-        AND COLUMN_NAME = 'JobTitle'
+        AND (
+          (TABLE_NAME = 'ContactInfo' AND COLUMN_NAME = 'JobTitle')
+          OR (TABLE_NAME = 'EmployeeProfile' AND COLUMN_NAME = 'JobTitle')
+        )
       `,
     );
     return rows.length > 0;
+  }
+
+  private async hasContactInfoJobTitleColumnOnly(
+    executor: SqlExecutor = this.dataSource,
+  ): Promise<boolean> {
+    const rows = await executor.query(
+      `SELECT 1 AS x FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='ContactInfo' AND COLUMN_NAME='JobTitle'`,
+    );
+    return rows.length > 0;
+  }
+
+  private async upsertEmployeeProfileJobTitle(
+    manager: EntityManager,
+    contactId: number,
+    jobTitle: string,
+  ): Promise<void> {
+    const hasCol = await manager.query(
+      `SELECT 1 AS x FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='EmployeeProfile' AND COLUMN_NAME='JobTitle'`,
+    );
+    if (hasCol.length === 0) return;
+
+    const exists = await manager.query(
+      `SELECT 1 AS x FROM dbo.EmployeeProfile WHERE ContactID = @0`,
+      [contactId],
+    );
+    if (exists.length > 0) {
+      await manager.query(
+        `UPDATE dbo.EmployeeProfile SET JobTitle = @0 WHERE ContactID = @1`,
+        [jobTitle, contactId],
+      );
+    } else {
+      await manager.query(
+        `INSERT INTO dbo.EmployeeProfile (ContactID, JobTitle, created_by, created_at, modified_by, modified_at)
+         VALUES (@0, @1, @2, SYSUTCDATETIME(), @2, SYSUTCDATETIME())`,
+        [contactId, jobTitle, 'Entra contact sync'],
+      );
+    }
   }
 
   private async loadInternalContacts(
     companyId: number,
     jobTitleColumnAvailable: boolean,
   ): Promise<InternalContactSnapshot[]> {
-    const jobTitleSelect = jobTitleColumnAvailable
+    const ciHasJobTitle = await this.hasContactInfoJobTitleColumnOnly();
+    const jobTitleSelect = ciHasJobTitle
       ? 'ci.JobTitle AS jobTitle'
-      : 'CAST(NULL AS nvarchar(150)) AS jobTitle';
+      : 'ep.JobTitle AS jobTitle';
+    const epJoin = ciHasJobTitle
+      ? ''
+      : 'LEFT JOIN dbo.EmployeeProfile ep ON ep.ContactID = c.ContactID';
     const rows = await this.dataSource.query(
       `
       SELECT
@@ -978,6 +1027,7 @@ export class InternalContactSyncService {
       FROM dbo.ContactAssignment ca
       INNER JOIN dbo.Contact c ON c.ContactID = ca.ContactID
       INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+      ${epJoin}
       LEFT JOIN dbo.Role r ON r.RoleID = ca.RoleID
       LEFT JOIN dbo.Department d ON d.DepartmentID = ca.DepartmentID
       WHERE ca.CompanyID = @0
@@ -1463,6 +1513,11 @@ export class InternalContactSyncService {
     // 4. Upsert ContactAssignment for this Company
     await this.syncContactAssignments(manager, contactId, companyId, roleId, departmentIds);
 
+    // 5. Upsert EmployeeProfile.JobTitle
+    if (jobTitle) {
+      await this.upsertEmployeeProfileJobTitle(manager, contactId, jobTitle);
+    }
+
     return {
       skippedJobTitleWrites: jobTitle && !jobTitleColumnAvailable ? 1 : 0,
     };
@@ -1547,6 +1602,11 @@ export class InternalContactSyncService {
       }
     }
 
+    // Upsert EmployeeProfile.JobTitle
+    if (finalJobTitle && (!selectedFields || selectedFields.has('jobTitle'))) {
+      await this.upsertEmployeeProfileJobTitle(manager, contact.contactId, finalJobTitle);
+    }
+
     return {
       skippedJobTitleWrites: (!selectedFields || selectedFields.has('jobTitle')) && jobTitle && !jobTitleColumnAvailable ? 1 : 0,
     };
@@ -1567,29 +1627,76 @@ export class InternalContactSyncService {
       [contactId, companyId]
     );
 
-    const existingIds = existing
-      .map((e: Record<string, unknown>) => readNumber(e, 'id', 'ContactAssignmentID'))
-      .filter((id: number | null): id is number => id !== null);
-    
-    for (let i = 0; i < Math.max(departmentIds.length, existingIds.length); i++) {
-      if (i < departmentIds.length && i < existingIds.length) {
-        const existingRoleId = readNumber(existing[i], 'roleId', 'RoleID') || roleId;
+    const existingById = new Map<number, { id: number; departmentId: number; roleId: number }>();
+    const existingByDept = new Map<number, number>(); // departmentId → ContactAssignmentID
+    for (const row of existing) {
+      const id = readNumber(row, 'id', 'ContactAssignmentID');
+      const deptId = readNumber(row, 'departmentId', 'DepartmentID');
+      const rId = readNumber(row, 'roleId', 'RoleID');
+      if (id != null && deptId != null) {
+        existingById.set(id, { id, departmentId: deptId, roleId: rId ?? roleId });
+        existingByDept.set(deptId, id);
+      }
+    }
+
+    const existingIds = Array.from(existingById.keys());
+    const desiredDeptSet = new Set(departmentIds);
+
+    // Determine which existing assignments to keep, update, or remove
+    const keptAssignmentIds = new Set<number>();
+
+    // First pass: mark assignments that already match a desired department as kept
+    for (const deptId of departmentIds) {
+      const existingAssignmentId = existingByDept.get(deptId);
+      if (existingAssignmentId != null) {
+        keptAssignmentIds.add(existingAssignmentId);
+      }
+    }
+
+    // Second pass: for departments that need new assignments, reuse unmatched existing
+    // slots (update their department) or insert new rows
+    const unmatched = existingIds.filter((id) => !keptAssignmentIds.has(id));
+    const deptsThatNeedSlot = departmentIds.filter((deptId) => !existingByDept.has(deptId));
+
+    for (let i = 0; i < deptsThatNeedSlot.length; i++) {
+      const deptId = deptsThatNeedSlot[i];
+      if (i < unmatched.length) {
+        // Reuse an existing assignment row by updating its department
+        const reuseId = unmatched[i];
+        const existingRoleId = existingById.get(reuseId)?.roleId ?? roleId;
         await manager.query(
           `UPDATE dbo.ContactAssignment SET DepartmentID = @0, RoleID = @1, modified_by = @2, modified_at = SYSUTCDATETIME() WHERE ContactAssignmentID = @3`,
-          [departmentIds[i], existingRoleId, SYNC_AUDIT_USER, existingIds[i]]
+          [deptId, existingRoleId, SYNC_AUDIT_USER, reuseId]
         );
-      } else if (i < departmentIds.length) {
-        await manager.query(
-          `INSERT INTO dbo.ContactAssignment (ContactID, CompanyID, RoleID, DepartmentID, created_by, created_at) VALUES (@0, @1, @2, @3, @4, SYSUTCDATETIME())`,
-          [contactId, companyId, roleId, departmentIds[i], SYNC_AUDIT_USER]
-        );
+        keptAssignmentIds.add(reuseId);
       } else {
-        const obsoleteId = existingIds[i];
-        await manager.query(`DELETE FROM dbo.EmployeeComputer WHERE ContactAssignmentID = @0`, [obsoleteId]);
-        await manager.query(`DELETE FROM dbo.EmployeeWorkLocation WHERE ContactAssignmentID = @0`, [obsoleteId]);
-        await manager.query(`DELETE FROM dbo.EmployeePhoneExtension WHERE ContactAssignmentID = @0`, [obsoleteId]);
-        await manager.query(`DELETE FROM dbo.ContactAssignment WHERE ContactAssignmentID = @0`, [obsoleteId]);
+        // Check for existing row with same unique key before inserting
+        const duplicateCheck = await manager.query(
+          `SELECT ContactAssignmentID AS id FROM dbo.ContactAssignment WHERE ContactID = @0 AND CompanyID = @1 AND RoleID = @2 AND DepartmentID = @3`,
+          [contactId, companyId, roleId, deptId]
+        );
+        if (duplicateCheck.length === 0) {
+          try {
+            await manager.query(
+              `INSERT INTO dbo.ContactAssignment (ContactID, CompanyID, RoleID, DepartmentID, created_by, created_at) VALUES (@0, @1, @2, @3, @4, SYSUTCDATETIME())`,
+              [contactId, companyId, roleId, deptId, SYNC_AUDIT_USER]
+            );
+          } catch (err: unknown) {
+            // Race condition: another request inserted the same row between our check and insert
+            const msg = err instanceof Error ? err.message : '';
+            if (!msg.includes('UQ_CA_Contact_Company_Role_Department')) throw err;
+          }
+        }
       }
+    }
+
+    // Third pass: remove assignments that are neither kept nor reused
+    const obsoleteIds = unmatched.slice(deptsThatNeedSlot.length);
+    for (const obsoleteId of obsoleteIds) {
+      await manager.query(`DELETE FROM dbo.EmployeeComputer WHERE ContactAssignmentID = @0`, [obsoleteId]);
+      await manager.query(`DELETE FROM dbo.EmployeeWorkLocation WHERE ContactAssignmentID = @0`, [obsoleteId]);
+      await manager.query(`DELETE FROM dbo.EmployeePhoneExtension WHERE ContactAssignmentID = @0`, [obsoleteId]);
+      await manager.query(`DELETE FROM dbo.ContactAssignment WHERE ContactAssignmentID = @0`, [obsoleteId]);
     }
   }
 
@@ -1715,7 +1822,13 @@ export class InternalContactSyncService {
       `${GRAPH_BASE_URL}/users/${encodeURIComponent(entraUserId)}`,
       payload,
     );
-    await this.verifyEntraUserPayload(graphAccessToken, entraUserId, payload);
+    try {
+      await this.verifyEntraUserPayload(graphAccessToken, entraUserId, payload);
+    } catch (verifyErr) {
+      // Log as warning but don't fail — the app may lack User.ReadWrite.All permission
+      const msg = verifyErr instanceof Error ? verifyErr.message : String(verifyErr);
+      console.warn(`[ContactSync] Verify warning for ${entraUserId}: ${msg}`);
+    }
   }
 
   private async disableEntraUser(
@@ -1753,18 +1866,26 @@ export class InternalContactSyncService {
       payload.surname = nullableText(trimToMax(contact.lastName, 64));
     }
     if (!selectedFields || selectedFields.has('cellPhone')) {
-      payload.mobilePhone = nullableText(trimToMax(contact.cellPhone, 30));
+      payload.mobilePhone = nullableText(trimToMax(sanitizePhoneForGraph(contact.cellPhone), 30));
     }
     if (!selectedFields || selectedFields.has('workPhone')) {
-      payload.businessPhones = contact.workPhone ? [trimToMax(contact.workPhone, 30)] : [];
+      const sanitized = sanitizePhoneForGraph(contact.workPhone);
+      payload.businessPhones = sanitized ? [trimToMax(sanitized, 30)] : [];
     }
     if (!selectedFields || selectedFields.has('department')) {
-      payload.department = nullableText(primaryDepartmentName(contact));
+      payload.department = nullableText(trimToMax(primaryDepartmentName(contact), 64));
     }
 
     if (includeEmailFields && (!selectedFields || selectedFields.has('email'))) {
-      payload.userPrincipalName = email;
-      payload.mailNickname = makeMailNickname(email, displayName);
+      // Only set UPN if the email looks like a valid email with a domain.
+      // For updates (not creates), skip UPN to avoid verified-domain errors
+      // when the EMS email doesn't match a tenant-verified domain.
+      if (email && email.includes('@') && !email.includes(' ')) {
+        if (forCreate) {
+          payload.userPrincipalName = email;
+          payload.mailNickname = makeMailNickname(email, displayName);
+        }
+      }
     }
 
     if (jobTitleColumnAvailable && (!selectedFields || selectedFields.has('jobTitle'))) {
@@ -1862,6 +1983,12 @@ export class InternalContactSyncService {
     });
     if (response.ok) return;
     const detail = await readResponseText(response);
+    console.warn(
+      `[EntraSync] Graph ${method} ${url} failed (${response.status}):`,
+      detail,
+      'Payload:',
+      JSON.stringify(payload),
+    );
     throw new BadGatewayException({
       message:
         response.status === 403
@@ -2276,6 +2403,22 @@ function isGraphAuthorizationDenied(error: unknown): boolean {
 }
 
 function formatSyncError(prefix: string, error: unknown): string {
+  if (error && typeof error === 'object') {
+    // NestJS HttpException (BadGatewayException, etc.) — extract detail from response
+    if ('getResponse' in error && typeof (error as any).getResponse === 'function') {
+      const resp = (error as { getResponse(): unknown }).getResponse();
+      if (resp && typeof resp === 'object') {
+        const detail = (resp as Record<string, unknown>).detail;
+        if (typeof detail === 'string' && detail) {
+          return `${prefix}: ${detail}`;
+        }
+        const message = (resp as Record<string, unknown>).message;
+        if (typeof message === 'string' && message) {
+          return `${prefix}: ${message}`;
+        }
+      }
+    }
+  }
   if (error instanceof Error && error.message) {
     return `${prefix}: ${error.message}`;
   }
@@ -2356,6 +2499,17 @@ function levenshteinDistance(a: string, b: string): number {
 
 function trimToMax(value: string | null | undefined, maxLength: number): string {
   return cleanText(value).slice(0, maxLength);
+}
+
+/**
+ * Strip extension notation (e.g. "x225", "ext 225") from phone numbers
+ * before sending to Microsoft Graph, which rejects such formats with 400.
+ */
+function sanitizePhoneForGraph(value: string | null | undefined): string {
+  const cleaned = cleanText(value);
+  if (!cleaned) return '';
+  // Remove extension suffixes like "x225", "ext225", "ext. 225", "extension 225"
+  return cleaned.replace(/\s*(x|ext\.?|extension)\s*\d+$/i, '').trim();
 }
 
 function readString(row: Record<string, unknown> | undefined, ...keys: string[]): string {

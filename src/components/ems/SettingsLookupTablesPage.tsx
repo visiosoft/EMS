@@ -88,7 +88,8 @@ import {
   acquireGraphAccessToken,
   requestGraphAccessToken,
 } from '@/auth/entra';
-import { fetchEmployeeEmploymentProfile, updateEmployeeEmploymentProfile, fetchAllAccessLevels } from '@/api/employeeEmploymentApi';
+import { fetchEmployeeEmploymentProfile, fetchAllAccessLevels } from '@/api/employeeEmploymentApi';
+import { fetchIaeStaffEmployees } from '@/api/iaeEmployeesApi';
 import { richTextMatches } from './searchUtils';
 import { GraphAvatar } from './GraphAvatar';
 import { formatE164ForDisplay } from '@/lib/contactPhoneField';
@@ -346,58 +347,12 @@ function saveLookupSortStateForKey(
   }
 }
 
-/** Inline dropdown to change a user's access level directly from the Users table */
-function AccessLevelDropdown({ email, currentLevel, addToast, onUpdated }: {
-  email: string;
-  currentLevel: string;
-  addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
-  onUpdated: (email: string, newLevel: string) => void;
-}) {
-  const [value, setValue] = useState(currentLevel);
-
-  useEffect(() => {
-    setValue(currentLevel);
-  }, [currentLevel]);
-
-  const mutation = useMutation({
-    mutationFn: (newLevel: string) =>
-      updateEmployeeEmploymentProfile(email, { accessLevel: newLevel }),
-    onSuccess: (data) => {
-      const newVal = data.accessLevel || '';
-      setValue(newVal);
-      onUpdated(email, newVal);
-      addToast('Access level updated.', 'success');
-    },
-    onError: () => {
-      setValue(currentLevel);
-      addToast('Could not update access level.', 'error');
-    },
-  });
-
-  const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    e.stopPropagation();
-    const newVal = e.target.value;
-    if (newVal && newVal !== value) {
-      setValue(newVal);
-      mutation.mutate(newVal);
-    }
-  };
-
-  const isSuperAdmin = currentLevel === 'Super Admin';
-
+/** Read-only access level badge — value comes from Entra */
+function AccessLevelBadge({ level }: { level: string }) {
   return (
-    <select
-      value={value}
-      onChange={handleChange}
-      onClick={(e) => e.stopPropagation()}
-      disabled={mutation.isPending || isSuperAdmin}
-      className="rounded-md border border-border bg-white dk:bg-elevated px-2 py-1 text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-ems-blue disabled:opacity-50"
-    >
-      <option value="">— Select —</option>
-      {isSuperAdmin && <option value="Super Admin">Super Admin</option>}
-      <option value="Administrator">Administrator</option>
-      <option value="Employee">Employee</option>
-    </select>
+    <span className="inline-flex items-center rounded-md border border-border bg-white dk:bg-elevated px-2 py-1 text-xs text-text-primary">
+      {level || '—'}
+    </span>
   );
 }
 
@@ -1264,7 +1219,7 @@ export function SettingsPage({
     staleTime: 60_000,
   });
   const viewerAccessLevel = viewerEmploymentQuery.data?.accessLevel || '';
-  const canViewUserProfiles = viewerAccessLevel === 'Administrator' || viewerAccessLevel === 'Super Admin';
+  const canViewUserProfiles = viewerAccessLevel === 'Administrator' || viewerAccessLevel === 'Admin' || viewerAccessLevel === 'Super Admin';
 
   // Fetch all access levels in one call for the Users table
   const accessLevelsQuery = useQuery({
@@ -1282,13 +1237,6 @@ export function SettingsPage({
     }
     return map;
   }, [accessLevelsQuery.data]);
-  const handleAccessLevelUpdated = useCallback((email: string, newLevel: string) => {
-    qc.setQueryData<{ email: string; accessLevel: string }[]>(['all-access-levels'], (old) =>
-      old
-        ? old.map((item) => item.email.toLowerCase() === email.toLowerCase() ? { ...item, accessLevel: newLevel } : item)
-        : [{ email: email.toLowerCase(), accessLevel: newLevel }],
-    );
-  }, [qc]);
 
   const [lookupTab, setLookupTab] = useState(LOOKUP_TABLES[0].label);
   const [showInvite, setShowInvite] = useState(false);
@@ -1390,6 +1338,23 @@ export function SettingsPage({
   });
 
   // ─── Users directory filtering & sorting ───────────────────────────────────
+  const iaeEmployeesQuery = useQuery({
+    queryKey: ['iae-staff-employees'],
+    queryFn: fetchIaeStaffEmployees,
+    staleTime: 5 * 60 * 1000,
+    enabled: tab === 'Users',
+  });
+
+  const departmentRankByEmail = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const emp of iaeEmployeesQuery.data ?? []) {
+      if (emp.email && emp.departmentRank != null) {
+        map.set(emp.email.toLowerCase(), emp.departmentRank);
+      }
+    }
+    return map;
+  }, [iaeEmployeesQuery.data]);
+
   const usersSearched = useMemo(() => {
     const all = adminUsersQuery.data ?? [];
     const q = usersSearch.trim().toLowerCase();
@@ -1444,8 +1409,15 @@ export function SettingsPage({
     }
     return Array.from(groups.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([dept, members]) => ({ dept, members }));
-  }, [usersFiltered]);
+      .map(([dept, members]) => ({
+        dept,
+        members: members.sort((a, b) => {
+          const rankA = departmentRankByEmail.get(a.email.toLowerCase()) ?? 999;
+          const rankB = departmentRankByEmail.get(b.email.toLowerCase()) ?? 999;
+          return rankA - rankB || a.name.localeCompare(b.name);
+        }),
+      }));
+  }, [usersFiltered, departmentRankByEmail]);
 
   const usersShowChips =
     ((usersViewMode === 'tiles' && usersViewTab === 'dept') || (usersViewMode === 'table' && usersViewTab === 'dept'))
@@ -2370,7 +2342,7 @@ export function SettingsPage({
                                     <td className="px-4 py-3 font-mono text-xs text-neutral-500 dk:text-neutral-400">{formatE164ForDisplay(u.mobilePhone) || '—'}</td>
                                     <td className="px-4 py-3 text-neutral-500 dk:text-neutral-400">{u.email || '—'}</td>
                                     <td className="px-4 py-3"><StatusBadge status={u.status ?? 'Active'} /></td>
-                                    {canViewUserProfiles && <td className="px-4 py-3">{u.email ? <AccessLevelDropdown email={u.email} currentLevel={accessLevelMap[u.email.toLowerCase()] || ''} addToast={addToast} onUpdated={handleAccessLevelUpdated} /> : <span className="text-text-muted text-xs">—</span>}</td>}
+                                    {canViewUserProfiles && <td className="px-4 py-3">{u.email ? <AccessLevelBadge level={accessLevelMap[u.email.toLowerCase()] || ''} /> : <span className="text-text-muted text-xs">—</span>}</td>}
                                   </tr>
                                   );
                                 })}
@@ -2409,7 +2381,7 @@ export function SettingsPage({
                               <td className="px-4 py-3 font-mono text-xs text-neutral-500 dk:text-neutral-400">{formatE164ForDisplay(u.mobilePhone) || '—'}</td>
                               <td className="px-4 py-3 text-neutral-500 dk:text-neutral-400">{u.email || '—'}</td>
                               <td className="px-4 py-3"><StatusBadge status={u.status ?? 'Active'} /></td>
-                              {canViewUserProfiles && <td className="px-4 py-3">{u.email ? <AccessLevelDropdown email={u.email} currentLevel={accessLevelMap[u.email.toLowerCase()] || ''} addToast={addToast} onUpdated={handleAccessLevelUpdated} /> : <span className="text-text-muted text-xs">—</span>}</td>}
+                              {canViewUserProfiles && <td className="px-4 py-3">{u.email ? <AccessLevelBadge level={accessLevelMap[u.email.toLowerCase()] || ''} /> : <span className="text-text-muted text-xs">—</span>}</td>}
                             </tr>
                             );
                           })}

@@ -40,7 +40,7 @@ export class AccessLevelService {
         const raw = (rows[0].accessLevel ?? '').trim();
         const lower = raw.toLowerCase();
         if (lower === 'super admin') return AccessLevel.SuperAdmin;
-        if (lower === 'administrator') return AccessLevel.Administrator;
+        if (lower === 'administrator' || lower === 'admin') return AccessLevel.Administrator;
         if (lower === 'employee') return AccessLevel.Employee;
         // Non-empty but unrecognized → treat as Employee
       }
