@@ -364,7 +364,9 @@ export class SelfProfileService {
       }
     }
 
-    // Push updated fields to Entra
+    // WMS→Entra push: native properties require User.ReadWrite.All + tenant-native user;
+    // CSAs require CustomSecAttributeAssignment.ReadWrite.All (works for guests too).
+    // External/B2B users' native properties are managed by their home tenant — 403 is expected.
     try {
       const pushResult = await this.entraProfileSyncService
         .applyEmsToEntraProfileSync(undefined, base.email);
