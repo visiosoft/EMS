@@ -7,6 +7,7 @@ export interface EmployeePersonalProfile {
   lastName: string;
   email: string;
   cellPhone: string;
+  workPhone: string;
   middleName: string;
   personalEmail: string;
   birthDate: string | null;

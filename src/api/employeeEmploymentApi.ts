@@ -18,8 +18,13 @@ export interface WorkstationListResponse {
 export interface EmployeeEmploymentProfile {
   contactId: number;
   contactAssignmentId: number;
+  title: string;
+  workEmail: string;
+  department: string;
+  office: string;
   accessLevel: string;
   workAuthorization: string;
+  workAuthorizationLinkUrl: string;
   workstation: string;
   startDate: string | null;
   supervisor: string;
@@ -54,6 +59,7 @@ export interface UpdateEmployeeEmploymentProfileRequest {
   title?: string | null;
   office?: string | null;
   workAuthorization?: string | null;
+  workAuthorizationLinkUrl?: string | null;
   workstation?: string | null;
   startDate?: string | null;
   supervisor?: string | null;

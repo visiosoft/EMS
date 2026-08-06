@@ -51,6 +51,8 @@ export type MyFullProfileResponse =
        * `limited` for other staff, who see only the "All"-visibility fields.
        */
       visibility: 'full' | 'limited';
+      /** True when the viewer has admin-tier access (can edit all fields). */
+      isAdmin: boolean;
       identity: {
         contactId: number;
         contactInfoId: number;
@@ -83,6 +85,7 @@ export type MyFullProfileResponse =
         office: string;
         accessLevel: string;
         workAuthorization: string;
+        workAuthorizationLinkUrl: string;
         startDate: string | null;
         yearsOfService: string;
         hireDate: string | null;
@@ -169,7 +172,8 @@ export class SelfProfileService {
     const base = await this.resolveInternalContact(emails);
     if (!base) return { linked: false };
 
-    return this.buildFullProfile(base, { isSelf: true, isAdmin: true });
+    const isAdmin = await this.isAccessLevelAdmin(base.contactId);
+    return this.buildFullProfile(base, { isSelf: true, isAdmin });
   }
 
   /** Return the signed-in user's email (first candidate). Used by the sync-from-entra endpoint. */
@@ -181,8 +185,17 @@ export class SelfProfileService {
     return emails[0];
   }
 
+  async isSignedInUserAdmin(): Promise<boolean> {
+    const emails = this.signedInEmailCandidates();
+    if (emails.length === 0) return false;
+    const base = await this.resolveInternalContact(emails);
+    if (!base) return false;
+    return this.isAccessLevelAdmin(base.contactId);
+  }
+
   /**
    * Save WMS-editable fields for the signed-in employee.
+   * Non-admin employees can only edit: cellPhone, workPhone, homeAddress, emergencyContacts.
    */
   async updateMyProfile(dto: UpdateMyProfileDto): Promise<{ success: true }> {
     const emails = this.signedInEmailCandidates();
@@ -191,7 +204,10 @@ export class SelfProfileService {
     const base = await this.resolveInternalContact(emails);
     if (!base) throw new Error('Employee profile not found for the signed-in user.');
 
-    return this.applyProfileUpdate(base, dto);
+    const isAdmin = await this.isAccessLevelAdmin(base.contactId);
+    const safeDto = isAdmin ? dto : this.stripAdminOnlyFields(dto);
+
+    return this.applyProfileUpdate(base, safeDto);
   }
 
   /** Administrator edits another employee — rejects if the viewer is not admin. */
@@ -255,6 +271,28 @@ export class SelfProfileService {
           await this.dataSource.query(
             `INSERT INTO dbo.EmployeeProfile (ContactID, Workstation) VALUES (@0, @1)`,
             [contactId, dto.workstation],
+          );
+        }
+      }
+    }
+
+    // 2b. Update Work Authorization Link
+    if (dto.workAuthorizationLinkUrl !== undefined) {
+      if (await this.tableExists('EmployeeProfile') && await this.hasColumn('EmployeeProfile', 'WorthAuthorizationLinkId')) {
+        const linkId = await this.upsertWorkAuthLink(dto.workAuthorizationLinkUrl, contactId);
+        const exists = await this.dataSource.query(
+          `SELECT 1 AS found FROM dbo.EmployeeProfile WHERE ContactID = @0`,
+          [contactId],
+        );
+        if (exists.length > 0) {
+          await this.dataSource.query(
+            `UPDATE dbo.EmployeeProfile SET WorthAuthorizationLinkId = @0 WHERE ContactID = @1`,
+            [linkId, contactId],
+          );
+        } else {
+          await this.dataSource.query(
+            `INSERT INTO dbo.EmployeeProfile (ContactID, WorthAuthorizationLinkId) VALUES (@0, @1)`,
+            [contactId, linkId],
           );
         }
       }
@@ -329,7 +367,7 @@ export class SelfProfileService {
     // Push updated fields to Entra in the background (fire-and-forget)
     this.entraProfileSyncService
       .applyEmsToEntraProfileSync(undefined, base.email)
-      .catch(() => { /* best-effort — don't block the response */ });
+      .catch(() => { /* best-effort */ });
 
     return { success: true };
   }
@@ -340,54 +378,50 @@ export class SelfProfileService {
   ): Promise<void> {
     if (!(await this.tableExists('EmployeeProfile'))) return;
 
-    // Check if employee profile exists and has a home address
-    const profileRows = await this.dataSource.query(
-      `SELECT HomeAddressID FROM dbo.EmployeeProfile WHERE ContactID = @0`,
-      [contactId],
-    );
-    const profileRow = profileRows[0] as Record<string, unknown> | undefined;
-    const existingAddressId = profileRow ? readNumber(profileRow, 'HomeAddressID') : null;
+    const line1 = addr.line1 ?? '';
+    const line2 = addr.line2 ?? '';
+    const city = addr.city ?? '';
+    const stateProvince = addr.stateProvince ?? '';
+    const postalCode = addr.postalCode ?? '';
+    const country = addr.country ?? '';
 
-    if (existingAddressId) {
-      // Update existing address
-      await this.dataSource.query(
-        `UPDATE dbo.Address SET AddressLine1 = @0, AddressLine2 = @1, City = @2, StateProvince = @3, PostalCode = @4, Country = @5 WHERE AddressID = @6`,
-        [
-          addr.line1 ?? '',
-          addr.line2 ?? '',
-          addr.city ?? '',
-          addr.stateProvince ?? '',
-          addr.postalCode ?? '',
-          addr.country ?? '',
-          existingAddressId,
-        ],
-      );
-    } else {
-      // Insert new address and link to employee profile
+    // Look for an existing address row that matches all fields
+    const matchRows = await this.dataSource.query(
+      `SELECT TOP 1 AddressID FROM dbo.Address
+       WHERE COALESCE(AddressLine1, '') = @0
+         AND COALESCE(AddressLine2, '') = @1
+         AND COALESCE(City, '') = @2
+         AND COALESCE(StateProvince, '') = @3
+         AND COALESCE(PostalCode, '') = @4
+         AND COALESCE(Country, '') = @5`,
+      [line1, line2, city, stateProvince, postalCode, country],
+    );
+    let addressId = (matchRows as Record<string, unknown>[])?.[0]?.AddressID as number | undefined;
+
+    if (!addressId) {
       const insertResult = await this.dataSource.query(
         `INSERT INTO dbo.Address (AddressLine1, AddressLine2, City, StateProvince, PostalCode, Country) OUTPUT INSERTED.AddressID VALUES (@0, @1, @2, @3, @4, @5)`,
-        [
-          addr.line1 ?? '',
-          addr.line2 ?? '',
-          addr.city ?? '',
-          addr.stateProvince ?? '',
-          addr.postalCode ?? '',
-          addr.country ?? '',
-        ],
+        [line1, line2, city, stateProvince, postalCode, country],
       );
-      const newAddressId = insertResult[0]?.AddressID;
-      if (newAddressId) {
-        if (profileRow) {
-          await this.dataSource.query(
-            `UPDATE dbo.EmployeeProfile SET HomeAddressID = @0 WHERE ContactID = @1`,
-            [newAddressId, contactId],
-          );
-        } else {
-          await this.dataSource.query(
-            `INSERT INTO dbo.EmployeeProfile (ContactID, HomeAddressID) VALUES (@0, @1)`,
-            [contactId, newAddressId],
-          );
-        }
+      addressId = insertResult[0]?.AddressID as number | undefined;
+    }
+
+    if (addressId) {
+      const profileRows = await this.dataSource.query(
+        `SELECT HomeAddressID FROM dbo.EmployeeProfile WHERE ContactID = @0`,
+        [contactId],
+      );
+      const profileRow = profileRows[0] as Record<string, unknown> | undefined;
+      if (profileRow) {
+        await this.dataSource.query(
+          `UPDATE dbo.EmployeeProfile SET HomeAddressID = @0 WHERE ContactID = @1`,
+          [addressId, contactId],
+        );
+      } else {
+        await this.dataSource.query(
+          `INSERT INTO dbo.EmployeeProfile (ContactID, HomeAddressID) VALUES (@0, @1)`,
+          [contactId, addressId],
+        );
       }
     }
   }
@@ -456,6 +490,17 @@ export class SelfProfileService {
         )[0] as Record<string, unknown> | undefined)
       : undefined;
 
+    // Resolve Work Authorization Link URL from Link table
+    let workAuthLinkUrl = '';
+    const hasWalCol = hasEmployeeProfile ? await this.hasColumn('EmployeeProfile', 'WorthAuthorizationLinkId') : false;
+    if (hasWalCol) {
+      const walLinkId = readNumber(profileRow, 'WorthAuthorizationLinkId');
+      if (walLinkId) {
+        const linkRows = await this.dataSource.query(`SELECT TOP 1 LinkURL FROM dbo.Link WHERE LinkID = @0`, [walLinkId]);
+        workAuthLinkUrl = (linkRows as Record<string, unknown>[])?.[0]?.LinkURL as string ?? '';
+      }
+    }
+
     const homeAddress = await this.loadAddress(
       readNumber(profileRow, 'HomeAddressID'),
     );
@@ -498,6 +543,7 @@ export class SelfProfileService {
     const profile: LinkedProfile = {
       linked: true,
       visibility: viewer.isSelf || viewer.isAdmin ? 'full' : 'limited',
+      isAdmin: viewer.isAdmin,
       identity: {
         contactId,
         contactInfoId: base.contactInfoId,
@@ -526,10 +572,11 @@ export class SelfProfileService {
       homeAddress,
       emergencyContacts,
       employment: {
-        title: entraJob.title,
-        office: entraJob.office,
+        title: readString(profileRow, 'JobTitle') || entraJob.title,
+        office: readString(profileRow, 'Office') || entraJob.office,
         accessLevel: readString(profileRow, 'AccessLevel'),
         workAuthorization: readString(profileRow, 'WorkAuthorization'),
+        workAuthorizationLinkUrl: workAuthLinkUrl,
         startDate,
         yearsOfService: computeYearsOfService(startDate),
         hireDate: readDateString(profileRow, 'HireDate'),
@@ -568,6 +615,7 @@ export class SelfProfileService {
     viewer: ViewerContext,
   ): LinkedProfile {
     if (viewer.isSelf || viewer.isAdmin) return profile;
+    // Employee viewing another employee — only show the standard employee-visible fields
     return {
       ...profile,
       basics: { ...profile.basics, personalEmail: '' },
@@ -583,9 +631,9 @@ export class SelfProfileService {
       emergencyContacts: [],
       employment: {
         ...profile.employment,
-        office: '',
         accessLevel: '',
         workAuthorization: '',
+        workAuthorizationLinkUrl: '',
         startDate: null,
         yearsOfService: '',
         hireDate: null,
@@ -598,12 +646,9 @@ export class SelfProfileService {
         employmentAgreement: '',
         rampAccount: '',
         rampCreditCard: '',
-        workstation: '',
       },
-      officeAddress: null,
       equipment: {
-        deskPhoneNumber: '',
-        deskPhoneExtension: '',
+        ...profile.equipment,
         deskPhoneMac: '',
         deskPhoneBrand: '',
         deskPhoneModel: '',
@@ -615,6 +660,18 @@ export class SelfProfileService {
       },
       entra: { microsoftOfficeLicenses: [], microsoftGroups: [] },
       healthInsurance: null,
+      experience: null,
+      certifications: null,
+    };
+  }
+
+  /** Employees can only edit: phones, workstation, desk phone extension. */
+  private stripAdminOnlyFields(dto: UpdateMyProfileDto): UpdateMyProfileDto {
+    return {
+      cellPhone: dto.cellPhone,
+      workPhone: dto.workPhone,
+      workstation: dto.workstation,
+      deskPhoneExtensionId: dto.deskPhoneExtensionId,
     };
   }
 
@@ -626,7 +683,7 @@ export class SelfProfileService {
       [contactId],
     )) as Record<string, unknown>[];
     const accessLevel = readString(rows[0], 'AccessLevel').toLowerCase();
-    return accessLevel === 'administrator' || accessLevel === 'super admin';
+    return accessLevel === 'administrator' || accessLevel === 'admin' || accessLevel === 'super admin';
   }
 
   /** Run a best-effort loader; swallow failures so one bad section can't fail the profile. */
@@ -862,6 +919,42 @@ export class SelfProfileService {
       [tableName],
     );
     return rows.length > 0;
+  }
+
+  private async hasColumn(tableName: string, columnName: string): Promise<boolean> {
+    const rows = await this.dataSource.query(
+      `SELECT 1 AS found FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = @0 AND COLUMN_NAME = @1`,
+      [tableName, columnName],
+    );
+    return rows.length > 0;
+  }
+
+  private async upsertWorkAuthLink(url: string | null | undefined, contactId: number): Promise<number | null> {
+    const trimmed = url?.trim() || null;
+    if (!trimmed) return null;
+    // Check existing
+    const hasWalCol = await this.hasColumn('EmployeeProfile', 'WorthAuthorizationLinkId');
+    let existingLinkId: number | null = null;
+    if (hasWalCol) {
+      const epRows = await this.dataSource.query(
+        `SELECT TOP 1 WorthAuthorizationLinkId FROM dbo.EmployeeProfile WHERE ContactID = @0`,
+        [contactId],
+      );
+      existingLinkId = (epRows as Record<string, unknown>[])?.[0]?.WorthAuthorizationLinkId as number | null;
+    }
+    if (existingLinkId) {
+      await this.dataSource.query(`UPDATE dbo.Link SET LinkURL = @0, LinkPath = @1 WHERE LinkID = @2`, [trimmed, trimmed.slice(0, 1024), existingLinkId]);
+      return existingLinkId;
+    }
+    const existing = await this.dataSource.query(`SELECT TOP 1 LinkID FROM dbo.Link WHERE LinkURL = @0`, [trimmed]);
+    if ((existing as Record<string, unknown>[])?.length > 0) {
+      return (existing[0] as Record<string, unknown>).LinkID as number;
+    }
+    const result = await this.dataSource.query(
+      `INSERT INTO dbo.Link (LinkType, LinkURL, LinkName, LinkPath) OUTPUT INSERTED.LinkID VALUES (N'URL', @0, N'Work Authorization Photos', @1)`,
+      [trimmed, trimmed.slice(0, 1024)],
+    );
+    return (result as Record<string, unknown>[])?.[0]?.LinkID as number;
   }
 }
 

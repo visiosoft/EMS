@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, type ReactNode } from "react";
 import { format, parseISO } from "date-fns";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, useIsFetching } from "@tanstack/react-query";
 import {
   Award,
   Briefcase,
@@ -82,6 +82,17 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
+function LinkField({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">{label}</dt>
+      <dd className="mt-1 break-words text-sm font-medium">
+        <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{value}</a>
+      </dd>
+    </div>
+  );
+}
+
 /** Inline-editable field — shows an input when editing, read-only otherwise. */
 function EditableField({
   label,
@@ -153,13 +164,13 @@ const sectionIcons: Record<ProfileSection, ReactNode> = {
 
 function ProfileTabBar({ tabs, active, onChange }: { tabs: ProfileSection[]; active: ProfileSection; onChange: (t: ProfileSection) => void }) {
   return (
-    <div className="flex border-b border-neutral-200 overflow-x-auto">
+    <div className="flex border-b border-neutral-200 overflow-x-auto -mx-2 px-2">
       {tabs.map((tab) => (
         <button
           key={tab}
           type="button"
           onClick={() => onChange(tab)}
-          className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium transition-colors relative whitespace-nowrap ${
+          className={`flex items-center gap-1.5 px-3 py-2.5 text-xs sm:text-sm sm:px-4 font-medium transition-colors relative whitespace-nowrap ${
             active === tab
               ? "text-neutral-950 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-neutral-900"
               : "text-neutral-500 hover:text-neutral-800"
@@ -229,7 +240,7 @@ function SubGroup({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-type FieldItem = { label: string; value: string; kind?: "text" | "reveal"; admin?: boolean };
+type FieldItem = { label: string; value: string; kind?: "text" | "reveal"; admin?: boolean; link?: boolean };
 
 /**
  * A titled card of label/value fields. When `limited` (a non-admin viewing someone
@@ -243,6 +254,8 @@ function FieldGrid({ items }: { items: FieldItem[] }) {
       {items.map((item) =>
         item.kind === "reveal" ? (
           <RevealField key={item.label} label={item.label} value={item.value} />
+        ) : item.link && item.value !== "—" ? (
+          <LinkField key={item.label} label={item.label} value={item.value} />
         ) : (
           <Field key={item.label} label={item.label} value={item.value} />
         ),
@@ -593,7 +606,10 @@ function WmsInsuranceSection({
 export function EmployeeProfileView({ profile, editable = false, targetContactId }: { profile: LinkedSelfProfile; editable?: boolean; targetContactId?: number }) {
   const limited = profile.visibility === "limited";
   const canEdit = editable && !limited;
+  const canEditAdminFields = canEdit && profile.isAdmin;
   const queryClient = useQueryClient();
+  const profileQueryKey = targetContactId ? ["employee-profile", targetContactId] : ["self-profile"];
+  const isRefetchingProfile = useIsFetching({ queryKey: profileQueryKey }) > 0;
 
   // ─── Edit state per section ────────────────────────────────────────────────
   const [editingPersonal, setEditingPersonal] = useState(false);
@@ -620,6 +636,7 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
 
   // ─── Form state: Employment section (workstation only)
   const [workstation, setWorkstation] = useState(profile.employment.workstation || "");
+  const [workAuthLinkUrl, setWorkAuthLinkUrl] = useState(profile.employment.workAuthorizationLinkUrl || "");
 
   const workstationsQuery = useQuery({
     queryKey: ["workstations"],
@@ -644,13 +661,13 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
   const phoneDevicesQuery = useQuery({
     queryKey: ["phone-devices"],
     queryFn: fetchPhoneDevices,
-    enabled: canEdit && editingProperty,
+    enabled: canEditAdminFields && editingProperty,
     staleTime: 5 * 60 * 1000,
   });
   const pcDevicesQuery = useQuery({
     queryKey: ["pc-devices"],
     queryFn: fetchPcDevices,
-    enabled: canEdit && editingProperty,
+    enabled: canEditAdminFields && editingProperty,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -697,7 +714,7 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
   }
 
   function saveEmployment() {
-    saveMutation.mutate({ workstation });
+    saveMutation.mutate({ workstation, workAuthorizationLinkUrl: workAuthLinkUrl });
   }
 
   function saveProperty() {
@@ -730,6 +747,7 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
 
   function cancelEmployment() {
     setWorkstation(profile.employment.workstation || "");
+    setWorkAuthLinkUrl(profile.employment.workAuthorizationLinkUrl || "");
     setEditingEmployment(false);
   }
 
@@ -787,9 +805,10 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
     { label: "Title", value: textOrDash(profile.employment.title) },
     { label: "Access Level", value: textOrDash(profile.employment.accessLevel), admin: true },
     { label: "Work Email", value: textOrDash(profile.basics.email) },
-    { label: "Office", value: textOrDash(profile.employment.office), admin: true },
-    { label: "Workstation", value: textOrDash(profile.employment.workstation), admin: true },
+    { label: "Office", value: textOrDash(profile.employment.office) },
+    { label: "Workstation", value: textOrDash(profile.employment.workstation) },
     { label: "Work Authorization", value: textOrDash(profile.employment.workAuthorization), admin: true },
+    { label: "Work Authorization Photos", value: profile.employment.workAuthorizationLinkUrl || "—", link: true, admin: true },
     { label: "Department", value: textOrDash(profile.basics.department) },
     { label: "Department Rank", value: textOrDash(profile.employment.departmentRank) },
     { label: "Role", value: textOrDash(profile.basics.role) },
@@ -817,7 +836,7 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
   const showSoftware = !limited;
   const showHomeAddress = !limited;
   const showEmergency = !limited;
-  const showOfficeAddress = !limited;
+  const showOfficeAddress = true;
   const showGroups = !limited;
   const showProperty = !limited;
 
@@ -858,9 +877,10 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
     'emergencyContactName', 'emergencyContactPhone', 'emergencyContactEmail',
   ];
   const employmentTabFields = [
-    'title', 'accessLevel', 'office', 'workstation', 'workAuthorization',
+    'title', 'department', 'accessLevel', 'office', 'workstation', 'workAuthorization',
+    'workAuthorizationLink',
     'departmentRank', 'startDate', 'supervisor', 'ptoAccrualRate',
-    'employmentAgreement', 'rampAccount', 'rampCreditCard',
+    'employmentAgreement', 'rampAccount', 'rampCreditCard', 'employmentType',
   ];
   const propertyTabFields = [
     'deskPhoneMac', 'deskPhoneBrand', 'pcServiceTag', 'pcWindowsName',
@@ -868,7 +888,7 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
 
   // ─── Tab state ─────────────────────────────────────────────────────────────
   const availableTabs: ProfileSection[] = limited
-    ? ["Personal", "Employment", "Certifications", "Experience"]
+    ? ["Personal", "Employment", "Property", "Certifications", "Experience"]
     : ["Personal", "Employment", "Health Insurance", "Property", "Licenses & Groups", "Certifications", "Experience"];
   const [activeTab, setActiveTab] = useState<ProfileSection>("Personal");
 
@@ -994,6 +1014,13 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
 
       <ProfileTabBar tabs={availableTabs} active={activeTab} onChange={setActiveTab} />
 
+      {isRefetchingProfile && (
+        <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20 px-3 py-2 mt-3">
+          <Loader2 className="h-4 w-4 animate-spin text-amber-600 dark:text-amber-400 shrink-0" />
+          <span className="text-xs text-amber-700 dark:text-amber-300">Fetching data from database…</span>
+        </div>
+      )}
+
       {/* ── Personal Tab ──────────────────────────────────────────── */}
       {activeTab === "Personal" && (
         <SectionShell
@@ -1020,6 +1047,7 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
                 <Field label="Birth Date" value={formatDate(profile.personal.dateOfBirth)} />
               </dl>
 
+              {canEditAdminFields && (
               <SubGroup label="Home Address">
                 <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
                   <EditableField label="Street" value={textOrDash(addrLine1)} editing editValue={addrLine1} onChange={setAddrLine1} />
@@ -1030,7 +1058,9 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
                   <EditableField label="Country" value={textOrDash(addrCountry)} editing editValue={addrCountry} onChange={setAddrCountry} />
                 </dl>
               </SubGroup>
+              )}
 
+              {canEditAdminFields && (
               <SubGroup label="Emergency Contact">
                 <div className="space-y-4">
                   {emergencyContacts.length > 0 ? (
@@ -1046,6 +1076,7 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
                   )}
                 </div>
               </SubGroup>
+              )}
 
               <TabFooterActions>
                 {cancelBtn(cancelPersonal)}{saveBtn(savePersonal)}
@@ -1111,7 +1142,7 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
             <>
               <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
                 <Field label="Title" value={textOrDash(profile.employment.title)} />
-                <Field label="Access Level" value={textOrDash(profile.employment.accessLevel)} />
+                {canEditAdminFields && <Field label="Access Level" value={textOrDash(profile.employment.accessLevel)} />}
                 <Field label="Work Email" value={textOrDash(profile.basics.email)} />
                 <Field label="Office" value={textOrDash(profile.employment.office)} />
                 <div>
@@ -1138,7 +1169,21 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
                     ) : null}
                   </select>
                 </div>
-                <Field label="Work Authorization" value={textOrDash(profile.employment.workAuthorization)} />
+                {canEditAdminFields && <Field label="Work Authorization" value={textOrDash(profile.employment.workAuthorization)} />}
+                {canEditAdminFields && (
+                <div>
+                  <label className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">
+                    Work Authorization Photos
+                  </label>
+                  <input
+                    type="url"
+                    placeholder="https://…"
+                    className="mt-1 block w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm font-medium text-neutral-900 shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-500"
+                    value={workAuthLinkUrl}
+                    onChange={(e) => setWorkAuthLinkUrl(e.target.value)}
+                  />
+                </div>
+                )}
                 <Field label="Department" value={textOrDash(profile.basics.department)} />
                 <Field label="Department Rank" value={textOrDash(profile.employment.departmentRank)} />
                 <Field label="Role" value={textOrDash(profile.basics.role)} />
@@ -1194,7 +1239,7 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
               </dl>
               <div className="space-y-4">
                 <WmsInsuranceSection
-                  insuranceType="Medical" plans={hiPlans} editable={canEdit}
+                  insuranceType="Medical" plans={hiPlans} editable={canEditAdminFields}
                   optIn={hiHealthOptIn} setOptIn={setHiHealthOptIn}
                   planId={hiHealthPlanId} setPlanId={setHiHealthPlanId}
                   additionalInsureds={hiAdditionalInsureds} setAdditionalInsureds={setHiAdditionalInsureds}
@@ -1206,7 +1251,7 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
                   tenureTier={hiTenureTier} benchmarkBiweekly={hiBenchmarkBiweekly}
                 />
                 <WmsInsuranceSection
-                  insuranceType="Dental" plans={hiPlans} editable={canEdit}
+                  insuranceType="Dental" plans={hiPlans} editable={canEditAdminFields}
                   optIn={hiDentalOptIn} setOptIn={setHiDentalOptIn}
                   planId={hiDentalPlanId} setPlanId={setHiDentalPlanId}
                   additionalInsureds={hiDentalAdditionalInsureds} setAdditionalInsureds={setHiDentalAdditionalInsureds}
@@ -1217,7 +1262,7 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
                   tenureTier={hiTenureTier} benchmarkBiweekly={hiBenchmarkBiweekly}
                 />
                 <WmsInsuranceSection
-                  insuranceType="Vision" plans={hiPlans} editable={canEdit}
+                  insuranceType="Vision" plans={hiPlans} editable={canEditAdminFields}
                   optIn={hiVisionOptIn} setOptIn={setHiVisionOptIn}
                   planId={hiVisionPlanId} setPlanId={setHiVisionPlanId}
                   additionalInsureds={hiVisionAdditionalInsureds} setAdditionalInsureds={setHiVisionAdditionalInsureds}
@@ -1231,7 +1276,7 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
               {saveHiMutation.isSuccess && (
                 <p className="mt-3 text-sm font-medium text-green-700">Insurance saved successfully.</p>
               )}
-              {canEdit && (
+              {canEditAdminFields && (
                 <TabFooterActions>
                   <button
                     type="button"
@@ -1292,7 +1337,7 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
           editActions={
             canEdit && !editingProperty ? (
               <>
-                <EntraSyncButton targetEmail={syncTargetEmail} tabFields={propertyTabFields} invalidateKeys={syncInvalidateKeys} />
+                {canEditAdminFields && <EntraSyncButton targetEmail={syncTargetEmail} tabFields={propertyTabFields} invalidateKeys={syncInvalidateKeys} />}
                 {editBtn(() => setEditingProperty(true))}
               </>
             ) : undefined
@@ -1318,6 +1363,7 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
                       ))}
                     </select>
                   </div>
+                  {canEditAdminFields && (
                   <div>
                     <label className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">Desk Phone Device</label>
                     <select
@@ -1333,8 +1379,10 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
                       ))}
                     </select>
                   </div>
+                  )}
                 </dl>
               </SubGroup>
+              {canEditAdminFields && (
               <SubGroup label="PC">
                 <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
                   <div>
@@ -1354,24 +1402,28 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
                   </div>
                 </dl>
               </SubGroup>
+              )}
 
               <TabFooterActions>
                 {cancelBtn(cancelProperty)}{saveBtn(saveProperty)}
               </TabFooterActions>
             </>
           ) : (
-            <FieldGrid items={[
-              { label: "Desk Phone Number", value: textOrDash(profile.equipment.deskPhoneNumber) },
-              { label: "Desk Phone Extension", value: textOrDash(profile.equipment.deskPhoneExtension) },
-              { label: "Desk Phone MAC Address", value: textOrDash(profile.equipment.deskPhoneMac), admin: true },
-              { label: "Desk Phone Brand", value: textOrDash(profile.equipment.deskPhoneBrand), admin: true },
-              { label: "Desk Phone Model", value: textOrDash(profile.equipment.deskPhoneModel), admin: true },
-              { label: "PC Brand", value: textOrDash(profile.equipment.pcBrand), admin: true },
-              { label: "PC Model", value: textOrDash(profile.equipment.pcModel), admin: true },
-              { label: "PC Service Tag", value: textOrDash(profile.equipment.pcServiceTag), admin: true },
-              { label: "Bluetooth Status", value: textOrDash(profile.equipment.bluetoothStatus), admin: true },
-              { label: "PC Windows Name", value: textOrDash(profile.equipment.pcWindowsName), admin: true },
-            ]} />
+            <FieldGrid items={(() => {
+              const items: FieldItem[] = [
+                { label: "Desk Phone Number", value: textOrDash(profile.equipment.deskPhoneNumber) },
+                { label: "Desk Phone Extension", value: textOrDash(profile.equipment.deskPhoneExtension) },
+                { label: "Desk Phone MAC Address", value: textOrDash(profile.equipment.deskPhoneMac), admin: true },
+                { label: "Desk Phone Brand", value: textOrDash(profile.equipment.deskPhoneBrand), admin: true },
+                { label: "Desk Phone Model", value: textOrDash(profile.equipment.deskPhoneModel), admin: true },
+                { label: "PC Brand", value: textOrDash(profile.equipment.pcBrand), admin: true },
+                { label: "PC Model", value: textOrDash(profile.equipment.pcModel), admin: true },
+                { label: "PC Service Tag", value: textOrDash(profile.equipment.pcServiceTag), admin: true },
+                { label: "Bluetooth Status", value: textOrDash(profile.equipment.bluetoothStatus), admin: true },
+                { label: "PC Windows Name", value: textOrDash(profile.equipment.pcWindowsName), admin: true },
+              ];
+              return limited ? items.filter((f) => !f.admin) : items;
+            })()} />
           )}
         </SectionShell>
       )}

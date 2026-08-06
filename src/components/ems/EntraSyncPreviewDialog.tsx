@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, ArrowRight, Check } from "lucide-react";
 import {
@@ -44,6 +44,11 @@ export function EntraSyncPreviewDialog({
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(visibleChanges.map((c) => c.field)),
   );
+
+  // Reset selection when visible changes update
+  useEffect(() => {
+    setSelected(new Set(visibleChanges.map((c) => c.field)));
+  }, [changes, tabFields]);
 
   const applyMutation = useMutation({
     mutationFn: (fields: string[]) =>

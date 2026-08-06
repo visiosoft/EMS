@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Headers, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
-import { EntraProfileSyncService } from './entra-profile-sync.service';
+import { EntraProfileSyncService, EMPLOYEE_SYNCABLE_FIELDS } from './entra-profile-sync.service';
 import { SelfProfileService } from './self-profile.service';
 
 /**
@@ -32,16 +32,22 @@ export class SelfProfileController {
 
   /**
    * Preview changes from Entra without applying them.
+   * Non-admin employees only see employee-visible fields.
    */
   @Post('my-profile/sync-from-entra/preview')
   async previewSyncFromEntra(
     @Headers('x-entra-graph-access-token') graphAccessToken?: string,
   ) {
     const email = this.selfProfileService.getSignedInEmail();
-    return this.entraProfileSyncService.previewSingleUserFromEntra(
+    const isAdmin = await this.selfProfileService.isSignedInUserAdmin();
+    const result = await this.entraProfileSyncService.previewSingleUserFromEntra(
       email,
       graphAccessToken,
     );
+    if (!isAdmin) {
+      result.changes = result.changes.filter((c) => EMPLOYEE_SYNCABLE_FIELDS.has(c.field));
+    }
+    return result;
   }
 
   /** Temporary: test Graph CSA fetch directly for any email */
@@ -52,13 +58,23 @@ export class SelfProfileController {
 
   /**
    * Pull the signed-in user's profile fields from Entra into EMS.
-   * Triggered by a "Sync from Entra" action on the profile page.
+   * Non-admin employees can only sync employee-visible fields.
    */
   @Post('my-profile/sync-from-entra')
   async syncMyProfileFromEntra(
     @Headers('x-entra-graph-access-token') graphAccessToken?: string,
   ) {
     const email = this.selfProfileService.getSignedInEmail();
+    const isAdmin = await this.selfProfileService.isSignedInUserAdmin();
+    if (!isAdmin) {
+      // For non-admin employees, use selective sync with only employee fields
+      const allFields = [...EMPLOYEE_SYNCABLE_FIELDS];
+      return this.entraProfileSyncService.syncSelectedFieldsFromEntra(
+        email,
+        allFields,
+        graphAccessToken,
+      );
+    }
     return this.entraProfileSyncService.syncSingleUserFromEntra(
       email,
       graphAccessToken,
@@ -71,9 +87,13 @@ export class SelfProfileController {
     @Headers('x-entra-graph-access-token') graphAccessToken?: string,
   ) {
     const email = this.selfProfileService.getSignedInEmail();
+    const isAdmin = await this.selfProfileService.isSignedInUserAdmin();
+    const fields = isAdmin
+      ? body.fields ?? []
+      : (body.fields ?? []).filter((f) => EMPLOYEE_SYNCABLE_FIELDS.has(f));
     return this.entraProfileSyncService.syncSelectedFieldsFromEntra(
       email,
-      body.fields ?? [],
+      fields,
       graphAccessToken,
     );
   }
@@ -119,6 +139,7 @@ export interface UpdateMyProfileDto {
     isPrimary: boolean;
   }[];
   workstation?: string;
+  workAuthorizationLinkUrl?: string;
   deskPhoneExtensionId?: number | null;
   deskPhoneId?: number | null;
   pcComputerId?: number | null;

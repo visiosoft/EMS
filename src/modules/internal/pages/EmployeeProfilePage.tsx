@@ -45,7 +45,7 @@ export function EmployeeProfilePage() {
         }
       />
 
-      <main className="mx-auto w-full max-w-[1060px] px-5 pb-16 pt-14 sm:px-8 lg:px-0">
+      <main className="mx-auto w-full max-w-[1060px] px-4 pb-16 pt-10 sm:px-8 sm:pt-14 lg:px-0">
         <button
           type="button"
           onClick={backToDirectory}

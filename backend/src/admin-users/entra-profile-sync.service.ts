@@ -33,6 +33,7 @@ type EntraUserProfile = {
   jobTitle: string;
   officeLocation: string;
   companyName: string;
+  employeeType: string;
   accountEnabled: boolean;
   employeeHireDate: string | null;
   streetAddress: string;
@@ -53,13 +54,22 @@ type EMSCustomAttributes = {
   EmergencyContactCell?: string | null;
   EmergencyContactEmail?: string | null;
   WorkAuthorization?: string | null;
+  WorthAuthorizationLink?: string | null;
   Workstation?: string | null;
   PTOAccrual?: string | null;
   EmploymentAgreement?: string | boolean | null;
   RampAccount?: string | boolean | null;
   RampCard?: string | null;
+  DeskPhoneNumber?: string | null;
+  DeskPhoneExtension?: string | null;
   DeskPhoneMAC?: string | null;
+  DeskPhoneBrand?: string | null;
+  DeskPhoneModel?: string | null;
   PCServiceTag?: string | null;
+  PCBrand?: string | null;
+  PCModel?: string | null;
+  BluetoothStatus?: string | null;
+  PCWindowsName?: string | null;
   EMSAccessLevel?: string | null;
   Supervisor?: string | null;
   DepartmentRank?: number | string | null;
@@ -116,6 +126,19 @@ export type EntraProfileSyncPreview = {
 
 const GRAPH_BASE_URL = 'https://graph.microsoft.com/v1.0';
 const EMS_ATTRIBUTE_SET = 'EMSInformation';
+
+/** Fields an employee (non-admin) is allowed to sync from Entra on their own profile. */
+export const EMPLOYEE_SYNCABLE_FIELDS = new Set([
+  'firstName', 'lastName', 'middleName',
+  'cellPhone', 'workPhone',
+  'birthDate',
+  'title',
+  'office',
+  'workstation',
+  'department',
+  'departmentRank',
+  'supervisor',
+]);
 
 @Injectable()
 export class EntraProfileSyncService {
@@ -275,7 +298,7 @@ export class EntraProfileSyncService {
 
     // 1. Fetch native user properties + custom security attributes
     // Try direct lookup first, then fall back to $filter by mail for guest accounts
-    const selectFields = 'id,displayName,givenName,surname,mail,userPrincipalName,mobilePhone,businessPhones,department,jobTitle,officeLocation,companyName,accountEnabled,employeeHireDate,streetAddress,city,state,postalCode,country,customSecurityAttributes';
+    const selectFields = 'id,displayName,givenName,surname,mail,userPrincipalName,mobilePhone,businessPhones,department,jobTitle,officeLocation,companyName,accountEnabled,employeeHireDate,employeeType,streetAddress,city,state,postalCode,country,customSecurityAttributes';
     let userData = await this.graphGet<Record<string, unknown>>(
       csaToken,
       `https://graph.microsoft.com/beta/users/${encodedEmail}?$select=${selectFields}`,
@@ -305,6 +328,7 @@ export class EntraProfileSyncService {
       jobTitle: str(userData.jobTitle),
       officeLocation: str(userData.officeLocation),
       companyName: str(userData.companyName),
+      employeeType: str(userData.employeeType),
       accountEnabled: userData.accountEnabled !== false,
       employeeHireDate: str(userData.employeeHireDate) || null,
       streetAddress: str(userData.streetAddress),
@@ -318,13 +342,6 @@ export class EntraProfileSyncService {
     const customAttrs = (userData.customSecurityAttributes as Record<string, unknown>) ?? {};
     const emsAttrs = (customAttrs[EMS_ATTRIBUTE_SET] as Record<string, unknown>) ?? {};
 
-    // Debug: log raw CSA data to diagnose empty attributes
-    console.log(`[EntraSync] User ${email} - customSecurityAttributes keys: [${Object.keys(customAttrs).join(', ')}]`);
-    console.log(`[EntraSync] User ${email} - ${EMS_ATTRIBUTE_SET} keys: [${Object.keys(emsAttrs).join(', ')}]`);
-    if (Object.keys(emsAttrs).length > 0) {
-      console.log(`[EntraSync] User ${email} - CSA values:`, JSON.stringify(emsAttrs, null, 2));
-    }
-
     const emsAttributes: EMSCustomAttributes = {
       MiddleName: optStr(emsAttrs.MiddleName),
       PersonalEmail: optStr(emsAttrs.PersonalEmail),
@@ -335,13 +352,22 @@ export class EntraProfileSyncService {
       EmergencyContactCell: optStr(emsAttrs.EmergencyContactCell),
       EmergencyContactEmail: optStr(emsAttrs.EmergencyContactEmail),
       WorkAuthorization: optStr(emsAttrs.WorkAuthorization),
+      WorthAuthorizationLink: optStr(emsAttrs.WorthAuthorizationLink),
       Workstation: optStr(emsAttrs.Workstation),
       PTOAccrual: optStr(emsAttrs.PTOAccrual),
       EmploymentAgreement: typeof emsAttrs.EmploymentAgreement === 'boolean' ? emsAttrs.EmploymentAgreement : null,
       RampAccount: typeof emsAttrs.RampAccount === 'boolean' ? emsAttrs.RampAccount : null,
       RampCard: optStr(emsAttrs.RampCard),
+      DeskPhoneNumber: optStr(emsAttrs.DeskPhoneNumber),
+      DeskPhoneExtension: optStr(emsAttrs.DeskPhoneExtension),
       DeskPhoneMAC: optStr(emsAttrs.DeskPhoneMAC),
+      DeskPhoneBrand: optStr(emsAttrs.DeskPhoneBrand),
+      DeskPhoneModel: optStr(emsAttrs.DeskPhoneModel),
       PCServiceTag: optStr(emsAttrs.PCServiceTag),
+      PCBrand: optStr(emsAttrs.PCBrand),
+      PCModel: optStr(emsAttrs.PCModel),
+      BluetoothStatus: optStr(emsAttrs.BluetoothStatus),
+      PCWindowsName: optStr(emsAttrs.PCWindowsName),
       EMSAccessLevel: optStr(emsAttrs.EMSAccessLevel),
       Supervisor: optStr(emsAttrs.Supervisor),
       DepartmentRank: emsAttrs.DepartmentRank != null ? emsAttrs.DepartmentRank as number : null,
@@ -400,11 +426,13 @@ export class EntraProfileSyncService {
         ci.LastName AS lastName,
         ci.Email AS email,
         COALESCE(ci.CellPhone, '') AS cellPhone,
-        COALESCE(ci.WorkPhone, '') AS workPhone
+        COALESCE(ci.WorkPhone, '') AS workPhone,
+        COALESCE(d.DepartmentName, '') AS department
       FROM dbo.ContactAssignment ca
       INNER JOIN dbo.Company co ON co.CompanyID = ca.CompanyID AND co.is_internal = 1
       INNER JOIN dbo.Contact c ON c.ContactID = ca.ContactID
       INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+      LEFT JOIN dbo.Department d ON d.DepartmentID = ca.DepartmentID
       WHERE ci.Email IS NOT NULL AND ci.Email <> ''
       ORDER BY ci.FirstName, ci.LastName
     `);
@@ -424,6 +452,7 @@ export class EntraProfileSyncService {
         email: readString(row, 'email', 'Email'),
         cellPhone: readString(row, 'cellPhone', 'CellPhone'),
         workPhone: readString(row, 'workPhone', 'WorkPhone'),
+        department: readString(row, 'department', 'DepartmentName'),
       });
     }
     return contacts;
@@ -470,6 +499,19 @@ export class EntraProfileSyncService {
     // Load equipment
     const equipment = await this.loadEquipment(contactAssignmentId);
 
+    // Resolve Work Authorization Link URL from Link table
+    let workAuthLinkUrl = '';
+    if (profileRow) {
+      const hasWalCol = await this.hasColumnInTable(this.dataSource, 'EmployeeProfile', 'WorthAuthorizationLinkId');
+      if (hasWalCol) {
+        const linkId = readNumber(profileRow, 'WorthAuthorizationLinkId');
+        if (linkId) {
+          const linkRows = await this.dataSource.query(`SELECT TOP 1 LinkURL FROM dbo.Link WHERE LinkID = @0`, [linkId]);
+          workAuthLinkUrl = (linkRows as Record<string, unknown>[])?.[0]?.LinkURL as string ?? '';
+        }
+      }
+    }
+
     return {
       hasEpTable,
       hasEcTable,
@@ -477,11 +519,14 @@ export class EntraProfileSyncService {
       homeAddress,
       emergencyContact,
       equipment,
+      workAuthLinkUrl,
     };
   }
 
   private async loadEquipment(contactAssignmentId: number): Promise<EquipmentData> {
     const empty: EquipmentData = {
+      deskPhoneNumber: '(312) 274-1800',
+      deskPhoneExtension: '',
       deskPhoneMac: '',
       deskPhoneBrand: '',
       deskPhoneModel: '',
@@ -501,6 +546,7 @@ export class EntraProfileSyncService {
     const rows = await this.dataSource.query(
       `
       SELECT TOP 1
+        COALESCE(pe.ExtensionNumber, '') AS deskPhoneExtension,
         COALESCE(eqp.MACAddress, '') AS deskPhoneMac,
         COALESCE(eqp.Make, '') AS deskPhoneBrand,
         COALESCE(eqp.Model, '') AS deskPhoneModel,
@@ -523,6 +569,8 @@ export class EntraProfileSyncService {
     const r = rows[0] as Record<string, unknown> | undefined;
     if (!r) return empty;
     return {
+      deskPhoneNumber: '(312) 274-1800',
+      deskPhoneExtension: readString(r, 'deskPhoneExtension'),
       deskPhoneMac: readString(r, 'deskPhoneMac'),
       deskPhoneBrand: readString(r, 'deskPhoneBrand'),
       deskPhoneModel: readString(r, 'deskPhoneModel'),
@@ -599,10 +647,13 @@ export class EntraProfileSyncService {
     // Work Authorization
     const currentWorkAuth = readString(current.profileRow, 'WorkAuthorization');
     addChange(changes, 'workAuthorization', 'Work Authorization', currentWorkAuth, entra.emsAttributes.WorkAuthorization ?? '');
+    // Work Authorization Link (stored as LinkID → dbo.Link)
+    addChange(changes, 'workAuthorizationLink', 'Work Authorization Photos', current.workAuthLinkUrl, entra.emsAttributes.WorthAuthorizationLink ?? '');
     // Access Level (from CSA)
     const currentAccessLevel = readString(current.profileRow, 'AccessLevel');
     addChange(changes, 'accessLevel', 'Access Level', currentAccessLevel, entra.emsAttributes.EMSAccessLevel ?? '');
     // Department — synced via contact sync, but we track it for change visibility
+    addChange(changes, 'department', 'Department', contact.department, entra.user.department);
     // Role — managed via contact sync
     // Company — always "iAE"
     // Start Date at IAE
@@ -626,6 +677,9 @@ export class EntraProfileSyncService {
     // Department Rank (from CSA)
     const currentDeptRank = readString(current.profileRow, 'DepartmentRank');
     addChange(changes, 'departmentRank', 'Department Rank', currentDeptRank, entra.emsAttributes.DepartmentRank != null ? String(entra.emsAttributes.DepartmentRank) : '');
+    // Employment Type (from native Entra field)
+    const currentEmploymentType = readString(current.profileRow, 'EmploymentType');
+    addChange(changes, 'employmentType', 'Employment Type', currentEmploymentType, entra.user.employeeType);
     // Equipment — Desk Phone (MAC includes brand info: "00:15:65:A8:63:F2 - Yealink")
     addChange(changes, 'deskPhoneMac', 'Desk Phone MAC Address', current.equipment.deskPhoneMac, parseMacAddress(entra.emsAttributes.DeskPhoneMAC));
     addChange(changes, 'deskPhoneBrand', 'Desk Phone Brand', current.equipment.deskPhoneBrand, parseMacBrand(entra.emsAttributes.DeskPhoneMAC));
@@ -672,6 +726,12 @@ export class EntraProfileSyncService {
         );
       }
 
+      // Assign desk phone extension if work phone contains one (e.g. "x226")
+      const extFromPhone = parsePhoneExtension(entra.user.businessPhones);
+      if (extFromPhone) {
+        await this.assignPhoneExtensionFromWorkPhone(manager, contact.contactAssignmentId, extFromPhone);
+      }
+
       // 2. Upsert EmployeeProfile
       if (current.hasEpTable) {
         await this.upsertEmployeeProfile(manager, contact.contactId, entra, current);
@@ -689,6 +749,15 @@ export class EntraProfileSyncService {
 
       // 5. Sync Equipment from Entra CSA into EMS equipment tables
       await this.upsertEquipmentFromEntra(manager, contact.contactAssignmentId, entra.emsAttributes, current.equipment);
+
+      // 6. Department
+      if (entra.user.department) {
+        const deptId = await this.findOrCreateDepartment(manager, entra.user.department);
+        await manager.query(
+          `UPDATE dbo.ContactAssignment SET DepartmentID = @0 WHERE ContactAssignmentID = @1`,
+          [deptId, contact.contactAssignmentId],
+        );
+      }
     });
   }
 
@@ -705,9 +774,9 @@ export class EntraProfileSyncService {
     const personalFields = new Set(['firstName', 'lastName', 'cellPhone', 'workPhone']);
     const profileFields = new Set([
       'supervisor', 'middleName', 'personalEmail', 'birthDate', 'ssn',
-      'startDate', 'office', 'workstation', 'workAuthorization', 'accessLevel',
+      'startDate', 'office', 'workstation', 'workAuthorization', 'workAuthorizationLink', 'accessLevel',
       'ptoAccrualRate', 'employmentAgreement', 'rampAccount', 'rampCreditCard',
-      'title', 'departmentRank',
+      'title', 'departmentRank', 'employmentType',
     ]);
     const addressFields = new Set(['streetAddress', 'city', 'state', 'postalCode', 'country']);
     const emergencyFields = new Set(['emergencyContactName', 'emergencyContactPhone', 'emergencyContactEmail']);
@@ -718,6 +787,7 @@ export class EntraProfileSyncService {
     const hasAddress = [...selectedFields].some((f) => addressFields.has(f));
     const hasEmergency = [...selectedFields].some((f) => emergencyFields.has(f));
     const hasEquipment = [...selectedFields].some((f) => equipmentFields.has(f));
+    const hasDepartment = selectedFields.has('department');
 
     await this.dataSource.transaction(async (manager) => {
       // ContactInfo fields (first name, last name, phones)
@@ -742,6 +812,14 @@ export class EntraProfileSyncService {
             `UPDATE dbo.ContactInfo SET ${ciSets.join(', ')} WHERE ContactInfoID = @${ciIdx}`,
             ciParams,
           );
+        }
+
+        // Assign desk phone extension if work phone contains one (e.g. "x226")
+        if (selectedFields.has('workPhone')) {
+          const extFromPhone = parsePhoneExtension(entra.user.businessPhones);
+          if (extFromPhone) {
+            await this.assignPhoneExtensionFromWorkPhone(manager, contact.contactAssignmentId, extFromPhone);
+          }
         }
       }
 
@@ -778,6 +856,12 @@ export class EntraProfileSyncService {
         addSet('office', 'Office', nullableText(entra.user.officeLocation ?? null));
         addSet('workstation', 'Workstation', nullableText(entra.emsAttributes.Workstation ?? null));
         addSet('workAuthorization', 'WorkAuthorization', nullableText(entra.emsAttributes.WorkAuthorization ?? null));
+        // Work Authorization Link → upsert into dbo.Link, store LinkID
+        if (selectedFields.has('workAuthorizationLink') && await this.hasColumnInTable(manager, 'EmployeeProfile', 'WorthAuthorizationLinkId')) {
+          const linkUrl = entra.emsAttributes.WorthAuthorizationLink?.trim() || null;
+          const newLinkId = await this.upsertWorkAuthLink(manager, linkUrl, readNumber(current.profileRow, 'WorthAuthorizationLinkId'));
+          if (newLinkId !== undefined) { sets.push(`WorthAuthorizationLinkId = @${idx}`); params.push(newLinkId); idx++; }
+        }
         addSet('accessLevel', 'AccessLevel', nullableText(entra.emsAttributes.EMSAccessLevel ?? null));
         addSet('ptoAccrualRate', 'PTOAccrualRate', nullableText(entra.emsAttributes.PTOAccrual ?? null));
         addSet('employmentAgreement', 'EmploymentAgreement', nullableText(boolToYesNo(entra.emsAttributes.EmploymentAgreement) || null));
@@ -787,6 +871,7 @@ export class EntraProfileSyncService {
         addSet('departmentRank', 'DepartmentRank', nullableText(
           entra.emsAttributes.DepartmentRank != null ? String(entra.emsAttributes.DepartmentRank) : null,
         ));
+        addSet('employmentType', 'EmploymentType', nullableText(entra.user.employeeType || null));
 
         if (sets.length > 0 && epExists) {
           sets.push(`modified_by = @${idx}`);
@@ -821,6 +906,12 @@ export class EntraProfileSyncService {
           addCol('office', 'Office', nullableText(entra.user.officeLocation ?? null));
           addCol('workstation', 'Workstation', nullableText(entra.emsAttributes.Workstation ?? null));
           addCol('workAuthorization', 'WorkAuthorization', nullableText(entra.emsAttributes.WorkAuthorization ?? null));
+          // Work Authorization Link → upsert into dbo.Link, store LinkID
+          if (selectedFields.has('workAuthorizationLink') && await this.hasColumnInTable(manager, 'EmployeeProfile', 'WorthAuthorizationLinkId')) {
+            const linkUrl = entra.emsAttributes.WorthAuthorizationLink?.trim() || null;
+            const newLinkId = await this.upsertWorkAuthLink(manager, linkUrl, null);
+            if (newLinkId != null) colMap['WorthAuthorizationLinkId'] = newLinkId;
+          }
           addCol('accessLevel', 'AccessLevel', nullableText(entra.emsAttributes.EMSAccessLevel ?? null));
           addCol('ptoAccrualRate', 'PTOAccrualRate', nullableText(entra.emsAttributes.PTOAccrual ?? null));
           addCol('employmentAgreement', 'EmploymentAgreement', nullableText(boolToYesNo(entra.emsAttributes.EmploymentAgreement) || null));
@@ -855,6 +946,15 @@ export class EntraProfileSyncService {
       if (hasEquipment) {
         await this.upsertEquipmentFromEntra(manager, contact.contactAssignmentId, entra.emsAttributes, current.equipment);
       }
+
+      // Department
+      if (hasDepartment && entra.user.department) {
+        const deptId = await this.findOrCreateDepartment(manager, entra.user.department);
+        await manager.query(
+          `UPDATE dbo.ContactAssignment SET DepartmentID = @0 WHERE ContactAssignmentID = @1`,
+          [deptId, contact.contactAssignmentId],
+        );
+      }
     });
   }
 
@@ -880,17 +980,20 @@ export class EntraProfileSyncService {
     const office = entra.user.officeLocation ?? null;
     const workstation = entra.emsAttributes.Workstation ?? null;
     const workAuth = entra.emsAttributes.WorkAuthorization ?? null;
+    const workAuthLink = entra.emsAttributes.WorthAuthorizationLink ?? null;
     const ptoAccrualRate = entra.emsAttributes.PTOAccrual ?? null;
     const employmentAgreement = boolToYesNo(entra.emsAttributes.EmploymentAgreement) || null;
     const rampAccount = boolToYesNo(entra.emsAttributes.RampAccount) || null;
     const rampCreditCard = entra.emsAttributes.RampCard ?? null;
     const accessLevel = entra.emsAttributes.EMSAccessLevel ?? null;
     const departmentRank = entra.emsAttributes.DepartmentRank != null ? String(entra.emsAttributes.DepartmentRank) : null;
+    const employmentType = entra.user.employeeType || null;
     const hasOfficeCol = await this.hasColumnInTable(manager, 'EmployeeProfile', 'Office');
     const hasMiddleNameCol = await this.hasColumnInTable(manager, 'EmployeeProfile', 'MiddleName');
     const hasAccessLevelCol = await this.hasColumnInTable(manager, 'EmployeeProfile', 'AccessLevel');
     const hasJobTitleCol = await this.hasColumnInTable(manager, 'EmployeeProfile', 'JobTitle');
     const hasDeptRankCol = await this.hasColumnInTable(manager, 'EmployeeProfile', 'DepartmentRank');
+    const hasWalCol = await this.hasColumnInTable(manager, 'EmployeeProfile', 'WorthAuthorizationLinkId');
     const jobTitle = entra.user.jobTitle ?? null;
 
     if (epExists) {
@@ -915,12 +1018,19 @@ export class EntraProfileSyncService {
       if (hasAccessLevelCol) addSet('AccessLevel', nullableText(accessLevel));
       addSet('Workstation', nullableText(workstation));
       addSet('WorkAuthorization', nullableText(workAuth));
+      // Work Authorization Link → upsert into dbo.Link
+      if (hasWalCol) {
+        const existingLinkId = readNumber(current.profileRow, 'WorthAuthorizationLinkId');
+        const newLinkId = await this.upsertWorkAuthLink(manager, workAuthLink, existingLinkId);
+        if (newLinkId !== undefined) { sets.push(`WorthAuthorizationLinkId = @${idx}`); params.push(newLinkId); idx++; }
+      }
       addSet('PTOAccrualRate', nullableText(ptoAccrualRate));
       addSet('EmploymentAgreement', nullableText(employmentAgreement));
       addSet('RampAccount', nullableText(rampAccount));
       addSet('RampCreditCard', nullableText(rampCreditCard));
       if (hasJobTitleCol) addSet('JobTitle', nullableText(jobTitle));
       if (hasDeptRankCol) addSet('DepartmentRank', nullableText(departmentRank));
+      addSet('EmploymentType', nullableText(employmentType));
 
       if (sets.length > 0) {
         sets.push(`modified_by = @${idx}`);
@@ -939,10 +1049,12 @@ export class EntraProfileSyncService {
         'StartDate', ...(hasOfficeCol ? ['Office'] : []), ...(hasMiddleNameCol ? ['MiddleName'] : []),
         ...(hasAccessLevelCol ? ['AccessLevel'] : []), ...(hasJobTitleCol ? ['JobTitle'] : []),
         ...(hasDeptRankCol ? ['DepartmentRank'] : []),
-        'Workstation', 'WorkAuthorization',
+        'Workstation', 'WorkAuthorization', ...(hasWalCol ? ['WorthAuthorizationLinkId'] : []),
         'PTOAccrualRate', 'EmploymentAgreement', 'RampAccount', 'RampCreditCard',
+        'EmploymentType',
         'created_by', 'created_at', 'modified_by', 'modified_at',
       ];
+      const insertLinkId = hasWalCol ? await this.upsertWorkAuthLink(manager, workAuthLink, null) : null;
       const insertParams = [
         contactId,
         nullableText(supervisor),
@@ -957,10 +1069,12 @@ export class EntraProfileSyncService {
         ...(hasDeptRankCol ? [nullableText(departmentRank)] : []),
         nullableText(workstation),
         nullableText(workAuth),
+        ...(hasWalCol ? [insertLinkId] : []),
         nullableText(ptoAccrualRate),
         nullableText(employmentAgreement),
         nullableText(rampAccount),
         nullableText(rampCreditCard),
+        nullableText(employmentType),
         'Entra profile sync',
       ];
       const auditIdx = insertParams.length - 1;
@@ -991,38 +1105,33 @@ export class EntraProfileSyncService {
 
     if (!street && !city && !state && !postalCode && !country) return;
 
-    const existingAddrId = readNumber(current.profileRow, 'HomeAddressID');
+    // Look for an existing address row that matches all fields
+    const matchRows = await manager.query(
+      `SELECT TOP 1 AddressID FROM dbo.Address
+       WHERE COALESCE(AddressLine1, '') = @0
+         AND COALESCE(City, '') = @1
+         AND COALESCE(StateProvince, '') = @2
+         AND COALESCE(PostalCode, '') = @3
+         AND COALESCE(Country, '') = @4`,
+      [street, city, state, postalCode, country],
+    );
+    let addressId = readNumber(matchRows?.[0], 'AddressID');
 
-    if (existingAddrId) {
-      const sets: string[] = [];
-      const params: unknown[] = [];
-      let idx = 0;
-      const add = (col: string, val: string) => {
-        if (val) { sets.push(`${col} = @${idx}`); params.push(val); idx++; }
-      };
-      add('AddressLine1', street);
-      add('City', city);
-      add('StateProvince', state);
-      add('PostalCode', postalCode);
-      add('Country', country);
-      if (sets.length > 0) {
-        params.push(existingAddrId);
-        await manager.query(
-          `UPDATE dbo.Address SET ${sets.join(', ')} WHERE AddressID = @${idx}`,
-          params,
-        );
-      }
-    } else {
+    if (!addressId) {
       const result = await manager.query(
         `INSERT INTO dbo.Address (AddressLine1, City, StateProvince, PostalCode, Country)
          OUTPUT INSERTED.AddressID VALUES (@0, @1, @2, @3, @4)`,
         [street, city, state, postalCode, country],
       );
-      const newAddrId = readNumber(result?.[0], 'AddressID');
-      if (newAddrId) {
+      addressId = readNumber(result?.[0], 'AddressID');
+    }
+
+    if (addressId) {
+      const existingAddrId = readNumber(current.profileRow, 'HomeAddressID');
+      if (existingAddrId !== addressId) {
         await manager.query(
           `UPDATE dbo.EmployeeProfile SET HomeAddressID = @0 WHERE ContactID = @1`,
-          [newAddrId, contactId],
+          [addressId, contactId],
         );
       }
     }
@@ -1170,10 +1279,14 @@ export class EntraProfileSyncService {
             [nullableText(pcWindowsName), computerId],
           );
         } else {
-          // Deactivate any existing assignment, then insert new
+          // Deactivate any existing assignment for this employee and for this computer
           await manager.query(
             `UPDATE dbo.EmployeeComputer SET IsCurrent = 0, UnassignedDate = CAST(SYSUTCDATETIME() AS date) WHERE ContactAssignmentID = @0 AND IsCurrent = 1`,
             [contactAssignmentId],
+          );
+          await manager.query(
+            `UPDATE dbo.EmployeeComputer SET IsCurrent = 0, UnassignedDate = CAST(SYSUTCDATETIME() AS date) WHERE ComputerID = @0 AND IsCurrent = 1`,
+            [computerId],
           );
           await manager.query(
             `INSERT INTO dbo.EmployeeComputer (ContactAssignmentID, ComputerID, AssignedDate, IsCurrent, AssignedBy) VALUES (@0, @1, CAST(SYSUTCDATETIME() AS date), 1, @2)`,
@@ -1189,21 +1302,14 @@ export class EntraProfileSyncService {
     mac: string,
     brand: string,
   ): Promise<number> {
-    // Try to find existing by MAC address
+    // Match by both MACAddress and Make (brand)
     const existing = await manager.query(
-      `SELECT TOP 1 PhoneID FROM dbo.EquipmentPhone WHERE MACAddress = @0`,
-      [mac],
+      `SELECT TOP 1 PhoneID FROM dbo.EquipmentPhone WHERE MACAddress = @0 AND COALESCE(Make, '') = @1`,
+      [mac, brand || ''],
     );
     if (existing.length > 0) {
       const phoneId = readNumber(existing[0], 'PhoneID');
-      if (phoneId) {
-        // Update brand if changed
-        await manager.query(
-          `UPDATE dbo.EquipmentPhone SET Make = @0 WHERE PhoneID = @1 AND (Make IS NULL OR Make <> @0)`,
-          [brand || null, phoneId],
-        );
-        return phoneId;
-      }
+      if (phoneId) return phoneId;
     }
     // Insert new
     const rows = await manager.query(
@@ -1218,21 +1324,14 @@ export class EntraProfileSyncService {
     serviceTag: string,
     pcName: string,
   ): Promise<number> {
-    // Try to find existing by AssetID (service tag)
+    // Match by both AssetID and PCName
     const existing = await manager.query(
-      `SELECT TOP 1 ComputerID FROM dbo.EquipmentComputer WHERE AssetID = @0`,
-      [serviceTag],
+      `SELECT TOP 1 ComputerID FROM dbo.EquipmentComputer WHERE AssetID = @0 AND COALESCE(PCName, '') = @1`,
+      [serviceTag, pcName || ''],
     );
     if (existing.length > 0) {
       const computerId = readNumber(existing[0], 'ComputerID');
-      if (computerId) {
-        // Update PCName if changed
-        await manager.query(
-          `UPDATE dbo.EquipmentComputer SET PCName = @0 WHERE ComputerID = @1 AND (PCName IS NULL OR PCName <> @0)`,
-          [pcName || null, computerId],
-        );
-        return computerId;
-      }
+      if (computerId) return computerId;
     }
     // Insert new
     const rows = await manager.query(
@@ -1240,6 +1339,66 @@ export class EntraProfileSyncService {
       [serviceTag, pcName || null],
     );
     return readNumber(rows[0], 'ComputerID')!;
+  }
+
+  /** Find or create a phone extension by number, then assign it to the employee. */
+  private async assignPhoneExtensionFromWorkPhone(
+    manager: EntityManager,
+    contactAssignmentId: number,
+    extensionNumber: string,
+  ): Promise<void> {
+    if (!extensionNumber || !contactAssignmentId) return;
+    if (!(await this.hasColumnExists(manager, 'PhoneExtension'))) return;
+    if (!(await this.hasColumnExists(manager, 'EmployeePhoneExtension'))) return;
+
+    // Find existing extension by number
+    const extRows = await manager.query(
+      `SELECT TOP 1 ExtensionID FROM dbo.PhoneExtension WHERE ExtensionNumber = @0 AND IsActive = 1`,
+      [extensionNumber],
+    );
+    let extensionId = readNumber(extRows?.[0], 'ExtensionID');
+
+    if (!extensionId) {
+      const insertRows = await manager.query(
+        `INSERT INTO dbo.PhoneExtension (ExtensionNumber, IsActive) OUTPUT INSERTED.ExtensionID VALUES (@0, 1)`,
+        [extensionNumber],
+      );
+      extensionId = readNumber(insertRows?.[0], 'ExtensionID');
+    }
+    if (!extensionId) return;
+
+    // Check if already assigned to this employee
+    const current = await manager.query(
+      `SELECT TOP 1 ExtensionID FROM dbo.EmployeePhoneExtension WHERE ContactAssignmentID = @0 AND IsCurrent = 1`,
+      [contactAssignmentId],
+    );
+    const currentExtId = readNumber(current?.[0], 'ExtensionID');
+    if (currentExtId === extensionId) return;
+
+    // Deactivate old assignment for this employee
+    await manager.query(
+      `UPDATE dbo.EmployeePhoneExtension SET IsCurrent = 0, UnassignedDate = CAST(SYSUTCDATETIME() AS date) WHERE ContactAssignmentID = @0 AND IsCurrent = 1`,
+      [contactAssignmentId],
+    );
+    // Deactivate any other active assignment on this extension
+    await manager.query(
+      `UPDATE dbo.EmployeePhoneExtension SET IsCurrent = 0, UnassignedDate = CAST(SYSUTCDATETIME() AS date) WHERE ExtensionID = @0 AND IsCurrent = 1`,
+      [extensionId],
+    );
+    // Assign
+    await manager.query(
+      `INSERT INTO dbo.EmployeePhoneExtension (ContactAssignmentID, ExtensionID, AssignedDate, IsCurrent, AssignedBy) VALUES (@0, @1, CAST(SYSUTCDATETIME() AS date), 1, @2)`,
+      [contactAssignmentId, extensionId, 'Entra sync'],
+    );
+    // Update ContactInfo.WorkPhoneExtension
+    await manager.query(
+      `UPDATE ci SET ci.WorkPhoneExtension = @0
+       FROM dbo.ContactInfo ci
+       INNER JOIN dbo.Contact c ON c.ContactInfoID = ci.ContactInfoID
+       INNER JOIN dbo.ContactAssignment ca ON ca.ContactID = c.ContactID
+       WHERE ca.ContactAssignmentID = @1`,
+      [extensionNumber, contactAssignmentId],
+    );
   }
 
   private async hasColumnExists(
@@ -1370,14 +1529,11 @@ export class EntraProfileSyncService {
     userEmail: string,
     graphAccessToken?: string,
   ): Promise<{ changes: EntraProfileSyncFieldChange[] }> {
-    console.log(`[EntraSync:preview] Called for email: "${userEmail}"`);
     const token = await this.getGraphToken(graphAccessToken);
     const internalContacts = await this.loadInternalContacts();
-    console.log(`[EntraSync:preview] Found ${internalContacts.length} internal contacts`);
     const normalized = userEmail.trim().toLowerCase();
     const contact = internalContacts.find((c) => c.email.toLowerCase() === normalized);
     if (!contact) {
-      console.log(`[EntraSync:preview] No contact found for "${normalized}". Available emails:`, internalContacts.slice(0, 5).map(c => c.email));
       return { changes: [] };
     }
 
@@ -1522,7 +1678,7 @@ export class EntraProfileSyncService {
   }
 
   /**
-   * Compute changes from EMS → Entra direction (what EMS would push to Entra).
+   * Compute changes from EMS → Entra direction (WMS-editable fields only).
    */
   private computeEmsToEntraChanges(
     entra: EntraFullProfile,
@@ -1532,80 +1688,55 @@ export class EntraProfileSyncService {
     const changes: EntraProfileSyncFieldChange[] = [];
 
     // Native Graph properties
-    addChange(changes, 'givenName', 'First Name', entra.user.givenName, contact.firstName);
-    addChange(changes, 'surname', 'Last Name', entra.user.surname, contact.lastName);
-    addChange(changes, 'mail', 'Email', entra.user.mail || entra.user.userPrincipalName, contact.email, true);
-    addChange(changes, 'mobilePhone', 'Cell Phone', entra.user.mobilePhone, contact.cellPhone);
+    addChange(changes, 'mobilePhone', 'Mobile Phone', entra.user.mobilePhone, contact.cellPhone);
     addChange(changes, 'businessPhones', 'Work Phone', firstBusinessPhone(entra.user.businessPhones), contact.workPhone);
-    // Job Title (from ContactInfo.JobTitle or EmployeeProfile)
-    const emsJobTitle = readString(current.profileRow, 'JobTitle') || '';
-    addChange(changes, 'jobTitle', 'Title', entra.user.jobTitle, emsJobTitle);
-    // Start date
-    const emsStartDate = readDateString(current.profileRow, 'StartDate') ?? '';
-    addChange(changes, 'employeeHireDate', 'Start Date at IAE', normalizeDate(entra.user.employeeHireDate), emsStartDate);
-    // Office location
-    const emsOffice = readString(current.profileRow, 'Office');
-    addChange(changes, 'officeLocation', 'Office', entra.user.officeLocation, emsOffice);
 
-    // Custom Security Attributes (EMS → Entra)
-    const emsSupervisor = readString(current.profileRow, 'Supervisor');
-    addChange(changes, 'Supervisor', 'Supervisor', entra.emsAttributes.Supervisor ?? entra.manager?.displayName ?? '', emsSupervisor);
-    const emsMiddleName = readString(current.profileRow, 'MiddleName');
-    addChange(changes, 'MiddleName', 'Middle Name', entra.emsAttributes.MiddleName ?? '', emsMiddleName);
-    const emsPersonalEmail = readString(current.profileRow, 'PersonalEmail');
-    addChange(changes, 'PersonalEmail', 'Personal Email', entra.emsAttributes.PersonalEmail ?? '', emsPersonalEmail);
-    const emsBirthDate = readDateString(current.profileRow, 'DateOfBirth') ?? '';
-    addChange(changes, 'Birthday', 'Birth Date', normalizeDate(entra.emsAttributes.Birthday), emsBirthDate);
-    const emsSsn = readString(current.profileRow, 'SSNLast4');
-    addChange(changes, 'SocialSecurityNumber', 'Social Security Number', ssnLast4(entra.emsAttributes.SocialSecurityNumber), emsSsn);
-    // Emergency Contact — table uses FullName, split into first/last for Entra CSA
+    // Home Address
+    const emsStreetLine1 = readString(current.homeAddress, 'AddressLine1');
+    const emsStreetLine2 = readString(current.homeAddress, 'AddressLine2');
+    const emsStreet = [emsStreetLine1, emsStreetLine2].filter(Boolean).join(', ');
+    addChange(changes, 'streetAddress', 'Home Address (Street)', entra.user.streetAddress, emsStreet);
+    addChange(changes, 'city', 'Home Address (City)', entra.user.city, readString(current.homeAddress, 'City'));
+    addChange(changes, 'state', 'Home Address (State)', entra.user.state, readString(current.homeAddress, 'StateProvince'));
+    addChange(changes, 'postalCode', 'Home Address (Postal Code)', entra.user.postalCode, readString(current.homeAddress, 'PostalCode'));
+    addChange(changes, 'country', 'Home Address (Country)', entra.user.country, readString(current.homeAddress, 'Country'));
+
+    // Emergency Contact
     const emsEcFullName = readString(current.emergencyContact, 'FullName');
     const emsEcNameParts = emsEcFullName.split(/\s+/);
     const emsEcFirstName = emsEcNameParts[0] || '';
     const emsEcLastName = emsEcNameParts.slice(1).join(' ') || '';
-    const emsEcPhone = readString(current.emergencyContact, 'PhoneNumber');
-    const emsEcEmail = readString(current.emergencyContact, 'Email');
     addChange(changes, 'EmergencyContactFirstName', 'Emergency Contact First Name', entra.emsAttributes.EmergencyContactFirstName ?? '', emsEcFirstName);
     addChange(changes, 'EmergencyContactLastName', 'Emergency Contact Last Name', entra.emsAttributes.EmergencyContactLastName ?? '', emsEcLastName);
-    addChange(changes, 'EmergencyContactCell', 'Emergency Contact Phone', entra.emsAttributes.EmergencyContactCell ?? '', emsEcPhone);
-    addChange(changes, 'EmergencyContactEmail', 'Emergency Contact Email', entra.emsAttributes.EmergencyContactEmail ?? '', emsEcEmail);
-    // Employment fields
-    const emsWorkAuth = readString(current.profileRow, 'WorkAuthorization');
-    addChange(changes, 'WorkAuthorization', 'Work Authorization', entra.emsAttributes.WorkAuthorization ?? '', emsWorkAuth);
-    const emsWorkstation = readString(current.profileRow, 'Workstation');
-    addChange(changes, 'Workstation', 'Workstation', entra.emsAttributes.Workstation ?? '', emsWorkstation);
-    const emsPto = readString(current.profileRow, 'PTOAccrualRate');
-    addChange(changes, 'PTOAccrual', 'PTO Accrual Rate', entra.emsAttributes.PTOAccrual ?? '', emsPto);
-    const emsEmpAgreement = readString(current.profileRow, 'EmploymentAgreement');
-    addChange(changes, 'EmploymentAgreement', 'Employment Agreement', boolToYesNo(entra.emsAttributes.EmploymentAgreement), emsEmpAgreement);
-    const emsRampAccount = readString(current.profileRow, 'RampAccount');
-    addChange(changes, 'RampAccount', 'Ramp Account', boolToYesNo(entra.emsAttributes.RampAccount), emsRampAccount);
-    const emsRampCard = readString(current.profileRow, 'RampCreditCard');
-    addChange(changes, 'RampCard', 'Ramp Credit Card', entra.emsAttributes.RampCard ?? '', emsRampCard);
-    // Equipment — Desk Phone (combined format: "MAC - Brand")
-    addChange(changes, 'DeskPhoneMAC', 'Desk Phone MAC Address', parseMacAddress(entra.emsAttributes.DeskPhoneMAC), current.equipment.deskPhoneMac);
-    // Equipment — PC (combined format: "ServiceTag - PCName")
-    addChange(changes, 'PCServiceTag', 'PC Service Tag', parseServiceTag(entra.emsAttributes.PCServiceTag), current.equipment.pcServiceTag);
-    // Access Level
-    const emsAccessLevel = readString(current.profileRow, 'AccessLevel');
-    addChange(changes, 'EMSAccessLevel', 'Access Level', entra.emsAttributes.EMSAccessLevel ?? '', emsAccessLevel);
-    // Home Address (native Graph properties)
-    const emsStreet = readString(current.homeAddress, 'AddressLine1');
-    const emsCity = readString(current.homeAddress, 'City');
-    const emsState = readString(current.homeAddress, 'StateProvince');
-    const emsPostalCode = readString(current.homeAddress, 'PostalCode');
-    const emsCountry = readString(current.homeAddress, 'Country');
-    addChange(changes, 'streetAddress', 'Street Address', entra.user.streetAddress, emsStreet);
-    addChange(changes, 'city', 'City', entra.user.city, emsCity);
-    addChange(changes, 'state', 'State / Province', entra.user.state, emsState);
-    addChange(changes, 'postalCode', 'Postal Code', entra.user.postalCode, emsPostalCode);
-    addChange(changes, 'country', 'Country', entra.user.country, emsCountry);
+    addChange(changes, 'EmergencyContactEmail', 'Emergency Contact Email', entra.emsAttributes.EmergencyContactEmail ?? '', readString(current.emergencyContact, 'Email'));
+    addChange(changes, 'EmergencyContactCell', 'Emergency Contact Cell Phone', entra.emsAttributes.EmergencyContactCell ?? '', readString(current.emergencyContact, 'PhoneNumber'));
+
+    // Work Authorization Photos
+    addChange(changes, 'WorthAuthorizationLink', 'Work Authorization Photos', entra.emsAttributes.WorthAuthorizationLink ?? '', current.workAuthLinkUrl);
+
+    // Workstation
+    addChange(changes, 'Workstation', 'Work Station', entra.emsAttributes.Workstation ?? '', readString(current.profileRow, 'Workstation'));
+
+    // Equipment — Desk Phone
+    addChange(changes, 'DeskPhoneNumber', 'Desk Phone Number', entra.emsAttributes.DeskPhoneNumber ?? '', current.equipment.deskPhoneNumber);
+    addChange(changes, 'DeskPhoneExtension', 'Desk Phone Extension', entra.emsAttributes.DeskPhoneExtension ?? '', current.equipment.deskPhoneExtension);
+    addChange(changes, 'DeskPhoneMAC', 'Desk Phone MAC Address', entra.emsAttributes.DeskPhoneMAC ?? '', current.equipment.deskPhoneMac);
+    addChange(changes, 'DeskPhoneBrand', 'Desk Phone Brand', entra.emsAttributes.DeskPhoneBrand ?? '', current.equipment.deskPhoneBrand);
+    addChange(changes, 'DeskPhoneModel', 'Desk Phone Model', entra.emsAttributes.DeskPhoneModel ?? '', current.equipment.deskPhoneModel);
+
+    // Equipment — PC
+    addChange(changes, 'PCServiceTag', 'PC Service Tag', entra.emsAttributes.PCServiceTag ?? '', current.equipment.pcServiceTag);
+    addChange(changes, 'PCBrand', 'PC Brand', entra.emsAttributes.PCBrand ?? '', current.equipment.pcBrand);
+    addChange(changes, 'PCModel', 'PC Model', entra.emsAttributes.PCModel ?? '', current.equipment.pcModel);
+    addChange(changes, 'BluetoothStatus', 'Bluetooth Status', entra.emsAttributes.BluetoothStatus ?? '', current.equipment.bluetoothStatus);
+    addChange(changes, 'PCWindowsName', 'PC Windows Name', entra.emsAttributes.PCWindowsName ?? '', current.equipment.pcWindowsName);
 
     return changes;
   }
 
   /**
    * Push EMS profile data to Entra (native Graph properties + Custom Security Attributes).
+   * Only pushes WMS-editable fields.
    */
   private async pushEmsToEntra(
     accessToken: string,
@@ -1615,117 +1746,71 @@ export class EntraProfileSyncService {
   ): Promise<void> {
     const encodedEmail = encodeURIComponent(contact.email);
 
-    // 1. Build native Graph user properties payload
+    // 1. Build native Graph user properties payload (WMS-editable fields only)
     const nativePayload: Record<string, unknown> = {};
-    if (contact.firstName && contact.firstName !== entra.user.givenName) {
-      nativePayload.givenName = trimTo(contact.firstName, 64);
-    }
-    if (contact.lastName && contact.lastName !== entra.user.surname) {
-      nativePayload.surname = trimTo(contact.lastName, 64);
-    }
-    if (contact.firstName || contact.lastName) {
-      const displayName = `${contact.firstName} ${contact.lastName}`.trim();
-      if (displayName && displayName !== entra.user.displayName) {
-        nativePayload.displayName = displayName;
-      }
-    }
-    if (contact.cellPhone !== entra.user.mobilePhone) {
+
+    // Mobile Phone
+    if ((contact.cellPhone || '') !== (entra.user.mobilePhone ?? '')) {
       nativePayload.mobilePhone = nullableText(trimTo(contact.cellPhone, 30));
     }
+    // Work Phone
     if (contact.workPhone !== firstBusinessPhone(entra.user.businessPhones)) {
       nativePayload.businessPhones = contact.workPhone
         ? [trimTo(contact.workPhone, 30)]
         : [];
     }
-    const emsOffice = readString(current.profileRow, 'Office');
-    if (emsOffice && emsOffice !== entra.user.officeLocation) {
-      nativePayload.officeLocation = emsOffice;
-    }
-    const emsStartDate = readDateString(current.profileRow, 'StartDate');
-    if (emsStartDate && emsStartDate !== normalizeDate(entra.user.employeeHireDate)) {
-      nativePayload.employeeHireDate = `${emsStartDate}T00:00:00Z`;
-    }
-    // Home Address
-    const emsStreet2 = readString(current.homeAddress, 'AddressLine1');
-    if (emsStreet2 && emsStreet2 !== entra.user.streetAddress) nativePayload.streetAddress = emsStreet2;
-    const emsCity2 = readString(current.homeAddress, 'City');
-    if (emsCity2 && emsCity2 !== entra.user.city) nativePayload.city = emsCity2;
-    const emsState2 = readString(current.homeAddress, 'StateProvince');
-    if (emsState2 && emsState2 !== entra.user.state) nativePayload.state = emsState2;
-    const emsPostalCode2 = readString(current.homeAddress, 'PostalCode');
-    if (emsPostalCode2 && emsPostalCode2 !== entra.user.postalCode) nativePayload.postalCode = emsPostalCode2;
-    const emsCountry2 = readString(current.homeAddress, 'Country');
-    if (emsCountry2 && emsCountry2 !== entra.user.country) nativePayload.country = emsCountry2;
+    // Home Address (combine AddressLine1 + AddressLine2 for streetAddress)
+    const emsLine1 = readString(current.homeAddress, 'AddressLine1');
+    const emsLine2 = readString(current.homeAddress, 'AddressLine2');
+    const emsStreet = [emsLine1, emsLine2].filter(Boolean).join(', ');
+    if (emsStreet !== (entra.user.streetAddress ?? '')) nativePayload.streetAddress = emsStreet || null;
+    const emsCity = readString(current.homeAddress, 'City');
+    if (emsCity !== (entra.user.city ?? '')) nativePayload.city = emsCity || null;
+    const emsState = readString(current.homeAddress, 'StateProvince');
+    if (emsState !== (entra.user.state ?? '')) nativePayload.state = emsState || null;
+    const emsPostalCode = readString(current.homeAddress, 'PostalCode');
+    if (emsPostalCode !== (entra.user.postalCode ?? '')) nativePayload.postalCode = emsPostalCode || null;
+    const emsCountry = readString(current.homeAddress, 'Country');
+    if (emsCountry !== (entra.user.country ?? '')) nativePayload.country = emsCountry || null;
 
-    // 2. Build Custom Security Attributes payload
+    // 2. Build Custom Security Attributes payload (WMS-editable fields only)
     const csaPayload: Record<string, string | boolean | null> = {};
 
-    const emsPersonalEmail = readString(current.profileRow, 'PersonalEmail');
-    if (emsPersonalEmail && emsPersonalEmail !== (entra.emsAttributes.PersonalEmail ?? '')) {
-      csaPayload.PersonalEmail = emsPersonalEmail;
-    }
-    const emsMiddleName = readString(current.profileRow, 'MiddleName');
-    if (emsMiddleName && emsMiddleName !== (entra.emsAttributes.MiddleName ?? '')) {
-      csaPayload.MiddleName = emsMiddleName;
-    }
-    const emsBirthDate = readDateString(current.profileRow, 'DateOfBirth') ?? '';
-    if (emsBirthDate && emsBirthDate !== normalizeDate(entra.emsAttributes.Birthday)) {
-      csaPayload.Birthday = emsBirthDate;
-    }
-    const emsSsn = readString(current.profileRow, 'SSNLast4');
-    if (emsSsn && emsSsn !== ssnLast4(entra.emsAttributes.SocialSecurityNumber)) {
-      csaPayload.SocialSecurityNumber = emsSsn;
-    }
-    // Emergency contacts — table uses FullName, split for Entra CSA
-    const emsEcFullName2 = readString(current.emergencyContact, 'FullName');
-    const emsEcParts2 = emsEcFullName2.split(/\s+/);
-    const emsEcFirst2 = emsEcParts2[0] || '';
-    const emsEcLast2 = emsEcParts2.slice(1).join(' ') || '';
-    if (emsEcFirst2 !== (entra.emsAttributes.EmergencyContactFirstName ?? '')) csaPayload.EmergencyContactFirstName = emsEcFirst2 || null;
-    if (emsEcLast2 !== (entra.emsAttributes.EmergencyContactLastName ?? '')) csaPayload.EmergencyContactLastName = emsEcLast2 || null;
-    const emsEcPhone = readString(current.emergencyContact, 'PhoneNumber');
-    if (emsEcPhone !== (entra.emsAttributes.EmergencyContactCell ?? '')) csaPayload.EmergencyContactCell = emsEcPhone || null;
+    // Emergency contacts
+    const emsEcFullName = readString(current.emergencyContact, 'FullName');
+    const emsEcParts = emsEcFullName.split(/\s+/);
+    const emsEcFirst = emsEcParts[0] || '';
+    const emsEcLast = emsEcParts.slice(1).join(' ') || '';
+    if (emsEcFirst !== (entra.emsAttributes.EmergencyContactFirstName ?? '')) csaPayload.EmergencyContactFirstName = emsEcFirst || null;
+    if (emsEcLast !== (entra.emsAttributes.EmergencyContactLastName ?? '')) csaPayload.EmergencyContactLastName = emsEcLast || null;
     const emsEcEmail = readString(current.emergencyContact, 'Email');
     if (emsEcEmail !== (entra.emsAttributes.EmergencyContactEmail ?? '')) csaPayload.EmergencyContactEmail = emsEcEmail || null;
-    // Employment fields
-    const emsWorkAuth = readString(current.profileRow, 'WorkAuthorization');
-    if (emsWorkAuth && emsWorkAuth !== (entra.emsAttributes.WorkAuthorization ?? '')) csaPayload.WorkAuthorization = emsWorkAuth;
+    const emsEcPhone = readString(current.emergencyContact, 'PhoneNumber');
+    if (emsEcPhone !== (entra.emsAttributes.EmergencyContactCell ?? '')) csaPayload.EmergencyContactCell = emsEcPhone || null;
+
+    // Work Authorization Photos (link)
+    if (current.workAuthLinkUrl !== (entra.emsAttributes.WorthAuthorizationLink ?? '')) {
+      csaPayload.WorthAuthorizationLink = current.workAuthLinkUrl || null;
+    }
+    // Workstation
     const emsWorkstation = readString(current.profileRow, 'Workstation');
-    if (emsWorkstation && emsWorkstation !== (entra.emsAttributes.Workstation ?? '')) csaPayload.Workstation = emsWorkstation;
-    const emsPto = readString(current.profileRow, 'PTOAccrualRate');
-    if (emsPto && emsPto !== (entra.emsAttributes.PTOAccrual ?? '')) csaPayload.PTOAccrual = emsPto;
-    const emsEmpAgreement = readString(current.profileRow, 'EmploymentAgreement');
-    if (emsEmpAgreement) {
-      const entraEmpAgreementVal = boolToYesNo(entra.emsAttributes.EmploymentAgreement);
-      if (emsEmpAgreement !== entraEmpAgreementVal) csaPayload.EmploymentAgreement = emsEmpAgreement === 'Yes';
-    }
-    const emsRampAccount = readString(current.profileRow, 'RampAccount');
-    if (emsRampAccount) {
-      const entraRampAccountVal = boolToYesNo(entra.emsAttributes.RampAccount);
-      if (emsRampAccount !== entraRampAccountVal) csaPayload.RampAccount = emsRampAccount === 'Yes';
-    }
-    const emsRampCard = readString(current.profileRow, 'RampCreditCard');
-    if (emsRampCard && emsRampCard !== (entra.emsAttributes.RampCard ?? '')) csaPayload.RampCard = emsRampCard;
-    // Equipment — Desk Phone (combine MAC + Brand into "MAC - Brand")
-    const phoneMac = current.equipment.deskPhoneMac;
-    const phoneBrand = current.equipment.deskPhoneBrand;
-    if (phoneMac || phoneBrand) {
-      const combinedPhone = phoneBrand ? `${phoneMac} - ${phoneBrand}` : phoneMac;
-      if (combinedPhone !== (entra.emsAttributes.DeskPhoneMAC ?? '')) csaPayload.DeskPhoneMAC = combinedPhone;
-    }
-    // Equipment — PC (combine ServiceTag + PCName into "Tag - Name")
-    const pcTag = current.equipment.pcServiceTag;
-    const pcName = current.equipment.pcWindowsName;
-    if (pcTag || pcName) {
-      const combinedPc = pcName ? `${pcTag} - ${pcName}` : pcTag;
-      if (combinedPc !== (entra.emsAttributes.PCServiceTag ?? '')) csaPayload.PCServiceTag = combinedPc;
-    }
-    // Access Level
-    const emsAccessLevel = readString(current.profileRow, 'AccessLevel');
-    if (emsAccessLevel && emsAccessLevel !== (entra.emsAttributes.EMSAccessLevel ?? '')) csaPayload.EMSAccessLevel = emsAccessLevel;
-    // Supervisor
-    const emsSupervisorCsa = readString(current.profileRow, 'Supervisor');
-    if (emsSupervisorCsa && emsSupervisorCsa !== (entra.emsAttributes.Supervisor ?? '')) csaPayload.Supervisor = emsSupervisorCsa;
+    if (emsWorkstation !== (entra.emsAttributes.Workstation ?? '')) csaPayload.Workstation = emsWorkstation || null;
+
+    // Equipment — Desk Phone
+    const { deskPhoneNumber, deskPhoneExtension, deskPhoneMac, deskPhoneBrand, deskPhoneModel } = current.equipment;
+    if (deskPhoneNumber !== (entra.emsAttributes.DeskPhoneNumber ?? '')) csaPayload.DeskPhoneNumber = deskPhoneNumber || null;
+    if (deskPhoneExtension !== (entra.emsAttributes.DeskPhoneExtension ?? '')) csaPayload.DeskPhoneExtension = deskPhoneExtension || null;
+    if (deskPhoneMac !== (entra.emsAttributes.DeskPhoneMAC ?? '')) csaPayload.DeskPhoneMAC = deskPhoneMac || null;
+    if (deskPhoneBrand !== (entra.emsAttributes.DeskPhoneBrand ?? '')) csaPayload.DeskPhoneBrand = deskPhoneBrand || null;
+    if (deskPhoneModel !== (entra.emsAttributes.DeskPhoneModel ?? '')) csaPayload.DeskPhoneModel = deskPhoneModel || null;
+
+    // Equipment — PC
+    const { pcServiceTag, pcBrand, pcModel, bluetoothStatus, pcWindowsName } = current.equipment;
+    if (pcServiceTag !== (entra.emsAttributes.PCServiceTag ?? '')) csaPayload.PCServiceTag = pcServiceTag || null;
+    if (pcBrand !== (entra.emsAttributes.PCBrand ?? '')) csaPayload.PCBrand = pcBrand || null;
+    if (pcModel !== (entra.emsAttributes.PCModel ?? '')) csaPayload.PCModel = pcModel || null;
+    if (bluetoothStatus !== (entra.emsAttributes.BluetoothStatus ?? '')) csaPayload.BluetoothStatus = bluetoothStatus || null;
+    if (pcWindowsName !== (entra.emsAttributes.PCWindowsName ?? '')) csaPayload.PCWindowsName = pcWindowsName || null;
 
     // 3. Merge CSA into native payload if there are any CSA changes
     if (Object.keys(csaPayload).length > 0) {
@@ -1744,13 +1829,6 @@ export class EntraProfileSyncService {
         `${GRAPH_BASE_URL}/users/${encodedEmail}`,
         nativePayload,
       );
-    }
-
-    // 5. Set manager if supervisor changed (requires separate API call)
-    const emsSupervisor = readString(current.profileRow, 'Supervisor');
-    const currentManager = entra.manager?.displayName ?? '';
-    if (emsSupervisor && emsSupervisor !== currentManager) {
-      await this.setEntraManager(accessToken, contact.email, emsSupervisor);
     }
   }
 
@@ -1934,6 +2012,55 @@ export class EntraProfileSyncService {
     );
     return rows.length > 0;
   }
+
+  /** Upsert a URL into dbo.Link, returning the LinkID. Returns null to clear, undefined to skip. */
+  private async upsertWorkAuthLink(
+    executor: Pick<DataSource | EntityManager, 'query'>,
+    url: string | null,
+    existingLinkId: number | null | undefined,
+  ): Promise<number | null | undefined> {
+    if (!url) return existingLinkId ? null : undefined; // clear if had value, skip if already empty
+    const trimmed = url.trim();
+    if (!trimmed) return existingLinkId ? null : undefined;
+
+    if (existingLinkId) {
+      await executor.query(
+        `UPDATE dbo.Link SET LinkURL = @0, LinkPath = @1 WHERE LinkID = @2`,
+        [trimmed, trimmed.slice(0, 1024), existingLinkId],
+      );
+      return existingLinkId;
+    }
+    // Check if link with same URL exists
+    const existing = await executor.query(`SELECT TOP 1 LinkID FROM dbo.Link WHERE LinkURL = @0`, [trimmed]);
+    if ((existing as Record<string, unknown>[])?.length > 0) {
+      return (existing[0] as Record<string, unknown>).LinkID as number;
+    }
+    // Create new link
+    const result = await executor.query(
+      `INSERT INTO dbo.Link (LinkType, LinkURL, LinkName, LinkPath) OUTPUT INSERTED.LinkID VALUES (N'URL', @0, N'Work Authorization Photos', @1)`,
+      [trimmed, trimmed.slice(0, 1024)],
+    );
+    return (result as Record<string, unknown>[])?.[0]?.LinkID as number;
+  }
+
+  private async findOrCreateDepartment(
+    executor: Pick<DataSource | EntityManager, 'query'>,
+    name: string,
+  ): Promise<number> {
+    const trimmed = name.trim();
+    const rows = await executor.query(
+      `SELECT TOP 1 DepartmentID AS departmentId FROM dbo.Department WHERE LOWER(LTRIM(RTRIM(DepartmentName))) = LOWER(@0)`,
+      [trimmed],
+    );
+    if ((rows as Record<string, unknown>[])?.length > 0) {
+      return (rows[0] as Record<string, unknown>).departmentId as number;
+    }
+    const insertResult = await executor.query(
+      `INSERT INTO dbo.Department (DepartmentName) OUTPUT INSERTED.DepartmentID AS departmentId VALUES (@0)`,
+      [trimmed],
+    );
+    return (insertResult[0] as Record<string, unknown>).departmentId as number;
+  }
 }
 
 // ─── Internal Types ───────────────────────────────────────────────────────────
@@ -1947,6 +2074,7 @@ type InternalContact = {
   email: string;
   cellPhone: string;
   workPhone: string;
+  department: string;
 };
 
 type CurrentProfileData = {
@@ -1956,9 +2084,12 @@ type CurrentProfileData = {
   homeAddress: Record<string, unknown> | undefined;
   emergencyContact: Record<string, unknown> | undefined;
   equipment: EquipmentData;
+  workAuthLinkUrl: string;
 };
 
 type EquipmentData = {
+  deskPhoneNumber: string;
+  deskPhoneExtension: string;
   deskPhoneMac: string;
   deskPhoneBrand: string;
   deskPhoneModel: string;
@@ -1993,6 +2124,12 @@ function trimTo(value: string | null | undefined, maxLen: number): string {
 
 function firstBusinessPhone(phones: string[]): string {
   return (phones[0] ?? '').trim();
+}
+
+function parsePhoneExtension(phones: string[]): string {
+  const raw = (phones[0] ?? '').trim();
+  const match = raw.match(/(?:x|ext\.?|extension)\s*(\d+)\s*$/i);
+  return match ? match[1] : '';
 }
 
 function ssnLast4(value: string | null | undefined): string {

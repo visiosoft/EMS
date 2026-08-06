@@ -27,7 +27,7 @@ export function EntraSyncButton({ targetEmail, tabFields, invalidateKeys }: Entr
         ? previewUserSyncFromEntra(targetEmail)
         : previewMyProfileSyncFromEntra(),
     enabled: fetchEnabled,
-    staleTime: 30_000,
+    staleTime: 0,
   });
 
   function handleClick() {

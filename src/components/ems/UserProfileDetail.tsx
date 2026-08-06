@@ -6,6 +6,7 @@ import {
   fetchEmployeeEmploymentProfile,
   fetchUserLicenses,
   fetchUserGroups,
+  updateEmployeeEmploymentProfile,
 } from '@/api/employeeEmploymentApi';
 import { fetchEmployeeHealthInsurance, bulkUpdateHealthInsurance, type HealthPlanOption, type BulkUpdateHealthInsuranceRequest, type EmployeeHealthInsurance } from '@/api/employeeHealthInsuranceApi';
 import { fetchEmployeeExperience } from '@/api/employeeExperienceApi';
@@ -55,13 +56,13 @@ const tabIcons: Record<ProfileTab, React.ReactNode> = {
 
 function ProfileTabBar({ tabs, active, onChange }: { tabs: readonly ProfileTab[]; active: ProfileTab; onChange: (t: ProfileTab) => void }) {
   return (
-    <div className="flex border-b border-border overflow-x-auto">
+    <div className="flex border-b border-border overflow-x-auto -mx-2 px-2">
       {tabs.map((tab) => (
         <button
           key={tab}
           type="button"
           onClick={() => onChange(tab)}
-          className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium transition-colors relative whitespace-nowrap ${
+          className={`flex items-center gap-1.5 px-3 py-2.5 text-xs sm:text-sm sm:px-4 font-medium transition-colors relative whitespace-nowrap ${
             active === tab
               ? 'text-ems-accent after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-ems-accent'
               : 'text-text-secondary hover:text-text-primary'
@@ -114,12 +115,12 @@ export function UserProfileDetail({ user, onBack, addToast }: UserProfileDetailP
   });
   // Grant admin visibility to 'Administrator' and 'Super Admin' roles
   const viewerAccessLevel = viewerProfileQuery.data?.accessLevel || '';
-  const isAdmin = viewerAccessLevel === 'Administrator' || viewerAccessLevel === 'Super Admin';
+  const isAdmin = viewerAccessLevel === 'Administrator' || viewerAccessLevel === 'Admin' || viewerAccessLevel === 'Super Admin';
 
   return (
     <div className="space-y-4">
       {/* Header with back button */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         {onBack && (
           <button
             type="button"
@@ -130,9 +131,9 @@ export function UserProfileDetail({ user, onBack, addToast }: UserProfileDetailP
             Back
           </button>
         )}
-        <div className="min-w-0">
-          <h1 className="text-xl font-semibold text-text-primary truncate">{user.name}</h1>
-          <p className="text-sm text-text-secondary truncate">{user.email}</p>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-lg sm:text-xl font-semibold text-text-primary truncate">{user.name}</h1>
+          <p className="text-xs sm:text-sm text-text-secondary truncate">{user.email}</p>
         </div>
       </div>
 
@@ -264,6 +265,49 @@ function ReadOnlyWithWmsLink({ label, value, source, contactId }: { label: strin
   );
 }
 
+/** Editable link field — displays clickable URL with inline edit capability */
+function EditableLinkField({ label, value, onSave }: { label: string; value: string; onSave: (url: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  useEffect(() => { setDraft(value); }, [value]);
+  return (
+    <div className="space-y-1">
+      <label className="text-xs font-medium text-text-muted">{label}</label>
+      {editing ? (
+        <div className="flex items-center gap-1">
+          <input
+            type="url"
+            className="flex-1 rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="https://..."
+            autoFocus
+          />
+          <button
+            className="rounded px-2 py-1.5 text-xs font-medium bg-ems-accent text-white hover:bg-ems-accent/90"
+            onClick={() => { onSave(draft); setEditing(false); }}
+          >
+            <Save className="h-3 w-3" />
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm">
+          {value ? (
+            <a href={value} target="_blank" rel="noopener noreferrer" className="text-ems-blue hover:underline truncate flex-1">
+              {value}
+            </a>
+          ) : (
+            <span className="text-text-muted flex-1">—</span>
+          )}
+          <button onClick={() => setEditing(true)} className="text-text-muted hover:text-ems-accent">
+            <ExternalLink className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** A field that hashes its value with a Show/Hide toggle button (for SSN, Age, etc.) */
 function HashedField({ label, value, source }: { label: string; value: string; source?: DataSource }) {
   const [revealed, setRevealed] = useState(false);
@@ -296,6 +340,14 @@ function HashedField({ label, value, source }: { label: string; value: string; s
 }
 
 
+function RefetchingBanner() {
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20 px-3 py-2">
+      <Loader2 className="h-4 w-4 animate-spin text-amber-600 dark:text-amber-400 shrink-0" />
+      <span className="text-xs text-amber-700 dark:text-amber-300">Fetching data from database…</span>
+    </div>
+  );
+}
 
 /** Banner with "Sync from Entra" button — opens selective field dialog */
 function EntraSyncBanner({ email, tabFields, invalidateKeys }: { email: string; tabFields: string[]; invalidateKeys: string[][] }) {
@@ -306,7 +358,7 @@ function EntraSyncBanner({ email, tabFields, invalidateKeys }: { email: string; 
     queryKey: ['entra-sync-preview', email],
     queryFn: () => previewUserSyncFromEntra(email),
     enabled: fetchEnabled,
-    staleTime: 30_000,
+    staleTime: 0,
   });
 
   function handleClick() {
@@ -401,15 +453,17 @@ function PersonalTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolea
           'streetAddress', 'city', 'state', 'postalCode', 'country',
           'emergencyContactName', 'emergencyContactPhone', 'emergencyContactEmail',
         ]}
-        invalidateKeys={[['employee-personal-profile', user.email]]}
+        invalidateKeys={[['employee-personal-profile', user.email], ['employee-employment-profile', user.email]]}
       />
+      {profileQuery.isFetching && !profileQuery.isLoading && <RefetchingBanner />}
       {/* Basic Info */}
       <SectionCard title="Basic Information" icon={<User className="h-4 w-4 text-ems-accent" />}>
-        <div className="grid gap-4 md:grid-cols-3">
-          <ReadOnlyField label="First Name" value={user.name.split(' ')[0] || ''} source="entra" />
+        <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <ReadOnlyField label="First Name" value={data?.firstName || ''} source="ems" />
           <ReadOnlyField label="Middle Name" value={data?.middleName || ''} source="employee" />
-          <ReadOnlyField label="Last Name" value={user.name.split(' ').slice(1).join(' ') || ''} source="entra" />
-          <ReadOnlyWithWmsLink label="Cell Phone Number" value={data?.cellPhone || user.mobilePhone || ''} source="entra" contactId={data?.contactId} />
+          <ReadOnlyField label="Last Name" value={data?.lastName || ''} source="ems" />
+          <ReadOnlyWithWmsLink label="Cell Phone Number" value={data?.cellPhone || ''} source="ems" contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="Work Phone" value={data?.workPhone || ''} source="ems" contactId={data?.contactId} />
           <ReadOnlyField label="Personal Email" value={data?.personalEmail || ''} source="employee" />
           <ReadOnlyField label="Birth Date" value={birthDate} source="employee" />
           {isAdmin && (
@@ -425,7 +479,7 @@ function PersonalTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolea
 
       {/* Home Address */}
       <SectionCard title="Home Address" icon={<MapPin className="h-4 w-4 text-ems-accent" />}>
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
           <ReadOnlyWithWmsLink label="Street Address" value={data?.homeStreet || ''} contactId={data?.contactId} />
           <ReadOnlyWithWmsLink label="Address Line 2" value={data?.homeAddress2 || ''} contactId={data?.contactId} />
           <ReadOnlyWithWmsLink label="City" value={data?.homeCity || ''} contactId={data?.contactId} />
@@ -437,7 +491,7 @@ function PersonalTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolea
 
       {/* Emergency Contact */}
       <SectionCard title="Emergency Contact" icon={<User className="h-4 w-4 text-ems-coral" />}>
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
           <ReadOnlyWithWmsLink label="First Name" value={data?.emergencyFirstName || ''} source="employee" contactId={data?.contactId} />
           <ReadOnlyWithWmsLink label="Last Name" value={data?.emergencyLastName || ''} source="employee" contactId={data?.contactId} />
           <ReadOnlyWithWmsLink label="Email" value={data?.emergencyEmail || ''} source="employee" contactId={data?.contactId} />
@@ -450,14 +504,25 @@ function PersonalTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolea
 
 // ─── Employment Tab ───────────────────────────────────────────────────────────
 
-function EmploymentTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolean; addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void }) {
+function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isAdmin: boolean; addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void }) {
   // ── Fetch existing employment profile ─────────────────────────────────────
+  const queryClient = useQueryClient();
   const profileQuery = useQuery({
     queryKey: ['employee-employment-profile', user.email],
     queryFn: () => fetchEmployeeEmploymentProfile(user.email),
     enabled: !!user.email,
     staleTime: 30_000,
   });
+
+  const saveWorkAuthLink = useCallback(async (url: string) => {
+    try {
+      await updateEmployeeEmploymentProfile(user.email, { workAuthorizationLinkUrl: url || null });
+      queryClient.invalidateQueries({ queryKey: ['employee-employment-profile', user.email] });
+      addToast?.('Work Authorization Photos link saved.', 'success');
+    } catch (e) {
+      addToast?.(friendlyApiError(e, 'Could not save link.'), 'error');
+    }
+  }, [user.email, queryClient, addToast]);
 
   // ── Loading / error states ────────────────────────────────────────────────
   if (profileQuery.isLoading) {
@@ -486,27 +551,30 @@ function EmploymentTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: bool
       <EntraSyncBanner
         email={user.email}
         tabFields={[
-          'title', 'accessLevel', 'office', 'workstation', 'workAuthorization',
+          'title', 'department', 'accessLevel', 'office', 'workstation', 'workAuthorization',
+          'workAuthorizationLink',
           'departmentRank', 'startDate', 'supervisor', 'ptoAccrualRate',
-          'employmentAgreement', 'rampAccount', 'rampCreditCard',
+          'employmentAgreement', 'rampAccount', 'rampCreditCard', 'employmentType',
         ]}
-        invalidateKeys={[['employee-employment-profile', user.email]]}
+        invalidateKeys={[['employee-employment-profile', user.email], ['employee-personal-profile', user.email]]}
       />
+      {profileQuery.isFetching && !profileQuery.isLoading && <RefetchingBanner />}
       {/* Directory Info */}
       <SectionCard title="Directory Info" icon={<Briefcase className="h-4 w-4 text-ems-accent" />}>
-        <div className="grid gap-4 md:grid-cols-2">
-          <ReadOnlyField label="Title" value={user.jobTitle || ''} source="entra" />
-          <ReadOnlyField label="Work Email" value={user.email} source="entra" />
-          <ReadOnlyField label="Department" value={user.department || ''} source="entra" />
-          <ReadOnlyField label="Office" value={user.officeLocation || ''} source="entra" />
+        <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
+          <ReadOnlyField label="Title" value={data?.title || ''} source="ems" />
+          <ReadOnlyField label="Work Email" value={data?.workEmail || ''} source="ems" />
+          <ReadOnlyField label="Department" value={data?.department || ''} source="ems" />
+          <ReadOnlyField label="Office" value={data?.office || ''} source="ems" />
         </div>
       </SectionCard>
 
       {/* Employment Details */}
       <SectionCard title="Employment Details" icon={<Briefcase className="h-4 w-4 text-ems-blue" />}>
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
           {isAdmin && <ReadOnlyField label="Access Level" value={data?.accessLevel || ''} source="admin" />}
           {isAdmin && <ReadOnlyField label="Work Authorization" value={data?.workAuthorization || ''} source="admin" />}
+          {isAdmin && <EditableLinkField label="Work Authorization Photos" value={data?.workAuthorizationLinkUrl || ''} onSave={saveWorkAuthLink} />}
           <ReadOnlyWithWmsLink label="Workstation" value={data?.workstation || ''} source="admin" contactId={data?.contactId} />
           <ReadOnlyField label="Start Date at IAE" value={startDate} source="admin" />
           {yearsOfService !== null ? (
@@ -529,7 +597,7 @@ function EmploymentTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: bool
 
       {/* Office Address */}
       <SectionCard title="Office Address" icon={<MapPin className="h-4 w-4 text-ems-accent" />}>
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
           <ReadOnlyField label="Street Address" value={data?.officeStreet || ''} source="admin" />
           <ReadOnlyField label="Address Line 2" value={data?.officeAddress2 || ''} source="admin" />
           <ReadOnlyField label="City" value={data?.officeCity || ''} source="admin" />
@@ -569,10 +637,11 @@ function PropertyTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolea
       <EntraSyncBanner
         email={user.email}
         tabFields={['deskPhoneMac', 'deskPhoneBrand', 'pcServiceTag', 'pcWindowsName']}
-        invalidateKeys={[['employee-employment-profile', user.email]]}
+        invalidateKeys={[['employee-employment-profile', user.email], ['employee-personal-profile', user.email]]}
       />
+      {profileQuery.isFetching && !profileQuery.isLoading && <RefetchingBanner />}
       <SectionCard title="Desk Phone" icon={<Laptop className="h-4 w-4 text-ems-accent" />}>
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
           <ReadOnlyWithWmsLink label="Desk Phone Number" value="(312) 274-1800" source="admin" contactId={data?.contactId} />
           <ReadOnlyWithWmsLink label="Desk Phone Extension" value={data?.deskPhoneExtension || ''} source="inventory" contactId={data?.contactId} />
           <ReadOnlyWithWmsLink label="Desk Phone MAC Address" value={data?.deskPhoneMac || ''} source="inventory" contactId={data?.contactId} />
@@ -582,7 +651,7 @@ function PropertyTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolea
       </SectionCard>
 
       <SectionCard title="PC" icon={<Laptop className="h-4 w-4 text-ems-blue" />}>
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
           <ReadOnlyWithWmsLink label="PC Service Tag" value={data?.pcServiceTag || ''} source="inventory" contactId={data?.contactId} />
           <ReadOnlyWithWmsLink label="PC Brand" value={data?.pcBrand || ''} source="inventory" contactId={data?.contactId} />
           <ReadOnlyWithWmsLink label="PC Model" value={data?.pcModel || ''} source="inventory" contactId={data?.contactId} />
@@ -802,7 +871,7 @@ function InsuranceSection({
 
   return (
     <SectionCard title={title} icon={icon}>
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
         <SelectField
           label={`${insuranceType} Insurance Opt-In / Opt-Out`}
           value={optIn}
@@ -983,7 +1052,7 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
     return (
       <div className="space-y-4">
         <SectionCard title="Health Insurance Information" icon={<Heart className="h-4 w-4 text-ems-coral" />}>
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
             <ReadOnlyField label="Health Insurance Status" value={insuranceEligibility} source="calculated" />
             <ReadOnlyField label="Tenure Tier" value={tenureTier || '—'} source="calculated" />
           </div>
@@ -996,7 +1065,7 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
     <div className="space-y-4">
       <SavingOverlay visible={saveMutation.isPending} />
       <SectionCard title="Health Insurance Information" icon={<Heart className="h-4 w-4 text-ems-coral" />}>
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
           <ReadOnlyField label="Health Insurance Status" value={insuranceEligibility} source="calculated" />
           <ReadOnlyField label="Tenure Tier" value={tenureTier || '—'} source="calculated" />
         </div>

@@ -89,6 +89,7 @@ import {
   requestGraphAccessToken,
 } from '@/auth/entra';
 import { fetchEmployeeEmploymentProfile, fetchAllAccessLevels } from '@/api/employeeEmploymentApi';
+import { fetchIaeStaffEmployees } from '@/api/iaeEmployeesApi';
 import { richTextMatches } from './searchUtils';
 import { GraphAvatar } from './GraphAvatar';
 import { formatE164ForDisplay } from '@/lib/contactPhoneField';
@@ -1218,7 +1219,7 @@ export function SettingsPage({
     staleTime: 60_000,
   });
   const viewerAccessLevel = viewerEmploymentQuery.data?.accessLevel || '';
-  const canViewUserProfiles = viewerAccessLevel === 'Administrator' || viewerAccessLevel === 'Super Admin';
+  const canViewUserProfiles = viewerAccessLevel === 'Administrator' || viewerAccessLevel === 'Admin' || viewerAccessLevel === 'Super Admin';
 
   // Fetch all access levels in one call for the Users table
   const accessLevelsQuery = useQuery({
@@ -1337,6 +1338,23 @@ export function SettingsPage({
   });
 
   // ─── Users directory filtering & sorting ───────────────────────────────────
+  const iaeEmployeesQuery = useQuery({
+    queryKey: ['iae-staff-employees'],
+    queryFn: fetchIaeStaffEmployees,
+    staleTime: 5 * 60 * 1000,
+    enabled: tab === 'Users',
+  });
+
+  const departmentRankByEmail = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const emp of iaeEmployeesQuery.data ?? []) {
+      if (emp.email && emp.departmentRank != null) {
+        map.set(emp.email.toLowerCase(), emp.departmentRank);
+      }
+    }
+    return map;
+  }, [iaeEmployeesQuery.data]);
+
   const usersSearched = useMemo(() => {
     const all = adminUsersQuery.data ?? [];
     const q = usersSearch.trim().toLowerCase();
@@ -1391,8 +1409,15 @@ export function SettingsPage({
     }
     return Array.from(groups.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([dept, members]) => ({ dept, members }));
-  }, [usersFiltered]);
+      .map(([dept, members]) => ({
+        dept,
+        members: members.sort((a, b) => {
+          const rankA = departmentRankByEmail.get(a.email.toLowerCase()) ?? 999;
+          const rankB = departmentRankByEmail.get(b.email.toLowerCase()) ?? 999;
+          return rankA - rankB || a.name.localeCompare(b.name);
+        }),
+      }));
+  }, [usersFiltered, departmentRankByEmail]);
 
   const usersShowChips =
     ((usersViewMode === 'tiles' && usersViewTab === 'dept') || (usersViewMode === 'table' && usersViewTab === 'dept'))
@@ -2132,18 +2157,6 @@ export function SettingsPage({
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         ) : null}
                         Preview Entra {'->'} EMS
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handlePreviewInternalContactSync('emsToEntra')}
-                        disabled={internalSyncBusy || internalSyncApplying}
-                      >
-                        {internalSyncBusy && internalSyncDirection === 'emsToEntra' ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : null}
-                        Preview EMS {'->'} Entra
                       </Button>
                     </div>
 	                </div>

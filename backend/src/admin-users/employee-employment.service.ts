@@ -71,9 +71,15 @@ export type PcDeviceListResponse = {
 export type EmployeeEmploymentProfileResponse = {
   contactId: number;
   contactAssignmentId: number;
+  /** Directory fields from DB */
+  title: string;
+  workEmail: string;
+  department: string;
+  office: string;
   /** Admin-entered fields */
   accessLevel: string;
   workAuthorization: string;
+  workAuthorizationLinkUrl: string;
   workstation: string;
   startDate: string | null;
   supervisor: string;
@@ -114,6 +120,8 @@ export class UpdateEmployeeEmploymentProfileDto {
   office?: string | null;
   @IsOptional() @IsString()
   workAuthorization?: string | null;
+  @IsOptional() @IsString()
+  workAuthorizationLinkUrl?: string | null;
   @IsOptional() @IsString()
   workstation?: string | null;
   @IsOptional() @IsString()
@@ -255,6 +263,11 @@ export class EmployeeEmploymentService {
 
         if (dto.accessLevel !== undefined) { setClauses.push(`AccessLevel = @${paramIdx}`); params.push(nullableText(dto.accessLevel)); paramIdx++; }
         if (dto.workAuthorization !== undefined) { setClauses.push(`WorkAuthorization = @${paramIdx}`); params.push(nullableText(dto.workAuthorization)); paramIdx++; }
+        // Work Authorization Link — upsert into dbo.Link, store LinkID
+        if (dto.workAuthorizationLinkUrl !== undefined && await this.hasColumn(manager, 'EmployeeProfile', 'WorthAuthorizationLinkId')) {
+          const linkId = await this.upsertWorkAuthLink(manager, dto.workAuthorizationLinkUrl, current.contactId);
+          setClauses.push(`WorthAuthorizationLinkId = @${paramIdx}`); params.push(linkId as unknown as string); paramIdx++;
+        }
         if (dto.startDate !== undefined) { setClauses.push(`StartDate = @${paramIdx}`); params.push(nullableDate(dto.startDate)); paramIdx++; }
         if (dto.supervisor !== undefined) { setClauses.push(`Supervisor = @${paramIdx}`); params.push(nullableText(dto.supervisor)); paramIdx++; }
         if (dto.ptoAccrualRate !== undefined) { setClauses.push(`PTOAccrualRate = @${paramIdx}`); params.push(nullableText(dto.ptoAccrualRate)); paramIdx++; }
@@ -798,8 +811,11 @@ export class EmployeeEmploymentService {
     // Employment details from EmployeeProfile
     let epJoin = '';
     let epSelect = `
+      CAST('' AS nvarchar(200)) AS title,
+      CAST('' AS nvarchar(100)) AS office,
       CAST('' AS nvarchar(50)) AS accessLevel,
       CAST('' AS nvarchar(100)) AS workAuthorization,
+      CAST('' AS nvarchar(2048)) AS workAuthorizationLinkUrl,
       CAST(NULL AS date) AS startDate,
       CAST('' AS nvarchar(200)) AS supervisor,
       CAST('' AS nvarchar(100)) AS ptoAccrualRate,
@@ -821,11 +837,18 @@ export class EmployeeEmploymentService {
       CAST('' AS nvarchar(100)) AS officeCountry`;
     let officeAddressJoin = '';
 
+    const hasWalCol = hasEpTable ? await this.hasColumn(this.dataSource, 'EmployeeProfile', 'WorthAuthorizationLinkId') : false;
+
     if (hasEpTable) {
-      epJoin = 'LEFT JOIN dbo.EmployeeProfile ep ON ep.ContactID = c.ContactID';
+      epJoin = hasWalCol
+        ? 'LEFT JOIN dbo.EmployeeProfile ep ON ep.ContactID = c.ContactID LEFT JOIN dbo.Link walLink ON walLink.LinkID = ep.WorthAuthorizationLinkId'
+        : 'LEFT JOIN dbo.EmployeeProfile ep ON ep.ContactID = c.ContactID';
       epSelect = `
+      COALESCE(ep.JobTitle, '') AS title,
+      COALESCE(ep.Office, '') AS office,
       COALESCE(ep.AccessLevel, '') AS accessLevel,
       COALESCE(ep.WorkAuthorization, '') AS workAuthorization,
+      ${hasWalCol ? "COALESCE(walLink.LinkURL, '')" : "CAST('' AS nvarchar(2048))"} AS workAuthorizationLinkUrl,
       ep.StartDate AS startDate,
       COALESCE(ep.Supervisor, '') AS supervisor,
       COALESCE(ep.PTOAccrualRate, '') AS ptoAccrualRate,
@@ -854,6 +877,8 @@ export class EmployeeEmploymentService {
       SELECT TOP 1
         c.ContactID AS contactId,
         ca.ContactAssignmentID AS contactAssignmentId,
+        COALESCE(ci.Email, '') AS workEmail,
+        COALESCE(d.DepartmentName, '') AS department,
         ${epSelect},
         ${officeAddressSelect},
         COALESCE(pe.ExtensionNumber, '') AS deskPhoneExtension,
@@ -869,6 +894,7 @@ export class EmployeeEmploymentService {
       INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
       INNER JOIN dbo.ContactAssignment ca ON ca.ContactID = c.ContactID
       INNER JOIN dbo.Company co ON co.CompanyID = ca.CompanyID AND co.is_internal = 1
+      LEFT JOIN dbo.Department d ON d.DepartmentID = ca.DepartmentID
       LEFT JOIN dbo.Role rl ON rl.RoleID = ca.RoleID
       ${epJoin}
       ${officeAddressJoin}
@@ -894,8 +920,13 @@ export class EmployeeEmploymentService {
       contactId: readNumber(r, 'contactId', 'ContactID') ?? 0,
       contactAssignmentId:
         readNumber(r, 'contactAssignmentId', 'ContactAssignmentID') ?? 0,
+      title: readString(r, 'title'),
+      workEmail: readString(r, 'workEmail'),
+      department: readString(r, 'department'),
+      office: readString(r, 'office'),
       accessLevel: readString(r, 'accessLevel'),
       workAuthorization: readString(r, 'workAuthorization'),
+      workAuthorizationLinkUrl: readString(r, 'workAuthorizationLinkUrl'),
       workstation: readString(r, 'workstation'),
       startDate: readDateString(r, 'startDate'),
       supervisor: readString(r, 'supervisor'),
@@ -944,6 +975,44 @@ export class EmployeeEmploymentService {
       [tableName, columnName],
     );
     return rows.length > 0;
+  }
+
+  /** Upsert a URL into dbo.Link for Work Authorization Photos, returning the LinkID or null. */
+  private async upsertWorkAuthLink(
+    executor: Pick<DataSource, 'query'>,
+    url: string | null | undefined,
+    contactId: number,
+  ): Promise<number | null> {
+    const trimmed = url?.trim() || null;
+    if (!trimmed) return null;
+    // Check existing link id (column may not exist yet)
+    const hasWalCol = await this.hasColumn(executor as Pick<DataSource, 'query'>, 'EmployeeProfile', 'WorthAuthorizationLinkId');
+    let existingLinkId: number | null = null;
+    if (hasWalCol) {
+      const epRows = await executor.query(
+        `SELECT TOP 1 WorthAuthorizationLinkId FROM dbo.EmployeeProfile WHERE ContactID = @0`,
+        [contactId],
+      );
+      existingLinkId = (epRows as Record<string, unknown>[])?.[0]?.WorthAuthorizationLinkId as number | null;
+    }
+    if (existingLinkId) {
+      await executor.query(
+        `UPDATE dbo.Link SET LinkURL = @0, LinkPath = @1 WHERE LinkID = @2`,
+        [trimmed, trimmed.slice(0, 1024), existingLinkId],
+      );
+      return existingLinkId;
+    }
+    // Check if link with same URL exists
+    const existing = await executor.query(`SELECT TOP 1 LinkID FROM dbo.Link WHERE LinkURL = @0`, [trimmed]);
+    if ((existing as Record<string, unknown>[])?.length > 0) {
+      return (existing[0] as Record<string, unknown>).LinkID as number;
+    }
+    // Create new
+    const result = await executor.query(
+      `INSERT INTO dbo.Link (LinkType, LinkURL, LinkName, LinkPath) OUTPUT INSERTED.LinkID VALUES (N'URL', @0, N'Work Authorization Photos', @1)`,
+      [trimmed, trimmed.slice(0, 1024)],
+    );
+    return (result as Record<string, unknown>[])?.[0]?.LinkID as number;
   }
 }
 

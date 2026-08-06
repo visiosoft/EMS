@@ -63,6 +63,8 @@ export interface LinkedSelfProfile {
   linked: true;
   /** `full` for the employee/admins; `limited` for other staff (Administrator-only fields hidden). */
   visibility: "full" | "limited";
+  /** True when the viewer has admin-tier access. */
+  isAdmin: boolean;
   identity: {
     contactId: number;
     contactInfoId: number;
@@ -95,6 +97,7 @@ export interface LinkedSelfProfile {
     office: string;
     accessLevel: string;
     workAuthorization: string;
+    workAuthorizationLinkUrl: string;
     startDate: string | null;
     yearsOfService: string;
     hireDate: string | null;
@@ -166,6 +169,7 @@ export interface UpdateMyProfilePayload {
     isPrimary: boolean;
   }[];
   workstation?: string;
+  workAuthorizationLinkUrl?: string;
   deskPhoneExtensionId?: number | null;
   deskPhoneId?: number | null;
   pcComputerId?: number | null;

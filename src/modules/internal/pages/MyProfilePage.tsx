@@ -23,7 +23,7 @@ export function MyProfilePage() {
         subtitle="Your personal, contact, and employment details on file with iAE."
       />
 
-      <main className="mx-auto w-full max-w-[1060px] px-5 pb-16 pt-14 sm:px-8 lg:px-0">
+      <main className="mx-auto w-full max-w-[1060px] px-4 pb-16 pt-10 sm:px-8 sm:pt-14 lg:px-0">
         {profileQuery.isLoading ? (
           <div className="flex items-center justify-center py-24">
             <Loader2 className="h-8 w-8 animate-spin text-neutral-400" aria-hidden />

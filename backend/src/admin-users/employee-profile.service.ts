@@ -22,6 +22,7 @@ export type EmployeePersonalProfileResponse = {
   lastName: string;
   email: string;
   cellPhone: string;
+  workPhone: string;
   /** Editable employee-owned fields */
   middleName: string;
   personalEmail: string;
@@ -429,6 +430,7 @@ export class EmployeeProfileService {
         ci.LastName AS lastName,
         ci.Email AS email,
         COALESCE(ci.CellPhone, '') AS cellPhone,
+        COALESCE(ci.WorkPhone, '') AS workPhone,
         ${epSelect},
         ${ecSelect},
         ${hasEpTable ? "COALESCE(ha.AddressLine1, '') AS homeStreet, COALESCE(ha.AddressLine2, '') AS homeAddress2, COALESCE(ha.City, '') AS homeCity, COALESCE(ha.StateProvince, '') AS homeState, COALESCE(ha.PostalCode, '') AS homePostalCode, COALESCE(ha.Country, '') AS homeCountry" : "CAST('' AS nvarchar(200)) AS homeStreet, CAST('' AS nvarchar(200)) AS homeAddress2, CAST('' AS nvarchar(100)) AS homeCity, CAST('' AS nvarchar(100)) AS homeState, CAST('' AS nvarchar(20)) AS homePostalCode, CAST('' AS nvarchar(100)) AS homeCountry"}
@@ -457,6 +459,7 @@ export class EmployeeProfileService {
       lastName: readString(r, 'lastName', 'LastName'),
       email: readString(r, 'email', 'Email'),
       cellPhone: readString(r, 'cellPhone', 'CellPhone'),
+      workPhone: readString(r, 'workPhone', 'WorkPhone'),
       middleName: readString(r, 'middleName', 'MiddleName'),
       personalEmail: readString(r, 'personalEmail', 'PersonalEmail'),
       birthDate: readDateString(r, 'birthDate', 'BirthDate'),
