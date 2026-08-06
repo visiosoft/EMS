@@ -364,10 +364,16 @@ export class SelfProfileService {
       }
     }
 
-    // Push updated fields to Entra in the background (fire-and-forget)
-    this.entraProfileSyncService
-      .applyEmsToEntraProfileSync(undefined, base.email)
-      .catch(() => { /* best-effort */ });
+    // Push updated fields to Entra
+    try {
+      const pushResult = await this.entraProfileSyncService
+        .applyEmsToEntraProfileSync(undefined, base.email);
+      if (pushResult.errors > 0 || pushResult.updated === 0) {
+        console.error('[WMS→Entra]', base.email, JSON.stringify(pushResult.rows.map(r => ({ status: r.status, error: r.error, changes: r.changes.length }))));
+      }
+    } catch (err: any) {
+      console.error('[WMS→Entra] Exception for', base.email, err?.message ?? err);
+    }
 
     return { success: true };
   }

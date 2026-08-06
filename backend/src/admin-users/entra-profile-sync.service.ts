@@ -1219,6 +1219,32 @@ export class EntraProfileSyncService {
           const currentPhoneId = readNumber(existingPhone[0], 'PhoneID');
           const extensionId = readNumber(existingPhone[0], 'ExtensionID');
           if (extensionId && currentPhoneId !== phoneId) {
+            // Check if this phone is already actively assigned anywhere
+            const phoneInUse = await manager.query(
+              `SELECT TOP 1 epe.ContactAssignmentID,
+                      ci.FirstName + ' ' + ci.LastName AS AssignedTo
+               FROM dbo.PhoneExtensionDevice ped
+               LEFT JOIN dbo.EmployeePhoneExtension epe ON epe.ExtensionID = ped.ExtensionID AND epe.IsCurrent = 1
+               LEFT JOIN dbo.ContactAssignment ca ON ca.ContactAssignmentID = epe.ContactAssignmentID
+               LEFT JOIN dbo.Contact c ON c.ContactID = ca.ContactID
+               LEFT JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+               WHERE ped.PhoneID = @0 AND ped.IsCurrent = 1`,
+              [phoneId],
+            );
+            if (phoneInUse.length > 0) {
+              const ownerCaId = readNumber(phoneInUse[0], 'ContactAssignmentID');
+              if (ownerCaId && ownerCaId !== contactAssignmentId) {
+                const assignedTo = readString(phoneInUse[0], 'AssignedTo');
+                throw new BadRequestException(
+                  `This desk phone is currently assigned to ${assignedTo || 'another employee'}. Unassign it first before reassigning.`,
+                );
+              }
+              // Same employee or orphaned — deactivate the stale row
+              await manager.query(
+                `UPDATE dbo.PhoneExtensionDevice SET IsCurrent = 0, UnassignedDate = CAST(SYSUTCDATETIME() AS date) WHERE PhoneID = @0 AND IsCurrent = 1`,
+                [phoneId],
+              );
+            }
             // Swap device on existing extension
             await manager.query(
               `UPDATE dbo.PhoneExtensionDevice SET IsCurrent = 0, UnassignedDate = CAST(SYSUTCDATETIME() AS date) WHERE ExtensionID = @0 AND IsCurrent = 1`,
@@ -1241,6 +1267,32 @@ export class EntraProfileSyncService {
           );
           const extensionId = readNumber(extRows[0], 'ExtensionID');
           if (extensionId) {
+            // Check if this phone is already actively assigned anywhere
+            const phoneInUse = await manager.query(
+              `SELECT TOP 1 epe.ContactAssignmentID,
+                      ci.FirstName + ' ' + ci.LastName AS AssignedTo
+               FROM dbo.PhoneExtensionDevice ped
+               LEFT JOIN dbo.EmployeePhoneExtension epe ON epe.ExtensionID = ped.ExtensionID AND epe.IsCurrent = 1
+               LEFT JOIN dbo.ContactAssignment ca ON ca.ContactAssignmentID = epe.ContactAssignmentID
+               LEFT JOIN dbo.Contact c ON c.ContactID = ca.ContactID
+               LEFT JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+               WHERE ped.PhoneID = @0 AND ped.IsCurrent = 1`,
+              [phoneId],
+            );
+            if (phoneInUse.length > 0) {
+              const ownerCaId = readNumber(phoneInUse[0], 'ContactAssignmentID');
+              if (ownerCaId && ownerCaId !== contactAssignmentId) {
+                const assignedTo = readString(phoneInUse[0], 'AssignedTo');
+                throw new BadRequestException(
+                  `This desk phone is currently assigned to ${assignedTo || 'another employee'}. Unassign it first before reassigning.`,
+                );
+              }
+              // Same employee or orphaned — deactivate the stale row
+              await manager.query(
+                `UPDATE dbo.PhoneExtensionDevice SET IsCurrent = 0, UnassignedDate = CAST(SYSUTCDATETIME() AS date) WHERE PhoneID = @0 AND IsCurrent = 1`,
+                [phoneId],
+              );
+            }
             await manager.query(
               `INSERT INTO dbo.PhoneExtensionDevice (ExtensionID, PhoneID, AssignedDate, IsCurrent, AssignedBy) VALUES (@0, @1, CAST(SYSUTCDATETIME() AS date), 1, @2)`,
               [extensionId, phoneId, 'Entra sync'],
@@ -1717,19 +1769,7 @@ export class EntraProfileSyncService {
     // Workstation
     addChange(changes, 'Workstation', 'Work Station', entra.emsAttributes.Workstation ?? '', readString(current.profileRow, 'Workstation'));
 
-    // Equipment — Desk Phone
-    addChange(changes, 'DeskPhoneNumber', 'Desk Phone Number', entra.emsAttributes.DeskPhoneNumber ?? '', current.equipment.deskPhoneNumber);
-    addChange(changes, 'DeskPhoneExtension', 'Desk Phone Extension', entra.emsAttributes.DeskPhoneExtension ?? '', current.equipment.deskPhoneExtension);
-    addChange(changes, 'DeskPhoneMAC', 'Desk Phone MAC Address', entra.emsAttributes.DeskPhoneMAC ?? '', current.equipment.deskPhoneMac);
-    addChange(changes, 'DeskPhoneBrand', 'Desk Phone Brand', entra.emsAttributes.DeskPhoneBrand ?? '', current.equipment.deskPhoneBrand);
-    addChange(changes, 'DeskPhoneModel', 'Desk Phone Model', entra.emsAttributes.DeskPhoneModel ?? '', current.equipment.deskPhoneModel);
-
-    // Equipment — PC
-    addChange(changes, 'PCServiceTag', 'PC Service Tag', entra.emsAttributes.PCServiceTag ?? '', current.equipment.pcServiceTag);
-    addChange(changes, 'PCBrand', 'PC Brand', entra.emsAttributes.PCBrand ?? '', current.equipment.pcBrand);
-    addChange(changes, 'PCModel', 'PC Model', entra.emsAttributes.PCModel ?? '', current.equipment.pcModel);
-    addChange(changes, 'BluetoothStatus', 'Bluetooth Status', entra.emsAttributes.BluetoothStatus ?? '', current.equipment.bluetoothStatus);
-    addChange(changes, 'PCWindowsName', 'PC Windows Name', entra.emsAttributes.PCWindowsName ?? '', current.equipment.pcWindowsName);
+    // Equipment CSAs use predefined allowed values in Entra — not pushable from WMS
 
     return changes;
   }
@@ -1744,7 +1784,8 @@ export class EntraProfileSyncService {
     entra: EntraFullProfile,
     current: CurrentProfileData,
   ): Promise<void> {
-    const encodedEmail = encodeURIComponent(contact.email);
+    // Use Entra object ID for the PATCH — email lookup fails for guest/filtered users
+    const userId = entra.user.id || encodeURIComponent(contact.email);
 
     // 1. Build native Graph user properties payload (WMS-editable fields only)
     const nativePayload: Record<string, unknown> = {};
@@ -1796,39 +1837,28 @@ export class EntraProfileSyncService {
     const emsWorkstation = readString(current.profileRow, 'Workstation');
     if (emsWorkstation !== (entra.emsAttributes.Workstation ?? '')) csaPayload.Workstation = emsWorkstation || null;
 
-    // Equipment — Desk Phone
-    const { deskPhoneNumber, deskPhoneExtension, deskPhoneMac, deskPhoneBrand, deskPhoneModel } = current.equipment;
-    if (deskPhoneNumber !== (entra.emsAttributes.DeskPhoneNumber ?? '')) csaPayload.DeskPhoneNumber = deskPhoneNumber || null;
-    if (deskPhoneExtension !== (entra.emsAttributes.DeskPhoneExtension ?? '')) csaPayload.DeskPhoneExtension = deskPhoneExtension || null;
-    if (deskPhoneMac !== (entra.emsAttributes.DeskPhoneMAC ?? '')) csaPayload.DeskPhoneMAC = deskPhoneMac || null;
-    if (deskPhoneBrand !== (entra.emsAttributes.DeskPhoneBrand ?? '')) csaPayload.DeskPhoneBrand = deskPhoneBrand || null;
-    if (deskPhoneModel !== (entra.emsAttributes.DeskPhoneModel ?? '')) csaPayload.DeskPhoneModel = deskPhoneModel || null;
+    // Equipment CSAs (DeskPhoneMAC, PCServiceTag) use predefined allowed values — skip from push
 
-    // Equipment — PC
-    const { pcServiceTag, pcBrand, pcModel, bluetoothStatus, pcWindowsName } = current.equipment;
-    if (pcServiceTag !== (entra.emsAttributes.PCServiceTag ?? '')) csaPayload.PCServiceTag = pcServiceTag || null;
-    if (pcBrand !== (entra.emsAttributes.PCBrand ?? '')) csaPayload.PCBrand = pcBrand || null;
-    if (pcModel !== (entra.emsAttributes.PCModel ?? '')) csaPayload.PCModel = pcModel || null;
-    if (bluetoothStatus !== (entra.emsAttributes.BluetoothStatus ?? '')) csaPayload.BluetoothStatus = bluetoothStatus || null;
-    if (pcWindowsName !== (entra.emsAttributes.PCWindowsName ?? '')) csaPayload.PCWindowsName = pcWindowsName || null;
-
-    // 3. Merge CSA into native payload if there are any CSA changes
-    if (Object.keys(csaPayload).length > 0) {
-      nativePayload.customSecurityAttributes = {
-        [EMS_ATTRIBUTE_SET]: {
-          '@odata.type': `#Microsoft.DirectoryServices.CustomSecurityAttributeValue`,
-          ...csaPayload,
-        },
-      };
+    // 3. PATCH native properties (may fail for guest/external users — non-fatal)
+    const nativeKeys = Object.keys(nativePayload);
+    if (nativeKeys.length > 0) {
+      try {
+        await this.graphPatch(accessToken, `${GRAPH_BASE_URL}/users/${userId}`, nativePayload);
+      } catch {
+        // Guest users can't have native properties written — continue with CSAs
+      }
     }
 
-    // 4. PATCH the Entra user if there's anything to write
-    if (Object.keys(nativePayload).length > 0) {
-      await this.graphPatch(
-        accessToken,
-        `${GRAPH_BASE_URL}/users/${encodedEmail}`,
-        nativePayload,
-      );
+    // 4. PATCH CSA attributes separately (works for both members and guests)
+    if (Object.keys(csaPayload).length > 0) {
+      await this.graphPatch(accessToken, `${GRAPH_BASE_URL}/users/${userId}`, {
+        customSecurityAttributes: {
+          [EMS_ATTRIBUTE_SET]: {
+            '@odata.type': `#Microsoft.DirectoryServices.CustomSecurityAttributeValue`,
+            ...csaPayload,
+          },
+        },
+      });
     }
   }
 
