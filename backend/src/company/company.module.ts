@@ -31,6 +31,7 @@ import { ServiceProvided } from '../entities/service-provided.entity';
 import { CompanyService as CompanyServiceEntity } from '../entities/company-service.entity';
 import { CompanyServiceArea } from '../entities/company-service-area.entity';
 import { CompanyTypeService } from '../entities/company-type-service.entity';
+import { DepartmentRole } from '../entities/department-role.entity';
 import { VenueServiceProvider } from '../entities/venue-service-provider.entity';
 import { Link } from '../entities/link.entity';
 import { LookupsController } from '../lookups/lookups.controller';
@@ -68,6 +69,7 @@ const entities = [
   ServiceProvided,
   CompanyServiceEntity,
   CompanyTypeService,
+  DepartmentRole,
   CompanyServiceArea,
   VenueServiceProvider,
   EngagementVenue,

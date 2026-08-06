@@ -10,6 +10,7 @@ export type LookupManageTableKey =
   | 'brands'
   | 'company-services'
   | 'company-type-services'
+  | 'department-roles'
   | 'services-provided'
   | 'dmas';
 
@@ -66,8 +67,11 @@ export type LookupManageCreatePayload = {
   name?: string;
   companyId?: number;
   companyTypeId?: number;
+  departmentId?: number;
   serviceProvidedId?: number;
   serviceProvidedIds?: number[];
+  roleId?: number;
+  roleIds?: number[];
   postalCode?: string;
 };
 
@@ -85,8 +89,11 @@ export type LookupManageUpdatePayload = {
   name?: string;
   companyId?: number;
   companyTypeId?: number;
+  departmentId?: number;
   serviceProvidedId?: number;
   serviceProvidedIds?: number[];
+  roleId?: number;
+  roleIds?: number[];
   postalCode?: string;
 };
 
@@ -103,4 +110,26 @@ export function updateLookupManageRow(
 
 export function deleteLookupManageRow(table: LookupManageTableKey, id: number) {
   return apiFetch<void>(`/lookups/manage/${table}/${id}`, { method: 'DELETE' });
+}
+
+export type DepartmentRoleContactUsage = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  roleName: string;
+  companyName: string;
+  source: string;
+};
+
+export function fetchDepartmentRoleContactUsage(departmentId: number) {
+  return apiFetch<DepartmentRoleContactUsage[]>(`/lookups/department-roles/${departmentId}/contact-usage`);
+}
+
+export type CompanyTypeServiceUsage = {
+  companyName: string;
+  serviceName: string;
+};
+
+export function fetchCompanyTypeServiceUsage(companyTypeId: number) {
+  return apiFetch<CompanyTypeServiceUsage[]>(`/lookups/company-type-services/${companyTypeId}/company-usage`);
 }

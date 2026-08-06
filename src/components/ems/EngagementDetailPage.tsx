@@ -154,6 +154,7 @@ import {
   fetchCompanies,
   fetchCompaniesPickerRows,
   fetchCompanyContacts,
+  fetchDepartmentRoleMappings,
   fetchDmaMarketsPaged,
   fetchEntertainmentComplexCompanyRows,
   fetchLookups,
@@ -164,6 +165,7 @@ import {
   updateVenueProfile,
   type ApiCompanyListRow,
   type ApiCompanyContact,
+  type ApiDepartmentRoleMapping,
 } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { cleanDmaMarketLabel } from '@/lib/dmaMarket';
@@ -10232,6 +10234,14 @@ function EngagementOverviewIaeStaffSection({
     enabled,
   });
 
+  const deptRoleMappingsQuery = useQuery({
+    queryKey: ['lookups', 'department-role-mappings'],
+    queryFn: fetchDepartmentRoleMappings,
+    staleTime: 30 * 60 * 1000,
+    enabled,
+  });
+  const departmentRoleMappings: ApiDepartmentRoleMapping[] = deptRoleMappingsQuery.data ?? [];
+
   const listQuery = useQuery({
     queryKey: ['engagements', engagementId, 'iae-contacts'],
     queryFn: () => fetchEngagementIaeContacts(engagementId),
@@ -10273,10 +10283,20 @@ function EngagementOverviewIaeStaffSection({
     return rows.map((r) => ({ value: String(r.id), label: r.label }));
   }, [lookupsQuery.data?.contacts]);
 
-  const roleOpts = useMemo((): Select2Option[] => {
+  const getRoleOptsForDept = useCallback((deptId: string): Select2Option[] => {
+    if (!deptId) return [];
     const rows = lookupsQuery.data?.roles ?? [];
-    return [{ value: '', label: 'Not set' }, ...rows.map((r) => ({ value: String(r.id), label: r.label }))];
-  }, [lookupsQuery.data?.roles]);
+    const validRoleIds = new Set(
+      departmentRoleMappings
+        .filter((m) => String(m.departmentId) === deptId)
+        .map((m) => m.roleId),
+    );
+    const filtered = rows.filter((r) => validRoleIds.has(r.id));
+    return [{ value: '', label: 'Not set' }, ...filtered.map((r) => ({ value: String(r.id), label: r.label }))];
+  }, [lookupsQuery.data?.roles, departmentRoleMappings]);
+
+  const addRoleOpts = useMemo(() => getRoleOptsForDept(addDeptId), [getRoleOptsForDept, addDeptId]);
+  const edRoleOpts = useMemo(() => getRoleOptsForDept(edDeptId), [getRoleOptsForDept, edDeptId]);
 
   const deptOpts = useMemo((): Select2Option[] => {
     const rows = lookupsQuery.data?.departments ?? [];
@@ -10568,18 +10588,6 @@ function EngagementOverviewIaeStaffSection({
                     disabled={sectionBusy}
                   />
                 </FormField>
-                <FormField label="Role">
-                  <Select2
-                    options={roleOpts}
-                    value={addRoleId}
-                    onChange={(v) => {
-                      markOverviewStaffUserEdited();
-                      setAddRoleId(v);
-                    }}
-                    placeholder="Not set"
-                    disabled={sectionBusy}
-                  />
-                </FormField>
                 <FormField label="Department">
                   <Select2
                     options={deptOpts}
@@ -10587,9 +10595,30 @@ function EngagementOverviewIaeStaffSection({
                     onChange={(v) => {
                       markOverviewStaffUserEdited();
                       setAddDeptId(v);
+                      // Clear role if no longer valid for new department
+                      if (v && addRoleId) {
+                        const validRoleIds = new Set(
+                          departmentRoleMappings
+                            .filter((m) => String(m.departmentId) === v)
+                            .map((m) => m.roleId),
+                        );
+                        if (!validRoleIds.has(Number(addRoleId))) setAddRoleId('');
+                      }
                     }}
                     placeholder="Not set"
                     disabled={sectionBusy}
+                  />
+                </FormField>
+                <FormField label="Role">
+                  <Select2
+                    options={addRoleOpts}
+                    value={addRoleId}
+                    onChange={(v) => {
+                      markOverviewStaffUserEdited();
+                      setAddRoleId(v);
+                    }}
+                    placeholder={!addDeptId ? 'Select department first…' : 'Not set'}
+                    disabled={sectionBusy || !addDeptId}
                   />
                 </FormField>
                 <FormField label="Primary contact for this engagement">
@@ -10650,18 +10679,6 @@ function EngagementOverviewIaeStaffSection({
                 disabled={updateMut.isPending}
               />
             </FormField>
-            <FormField label="Role">
-              <Select2
-                options={roleOpts}
-                value={edRoleId}
-                onChange={(v) => {
-                  markOverviewStaffUserEdited();
-                  setEdRoleId(v);
-                }}
-                placeholder="Not set"
-                disabled={updateMut.isPending}
-              />
-            </FormField>
             <FormField label="Department">
               <Select2
                 options={deptOpts}
@@ -10669,9 +10686,30 @@ function EngagementOverviewIaeStaffSection({
                 onChange={(v) => {
                   markOverviewStaffUserEdited();
                   setEdDeptId(v);
+                  // Clear role if no longer valid for new department
+                  if (v && edRoleId) {
+                    const validRoleIds = new Set(
+                      departmentRoleMappings
+                        .filter((m) => String(m.departmentId) === v)
+                        .map((m) => m.roleId),
+                    );
+                    if (!validRoleIds.has(Number(edRoleId))) setEdRoleId('');
+                  }
                 }}
                 placeholder="Not set"
                 disabled={updateMut.isPending}
+              />
+            </FormField>
+            <FormField label="Role">
+              <Select2
+                options={edRoleOpts}
+                value={edRoleId}
+                onChange={(v) => {
+                  markOverviewStaffUserEdited();
+                  setEdRoleId(v);
+                }}
+                placeholder={!edDeptId ? 'Select department first…' : 'Not set'}
+                disabled={updateMut.isPending || !edDeptId}
               />
             </FormField>
             <FormField label="Primary for this engagement">
