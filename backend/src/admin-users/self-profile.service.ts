@@ -364,7 +364,8 @@ export class SelfProfileService {
       }
     }
 
-    // Push updated fields to Entra
+    // WMS→Entra push: native properties need User.ReadWrite.All + tenant-native user;
+    // external/B2B users get 403 on native props (home-tenant managed) — CSAs still work.
     try {
       const pushResult = await this.entraProfileSyncService
         .applyEmsToEntraProfileSync(undefined, base.email);
