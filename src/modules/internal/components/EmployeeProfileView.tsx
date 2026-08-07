@@ -75,18 +75,18 @@ function formatAddress(address: SelfProfileAddress | null): string {
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
-    <div>
+    <div className="flex flex-col gap-1">
       <dt className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">{label}</dt>
-      <dd className="mt-1 break-words text-sm font-medium text-neutral-900">{value}</dd>
+      <dd className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-sm font-medium text-neutral-900 break-words">{value}</dd>
     </div>
   );
 }
 
 function LinkField({ label, value }: { label: string; value: string }) {
   return (
-    <div>
+    <div className="flex flex-col gap-1">
       <dt className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">{label}</dt>
-      <dd className="mt-1 break-words text-sm font-medium">
+      <dd className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-sm font-medium break-words">
         <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{value}</a>
       </dd>
     </div>
@@ -109,13 +109,13 @@ function EditableField({
 }) {
   if (!editing) return <Field label={label} value={value} />;
   return (
-    <div>
+    <div className="flex flex-col gap-1">
       <label className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">
         {label}
       </label>
       <input
         type="text"
-        className="mt-1 block w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm font-medium text-neutral-900 shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-500"
+        className="block w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm font-medium text-neutral-900 shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-500"
         value={editValue ?? ""}
         onChange={(e) => onChange?.(e.target.value)}
       />
@@ -128,7 +128,7 @@ function RevealField({ label, value }: { label: string; value: string }) {
   const [shown, setShown] = useState(false);
   const has = hasValue(value);
   return (
-    <div>
+    <div className="flex flex-col gap-1">
       <dt className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">
         {label}
         {has ? (
@@ -143,7 +143,7 @@ function RevealField({ label, value }: { label: string; value: string }) {
           </button>
         ) : null}
       </dt>
-      <dd className="mt-1 break-words text-sm font-medium text-neutral-900">
+      <dd className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-sm font-medium text-neutral-900 break-words">
         {has ? (shown ? value : "••••••") : "—"}
       </dd>
     </div>
@@ -240,7 +240,7 @@ function SubGroup({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-type FieldItem = { label: string; value: string; kind?: "text" | "reveal"; admin?: boolean; link?: boolean };
+type FieldItem = { label: string; value: string; kind?: "text" | "reveal"; admin?: boolean; link?: boolean; public?: boolean };
 
 /**
  * A titled card of label/value fields. When `limited` (a non-admin viewing someone
@@ -309,16 +309,16 @@ function InsuranceCard({ election, companyContributionPerPayPeriod }: { election
       </div>
       {optedIn ? (
         <>
-          <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
-            <Field label="Chosen Plan" value={textOrDash(election.planName)} />
-            <Field label="Additional Insureds" value={textOrDash(election.additionalInsureds)} />
-            <Field label="Plan Price" value={textOrDash(election.planPrice)} />
-            <Field label="Monthly Rate" value={textOrDash(election.monthlyRate)} />
-            <Field label="Payroll Deduction" value={textOrDash(election.payrollDeduction)} />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <WmsReadOnlyField label="Chosen Plan" value={textOrDash(election.planName)} />
+            <WmsReadOnlyField label="Additional Insureds" value={textOrDash(election.additionalInsureds)} />
+            <WmsReadOnlyField label="Plan Price" value={textOrDash(election.planPrice)} />
+            <WmsReadOnlyField label="Monthly Rate" value={textOrDash(election.monthlyRate)} />
+            <WmsReadOnlyField label="Payroll Deduction" value={textOrDash(election.payrollDeduction)} />
             {companyContributionPerPayPeriod != null && companyContributionPerPayPeriod > 0 ? (
-              <Field label="Company Contribution Per Pay Period" value={currency.format(companyContributionPerPayPeriod)} />
+              <WmsReadOnlyField label="Company Contribution Per Pay Period" value={currency.format(companyContributionPerPayPeriod)} />
             ) : null}
-          </dl>
+          </div>
           {benefits.length > 0 ? (
             <div className="mt-4">
               <dt className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">
@@ -428,6 +428,17 @@ function WmsSelectField({
           <option key={o.value} value={o.value}>{o.label}</option>
         ))}
       </select>
+    </div>
+  );
+}
+
+function WmsReadOnlyField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-xs font-medium text-neutral-500">{label}</label>
+      <div className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-sm text-neutral-700 cursor-default">
+        {value || "—"}
+      </div>
     </div>
   );
 }
@@ -586,25 +597,26 @@ function WmsInsuranceSection({
           />
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <div><span className="text-xs text-neutral-500">Enrollment</span><p className="text-sm font-medium text-neutral-800">{optIn || "—"}</p></div>
-          <div><span className="text-xs text-neutral-500">Plan</span><p className="text-sm font-medium text-neutral-800">{!opted ? "—" : (plans.find((p) => String(p.healthPlanId) === planId)?.planName || "—")}</p></div>
-          <div><span className="text-xs text-neutral-500">Tier</span><p className="text-sm font-medium text-neutral-800">{!opted ? "—" : (additionalInsureds || "—")}</p></div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <WmsReadOnlyField label="Enrollment" value={optIn || "—"} />
+          <WmsReadOnlyField label="Plan" value={!opted ? "—" : (plans.find((p) => String(p.healthPlanId) === planId)?.planName || "—")} />
+          <WmsReadOnlyField label="Tier" value={!opted ? "—" : (additionalInsureds || "—")} />
         </div>
       )}
-      <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4 border-t border-neutral-100 pt-3">
-        <div><span className="text-neutral-500">Price</span><p className="font-medium text-neutral-700">{!opted ? "—" : (price || "—")}</p></div>
-        <div><span className="text-neutral-500">Benefits</span><p className="font-medium text-neutral-700">{!opted ? "—" : (benefits || "—")}</p></div>
-        {rate !== undefined && <div><span className="text-neutral-500">Rate</span><p className="font-medium text-neutral-700">{!opted ? "—" : (rate || "—")}</p></div>}
-        <div><span className="text-neutral-500">Deduction</span><p className="font-medium text-neutral-700">{!opted ? "—" : (deduction || "—")}</p></div>
-        {insuranceType === "Medical" && <div><span className="text-neutral-500">Company</span><p className="font-medium text-neutral-700">{!opted ? "—" : (companyContrib || "—")}</p></div>}
+      <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${rate !== undefined || insuranceType === "Medical" ? "lg:grid-cols-3" : ""} border-t border-neutral-100 pt-3`}>
+        <WmsReadOnlyField label="Plan Price" value={!opted ? "—" : (price || "—")} />
+        <WmsReadOnlyField label="Benefits" value={!opted ? "—" : (benefits || "—")} />
+        {rate !== undefined && <WmsReadOnlyField label="Monthly Rate" value={!opted ? "—" : (rate || "—")} />}
+        <WmsReadOnlyField label="Payroll Deduction" value={!opted ? "—" : (deduction || "—")} />
+        {insuranceType === "Medical" && <WmsReadOnlyField label="Company Contribution" value={!opted ? "—" : (companyContrib || "—")} />}
       </div>
     </div>
   );
 }
 
 export function EmployeeProfileView({ profile, editable = false, targetContactId }: { profile: LinkedSelfProfile; editable?: boolean; targetContactId?: number }) {
-  const limited = profile.visibility === "limited";
+  const limited = profile.visibility === "limited" || profile.visibility === "public";
+  const isPublic = profile.visibility === "public";
   const canEdit = editable && !limited;
   const canEditAdminFields = canEdit && profile.isAdmin;
   const queryClient = useQueryClient();
@@ -780,9 +792,9 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
   const groups = profile.entra.microsoftGroups;
 
   const personalFields: FieldItem[] = [
-    { label: "First Name", value: textOrDash(profile.basics.firstName) },
+    { label: "First Name", value: textOrDash(profile.basics.firstName), public: true },
     { label: "Middle Name", value: textOrDash(profile.basics.middleName) },
-    { label: "Last Name", value: textOrDash(profile.basics.lastName) },
+    { label: "Last Name", value: textOrDash(profile.basics.lastName), public: true },
     { label: "Personal Email", value: textOrDash(profile.basics.personalEmail), admin: true },
     { label: "Cell Phone Number", value: phoneOrDash(profile.basics.cellPhone) },
     { label: "Work Phone", value: phoneOrDash(profile.basics.workPhone) },
@@ -802,14 +814,14 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
   ];
 
   const employmentFields: FieldItem[] = [
-    { label: "Title", value: textOrDash(profile.employment.title) },
+    { label: "Title", value: textOrDash(profile.employment.title), public: true },
     { label: "Access Level", value: textOrDash(profile.employment.accessLevel), admin: true },
-    { label: "Work Email", value: textOrDash(profile.basics.email) },
+    { label: "Work Email", value: textOrDash(profile.basics.email), public: true },
     { label: "Office", value: textOrDash(profile.employment.office) },
     { label: "Workstation", value: textOrDash(profile.employment.workstation) },
     { label: "Work Authorization", value: textOrDash(profile.employment.workAuthorization), admin: true },
     { label: "Work Authorization Photos", value: profile.employment.workAuthorizationLinkUrl || "—", link: true, admin: true },
-    { label: "Department", value: textOrDash(profile.basics.department) },
+    { label: "Department", value: textOrDash(profile.basics.department), public: true },
     { label: "Department Rank", value: textOrDash(profile.employment.departmentRank) },
     { label: "Role", value: textOrDash(profile.basics.role) },
     { label: "Company", value: textOrDash(profile.basics.company) },
@@ -826,19 +838,29 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
     },
     { label: "Ramp Account", value: textOrDash(profile.employment.rampAccount), admin: true },
     { label: "Ramp Credit Card", value: textOrDash(profile.employment.rampCreditCard), admin: true },
+    { label: "Desk Phone Number", value: textOrDash(profile.equipment.deskPhoneNumber), public: true },
+    { label: "Desk Phone Extension", value: textOrDash(profile.equipment.deskPhoneExtension), public: true },
   ];
 
-  const visiblePersonalFields = limited ? personalFields.filter((f) => !f.admin) : personalFields;
-  const visibleEmploymentFields = limited ? employmentFields.filter((f) => !f.admin) : employmentFields;
+  const visiblePersonalFields = isPublic
+    ? personalFields.filter((f) => f.public)
+    : limited
+      ? personalFields.filter((f) => !f.admin)
+      : personalFields;
+  const visibleEmploymentFields = isPublic
+    ? employmentFields.filter((f) => f.public)
+    : limited
+      ? employmentFields.filter((f) => !f.admin)
+      : employmentFields;
 
   // Categories that are entirely Administrator-only are skipped for limited viewers.
   const showHealth = !limited;
   const showSoftware = !limited;
-  const showHomeAddress = !limited;
-  const showEmergency = !limited;
-  const showOfficeAddress = true;
+  const showHomeAddress = !limited && !isPublic;
+  const showEmergency = !limited && !isPublic;
+  const showOfficeAddress = !isPublic;
   const showGroups = !limited;
-  const showProperty = !limited;
+  const showProperty = !isPublic;
 
   // Edit/Save/Cancel buttons
   const editBtn = (onClick: () => void) => (
@@ -887,9 +909,11 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
   ];
 
   // ─── Tab state ─────────────────────────────────────────────────────────────
-  const availableTabs: ProfileSection[] = limited
-    ? ["Personal", "Employment", "Property", "Certifications", "Experience"]
-    : ["Personal", "Employment", "Health Insurance", "Property", "Licenses & Groups", "Certifications", "Experience"];
+  const availableTabs: ProfileSection[] = isPublic
+    ? ["Personal", "Employment"]
+    : limited
+      ? ["Personal", "Employment", "Property", "Certifications", "Experience"]
+      : ["Personal", "Employment", "Health Insurance", "Property", "Licenses & Groups", "Certifications", "Experience"];
   const [activeTab, setActiveTab] = useState<ProfileSection>("Personal");
 
   // ─── Health Insurance data (fetched when tab is active) ────────────────────
@@ -1065,8 +1089,9 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
                 <div className="space-y-4">
                   {emergencyContacts.length > 0 ? (
                     <div className="rounded-md border border-neutral-200 bg-neutral-50/60 p-4">
-                      <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
-                        <EditableField label="Full Name" value="" editing editValue={emergencyContacts[0].fullName} onChange={(v) => updateEmergencyContact(0, "fullName", v)} />
+                      <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
+                        <EditableField label="First Name" value="" editing editValue={(emergencyContacts[0].fullName.split(/\s+/)[0]) || ""} onChange={(v) => { const parts = emergencyContacts[0].fullName.split(/\s+/); parts[0] = v; updateEmergencyContact(0, "fullName", parts.join(" ")); }} />
+                        <EditableField label="Last Name" value="" editing editValue={(emergencyContacts[0].fullName.split(/\s+/).slice(1).join(" ")) || ""} onChange={(v) => { const first = emergencyContacts[0].fullName.split(/\s+/)[0] || ""; updateEmergencyContact(0, "fullName", `${first} ${v}`.trim()); }} />
                         <EditableField label="Phone" value="" editing editValue={emergencyContacts[0].phoneNumber} onChange={(v) => updateEmergencyContact(0, "phoneNumber", v)} />
                         <EditableField label="Email" value="" editing editValue={emergencyContacts[0].email} onChange={(v) => updateEmergencyContact(0, "email", v)} />
                       </dl>
@@ -1098,23 +1123,22 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
                     <p className="text-sm font-medium text-neutral-500">No emergency contacts on file.</p>
                   ) : (
                     <div className="space-y-4">
-                      {profile.emergencyContacts.map((contact, index) => (
-                        <dl
-                          key={`${contact.fullName}-${index}`}
-                          className="grid grid-cols-1 gap-x-6 gap-y-4 rounded-md border border-neutral-100 bg-neutral-50/60 p-4 sm:grid-cols-2 lg:grid-cols-4"
-                        >
-                          <div className="flex items-center gap-2">
-                            <Field label="Name" value={textOrDash(contact.fullName)} />
-                            {contact.isPrimary ? (
-                              <span className="mt-4 rounded-full bg-neutral-900 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-                                Primary
-                              </span>
-                            ) : null}
-                          </div>
-                          <Field label="Phone" value={phoneOrDash(contact.phoneNumber)} />
-                          <Field label="Email" value={textOrDash(contact.email)} />
-                        </dl>
-                      ))}
+                      {profile.emergencyContacts.map((contact, index) => {
+                        const nameParts = (contact.fullName || "").trim().split(/\s+/);
+                        const firstName = nameParts[0] || "";
+                        const lastName = nameParts.slice(1).join(" ") || "";
+                        return (
+                          <dl
+                            key={`${contact.fullName}-${index}`}
+                            className="grid grid-cols-1 gap-x-6 gap-y-4 rounded-md border border-neutral-100 bg-neutral-50/60 p-4 sm:grid-cols-2 lg:grid-cols-4"
+                          >
+                            <Field label="First Name" value={textOrDash(firstName)} />
+                            <Field label="Last Name" value={textOrDash(lastName)} />
+                            <Field label="Phone" value={phoneOrDash(contact.phoneNumber)} />
+                            <Field label="Email" value={textOrDash(contact.email)} />
+                          </dl>
+                        );
+                      })}
                     </div>
                   )}
                 </SubGroup>
@@ -1233,10 +1257,10 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
             </div>
           ) : healthInsuranceQuery.data ? (
             <>
-              <dl className="mb-5 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
-                <Field label="Insurance Eligibility" value={textOrDash(hiInsuranceEligibility)} />
-                <Field label="Tenure Tier" value={hiTenureTier || "—"} />
-              </dl>
+              <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <WmsReadOnlyField label="Insurance Eligibility" value={textOrDash(hiInsuranceEligibility)} />
+                <WmsReadOnlyField label="Tenure Tier" value={hiTenureTier || "—"} />
+              </div>
               <div className="space-y-4">
                 <WmsInsuranceSection
                   insuranceType="Medical" plans={hiPlans} editable={canEditAdminFields}
@@ -1299,10 +1323,10 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
             </>
           ) : health ? (
             <>
-              <dl className="mb-5 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
-                <Field label="Health Insurance Status" value={textOrDash(health.insuranceEligibility)} />
-                <Field label="Tenure Tier" value={health.tenureTier || "—"} />
-              </dl>
+              <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <WmsReadOnlyField label="Health Insurance Status" value={textOrDash(health.insuranceEligibility)} />
+                <WmsReadOnlyField label="Tenure Tier" value={health.tenureTier || "—"} />
+              </div>
               {health.elections.length === 0 ? (
                 <p className="text-sm font-medium text-neutral-500">No insurance elections on file.</p>
               ) : (

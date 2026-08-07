@@ -61,8 +61,8 @@ export interface SelfProfileCertifications {
 
 export interface LinkedSelfProfile {
   linked: true;
-  /** `full` for the employee/admins; `limited` for other staff (Administrator-only fields hidden). */
-  visibility: "full" | "limited";
+  /** `full` for the employee/admins; `limited` for other staff; `public` for public-role users (minimal fields). */
+  visibility: "full" | "limited" | "public";
   /** True when the viewer has admin-tier access. */
   isAdmin: boolean;
   identity: {
