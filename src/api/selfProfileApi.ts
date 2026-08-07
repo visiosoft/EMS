@@ -126,6 +126,9 @@ export interface LinkedSelfProfile {
     pcServiceTag: string;
     bluetoothStatus: string;
     pcWindowsName: string;
+    currentExtensionId: number | null;
+    currentPhoneId: number | null;
+    currentComputerId: number | null;
   };
   entra: {
     microsoftOfficeLicenses: string[];

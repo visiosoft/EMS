@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AuditRequestContext } from '../audit/audit-request-context.service';
@@ -114,6 +114,9 @@ export type MyFullProfileResponse =
         pcServiceTag: string;
         bluetoothStatus: string;
         pcWindowsName: string;
+        currentExtensionId: number | null;
+        currentPhoneId: number | null;
+        currentComputerId: number | null;
       };
       entra: {
         microsoftOfficeLicenses: string[];
@@ -310,6 +313,21 @@ export class SelfProfileService {
 
     // 5. Assign phone extension (same logic as EMS)
     if (dto.deskPhoneExtensionId !== undefined) {
+      if (dto.deskPhoneExtensionId) {
+        const extInUse = await this.dataSource.query(
+          `SELECT ci.FirstName + ' ' + ci.LastName AS AssignedTo
+           FROM dbo.EmployeePhoneExtension epe
+           INNER JOIN dbo.ContactAssignment ca ON ca.ContactAssignmentID = epe.ContactAssignmentID
+           INNER JOIN dbo.Contact c ON c.ContactID = ca.ContactID
+           INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+           WHERE epe.ExtensionID = @0 AND epe.IsCurrent = 1 AND epe.ContactAssignmentID <> @1`,
+          [dto.deskPhoneExtensionId, contactAssignmentId],
+        );
+        if (extInUse.length > 0) {
+          const name = readString(extInUse[0], 'AssignedTo');
+          throw new BadRequestException(`This phone extension is already assigned to ${name || 'another employee'}.`);
+        }
+      }
       await this.dataSource.query(
         `UPDATE dbo.EmployeePhoneExtension SET IsCurrent = 0, UnassignedDate = CAST(SYSUTCDATETIME() AS date)
          WHERE ContactAssignmentID = @0 AND IsCurrent = 1`,
@@ -326,6 +344,22 @@ export class SelfProfileService {
 
     // 6. Assign phone device
     if (dto.deskPhoneId !== undefined) {
+      if (dto.deskPhoneId) {
+        const phoneInUse = await this.dataSource.query(
+          `SELECT ci.FirstName + ' ' + ci.LastName AS AssignedTo
+           FROM dbo.PhoneExtensionDevice ped
+           INNER JOIN dbo.EmployeePhoneExtension epe ON epe.ExtensionID = ped.ExtensionID AND epe.IsCurrent = 1
+           INNER JOIN dbo.ContactAssignment ca ON ca.ContactAssignmentID = epe.ContactAssignmentID
+           INNER JOIN dbo.Contact c ON c.ContactID = ca.ContactID
+           INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+           WHERE ped.PhoneID = @0 AND ped.IsCurrent = 1 AND epe.ContactAssignmentID <> @1`,
+          [dto.deskPhoneId, contactAssignmentId],
+        );
+        if (phoneInUse.length > 0) {
+          const name = readString(phoneInUse[0], 'AssignedTo');
+          throw new BadRequestException(`This desk phone is already assigned to ${name || 'another employee'}.`);
+        }
+      }
       const activeExtRows = await this.dataSource.query(
         `SELECT ExtensionID FROM dbo.EmployeePhoneExtension
          WHERE ContactAssignmentID = @0 AND IsCurrent = 1`,
@@ -350,6 +384,21 @@ export class SelfProfileService {
 
     // 7. Assign computer
     if (dto.pcComputerId !== undefined) {
+      if (dto.pcComputerId) {
+        const pcInUse = await this.dataSource.query(
+          `SELECT ci.FirstName + ' ' + ci.LastName AS AssignedTo
+           FROM dbo.EmployeeComputer ec
+           INNER JOIN dbo.ContactAssignment ca ON ca.ContactAssignmentID = ec.ContactAssignmentID
+           INNER JOIN dbo.Contact c ON c.ContactID = ca.ContactID
+           INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+           WHERE ec.ComputerID = @0 AND ec.IsCurrent = 1 AND ec.ContactAssignmentID <> @1`,
+          [dto.pcComputerId, contactAssignmentId],
+        );
+        if (pcInUse.length > 0) {
+          const name = readString(pcInUse[0], 'AssignedTo');
+          throw new BadRequestException(`This computer is already assigned to ${name || 'another employee'}.`);
+        }
+      }
       await this.dataSource.query(
         `UPDATE dbo.EmployeeComputer SET IsCurrent = 0, UnassignedDate = CAST(SYSUTCDATETIME() AS date)
          WHERE ContactAssignmentID = @0 AND IsCurrent = 1`,
@@ -664,6 +713,9 @@ export class SelfProfileService {
         pcServiceTag: '',
         bluetoothStatus: '',
         pcWindowsName: '',
+        currentExtensionId: null,
+        currentPhoneId: null,
+        currentComputerId: null,
       },
       entra: { microsoftOfficeLicenses: [], microsoftGroups: [] },
       healthInsurance: null,
@@ -858,6 +910,9 @@ export class SelfProfileService {
     pcServiceTag: string;
     bluetoothStatus: string;
     pcWindowsName: string;
+    currentExtensionId: number | null;
+    currentPhoneId: number | null;
+    currentComputerId: number | null;
   }> {
     const empty = {
       deskPhoneExtension: '',
@@ -869,6 +924,9 @@ export class SelfProfileService {
       pcServiceTag: '',
       bluetoothStatus: '',
       pcWindowsName: '',
+      currentExtensionId: null as number | null,
+      currentPhoneId: null as number | null,
+      currentComputerId: null as number | null,
     };
     if (!contactAssignmentId) return empty;
     const needed = [
@@ -893,7 +951,10 @@ export class SelfProfileService {
         COALESCE(eqc.Model, '') AS pcModel,
         COALESCE(eqc.AssetID, '') AS pcServiceTag,
         COALESCE(eqc.BluetoothStatus, '') AS bluetoothStatus,
-        COALESCE(eqc.PCName, '') AS pcWindowsName
+        COALESCE(eqc.PCName, '') AS pcWindowsName,
+        epe.ExtensionID AS currentExtensionId,
+        ped.PhoneID AS currentPhoneId,
+        ec.ComputerID AS currentComputerId
       FROM dbo.ContactAssignment ca
       LEFT JOIN dbo.EmployeePhoneExtension epe ON epe.ContactAssignmentID = ca.ContactAssignmentID AND epe.IsCurrent = 1
       LEFT JOIN dbo.PhoneExtension pe ON pe.ExtensionID = epe.ExtensionID
@@ -917,6 +978,9 @@ export class SelfProfileService {
       pcServiceTag: readString(r, 'pcServiceTag'),
       bluetoothStatus: readString(r, 'bluetoothStatus'),
       pcWindowsName: readString(r, 'pcWindowsName'),
+      currentExtensionId: readNumber(r, 'currentExtensionId') ?? null,
+      currentPhoneId: readNumber(r, 'currentPhoneId') ?? null,
+      currentComputerId: readNumber(r, 'currentComputerId') ?? null,
     };
   }
 

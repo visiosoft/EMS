@@ -1262,9 +1262,15 @@ export class EntraProfileSyncService {
             `UPDATE dbo.EmployeePhoneExtension SET IsCurrent = 0, UnassignedDate = CAST(SYSUTCDATETIME() AS date) WHERE ContactAssignmentID = @0 AND IsCurrent = 1`,
             [contactAssignmentId],
           );
-          const extRows = await manager.query(
-            `INSERT INTO dbo.PhoneExtension (ExtensionNumber, IsActive) OUTPUT INSERTED.ExtensionID VALUES ('', 1)`,
+          // Find or create a blank extension row (unique constraint on ExtensionNumber)
+          let extRows = await manager.query(
+            `SELECT TOP 1 ExtensionID FROM dbo.PhoneExtension WHERE ExtensionNumber = '' AND IsActive = 1`,
           );
+          if (!extRows?.length) {
+            extRows = await manager.query(
+              `INSERT INTO dbo.PhoneExtension (ExtensionNumber, IsActive) OUTPUT INSERTED.ExtensionID VALUES ('', 1)`,
+            );
+          }
           const extensionId = readNumber(extRows[0], 'ExtensionID');
           if (extensionId) {
             // Check if this phone is already actively assigned anywhere
@@ -1354,16 +1360,20 @@ export class EntraProfileSyncService {
     mac: string,
     brand: string,
   ): Promise<number> {
-    // Match by both MACAddress and Make (brand)
     const existing = await manager.query(
-      `SELECT TOP 1 PhoneID FROM dbo.EquipmentPhone WHERE MACAddress = @0 AND COALESCE(Make, '') = @1`,
-      [mac, brand || ''],
+      `SELECT TOP 1 PhoneID FROM dbo.EquipmentPhone WHERE MACAddress = @0`,
+      [mac],
     );
     if (existing.length > 0) {
       const phoneId = readNumber(existing[0], 'PhoneID');
-      if (phoneId) return phoneId;
+      if (phoneId) {
+        await manager.query(
+          `UPDATE dbo.EquipmentPhone SET Make = @0 WHERE PhoneID = @1`,
+          [brand || null, phoneId],
+        );
+        return phoneId;
+      }
     }
-    // Insert new
     const rows = await manager.query(
       `INSERT INTO dbo.EquipmentPhone (MACAddress, Make, EquipmentStatus) OUTPUT INSERTED.PhoneID VALUES (@0, @1, 'Active')`,
       [mac, brand || null],
@@ -1376,16 +1386,20 @@ export class EntraProfileSyncService {
     serviceTag: string,
     pcName: string,
   ): Promise<number> {
-    // Match by both AssetID and PCName
     const existing = await manager.query(
-      `SELECT TOP 1 ComputerID FROM dbo.EquipmentComputer WHERE AssetID = @0 AND COALESCE(PCName, '') = @1`,
-      [serviceTag, pcName || ''],
+      `SELECT TOP 1 ComputerID FROM dbo.EquipmentComputer WHERE AssetID = @0`,
+      [serviceTag],
     );
     if (existing.length > 0) {
       const computerId = readNumber(existing[0], 'ComputerID');
-      if (computerId) return computerId;
+      if (computerId) {
+        await manager.query(
+          `UPDATE dbo.EquipmentComputer SET PCName = @0 WHERE ComputerID = @1`,
+          [pcName || null, computerId],
+        );
+        return computerId;
+      }
     }
-    // Insert new
     const rows = await manager.query(
       `INSERT INTO dbo.EquipmentComputer (AssetID, PCName, EquipmentStatus) OUTPUT INSERTED.ComputerID VALUES (@0, @1, 'Active')`,
       [serviceTag, pcName || null],
@@ -1769,7 +1783,11 @@ export class EntraProfileSyncService {
     // Workstation
     addChange(changes, 'Workstation', 'Work Station', entra.emsAttributes.Workstation ?? '', readString(current.profileRow, 'Workstation'));
 
-    // Equipment CSAs use predefined allowed values in Entra — not pushable from WMS
+    // Equipment CSAs (composite format: "MAC - Brand Model" / "ServiceTag - PCName")
+    const emsPhoneMacComposite = composeDeskPhoneMAC(current.equipment);
+    addChange(changes, 'DeskPhoneMAC', 'Desk Phone MAC Address', entra.emsAttributes.DeskPhoneMAC ?? '', emsPhoneMacComposite);
+    const emsPcTagComposite = composePCServiceTag(current.equipment);
+    addChange(changes, 'PCServiceTag', 'PC Service Tag', entra.emsAttributes.PCServiceTag ?? '', emsPcTagComposite);
 
     return changes;
   }
@@ -1837,7 +1855,12 @@ export class EntraProfileSyncService {
     const emsWorkstation = readString(current.profileRow, 'Workstation');
     if (emsWorkstation !== (entra.emsAttributes.Workstation ?? '')) csaPayload.Workstation = emsWorkstation || null;
 
-    // Equipment CSAs (DeskPhoneMAC, PCServiceTag) use predefined allowed values — skip from push
+    // Equipment CSAs (composite format: "MAC - Brand Model" / "ServiceTag - PCName")
+    const { deskPhoneMac, deskPhoneBrand, deskPhoneModel, pcServiceTag, pcWindowsName } = current.equipment;
+    const phoneMacComposite = composeDeskPhoneMAC(current.equipment);
+    if (phoneMacComposite !== (entra.emsAttributes.DeskPhoneMAC ?? '')) csaPayload.DeskPhoneMAC = phoneMacComposite || null;
+    const pcTagComposite = composePCServiceTag(current.equipment);
+    if (pcTagComposite !== (entra.emsAttributes.PCServiceTag ?? '')) csaPayload.PCServiceTag = pcTagComposite || null;
 
     // 3. PATCH native properties (may fail for guest/external users — non-fatal)
     const nativeKeys = Object.keys(nativePayload);
@@ -2201,6 +2224,19 @@ function parseServiceTagName(value: string | null | undefined): string {
   if (!value) return '';
   const parts = value.split(' - ');
   return (parts[1] ?? '').trim();
+}
+
+/** Compose "MAC - Brand Model" for the DeskPhoneMAC CSA */
+function composeDeskPhoneMAC(eq: EquipmentData): string {
+  if (!eq.deskPhoneMac) return '';
+  const suffix = [eq.deskPhoneBrand, eq.deskPhoneModel].filter(Boolean).join(' ');
+  return suffix ? `${eq.deskPhoneMac} - ${suffix}` : eq.deskPhoneMac;
+}
+
+/** Compose "ServiceTag - PCName" for the PCServiceTag CSA */
+function composePCServiceTag(eq: EquipmentData): string {
+  if (!eq.pcServiceTag) return '';
+  return eq.pcWindowsName ? `${eq.pcServiceTag} - ${eq.pcWindowsName}` : eq.pcServiceTag;
 }
 
 function normalizeDate(value: string | null | undefined): string {

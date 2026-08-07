@@ -105,6 +105,9 @@ export type EmployeeEmploymentProfileResponse = {
   pcServiceTag: string;
   bluetoothStatus: string;
   pcWindowsName: string;
+  currentExtensionId: number | null;
+  currentPhoneId: number | null;
+  currentComputerId: number | null;
   departmentRank: string;
   role: string;
   employmentStatus: string;
@@ -392,6 +395,21 @@ export class EmployeeEmploymentService {
 
       // 3. Assign phone extension (if changed)
       if (dto.deskPhoneExtensionId !== undefined) {
+        if (dto.deskPhoneExtensionId) {
+          const extInUse = await manager.query(
+            `SELECT ci.FirstName + ' ' + ci.LastName AS AssignedTo
+             FROM dbo.EmployeePhoneExtension epe
+             INNER JOIN dbo.ContactAssignment ca ON ca.ContactAssignmentID = epe.ContactAssignmentID
+             INNER JOIN dbo.Contact c ON c.ContactID = ca.ContactID
+             INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+             WHERE epe.ExtensionID = @0 AND epe.IsCurrent = 1 AND epe.ContactAssignmentID <> @1`,
+            [dto.deskPhoneExtensionId, current.contactAssignmentId],
+          );
+          if (extInUse.length > 0) {
+            const name = readString(extInUse[0], 'AssignedTo');
+            throw new BadRequestException(`This phone extension is already assigned to ${name || 'another employee'}.`);
+          }
+        }
         // Unassign current extension
         await manager.query(
           `UPDATE dbo.EmployeePhoneExtension SET IsCurrent = 0, UnassignedDate = CAST(SYSUTCDATETIME() AS date)
@@ -423,6 +441,22 @@ export class EmployeeEmploymentService {
 
       // 4. Assign phone device (if changed)
       if (dto.deskPhoneId !== undefined) {
+        if (dto.deskPhoneId) {
+          const phoneInUse = await manager.query(
+            `SELECT ci.FirstName + ' ' + ci.LastName AS AssignedTo
+             FROM dbo.PhoneExtensionDevice ped
+             INNER JOIN dbo.EmployeePhoneExtension epe ON epe.ExtensionID = ped.ExtensionID AND epe.IsCurrent = 1
+             INNER JOIN dbo.ContactAssignment ca ON ca.ContactAssignmentID = epe.ContactAssignmentID
+             INNER JOIN dbo.Contact c ON c.ContactID = ca.ContactID
+             INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+             WHERE ped.PhoneID = @0 AND ped.IsCurrent = 1 AND epe.ContactAssignmentID <> @1`,
+            [dto.deskPhoneId, current.contactAssignmentId],
+          );
+          if (phoneInUse.length > 0) {
+            const name = readString(phoneInUse[0], 'AssignedTo');
+            throw new BadRequestException(`This desk phone is already assigned to ${name || 'another employee'}.`);
+          }
+        }
         // Find the current active extension for this employee to link the device
         const activeExtRows = await manager.query(
           `SELECT ExtensionID FROM dbo.EmployeePhoneExtension
@@ -453,6 +487,21 @@ export class EmployeeEmploymentService {
 
       // 5. Assign computer (if changed)
       if (dto.pcComputerId !== undefined) {
+        if (dto.pcComputerId) {
+          const pcInUse = await manager.query(
+            `SELECT ci.FirstName + ' ' + ci.LastName AS AssignedTo
+             FROM dbo.EmployeeComputer ec
+             INNER JOIN dbo.ContactAssignment ca ON ca.ContactAssignmentID = ec.ContactAssignmentID
+             INNER JOIN dbo.Contact c ON c.ContactID = ca.ContactID
+             INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+             WHERE ec.ComputerID = @0 AND ec.IsCurrent = 1 AND ec.ContactAssignmentID <> @1`,
+            [dto.pcComputerId, current.contactAssignmentId],
+          );
+          if (pcInUse.length > 0) {
+            const name = readString(pcInUse[0], 'AssignedTo');
+            throw new BadRequestException(`This computer is already assigned to ${name || 'another employee'}.`);
+          }
+        }
         // Unassign current computer
         await manager.query(
           `UPDATE dbo.EmployeeComputer SET IsCurrent = 0, UnassignedDate = CAST(SYSUTCDATETIME() AS date)
@@ -526,15 +575,14 @@ export class EmployeeEmploymentService {
         );
         if (phoneRows.length > 0) {
           const p = phoneRows[0] as Record<string, unknown>;
-          csaPayload.DeskPhoneMACAddress = readString(p, 'MACAddress') || null;
-          csaPayload.DeskPhoneBrand = readString(p, 'Make') || null;
-          csaPayload.DeskPhoneModel = readString(p, 'Model') || null;
+          const mac = readString(p, 'MACAddress');
+          const brand = readString(p, 'Make');
+          const model = readString(p, 'Model');
+          const suffix = [brand, model].filter(Boolean).join(' ');
+          csaPayload.DeskPhoneMAC = mac ? (suffix ? `${mac} - ${suffix}` : mac) : null;
         }
       } else {
-        // Unassigned — clear phone CSAs
-        csaPayload.DeskPhoneMACAddress = null;
-        csaPayload.DeskPhoneBrand = null;
-        csaPayload.DeskPhoneModel = null;
+        csaPayload.DeskPhoneMAC = null;
       }
     }
 
@@ -546,19 +594,12 @@ export class EmployeeEmploymentService {
         );
         if (pcRows.length > 0) {
           const pc = pcRows[0] as Record<string, unknown>;
-          csaPayload.PCBrand = readString(pc, 'Make') || null;
-          csaPayload.PCModel = readString(pc, 'Model') || null;
-          csaPayload.PCServiceTag = readString(pc, 'AssetID') || null;
-          csaPayload.BluetoothStatus = readString(pc, 'BluetoothStatus') || null;
-          csaPayload.PCWindowsName = readString(pc, 'PCName') || null;
+          const tag = readString(pc, 'AssetID');
+          const pcName = readString(pc, 'PCName');
+          csaPayload.PCServiceTag = tag ? (pcName ? `${tag} - ${pcName}` : tag) : null;
         }
       } else {
-        // Unassigned — clear PC CSAs
-        csaPayload.PCBrand = null;
-        csaPayload.PCModel = null;
         csaPayload.PCServiceTag = null;
-        csaPayload.BluetoothStatus = null;
-        csaPayload.PCWindowsName = null;
       }
     }
 
@@ -889,7 +930,10 @@ export class EmployeeEmploymentService {
         COALESCE(eqc.Model, '') AS pcModel,
         COALESCE(eqc.AssetID, '') AS pcServiceTag,
         COALESCE(eqc.BluetoothStatus, '') AS bluetoothStatus,
-        COALESCE(eqc.PCName, '') AS pcWindowsName
+        COALESCE(eqc.PCName, '') AS pcWindowsName,
+        epe.ExtensionID AS currentExtensionId,
+        ped.PhoneID AS currentPhoneId,
+        ec.ComputerID AS currentComputerId
       FROM dbo.Contact c
       INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
       INNER JOIN dbo.ContactAssignment ca ON ca.ContactID = c.ContactID
@@ -950,6 +994,9 @@ export class EmployeeEmploymentService {
       pcServiceTag: readString(r, 'pcServiceTag'),
       bluetoothStatus: readString(r, 'bluetoothStatus'),
       pcWindowsName: readString(r, 'pcWindowsName'),
+      currentExtensionId: readNumber(r, 'currentExtensionId') ?? null,
+      currentPhoneId: readNumber(r, 'currentPhoneId') ?? null,
+      currentComputerId: readNumber(r, 'currentComputerId') ?? null,
       departmentRank: readString(r, 'departmentRank'),
       role: readString(r, 'role'),
       employmentStatus: readString(r, 'employmentStatus'),

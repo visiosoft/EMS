@@ -48,6 +48,9 @@ export interface EmployeeEmploymentProfile {
   pcServiceTag: string;
   bluetoothStatus: string;
   pcWindowsName: string;
+  currentExtensionId: number | null;
+  currentPhoneId: number | null;
+  currentComputerId: number | null;
   departmentRank: string;
   role: string;
   employmentStatus: string;
