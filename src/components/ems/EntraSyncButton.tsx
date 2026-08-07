@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, Loader2 } from "lucide-react";
 import {
   previewMyProfileSyncFromEntra,
@@ -17,11 +17,14 @@ interface EntraSyncButtonProps {
 }
 
 export function EntraSyncButton({ targetEmail, tabFields, invalidateKeys }: EntraSyncButtonProps) {
+  const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [fetchEnabled, setFetchEnabled] = useState(false);
 
+  const queryKey = ["entra-sync-preview", targetEmail ?? "self"];
+
   const previewQuery = useQuery({
-    queryKey: ["entra-sync-preview", targetEmail ?? "self"],
+    queryKey,
     queryFn: () =>
       targetEmail
         ? previewUserSyncFromEntra(targetEmail)
@@ -31,13 +34,12 @@ export function EntraSyncButton({ targetEmail, tabFields, invalidateKeys }: Entr
   });
 
   function handleClick() {
+    // Clear stale data so dialog shows a loader on re-open
+    queryClient.removeQueries({ queryKey });
     setFetchEnabled(true);
-    if (previewQuery.data) {
-      setDialogOpen(true);
-    }
   }
 
-  // Open dialog once data arrives
+  // Open dialog once fresh data arrives
   if (fetchEnabled && previewQuery.data && !dialogOpen && !previewQuery.isFetching) {
     setDialogOpen(true);
   }

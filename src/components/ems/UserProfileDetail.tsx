@@ -351,24 +351,25 @@ function RefetchingBanner() {
 
 /** Banner with "Sync from Entra" button — opens selective field dialog */
 function EntraSyncBanner({ email, tabFields, invalidateKeys }: { email: string; tabFields: string[]; invalidateKeys: string[][] }) {
+  const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [fetchEnabled, setFetchEnabled] = useState(false);
 
+  const queryKey = ['entra-sync-preview', email];
+
   const previewQuery = useQuery({
-    queryKey: ['entra-sync-preview', email],
+    queryKey,
     queryFn: () => previewUserSyncFromEntra(email),
     enabled: fetchEnabled,
     staleTime: 0,
   });
 
   function handleClick() {
+    queryClient.removeQueries({ queryKey });
     setFetchEnabled(true);
-    if (previewQuery.data) {
-      setDialogOpen(true);
-    }
   }
 
-  // Open dialog once data arrives
+  // Open dialog once fresh data arrives
   if (fetchEnabled && previewQuery.data && !dialogOpen && !previewQuery.isFetching) {
     setDialogOpen(true);
   }

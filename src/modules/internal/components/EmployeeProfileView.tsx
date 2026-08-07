@@ -648,9 +648,9 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
   const allWorkstations = workstationOffices.flatMap((o) => o.workstations);
 
   // ─── Form state: Property section (equipment IDs for dropdown selection)
-  const [selectedExtensionId, setSelectedExtensionId] = useState<number | null>(null);
-  const [selectedPhoneId, setSelectedPhoneId] = useState<number | null>(null);
-  const [selectedComputerId, setSelectedComputerId] = useState<number | null>(null);
+  const [selectedExtensionId, setSelectedExtensionId] = useState<number | null>(profile.equipment.currentExtensionId);
+  const [selectedPhoneId, setSelectedPhoneId] = useState<number | null>(profile.equipment.currentPhoneId);
+  const [selectedComputerId, setSelectedComputerId] = useState<number | null>(profile.equipment.currentComputerId);
 
   const phoneExtensionsQuery = useQuery({
     queryKey: ["phone-extensions"],
@@ -752,9 +752,9 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
   }
 
   function cancelProperty() {
-    setSelectedExtensionId(null);
-    setSelectedPhoneId(null);
-    setSelectedComputerId(null);
+    setSelectedExtensionId(profile.equipment.currentExtensionId);
+    setSelectedPhoneId(profile.equipment.currentPhoneId);
+    setSelectedComputerId(profile.equipment.currentComputerId);
     setEditingProperty(false);
   }
 
@@ -1357,8 +1357,8 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
                     >
                       <option value="">— Select Extension —</option>
                       {phoneExtensions.map((ext) => (
-                        <option key={ext.extensionId} value={ext.extensionId}>
-                          {ext.extensionNumber}{ext.isAssigned && ext.assignedToEmail ? ` (${ext.assignedToEmail})` : ""}
+                        <option key={ext.extensionId} value={ext.extensionId} disabled={ext.isAssigned}>
+                          {ext.extensionNumber}{ext.isAssigned && ext.assignedToEmail ? ` (assigned to ${ext.assignedToEmail})` : ""}
                         </option>
                       ))}
                     </select>
@@ -1373,8 +1373,8 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
                     >
                       <option value="">— Select Phone —</option>
                       {phoneDevices.map((phone) => (
-                        <option key={phone.phoneId} value={phone.phoneId}>
-                          {phone.make} {phone.model} — {phone.macAddress}{phone.isAssigned && phone.assignedToEmail ? ` (${phone.assignedToEmail})` : ""}
+                        <option key={phone.phoneId} value={phone.phoneId} disabled={phone.isAssigned}>
+                          {phone.make} {phone.model} — {phone.macAddress}{phone.isAssigned && phone.assignedToEmail ? ` (assigned to ${phone.assignedToEmail})` : ""}
                         </option>
                       ))}
                     </select>
@@ -1394,8 +1394,8 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
                     >
                       <option value="">— Select Computer —</option>
                       {pcDevices.map((pc) => (
-                        <option key={pc.computerId} value={pc.computerId}>
-                          {pc.make} {pc.model} — {pc.serviceTag}{pc.isAssigned && pc.assignedToEmail ? ` (${pc.assignedToEmail})` : ""}
+                        <option key={pc.computerId} value={pc.computerId} disabled={pc.isAssigned}>
+                          {pc.make} {pc.model} — {pc.serviceTag}{pc.isAssigned && pc.assignedToEmail ? ` (assigned to ${pc.assignedToEmail})` : ""}
                         </option>
                       ))}
                     </select>
