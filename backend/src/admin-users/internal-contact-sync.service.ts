@@ -138,7 +138,7 @@ type InternalContactSyncModel = {
 
 type SqlExecutor = Pick<DataSource | EntityManager, 'query'>;
 
-const DEFAULT_INTERNAL_ROLE_NAME = 'Internal Staff';
+const DEFAULT_INTERNAL_ROLE_NAME = 'Unknown';
 const DEFAULT_DEPARTMENT_NAME = 'Unknown';
 const SYNC_AUDIT_USER = 'Entra manual sync';
 const GRAPH_BASE_URL = 'https://graph.microsoft.com/v1.0';

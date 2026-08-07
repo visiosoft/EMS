@@ -159,15 +159,13 @@ export function UserProfileDetail({ user, onBack, addToast }: UserProfileDetailP
 // ─── Shared Field Components ──────────────────────────────────────────────────
 
 function ReadOnlyField({ label, value, source }: { label: string; value: string; source?: DataSource }) {
-  const isEntra = source === 'entra';
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-1.5">
         <label className="text-xs font-medium text-text-muted">{label}</label>
-        {isEntra && <SourceBadge source={source!} />}
         <Lock className="h-3 w-3 text-text-muted/50" />
       </div>
-      <div className={`rounded-md border border-border px-3 py-2 text-sm text-text-secondary ${isEntra ? 'bg-gray-100 dark:bg-gray-800' : 'bg-white dark:bg-white/5'}`}>
+      <div className="rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-secondary">
         {value || '—'}
       </div>
     </div>
@@ -196,13 +194,12 @@ function SelectField({
     <div className="space-y-1">
       <div className="flex items-center gap-1.5">
         <label className="text-xs font-medium text-text-muted">{label}</label>
-        {isEntra && <SourceBadge source={source!} />}
       </div>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
-        className={`w-full rounded-md border border-border px-3 py-2 text-sm text-text-primary focus:border-ems-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${isEntra ? 'bg-gray-100 dark:bg-gray-800' : 'bg-white dark:bg-white/5'}`}
+        className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-primary focus:border-ems-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
       >
         <option value="">— Select —</option>
         {options.map((opt) => (
@@ -248,7 +245,6 @@ function ReadOnlyWithWmsLink({ label, value, source, contactId }: { label: strin
     <div className="space-y-1">
       <div className="flex items-center gap-1.5">
         <label className="text-xs font-medium text-text-muted">{label}</label>
-        {source && <SourceBadge source={source} />}
         <Lock className="h-3 w-3 text-text-muted/50" />
       </div>
       <div className="rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-secondary">
@@ -316,7 +312,6 @@ function HashedField({ label, value, source }: { label: string; value: string; s
     <div className="space-y-1">
       <div className="flex items-center gap-1.5">
         <label className="text-xs font-medium text-text-muted">{label}</label>
-        {source && <SourceBadge source={source} />}
         <Lock className="h-3 w-3 text-text-muted/50" />
       </div>
       <div className="flex items-center gap-2">
