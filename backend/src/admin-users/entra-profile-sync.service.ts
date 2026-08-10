@@ -1862,13 +1862,15 @@ export class EntraProfileSyncService {
     const pcTagComposite = composePCServiceTag(current.equipment);
     if (pcTagComposite !== (entra.emsAttributes.PCServiceTag ?? '')) csaPayload.PCServiceTag = pcTagComposite || null;
 
-    // 3. PATCH native properties (may fail for guest/external users — non-fatal)
+    // 3. PATCH native properties. If this fails, still attempt CSA writes, then surface
+    // the native failure so the UI can warn that Entra was not fully updated.
     const nativeKeys = Object.keys(nativePayload);
+    let nativePatchFailure: string | null = null;
     if (nativeKeys.length > 0) {
       try {
         await this.graphPatch(accessToken, `${GRAPH_BASE_URL}/users/${userId}`, nativePayload);
-      } catch {
-        // Guest users can't have native properties written — continue with CSAs
+      } catch (error) {
+        nativePatchFailure = error instanceof Error ? error.message : String(error ?? 'Unknown error');
       }
     }
 
@@ -1882,6 +1884,12 @@ export class EntraProfileSyncService {
           },
         },
       });
+    }
+
+    if (nativePatchFailure) {
+      throw new Error(
+        `Native Entra field update failed (${nativeKeys.join(', ')}): ${nativePatchFailure}`,
+      );
     }
   }
 

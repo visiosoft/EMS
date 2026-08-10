@@ -178,9 +178,15 @@ export interface UpdateMyProfilePayload {
   pcComputerId?: number | null;
 }
 
+export interface UpdateMyProfileResponse {
+  success: true;
+  entraSyncWarningCode?: 'permissionRestricted' | 'syncFailed';
+  entraSyncWarning?: string;
+}
+
 /** Save WMS-editable fields for the signed-in employee. */
-export function updateMyProfile(payload: UpdateMyProfilePayload): Promise<{ success: true }> {
-  return apiFetch<{ success: true }>('/internal/my-profile', {
+export function updateMyProfile(payload: UpdateMyProfilePayload): Promise<UpdateMyProfileResponse> {
+  return apiFetch<UpdateMyProfileResponse>('/internal/my-profile', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -188,8 +194,8 @@ export function updateMyProfile(payload: UpdateMyProfilePayload): Promise<{ succ
 }
 
 /** Administrator saves WMS-editable fields for another employee. */
-export function updateEmployeeProfile(contactId: number, payload: UpdateMyProfilePayload): Promise<{ success: true }> {
-  return apiFetch<{ success: true }>(`/internal/employees/${contactId}/profile`, {
+export function updateEmployeeProfile(contactId: number, payload: UpdateMyProfilePayload): Promise<UpdateMyProfileResponse> {
+  return apiFetch<UpdateMyProfileResponse>(`/internal/employees/${contactId}/profile`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

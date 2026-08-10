@@ -29,6 +29,7 @@ import {
   updateMyProfile,
   updateEmployeeProfile,
 } from "@/api/selfProfileApi";
+import { ToastContainer, type ToastItem } from "@/components/ems/Primitives";
 import { fetchWorkstations, fetchPhoneExtensions, fetchPhoneDevices, fetchPcDevices } from "@/api/employeeEmploymentApi";
 import { fetchEmployeeHealthInsurance, bulkUpdateHealthInsurance, type HealthPlanOption, type BulkUpdateHealthInsuranceRequest, type EmployeeHealthInsurance } from "@/api/employeeHealthInsuranceApi";
 import { formatE164ForDisplay } from "@/lib/contactPhoneField";
@@ -620,6 +621,14 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
   const canEdit = editable && !limited;
   const canEditAdminFields = canEdit && profile.isAdmin;
   const queryClient = useQueryClient();
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const addToast = useCallback((message: string, type: ToastItem['type'], title?: string) => {
+    const id = Date.now().toString();
+    setToasts((prev) => [...prev, { id, message, type, title }]);
+  }, []);
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
   const profileQueryKey = targetContactId ? ["employee-profile", targetContactId] : ["self-profile"];
   const isRefetchingProfile = useIsFetching({ queryKey: profileQueryKey }) > 0;
 
@@ -693,13 +702,27 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
       targetContactId
         ? updateEmployeeProfile(targetContactId, payload)
         : updateMyProfile(payload),
-    onSuccess: () => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries({
         queryKey: targetContactId ? ["employee-profile", targetContactId] : ["self-profile"],
       });
       setEditingPersonal(false);
       setEditingEmployment(false);
       setEditingProperty(false);
+      if (response.entraSyncWarningCode) {
+        addToast(
+          response.entraSyncWarning ||
+            "Data saved in database, but not updated in Entra. Check permissions/roles or Graph sync errors.",
+          "warning",
+          "Saved in database, not updated in Entra",
+        );
+      } else {
+        addToast(
+          "Data saved in database and updated in Entra.",
+          "success",
+          "Data saved successfully",
+        );
+      }
     },
   });
 
@@ -1511,6 +1534,7 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
           </div>
         </SectionShell>
       )}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }

@@ -1572,7 +1572,7 @@ export function SettingsPage({
       );
       if (result.skippedJobTitleWrites > 0) {
         addToast(
-          `${result.skippedJobTitleWrites} job title value(s) were skipped because ContactInfo.JobTitle is not added yet.`,
+          `${result.skippedJobTitleWrites} job title value(s) were skipped because JobTitle is not available on ContactInfo or EmployeeProfile in this database.`,
           'warning',
         );
       }
