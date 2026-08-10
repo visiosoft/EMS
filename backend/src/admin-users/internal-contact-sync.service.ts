@@ -325,6 +325,7 @@ export class InternalContactSyncService {
             model.preview.internalCompany.companyId,
             user,
             model.ciJobTitleAvailable,
+            model.preview.jobTitleColumnAvailable,
           );
           created += 1;
           skippedJobTitleWrites += result.skippedJobTitleWrites;
@@ -337,6 +338,7 @@ export class InternalContactSyncService {
             contact,
             user,
             model.ciJobTitleAvailable,
+            model.preview.jobTitleColumnAvailable,
             selectedFields,
           );
           updated += 1;
@@ -947,12 +949,9 @@ export class InternalContactSyncService {
     const rows = await executor.query(
       `
       SELECT 1 AS hasColumn
-      FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_SCHEMA = 'dbo'
-        AND (
-          (TABLE_NAME = 'ContactInfo' AND COLUMN_NAME = 'JobTitle')
-          OR (TABLE_NAME = 'EmployeeProfile' AND COLUMN_NAME = 'JobTitle')
-        )
+      WHERE
+        COL_LENGTH('dbo.ContactInfo', 'JobTitle') IS NOT NULL
+        OR COL_LENGTH('dbo.EmployeeProfile', 'JobTitle') IS NOT NULL
       `,
     );
     return rows.length > 0;
@@ -962,8 +961,7 @@ export class InternalContactSyncService {
     executor: SqlExecutor = this.dataSource,
   ): Promise<boolean> {
     const rows = await executor.query(
-      `SELECT 1 AS x FROM INFORMATION_SCHEMA.COLUMNS
-       WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='ContactInfo' AND COLUMN_NAME='JobTitle'`,
+      `SELECT 1 AS x WHERE COL_LENGTH('dbo.ContactInfo', 'JobTitle') IS NOT NULL`,
     );
     return rows.length > 0;
   }
@@ -1268,6 +1266,8 @@ export class InternalContactSyncService {
     );
     if (jobTitleColumnAvailable) {
       addOptionalChange(changes, 'jobTitle', 'Job Title', null, trimToMax(contact.jobTitle, 150));
+    } else {
+      this.addJobTitleChange(changes, null, contact.jobTitle, false);
     }
     return changes;
   }
@@ -1318,15 +1318,12 @@ export class InternalContactSyncService {
       user.department,
       primaryDepartmentName(contact),
     );
-    if (jobTitleColumnAvailable) {
-      addComparableChange(
-        changes,
-        'jobTitle',
-        'Job Title',
-        user.jobTitle,
-        trimToMax(contact.jobTitle, 150),
-      );
-    }
+    this.addJobTitleChange(
+      changes,
+      user.jobTitle,
+      contact.jobTitle,
+      jobTitleColumnAvailable,
+    );
     if (!user.accountEnabled) {
       changes.push(change('accountEnabled', 'Account Status', 'Disabled', 'Active'));
     }
@@ -1345,7 +1342,7 @@ export class InternalContactSyncService {
       changes.push(
         change('jobTitle', 'Job Title', currentValue, nextValue, {
           skipped: true,
-          reason: 'ContactInfo.JobTitle column has not been added yet.',
+          reason: 'JobTitle is not available on dbo.ContactInfo or dbo.EmployeeProfile.',
         }),
       );
       return;
@@ -1383,7 +1380,8 @@ export class InternalContactSyncService {
     manager: EntityManager,
     companyId: number,
     user: AdminDirectorySyncUser,
-    jobTitleColumnAvailable: boolean,
+    contactInfoJobTitleAvailable: boolean,
+    anyJobTitleTargetAvailable: boolean,
   ): Promise<{ skippedJobTitleWrites: number }> {
     const names = getEntraNames(user);
     const email = trimToMax(user.email, 254);
@@ -1416,7 +1414,7 @@ export class InternalContactSyncService {
 
     // 2. Upsert ContactInfo
     if (!contactInfoId) {
-      const contactInfoRows = jobTitleColumnAvailable
+      const contactInfoRows = contactInfoJobTitleAvailable
         ? await manager.query(
             `
             DECLARE @OutputTable TABLE (ContactInfoID int);
@@ -1458,7 +1456,7 @@ export class InternalContactSyncService {
         throw new BadRequestException('Unable to create internal contact info.');
       }
     } else {
-      if (jobTitleColumnAvailable) {
+      if (contactInfoJobTitleAvailable) {
         await manager.query(
           `
           UPDATE dbo.ContactInfo
@@ -1519,7 +1517,7 @@ export class InternalContactSyncService {
     }
 
     return {
-      skippedJobTitleWrites: jobTitle && !jobTitleColumnAvailable ? 1 : 0,
+      skippedJobTitleWrites: jobTitle && !anyJobTitleTargetAvailable ? 1 : 0,
     };
   }
 
@@ -1528,7 +1526,8 @@ export class InternalContactSyncService {
     companyId: number,
     contact: InternalContactSnapshot,
     user: AdminDirectorySyncUser,
-    jobTitleColumnAvailable: boolean,
+    contactInfoJobTitleAvailable: boolean,
+    anyJobTitleTargetAvailable: boolean,
     selectedFieldsArray?: string[],
   ): Promise<{ skippedJobTitleWrites: number }> {
     const selectedFields = selectedFieldsArray ? new Set(selectedFieldsArray) : null;
@@ -1545,7 +1544,7 @@ export class InternalContactSyncService {
     const finalWorkPhone = selectedFields && !selectedFields.has('workPhone') ? contact.workPhone : workPhone;
     const finalJobTitle = selectedFields && !selectedFields.has('jobTitle') ? contact.jobTitle : nullableText(jobTitle);
 
-    if (jobTitleColumnAvailable) {
+    if (contactInfoJobTitleAvailable) {
       await manager.query(
         `
         UPDATE dbo.ContactInfo
@@ -1608,7 +1607,10 @@ export class InternalContactSyncService {
     }
 
     return {
-      skippedJobTitleWrites: (!selectedFields || selectedFields.has('jobTitle')) && jobTitle && !jobTitleColumnAvailable ? 1 : 0,
+      skippedJobTitleWrites:
+        (!selectedFields || selectedFields.has('jobTitle')) && jobTitle && !anyJobTitleTargetAvailable
+          ? 1
+          : 0,
     };
   }
 

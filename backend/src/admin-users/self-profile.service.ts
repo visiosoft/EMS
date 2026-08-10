@@ -152,6 +152,12 @@ type ResolvedContact = {
  */
 type ViewerContext = { isSelf: boolean; isAdmin: boolean };
 
+export type ProfileUpdateResult = {
+  success: true;
+  entraSyncWarningCode?: 'permissionRestricted' | 'syncFailed';
+  entraSyncWarning?: string;
+};
+
 /** Company main desk line — static per spec ("Administrator Entered and static as (312) 274-1800"). */
 const STATIC_DESK_PHONE_NUMBER = '(312) 274-1800';
 
@@ -200,7 +206,7 @@ export class SelfProfileService {
    * Save WMS-editable fields for the signed-in employee.
    * Non-admin employees can only edit: cellPhone, workPhone, homeAddress, emergencyContacts.
    */
-  async updateMyProfile(dto: UpdateMyProfileDto): Promise<{ success: true }> {
+  async updateMyProfile(dto: UpdateMyProfileDto): Promise<ProfileUpdateResult> {
     const emails = this.signedInEmailCandidates();
     if (emails.length === 0) throw new Error('Signed-in user email was not found.');
 
@@ -214,7 +220,7 @@ export class SelfProfileService {
   }
 
   /** Administrator edits another employee — rejects if the viewer is not admin. */
-  async updateEmployeeProfile(targetContactId: number, dto: UpdateMyProfileDto): Promise<{ success: true }> {
+  async updateEmployeeProfile(targetContactId: number, dto: UpdateMyProfileDto): Promise<ProfileUpdateResult> {
     const viewerEmails = this.signedInEmailCandidates();
     if (viewerEmails.length === 0) throw new Error('Signed-in user email was not found.');
 
@@ -233,7 +239,7 @@ export class SelfProfileService {
   private async applyProfileUpdate(
     base: ResolvedContact,
     dto: UpdateMyProfileDto,
-  ): Promise<{ success: true }> {
+  ): Promise<ProfileUpdateResult> {
     const { contactId, contactInfoId, contactAssignmentId } = base;
 
     // 1. Update ContactInfo (CellPhone, WorkPhone)
@@ -415,17 +421,59 @@ export class SelfProfileService {
 
     // WMS→Entra push: native properties need User.ReadWrite.All + tenant-native user;
     // external/B2B users get 403 on native props (home-tenant managed) — CSAs still work.
+    let entraSyncWarningCode: ProfileUpdateResult['entraSyncWarningCode'] | null = null;
+    let entraSyncWarning: string | null = null;
     try {
       const pushResult = await this.entraProfileSyncService
         .applyEmsToEntraProfileSync(undefined, base.email);
       if (pushResult.errors > 0 || pushResult.updated === 0) {
         console.error('[WMS→Entra]', base.email, JSON.stringify(pushResult.rows.map(r => ({ status: r.status, error: r.error, changes: r.changes.length }))));
       }
+      const syncErrors = pushResult.rows
+        .map((row) => row.error)
+        .filter((message): message is string => Boolean(message));
+      if (syncErrors.some((message) => this.isEntraPermissionRestrictedMessage(message))) {
+        const reason = this.formatEntraSyncReason();
+        entraSyncWarningCode = 'permissionRestricted';
+        entraSyncWarning = `Data saved in database, but not updated in Entra. Reason: ${reason}`;
+      } else if (syncErrors.length > 0) {
+        entraSyncWarningCode = 'syncFailed';
+        entraSyncWarning = `Data saved in database, but not updated in Entra. Reason: ${this.formatEntraSyncReason()}`;
+      }
     } catch (err: any) {
       console.error('[WMS→Entra] Exception for', base.email, err?.message ?? err);
+      const errText = err?.message ?? String(err ?? 'Unknown error');
+      if (this.isEntraPermissionRestrictedMessage(errText)) {
+        const reason = this.formatEntraSyncReason();
+        entraSyncWarningCode = 'permissionRestricted';
+        entraSyncWarning = `Data saved in database, but not updated in Entra. Reason: ${reason}`;
+      } else {
+        entraSyncWarningCode = 'syncFailed';
+        entraSyncWarning = `Data saved in database, but not updated in Entra. Reason: ${this.formatEntraSyncReason()}`;
+      }
     }
 
+    if (entraSyncWarning) {
+      return {
+        success: true,
+        entraSyncWarningCode: entraSyncWarningCode ?? 'syncFailed',
+        entraSyncWarning,
+      };
+    }
     return { success: true };
+  }
+
+  private isEntraPermissionRestrictedMessage(error: unknown): boolean {
+    const text = typeof error === 'string'
+      ? error
+      : error instanceof Error
+        ? error.message
+        : String(error ?? '');
+    return /403|forbidden|insufficient privileges|authorization_requestdenied|user administrator|permission/i.test(text);
+  }
+
+  private formatEntraSyncReason(): string {
+    return 'Entra denied this profile update. Likely causes: missing Graph permission/consent, Guest/B2B account, or protected admin account.';
   }
 
   private async upsertHomeAddress(
