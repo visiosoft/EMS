@@ -552,7 +552,7 @@ export class EmployeeEmploymentService {
   ): Promise<void> {
     const graphToken = this.auditContext.getGraphAccessToken();
     const nativePayload: Record<string, unknown> = {};
-    const csaPayload: Record<string, string | null> = {};
+    const csaPayload: Record<string, string | boolean | string[] | null> = {};
 
     // Native Graph properties
     if (dto.startDate !== undefined) {
@@ -565,17 +565,16 @@ export class EmployeeEmploymentService {
     }
     if (dto.office !== undefined) {
       nativePayload.officeLocation = dto.office?.trim() || null;
-      csaPayload.Office = dto.office?.trim() || null;
     }
 
     // Custom Security Attributes
     if (dto.supervisor !== undefined) csaPayload.Supervisor = dto.supervisor?.trim() || null;
     if (dto.workAuthorization !== undefined) csaPayload.WorkAuthorization = dto.workAuthorization?.trim() || null;
     if (dto.workstation !== undefined) csaPayload.Workstation = dto.workstation?.trim() || null;
-    if (dto.ptoAccrualRate !== undefined) csaPayload.PTOAccrualRate = dto.ptoAccrualRate?.trim() || null;
-    if (dto.employmentAgreement !== undefined) csaPayload.EmploymentAgreement = dto.employmentAgreement?.trim() || null;
-    if (dto.rampAccount !== undefined) csaPayload.RampAccount = dto.rampAccount?.trim() || null;
-    if (dto.rampCreditCard !== undefined) csaPayload.RampCreditCard = dto.rampCreditCard?.trim() || null;
+    if (dto.ptoAccrualRate !== undefined) csaPayload.PTOAccrual = dto.ptoAccrualRate?.trim() || null;
+    if (dto.employmentAgreement !== undefined) csaPayload.EmploymentAgreement = parseBooleanLikeOrString(dto.employmentAgreement);
+    if (dto.rampAccount !== undefined) csaPayload.RampAccount = parseBooleanLikeOrString(dto.rampAccount);
+    if (dto.rampCreditCard !== undefined) csaPayload.RampCard = dto.rampCreditCard?.trim() || null;
 
     // Equipment — look up newly assigned phone/computer properties and push to Entra
     if (dto.deskPhoneId !== undefined) {
@@ -1108,6 +1107,14 @@ function nullableDate(value: string | null | undefined): string | null {
   const d = new Date(cleaned);
   if (isNaN(d.getTime())) return null;
   return d.toISOString().slice(0, 10);
+}
+
+function parseBooleanLikeOrString(value: string | null | undefined): string | boolean | null {
+  const cleaned = cleanText(value).toLowerCase();
+  if (!cleaned) return null;
+  if (cleaned === 'true' || cleaned === 'yes' || cleaned === 'y' || cleaned === '1') return true;
+  if (cleaned === 'false' || cleaned === 'no' || cleaned === 'n' || cleaned === '0') return false;
+  return cleanText(value) || null;
 }
 
 function readString(
