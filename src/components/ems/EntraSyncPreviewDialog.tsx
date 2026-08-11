@@ -39,10 +39,7 @@ export function EntraSyncPreviewDialog({
   const queryClient = useQueryClient();
   const TOOLTIP_LENGTH_THRESHOLD = 40;
   const visibleChanges = tabFields
-    ? [
-        ...changes.filter((c) => tabFields.includes(c.field)),
-        ...changes.filter((c) => !tabFields.includes(c.field)),
-      ]
+    ? changes.filter((c) => tabFields.includes(c.field))
     : changes;
 
   const [selected, setSelected] = useState<Set<string>>(
