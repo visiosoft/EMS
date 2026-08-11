@@ -287,7 +287,8 @@ export class SelfProfileService {
 
     // 2b. Update Work Authorization Link
     if (dto.workAuthorizationLinkUrl !== undefined) {
-      if (await this.tableExists('EmployeeProfile') && await this.hasColumn('EmployeeProfile', 'WorthAuthorizationLinkId')) {
+      const workAuthLinkColumn = await this.getWorkAuthorizationLinkColumn();
+      if (await this.tableExists('EmployeeProfile') && workAuthLinkColumn) {
         const linkId = await this.upsertWorkAuthLink(dto.workAuthorizationLinkUrl, contactId);
         const exists = await this.dataSource.query(
           `SELECT 1 AS found FROM dbo.EmployeeProfile WHERE ContactID = @0`,
@@ -295,12 +296,12 @@ export class SelfProfileService {
         );
         if (exists.length > 0) {
           await this.dataSource.query(
-            `UPDATE dbo.EmployeeProfile SET WorthAuthorizationLinkId = @0 WHERE ContactID = @1`,
+            `UPDATE dbo.EmployeeProfile SET ${workAuthLinkColumn} = @0 WHERE ContactID = @1`,
             [linkId, contactId],
           );
         } else {
           await this.dataSource.query(
-            `INSERT INTO dbo.EmployeeProfile (ContactID, WorthAuthorizationLinkId) VALUES (@0, @1)`,
+            `INSERT INTO dbo.EmployeeProfile (ContactID, ${workAuthLinkColumn}) VALUES (@0, @1)`,
             [contactId, linkId],
           );
         }
@@ -596,9 +597,9 @@ export class SelfProfileService {
 
     // Resolve Work Authorization Link URL from Link table
     let workAuthLinkUrl = '';
-    const hasWalCol = hasEmployeeProfile ? await this.hasColumn('EmployeeProfile', 'WorthAuthorizationLinkId') : false;
-    if (hasWalCol) {
-      const walLinkId = readNumber(profileRow, 'WorthAuthorizationLinkId');
+    const workAuthLinkColumn = hasEmployeeProfile ? await this.getWorkAuthorizationLinkColumn() : null;
+    if (workAuthLinkColumn) {
+      const walLinkId = readNumber(profileRow, workAuthLinkColumn);
       if (walLinkId) {
         const linkRows = await this.dataSource.query(`SELECT TOP 1 LinkURL FROM dbo.Link WHERE LinkID = @0`, [walLinkId]);
         workAuthLinkUrl = (linkRows as Record<string, unknown>[])?.[0]?.LinkURL as string ?? '';
@@ -1048,18 +1049,25 @@ export class SelfProfileService {
     return rows.length > 0;
   }
 
+  private async getWorkAuthorizationLinkColumn(): Promise<'WorkAuthorizationLinkId' | 'WorthAuthorizationLinkId' | 'wrokAuthorizationlickid' | null> {
+    if (await this.hasColumn('EmployeeProfile', 'WorkAuthorizationLinkId')) return 'WorkAuthorizationLinkId';
+    if (await this.hasColumn('EmployeeProfile', 'WorthAuthorizationLinkId')) return 'WorthAuthorizationLinkId';
+    if (await this.hasColumn('EmployeeProfile', 'wrokAuthorizationlickid')) return 'wrokAuthorizationlickid';
+    return null;
+  }
+
   private async upsertWorkAuthLink(url: string | null | undefined, contactId: number): Promise<number | null> {
     const trimmed = url?.trim() || null;
     if (!trimmed) return null;
     // Check existing
-    const hasWalCol = await this.hasColumn('EmployeeProfile', 'WorthAuthorizationLinkId');
+    const workAuthLinkColumn = await this.getWorkAuthorizationLinkColumn();
     let existingLinkId: number | null = null;
-    if (hasWalCol) {
+    if (workAuthLinkColumn) {
       const epRows = await this.dataSource.query(
-        `SELECT TOP 1 WorthAuthorizationLinkId FROM dbo.EmployeeProfile WHERE ContactID = @0`,
+        `SELECT TOP 1 ${workAuthLinkColumn} FROM dbo.EmployeeProfile WHERE ContactID = @0`,
         [contactId],
       );
-      existingLinkId = (epRows as Record<string, unknown>[])?.[0]?.WorthAuthorizationLinkId as number | null;
+      existingLinkId = readNumber((epRows as Record<string, unknown>[])?.[0], workAuthLinkColumn);
     }
     if (existingLinkId) {
       await this.dataSource.query(`UPDATE dbo.Link SET LinkURL = @0, LinkPath = @1 WHERE LinkID = @2`, [trimmed, trimmed.slice(0, 1024), existingLinkId]);

@@ -267,9 +267,10 @@ export class EmployeeEmploymentService {
         if (dto.accessLevel !== undefined) { setClauses.push(`AccessLevel = @${paramIdx}`); params.push(nullableText(dto.accessLevel)); paramIdx++; }
         if (dto.workAuthorization !== undefined) { setClauses.push(`WorkAuthorization = @${paramIdx}`); params.push(nullableText(dto.workAuthorization)); paramIdx++; }
         // Work Authorization Link — upsert into dbo.Link, store LinkID
-        if (dto.workAuthorizationLinkUrl !== undefined && await this.hasColumn(manager, 'EmployeeProfile', 'WorthAuthorizationLinkId')) {
+        const workAuthLinkColumn = await this.getWorkAuthorizationLinkColumn(manager);
+        if (dto.workAuthorizationLinkUrl !== undefined && workAuthLinkColumn) {
           const linkId = await this.upsertWorkAuthLink(manager, dto.workAuthorizationLinkUrl, current.contactId);
-          setClauses.push(`WorthAuthorizationLinkId = @${paramIdx}`); params.push(linkId as unknown as string); paramIdx++;
+          setClauses.push(`${workAuthLinkColumn} = @${paramIdx}`); params.push(linkId as unknown as string); paramIdx++;
         }
         if (dto.startDate !== undefined) { setClauses.push(`StartDate = @${paramIdx}`); params.push(nullableDate(dto.startDate)); paramIdx++; }
         if (dto.supervisor !== undefined) { setClauses.push(`Supervisor = @${paramIdx}`); params.push(nullableText(dto.supervisor)); paramIdx++; }
@@ -290,29 +291,39 @@ export class EmployeeEmploymentService {
           console.log('[EmpProfile] UPDATE result:', updateResult);
         }
       } else {
+        const workAuthLinkColumn = await this.getWorkAuthorizationLinkColumn(manager);
+        const insertColumns = [
+          'ContactID', 'AccessLevel', 'WorkAuthorization', 'StartDate', 'Supervisor',
+          'PTOAccrualRate', 'EmploymentAgreement', 'RampAccount', 'RampCreditCard', 'Workstation',
+          ...(workAuthLinkColumn && dto.workAuthorizationLinkUrl !== undefined ? [workAuthLinkColumn] : []),
+          'created_by', 'created_at', 'modified_by', 'modified_at',
+        ];
+        const workAuthLinkId = workAuthLinkColumn && dto.workAuthorizationLinkUrl !== undefined
+          ? await this.upsertWorkAuthLink(manager, dto.workAuthorizationLinkUrl, current.contactId)
+          : undefined;
+        const insertParams = [
+          current.contactId,
+          nullableText(dto.accessLevel),
+          nullableText(dto.workAuthorization),
+          nullableDate(dto.startDate),
+          nullableText(dto.supervisor),
+          nullableText(dto.ptoAccrualRate),
+          nullableText(dto.employmentAgreement),
+          nullableText(dto.rampAccount),
+          nullableText(dto.rampCreditCard),
+          nullableText(dto.workstation),
+          ...(workAuthLinkColumn && dto.workAuthorizationLinkUrl !== undefined ? [workAuthLinkId ?? null] : []),
+          modifiedBy,
+        ];
+        const placeholders = insertParams.map((_, index) => `@${index}`).join(', ');
         await manager.query(
           `
           INSERT INTO dbo.EmployeeProfile
-            (ContactID, AccessLevel, WorkAuthorization, StartDate, Supervisor,
-             PTOAccrualRate, EmploymentAgreement, RampAccount, RampCreditCard, Workstation,
-             created_by, created_at, modified_by, modified_at)
+            (${insertColumns.join(', ')})
           VALUES
-            (@0, @1, @2, @3, @4, @5, @6, @7, @8, @9,
-             @10, SYSUTCDATETIME(), @10, SYSUTCDATETIME())
+            (${placeholders.slice(0, -4)}, @${insertParams.length - 1}, SYSUTCDATETIME(), @${insertParams.length - 1}, SYSUTCDATETIME())
           `,
-          [
-            current.contactId,
-            nullableText(dto.accessLevel),
-            nullableText(dto.workAuthorization),
-            nullableDate(dto.startDate),
-            nullableText(dto.supervisor),
-            nullableText(dto.ptoAccrualRate),
-            nullableText(dto.employmentAgreement),
-            nullableText(dto.rampAccount),
-            nullableText(dto.rampCreditCard),
-            nullableText(dto.workstation),
-            modifiedBy,
-          ],
+          insertParams,
         );
       }
 
@@ -878,18 +889,18 @@ export class EmployeeEmploymentService {
       CAST('' AS nvarchar(100)) AS officeCountry`;
     let officeAddressJoin = '';
 
-    const hasWalCol = hasEpTable ? await this.hasColumn(this.dataSource, 'EmployeeProfile', 'WorthAuthorizationLinkId') : false;
+    const workAuthLinkColumn = hasEpTable ? await this.getWorkAuthorizationLinkColumn(this.dataSource) : null;
 
     if (hasEpTable) {
-      epJoin = hasWalCol
-        ? 'LEFT JOIN dbo.EmployeeProfile ep ON ep.ContactID = c.ContactID LEFT JOIN dbo.Link walLink ON walLink.LinkID = ep.WorthAuthorizationLinkId'
+      epJoin = workAuthLinkColumn
+        ? `LEFT JOIN dbo.EmployeeProfile ep ON ep.ContactID = c.ContactID LEFT JOIN dbo.Link walLink ON walLink.LinkID = ep.${workAuthLinkColumn}`
         : 'LEFT JOIN dbo.EmployeeProfile ep ON ep.ContactID = c.ContactID';
       epSelect = `
       COALESCE(ep.JobTitle, '') AS title,
       COALESCE(ep.Office, '') AS office,
       COALESCE(ep.AccessLevel, '') AS accessLevel,
       COALESCE(ep.WorkAuthorization, '') AS workAuthorization,
-      ${hasWalCol ? "COALESCE(walLink.LinkURL, '')" : "CAST('' AS nvarchar(2048))"} AS workAuthorizationLinkUrl,
+      ${workAuthLinkColumn ? "COALESCE(walLink.LinkURL, '')" : "CAST('' AS nvarchar(2048))"} AS workAuthorizationLinkUrl,
       ep.StartDate AS startDate,
       COALESCE(ep.Supervisor, '') AS supervisor,
       COALESCE(ep.PTOAccrualRate, '') AS ptoAccrualRate,
@@ -1024,6 +1035,15 @@ export class EmployeeEmploymentService {
     return rows.length > 0;
   }
 
+  private async getWorkAuthorizationLinkColumn(
+    executor: Pick<DataSource, 'query'>,
+  ): Promise<'WorkAuthorizationLinkId' | 'WorthAuthorizationLinkId' | 'wrokAuthorizationlickid' | null> {
+    if (await this.hasColumn(executor, 'EmployeeProfile', 'WorkAuthorizationLinkId')) return 'WorkAuthorizationLinkId';
+    if (await this.hasColumn(executor, 'EmployeeProfile', 'WorthAuthorizationLinkId')) return 'WorthAuthorizationLinkId';
+    if (await this.hasColumn(executor, 'EmployeeProfile', 'wrokAuthorizationlickid')) return 'wrokAuthorizationlickid';
+    return null;
+  }
+
   /** Upsert a URL into dbo.Link for Work Authorization Photos, returning the LinkID or null. */
   private async upsertWorkAuthLink(
     executor: Pick<DataSource, 'query'>,
@@ -1033,14 +1053,14 @@ export class EmployeeEmploymentService {
     const trimmed = url?.trim() || null;
     if (!trimmed) return null;
     // Check existing link id (column may not exist yet)
-    const hasWalCol = await this.hasColumn(executor as Pick<DataSource, 'query'>, 'EmployeeProfile', 'WorthAuthorizationLinkId');
+    const workAuthLinkColumn = await this.getWorkAuthorizationLinkColumn(executor as Pick<DataSource, 'query'>);
     let existingLinkId: number | null = null;
-    if (hasWalCol) {
+    if (workAuthLinkColumn) {
       const epRows = await executor.query(
-        `SELECT TOP 1 WorthAuthorizationLinkId FROM dbo.EmployeeProfile WHERE ContactID = @0`,
+        `SELECT TOP 1 ${workAuthLinkColumn} FROM dbo.EmployeeProfile WHERE ContactID = @0`,
         [contactId],
       );
-      existingLinkId = (epRows as Record<string, unknown>[])?.[0]?.WorthAuthorizationLinkId as number | null;
+      existingLinkId = readNumber((epRows as Record<string, unknown>[])?.[0], workAuthLinkColumn);
     }
     if (existingLinkId) {
       await executor.query(

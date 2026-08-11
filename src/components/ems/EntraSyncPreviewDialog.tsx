@@ -37,8 +37,12 @@ export function EntraSyncPreviewDialog({
   invalidateKeys,
 }: EntraSyncPreviewDialogProps) {
   const queryClient = useQueryClient();
+  const TOOLTIP_LENGTH_THRESHOLD = 40;
   const visibleChanges = tabFields
-    ? changes.filter((c) => tabFields.includes(c.field))
+    ? [
+        ...changes.filter((c) => tabFields.includes(c.field)),
+        ...changes.filter((c) => !tabFields.includes(c.field)),
+      ]
     : changes;
 
   const [selected, setSelected] = useState<Set<string>>(
@@ -133,6 +137,12 @@ export function EntraSyncPreviewDialog({
 
             <div className="space-y-2">
               {visibleChanges.map((change) => (
+                (() => {
+                  const fromValue = change.from || "(empty)";
+                  const toValue = change.to || "(empty)";
+                  const fromTooltip = fromValue.length > TOOLTIP_LENGTH_THRESHOLD ? fromValue : undefined;
+                  const toTooltip = toValue.length > TOOLTIP_LENGTH_THRESHOLD ? toValue : undefined;
+                  return (
                 <label
                   key={change.field}
                   className="flex cursor-pointer items-start gap-3 rounded-md border border-neutral-200 bg-neutral-50/60 px-3 py-2.5 transition-colors hover:bg-neutral-100"
@@ -148,19 +158,27 @@ export function EntraSyncPreviewDialog({
                     </div>
                     <div className="mt-1.5 grid grid-cols-[1fr_auto_1fr] items-center gap-1.5 text-xs">
                       <div className="min-w-0">
-                        <span className="block truncate rounded border border-red-200 bg-red-50 px-2 py-1 text-red-700">
-                          {change.from || "(empty)"}
+                        <span
+                          className="block truncate rounded border border-red-200 bg-red-50 px-2 py-1 text-red-700"
+                          title={fromTooltip}
+                        >
+                          {fromValue}
                         </span>
                       </div>
                       <ArrowRight className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
                       <div className="min-w-0">
-                        <span className="block truncate rounded border border-emerald-200 bg-emerald-50 px-2 py-1 font-medium text-emerald-700">
-                          {change.to || "(empty)"}
+                        <span
+                          className="block truncate rounded border border-emerald-200 bg-emerald-50 px-2 py-1 font-medium text-emerald-700"
+                          title={toTooltip}
+                        >
+                          {toValue}
                         </span>
                       </div>
                     </div>
                   </div>
                 </label>
+                  );
+                })()
               ))}
             </div>
           </>

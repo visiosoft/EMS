@@ -446,7 +446,7 @@ function PersonalTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolea
         tabFields={[
           'firstName', 'lastName', 'cellPhone', 'workPhone', 'middleName',
           'personalEmail', 'birthDate', 'ssn',
-          'streetAddress', 'city', 'state', 'postalCode', 'country',
+          'streetAddress', 'streetAddress2', 'city', 'state', 'postalCode', 'country',
           'emergencyContactName', 'emergencyContactPhone', 'emergencyContactEmail',
         ]}
         invalidateKeys={[['employee-personal-profile', user.email], ['employee-employment-profile', user.email]]}
@@ -547,8 +547,11 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
       <EntraSyncBanner
         email={user.email}
         tabFields={[
+          'email',
           'title', 'department', 'accessLevel', 'office', 'workstation', 'workAuthorization',
           'workAuthorizationLink',
+          'role',
+          'officeAddressStreet1', 'officeAddressStreet2', 'officeAddressCity', 'officeAddressState', 'officeAddressZip', 'officeAddressCountry',
           'departmentRank', 'startDate', 'supervisor', 'ptoAccrualRate',
           'employmentAgreement', 'rampAccount', 'rampCreditCard', 'employmentType',
         ]}
@@ -562,6 +565,8 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
           <ReadOnlyField label="Work Email" value={data?.workEmail || ''} source="ems" />
           <ReadOnlyField label="Department" value={data?.department || ''} source="ems" />
           <ReadOnlyField label="Office" value={data?.office || ''} source="ems" />
+          <ReadOnlyField label="Department Rank" value={data?.departmentRank || ''} source="admin" />
+          <ReadOnlyField label="Role" value={data?.role || ''} source="admin" />
         </div>
       </SectionCard>
 
@@ -583,10 +588,6 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
           {isAdmin && <ReadOnlyField label="Employment Agreement Fully Executed" value={data?.employmentAgreement || ''} source="admin" />}
           {isAdmin && <ReadOnlyField label="Ramp Account" value={data?.rampAccount || ''} source="admin" />}
           {isAdmin && <ReadOnlyField label="Ramp Credit Card" value={data?.rampCreditCard || ''} source="admin" />}
-          <ReadOnlyField label="Department Rank" value={data?.departmentRank || ''} source="admin" />
-          <ReadOnlyField label="Role" value={data?.role || ''} source="admin" />
-          <ReadOnlyField label="Company" value={user.companyName || ''} source="entra" />
-          <ReadOnlyField label="Employment Status" value={data?.employmentStatus || ''} source="admin" />
           <ReadOnlyField label="Employment Type" value={data?.employmentType || ''} source="admin" />
         </div>
       </SectionCard>
@@ -632,7 +633,11 @@ function PropertyTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolea
     <div className="space-y-4">
       <EntraSyncBanner
         email={user.email}
-        tabFields={['deskPhoneMac', 'deskPhoneBrand', 'pcServiceTag', 'pcWindowsName']}
+        tabFields={[
+          'deskPhoneExtension', 'deskPhoneMac', 'deskPhoneBrand', 'deskPhoneModel',
+          'pcServiceTag', 'pcWindowsName', 'pcBrand', 'pcModel', 'bluetoothStatus',
+          'pcDeviceType', 'pcNotes', 'pcEquipmentStatus', 'pcIsManagedByIT',
+        ]}
         invalidateKeys={[['employee-employment-profile', user.email], ['employee-personal-profile', user.email]]}
       />
       {profileQuery.isFetching && !profileQuery.isLoading && <RefetchingBanner />}

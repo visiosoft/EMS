@@ -847,11 +847,9 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
     { label: "Department", value: textOrDash(profile.basics.department), public: true },
     { label: "Department Rank", value: textOrDash(profile.employment.departmentRank) },
     { label: "Role", value: textOrDash(profile.basics.role) },
-    { label: "Company", value: textOrDash(profile.basics.company) },
     { label: "Start Date at IAE", value: formatDate(profile.employment.startDate), admin: true },
     { label: "Years of Service", value: textOrDash(profile.employment.yearsOfService), admin: true },
     { label: "Supervisor", value: textOrDash(profile.employment.supervisor) },
-    { label: "Employment Status", value: textOrDash(profile.employment.employmentStatus), admin: true },
     { label: "Employment Type", value: textOrDash(profile.employment.employmentType), admin: true },
     { label: "Paid Time Off Accrual Rate", value: textOrDash(profile.employment.ptoAccrualRate), admin: true },
     {
@@ -861,8 +859,6 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
     },
     { label: "Ramp Account", value: textOrDash(profile.employment.rampAccount), admin: true },
     { label: "Ramp Credit Card", value: textOrDash(profile.employment.rampCreditCard), admin: true },
-    { label: "Desk Phone Number", value: textOrDash(profile.equipment.deskPhoneNumber), public: true },
-    { label: "Desk Phone Extension", value: textOrDash(profile.equipment.deskPhoneExtension), public: true },
   ];
 
   const visiblePersonalFields = isPublic
@@ -918,17 +914,22 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
   const personalTabFields = [
     'firstName', 'lastName', 'cellPhone', 'workPhone', 'middleName',
     'personalEmail', 'birthDate', 'ssn',
-    'streetAddress', 'city', 'state', 'postalCode', 'country',
+    'streetAddress', 'streetAddress2', 'city', 'state', 'postalCode', 'country',
     'emergencyContactName', 'emergencyContactPhone', 'emergencyContactEmail',
   ];
   const employmentTabFields = [
+    'email',
     'title', 'department', 'accessLevel', 'office', 'workstation', 'workAuthorization',
     'workAuthorizationLink',
+    'role',
+    'officeAddressStreet1', 'officeAddressStreet2', 'officeAddressCity', 'officeAddressState', 'officeAddressZip', 'officeAddressCountry',
     'departmentRank', 'startDate', 'supervisor', 'ptoAccrualRate',
     'employmentAgreement', 'rampAccount', 'rampCreditCard', 'employmentType',
   ];
   const propertyTabFields = [
-    'deskPhoneMac', 'deskPhoneBrand', 'pcServiceTag', 'pcWindowsName',
+    'deskPhoneExtension', 'deskPhoneMac', 'deskPhoneBrand', 'deskPhoneModel',
+    'pcServiceTag', 'pcWindowsName', 'pcBrand', 'pcModel', 'bluetoothStatus',
+    'pcDeviceType', 'pcNotes', 'pcEquipmentStatus', 'pcIsManagedByIT',
   ];
 
   // ─── Tab state ─────────────────────────────────────────────────────────────
@@ -1234,11 +1235,9 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
                 <Field label="Department" value={textOrDash(profile.basics.department)} />
                 <Field label="Department Rank" value={textOrDash(profile.employment.departmentRank)} />
                 <Field label="Role" value={textOrDash(profile.basics.role)} />
-                <Field label="Company" value={textOrDash(profile.basics.company)} />
                 <Field label="Start Date at IAE" value={formatDate(profile.employment.startDate)} />
                 <Field label="Years of Service" value={textOrDash(profile.employment.yearsOfService)} />
                 <Field label="Supervisor" value={textOrDash(profile.employment.supervisor)} />
-                <Field label="Employment Status" value={textOrDash(profile.employment.employmentStatus)} />
                 <Field label="Employment Type" value={textOrDash(profile.employment.employmentType)} />
                 <Field label="Paid Time Off Accrual Rate" value={textOrDash(profile.employment.ptoAccrualRate)} />
                 <Field label="Employment Agreement Fully Executed" value={textOrDash(profile.employment.employmentAgreement)} />
