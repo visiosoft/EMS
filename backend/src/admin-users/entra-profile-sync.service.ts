@@ -77,6 +77,11 @@ type EMSCustomAttributes = {
   EMSAccessLevel?: string | null;
   Supervisor?: string | null;
   DepartmentRank?: number | string | null;
+  HomeAddressStreet1?: string | null;
+  HomeAddressCity?: string | null;
+  HomeAddressState?: string | null;
+  HomeAddressZip?: string | null;
+  HomeAddressCountry?: string | null;
   HomeAddressStreet2?: string | null;
   OfficeAddressStreet1?: string | null;
   OfficeAddressStreet2?: string | null;
@@ -403,6 +408,11 @@ export class EntraProfileSyncService {
       EMSAccessLevel: optStr(emsAttrs.EMSAccessLevel),
       Supervisor: optStr(emsAttrs.Supervisor),
       DepartmentRank: emsAttrs.DepartmentRank != null ? emsAttrs.DepartmentRank as number : null,
+      HomeAddressStreet1: optStr(emsAttrs.HomeAddressStreet1),
+      HomeAddressCity: optStr(emsAttrs.HomeAddressCity),
+      HomeAddressState: optStr(emsAttrs.HomeAddressState),
+      HomeAddressZip: optStr(emsAttrs.HomeAddressZip),
+      HomeAddressCountry: optStr(emsAttrs.HomeAddressCountry),
       HomeAddressStreet2: optStr(emsAttrs.HomeAddressStreet2),
       OfficeAddressStreet1: optStr(emsAttrs.OfficeAddressStreet1),
       OfficeAddressStreet2: optStr(emsAttrs.OfficeAddressStreet2),
@@ -705,12 +715,12 @@ export class EntraProfileSyncService {
     const currentState = readString(current.homeAddress, 'StateProvince');
     const currentPostalCode = readString(current.homeAddress, 'PostalCode');
     const currentCountry = readString(current.homeAddress, 'Country');
-    addChange(changes, 'streetAddress', 'Street Address', currentStreet, entra.user.streetAddress);
+    addChange(changes, 'streetAddress', 'Street Address', currentStreet, entra.emsAttributes.HomeAddressStreet1 ?? '');
     addChange(changes, 'streetAddress2', 'Street Address 2', currentStreet2, entra.emsAttributes.HomeAddressStreet2 ?? '');
-    addChange(changes, 'city', 'City', currentCity, entra.user.city);
-    addChange(changes, 'state', 'State / Province', currentState, entra.user.state);
-    addChange(changes, 'postalCode', 'Postal Code', currentPostalCode, entra.user.postalCode);
-    addChange(changes, 'country', 'Country', currentCountry, entra.user.country);
+    addChange(changes, 'city', 'City', currentCity, entra.emsAttributes.HomeAddressCity ?? '');
+    addChange(changes, 'state', 'State / Province', currentState, entra.emsAttributes.HomeAddressState ?? '');
+    addChange(changes, 'postalCode', 'Postal Code', currentPostalCode, entra.emsAttributes.HomeAddressZip ?? '');
+    addChange(changes, 'country', 'Country', currentCountry, entra.emsAttributes.HomeAddressCountry ?? '');
 
     // Office Address (CSA)
     const currentOfficeStreet1 = readString(current.officeAddress, 'AddressLine1');
@@ -719,12 +729,12 @@ export class EntraProfileSyncService {
     const currentOfficeState = readString(current.officeAddress, 'StateProvince');
     const currentOfficeZip = readString(current.officeAddress, 'PostalCode');
     const currentOfficeCountry = readString(current.officeAddress, 'Country');
-    addChange(changes, 'officeAddressStreet1', 'Office Address Street 1', currentOfficeStreet1, entra.emsAttributes.OfficeAddressStreet1 ?? '');
+    addChange(changes, 'officeAddressStreet1', 'Office Address Street 1', currentOfficeStreet1, entra.user.streetAddress);
     addChange(changes, 'officeAddressStreet2', 'Office Address Street 2', currentOfficeStreet2, entra.emsAttributes.OfficeAddressStreet2 ?? '');
-    addChange(changes, 'officeAddressCity', 'Office Address City', currentOfficeCity, entra.emsAttributes.OfficeAddressCity ?? '');
-    addChange(changes, 'officeAddressState', 'Office Address State', currentOfficeState, entra.emsAttributes.OfficeAddressState ?? '');
-    addChange(changes, 'officeAddressZip', 'Office Address Zip', currentOfficeZip, entra.emsAttributes.OfficeAddressZip ?? '');
-    addChange(changes, 'officeAddressCountry', 'Office Address Country', currentOfficeCountry, entra.emsAttributes.OfficeAddressCountry ?? '');
+    addChange(changes, 'officeAddressCity', 'Office Address City', currentOfficeCity, entra.user.city);
+    addChange(changes, 'officeAddressState', 'Office Address State', currentOfficeState, entra.user.state);
+    addChange(changes, 'officeAddressZip', 'Office Address Zip', currentOfficeZip, entra.user.postalCode);
+    addChange(changes, 'officeAddressCountry', 'Office Address Country', currentOfficeCountry, entra.user.country);
     // Emergency Contact — table uses FullName, Entra CSA has separate first/last
     const currentEcFullName = readString(current.emergencyContact, 'FullName');
     const entraEcFullName = [entra.emsAttributes.EmergencyContactFirstName ?? '', entra.emsAttributes.EmergencyContactLastName ?? ''].map(s => s.trim()).filter(Boolean).join(' ');
@@ -1227,12 +1237,12 @@ export class EntraProfileSyncService {
     entra: EntraFullProfile,
     current: CurrentProfileData,
   ): Promise<void> {
-    const street = entra.user.streetAddress?.trim() || '';
+    const street = entra.emsAttributes.HomeAddressStreet1?.trim() || '';
     const street2 = entra.emsAttributes.HomeAddressStreet2?.trim() || '';
-    const city = entra.user.city?.trim() || '';
-    const state = entra.user.state?.trim() || '';
-    const postalCode = entra.user.postalCode?.trim() || '';
-    const country = entra.user.country?.trim() || '';
+    const city = entra.emsAttributes.HomeAddressCity?.trim() || '';
+    const state = entra.emsAttributes.HomeAddressState?.trim() || '';
+    const postalCode = entra.emsAttributes.HomeAddressZip?.trim() || '';
+    const country = entra.emsAttributes.HomeAddressCountry?.trim() || '';
 
     if (!street && !street2 && !city && !state && !postalCode && !country) return;
 
@@ -1318,12 +1328,12 @@ export class EntraProfileSyncService {
     entra: EntraFullProfile,
     current: CurrentProfileData,
   ): Promise<void> {
-    const street1 = entra.emsAttributes.OfficeAddressStreet1?.trim() || '';
+    const street1 = entra.user.streetAddress?.trim() || '';
     const street2 = entra.emsAttributes.OfficeAddressStreet2?.trim() || '';
-    const city = entra.emsAttributes.OfficeAddressCity?.trim() || '';
-    const state = entra.emsAttributes.OfficeAddressState?.trim() || '';
-    const postalCode = entra.emsAttributes.OfficeAddressZip?.trim() || '';
-    const country = entra.emsAttributes.OfficeAddressCountry?.trim() || '';
+    const city = entra.user.city?.trim() || '';
+    const state = entra.user.state?.trim() || '';
+    const postalCode = entra.user.postalCode?.trim() || '';
+    const country = entra.user.country?.trim() || '';
 
     if (!street1 && !street2 && !city && !state && !postalCode && !country) return;
 
@@ -2124,7 +2134,7 @@ export class EntraProfileSyncService {
     addChange(changes, 'mobilePhone', 'Mobile Phone', entra.user.mobilePhone, contact.cellPhone);
     addChange(changes, 'businessPhones', 'Work Phone', firstBusinessPhone(entra.user.businessPhones), contact.workPhone);
 
-    // Home Address
+    // Home Address (native Graph)
     const emsStreetLine1 = readString(current.homeAddress, 'AddressLine1');
     const emsStreetLine2 = readString(current.homeAddress, 'AddressLine2');
     const emsStreet = [emsStreetLine1, emsStreetLine2].filter(Boolean).join(', ');
@@ -2133,6 +2143,14 @@ export class EntraProfileSyncService {
     addChange(changes, 'state', 'Home Address (State)', entra.user.state, readString(current.homeAddress, 'StateProvince'));
     addChange(changes, 'postalCode', 'Home Address (Postal Code)', entra.user.postalCode, readString(current.homeAddress, 'PostalCode'));
     addChange(changes, 'country', 'Home Address (Country)', entra.user.country, readString(current.homeAddress, 'Country'));
+
+    // Home Address (custom security attributes)
+    addChange(changes, 'HomeAddressStreet1', 'Home Address Street 1 (CSA)', entra.emsAttributes.HomeAddressStreet1 ?? '', emsStreetLine1);
+    addChange(changes, 'HomeAddressStreet2', 'Home Address Street 2 (CSA)', entra.emsAttributes.HomeAddressStreet2 ?? '', emsStreetLine2);
+    addChange(changes, 'HomeAddressCity', 'Home Address City (CSA)', entra.emsAttributes.HomeAddressCity ?? '', readString(current.homeAddress, 'City'));
+    addChange(changes, 'HomeAddressState', 'Home Address State (CSA)', entra.emsAttributes.HomeAddressState ?? '', readString(current.homeAddress, 'StateProvince'));
+    addChange(changes, 'HomeAddressZip', 'Home Address Zip (CSA)', entra.emsAttributes.HomeAddressZip ?? '', readString(current.homeAddress, 'PostalCode'));
+    addChange(changes, 'HomeAddressCountry', 'Home Address Country (CSA)', entra.emsAttributes.HomeAddressCountry ?? '', readString(current.homeAddress, 'Country'));
 
     // Emergency Contact
     const emsEcFullName = readString(current.emergencyContact, 'FullName');
@@ -2201,6 +2219,14 @@ export class EntraProfileSyncService {
 
     // 2. Build Custom Security Attributes payload (WMS-editable fields only)
     const csaPayload: Record<string, string | boolean | string[] | null> = {};
+
+    // Home address custom attributes
+    if (emsLine1 !== (entra.emsAttributes.HomeAddressStreet1 ?? '')) csaPayload.HomeAddressStreet1 = emsLine1 || null;
+    if (emsLine2 !== (entra.emsAttributes.HomeAddressStreet2 ?? '')) csaPayload.HomeAddressStreet2 = emsLine2 || null;
+    if (emsCity !== (entra.emsAttributes.HomeAddressCity ?? '')) csaPayload.HomeAddressCity = emsCity || null;
+    if (emsState !== (entra.emsAttributes.HomeAddressState ?? '')) csaPayload.HomeAddressState = emsState || null;
+    if (emsPostalCode !== (entra.emsAttributes.HomeAddressZip ?? '')) csaPayload.HomeAddressZip = emsPostalCode || null;
+    if (emsCountry !== (entra.emsAttributes.HomeAddressCountry ?? '')) csaPayload.HomeAddressCountry = emsCountry || null;
 
     // Emergency contacts
     const emsEcFullName = readString(current.emergencyContact, 'FullName');

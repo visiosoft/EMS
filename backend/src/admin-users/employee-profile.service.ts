@@ -317,7 +317,7 @@ export class EmployeeProfileService {
   ): Promise<void> {
     const graphToken = this.auditContext.getGraphAccessToken();
     const nativePayload: Record<string, unknown> = {};
-    const csaPayload: Record<string, string | null> = {};
+    const csaPayload: Record<string, string | boolean | string[] | null> = {};
 
     // Native Graph properties
     if (dto.firstName !== undefined) {
@@ -343,25 +343,28 @@ export class EmployeeProfileService {
     if (dto.personalEmail !== undefined) {
       csaPayload.PersonalEmail = nullableText(dto.personalEmail) ?? null;
     }
+    if (dto.middleName !== undefined) {
+      csaPayload.MiddleName = nullableText(dto.middleName) ?? null;
+    }
     if (dto.birthDate !== undefined) {
-      csaPayload.BirthDate = nullableText(dto.birthDate) ?? null;
+      csaPayload.Birthday = nullableText(dto.birthDate) ?? null;
     }
     if (dto.ssn !== undefined) {
       const last4 = cleanText(dto.ssn)?.replace(/\D/g, '').slice(-4);
-      csaPayload.SSN = last4 || null;
+      csaPayload.SocialSecurityNumber = last4 || null;
     }
-    if (dto.homeStreet !== undefined || dto.homeCity !== undefined || dto.homeState !== undefined || dto.homePostalCode !== undefined || dto.homeCountry !== undefined) {
-      csaPayload.HomeStreet = nullableText(dto.homeStreet) ?? (current.homeStreet || null);
-      csaPayload.HomeAddress2 = nullableText(dto.homeAddress2) ?? (current.homeAddress2 || null);
-      csaPayload.HomeCity = nullableText(dto.homeCity) ?? (current.homeCity || null);
-      csaPayload.HomeState = nullableText(dto.homeState) ?? (current.homeState || null);
-      csaPayload.HomePostalCode = nullableText(dto.homePostalCode) ?? (current.homePostalCode || null);
-      csaPayload.HomeCountry = nullableText(dto.homeCountry) ?? (current.homeCountry || null);
+    if (dto.homeStreet !== undefined || dto.homeAddress2 !== undefined || dto.homeCity !== undefined || dto.homeState !== undefined || dto.homePostalCode !== undefined || dto.homeCountry !== undefined) {
+      csaPayload.HomeAddressStreet1 = nullableText(dto.homeStreet) ?? (current.homeStreet || null);
+      csaPayload.HomeAddressStreet2 = nullableText(dto.homeAddress2) ?? (current.homeAddress2 || null);
+      csaPayload.HomeAddressCity = nullableText(dto.homeCity) ?? (current.homeCity || null);
+      csaPayload.HomeAddressState = nullableText(dto.homeState) ?? (current.homeState || null);
+      csaPayload.HomeAddressZip = nullableText(dto.homePostalCode) ?? (current.homePostalCode || null);
+      csaPayload.HomeAddressCountry = nullableText(dto.homeCountry) ?? (current.homeCountry || null);
     }
     if (dto.emergencyFirstName !== undefined || dto.emergencyLastName !== undefined || dto.emergencyEmail !== undefined || dto.emergencyCellPhone !== undefined) {
-      const ecName = [cleanText(dto.emergencyFirstName) || current.emergencyFirstName, cleanText(dto.emergencyLastName) || current.emergencyLastName].filter(Boolean).join(' ');
-      csaPayload.EmergencyContactName = ecName || null;
-      csaPayload.EmergencyContactPhone = nullableText(dto.emergencyCellPhone) ?? (current.emergencyCellPhone || null);
+      csaPayload.EmergencyContactFirstName = nullableText(dto.emergencyFirstName) ?? (current.emergencyFirstName || null);
+      csaPayload.EmergencyContactLastName = nullableText(dto.emergencyLastName) ?? (current.emergencyLastName || null);
+      csaPayload.EmergencyContactCell = nullableText(dto.emergencyCellPhone) ?? (current.emergencyCellPhone || null);
       csaPayload.EmergencyContactEmail = nullableText(dto.emergencyEmail) ?? (current.emergencyEmail || null);
     }
 
