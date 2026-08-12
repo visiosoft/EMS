@@ -1578,6 +1578,11 @@ export class EntraProfileSyncService {
                 [phoneId],
               );
             }
+            // Deactivate any stale current device on this extension before inserting
+            await manager.query(
+              `UPDATE dbo.PhoneExtensionDevice SET IsCurrent = 0, UnassignedDate = CAST(SYSUTCDATETIME() AS date) WHERE ExtensionID = @0 AND IsCurrent = 1`,
+              [extensionId],
+            );
             await manager.query(
               `INSERT INTO dbo.PhoneExtensionDevice (ExtensionID, PhoneID, AssignedDate, IsCurrent, AssignedBy) VALUES (@0, @1, CAST(SYSUTCDATETIME() AS date), 1, @2)`,
               [extensionId, phoneId, 'Entra sync'],
