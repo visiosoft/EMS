@@ -165,7 +165,7 @@ function ReadOnlyField({ label, value, source }: { label: string; value: string;
         <label className="text-xs font-medium text-text-muted">{label}</label>
         <Lock className="h-3 w-3 text-text-muted/50" />
       </div>
-      <div className="rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-secondary">
+      <div className="rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-secondary">
         {value || '—'}
       </div>
     </div>
@@ -199,7 +199,7 @@ function SelectField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
-        className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-primary focus:border-ems-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+        className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:border-ems-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
       >
         <option value="">— Select —</option>
         {options.map((opt) => (
@@ -247,7 +247,7 @@ function ReadOnlyWithWmsLink({ label, value, source, contactId }: { label: strin
         <label className="text-xs font-medium text-text-muted">{label}</label>
         <Lock className="h-3 w-3 text-text-muted/50" />
       </div>
-      <div className="rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-secondary">
+      <div className="rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-secondary">
         {value || '—'}
       </div>
       <a
@@ -273,7 +273,7 @@ function EditableLinkField({ label, value, onSave }: { label: string; value: str
         <div className="flex items-center gap-1">
           <input
             type="url"
-            className="flex-1 rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm"
+            className="flex-1 rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:border-ems-accent focus:outline-none"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="https://..."
@@ -287,7 +287,7 @@ function EditableLinkField({ label, value, onSave }: { label: string; value: str
           </button>
         </div>
       ) : (
-        <div className="flex items-center gap-2 rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm">
+        <div className="flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-2 text-sm">
           {value ? (
             <a href={value} target="_blank" rel="noopener noreferrer" className="text-ems-blue hover:underline truncate flex-1">
               {value}
@@ -315,7 +315,7 @@ function HashedField({ label, value, source }: { label: string; value: string; s
         <Lock className="h-3 w-3 text-text-muted/50" />
       </div>
       <div className="flex items-center gap-2">
-        <div className="flex-1 rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-secondary">
+        <div className="flex-1 rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-secondary">
           {revealed ? (value || '—') : masked}
         </div>
         {value && (
@@ -373,16 +373,16 @@ function EntraSyncBanner({ email, tabFields, invalidateKeys }: { email: string; 
 
   return (
     <>
-      <div className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20 px-3 py-2">
-        <RefreshCw className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
-        <span className="text-xs text-blue-700 dark:text-blue-300">
+      <div className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 dk:border-blue-800 dk:bg-blue-900/20 px-3 py-2">
+        <RefreshCw className="h-4 w-4 text-blue-600 dk:text-blue-400 shrink-0" />
+        <span className="text-xs text-blue-700 dk:text-blue-300">
           Pull latest field values from Microsoft Entra
         </span>
         <button
           type="button"
           onClick={handleClick}
           disabled={loading}
-          className="ml-auto inline-flex items-center gap-1 rounded border border-blue-300 bg-white dark:bg-blue-900/40 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-800/50 transition-colors disabled:opacity-50"
+          className="ml-auto inline-flex items-center gap-1 rounded border border-blue-300 bg-white dk:border-blue-700 dk:bg-blue-900/40 px-2 py-0.5 text-[11px] font-medium text-blue-700 dk:text-blue-300 hover:bg-blue-100 dk:hover:bg-blue-800/50 transition-colors disabled:opacity-50"
         >
           <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
           Sync from Entra

@@ -26,6 +26,8 @@ interface EntraSyncPreviewDialogProps {
   tabFields?: string[];
   /** Query keys to invalidate on success */
   invalidateKeys?: unknown[][];
+  /** "light" forces the light appearance (used from WMS so EMS dark theme does not bleed in). */
+  variant?: "auto" | "light";
 }
 
 export function EntraSyncPreviewDialog({
@@ -35,12 +37,19 @@ export function EntraSyncPreviewDialog({
   targetEmail,
   tabFields,
   invalidateKeys,
+  variant = "auto",
 }: EntraSyncPreviewDialogProps) {
   const queryClient = useQueryClient();
   const TOOLTIP_LENGTH_THRESHOLD = 40;
   const visibleChanges = tabFields
     ? changes.filter((c) => tabFields.includes(c.field))
     : changes;
+
+  // Only emit the dark-theme (`dk:`) classes when variant is "auto".
+  // In "light" mode the wrapping div also pins CSS variables to the light theme.
+  const dk = (cls: string) => (variant === "light" ? "" : cls);
+  const contentDataTheme = variant === "light" ? "light" : undefined;
+  const contentColorScheme = variant === "light" ? "light" : undefined;
 
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(visibleChanges.map((c) => c.field)),
@@ -87,9 +96,13 @@ export function EntraSyncPreviewDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent
+        className="max-h-[80vh] overflow-y-auto sm:max-w-lg"
+        data-theme={contentDataTheme}
+        style={contentColorScheme ? { colorScheme: contentColorScheme } : undefined}
+      >
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+          <DialogTitle className={`flex items-center gap-2 ${variant === "light" ? "text-black [&_svg]:text-black" : ""}`}>
             <RefreshCw className="h-4 w-4" />
             Sync from Entra
           </DialogTitle>
@@ -99,7 +112,7 @@ export function EntraSyncPreviewDialog({
         </DialogHeader>
 
         {visibleChanges.length === 0 ? (
-          <div className="py-6 text-center text-sm text-neutral-500">
+          <div className={`py-6 text-center text-sm text-neutral-500 ${dk("dk:text-text-secondary")}`}>
             <Check className="mx-auto mb-2 h-6 w-6 text-emerald-500" />
             All fields on this tab are already up to date.
           </div>
@@ -109,14 +122,14 @@ export function EntraSyncPreviewDialog({
               <button
                 type="button"
                 onClick={selectAll}
-                className="rounded-md border border-neutral-300 bg-white px-2.5 py-1 font-semibold text-neutral-700 hover:bg-neutral-50 transition-colors"
+                className={`rounded-md border border-neutral-300 bg-white px-2.5 py-1 font-semibold text-neutral-700 hover:bg-neutral-50 transition-colors ${dk("dk:border-border dk:bg-surface dk:text-text-primary dk:hover:bg-hover")}`}
               >
                 Select all
               </button>
               <button
                 type="button"
                 onClick={selectNone}
-                className="rounded-md border border-neutral-300 bg-white px-2.5 py-1 font-semibold text-neutral-700 hover:bg-neutral-50 transition-colors"
+                className={`rounded-md border border-neutral-300 bg-white px-2.5 py-1 font-semibold text-neutral-700 hover:bg-neutral-50 transition-colors ${dk("dk:border-border dk:bg-surface dk:text-text-primary dk:hover:bg-hover")}`}
               >
                 Deselect all
               </button>
@@ -125,7 +138,7 @@ export function EntraSyncPreviewDialog({
             {/* Column headers */}
             <div className="grid grid-cols-[auto_1fr] gap-x-3 mb-1 px-3">
               <div />
-              <div className="grid grid-cols-[1fr_auto_1fr] gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
+              <div className={`grid grid-cols-[1fr_auto_1fr] gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400 ${dk("dk:text-text-muted")}`}>
                 <span>Current (EMS)</span>
                 <span />
                 <span>From Entra</span>
@@ -142,7 +155,7 @@ export function EntraSyncPreviewDialog({
                   return (
                 <label
                   key={change.field}
-                  className="flex cursor-pointer items-start gap-3 rounded-md border border-neutral-200 bg-neutral-50/60 px-3 py-2.5 transition-colors hover:bg-neutral-100"
+                  className={`flex cursor-pointer items-start gap-3 rounded-md border border-neutral-200 bg-neutral-50/60 px-3 py-2.5 transition-colors hover:bg-neutral-100 ${dk("dk:border-border dk:bg-surface/60 dk:hover:bg-hover")}`}
                 >
                   <Checkbox
                     checked={selected.has(change.field)}
@@ -150,22 +163,22 @@ export function EntraSyncPreviewDialog({
                     className="mt-0.5"
                   />
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium text-neutral-900">
+                    <div className={`text-sm font-medium text-neutral-900 ${dk("dk:text-text-primary")}`}>
                       {change.label}
                     </div>
                     <div className="mt-1.5 grid grid-cols-[1fr_auto_1fr] items-center gap-1.5 text-xs">
                       <div className="min-w-0">
                         <span
-                          className="block truncate rounded border border-red-200 bg-red-50 px-2 py-1 text-red-700"
+                          className={`block truncate rounded border border-red-200 bg-red-50 px-2 py-1 text-red-700 ${dk("dk:border-red-800/50 dk:bg-red-950/40 dk:text-red-300")}`}
                           title={fromTooltip}
                         >
                           {fromValue}
                         </span>
                       </div>
-                      <ArrowRight className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+                      <ArrowRight className={`h-3.5 w-3.5 shrink-0 text-neutral-400 ${dk("dk:text-text-muted")}`} />
                       <div className="min-w-0">
                         <span
-                          className="block truncate rounded border border-emerald-200 bg-emerald-50 px-2 py-1 font-medium text-emerald-700"
+                          className={`block truncate rounded border border-emerald-200 bg-emerald-50 px-2 py-1 font-medium text-emerald-700 ${dk("dk:border-emerald-800/50 dk:bg-emerald-950/40 dk:text-emerald-300")}`}
                           title={toTooltip}
                         >
                           {toValue}
@@ -182,7 +195,7 @@ export function EntraSyncPreviewDialog({
         )}
 
         {applyMutation.isError && (
-          <p className="mt-2 text-sm font-medium text-red-600">
+          <p className={`mt-2 text-sm font-medium text-red-600 ${dk("dk:text-red-400")}`}>
             Sync failed. Please try again.
           </p>
         )}
@@ -191,7 +204,7 @@ export function EntraSyncPreviewDialog({
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-semibold text-neutral-700 shadow-sm hover:bg-neutral-50"
+            className={`rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-semibold text-neutral-700 shadow-sm hover:bg-neutral-50 ${dk("dk:border-border dk:bg-surface dk:text-text-primary dk:hover:bg-hover")}`}
           >
             Cancel
           </button>
@@ -200,7 +213,7 @@ export function EntraSyncPreviewDialog({
               type="button"
               onClick={handleApply}
               disabled={selected.size === 0 || applyMutation.isPending}
-              className="rounded-md border border-neutral-900 bg-neutral-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-neutral-800 disabled:opacity-50"
+              className={`rounded-md border border-neutral-900 bg-neutral-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-neutral-800 disabled:opacity-50 ${dk("dk:border-ems-accent dk:bg-ems-accent dk:text-black dk:hover:bg-ems-accent-hover")}`}
             >
               {applyMutation.isPending
                 ? "Applying…"
