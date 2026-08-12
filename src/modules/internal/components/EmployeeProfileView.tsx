@@ -1082,7 +1082,7 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
           editActions={
             canEdit && !editingPersonal ? (
               <>
-                <EntraSyncButton targetEmail={syncTargetEmail} tabFields={personalTabFields} invalidateKeys={syncInvalidateKeys} />
+                <EntraSyncButton targetEmail={syncTargetEmail} tabFields={personalTabFields} invalidateKeys={syncInvalidateKeys} variant="light" />
                 {editBtn(() => setEditingPersonal(true))}
               </>
             ) : undefined
@@ -1185,7 +1185,7 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
           editActions={
             canEdit && !editingEmployment ? (
               <>
-                <EntraSyncButton targetEmail={syncTargetEmail} tabFields={employmentTabFields} invalidateKeys={syncInvalidateKeys} />
+                <EntraSyncButton targetEmail={syncTargetEmail} tabFields={employmentTabFields} invalidateKeys={syncInvalidateKeys} variant="light" />
                 {editBtn(() => setEditingEmployment(true))}
               </>
             ) : undefined
@@ -1388,7 +1388,7 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
           editActions={
             canEdit && !editingProperty ? (
               <>
-                {canEditAdminFields && <EntraSyncButton targetEmail={syncTargetEmail} tabFields={propertyTabFields} invalidateKeys={syncInvalidateKeys} />}
+                {canEditAdminFields && <EntraSyncButton targetEmail={syncTargetEmail} tabFields={propertyTabFields} invalidateKeys={syncInvalidateKeys} variant="light" />}
                 {editBtn(() => setEditingProperty(true))}
               </>
             ) : undefined

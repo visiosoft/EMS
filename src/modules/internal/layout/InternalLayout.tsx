@@ -13,7 +13,8 @@ export function InternalLayout({ children, showSidebar = true }: { children: Rea
   const shouldShowSidebar = showSidebar && isHubLanding;
 
   return (
-    <div className="flex min-h-[100dvh] flex-col bg-white text-black">
+    // color-scheme: light keeps native form controls white here even when EMS root is dark.
+    <div className="flex min-h-[100dvh] flex-col bg-white text-black" style={{ colorScheme: "light" }}>
       <InternalHeader />
 
       <div

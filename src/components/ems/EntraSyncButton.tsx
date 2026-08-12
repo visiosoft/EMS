@@ -14,9 +14,11 @@ interface EntraSyncButtonProps {
   tabFields: string[];
   /** Query keys to invalidate on successful sync */
   invalidateKeys?: unknown[][];
+  /** Forwarded to the preview dialog. Use "light" from WMS so EMS dark theme does not bleed in. */
+  variant?: "auto" | "light";
 }
 
-export function EntraSyncButton({ targetEmail, tabFields, invalidateKeys }: EntraSyncButtonProps) {
+export function EntraSyncButton({ targetEmail, tabFields, invalidateKeys, variant }: EntraSyncButtonProps) {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [fetchEnabled, setFetchEnabled] = useState(false);
@@ -73,6 +75,7 @@ export function EntraSyncButton({ targetEmail, tabFields, invalidateKeys }: Entr
           targetEmail={targetEmail}
           tabFields={tabFields}
           invalidateKeys={invalidateKeys}
+          variant={variant}
         />
       )}
     </>
