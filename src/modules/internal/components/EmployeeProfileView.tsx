@@ -673,21 +673,23 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
   const [selectedPhoneId, setSelectedPhoneId] = useState<number | null>(profile.equipment.currentPhoneId);
   const [selectedComputerId, setSelectedComputerId] = useState<number | null>(profile.equipment.currentComputerId);
 
+  const equipmentForEmail = profile.basics.email;
+
   const phoneExtensionsQuery = useQuery({
-    queryKey: ["phone-extensions"],
-    queryFn: fetchPhoneExtensions,
+    queryKey: ["phone-extensions", equipmentForEmail],
+    queryFn: () => fetchPhoneExtensions(equipmentForEmail),
     enabled: canEdit && editingProperty,
     staleTime: 5 * 60 * 1000,
   });
   const phoneDevicesQuery = useQuery({
-    queryKey: ["phone-devices"],
-    queryFn: fetchPhoneDevices,
+    queryKey: ["phone-devices", equipmentForEmail],
+    queryFn: () => fetchPhoneDevices(equipmentForEmail),
     enabled: canEditAdminFields && editingProperty,
     staleTime: 5 * 60 * 1000,
   });
   const pcDevicesQuery = useQuery({
-    queryKey: ["pc-devices"],
-    queryFn: fetchPcDevices,
+    queryKey: ["pc-devices", equipmentForEmail],
+    queryFn: () => fetchPcDevices(equipmentForEmail),
     enabled: canEditAdminFields && editingProperty,
     staleTime: 5 * 60 * 1000,
   });
@@ -706,6 +708,9 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
       queryClient.invalidateQueries({
         queryKey: targetContactId ? ["employee-profile", targetContactId] : ["self-profile"],
       });
+      queryClient.invalidateQueries({ queryKey: ["phone-extensions"] });
+      queryClient.invalidateQueries({ queryKey: ["phone-devices"] });
+      queryClient.invalidateQueries({ queryKey: ["pc-devices"] });
       setEditingPersonal(false);
       setEditingEmployment(false);
       setEditingProperty(false);

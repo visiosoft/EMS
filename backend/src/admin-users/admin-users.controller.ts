@@ -186,21 +186,20 @@ export class AdminUsersController {
   }
 
   @Get('phone-extensions')
-  @RequireAccessLevel(AccessLevel.Administrator)
-  async listPhoneExtensions() {
-    return this.employeeEmploymentService.listPhoneExtensions();
+  async listPhoneExtensions(@Query('forEmail') forEmail?: string) {
+    return this.employeeEmploymentService.listPhoneExtensions(forEmail);
   }
 
   @Get('phone-devices')
   @RequireAccessLevel(AccessLevel.Administrator)
-  async listPhoneDevices() {
-    return this.employeeEmploymentService.listPhoneDevices();
+  async listPhoneDevices(@Query('forEmail') forEmail?: string) {
+    return this.employeeEmploymentService.listPhoneDevices(forEmail);
   }
 
   @Get('pc-devices')
   @RequireAccessLevel(AccessLevel.Administrator)
-  async listPcDevices() {
-    return this.employeeEmploymentService.listPcDevices();
+  async listPcDevices(@Query('forEmail') forEmail?: string) {
+    return this.employeeEmploymentService.listPcDevices(forEmail);
   }
 
   @Get('users/:email/licenses')

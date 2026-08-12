@@ -122,8 +122,9 @@ export interface PhoneExtensionListResponse {
   extensions: PhoneExtensionOption[];
 }
 
-export function fetchPhoneExtensions(): Promise<PhoneExtensionListResponse> {
-  return apiFetch<PhoneExtensionListResponse>('/admin/phone-extensions');
+export function fetchPhoneExtensions(forEmail?: string): Promise<PhoneExtensionListResponse> {
+  const qs = forEmail ? `?forEmail=${encodeURIComponent(forEmail)}` : '';
+  return apiFetch<PhoneExtensionListResponse>(`/admin/phone-extensions${qs}`);
 }
 
 export interface PhoneDeviceOption {
@@ -139,8 +140,9 @@ export interface PhoneDeviceListResponse {
   phones: PhoneDeviceOption[];
 }
 
-export function fetchPhoneDevices(): Promise<PhoneDeviceListResponse> {
-  return apiFetch<PhoneDeviceListResponse>('/admin/phone-devices');
+export function fetchPhoneDevices(forEmail?: string): Promise<PhoneDeviceListResponse> {
+  const qs = forEmail ? `?forEmail=${encodeURIComponent(forEmail)}` : '';
+  return apiFetch<PhoneDeviceListResponse>(`/admin/phone-devices${qs}`);
 }
 
 export interface PcDeviceOption {
@@ -158,8 +160,9 @@ export interface PcDeviceListResponse {
   computers: PcDeviceOption[];
 }
 
-export function fetchPcDevices(): Promise<PcDeviceListResponse> {
-  return apiFetch<PcDeviceListResponse>('/admin/pc-devices');
+export function fetchPcDevices(forEmail?: string): Promise<PcDeviceListResponse> {
+  const qs = forEmail ? `?forEmail=${encodeURIComponent(forEmail)}` : '';
+  return apiFetch<PcDeviceListResponse>(`/admin/pc-devices${qs}`);
 }
 
 export function fetchUserLicenses(email: string): Promise<string[]> {
