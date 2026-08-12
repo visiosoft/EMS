@@ -21,7 +21,7 @@ export function useAccessLevel() {
   return {
     accessLevel,
     isEmployee: accessLevel === 'Employee',
-    isAdministrator: accessLevel === 'Administrator' || accessLevel === 'Super Admin',
+    isAdministrator: accessLevel === 'Administrator' || accessLevel === 'Admin' || accessLevel === 'Super Admin',
     isSuperAdmin: accessLevel === 'Super Admin',
     isLoading: query.isLoading,
   };

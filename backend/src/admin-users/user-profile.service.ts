@@ -18,6 +18,7 @@ export type MyProfileResponse = {
   cellPhone: string;
   workPhone: string;
   departmentName: string;
+  departmentRank: string;
   roleNames: string[];
   jobTitle: string;
   jobTitleColumnAvailable: boolean;
@@ -205,11 +206,13 @@ export class UserProfileService {
         ci.WorkPhone AS workPhone,
         ${jobTitleSelect},
         COALESCE(d.DepartmentName, '') AS departmentName,
-        COALESCE(r.RoleName, '') AS roleName
+        COALESCE(r.RoleName, '') AS roleName,
+        ep.DepartmentRank AS departmentRank
       FROM dbo.ContactAssignment ca
       INNER JOIN dbo.Company co ON co.CompanyID = ca.CompanyID AND co.is_internal = 1
       INNER JOIN dbo.Contact c ON c.ContactID = ca.ContactID
       INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+      LEFT JOIN dbo.EmployeeProfile ep ON ep.ContactID = c.ContactID
       LEFT JOIN dbo.Department d ON d.DepartmentID = ca.DepartmentID
       LEFT JOIN dbo.Role r ON r.RoleID = ca.RoleID
       WHERE LOWER(LTRIM(RTRIM(ci.Email))) IN (${placeholders})
@@ -259,6 +262,7 @@ export class UserProfileService {
       cellPhone: readString(first, 'cellPhone', 'CellPhone'),
       workPhone: readString(first, 'workPhone', 'WorkPhone'),
       departmentName: departments[0] ?? '',
+      departmentRank: readString(first, 'departmentRank', 'DepartmentRank'),
       roleNames: roles,
       jobTitle: readString(first, 'jobTitle', 'JobTitle'),
       jobTitleColumnAvailable,

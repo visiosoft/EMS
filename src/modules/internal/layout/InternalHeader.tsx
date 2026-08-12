@@ -6,10 +6,12 @@ import { IaeLogoIcon } from "@/components/brand/IaeBrandMark";
 import { INTERNAL_NAV_ITEMS } from "../constants/navigation";
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
 import { useAccessLevel } from "@/hooks/useAccessLevel";
+import { getAccountInitials, getActiveAccount } from "@/auth/entra";
 
 export function InternalHeader() {
   const { currentView, navigate, viewData } = useInternalNavigation();
   const { isAdministrator } = useAccessLevel();
+  const account = getActiveAccount();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   function isActive(itemKey: string) {
@@ -66,14 +68,26 @@ export function InternalHeader() {
     <header className="sticky top-0 z-50 bg-black text-white shadow-[0_1px_0_rgba(255,255,255,0.08)]">
       <div className="mx-auto max-w-[1400px] px-4 sm:px-6 lg:px-8">
         <div className="flex min-h-[56px] items-center justify-between gap-5">
-          <button
-            type="button"
-            onClick={() => navigate("home")}
-            className="-ml-10 shrink-0"
-            aria-label="iAE Company Hub home"
-          >
-            <IaeLogoIcon surface="on-dark" className="h-[31px] w-[70px]" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen((prev) => !prev)}
+              aria-expanded={mobileMenuOpen}
+              aria-controls="internal-mobile-nav"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-white/25 bg-white/10 text-white transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black xl:hidden"
+            >
+              {mobileMenuOpen ? <X className="h-5 w-5" aria-hidden /> : <Menu className="h-5 w-5" aria-hidden />}
+              <span className="sr-only">{mobileMenuOpen ? "Close menu" : "Open menu"}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate("home")}
+              className="shrink-0"
+              aria-label="iAE Company Hub home"
+            >
+              <IaeLogoIcon surface="on-dark" className="h-[31px] w-[70px]" />
+            </button>
+          </div>
 
           <nav className="hidden flex-1 items-center justify-start gap-7 pl-24 xl:flex" aria-label="Primary">
             {INTERNAL_NAV_ITEMS.map((item) => {
@@ -103,18 +117,16 @@ export function InternalHeader() {
             })}
           </nav>
 
-          <div className="flex min-w-0 flex-1 items-center justify-end gap-2 xl:hidden">
+          <div className="flex min-w-0 items-center justify-end gap-2 xl:hidden">
             <AppSuiteSwitcher surface="dark" />
             <button
               type="button"
               onClick={() => navigate("my-profile")}
-              className={cn(
-                "flex items-center gap-1.5 rounded-full border border-white/20 bg-neutral-900/80 px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-neutral-800",
-                currentView === "my-profile" && "border-white bg-white text-black hover:bg-white",
-              )}
+              className="w-8 h-8 rounded-full bg-white/20 border border-white/30 flex items-center justify-center text-white text-xs font-bold select-none transition hover:bg-white/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+              title="Open my profile"
+              aria-label="Open my profile"
             >
-              <User className="h-3.5 w-3.5" />
-              <span>Profile</span>
+              {getAccountInitials(account)}
             </button>
             {currentView === "learning-portal" && isAdministrator && (
               <a
@@ -127,19 +139,6 @@ export function InternalHeader() {
                 <span>Admin</span>
               </a>
             )}
-            <span className="truncate rounded-full border border-white/25 bg-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/90">
-              {activeItemLabel}
-            </span>
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen((prev) => !prev)}
-              aria-expanded={mobileMenuOpen}
-              aria-controls="internal-mobile-nav"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-white/25 bg-white/10 text-white transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
-            >
-              {mobileMenuOpen ? <X className="h-5 w-5" aria-hidden /> : <Menu className="h-5 w-5" aria-hidden />}
-              <span className="sr-only">{mobileMenuOpen ? "Close menu" : "Open menu"}</span>
-            </button>
           </div>
  
           <div className="hidden shrink-0 xl:flex xl:items-center xl:gap-3">
@@ -147,13 +146,11 @@ export function InternalHeader() {
             <button
               type="button"
               onClick={() => navigate("my-profile")}
-              className={cn(
-                "flex items-center gap-2 rounded-full border border-white/20 bg-neutral-900/80 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-neutral-800",
-                currentView === "my-profile" && "border-white bg-white text-black hover:bg-white",
-              )}
+              className="w-8 h-8 rounded-full bg-white/20 border border-white/30 flex items-center justify-center text-white text-xs font-bold select-none transition hover:bg-white/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+              title="Open my profile"
+              aria-label="Open my profile"
             >
-              <User className={cn("h-4 w-4", currentView === "my-profile" ? "text-black/85" : "text-white/85")} />
-              <span>My Profile</span>
+              {getAccountInitials(account)}
             </button>
             {currentView === "learning-portal" && isAdministrator && (
               <a

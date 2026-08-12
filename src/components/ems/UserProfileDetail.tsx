@@ -1,46 +1,22 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, User, Briefcase, Heart, Star, Award, Lock, MapPin, Loader2, Save, Eye, EyeOff } from 'lucide-react';
-import {
-  fetchEmployeePersonalProfile,
-  updateEmployeePersonalProfile,
-  type EmployeePersonalProfile,
-  type UpdateEmployeePersonalProfileRequest,
-} from '@/api/employeeProfileApi';
+import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, User, UserRound, Briefcase, Heart, HeartPulse, Star, Award, Lock, MapPin, Loader2, Eye, EyeOff, ExternalLink, RefreshCw, Save, Laptop, KeyRound, Ticket, Users } from 'lucide-react';
+import { fetchEmployeePersonalProfile } from '@/api/employeeProfileApi';
 import {
   fetchEmployeeEmploymentProfile,
-  updateEmployeeEmploymentProfile,
-  fetchWorkstations,
-  fetchPhoneExtensions,
-  fetchPhoneDevices,
-  fetchPcDevices,
   fetchUserLicenses,
   fetchUserGroups,
-  type EmployeeEmploymentProfile,
-  type UpdateEmployeeEmploymentProfileRequest,
+  updateEmployeeEmploymentProfile,
 } from '@/api/employeeEmploymentApi';
-import {
-  fetchEmployeeHealthInsurance,
-  bulkUpdateHealthInsurance,
-  type EmployeeHealthInsurance,
-  type BulkUpdateHealthInsuranceRequest,
-  type HealthPlanOption,
-} from '@/api/employeeHealthInsuranceApi';
-import {
-  fetchEmployeeExperience,
-} from '@/api/employeeExperienceApi';
+import { fetchEmployeeHealthInsurance, bulkUpdateHealthInsurance, type HealthPlanOption, type BulkUpdateHealthInsuranceRequest, type EmployeeHealthInsurance } from '@/api/employeeHealthInsuranceApi';
+import { fetchEmployeeExperience } from '@/api/employeeExperienceApi';
 import { fetchEmployeeCertifications } from '@/api/employeeCertificationsApi';
-import { fetchIaeStaffEmployees } from '@/api/iaeEmployeesApi';
-import {
-  fetchMyProfile,
-  updateMyProfile,
-  type MyProfile,
-  type UpdateMyProfileRequest,
-} from '@/api/myProfileApi';
+import { previewUserSyncFromEntra } from '@/api/entraProfileSyncApi';
+import { EntraSyncPreviewDialog } from '@/components/ems/EntraSyncPreviewDialog';
 import { friendlyApiError } from '@/lib/friendlyApiError';
-import { useAddressAutofill } from '@/hooks/useAddressAutofill';
 import { getActiveAccount, getAccountEmail } from '@/auth/entra';
-import { TabBar } from './Primitives';
+import { INTERNAL_ROOT } from '@/routing/paths';
+
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -66,7 +42,39 @@ interface UserProfileDetailProps {
   addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 }
 
-type ProfileTab = 'Overview' | 'Personal' | 'Employment' | 'Health Insurance' | 'Experience' | 'Certifications';
+type ProfileTab = 'Personal' | 'Employment' | 'Health Insurance' | 'Property' | 'Licenses & Groups' | 'Certifications' | 'Experience';
+
+const tabIcons: Record<ProfileTab, React.ReactNode> = {
+  Personal: <UserRound className="h-3.5 w-3.5" />,
+  Employment: <Briefcase className="h-3.5 w-3.5" />,
+  'Health Insurance': <HeartPulse className="h-3.5 w-3.5" />,
+  Property: <Laptop className="h-3.5 w-3.5" />,
+  'Licenses & Groups': <KeyRound className="h-3.5 w-3.5" />,
+  Certifications: <Award className="h-3.5 w-3.5" />,
+  Experience: <Ticket className="h-3.5 w-3.5" />,
+};
+
+function ProfileTabBar({ tabs, active, onChange }: { tabs: readonly ProfileTab[]; active: ProfileTab; onChange: (t: ProfileTab) => void }) {
+  return (
+    <div className="flex border-b border-border overflow-x-auto -mx-2 px-2">
+      {tabs.map((tab) => (
+        <button
+          key={tab}
+          type="button"
+          onClick={() => onChange(tab)}
+          className={`flex items-center gap-1.5 px-3 py-2.5 text-xs sm:text-sm sm:px-4 font-medium transition-colors relative whitespace-nowrap ${
+            active === tab
+              ? 'text-ems-accent after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-ems-accent'
+              : 'text-text-secondary hover:text-text-primary'
+          }`}
+        >
+          {tabIcons[tab]}
+          {tab}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 // ─── Source Badges ────────────────────────────────────────────────────────────
 
@@ -94,10 +102,7 @@ function SourceBadge({ source }: { source: DataSource }) {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function UserProfileDetail({ user, onBack, addToast }: UserProfileDetailProps) {
-  // When opened from Settings (onBack present), skip Overview tab
-  const availableTabs = onBack
-    ? ['Personal', 'Employment', 'Health Insurance', 'Experience', 'Certifications'] as const
-    : ['Overview', 'Personal', 'Employment', 'Health Insurance', 'Experience', 'Certifications'] as const;
+  const availableTabs = ['Personal', 'Employment', 'Health Insurance', 'Property', 'Licenses & Groups', 'Certifications', 'Experience'] as const;
   const [profileTab, setProfileTab] = useState<ProfileTab>(availableTabs[0]);
 
   // Determine current viewer's access level from their own employment profile
@@ -110,12 +115,12 @@ export function UserProfileDetail({ user, onBack, addToast }: UserProfileDetailP
   });
   // Grant admin visibility to 'Administrator' and 'Super Admin' roles
   const viewerAccessLevel = viewerProfileQuery.data?.accessLevel || '';
-  const isAdmin = viewerAccessLevel === 'Administrator' || viewerAccessLevel === 'Super Admin';
+  const isAdmin = viewerAccessLevel === 'Administrator' || viewerAccessLevel === 'Admin' || viewerAccessLevel === 'Super Admin';
 
   return (
     <div className="space-y-4">
       {/* Header with back button */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         {onBack && (
           <button
             type="button"
@@ -126,26 +131,27 @@ export function UserProfileDetail({ user, onBack, addToast }: UserProfileDetailP
             Back
           </button>
         )}
-        <div className="min-w-0">
-          <h1 className="text-xl font-semibold text-text-primary truncate">{user.name}</h1>
-          <p className="text-sm text-text-secondary truncate">{user.email}</p>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-lg sm:text-xl font-semibold text-text-primary truncate">{user.name}</h1>
+          <p className="text-xs sm:text-sm text-text-secondary truncate">{user.email}</p>
         </div>
       </div>
 
       {/* Profile Tabs */}
-      <TabBar
-        tabs={availableTabs as unknown as string[]}
+      <ProfileTabBar
+        tabs={availableTabs}
         active={profileTab}
-        onChange={(t) => setProfileTab(t as ProfileTab)}
+        onChange={setProfileTab}
       />
 
       {/* Tab Content */}
-      {profileTab === 'Overview' && !onBack && <OverviewTab user={user} addToast={addToast} />}
       {profileTab === 'Personal' && <PersonalTab user={user} isAdmin={isAdmin} addToast={addToast} />}
       {profileTab === 'Employment' && <EmploymentTab user={user} isAdmin={isAdmin} addToast={addToast} />}
       {profileTab === 'Health Insurance' && <HealthInsuranceTab user={user} isAdmin={isAdmin} addToast={addToast} />}
-      {profileTab === 'Experience' && <ExperienceTab user={user} />}
+      {profileTab === 'Property' && <PropertyTab user={user} isAdmin={isAdmin} addToast={addToast} />}
+      {profileTab === 'Licenses & Groups' && <LicensesGroupsTab user={user} />}
       {profileTab === 'Certifications' && <CertificationsTab user={user} />}
+      {profileTab === 'Experience' && <ExperienceTab user={user} />}
     </div>
   );
 }
@@ -153,60 +159,20 @@ export function UserProfileDetail({ user, onBack, addToast }: UserProfileDetailP
 // ─── Shared Field Components ──────────────────────────────────────────────────
 
 function ReadOnlyField({ label, value, source }: { label: string; value: string; source?: DataSource }) {
-  const isEntra = source === 'entra';
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-1.5">
         <label className="text-xs font-medium text-text-muted">{label}</label>
-        {isEntra && <SourceBadge source={source!} />}
         <Lock className="h-3 w-3 text-text-muted/50" />
       </div>
-      <div className={`rounded-md border border-border px-3 py-2 text-sm text-text-secondary ${isEntra ? 'bg-gray-100 dark:bg-gray-800' : 'bg-white dark:bg-white/5'}`}>
+      <div className="rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-secondary">
         {value || '—'}
       </div>
     </div>
   );
 }
 
-function EditableField({
-  label,
-  value,
-  onChange,
-  type = 'text',
-  placeholder,
-  disabled,
-  source,
-  maxLength,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  type?: string;
-  placeholder?: string;
-  disabled?: boolean;
-  source?: DataSource;
-  maxLength?: number;
-}) {
-  const isEntra = source === 'entra';
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center gap-1.5">
-        <label className="text-xs font-medium text-text-muted">{label}</label>
-        {isEntra && <SourceBadge source={source!} />}
-      </div>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        disabled={disabled}
-        maxLength={maxLength}
-        autoComplete="off"
-        className={`w-full rounded-md border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${isEntra ? 'bg-gray-100 dark:bg-gray-800' : 'bg-white dark:bg-white/5'}`}
-      />
-    </div>
-  );
-}
+
 
 function SelectField({
   label,
@@ -228,13 +194,12 @@ function SelectField({
     <div className="space-y-1">
       <div className="flex items-center gap-1.5">
         <label className="text-xs font-medium text-text-muted">{label}</label>
-        {isEntra && <SourceBadge source={source!} />}
       </div>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
-        className={`w-full rounded-md border border-border px-3 py-2 text-sm text-text-primary focus:border-ems-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${isEntra ? 'bg-gray-100 dark:bg-gray-800' : 'bg-white dark:bg-white/5'}`}
+        className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-primary focus:border-ems-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
       >
         <option value="">— Select —</option>
         {options.map((opt) => (
@@ -245,7 +210,6 @@ function SelectField({
   );
 }
 
-/** Full-screen saving overlay */
 function SavingOverlay({ visible }: { visible: boolean }) {
   if (!visible) return null;
   return (
@@ -272,6 +236,74 @@ function SectionCard({ title, icon, children }: { title: string; icon: React.Rea
   );
 }
 
+/** Read-only field with a link to edit the value in the WMS (Company Hub) */
+function ReadOnlyWithWmsLink({ label, value, source, contactId }: { label: string; value: string; source?: DataSource; contactId?: number }) {
+  const wmsProfileUrl = contactId
+    ? `${INTERNAL_ROOT}?view=employee-profile&contactId=${contactId}`
+    : `${INTERNAL_ROOT}?view=my-profile`;
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-1.5">
+        <label className="text-xs font-medium text-text-muted">{label}</label>
+        <Lock className="h-3 w-3 text-text-muted/50" />
+      </div>
+      <div className="rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-secondary">
+        {value || '—'}
+      </div>
+      <a
+        href={wmsProfileUrl}
+        className="inline-flex items-center gap-1 text-[11px] font-medium text-ems-blue hover:underline"
+      >
+        <ExternalLink className="h-3 w-3" />
+        Edit in Company Hub
+      </a>
+    </div>
+  );
+}
+
+/** Editable link field — displays clickable URL with inline edit capability */
+function EditableLinkField({ label, value, onSave }: { label: string; value: string; onSave: (url: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  useEffect(() => { setDraft(value); }, [value]);
+  return (
+    <div className="space-y-1">
+      <label className="text-xs font-medium text-text-muted">{label}</label>
+      {editing ? (
+        <div className="flex items-center gap-1">
+          <input
+            type="url"
+            className="flex-1 rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="https://..."
+            autoFocus
+          />
+          <button
+            className="rounded px-2 py-1.5 text-xs font-medium bg-ems-accent text-white hover:bg-ems-accent/90"
+            onClick={() => { onSave(draft); setEditing(false); }}
+          >
+            <Save className="h-3 w-3" />
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm">
+          {value ? (
+            <a href={value} target="_blank" rel="noopener noreferrer" className="text-ems-blue hover:underline truncate flex-1">
+              {value}
+            </a>
+          ) : (
+            <span className="text-text-muted flex-1">—</span>
+          )}
+          <button onClick={() => setEditing(true)} className="text-text-muted hover:text-ems-accent">
+            <ExternalLink className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** A field that hashes its value with a Show/Hide toggle button (for SSN, Age, etc.) */
 function HashedField({ label, value, source }: { label: string; value: string; source?: DataSource }) {
   const [revealed, setRevealed] = useState(false);
@@ -280,7 +312,6 @@ function HashedField({ label, value, source }: { label: string; value: string; s
     <div className="space-y-1">
       <div className="flex items-center gap-1.5">
         <label className="text-xs font-medium text-text-muted">{label}</label>
-        {source && <SourceBadge source={source} />}
         <Lock className="h-3 w-3 text-text-muted/50" />
       </div>
       <div className="flex items-center gap-2">
@@ -303,280 +334,87 @@ function HashedField({ label, value, source }: { label: string; value: string; s
   );
 }
 
-/** An editable field that masks its value by default with a Show/Hide toggle button */
-function HashedEditableField({
-  label,
-  value,
-  onChange,
-  placeholder,
-  source,
-  maxLength,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  source?: DataSource;
-  maxLength?: number;
-}) {
-  const [revealed, setRevealed] = useState(false);
+
+function RefetchingBanner() {
   return (
-    <div className="space-y-1">
-      <div className="flex items-center gap-1.5">
-        <label className="text-xs font-medium text-text-muted">{label}</label>
-        {source && <SourceBadge source={source} />}
-      </div>
-      <div className="flex items-center gap-2">
-        {revealed ? (
-          <input
-            type="text"
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder={placeholder}
-            maxLength={maxLength}
-            autoComplete="one-time-code"
-            name="ssn_field_no_autofill"
-            className="flex-1 rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none"
-          />
-        ) : (
-          <div
-            className="flex-1 rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-secondary cursor-text"
-            onClick={() => setRevealed(true)}
-          >
-            {value ? '••••••••' : <span className="text-text-muted">{placeholder || '—'}</span>}
-          </div>
-        )}
-        <button
-          type="button"
-          onClick={() => setRevealed(!revealed)}
-          className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-2 text-xs font-medium text-text-secondary hover:bg-hover transition-colors"
-          title={revealed ? 'Hide' : 'Show'}
-        >
-          {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-          {revealed ? 'Hide' : 'Show'}
-        </button>
-      </div>
+    <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20 px-3 py-2">
+      <Loader2 className="h-4 w-4 animate-spin text-amber-600 dark:text-amber-400 shrink-0" />
+      <span className="text-xs text-amber-700 dark:text-amber-300">Fetching data from database…</span>
     </div>
   );
 }
 
-// ─── Overview Tab ─────────────────────────────────────────────────────────────
+/** Banner with "Sync from Entra" button — opens selective field dialog */
+function EntraSyncBanner({ email, tabFields, invalidateKeys }: { email: string; tabFields: string[]; invalidateKeys: string[][] }) {
+  const queryClient = useQueryClient();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [fetchEnabled, setFetchEnabled] = useState(false);
 
-function OverviewTab({ user, addToast }: { user: UserProfileUser; addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void }) {
-  const qc = useQueryClient();
+  const queryKey = ['entra-sync-preview', email];
 
-  const profileQuery = useQuery({
-    queryKey: ['my-profile'],
-    queryFn: fetchMyProfile,
-    staleTime: 30_000,
+  const previewQuery = useQuery({
+    queryKey,
+    queryFn: () => previewUserSyncFromEntra(email),
+    enabled: fetchEnabled,
+    staleTime: 0,
   });
 
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [department, setDepartment] = useState('');
-  const [mobilePhone, setMobilePhone] = useState('');
-  const [workPhone, setWorkPhone] = useState('');
-
-  const populateForm = useCallback((data: MyProfile) => {
-    setFirstName(data.firstName || '');
-    setLastName(data.lastName || '');
-    setDepartment(data.departmentName || '');
-    setMobilePhone(data.cellPhone || '');
-    setWorkPhone(data.workPhone || '');
-  }, []);
-
-  useEffect(() => {
-    if (profileQuery.data) populateForm(profileQuery.data);
-  }, [profileQuery.data, populateForm]);
-
-  const saveMutation = useMutation({
-    mutationFn: (payload: UpdateMyProfileRequest) => updateMyProfile(payload),
-    onSuccess: (data) => {
-      qc.setQueryData(['my-profile'], data);
-      populateForm(data);
-      addToast?.('Profile saved.', 'success');
-    },
-    onError: (error) => {
-      addToast?.(friendlyApiError(error, 'Could not save profile.'), 'error');
-    },
-  });
-
-  const handleSave = () => {
-    saveMutation.mutate({
-      firstName,
-      lastName,
-      cellPhone: mobilePhone,
-      workPhone,
-      departmentName: department,
-    });
-  };
-
-  const handleReset = () => {
-    if (profileQuery.data) populateForm(profileQuery.data);
-  };
-
-  if (profileQuery.isLoading) {
-    return (
-      <div className="flex items-center justify-center py-16 text-text-muted">
-        <Loader2 className="h-5 w-5 animate-spin mr-2" />
-        Loading profile…
-      </div>
-    );
+  function handleClick() {
+    queryClient.removeQueries({ queryKey });
+    setFetchEnabled(true);
   }
 
-  return (
-    <div className="space-y-4">
-      <SavingOverlay visible={saveMutation.isPending} />
-      <SectionCard title="Profile" icon={<User className="h-4 w-4 text-ems-accent" />}>
-        <div className="grid gap-4 md:grid-cols-2">
-          <EditableField label="First Name *" value={firstName} onChange={setFirstName} source="ems" maxLength={100} />
-          <EditableField label="Last Name" value={lastName} onChange={setLastName} source="ems" maxLength={100} />
-          <ReadOnlyField label="Email" value={user.email} source="entra" />
-          <EditableField label="Department *" value={department} onChange={setDepartment} source="ems" maxLength={100} />
-          <ReadOnlyField label="Roles" value={profileQuery.data?.roleNames?.join(', ') || ''} source="ems" />
-          <EditableField label="Mobile Phone" value={mobilePhone} onChange={setMobilePhone} source="ems" maxLength={30} />
-          <EditableField label="Work Phone" value={workPhone} onChange={setWorkPhone} source="ems" maxLength={30} />
-        </div>
-      </SectionCard>
+  // Open dialog once fresh data arrives
+  if (fetchEnabled && previewQuery.data && !dialogOpen && !previewQuery.isFetching) {
+    setDialogOpen(true);
+  }
 
-      {/* Save / Reset Bar */}
-      <div className="flex items-center gap-3">
+  const loading = fetchEnabled && previewQuery.isFetching;
+
+  return (
+    <>
+      <div className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20 px-3 py-2">
+        <RefreshCw className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+        <span className="text-xs text-blue-700 dark:text-blue-300">
+          Pull latest field values from Microsoft Entra
+        </span>
         <button
           type="button"
-          onClick={handleReset}
-          className="inline-flex items-center gap-2 rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium text-text-secondary hover:bg-hover transition-colors"
+          onClick={handleClick}
+          disabled={loading}
+          className="ml-auto inline-flex items-center gap-1 rounded border border-blue-300 bg-white dark:bg-blue-900/40 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-800/50 transition-colors disabled:opacity-50"
         >
-          Reset
-        </button>
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saveMutation.isPending}
-          className="inline-flex items-center gap-2 rounded-md bg-ems-accent px-4 py-2 text-sm font-medium text-white hover:bg-ems-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {saveMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Save className="h-4 w-4" />
-          )}
-          {saveMutation.isPending ? 'Saving…' : 'Save Profile'}
+          <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
+          Sync from Entra
         </button>
       </div>
-    </div>
+
+      {previewQuery.data && (
+        <EntraSyncPreviewDialog
+          open={dialogOpen}
+          onOpenChange={(open) => {
+            setDialogOpen(open);
+            if (!open) setFetchEnabled(false);
+          }}
+          changes={previewQuery.data.changes}
+          targetEmail={email}
+          tabFields={tabFields}
+          invalidateKeys={invalidateKeys}
+        />
+      )}
+    </>
   );
 }
 
 // ─── Personal Tab ─────────────────────────────────────────────────────────────
 
-function PersonalTab({ user, isAdmin, addToast }: { user: UserProfileUser; isAdmin: boolean; addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void }) {
-  const qc = useQueryClient();
-
-  // Determine if the logged-in user is viewing their own profile
-  const currentUserEmail = getAccountEmail(getActiveAccount()) || '';
-  const isSelf = currentUserEmail.toLowerCase() === user.email.toLowerCase();
-  const canEditPersonal = isAdmin || isSelf;
-
+function PersonalTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolean; addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void }) {
   // ── Fetch existing profile ────────────────────────────────────────────────
   const profileQuery = useQuery({
     queryKey: ['employee-personal-profile', user.email],
     queryFn: () => fetchEmployeePersonalProfile(user.email),
     enabled: !!user.email,
     staleTime: 30_000,
-  });
-
-  // ── Local form state ──────────────────────────────────────────────────────
-  const [middleName, setMiddleName] = useState('');
-  const [personalEmail, setPersonalEmail] = useState('');
-  const [birthDate, setBirthDate] = useState('');
-  const [ssn, setSsn] = useState('');
-  const [homeAddress, setHomeAddress] = useState({
-    street: '',
-    address2: '',
-    city: '',
-    state: '',
-    postalCode: '',
-    country: '',
-  });
-  const [emergencyContact, setEmergencyContact] = useState({
-    firstName: '',
-    lastName: '',
-    email: '',
-    cellPhone: '',
-  });
-
-  // ── Sync fetched data into form state ─────────────────────────────────────
-  const populateForm = useCallback((data: EmployeePersonalProfile) => {
-    setMiddleName(data.middleName || '');
-    setPersonalEmail(data.personalEmail || '');
-    setBirthDate(data.birthDate || '');
-    setSsn(data.ssn || '');
-    setHomeAddress({
-      street: data.homeStreet || '',
-      address2: data.homeAddress2 || '',
-      city: data.homeCity || '',
-      state: data.homeState || '',
-      postalCode: data.homePostalCode || '',
-      country: data.homeCountry || '',
-    });
-    setEmergencyContact({
-      firstName: data.emergencyFirstName || '',
-      lastName: data.emergencyLastName || '',
-      email: data.emergencyEmail || '',
-      cellPhone: data.emergencyCellPhone || '',
-    });
-  }, []);
-
-  useEffect(() => {
-    if (profileQuery.data) populateForm(profileQuery.data);
-  }, [profileQuery.data, populateForm]);
-
-  // ── Save mutation ─────────────────────────────────────────────────────────
-  const saveMutation = useMutation({
-    mutationFn: (payload: UpdateEmployeePersonalProfileRequest) =>
-      updateEmployeePersonalProfile(user.email, payload),
-    onSuccess: (data) => {
-      qc.setQueryData(['employee-personal-profile', user.email], data);
-      populateForm(data);
-      addToast?.('Personal profile saved.', 'success');
-    },
-    onError: (error) => {
-      addToast?.(friendlyApiError(error, 'Could not save profile.'), 'error');
-    },
-  });
-
-  const handleSave = () => {
-    saveMutation.mutate({
-      middleName: middleName || null,
-      personalEmail: personalEmail || null,
-      birthDate: birthDate || null,
-      ssn: ssn || null,
-      homeStreet: homeAddress.street || null,
-      homeAddress2: homeAddress.address2 || null,
-      homeCity: homeAddress.city || null,
-      homeState: homeAddress.state || null,
-      homePostalCode: homeAddress.postalCode || null,
-      homeCountry: homeAddress.country || null,
-      emergencyFirstName: emergencyContact.firstName || null,
-      emergencyLastName: emergencyContact.lastName || null,
-      emergencyEmail: emergencyContact.email || null,
-      emergencyCellPhone: emergencyContact.cellPhone || null,
-    });
-  };
-
-  const age = birthDate ? calculateAge(birthDate) : null;
-
-  // ── Address autofill (Google Places) ──────────────────────────────────────
-  const homeAutofill = useAddressAutofill({
-    value: {
-      street: homeAddress.street,
-      city: homeAddress.city,
-      state: homeAddress.state,
-      postalCode: homeAddress.postalCode,
-      country: '', // keep unrestricted — allow searching any country
-    },
-    onPatch: (patch) => {
-      setHomeAddress((prev) => ({ ...prev, ...patch }));
-    },
   });
 
   // ── Loading / error states ────────────────────────────────────────────────
@@ -597,164 +435,65 @@ function PersonalTab({ user, isAdmin, addToast }: { user: UserProfileUser; isAdm
     );
   }
 
+  const data = profileQuery.data;
+  const birthDate = data?.birthDate || '';
+  const age = birthDate ? calculateAge(birthDate) : null;
+
   return (
     <div className="space-y-4">
-      <SavingOverlay visible={saveMutation.isPending} />
+      <EntraSyncBanner
+        email={user.email}
+        tabFields={[
+          'firstName', 'lastName', 'cellPhone', 'workPhone', 'middleName',
+          'personalEmail', 'birthDate', 'ssn',
+          'streetAddress', 'streetAddress2', 'city', 'state', 'postalCode', 'country',
+          'emergencyContactName', 'emergencyContactPhone', 'emergencyContactEmail',
+        ]}
+        invalidateKeys={[['employee-personal-profile', user.email], ['employee-employment-profile', user.email]]}
+      />
+      {profileQuery.isFetching && !profileQuery.isLoading && <RefetchingBanner />}
       {/* Basic Info */}
       <SectionCard title="Basic Information" icon={<User className="h-4 w-4 text-ems-accent" />}>
-        <div className="grid gap-4 md:grid-cols-3">
-          <ReadOnlyField label="First Name" value={user.name.split(' ')[0] || ''} source="entra" />
-          <EditableField label="Middle Name" value={middleName} onChange={setMiddleName} placeholder="Enter middle name" source="employee" maxLength={100} />
-          <ReadOnlyField label="Last Name" value={user.name.split(' ').slice(1).join(' ') || ''} source="entra" />
-          {canEditPersonal && (
-            <EditableField label="Personal Email" value={personalEmail} onChange={setPersonalEmail} type="text" placeholder="personal@example.com" source="employee" maxLength={254} />
-          )}
-          <ReadOnlyField label="Cell Phone Number" value={user.mobilePhone || ''} source="entra" />
-          <EditableField label="Birth Date" value={birthDate} onChange={setBirthDate} type="date" source="employee" />
-          {canEditPersonal && (
-            <HashedEditableField label="Social Security Number" value={ssn} onChange={setSsn} placeholder="•••-••-••••" source="employee" maxLength={11} />
-          )}
+        <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <ReadOnlyField label="First Name" value={data?.firstName || ''} source="ems" />
+          <ReadOnlyField label="Middle Name" value={data?.middleName || ''} source="employee" />
+          <ReadOnlyField label="Last Name" value={data?.lastName || ''} source="ems" />
+          <ReadOnlyWithWmsLink label="Cell Phone Number" value={data?.cellPhone || ''} source="ems" contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="Work Phone" value={data?.workPhone || ''} source="ems" contactId={data?.contactId} />
+          <ReadOnlyField label="Personal Email" value={data?.personalEmail || ''} source="employee" />
+          <ReadOnlyField label="Birth Date" value={birthDate} source="employee" />
           {isAdmin && (
-            age !== null ? (
-              <HashedField label="Age" value={`${age} years`} source="calculated" />
-            ) : (
-              <ReadOnlyField label="Age" value="Enter birth date" source="calculated" />
-            )
+            <HashedField label="Social Security Number" value={data?.ssn || ''} source="employee" />
           )}
-        </div>
-      </SectionCard>
-
-      {/* Home Address (Admin or Self) */}
-      {canEditPersonal && (
-      <SectionCard title="Home Address" icon={<MapPin className="h-4 w-4 text-ems-accent" />}>
-        <div className="grid gap-4 md:grid-cols-2">
-          {/* Street Address with Google Places autocomplete */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-1.5">
-              <label className="text-xs font-medium text-text-muted">Street Address</label>
-            </div>
-            <div className="relative">
-              <input
-                type="text"
-                value={homeAddress.street}
-                onChange={(e) => setHomeAddress((prev) => ({ ...prev, street: e.target.value }))}
-                onFocus={homeAutofill.onStreetFocus}
-                onBlur={homeAutofill.onStreetBlur}
-                placeholder="Start typing to search…"
-                className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none"
-              />
-              {homeAutofill.showSuggestions && (
-                <div className="absolute z-20 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-48 overflow-auto">
-                  {homeAutofill.suggestions.map((suggestion) => (
-                    <button
-                      key={suggestion.placeId}
-                      type="button"
-                      className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        homeAutofill.selectSuggestion(suggestion);
-                      }}
-                    >
-                      {suggestion.description}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-          <EditableField
-            label="Address Line 2"
-            value={homeAddress.address2}
-            onChange={(v) => setHomeAddress((prev) => ({ ...prev, address2: v }))}
-            placeholder="Apartment, unit, etc."
-            source="google"
-            maxLength={200}
-          />
-          <EditableField
-            label="City"
-            value={homeAddress.city}
-            onChange={(v) => setHomeAddress((prev) => ({ ...prev, city: v }))}
-            source="google"
-            maxLength={100}
-          />
-          <EditableField
-            label="State"
-            value={homeAddress.state}
-            onChange={(v) => setHomeAddress((prev) => ({ ...prev, state: v }))}
-            source="google"
-            maxLength={100}
-          />
-          <EditableField
-            label="Postal Code"
-            value={homeAddress.postalCode}
-            onChange={(v) => setHomeAddress((prev) => ({ ...prev, postalCode: v }))}
-            source="google"
-            maxLength={20}
-          />
-          <EditableField
-            label="Country"
-            value={homeAddress.country}
-            onChange={(v) => setHomeAddress((prev) => ({ ...prev, country: v }))}
-            source="google"
-            maxLength={100}
-          />
-        </div>
-      </SectionCard>
-      )}
-
-      {/* Emergency Contact (Admin or Self) */}
-      {canEditPersonal && (
-      <SectionCard title="Emergency Contact" icon={<User className="h-4 w-4 text-ems-coral" />}>
-        <div className="grid gap-4 md:grid-cols-2">
-          <EditableField
-            label="First Name"
-            value={emergencyContact.firstName}
-            onChange={(v) => setEmergencyContact((prev) => ({ ...prev, firstName: v }))}
-            source="employee"
-            maxLength={100}
-          />
-          <EditableField
-            label="Last Name"
-            value={emergencyContact.lastName}
-            onChange={(v) => setEmergencyContact((prev) => ({ ...prev, lastName: v }))}
-            source="employee"
-            maxLength={100}
-          />
-          <EditableField
-            label="Email"
-            value={emergencyContact.email}
-            onChange={(v) => setEmergencyContact((prev) => ({ ...prev, email: v }))}
-            type="email"
-            source="employee"
-            maxLength={200}
-          />
-          <EditableField
-            label="Cell Phone"
-            value={emergencyContact.cellPhone}
-            onChange={(v) => setEmergencyContact((prev) => ({ ...prev, cellPhone: v }))}
-            source="employee"
-            maxLength={30}
-          />
-        </div>
-      </SectionCard>
-      )}
-
-      {/* Save Bar */}
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saveMutation.isPending}
-          className="inline-flex items-center gap-2 rounded-md bg-ems-accent px-4 py-2 text-sm font-medium text-white hover:bg-ems-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {saveMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+          {age !== null ? (
+            <HashedField label="Age" value={`${age} years`} source="calculated" />
           ) : (
-            <Save className="h-4 w-4" />
+            <ReadOnlyField label="Age" value={birthDate ? '—' : 'Conditional on Birth Date'} source="calculated" />
           )}
-          {saveMutation.isPending ? 'Saving…' : 'Save Personal Info'}
-        </button>
-      </div>
+        </div>
+      </SectionCard>
+
+      {/* Home Address */}
+      <SectionCard title="Home Address" icon={<MapPin className="h-4 w-4 text-ems-accent" />}>
+        <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
+          <ReadOnlyWithWmsLink label="Street Address" value={data?.homeStreet || ''} contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="Address Line 2" value={data?.homeAddress2 || ''} contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="City" value={data?.homeCity || ''} contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="State" value={data?.homeState || ''} contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="Postal Code" value={data?.homePostalCode || ''} contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="Country" value={data?.homeCountry || ''} contactId={data?.contactId} />
+        </div>
+      </SectionCard>
+
+      {/* Emergency Contact */}
+      <SectionCard title="Emergency Contact" icon={<User className="h-4 w-4 text-ems-coral" />}>
+        <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
+          <ReadOnlyWithWmsLink label="First Name" value={data?.emergencyFirstName || ''} source="employee" contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="Last Name" value={data?.emergencyLastName || ''} source="employee" contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="Email" value={data?.emergencyEmail || ''} source="employee" contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="Cell Phone" value={data?.emergencyCellPhone || ''} source="employee" contactId={data?.contactId} />
+        </div>
+      </SectionCard>
     </div>
   );
 }
@@ -762,9 +501,8 @@ function PersonalTab({ user, isAdmin, addToast }: { user: UserProfileUser; isAdm
 // ─── Employment Tab ───────────────────────────────────────────────────────────
 
 function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isAdmin: boolean; addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void }) {
-  const qc = useQueryClient();
-
   // ── Fetch existing employment profile ─────────────────────────────────────
+  const queryClient = useQueryClient();
   const profileQuery = useQuery({
     queryKey: ['employee-employment-profile', user.email],
     queryFn: () => fetchEmployeeEmploymentProfile(user.email),
@@ -772,179 +510,15 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
     staleTime: 30_000,
   });
 
-  // ── Fetch workstation options ─────────────────────────────────────────────
-  const workstationsQuery = useQuery({
-    queryKey: ['workstations'],
-    queryFn: fetchWorkstations,
-    staleTime: 60_000,
-    enabled: isAdmin,
-  });
-
-  // ── Fetch phone extension options ─────────────────────────────────────────
-  const phoneExtensionsQuery = useQuery({
-    queryKey: ['phone-extensions'],
-    queryFn: fetchPhoneExtensions,
-    staleTime: 60_000,
-    enabled: isAdmin,
-  });
-
-  // ── Fetch phone device options ────────────────────────────────────────────
-  const phoneDevicesQuery = useQuery({
-    queryKey: ['phone-devices'],
-    queryFn: fetchPhoneDevices,
-    staleTime: 60_000,
-    enabled: isAdmin,
-  });
-
-  // ── Fetch PC device options ───────────────────────────────────────────────
-  const pcDevicesQuery = useQuery({
-    queryKey: ['pc-devices'],
-    queryFn: fetchPcDevices,
-    staleTime: 60_000,
-    enabled: isAdmin,
-  });
-
-  // ── Fetch internal employees (for Supervisor dropdown) ────────────────────
-  const employeesQuery = useQuery({
-    queryKey: ['iae-staff-employees'],
-    queryFn: fetchIaeStaffEmployees,
-    staleTime: 60_000,
-    enabled: isAdmin,
-  });
-
-  // ── Fetch Entra licenses & group membership ───────────────────────────────
-  const licensesQuery = useQuery({
-    queryKey: ['user-licenses', user.email],
-    queryFn: () => fetchUserLicenses(user.email),
-    enabled: !!user.email,
-    staleTime: 60_000,
-  });
-
-  const groupsQuery = useQuery({
-    queryKey: ['user-groups', user.email],
-    queryFn: () => fetchUserGroups(user.email),
-    enabled: !!user.email,
-    staleTime: 60_000,
-  });
-
-  // ── Local form state ──────────────────────────────────────────────────────
-  const [accessLevel, setAccessLevel] = useState('');
-  const [workAuthorization, setWorkAuthorization] = useState('');
-  const [workstation, setWorkstation] = useState('');
-  const [officeAddress, setOfficeAddress] = useState({
-    street: '',
-    address2: '',
-    city: '',
-    state: '',
-    postalCode: '',
-    country: '',
-  });
-  const [deskPhoneExtension, setDeskPhoneExtension] = useState('');
-  const [deskPhoneMac, setDeskPhoneMac] = useState('');
-  const [deskPhoneBrand, setDeskPhoneBrand] = useState('');
-  const [deskPhoneModel, setDeskPhoneModel] = useState('');
-  const [pcBrand, setPcBrand] = useState('');
-  const [pcModel, setPcModel] = useState('');
-  const [pcServiceTag, setPcServiceTag] = useState('');
-  const [bluetoothStatus, setBluetoothStatus] = useState('');
-  const [pcWindowsName, setPcWindowsName] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [supervisor, setSupervisor] = useState('');
-  const [ptoAccrualRate, setPtoAccrualRate] = useState('');
-  const [employmentAgreement, setEmploymentAgreement] = useState('');
-  const [rampAccount, setRampAccount] = useState('');
-  const [rampCreditCard, setRampCreditCard] = useState('');
-  // Track selected equipment IDs for save
-  const [selectedExtensionId, setSelectedExtensionId] = useState<number | null>(null);
-  const [selectedPhoneId, setSelectedPhoneId] = useState<number | null>(null);
-  const [selectedComputerId, setSelectedComputerId] = useState<number | null>(null);
-
-  // ── Sync fetched data into form ───────────────────────────────────────────
-  const populateForm = useCallback((data: EmployeeEmploymentProfile) => {
-    setAccessLevel(data.accessLevel || '');
-    setWorkAuthorization(data.workAuthorization || '');
-    setWorkstation(data.workstation || '');
-    setStartDate(data.startDate || '');
-    setSupervisor(data.supervisor || '');
-    setPtoAccrualRate(data.ptoAccrualRate || '');
-    setEmploymentAgreement(data.employmentAgreement || '');
-    setRampAccount(data.rampAccount || '');
-    setRampCreditCard(data.rampCreditCard || '');
-    setOfficeAddress({
-      street: data.officeStreet || '',
-      address2: data.officeAddress2 || '',
-      city: data.officeCity || '',
-      state: data.officeState || '',
-      postalCode: data.officePostalCode || '',
-      country: data.officeCountry || '',
-    });
-    setDeskPhoneExtension(data.deskPhoneExtension || '');
-    setDeskPhoneMac(data.deskPhoneMac || '');
-    setDeskPhoneBrand(data.deskPhoneBrand || '');
-    setDeskPhoneModel(data.deskPhoneModel || '');
-    setPcBrand(data.pcBrand || '');
-    setPcModel(data.pcModel || '');
-    setPcServiceTag(data.pcServiceTag || '');
-    setBluetoothStatus(data.bluetoothStatus || '');
-    setPcWindowsName(data.pcWindowsName || '');
-  }, []);
-
-  useEffect(() => {
-    if (profileQuery.data) populateForm(profileQuery.data);
-  }, [profileQuery.data, populateForm]);
-
-  // ── Address autofill ──────────────────────────────────────────────────────
-  const officeAutofill = useAddressAutofill({
-    value: {
-      street: officeAddress.street,
-      city: officeAddress.city,
-      state: officeAddress.state,
-      postalCode: officeAddress.postalCode,
-      country: '',
-    },
-    onPatch: (patch) => {
-      setOfficeAddress((prev) => ({ ...prev, ...patch }));
-    },
-  });
-
-  // ── Save mutation ─────────────────────────────────────────────────────────
-  const saveMutation = useMutation({
-    mutationFn: (payload: UpdateEmployeeEmploymentProfileRequest) =>
-      updateEmployeeEmploymentProfile(user.email, payload),
-    onSuccess: (data) => {
-      qc.setQueryData(['employee-employment-profile', user.email], data);
-      populateForm(data);
-      addToast?.('Employment profile saved.', 'success');
-    },
-    onError: (error) => {
-      addToast?.(friendlyApiError(error, 'Could not save employment profile.'), 'error');
-    },
-  });
-
-  const handleSave = () => {
-    saveMutation.mutate({
-      accessLevel: accessLevel || null,
-      workAuthorization: workAuthorization || null,
-      workstation: workstation || null,
-      startDate: startDate || null,
-      supervisor: supervisor || null,
-      ptoAccrualRate: ptoAccrualRate || null,
-      employmentAgreement: employmentAgreement || null,
-      rampAccount: rampAccount || null,
-      rampCreditCard: rampCreditCard || null,
-      officeStreet: officeAddress.street || null,
-      officeAddress2: officeAddress.address2 || null,
-      officeCity: officeAddress.city || null,
-      officeState: officeAddress.state || null,
-      officePostalCode: officeAddress.postalCode || null,
-      officeCountry: officeAddress.country || null,
-      deskPhoneExtensionId: selectedExtensionId,
-      deskPhoneId: selectedPhoneId,
-      pcComputerId: selectedComputerId,
-    });
-  };
-
-  const yearsOfService = startDate ? calculateYearsOfService(startDate) : null;
+  const saveWorkAuthLink = useCallback(async (url: string) => {
+    try {
+      await updateEmployeeEmploymentProfile(user.email, { workAuthorizationLinkUrl: url || null });
+      queryClient.invalidateQueries({ queryKey: ['employee-employment-profile', user.email] });
+      addToast?.('Work Authorization Photos link saved.', 'success');
+    } catch (e) {
+      addToast?.(friendlyApiError(e, 'Could not save link.'), 'error');
+    }
+  }, [user.email, queryClient, addToast]);
 
   // ── Loading / error states ────────────────────────────────────────────────
   if (profileQuery.isLoading) {
@@ -964,392 +538,175 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
     );
   }
 
+  const data = profileQuery.data;
+  const startDate = data?.startDate || '';
+  const yearsOfService = startDate ? calculateYearsOfService(startDate) : null;
+
   return (
     <div className="space-y-4">
-      <SavingOverlay visible={saveMutation.isPending} />
-      {/* Entra-fed fields */}
-      <SectionCard title="Entra Directory Info (Read-Only)" icon={<Briefcase className="h-4 w-4 text-ems-accent" />}>
-        <div className="grid gap-4 md:grid-cols-2">
-          <ReadOnlyField label="Title" value={user.jobTitle || ''} source="entra" />
-          <ReadOnlyField label="Work Email" value={user.email} source="entra" />
-          <ReadOnlyField label="Office" value={user.officeLocation || ''} source="entra" />
-          {isAdmin && (
-            <ReadOnlyField
-              label="Microsoft Office License"
-              value={licensesQuery.isLoading ? 'Loading…' : licensesQuery.data?.length ? licensesQuery.data.join(', ') : 'None'}
-              source="entra"
-            />
-          )}
-          <div className="md:col-span-2">
-            <ReadOnlyField
-              label="Microsoft Group Membership"
-              value={groupsQuery.isLoading ? 'Loading…' : groupsQuery.data?.length ? groupsQuery.data.join(', ') : 'None'}
-              source="entra"
-            />
-          </div>
+      <EntraSyncBanner
+        email={user.email}
+        tabFields={[
+          'email',
+          'title', 'department', 'accessLevel', 'office', 'workstation', 'workAuthorization',
+          'workAuthorizationLink',
+          'role',
+          'officeAddressStreet1', 'officeAddressStreet2', 'officeAddressCity', 'officeAddressState', 'officeAddressZip', 'officeAddressCountry',
+          'departmentRank', 'startDate', 'supervisor', 'ptoAccrualRate',
+          'employmentAgreement', 'rampAccount', 'rampCreditCard', 'employmentType',
+        ]}
+        invalidateKeys={[['employee-employment-profile', user.email], ['employee-personal-profile', user.email]]}
+      />
+      {profileQuery.isFetching && !profileQuery.isLoading && <RefetchingBanner />}
+      {/* Directory Info */}
+      <SectionCard title="Directory Info" icon={<Briefcase className="h-4 w-4 text-ems-accent" />}>
+        <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
+          <ReadOnlyField label="Title" value={data?.title || ''} source="ems" />
+          <ReadOnlyField label="Work Email" value={data?.workEmail || ''} source="ems" />
+          <ReadOnlyField label="Department" value={data?.department || ''} source="ems" />
+          <ReadOnlyField label="Office" value={data?.office || ''} source="ems" />
+          <ReadOnlyField label="Department Rank" value={data?.departmentRank || ''} source="admin" />
+          <ReadOnlyField label="Role" value={data?.role || ''} source="admin" />
         </div>
       </SectionCard>
 
-      {/* Admin-entered fields */}
+      {/* Employment Details */}
       <SectionCard title="Employment Details" icon={<Briefcase className="h-4 w-4 text-ems-blue" />}>
-        <div className="grid gap-4 md:grid-cols-2">
-          {isAdmin && accessLevel === 'Super Admin' ? (
-            <SelectField
-              label="Access Level"
-              value={accessLevel}
-              onChange={() => {}}
-              options={[
-                { value: 'Super Admin', label: 'Super Admin' },
-              ]}
-              source="admin"
-              disabled
-            />
-          ) : isAdmin ? (
-            <SelectField
-              label="Access Level"
-              value={accessLevel}
-              onChange={setAccessLevel}
-              options={[
-                { value: 'Administrator', label: 'Administrator' },
-                { value: 'Employee', label: 'Employee' },
-              ]}
-              source="admin"
-            />
-          ) : null}
-          {isAdmin && (
-            <SelectField
-              label="Work Authorization"
-              value={workAuthorization}
-              onChange={setWorkAuthorization}
-              options={[
-                { value: 'US Citizen', label: 'US Citizen' },
-                { value: 'Foreign National with Work Authorization', label: 'Foreign National with Work Authorization' },
-              ]}
-              source="admin"
-            />
-          )}
-          {/* Workstation grouped select */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <label className="text-xs font-medium text-text-muted">Workstation</label>
-            </div>
-            <select
-              value={workstation}
-              onChange={(e) => setWorkstation(e.target.value)}
-              disabled={!isAdmin}
-              className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <option value="">Select workstation…</option>
-              {workstationsQuery.data?.offices.map((office) => (
-                <optgroup key={office.officeCode} label={office.officeCode}>
-                  {office.workstations.map((ws) => (
-                    <option
-                      key={ws.workLocationId}
-                      value={ws.locationCode}
-                      disabled={ws.isAssigned}
-                    >
-                      {ws.locationCode}{ws.isAssigned ? ' (assigned)' : ''}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-          </div>
-          <EditableField label="Start Date at IAE" value={startDate} onChange={setStartDate} type="date" source="admin" disabled={!isAdmin} />
+        <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
+          {isAdmin && <ReadOnlyField label="Access Level" value={data?.accessLevel || ''} source="admin" />}
+          {isAdmin && <ReadOnlyField label="Work Authorization" value={data?.workAuthorization || ''} source="admin" />}
+          {isAdmin && <EditableLinkField label="Work Authorization Photos" value={data?.workAuthorizationLinkUrl || ''} onSave={saveWorkAuthLink} />}
+          <ReadOnlyWithWmsLink label="Workstation" value={data?.workstation || ''} source="admin" contactId={data?.contactId} />
+          <ReadOnlyField label="Start Date at IAE" value={startDate} source="admin" />
           {yearsOfService !== null ? (
             <ReadOnlyField label="Years of Service" value={yearsOfService} source="calculated" />
           ) : (
-            <ReadOnlyField label="Years of Service" value="Enter start date" source="calculated" />
+            <ReadOnlyField label="Years of Service" value={startDate ? '—' : 'Conditional on Start Date'} source="calculated" />
           )}
-          {/* Supervisor dropdown from employee list */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <label className="text-xs font-medium text-text-muted">Supervisor</label>
-            </div>
-            <select
-              value={supervisor}
-              onChange={(e) => setSupervisor(e.target.value)}
-              disabled={!isAdmin}
-              className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <option value="">Select supervisor…</option>
-              {employeesQuery.data
-                ?.filter((emp) => emp.email.toLowerCase() !== user.email.toLowerCase())
-                .map((emp) => {
-                  const fullName = `${emp.firstName} ${emp.lastName}`.trim();
-                  return (
-                    <option key={emp.contactId} value={fullName}>
-                      {fullName}{emp.roleName ? ` — ${emp.roleName}` : ''}
-                    </option>
-                  );
-                })}
-            </select>
-          </div>
-          {isAdmin && (
-            <EditableField label="Paid Time Off Accrual Rate (days/year)" value={ptoAccrualRate} onChange={setPtoAccrualRate} type="number" placeholder="e.g. 15" source="admin" maxLength={100} />
-          )}
-          {isAdmin && (
-            <SelectField
-              label="Employment Agreement Fully Executed"
-              value={employmentAgreement}
-              onChange={setEmploymentAgreement}
-              options={[
-                { value: 'Yes', label: 'Yes' },
-                { value: 'No', label: 'No' },
-              ]}
-              source="admin"
-            />
-          )}
-          {isAdmin && (
-            <SelectField
-              label="Ramp Account"
-              value={rampAccount}
-              onChange={setRampAccount}
-              options={[
-                { value: 'Yes', label: 'Yes' },
-                { value: 'No', label: 'No' },
-              ]}
-              source="admin"
-            />
-          )}
-          {isAdmin && (
-            <SelectField
-              label="Ramp Credit Card"
-              value={rampCreditCard}
-              onChange={setRampCreditCard}
-              options={[
-                { value: 'Assigned', label: 'Assigned' },
-                { value: 'Unassigned', label: 'Unassigned' },
-              ]}
-              source="admin"
-            />
-          )}
+          <ReadOnlyField label="Supervisor" value={data?.supervisor || ''} source="admin" />
+          {isAdmin && <ReadOnlyField label="Paid Time Off Accrual Rate" value={data?.ptoAccrualRate || ''} source="admin" />}
+          {isAdmin && <ReadOnlyField label="Employment Agreement Fully Executed" value={data?.employmentAgreement || ''} source="admin" />}
+          {isAdmin && <ReadOnlyField label="Ramp Account" value={data?.rampAccount || ''} source="admin" />}
+          {isAdmin && <ReadOnlyField label="Ramp Credit Card" value={data?.rampCreditCard || ''} source="admin" />}
+          <ReadOnlyField label="Employment Type" value={data?.employmentType || ''} source="admin" />
         </div>
       </SectionCard>
 
       {/* Office Address */}
       <SectionCard title="Office Address" icon={<MapPin className="h-4 w-4 text-ems-accent" />}>
-        <div className="grid gap-4 md:grid-cols-2">
-          {/* Street Address with Google Places autocomplete */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-1.5">
-              <label className="text-xs font-medium text-text-muted">Street Address</label>
-            </div>
-            <div className="relative">
-              <input
-                type="text"
-                value={officeAddress.street}
-                onChange={(e) => setOfficeAddress((prev) => ({ ...prev, street: e.target.value }))}
-                onFocus={officeAutofill.onStreetFocus}
-                onBlur={officeAutofill.onStreetBlur}
-                placeholder="Start typing to search…"
-                disabled={!isAdmin}
-                className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-ems-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-              />
-              {officeAutofill.showSuggestions && (
-                <div className="absolute z-20 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-48 overflow-auto">
-                  {officeAutofill.suggestions.map((suggestion) => (
-                    <button
-                      key={suggestion.placeId}
-                      type="button"
-                      className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        officeAutofill.selectSuggestion(suggestion);
-                      }}
-                    >
-                      {suggestion.description}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-          <EditableField
-            label="Address Line 2"
-            value={officeAddress.address2}
-            onChange={(v) => setOfficeAddress((prev) => ({ ...prev, address2: v }))}
-            placeholder="Suite, floor, etc."
-            disabled={!isAdmin}
-            source="google"
-            maxLength={200}
-          />
-          <EditableField
-            label="City"
-            value={officeAddress.city}
-            onChange={(v) => setOfficeAddress((prev) => ({ ...prev, city: v }))}
-            disabled={!isAdmin}
-            source="google"
-            maxLength={100}
-          />
-          <EditableField
-            label="State"
-            value={officeAddress.state}
-            onChange={(v) => setOfficeAddress((prev) => ({ ...prev, state: v }))}
-            disabled={!isAdmin}
-            source="google"
-            maxLength={100}
-          />
-          <EditableField
-            label="Postal Code"
-            value={officeAddress.postalCode}
-            onChange={(v) => setOfficeAddress((prev) => ({ ...prev, postalCode: v }))}
-            disabled={!isAdmin}
-            source="google"
-            maxLength={20}
-          />
-          <EditableField
-            label="Country"
-            value={officeAddress.country}
-            onChange={(v) => setOfficeAddress((prev) => ({ ...prev, country: v }))}
-            disabled={!isAdmin}
-            source="google"
-            maxLength={100}
-          />
+        <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
+          <ReadOnlyField label="Street Address" value={data?.officeStreet || ''} source="admin" />
+          <ReadOnlyField label="Address Line 2" value={data?.officeAddress2 || ''} source="admin" />
+          <ReadOnlyField label="City" value={data?.officeCity || ''} source="admin" />
+          <ReadOnlyField label="State" value={data?.officeState || ''} source="admin" />
+          <ReadOnlyField label="Postal Code" value={data?.officePostalCode || ''} source="admin" />
+          <ReadOnlyField label="Country" value={data?.officeCountry || ''} source="admin" />
         </div>
       </SectionCard>
 
-      {/* Desk Phone & Equipment */}
-      <SectionCard title="Desk Phone & Equipment" icon={<Briefcase className="h-4 w-4 text-ems-green" />}>
-        <div className="grid gap-4 md:grid-cols-2">
-          <ReadOnlyField label="Desk Phone Number" value="(312) 274-1800" source="admin" />
-          {/* Desk Phone Extension dropdown */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <label className="text-xs font-medium text-text-muted">Desk Phone Extension</label>
-            </div>
-            <select
-              value={deskPhoneExtension}
-              onChange={(e) => {
-                const extNumber = e.target.value;
-                setDeskPhoneExtension(extNumber);
-                const ext = phoneExtensionsQuery.data?.extensions.find(
-                  (x) => x.extensionNumber === extNumber,
-                );
-                setSelectedExtensionId(ext?.extensionId ?? null);
-              }}
-              disabled={!isAdmin}
-              className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <option value="">Select extension…</option>
-              {phoneExtensionsQuery.data?.extensions.map((ext) => (
-                <option
-                  key={ext.extensionId}
-                  value={ext.extensionNumber}
-                  disabled={ext.isAssigned}
-                >
-                  {ext.extensionNumber}{ext.isAssigned ? ' (assigned)' : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-          {/* Admin-only: Desk Phone MAC dropdown */}
-          {isAdmin && (
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-medium text-text-muted">Desk Phone MAC Address</label>
-              </div>
-              <select
-                value={deskPhoneMac}
-                onChange={(e) => {
-                  const mac = e.target.value;
-                  setDeskPhoneMac(mac);
-                  const phone = phoneDevicesQuery.data?.phones.find(
-                    (p) => p.macAddress === mac,
-                  );
-                  if (phone) {
-                    setDeskPhoneBrand(phone.make || '');
-                    setDeskPhoneModel(phone.model || '');
-                    setSelectedPhoneId(phone.phoneId);
-                  } else {
-                    setDeskPhoneBrand('');
-                    setDeskPhoneModel('');
-                    setSelectedPhoneId(null);
-                  }
-                }}
-                className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue"
-              >
-                <option value="">Select phone…</option>
-                {phoneDevicesQuery.data?.phones.map((phone) => (
-                  <option
-                    key={phone.phoneId}
-                    value={phone.macAddress}
-                    disabled={phone.isAssigned}
-                  >
-                    {phone.macAddress} — {phone.make} {phone.model}{phone.isAssigned ? ' (assigned)' : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          {isAdmin && <ReadOnlyField label="Desk Phone Brand" value={deskPhoneBrand || '—'} source="inventory" />}
-          {isAdmin && <ReadOnlyField label="Desk Phone Model" value={deskPhoneModel || '—'} source="inventory" />}
-          {/* Admin-only: PC Service Tag dropdown */}
-          {isAdmin && (
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-medium text-text-muted">PC Service Tag</label>
-              </div>
-              <select
-                value={pcServiceTag}
-                onChange={(e) => {
-                  const tag = e.target.value;
-                  setPcServiceTag(tag);
-                  const pc = pcDevicesQuery.data?.computers.find(
-                    (c) => c.serviceTag === tag,
-                  );
-                  if (pc) {
-                    setPcBrand(pc.make || '');
-                    setPcModel(pc.model || '');
-                    setBluetoothStatus(pc.bluetoothStatus || '');
-                    setPcWindowsName(pc.pcName || '');
-                    setSelectedComputerId(pc.computerId);
-                  } else {
-                    setPcBrand('');
-                    setPcModel('');
-                    setBluetoothStatus('');
-                    setPcWindowsName('');
-                    setSelectedComputerId(null);
-                  }
-                }}
-                className="w-full rounded-md border border-border bg-white dark:bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ems-blue"
-              >
-                <option value="">Select PC…</option>
-                {pcDevicesQuery.data?.computers.map((pc) => (
-                  <option
-                    key={pc.computerId}
-                    value={pc.serviceTag}
-                    disabled={pc.isAssigned}
-                  >
-                    {pc.serviceTag} — {pc.pcName}{pc.isAssigned ? ' (assigned)' : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          {isAdmin && <ReadOnlyField label="PC Brand" value={pcBrand || '—'} source="inventory" />}
-          {isAdmin && <ReadOnlyField label="PC Model" value={pcModel || '—'} source="inventory" />}
-          {isAdmin && <ReadOnlyField label="Bluetooth Status" value={bluetoothStatus || '—'} source="inventory" />}
-          {isAdmin && <ReadOnlyField label="PC Windows Name" value={pcWindowsName || '—'} source="inventory" />}
-        </div>
-      </SectionCard>
+    </div>
+  );
+}
 
-      {/* Save Bar */}
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saveMutation.isPending}
-          className="inline-flex items-center gap-2 rounded-md bg-ems-accent px-4 py-2 text-sm font-medium text-white hover:bg-ems-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {saveMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Save className="h-4 w-4" />
-          )}
-          {saveMutation.isPending ? 'Saving…' : 'Save Employment Info'}
-        </button>
+// ─── Property Tab ─────────────────────────────────────────────────────────────
+
+function PropertyTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolean; addToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void }) {
+  const profileQuery = useQuery({
+    queryKey: ['employee-employment-profile', user.email],
+    queryFn: () => fetchEmployeeEmploymentProfile(user.email),
+    enabled: !!user.email,
+    staleTime: 30_000,
+  });
+
+  if (profileQuery.isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16 text-text-muted">
+        <Loader2 className="h-5 w-5 animate-spin mr-2" />
+        Loading property assignments…
       </div>
+    );
+  }
+
+  const data = profileQuery.data;
+
+  return (
+    <div className="space-y-4">
+      <EntraSyncBanner
+        email={user.email}
+        tabFields={[
+          'deskPhoneExtension', 'deskPhoneMac', 'deskPhoneBrand', 'deskPhoneModel',
+          'pcServiceTag', 'pcWindowsName', 'pcBrand', 'pcModel', 'bluetoothStatus',
+          'pcDeviceType', 'pcNotes', 'pcEquipmentStatus', 'pcIsManagedByIT',
+        ]}
+        invalidateKeys={[['employee-employment-profile', user.email], ['employee-personal-profile', user.email]]}
+      />
+      {profileQuery.isFetching && !profileQuery.isLoading && <RefetchingBanner />}
+      <SectionCard title="Desk Phone" icon={<Laptop className="h-4 w-4 text-ems-accent" />}>
+        <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
+          <ReadOnlyWithWmsLink label="Desk Phone Number" value="(312) 274-1800" source="admin" contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="Desk Phone Extension" value={data?.deskPhoneExtension || ''} source="inventory" contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="Desk Phone MAC Address" value={data?.deskPhoneMac || ''} source="inventory" contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="Desk Phone Brand" value={data?.deskPhoneBrand || ''} source="inventory" contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="Desk Phone Model" value={data?.deskPhoneModel || ''} source="inventory" contactId={data?.contactId} />
+        </div>
+      </SectionCard>
+
+      <SectionCard title="PC" icon={<Laptop className="h-4 w-4 text-ems-blue" />}>
+        <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
+          <ReadOnlyWithWmsLink label="PC Service Tag" value={data?.pcServiceTag || ''} source="inventory" contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="PC Brand" value={data?.pcBrand || ''} source="inventory" contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="PC Model" value={data?.pcModel || ''} source="inventory" contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="Bluetooth Status" value={data?.bluetoothStatus || ''} source="inventory" contactId={data?.contactId} />
+          <ReadOnlyWithWmsLink label="PC Windows Name" value={data?.pcWindowsName || ''} source="inventory" contactId={data?.contactId} />
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
+// ─── Licenses & Groups Tab ────────────────────────────────────────────────────
+
+function LicensesGroupsTab({ user }: { user: UserProfileUser }) {
+  const licensesQuery = useQuery({
+    queryKey: ['user-licenses', user.email],
+    queryFn: () => fetchUserLicenses(user.email),
+    enabled: !!user.email,
+    staleTime: 60_000,
+  });
+
+  const groupsQuery = useQuery({
+    queryKey: ['user-groups', user.email],
+    queryFn: () => fetchUserGroups(user.email),
+    enabled: !!user.email,
+    staleTime: 60_000,
+  });
+
+  if (licensesQuery.isLoading && groupsQuery.isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16 text-text-muted">
+        <Loader2 className="h-5 w-5 animate-spin mr-2" />
+        Loading licenses & groups…
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <SectionCard title="Software Assets" icon={<KeyRound className="h-4 w-4 text-ems-accent" />}>
+        <ReadOnlyField
+          label="Microsoft Office License"
+          value={licensesQuery.isLoading ? 'Loading…' : licensesQuery.data?.length ? licensesQuery.data.join(', ') : 'None'}
+          source="entra"
+        />
+      </SectionCard>
+
+      <SectionCard title="Group Membership" icon={<Users className="h-4 w-4 text-ems-blue" />}>
+        <ReadOnlyField
+          label="Microsoft Group Membership"
+          value={groupsQuery.isLoading ? 'Loading…' : groupsQuery.data?.length ? groupsQuery.data.join(', ') : 'None'}
+          source="entra"
+        />
+      </SectionCard>
     </div>
   );
 }
@@ -1409,12 +766,10 @@ function InsuranceSection({
 }) {
   const typePlans = plans.filter((p) => p.planType === insuranceType);
 
-  // Derive coverage options dynamically from the selected plan's pricing data
   const coverageOptions = useMemo(() => {
     if (!planId) return [];
     const plan = plans.find((p) => String(p.healthPlanId) === planId);
     if (!plan) return [];
-    // Extract base coverage types (strip tenure suffix for Health plans)
     const bases = new Set<string>();
     for (const p of plan.pricing) {
       const base = p.coverageType.replace(/\s*\(<1 yr\)|\s*\(1\+ yr\)/g, '');
@@ -1436,19 +791,14 @@ function InsuranceSection({
     if (plan) {
       setPlanBenefits?.(plan.benefits.join('; '));
 
-      // Build coverage type: use selected value directly as base
       let base = currentAdditionalInsureds || 'Employee';
-      // Normalize DB-stored values to match HealthPlanPricing.CoverageType
       if (base === 'Employee Only') base = 'Employee';
       else if (base === 'Spouse') base = 'Employee + Spouse';
       else if (base === 'Child' || base === 'Children') base = 'Employee + Child(ren)';
       else if (base === 'N/A') base = 'Employee';
-      // Note: "Family" and "Employee + Family" are used as-is (they differ per plan type)
-      // For Health plans, append tenure suffix
+
       const coverageType = tenureTier ? `${base} (${tenureTier})` : base;
 
-      // Try exact match first, then fall back to base-only match (for pricing rows
-      // that don't include tenure markers in CoverageType)
       let priceEntry = plan.pricing.find((p) => p.coverageType === coverageType);
       if (!priceEntry) {
         const baseLower = base.toLowerCase();
@@ -1458,11 +808,9 @@ function InsuranceSection({
         if (candidates.length === 1) {
           priceEntry = candidates[0];
         } else if (candidates.length > 1) {
-          // Pick the one matching tenure
           const marker = tenureTier === '<1 yr' ? '<1' : '1+';
           priceEntry = candidates.find((p) => p.coverageType.includes(marker)) ?? candidates[0];
         }
-        // Fallback: "Family" ↔ "Employee + Family", "Children" ↔ "Employee + Children"
         if (!priceEntry) {
           const altMap: Record<string, string> = {
             'family': 'employee + family',
@@ -1484,17 +832,9 @@ function InsuranceSection({
 
       if (priceEntry) {
         const empMonthly = priceEntry.monthlyPremium;
-
-        // Plan Price and Monthly Rate both show MonthlyPremium from pricing table
         setPlanPrice?.(`$${empMonthly.toFixed(2)}/mo`);
         setMonthlyRate?.(`$${empMonthly.toFixed(2)}/mo`);
 
-        // Payroll deduction calculation:
-        // 1. planPriceBiweekly = MonthlyPremium × 12 ÷ 26
-        // 2. employerPerPP = EmployerContributionPct × benchmarkBiweekly
-        // 3. employerApplied = MIN(employerPerPP, planPriceBiweekly)
-        // 4. PayrollDeduction = ROUND(planPriceBiweekly − employerApplied, 2)
-        // Dental/Vision have no contribution rules → employerPerPP = 0 → deduction = planPrice
         const rules = plan.contributionRules ?? [];
         let employerPct = 0;
         if (rules.length > 0 && tenureTier) {
@@ -1519,9 +859,8 @@ function InsuranceSection({
         setCompanyContribution?.('');
       }
     }
-  }, [plans, tenureTier, companyContribPP, benchmarkBiweekly, setPlanPrice, setPlanBenefits, setPayrollDeduction, setMonthlyRate, setCompanyContribution]);
+  }, [plans, tenureTier, benchmarkBiweekly, setPlanPrice, setPlanBenefits, setPayrollDeduction, setMonthlyRate, setCompanyContribution]);
 
-  // Recalculate pricing when additionalInsureds changes
   useEffect(() => {
     if (planId) recalcPricing(planId, additionalInsureds);
   }, [additionalInsureds]);
@@ -1533,7 +872,7 @@ function InsuranceSection({
 
   return (
     <SectionCard title={title} icon={icon}>
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
         <SelectField
           label={`${insuranceType} Insurance Opt-In / Opt-Out`}
           value={optIn}
@@ -1594,7 +933,6 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
     staleTime: 30_000,
   });
 
-  // Local form state per insurance type
   const [healthOptIn, setHealthOptIn] = useState('');
   const [healthPlanId, setHealthPlanId] = useState('');
   const [additionalInsureds, setAdditionalInsureds] = useState('');
@@ -1605,7 +943,6 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
   const [visionPlanId, setVisionPlanId] = useState('');
   const [visionAdditionalInsureds, setVisionAdditionalInsureds] = useState('');
 
-  // Derived from fetched data
   const [healthPrice, setHealthPrice] = useState('');
   const [healthBenefits, setHealthBenefits] = useState('');
   const [healthRate, setHealthRate] = useState('');
@@ -1625,7 +962,6 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
     const dental = data.elections.find((e) => e.insuranceType === 'Dental');
     const vision = data.elections.find((e) => e.insuranceType === 'Vision');
 
-    // Normalize "Employee Only" from DB to "Employee" to match HealthPlanPricing.CoverageType
     const normTier = (v: string | undefined) => {
       const t = v || '';
       return t === 'Employee Only' ? 'Employee' : t;
@@ -1671,7 +1007,7 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
     },
   });
 
-  const handleSave = async () => {
+  const handleSave = () => {
     saveMutation.mutate({
       medical: {
         optInStatus: healthOptIn || null,
@@ -1713,13 +1049,13 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
   const tenureTier = insuranceQuery.data?.tenureTier ?? null;
   const companyContribPP = insuranceQuery.data?.companyContributionPerPayPeriod ?? 0;
 
-  // Non-admin users only see Health Insurance Status
   if (!isAdmin) {
     return (
       <div className="space-y-4">
         <SectionCard title="Health Insurance Information" icon={<Heart className="h-4 w-4 text-ems-coral" />}>
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
             <ReadOnlyField label="Health Insurance Status" value={insuranceEligibility} source="calculated" />
+            <ReadOnlyField label="Tenure Tier" value={tenureTier || '—'} source="calculated" />
           </div>
         </SectionCard>
       </div>
@@ -1730,8 +1066,9 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
     <div className="space-y-4">
       <SavingOverlay visible={saveMutation.isPending} />
       <SectionCard title="Health Insurance Information" icon={<Heart className="h-4 w-4 text-ems-coral" />}>
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
           <ReadOnlyField label="Health Insurance Status" value={insuranceEligibility} source="calculated" />
+          <ReadOnlyField label="Tenure Tier" value={tenureTier || '—'} source="calculated" />
         </div>
       </SectionCard>
 
@@ -1808,7 +1145,6 @@ function HealthInsuranceTab({ user, isAdmin, addToast }: { user: UserProfileUser
         showAdditional
       />
 
-      {/* Save Bar */}
       <div className="flex items-center gap-3">
         <button
           type="button"

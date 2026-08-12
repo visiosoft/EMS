@@ -450,7 +450,7 @@ export function EmployeeDirectoryPanel({ fromView }: { fromView: InternalView })
       .map(([dept, members]) => ({
         dept,
         members: members.sort(
-          (a, b) => roleWeight(b.roleName) - roleWeight(a.roleName) || compareByName(a, b, "last"),
+          (a, b) => (a.departmentRank ?? 999) - (b.departmentRank ?? 999) || roleWeight(b.roleName) - roleWeight(a.roleName) || compareByName(a, b, "last"),
         ),
       }));
   }, [filtered]);
