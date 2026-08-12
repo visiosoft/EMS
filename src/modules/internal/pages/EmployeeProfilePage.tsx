@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Loader2, ShieldAlert } from "lucide-react";
 import { fetchEmployeeProfile } from "@/api/selfProfileApi";
+import { useAccessLevel } from "@/hooks/useAccessLevel";
 import { InternalPageHero } from "../components/InternalPageHero";
 import { InternalPageFrame } from "../layout/InternalPageFrame";
 import { EmployeeProfileView } from "../components/EmployeeProfileView";
@@ -8,6 +9,7 @@ import { useInternalNavigation } from "../routing/InternalNavigationContext";
 
 export function EmployeeProfilePage() {
   const { viewData, navigate } = useInternalNavigation();
+  const { isAdministrator } = useAccessLevel();
   const contactId = viewData.contactId ?? 0;
 
   const profileQuery = useQuery({
@@ -43,7 +45,7 @@ export function EmployeeProfilePage() {
         }
       />
 
-      <main className="mx-auto w-full max-w-[1060px] px-5 pb-16 pt-14 sm:px-8 lg:px-0">
+      <main className="mx-auto w-full max-w-[1060px] px-4 pb-16 pt-10 sm:px-8 sm:pt-14 lg:px-0">
         <button
           type="button"
           onClick={backToDirectory}
@@ -83,7 +85,7 @@ export function EmployeeProfilePage() {
             </p>
           </div>
         ) : profile ? (
-          <EmployeeProfileView profile={profile} />
+          <EmployeeProfileView profile={profile} editable={isAdministrator} targetContactId={contactId} />
         ) : null}
       </main>
     </InternalPageFrame>

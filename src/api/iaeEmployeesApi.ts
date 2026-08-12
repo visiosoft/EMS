@@ -13,6 +13,7 @@ export type IaeEmployee = {
   /** Current desk extension from the phone-extension assignment tables, when present. */
   extension: string | null;
   departmentName: string | null;
+  departmentRank: number | null;
 };
 
 export function fetchIaeStaffEmployees(): Promise<IaeEmployee[]> {

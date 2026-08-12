@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AuditRequestContext } from '../audit/audit-request-context.service';
 import { AdminUsersService } from './admin-users.service';
+import { EntraProfileSyncService } from './entra-profile-sync.service';
 import {
   EmployeeExperienceService,
   type EmployeeExperienceResponse,
@@ -15,6 +16,7 @@ import {
   EmployeeCertificationsService,
   type EmployeeCertificationResponse,
 } from './employee-certifications.service';
+import type { UpdateMyProfileDto } from './self-profile.controller';
 
 /**
  * Aggregate self-service profile for the signed-in internal employee. Resolves the user
@@ -49,6 +51,8 @@ export type MyFullProfileResponse =
        * `limited` for other staff, who see only the "All"-visibility fields.
        */
       visibility: 'full' | 'limited';
+      /** True when the viewer has admin-tier access (can edit all fields). */
+      isAdmin: boolean;
       identity: {
         contactId: number;
         contactInfoId: number;
@@ -81,6 +85,7 @@ export type MyFullProfileResponse =
         office: string;
         accessLevel: string;
         workAuthorization: string;
+        workAuthorizationLinkUrl: string;
         startDate: string | null;
         yearsOfService: string;
         hireDate: string | null;
@@ -95,6 +100,7 @@ export type MyFullProfileResponse =
         rampAccount: string;
         rampCreditCard: string;
         workstation: string;
+        departmentRank: string;
       };
       officeAddress: ProfileAddress | null;
       equipment: {
@@ -108,6 +114,9 @@ export type MyFullProfileResponse =
         pcServiceTag: string;
         bluetoothStatus: string;
         pcWindowsName: string;
+        currentExtensionId: number | null;
+        currentPhoneId: number | null;
+        currentComputerId: number | null;
       };
       entra: {
         microsoftOfficeLicenses: string[];
@@ -143,6 +152,12 @@ type ResolvedContact = {
  */
 type ViewerContext = { isSelf: boolean; isAdmin: boolean };
 
+export type ProfileUpdateResult = {
+  success: true;
+  entraSyncWarningCode?: 'permissionRestricted' | 'syncFailed';
+  entraSyncWarning?: string;
+};
+
 /** Company main desk line — static per spec ("Administrator Entered and static as (312) 274-1800"). */
 const STATIC_DESK_PHONE_NUMBER = '(312) 274-1800';
 
@@ -155,6 +170,7 @@ export class SelfProfileService {
     private readonly experienceService: EmployeeExperienceService,
     private readonly certificationsService: EmployeeCertificationsService,
     private readonly adminUsersService: AdminUsersService,
+    private readonly entraProfileSyncService: EntraProfileSyncService,
   ) {}
 
   /** The signed-in employee's own profile — self always sees every field. */
@@ -165,7 +181,375 @@ export class SelfProfileService {
     const base = await this.resolveInternalContact(emails);
     if (!base) return { linked: false };
 
-    return this.buildFullProfile(base, { isSelf: true, isAdmin: true });
+    const isAdmin = await this.isAccessLevelAdmin(base.contactId);
+    return this.buildFullProfile(base, { isSelf: true, isAdmin });
+  }
+
+  /** Return the signed-in user's email (first candidate). Used by the sync-from-entra endpoint. */
+  getSignedInEmail(): string {
+    const emails = this.signedInEmailCandidates();
+    if (emails.length === 0) {
+      throw new Error('Signed-in user email was not found.');
+    }
+    return emails[0];
+  }
+
+  async isSignedInUserAdmin(): Promise<boolean> {
+    const emails = this.signedInEmailCandidates();
+    if (emails.length === 0) return false;
+    const base = await this.resolveInternalContact(emails);
+    if (!base) return false;
+    return this.isAccessLevelAdmin(base.contactId);
+  }
+
+  /**
+   * Save WMS-editable fields for the signed-in employee.
+   * Non-admin employees can only edit: cellPhone, workPhone, homeAddress, emergencyContacts.
+   */
+  async updateMyProfile(dto: UpdateMyProfileDto): Promise<ProfileUpdateResult> {
+    const emails = this.signedInEmailCandidates();
+    if (emails.length === 0) throw new Error('Signed-in user email was not found.');
+
+    const base = await this.resolveInternalContact(emails);
+    if (!base) throw new Error('Employee profile not found for the signed-in user.');
+
+    const isAdmin = await this.isAccessLevelAdmin(base.contactId);
+    const safeDto = isAdmin ? dto : this.stripAdminOnlyFields(dto);
+
+    return this.applyProfileUpdate(base, safeDto);
+  }
+
+  /** Administrator edits another employee — rejects if the viewer is not admin. */
+  async updateEmployeeProfile(targetContactId: number, dto: UpdateMyProfileDto): Promise<ProfileUpdateResult> {
+    const viewerEmails = this.signedInEmailCandidates();
+    if (viewerEmails.length === 0) throw new Error('Signed-in user email was not found.');
+
+    const viewer = await this.resolveInternalContact(viewerEmails);
+    if (!viewer) throw new Error('Viewer profile not found.');
+
+    const isAdmin = await this.isAccessLevelAdmin(viewer.contactId);
+    if (!isAdmin) throw new Error('Only Administrators can edit other employee profiles.');
+
+    const target = await this.resolveInternalContactById(targetContactId);
+    if (!target) throw new Error('Target employee not found.');
+
+    return this.applyProfileUpdate(target, dto);
+  }
+
+  private async applyProfileUpdate(
+    base: ResolvedContact,
+    dto: UpdateMyProfileDto,
+  ): Promise<ProfileUpdateResult> {
+    const { contactId, contactInfoId, contactAssignmentId } = base;
+
+    // 1. Update ContactInfo (CellPhone, WorkPhone)
+    if (dto.cellPhone !== undefined || dto.workPhone !== undefined) {
+      const sets: string[] = [];
+      const params: unknown[] = [];
+      let idx = 0;
+      if (dto.cellPhone !== undefined) {
+        sets.push(`CellPhone = @${idx}`);
+        params.push(dto.cellPhone);
+        idx++;
+      }
+      if (dto.workPhone !== undefined) {
+        sets.push(`WorkPhone = @${idx}`);
+        params.push(dto.workPhone);
+        idx++;
+      }
+      params.push(contactInfoId);
+      await this.dataSource.query(
+        `UPDATE dbo.ContactInfo SET ${sets.join(', ')} WHERE ContactInfoID = @${idx}`,
+        params,
+      );
+    }
+
+    // 2. Update EmployeeProfile (Workstation)
+    if (dto.workstation !== undefined) {
+      if (await this.tableExists('EmployeeProfile')) {
+        const exists = await this.dataSource.query(
+          `SELECT 1 AS found FROM dbo.EmployeeProfile WHERE ContactID = @0`,
+          [contactId],
+        );
+        if (exists.length > 0) {
+          await this.dataSource.query(
+            `UPDATE dbo.EmployeeProfile SET Workstation = @0 WHERE ContactID = @1`,
+            [dto.workstation, contactId],
+          );
+        } else {
+          await this.dataSource.query(
+            `INSERT INTO dbo.EmployeeProfile (ContactID, Workstation) VALUES (@0, @1)`,
+            [contactId, dto.workstation],
+          );
+        }
+      }
+    }
+
+    // 2b. Update Work Authorization Link
+    if (dto.workAuthorizationLinkUrl !== undefined) {
+      const workAuthLinkColumn = await this.getWorkAuthorizationLinkColumn();
+      if (await this.tableExists('EmployeeProfile') && workAuthLinkColumn) {
+        const linkId = await this.upsertWorkAuthLink(dto.workAuthorizationLinkUrl, contactId);
+        const exists = await this.dataSource.query(
+          `SELECT 1 AS found FROM dbo.EmployeeProfile WHERE ContactID = @0`,
+          [contactId],
+        );
+        if (exists.length > 0) {
+          await this.dataSource.query(
+            `UPDATE dbo.EmployeeProfile SET ${workAuthLinkColumn} = @0 WHERE ContactID = @1`,
+            [linkId, contactId],
+          );
+        } else {
+          await this.dataSource.query(
+            `INSERT INTO dbo.EmployeeProfile (ContactID, ${workAuthLinkColumn}) VALUES (@0, @1)`,
+            [contactId, linkId],
+          );
+        }
+      }
+    }
+
+    // 3. Update Home Address
+    if (dto.homeAddress) {
+      await this.upsertHomeAddress(contactId, dto.homeAddress);
+    }
+
+    // 4. Update Emergency Contacts (replace all)
+    if (dto.emergencyContacts !== undefined) {
+      await this.replaceEmergencyContacts(contactId, dto.emergencyContacts);
+    }
+
+    // 5. Assign phone extension (same logic as EMS)
+    if (dto.deskPhoneExtensionId !== undefined) {
+      if (dto.deskPhoneExtensionId) {
+        const extInUse = await this.dataSource.query(
+          `SELECT ci.FirstName + ' ' + ci.LastName AS AssignedTo
+           FROM dbo.EmployeePhoneExtension epe
+           INNER JOIN dbo.ContactAssignment ca ON ca.ContactAssignmentID = epe.ContactAssignmentID
+           INNER JOIN dbo.Contact c ON c.ContactID = ca.ContactID
+           INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+           WHERE epe.ExtensionID = @0 AND epe.IsCurrent = 1 AND epe.ContactAssignmentID <> @1`,
+          [dto.deskPhoneExtensionId, contactAssignmentId],
+        );
+        if (extInUse.length > 0) {
+          const name = readString(extInUse[0], 'AssignedTo');
+          throw new BadRequestException(`This phone extension is already assigned to ${name || 'another employee'}.`);
+        }
+      }
+      await this.dataSource.query(
+        `UPDATE dbo.EmployeePhoneExtension SET IsCurrent = 0, UnassignedDate = CAST(SYSUTCDATETIME() AS date)
+         WHERE ContactAssignmentID = @0 AND IsCurrent = 1`,
+        [contactAssignmentId],
+      );
+      if (dto.deskPhoneExtensionId) {
+        await this.dataSource.query(
+          `INSERT INTO dbo.EmployeePhoneExtension (ContactAssignmentID, ExtensionID, AssignedDate, IsCurrent, AssignedBy)
+           VALUES (@0, @1, CAST(SYSUTCDATETIME() AS date), 1, @2)`,
+          [contactAssignmentId, dto.deskPhoneExtensionId, 'WMS profile update'],
+        );
+      }
+    }
+
+    // 6. Assign phone device
+    if (dto.deskPhoneId !== undefined) {
+      if (dto.deskPhoneId) {
+        const phoneInUse = await this.dataSource.query(
+          `SELECT ci.FirstName + ' ' + ci.LastName AS AssignedTo
+           FROM dbo.PhoneExtensionDevice ped
+           INNER JOIN dbo.EmployeePhoneExtension epe ON epe.ExtensionID = ped.ExtensionID AND epe.IsCurrent = 1
+           INNER JOIN dbo.ContactAssignment ca ON ca.ContactAssignmentID = epe.ContactAssignmentID
+           INNER JOIN dbo.Contact c ON c.ContactID = ca.ContactID
+           INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+           WHERE ped.PhoneID = @0 AND ped.IsCurrent = 1 AND epe.ContactAssignmentID <> @1`,
+          [dto.deskPhoneId, contactAssignmentId],
+        );
+        if (phoneInUse.length > 0) {
+          const name = readString(phoneInUse[0], 'AssignedTo');
+          throw new BadRequestException(`This desk phone is already assigned to ${name || 'another employee'}.`);
+        }
+      }
+      const activeExtRows = await this.dataSource.query(
+        `SELECT ExtensionID FROM dbo.EmployeePhoneExtension
+         WHERE ContactAssignmentID = @0 AND IsCurrent = 1`,
+        [contactAssignmentId],
+      );
+      const activeExtId = activeExtRows.length > 0 ? readNumber(activeExtRows[0], 'ExtensionID') : null;
+      if (activeExtId) {
+        await this.dataSource.query(
+          `UPDATE dbo.PhoneExtensionDevice SET IsCurrent = 0, UnassignedDate = CAST(SYSUTCDATETIME() AS date)
+           WHERE ExtensionID = @0 AND IsCurrent = 1`,
+          [activeExtId],
+        );
+        if (dto.deskPhoneId) {
+          await this.dataSource.query(
+            `INSERT INTO dbo.PhoneExtensionDevice (ExtensionID, PhoneID, AssignedDate, IsCurrent, AssignedBy)
+             VALUES (@0, @1, CAST(SYSUTCDATETIME() AS date), 1, @2)`,
+            [activeExtId, dto.deskPhoneId, 'WMS profile update'],
+          );
+        }
+      }
+    }
+
+    // 7. Assign computer
+    if (dto.pcComputerId !== undefined) {
+      if (dto.pcComputerId) {
+        const pcInUse = await this.dataSource.query(
+          `SELECT ci.FirstName + ' ' + ci.LastName AS AssignedTo
+           FROM dbo.EmployeeComputer ec
+           INNER JOIN dbo.ContactAssignment ca ON ca.ContactAssignmentID = ec.ContactAssignmentID
+           INNER JOIN dbo.Contact c ON c.ContactID = ca.ContactID
+           INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+           WHERE ec.ComputerID = @0 AND ec.IsCurrent = 1 AND ec.ContactAssignmentID <> @1`,
+          [dto.pcComputerId, contactAssignmentId],
+        );
+        if (pcInUse.length > 0) {
+          const name = readString(pcInUse[0], 'AssignedTo');
+          throw new BadRequestException(`This computer is already assigned to ${name || 'another employee'}.`);
+        }
+      }
+      await this.dataSource.query(
+        `UPDATE dbo.EmployeeComputer SET IsCurrent = 0, UnassignedDate = CAST(SYSUTCDATETIME() AS date)
+         WHERE ContactAssignmentID = @0 AND IsCurrent = 1`,
+        [contactAssignmentId],
+      );
+      if (dto.pcComputerId) {
+        await this.dataSource.query(
+          `INSERT INTO dbo.EmployeeComputer (ContactAssignmentID, ComputerID, AssignedDate, IsCurrent, AssignedBy)
+           VALUES (@0, @1, CAST(SYSUTCDATETIME() AS date), 1, @2)`,
+          [contactAssignmentId, dto.pcComputerId, 'WMS profile update'],
+        );
+      }
+    }
+
+    // WMS→Entra push: native properties need User.ReadWrite.All + tenant-native user;
+    // external/B2B users get 403 on native props (home-tenant managed) — CSAs still work.
+    let entraSyncWarningCode: ProfileUpdateResult['entraSyncWarningCode'] | null = null;
+    let entraSyncWarning: string | null = null;
+    try {
+      const pushResult = await this.entraProfileSyncService
+        .applyEmsToEntraProfileSync(undefined, base.email);
+      if (pushResult.errors > 0 || pushResult.updated === 0) {
+        console.error('[WMS→Entra]', base.email, JSON.stringify(pushResult.rows.map(r => ({ status: r.status, error: r.error, changes: r.changes.length }))));
+      }
+      const syncErrors = pushResult.rows
+        .map((row) => row.error)
+        .filter((message): message is string => Boolean(message));
+      if (syncErrors.some((message) => this.isEntraPermissionRestrictedMessage(message))) {
+        const reason = this.formatEntraSyncReason();
+        entraSyncWarningCode = 'permissionRestricted';
+        entraSyncWarning = `Data saved in database, but not updated in Entra. Reason: ${reason}`;
+      } else if (syncErrors.length > 0) {
+        entraSyncWarningCode = 'syncFailed';
+        entraSyncWarning = `Data saved in database, but not updated in Entra. Reason: ${this.formatEntraSyncReason()}`;
+      }
+    } catch (err: any) {
+      console.error('[WMS→Entra] Exception for', base.email, err?.message ?? err);
+      const errText = err?.message ?? String(err ?? 'Unknown error');
+      if (this.isEntraPermissionRestrictedMessage(errText)) {
+        const reason = this.formatEntraSyncReason();
+        entraSyncWarningCode = 'permissionRestricted';
+        entraSyncWarning = `Data saved in database, but not updated in Entra. Reason: ${reason}`;
+      } else {
+        entraSyncWarningCode = 'syncFailed';
+        entraSyncWarning = `Data saved in database, but not updated in Entra. Reason: ${this.formatEntraSyncReason()}`;
+      }
+    }
+
+    if (entraSyncWarning) {
+      return {
+        success: true,
+        entraSyncWarningCode: entraSyncWarningCode ?? 'syncFailed',
+        entraSyncWarning,
+      };
+    }
+    return { success: true };
+  }
+
+  private isEntraPermissionRestrictedMessage(error: unknown): boolean {
+    const text = typeof error === 'string'
+      ? error
+      : error instanceof Error
+        ? error.message
+        : String(error ?? '');
+    return /403|forbidden|insufficient privileges|authorization_requestdenied|user administrator|permission/i.test(text);
+  }
+
+  private formatEntraSyncReason(): string {
+    return 'Entra denied this profile update. Likely causes: missing Graph permission/consent, Guest/B2B account, or protected admin account.';
+  }
+
+  private async upsertHomeAddress(
+    contactId: number,
+    addr: NonNullable<UpdateMyProfileDto['homeAddress']>,
+  ): Promise<void> {
+    if (!(await this.tableExists('EmployeeProfile'))) return;
+
+    const line1 = addr.line1 ?? '';
+    const line2 = addr.line2 ?? '';
+    const city = addr.city ?? '';
+    const stateProvince = addr.stateProvince ?? '';
+    const postalCode = addr.postalCode ?? '';
+    const country = addr.country ?? '';
+
+    // Look for an existing address row that matches all fields
+    const matchRows = await this.dataSource.query(
+      `SELECT TOP 1 AddressID FROM dbo.Address
+       WHERE COALESCE(AddressLine1, '') = @0
+         AND COALESCE(AddressLine2, '') = @1
+         AND COALESCE(City, '') = @2
+         AND COALESCE(StateProvince, '') = @3
+         AND COALESCE(PostalCode, '') = @4
+         AND COALESCE(Country, '') = @5`,
+      [line1, line2, city, stateProvince, postalCode, country],
+    );
+    let addressId = (matchRows as Record<string, unknown>[])?.[0]?.AddressID as number | undefined;
+
+    if (!addressId) {
+      const insertResult = await this.dataSource.query(
+        `INSERT INTO dbo.Address (AddressLine1, AddressLine2, City, StateProvince, PostalCode, Country) OUTPUT INSERTED.AddressID VALUES (@0, @1, @2, @3, @4, @5)`,
+        [line1, line2, city, stateProvince, postalCode, country],
+      );
+      addressId = insertResult[0]?.AddressID as number | undefined;
+    }
+
+    if (addressId) {
+      const profileRows = await this.dataSource.query(
+        `SELECT HomeAddressID FROM dbo.EmployeeProfile WHERE ContactID = @0`,
+        [contactId],
+      );
+      const profileRow = profileRows[0] as Record<string, unknown> | undefined;
+      if (profileRow) {
+        await this.dataSource.query(
+          `UPDATE dbo.EmployeeProfile SET HomeAddressID = @0 WHERE ContactID = @1`,
+          [addressId, contactId],
+        );
+      } else {
+        await this.dataSource.query(
+          `INSERT INTO dbo.EmployeeProfile (ContactID, HomeAddressID) VALUES (@0, @1)`,
+          [contactId, addressId],
+        );
+      }
+    }
+  }
+
+  private async replaceEmergencyContacts(
+    contactId: number,
+    contacts: NonNullable<UpdateMyProfileDto['emergencyContacts']>,
+  ): Promise<void> {
+    if (!(await this.tableExists('EmergencyContact'))) return;
+
+    // Delete existing contacts for this employee
+    await this.dataSource.query(
+      `DELETE FROM dbo.EmergencyContact WHERE ContactID = @0`,
+      [contactId],
+    );
+
+    // Insert new ones
+    for (const c of contacts) {
+      await this.dataSource.query(
+        `INSERT INTO dbo.EmergencyContact (ContactID, FullName, PhoneNumber, Email, IsPrimary) VALUES (@0, @1, @2, @3, @4)`,
+        [contactId, c.fullName, c.phoneNumber, c.email, c.isPrimary ? 1 : 0],
+      );
+    }
   }
 
   /**
@@ -211,6 +595,17 @@ export class SelfProfileService {
         )[0] as Record<string, unknown> | undefined)
       : undefined;
 
+    // Resolve Work Authorization Link URL from Link table
+    let workAuthLinkUrl = '';
+    const workAuthLinkColumn = hasEmployeeProfile ? await this.getWorkAuthorizationLinkColumn() : null;
+    if (workAuthLinkColumn) {
+      const walLinkId = readNumber(profileRow, workAuthLinkColumn);
+      if (walLinkId) {
+        const linkRows = await this.dataSource.query(`SELECT TOP 1 LinkURL FROM dbo.Link WHERE LinkID = @0`, [walLinkId]);
+        workAuthLinkUrl = (linkRows as Record<string, unknown>[])?.[0]?.LinkURL as string ?? '';
+      }
+    }
+
     const homeAddress = await this.loadAddress(
       readNumber(profileRow, 'HomeAddressID'),
     );
@@ -253,6 +648,7 @@ export class SelfProfileService {
     const profile: LinkedProfile = {
       linked: true,
       visibility: viewer.isSelf || viewer.isAdmin ? 'full' : 'limited',
+      isAdmin: viewer.isAdmin,
       identity: {
         contactId,
         contactInfoId: base.contactInfoId,
@@ -281,10 +677,11 @@ export class SelfProfileService {
       homeAddress,
       emergencyContacts,
       employment: {
-        title: entraJob.title,
-        office: entraJob.office,
+        title: readString(profileRow, 'JobTitle') || entraJob.title,
+        office: readString(profileRow, 'Office') || entraJob.office,
         accessLevel: readString(profileRow, 'AccessLevel'),
         workAuthorization: readString(profileRow, 'WorkAuthorization'),
+        workAuthorizationLinkUrl: workAuthLinkUrl,
         startDate,
         yearsOfService: computeYearsOfService(startDate),
         hireDate: readDateString(profileRow, 'HireDate'),
@@ -299,6 +696,7 @@ export class SelfProfileService {
         rampAccount: readString(profileRow, 'RampAccount'),
         rampCreditCard: readString(profileRow, 'RampCreditCard'),
         workstation: readString(profileRow, 'Workstation'),
+        departmentRank: readString(profileRow, 'DepartmentRank'),
       },
       officeAddress,
       equipment: { deskPhoneNumber: STATIC_DESK_PHONE_NUMBER, ...equipment },
@@ -322,6 +720,7 @@ export class SelfProfileService {
     viewer: ViewerContext,
   ): LinkedProfile {
     if (viewer.isSelf || viewer.isAdmin) return profile;
+    // Employee viewing another employee — only show the standard employee-visible fields
     return {
       ...profile,
       basics: { ...profile.basics, personalEmail: '' },
@@ -337,9 +736,9 @@ export class SelfProfileService {
       emergencyContacts: [],
       employment: {
         ...profile.employment,
-        office: '',
         accessLevel: '',
         workAuthorization: '',
+        workAuthorizationLinkUrl: '',
         startDate: null,
         yearsOfService: '',
         hireDate: null,
@@ -352,12 +751,9 @@ export class SelfProfileService {
         employmentAgreement: '',
         rampAccount: '',
         rampCreditCard: '',
-        workstation: '',
       },
-      officeAddress: null,
       equipment: {
-        deskPhoneNumber: '',
-        deskPhoneExtension: '',
+        ...profile.equipment,
         deskPhoneMac: '',
         deskPhoneBrand: '',
         deskPhoneModel: '',
@@ -366,9 +762,24 @@ export class SelfProfileService {
         pcServiceTag: '',
         bluetoothStatus: '',
         pcWindowsName: '',
+        currentExtensionId: null,
+        currentPhoneId: null,
+        currentComputerId: null,
       },
       entra: { microsoftOfficeLicenses: [], microsoftGroups: [] },
       healthInsurance: null,
+      experience: null,
+      certifications: null,
+    };
+  }
+
+  /** Employees can only edit: phones, workstation, desk phone extension. */
+  private stripAdminOnlyFields(dto: UpdateMyProfileDto): UpdateMyProfileDto {
+    return {
+      cellPhone: dto.cellPhone,
+      workPhone: dto.workPhone,
+      workstation: dto.workstation,
+      deskPhoneExtensionId: dto.deskPhoneExtensionId,
     };
   }
 
@@ -380,7 +791,7 @@ export class SelfProfileService {
       [contactId],
     )) as Record<string, unknown>[];
     const accessLevel = readString(rows[0], 'AccessLevel').toLowerCase();
-    return accessLevel === 'administrator' || accessLevel === 'super admin';
+    return accessLevel === 'administrator' || accessLevel === 'admin' || accessLevel === 'super admin';
   }
 
   /** Run a best-effort loader; swallow failures so one bad section can't fail the profile. */
@@ -548,6 +959,9 @@ export class SelfProfileService {
     pcServiceTag: string;
     bluetoothStatus: string;
     pcWindowsName: string;
+    currentExtensionId: number | null;
+    currentPhoneId: number | null;
+    currentComputerId: number | null;
   }> {
     const empty = {
       deskPhoneExtension: '',
@@ -559,6 +973,9 @@ export class SelfProfileService {
       pcServiceTag: '',
       bluetoothStatus: '',
       pcWindowsName: '',
+      currentExtensionId: null as number | null,
+      currentPhoneId: null as number | null,
+      currentComputerId: null as number | null,
     };
     if (!contactAssignmentId) return empty;
     const needed = [
@@ -583,7 +1000,10 @@ export class SelfProfileService {
         COALESCE(eqc.Model, '') AS pcModel,
         COALESCE(eqc.AssetID, '') AS pcServiceTag,
         COALESCE(eqc.BluetoothStatus, '') AS bluetoothStatus,
-        COALESCE(eqc.PCName, '') AS pcWindowsName
+        COALESCE(eqc.PCName, '') AS pcWindowsName,
+        epe.ExtensionID AS currentExtensionId,
+        ped.PhoneID AS currentPhoneId,
+        ec.ComputerID AS currentComputerId
       FROM dbo.ContactAssignment ca
       LEFT JOIN dbo.EmployeePhoneExtension epe ON epe.ContactAssignmentID = ca.ContactAssignmentID AND epe.IsCurrent = 1
       LEFT JOIN dbo.PhoneExtension pe ON pe.ExtensionID = epe.ExtensionID
@@ -607,6 +1027,9 @@ export class SelfProfileService {
       pcServiceTag: readString(r, 'pcServiceTag'),
       bluetoothStatus: readString(r, 'bluetoothStatus'),
       pcWindowsName: readString(r, 'pcWindowsName'),
+      currentExtensionId: readNumber(r, 'currentExtensionId') ?? null,
+      currentPhoneId: readNumber(r, 'currentPhoneId') ?? null,
+      currentComputerId: readNumber(r, 'currentComputerId') ?? null,
     };
   }
 
@@ -616,6 +1039,49 @@ export class SelfProfileService {
       [tableName],
     );
     return rows.length > 0;
+  }
+
+  private async hasColumn(tableName: string, columnName: string): Promise<boolean> {
+    const rows = await this.dataSource.query(
+      `SELECT 1 AS found FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = @0 AND COLUMN_NAME = @1`,
+      [tableName, columnName],
+    );
+    return rows.length > 0;
+  }
+
+  private async getWorkAuthorizationLinkColumn(): Promise<'WorkAuthorizationLinkId' | 'WorthAuthorizationLinkId' | 'wrokAuthorizationlickid' | null> {
+    if (await this.hasColumn('EmployeeProfile', 'WorkAuthorizationLinkId')) return 'WorkAuthorizationLinkId';
+    if (await this.hasColumn('EmployeeProfile', 'WorthAuthorizationLinkId')) return 'WorthAuthorizationLinkId';
+    if (await this.hasColumn('EmployeeProfile', 'wrokAuthorizationlickid')) return 'wrokAuthorizationlickid';
+    return null;
+  }
+
+  private async upsertWorkAuthLink(url: string | null | undefined, contactId: number): Promise<number | null> {
+    const trimmed = url?.trim() || null;
+    if (!trimmed) return null;
+    // Check existing
+    const workAuthLinkColumn = await this.getWorkAuthorizationLinkColumn();
+    let existingLinkId: number | null = null;
+    if (workAuthLinkColumn) {
+      const epRows = await this.dataSource.query(
+        `SELECT TOP 1 ${workAuthLinkColumn} FROM dbo.EmployeeProfile WHERE ContactID = @0`,
+        [contactId],
+      );
+      existingLinkId = readNumber((epRows as Record<string, unknown>[])?.[0], workAuthLinkColumn);
+    }
+    if (existingLinkId) {
+      await this.dataSource.query(`UPDATE dbo.Link SET LinkURL = @0, LinkPath = @1 WHERE LinkID = @2`, [trimmed, trimmed.slice(0, 1024), existingLinkId]);
+      return existingLinkId;
+    }
+    const existing = await this.dataSource.query(`SELECT TOP 1 LinkID FROM dbo.Link WHERE LinkURL = @0`, [trimmed]);
+    if ((existing as Record<string, unknown>[])?.length > 0) {
+      return (existing[0] as Record<string, unknown>).LinkID as number;
+    }
+    const result = await this.dataSource.query(
+      `INSERT INTO dbo.Link (LinkType, LinkURL, LinkName, LinkPath) OUTPUT INSERTED.LinkID VALUES (N'URL', @0, N'Work Authorization Photos', @1)`,
+      [trimmed, trimmed.slice(0, 1024)],
+    );
+    return (result as Record<string, unknown>[])?.[0]?.LinkID as number;
   }
 }
 

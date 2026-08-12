@@ -19,6 +19,7 @@ export type OrganizationChartMember = {
   jobTitle: string;
   roleName: string;
   departmentName: string;
+  departmentRank: number | null;
 };
 
 export type OrganizationChartNode = {
@@ -143,9 +144,6 @@ export class OrganizationChartService {
     if (accessToken) {
       try {
         const entraUsers = await this.fetchEntraUsersWithManagers(accessToken);
-        // Overlay Entra job titles onto SQL rows so department nodes also
-        // reflect the user's actual Entra position without a DB column.
-        this.overlayEntraJobTitles(rows, entraUsers);
         const result = this.buildHierarchyFromEntra(
           company,
           rows,
@@ -328,11 +326,6 @@ export class OrganizationChartService {
       const entraUser = email ? entraByEmail.get(email) : undefined;
       if (entraUser) {
         member.entraUserId = entraUser.id;
-        // Use Entra jobTitle directly so the org chart reflects the user's
-        // actual Entra position even when the DB column doesn't exist.
-        if (entraUser.jobTitle) {
-          member.jobTitle = entraUser.jobTitle;
-        }
         matchedMembers.push({ member, entraUser });
       } else {
         unmatchedMembers.push(member);
@@ -467,22 +460,6 @@ export class OrganizationChartService {
     );
     const warnings: string[] = [];
 
-    // Overlay Entra job titles when a graph token is available
-    const accessToken = this.resolveGraphToken();
-    if (accessToken) {
-      try {
-        const entraUsers = await this.fetchEntraUsersWithManagers(accessToken);
-        this.overlayEntraJobTitles(rows, entraUsers);
-      } catch {
-        // Best-effort: if Graph call fails, we still return the chart with DB/role titles
-      }
-    }
-    // if (!jobTitleColumnAvailable) {
-    //   warnings.push(
-    //     'ContactInfo.JobTitle is not installed, so chart titles use existing internal roles.',
-    //   );
-    // }
-
     return {
       configured: true,
       generatedAt,
@@ -530,9 +507,7 @@ export class OrganizationChartService {
     companyId: number,
     jobTitleColumnAvailable: boolean,
   ): Promise<ChartRow[]> {
-    const jobTitleSelect = jobTitleColumnAvailable
-      ? "COALESCE(NULLIF(LTRIM(RTRIM(ci.JobTitle)), ''), '')"
-      : "''";
+    const jobTitleSelect = "COALESCE(NULLIF(LTRIM(RTRIM(ep.JobTitle)), ''), '')";
     return this.dataSource.query(
       `
       SELECT
@@ -547,9 +522,11 @@ export class OrganizationChartService {
         COALESCE(rolePick.roleName, '') AS roleName,
         departmentPick.departmentId,
         COALESCE(departmentPick.departmentName, 'Unassigned') AS departmentName,
-        COALESCE(allDepts.allDepartmentNames, 'Unassigned') AS allDepartmentNames
+        COALESCE(allDepts.allDepartmentNames, 'Unassigned') AS allDepartmentNames,
+        ISNULL(TRY_CAST(ep.DepartmentRank AS int), 999) AS departmentRank
       FROM dbo.Contact c
       INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+      LEFT JOIN dbo.EmployeeProfile ep ON ep.ContactID = c.ContactID
       OUTER APPLY (
         SELECT STUFF((
           SELECT DISTINCT ', ' + LTRIM(RTRIM(r.RoleName))
@@ -644,7 +621,7 @@ export class OrganizationChartService {
       node.members.push({
         memberId: contactId,
         contactId,
-        sortOrder: roleRank(readString(row, 'jobTitle', 'JobTitle')),
+        sortOrder: row.departmentRank != null ? Number(row.departmentRank) : roleRank(readString(row, 'jobTitle', 'JobTitle')),
         firstName,
         lastName,
         displayName:
@@ -656,6 +633,7 @@ export class OrganizationChartService {
         jobTitle: readString(row, 'jobTitle', 'JobTitle'),
         roleName: readString(row, 'roleName', 'RoleName'),
         departmentName: readString(row, 'allDepartmentNames', 'AllDepartmentNames') || departmentName,
+        departmentRank: row.departmentRank != null ? Number(row.departmentRank) : null,
       });
     }
 

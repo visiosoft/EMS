@@ -239,6 +239,35 @@ export class ContactAssignmentBulkUpdateController {
         await infoRepo.save(targetInfo);
       }
 
+      // Collect assignment IDs that will be deleted so we can remove FK dependents first
+      const idsToDelete: number[] = [];
+      if (targetContactId !== oldContactId) {
+        const oldRows = await assignmentRepo.find({
+          where: { companyId: currentAssignment.companyId, contactId: oldContactId },
+          select: ['contactAssignmentId'],
+        });
+        idsToDelete.push(...oldRows.map((r) => r.contactAssignmentId));
+      }
+      const targetRows = await assignmentRepo.find({
+        where: { companyId: currentAssignment.companyId, contactId: targetContactId },
+        select: ['contactAssignmentId'],
+      });
+      idsToDelete.push(...targetRows.map((r) => r.contactAssignmentId));
+      if (companyId !== currentAssignment.companyId) {
+        const extraRows = await assignmentRepo.find({
+          where: { companyId, contactId: targetContactId },
+          select: ['contactAssignmentId'],
+        });
+        idsToDelete.push(...extraRows.map((r) => r.contactAssignmentId));
+      }
+
+      // Remove dependent records before deleting assignments
+      for (const id of idsToDelete) {
+        await em.query(`DELETE FROM dbo.EmployeeComputer WHERE ContactAssignmentID = @0`, [id]);
+        await em.query(`DELETE FROM dbo.EmployeeWorkLocation WHERE ContactAssignmentID = @0`, [id]);
+        await em.query(`DELETE FROM dbo.EmployeePhoneExtension WHERE ContactAssignmentID = @0`, [id]);
+      }
+
       if (targetContactId !== oldContactId) {
         await assignmentRepo.delete({ companyId: currentAssignment.companyId, contactId: oldContactId });
       }
