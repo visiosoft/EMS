@@ -964,12 +964,16 @@ export class EntraProfileSyncService {
         const sets: string[] = [];
         const params: unknown[] = [];
         let idx = 0;
+        // When the user selects a field whose Entra value is empty/null (e.g. a
+        // Custom Security Attribute they just deleted), write NULL so the EMS
+        // value clears to match Entra.
         const addSet = (field: string, col: string, val: unknown) => {
-          if (selectedFields.has(field) && val !== null && val !== undefined && val !== '') {
-            sets.push(`${col} = @${idx}`);
-            params.push(val);
-            idx++;
-          }
+          if (!selectedFields.has(field)) return;
+          if (val === undefined) return;
+          const finalVal = val === null || val === '' ? null : val;
+          sets.push(`${col} = @${idx}`);
+          params.push(finalVal);
+          idx++;
         };
 
         const supervisor = entra.emsAttributes.Supervisor ?? entra.manager?.displayName ?? null;
@@ -978,12 +982,12 @@ export class EntraProfileSyncService {
         addSet('personalEmail', 'PersonalEmail', nullableText(entra.emsAttributes.PersonalEmail ?? null));
         if (selectedFields.has('birthDate')) {
           const bd = normalizeDate(entra.emsAttributes.Birthday);
-          if (bd) { sets.push(`DateOfBirth = @${idx}`); params.push(bd); idx++; }
+          sets.push(`DateOfBirth = @${idx}`); params.push(bd || null); idx++;
         }
         addSet('ssn', 'SSNLast4', nullableText(ssnLast4(entra.emsAttributes.SocialSecurityNumber)));
         if (selectedFields.has('startDate')) {
           const sd = normalizeDate(entra.user.employeeHireDate);
-          if (sd) { sets.push(`StartDate = @${idx}`); params.push(sd); idx++; }
+          sets.push(`StartDate = @${idx}`); params.push(sd || null); idx++;
         }
         addSet('office', 'Office', nullableText(entra.user.officeLocation ?? null));
         addSet('workstation', 'Workstation', nullableText(entra.emsAttributes.Workstation ?? null));
@@ -1093,7 +1097,7 @@ export class EntraProfileSyncService {
 
       // Role
       if (hasProfile && selectedFields.has('role')) {
-        await this.syncRoleFromEntra(manager, contact.contactAssignmentId, entra.emsAttributes.Role ?? null);
+        await this.syncRoleFromEntra(manager, contact.contactAssignmentId, entra.emsAttributes.Role ?? null, true);
       }
     });
   }
@@ -1776,11 +1780,21 @@ export class EntraProfileSyncService {
     manager: EntityManager,
     contactAssignmentId: number,
     roleName: string | null,
+    allowClear = false,
   ): Promise<void> {
     const normalized = (roleName ?? '').trim();
-    if (!normalized) return;
     if (!(await this.hasColumnExists(manager, 'ContactAssignment'))) return;
     if (!(await this.hasColumnExists(manager, 'Role'))) return;
+
+    if (!normalized) {
+      if (allowClear) {
+        await manager.query(
+          `UPDATE dbo.ContactAssignment SET RoleID = NULL WHERE ContactAssignmentID = @0`,
+          [contactAssignmentId],
+        );
+      }
+      return;
+    }
 
     const roleId = await this.findOrCreateRole(manager, normalized);
     await manager.query(
@@ -2881,7 +2895,6 @@ function addChange(
   const to = (entraValue ?? '').trim();
 
   if (!to && !from) return; // Both empty — no change
-  if (!to) return; // Entra has no value — don't blank out existing EMS data
 
   let same: boolean;
   if (compareAsEmail) {
@@ -2891,6 +2904,6 @@ function addChange(
   }
 
   if (!same) {
-    changes.push({ field, label, from: from || null, to });
+    changes.push({ field, label, from: from || null, to: to || null });
   }
 }
