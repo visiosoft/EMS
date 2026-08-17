@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, ArrowRight, Check } from "lucide-react";
 import {
@@ -10,11 +10,31 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ToastContainer, type ToastItem } from "@/components/ems/Primitives";
 import type { EntraProfileSyncFieldChange } from "@/api/entraProfileSyncApi";
 import {
   applySelectedSyncFromEntra,
   applySelectedUserSyncFromEntra,
 } from "@/api/entraProfileSyncApi";
+
+/** Best-effort extraction of a human-readable error string from an unknown value. */
+function extractApiErrorMessage(err: unknown): string {
+  if (!err) return "Sync failed. Please try again.";
+  if (typeof err === "string") return err;
+  if (err instanceof Error) {
+    const enriched = err as Error & { detail?: string; suggestion?: string; status?: number };
+    const parts = [enriched.message, enriched.detail, enriched.suggestion]
+      .map((p) => (typeof p === "string" ? p.trim() : ""))
+      .filter(Boolean);
+    if (parts.length > 0) return parts.join(" — ");
+    if (typeof enriched.status === "number") return `Request failed (${enriched.status})`;
+  }
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return "Sync failed. Please try again.";
+  }
+}
 
 interface EntraSyncPreviewDialogProps {
   open: boolean;
@@ -55,6 +75,19 @@ export function EntraSyncPreviewDialog({
     () => new Set(visibleChanges.map((c) => c.field)),
   );
 
+  // Local toasts render inside a portal via ToastContainer so they sit above the dialog.
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const addToast = useCallback(
+    (message: string, type: ToastItem["type"], title?: string) => {
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      setToasts((prev) => [...prev, { id, message, type, title }]);
+    },
+    [],
+  );
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
   // Reset selection when visible changes update
   useEffect(() => {
     setSelected(new Set(visibleChanges.map((c) => c.field)));
@@ -69,7 +102,11 @@ export function EntraSyncPreviewDialog({
       if (invalidateKeys) {
         invalidateKeys.forEach((key) => queryClient.invalidateQueries({ queryKey: key }));
       }
+      addToast("Profile synced from Entra.", "success");
       onOpenChange(false);
+    },
+    onError: (err) => {
+      addToast(extractApiErrorMessage(err), "error", "Entra sync failed");
     },
   });
 
@@ -222,6 +259,7 @@ export function EntraSyncPreviewDialog({
           )}
         </DialogFooter>
       </DialogContent>
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </Dialog>
   );
 }

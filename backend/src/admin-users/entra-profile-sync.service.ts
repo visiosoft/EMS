@@ -143,6 +143,8 @@ export type EntraProfileSyncPreview = {
 
 const GRAPH_BASE_URL = 'https://graph.microsoft.com/v1.0';
 const EMS_ATTRIBUTE_SET = 'EMSInformation';
+/** Assigned to any user whose Entra Role custom attribute is empty. */
+const UNKNOWN_ROLE_NAME = 'Unknown';
 
 /** Fields an employee (non-admin) is allowed to sync from Entra on their own profile. */
 export const EMPLOYEE_SYNCABLE_FIELDS = new Set([
@@ -765,8 +767,9 @@ export class EntraProfileSyncService {
     addChange(changes, 'accessLevel', 'Access Level', currentAccessLevel, entra.emsAttributes.EMSAccessLevel ?? '');
     // Department — synced via contact sync, but we track it for change visibility
     addChange(changes, 'department', 'Department', contact.department, entra.user.department);
-    // Role (CSA)
-    addChange(changes, 'role', 'Role', current.roleName, entra.emsAttributes.Role ?? '');
+    // Role (CSA) — empty Entra value falls back to "Unknown".
+    const entraRole = (entra.emsAttributes.Role ?? '').trim() || UNKNOWN_ROLE_NAME;
+    addChange(changes, 'role', 'Role', current.roleName, entraRole);
     // Company — always "iAE"
     // Start Date at IAE
     const currentStartDate = readDateString(current.profileRow, 'StartDate') ?? '';
@@ -1791,23 +1794,14 @@ export class EntraProfileSyncService {
     manager: EntityManager,
     contactAssignmentId: number,
     roleName: string | null,
-    allowClear = false,
+    _allowClear = false,
   ): Promise<void> {
-    const normalized = (roleName ?? '').trim();
     if (!(await this.hasColumnExists(manager, 'ContactAssignment'))) return;
     if (!(await this.hasColumnExists(manager, 'Role'))) return;
 
-    if (!normalized) {
-      if (allowClear) {
-        await manager.query(
-          `UPDATE dbo.ContactAssignment SET RoleID = NULL WHERE ContactAssignmentID = @0`,
-          [contactAssignmentId],
-        );
-      }
-      return;
-    }
-
-    const roleId = await this.findOrCreateRole(manager, normalized);
+    // Empty Entra role → assign "Unknown" so every user has a role assigned.
+    const effectiveRole = (roleName ?? '').trim() || UNKNOWN_ROLE_NAME;
+    const roleId = await this.findOrCreateRole(manager, effectiveRole);
     await manager.query(
       `UPDATE dbo.ContactAssignment SET RoleID = @0 WHERE ContactAssignmentID = @1`,
       [roleId, contactAssignmentId],
