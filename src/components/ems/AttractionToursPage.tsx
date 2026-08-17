@@ -3419,7 +3419,12 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
                                     <p className="text-sm font-semibold text-text-primary truncate" title={a.attractionName}>
                                       {a.attractionName}
                                     </p>
-                                    <p className="text-[11px] text-text-muted">Common proper name</p>
+                                    <p
+                                      className="text-[11px] text-text-muted truncate"
+                                      title={a.latestTourClassName ?? undefined}
+                                    >
+                                      {a.latestTourClassName || 'Common proper name'}
+                                    </p>
                                   </div>
                                   {isExpanded ? (
                                     <ChevronDown className="h-4 w-4 text-text-muted shrink-0" aria-hidden />
