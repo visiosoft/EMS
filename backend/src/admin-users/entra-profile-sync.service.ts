@@ -482,6 +482,7 @@ export class EntraProfileSyncService {
         ci.Email AS email,
         COALESCE(ci.CellPhone, '') AS cellPhone,
         COALESCE(ci.WorkPhone, '') AS workPhone,
+        COALESCE(ci.WorkPhoneExtension, '') AS workPhoneExtension,
         COALESCE(d.DepartmentName, '') AS department
       FROM dbo.ContactAssignment ca
       INNER JOIN dbo.Company co ON co.CompanyID = ca.CompanyID AND co.is_internal = 1
@@ -507,6 +508,7 @@ export class EntraProfileSyncService {
         email: readString(row, 'email', 'Email'),
         cellPhone: readString(row, 'cellPhone', 'CellPhone'),
         workPhone: readString(row, 'workPhone', 'WorkPhone'),
+        workPhoneExtension: readString(row, 'workPhoneExtension', 'WorkPhoneExtension'),
         department: readString(row, 'department', 'DepartmentName'),
       });
     }
@@ -801,7 +803,12 @@ export class EntraProfileSyncService {
     addChange(changes, 'pcBrand', 'PC Brand', current.equipment.pcBrand, entra.emsAttributes.PCBrand ?? '');
     addChange(changes, 'pcModel', 'PC Model', current.equipment.pcModel, entra.emsAttributes.PCModel ?? '');
     addChange(changes, 'bluetoothStatus', 'Bluetooth Status', current.equipment.bluetoothStatus, entra.emsAttributes.BluetoothStatus ?? '');
-    addChange(changes, 'deskPhoneExtension', 'Desk Phone Extension', current.equipment.deskPhoneExtension, entra.emsAttributes.DeskPhoneExtension ?? '');
+    // Desk Phone Extension: prefer the extension parsed from businessPhones[0]
+    // (e.g. "x226"); fall back to the CSA DeskPhoneExtension.
+    const entraDeskPhoneExtension =
+      parsePhoneExtension(entra.user.businessPhones) ||
+      (entra.emsAttributes.DeskPhoneExtension ?? '');
+    addChange(changes, 'deskPhoneExtension', 'Desk Phone Extension', current.equipment.deskPhoneExtension, entraDeskPhoneExtension);
     addChange(changes, 'pcDeviceType', 'PC Device Type', current.equipment.pcDeviceType, entra.emsAttributes.PCDeviceType ?? '');
     addChange(changes, 'pcNotes', 'PC Notes', current.equipment.pcNotes, entra.emsAttributes.PCNotes ?? '');
     addChange(changes, 'pcEquipmentStatus', 'PC Equipment Status', current.equipment.pcEquipmentStatus, entra.emsAttributes.PCEquipmentStatus ?? '');
@@ -869,7 +876,7 @@ export class EntraProfileSyncService {
       }
 
       // 5. Sync Equipment from Entra CSA into EMS equipment tables
-      await this.upsertEquipmentFromEntra(manager, contact.contactAssignmentId, entra.emsAttributes, current.equipment);
+      await this.upsertEquipmentFromEntra(manager, contact.contactAssignmentId, entra.emsAttributes, current.equipment, entra.user.businessPhones);
 
       // 6. Department
       if (entra.user.department) {
@@ -1083,7 +1090,7 @@ export class EntraProfileSyncService {
 
       // Equipment
       if (hasEquipment) {
-        await this.upsertEquipmentFromEntra(manager, contact.contactAssignmentId, entra.emsAttributes, current.equipment);
+        await this.upsertEquipmentFromEntra(manager, contact.contactAssignmentId, entra.emsAttributes, current.equipment, entra.user.businessPhones);
       }
 
       // Department
@@ -1463,6 +1470,7 @@ export class EntraProfileSyncService {
     contactAssignmentId: number,
     attrs: EMSCustomAttributes,
     currentEquipment: EquipmentData,
+    businessPhones: string[] = [],
   ): Promise<void> {
     if (!contactAssignmentId) return;
 
@@ -1475,7 +1483,10 @@ export class EntraProfileSyncService {
     const phoneMac = parseMacAddress(attrs.DeskPhoneMAC);
     const phoneBrand = parseMacBrand(attrs.DeskPhoneMAC) || attrs.DeskPhoneBrand?.trim() || '';
     const phoneModel = attrs.DeskPhoneModel?.trim() || '';
-    const deskPhoneExtension = attrs.DeskPhoneExtension?.trim() || '';
+    // Prefer the extension parsed from businessPhones (after "x"); fall back to CSA.
+    const deskPhoneExtension =
+      parsePhoneExtension(businessPhones) ||
+      (attrs.DeskPhoneExtension?.trim() || '');
 
     if (deskPhoneExtension && deskPhoneExtension !== currentEquipment.deskPhoneExtension) {
       await this.assignPhoneExtensionFromWorkPhone(manager, contactAssignmentId, deskPhoneExtension);
@@ -2151,7 +2162,13 @@ export class EntraProfileSyncService {
 
     // Native Graph properties
     addChange(changes, 'mobilePhone', 'Mobile Phone', entra.user.mobilePhone, contact.cellPhone);
-    addChange(changes, 'businessPhones', 'Work Phone', firstBusinessPhone(entra.user.businessPhones), contact.workPhone);
+    addChange(
+      changes,
+      'businessPhones',
+      'Work Phone',
+      (entra.user.businessPhones[0] ?? '').trim(),
+      combinePhoneAndExtension(contact.workPhone, contact.workPhoneExtension),
+    );
 
     // Home Address (native Graph)
     const emsStreetLine1 = readString(current.homeAddress, 'AddressLine1');
@@ -2216,10 +2233,16 @@ export class EntraProfileSyncService {
     if ((contact.cellPhone || '') !== (entra.user.mobilePhone ?? '')) {
       nativePayload.mobilePhone = nullableText(trimTo(contact.cellPhone, 30));
     }
-    // Work Phone
-    if (contact.workPhone !== firstBusinessPhone(entra.user.businessPhones)) {
-      nativePayload.businessPhones = contact.workPhone
-        ? [trimTo(contact.workPhone, 30)]
+    // Work Phone — reconstruct "<number> x<ext>" so the extension is not
+    // wiped from Entra when EMS pushes back.
+    const emsWorkPhoneCombined = combinePhoneAndExtension(
+      contact.workPhone,
+      contact.workPhoneExtension,
+    );
+    const entraWorkPhoneRaw = (entra.user.businessPhones[0] ?? '').trim();
+    if (emsWorkPhoneCombined !== entraWorkPhoneRaw) {
+      nativePayload.businessPhones = emsWorkPhoneCombined
+        ? [trimTo(emsWorkPhoneCombined, 30)]
         : [];
     }
     // Home Address (combine AddressLine1 + AddressLine2 for streetAddress)
@@ -2590,6 +2613,7 @@ type InternalContact = {
   email: string;
   cellPhone: string;
   workPhone: string;
+  workPhoneExtension: string;
   department: string;
 };
 
@@ -2729,14 +2753,42 @@ function trimTo(value: string | null | undefined, maxLen: number): string {
   return s.slice(0, maxLen);
 }
 
-function firstBusinessPhone(phones: string[]): string {
-  return (phones[0] ?? '').trim();
+/**
+ * Entra `businessPhones[0]` often carries the extension inline
+ * (e.g. `"(312) 274-1800 x226"`). We store the number portion in
+ * `ContactInfo.WorkPhone` and route the extension to
+ * `ContactInfo.WorkPhoneExtension` + `EmployeePhoneExtension`.
+ */
+function splitPhoneAndExtension(raw: string | null | undefined): {
+  phone: string;
+  extension: string;
+} {
+  const s = String(raw ?? '').trim();
+  if (!s) return { phone: '', extension: '' };
+  const match = s.match(/^(.*?)[\s,;-]*(?:x|ext\.?|extension)\s*(\d+)\s*$/i);
+  if (match) return { phone: match[1].trim(), extension: match[2] };
+  return { phone: s, extension: '' };
 }
 
+/** Phone number portion of `businessPhones[0]` (extension stripped). */
+function firstBusinessPhone(phones: string[]): string {
+  return splitPhoneAndExtension(phones[0] ?? '').phone;
+}
+
+/** Extension digits parsed off the end of `businessPhones[0]`. */
 function parsePhoneExtension(phones: string[]): string {
-  const raw = (phones[0] ?? '').trim();
-  const match = raw.match(/(?:x|ext\.?|extension)\s*(\d+)\s*$/i);
-  return match ? match[1] : '';
+  return splitPhoneAndExtension(phones[0] ?? '').extension;
+}
+
+/** Combine an EMS phone + extension back into an Entra-style string. */
+function combinePhoneAndExtension(
+  phone: string | null | undefined,
+  extension: string | null | undefined,
+): string {
+  const p = String(phone ?? '').trim();
+  const e = String(extension ?? '').trim();
+  if (!p) return e ? `x${e}` : '';
+  return e ? `${p} x${e}` : p;
 }
 
 function ssnLast4(value: string | null | undefined): string {

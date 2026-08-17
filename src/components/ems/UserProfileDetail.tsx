@@ -636,7 +636,7 @@ function PropertyTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolea
         tabFields={[
           'deskPhoneExtension', 'deskPhoneMac', 'deskPhoneBrand', 'deskPhoneModel',
           'pcServiceTag', 'pcWindowsName', 'pcBrand', 'pcModel', 'bluetoothStatus',
-          'pcDeviceType', 'pcNotes', 'pcEquipmentStatus', 'pcIsManagedByIT',
+          'pcDeviceType', 'pcNotes',
         ]}
         invalidateKeys={[['employee-employment-profile', user.email], ['employee-personal-profile', user.email]]}
       />
