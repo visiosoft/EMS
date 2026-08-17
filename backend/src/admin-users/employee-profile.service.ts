@@ -1,13 +1,16 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   NotFoundException,
   UnauthorizedException,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { IsOptional, IsString, MaxLength } from 'class-validator';
 import { AuditRequestContext } from '../audit/audit-request-context.service';
+import { EntraProfileSyncService } from './entra-profile-sync.service';
 
 // ─── Response / DTO Types ─────────────────────────────────────────────────────
 
@@ -19,6 +22,7 @@ export type EmployeePersonalProfileResponse = {
   lastName: string;
   email: string;
   cellPhone: string;
+  workPhone: string;
   /** Editable employee-owned fields */
   middleName: string;
   personalEmail: string;
@@ -41,6 +45,9 @@ export type EmployeePersonalProfileResponse = {
 };
 
 export class UpdateEmployeePersonalProfileDto {
+  @IsOptional() @IsString() @MaxLength(100) firstName?: string | null;
+  @IsOptional() @IsString() @MaxLength(100) lastName?: string | null;
+  @IsOptional() @IsString() @MaxLength(30) cellPhone?: string | null;
   @IsOptional() @IsString() @MaxLength(100) middleName?: string | null;
   @IsOptional() @IsString() personalEmail?: string | null;
   @IsOptional() @IsString() birthDate?: string | null;
@@ -64,6 +71,8 @@ export class EmployeeProfileService {
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly auditContext: AuditRequestContext,
+    @Inject(forwardRef(() => EntraProfileSyncService))
+    private readonly entraProfileSyncService: EntraProfileSyncService,
   ) {}
 
   /** Fetch personal profile for a user identified by email. */
@@ -82,6 +91,10 @@ export class EmployeeProfileService {
     userEmail: string,
     dto: UpdateEmployeePersonalProfileDto,
   ): Promise<EmployeePersonalProfileResponse> {
+    console.log('[PersonalProfile] updatePersonalProfile called for:', userEmail);
+    console.log('[PersonalProfile] DTO keys:', Object.keys(dto));
+    console.log('[PersonalProfile] DTO firstName:', JSON.stringify(dto.firstName), '| lastName:', JSON.stringify(dto.lastName), '| cellPhone:', JSON.stringify(dto.cellPhone));
+    console.log('[PersonalProfile] graphAccessToken present:', !!this.auditContext.getGraphAccessToken());
     const email = normalizeEmail(userEmail);
     if (!email) {
       throw new BadRequestException('A valid email address is required.');
@@ -91,6 +104,24 @@ export class EmployeeProfileService {
       this.auditContext.getUserOid() ?? this.auditContext.getUserEmail() ?? email;
 
     await this.dataSource.transaction(async (manager) => {
+      // 0. Update ContactInfo (name, cell phone) if provided
+      const hasContactInfoChanges =
+        dto.firstName !== undefined || dto.lastName !== undefined || dto.cellPhone !== undefined;
+      if (hasContactInfoChanges) {
+        const setClauses: string[] = [];
+        const params: (string | null)[] = [];
+        let idx = 0;
+        if (dto.firstName !== undefined) { setClauses.push(`FirstName = @${idx}`); params.push(cleanText(dto.firstName) || current.firstName); idx++; }
+        if (dto.lastName !== undefined) { setClauses.push(`LastName = @${idx}`); params.push(cleanText(dto.lastName) || current.lastName); idx++; }
+        if (dto.cellPhone !== undefined) { setClauses.push(`CellPhone = @${idx}`); params.push(nullableText(dto.cellPhone)); idx++; }
+        if (setClauses.length > 0) {
+          await manager.query(
+            `UPDATE dbo.ContactInfo SET ${setClauses.join(', ')} WHERE ContactInfoID = @${idx}`,
+            [...params, current.contactInfoId],
+          );
+        }
+      }
+
       // 1. Upsert EmployeeProfile row
       const epExists = await manager.query(
         `SELECT 1 AS found FROM dbo.EmployeeProfile WHERE ContactID = @0`,
@@ -268,7 +299,96 @@ export class EmployeeProfileService {
       }
     });
 
+    // Push personal fields to Entra (native props + CSAs)
+    this.syncPersonalFieldsToEntra(email, dto, current).catch((err) => {
+      console.error('[PersonalProfile] Entra sync failed:', err?.message || err);
+    });
+
     return this.loadPersonalProfile(email);
+  }
+
+  /**
+   * Push updated personal-profile fields to Entra CSAs (best-effort, non-blocking).
+   */
+  private async syncPersonalFieldsToEntra(
+    email: string,
+    dto: UpdateEmployeePersonalProfileDto,
+    current: EmployeePersonalProfileResponse,
+  ): Promise<void> {
+    const graphToken = this.auditContext.getGraphAccessToken();
+    const nativePayload: Record<string, unknown> = {};
+    const csaPayload: Record<string, string | boolean | string[] | null> = {};
+
+    // Native Graph properties
+    if (dto.firstName !== undefined) {
+      nativePayload.givenName = cleanText(dto.firstName) || null;
+      // Also update displayName
+      const newFirst = cleanText(dto.firstName) || current.firstName;
+      const newLast = dto.lastName !== undefined ? (cleanText(dto.lastName) || current.lastName) : current.lastName;
+      nativePayload.displayName = [newFirst, newLast].filter(Boolean).join(' ');
+    }
+    if (dto.lastName !== undefined) {
+      nativePayload.surname = cleanText(dto.lastName) || null;
+      if (!nativePayload.displayName) {
+        const newFirst = current.firstName;
+        const newLast = cleanText(dto.lastName) || current.lastName;
+        nativePayload.displayName = [newFirst, newLast].filter(Boolean).join(' ');
+      }
+    }
+    if (dto.cellPhone !== undefined) {
+      nativePayload.mobilePhone = nullableText(dto.cellPhone);
+    }
+
+    // Custom Security Attributes
+    if (dto.personalEmail !== undefined) {
+      csaPayload.PersonalEmail = nullableText(dto.personalEmail) ?? null;
+    }
+    if (dto.middleName !== undefined) {
+      csaPayload.MiddleName = nullableText(dto.middleName) ?? null;
+    }
+    if (dto.birthDate !== undefined) {
+      csaPayload.Birthday = nullableText(dto.birthDate) ?? null;
+    }
+    if (dto.ssn !== undefined) {
+      const last4 = cleanText(dto.ssn)?.replace(/\D/g, '').slice(-4);
+      csaPayload.SocialSecurityNumber = last4 || null;
+    }
+    if (dto.homeStreet !== undefined || dto.homeAddress2 !== undefined || dto.homeCity !== undefined || dto.homeState !== undefined || dto.homePostalCode !== undefined || dto.homeCountry !== undefined) {
+      csaPayload.HomeAddressStreet1 = nullableText(dto.homeStreet) ?? (current.homeStreet || null);
+      csaPayload.HomeAddressStreet2 = nullableText(dto.homeAddress2) ?? (current.homeAddress2 || null);
+      csaPayload.HomeAddressCity = nullableText(dto.homeCity) ?? (current.homeCity || null);
+      csaPayload.HomeAddressState = nullableText(dto.homeState) ?? (current.homeState || null);
+      csaPayload.HomeAddressZip = nullableText(dto.homePostalCode) ?? (current.homePostalCode || null);
+      csaPayload.HomeAddressCountry = nullableText(dto.homeCountry) ?? (current.homeCountry || null);
+    }
+    if (dto.emergencyFirstName !== undefined || dto.emergencyLastName !== undefined || dto.emergencyEmail !== undefined || dto.emergencyCellPhone !== undefined) {
+      csaPayload.EmergencyContactFirstName = nullableText(dto.emergencyFirstName) ?? (current.emergencyFirstName || null);
+      csaPayload.EmergencyContactLastName = nullableText(dto.emergencyLastName) ?? (current.emergencyLastName || null);
+      csaPayload.EmergencyContactCell = nullableText(dto.emergencyCellPhone) ?? (current.emergencyCellPhone || null);
+      csaPayload.EmergencyContactEmail = nullableText(dto.emergencyEmail) ?? (current.emergencyEmail || null);
+    }
+
+    const hasNative = Object.keys(nativePayload).length > 0;
+    const hasCsa = Object.keys(csaPayload).length > 0;
+
+    if (!hasNative && !hasCsa) return;
+
+    console.log('[PersonalProfile → Entra] Pushing to Entra for', email, '| native:', JSON.stringify(nativePayload), '| csa:', JSON.stringify(csaPayload));
+
+    if (hasNative) {
+      await this.entraProfileSyncService.pushNativeAndCustomAttributes(
+        email,
+        nativePayload,
+        hasCsa ? csaPayload : undefined,
+        graphToken || undefined,
+      );
+    } else {
+      await this.entraProfileSyncService.pushCustomSecurityAttributes(
+        email,
+        csaPayload,
+        graphToken || undefined,
+      );
+    }
   }
 
   // ─── Private Loaders ────────────────────────────────────────────────────────
@@ -313,6 +433,7 @@ export class EmployeeProfileService {
         ci.LastName AS lastName,
         ci.Email AS email,
         COALESCE(ci.CellPhone, '') AS cellPhone,
+        COALESCE(ci.WorkPhone, '') AS workPhone,
         ${epSelect},
         ${ecSelect},
         ${hasEpTable ? "COALESCE(ha.AddressLine1, '') AS homeStreet, COALESCE(ha.AddressLine2, '') AS homeAddress2, COALESCE(ha.City, '') AS homeCity, COALESCE(ha.StateProvince, '') AS homeState, COALESCE(ha.PostalCode, '') AS homePostalCode, COALESCE(ha.Country, '') AS homeCountry" : "CAST('' AS nvarchar(200)) AS homeStreet, CAST('' AS nvarchar(200)) AS homeAddress2, CAST('' AS nvarchar(100)) AS homeCity, CAST('' AS nvarchar(100)) AS homeState, CAST('' AS nvarchar(20)) AS homePostalCode, CAST('' AS nvarchar(100)) AS homeCountry"}
@@ -341,6 +462,7 @@ export class EmployeeProfileService {
       lastName: readString(r, 'lastName', 'LastName'),
       email: readString(r, 'email', 'Email'),
       cellPhone: readString(r, 'cellPhone', 'CellPhone'),
+      workPhone: readString(r, 'workPhone', 'WorkPhone'),
       middleName: readString(r, 'middleName', 'MiddleName'),
       personalEmail: readString(r, 'personalEmail', 'PersonalEmail'),
       birthDate: readDateString(r, 'birthDate', 'BirthDate'),

@@ -61,8 +61,10 @@ export interface SelfProfileCertifications {
 
 export interface LinkedSelfProfile {
   linked: true;
-  /** `full` for the employee/admins; `limited` for other staff (Administrator-only fields hidden). */
-  visibility: "full" | "limited";
+  /** `full` for the employee/admins; `limited` for other staff; `public` for public-role users (minimal fields). */
+  visibility: "full" | "limited" | "public";
+  /** True when the viewer has admin-tier access. */
+  isAdmin: boolean;
   identity: {
     contactId: number;
     contactInfoId: number;
@@ -95,6 +97,7 @@ export interface LinkedSelfProfile {
     office: string;
     accessLevel: string;
     workAuthorization: string;
+    workAuthorizationLinkUrl: string;
     startDate: string | null;
     yearsOfService: string;
     hireDate: string | null;
@@ -109,6 +112,7 @@ export interface LinkedSelfProfile {
     rampAccount: string;
     rampCreditCard: string;
     workstation: string;
+    departmentRank: string;
   };
   officeAddress: SelfProfileAddress | null;
   equipment: {
@@ -122,6 +126,9 @@ export interface LinkedSelfProfile {
     pcServiceTag: string;
     bluetoothStatus: string;
     pcWindowsName: string;
+    currentExtensionId: number | null;
+    currentPhoneId: number | null;
+    currentComputerId: number | null;
   };
   entra: {
     microsoftOfficeLicenses: string[];
@@ -144,4 +151,53 @@ export function fetchMySelfProfile(): Promise<SelfProfile> {
  */
 export function fetchEmployeeProfile(contactId: number): Promise<SelfProfile> {
   return apiFetch<SelfProfile>(`/internal/employees/${contactId}/profile`);
+}
+
+/** DTO for WMS-editable profile fields. All fields optional — only send what changed. */
+export interface UpdateMyProfilePayload {
+  cellPhone?: string;
+  workPhone?: string;
+  homeAddress?: {
+    line1?: string;
+    line2?: string;
+    city?: string;
+    stateProvince?: string;
+    postalCode?: string;
+    country?: string;
+  };
+  emergencyContacts?: {
+    fullName: string;
+    phoneNumber: string;
+    email: string;
+    isPrimary: boolean;
+  }[];
+  workstation?: string;
+  workAuthorizationLinkUrl?: string;
+  deskPhoneExtensionId?: number | null;
+  deskPhoneId?: number | null;
+  pcComputerId?: number | null;
+}
+
+export interface UpdateMyProfileResponse {
+  success: true;
+  entraSyncWarningCode?: 'permissionRestricted' | 'syncFailed';
+  entraSyncWarning?: string;
+}
+
+/** Save WMS-editable fields for the signed-in employee. */
+export function updateMyProfile(payload: UpdateMyProfilePayload): Promise<UpdateMyProfileResponse> {
+  return apiFetch<UpdateMyProfileResponse>('/internal/my-profile', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Administrator saves WMS-editable fields for another employee. */
+export function updateEmployeeProfile(contactId: number, payload: UpdateMyProfilePayload): Promise<UpdateMyProfileResponse> {
+  return apiFetch<UpdateMyProfileResponse>(`/internal/employees/${contactId}/profile`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
 }

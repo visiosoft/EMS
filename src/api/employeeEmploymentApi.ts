@@ -18,8 +18,13 @@ export interface WorkstationListResponse {
 export interface EmployeeEmploymentProfile {
   contactId: number;
   contactAssignmentId: number;
+  title: string;
+  workEmail: string;
+  department: string;
+  office: string;
   accessLevel: string;
   workAuthorization: string;
+  workAuthorizationLinkUrl: string;
   workstation: string;
   startDate: string | null;
   supervisor: string;
@@ -43,11 +48,21 @@ export interface EmployeeEmploymentProfile {
   pcServiceTag: string;
   bluetoothStatus: string;
   pcWindowsName: string;
+  currentExtensionId: number | null;
+  currentPhoneId: number | null;
+  currentComputerId: number | null;
+  departmentRank: string;
+  role: string;
+  employmentStatus: string;
+  employmentType: string;
 }
 
 export interface UpdateEmployeeEmploymentProfileRequest {
   accessLevel?: string | null;
+  title?: string | null;
+  office?: string | null;
   workAuthorization?: string | null;
+  workAuthorizationLinkUrl?: string | null;
   workstation?: string | null;
   startDate?: string | null;
   supervisor?: string | null;
@@ -107,8 +122,9 @@ export interface PhoneExtensionListResponse {
   extensions: PhoneExtensionOption[];
 }
 
-export function fetchPhoneExtensions(): Promise<PhoneExtensionListResponse> {
-  return apiFetch<PhoneExtensionListResponse>('/admin/phone-extensions');
+export function fetchPhoneExtensions(forEmail?: string): Promise<PhoneExtensionListResponse> {
+  const qs = forEmail ? `?forEmail=${encodeURIComponent(forEmail)}` : '';
+  return apiFetch<PhoneExtensionListResponse>(`/admin/phone-extensions${qs}`);
 }
 
 export interface PhoneDeviceOption {
@@ -124,8 +140,9 @@ export interface PhoneDeviceListResponse {
   phones: PhoneDeviceOption[];
 }
 
-export function fetchPhoneDevices(): Promise<PhoneDeviceListResponse> {
-  return apiFetch<PhoneDeviceListResponse>('/admin/phone-devices');
+export function fetchPhoneDevices(forEmail?: string): Promise<PhoneDeviceListResponse> {
+  const qs = forEmail ? `?forEmail=${encodeURIComponent(forEmail)}` : '';
+  return apiFetch<PhoneDeviceListResponse>(`/admin/phone-devices${qs}`);
 }
 
 export interface PcDeviceOption {
@@ -143,8 +160,9 @@ export interface PcDeviceListResponse {
   computers: PcDeviceOption[];
 }
 
-export function fetchPcDevices(): Promise<PcDeviceListResponse> {
-  return apiFetch<PcDeviceListResponse>('/admin/pc-devices');
+export function fetchPcDevices(forEmail?: string): Promise<PcDeviceListResponse> {
+  const qs = forEmail ? `?forEmail=${encodeURIComponent(forEmail)}` : '';
+  return apiFetch<PcDeviceListResponse>(`/admin/pc-devices${qs}`);
 }
 
 export function fetchUserLicenses(email: string): Promise<string[]> {

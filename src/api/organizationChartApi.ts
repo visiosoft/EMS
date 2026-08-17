@@ -14,6 +14,7 @@ export interface OrganizationChartMember {
   jobTitle: string;
   roleName: string;
   departmentName: string;
+  departmentRank: number | null;
 }
 
 export interface OrganizationChartNode {

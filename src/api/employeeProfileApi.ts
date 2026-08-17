@@ -7,6 +7,7 @@ export interface EmployeePersonalProfile {
   lastName: string;
   email: string;
   cellPhone: string;
+  workPhone: string;
   middleName: string;
   personalEmail: string;
   birthDate: string | null;
@@ -26,6 +27,9 @@ export interface EmployeePersonalProfile {
 }
 
 export interface UpdateEmployeePersonalProfileRequest {
+  firstName?: string | null;
+  lastName?: string | null;
+  cellPhone?: string | null;
   middleName?: string | null;
   personalEmail?: string | null;
   birthDate?: string | null;

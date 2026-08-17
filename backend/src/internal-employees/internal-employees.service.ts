@@ -17,6 +17,7 @@ export type IaeEmployeeRow = {
   /** Current desk extension (dbo.EmployeePhoneExtension → dbo.PhoneExtension). */
   extension: string | null;
   departmentName: string | null;
+  departmentRank: number | null;
 };
 
 @Injectable()
@@ -43,7 +44,9 @@ export class InternalEmployeesService {
         ranked.workPhone,
         ranked.roleName,
         ranked.extension,
-        ranked.departmentName
+        ranked.departmentName,
+        ranked.departmentRank,
+        ranked.jobTitle
       FROM (
         SELECT
           c.ContactID AS contactId,
@@ -53,14 +56,17 @@ export class InternalEmployeesService {
           ci.CellPhone AS cellPhone,
           ci.WorkPhone AS workPhone,
           ci.WorkPhoneExtension AS extension,
+          COALESCE(NULLIF(LTRIM(RTRIM(ep.JobTitle)), ''), '') AS jobTitle,
           rolePick.roleName AS roleName,
           deptPick.departmentName AS departmentName,
+          ISNULL(TRY_CAST(ep.DepartmentRank AS int), 999) AS departmentRank,
           ROW_NUMBER() OVER (
             PARTITION BY ci.ContactInfoID
             ORDER BY c.ContactID ASC
           ) AS rowNum
         FROM dbo.Contact c
         INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+        LEFT JOIN dbo.EmployeeProfile ep ON ep.ContactID = c.ContactID
         OUTER APPLY (
           SELECT STUFF((
             SELECT ', ' + r.RoleName
@@ -111,12 +117,8 @@ export class InternalEmployeesService {
       deduped.push(row);
     }
 
-    // Build Entra job title lookup from Graph if token available
-    const entraJobTitles = await this.fetchEntraJobTitleMap();
-
     return deduped.map((row) => {
       const email = String(row.email ?? '').trim();
-      const entraTitle = email ? (entraJobTitles.get(email.toLowerCase()) ?? null) : null;
       return {
         contactId: Number(row.contactId),
         firstName: String(row.firstName ?? '').trim(),
@@ -128,7 +130,7 @@ export class InternalEmployeesService {
           const name = String(row.roleName ?? '').trim();
           return name && name.toLowerCase() !== 'unknown' ? name : null;
         })(),
-        jobTitle: entraTitle,
+        jobTitle: String(row.jobTitle ?? '').trim() || null,
         extension: row.extension != null && String(row.extension).trim() ? String(row.extension).trim() : null,
         departmentName: (() => {
           const names = [...new Set(
@@ -139,6 +141,7 @@ export class InternalEmployeesService {
           )];
           return names.length ? names.join(', ') : null;
         })(),
+        departmentRank: row.departmentRank != null ? Number(row.departmentRank) : null,
       };
     });
   }
@@ -153,10 +156,13 @@ export class InternalEmployeesService {
          ci.CellPhone AS cellPhone,
          ci.WorkPhone AS workPhone,
          ci.WorkPhoneExtension AS extension,
+         COALESCE(NULLIF(LTRIM(RTRIM(ep.JobTitle)), ''), '') AS jobTitle,
          rolePick.roleName AS roleName,
-         deptPick.departmentName AS departmentName
+         deptPick.departmentName AS departmentName,
+         ISNULL(TRY_CAST(ep.DepartmentRank AS int), 999) AS departmentRank
        FROM dbo.Contact c
        INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
+       LEFT JOIN dbo.EmployeeProfile ep ON ep.ContactID = c.ContactID
        OUTER APPLY (
          SELECT STUFF((
            SELECT ', ' + r.RoleName
@@ -192,11 +198,8 @@ export class InternalEmployeesService {
       [departmentId],
     );
 
-    const entraJobTitles = await this.fetchEntraJobTitleMap();
-
     return rows.map((row: any) => {
       const email = String(row.email ?? '').trim();
-      const entraTitle = email ? (entraJobTitles.get(email.toLowerCase()) ?? null) : null;
       return {
         contactId: Number(row.contactId),
         firstName: String(row.firstName ?? '').trim(),
@@ -208,7 +211,7 @@ export class InternalEmployeesService {
           const name = String(row.roleName ?? '').trim();
           return name && name.toLowerCase() !== 'unknown' ? name : null;
         })(),
-        jobTitle: entraTitle,
+        jobTitle: String(row.jobTitle ?? '').trim() || null,
         extension: row.extension != null && String(row.extension).trim() ? String(row.extension).trim() : null,
         departmentName: (() => {
           const names = [...new Set(
@@ -219,6 +222,7 @@ export class InternalEmployeesService {
           )];
           return names.length ? names.join(', ') : null;
         })(),
+        departmentRank: row.departmentRank != null ? Number(row.departmentRank) : null,
       };
     });
   }

@@ -36,7 +36,7 @@ export function ProfilePage({ addToast }: ProfilePageProps) {
     : null;
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-4">
+    <div className="mx-auto w-full max-w-5xl space-y-4 px-4 sm:px-6 lg:px-0">
       {profileQuery.isLoading ? (
         <div className="rounded-md border border-border bg-surface px-4 py-8 text-sm text-text-secondary">
           <Loader2 className="mr-2 inline h-4 w-4 animate-spin align-text-bottom" aria-hidden />
