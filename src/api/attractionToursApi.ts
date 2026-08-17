@@ -44,6 +44,8 @@ export interface ApiAttractionListRow {
   activeTourCount: number;
   /** Banner from dbo.Link for the tour with the highest TourID on this attraction */
   latestTourBannerImageUrl: string | null;
+  /** Class name of the tour with the highest TourID on this attraction */
+  latestTourClassName: string | null;
   appCreated: boolean;
 }
 
