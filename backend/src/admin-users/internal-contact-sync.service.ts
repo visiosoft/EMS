@@ -125,6 +125,7 @@ type InternalContactSnapshot = {
   email: string;
   cellPhone: string;
   workPhone: string;
+  workPhoneExtension: string;
   jobTitle: string;
   assignments: InternalContactAssignmentSnapshot[];
 };
@@ -1016,6 +1017,7 @@ export class InternalContactSyncService {
         ci.Email AS email,
         ci.CellPhone AS cellPhone,
         ci.WorkPhone AS workPhone,
+        ci.WorkPhoneExtension AS workPhoneExtension,
         ${jobTitleSelect},
         ca.ContactAssignmentID AS contactAssignmentId,
         ca.RoleID AS roleId,
@@ -1050,6 +1052,7 @@ export class InternalContactSyncService {
           email: readString(row, 'email', 'Email'),
           cellPhone: readString(row, 'cellPhone', 'CellPhone'),
           workPhone: readString(row, 'workPhone', 'WorkPhone'),
+          workPhoneExtension: readString(row, 'workPhoneExtension', 'WorkPhoneExtension'),
           jobTitle: readString(row, 'jobTitle', 'JobTitle'),
           assignments: [],
         };
@@ -1256,7 +1259,16 @@ export class InternalContactSyncService {
       change('accountEnabled', 'Account Status', null, 'Active'),
     ];
     addOptionalChange(changes, 'mobilePhone', 'Mobile Phone', null, trimToMax(contact.cellPhone, 30));
-    addOptionalChange(changes, 'businessPhones', 'Work Phone', null, trimToMax(contact.workPhone, 30));
+    addOptionalChange(
+      changes,
+      'businessPhones',
+      'Work Phone',
+      null,
+      trimToMax(
+        combinePhoneAndExtension(contact.workPhone, contact.workPhoneExtension),
+        30,
+      ),
+    );
     addOptionalChange(
       changes,
       'department',
@@ -1307,8 +1319,11 @@ export class InternalContactSyncService {
       changes,
       'businessPhones',
       'Work Phone',
-      firstBusinessPhone(user),
-      trimToMax(contact.workPhone, 30),
+      firstBusinessPhoneRaw(user),
+      trimToMax(
+        combinePhoneAndExtension(contact.workPhone, contact.workPhoneExtension),
+        30,
+      ),
       { compareAsPhone: true },
     );
     addComparableChange(
@@ -1871,8 +1886,9 @@ export class InternalContactSyncService {
       payload.mobilePhone = nullableText(trimToMax(sanitizePhoneForGraph(contact.cellPhone), 30));
     }
     if (!selectedFields || selectedFields.has('workPhone')) {
-      const sanitized = sanitizePhoneForGraph(contact.workPhone);
-      payload.businessPhones = sanitized ? [trimToMax(sanitized, 30)] : [];
+      const sanitizedPhone = sanitizePhoneForGraph(contact.workPhone);
+      const combined = combinePhoneAndExtension(sanitizedPhone, contact.workPhoneExtension);
+      payload.businessPhones = combined ? [trimToMax(combined, 30)] : [];
     }
     if (!selectedFields || selectedFields.has('department')) {
       payload.department = nullableText(trimToMax(primaryDepartmentName(contact), 64));
@@ -2266,10 +2282,45 @@ function fallbackFirstName(user: AdminDirectorySyncUser): string {
   return emailLocalPart || 'Entra user';
 }
 
+/**
+ * Return the phone-number portion of `businessPhones[0]`, stripped of any
+ * inline extension suffix such as `" x226"` / `" ext. 226"`. The extension
+ * is stored separately on `ContactInfo.WorkPhoneExtension`.
+ */
 function firstBusinessPhone(user: AdminDirectorySyncUser): string {
+  return splitPhoneAndExtension(firstBusinessPhoneRaw(user)).phone;
+}
+
+/** Extension digits parsed off the end of `businessPhones[0]`, if any. */
+function firstBusinessPhoneExtension(user: AdminDirectorySyncUser): string {
+  return splitPhoneAndExtension(firstBusinessPhoneRaw(user)).extension;
+}
+
+function firstBusinessPhoneRaw(user: AdminDirectorySyncUser): string {
   return Array.isArray(user.businessPhones)
     ? cleanText(user.businessPhones.find((phone) => cleanText(phone)) ?? '')
     : '';
+}
+
+function splitPhoneAndExtension(raw: string): {
+  phone: string;
+  extension: string;
+} {
+  const s = raw.trim();
+  if (!s) return { phone: '', extension: '' };
+  const match = s.match(/^(.*?)[\s,;-]*(?:x|ext\.?|extension)\s*(\d+)\s*$/i);
+  if (match) return { phone: match[1].trim(), extension: match[2] };
+  return { phone: s, extension: '' };
+}
+
+function combinePhoneAndExtension(
+  phone: string | null | undefined,
+  extension: string | null | undefined,
+): string {
+  const p = String(phone ?? '').trim();
+  const e = String(extension ?? '').trim();
+  if (!p) return e ? `x${e}` : '';
+  return e ? `${p} x${e}` : p;
 }
 
 function normalizePersonNameFromUser(user: AdminDirectorySyncUser): string {
