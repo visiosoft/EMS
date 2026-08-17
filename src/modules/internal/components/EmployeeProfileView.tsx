@@ -934,7 +934,7 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
   const propertyTabFields = [
     'deskPhoneExtension', 'deskPhoneMac', 'deskPhoneBrand', 'deskPhoneModel',
     'pcServiceTag', 'pcWindowsName', 'pcBrand', 'pcModel', 'bluetoothStatus',
-    'pcDeviceType', 'pcNotes', 'pcEquipmentStatus', 'pcIsManagedByIT',
+    'pcDeviceType', 'pcNotes',
   ];
 
   // ─── Tab state ─────────────────────────────────────────────────────────────
