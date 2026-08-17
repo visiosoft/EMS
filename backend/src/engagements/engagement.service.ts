@@ -240,7 +240,8 @@ export interface EngagementTravelHotelRow {
 
 export interface EngagementTravelRow {
   engagementTravelId: number;
-  travelType: 'Hotel' | 'Car';
+  /** API-facing travel type ('Hotel'/'Car' for detail rows; DB values for drill-bits). */
+  travelType: string;
   hotel: EngagementTravelHotelRow | null;
   carServices: EngagementTravelCarServiceRow[];
 }
@@ -8582,12 +8583,28 @@ export class EngagementService {
     });
     if (travels.length === 0) return [];
 
+    const travelIds = travels.map((t) => t.engagementTravelId);
+    const [hotelDetails, carServiceDetails] = await Promise.all([
+      this.engagementTravelHotelRepo.find({
+        where: { engagementTravelId: In(travelIds) },
+        select: ['engagementTravelId'],
+      }),
+      this.engagementTravelCarServiceRepo.find({
+        where: { engagementTravelId: In(travelIds) },
+        select: ['engagementTravelId'],
+      }),
+    ]);
+    const hotelTravelIds = new Set(hotelDetails.map((h) => h.engagementTravelId));
+    const carServiceTravelIds = new Set(carServiceDetails.map((cs) => cs.engagementTravelId));
+
     const results: EngagementTravelRow[] = [];
 
     for (const t of travels) {
       const travelType = String(t.travelType ?? '').trim();
 
-      if (travelType === 'Hotel') {
+      // The DB CHECK constraint allows 'Hotels' / 'Ground Transportation' / 'Airfare'.
+      // Detail rows share those DB values; we distinguish them by the presence of child records.
+      if (travelType === 'Hotels' && hotelTravelIds.has(t.engagementTravelId)) {
         const hotel = await this.engagementTravelHotelRepo.findOne({
           where: { engagementTravelId: t.engagementTravelId },
         });
@@ -8644,7 +8661,7 @@ export class EngagementService {
             : null,
           carServices: [],
         });
-      } else if (travelType === 'Car') {
+      } else if (travelType === 'Ground Transportation' && carServiceTravelIds.has(t.engagementTravelId)) {
         const carServices = await this.engagementTravelCarServiceRepo.find({
           where: { engagementTravelId: t.engagementTravelId },
           order: { carServiceTravelId: 'ASC' },
@@ -8693,10 +8710,10 @@ export class EngagementService {
           carServices: csRows,
         });
       } else {
-        // Drill Bits travel types (Ground Transportation, Airfare, Hotels)
+        // Drill Bits travel types (Ground Transportation, Airfare, Hotels) or unmatched legacy rows
         results.push({
           engagementTravelId: t.engagementTravelId,
-          travelType: travelType as 'Hotel' | 'Car',
+          travelType,
           hotel: null,
           carServices: [],
           iaePays: t.iaePays ?? null,
@@ -8717,7 +8734,7 @@ export class EngagementService {
     return this.dataSource.transaction(async (manager) => {
       const travel = manager.create(EngagementTravel, {
         engagementId,
-        travelType: 'Hotel',
+        travelType: 'Hotels',
         bookedBy: dto.bookedBy ?? null,
       });
       const savedTravel = await manager.save(EngagementTravel, travel);
@@ -8751,13 +8768,14 @@ export class EngagementService {
       where: { engagementTravelId, engagementId },
     });
     if (!travel) throw new NotFoundException({ message: 'Travel record not found for this engagement.' });
-    if (travel.travelType !== 'Hotel') throw new BadRequestException({ message: 'Travel record is not a Hotel type.' });
-
-    if (dto.bookedBy !== undefined) travel.bookedBy = dto.bookedBy ?? null;
-    await this.engagementTravelRepo.save(travel);
 
     const hotel = await this.engagementTravelHotelRepo.findOne({ where: { engagementTravelId } });
     if (!hotel) throw new NotFoundException({ message: 'Hotel detail record not found.' });
+
+    if (dto.bookedBy !== undefined) {
+      travel.bookedBy = dto.bookedBy ?? null;
+      await this.engagementTravelRepo.save(travel);
+    }
 
     if (dto.hotelCompanyId !== undefined) hotel.hotelCompanyId = dto.hotelCompanyId ?? null;
     if (dto.numberOfRooms !== undefined) hotel.numberOfRooms = dto.numberOfRooms ?? null;
@@ -8807,7 +8825,7 @@ export class EngagementService {
 
       const travel = manager.create(EngagementTravel, {
         engagementId,
-        travelType: 'Car',
+        travelType: 'Ground Transportation',
         bookedBy: dto.bookedBy ?? null,
       });
       const savedTravel = await manager.save(EngagementTravel, travel);
@@ -8899,11 +8917,8 @@ export class EngagementService {
     if (!travel) throw new NotFoundException({ message: 'Travel record not found for this engagement.' });
 
     await this.dataSource.transaction(async (manager) => {
-      if (travel.travelType === 'Hotel') {
-        await manager.delete(EngagementTravelHotel, { engagementTravelId });
-      } else if (travel.travelType === 'Car') {
-        await manager.delete(EngagementTravelCarService, { engagementTravelId });
-      }
+      await manager.delete(EngagementTravelHotel, { engagementTravelId });
+      await manager.delete(EngagementTravelCarService, { engagementTravelId });
       await manager.delete(EngagementTravel, { engagementTravelId });
     });
   }
@@ -8911,7 +8926,7 @@ export class EngagementService {
   /**
    * Upsert travel rows for the Drill Bits tab.
    * Each item in `travelTypes` represents a selected travel category with IAEPays/IAEArranges.
-   * Rows not in the array are removed (only for Drill Bits travel types, not Hotel/Car).
+   * Rows not in the array are removed (only for Drill Bits travel types, not Hotel/Car detail rows).
    */
   async upsertTravelDrillBits(
     engagementId: number,
@@ -8920,11 +8935,35 @@ export class EngagementService {
     await this.assertEngagementExists(engagementId);
     const drillBitsTypes = ['Ground Transportation', 'Airfare', 'Hotels'];
 
-    // Get existing drill-bits travel rows
+    // Get existing travel rows for this engagement
     const existing = await this.engagementTravelRepo.find({
       where: { engagementId },
     });
-    const drillBitsExisting = existing.filter((t) => drillBitsTypes.includes(t.travelType));
+
+    // Determine which rows have associated Hotel or Car Service detail records,
+    // so we never treat those detail rows as drill-bits rows.
+    const travelIds = existing.map((t) => t.engagementTravelId);
+    let detailTravelIds = new Set<number>();
+    if (travelIds.length > 0) {
+      const [hotelDetails, carServiceDetails] = await Promise.all([
+        this.engagementTravelHotelRepo.find({
+          where: { engagementTravelId: In(travelIds) },
+          select: ['engagementTravelId'],
+        }),
+        this.engagementTravelCarServiceRepo.find({
+          where: { engagementTravelId: In(travelIds) },
+          select: ['engagementTravelId'],
+        }),
+      ]);
+      detailTravelIds = new Set([
+        ...hotelDetails.map((h) => h.engagementTravelId),
+        ...carServiceDetails.map((cs) => cs.engagementTravelId),
+      ]);
+    }
+
+    const drillBitsExisting = existing.filter(
+      (t) => drillBitsTypes.includes(t.travelType) && !detailTravelIds.has(t.engagementTravelId),
+    );
 
     // Delete rows for types no longer selected
     const selectedTypes = travelTypes.map((t) => t.travelType);
