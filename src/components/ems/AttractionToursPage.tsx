@@ -3423,7 +3423,7 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
                                       className="text-[11px] text-text-muted truncate"
                                       title={a.latestTourClassName ?? undefined}
                                     >
-                                      {a.latestTourClassName || 'Common proper name'}
+                                      {a.latestTourClassName || ''}
                                     </p>
                                   </div>
                                   {isExpanded ? (
