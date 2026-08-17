@@ -10,7 +10,7 @@ export class EngagementTravel extends AuditColumns {
   @Column({ name: 'EngagementID', type: 'int' })
   engagementId: number;
 
-  /** 'Hotel' | 'Car' | 'Ground Transportation' | 'Airfare' | 'Hotels' */
+  /** Allowed by CK_EngagementTravel_TravelType: 'Hotels' | 'Ground Transportation' | 'Airfare' */
   @Column({ name: 'TravelType', type: 'nvarchar', length: 50 })
   travelType: string;
 
