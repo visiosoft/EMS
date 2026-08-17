@@ -7,6 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Attraction } from '../entities/attraction.entity';
+import { Class } from '../entities/class.entity';
 import { Link } from '../entities/link.entity';
 import { Tour } from '../entities/tour.entity';
 import { CreateAttractionDto } from './dto/create-attraction.dto';
@@ -19,6 +20,8 @@ export interface AttractionListRow {
   activeTourCount: number;
   /** Banner URL from dbo.Link for the tour with max TourID under this attraction */
   latestTourBannerImageUrl: string | null;
+  /** Class name of the tour with max TourID under this attraction */
+  latestTourClassName: string | null;
   appCreated: boolean;
 }
 
@@ -36,14 +39,24 @@ export class AttractionService {
    * For each attraction, banner URL from the tour with greatest TourID (latest row)
    * joined to dbo.Link via Tour.BannerLinkID.
    */
-  private async latestTourBannerUrlsByAttractionIds(
+  private async latestTourInfoByAttractionIds(
     attractionIds: number[],
-  ): Promise<Map<number, string | null>> {
+  ): Promise<
+    Map<
+      number,
+      { tourBannerImageUrl: string | null; className: string | null }
+    >
+  > {
     const uniq = [...new Set(attractionIds)].filter(
       (id) => Number.isInteger(id) && id > 0,
     );
-    const map = new Map<number, string | null>();
-    for (const id of uniq) map.set(id, null);
+    const map = new Map<
+      number,
+      { tourBannerImageUrl: string | null; className: string | null }
+    >();
+    for (const id of uniq) {
+      map.set(id, { tourBannerImageUrl: null, className: null });
+    }
     if (!uniq.length) return map;
 
     const maxRows = await this.tourRepo
@@ -59,33 +72,45 @@ export class AttractionService {
       .filter((id) => Number.isFinite(id) && id > 0);
     if (!tourIds.length) return map;
 
-    const urlRows = await this.tourRepo
+    const infoRows = await this.tourRepo
       .createQueryBuilder('t')
       .leftJoin(Link, 'tb', 'tb.linkId = t.bannerLinkId')
+      .leftJoin(Class, 'c', 'c.classId = t.classId')
       .select('t.tourId', 'tourId')
       .addSelect('t.attractionId', 'attractionId')
       .addSelect('tb.linkUrl', 'tourBannerImageUrl')
-      .where('t.tourId IN (:...tourIds)', { tourIds })
+      .addSelect('c.className', 'className')
+      .where('t.tourId IN (:...tIds)', { tIds: tourIds })
       .getRawMany<{
         tourId: number;
         attractionId: number;
         tourBannerImageUrl: string | null;
+        className: string | null;
       }>();
 
-    const urlByTourId = new Map<number, string | null>();
-    for (const row of urlRows) {
+    const infoByTourId = new Map<
+      number,
+      { tourBannerImageUrl: string | null; className: string | null }
+    >();
+    for (const row of infoRows) {
       const tid = Number(row.tourId);
       const u =
         row.tourBannerImageUrl != null
           ? String(row.tourBannerImageUrl).trim()
           : '';
-      urlByTourId.set(tid, u || null);
+      infoByTourId.set(tid, {
+        tourBannerImageUrl: u || null,
+        className: row.className ? String(row.className).trim() : null,
+      });
     }
 
     for (const row of maxRows) {
       const aid = Number(row.attractionId);
-      const url = urlByTourId.get(Number(row.maxTourId)) ?? null;
-      map.set(aid, url);
+      const info = infoByTourId.get(Number(row.maxTourId)) ?? {
+        tourBannerImageUrl: null,
+        className: null,
+      };
+      map.set(aid, info);
     }
     return map;
   }
@@ -146,14 +171,16 @@ export class AttractionService {
       .getRawMany<{ aid: number; cnt: string }>();
     const countMap = new Map<number, number>();
     for (const r of countsRaw) countMap.set(Number(r.aid), Number(r.cnt));
-    const bannerMap = await this.latestTourBannerUrlsByAttractionIds(
+    const infoMap = await this.latestTourInfoByAttractionIds(
       attractions.map((a) => a.attractionId),
     );
     return attractions.map((a) => ({
       attractionId: a.attractionId,
       attractionName: a.attractionName,
       activeTourCount: countMap.get(a.attractionId) ?? 0,
-      latestTourBannerImageUrl: bannerMap.get(a.attractionId) ?? null,
+      latestTourBannerImageUrl:
+        infoMap.get(a.attractionId)?.tourBannerImageUrl ?? null,
+      latestTourClassName: infoMap.get(a.attractionId)?.className ?? null,
       appCreated: this.emsCreated.canDeleteAttraction(a.attractionId),
     }));
   }
@@ -207,13 +234,15 @@ export class AttractionService {
         .getRawMany<{ aid: number; cnt: string }>();
       for (const r of countsRaw) countMap.set(Number(r.aid), Number(r.cnt));
     }
-    const bannerMap = await this.latestTourBannerUrlsByAttractionIds(ids);
+    const infoMap = await this.latestTourInfoByAttractionIds(ids);
     return {
       data: attractions.map((a) => ({
         attractionId: a.attractionId,
         attractionName: a.attractionName,
         activeTourCount: countMap.get(a.attractionId) ?? 0,
-        latestTourBannerImageUrl: bannerMap.get(a.attractionId) ?? null,
+        latestTourBannerImageUrl:
+          infoMap.get(a.attractionId)?.tourBannerImageUrl ?? null,
+        latestTourClassName: infoMap.get(a.attractionId)?.className ?? null,
         appCreated: this.emsCreated.canDeleteAttraction(a.attractionId),
       })),
       total,
@@ -266,14 +295,14 @@ export class AttractionService {
     const activeTourCount = await this.tourRepo.count({
       where: { attractionId },
     });
-    const bannerMap = await this.latestTourBannerUrlsByAttractionIds([
-      attractionId,
-    ]);
+    const infoMap = await this.latestTourInfoByAttractionIds([attractionId]);
     return {
       attractionId: a.attractionId,
       attractionName: a.attractionName,
       activeTourCount,
-      latestTourBannerImageUrl: bannerMap.get(attractionId) ?? null,
+      latestTourBannerImageUrl:
+        infoMap.get(attractionId)?.tourBannerImageUrl ?? null,
+      latestTourClassName: infoMap.get(attractionId)?.className ?? null,
       appCreated: this.emsCreated.canDeleteAttraction(a.attractionId),
     };
   }
