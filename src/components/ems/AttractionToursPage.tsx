@@ -3423,7 +3423,8 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
                                       className="text-[11px] text-text-muted truncate"
                                       title={a.latestTourClassName ?? undefined}
                                     >
-                                      {a.latestTourClassName || ''}
+                                      {/* nbsp keeps line height so cards without a class match those with one */}
+                                      {a.latestTourClassName || '\u00A0'}
                                     </p>
                                   </div>
                                   {isExpanded ? (
