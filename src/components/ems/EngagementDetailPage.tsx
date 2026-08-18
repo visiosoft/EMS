@@ -888,7 +888,7 @@ function VenueDetailPanel({
             onChange={setVenueContractLink}
             disabled={saveContractsMutation.isPending}
             urlField
-            inputBgClass="bg-white"
+            inputBgClass="bg-white dk:bg-background"
           />
           <VenueTabEditField
             label="Link to SharePoint – Partially Executed Contract"
@@ -896,7 +896,7 @@ function VenueDetailPanel({
             onChange={setPartialContractLink}
             disabled={saveContractsMutation.isPending}
             urlField
-            inputBgClass="bg-white"
+            inputBgClass="bg-white dk:bg-background"
           />
           <VenueTabEditField
             label="Link to SharePoint – Fully Executed Contract"
@@ -904,7 +904,7 @@ function VenueDetailPanel({
             onChange={setFullContractLink}
             disabled={saveContractsMutation.isPending}
             urlField
-            inputBgClass="bg-white"
+            inputBgClass="bg-white dk:bg-background"
           />
         </div>
         <div className="flex justify-end">
@@ -932,7 +932,7 @@ function VenueDetailPanel({
             onChange={setForecastLink}
             disabled={saveForecastMutation.isPending}
             urlField
-            inputBgClass="bg-white"
+            inputBgClass="bg-white dk:bg-background"
           />
         </div>
         <div className="flex justify-end">
@@ -5265,7 +5265,7 @@ function EngagementBookingPanel({
   const inputCls =
     'w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-ems-accent disabled:opacity-50';
   // White-background variant for the Attraction Terms / Attraction Contract inputs.
-  const whiteInputCls = inputCls.replace('bg-background', 'bg-white');
+  const whiteInputCls = inputCls.replace('bg-background', 'bg-white dk:bg-background');
 
   const sectionTitle = (title: string) => (
     <h4 className="text-xs font-semibold uppercase tracking-wide text-text-muted mb-3">{title}</h4>
