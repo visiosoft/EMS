@@ -34,7 +34,8 @@ import {
   StatusBadge,
   TabBar,
 } from './Primitives';
-import { Select2 } from './Select2';
+import { Select2, Select2Multi } from './Select2';
+import { TourContactForm } from './TourContactForm';
 import { companyToSelect2Options } from './companySelectOptions';
 import { normalizeSearchText, richTextMatches } from './searchUtils';
 import { friendlyApiError } from '@/lib/friendlyApiError';
@@ -112,14 +113,20 @@ import type {
   ApiVenueType,
 } from '@/api/attractionToursApi';
 import {
+  createCompanyContact,
   fetchCompaniesPickerRows,
   fetchCompanyContacts,
+  fetchDepartmentRoleMappings,
   fetchDmaMarketsPaged,
+  fetchLookups,
   fetchTalentAgencyCompanyRows,
   talentAgencyCompaniesQueryKey,
   type ApiCompanyListRow,
   type ApiCompanyContact,
+  type ApiDepartment,
+  type ApiDepartmentRoleMapping,
   type ApiDmaMarket,
+  type ApiRole,
 } from '@/api/companyApi';
 import { fetchAllVenues, type ApiAllVenueRow } from '@/api/venueDirectoryApi';
 import { AddTourForm } from './AddTourForm';
@@ -568,6 +575,7 @@ function ProjectInlineOverview({
   onOpenEngagement: (engagementId: number) => void;
   addToast: Props['addToast'];
 }) {
+  const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -578,6 +586,8 @@ function ProjectInlineOverview({
   const [talentAgencyCompanyId, setTalentAgencyCompanyId] = useState<number | null>(
     project.talentAgencyCompanyId ?? null,
   );
+  const [talentAgentContactIds, setTalentAgentContactIds] = useState<string[]>([]);
+  const [showAddContact, setShowAddContact] = useState(false);
   const [scopeTransitioning, setScopeTransitioning] = useState(false);
   const [selectedDmaIds, setSelectedDmaIds] = useState<number[]>(project.dmaIds ?? []);
   const [showDmaModal, setShowDmaModal] = useState(false);
@@ -594,10 +604,17 @@ function ProjectInlineOverview({
     setTourStartDate(project.tourStartDate ?? getTodayDateString());
     setTourEndDate(project.tourEndDate ?? getTodayDateString());
     setTalentAgencyCompanyId(project.talentAgencyCompanyId ?? null);
+    const currentTour = tours.find((t) => t.tourId === project.tourId);
+    setTalentAgentContactIds(
+      [...new Set((currentTour?.talentAgentContactIds ?? []).map(String))].filter(
+        (id) => id.length > 0,
+      ),
+    );
     setSelectedDmaIds(project.dmaIds ?? []);
     setDmaDraftIds(project.dmaIds ?? []);
     setDmaModalSearch('');
     setShowDmaModal(false);
+    setShowAddContact(false);
     setDirty(false);
   }, [
     project.engagementProjectId,
@@ -607,6 +624,7 @@ function ProjectInlineOverview({
     project.createdBy,
     project.talentAgencyCompanyId,
     project.dmaIds,
+    tours,
   ]);
 
   const projectAttractionId = project.attractionId ?? null;
@@ -645,6 +663,18 @@ function ProjectInlineOverview({
     enabled: talentAgencyCompanyId != null && talentAgencyCompanyId >= 1,
     staleTime: 60_000,
   });
+  const contactLookupsQuery = useQuery({
+    queryKey: ['contact-lookups'],
+    queryFn: async () => {
+      const [{ roles, departments }, departmentRoleMappings] = await Promise.all([
+        fetchLookups(),
+        fetchDepartmentRoleMappings(),
+      ]);
+      return { roles: roles ?? [], departments: departments ?? [], departmentRoleMappings };
+    },
+    staleTime: 60_000,
+    enabled: showAddContact,
+  });
   const talentAgentOptions = useMemo(
     () =>
       (talentAgentContactsQuery.data ?? []).map((row: ApiCompanyContact) => ({
@@ -665,13 +695,18 @@ function ProjectInlineOverview({
         ? nextTour.talentAgencyCompanyId
         : null,
     );
+    setTalentAgentContactIds(
+      [...new Set((nextTour?.talentAgentContactIds ?? []).map(String))].filter(
+        (id) => id.length > 0,
+      ),
+    );
+    setShowAddContact(false);
     setDirty(true);
   };
-// change
+
   const selectedTour = tourBelongsToAttraction
     ? tours.find((t) => t.tourId === tourId)
     : undefined;
-  const tourDatesLockedReason = 'Dates already exist on this tour, so they are locked.';
   const tourDatesLockedInEdit = Boolean(
     selectedTour?.tourStartDate?.trim() && selectedTour?.tourEndDate?.trim(),
   );
@@ -713,6 +748,13 @@ function ProjectInlineOverview({
     setTourStartDate(project.tourStartDate ?? getTodayDateString());
     setTourEndDate(project.tourEndDate ?? getTodayDateString());
     setTalentAgencyCompanyId(project.talentAgencyCompanyId ?? null);
+    const currentTour = tours.find((t) => t.tourId === project.tourId);
+    setTalentAgentContactIds(
+      [...new Set((currentTour?.talentAgentContactIds ?? []).map(String))].filter(
+        (id) => id.length > 0,
+      ),
+    );
+    setShowAddContact(false);
     setSelectedDmaIds(project.dmaIds ?? []);
     setDmaDraftIds(project.dmaIds ?? []);
     setDmaModalSearch('');
@@ -783,12 +825,14 @@ function ProjectInlineOverview({
         tourStartDate: string;
         tourEndDate: string;
         dmaIds: number[];
+        talentAgentContactIds: number[];
       } = {
         tourId,
         talentAgencyCompanyId: effectiveTalentAgencyId,
         tourStartDate: tourStartDate.trim(),
         tourEndDate: tourEndDate.trim(),
         dmaIds: selectedDmaIds,
+        talentAgentContactIds: talentAgentContactIds.map(Number),
       };
       await updateProject(project.engagementProjectId, payload);
 
@@ -991,7 +1035,13 @@ function ProjectInlineOverview({
               <Select2
                 value={effectiveTalentAgencyId != null ? String(effectiveTalentAgencyId) : ''}
                 onChange={(v) => {
-                  setTalentAgencyCompanyId(v ? Number(v) : null);
+                  const nextAgencyId = v ? Number(v) : null;
+                  setTalentAgencyCompanyId(nextAgencyId);
+                  // Changing the talent agency clears the selected agents because
+                  // existing agent IDs belong to the previous agency.
+                  if (nextAgencyId !== effectiveTalentAgencyId) {
+                    setTalentAgentContactIds([]);
+                  }
                   setDirty(true);
                 }}
                 options={talentAgencyOptions}
@@ -1000,48 +1050,107 @@ function ProjectInlineOverview({
               />
             )}
           </FormField>
-          <FormField label="Talent Agents (info only)">
-            <div className="w-full min-w-0 bg-surface border border-border rounded px-3 py-2 text-sm text-text-primary">
-              {effectiveTalentAgencyId == null
-                ? 'Choose talent agency first'
-                : talentAgentContactsQuery.isPending
-                  ? 'Loading contacts…'
-                  : (
-                    <div className="space-y-2">
-                      <p className="text-[11px] text-text-secondary">
-                        Selected for this tour:{' '}
-                        <span className="font-medium text-text-primary">
-                          {selectedTourTalentAgentLabels.length}
-                        </span>{' '}
-                        of{' '}
-                        <span className="font-medium text-text-primary">
-                          {talentAgentOptions.length}
-                        </span>{' '}
-                        agency contact{talentAgentOptions.length === 1 ? '' : 's'}.
-                      </p>
-                      <div>
-                        <p className="text-[11px] font-medium text-text-secondary mb-1">
-                          Tour-selected talent agents
-                        </p>
-                        {selectedTourTalentAgentLabels.length > 0 ? (
-                          <div className="flex max-h-28 flex-wrap gap-2 overflow-y-auto pr-1">
-                            {selectedTourTalentAgentLabels.map((label, index) => (
-                              <span
-                                key={`tour-agent-edit-${index}-${label}`}
-                                className="inline-flex items-center rounded-md border border-ems-accent/35 bg-ems-accent/10 px-2 py-1 text-xs text-text-primary"
-                              >
-                                {label}
-                              </span>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-[11px] text-text-muted">
-                            No specific talent agents are selected on this tour.
-                          </p>
-                        )}
+          <FormField label="Talent Agents">
+            <div className="w-full min-w-0 bg-surface border border-border rounded px-3 py-2 text-sm text-text-primary space-y-3">
+              {effectiveTalentAgencyId == null ? (
+                <p className="text-xs text-text-secondary">Choose talent agency first</p>
+              ) : talentAgentContactsQuery.isPending ? (
+                <p className="text-xs text-text-secondary">Loading contacts…</p>
+              ) : (
+                <>
+                  <Select2Multi
+                    options={talentAgentOptions}
+                    values={talentAgentContactIds}
+                    onChange={(values) => {
+                      setTalentAgentContactIds(values);
+                      setDirty(true);
+                    }}
+                    placeholder={
+                      talentAgentOptions.length
+                        ? 'Select one or more talent agents…'
+                        : 'No contacts found for this agency'
+                    }
+                    disabled={talentAgentContactsQuery.isPending || saving}
+                  />
+                  <div className="space-y-2">
+                    <p className="text-[11px] text-text-secondary">
+                      Selected for this tour:{' '}
+                      <span className="font-medium text-text-primary">
+                        {talentAgentContactIds.length}
+                      </span>{' '}
+                      of{' '}
+                      <span className="font-medium text-text-primary">
+                        {talentAgentOptions.length}
+                      </span>{' '}
+                      agency contact{talentAgentOptions.length === 1 ? '' : 's'}.
+                    </p>
+                    {talentAgentContactIds.length > 0 && (
+                      <div className="flex max-h-28 flex-wrap gap-2 overflow-y-auto pr-1">
+                        {talentAgentContactIds.map((id) => {
+                          const label = talentAgentOptions.find((o) => o.value === id)?.label ?? `Contact #${id}`;
+                          return (
+                            <span
+                              key={`draft-agent-${id}`}
+                              className="inline-flex items-center rounded-md border border-ems-accent/35 bg-ems-accent/10 px-2 py-1 text-xs text-text-primary"
+                            >
+                              {label}
+                            </span>
+                          );
+                        })}
                       </div>
-                    </div>
-                  )}
+                    )}
+                    {!showAddContact && (
+                      <button
+                        type="button"
+                        onClick={() => setShowAddContact(true)}
+                        disabled={saving}
+                        className="text-ems-accent text-xs hover:underline disabled:opacity-50"
+                      >
+                        + Add Contact
+                      </button>
+                    )}
+                    {showAddContact && contactLookupsQuery.data && (
+                      <Modal
+                        title="Add Talent Agent Contact"
+                        onClose={() => setShowAddContact(false)}
+                        width={960}
+                        allowContentOverflow
+                      >
+                        <TourContactForm
+                          roles={contactLookupsQuery.data.roles}
+                          departments={contactLookupsQuery.data.departments}
+                          departmentRoleMappings={contactLookupsQuery.data.departmentRoleMappings}
+                          onCancel={() => setShowAddContact(false)}
+                          onSave={async (payload) => {
+                            try {
+                              const created = await createCompanyContact(
+                                effectiveTalentAgencyId as number,
+                                payload,
+                              );
+                              await qc.invalidateQueries({
+                                queryKey: ['company', effectiveTalentAgencyId ?? 0, 'contacts'],
+                                exact: true,
+                              });
+                              const newId = String(created.contactId);
+                              setTalentAgentContactIds((prev) =>
+                                prev.includes(newId) ? prev : [...prev, newId],
+                              );
+                              setDirty(true);
+                              setShowAddContact(false);
+                              addToast('Contact added to this talent agency.', 'success');
+                            } catch (e) {
+                              addToast(friendlyApiError(e, 'Could not add the contact.'), 'error');
+                            }
+                          }}
+                        />
+                      </Modal>
+                    )}
+                    {showAddContact && contactLookupsQuery.isPending && (
+                      <p className="text-[11px] text-text-secondary">Loading contact options…</p>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </FormField>
           <FormField label="Tour Start Date" required>
@@ -1049,8 +1158,6 @@ function ProjectInlineOverview({
               type="date"
               className="w-full min-w-0 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent"
               value={tourStartDate}
-              disabled={tourDatesLockedInEdit}
-              title={tourDatesLockedInEdit ? tourDatesLockedReason : undefined}
               onChange={(e) => {
                 setTourStartDate(e.target.value);
                 setDirty(true);
@@ -1063,8 +1170,6 @@ function ProjectInlineOverview({
               className="w-full min-w-0 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent"
               value={tourEndDate}
               min={tourStartDate || undefined}
-              disabled={tourDatesLockedInEdit}
-              title={tourDatesLockedInEdit ? tourDatesLockedReason : undefined}
               onChange={(e) => {
                 setTourEndDate(e.target.value);
                 setDirty(true);
@@ -1073,7 +1178,7 @@ function ProjectInlineOverview({
           </FormField>
           {tourDatesLockedInEdit && (
             <p className="sm:col-span-2 text-[11px] text-text-muted">
-              {tourDatesLockedReason}
+              These dates live on the tour ({selectedTour?.tourName ?? `#${selectedTour?.tourId ?? ''}`}). Changing them here will update the tour for every project attached to it.
             </p>
           )}
           <div className="sm:col-span-2 min-w-0">
@@ -2861,6 +2966,7 @@ function ProjectDetailDrawer({
               await refresh();
               await qc.invalidateQueries({ queryKey: ['projects', 'api'] });
               await qc.invalidateQueries({ queryKey: ['projects', 'suggestion-cache'], exact: false });
+              await qc.invalidateQueries({ queryKey: ['tours'], exact: false });
             }}
             onGoToVenues={() => setActiveTab('Venues')}
             onOpenEngagement={onOpenEngagement}
@@ -3086,6 +3192,8 @@ function CreateProjectForm({
   const selectedDmaIdsKey = useMemo(() => dmaSelectionKey(selectedDmaIds), [selectedDmaIds]);
   /** Wizard step 3 — talent agency; persisted on dbo.Tour.TalentAgencyCompanyID when the project is created. */
   const [projectTourMgmtCompanyId, setProjectTourMgmtCompanyId] = useState<number | null>(null);
+  const [wizardTalentAgentContactIds, setWizardTalentAgentContactIds] = useState<string[]>([]);
+  const [showAddContact, setShowAddContact] = useState(false);
 
   const [venueSearch, setVenueSearch] = useState('');
   const [selectedVenueCompanyIds, setSelectedVenueCompanyIds] = useState<number[]>([]);
@@ -3134,6 +3242,18 @@ function CreateProjectForm({
     queryFn: () => fetchCompanyContacts(projectTourMgmtCompanyId as number),
     enabled: projectTourMgmtCompanyId != null && projectTourMgmtCompanyId >= 1 && step >= 2,
     staleTime: 60_000,
+  });
+  const contactLookupsQuery = useQuery({
+    queryKey: ['contact-lookups'],
+    queryFn: async () => {
+      const [{ roles, departments }, departmentRoleMappings] = await Promise.all([
+        fetchLookups(),
+        fetchDepartmentRoleMappings(),
+      ]);
+      return { roles: roles ?? [], departments: departments ?? [], departmentRoleMappings };
+    },
+    staleTime: 60_000,
+    enabled: showAddContact,
   });
 
   const attractions = useMemo(
@@ -3292,6 +3412,8 @@ function CreateProjectForm({
 
   const clearTourDerivedFields = useCallback(() => {
     setProjectTourMgmtCompanyId(null);
+    setWizardTalentAgentContactIds([]);
+    setShowAddContact(false);
     setDateRangeStart(getTodayDateString());
     setDateRangeEnd(getTodayDateString());
     setSelectedPreferredVenueTypeIds(EMPTY_PREFERRED_VENUE_TYPE_IDS);
@@ -3300,6 +3422,10 @@ function CreateProjectForm({
 
   const applyTourFields = useCallback((t: ApiTourListRow) => {
     setProjectTourMgmtCompanyId(t.talentAgencyCompanyId ?? null);
+    setWizardTalentAgentContactIds(
+      [...new Set((t.talentAgentContactIds ?? []).map(String))].filter((id) => id.length > 0),
+    );
+    setShowAddContact(false);
     setDateRangeStart(t.tourStartDate ?? getTodayDateString());
     setDateRangeEnd(t.tourEndDate ?? getTodayDateString());
     setSelectedPreferredVenueTypeIds(
@@ -3545,6 +3671,7 @@ function CreateProjectForm({
         tourStartDate: dateRangeStart.trim(),
         tourEndDate: dateRangeEnd.trim(),
         dmaIds: validSelectedDmaIds,
+        talentAgentContactIds: wizardTalentAgentContactIds.map(Number),
         venues: venuesPayload,
       });
 
@@ -3721,16 +3848,28 @@ function CreateProjectForm({
                     {selectedTour?.talentAgencyCompanyName?.trim() || `Company #${projectTourMgmtCompanyId}`}
                   </div>
                 </FormField>
-                <FormField label="Talent Agents (info only)">
-                  <div className="w-full min-w-0 bg-surface border border-border rounded px-3 py-2 text-sm text-text-primary">
-                    {talentAgentContactsQuery.isPending
-                      ? 'Loading contacts…'
-                      : (
+                <FormField label="Talent Agents">
+                  <div className="w-full min-w-0 bg-surface border border-border rounded px-3 py-2 text-sm text-text-primary space-y-3">
+                    {talentAgentContactsQuery.isPending ? (
+                      <p className="text-xs text-text-secondary">Loading contacts…</p>
+                    ) : (
+                      <>
+                        <Select2Multi
+                          options={talentAgentOptions}
+                          values={wizardTalentAgentContactIds}
+                          onChange={(values) => setWizardTalentAgentContactIds(values)}
+                          placeholder={
+                            talentAgentOptions.length
+                              ? 'Select one or more talent agents…'
+                              : 'No contacts found for this agency'
+                          }
+                          disabled={talentAgentContactsQuery.isPending}
+                        />
                         <div className="space-y-2">
                           <p className="text-[11px] text-text-secondary">
                             Selected for this tour:{' '}
                             <span className="font-medium text-text-primary">
-                              {selectedTourTalentAgentLabels.length}
+                              {wizardTalentAgentContactIds.length}
                             </span>{' '}
                             of{' '}
                             <span className="font-medium text-text-primary">
@@ -3738,29 +3877,71 @@ function CreateProjectForm({
                             </span>{' '}
                             agency contact{talentAgentOptions.length === 1 ? '' : 's'}.
                           </p>
-                          <div>
-                            <p className="text-[11px] font-medium text-text-secondary mb-1">
-                              Tour-selected talent agents
-                            </p>
-                            {selectedTourTalentAgentLabels.length > 0 ? (
-                              <div className="flex flex-wrap gap-2">
-                                {selectedTourTalentAgentLabels.map((label, index) => (
+                          {wizardTalentAgentContactIds.length > 0 && (
+                            <div className="flex max-h-28 flex-wrap gap-2 overflow-y-auto pr-1">
+                              {wizardTalentAgentContactIds.map((id) => {
+                                const label = talentAgentOptions.find((o) => o.value === id)?.label ?? `Contact #${id}`;
+                                return (
                                   <span
-                                    key={`wizard-tour-agent-${index}-${label}`}
+                                    key={`wizard-draft-agent-${id}`}
                                     className="inline-flex items-center rounded-md border border-ems-accent/35 bg-ems-accent/10 px-2 py-1 text-xs text-text-primary"
                                   >
                                     {label}
                                   </span>
-                                ))}
-                              </div>
-                            ) : (
-                              <p className="text-[11px] text-text-muted">
-                                No specific talent agents are selected on this tour.
-                              </p>
-                            )}
-                          </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                          {!showAddContact && (
+                            <button
+                              type="button"
+                              onClick={() => setShowAddContact(true)}
+                              className="text-ems-accent text-xs hover:underline"
+                            >
+                              + Add Contact
+                            </button>
+                          )}
+                          {showAddContact && contactLookupsQuery.data && (
+                            <Modal
+                              title="Add Talent Agent Contact"
+                              onClose={() => setShowAddContact(false)}
+                              width={960}
+                              allowContentOverflow
+                            >
+                              <TourContactForm
+                                roles={contactLookupsQuery.data.roles}
+                                departments={contactLookupsQuery.data.departments}
+                                departmentRoleMappings={contactLookupsQuery.data.departmentRoleMappings}
+                                onCancel={() => setShowAddContact(false)}
+                                onSave={async (payload) => {
+                                  try {
+                                    const created = await createCompanyContact(
+                                      projectTourMgmtCompanyId as number,
+                                      payload,
+                                    );
+                                    await qc.invalidateQueries({
+                                      queryKey: ['company', projectTourMgmtCompanyId ?? 0, 'contacts'],
+                                      exact: true,
+                                    });
+                                    const newId = String(created.contactId);
+                                    setWizardTalentAgentContactIds((prev) =>
+                                      prev.includes(newId) ? prev : [...prev, newId],
+                                    );
+                                    setShowAddContact(false);
+                                    addToast('Contact added to this talent agency.', 'success');
+                                  } catch (e) {
+                                    addToast(friendlyApiError(e, 'Could not add the contact.'), 'error');
+                                  }
+                                }}
+                              />
+                            </Modal>
+                          )}
+                          {showAddContact && contactLookupsQuery.isPending && (
+                            <p className="text-[11px] text-text-secondary">Loading contact options…</p>
+                          )}
                         </div>
-                      )}
+                      </>
+                    )}
                   </div>
                 </FormField>
               </>
@@ -4137,7 +4318,7 @@ function CreateProjectForm({
                   : '—'}
               </div>
             </FormField>
-            <FormField label="Talent Agents (info only)">
+            <FormField label="Talent Agents">
               <div className="text-sm text-text-primary bg-surface px-3 py-2 rounded border border-border">
                 {projectTourMgmtCompanyId == null
                   ? '—'
@@ -4148,7 +4329,7 @@ function CreateProjectForm({
                         <p className="text-[11px] text-text-secondary">
                           Selected for this tour:{' '}
                           <span className="font-medium text-text-primary">
-                            {selectedTourTalentAgentLabels.length}
+                            {wizardTalentAgentContactIds.length}
                           </span>{' '}
                           of{' '}
                           <span className="font-medium text-text-primary">
@@ -4156,16 +4337,19 @@ function CreateProjectForm({
                           </span>{' '}
                           agency contact{talentAgentOptions.length === 1 ? '' : 's'}.
                         </p>
-                        {selectedTourTalentAgentLabels.length > 0 ? (
+                        {wizardTalentAgentContactIds.length > 0 ? (
                           <div className="flex flex-wrap gap-2">
-                            {selectedTourTalentAgentLabels.map((label, index) => (
-                              <span
-                                key={`summary-tour-agent-${index}-${label}`}
-                                className="inline-flex items-center rounded-md border border-ems-accent/35 bg-ems-accent/10 px-2 py-1 text-xs text-text-primary"
-                              >
-                                {label}
-                              </span>
-                            ))}
+                            {wizardTalentAgentContactIds.map((id) => {
+                              const label = talentAgentOptions.find((o) => o.value === id)?.label ?? `Contact #${id}`;
+                              return (
+                                <span
+                                  key={`summary-draft-agent-${id}`}
+                                  className="inline-flex items-center rounded-md border border-ems-accent/35 bg-ems-accent/10 px-2 py-1 text-xs text-text-primary"
+                                >
+                                  {label}
+                                </span>
+                              );
+                            })}
                           </div>
                         ) : (
                           <p className="text-[11px] text-text-muted">

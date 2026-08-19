@@ -24,6 +24,8 @@ import {
   Eye,
   EyeOff,
   Upload,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { Modal, FormField, TabBar } from './Primitives';
 import { EngagementSalesDashboardPanel } from './EngagementSalesDashboardPanel';
@@ -1200,19 +1202,24 @@ function TravelCarServiceForm({
   onCancel: () => void;
 }) {
   const [bookedBy, setBookedBy] = useState(row?.bookedBy ?? '');
-  const [originLine1, setOriginLine1] = useState('');
-  const [originCity, setOriginCity] = useState('');
-  const [originState, setOriginState] = useState('');
-  const [originPostal, setOriginPostal] = useState('');
-  const [originCountry, setOriginCountry] = useState('US');
-  const [destLine1, setDestLine1] = useState('');
-  const [destCity, setDestCity] = useState('');
-  const [destState, setDestState] = useState('');
-  const [destPostal, setDestPostal] = useState('');
-  const [destCountry, setDestCountry] = useState('US');
-  const [pickupDateTime, setPickupDateTime] = useState(
-    row?.pickupDateTime ? row.pickupDateTime.slice(0, 16) : '',
-  );
+  const [originLine1, setOriginLine1] = useState(row?.originAddressLine1 ?? '');
+  const [originCity, setOriginCity] = useState(row?.originAddressCity ?? '');
+  const [originState, setOriginState] = useState(row?.originAddressStateProvince ?? '');
+  const [originPostal, setOriginPostal] = useState(row?.originAddressPostalCode ?? '');
+  const [originCountry, setOriginCountry] = useState(row?.originAddressCountry ?? 'US');
+  const [destLine1, setDestLine1] = useState(row?.destinationAddressLine1 ?? '');
+  const [destCity, setDestCity] = useState(row?.destinationAddressCity ?? '');
+  const [destState, setDestState] = useState(row?.destinationAddressStateProvince ?? '');
+  const [destPostal, setDestPostal] = useState(row?.destinationAddressPostalCode ?? '');
+  const [destCountry, setDestCountry] = useState(row?.destinationAddressCountry ?? 'US');
+  // Convert stored UTC ISO to local `YYYY-MM-DDTHH:MM` for the datetime-local input.
+  const [pickupDateTime, setPickupDateTime] = useState(() => {
+    if (!row?.pickupDateTime) return '';
+    const d = new Date(row.pickupDateTime);
+    if (Number.isNaN(d.getTime())) return '';
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  });
 
   const mutation = useMutation<void, Error, CreateTravelCarServicePayload>({
     mutationFn: async (body) => {
@@ -1227,9 +1234,15 @@ function TravelCarServiceForm({
   });
 
   const handleSave = () => {
+    // Convert the local datetime-local value to a full ISO string so the backend stores the same instant.
+    let pickupIso: string | null = null;
+    if (pickupDateTime) {
+      const d = new Date(pickupDateTime);
+      if (!Number.isNaN(d.getTime())) pickupIso = d.toISOString();
+    }
     const body: CreateTravelCarServicePayload = {
       bookedBy: bookedBy || null,
-      pickupDateTime: pickupDateTime || null,
+      pickupDateTime: pickupIso,
     };
     if (originLine1.trim()) {
       body.originAddress = { addressLine1: originLine1.trim(), city: originCity.trim(), stateProvince: originState.trim(), postalCode: originPostal.trim(), country: originCountry.trim() };
@@ -1245,12 +1258,6 @@ function TravelCarServiceForm({
   return (
     <div className="space-y-3 rounded-md border border-border bg-surface/40 p-4">
       <p className="text-xs font-semibold text-text-primary">Car Service</p>
-      {row?.originAddressLabel && (
-        <p className="text-xs text-text-muted">Current origin: {row.originAddressLabel}</p>
-      )}
-      {row?.destinationAddressLabel && (
-        <p className="text-xs text-text-muted">Current destination: {row.destinationAddressLabel}</p>
-      )}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <FormField label="Booked By">
           <Select2 options={BOOKED_BY_OPTIONS} value={bookedBy} onChange={setBookedBy} placeholder="Select…" allowClear disabled={mutation.isPending} />
@@ -1306,6 +1313,8 @@ function AttractionTravelSection({
   const [addingType, setAddingType] = useState<'Hotel' | 'Car' | null>(null);
   const [editingHotel, setEditingHotel] = useState<ApiTravelHotelRow | null>(null);
   const [editingCar, setEditingCar] = useState<ApiTravelCarServiceRow | null>(null);
+  // Which travel record is expanded (shows full details + Edit/Delete). Only one open at a time.
+  const [expandedTravelId, setExpandedTravelId] = useState<number | null>(null);
 
   const travelQuery = useQuery({
     queryKey: ['engagements', engagementId, 'travel'],
@@ -1374,76 +1383,154 @@ function AttractionTravelSection({
 
       {travels.length > 0 && (
         <div className="space-y-3">
-          {travels.map((t) => (
-            <div key={t.engagementTravelId} className="rounded border border-border bg-background p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-text-secondary">
-                  {t.travelType === 'Hotel' ? '🏨 Hotel' : '🚗 Car Service'}
-                </span>
+          {travels.map((t) => {
+            const isExpanded = expandedTravelId === t.engagementTravelId;
+            const isHotel = t.travelType === 'Hotel' && t.hotel;
+            const isCar = t.travelType === 'Car';
+
+            // One-line summary so the collapsed row is informative (not just "Car Service").
+            let summary = '';
+            if (isHotel && t.hotel) {
+              const parts: string[] = [];
+              if (t.hotel.hotelCompanyName) parts.push(t.hotel.hotelCompanyName);
+              if (t.hotel.checkInDate || t.hotel.checkOutDate) {
+                parts.push(`${t.hotel.checkInDate ?? '?'} → ${t.hotel.checkOutDate ?? '?'}`);
+              }
+              if (t.hotel.numberOfRooms != null) parts.push(`${t.hotel.numberOfRooms} room${t.hotel.numberOfRooms === 1 ? '' : 's'}`);
+              summary = parts.join(' · ') || 'No details yet — click to edit';
+            } else if (isCar) {
+              const cs = t.carServices[0];
+              if (cs) {
+                const parts: string[] = [];
+                if (cs.originAddressLabel || cs.destinationAddressLabel) {
+                  parts.push(`${cs.originAddressLabel ?? '?'} → ${cs.destinationAddressLabel ?? '?'}`);
+                }
+                if (cs.pickupDateTime) parts.push(new Date(cs.pickupDateTime).toLocaleString());
+                if (t.carServices.length > 1) parts.push(`+${t.carServices.length - 1} more`);
+                summary = parts.join(' · ') || 'No details yet — click to edit';
+              } else {
+                summary = 'No details yet — click to edit';
+              }
+            }
+
+            return (
+              <div key={t.engagementTravelId} className="rounded border border-border bg-background">
+                {/* Clickable header: shows type + summary, expand/collapse chevron */}
                 <button
                   type="button"
-                  className="text-ems-coral hover:text-ems-coral/70 p-1 rounded"
-                  onClick={() => deleteMutation.mutate(t.engagementTravelId)}
-                  disabled={deleteMutation.isPending}
-                  title="Remove travel record"
+                  onClick={() => setExpandedTravelId(isExpanded ? null : t.engagementTravelId)}
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-surface/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded"
+                  aria-expanded={isExpanded}
+                  title={isExpanded ? 'Collapse details' : 'Click to view or edit details'}
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-
-              {t.travelType === 'Hotel' && t.hotel && (
-                editingHotel?.engagementTravelId === t.engagementTravelId ? (
-                  <TravelHotelForm
-                    engagementId={engagementId}
-                    row={t.hotel}
-                    addToast={addToast}
-                    onSaved={() => { setEditingHotel(null); void invalidateTravel(); }}
-                    onCancel={() => setEditingHotel(null)}
-                    companyOptions={hotelCompanyOptions}
-                    contactOptions={contactOptions}
-                  />
-                ) : (
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-text-secondary">
-                    {t.hotel.bookedBy && <><span className="text-text-muted">Booked by:</span><span>{t.hotel.bookedBy}</span></>}
-                    {t.hotel.hotelCompanyName && <><span className="text-text-muted">Hotel:</span><span>{t.hotel.hotelCompanyName}</span></>}
-                    {(t.hotel.hotelAddressLine1 || t.hotel.hotelAddressCity) && (
-                      <><span className="text-text-muted">Address:</span><span>{[t.hotel.hotelAddressLine1, t.hotel.hotelAddressCity, t.hotel.hotelAddressStateProvince, t.hotel.hotelAddressPostalCode, t.hotel.hotelAddressCountry].filter(Boolean).join(', ')}</span></>
+                  <div className="flex items-center gap-2 min-w-0">
+                    {isExpanded
+                      ? <ChevronDown className="h-3.5 w-3.5 text-text-muted shrink-0" />
+                      : <ChevronRight className="h-3.5 w-3.5 text-text-muted shrink-0" />}
+                    <span className="text-xs font-semibold text-text-secondary shrink-0">
+                      {isHotel ? '🏨 Hotel' : '🚗 Car Service'}
+                    </span>
+                    {summary && (
+                      <span className="text-xs text-text-muted truncate">— {summary}</span>
                     )}
-                    {t.hotel.numberOfRooms != null && <><span className="text-text-muted"># Rooms:</span><span>{t.hotel.numberOfRooms}</span></>}
-                    {t.hotel.roomTypes && <><span className="text-text-muted">Room types:</span><span>{t.hotel.roomTypes}</span></>}
-                    {(t.hotel.checkInDate || t.hotel.checkOutDate) && <><span className="text-text-muted">Dates:</span><span>{t.hotel.checkInDate} → {t.hotel.checkOutDate}</span></>}
-                    {t.hotel.occupantContactName && <><span className="text-text-muted">Occupant:</span><span>{t.hotel.occupantContactName}</span></>}
-                    <div className="col-span-2 flex justify-end mt-1">
-                      <button type="button" className="text-xs text-ems-accent hover:underline" onClick={() => setEditingHotel(t.hotel)}>Edit</button>
-                    </div>
                   </div>
-                )
-              )}
+                </button>
 
-              {t.travelType === 'Car' && t.carServices.map((cs) => (
-                editingCar?.carServiceTravelId === cs.carServiceTravelId ? (
-                  <TravelCarServiceForm
-                    key={cs.carServiceTravelId}
-                    engagementId={engagementId}
-                    row={cs}
-                    addToast={addToast}
-                    onSaved={() => { setEditingCar(null); void invalidateTravel(); }}
-                    onCancel={() => setEditingCar(null)}
-                  />
-                ) : (
-                  <div key={cs.carServiceTravelId} className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-text-secondary">
-                    {cs.bookedBy && <><span className="text-text-muted">Booked by:</span><span>{cs.bookedBy}</span></>}
-                    {cs.originAddressLabel && <><span className="text-text-muted">Origin:</span><span>{cs.originAddressLabel}</span></>}
-                    {cs.destinationAddressLabel && <><span className="text-text-muted">Destination:</span><span>{cs.destinationAddressLabel}</span></>}
-                    {cs.pickupDateTime && <><span className="text-text-muted">Pickup:</span><span>{new Date(cs.pickupDateTime).toLocaleString()}</span></>}
-                    <div className="col-span-2 flex justify-end mt-1">
-                      <button type="button" className="text-xs text-ems-accent hover:underline" onClick={() => setEditingCar(cs)}>Edit</button>
-                    </div>
+                {isExpanded && (
+                  <div className="px-3 pb-3 pt-1 space-y-2 border-t border-border">
+                    {isHotel && t.hotel && (
+                      editingHotel?.engagementTravelId === t.engagementTravelId ? (
+                        <TravelHotelForm
+                          engagementId={engagementId}
+                          row={t.hotel}
+                          addToast={addToast}
+                          onSaved={() => { setEditingHotel(null); void invalidateTravel(); }}
+                          onCancel={() => setEditingHotel(null)}
+                          companyOptions={hotelCompanyOptions}
+                          contactOptions={contactOptions}
+                        />
+                      ) : (
+                        <>
+                          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-text-secondary pt-2">
+                            <span className="text-text-muted">Booked by:</span><span>{t.hotel.bookedBy || '—'}</span>
+                            <span className="text-text-muted">Hotel:</span><span>{t.hotel.hotelCompanyName || '—'}</span>
+                            <span className="text-text-muted">Address:</span>
+                            <span>{[t.hotel.hotelAddressLine1, t.hotel.hotelAddressCity, t.hotel.hotelAddressStateProvince, t.hotel.hotelAddressPostalCode, t.hotel.hotelAddressCountry].filter(Boolean).join(', ') || '—'}</span>
+                            <span className="text-text-muted"># Rooms:</span><span>{t.hotel.numberOfRooms != null ? t.hotel.numberOfRooms : '—'}</span>
+                            <span className="text-text-muted">Room types:</span><span>{t.hotel.roomTypes || '—'}</span>
+                            <span className="text-text-muted">Dates:</span><span>{(t.hotel.checkInDate || t.hotel.checkOutDate) ? `${t.hotel.checkInDate ?? '?'} → ${t.hotel.checkOutDate ?? '?'}` : '—'}</span>
+                            <span className="text-text-muted">Occupant:</span><span>{t.hotel.occupantContactName || '—'}</span>
+                          </div>
+                          <div className="flex justify-end gap-2 pt-2 border-t border-border">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="text-ems-coral hover:bg-ems-coral/10"
+                              onClick={() => deleteMutation.mutate(t.engagementTravelId)}
+                              disabled={deleteMutation.isPending}
+                            >
+                              <Trash2 className="h-3 w-3 mr-1" /> Remove
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="bg-ems-accent text-white hover:opacity-90"
+                              onClick={() => setEditingHotel(t.hotel)}
+                            >
+                              Edit
+                            </Button>
+                          </div>
+                        </>
+                      )
+                    )}
+
+                    {isCar && t.carServices.map((cs) => (
+                      editingCar?.carServiceTravelId === cs.carServiceTravelId ? (
+                        <TravelCarServiceForm
+                          key={cs.carServiceTravelId}
+                          engagementId={engagementId}
+                          row={cs}
+                          addToast={addToast}
+                          onSaved={() => { setEditingCar(null); void invalidateTravel(); }}
+                          onCancel={() => setEditingCar(null)}
+                        />
+                      ) : (
+                        <div key={cs.carServiceTravelId} className="space-y-2">
+                          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-text-secondary pt-2">
+                            <span className="text-text-muted">Booked by:</span><span>{cs.bookedBy || '—'}</span>
+                            <span className="text-text-muted">Origin:</span><span>{cs.originAddressLabel || '—'}</span>
+                            <span className="text-text-muted">Destination:</span><span>{cs.destinationAddressLabel || '—'}</span>
+                            <span className="text-text-muted">Pickup:</span><span>{cs.pickupDateTime ? new Date(cs.pickupDateTime).toLocaleString() : '—'}</span>
+                          </div>
+                          <div className="flex justify-end gap-2 pt-2 border-t border-border">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="text-ems-coral hover:bg-ems-coral/10"
+                              onClick={() => deleteMutation.mutate(t.engagementTravelId)}
+                              disabled={deleteMutation.isPending}
+                            >
+                              <Trash2 className="h-3 w-3 mr-1" /> Remove
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="bg-ems-accent text-white hover:opacity-90"
+                              onClick={() => setEditingCar(cs)}
+                            >
+                              Edit
+                            </Button>
+                          </div>
+                        </div>
+                      )
+                    ))}
                   </div>
-                )
-              ))}
-            </div>
-          ))}
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
