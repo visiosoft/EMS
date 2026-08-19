@@ -352,9 +352,23 @@ export function EngagementDocumentsTab({ engagementId, addToast }: Props) {
       ) : error ? (
         <div className="bg-ems-coral/10 border border-ems-coral/30 rounded-md px-4 py-3 flex items-start gap-3">
           <span className="text-ems-coral text-sm shrink-0 mt-0.5">⚠</span>
-          <div>
+          <div className="flex-1">
             <p className="text-sm font-medium text-ems-coral">Could not load folder contents</p>
             <p className="text-sm text-text-muted mt-1">{friendlyApiError(error)}</p>
+            <p className="text-xs text-text-muted mt-2">
+              This can happen if the folder was created under a different document source.
+              Retrying will (re)create the folder structure on {sourceLabel} — files from a
+              previous source are not moved automatically.
+            </p>
+            <button
+              type="button"
+              onClick={() => void handleCreateOrRetry()}
+              disabled={creating}
+              className="mt-3 inline-flex items-center gap-2 bg-ems-accent text-background text-sm px-3 py-1.5 rounded-md font-medium hover:bg-ems-accent/90 transition-colors disabled:opacity-60"
+            >
+              {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Retry folder creation
+            </button>
           </div>
         </div>
       ) : items.length === 0 ? (
