@@ -1,4 +1,9 @@
 import { apiFetch } from './config';
+import type {
+  PhoneExtensionOption,
+  PhoneDeviceOption,
+  PcDeviceOption,
+} from './employeeEmploymentApi';
 
 export interface SelfProfileAddress {
   line1: string;
@@ -130,6 +135,11 @@ export interface LinkedSelfProfile {
     currentPhoneId: number | null;
     currentComputerId: number | null;
   };
+  equipmentOptions: {
+    phoneExtensions: PhoneExtensionOption[];
+    phoneDevices: PhoneDeviceOption[];
+    pcDevices: PcDeviceOption[];
+  };
   entra: {
     microsoftOfficeLicenses: string[];
     microsoftGroups: string[];
@@ -176,6 +186,13 @@ export interface UpdateMyProfilePayload {
   deskPhoneExtensionId?: number | null;
   deskPhoneId?: number | null;
   pcComputerId?: number | null;
+  // Freeform Entra-CSA-backed equipment fields (admin only).
+  deskPhoneMac?: string;
+  deskPhoneModel?: string;
+  pcServiceTag?: string;
+  pcBrand?: string;
+  pcModel?: string;
+  bluetoothStatus?: string;
 }
 
 export interface UpdateMyProfileResponse {

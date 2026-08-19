@@ -30,7 +30,7 @@ import {
   updateEmployeeProfile,
 } from "@/api/selfProfileApi";
 import { ToastContainer, type ToastItem } from "@/components/ems/Primitives";
-import { fetchWorkstations, fetchPhoneExtensions, fetchPhoneDevices, fetchPcDevices } from "@/api/employeeEmploymentApi";
+import { fetchWorkstations } from "@/api/employeeEmploymentApi";
 import { fetchEmployeeHealthInsurance, bulkUpdateHealthInsurance, type HealthPlanOption, type BulkUpdateHealthInsuranceRequest, type EmployeeHealthInsurance } from "@/api/employeeHealthInsuranceApi";
 import { formatE164ForDisplay } from "@/lib/contactPhoneField";
 import { EntraSyncButton } from "@/components/ems/EntraSyncButton";
@@ -673,32 +673,22 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
   const [selectedPhoneId, setSelectedPhoneId] = useState<number | null>(profile.equipment.currentPhoneId);
   const [selectedComputerId, setSelectedComputerId] = useState<number | null>(profile.equipment.currentComputerId);
 
-  const equipmentForEmail = profile.basics.email;
+  // Freeform Entra-CSA-backed equipment fields (admin only) — writes to the
+  // linked EquipmentPhone/EquipmentComputer row on save.
+  const [deskPhoneMacInput, setDeskPhoneMacInput] = useState(profile.equipment.deskPhoneMac || "");
+  const [deskPhoneModelInput, setDeskPhoneModelInput] = useState(profile.equipment.deskPhoneModel || "");
+  const [pcServiceTagInput, setPcServiceTagInput] = useState(profile.equipment.pcServiceTag || "");
+  const [pcBrandInput, setPcBrandInput] = useState(profile.equipment.pcBrand || "");
+  const [pcModelInput, setPcModelInput] = useState(profile.equipment.pcModel || "");
+  const [bluetoothStatusInput, setBluetoothStatusInput] = useState(profile.equipment.bluetoothStatus || "");
 
-  const phoneExtensionsQuery = useQuery({
-    queryKey: ["phone-extensions", equipmentForEmail],
-    queryFn: () => fetchPhoneExtensions(equipmentForEmail),
-    enabled: canEdit && editingProperty,
-    staleTime: 5 * 60 * 1000,
-  });
-  const phoneDevicesQuery = useQuery({
-    queryKey: ["phone-devices", equipmentForEmail],
-    queryFn: () => fetchPhoneDevices(equipmentForEmail),
-    enabled: canEditAdminFields && editingProperty,
-    staleTime: 5 * 60 * 1000,
-  });
-  const pcDevicesQuery = useQuery({
-    queryKey: ["pc-devices", equipmentForEmail],
-    queryFn: () => fetchPcDevices(equipmentForEmail),
-    enabled: canEditAdminFields && editingProperty,
-    staleTime: 5 * 60 * 1000,
-  });
+  // Hoisted so the equipment queries below can prefetch when the Property tab is opened.
+  const [activeTab, setActiveTab] = useState<ProfileSection>("Personal");
 
-  const phoneExtensions = phoneExtensionsQuery.data?.extensions ?? [];
-  const phoneDevices = phoneDevicesQuery.data?.phones ?? [];
-  const pcDevices = pcDevicesQuery.data?.computers ?? [];
-
-  // ─── Save mutation ─────────────────────────────────────────────────────────
+  // Dropdown options come inline with the profile — no extra network calls.
+  const phoneExtensions = profile.equipmentOptions?.phoneExtensions ?? [];
+  const phoneDevices = profile.equipmentOptions?.phoneDevices ?? [];
+  const pcDevices = profile.equipmentOptions?.pcDevices ?? [];  // ─── Save mutation ─────────────────────────────────────────────────────────
   const saveMutation = useMutation({
     mutationFn: (payload: UpdateMyProfilePayload) =>
       targetContactId
@@ -708,9 +698,6 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
       queryClient.invalidateQueries({
         queryKey: targetContactId ? ["employee-profile", targetContactId] : ["self-profile"],
       });
-      queryClient.invalidateQueries({ queryKey: ["phone-extensions"] });
-      queryClient.invalidateQueries({ queryKey: ["phone-devices"] });
-      queryClient.invalidateQueries({ queryKey: ["pc-devices"] });
       setEditingPersonal(false);
       setEditingEmployment(false);
       setEditingProperty(false);
@@ -758,11 +745,20 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
   }
 
   function saveProperty() {
-    saveMutation.mutate({
+    const payload: UpdateMyProfilePayload = {
       deskPhoneExtensionId: selectedExtensionId,
       deskPhoneId: selectedPhoneId,
       pcComputerId: selectedComputerId,
-    });
+    };
+    if (canEditAdminFields) {
+      payload.deskPhoneMac = deskPhoneMacInput;
+      payload.deskPhoneModel = deskPhoneModelInput;
+      payload.pcServiceTag = pcServiceTagInput;
+      payload.pcBrand = pcBrandInput;
+      payload.pcModel = pcModelInput;
+      payload.bluetoothStatus = bluetoothStatusInput;
+    }
+    saveMutation.mutate(payload);
   }
 
   function cancelPersonal() {
@@ -795,6 +791,12 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
     setSelectedExtensionId(profile.equipment.currentExtensionId);
     setSelectedPhoneId(profile.equipment.currentPhoneId);
     setSelectedComputerId(profile.equipment.currentComputerId);
+    setDeskPhoneMacInput(profile.equipment.deskPhoneMac || "");
+    setDeskPhoneModelInput(profile.equipment.deskPhoneModel || "");
+    setPcServiceTagInput(profile.equipment.pcServiceTag || "");
+    setPcBrandInput(profile.equipment.pcBrand || "");
+    setPcModelInput(profile.equipment.pcModel || "");
+    setBluetoothStatusInput(profile.equipment.bluetoothStatus || "");
     setEditingProperty(false);
   }
 
@@ -934,7 +936,6 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
   const propertyTabFields = [
     'deskPhoneExtension', 'deskPhoneMac', 'deskPhoneBrand', 'deskPhoneModel',
     'pcServiceTag', 'pcWindowsName', 'pcBrand', 'pcModel', 'bluetoothStatus',
-    'pcDeviceType', 'pcNotes',
   ];
 
   // ─── Tab state ─────────────────────────────────────────────────────────────
@@ -943,7 +944,6 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
     : limited
       ? ["Personal", "Employment", "Property", "Certifications", "Experience"]
       : ["Personal", "Employment", "Health Insurance", "Property", "Licenses & Groups", "Certifications", "Experience"];
-  const [activeTab, setActiveTab] = useState<ProfileSection>("Personal");
 
   // ─── Health Insurance data (fetched when tab is active) ────────────────────
   const healthInsuranceQuery = useQuery({
@@ -1420,7 +1420,13 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
                     <select
                       className="mt-1 block w-full rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-900 shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-500"
                       value={selectedPhoneId ?? ""}
-                      onChange={(e) => setSelectedPhoneId(e.target.value ? Number(e.target.value) : null)}
+                      onChange={(e) => {
+                        const id = e.target.value ? Number(e.target.value) : null;
+                        setSelectedPhoneId(id);
+                        const picked = id != null ? phoneDevices.find((p) => p.phoneId === id) : null;
+                        setDeskPhoneMacInput(picked?.macAddress ?? "");
+                        setDeskPhoneModelInput(picked?.model ?? "");
+                      }}
                     >
                       <option value="">— Select Phone —</option>
                       {phoneDevices.map((phone) => (
@@ -1429,6 +1435,33 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
                         </option>
                       ))}
                     </select>
+                  </div>
+                  )}
+                  {canEditAdminFields && (
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">Desk Phone MAC Address</label>
+                    <input
+                      type="text"
+                      className="mt-1 block w-full rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-900 shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-500 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400"
+                      value={deskPhoneMacInput}
+                      onChange={(e) => setDeskPhoneMacInput(e.target.value)}
+                      placeholder="00:15:65:A8:63:F2"
+                      disabled={selectedPhoneId == null}
+                      title={selectedPhoneId == null ? "Select a Desk Phone Device first" : undefined}
+                    />
+                  </div>
+                  )}
+                  {canEditAdminFields && (
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">Desk Phone Model</label>
+                    <input
+                      type="text"
+                      className="mt-1 block w-full rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-900 shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-500 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400"
+                      value={deskPhoneModelInput}
+                      onChange={(e) => setDeskPhoneModelInput(e.target.value)}
+                      disabled={selectedPhoneId == null}
+                      title={selectedPhoneId == null ? "Select a Desk Phone Device first" : undefined}
+                    />
                   </div>
                   )}
                 </dl>
@@ -1441,7 +1474,15 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
                     <select
                       className="mt-1 block w-full rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-900 shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-500"
                       value={selectedComputerId ?? ""}
-                      onChange={(e) => setSelectedComputerId(e.target.value ? Number(e.target.value) : null)}
+                      onChange={(e) => {
+                        const id = e.target.value ? Number(e.target.value) : null;
+                        setSelectedComputerId(id);
+                        const picked = id != null ? pcDevices.find((c) => c.computerId === id) : null;
+                        setPcServiceTagInput(picked?.serviceTag ?? "");
+                        setPcBrandInput(picked?.make ?? "");
+                        setPcModelInput(picked?.model ?? "");
+                        setBluetoothStatusInput(picked?.bluetoothStatus ?? "");
+                      }}
                     >
                       <option value="">— Select Computer —</option>
                       {pcDevices.map((pc) => (
@@ -1450,6 +1491,50 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
                         </option>
                       ))}
                     </select>
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">PC Service Tag</label>
+                    <input
+                      type="text"
+                      className="mt-1 block w-full rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-900 shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-500 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400"
+                      value={pcServiceTagInput}
+                      onChange={(e) => setPcServiceTagInput(e.target.value)}
+                      disabled={selectedComputerId == null}
+                      title={selectedComputerId == null ? "Select a Computer first" : undefined}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">PC Brand</label>
+                    <input
+                      type="text"
+                      className="mt-1 block w-full rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-900 shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-500 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400"
+                      value={pcBrandInput}
+                      onChange={(e) => setPcBrandInput(e.target.value)}
+                      disabled={selectedComputerId == null}
+                      title={selectedComputerId == null ? "Select a Computer first" : undefined}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">PC Model</label>
+                    <input
+                      type="text"
+                      className="mt-1 block w-full rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-900 shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-500 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400"
+                      value={pcModelInput}
+                      onChange={(e) => setPcModelInput(e.target.value)}
+                      disabled={selectedComputerId == null}
+                      title={selectedComputerId == null ? "Select a Computer first" : undefined}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">Bluetooth Status</label>
+                    <input
+                      type="text"
+                      className="mt-1 block w-full rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-900 shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-500 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400"
+                      value={bluetoothStatusInput}
+                      onChange={(e) => setBluetoothStatusInput(e.target.value)}
+                      disabled={selectedComputerId == null}
+                      title={selectedComputerId == null ? "Select a Computer first" : undefined}
+                    />
                   </div>
                 </dl>
               </SubGroup>

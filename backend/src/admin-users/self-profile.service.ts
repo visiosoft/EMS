@@ -5,6 +5,12 @@ import { AuditRequestContext } from '../audit/audit-request-context.service';
 import { AdminUsersService } from './admin-users.service';
 import { EntraProfileSyncService } from './entra-profile-sync.service';
 import {
+  EmployeeEmploymentService,
+  type PhoneExtensionOption,
+  type PhoneDeviceOption,
+  type PcDeviceOption,
+} from './employee-employment.service';
+import {
   EmployeeExperienceService,
   type EmployeeExperienceResponse,
 } from './employee-experience.service';
@@ -118,6 +124,13 @@ export type MyFullProfileResponse =
         currentPhoneId: number | null;
         currentComputerId: number | null;
       };
+      // Dropdown options for the Property tab; folded into the profile so the
+      // client doesn't need extra round-trips to render the edit form.
+      equipmentOptions: {
+        phoneExtensions: PhoneExtensionOption[];
+        phoneDevices: PhoneDeviceOption[];
+        pcDevices: PcDeviceOption[];
+      };
       entra: {
         microsoftOfficeLicenses: string[];
         microsoftGroups: string[];
@@ -171,6 +184,7 @@ export class SelfProfileService {
     private readonly certificationsService: EmployeeCertificationsService,
     private readonly adminUsersService: AdminUsersService,
     private readonly entraProfileSyncService: EntraProfileSyncService,
+    private readonly employeeEmploymentService: EmployeeEmploymentService,
   ) {}
 
   /** The signed-in employee's own profile — self always sees every field. */
@@ -420,6 +434,11 @@ export class SelfProfileService {
       }
     }
 
+    // 8. Freeform Entra-CSA-backed equipment fields — update the linked
+    //    EquipmentPhone / EquipmentComputer row directly. Creates a new
+    //    inventory record and assignment if none exists.
+    await this.applyFreeformEquipmentFields(contactAssignmentId, dto);
+
     // WMS→Entra push: native properties need User.ReadWrite.All + tenant-native user;
     // external/B2B users get 403 on native props (home-tenant managed) — CSAs still work.
     let entraSyncWarningCode: ProfileUpdateResult['entraSyncWarningCode'] | null = null;
@@ -615,6 +634,22 @@ export class SelfProfileService {
     const emergencyContacts = await this.loadEmergencyContacts(contactId);
     const equipment = await this.loadEquipment(contactAssignmentId);
 
+    // Dropdown options for the Property tab. Fetched here (instead of via
+    // separate /admin/phone-extensions|phone-devices|pc-devices calls) so a
+    // single profile response is enough to render the edit form. Best-effort
+    // — missing tables shouldn't fail the whole profile.
+    const equipmentOptions = {
+      phoneExtensions:
+        (await this.safe(() => this.employeeEmploymentService.listPhoneExtensions(base.email)))
+          ?.extensions ?? [],
+      phoneDevices:
+        (await this.safe(() => this.employeeEmploymentService.listPhoneDevices(base.email)))
+          ?.phones ?? [],
+      pcDevices:
+        (await this.safe(() => this.employeeEmploymentService.listPcDevices(base.email)))
+          ?.computers ?? [],
+    };
+
     // Rich sections reuse the exact EMS services (health-insurance formulas, experience SQL).
     // Each is best-effort so a missing table or edge case never fails the whole profile.
     const healthInsurance = await this.safe(() =>
@@ -700,6 +735,7 @@ export class SelfProfileService {
       },
       officeAddress,
       equipment: { deskPhoneNumber: STATIC_DESK_PHONE_NUMBER, ...equipment },
+      equipmentOptions,
       entra: { microsoftOfficeLicenses, microsoftGroups },
       healthInsurance,
       experience,
@@ -766,6 +802,8 @@ export class SelfProfileService {
         currentPhoneId: null,
         currentComputerId: null,
       },
+      // Non-admin viewers never see the org-wide inventory lists.
+      equipmentOptions: { phoneExtensions: [], phoneDevices: [], pcDevices: [] },
       entra: { microsoftOfficeLicenses: [], microsoftGroups: [] },
       healthInsurance: null,
       experience: null,
@@ -781,6 +819,152 @@ export class SelfProfileService {
       workstation: dto.workstation,
       deskPhoneExtensionId: dto.deskPhoneExtensionId,
     };
+  }
+
+  /**
+   * Persist the 6 Entra-CSA-backed equipment fields (DeskPhoneMAC, DeskPhoneModel,
+   * PCServiceTag, PCBrand, PCModel, BluetoothStatus) directly to the employee's
+   * linked EquipmentPhone / EquipmentComputer row. If the employee has no
+   * assigned device but the admin supplied values, we create a new inventory
+   * row and link it. The subsequent WMS→Entra push composes these into the
+   * `DeskPhoneMAC` / `PCServiceTag` composite CSAs and pushes the rest as-is.
+   */
+  private async applyFreeformEquipmentFields(
+    contactAssignmentId: number,
+    dto: UpdateMyProfileDto,
+  ): Promise<void> {
+    if (!contactAssignmentId) return;
+
+    const phoneFields = ['deskPhoneMac', 'deskPhoneModel'] as const;
+    const pcFields = ['pcServiceTag', 'pcBrand', 'pcModel', 'bluetoothStatus'] as const;
+    const anyPhone = phoneFields.some((k) => dto[k] !== undefined);
+    const anyPc = pcFields.some((k) => dto[k] !== undefined);
+    if (!anyPhone && !anyPc) return;
+
+    // Desk Phone (EquipmentPhone via PhoneExtensionDevice ← EmployeePhoneExtension)
+    if (anyPhone) {
+      const phoneRow = await this.dataSource.query(
+        `SELECT TOP 1 ped.PhoneID, epe.ExtensionID
+         FROM dbo.EmployeePhoneExtension epe
+         LEFT JOIN dbo.PhoneExtensionDevice ped ON ped.ExtensionID = epe.ExtensionID AND ped.IsCurrent = 1
+         WHERE epe.ContactAssignmentID = @0 AND epe.IsCurrent = 1`,
+        [contactAssignmentId],
+      );
+      let phoneId = phoneRow.length > 0 ? readNumber(phoneRow[0], 'PhoneID') : null;
+      const extensionId = phoneRow.length > 0 ? readNumber(phoneRow[0], 'ExtensionID') : null;
+
+      if (phoneId) {
+        const sets: string[] = [];
+        const params: unknown[] = [];
+        let idx = 0;
+        if (dto.deskPhoneMac !== undefined) {
+          sets.push(`MACAddress = @${idx}`);
+          params.push(dto.deskPhoneMac.trim() || null);
+          idx++;
+        }
+        if (dto.deskPhoneModel !== undefined) {
+          sets.push(`Model = @${idx}`);
+          params.push(dto.deskPhoneModel.trim() || null);
+          idx++;
+        }
+        if (sets.length > 0) {
+          params.push(phoneId);
+          await this.dataSource.query(
+            `UPDATE dbo.EquipmentPhone SET ${sets.join(', ')} WHERE PhoneID = @${idx}`,
+            params,
+          );
+        }
+      } else if (extensionId && ((dto.deskPhoneMac ?? '').trim() || (dto.deskPhoneModel ?? '').trim())) {
+        // No phone device linked yet — create one and attach it to the existing extension.
+        const inserted = await this.dataSource.query(
+          `INSERT INTO dbo.EquipmentPhone (MACAddress, Make, Model, EquipmentStatus)
+           OUTPUT INSERTED.PhoneID
+           VALUES (@0, @1, @2, 'Active')`,
+          [
+            (dto.deskPhoneMac ?? '').trim() || null,
+            null,
+            (dto.deskPhoneModel ?? '').trim() || null,
+          ],
+        );
+        phoneId = readNumber(inserted[0], 'PhoneID');
+        if (phoneId) {
+          await this.dataSource.query(
+            `INSERT INTO dbo.PhoneExtensionDevice (ExtensionID, PhoneID, AssignedDate, IsCurrent, AssignedBy)
+             VALUES (@0, @1, CAST(SYSUTCDATETIME() AS date), 1, @2)`,
+            [extensionId, phoneId, 'WMS profile update'],
+          );
+        }
+      }
+    }
+
+    // Computer (EquipmentComputer via EmployeeComputer)
+    if (anyPc) {
+      const pcRow = await this.dataSource.query(
+        `SELECT TOP 1 ec.ComputerID
+         FROM dbo.EmployeeComputer ec
+         WHERE ec.ContactAssignmentID = @0 AND ec.IsCurrent = 1`,
+        [contactAssignmentId],
+      );
+      let computerId = pcRow.length > 0 ? readNumber(pcRow[0], 'ComputerID') : null;
+
+      if (computerId) {
+        const sets: string[] = [];
+        const params: unknown[] = [];
+        let idx = 0;
+        if (dto.pcServiceTag !== undefined) {
+          sets.push(`AssetID = @${idx}`);
+          params.push(dto.pcServiceTag.trim() || null);
+          idx++;
+        }
+        if (dto.pcBrand !== undefined) {
+          sets.push(`Make = @${idx}`);
+          params.push(dto.pcBrand.trim() || null);
+          idx++;
+        }
+        if (dto.pcModel !== undefined) {
+          sets.push(`Model = @${idx}`);
+          params.push(dto.pcModel.trim() || null);
+          idx++;
+        }
+        if (dto.bluetoothStatus !== undefined) {
+          sets.push(`BluetoothStatus = @${idx}`);
+          params.push(dto.bluetoothStatus.trim() || null);
+          idx++;
+        }
+        if (sets.length > 0) {
+          params.push(computerId);
+          await this.dataSource.query(
+            `UPDATE dbo.EquipmentComputer SET ${sets.join(', ')} WHERE ComputerID = @${idx}`,
+            params,
+          );
+        }
+      } else if (
+        (dto.pcServiceTag ?? '').trim() ||
+        (dto.pcBrand ?? '').trim() ||
+        (dto.pcModel ?? '').trim() ||
+        (dto.bluetoothStatus ?? '').trim()
+      ) {
+        const inserted = await this.dataSource.query(
+          `INSERT INTO dbo.EquipmentComputer (AssetID, Make, Model, BluetoothStatus, EquipmentStatus)
+           OUTPUT INSERTED.ComputerID
+           VALUES (@0, @1, @2, @3, 'Active')`,
+          [
+            (dto.pcServiceTag ?? '').trim() || null,
+            (dto.pcBrand ?? '').trim() || null,
+            (dto.pcModel ?? '').trim() || null,
+            (dto.bluetoothStatus ?? '').trim() || null,
+          ],
+        );
+        computerId = readNumber(inserted[0], 'ComputerID');
+        if (computerId) {
+          await this.dataSource.query(
+            `INSERT INTO dbo.EmployeeComputer (ContactAssignmentID, ComputerID, AssignedDate, IsCurrent, AssignedBy)
+             VALUES (@0, @1, CAST(SYSUTCDATETIME() AS date), 1, @2)`,
+            [contactAssignmentId, computerId, 'WMS profile update'],
+          );
+        }
+      }
+    }
   }
 
   /** True when the given contact's EmployeeProfile.AccessLevel is an admin tier. */

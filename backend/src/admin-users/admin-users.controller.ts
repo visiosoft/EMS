@@ -180,7 +180,6 @@ export class AdminUsersController {
   }
 
   @Get('workstations')
-  @RequireAccessLevel(AccessLevel.Administrator)
   async listWorkstations() {
     return this.employeeEmploymentService.listWorkstations();
   }
