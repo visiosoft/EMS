@@ -23,8 +23,11 @@ import { EngagementProjectPerformanceOption } from '../entities/engagement-proje
 import { EngagementXref } from '../entities/engagement-xref.entity';
 import { Attraction } from '../entities/attraction.entity';
 import { Company } from '../entities/company.entity';
+import { Contact } from '../entities/contact.entity';
+import { ContactAssignment } from '../entities/contact-assignment.entity';
 import { Dma } from '../entities/dma.entity';
 import { Tour } from '../entities/tour.entity';
+import { TourTalentAgent } from '../entities/tour-talent-agent.entity';
 import { Link } from '../entities/link.entity';
 import { Venue } from '../entities/venue.entity';
 import * as path from 'path';
@@ -99,6 +102,12 @@ export class ProjectService {
     private readonly venueRepo: Repository<Venue>,
     @InjectRepository(Company)
     private readonly companyRepo: Repository<Company>,
+    @InjectRepository(Contact)
+    private readonly contactRepo: Repository<Contact>,
+    @InjectRepository(ContactAssignment)
+    private readonly contactAssignmentRepo: Repository<ContactAssignment>,
+    @InjectRepository(TourTalentAgent)
+    private readonly tourTalentAgentRepo: Repository<TourTalentAgent>,
     @InjectRepository(Link)
     private readonly linkRepo: Repository<Link>,
     private readonly dataSource: DataSource,
@@ -764,6 +773,75 @@ export class ProjectService {
     return [...seen].sort((a, b) => a - b);
   }
 
+  /** Distinct positive contact IDs, sorted ascending. */
+  private normalizeContactIds(ids?: number[] | null): number[] {
+    if (!ids?.length) return [];
+    const seen = new Set<number>();
+    for (const n of ids) {
+      if (typeof n === 'number' && Number.isInteger(n) && n >= 1) seen.add(n);
+    }
+    return [...seen].sort((a, b) => a - b);
+  }
+
+  private async assertTalentAgentContactsBelongToAgency(
+    contactIds: number[],
+    talentAgencyCompanyId: number | null | undefined,
+  ): Promise<number[]> {
+    const ids = this.normalizeContactIds(contactIds);
+    if (ids.length === 0) return ids;
+    if (
+      talentAgencyCompanyId == null ||
+      !Number.isInteger(Number(talentAgencyCompanyId)) ||
+      Number(talentAgencyCompanyId) < 1
+    ) {
+      throw new BadRequestException({
+        message: 'Select a talent agency before assigning talent agents.',
+      });
+    }
+    const contactCount = await this.contactRepo.count({
+      where: { contactId: In(ids) },
+    });
+    if (contactCount !== ids.length) {
+      throw new BadRequestException({
+        message: 'One or more selected talent agents no longer exist.',
+      });
+    }
+    const rows = await this.contactAssignmentRepo
+      .createQueryBuilder('ca')
+      .select('ca.contactId', 'contactId')
+      .where('ca.companyId = :companyId', {
+        companyId: Number(talentAgencyCompanyId),
+      })
+      .andWhere('ca.contactId IN (:...ids)', { ids })
+      .groupBy('ca.contactId')
+      .getRawMany<{ contactId: number }>();
+    const assigned = new Set(rows.map((row) => Number(row.contactId)));
+    const missing = ids.filter((id) => !assigned.has(id));
+    if (missing.length > 0) {
+      throw new BadRequestException({
+        message:
+          'One or more selected talent agents are not assigned to this talent agency.',
+      });
+    }
+    return ids;
+  }
+
+  private async syncTourTalentAgents(
+    manager: EntityManager,
+    tourId: number,
+    contactIds: number[],
+    talentAgencyCompanyId: number | null | undefined,
+  ): Promise<void> {
+    const ids = await this.assertTalentAgentContactsBelongToAgency(
+      contactIds,
+      talentAgencyCompanyId,
+    );
+    const repo = manager.getRepository(TourTalentAgent);
+    await repo.delete({ tourId });
+    if (ids.length === 0) return;
+    await repo.save(ids.map((contactId) => repo.create({ tourId, contactId })));
+  }
+
   private async assertDmasExist(
     manager: EntityManager,
     dmaIds: number[],
@@ -1154,6 +1232,14 @@ export class ProjectService {
           savedProject.engagementProjectId,
           normalizedAgentContactId,
         );
+        if (dto.talentAgentContactIds !== undefined) {
+          await this.syncTourTalentAgents(
+            manager,
+            dto.tourId,
+            dto.talentAgentContactIds,
+            dto.talentAgencyCompanyId,
+          );
+        }
 
         const engagementId = null;
 
@@ -1273,6 +1359,25 @@ export class ProjectService {
               manager,
               id,
               normalizedAgentContactId,
+            );
+          }
+          if (dto.talentAgentContactIds !== undefined) {
+            const effectiveTourId = dto.tourId ?? project.tourId;
+            let effectiveAgencyId: number | null =
+              dto.talentAgencyCompanyId ?? null;
+            if (effectiveAgencyId == null || effectiveAgencyId < 1) {
+              const tourRow = await manager.findOne(Tour, {
+                where: { tourId: effectiveTourId },
+              });
+              effectiveAgencyId =
+                (tourRow?.talentAgencyCompanyId as number | null | undefined) ??
+                null;
+            }
+            await this.syncTourTalentAgents(
+              manager,
+              effectiveTourId,
+              dto.talentAgentContactIds,
+              effectiveAgencyId,
             );
           }
           await manager.save(EngagementProject, project);

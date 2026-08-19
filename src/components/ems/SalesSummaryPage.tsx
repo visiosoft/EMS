@@ -297,26 +297,30 @@ SALES_SUMMARY_METRIC_COLUMN_GROUPS.forEach((group, groupIndex) => {
 });
 
 function salesSummaryGroupHeaderClass(groupIndex: number) {
-  const fill = groupIndex % 2 === 0 ? 'bg-slate-100/85' : 'bg-slate-50/35';
-  return `${fill} border-l-2 border-r-2 border-t border-slate-300/70`;
+  const fill = groupIndex % 2 === 0 ? 'bg-slate-100/85 dk:bg-white/[0.06]' : 'bg-slate-50/35 dk:bg-white/[0.02]';
+  return `${fill} border-l-2 border-r-2 border-t border-slate-300/70 dk:border-white/15`;
 }
 
 function salesSummaryColumnChromeClass(col: SortColumn, area: 'header' | 'body', visibleColumnGroupMetaByColumn?: Map<SortColumn, SalesSummaryVisibleColumnGroupMeta>) {
   const group = SALES_SUMMARY_GROUP_BY_COLUMN.get(col);
-  if (!group) return area === 'header' ? 'bg-white border-r border-slate-200' : 'bg-white group-hover:bg-hover/40 border-r border-slate-100';
+  if (!group) {
+    return area === 'header'
+      ? 'bg-white dk:bg-surface border-r border-slate-200 dk:border-white/10'
+      : 'bg-white dk:bg-transparent group-hover:bg-hover/40 dk:group-hover:bg-hover/35 border-r border-slate-100 dk:border-white/10';
+  }
 
   const visible = visibleColumnGroupMetaByColumn?.get(col);
   const shaded = (visible?.groupIndex ?? group.groupIndex) % 2 === 0;
   const fill =
     shaded
       ? area === 'header'
-        ? 'bg-slate-100/80'
-        : 'bg-slate-100/55 group-hover:bg-slate-100/85'
+        ? 'bg-slate-100/80 dk:bg-white/[0.06]'
+        : 'bg-slate-100/55 dk:bg-white/[0.03] group-hover:bg-slate-100/85 dk:group-hover:bg-white/[0.06]'
       : area === 'header'
-        ? 'bg-slate-50/30'
-        : 'bg-white group-hover:bg-slate-50/75';
-  const left = (visible?.isFirst ?? group.isFirst) ? 'border-l-2 border-l-slate-300/80' : 'border-l border-l-slate-200/65';
-  const right = (visible?.isLast ?? group.isLast) ? 'border-r-2 border-r-slate-300/80' : 'border-r border-r-slate-200/65';
+        ? 'bg-slate-50/30 dk:bg-transparent'
+        : 'bg-white dk:bg-transparent group-hover:bg-slate-50/75 dk:group-hover:bg-hover/25';
+  const left = (visible?.isFirst ?? group.isFirst) ? 'border-l-2 border-l-slate-300/80 dk:border-l-white/20' : 'border-l border-l-slate-200/65 dk:border-l-white/10';
+  const right = (visible?.isLast ?? group.isLast) ? 'border-r-2 border-r-slate-300/80 dk:border-r-white/20' : 'border-r border-r-slate-200/65 dk:border-r-white/10';
   return `${fill} ${left} ${right}`;
 }
 
@@ -1076,27 +1080,27 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                   </colgroup>
                   <thead className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm">
                     <tr className="border-b-0">
-                      <th colSpan={3} className="border-b border-slate-300/70 bg-white px-3 py-1.5" aria-hidden />
+                      <th colSpan={3} className="border-b border-slate-300/70 dk:border-white/15 bg-white dk:bg-surface px-3 py-1.5" aria-hidden />
                       {visibleMetricGroups.map((group, groupIndex) => (
                         <th
                           key={group.id}
                           scope="colgroup"
                           colSpan={group.visibleKeys.length}
-                          className={`px-2 py-1.5 text-center text-[11px] font-bold leading-tight text-slate-800 ${salesSummaryGroupHeaderClass(groupIndex)}`}
+                          className={`px-2 py-1.5 text-center text-[11px] font-bold leading-tight text-slate-800 dk:text-text-secondary ${salesSummaryGroupHeaderClass(groupIndex)}`}
                         >
                           {group.label}
                         </th>
                       ))}
-                      <th className="w-8 border-b border-slate-300/70 bg-white px-2 py-1.5" aria-hidden />
+                      <th className="w-8 border-b border-slate-300/70 dk:border-white/15 bg-white dk:bg-surface px-2 py-1.5" aria-hidden />
                     </tr>
-                    <tr className="border-b border-slate-300/70">
+                    <tr className="border-b border-slate-300/70 dk:border-white/15">
                       {visibleSalesSummaryColumns.map((c) => <SortHeader key={c.key} col={c.key} label={c.label} title={c.title} sort={sort} onToggle={toggleSort} align={c.align} onResizeStart={(e) => startColumnResize(c.key, e)} className={salesSummaryColumnChromeClass(c.key, 'header', visibleColumnGroupMetaByColumn)} />)}
-                      <th className="w-8 border-l border-slate-200 bg-white px-2 py-3" aria-hidden />
+                      <th className="w-8 border-l border-slate-200 dk:border-white/10 bg-white dk:bg-surface px-2 py-3" aria-hidden />
                     </tr>
                   </thead>
                   <tbody>
                     {query.isPending && !query.data ? (
-                      Array.from({ length: 8 }).map((_, i) => <tr key={`skel-${i}`} className="border-b border-border/50">{visibleSalesSummaryColumns.map((c, j) => <td key={c.key} className={`px-4 py-3.5 ${salesSummaryColumnChromeClass(c.key, 'body', visibleColumnGroupMetaByColumn)}`}><div className="h-3 rounded bg-muted/70 animate-pulse" style={{ width: j === 0 ? '82%' : j < 4 ? '70%' : '50%' }} /></td>)}<td className="w-8 bg-white px-2 py-3.5" aria-hidden /></tr>)
+                      Array.from({ length: 8 }).map((_, i) => <tr key={`skel-${i}`} className="border-b border-border/50">{visibleSalesSummaryColumns.map((c, j) => <td key={c.key} className={`px-4 py-3.5 ${salesSummaryColumnChromeClass(c.key, 'body', visibleColumnGroupMetaByColumn)}`}><div className="h-3 rounded bg-muted/70 animate-pulse" style={{ width: j === 0 ? '82%' : j < 4 ? '70%' : '50%' }} /></td>)}<td className="w-8 bg-white dk:bg-surface px-2 py-3.5" aria-hidden /></tr>)
                     ) : rows.length === 0 ? (
                       <tr><td colSpan={totalColSpan} className="py-16"><div className="flex flex-col items-center justify-center gap-2 text-text-muted"><div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-elevated"><CalendarRange className="h-6 w-6 text-text-muted" aria-hidden /></div><p className="text-sm font-medium text-text-secondary">No events match your filters</p><p className="text-xs">Try changing the date scope or clearing filters.</p>{activeFilterCount > 0 && <button type="button" onClick={reset} className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-border bg-elevated px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-hover transition-colors"><RotateCcw className="h-3 w-3" aria-hidden />Reset filters</button>}</div></td></tr>
                     ) : (
