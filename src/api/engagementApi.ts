@@ -1134,8 +1134,20 @@ export interface ApiTravelCarServiceRow {
   bookedBy: string | null;
   originAddressId: number | null;
   originAddressLabel: string | null;
+  originAddressLine1: string | null;
+  originAddressLine2: string | null;
+  originAddressCity: string | null;
+  originAddressStateProvince: string | null;
+  originAddressPostalCode: string | null;
+  originAddressCountry: string | null;
   destinationAddressId: number | null;
   destinationAddressLabel: string | null;
+  destinationAddressLine1: string | null;
+  destinationAddressLine2: string | null;
+  destinationAddressCity: string | null;
+  destinationAddressStateProvince: string | null;
+  destinationAddressPostalCode: string | null;
+  destinationAddressCountry: string | null;
   pickupDateTime: string | null;
 }
 

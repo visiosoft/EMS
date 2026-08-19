@@ -292,6 +292,9 @@ export interface CreateProjectPayload {
   /** Persisted to dbo.EngagementProjectDMA (deduped on save; at least one required). */
   dmaIds: number[];
 
+  /** Replaces the selected tour's talent-agent assignments when provided (empty array clears). */
+  talentAgentContactIds?: number[];
+
   // FRONTEND-ONLY (optional in payload)
   name?: string | null;
   bookerId?: string | null;
@@ -317,7 +320,8 @@ export interface UpdateProjectPayload {
   /** Replaces all project–DMA rows when provided (empty array clears). */
   dmaIds?: number[];
 
-
+  /** Replaces the selected tour's talent-agent assignments when provided (empty array clears). */
+  talentAgentContactIds?: number[];
 
   // FRONTEND-ONLY
   name?: string | null;
