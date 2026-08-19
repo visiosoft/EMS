@@ -135,6 +135,14 @@ export class CreateProjectDto {
   @Min(1, { each: true })
   dmaIds: number[];
 
+  /** Tour talent-agent assignments are stored on dbo.Tour via dbo.TourTalentAgent. */
+  @IsOptional()
+  @IsArray()
+  @Type(() => Number)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  talentAgentContactIds?: number[];
+
   // Frontend-only fields — accepted and silently ignored (Option A per §5.8)
   @IsOptional() name?: string | null;
   @IsOptional() bookerId?: string | null;
