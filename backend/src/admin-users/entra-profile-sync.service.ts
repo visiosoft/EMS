@@ -70,10 +70,6 @@ type EMSCustomAttributes = {
   PCModel?: string | null;
   BluetoothStatus?: string | null;
   PCWindowsName?: string | null;
-  PCDeviceType?: string | null;
-  PCNotes?: string | null;
-  PCEquipmentStatus?: string | null;
-  PCIsManagedByIT?: boolean | string | null;
   EMSAccessLevel?: string | null;
   Supervisor?: string | null;
   DepartmentRank?: number | string | null;
@@ -163,6 +159,12 @@ export const EMPLOYEE_SYNCABLE_FIELDS = new Set([
 export class EntraProfileSyncService {
   private appGraphTokenCache: { accessToken: string; expiresAt: number } | null =
     null;
+
+  // Cache of active allowed-value ids per EMSInformation CSA (attribute short name → active ids).
+  // Trimmed on the "auto-add succeeded" path so subsequent pushes in the same
+  // window can find newly-added values.
+  private csaAllowedValuesCache = new Map<string, { values: string[]; cachedAt: number }>();
+  private readonly CSA_ALLOWED_VALUES_TTL_MS = 5 * 60 * 1000;
 
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
@@ -403,10 +405,6 @@ export class EntraProfileSyncService {
       PCModel: optStr(emsAttrs.PCModel),
       BluetoothStatus: optStr(emsAttrs.BluetoothStatus),
       PCWindowsName: optStr(emsAttrs.PCWindowsName),
-      PCDeviceType: optStr(getFirstDefinedCaseInsensitive(emsAttrs, ['PCDeviceType', 'DeviceType'])),
-      PCNotes: optStr(getFirstDefinedCaseInsensitive(emsAttrs, ['PCNotes', 'Notes'])),
-      PCEquipmentStatus: optStr(getFirstDefinedCaseInsensitive(emsAttrs, ['PCEquipmentStatus', 'EquipmentStatus'])),
-      PCIsManagedByIT: parseBooleanLike(getFirstDefinedCaseInsensitive(emsAttrs, ['PCIsManagedByIT', 'IsManagedByIT'])),
       EMSAccessLevel: optStr(emsAttrs.EMSAccessLevel),
       Supervisor: optStr(emsAttrs.Supervisor),
       DepartmentRank: emsAttrs.DepartmentRank != null ? emsAttrs.DepartmentRank as number : null,
@@ -615,10 +613,6 @@ export class EntraProfileSyncService {
       pcServiceTag: '',
       bluetoothStatus: '',
       pcWindowsName: '',
-      pcDeviceType: '',
-      pcNotes: '',
-      pcEquipmentStatus: '',
-      pcIsManagedByIT: '',
     };
     if (!contactAssignmentId) return empty;
 
@@ -638,15 +632,7 @@ export class EntraProfileSyncService {
         COALESCE(eqc.Model, '') AS pcModel,
         COALESCE(eqc.AssetID, '') AS pcServiceTag,
         COALESCE(eqc.BluetoothStatus, '') AS bluetoothStatus,
-        COALESCE(eqc.PCName, '') AS pcWindowsName,
-        COALESCE(eqc.DeviceType, '') AS pcDeviceType,
-        COALESCE(eqc.Notes, '') AS pcNotes,
-        COALESCE(eqc.EquipmentStatus, '') AS pcEquipmentStatus,
-        CASE
-          WHEN eqc.IsManagedByIT = 1 THEN 'Yes'
-          WHEN eqc.IsManagedByIT = 0 THEN 'No'
-          ELSE ''
-        END AS pcIsManagedByIT
+        COALESCE(eqc.PCName, '') AS pcWindowsName
       FROM dbo.ContactAssignment ca
       LEFT JOIN dbo.EmployeePhoneExtension epe ON epe.ContactAssignmentID = ca.ContactAssignmentID AND epe.IsCurrent = 1
       LEFT JOIN dbo.PhoneExtension pe ON pe.ExtensionID = epe.ExtensionID
@@ -671,10 +657,6 @@ export class EntraProfileSyncService {
       pcServiceTag: readString(r, 'pcServiceTag'),
       bluetoothStatus: readString(r, 'bluetoothStatus'),
       pcWindowsName: readString(r, 'pcWindowsName'),
-      pcDeviceType: readString(r, 'pcDeviceType'),
-      pcNotes: readString(r, 'pcNotes'),
-      pcEquipmentStatus: readString(r, 'pcEquipmentStatus'),
-      pcIsManagedByIT: readString(r, 'pcIsManagedByIT'),
     };
   }
 
@@ -812,10 +794,6 @@ export class EntraProfileSyncService {
       parsePhoneExtension(entra.user.businessPhones) ||
       (entra.emsAttributes.DeskPhoneExtension ?? '');
     addChange(changes, 'deskPhoneExtension', 'Desk Phone Extension', current.equipment.deskPhoneExtension, entraDeskPhoneExtension);
-    addChange(changes, 'pcDeviceType', 'PC Device Type', current.equipment.pcDeviceType, entra.emsAttributes.PCDeviceType ?? '');
-    addChange(changes, 'pcNotes', 'PC Notes', current.equipment.pcNotes, entra.emsAttributes.PCNotes ?? '');
-    addChange(changes, 'pcEquipmentStatus', 'PC Equipment Status', current.equipment.pcEquipmentStatus, entra.emsAttributes.PCEquipmentStatus ?? '');
-    addChange(changes, 'pcIsManagedByIT', 'PC Managed By IT', current.equipment.pcIsManagedByIT, boolToYesNo(entra.emsAttributes.PCIsManagedByIT));
 
     return changes;
   }
@@ -920,7 +898,6 @@ export class EntraProfileSyncService {
     const equipmentFields = new Set([
       'deskPhoneMac', 'deskPhoneBrand', 'deskPhoneModel', 'deskPhoneExtension',
       'pcServiceTag', 'pcWindowsName', 'pcBrand', 'pcModel', 'bluetoothStatus',
-      'pcDeviceType', 'pcNotes', 'pcEquipmentStatus', 'pcIsManagedByIT',
     ]);
 
     const hasPersonal = [...selectedFields].some((f) => personalFields.has(f));
@@ -1620,28 +1597,17 @@ export class EntraProfileSyncService {
     const pcBrand = attrs.PCBrand?.trim() || '';
     const pcModel = attrs.PCModel?.trim() || '';
     const bluetoothStatus = attrs.BluetoothStatus?.trim() || '';
-    const pcDeviceType = attrs.PCDeviceType?.trim() || '';
-    const pcNotes = attrs.PCNotes?.trim() || '';
-    const pcEquipmentStatus = attrs.PCEquipmentStatus?.trim() || '';
-    const pcIsManagedByIT = parseBooleanLike(attrs.PCIsManagedByIT);
-    const targetPcIsManagedLabel = pcIsManagedByIT === null
-      ? currentEquipment.pcIsManagedByIT
-      : boolToYesNo(pcIsManagedByIT);
 
     const pcMetadataChanged =
       pcBrand !== currentEquipment.pcBrand ||
       pcModel !== currentEquipment.pcModel ||
-      bluetoothStatus !== currentEquipment.bluetoothStatus ||
-      pcDeviceType !== currentEquipment.pcDeviceType ||
-      pcNotes !== currentEquipment.pcNotes ||
-      targetPcIsManagedLabel !== currentEquipment.pcIsManagedByIT;
+      bluetoothStatus !== currentEquipment.bluetoothStatus;
 
     if (pcServiceTag) {
       const pcChanged =
         pcServiceTag !== currentEquipment.pcServiceTag ||
         pcWindowsName !== currentEquipment.pcWindowsName ||
-        pcMetadataChanged ||
-        pcEquipmentStatus !== currentEquipment.pcEquipmentStatus;
+        pcMetadataChanged;
 
       if (pcChanged) {
         const computerId = await this.findOrCreateEquipmentComputer(
@@ -1660,22 +1626,15 @@ export class EntraProfileSyncService {
         const currentComputerId = existingPc.length > 0 ? readNumber(existingPc[0], 'ComputerID') : null;
 
         if (currentComputerId === computerId) {
-          // Same computer — just update its fields
           await manager.query(
             `UPDATE dbo.EquipmentComputer
-             SET PCName = @0, Make = @1, Model = @2, BluetoothStatus = @3,
-               DeviceType = @4, Notes = @5, IsManagedByIT = COALESCE(@6, IsManagedByIT, 0),
-                 EquipmentStatus = CASE WHEN @7 IS NULL OR LTRIM(RTRIM(@7)) = '' THEN EquipmentStatus ELSE @7 END
-             WHERE ComputerID = @8`,
+             SET PCName = @0, Make = @1, Model = @2, BluetoothStatus = @3
+             WHERE ComputerID = @4`,
             [
               nullableText(pcWindowsName),
               nullableText(pcBrand),
               nullableText(pcModel),
               nullableText(bluetoothStatus),
-              nullableText(pcDeviceType),
-              nullableText(pcNotes),
-              pcIsManagedByIT,
-              nullableText(pcEquipmentStatus),
               computerId,
             ],
           );
@@ -1693,17 +1652,9 @@ export class EntraProfileSyncService {
             `INSERT INTO dbo.EmployeeComputer (ContactAssignmentID, ComputerID, AssignedDate, IsCurrent, AssignedBy) VALUES (@0, @1, CAST(SYSUTCDATETIME() AS date), 1, @2)`,
             [contactAssignmentId, computerId, 'Entra sync'],
           );
-
-          await manager.query(
-            `UPDATE dbo.EquipmentComputer
-             SET DeviceType = @0, Notes = @1, IsManagedByIT = COALESCE(@2, IsManagedByIT, 0),
-                 EquipmentStatus = CASE WHEN @3 IS NULL OR LTRIM(RTRIM(@3)) = '' THEN EquipmentStatus ELSE @3 END
-             WHERE ComputerID = @4`,
-            [nullableText(pcDeviceType), nullableText(pcNotes), pcIsManagedByIT, nullableText(pcEquipmentStatus), computerId],
-          );
         }
       }
-    } else if (pcMetadataChanged || pcEquipmentStatus !== currentEquipment.pcEquipmentStatus) {
+    } else if (pcMetadataChanged) {
       const existingPc = await manager.query(
         `SELECT TOP 1 ec.ComputerID FROM dbo.EmployeeComputer ec WHERE ec.ContactAssignmentID = @0 AND ec.IsCurrent = 1`,
         [contactAssignmentId],
@@ -1712,18 +1663,12 @@ export class EntraProfileSyncService {
       if (currentComputerId) {
         await manager.query(
           `UPDATE dbo.EquipmentComputer
-           SET Make = @0, Model = @1, BluetoothStatus = @2,
-               DeviceType = @3, Notes = @4, IsManagedByIT = COALESCE(@5, IsManagedByIT, 0),
-               EquipmentStatus = CASE WHEN @6 IS NULL OR LTRIM(RTRIM(@6)) = '' THEN EquipmentStatus ELSE @6 END
-           WHERE ComputerID = @7`,
+           SET Make = @0, Model = @1, BluetoothStatus = @2
+           WHERE ComputerID = @3`,
           [
             nullableText(pcBrand),
             nullableText(pcModel),
             nullableText(bluetoothStatus),
-            nullableText(pcDeviceType),
-            nullableText(pcNotes),
-            pcIsManagedByIT,
-            nullableText(pcEquipmentStatus),
             currentComputerId,
           ],
         );
@@ -2203,6 +2148,14 @@ export class EntraProfileSyncService {
     addChange(changes, 'DeskPhoneMAC', 'Desk Phone MAC Address', entra.emsAttributes.DeskPhoneMAC ?? '', emsPhoneMacComposite);
     const emsPcTagComposite = composePCServiceTag(current.equipment);
     addChange(changes, 'PCServiceTag', 'PC Service Tag', entra.emsAttributes.PCServiceTag ?? '', emsPcTagComposite);
+    // Standalone equipment CSAs (real Entra attributes, not composed).
+    addChange(changes, 'DeskPhoneModel', 'Desk Phone Model', entra.emsAttributes.DeskPhoneModel ?? '', current.equipment.deskPhoneModel);
+    addChange(changes, 'PCBrand', 'PC Brand', entra.emsAttributes.PCBrand ?? '', current.equipment.pcBrand);
+    addChange(changes, 'PCModel', 'PC Model', entra.emsAttributes.PCModel ?? '', current.equipment.pcModel);
+    // Bluetooth Status is a boolean CSA in Entra: any WMS value = true, empty = false.
+    const emsBluetoothOn = (current.equipment.bluetoothStatus ?? '').trim() !== '';
+    const entraBluetoothOn = parseBooleanLike(entra.emsAttributes.BluetoothStatus) ?? false;
+    addChange(changes, 'BluetoothStatus', 'Bluetooth Status', String(entraBluetoothOn), String(emsBluetoothOn));
 
     return changes;
   }
@@ -2291,6 +2244,22 @@ export class EntraProfileSyncService {
     if (phoneMacComposite !== (entra.emsAttributes.DeskPhoneMAC ?? '')) csaPayload.DeskPhoneMAC = phoneMacComposite || null;
     const pcTagComposite = composePCServiceTag(current.equipment);
     if (pcTagComposite !== (entra.emsAttributes.PCServiceTag ?? '')) csaPayload.PCServiceTag = pcTagComposite || null;
+    // Standalone equipment CSAs (real Entra attributes, not composed).
+    if ((current.equipment.deskPhoneModel || '') !== (entra.emsAttributes.DeskPhoneModel ?? '')) {
+      csaPayload.DeskPhoneModel = current.equipment.deskPhoneModel || null;
+    }
+    if ((current.equipment.pcBrand || '') !== (entra.emsAttributes.PCBrand ?? '')) {
+      csaPayload.PCBrand = current.equipment.pcBrand || null;
+    }
+    if ((current.equipment.pcModel || '') !== (entra.emsAttributes.PCModel ?? '')) {
+      csaPayload.PCModel = current.equipment.pcModel || null;
+    }
+    // Bluetooth Status is a boolean CSA in Entra: any WMS value = true, empty = false.
+    const emsBluetoothOn = (current.equipment.bluetoothStatus ?? '').trim() !== '';
+    const entraBluetoothOn = parseBooleanLike(entra.emsAttributes.BluetoothStatus) ?? false;
+    if (emsBluetoothOn !== entraBluetoothOn) {
+      csaPayload.BluetoothStatus = emsBluetoothOn;
+    }
 
     // 3. PATCH native properties. If this fails, still attempt CSA writes, then surface
     // the native failure so the UI can warn that Entra was not fully updated.
@@ -2304,22 +2273,205 @@ export class EntraProfileSyncService {
       }
     }
 
-    // 4. PATCH CSA attributes separately (works for both members and guests)
+    // 4. PATCH CSA attributes separately (works for both members and guests).
+    //    When an attribute has isPredefinedValuesRequired=true, Entra rejects
+    //    values that are not on its allowed-values list. We first try to
+    //    auto-register the new value on that attribute, then retry. If the
+    //    tenant/app can't register (missing CustomSecAttributeDefinition
+    //    permission), we drop the attribute and surface a summary at the end.
+    const rejectedCsas: string[] = [];
+    const autoAddedCsas: string[] = [];
     if (Object.keys(csaPayload).length > 0) {
-      await this.graphPatch(accessToken, `${GRAPH_BASE_URL}/users/${userId}`, {
-        customSecurityAttributes: {
-          [EMS_ATTRIBUTE_SET]: {
-            '@odata.type': `#Microsoft.DirectoryServices.CustomSecurityAttributeValue`,
-            ...this.normalizeEmsCsaPayload(csaPayload),
-          },
-        },
-      });
+      // 4a. Preflight: fold values into the exact-case allowed value when one exists
+      //     (Entra does case-sensitive matching, so "Mac" is rejected even when
+      //     the attribute has "MAC" on its list). Only fetches the allowed-values
+      //     list for string-valued CSAs and uses a small per-instance cache.
+      await this.foldCsaPayloadToAllowedCase(accessToken, csaPayload);
+
+      let attemptPayload: Record<string, string | boolean | string[] | null> = { ...csaPayload };
+      // Track attributes we already tried to register so we don't loop forever if the add itself is flaky.
+      const autoAddedKeys = new Set<string>();
+      // Track case-variants we already tried per attribute so we don't cycle.
+      const triedVariants = new Map<string, Set<string>>();
+      // Bounded loop to avoid pathological retries.
+      for (let i = 0; i < 40; i++) {
+        if (Object.keys(attemptPayload).length === 0) break;
+        try {
+          await this.graphPatch(accessToken, `${GRAPH_BASE_URL}/users/${userId}`, {
+            customSecurityAttributes: {
+              [EMS_ATTRIBUTE_SET]: {
+                '@odata.type': `#Microsoft.DirectoryServices.CustomSecurityAttributeValue`,
+                ...this.normalizeEmsCsaPayload(attemptPayload),
+              },
+            },
+          });
+          break;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          const isAllowedValueError = /not present\/active as allowed value/i.test(message);
+          const nameMatch = /ParameterName:\s*'(?:EMSInformation_)?([A-Za-z0-9_]+)'/.exec(message);
+          const valueMatch = /ParameterValue:\s*'([^']*)'/.exec(message);
+          const badAttr = nameMatch?.[1];
+          if (isAllowedValueError && badAttr && badAttr in attemptPayload) {
+            const badValue = valueMatch?.[1] ?? String(attemptPayload[badAttr] ?? '');
+
+            // 4b. Try common case variants of the rejected value before giving up.
+            //     Handles tenants where reading the allowed-values list is blocked
+            //     (so preflight fold couldn't run) — e.g. "Mac" against allowed "MAC".
+            const attrTried = triedVariants.get(badAttr) ?? new Set<string>();
+            attrTried.add(badValue);
+            const variants = caseVariants(badValue).filter((v) => !attrTried.has(v));
+            if (variants.length > 0) {
+              const nextVariant = variants[0];
+              attrTried.add(nextVariant);
+              triedVariants.set(badAttr, attrTried);
+              attemptPayload = { ...attemptPayload, [badAttr]: nextVariant };
+              console.log(`[EntraSync] Retrying CSA ${badAttr} with case variant: "${badValue}" → "${nextVariant}"`);
+              continue;
+            }
+            triedVariants.set(badAttr, attrTried);
+
+            const addKey = `${badAttr}:${badValue}`;
+            if (badValue && !autoAddedKeys.has(addKey)) {
+              autoAddedKeys.add(addKey);
+              const added = await this.ensureCsaAllowedValue(accessToken, badAttr, badValue).catch(() => false);
+              if (added) {
+                autoAddedCsas.push(`${badAttr}="${badValue}"`);
+                this.csaAllowedValuesCache.delete(badAttr);
+                continue; // retry the same payload now that the value is on the allowed list
+              }
+            }
+            rejectedCsas.push(`${badAttr}="${badValue}"`);
+            const { [badAttr]: _skipped, ...rest } = attemptPayload;
+            attemptPayload = rest;
+            continue;
+          }
+          throw err;
+        }
+      }
+    }
+
+    if (autoAddedCsas.length > 0) {
+      console.log(`[EntraSync] Auto-registered new allowed values on EMSInformation attributes: ${autoAddedCsas.join(', ')}`);
     }
 
     if (nativePatchFailure) {
       throw new Error(
         `Native Entra field update failed (${nativeKeys.join(', ')}): ${nativePatchFailure}`,
       );
+    }
+    if (rejectedCsas.length > 0) {
+      throw new Error(
+        `Entra rejected these custom attribute values because they are not on the attribute's allowed-values list and the backend app lacks permission to add them automatically: ${rejectedCsas.join(', ')}. Grant the backend app the "CustomSecAttributeDefinition.ReadWrite.All" application permission, or add the value manually in Azure portal (Entra ID → Custom security attributes → EMSInformation → attribute → Allowed values), then save again. Other fields were updated successfully.`,
+      );
+    }
+  }
+
+  /**
+   * Register a value on an EMSInformation Custom Security Attribute's
+   * allowed-values list (idempotent). Returns true when the value is
+   * available on the attribute after this call; false on any failure
+   * (typically missing CustomSecAttributeDefinition.ReadWrite.All).
+   *
+   * Handles the "token cached before permission was granted" case by
+   * invalidating the app-token cache and retrying once with a fresh token
+   * on the first 403.
+   */
+  private async ensureCsaAllowedValue(
+    accessToken: string,
+    attributeName: string,
+    value: string,
+  ): Promise<boolean> {
+    const definitionId = `${EMS_ATTRIBUTE_SET}_${attributeName}`;
+    const url = `https://graph.microsoft.com/beta/directory/customSecurityAttributeDefinitions/${encodeURIComponent(definitionId)}/allowedValues`;
+    const attempt = async (token: string): Promise<{ ok: boolean; status: number; text: string }> => {
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: value, isActive: true }),
+        });
+        const text = await response.text().catch(() => '');
+        return { ok: response.ok || response.status === 201, status: response.status, text };
+      } catch (err) {
+        return { ok: false, status: 0, text: err instanceof Error ? err.message : String(err) };
+      }
+    };
+
+    let result = await attempt(accessToken);
+    if (result.ok) return true;
+    if (result.status === 409 || /already exists|Request_ConflictingObject/i.test(result.text)) return true;
+
+    // On 403, invalidate the cached app token and retry once with a fresh one.
+    // Handles the case where admin just granted CustomSecAttributeDefinition.ReadWrite.All
+    // but our in-memory cache still holds a pre-grant token.
+    if (result.status === 403) {
+      this.appGraphTokenCache = null;
+      const freshToken = await this.tryGetApplicationToken();
+      if (freshToken && freshToken !== accessToken) {
+        result = await attempt(freshToken);
+        if (result.ok) return true;
+        if (result.status === 409 || /already exists|Request_ConflictingObject/i.test(result.text)) return true;
+      }
+    }
+
+    console.log(`[EntraSync] Add allowed value to ${definitionId} failed (${result.status}): ${String(result.text).slice(0, 240)}`);
+    return false;
+  }
+
+  /**
+   * Fetch active allowed values for an EMSInformation CSA (cached, TTL-based).
+   * Returns null when the attribute has no allowed-values list configured or
+   * on any Graph error — callers should treat that as "no preflight possible".
+   */
+  private async fetchCsaAllowedValues(
+    accessToken: string,
+    attributeName: string,
+  ): Promise<string[] | null> {
+    const cached = this.csaAllowedValuesCache.get(attributeName);
+    if (cached && Date.now() - cached.cachedAt < this.CSA_ALLOWED_VALUES_TTL_MS) {
+      return cached.values;
+    }
+    const definitionId = `${EMS_ATTRIBUTE_SET}_${attributeName}`;
+    const url = `https://graph.microsoft.com/beta/directory/customSecurityAttributeDefinitions/${encodeURIComponent(definitionId)}/allowedValues?$select=id,isActive&$top=999`;
+    try {
+      const result = await this.graphGet<{ value?: Array<{ id?: string; isActive?: boolean }> }>(accessToken, url);
+      if (!result?.value) return null;
+      const active = result.value
+        .filter((v) => v.isActive !== false)
+        .map((v) => String(v.id ?? '').trim())
+        .filter((v) => v.length > 0);
+      this.csaAllowedValuesCache.set(attributeName, { values: active, cachedAt: Date.now() });
+      return active;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Case-insensitively fold each string CSA value into its exact-case entry on
+   * Entra's allowed-values list. Prevents false rejections like "Mac" vs
+   * allowed "MAC". Booleans and array values are left alone. Attributes with
+   * no allowed-values list (freeform) are also left alone.
+   */
+  private async foldCsaPayloadToAllowedCase(
+    accessToken: string,
+    payload: Record<string, string | boolean | string[] | null>,
+  ): Promise<void> {
+    for (const key of Object.keys(payload)) {
+      const raw = payload[key];
+      if (typeof raw !== 'string') continue;
+      const trimmed = raw.trim();
+      if (!trimmed) continue;
+      const allowed = await this.fetchCsaAllowedValues(accessToken, key);
+      if (!allowed || allowed.length === 0) continue; // freeform → skip
+      if (allowed.includes(trimmed)) continue; // already exact-case
+      const lower = trimmed.toLowerCase();
+      const match = allowed.find((v) => v.toLowerCase() === lower);
+      if (match && match !== trimmed) {
+        payload[key] = match;
+        console.log(`[EntraSync] Normalized CSA ${key}: "${trimmed}" → "${match}" (matched existing allowed value)`);
+      }
     }
   }
 
@@ -2634,10 +2786,6 @@ type EquipmentData = {
   pcServiceTag: string;
   bluetoothStatus: string;
   pcWindowsName: string;
-  pcDeviceType: string;
-  pcNotes: string;
-  pcEquipmentStatus: string;
-  pcIsManagedByIT: string;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -2796,6 +2944,25 @@ function boolToYesNo(value: boolean | string | null | undefined): string {
   if (value === true || value === 'true') return 'Yes';
   if (value === false || value === 'false') return 'No';
   return '';
+}
+
+/**
+ * Common case variants of a string value, deduped and with the original excluded.
+ * Used to blindly retry a CSA push when Entra rejects a value on a
+ * predefined-values attribute — cheap and works without any read permission
+ * on the CSA definition (e.g. "Mac" → tries "MAC" and "mac").
+ */
+function caseVariants(value: string): string[] {
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  const upper = trimmed.toUpperCase();
+  const lower = trimmed.toLowerCase();
+  const title = trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+  const swap = trimmed
+    .split('')
+    .map((ch) => (ch === ch.toUpperCase() ? ch.toLowerCase() : ch.toUpperCase()))
+    .join('');
+  return Array.from(new Set([upper, title, lower, swap])).filter((v) => v !== trimmed);
 }
 
 function parseBooleanLike(value: unknown): boolean | null {

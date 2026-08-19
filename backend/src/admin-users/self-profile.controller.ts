@@ -143,4 +143,12 @@ export interface UpdateMyProfileDto {
   deskPhoneExtensionId?: number | null;
   deskPhoneId?: number | null;
   pcComputerId?: number | null;
+  // Freeform Entra-CSA-backed equipment fields (admin only). Writes to the
+  // linked EquipmentPhone / EquipmentComputer row; creates one on demand.
+  deskPhoneMac?: string;
+  deskPhoneModel?: string;
+  pcServiceTag?: string;
+  pcBrand?: string;
+  pcModel?: string;
+  bluetoothStatus?: string;
 }

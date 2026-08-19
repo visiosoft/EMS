@@ -636,14 +636,13 @@ function PropertyTab({ user, isAdmin }: { user: UserProfileUser; isAdmin: boolea
         tabFields={[
           'deskPhoneExtension', 'deskPhoneMac', 'deskPhoneBrand', 'deskPhoneModel',
           'pcServiceTag', 'pcWindowsName', 'pcBrand', 'pcModel', 'bluetoothStatus',
-          'pcDeviceType', 'pcNotes',
         ]}
         invalidateKeys={[['employee-employment-profile', user.email], ['employee-personal-profile', user.email]]}
       />
       {profileQuery.isFetching && !profileQuery.isLoading && <RefetchingBanner />}
       <SectionCard title="Desk Phone" icon={<Laptop className="h-4 w-4 text-ems-accent" />}>
         <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
-          <ReadOnlyWithWmsLink label="Desk Phone Number" value="(312) 274-1800" source="admin" contactId={data?.contactId} />
+          <ReadOnlyField label="Desk Phone Number" value="(312) 274-1800" source="admin" />
           <ReadOnlyWithWmsLink label="Desk Phone Extension" value={data?.deskPhoneExtension || ''} source="inventory" contactId={data?.contactId} />
           <ReadOnlyWithWmsLink label="Desk Phone MAC Address" value={data?.deskPhoneMac || ''} source="inventory" contactId={data?.contactId} />
           <ReadOnlyWithWmsLink label="Desk Phone Brand" value={data?.deskPhoneBrand || ''} source="inventory" contactId={data?.contactId} />
