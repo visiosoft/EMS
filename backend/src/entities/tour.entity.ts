@@ -99,6 +99,13 @@ export class Tour extends AuditColumns {
   @Column({ name: 'BannerLinkID', type: 'int', nullable: true })
   bannerLinkId: number | null;
 
+  // NOTE: DealSheetLinkID, AgencySalesLinkID, MarketingManualLinkID,
+  // MarketingMaterialLinkID, VipPdfLinkID, PreSalePasscode, and
+  // SeatHoldRequirements columns are defined in
+  // backend/migrations/2026-08-20-tour-profile-tabs.sql but the migration has
+  // not been applied yet. Re-add the @Column decorators (see git history) once
+  // the DB is updated.
+
   @Column({ name: 'VenueTypePreferenceID', type: 'int', nullable: true })
   venueTypePreferenceId: number | null;
 

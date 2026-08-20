@@ -28,6 +28,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { Modal, FormField, TabBar } from './Primitives';
+import { EngagementVipPdfField } from './EngagementVipPdfField';
 import { EngagementSalesDashboardPanel } from './EngagementSalesDashboardPanel';
 import { EngagementDocumentsTab } from './EngagementDocumentsTab';
 import { Select2, type Select2Option } from './Select2';
@@ -5624,6 +5625,9 @@ function EngagementBookingPanel({
             </div>,
           )}
         </div>
+
+        {/* ── VIP PDF (inherited from Tour Booking; editable override) ── */}
+        <EngagementVipPdfField engagementId={engagementId} addToast={addToast} />
 
         <div className="flex justify-end pt-2 border-t border-border">
           <Button

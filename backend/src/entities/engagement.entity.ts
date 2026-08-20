@@ -50,6 +50,10 @@ export class Engagement extends AuditColumns {
   @Column({ name: 'TourManagerContactID', type: 'int', nullable: true })
   tourManagerContactId: number | null;
 
+  // NOTE: VipPdfLinkID column is defined in
+  // backend/migrations/2026-08-20-tour-profile-tabs.sql but the migration has
+  // not been applied yet. Re-add the @Column decorator once the DB is updated.
+
   @ManyToOne(() => Tour)
   @JoinColumn({ name: 'TourID' })
   tour: Tour;

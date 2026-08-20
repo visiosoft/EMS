@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>File picker redirect</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+  <p style="font-family: system-ui, sans-serif; padding: 1rem;">Signing you in…</p>
+  <script>
+    // Static shell required by the Microsoft Graph File Picker v8. MSAL /
+    // SharePoint redirects land here to complete auth, then close this popup.
+    if (window.opener && !window.opener.closed) {
+      try {
+        window.opener.postMessage(
+          { type: 'ems-file-picker-redirect', hash: window.location.hash },
+          window.location.origin,
+        );
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    setTimeout(function () { window.close(); }, 100);
+  </script>
+</body>
+</html>
