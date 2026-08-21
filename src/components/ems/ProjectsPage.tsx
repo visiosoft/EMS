@@ -30,7 +30,6 @@ import {
   Drawer,
   FormField,
   Modal,
-  SearchInput,
   StatusBadge,
   TabBar,
 } from './Primitives';
@@ -50,6 +49,7 @@ import {
   PROJECT_WIZARD_DMA_QUERY_KEY,
 } from '@/lib/projectWizardDma';
 import { ProjectWizardMarketsStep } from './ProjectWizardMarketsStep';
+import { DmaListPicker } from './DmaListPicker';
 import { getAccountName, getAccountOid, getActiveAccount } from '@/auth/entra';
 import {
   getPageParams,
@@ -302,10 +302,98 @@ class CreateProjectWizardErrorBoundary extends React.Component<
   }
 }
 
+function formatVenueLocation(
+  city: string | null | undefined,
+  stateProvince: string | null | undefined,
+): string {
+  const c = (city ?? '').trim();
+  const s = (stateProvince ?? '').trim();
+  if (c && s) return `${c}, ${s}`;
+  return c || s || '';
+}
+
+interface VenueSummaryParts {
+  venueName?: string | null;
+  companyId?: number | null;
+  city?: string | null;
+  stateProvince?: string | null;
+  dmaMarketName?: string | null;
+  seatingCapacity?: number | null;
+  entertainmentComplexNames?: string | null;
+}
+
+/** Chip/label text: "Venue Name — City, ST | DMA | Cap: X | Complex: Y". */
+function formatVenueSummaryLabel(parts: VenueSummaryParts): string {
+  const name =
+    (parts.venueName ?? '').trim() ||
+    (parts.companyId != null ? `Company #${parts.companyId}` : 'Venue');
+  const detail = formatVenueSummaryDetails(parts);
+  return detail ? `${name} — ${detail}` : name;
+}
+
+/** Just the detail suffix (no venue name), pipe-separated. */
+function formatVenueSummaryDetails(parts: VenueSummaryParts): string {
+  const bits: string[] = [];
+  const loc = formatVenueLocation(parts.city, parts.stateProvince);
+  if (loc) bits.push(`City: ${loc}`);
+  const dma = cleanDmaMarketLabel(parts.dmaMarketName ?? '');
+  if (dma) bits.push(`DMA: ${dma}`);
+  const capStr = formatVenueCapacity(parts.seatingCapacity ?? null);
+  if (capStr !== '—') bits.push(`Capacity: ${capStr}`);
+  const complex = (parts.entertainmentComplexNames ?? '').trim();
+  if (complex) bits.push(`Complex: ${complex}`);
+  return bits.join(' | ');
+}
+
 function formatVenueWizardLabel(r: ApiAllVenueRow): string {
-  const base = (r.venueName ?? '').trim() || `Company #${r.companyId}`;
-  const ex = (r.entertainmentComplexNames ?? '').trim();
-  return ex ? `${base} (${ex})` : base;
+  return formatVenueSummaryLabel({
+    venueName: r.venueName,
+    companyId: r.companyId,
+    city: r.city,
+    stateProvince: r.stateProvince,
+    dmaMarketName: r.dmaMarketName,
+    seatingCapacity: r.seatingCapacity,
+    entertainmentComplexNames: r.entertainmentComplexNames,
+  });
+}
+
+/**
+ * Compact wrapped detail line under a venue name — used on VenueProposalRow and
+ * on the Create Engagement modal so long names never truncate away the details.
+ */
+function VenueDetailLine({
+  city,
+  stateProvince,
+  dmaMarketName,
+  seatingCapacity,
+  entertainmentComplexNames,
+}: {
+  city: string | null;
+  stateProvince: string | null;
+  dmaMarketName: string | null;
+  seatingCapacity: number | null;
+  entertainmentComplexNames: string | null;
+}) {
+  const location = formatVenueLocation(city, stateProvince);
+  const dma = cleanDmaMarketLabel(dmaMarketName ?? '');
+  const capacityLabel = formatVenueCapacity(seatingCapacity);
+  const complex = (entertainmentComplexNames ?? '').trim();
+  const items: { key: string; label: string }[] = [];
+  if (location) items.push({ key: 'city', label: `City: ${location}` });
+  if (dma) items.push({ key: 'dma', label: `DMA: ${dma}` });
+  if (capacityLabel !== '—') items.push({ key: 'cap', label: `Capacity: ${capacityLabel}` });
+  if (complex) items.push({ key: 'complex', label: `Complex: ${complex}` });
+  if (items.length === 0) return null;
+  return (
+    <div className="mt-1 flex flex-wrap gap-x-1.5 gap-y-1 text-[11px] text-text-secondary">
+      {items.map((item, idx) => (
+        <React.Fragment key={item.key}>
+          {idx > 0 && <span className="text-text-muted" aria-hidden>|</span>}
+          <span className="inline-block break-words">{item.label}</span>
+        </React.Fragment>
+      ))}
+    </div>
+  );
 }
 
 // ─── Inline edit primitives (same pattern as CompaniesPage) ────────────────────
@@ -592,7 +680,6 @@ function ProjectInlineOverview({
   const [selectedDmaIds, setSelectedDmaIds] = useState<number[]>(project.dmaIds ?? []);
   const [showDmaModal, setShowDmaModal] = useState(false);
   const [dmaDraftIds, setDmaDraftIds] = useState<number[]>(project.dmaIds ?? []);
-  const [dmaModalSearch, setDmaModalSearch] = useState('');
 
   const mark = useCallback(<T,>(fn: (v: T) => void) => (v: T) => {
     fn(v);
@@ -612,7 +699,6 @@ function ProjectInlineOverview({
     );
     setSelectedDmaIds(project.dmaIds ?? []);
     setDmaDraftIds(project.dmaIds ?? []);
-    setDmaModalSearch('');
     setShowDmaModal(false);
     setShowAddContact(false);
     setDirty(false);
@@ -757,19 +843,10 @@ function ProjectInlineOverview({
     setShowAddContact(false);
     setSelectedDmaIds(project.dmaIds ?? []);
     setDmaDraftIds(project.dmaIds ?? []);
-    setDmaModalSearch('');
     setShowDmaModal(false);
     setDirty(false);
     setEditing(false);
   };
-
-  const filteredDmaMarkets = useMemo(() => {
-    const q = dmaModalSearch.trim();
-    if (!q) return dmaMarkets;
-    return dmaMarkets.filter((row) =>
-      richTextMatches([formatDmaPickerLabel(row), row.marketName, row.dmaid], q),
-    );
-  }, [dmaMarkets, dmaModalSearch]);
 
   const toggleDmaDraft = (dmaid: number) => {
     setDmaDraftIds((prev) =>
@@ -779,7 +856,6 @@ function ProjectInlineOverview({
 
   const openDmaModal = () => {
     setDmaDraftIds(selectedDmaIds);
-    setDmaModalSearch('');
     setShowDmaModal(true);
   };
 
@@ -1249,72 +1325,25 @@ function ProjectInlineOverview({
 
       {showDmaModal && (
         <Modal
-          title="Edit Markets (DMA)"
-          width={680}
+          title="Edit Markets"
+          titleBadge={
+            <span className="shrink-0 rounded-md bg-ems-accent/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-ems-accent">
+              DMA
+            </span>
+          }
+          description="Pick the markets this campaign runs in. Changing markets updates the venues available in the Venues tab."
+          width={720}
           onClose={() => !saving && setShowDmaModal(false)}
-        >
-          <div className="space-y-3">
-            <p className="text-xs text-text-muted">
-              Select one or more markets. When markets change, review venues in the Venues tab.
-            </p>
-            <SearchInput
-              value={dmaModalSearch}
-              onChange={setDmaModalSearch}
-              placeholder="Search markets by name…"
-              disabled={saving}
-            />
-            <div className="max-h-[min(22rem,50vh)] overflow-y-auto rounded-md border border-border bg-surface p-2">
-              {filteredDmaMarkets.length === 0 ? (
-                <p className="text-xs text-text-muted py-6 text-center">
-                  {dmaMarkets.length === 0
-                    ? 'No markets were returned from the server.'
-                    : 'No markets match your filter.'}
-                </p>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {filteredDmaMarkets.map((row) => {
-                    const checked = dmaDraftIds.includes(row.dmaid);
-                    return (
-                      <label
-                        key={row.dmaid}
-                        className={[
-                          'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs cursor-pointer transition-colors',
-                          checked
-                            ? 'border-ems-accent bg-ems-accent/10 text-ems-accent'
-                            : 'border-border text-text-secondary hover:border-ems-accent/50 hover:text-text-primary',
-                        ].join(' ')}
-                      >
-                        <input
-                          type="checkbox"
-                          className="sr-only"
-                          checked={checked}
-                          onChange={() => toggleDmaDraft(row.dmaid)}
-                        />
-                        <span
-                          className={[
-                            'inline-flex h-3.5 w-3.5 items-center justify-center rounded border transition-colors',
-                            checked ? 'border-ems-accent bg-ems-accent text-background' : 'border-border bg-background',
-                          ].join(' ')}
-                          aria-hidden
-                        >
-                          {checked ? <Check className="h-2.5 w-2.5" /> : null}
-                        </span>
-                        <span className="whitespace-nowrap">{formatDmaPickerLabel(row)}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-            <div className="flex items-center justify-between pt-1">
-              <p className="text-[11px] text-text-muted tabular-nums">
+          footer={
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-text-secondary tabular-nums">
                 {dmaDraftIds.length} market{dmaDraftIds.length === 1 ? '' : 's'} selected
               </p>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setShowDmaModal(false)}
-                  className="px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary"
+                  className="inline-flex items-center justify-center rounded-lg border border-border bg-elevated px-4 py-2 text-sm font-medium text-text-secondary hover:border-ems-accent/50 hover:text-text-primary disabled:opacity-50"
                   disabled={saving}
                 >
                   Cancel
@@ -1322,14 +1351,30 @@ function ProjectInlineOverview({
                 <button
                   type="button"
                   onClick={applyDmaDraft}
-                  className="inline-flex items-center justify-center rounded-md bg-ems-accent px-3.5 py-1.5 text-xs font-medium text-background hover:bg-ems-accent/85 disabled:opacity-50"
+                  className="inline-flex items-center justify-center rounded-lg bg-ems-accent px-4 py-2 text-sm font-medium text-background hover:bg-ems-accent/85 disabled:opacity-50"
                   disabled={saving}
                 >
-                  Apply Markets
+                  Save markets
                 </button>
               </div>
             </div>
-          </div>
+          }
+        >
+          <DmaListPicker
+            rows={dmaMarkets}
+            selectedIds={dmaDraftIds}
+            onToggle={toggleDmaDraft}
+            onSelectMany={(ids) => {
+              setDmaDraftIds((prev) => {
+                const next = new Set(prev);
+                for (const id of ids) next.add(id);
+                return [...next].sort((a, b) => a - b);
+              });
+            }}
+            onClearAll={() => setDmaDraftIds([])}
+            disabled={saving}
+            emptyMessage="No markets were returned from the server."
+          />
         </Modal>
       )}
 
@@ -2004,7 +2049,6 @@ function VenueConfirmEngagementModal({
   };
 
   const venueDisplayName = venue.venueCompanyName ?? venue.venueName ?? 'Unknown venue';
-  const venueDmaLabel = venue.venueDmaMarketName?.trim() || 'Not set';
 
   const canSubmit =
     !attractionsQuery.isPending &&
@@ -2089,18 +2133,17 @@ function VenueConfirmEngagementModal({
           Confirming this venue will create a new engagement. Please fill in the opening show details below.
         </p>
 
-        {/* Pre-populated venue & DMA */}
-        <div className="rounded-lg border border-ems-accent/20 bg-ems-accent/5 px-4 py-3 space-y-2">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">Venue</span>
-              <p className="text-sm font-medium text-text-primary mt-0.5">{venueDisplayName}</p>
-            </div>
-            <div>
-              <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">DMA Market</span>
-              <p className="text-sm font-medium text-text-primary mt-0.5">{venueDmaLabel}</p>
-            </div>
-          </div>
+        {/* Pre-populated venue details */}
+        <div className="rounded-lg border border-ems-accent/20 bg-ems-accent/5 px-4 py-3">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">Venue</span>
+          <p className="text-sm font-medium text-text-primary mt-0.5 break-words">{venueDisplayName}</p>
+          <VenueDetailLine
+            city={venue.venueCity ?? null}
+            stateProvince={venue.venueStateProvince ?? null}
+            dmaMarketName={venue.venueDmaMarketName ?? null}
+            seatingCapacity={venue.venueSeatingCapacity ?? null}
+            entertainmentComplexNames={venue.venueEntertainmentComplexNames ?? null}
+          />
         </div>
 
         {/* Attraction & Tour Selection (editable) */}
@@ -2255,7 +2298,6 @@ function VenueProposalRow({
     [venueStatusStrings],
   );
   const venueDisplayName = venue.venueCompanyName ?? venue.venueName ?? 'Unknown venue';
-  const venueDmaLabel = venue.venueDmaMarketName?.trim() || 'Not set';
 
   useEffect(() => {
     setVenueStatus(venue.venueStatus);
@@ -2355,28 +2397,32 @@ function VenueProposalRow({
         )}
         <div className="p-4 space-y-3">
           <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                 {onNavigate && venue.venueCompanyId ? (
                   <button
                     type="button"
                     onClick={() => onNavigate('companies', { selectedCompanyId: venue.venueCompanyId })}
-                    className="text-text-primary font-medium text-sm hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+                    className="text-left text-text-primary font-medium text-sm hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors break-words"
                     title="Open venue company profile"
                   >
                     {venueDisplayName}
                   </button>
                 ) : (
-                  <span className="text-text-primary font-medium text-sm">
+                  <span className="text-text-primary font-medium text-sm break-words">
                     {venueDisplayName}
                   </span>
                 )}
-                <span className="inline-flex max-w-full items-center rounded border border-border bg-elevated px-2 py-0.5 text-[11px] font-medium text-text-secondary">
-                  DMA: {venueDmaLabel}
-                </span>
               </div>
+              <VenueDetailLine
+                city={venue.venueCity ?? null}
+                stateProvince={venue.venueStateProvince ?? null}
+                dmaMarketName={venue.venueDmaMarketName ?? null}
+                seatingCapacity={venue.venueSeatingCapacity ?? null}
+                entertainmentComplexNames={venue.venueEntertainmentComplexNames ?? null}
+              />
               {venue.venueName && venue.venueName !== venue.venueCompanyName && (
-                <div className="text-xs text-text-secondary">{venue.venueName}</div>
+                <div className="text-xs text-text-secondary mt-1">{venue.venueName}</div>
               )}
             </div>
             <div className="flex items-center gap-2 shrink-0">
@@ -2680,18 +2726,24 @@ function AddVenueForm({
       .filter((v) => !existingIds.has(v.companyId) && dmaMarketFamilyKey(v.dmaMarketName) === selectedMarket)
       .sort((a, b) => (a.venueName ?? '').localeCompare(b.venueName ?? '', undefined, { sensitivity: 'base' }))
       .map((v) => {
-        const complex = (v.entertainmentComplexNames ?? '').trim();
+        const location = formatVenueLocation(v.city, v.stateProvince);
         const market = cleanDmaMarketLabel(v.dmaMarketName);
+        const complex = (v.entertainmentComplexNames ?? '').trim();
+        const capacityLabel = formatVenueCapacity(v.seatingCapacity);
         const details = [
+          location ? `City: ${location}` : null,
+          market ? `DMA: ${market}` : null,
+          capacityLabel !== '—' ? `Capacity: ${capacityLabel}` : null,
           complex ? `Complex: ${complex}` : null,
-          Number.isFinite(v.seatingCapacity) ? `Capacity: ${v.seatingCapacity.toLocaleString()}` : null,
-        ].filter(Boolean).join(' · ');
+        ]
+          .filter(Boolean)
+          .join(' | ');
         return {
           value: String(v.companyId),
           label: v.venueName,
           description: details || undefined,
-          rightText: market ? `DMA: ${market}` : undefined,
-          searchText: [v.venueName, complex, market, v.venueTypeName].filter(Boolean).join(' '),
+          descriptionMultiline: true,
+          searchText: [v.venueName, location, market, complex, v.venueTypeName].filter(Boolean).join(' '),
         };
       });
   }, [availableVenueRows, existingIds, selectedMarket]);
@@ -2815,8 +2867,8 @@ function ProjectDetailDrawer({
     staleTime: 60_000,
   });
   const dmaMarketsQuery = useQuery({
-    queryKey: ['dma-markets', 'project-overview', 'all'],
-    queryFn: () => fetchDmaMarketsPaged(0, PROJECT_LOOKUP_LIMIT),
+    queryKey: ['dma-markets', 'project-overview', 'all', 'enriched'],
+    queryFn: () => fetchDmaMarketsPaged(0, PROJECT_LOOKUP_LIMIT, '', { enriched: true }),
     staleTime: 60_000,
   });
 
@@ -4192,7 +4244,6 @@ function CreateProjectForm({
                         <div className="space-y-1.5">
                           {rows.slice(0, PROJECT_WIZARD_VENUE_RENDER_CAP).map((r) => {
                             const checked = selectedVenueCompanyIds.includes(r.companyId);
-                            const complex = (r.entertainmentComplexNames ?? '').trim() || '—';
                             return (
                               <label
                                 key={r.companyId}
@@ -4204,11 +4255,15 @@ function CreateProjectForm({
                                   checked={checked}
                                   onChange={(e) => setVenueSelected(r, e.target.checked)}
                                 />
-                                <span className="min-w-0 break-words">
-                                  <span className="font-medium">{r.venueName}</span>
-                                  <span className="text-text-muted text-xs block mt-0.5">
-                                    Entertainment Complex: {complex} · Capacity: {formatVenueCapacity(r.seatingCapacity)}
-                                  </span>
+                                <span className="min-w-0 flex-1 break-words">
+                                  <span className="font-medium block break-words">{r.venueName}</span>
+                                  <VenueDetailLine
+                                    city={r.city}
+                                    stateProvince={r.stateProvince}
+                                    dmaMarketName={r.dmaMarketName}
+                                    seatingCapacity={r.seatingCapacity}
+                                    entertainmentComplexNames={r.entertainmentComplexNames}
+                                  />
                                 </span>
                               </label>
                             );
@@ -4247,13 +4302,15 @@ function CreateProjectForm({
           <div className="space-y-2">
             <p className="text-xs font-medium text-text-secondary">Selected venues</p>
             {selectedVenueCompanyIds.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-col gap-1.5">
                 {selectedVenueCompanyIds.map((cid) => (
                   <span
                     key={cid}
-                    className="inline-flex items-center gap-1 px-2 py-1 bg-ems-accent/10 text-text-primary text-xs rounded-md border border-ems-accent/30 max-w-full"
+                    className="flex items-start gap-2 px-2 py-1 bg-ems-accent/10 text-text-primary text-xs rounded-md border border-ems-accent/30"
                   >
-                    <span className="truncate">{venueSeenLabels.get(cid) ?? `Venue #${cid}`}</span>
+                    <span className="min-w-0 flex-1 break-words leading-snug">
+                      {venueSeenLabels.get(cid) ?? `Venue #${cid}`}
+                    </span>
                     <button
                       type="button"
                       onClick={() => removeWizardVenueChip(cid)}
@@ -4381,11 +4438,11 @@ function CreateProjectForm({
             <FormField label="Selected Venues">
               <div className="text-sm text-text-primary bg-surface px-3 py-2 rounded border border-border">
                 {selectedVenueCompanyIds.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-col gap-1.5">
                     {selectedVenueCompanyIds.map((cid) => (
                       <span
                         key={cid}
-                        className="inline-flex items-center rounded-md border border-border bg-background px-2 py-1 text-xs text-text-primary"
+                        className="flex items-start rounded-md border border-border bg-background px-2 py-1 text-xs text-text-primary leading-snug break-words"
                       >
                         {venueSeenLabels.get(cid) ?? `Venue #${cid}`}
                       </span>

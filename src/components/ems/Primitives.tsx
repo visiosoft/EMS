@@ -106,6 +106,8 @@ export const EmsModalBodyScrollElementRef = createContext<React.RefObject<HTMLDi
 
 export function Modal({
   title,
+  titleBadge,
+  description,
   children,
   onClose,
   footer,
@@ -121,6 +123,10 @@ export function Modal({
   allowContentOverflow: _allowContentOverflow = false,
 }: {
   title: string;
+  /** Small pill rendered next to the title (e.g. a scope tag). */
+  titleBadge?: React.ReactNode;
+  /** One or two lines of context shown under the title, above the divider. */
+  description?: React.ReactNode;
   children: React.ReactNode;
   onClose: () => void;
   footer?: React.ReactNode;
@@ -142,11 +148,19 @@ export function Modal({
         style={{ maxWidth: `min(${width}px, 100%)`, width: `min(${width}px, 100%)` }}
       >
         <div
-          className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-elevated px-4 py-3 sm:px-5"
+          className="flex shrink-0 items-start justify-between gap-3 border-b border-border bg-elevated px-4 py-3 sm:px-5"
         >
-          <h2 id={titleId} className="text-lg font-semibold text-text-primary truncate pr-2">
-            {title}
-          </h2>
+          <div className="min-w-0 flex-1 pr-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <h2 id={titleId} className="text-lg font-semibold text-text-primary truncate">
+                {title}
+              </h2>
+              {titleBadge}
+            </div>
+            {description && (
+              <p className="mt-1 text-xs leading-relaxed text-text-muted">{description}</p>
+            )}
+          </div>
           <button
             type="button"
             onClick={onClose}

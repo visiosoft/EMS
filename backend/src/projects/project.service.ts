@@ -33,9 +33,7 @@ import { Venue } from '../entities/venue.entity';
 import * as path from 'path';
 import * as fs from 'fs';
 import { CONFIRMED_OFFER_UPLOAD_DIR } from './confirmed-offer-multer.config';
-import {
-  CreateProjectDto,
-} from './dto/create-project.dto';
+import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { AddProjectVenueDto } from './dto/add-project-venue.dto';
 import { UpdateProjectVenueDto } from './dto/update-project-venue.dto';
@@ -1012,23 +1010,42 @@ export class ProjectService {
           .filter((id) => Number.isInteger(id) && id > 0),
       ),
     ];
-    const [venueCompanies, venueRows] =
+    const [venueCompanies, venueRows, complexRows] =
       venueCompanyIds.length > 0
         ? await Promise.all([
             this.companyRepo.find({
               where: { companyId: In(venueCompanyIds) },
-              relations: { dma: true },
+              relations: { dma: true, physicalAddress: true },
             }),
             this.venueRepo.find({
               where: { companyId: In(venueCompanyIds) },
             }),
+            this.dataSource.query<
+              { VenueCompanyID: number; ComplexNames: string | null }[]
+            >(
+              `SELECT vcm.VenueCompanyID,
+                      STRING_AGG(LTRIM(RTRIM(cc.CompanyName)), N', ')
+                        WITHIN GROUP (ORDER BY LTRIM(RTRIM(cc.CompanyName))) AS ComplexNames
+                 FROM dbo.VenueComplexMember vcm
+                 INNER JOIN dbo.Company cc ON cc.CompanyID = vcm.ComplexCompanyID
+                WHERE vcm.VenueCompanyID IN (${venueCompanyIds
+                  .map((_, i) => `@${i}`)
+                  .join(', ')})
+                GROUP BY vcm.VenueCompanyID`,
+              venueCompanyIds,
+            ),
           ])
-        : [[], []];
+        : [[], [], []];
     const venueCompanyById = new Map(
       venueCompanies.map((company) => [company.companyId, company]),
     );
     const venueByCompanyId = new Map(
       venueRows.map((venue) => [venue.companyId, venue]),
+    );
+    const complexNamesByVenueCompanyId = new Map<number, string>(
+      (complexRows ?? [])
+        .filter((r) => r?.VenueCompanyID != null && r?.ComplexNames)
+        .map((r) => [Number(r.VenueCompanyID), String(r.ComplexNames).trim()]),
     );
 
     const venueRowIds = dbVenues.map((v) => v.engagementProjectVenueId);
@@ -1069,6 +1086,8 @@ export class ProjectService {
     const venuesWithDetails = dbVenues.map((v) => {
       const company = venueCompanyById.get(v.venueCompanyId);
       const venue = venueByCompanyId.get(v.venueCompanyId);
+      const address = company?.physicalAddress;
+      const complexNames = complexNamesByVenueCompanyId.get(v.venueCompanyId);
       return {
         engagementProjectVenueId: v.engagementProjectVenueId,
         engagementProjectId: v.engagementProjectId,
@@ -1077,11 +1096,22 @@ export class ProjectService {
         venueName: venue?.venueName ?? null,
         venueDmaId: company?.dmaid ?? null,
         venueDmaMarketName: company?.dma?.marketName ?? null,
+        venueCity: address?.city?.trim() || null,
+        venueStateProvince: address?.stateProvince?.trim() || null,
+        venueSeatingCapacity:
+          typeof venue?.seatingCapacity === 'number'
+            ? venue.seatingCapacity
+            : null,
+        venueEntertainmentComplexNames: complexNames || null,
         venueStatus: v.venueStatus,
-        offerCreationStatus: v.offerCreationStatus ?? project.projectStage ?? 'Requested',
-        offerReviewStatus: v.offerReviewStatus ?? project.offerReviewStatus ?? null,
-        confirmedOfferLinkId: v.confirmedOfferLinkId ?? project.confirmedOfferLinkId ?? null,
-        confirmedOfferLinkName: linkNameById.get(v.confirmedOfferLinkId ?? 0) ?? null,
+        offerCreationStatus:
+          v.offerCreationStatus ?? project.projectStage ?? 'Requested',
+        offerReviewStatus:
+          v.offerReviewStatus ?? project.offerReviewStatus ?? null,
+        confirmedOfferLinkId:
+          v.confirmedOfferLinkId ?? project.confirmedOfferLinkId ?? null,
+        confirmedOfferLinkName:
+          linkNameById.get(v.confirmedOfferLinkId ?? 0) ?? null,
         // Frontend-only fields returned as null (Option A — we never persisted them)
         configName: null,
         dealType: null,
@@ -1202,7 +1232,8 @@ export class ProjectService {
             engagementProjectId: savedProject.engagementProjectId,
             venueCompanyId: v.venueCompanyId,
             venueStatus: v.venueStatus,
-            offerCreationStatus: v.offerCreationStatus ?? defaultOfferCreationStatus,
+            offerCreationStatus:
+              v.offerCreationStatus ?? defaultOfferCreationStatus,
           });
           const savedPv = await manager.save(EngagementProjectVenue, pv);
 
@@ -1254,7 +1285,8 @@ export class ProjectService {
         const d = String((err as QueryFailedError).driverError ?? err.message);
         this.logger.warn(`Create project failed: ${d}`);
         throw new BadRequestException({
-          message: 'Could not update the project. Check the information you entered, or ask your administrator if something is blocked.',
+          message:
+            'Could not update the project. Check the information you entered, or ask your administrator if something is blocked.',
           detail: d,
         });
       }
@@ -1369,9 +1401,7 @@ export class ProjectService {
               const tourRow = await manager.findOne(Tour, {
                 where: { tourId: effectiveTourId },
               });
-              effectiveAgencyId =
-                (tourRow?.talentAgencyCompanyId as number | null | undefined) ??
-                null;
+              effectiveAgencyId = tourRow?.talentAgencyCompanyId ?? null;
             }
             await this.syncTourTalentAgents(
               manager,
@@ -1390,7 +1420,8 @@ export class ProjectService {
         const d = String((e as QueryFailedError).driverError ?? e.message);
         this.logger.warn(`Update project failed (id=${id}): ${d}`);
         throw new BadRequestException({
-          message: 'Could not update the project. Check the information you entered, or ask your administrator if something is blocked.',
+          message:
+            'Could not update the project. Check the information you entered, or ask your administrator if something is blocked.',
           detail: d,
         });
       }
@@ -1685,7 +1716,8 @@ export class ProjectService {
 
     // Handle offer review status change at venue level
     if (dto.offerReviewStatus !== undefined && dto.offerReviewStatus != null) {
-      const effectiveStage = dto.offerCreationStatus ?? pv.offerCreationStatus ?? 'Requested';
+      const effectiveStage =
+        dto.offerCreationStatus ?? pv.offerCreationStatus ?? 'Requested';
       this.assertValidOfferReviewStatus(dto.offerReviewStatus, effectiveStage);
       // When moving away from Confirmed, clear confirmed-offer PDF
       if (
@@ -1714,7 +1746,8 @@ export class ProjectService {
       // Require confirmed offer PDF before confirming
       if (pv.confirmedOfferLinkId == null) {
         throw new BadRequestException({
-          message: 'Please upload the confirmed offer PDF before confirming this venue.',
+          message:
+            'Please upload the confirmed offer PDF before confirming this venue.',
         });
       }
       // Require at least one proposed date before confirming
@@ -1723,7 +1756,8 @@ export class ProjectService {
       });
       if (optionsCount === 0) {
         throw new BadRequestException({
-          message: 'Please add at least one proposed date before confirming this venue.',
+          message:
+            'Please add at least one proposed date before confirming this venue.',
         });
       }
     }
@@ -1766,7 +1800,9 @@ export class ProjectService {
    * If all venue components of the project have OfferCreationStatus = 'Submitted',
    * set the project-level OfferCreationStatus to 'Submitted'; otherwise 'Requested'.
    */
-  private async syncProjectOfferCreationStatus(projectId: number): Promise<void> {
+  private async syncProjectOfferCreationStatus(
+    projectId: number,
+  ): Promise<void> {
     const venues = await this.projectVenueRepo.find({
       where: { engagementProjectId: projectId },
       select: ['offerCreationStatus'],
@@ -1854,11 +1890,20 @@ export class ProjectService {
   async uploadConfirmedOfferPdf(
     projectId: number,
     venueId: number,
-    file: { originalname: string; mimetype: string; filename: string; path: string; size: number },
+    file: {
+      originalname: string;
+      mimetype: string;
+      filename: string;
+      path: string;
+      size: number;
+    },
   ): Promise<{ linkId: number; linkName: string }> {
     const pv = await this.assertVenueInProject(projectId, venueId);
 
-    const publicPath = `/uploads/confirmed-offers/${file.filename}`.slice(0, 2048);
+    const publicPath = `/uploads/confirmed-offers/${file.filename}`.slice(
+      0,
+      2048,
+    );
 
     const link = this.linkRepo.create({
       linkType: 'ConfirmedOffer',
@@ -1882,19 +1927,25 @@ export class ProjectService {
     const pv = await this.assertVenueInProject(projectId, venueId);
 
     if (pv.confirmedOfferLinkId == null) {
-      throw new NotFoundException('No confirmed-offer PDF has been uploaded for this venue.');
+      throw new NotFoundException(
+        'No confirmed-offer PDF has been uploaded for this venue.',
+      );
     }
 
     const link = await this.linkRepo.findOne({
       where: { linkId: pv.confirmedOfferLinkId },
     });
     if (!link) {
-      throw new NotFoundException('The link record for this confirmed-offer PDF was not found.');
+      throw new NotFoundException(
+        'The link record for this confirmed-offer PDF was not found.',
+      );
     }
 
     // linkPath is like /uploads/confirmed-offers/<uuid>.pdf — extract filename
     const fileName = link.linkPath.split('/').pop() ?? '';
-    const filePath = path.resolve(path.join(CONFIRMED_OFFER_UPLOAD_DIR, fileName));
+    const filePath = path.resolve(
+      path.join(CONFIRMED_OFFER_UPLOAD_DIR, fileName),
+    );
 
     // Prevent path traversal
     if (!filePath.startsWith(path.resolve(CONFIRMED_OFFER_UPLOAD_DIR))) {
@@ -1902,7 +1953,9 @@ export class ProjectService {
     }
 
     if (!fs.existsSync(filePath)) {
-      throw new NotFoundException('The confirmed-offer PDF file was not found on disk.');
+      throw new NotFoundException(
+        'The confirmed-offer PDF file was not found on disk.',
+      );
     }
 
     return { filePath, linkName: link.linkName };
@@ -1912,7 +1965,9 @@ export class ProjectService {
    * Remove the confirmed-offer PDF link and file from a venue.
    * Called when the offer review status moves away from Confirmed.
    */
-  private async removeVenueConfirmedOfferPdf(pv: EngagementProjectVenue): Promise<void> {
+  private async removeVenueConfirmedOfferPdf(
+    pv: EngagementProjectVenue,
+  ): Promise<void> {
     const linkId = pv.confirmedOfferLinkId;
     if (linkId == null) return;
 
@@ -1926,7 +1981,9 @@ export class ProjectService {
       // Delete file from disk
       const fileName = link.linkPath.split('/').pop() ?? '';
       if (fileName) {
-        const filePath = path.resolve(path.join(CONFIRMED_OFFER_UPLOAD_DIR, fileName));
+        const filePath = path.resolve(
+          path.join(CONFIRMED_OFFER_UPLOAD_DIR, fileName),
+        );
         if (
           filePath.startsWith(path.resolve(CONFIRMED_OFFER_UPLOAD_DIR)) &&
           fs.existsSync(filePath)

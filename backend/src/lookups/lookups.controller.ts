@@ -90,13 +90,19 @@ export class LookupsController {
   }
 
   @Get('department-roles/:departmentId/contact-usage')
-  departmentRoleContactUsage(@Param('departmentId', ParseIntPipe) departmentId: number) {
+  departmentRoleContactUsage(
+    @Param('departmentId', ParseIntPipe) departmentId: number,
+  ) {
     return this.lookupsService.getContactsUsingDepartmentRoles(departmentId);
   }
 
   @Get('company-type-services/:companyTypeId/company-usage')
-  companyTypeServiceUsage(@Param('companyTypeId', ParseIntPipe) companyTypeId: number) {
-    return this.lookupsService.getCompaniesUsingCompanyTypeServices(companyTypeId);
+  companyTypeServiceUsage(
+    @Param('companyTypeId', ParseIntPipe) companyTypeId: number,
+  ) {
+    return this.lookupsService.getCompaniesUsingCompanyTypeServices(
+      companyTypeId,
+    );
   }
 
   @Get('non-resident-withholdings')
@@ -133,16 +139,41 @@ export class LookupsController {
     return this.lookupsService.searchDmaMarkets(query?.trim() ?? '', safeLimit);
   }
 
+  /** DMA markets that cover the given city (via dbo.Address ↔ dbo.DMA.PostalCode). */
+  @Get('dma-markets/by-city')
+  async dmaMarketsByCity(
+    @Query('q') query?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const raw = limit ? Number(limit) : 50;
+    const safeLimit = Number.isFinite(raw)
+      ? Math.min(200, Math.max(1, Math.floor(raw)))
+      : 50;
+    return this.lookupsService.findDmaMarketsByCity(
+      query?.trim() ?? '',
+      safeLimit,
+    );
+  }
+
   @Get('dma-markets')
   dmaMarkets(
     @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
     @Query('limit', new DefaultValuePipe(25), ParseIntPipe) limit: number,
     @Query('q') query?: string,
+    @Query('enriched') enriched?: string,
   ) {
     const safeLimit = Number.isFinite(limit)
       ? Math.min(500, Math.max(1, Math.floor(limit)))
       : 25;
     const safeOffset = Math.max(0, offset);
+    const wantEnriched = String(enriched ?? '').toLowerCase() === 'true';
+    if (wantEnriched) {
+      return this.lookupsService.findDmaMarketsPaginatedEnriched(
+        safeOffset,
+        safeLimit,
+        query?.trim() ?? '',
+      );
+    }
     return this.lookupsService.findDmaMarketsPaginated(
       safeOffset,
       safeLimit,

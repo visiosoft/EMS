@@ -1,19 +1,14 @@
 import { useMemo } from 'react';
-import { Check, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import type { ApiDmaMarket } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import {
   deriveValidSelectedDmaIds,
   normalizePositiveIntId,
 } from '@/lib/projectWizardDma';
+import { DmaListPicker } from './DmaListPicker';
 
 const EMPTY_ROWS: ApiDmaMarket[] = [];
-
-function formatDmaPickerLabel(r: { dmaid?: number; marketName?: string | null }): string {
-  const name = (r.marketName ?? '').trim();
-  if (name) return name;
-  return r.dmaid != null ? `DMA #${r.dmaid}` : '—';
-}
 
 export function ProjectWizardMarketsStep({
   rows,
@@ -36,22 +31,30 @@ export function ProjectWizardMarketsStep({
 }) {
   const catalog = useMemo(() => rows ?? EMPTY_ROWS, [rows]);
   const validSelected = useMemo(() => deriveValidSelectedDmaIds(selectedIds), [selectedIds]);
-  const selectedSet = useMemo(() => new Set(validSelected), [validSelected]);
 
-  const toggleMarket = (row: ApiDmaMarket) => {
-    const dmaid = normalizePositiveIntId(row.dmaid);
-    if (dmaid == null) {
+  const toggle = (dmaid: number) => {
+    const norm = normalizePositiveIntId(dmaid);
+    if (norm == null) {
       addToast(
         'This market has no valid ID. Refresh the list or recreate the DMA in Settings → Lookup tables.',
         'error',
       );
       return;
     }
-    const next = new Set(selectedSet);
-    if (next.has(dmaid)) {
-      next.delete(dmaid);
+    const next = new Set(validSelected);
+    if (next.has(norm)) {
+      next.delete(norm);
     } else {
-      next.add(dmaid);
+      next.add(norm);
+    }
+    onSelectedIdsChange([...next].sort((a, b) => a - b));
+  };
+
+  const selectMany = (ids: number[]) => {
+    const next = new Set(validSelected);
+    for (const id of ids) {
+      const norm = normalizePositiveIntId(id);
+      if (norm != null) next.add(norm);
     }
     onSelectedIdsChange([...next].sort((a, b) => a - b));
   };
@@ -99,40 +102,14 @@ export function ProjectWizardMarketsStep({
           the list (the catalog may have refreshed). Clear and re-select, or click Retry to reload.
         </div>
       )}
-      <div className="max-h-[min(24rem,50vh)] overflow-y-auto py-1">
-        <div className="flex flex-wrap gap-2" role="group" aria-label="DMA markets">
-          {catalog.map((r) => {
-            const dmaid = normalizePositiveIntId(r.dmaid);
-            if (dmaid == null) return null;
-            const checked = selectedSet.has(dmaid);
-            return (
-              <button
-                key={dmaid}
-                type="button"
-                aria-pressed={checked}
-                onClick={() => toggleMarket(r)}
-                className={[
-                  'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors',
-                  checked
-                    ? 'border-ems-accent bg-ems-accent/10 text-ems-accent'
-                    : 'border-border bg-transparent text-text-secondary hover:border-ems-accent/50 hover:text-text-primary',
-                ].join(' ')}
-              >
-                <span
-                  className={[
-                    'inline-flex h-3.5 w-3.5 items-center justify-center rounded border',
-                    checked ? 'border-ems-accent bg-ems-accent text-background' : 'border-border bg-background',
-                  ].join(' ')}
-                  aria-hidden
-                >
-                  {checked ? <Check className="h-2.5 w-2.5" /> : null}
-                </span>
-                <span className="whitespace-nowrap">{formatDmaPickerLabel(r)}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      <DmaListPicker
+        rows={catalog}
+        selectedIds={validSelected}
+        onToggle={toggle}
+        onSelectMany={selectMany}
+        onClearAll={() => onSelectedIdsChange([])}
+      />
     </div>
   );
 }
+

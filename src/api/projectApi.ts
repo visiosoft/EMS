@@ -166,6 +166,14 @@ export interface ApiProjectVenue {
   /** Venue company DMA display data */
   venueDmaId?: number | null;
   venueDmaMarketName?: string | null;
+  /** Physical address city from Company.PhysicalAddressID. */
+  venueCity?: string | null;
+  /** Physical address state/province (short or long form). */
+  venueStateProvince?: string | null;
+  /** dbo.Venue.SeatingCapacity — total seats. */
+  venueSeatingCapacity?: number | null;
+  /** Comma-separated complex company names from dbo.VenueComplexMember. */
+  venueEntertainmentComplexNames?: string | null;
   /** NOT NULL in DB */
   venueStatus: VenueStatus;
 
