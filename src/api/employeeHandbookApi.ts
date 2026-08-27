@@ -3,7 +3,8 @@ import { apiFetch } from '@/api/config';
 export type HandbookContentBlock =
   | { kind: 'paragraph'; text: string; italic?: boolean }
   | { kind: 'heading'; text: string; italic?: boolean }
-  | { kind: 'list'; items: string[] };
+  | { kind: 'list'; items: string[] }
+  | { kind: 'image'; src: string; alt?: string };
 
 export type HandbookSubsection = {
   id: string;

@@ -15,6 +15,7 @@ import type { LucideIcon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { ReactFlipBook } from "@vuvandinh203/react-flipbook";
 import { fetchHandbookSections } from "@/api/employeeHandbookApi";
+import { apiFetchBlob } from "@/api/config";
 import { useInternalNavigation } from "../routing/InternalNavigationContext";
 import type { EmployeeHandbookView } from "../routing/internalSessionRoute";
 
@@ -148,7 +149,8 @@ type HandbookContentBlock =
   | { kind: "paragraph"; text: string; italic?: boolean }
   | { kind: "heading"; text: string; italic?: boolean }
   | { kind: "list"; items: string[] }
-  | { kind: "list-item"; text: string };
+  | { kind: "list-item"; text: string }
+  | { kind: "image"; src: string; alt?: string };
 
 type HandbookSubsection = {
   id: string;
@@ -260,6 +262,7 @@ function splitIntoSubsections(blocks: HandbookContentBlock[]): { title: string; 
 function hasRenderableContent(blocks: HandbookContentBlock[]): boolean {
   return blocks.some((block) => {
     if (block.kind === "list") return block.items.some((item) => item.trim().length > 0);
+    if (block.kind === "image") return true;
     return block.text.trim().length > 0;
   });
 }
@@ -329,6 +332,8 @@ const CHAR_COLS = 55;
  */
 const PARAGRAPH_LINE_H = 26;
 const HEADING_H = 25;
+/** Fixed reserved height for an embedded image block; the rendered <img> is capped to match via max-height. */
+const IMAGE_H = 260;
 
 /** Vertical rhythm reserved between blocks, matched to the rendered margins. */
 const GAP = 13;
@@ -358,6 +363,8 @@ function blockHeight(block: HandbookContentBlock): number {
       const lines = Math.max(1, Math.ceil(block.text.length / CHAR_COLS));
       return lines * PARAGRAPH_LINE_H;
     }
+    case 'image':
+      return IMAGE_H;
     case 'list':
       return 0;
   }
@@ -479,6 +486,52 @@ function HandbookParagraph({ children, italic = false }: { children: ReactNode; 
 }
 
 /**
+ * The image API route sits behind InternalAccessGuard, which reads identity off request
+ * headers (X-User-Oid/Email) — headers a plain <img src> can't attach. Fetch the bytes with
+ * apiFetchBlob (same auth path as the rest of the app) and hand the <img> an object URL instead.
+ */
+function HandbookImage({ src, alt }: { src: string; alt?: string }) {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let url: string | null = null;
+    setObjectUrl(null);
+    setFailed(false);
+    apiFetchBlob(src)
+      .then(({ blob }) => {
+        if (cancelled) return;
+        url = URL.createObjectURL(blob);
+        setObjectUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [src]);
+
+  if (failed) return null;
+
+  return (
+    <div className="mb-[13px] flex justify-center last:mb-0" style={{ height: IMAGE_H }}>
+      {objectUrl ? (
+        <img
+          src={objectUrl}
+          alt={alt ?? ""}
+          className="max-h-full max-w-full object-contain"
+        />
+      ) : (
+        <div className="h-full w-full animate-pulse bg-neutral-100" />
+      )}
+    </div>
+  );
+}
+
+/**
  * Block-to-block margins below are matched to the GAP/LIST_GAP constants reserved by
  * splitChapterPages() during pagination. Without them the DOM renders tightly-packed content
  * (Tailwind preflight zeroes default margins) while the paginator budgets extra space
@@ -522,6 +575,10 @@ function renderContentBlock(block: HandbookPageBlock, index: number) {
         {block.text}
       </p>
     );
+  }
+
+  if (block.kind === "image") {
+    return <HandbookImage key={`img-${block.src}-${index}`} src={block.src} alt={block.alt} />;
   }
 
   return (
