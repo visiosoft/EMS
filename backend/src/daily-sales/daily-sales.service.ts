@@ -1797,7 +1797,6 @@ export class DailySalesService {
       perfs = [match];
     }
     const perfIds = perfs.map((p) => p.performanceId);
-    const performanceCount = perfs.length;
     const marketingWindow =
       await this.getMarketingWindowForPerformances(perfIds);
 
@@ -1862,27 +1861,21 @@ export class DailySalesService {
     );
 
     /**
-     * `engagement.sellableCapacity` / `grossPotential` are stored per-show on the engagement
-     * (one venue, repeated for each performance). When we roll up the whole engagement
-     * (no `performanceIdFilter`), scale the caps by the number of performances so the
-     * "% sold" / "% revenue vs potential" KPIs make sense across all shows.
+     * Engagement-level sellableCapacity / grossPotential are now maintained as
+     * the sum across all performances (populated from performance-level entries),
+     * so they should NOT be multiplied by the performance count.
      */
-    const perShowCapRaw = engagement.sellableCapacity;
-    const perShowGrossRaw = (() => {
+    const cap =
+      engagement.sellableCapacity != null &&
+      Number.isFinite(Number(engagement.sellableCapacity))
+        ? Math.trunc(Number(engagement.sellableCapacity))
+        : null;
+    const grossPotentialNum = (() => {
       const v = engagement.grossPotential as string | number | null | undefined;
-      if (v == null) return null;
-      if (typeof v === 'string' && v.trim() === '') return null;
+      if (v == null || (typeof v === 'string' && v.trim() === '')) return null;
       const n = Number(v);
       return Number.isFinite(n) ? n : null;
     })();
-    const cap =
-      perShowCapRaw != null && performanceCount > 0
-        ? perShowCapRaw * performanceCount
-        : perShowCapRaw;
-    const grossPotentialNum =
-      perShowGrossRaw != null && performanceCount > 0
-        ? perShowGrossRaw * performanceCount
-        : perShowGrossRaw;
     const pctSold =
       cap != null && cap > 0 ? pctVsCap(endTotals.tickets, cap) : null;
     const pctRevenueVsPotential =

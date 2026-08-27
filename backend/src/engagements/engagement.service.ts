@@ -213,8 +213,20 @@ export interface EngagementTravelCarServiceRow {
   bookedBy: string | null;
   originAddressId: number | null;
   originAddressLabel: string | null;
+  originAddressLine1: string | null;
+  originAddressLine2: string | null;
+  originAddressCity: string | null;
+  originAddressStateProvince: string | null;
+  originAddressPostalCode: string | null;
+  originAddressCountry: string | null;
   destinationAddressId: number | null;
   destinationAddressLabel: string | null;
+  destinationAddressLine1: string | null;
+  destinationAddressLine2: string | null;
+  destinationAddressCity: string | null;
+  destinationAddressStateProvince: string | null;
+  destinationAddressPostalCode: string | null;
+  destinationAddressCountry: string | null;
   pickupDateTime: string | null;
 }
 
@@ -8685,18 +8697,33 @@ export class EngagementService {
                 )
               : null,
           ]);
+          const origAddr = (origRow as Record<string, unknown>[])?.[0];
+          const destAddr = (destRow as Record<string, unknown>[])?.[0];
+          const strOrNull = (row: Record<string, unknown> | undefined, k: string): string | null => {
+            if (!row) return null;
+            const v = row[k];
+            return v == null || v === '' ? null : String(v).trim();
+          };
           csRows.push({
             carServiceTravelId: cs.carServiceTravelId,
             engagementTravelId: t.engagementTravelId,
             bookedBy: t.bookedBy,
             originAddressId: cs.originAddressId,
-            originAddressLabel: this.buildAddressLabel(
-              (origRow as Record<string, unknown>[])?.[0],
-            ),
+            originAddressLabel: this.buildAddressLabel(origAddr),
+            originAddressLine1: strOrNull(origAddr, 'line1'),
+            originAddressLine2: strOrNull(origAddr, 'line2'),
+            originAddressCity: strOrNull(origAddr, 'city'),
+            originAddressStateProvince: strOrNull(origAddr, 'state'),
+            originAddressPostalCode: strOrNull(origAddr, 'postal'),
+            originAddressCountry: strOrNull(origAddr, 'country'),
             destinationAddressId: cs.destinationAddressId,
-            destinationAddressLabel: this.buildAddressLabel(
-              (destRow as Record<string, unknown>[])?.[0],
-            ),
+            destinationAddressLabel: this.buildAddressLabel(destAddr),
+            destinationAddressLine1: strOrNull(destAddr, 'line1'),
+            destinationAddressLine2: strOrNull(destAddr, 'line2'),
+            destinationAddressCity: strOrNull(destAddr, 'city'),
+            destinationAddressStateProvince: strOrNull(destAddr, 'state'),
+            destinationAddressPostalCode: strOrNull(destAddr, 'postal'),
+            destinationAddressCountry: strOrNull(destAddr, 'country'),
             pickupDateTime:
               cs.pickupDateTime instanceof Date
                 ? cs.pickupDateTime.toISOString()
@@ -8796,31 +8823,13 @@ export class EngagementService {
       // Resolve or create origin address
       let originAddressId = dto.originAddressId ?? null;
       if (originAddressId == null && dto.originAddress) {
-        const addr = manager.create(Address, {
-          addressLine1: dto.originAddress.addressLine1,
-          addressLine2: dto.originAddress.addressLine2 ?? null,
-          city: dto.originAddress.city,
-          stateProvince: dto.originAddress.stateProvince,
-          postalCode: dto.originAddress.postalCode,
-          country: dto.originAddress.country,
-        });
-        const saved = await manager.save(Address, addr);
-        originAddressId = saved.addressId;
+        originAddressId = await this.resolveOrCreateAddress(manager, dto.originAddress);
       }
 
       // Resolve or create destination address
       let destinationAddressId = dto.destinationAddressId ?? null;
       if (destinationAddressId == null && dto.destinationAddress) {
-        const addr = manager.create(Address, {
-          addressLine1: dto.destinationAddress.addressLine1,
-          addressLine2: dto.destinationAddress.addressLine2 ?? null,
-          city: dto.destinationAddress.city,
-          stateProvince: dto.destinationAddress.stateProvince,
-          postalCode: dto.destinationAddress.postalCode,
-          country: dto.destinationAddress.country,
-        });
-        const saved = await manager.save(Address, addr);
-        destinationAddressId = saved.addressId;
+        destinationAddressId = await this.resolveOrCreateAddress(manager, dto.destinationAddress);
       }
 
       const travel = manager.create(EngagementTravel, {
@@ -8871,31 +8880,13 @@ export class EngagementService {
       if (dto.originAddressId !== undefined) {
         cs.originAddressId = dto.originAddressId ?? null;
       } else if (dto.originAddress) {
-        const addr = manager.create(Address, {
-          addressLine1: dto.originAddress.addressLine1,
-          addressLine2: dto.originAddress.addressLine2 ?? null,
-          city: dto.originAddress.city,
-          stateProvince: dto.originAddress.stateProvince,
-          postalCode: dto.originAddress.postalCode,
-          country: dto.originAddress.country,
-        });
-        const saved = await manager.save(Address, addr);
-        cs.originAddressId = saved.addressId;
+        cs.originAddressId = await this.resolveOrCreateAddress(manager, dto.originAddress);
       }
 
       if (dto.destinationAddressId !== undefined) {
         cs.destinationAddressId = dto.destinationAddressId ?? null;
       } else if (dto.destinationAddress) {
-        const addr = manager.create(Address, {
-          addressLine1: dto.destinationAddress.addressLine1,
-          addressLine2: dto.destinationAddress.addressLine2 ?? null,
-          city: dto.destinationAddress.city,
-          stateProvince: dto.destinationAddress.stateProvince,
-          postalCode: dto.destinationAddress.postalCode,
-          country: dto.destinationAddress.country,
-        });
-        const saved = await manager.save(Address, addr);
-        cs.destinationAddressId = saved.addressId;
+        cs.destinationAddressId = await this.resolveOrCreateAddress(manager, dto.destinationAddress);
       }
 
       if (dto.pickupDateTime !== undefined) {
@@ -8904,6 +8895,47 @@ export class EngagementService {
 
       await manager.save(EngagementTravelCarService, cs);
     });
+  }
+
+  /** Look up an existing Address row by the UX_Address unique-key columns; insert one if not found. */
+  private async resolveOrCreateAddress(
+    manager: EntityManager,
+    input: {
+      addressLine1: string;
+      addressLine2?: string | null;
+      city: string;
+      stateProvince: string;
+      postalCode: string;
+      country: string;
+    },
+  ): Promise<number> {
+    const line1 = (input.addressLine1 ?? '').trim();
+    const city = (input.city ?? '').trim();
+    const state = (input.stateProvince ?? '').trim();
+    const postal = (input.postalCode ?? '').trim();
+    const country = (input.country ?? '').trim();
+
+    const existing = await manager.findOne(Address, {
+      where: {
+        addressLine1: line1,
+        city,
+        stateProvince: state,
+        postalCode: postal,
+        country,
+      },
+    });
+    if (existing) return existing.addressId;
+
+    const addr = manager.create(Address, {
+      addressLine1: line1,
+      addressLine2: input.addressLine2 ?? null,
+      city,
+      stateProvince: state,
+      postalCode: postal,
+      country,
+    });
+    const saved = await manager.save(Address, addr);
+    return saved.addressId;
   }
 
   async deleteEngagementTravel(
