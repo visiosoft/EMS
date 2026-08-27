@@ -3566,10 +3566,6 @@ function CreateProjectForm({
     (selectedTour?.talentAgentNames ?? []).forEach((name) => push(name));
     return labels;
   }, [selectedTour?.talentAgentNames, selectedTourTalentAgentIds, talentAgentOptions]);
-  const tourDatesLockedReason = 'Dates already exist on this tour, so they are locked.';
-  const tourDatesLockedInCreate = Boolean(
-    selectedTour?.tourStartDate?.trim() && selectedTour?.tourEndDate?.trim(),
-  );
   const selectedAttraction =
     selectedAttractionId != null
       ? attractions.find((a) => a.attractionId === selectedAttractionId)
@@ -3997,19 +3993,12 @@ function CreateProjectForm({
           <p className="text-xs text-text-muted">
             Select the project date range before moving to preferred venue types.
           </p>
-          {tourDatesLockedInCreate && (
-            <p className="text-[11px] text-text-muted">
-              {tourDatesLockedReason}
-            </p>
-          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FormField label="Start Date" required>
               <input
                 type="date"
                 className={inputCls}
                 value={dateRangeStart}
-                disabled={tourDatesLockedInCreate}
-                title={tourDatesLockedInCreate ? tourDatesLockedReason : undefined}
                 onChange={(e) => setDateRangeStart(e.target.value)}
               />
             </FormField>
@@ -4019,8 +4008,6 @@ function CreateProjectForm({
                 className={inputCls}
                 value={dateRangeEnd}
                 min={dateRangeStart || undefined}
-                disabled={tourDatesLockedInCreate}
-                title={tourDatesLockedInCreate ? tourDatesLockedReason : undefined}
                 onChange={(e) => setDateRangeEnd(e.target.value)}
               />
             </FormField>
