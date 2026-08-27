@@ -30,6 +30,8 @@ import {
 import { Select2, Select2Multi, type Select2Option } from './Select2';
 import { companyToSelect2Options } from './companySelectOptions';
 import { TourMarketingPanel } from './TourMarketingPanel';
+import { TourTicketingOfferCodesPanel } from './TourTicketingOfferCodesPanel';
+import { TourProfileFilesEditor } from './TourProfileFilesEditor';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -1707,7 +1709,7 @@ function TourDrawer({
         </div>
       </div>
 
-      <TabBar tabs={['Details', 'Contacts', 'Projects', 'Engagements', 'Marketing']} active={activeTab} onChange={onTabChange} />
+      <TabBar tabs={['Details', 'Contacts', 'Projects', 'Engagements', 'Production', 'Ticketing', 'Booking', 'Marketing']} active={activeTab} onChange={onTabChange} />
 
       <div className="p-4 text-sm relative">
         {activeTab === 'Details' && (
@@ -2372,11 +2374,51 @@ function TourDrawer({
           </div>
         )}
 
-        {activeTab === 'Marketing' && (
-          <TourMarketingPanel
+        {activeTab === 'Production' && (
+          <TourProfileFilesEditor
+            tourId={tour.tourId}
+            addToast={addToast}
+            title="Production"
+            fields={['techRider']}
+          />
+        )}
+
+        {activeTab === 'Ticketing' && (
+          <TourTicketingOfferCodesPanel
             tourId={tour.tourId}
             addToast={addToast}
           />
+        )}
+
+        {activeTab === 'Booking' && (
+          <TourProfileFilesEditor
+            tourId={tour.tourId}
+            addToast={addToast}
+            title="Booking"
+            fields={[
+              'stagehandList', 'linesetSchedule', 'cateringRider', 'stageDimensions',
+              'travelRequirements', 'soundRequirements', 'videoRequirements',
+              'lightingRequirements', 'heavyEquipmentRequirements', 'dealSheet',
+              'agencySales', 'vipPdf',
+            ]}
+            bookingDocumentSelector
+            showSeatHoldRequirements
+          />
+        )}
+
+        {activeTab === 'Marketing' && (
+          <div className="space-y-6 p-1">
+            <TourMarketingPanel
+              tourId={tour.tourId}
+              addToast={addToast}
+            />
+            <TourProfileFilesEditor
+              tourId={tour.tourId}
+              addToast={addToast}
+              title="Marketing Documents"
+              fields={['marketingManual', 'marketingMaterial']}
+            />
+          </div>
         )}
       </div>
     </Drawer>
