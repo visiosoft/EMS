@@ -50,6 +50,9 @@ export class Engagement extends AuditColumns {
   @Column({ name: 'TourManagerContactID', type: 'int', nullable: true })
   tourManagerContactId: number | null;
 
+  @Column({ name: 'VipPdfLinkID', type: 'int', nullable: true })
+  vipPdfLinkId: number | null;
+
   @ManyToOne(() => Tour)
   @JoinColumn({ name: 'TourID' })
   tour: Tour;

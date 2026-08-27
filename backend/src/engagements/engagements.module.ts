@@ -39,6 +39,8 @@ import { EquipmentRentalType } from '../entities/equipment-rental-type.entity';
 import { PerformanceContract } from '../entities/performance-contract.entity';
 import { ContractExtractionService } from './contract-extraction.service';
 import { ContractLlmClient } from './contract-llm.client';
+import { EngagementVipPdfController } from './engagement-vip-pdf.controller';
+import { EngagementVipPdfService } from './engagement-vip-pdf.service';
 
 @Module({
   imports: [
@@ -80,8 +82,13 @@ import { ContractLlmClient } from './contract-llm.client';
     AttractionToursModule,
     DocumentLibraryModule,
   ],
-  controllers: [EngagementController],
-  providers: [EngagementService, ContractExtractionService, ContractLlmClient],
+  controllers: [EngagementController, EngagementVipPdfController],
+  providers: [
+    EngagementService,
+    ContractExtractionService,
+    ContractLlmClient,
+    EngagementVipPdfService,
+  ],
   exports: [EngagementService],
 })
 export class EngagementsModule {}
