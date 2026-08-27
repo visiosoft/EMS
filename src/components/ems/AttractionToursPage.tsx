@@ -2395,7 +2395,13 @@ function TourDrawer({
             tourId={tour.tourId}
             addToast={addToast}
             title="Booking"
-            fields={['dealSheet', 'agencySales', 'vipPdf']}
+            fields={[
+              'stagehandList', 'linesetSchedule', 'cateringRider', 'stageDimensions',
+              'travelRequirements', 'soundRequirements', 'videoRequirements',
+              'lightingRequirements', 'heavyEquipmentRequirements', 'dealSheet',
+              'agencySales', 'vipPdf',
+            ]}
+            bookingDocumentSelector
             showSeatHoldRequirements
           />
         )}

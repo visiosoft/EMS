@@ -310,7 +310,7 @@ export function TourTicketingOfferCodesPanel({ tourId, addToast }: Props) {
                     Code *
                   </label>
                   <input
-                    className={inputCls}
+                    className={inputCls + ' bg-transparent'}
                     value={code.code}
                     onChange={(e) =>
                       updateOfferCode(code.tempId, { code: e.target.value })

@@ -212,66 +212,66 @@ export function EngagementVipPdfField({ engagementId, addToast }: Props) {
             placeholder="https://… or upload a file"
             disabled={save.isPending || !!pendingFile}
           />
-          <label className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-2 text-xs text-text-secondary hover:text-text-primary hover:bg-elevated cursor-pointer">
-            <Upload className="h-3.5 w-3.5" />
-            <input
-              type="file"
-              className="hidden"
-              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp"
-              disabled={save.isPending}
-              onChange={(e) => {
-                const f = e.target.files?.[0] ?? null;
-                if (f) {
-                  setPendingFile(f);
-                  setName('VIP PDF');
-                  setUrl('');
-                }
-                e.currentTarget.value = '';
-              }}
-            />
-          </label>
-          {isSharePointPickerConfigured() && (
-            <button
-              type="button"
-              onClick={async () => {
-                setPicking(true);
-                try {
-                  const picked = await pickSharePointFile({
-                    allowedExtensions: [
-                      'pdf',
-                      'doc',
-                      'docx',
-                      'jpg',
-                      'jpeg',
-                      'png',
-                      'webp',
-                    ],
-                  });
-                  if (picked) {
-                    setUrl(picked.webUrl);
-                    setName('VIP PDF');
-                    setPendingFile(null);
-                  }
-                } catch (e) {
-                  addToast(
-                    e instanceof Error ? e.message : 'Picker failed to open.',
-                    'error',
-                  );
-                } finally {
-                  setPicking(false);
-                }
-              }}
-              disabled={save.isPending || picking}
-              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-2 text-xs text-text-secondary hover:text-text-primary hover:bg-elevated disabled:opacity-50"
-              title="Pick from SharePoint or OneDrive"
+          <div className="flex items-center gap-1">
+            <label
+              className="inline-flex items-center rounded-md border border-border px-2 py-2 text-xs text-text-secondary hover:text-text-primary hover:bg-elevated cursor-pointer disabled:opacity-50"
+              title="Upload file from your computer"
             >
-              {picking ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Cloud className="h-3.5 w-3.5" />
-              )}
-            </button>
-          )}
+              <Upload className="h-3.5 w-3.5" />
+              <input
+                type="file"
+                className="hidden"
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.webp,.txt"
+                disabled={save.isPending}
+                onChange={(e) => {
+                  const f = e.target.files?.[0] ?? null;
+                  if (f) {
+                    setPendingFile(f);
+                    setName('VIP PDF');
+                    setUrl('');
+                  }
+                  e.currentTarget.value = '';
+                }}
+              />
+            </label>
+            {isSharePointPickerConfigured() && (
+              <button
+                type="button"
+                onClick={async () => {
+                  setPicking(true);
+                  try {
+                    const picked = await pickSharePointFile({
+                      allowedExtensions: [
+                        'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+                        'jpg', 'jpeg', 'png', 'webp', 'txt',
+                      ],
+                    });
+                    if (picked) {
+                      setUrl(picked.webUrl);
+                      setName('VIP PDF');
+                      setPendingFile(null);
+                    }
+                  } catch (e) {
+                    addToast(
+                      e instanceof Error ? e.message : 'Picker failed to open.',
+                      'error',
+                    );
+                  } finally {
+                    setPicking(false);
+                  }
+                }}
+                disabled={save.isPending || picking}
+                className="inline-flex items-center rounded-md border border-border px-2 py-2 text-xs text-text-secondary hover:text-text-primary hover:bg-elevated disabled:opacity-50"
+                title="Pick from SharePoint or OneDrive"
+              >
+                {picking ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Cloud className="h-3.5 w-3.5" />
+                )}
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>

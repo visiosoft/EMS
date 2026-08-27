@@ -13,11 +13,20 @@ export interface ApiTourProfileFilesResponse {
   techRider: ApiTourProfileFileField;
   dealSheet: ApiTourProfileFileField;
   agencySales: ApiTourProfileFileField;
+  stagehandList: ApiTourProfileFileField;
+  linesetSchedule: ApiTourProfileFileField;
+  cateringRider: ApiTourProfileFileField;
+  stageDimensions: ApiTourProfileFileField;
+  travelRequirements: ApiTourProfileFileField;
+  soundRequirements: ApiTourProfileFileField;
+  videoRequirements: ApiTourProfileFileField;
+  lightingRequirements: ApiTourProfileFileField;
+  heavyEquipmentRequirements: ApiTourProfileFileField;
   marketingManual: ApiTourProfileFileField;
   marketingMaterial: ApiTourProfileFileField;
   vipPdf: ApiTourProfileFileField;
-  preSalePasscode: string | null;
   seatHoldRequirements: string | null;
+  bookingDocumentTypes: TourProfileFileKey[];
 }
 
 /** Keys that map to Tour link/upload columns. */
@@ -25,6 +34,15 @@ export type TourProfileFileKey =
   | 'techRider'
   | 'dealSheet'
   | 'agencySales'
+  | 'stagehandList'
+  | 'linesetSchedule'
+  | 'cateringRider'
+  | 'stageDimensions'
+  | 'travelRequirements'
+  | 'soundRequirements'
+  | 'videoRequirements'
+  | 'lightingRequirements'
+  | 'heavyEquipmentRequirements'
   | 'marketingManual'
   | 'marketingMaterial'
   | 'vipPdf';
@@ -44,11 +62,20 @@ export interface UpdateTourProfileFilesPayload {
   techRider?: TourProfileFileFieldUpdate;
   dealSheet?: TourProfileFileFieldUpdate;
   agencySales?: TourProfileFileFieldUpdate;
+  stagehandList?: TourProfileFileFieldUpdate;
+  linesetSchedule?: TourProfileFileFieldUpdate;
+  cateringRider?: TourProfileFileFieldUpdate;
+  stageDimensions?: TourProfileFileFieldUpdate;
+  travelRequirements?: TourProfileFileFieldUpdate;
+  soundRequirements?: TourProfileFileFieldUpdate;
+  videoRequirements?: TourProfileFileFieldUpdate;
+  lightingRequirements?: TourProfileFileFieldUpdate;
+  heavyEquipmentRequirements?: TourProfileFileFieldUpdate;
   marketingManual?: TourProfileFileFieldUpdate;
   marketingMaterial?: TourProfileFileFieldUpdate;
   vipPdf?: TourProfileFileFieldUpdate;
-  preSalePasscode?: string | null;
   seatHoldRequirements?: string | null;
+  bookingDocumentTypes?: TourProfileFileKey[];
 }
 
 /** Multipart field-name map keyed by TourProfileFileKey. */
@@ -74,6 +101,15 @@ const FIELD_MAP: Record<
     removeField: 'removeAgencySales',
     fileField: 'agencySalesFile',
   },
+  stagehandList: { urlField: 'stagehandListUrl', nameField: 'stagehandListName', removeField: 'removeStagehandList', fileField: 'stagehandListFile' },
+  linesetSchedule: { urlField: 'linesetScheduleUrl', nameField: 'linesetScheduleName', removeField: 'removeLinesetSchedule', fileField: 'linesetScheduleFile' },
+  cateringRider: { urlField: 'cateringRiderUrl', nameField: 'cateringRiderName', removeField: 'removeCateringRider', fileField: 'cateringRiderFile' },
+  stageDimensions: { urlField: 'stageDimensionsUrl', nameField: 'stageDimensionsName', removeField: 'removeStageDimensions', fileField: 'stageDimensionsFile' },
+  travelRequirements: { urlField: 'travelRequirementsUrl', nameField: 'travelRequirementsName', removeField: 'removeTravelRequirements', fileField: 'travelRequirementsFile' },
+  soundRequirements: { urlField: 'soundRequirementsUrl', nameField: 'soundRequirementsName', removeField: 'removeSoundRequirements', fileField: 'soundRequirementsFile' },
+  videoRequirements: { urlField: 'videoRequirementsUrl', nameField: 'videoRequirementsName', removeField: 'removeVideoRequirements', fileField: 'videoRequirementsFile' },
+  lightingRequirements: { urlField: 'lightingRequirementsUrl', nameField: 'lightingRequirementsName', removeField: 'removeLightingRequirements', fileField: 'lightingRequirementsFile' },
+  heavyEquipmentRequirements: { urlField: 'heavyEquipmentRequirementsUrl', nameField: 'heavyEquipmentRequirementsName', removeField: 'removeHeavyEquipmentRequirements', fileField: 'heavyEquipmentRequirementsFile' },
   marketingManual: {
     urlField: 'marketingManualUrl',
     nameField: 'marketingManualName',
@@ -106,11 +142,11 @@ export function saveTourProfileFiles(
 ) {
   const fd = new FormData();
 
-  if (payload.preSalePasscode !== undefined) {
-    fd.append('preSalePasscode', payload.preSalePasscode ?? '');
-  }
   if (payload.seatHoldRequirements !== undefined) {
     fd.append('seatHoldRequirements', payload.seatHoldRequirements ?? '');
+  }
+  if (payload.bookingDocumentTypes !== undefined) {
+    fd.append('bookingDocumentTypes', JSON.stringify(payload.bookingDocumentTypes));
   }
 
   for (const key of Object.keys(FIELD_MAP) as TourProfileFileKey[]) {

@@ -99,12 +99,53 @@ export class Tour extends AuditColumns {
   @Column({ name: 'BannerLinkID', type: 'int', nullable: true })
   bannerLinkId: number | null;
 
-  // NOTE: DealSheetLinkID, AgencySalesLinkID, MarketingManualLinkID,
-  // MarketingMaterialLinkID, VipPdfLinkID, PreSalePasscode, and
-  // SeatHoldRequirements columns are defined in
-  // backend/migrations/2026-08-20-tour-profile-tabs.sql but the migration has
-  // not been applied yet. Re-add the @Column decorators (see git history) once
-  // the DB is updated.
+  @Column({ name: 'DealSheetLinkID', type: 'int', nullable: true })
+  dealSheetLinkId: number | null;
+
+  @Column({ name: 'AgencySalesLinkID', type: 'int', nullable: true })
+  agencySalesLinkId: number | null;
+
+  @Column({ name: 'MarketingManualLinkID', type: 'int', nullable: true })
+  marketingManualLinkId: number | null;
+
+  @Column({ name: 'MarketingMaterialLinkID', type: 'int', nullable: true })
+  marketingMaterialLinkId: number | null;
+
+  @Column({ name: 'VipPdfLinkID', type: 'int', nullable: true })
+  vipPdfLinkId: number | null;
+
+  @Column({ name: 'StagehandListLinkID', type: 'int', nullable: true })
+  stagehandListLinkId: number | null;
+
+  @Column({ name: 'LinesetScheduleLinkID', type: 'int', nullable: true })
+  linesetScheduleLinkId: number | null;
+
+  @Column({ name: 'CateringRiderLinkID', type: 'int', nullable: true })
+  cateringRiderLinkId: number | null;
+
+  @Column({ name: 'StageDimensionsLinkID', type: 'int', nullable: true })
+  stageDimensionsLinkId: number | null;
+
+  @Column({ name: 'TravelRequirementsLinkID', type: 'int', nullable: true })
+  travelRequirementsLinkId: number | null;
+
+  @Column({ name: 'SoundRequirementsLinkID', type: 'int', nullable: true })
+  soundRequirementsLinkId: number | null;
+
+  @Column({ name: 'VideoRequirementsLinkID', type: 'int', nullable: true })
+  videoRequirementsLinkId: number | null;
+
+  @Column({ name: 'LightingRequirementsLinkID', type: 'int', nullable: true })
+  lightingRequirementsLinkId: number | null;
+
+  @Column({ name: 'HeavyEquipmentRequirementsLinkID', type: 'int', nullable: true })
+  heavyEquipmentRequirementsLinkId: number | null;
+
+  @Column({ name: 'BookingDocumentTypes', type: 'nvarchar', nullable: true })
+  bookingDocumentTypes: string | null;
+
+  @Column({ name: 'SeatHoldRequirements', type: 'nvarchar', length: 500, nullable: true })
+  seatHoldRequirements: string | null;
 
   @Column({ name: 'VenueTypePreferenceID', type: 'int', nullable: true })
   venueTypePreferenceId: number | null;
