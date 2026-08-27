@@ -112,6 +112,7 @@ export function Modal({
   onClose,
   footer,
   width = 600,
+  height,
   /**
    * Kept for backward compatibility. Scroll + layout are the same for all modals: the
    * header is not sticky, and the body is the only scrollable region. That prevents
@@ -131,12 +132,14 @@ export function Modal({
   onClose: () => void;
   footer?: React.ReactNode;
   width?: number;
+  /** Optional stable dialog height; it remains constrained to the viewport. */
+  height?: number;
   allowContentOverflow?: boolean;
 }) {
   const titleId = useId();
   const bodyScrollElementRef = useRef<HTMLDivElement>(null);
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 min-h-0">
       {/* Backdrop: visual only — do not close on outside click (use Cancel or ✕). */}
       <div className="absolute inset-0 bg-black/20 backdrop-blur-[2px]" aria-hidden />
@@ -145,7 +148,11 @@ export function Modal({
         aria-modal="true"
         aria-labelledby={titleId}
         className="relative z-[1] flex w-full min-h-0 max-h-[min(90dvh,calc(100svh-2rem))] flex-col overflow-hidden rounded-lg border border-border bg-elevated shadow-xl box-border animate-fade-in"
-        style={{ maxWidth: `min(${width}px, 100%)`, width: `min(${width}px, 100%)` }}
+        style={{
+          maxWidth: `min(${width}px, 100%)`,
+          width: `min(${width}px, 100%)`,
+          ...(height != null ? { height: `min(${height}px, calc(100dvh - 2rem))` } : {}),
+        }}
       >
         <div
           className="flex shrink-0 items-start justify-between gap-3 border-b border-border bg-elevated px-4 py-3 sm:px-5"
@@ -184,7 +191,8 @@ export function Modal({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

@@ -49,7 +49,6 @@ import {
   PROJECT_WIZARD_DMA_QUERY_KEY,
 } from '@/lib/projectWizardDma';
 import { ProjectWizardMarketsStep } from './ProjectWizardMarketsStep';
-import { DmaListPicker } from './DmaListPicker';
 import { getAccountName, getAccountOid, getActiveAccount } from '@/auth/entra';
 import {
   getPageParams,
@@ -848,12 +847,6 @@ function ProjectInlineOverview({
     setEditing(false);
   };
 
-  const toggleDmaDraft = (dmaid: number) => {
-    setDmaDraftIds((prev) =>
-      prev.includes(dmaid) ? prev.filter((id) => id !== dmaid) : [...prev, dmaid],
-    );
-  };
-
   const openDmaModal = () => {
     setDmaDraftIds(selectedDmaIds);
     setShowDmaModal(true);
@@ -1333,6 +1326,7 @@ function ProjectInlineOverview({
           }
           description="Pick the markets this campaign runs in. Changing markets updates the venues available in the Venues tab."
           width={720}
+          height={720}
           onClose={() => !saving && setShowDmaModal(false)}
           footer={
             <div className="flex items-center justify-between gap-3">
@@ -1360,20 +1354,15 @@ function ProjectInlineOverview({
             </div>
           }
         >
-          <DmaListPicker
+          <ProjectWizardMarketsStep
             rows={dmaMarkets}
+            isPending={false}
+            isError={false}
+            error={null}
+            onRetry={() => undefined}
             selectedIds={dmaDraftIds}
-            onToggle={toggleDmaDraft}
-            onSelectMany={(ids) => {
-              setDmaDraftIds((prev) => {
-                const next = new Set(prev);
-                for (const id of ids) next.add(id);
-                return [...next].sort((a, b) => a - b);
-              });
-            }}
-            onClearAll={() => setDmaDraftIds([])}
-            disabled={saving}
-            emptyMessage="No markets were returned from the server."
+            onSelectedIdsChange={setDmaDraftIds}
+            addToast={addToast}
           />
         </Modal>
       )}
@@ -5125,7 +5114,7 @@ export function ProjectsPage({ addToast, onNavigate, initialSelectedProjectId }:
 
       {/* Create modal */}
       {showCreateModal && (
-        <Modal title="Create Project" onClose={() => setShowCreateModal(false)} width={700} allowContentOverflow>
+        <Modal title="Create Project" onClose={() => setShowCreateModal(false)} width={700} height={720} allowContentOverflow>
           <CreateProjectForm
             key="create-project"
             onSaved={async (result) => {
