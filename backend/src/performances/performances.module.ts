@@ -4,8 +4,10 @@ import { Address } from '../entities/address.entity';
 import { Attraction } from '../entities/attraction.entity';
 import { Company } from '../entities/company.entity';
 import { Engagement } from '../entities/engagement.entity';
+import { EngagementProduction } from '../entities/engagement-production.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { Performance } from '../entities/performance.entity';
+import { PerformanceTicketing } from '../entities/performance-ticketing.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
 import { PerformancesController } from './performances.controller';
@@ -22,6 +24,8 @@ import { PerformancesService } from './performances.service';
       Venue,
       Company,
       Address,
+      EngagementProduction,
+      PerformanceTicketing,
     ]),
   ],
   controllers: [PerformancesController],

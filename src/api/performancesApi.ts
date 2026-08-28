@@ -4,7 +4,7 @@ export interface ApiPerformanceCalendarRow {
   performanceId: number;
   engagementId: number;
   performanceStatus: string;
-  performanceDate: string;      // YYYY-MM-DD
+  performanceDate: string;      // YYYY-MM-DD — Engagement/Show date
   performanceTime: string;      // HH:MM:SS
   engagementStatus: string;
   tourId: number | null;
@@ -16,6 +16,14 @@ export interface ApiPerformanceCalendarRow {
   venueName: string | null;
   city: string | null;
   stateProvince: string | null;
+  /** Engagement Profile — Announcement Date (dbo.EngagementProduction.AnnouncementDate) */
+  announcementDate: string | null;
+  /** Engagement Profile — Presale Start Date (dbo.PerformanceTicketing.PreSaleDate) */
+  presaleStartDate: string | null;
+  /** Engagement Profile — Presale End Date (dbo.PerformanceTicketing.PreSaleEndDate) */
+  presaleEndDate: string | null;
+  /** Engagement Profile — On Sale Date (dbo.PerformanceTicketing.OnSaleDate) */
+  onSaleDate: string | null;
 }
 
 export function fetchPerformances(year?: number, month?: number) {
