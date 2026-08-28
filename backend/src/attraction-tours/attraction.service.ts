@@ -216,6 +216,11 @@ export class AttractionService {
         `(
           LOWER(ISNULL(a.attractionName, '')) LIKE LOWER(:${param}) ESCAPE '\\'
           OR CAST(a.attractionId AS nvarchar(30)) LIKE :${param} ESCAPE '\\'
+          OR EXISTS (
+            SELECT 1 FROM dbo.[Tour] tSearch
+            WHERE tSearch.[AttractionID] = a.[AttractionID]
+              AND LOWER(ISNULL(tSearch.[TourName], '')) LIKE LOWER(:${param}) ESCAPE '\\'
+          )
         )`,
         { [param]: `%${this.escapeLikePattern(token)}%` },
       );
