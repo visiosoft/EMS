@@ -14,7 +14,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, Check, ExternalLink, Eye, GripVertical, Loader2, Lock, Pencil, Plus, RotateCcw, Trash2, Upload, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, ExternalLink, Eye, GripVertical, LayoutGrid, List, Loader2, Lock, Pencil, Plus, RotateCcw, Trash2, Upload, X } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import {
@@ -84,6 +84,10 @@ import {
   VENUE_STATUS_VALUES,
   uploadConfirmedOfferPdf,
   getConfirmedOfferPdfUrl,
+  uploadDraftedOfferLink,
+  getDraftedOfferLinkUrl,
+  uploadInConsiderationOfferLink,
+  getInConsiderationOfferLinkUrl,
 } from '@/api/projectApi';
 import type {
   ApiPerformanceOption,
@@ -639,6 +643,121 @@ function ConfirmedOfferPdfUpload({
         type="file"
         accept=".pdf,application/pdf"
         onChange={handleFileChange}
+        className="hidden"
+      />
+    </div>
+  );
+}
+
+// ─── Optional stage offer link upload (Drafted / In Consideration) ─────────
+// Uploads immediately on file selection — these are informational-only and
+// never gate a status transition (unlike the required Confirmed offer PDF).
+
+function OfferStageLinkUpload({
+  projectId,
+  venue,
+  title,
+  linkId,
+  linkName,
+  addToast,
+  onRefresh,
+  uploadFn,
+  getUrlFn,
+}: {
+  projectId: number;
+  venue: ApiProjectVenue;
+  title: string;
+  linkId: number | null | undefined;
+  linkName: string | null | undefined;
+  addToast: Props['addToast'];
+  onRefresh: () => void | Promise<void>;
+  uploadFn: (projectId: number, venueId: number, file: File) => Promise<{ linkId: number; linkName: string }>;
+  getUrlFn: (projectId: number, venueId: number) => string;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const hasLink = linkId != null;
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (fileRef.current) fileRef.current.value = '';
+    if (!file) return;
+    if (!/\.pdf$/i.test(file.name)) {
+      addToast('Only PDF files are accepted.', 'warning');
+      return;
+    }
+    setUploading(true);
+    try {
+      await uploadFn(projectId, venue.engagementProjectVenueId, file);
+      await onRefresh();
+      addToast(`${title} uploaded.`, 'success');
+    } catch (err) {
+      addToast(friendlyApiError(err, `Could not upload ${title.toLowerCase()}.`), 'error');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const previewUrl = hasLink ? getUrlFn(projectId, venue.engagementProjectVenueId) : null;
+
+  return (
+    <div className="rounded-md border border-border bg-surface px-4 py-3">
+      <span className="text-xs text-text-muted block mb-1.5">
+        {title} <span className="text-text-muted/70">(optional)</span>
+      </span>
+      {hasLink ? (
+        <div className="flex items-center gap-2">
+          <Check className="h-4 w-4 text-emerald-500 shrink-0" />
+          <span className="text-sm text-text-primary truncate max-w-[20rem]" title={linkName ?? 'PDF uploaded'}>
+            {linkName ?? 'PDF uploaded'}
+          </span>
+          <button
+            type="button"
+            onClick={() => setShowPreview((p) => !p)}
+            className="text-xs text-ems-accent hover:underline inline-flex items-center gap-1"
+          >
+            <Eye className="h-3.5 w-3.5" />
+            {showPreview ? 'Hide preview' : 'Preview'}
+          </button>
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            className="ml-auto text-xs text-ems-accent hover:underline disabled:opacity-60"
+          >
+            {uploading ? 'Uploading…' : 'Replace'}
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-elevated px-3 py-1.5 text-sm text-text-primary hover:bg-muted/50 transition-colors disabled:opacity-60"
+          >
+            {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+            Upload PDF
+          </button>
+          <span className="text-[11px] text-text-muted">Upload the {title.toLowerCase()} document.</span>
+        </div>
+      )}
+      {showPreview && previewUrl && (
+        <div className="mt-3 rounded border border-border overflow-hidden">
+          <iframe
+            src={previewUrl}
+            title={`${title} Preview`}
+            className="w-full border-0"
+            style={{ height: '500px' }}
+          />
+        </div>
+      )}
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".pdf,application/pdf"
+        onChange={(e) => void handleFileChange(e)}
         className="hidden"
       />
     </div>
@@ -2238,6 +2357,59 @@ function VenueConfirmEngagementModal({
   );
 }
 
+// ─── Venue Proposals List View ────────────────────────────────────────────
+// Compact table alternative to the tile view — same underlying venues data,
+// one row per proposed date/time (or a single placeholder row if none yet).
+
+function VenueProposalsListView({ venues }: { venues: ApiProjectVenue[] }) {
+  return (
+    <div className="overflow-x-auto rounded-md border border-border">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="bg-elevated/60 text-left text-[11px] uppercase tracking-wide text-text-muted">
+            <th className="px-3 py-2 font-medium">Date/Time</th>
+            <th className="px-3 py-2 font-medium">City</th>
+            <th className="px-3 py-2 font-medium">Venue Name</th>
+          </tr>
+        </thead>
+        <tbody>
+          {venues.map((venue) => {
+            const dates: (ApiPerformanceOption | null)[] =
+              venue.performanceOptions.length > 0 ? venue.performanceOptions : [null];
+            const venueDisplayName = venue.venueCompanyName ?? venue.venueName ?? 'Unknown venue';
+            const cityLabel =
+              [venue.venueCity, venue.venueStateProvince].filter(Boolean).join(', ') || '—';
+            return dates.map((opt, idx) => (
+              <tr
+                key={`${venue.engagementProjectVenueId}-${opt?.performanceOptionId ?? 'none'}`}
+                className="border-t border-border/60"
+              >
+                <td className="px-3 py-1.5 text-text-primary whitespace-nowrap align-top">
+                  {opt ? (
+                    formatProjectOptionDateTime(opt.proposedDate, opt.proposedTime)
+                  ) : (
+                    <span className="text-text-muted">No dates proposed</span>
+                  )}
+                </td>
+                {idx === 0 && (
+                  <>
+                    <td className="px-3 py-1.5 text-text-secondary align-top" rowSpan={dates.length}>
+                      {cityLabel}
+                    </td>
+                    <td className="px-3 py-1.5 text-text-primary font-medium align-top" rowSpan={dates.length}>
+                      {venueDisplayName}
+                    </td>
+                  </>
+                )}
+              </tr>
+            ));
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ─── Venue Proposal Row ───────────────────────────────────────────────────────
 
 function VenueProposalRow({
@@ -2487,7 +2659,11 @@ function VenueProposalRow({
                   <Select2
                     options={OFFER_CREATION_STATUS_OPTIONS}
                     value={offerCreationStatus}
-                    onChange={setOfferCreationStatus}
+                    onChange={(v) => {
+                      setOfferCreationStatus(v);
+                      // Review status (and any stage-specific link preview) only applies while Submitted
+                      if (v !== 'Submitted') setOfferReviewStatus(null);
+                    }}
                     placeholder="Select…"
                     disabled={offerSaving || venue.offerReviewStatus === 'Confirmed'}
                   />
@@ -2509,6 +2685,32 @@ function VenueProposalRow({
                   )}
                 </div>
               </div>
+              {offerCreationStatus === 'Drafted' && (
+                <OfferStageLinkUpload
+                  projectId={projectId}
+                  venue={venue}
+                  title="Drafted Offer Link"
+                  linkId={venue.draftedOfferLinkId}
+                  linkName={venue.draftedOfferLinkName}
+                  addToast={addToast}
+                  onRefresh={onRefresh}
+                  uploadFn={uploadDraftedOfferLink}
+                  getUrlFn={getDraftedOfferLinkUrl}
+                />
+              )}
+              {offerCreationStatus === 'Submitted' && offerReviewStatus === 'In Consideration' && (
+                <OfferStageLinkUpload
+                  projectId={projectId}
+                  venue={venue}
+                  title="In Consideration Offer Link"
+                  linkId={venue.inConsiderationOfferLinkId}
+                  linkName={venue.inConsiderationOfferLinkName}
+                  addToast={addToast}
+                  onRefresh={onRefresh}
+                  uploadFn={uploadInConsiderationOfferLink}
+                  getUrlFn={getInConsiderationOfferLinkUrl}
+                />
+              )}
               {offerReviewStatus === 'Confirmed' && (
                 <ConfirmedOfferPdfUpload
                   projectId={projectId}
@@ -2844,6 +3046,7 @@ function ProjectDetailDrawer({
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState('Overview');
   const [showAddVenue, setShowAddVenue] = useState(false);
+  const [venueViewMode, setVenueViewMode] = useState<'tile' | 'list'>('tile');
 
   const detailQuery = useQuery({
     queryKey: ['projects', projectId],
@@ -3019,11 +3222,41 @@ function ProjectDetailDrawer({
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium text-text-primary">Venue Proposals</h3>
-              {!project.isReadOnly && (
-                <button type="button" onClick={() => setShowAddVenue(!showAddVenue)} className="text-ems-accent text-sm hover:underline">
-                  + Add Venue
-                </button>
-              )}
+              <div className="flex items-center gap-3">
+                <div className="inline-flex items-center rounded-md border border-border overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setVenueViewMode('tile')}
+                    title="Tile view"
+                    aria-pressed={venueViewMode === 'tile'}
+                    className={`inline-flex items-center gap-1 px-2 py-1 text-xs transition-colors ${
+                      venueViewMode === 'tile'
+                        ? 'bg-ems-accent text-background'
+                        : 'bg-surface text-text-muted hover:text-text-primary'
+                    }`}
+                  >
+                    <LayoutGrid className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setVenueViewMode('list')}
+                    title="List view"
+                    aria-pressed={venueViewMode === 'list'}
+                    className={`inline-flex items-center gap-1 px-2 py-1 text-xs border-l border-border transition-colors ${
+                      venueViewMode === 'list'
+                        ? 'bg-ems-accent text-background'
+                        : 'bg-surface text-text-muted hover:text-text-primary'
+                    }`}
+                  >
+                    <List className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                {!project.isReadOnly && (
+                  <button type="button" onClick={() => setShowAddVenue(!showAddVenue)} className="text-ems-accent text-sm hover:underline">
+                    + Add Venue
+                  </button>
+                )}
+              </div>
             </div>
 
             {project.isReadOnly && project.convertedEngagementId != null && (
@@ -3073,7 +3306,10 @@ function ProjectDetailDrawer({
             {venues.length === 0 && !showAddVenue && (
               <p className="text-sm text-text-muted">No venue proposals yet.</p>
             )}
-            {venues.map((v) => (
+            {venueViewMode === 'list' && venues.length > 0 && (
+              <VenueProposalsListView venues={venues} />
+            )}
+            {venueViewMode === 'tile' && venues.map((v) => (
               <VenueProposalRow
                 key={v.engagementProjectVenueId}
                 venue={v}

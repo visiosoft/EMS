@@ -11,6 +11,10 @@ import { TOUR_PROFILE_FILE_UPLOAD_DIR } from './attraction-tours/tour-profile-fi
 import { SEATING_CHART_UPLOAD_DIR } from './engagements/seating-chart-multer.config';
 import { CONTRACT_UPLOAD_DIR } from './engagements/contract-multer.config';
 import { CONFIRMED_OFFER_UPLOAD_DIR } from './projects/confirmed-offer-multer.config';
+import {
+  DRAFTED_OFFER_UPLOAD_DIR,
+  IN_CONSIDERATION_OFFER_UPLOAD_DIR,
+} from './projects/offer-link-multer.config';
 import { getUploadRoot } from './common/upload-path';
 
 const DEFAULT_PORT = 3001;
@@ -21,6 +25,8 @@ async function bootstrap() {
   fs.mkdirSync(SEATING_CHART_UPLOAD_DIR, { recursive: true });
   fs.mkdirSync(CONTRACT_UPLOAD_DIR, { recursive: true });
   fs.mkdirSync(CONFIRMED_OFFER_UPLOAD_DIR, { recursive: true });
+  fs.mkdirSync(DRAFTED_OFFER_UPLOAD_DIR, { recursive: true });
+  fs.mkdirSync(IN_CONSIDERATION_OFFER_UPLOAD_DIR, { recursive: true });
   fs.mkdirSync(certificateUploadDir, { recursive: true });
   fs.mkdirSync(TOUR_PROFILE_FILE_UPLOAD_DIR, { recursive: true });
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -39,6 +45,12 @@ async function bootstrap() {
   });
   app.useStaticAssets(CONFIRMED_OFFER_UPLOAD_DIR, {
     prefix: '/uploads/confirmed-offers/',
+  });
+  app.useStaticAssets(DRAFTED_OFFER_UPLOAD_DIR, {
+    prefix: '/uploads/drafted-offers/',
+  });
+  app.useStaticAssets(IN_CONSIDERATION_OFFER_UPLOAD_DIR, {
+    prefix: '/uploads/in-consideration-offers/',
   });
   app.useStaticAssets(certificateUploadDir, {
     prefix: '/uploads/certificates/',
