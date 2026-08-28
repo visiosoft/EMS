@@ -22,6 +22,10 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { createReadStream } from 'fs';
 import { confirmedOfferMulterOptions } from './confirmed-offer-multer.config';
+import {
+  draftedOfferMulterOptions,
+  inConsiderationOfferMulterOptions,
+} from './offer-link-multer.config';
 import { AddPerformanceOptionDto } from './dto/add-performance-option.dto';
 import { AddProjectVenueDto } from './dto/add-project-venue.dto';
 import { CreateProjectDto } from './dto/create-project.dto';
@@ -180,6 +184,66 @@ export class ProjectController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     const { filePath, linkName } = await this.projectService.getConfirmedOfferPdfPath(id, venueId);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="${encodeURIComponent(linkName)}"`,
+    });
+    const stream = createReadStream(filePath);
+    return new StreamableFile(stream);
+  }
+
+  // ─── Drafted Offer Link Upload (venue-level, optional) ──────────────────
+
+  @Post(':id/venues/:venueId/drafted-offer-link')
+  @UseInterceptors(FileInterceptor('file', draftedOfferMulterOptions()))
+  uploadDraftedOfferLink(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('venueId', ParseIntPipe) venueId: number,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file was provided.');
+    }
+    return this.projectService.uploadDraftedOfferLink(id, venueId, file);
+  }
+
+  @Get(':id/venues/:venueId/drafted-offer-link')
+  async downloadDraftedOfferLink(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('venueId', ParseIntPipe) venueId: number,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const { filePath, linkName } = await this.projectService.getDraftedOfferLinkPath(id, venueId);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="${encodeURIComponent(linkName)}"`,
+    });
+    const stream = createReadStream(filePath);
+    return new StreamableFile(stream);
+  }
+
+  // ─── In-Consideration Offer Link Upload (venue-level, optional) ─────────
+
+  @Post(':id/venues/:venueId/in-consideration-offer-link')
+  @UseInterceptors(FileInterceptor('file', inConsiderationOfferMulterOptions()))
+  uploadInConsiderationOfferLink(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('venueId', ParseIntPipe) venueId: number,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file was provided.');
+    }
+    return this.projectService.uploadInConsiderationOfferLink(id, venueId, file);
+  }
+
+  @Get(':id/venues/:venueId/in-consideration-offer-link')
+  async downloadInConsiderationOfferLink(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('venueId', ParseIntPipe) venueId: number,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const { filePath, linkName } = await this.projectService.getInConsiderationOfferLinkPath(id, venueId);
     res.set({
       'Content-Type': 'application/pdf',
       'Content-Disposition': `inline; filename="${encodeURIComponent(linkName)}"`,

@@ -166,6 +166,14 @@ export interface ApiProjectVenue {
   /** Venue company DMA display data */
   venueDmaId?: number | null;
   venueDmaMarketName?: string | null;
+  /** Physical address city from Company.PhysicalAddressID. */
+  venueCity?: string | null;
+  /** Physical address state/province (short or long form). */
+  venueStateProvince?: string | null;
+  /** dbo.Venue.SeatingCapacity — total seats. */
+  venueSeatingCapacity?: number | null;
+  /** Comma-separated complex company names from dbo.VenueComplexMember. */
+  venueEntertainmentComplexNames?: string | null;
   /** NOT NULL in DB */
   venueStatus: VenueStatus;
 
@@ -177,6 +185,14 @@ export interface ApiProjectVenue {
   confirmedOfferLinkId?: number | null;
   /** Original filename of the confirmed offer PDF. */
   confirmedOfferLinkName?: string | null;
+  /** FK → dbo.Link — optional draft offer document, available while Drafted. */
+  draftedOfferLinkId?: number | null;
+  /** Original filename of the drafted offer document. */
+  draftedOfferLinkName?: string | null;
+  /** FK → dbo.Link — optional document for an offer In Consideration. */
+  inConsiderationOfferLinkId?: number | null;
+  /** Original filename of the in-consideration offer document. */
+  inConsiderationOfferLinkName?: string | null;
 
   // -------------------------------------------------------------------------
   // FRONTEND-ONLY fields – not in EngagementProjectVenue table
@@ -440,6 +456,44 @@ export function uploadConfirmedOfferPdf(
 export function getConfirmedOfferPdfUrl(projectId: number, venueId: number): string {
   const base = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '';
   return `${base}/api/projects/${projectId}/venues/${venueId}/confirmed-offer-pdf`;
+}
+
+/** Optional link, shown while the venue's Offer Creation Status is Drafted. */
+export function uploadDraftedOfferLink(
+  projectId: number,
+  venueId: number,
+  file: File,
+): Promise<{ linkId: number; linkName: string }> {
+  const form = new FormData();
+  form.append('file', file);
+  return apiFetchMultipart<{ linkId: number; linkName: string }>(
+    `/projects/${projectId}/venues/${venueId}/drafted-offer-link`,
+    { method: 'POST', body: form },
+  );
+}
+
+export function getDraftedOfferLinkUrl(projectId: number, venueId: number): string {
+  const base = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '';
+  return `${base}/api/projects/${projectId}/venues/${venueId}/drafted-offer-link`;
+}
+
+/** Optional link, shown while Offer Creation Status is Submitted and Offer Review Status is In Consideration. */
+export function uploadInConsiderationOfferLink(
+  projectId: number,
+  venueId: number,
+  file: File,
+): Promise<{ linkId: number; linkName: string }> {
+  const form = new FormData();
+  form.append('file', file);
+  return apiFetchMultipart<{ linkId: number; linkName: string }>(
+    `/projects/${projectId}/venues/${venueId}/in-consideration-offer-link`,
+    { method: 'POST', body: form },
+  );
+}
+
+export function getInConsiderationOfferLinkUrl(projectId: number, venueId: number): string {
+  const base = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '';
+  return `${base}/api/projects/${projectId}/venues/${venueId}/in-consideration-offer-link`;
 }
 
 // --- Venue proposals ---------------------------------------------------------

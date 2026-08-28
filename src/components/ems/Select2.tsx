@@ -17,6 +17,8 @@ export interface Select2Option {
   label: string;
   disabled?: boolean;
   description?: string;
+  /** When true, the description wraps to multiple lines instead of truncating. */
+  descriptionMultiline?: boolean;
   rightText?: string;
   searchText?: string;
 }
@@ -38,12 +40,15 @@ function Select2OptionContent({
   selected: boolean;
 }) {
   const secondaryClass = selected ? 'text-ems-accent/75' : 'text-text-muted';
+  const descriptionClass = option.descriptionMultiline
+    ? 'mt-0.5 block whitespace-normal break-words leading-snug text-xs font-normal'
+    : 'mt-0.5 block truncate text-xs font-normal';
   return (
     <>
       <span className="min-w-0 flex-1">
         <span className="block truncate">{option.label}</span>
         {option.description && (
-          <span className={`mt-0.5 block truncate text-xs font-normal ${secondaryClass}`}>
+          <span className={`${descriptionClass} ${secondaryClass}`}>
             {option.description}
           </span>
         )}

@@ -11,6 +11,10 @@ export interface ApiAllVenueRow {
   venueTypeName: string | null;
   dmaId: number | null;
   dmaMarketName: string | null;
+  /** Physical address city (from dbo.Address via Company.PhysicalAddressID). */
+  city: string | null;
+  /** Physical address state/province (2-letter code or full name). */
+  stateProvince: string | null;
 }
 
 export const allVenuesQueryKey = ['venue-directory', 'venues'] as const;
