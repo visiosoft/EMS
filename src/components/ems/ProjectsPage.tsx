@@ -2392,8 +2392,15 @@ function VenueProposalsListView({ venues }: { venues: ApiProjectVenue[] }) {
                     <td className="px-3 py-1.5 text-text-secondary align-top" rowSpan={dates.length}>
                       {cityLabel}
                     </td>
-                    <td className="px-3 py-1.5 text-text-primary font-medium align-top" rowSpan={dates.length}>
-                      {venueDisplayName}
+                    <td className="px-3 py-1.5 text-text-primary align-top" rowSpan={dates.length}>
+                      <div className="font-medium break-words">{venueDisplayName}</div>
+                      <VenueDetailLine
+                        city={venue.venueCity ?? null}
+                        stateProvince={venue.venueStateProvince ?? null}
+                        dmaMarketName={venue.venueDmaMarketName ?? null}
+                        seatingCapacity={venue.venueSeatingCapacity ?? null}
+                        entertainmentComplexNames={venue.venueEntertainmentComplexNames ?? null}
+                      />
                     </td>
                   </>
                 )}
@@ -2951,20 +2958,9 @@ function AddVenueForm({
         const location = formatVenueLocation(v.city, v.stateProvince);
         const market = cleanDmaMarketLabel(v.dmaMarketName);
         const complex = (v.entertainmentComplexNames ?? '').trim();
-        const capacityLabel = formatVenueCapacity(v.seatingCapacity);
-        const details = [
-          location ? `City: ${location}` : null,
-          market ? `DMA: ${market}` : null,
-          capacityLabel !== '—' ? `Capacity: ${capacityLabel}` : null,
-          complex ? `Complex: ${complex}` : null,
-        ]
-          .filter(Boolean)
-          .join(' | ');
         return {
           value: String(v.companyId),
-          label: v.venueName,
-          description: details || undefined,
-          descriptionMultiline: true,
+          label: formatVenueWizardLabel(v),
           searchText: [v.venueName, location, market, complex, v.venueTypeName].filter(Boolean).join(' '),
         };
       });
