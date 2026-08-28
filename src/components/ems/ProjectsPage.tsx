@@ -650,8 +650,6 @@ function ConfirmedOfferPdfUpload({
 }
 
 // ─── Optional stage offer link upload (Drafted / In Consideration) ─────────
-// Uploads immediately on file selection — these are informational-only and
-// never gate a status transition (unlike the required Confirmed offer PDF).
 
 function OfferStageLinkUpload({
   projectId,
@@ -660,9 +658,11 @@ function OfferStageLinkUpload({
   linkId,
   linkName,
   addToast,
-  onRefresh,
+  pendingFile,
+  onFileSelected,
   uploadFn,
   getUrlFn,
+  readOnly,
 }: {
   projectId: number;
   venue: ApiProjectVenue;
@@ -670,16 +670,18 @@ function OfferStageLinkUpload({
   linkId: number | null | undefined;
   linkName: string | null | undefined;
   addToast: Props['addToast'];
-  onRefresh: () => void | Promise<void>;
+  pendingFile: File | null;
+  onFileSelected: (file: File | null) => void;
   uploadFn: (projectId: number, venueId: number, file: File) => Promise<{ linkId: number; linkName: string }>;
   getUrlFn: (projectId: number, venueId: number) => string;
+  readOnly?: boolean;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [showPreview, setShowPreview] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const hasLink = linkId != null;
+  const hasPendingOrLink = pendingFile != null || hasLink;
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (fileRef.current) fileRef.current.value = '';
     if (!file) return;
@@ -687,16 +689,7 @@ function OfferStageLinkUpload({
       addToast('Only PDF files are accepted.', 'warning');
       return;
     }
-    setUploading(true);
-    try {
-      await uploadFn(projectId, venue.engagementProjectVenueId, file);
-      await onRefresh();
-      addToast(`${title} uploaded.`, 'success');
-    } catch (err) {
-      addToast(friendlyApiError(err, `Could not upload ${title.toLowerCase()}.`), 'error');
-    } finally {
-      setUploading(false);
-    }
+    onFileSelected(file);
   };
 
   const previewUrl = hasLink ? getUrlFn(projectId, venue.engagementProjectVenueId) : null;
@@ -706,38 +699,41 @@ function OfferStageLinkUpload({
       <span className="text-xs text-text-muted block mb-1.5">
         {title} <span className="text-text-muted/70">(optional)</span>
       </span>
-      {hasLink ? (
+      {hasPendingOrLink ? (
         <div className="flex items-center gap-2">
           <Check className="h-4 w-4 text-emerald-500 shrink-0" />
-          <span className="text-sm text-text-primary truncate max-w-[20rem]" title={linkName ?? 'PDF uploaded'}>
-            {linkName ?? 'PDF uploaded'}
+          <span className="text-sm text-text-primary truncate max-w-[20rem]" title={pendingFile?.name ?? linkName ?? 'PDF uploaded'}>
+            {pendingFile ? pendingFile.name : (linkName ?? 'PDF uploaded')}
           </span>
-          <button
-            type="button"
-            onClick={() => setShowPreview((p) => !p)}
-            className="text-xs text-ems-accent hover:underline inline-flex items-center gap-1"
-          >
-            <Eye className="h-3.5 w-3.5" />
-            {showPreview ? 'Hide preview' : 'Preview'}
-          </button>
-          <button
-            type="button"
-            onClick={() => fileRef.current?.click()}
-            disabled={uploading}
-            className="ml-auto text-xs text-ems-accent hover:underline disabled:opacity-60"
-          >
-            {uploading ? 'Uploading…' : 'Replace'}
-          </button>
+          {hasLink && !pendingFile && (
+            <button
+              type="button"
+              onClick={() => setShowPreview((p) => !p)}
+              className="text-xs text-ems-accent hover:underline inline-flex items-center gap-1"
+            >
+              <Eye className="h-3.5 w-3.5" />
+              {showPreview ? 'Hide preview' : 'Preview'}
+            </button>
+          )}
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className="ml-auto text-xs text-ems-accent hover:underline"
+            >
+              Replace
+            </button>
+          )}
         </div>
       ) : (
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
-            disabled={uploading}
+            disabled={readOnly}
             className="inline-flex items-center gap-1.5 rounded-md border border-border bg-elevated px-3 py-1.5 text-sm text-text-primary hover:bg-muted/50 transition-colors disabled:opacity-60"
           >
-            {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+            <Upload className="h-3.5 w-3.5" />
             Upload PDF
           </button>
           <span className="text-[11px] text-text-muted">Upload the {title.toLowerCase()} document.</span>
@@ -2451,6 +2447,8 @@ function VenueProposalRow({
   const [offerCreationStatus, setOfferCreationStatus] = useState<string>(venue.offerCreationStatus ?? 'Requested');
   const [offerReviewStatus, setOfferReviewStatus] = useState<string | null>(venue.offerReviewStatus ?? null);
   const [pendingPdfFile, setPendingPdfFile] = useState<File | null>(null);
+  const [pendingDraftedOfferFile, setPendingDraftedOfferFile] = useState<File | null>(null);
+  const [pendingInConsiderationOfferFile, setPendingInConsiderationOfferFile] = useState<File | null>(null);
   const [offerSaving, setOfferSaving] = useState(false);
 
   const venueStatusStrings = useResolvedVenueStatusStrings(venueStatus);
@@ -2468,6 +2466,8 @@ function VenueProposalRow({
     setOfferCreationStatus(venue.offerCreationStatus ?? 'Requested');
     setOfferReviewStatus(venue.offerReviewStatus ?? null);
     setPendingPdfFile(null);
+    setPendingDraftedOfferFile(null);
+    setPendingInConsiderationOfferFile(null);
   }, [venue.offerCreationStatus, venue.offerReviewStatus]);
 
   const handleStatusSave = async () => {
@@ -2514,6 +2514,13 @@ function VenueProposalRow({
         offerReviewStatus: offerReviewStatus as OfferReviewStatus | null,
       });
 
+      if (pendingDraftedOfferFile) {
+        await uploadDraftedOfferLink(projectId, venue.engagementProjectVenueId, pendingDraftedOfferFile);
+      }
+      if (pendingInConsiderationOfferFile) {
+        await uploadInConsiderationOfferLink(projectId, venue.engagementProjectVenueId, pendingInConsiderationOfferFile);
+      }
+
       // If confirmed, show engagement creation modal
       if (isChangingToConfirmed && tourId != null) {
         setShowEngagementModal(true);
@@ -2523,6 +2530,8 @@ function VenueProposalRow({
       await onRefresh();
       // Clear pending file only after refresh completes (backend now has the link)
       if (pendingPdfFile) setPendingPdfFile(null);
+      if (pendingDraftedOfferFile) setPendingDraftedOfferFile(null);
+      if (pendingInConsiderationOfferFile) setPendingInConsiderationOfferFile(null);
       ok = true;
     } catch (e) {
       addToast(friendlyApiError(e, 'Could not update offer status.'), 'error');
@@ -2662,7 +2671,12 @@ function VenueProposalRow({
                     onChange={(v) => {
                       setOfferCreationStatus(v);
                       // Review status (and any stage-specific link preview) only applies while Submitted
-                      if (v !== 'Submitted') setOfferReviewStatus(null);
+                      if (v !== 'Submitted') {
+                        setOfferReviewStatus(null);
+                        setPendingInConsiderationOfferFile(null);
+                        setPendingPdfFile(null);
+                      }
+                      if (v !== 'Drafted') setPendingDraftedOfferFile(null);
                     }}
                     placeholder="Select…"
                     disabled={offerSaving || venue.offerReviewStatus === 'Confirmed'}
@@ -2674,7 +2688,16 @@ function VenueProposalRow({
                     <Select2
                       options={OFFER_REVIEW_STATUS_OPTIONS}
                       value={offerReviewStatus ?? ''}
-                      onChange={(v) => setOfferReviewStatus(v || null)}
+                      onChange={(v) => {
+                        const nextOfferReviewStatus = v || null;
+                        setOfferReviewStatus(nextOfferReviewStatus);
+                        if (nextOfferReviewStatus !== 'In Consideration') {
+                          setPendingInConsiderationOfferFile(null);
+                        }
+                        if (nextOfferReviewStatus !== 'Confirmed') {
+                          setPendingPdfFile(null);
+                        }
+                      }}
                       placeholder="Select…"
                       disabled={offerSaving || venue.offerReviewStatus === 'Confirmed'}
                     />
@@ -2693,9 +2716,11 @@ function VenueProposalRow({
                   linkId={venue.draftedOfferLinkId}
                   linkName={venue.draftedOfferLinkName}
                   addToast={addToast}
-                  onRefresh={onRefresh}
+                  pendingFile={pendingDraftedOfferFile}
+                  onFileSelected={setPendingDraftedOfferFile}
                   uploadFn={uploadDraftedOfferLink}
                   getUrlFn={getDraftedOfferLinkUrl}
+                  readOnly={offerSaving}
                 />
               )}
               {offerCreationStatus === 'Submitted' && offerReviewStatus === 'In Consideration' && (
@@ -2706,9 +2731,11 @@ function VenueProposalRow({
                   linkId={venue.inConsiderationOfferLinkId}
                   linkName={venue.inConsiderationOfferLinkName}
                   addToast={addToast}
-                  onRefresh={onRefresh}
+                  pendingFile={pendingInConsiderationOfferFile}
+                  onFileSelected={setPendingInConsiderationOfferFile}
                   uploadFn={uploadInConsiderationOfferLink}
                   getUrlFn={getInConsiderationOfferLinkUrl}
+                  readOnly={offerSaving}
                 />
               )}
               {offerReviewStatus === 'Confirmed' && (
@@ -2724,7 +2751,9 @@ function VenueProposalRow({
               )}
               {(offerCreationStatus !== (venue.offerCreationStatus ?? 'Requested') ||
                 (offerReviewStatus ?? null) !== (venue.offerReviewStatus ?? null) ||
-                pendingPdfFile != null) && (
+                pendingPdfFile != null ||
+                pendingDraftedOfferFile != null ||
+                pendingInConsiderationOfferFile != null) && (
                 <div className="flex items-center gap-2 pt-1">
                   <button
                     type="button"
@@ -2741,6 +2770,8 @@ function VenueProposalRow({
                       setOfferCreationStatus(venue.offerCreationStatus ?? 'Requested');
                       setOfferReviewStatus(venue.offerReviewStatus ?? null);
                       setPendingPdfFile(null);
+                      setPendingDraftedOfferFile(null);
+                      setPendingInConsiderationOfferFile(null);
                     }}
                     className="text-text-muted text-xs px-1 hover:text-text-primary"
                   >
