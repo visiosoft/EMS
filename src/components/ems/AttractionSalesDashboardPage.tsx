@@ -49,7 +49,7 @@ export function AttractionSalesDashboardPage({
       asOf={asOf}
       onAsOfChange={setAsOf}
       onBack={() => onNavigate(returnView)}
-      backTitle={returnView === 'attraction-tours' ? 'Back to Attraction Tours' : 'Back to Daily Sales'}
+      backTitle={returnView === 'attraction-tours' ? 'Back to Attractions' : 'Back to Daily Sales'}
       loading={q.isLoading}
       error={q.isError ? q.error : undefined}
       onRetry={() => void q.refetch()}

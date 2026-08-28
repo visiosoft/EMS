@@ -2442,7 +2442,6 @@ const compareTours = (a: ApiTourListRow, b: ApiTourListRow) =>
 
 export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourId, initialSelectedAttractionId }: Props) {
   const qc = useQueryClient();
-  const [pageTab, setPageTab] = useState('Attractions');
   const [attractionInput, setAttractionInput] = useState('');
   const [attractionSearch, setAttractionSearch] = useState('');
   const [showAttractionSuggestions, setShowAttractionSuggestions] = useState(false);
@@ -2473,13 +2472,11 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
   useEffect(() => {
     if (initialSelectedTourId != null) {
       setSelectedTourId(initialSelectedTourId);
-      setPageTab('Tours');
     }
   }, [initialSelectedTourId]);
   useEffect(() => {
     if (initialSelectedAttractionId != null) {
       setSelectedAttractionId(initialSelectedAttractionId);
-      setPageTab('Attractions');
     }
   }, [initialSelectedAttractionId]);
 
@@ -2504,42 +2501,14 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  /** Hiding a tab’s search UI does not unmount its state; clear the inactive list search when switching tabs. */
-  useEffect(() => {
-    if (pageTab === 'Tours') {
-      setAttractionInput('');
-      setAttractionSearch('');
-      setShowAttractionSuggestions(false);
-    } else {
-      setTourInput('');
-      setTourSearch('');
-      setShowTourSuggestions(false);
-    }
-  }, [pageTab]);
-
-  useEffect(() => {
-    if (pageTab !== 'Attractions') {
-      setExpandedAttractionTileId(null);
-    }
-  }, [pageTab]);
-
-  const hasActiveTabFilters =
-    pageTab === 'Attractions'
-      ? attractionInput.trim().length > 0 || attractionSearch.trim().length > 0
-      : tourInput.trim().length > 0 || tourSearch.trim().length > 0;
+  const hasActiveTabFilters = attractionInput.trim().length > 0 || attractionSearch.trim().length > 0;
 
   const resetTabFilters = useCallback(() => {
-    if (pageTab === 'Attractions') {
-      setAttractionInput('');
-      setAttractionSearch('');
-      setShowAttractionSuggestions(false);
-    } else {
-      setTourInput('');
-      setTourSearch('');
-      setShowTourSuggestions(false);
-    }
+    setAttractionInput('');
+    setAttractionSearch('');
+    setShowAttractionSuggestions(false);
     setPage(1);
-  }, [pageTab]);
+  }, []);
 
   const attractionsQuery = useQuery({
     queryKey: [
@@ -2616,11 +2585,14 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
   const attractionSuggestions = useMemo(() => {
     const q = attractionInput.trim();
     if (!q) return [];
-    return attractions
+    const nameMatches = attractions
       .map((a) => a.attractionName)
-      .filter((name) => richTextMatches([name], q))
-      .slice(0, 8);
-  }, [attractionInput, attractions]);
+      .filter((name) => richTextMatches([name], q));
+    const tourNameMatches = tours
+      .filter((t) => richTextMatches([t.tourName], q))
+      .map((t) => t.tourName);
+    return [...new Set([...nameMatches, ...tourNameMatches])].slice(0, 8);
+  }, [attractionInput, attractions, tours]);
 
   const tourSuggestions = useMemo(() => {
     const q = tourInput.trim();
@@ -2811,10 +2783,7 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
     onError: (e) => addToast(friendlyApiError(e, 'Could not delete tour.'), 'error'),
   });
 
-  const listForTable = useMemo(
-    () => (pageTab === 'Attractions' ? displayAttractions : displayTours),
-    [pageTab, displayAttractions, displayTours],
-  );
+  const listForTable = displayAttractions;
   const serverTotal = listForTable.length;
   const { offset, limit } = getPageParams(page, pageSize);
   const paginated = useMemo(
@@ -2831,17 +2800,13 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
         ? 'grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-3 items-start'
         : 'grid grid-cols-1 md:grid-cols-4 xl:grid-cols-6 gap-3 items-start';
 
-  /** Initial load: lookups + both full lists, or a committed database search on the active tab. */
+  /** Initial load: lookups + both full lists, or a committed database search. */
   const loading =
     lookupsQuery.isPending ||
     attractionsQuery.isPending ||
     toursQuery.isPending ||
-    (pageTab === 'Attractions' &&
-      attractionSearchActive &&
-      (serverAttractionsSearchQuery.isPending || serverAttractionsSearchQuery.isFetching)) ||
-    (pageTab === 'Tours' &&
-      tourSearchActive &&
-      (serverToursSearchQuery.isPending || serverToursSearchQuery.isFetching));
+    (attractionSearchActive &&
+      (serverAttractionsSearchQuery.isPending || serverAttractionsSearchQuery.isFetching));
   /** Top progress bar when a background refetch runs after mutations, etc. */
   const refreshing =
     (attractionsQuery.isFetching && !attractionsQuery.isPending) ||
@@ -2855,19 +2820,9 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
     setPage(1);
   }, []);
 
-  const toggleTourSort = useCallback(
-    (col: 'tour' | 'attraction' | 'class' | 'management') => {
-      setTourSort((s) =>
-        s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' },
-      );
-      setPage(1);
-    },
-    [],
-  );
-
   useEffect(() => {
     setPage(1);
-  }, [attractionSearch, tourSearch, pageTab, attractionSort, tourSort]);
+  }, [attractionSearch, attractionSort]);
 
   useEffect(() => {
     setPage(1);
@@ -3070,7 +3025,7 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
 
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3 flex-wrap">
-          <h1 className="text-xl font-semibold text-text-primary">Attraction Tours</h1>
+          <h1 className="text-xl font-semibold text-text-primary">Attractions</h1>
           {loading ? (
             <Skeleton className="h-5 w-12 rounded bg-muted/80" aria-hidden />
           ) : (
@@ -3078,19 +3033,16 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
               {serverTotal.toLocaleString()}
             </span>
           )}
-          <TabBar tabs={['Attractions', 'Tours']} active={pageTab} onChange={setPageTab} />
         </div>
         <div className="flex items-center gap-2">
-          {pageTab === 'Attractions' && (
-            <button
-              type="button"
-              onClick={() => setShowAddAttraction(true)}
-              disabled={loading || !classes.length}
-              className="bg-ems-accent hover:bg-ems-accent/80 text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              + Add Attraction
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setShowAddAttraction(true)}
+            disabled={loading || !classes.length}
+            className="bg-ems-accent hover:bg-ems-accent/80 text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            + Add Attraction
+          </button>
           <button
             type="button"
             onClick={() => setShowAddTour(true)}
@@ -3103,13 +3055,12 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        {pageTab === 'Attractions' ? (
-          <div className="relative w-full min-w-0 sm:w-64" ref={attractionSearchRef}>
+        <div className="relative w-full min-w-0 sm:w-64" ref={attractionSearchRef}>
             <div className="flex min-w-0 items-center border border-border rounded-md bg-surface overflow-hidden focus-within:border-ems-accent transition-colors">
               <input
                 type="text"
                 className="min-w-0 flex-1 cursor-text bg-transparent px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                placeholder="Search attractions..."
+                placeholder="Search attractions or tours..."
                 value={attractionInput}
                 disabled={loading}
                 autoComplete="off"
@@ -3168,84 +3119,12 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
                     </button>
                   ))
                 ) : (
-                  <div className="px-3 py-2.5 text-sm text-text-muted">No matching attractions</div>
+                  <div className="px-3 py-2.5 text-sm text-text-muted">No matching attractions or tours</div>
                 )}
               </div>
             )}
           </div>
-        ) : (
-          <div className="relative w-full min-w-0 sm:w-64" ref={tourSearchRef}>
-            <div className="flex min-w-0 items-center border border-border rounded-md bg-surface overflow-hidden focus-within:border-ems-accent transition-colors">
-              <input
-                type="text"
-                className="min-w-0 flex-1 cursor-text bg-transparent px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                placeholder="Search tours..."
-                value={tourInput}
-                disabled={loading}
-                autoComplete="off"
-                spellCheck={false}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setTourInput(v);
-                  setShowTourSuggestions(true);
-                  if (!v.trim()) setTourSearch('');
-                }}
-                onFocus={() => {
-                  if (tourInput.trim()) setShowTourSuggestions(true);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    setTourSearch(tourInput.trim());
-                    setShowTourSuggestions(false);
-                  }
-                  if (e.key === 'Escape') setShowTourSuggestions(false);
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  setTourSearch(tourInput.trim());
-                  setShowTourSuggestions(false);
-                }}
-                className="shrink-0 cursor-pointer px-2.5 py-1.5 text-text-muted hover:text-ems-accent transition-colors"
-                title="Search"
-              >
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <circle cx="11" cy="11" r="8" strokeWidth="2" />
-                  <path d="m21 21-4.35-4.35" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              </button>
-            </div>
-            {showTourSuggestions && tourInput.trim().length >= 1 && (
-              <div
-                className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden"
-                onMouseDown={(e) => e.preventDefault()}
-              >
-                {tourSuggestions.length > 0 ? (
-                  tourSuggestions.map((s, idx) => (
-                    <button
-                      key={`${s}-${idx}`}
-                      type="button"
-                      className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        setTourInput(s);
-                        setTourSearch(s);
-                        setShowTourSuggestions(false);
-                      }}
-                    >
-                      {s}
-                    </button>
-                  ))
-                ) : (
-                  <div className="px-3 py-2.5 text-sm text-text-muted">No matching tours</div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-        {(hasActiveTabFilters || pageTab === 'Attractions') && (
-          <div className="sm:ml-auto flex flex-wrap items-center gap-2 justify-end">
+        <div className="sm:ml-auto flex flex-wrap items-center gap-2 justify-end">
             {hasActiveTabFilters ? (
               <button
                 type="button"
@@ -3258,7 +3137,6 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
                 Reset
               </button>
             ) : null}
-            {pageTab === 'Attractions' ? (
             <>
             <div className="inline-flex items-center rounded-md border border-border bg-surface p-0.5">
               <button
@@ -3333,20 +3211,17 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
               </div>
             )}
             </>
-            ) : null}
           </div>
-        )}
       </div>
 
       {loading ? (
         <AttractionToursTableSkeleton
-          variant={pageTab === 'Attractions' ? 'attractions' : 'tours'}
+          variant="attractions"
           rowCount={isAllPageSize(pageSize) ? PAGE_SIZE : pageSize}
         />
       ) : (
         <>
-          {pageTab === 'Attractions' && (
-            <>
+          <>
               {attractionsViewMode === 'list' ? (
                 <div className="bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip">
                   <table className="w-full text-sm min-w-[520px]">
@@ -3382,6 +3257,7 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
                               ))}
                           </button>
                         </th>
+                        <th className="w-32" />
                       </tr>
                     </thead>
                     <tbody>
@@ -3390,30 +3266,106 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
                           <td colSpan={3} className="py-12 px-3 text-center text-sm text-text-muted">
                             {!attractionSearch.trim()
                               ? 'No attractions found.'
-                              : 'No attractions match your search.'}
+                              : 'No attractions or tours match your search.'}
                           </td>
                         </tr>
                       )}
-                      {(paginated as ApiAttractionListRow[]).map((a) => (
-                        <tr
-                          key={a.attractionId}
-                          onClick={() => setSelectedAttractionId(a.attractionId)}
-                          className="border-b border-border/50 hover:bg-hover cursor-pointer"
-                        >
-                          <td className="py-2.5 px-3 text-text-primary font-medium">{a.attractionName}</td>
-                          <td className="py-2.5 px-3 text-text-secondary tabular-nums text-sm">{a.activeTourCount}</td>
-                        </tr>
-                      ))}
+                      {(paginated as ApiAttractionListRow[]).map((a) => {
+                        const isRowExpanded = expandedAttractionTileId === a.attractionId;
+                        const toursForRow = toursByAttractionId.get(a.attractionId) ?? [];
+                        return (
+                          <React.Fragment key={a.attractionId}>
+                            <tr className="border-b border-border/50 hover:bg-hover">
+                              <td
+                                onClick={() => setSelectedAttractionId(a.attractionId)}
+                                className="py-2.5 px-3 text-text-primary font-medium cursor-pointer"
+                              >
+                                {a.attractionName}
+                              </td>
+                              <td
+                                onClick={() => setSelectedAttractionId(a.attractionId)}
+                                className="py-2.5 px-3 text-text-secondary tabular-nums text-sm cursor-pointer"
+                              >
+                                {a.activeTourCount}
+                              </td>
+                              <td className="py-2 px-3 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedAttractionTileId((cur) =>
+                                      cur === a.attractionId ? null : a.attractionId,
+                                    )
+                                  }
+                                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary"
+                                >
+                                  {isRowExpanded ? (
+                                    <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+                                  ) : (
+                                    <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                                  )}
+                                  Tours
+                                </button>
+                              </td>
+                            </tr>
+                            {isRowExpanded && (
+                              <tr className="border-b border-border/50 bg-surface/30">
+                                <td colSpan={3} className="px-3 py-3 space-y-2.5">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <h3 className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
+                                      Related Tours
+                                    </h3>
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1 rounded-md border border-ems-accent px-2 py-1 text-xs font-medium text-ems-accent transition-colors hover:bg-ems-accent-dim focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
+                                        onClick={() => setShowAddTour(true)}
+                                      >
+                                        <Plus className="h-3.5 w-3.5" aria-hidden />
+                                        Add Tour
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
+                                        onClick={() => setSelectedAttractionId(a.attractionId)}
+                                      >
+                                        Open details
+                                        <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
+                                      </button>
+                                    </div>
+                                  </div>
+                                  {toursForRow.length === 0 ? (
+                                    <p className="text-xs text-text-muted">No tours attached yet.</p>
+                                  ) : (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                                      {toursForRow.map((t) => (
+                                        <TourThumbnailTile
+                                          key={t.tourId}
+                                          tour={t}
+                                          onClick={(tour) => {
+                                            setSelectedTourId(tour.tourId);
+                                            setTourDrawerTab('Details');
+                                          }}
+                                        />
+                                      ))}
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
               ) : (
+
                 <div className="space-y-3">
                   {serverTotal === 0 && !attractionsQuery.isError ? (
                     <div className="rounded-lg border border-border bg-card py-12 px-3 text-center text-sm text-text-muted">
                       {!attractionSearch.trim()
                         ? 'No attractions found.'
-                        : 'No attractions match your search.'}
+                        : 'No attractions or tours match your search.'}
                     </div>
                   ) : (
                     <div className={attractionTilesGridClass}>
@@ -3512,7 +3464,6 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
                                         tour={t}
                                         onClick={(tour) => {
                                           setSelectedAttractionId(null);
-                                          setPageTab('Tours');
                                           setSelectedTourId(tour.tourId);
                                           setTourInput(tour.tourName);
                                           setTourSearch(tour.tourName);
@@ -3533,7 +3484,7 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
                   )}
                 </div>
               )}
-              {pageTab === 'Attractions' && serverTotal > 0 && (
+              {serverTotal > 0 && (
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-text-secondary px-1">
                   <p className="tabular-nums">
                     Showing{' '}
@@ -3574,149 +3525,7 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
                   </div>
                 </div>
               )}
-            </>
-          )}
-
-          {pageTab === 'Tours' && (
-            <>
-              <div className="bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip">
-                <table className="w-full text-sm min-w-[800px]">
-                  <thead>
-                    <tr className="text-text-muted text-xs border-b border-border bg-surface">
-                      <th className="text-left py-2.5 px-3">
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 font-medium hover:text-text-primary"
-                          onClick={() => toggleTourSort('tour')}
-                        >
-                          Tour Name
-                          {tourSort.col === 'tour' &&
-                            (tourSort.dir === 'asc' ? (
-                              <ArrowUp className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
-                            ) : (
-                              <ArrowDown className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
-                            ))}
-                        </button>
-                      </th>
-                      <th className="text-left py-2.5 px-3">
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 font-medium hover:text-text-primary"
-                          onClick={() => toggleTourSort('attraction')}
-                        >
-                          Attraction
-                          {tourSort.col === 'attraction' &&
-                            (tourSort.dir === 'asc' ? (
-                              <ArrowUp className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
-                            ) : (
-                              <ArrowDown className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
-                            ))}
-                        </button>
-                      </th>
-                      <th className="text-left py-2.5 px-3">
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 font-medium hover:text-text-primary"
-                          onClick={() => toggleTourSort('class')}
-                        >
-                          Class
-                          {tourSort.col === 'class' &&
-                            (tourSort.dir === 'asc' ? (
-                              <ArrowUp className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
-                            ) : (
-                              <ArrowDown className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
-                            ))}
-                        </button>
-                      </th>
-                      <th className="text-left py-2.5 px-3">
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 font-medium hover:text-text-primary"
-                          onClick={() => toggleTourSort('management')}
-                        >
-                          Talent Agency
-                          {tourSort.col === 'management' &&
-                            (tourSort.dir === 'asc' ? (
-                              <ArrowUp className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
-                            ) : (
-                              <ArrowDown className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
-                            ))}
-                        </button>
-                      </th>
-                      <th className="w-10" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {serverTotal === 0 && !toursQuery.isError && (
-                      <tr>
-                        <td colSpan={5} className="py-12 px-3 text-center text-sm text-text-muted">
-                          {!tourSearch.trim() ? 'No tours found.' : 'No tours match your search.'}
-                        </td>
-                      </tr>
-                    )}
-                    {(paginated as ApiTourListRow[]).map((t) => (
-                      <tr
-                        key={t.tourId}
-                        onClick={() => {
-                          setSelectedTourId(t.tourId);
-                          setTourDrawerTab('Details');
-                        }}
-                        className="border-b border-border/50 hover:bg-hover cursor-pointer"
-                      >
-                        <td className="py-2.5 px-3 text-text-primary font-medium">{t.tourName}</td>
-                        <td className="py-2.5 px-3 text-text-secondary">{t.attractionName}</td>
-                        <td className="py-2.5 px-3">
-                          <span className="text-xs bg-elevated px-1.5 py-0.5 rounded text-text-secondary">{t.className}</span>
-                        </td>
-                        <td className="py-2.5 px-3 text-text-secondary text-sm">{t.talentAgencyCompanyName ?? '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {pageTab === 'Tours' && serverTotal > 0 && (
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-text-secondary px-1">
-                  <p className="tabular-nums">
-                    Showing{' '}
-                    <span className="text-text-primary font-medium">
-                      {rangeStart}–{rangeEnd}
-                    </span>{' '}
-                    of <span className="text-text-primary font-medium">{serverTotal.toLocaleString()}</span>
-                    <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-text-muted">
-                      <span aria-hidden>·</span>
-                      <PageSizeSelect
-                        value={pageSize}
-                        onChange={setPageSize}
-                        disabled={toursQuery.isFetching}
-                      />
-                      <span>per page</span>
-                    </span>
-                  </p>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      className="px-3 py-1.5 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium"
-                      disabled={page <= 1 || toursQuery.isFetching}
-                      onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    >
-                      Previous
-                    </button>
-                    <span className="text-text-muted tabular-nums px-1">
-                      Page {page} / {pageCount}
-                    </span>
-                    <button
-                      type="button"
-                      className="px-3 py-1.5 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium"
-                      disabled={page >= pageCount || toursQuery.isFetching}
-                      onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
-                    >
-                      Next
-                    </button>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
+          </>
         </>
       )}
 
@@ -3727,7 +3536,6 @@ export function AttractionToursPage({ addToast, onNavigate, initialSelectedTourI
           addToast={addToast}
           onOpenTour={(tour) => {
             setSelectedAttractionId(null);
-            setPageTab('Tours');
             setSelectedTourId(tour.tourId);
             setTourInput(tour.tourName);
             setTourSearch(tour.tourName);
