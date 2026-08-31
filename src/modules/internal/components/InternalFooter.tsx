@@ -5,7 +5,7 @@ import { useInternalNavigation } from "../routing/InternalNavigationContext";
 
 const EXTERNAL_FOOTER_LINKS: Record<string, string> = {
   "pto requests": "https://signin.adp.com/",
-  "payment requests": "https://ramp.com/",
+  "payment requests": "https://app.ramp.com/",
   "tech support": GENUITY_HELP_CENTER_URL,
   "shipping requests": SHIPPING_REQUESTS_URL,
 };

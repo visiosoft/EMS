@@ -16,6 +16,7 @@ import { LearningPortalPage } from "@/modules/internal/pages/LearningPortalPage"
 import { LearningAdminPage } from "@/modules/internal/pages/LearningAdminPage";
 import { MyProfilePage } from "@/modules/internal/pages/MyProfilePage";
 import { PayrollSchedulePage } from "@/modules/internal/pages/PayrollSchedulePage";
+import { WorkHolidaysPage } from "@/modules/internal/pages/WorkHolidaysPage";
 import { HealthInsurancePage } from "@/modules/internal/pages/HealthInsurancePage";
 import { DocumentLibraryPage } from "@/features/document-library/pages/DocumentLibraryPage";
 import { useAccessLevel } from "@/hooks/useAccessLevel";
@@ -60,6 +61,8 @@ function InternalAppViews() {
       return <MyProfilePage />;
     case "payroll-schedule":
       return <PayrollSchedulePage />;
+    case "work-holidays":
+      return <WorkHolidaysPage />;
     case "health-insurance":
       return <HealthInsurancePage />;
     case "home":

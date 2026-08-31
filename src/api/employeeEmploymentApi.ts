@@ -21,6 +21,8 @@ export interface EmployeeEmploymentProfile {
   title: string;
   workEmail: string;
   department: string;
+  /** Secondary department from the Entra "Department2" custom attribute. */
+  department2: string;
   office: string;
   accessLevel: string;
   workAuthorization: string;

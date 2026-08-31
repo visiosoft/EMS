@@ -14,6 +14,8 @@ export interface OrganizationChartMember {
   jobTitle: string;
   roleName: string;
   departmentName: string;
+  /** Secondary department from the Entra "Department2" custom attribute. */
+  department2: string;
   departmentRank: number | null;
 }
 

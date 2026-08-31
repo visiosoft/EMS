@@ -79,6 +79,8 @@ export interface LinkedSelfProfile {
     cellPhone: string;
     workPhone: string;
     department: string;
+    /** Secondary department from the Entra "Department2" custom attribute. */
+    department2: string;
     role: string;
     company: string;
   };

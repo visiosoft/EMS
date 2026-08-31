@@ -19,6 +19,8 @@ export type OrganizationChartMember = {
   jobTitle: string;
   roleName: string;
   departmentName: string;
+  /** Secondary department from the Entra "Department2" custom attribute. */
+  department2: string;
   departmentRank: number | null;
 };
 
@@ -490,6 +492,19 @@ export class OrganizationChartService {
       .filter((company) => company.companyId > 0);
   }
 
+  private async hasEmployeeProfileDepartment2Column(): Promise<boolean> {
+    const rows = await this.dataSource.query(
+      `
+      SELECT 1 AS hasColumn
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = 'dbo'
+        AND TABLE_NAME = 'EmployeeProfile'
+        AND COLUMN_NAME = 'Department2'
+      `,
+    );
+    return rows.length > 0;
+  }
+
   private async hasContactInfoJobTitleColumn(): Promise<boolean> {
     const rows = await this.dataSource.query(
       `
@@ -508,6 +523,11 @@ export class OrganizationChartService {
     jobTitleColumnAvailable: boolean,
   ): Promise<ChartRow[]> {
     const jobTitleSelect = "COALESCE(NULLIF(LTRIM(RTRIM(ep.JobTitle)), ''), '')";
+    // Department2 ships in a manual migration — an unmigrated database must
+    // still render the chart, so fall back to an empty column.
+    const department2Select = (await this.hasEmployeeProfileDepartment2Column())
+      ? "COALESCE(ep.Department2, '')"
+      : "CAST('' AS nvarchar(100))";
     return this.dataSource.query(
       `
       SELECT
@@ -523,6 +543,7 @@ export class OrganizationChartService {
         departmentPick.departmentId,
         COALESCE(departmentPick.departmentName, 'Unassigned') AS departmentName,
         COALESCE(allDepts.allDepartmentNames, 'Unassigned') AS allDepartmentNames,
+        ${department2Select} AS department2,
         ISNULL(TRY_CAST(ep.DepartmentRank AS int), 999) AS departmentRank
       FROM dbo.Contact c
       INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
@@ -633,6 +654,7 @@ export class OrganizationChartService {
         jobTitle: readString(row, 'jobTitle', 'JobTitle'),
         roleName: readString(row, 'roleName', 'RoleName'),
         departmentName: readString(row, 'allDepartmentNames', 'AllDepartmentNames') || departmentName,
+        department2: readString(row, 'department2', 'Department2'),
         departmentRank: row.departmentRank != null ? Number(row.departmentRank) : null,
       });
     }

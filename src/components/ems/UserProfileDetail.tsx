@@ -14,6 +14,7 @@ import { fetchEmployeeCertifications } from '@/api/employeeCertificationsApi';
 import { previewUserSyncFromEntra } from '@/api/entraProfileSyncApi';
 import { EntraSyncPreviewDialog } from '@/components/ems/EntraSyncPreviewDialog';
 import { friendlyApiError } from '@/lib/friendlyApiError';
+import { toDepartmentTags } from '@/lib/departmentTags';
 import { getActiveAccount, getAccountEmail } from '@/auth/entra';
 import { INTERNAL_ROOT } from '@/routing/paths';
 
@@ -158,15 +159,24 @@ export function UserProfileDetail({ user, onBack, addToast }: UserProfileDetailP
 
 // ─── Shared Field Components ──────────────────────────────────────────────────
 
-function ReadOnlyField({ label, value, source }: { label: string; value: string; source?: DataSource }) {
+function ReadOnlyField({ label, value, source, tags }: { label: string; value: string; source?: DataSource; tags?: string[] }) {
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-1.5">
         <label className="text-xs font-medium text-text-muted">{label}</label>
         <Lock className="h-3 w-3 text-text-muted/50" />
       </div>
-      <div className="rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-secondary">
-        {value || '—'}
+      <div className="flex min-h-[38px] flex-wrap items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-secondary">
+        {tags && tags.length > 0
+          ? tags.map((tag) => (
+              <span
+                key={tag}
+                className="inline-flex items-center rounded-full border border-border bg-hover px-2.5 py-0.5 text-xs font-semibold text-text-primary"
+              >
+                {tag}
+              </span>
+            ))
+          : value || '—'}
       </div>
     </div>
   );
@@ -541,6 +551,7 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
   const data = profileQuery.data;
   const startDate = data?.startDate || '';
   const yearsOfService = startDate ? calculateYearsOfService(startDate) : null;
+  const departmentTags = toDepartmentTags(data?.department, data?.department2);
 
   return (
     <div className="space-y-4">
@@ -552,7 +563,7 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
           'workAuthorizationLink',
           'role',
           'officeAddressStreet1', 'officeAddressStreet2', 'officeAddressCity', 'officeAddressState', 'officeAddressZip', 'officeAddressCountry',
-          'departmentRank', 'startDate', 'supervisor', 'ptoAccrualRate',
+          'departmentRank', 'department2', 'startDate', 'supervisor', 'ptoAccrualRate',
           'employmentAgreement', 'rampAccount', 'rampCreditCard', 'employmentType',
         ]}
         invalidateKeys={[['employee-employment-profile', user.email], ['employee-personal-profile', user.email]]}
@@ -563,7 +574,12 @@ function EmploymentTab({ user, isAdmin, addToast }: { user: UserProfileUser; isA
         <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
           <ReadOnlyField label="Title" value={data?.title || ''} source="ems" />
           <ReadOnlyField label="Work Email" value={data?.workEmail || ''} source="ems" />
-          <ReadOnlyField label="Department" value={data?.department || ''} source="ems" />
+          <ReadOnlyField
+            label="Department"
+            value={data?.department || ''}
+            source="ems"
+            tags={departmentTags}
+          />
           <ReadOnlyField label="Office" value={data?.office || ''} source="ems" />
           <ReadOnlyField label="Department Rank" value={data?.departmentRank || ''} source="admin" />
           <ReadOnlyField label="Role" value={data?.role || ''} source="admin" />
