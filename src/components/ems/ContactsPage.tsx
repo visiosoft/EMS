@@ -813,8 +813,9 @@ function ContactDetailDrawer({
               <button
                 type="button"
                 onClick={() => setEditingAssignments((v) => !v)}
-                className="text-xs font-medium text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm"
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ems-accent/30 bg-ems-accent-dim px-3 text-sm font-semibold text-ems-accent transition-colors hover:border-ems-accent/50 hover:bg-ems-accent/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40"
               >
+                <Pencil className="h-3.5 w-3.5" aria-hidden />
                 {editingAssignments ? 'Done' : 'Edit'}
               </button>
             </div>
