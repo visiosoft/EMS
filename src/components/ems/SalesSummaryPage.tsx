@@ -29,7 +29,7 @@ import {
 interface Props { onOpenEngagement: (engagementId: number, performanceId: number) => void }
 
 type SortColumn =
-  | 'attraction' | 'eventDate' | 'venue' | 'sellableCapacity' | 'grossPotential' | 'grossSalesToDate'
+  | 'attraction' | 'eventDate' | 'venue' | 'city' | 'dma' | 'sellableCapacity' | 'grossPotential' | 'grossSalesToDate'
   | 'totalSold' | 'venueCapacitySoldPct' | 'grossPotentialSoldPct' | 'yesterdayRevenue'
   | 'ticketsSoldYesterday' | 'grossSales7Days' | 'ticketsSoldPrevious7Days'
   | 'grossSales14Days' | 'ticketsSoldPrevious14Days' | 'grossUnsoldRevenue' | 'unsoldTickets';
@@ -61,10 +61,8 @@ const EVENT_DATE_SCOPE_OPTIONS: Array<{ value: EventDateScope; label: string }> 
   { value: 'custom', label: 'Custom Date Range' },
 ];
 
-type RowWithMarket = ApiPerformanceSalesRow & { dmaMarketName?: string | null };
-
 const num = (v: number | null | undefined) => (v != null && Number.isFinite(v) ? v : null);
-const rowMarketName = (r: ApiPerformanceSalesRow) => (r as RowWithMarket).dmaMarketName ?? r.city ?? null;
+const rowMarketName = (r: ApiPerformanceSalesRow) => r.dmaMarketName ?? null;
 const pct = (a: number | null | undefined, b: number | null | undefined) => {
   const n = num(a), d = num(b); return n == null || d == null || d <= 0 ? null : (n / d) * 100;
 };
@@ -181,6 +179,8 @@ function sortRows(rows: SummaryRow[], sort: SortState) {
       attraction: () => cmpStr(ar.attractionName, br.attractionName) || cmpStr(ar.tourName, br.tourName),
       eventDate: () => cmpStr(`${ar.performanceDate}T${ar.performanceTime ?? '00:00:00'}`, `${br.performanceDate}T${br.performanceTime ?? '00:00:00'}`),
       venue: () => cmpStr(ar.venueName ?? ar.venueCompanyName, br.venueName ?? br.venueCompanyName) || cmpStr(rowMarketName(ar), rowMarketName(br)),
+      city: () => cmpStr(ar.city, br.city),
+      dma: () => cmpStr(rowMarketName(ar), rowMarketName(br)),
       sellableCapacity: () => cmpNum(ar.engagementSellableCapacity, br.engagementSellableCapacity),
       grossPotential: () => cmpNum(ar.engagementGrossPotential, br.engagementGrossPotential),
       grossSalesToDate: () => cmpNum(am.currentRevenue, bm.currentRevenue),
@@ -217,9 +217,9 @@ function HeaderLabel({ lines }: { lines: string[] }) {
   );
 }
 
-function SortHeader({ col, label, sort, onToggle, align, title, onResizeStart, className = '' }: { col: SortColumn; label: React.ReactNode; sort: SortState; onToggle: (col: SortColumn) => void; align?: 'left' | 'right'; title?: string; onResizeStart?: (e: React.MouseEvent) => void; className?: string }) {
+function SortHeader({ col, label, sort, onToggle, align, title, onResizeStart, className = '', style, rowSpan }: { col: SortColumn; label: React.ReactNode; sort: SortState; onToggle: (col: SortColumn) => void; align?: 'left' | 'right'; title?: string; onResizeStart?: (e: React.MouseEvent) => void; className?: string; style?: React.CSSProperties; rowSpan?: number }) {
    const active = sort.col === col; const Arrow = sort.dir === 'asc' ? ArrowUp : ArrowDown;
-  return <th scope="col" className={`relative min-w-0 overflow-hidden px-3 py-3 align-middle select-none ${align === 'right' ? 'text-right' : 'text-left'} ${className}`}><button type="button" onClick={() => onToggle(col)} className={`inline-flex items-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-wide transition-colors max-w-full ${active ? 'text-ems-accent' : 'text-text-secondary hover:text-text-primary'} ${align === 'right' ? 'justify-end w-full' : 'justify-start'}`} title={`Sort by ${title ?? (typeof label === 'string' ? label : col)}`}><span className="min-w-0 whitespace-normal break-words leading-snug normal-case">{label}</span>{active ? <Arrow className="h-3.5 w-3.5 shrink-0 text-ems-accent" aria-hidden /> : <span className="inline-block h-3.5 w-3.5 shrink-0 opacity-0" aria-hidden />}</button>{onResizeStart && <ColResizeHandle onResizeStart={onResizeStart} />}</th>;
+  return <th scope="col" rowSpan={rowSpan} style={style} className={`relative min-w-0 overflow-hidden px-3 py-3 align-middle select-none ${align === 'right' ? 'text-right' : 'text-left'} ${className}`}><button type="button" onClick={() => onToggle(col)} className={`inline-flex items-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-wide transition-colors max-w-full ${active ? 'text-ems-accent' : 'text-text-secondary hover:text-text-primary'} ${align === 'right' ? 'justify-end w-full' : 'justify-start'}`} title={`Sort by ${title ?? (typeof label === 'string' ? label : col)}`}><span className="min-w-0 whitespace-normal break-words leading-snug normal-case">{label}</span>{active ? <Arrow className="h-3.5 w-3.5 shrink-0 text-ems-accent" aria-hidden /> : <span className="inline-block h-3.5 w-3.5 shrink-0 opacity-0" aria-hidden />}</button>{onResizeStart && <ColResizeHandle onResizeStart={onResizeStart} />}</th>;
 }
 
 type SalesSummaryColumnDefinition = {
@@ -233,6 +233,8 @@ const SALES_SUMMARY_COLUMNS: SalesSummaryColumnDefinition[] = [
   { key: 'attraction', label: <HeaderLabel lines={['Attraction,', 'Tour']} /> },
   { key: 'eventDate', label: <HeaderLabel lines={['Opening', 'Performance Date']} />, title: 'Opening Performance Date' },
   { key: 'venue', label: <HeaderLabel lines={['Venue,', 'City']} />, title: 'Venue, City' },
+  { key: 'city', label: 'City' },
+  { key: 'dma', label: 'DMA' },
   { key: 'sellableCapacity', label: <HeaderLabel lines={['Sellable', 'Capacity']} />, title: 'Sellable Capacity', align: 'right' },
   { key: 'grossPotential', label: <HeaderLabel lines={['Gross', 'Potential $']} />, title: 'Gross Potential $', align: 'right' },
   { key: 'totalSold', label: <HeaderLabel lines={['Total Tickets', 'Sold To Date']} />, title: 'Total Tickets Sold To Date', align: 'right' },
@@ -270,6 +272,7 @@ const SALES_SUMMARY_VISIBLE_GROUPS_KEY = 'iae-sales-summary-visible-column-group
 const SALES_SUMMARY_DEFAULT_VISIBLE_METRIC_COLUMNS = SALES_SUMMARY_METRIC_COLUMN_GROUPS.flatMap((group) => group.keys);
 const SALES_SUMMARY_VISIBLE_METRIC_COLUMNS_KEY = 'iae-sales-summary-visible-metric-columns-v1';
 const SALES_SUMMARY_COLUMN_BY_KEY = new Map(SALES_SUMMARY_COLUMNS.map((column) => [column.key, column]));
+const SALES_SUMMARY_FROZEN_COLUMNS: SortColumn[] = ['attraction', 'eventDate', 'venue'];
 
 const SALES_SUMMARY_GROUP_BY_COLUMN = new Map<
   SortColumn,
@@ -304,6 +307,13 @@ function salesSummaryGroupHeaderClass(groupIndex: number) {
 function salesSummaryColumnChromeClass(col: SortColumn, area: 'header' | 'body', visibleColumnGroupMetaByColumn?: Map<SortColumn, SalesSummaryVisibleColumnGroupMeta>) {
   const group = SALES_SUMMARY_GROUP_BY_COLUMN.get(col);
   if (!group) {
+    // Frozen (sticky) columns must stay fully opaque (including on hover) so horizontally
+    // scrolled rows don't bleed through and overlap their text.
+    if (SALES_SUMMARY_FROZEN_COLUMNS.includes(col)) {
+      return area === 'header'
+        ? 'bg-white dk:bg-surface border-r border-slate-200 dk:border-white/10'
+        : 'bg-white dk:bg-surface group-hover:bg-hover dk:group-hover:bg-hover border-r border-slate-100 dk:border-white/10';
+    }
     return area === 'header'
       ? 'bg-white dk:bg-surface border-r border-slate-200 dk:border-white/10'
       : 'bg-white dk:bg-transparent group-hover:bg-hover/40 dk:group-hover:bg-hover/35 border-r border-slate-100 dk:border-white/10';
@@ -460,6 +470,8 @@ const DEFAULT_SALES_SUMMARY_COLUMN_WIDTHS: Record<SortColumn, number> = {
   attraction: 160,
   eventDate: 120,
   venue: 140,
+  city: 125,
+  dma: 150,
   sellableCapacity: 80,
   grossPotential: 105,
   grossSalesToDate: 120,
@@ -480,6 +492,8 @@ const SALES_SUMMARY_COLUMN_MIN_WIDTHS: Record<SortColumn, number> = {
   attraction: 120,
   eventDate: 140,
   venue: 115,
+  city: 100,
+  dma: 110,
   sellableCapacity: 105,
   grossPotential: 115,
   grossSalesToDate: 120,
@@ -568,8 +582,35 @@ function ColResizeHandle({
   );
 }
 
+// Keeps a loading flag visible for at least `minMs` once triggered, so fast (e.g. local/cached)
+// requests still give the user a perceptible loading indicator instead of an invisible flicker.
+function useMinVisible(active: boolean, minMs: number): boolean {
+  const [visible, setVisible] = useState(active);
+  const shownAt = useRef<number | null>(null);
+  useEffect(() => {
+    if (active) {
+      shownAt.current = Date.now();
+      setVisible(true);
+      return;
+    }
+    if (shownAt.current == null) {
+      setVisible(false);
+      return;
+    }
+    const remaining = Math.max(0, minMs - (Date.now() - shownAt.current));
+    const timer = window.setTimeout(() => {
+      shownAt.current = null;
+      setVisible(false);
+    }, remaining);
+    return () => window.clearTimeout(timer);
+  }, [active, minMs]);
+  return visible;
+}
+
 export function SalesSummaryPage({ onOpenEngagement }: Props) {
   const today = ymd();
+  const [reportAsOfInput, setReportAsOfInput] = useState(today);
+  const [appliedReportAsOfDate, setAppliedReportAsOfDate] = useState(today);
   const [eventDateScope, setEventDateScope] = useState<EventDateScope>('all');
   const [appliedEventDateScope, setAppliedEventDateScope] = useState<EventDateScope>('all');
   const [customStartDate, setCustomStartDate] = useState(today);
@@ -587,7 +628,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   const [sort, setSort] = useState<SortState>({ col: 'eventDate', dir: 'asc' });
   const [visibleMetricColumnKeys, setVisibleMetricColumnKeys] = useState<SortColumn[]>(loadSalesSummaryVisibleMetricColumns);
   const iso = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s.trim());
-  const reportAsOfDate = today;
+  const reportAsOfDate = appliedReportAsOfDate;
   const customDatesAreValid = iso(customStartDate) && iso(customEndDate);
   const customRangeOrderIsValid = !customDatesAreValid || customEndDate >= customStartDate;
   const appliedCustomDatesAreValid = iso(appliedCustomStartDate) && iso(appliedCustomEndDate);
@@ -606,7 +647,12 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
     venueFilter,
     activeSearch.trim(),
   ].filter(Boolean).length;
-  const reset = () => { setAttractionFilter(''); setGenreFilter(''); setTourFilter(''); setVenueFilter(''); setSearchInput(''); setActiveSearch(''); setEventDateScope('all'); setAppliedEventDateScope('all'); setCustomStartDate(today); setCustomEndDate(today); setAppliedCustomStartDate(today); setAppliedCustomEndDate(today); setPage(1); };
+  const reset = () => { setAttractionFilter(''); setGenreFilter(''); setTourFilter(''); setVenueFilter(''); setSearchInput(''); setActiveSearch(''); setEventDateScope('all'); setAppliedEventDateScope('all'); setCustomStartDate(today); setCustomEndDate(today); setAppliedCustomStartDate(today); setAppliedCustomEndDate(today); setReportAsOfInput(today); setAppliedReportAsOfDate(today); setPage(1); };
+
+  const applyReportingPeriod = () => {
+    if (iso(reportAsOfInput)) setAppliedReportAsOfDate(reportAsOfInput);
+    setPage(1);
+  };
 
   const handleEventDateScopeChange = (value: string) => {
     const next = (value || 'all') as EventDateScope;
@@ -628,10 +674,10 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   const searchParam = activeSearch.trim() || undefined;
   const performanceDateParams = useMemo(() => {
     if (appliedEventDateScope === 'all') return {};
-    if (appliedEventDateScope === 'past') return { endDate: ymdAddDays(today, -1) };
+    if (appliedEventDateScope === 'past') return { endDate: ymdAddDays(reportAsOfDate, -1) };
     if (appliedEventDateScope === 'custom' && dateOk) return { startDate: appliedCustomStartDate, endDate: appliedCustomEndDate };
-    return { startDate: today };
-  }, [appliedCustomEndDate, appliedCustomStartDate, appliedEventDateScope, dateOk, today]);
+    return { startDate: reportAsOfDate };
+  }, [appliedCustomEndDate, appliedCustomStartDate, appliedEventDateScope, dateOk, reportAsOfDate]);
 
   const queryKey = [
     'sales-summary',
@@ -865,6 +911,20 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
     setColumnWidths(sanitizeSalesSummaryColumnWidths(DEFAULT_SALES_SUMMARY_COLUMN_WIDTHS));
   }, []);
 
+  const frozenColumnOffsets = useMemo(() => ({
+    attraction: 0,
+    eventDate: columnWidths.attraction,
+    venue: columnWidths.attraction + columnWidths.eventDate,
+  }), [columnWidths]);
+  const frozenColumnStyle = (column: SortColumn): React.CSSProperties | undefined => {
+    const left = frozenColumnOffsets[column as keyof typeof frozenColumnOffsets];
+    return left == null ? undefined : { left };
+  };
+  const frozenColumnClass = (column: SortColumn, area: 'header' | 'body') => {
+    if (!(column in frozenColumnOffsets)) return '';
+    return `sticky ${area === 'header' ? 'z-30' : 'z-10'} ${column === 'venue' ? 'shadow-[3px_0_5px_-4px_rgba(15,23,42,0.7)]' : ''}`;
+  };
+
   useEffect(() => {
     setPage(1);
   }, [reportAsOfDate, performanceDateParams.startDate, performanceDateParams.endDate, attractionFilter, genreFilter, tourFilter, venueFilter, activeSearch]);
@@ -907,9 +967,11 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
     const ev = fmtEventDate(r.performanceDate), tm = fmtTime12(r.performanceTime), venueLabel = r.venueName ?? r.venueCompanyName, marketLabel = rowMarketName(r);
     if (key === 'attraction') return <><div className="text-sm font-semibold text-text-primary group-hover:text-ems-accent transition-colors">{r.attractionName ?? empty}</div><div className="mt-1 text-[12px] leading-snug text-text-secondary">{r.tourName ?? <span className="text-text-muted">—</span>}</div></>;
     if (key === 'eventDate') return <><div className="text-sm font-semibold text-text-primary tabular-nums">{ev.date}</div>{tm && <div className="text-[11px] text-text-muted tabular-nums mt-0.5">{tm}</div>}</>;
-    if (key === 'venue') return <><div className="truncate max-w-[14rem] font-semibold text-text-primary" title={venueLabel ?? ''}>{venueLabel ?? empty}</div>{r.entertainmentComplexNames ? <div className="truncate mt-0.5 text-[11px] leading-snug text-ems-accent/80" title={r.entertainmentComplexNames}>{r.entertainmentComplexNames}</div> : null}<div className="mt-0.5 text-[12px] leading-snug text-text-secondary">{marketLabel ?? <span className="text-text-muted">—</span>}</div></>;
+    if (key === 'venue') return <><div className="truncate max-w-[14rem] font-semibold text-text-primary" title={venueLabel ?? ''}>{venueLabel ?? empty}</div>{r.entertainmentComplexNames ? <div className="truncate mt-0.5 text-[11px] leading-snug text-ems-accent/80" title={r.entertainmentComplexNames}>{r.entertainmentComplexNames}</div> : null}<div className="mt-0.5 truncate text-[12px] leading-snug text-text-secondary" title={r.city ?? ''}>{r.city ?? empty}</div></>;
+    if (key === 'city') return <span>{r.city ?? empty}</span>;
+    if (key === 'dma') return <span>{marketLabel ?? empty}</span>;
     const values: Record<SortColumn, React.ReactNode> = {
-      attraction: null, eventDate: null, venue: null,
+      attraction: null, eventDate: null, venue: null, city: null, dma: null,
       sellableCapacity: r.engagementSellableCapacity != null ? intText(r.engagementSellableCapacity) : empty,
       grossPotential: r.engagementGrossPotential != null ? money(r.engagementGrossPotential) : empty,
       grossSalesToDate: money(m.currentRevenue) || empty,
@@ -929,7 +991,7 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
   };
 
   const showFullSkeleton = dateOk && query.isPending && !query.data;
-  const showTableOverlay = dateOk && query.isFetching && !!query.data;
+  const showTableOverlay = useMinVisible(dateOk && query.isFetching && !!query.data, 400);
   const totalColSpan = visibleSalesSummaryColumns.length + 1;
 
   return <div className="flex flex-col gap-4 lg:h-[calc(100vh-6.5rem)] lg:min-h-0">
@@ -937,13 +999,17 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
     <div className="shrink-0 flex flex-col gap-3 rounded-xl border border-border bg-card px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="flex items-center gap-2"><h1 className="text-2xl font-bold text-text-primary tracking-tight">Overview Report</h1>{!isLoading && <span className="rounded-full bg-elevated px-2.5 py-0.5 text-[11px] font-semibold tabular-nums text-text-secondary">{kpis.events.toLocaleString()} {kpis.events === 1 ? 'event' : 'events'}</span>}</div><p className="mt-0.5 text-sm text-text-secondary">A detailed snapshot of selected events</p></div><div className="inline-flex items-center gap-2 rounded-lg border border-border bg-elevated/60 px-3 py-2 text-xs text-text-secondary"><Info className="h-4 w-4 text-ems-accent shrink-0" aria-hidden /><span>Click a row to view <span className="font-medium text-text-primary">Sales Trends</span> for that event</span></div></div>
 
     <div className="shrink-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 items-end gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
-      <FilterField label="Event date"><Select2 options={EVENT_DATE_SCOPE_OPTIONS} value={eventDateScope} onChange={handleEventDateScopeChange} placeholder="All Engagements" allowClear={false} /></FilterField>
+      <FilterField label="Performance date"><Select2 options={EVENT_DATE_SCOPE_OPTIONS} value={eventDateScope} onChange={handleEventDateScopeChange} placeholder="All Engagements" allowClear={false} /></FilterField>
       <FilterField label="Attraction"><Select2 options={attractionOptions} value={attractionFilter} onChange={setAttractionFilter} placeholder="All attractions" allowClear={!!attractionFilter} /></FilterField>
       <FilterField label="Genre"><Select2 options={opt('All genres', pageData?.filterOptions.genres)} value={genreFilter} onChange={setGenreFilter} placeholder="All genres" allowClear={!!genreFilter} /></FilterField>
       <FilterField label="Venue"><Select2 options={opt('All venues', pageData?.filterOptions.venues)} value={venueFilter} onChange={setVenueFilter} placeholder="All venues" allowClear={!!venueFilter} /></FilterField>
       {activeFilterCount > 0 && <button type="button" onClick={reset} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-elevated px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-ems-accent hover:border-ems-accent/30 transition-colors" title="Clear all filters"><RotateCcw className="h-3 w-3" aria-hidden />Reset</button>}
     </div>
     {eventDateScope === 'custom' && <div className="shrink-0 flex flex-wrap items-end gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm"><FilterField label="From"><input type="date" className={dateInputClass} value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} aria-label="Custom date range from" /></FilterField><FilterField label="To"><input type="date" className={dateInputClass} value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} aria-label="Custom date range to" /></FilterField>{!customDatesAreValid && <p className="text-[11px] text-ems-coral self-center">Enter valid from and to dates.</p>}{customDatesAreValid && !customRangeOrderIsValid && <p className="text-[11px] text-ems-coral self-center">To date must be on or after from date.</p>}<button type="button" onClick={applyCustomDateRange} disabled={!customDatesAreValid || !customRangeOrderIsValid || !customRangeHasChanges} className="inline-flex h-9 items-center justify-center rounded-lg border border-ems-accent/30 bg-ems-accent px-4 text-sm font-semibold text-white shadow-sm transition-all hover:bg-ems-accent-hover disabled:cursor-not-allowed disabled:border-border disabled:bg-elevated disabled:text-text-muted disabled:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/30">Apply range</button></div>}
+    <div className="shrink-0 flex flex-wrap items-end gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
+      <FilterField label="Reporting as of"><input type="date" className={dateInputClass} value={reportAsOfInput} onChange={(e) => setReportAsOfInput(e.target.value)} aria-label="Reporting as of date" /></FilterField>
+      <button type="button" onClick={applyReportingPeriod} disabled={!iso(reportAsOfInput)} className="inline-flex h-9 items-center justify-center rounded-lg border border-ems-accent/30 bg-ems-accent px-4 text-sm font-semibold text-white shadow-sm transition-all hover:bg-ems-accent-hover disabled:cursor-not-allowed disabled:border-border disabled:bg-elevated disabled:text-text-muted disabled:shadow-none">Apply reporting date</button>
+    </div>
     <div className="flex flex-col lg:min-h-0 lg:flex-1">
       <section className="flex flex-col min-w-0 rounded-xl border border-border bg-card shadow-sm overflow-hidden lg:min-h-0">
         {showFullSkeleton ? (
@@ -1073,14 +1139,18 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                     </div>
                   </div>
                 )}
-                <table className="w-full table-fixed text-sm" style={{ minWidth: salesSummaryTableMinWidth }}>
+                <table className="w-full table-fixed border-separate border-spacing-0 text-sm" style={{ minWidth: salesSummaryTableMinWidth }}>
                   <colgroup>
                     {visibleSalesSummaryColumns.map((c) => <col key={c.key} style={{ width: columnWidths[c.key] }} />)}
                     <col style={{ width: 32 }} />
                   </colgroup>
-                  <thead className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm">
+                  <thead className="bg-surface/95">
                     <tr className="border-b-0">
-                      <th colSpan={3} className="border-b border-slate-300/70 dk:border-white/15 bg-white dk:bg-surface px-3 py-1.5" aria-hidden />
+                      {SALES_SUMMARY_FROZEN_COLUMNS.map((key) => {
+                        const column = SALES_SUMMARY_COLUMN_BY_KEY.get(key)!;
+                        return <SortHeader key={key} col={key} label={column.label} title={column.title} sort={sort} onToggle={toggleSort} align={column.align} onResizeStart={(e) => startColumnResize(key, e)} rowSpan={2} style={frozenColumnStyle(key)} className={`${salesSummaryColumnChromeClass(key, 'header', visibleColumnGroupMetaByColumn)} ${frozenColumnClass(key, 'header')}`} />;
+                      })}
+                      <th colSpan={2} className="border-b border-slate-300/70 dk:border-white/15 bg-white dk:bg-surface px-3 py-1.5" aria-hidden />
                       {visibleMetricGroups.map((group, groupIndex) => (
                         <th
                           key={group.id}
@@ -1094,17 +1164,17 @@ export function SalesSummaryPage({ onOpenEngagement }: Props) {
                       <th className="w-8 border-b border-slate-300/70 dk:border-white/15 bg-white dk:bg-surface px-2 py-1.5" aria-hidden />
                     </tr>
                     <tr className="border-b border-slate-300/70 dk:border-white/15">
-                      {visibleSalesSummaryColumns.map((c) => <SortHeader key={c.key} col={c.key} label={c.label} title={c.title} sort={sort} onToggle={toggleSort} align={c.align} onResizeStart={(e) => startColumnResize(c.key, e)} className={salesSummaryColumnChromeClass(c.key, 'header', visibleColumnGroupMetaByColumn)} />)}
+                      {visibleSalesSummaryColumns.filter((c) => !SALES_SUMMARY_FROZEN_COLUMNS.includes(c.key)).map((c) => <SortHeader key={c.key} col={c.key} label={c.label} title={c.title} sort={sort} onToggle={toggleSort} align={c.align} onResizeStart={(e) => startColumnResize(c.key, e)} style={frozenColumnStyle(c.key)} className={`${salesSummaryColumnChromeClass(c.key, 'header', visibleColumnGroupMetaByColumn)} ${frozenColumnClass(c.key, 'header')}`} />)}
                       <th className="w-8 border-l border-slate-200 dk:border-white/10 bg-white dk:bg-surface px-2 py-3" aria-hidden />
                     </tr>
                   </thead>
                   <tbody>
                     {query.isPending && !query.data ? (
-                      Array.from({ length: 8 }).map((_, i) => <tr key={`skel-${i}`} className="border-b border-border/50">{visibleSalesSummaryColumns.map((c, j) => <td key={c.key} className={`px-4 py-3.5 ${salesSummaryColumnChromeClass(c.key, 'body', visibleColumnGroupMetaByColumn)}`}><div className="h-3 rounded bg-muted/70 animate-pulse" style={{ width: j === 0 ? '82%' : j < 4 ? '70%' : '50%' }} /></td>)}<td className="w-8 bg-white dk:bg-surface px-2 py-3.5" aria-hidden /></tr>)
+                      Array.from({ length: 8 }).map((_, i) => <tr key={`skel-${i}`} className="border-b border-border/50">{visibleSalesSummaryColumns.map((c, j) => <td key={c.key} style={frozenColumnStyle(c.key)} className={`px-4 py-3.5 ${salesSummaryColumnChromeClass(c.key, 'body', visibleColumnGroupMetaByColumn)} ${frozenColumnClass(c.key, 'body')}`}><div className="h-3 rounded bg-muted/70 animate-pulse" style={{ width: j === 0 ? '82%' : j < 4 ? '70%' : '50%' }} /></td>)}<td className="w-8 bg-white dk:bg-surface px-2 py-3.5" aria-hidden /></tr>)
                     ) : rows.length === 0 ? (
                       <tr><td colSpan={totalColSpan} className="py-16"><div className="flex flex-col items-center justify-center gap-2 text-text-muted"><div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-elevated"><CalendarRange className="h-6 w-6 text-text-muted" aria-hidden /></div><p className="text-sm font-medium text-text-secondary">No events match your filters</p><p className="text-xs">Try changing the date scope or clearing filters.</p>{activeFilterCount > 0 && <button type="button" onClick={reset} className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-border bg-elevated px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-hover transition-colors"><RotateCcw className="h-3 w-3" aria-hidden />Reset filters</button>}</div></td></tr>
                     ) : (
-                      rows.map((item, idx) => <tr key={`${item.row.performanceId}-${item.row.engagementId}`} className={`group border-b border-border/60 cursor-pointer transition-colors ${idx % 2 === 1 ? 'bg-surface/30' : ''} hover:bg-hover/35`} onClick={() => onOpenEngagement(item.row.engagementId, item.row.performanceId)} title="Open sales trends">{visibleSalesSummaryColumns.map((c) => <td key={c.key} className={`max-w-0 overflow-hidden px-3 py-3 align-top text-sm ${salesSummaryColumnChromeClass(c.key, 'body', visibleColumnGroupMetaByColumn)} ${c.align === 'right' ? 'text-right tabular-nums' : 'text-text-secondary'}`}>{cell(item, c.key)}</td>)}<td className="w-8 px-2 py-3 align-middle text-text-muted opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight className="h-4 w-4" aria-hidden /></td></tr>)
+                      rows.map((item, idx) => <tr key={`${item.row.performanceId}-${item.row.engagementId}`} className={`group border-b border-border/60 cursor-pointer transition-colors ${idx % 2 === 1 ? 'bg-surface/30' : ''} hover:bg-hover/35`} onClick={() => onOpenEngagement(item.row.engagementId, item.row.performanceId)} title="Open sales trends">{visibleSalesSummaryColumns.map((c) => <td key={c.key} style={frozenColumnStyle(c.key)} className={`max-w-0 overflow-hidden px-3 py-3 align-top text-sm ${salesSummaryColumnChromeClass(c.key, 'body', visibleColumnGroupMetaByColumn)} ${frozenColumnClass(c.key, 'body')} ${c.align === 'right' ? 'text-right tabular-nums' : 'text-text-secondary'}`}>{cell(item, c.key)}</td>)}<td className="w-8 px-2 py-3 align-middle text-text-muted opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight className="h-4 w-4" aria-hidden /></td></tr>)
                     )}
                   </tbody>
                 </table>

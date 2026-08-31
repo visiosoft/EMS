@@ -155,6 +155,26 @@ export class DailySalesController {
   }
 
   /**
+   * GET /api/daily-sales/percentage-sold?asOfDate=YYYY-MM-DD&performanceIds=1,2,3
+   * Daily Sales page only — Percentage Sold per performance, computed separately from the
+   * shared by-performance payload so other screens are unaffected.
+   */
+  @Get('percentage-sold')
+  getPercentageSold(
+    @Query('asOfDate') asOfDate?: string,
+    @Query('performanceIds') performanceIdsRaw?: string,
+  ) {
+    const performanceIds = (performanceIdsRaw ?? '')
+      .split(',')
+      .map((s) => Number(s.trim()))
+      .filter((n) => Number.isInteger(n) && n > 0);
+    return this.dailySalesService.getPercentageSoldForPerformances(
+      asOfDate,
+      performanceIds,
+    );
+  }
+
+  /**
    * GET /api/daily-sales
    * Legacy flat list — optional: ?engagementId=472
    */

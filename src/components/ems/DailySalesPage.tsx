@@ -14,6 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Select2, Select2Multi } from './Select2';
 import {
   fetchDailySalesByPerformance,
+  fetchDailySalesPercentageSold,
   updateDailySales,
   DAILY_SALES_SUGGESTION_PAGE_SIZE,
   type ApiPerformanceSalesRow,
@@ -57,6 +58,10 @@ function fmt12(hhmm: string): string {
   if (!hhmm) return '';
   const [h, m] = hhmm.split(':').map(Number);
   return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+}
+
+function fmtPercentSold(v: number | null | undefined): string {
+  return v == null ? '—' : `${Math.round(v)}%`;
 }
 
 function validateField(val: string, field: 'tickets' | 'revenue'): string | null {
@@ -209,6 +214,7 @@ const DAILY_SALES_COLUMN_WIDTHS_KEY = 'iae-daily-sales-column-widths-v2';
 
 type DailySalesDataColumnId =
   | DailySalesLeadColumnId
+  | 'percentSold'
   | 'yestTickets'
   | 'yestRevenue'
   | 'todayTickets'
@@ -220,6 +226,7 @@ const DEFAULT_DAILY_SALES_COLUMN_WIDTHS: Record<DailySalesDataColumnId, number> 
   date: 148,
   venue: 168,
   city: 108,
+  percentSold: 104,
   yestTickets: 96,
   yestRevenue: 112,
   todayTickets: 96,
@@ -234,6 +241,7 @@ const DAILY_SALES_COLUMN_MIN_WIDTHS: Record<DailySalesDataColumnId, number> = {
   date: 68,
   venue: 72,
   city: 56,
+  percentSold: 76,
   yestTickets: 66,
   yestRevenue: 78,
   todayTickets: 66,
@@ -437,15 +445,30 @@ function saveDailySalesFiltersSnapshot(s: DailySalesFiltersSnapshot): void {
 const dailySalesColCell = 'max-w-0 overflow-hidden border-r border-border/60 last:border-r-0';
 const dailySalesColCellTruncate = `${dailySalesColCell} text-ellipsis whitespace-nowrap`;
 
-function renderDailySalesLeadCell(col: DailySalesLeadColumnId, row: ApiPerformanceSalesRow) {
+function renderDailySalesLeadCell(
+  col: DailySalesLeadColumnId,
+  row: ApiPerformanceSalesRow,
+  onOpenEngagement: (engagementId: number) => void,
+) {
   switch (col) {
     case 'attraction':
       return (
         <td key={col} className={`py-2 px-3 align-top ${dailySalesColCell}`}>
           <div className="space-y-0.5 min-w-0">
-            <div className="font-medium text-sm text-text-primary truncate" title={row.attractionName ?? undefined}>
-              {row.attractionName ?? <span className="text-text-muted italic text-xs">Unknown</span>}
-            </div>
+            {row.attractionName ? (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onOpenEngagement(row.engagementId); }}
+                title="Open this Engagement's Sales Summary"
+                className="block w-full truncate text-left font-medium text-sm text-text-primary hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors"
+              >
+                {row.attractionName}
+              </button>
+            ) : (
+              <div className="font-medium text-sm text-text-primary truncate">
+                <span className="text-text-muted italic text-xs">Unknown</span>
+              </div>
+            )}
             {row.tourName && (
               <div className="text-xs text-text-muted leading-tight truncate" title={row.tourName}>
                 {row.tourName}
@@ -528,11 +551,16 @@ function PerformanceRow({
   leadColumnOrder,
   onSaved,
   addToast,
+  onOpenEngagement,
+  percentSold,
 }: {
   row: ApiPerformanceSalesRow;
   leadColumnOrder: DailySalesLeadColumnId[];
   onSaved: () => void;
   addToast: Props['addToast'];
+  onOpenEngagement: (engagementId: number) => void;
+  /** From the dedicated percentage-sold endpoint; undefined while loading. */
+  percentSold: number | null | undefined;
 }) {
   const [todayTickets, setTodayTickets] = useState(row.todayTicketsSold != null ? String(row.todayTicketsSold) : '');
   const [todayRevenue, setTodayRevenue] = useState(row.todayRevenue != null ? String(row.todayRevenue) : '');
@@ -605,7 +633,12 @@ function PerformanceRow({
 
   return (
     <tr className="border-b border-border/50 group hover:bg-hover/30">
-      {leadColumnOrder.map((colId) => renderDailySalesLeadCell(colId, row))}
+      {leadColumnOrder.map((colId) => renderDailySalesLeadCell(colId, row, onOpenEngagement))}
+
+      {/* Percentage Sold (dedicated endpoint; kept separate from the shared by-performance payload) */}
+      <td className={`py-2 px-3 text-sm text-right tabular-nums text-text-secondary ${dailySalesColCell}`}>
+        {fmtPercentSold(percentSold)}
+      </td>
 
       {/* Prior day (soft blue) */}
       <td
@@ -660,7 +693,7 @@ function PerformanceRow({
   );
 }
 
-export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
+export function DailySalesPage({ onNavigate, addToast }: Props) {
   const qc = useQueryClient();
   const [initialFilters] = useState(() => loadDailySalesFiltersSnapshot());
 
@@ -774,6 +807,7 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
     const leadSum = leadColumnOrder.reduce((sum, id) => sum + columnWidths[id], 0);
     return (
       leadSum +
+      columnWidths.percentSold +
       columnWidths.yestTickets +
       columnWidths.yestRevenue +
       columnWidths.todayTickets +
@@ -886,6 +920,7 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
 
   const refetch = useCallback(async () => {
     await qc.invalidateQueries({ queryKey: ['daily-sales-by-perf'] });
+    await qc.invalidateQueries({ queryKey: ['daily-sales-percentage-sold'] });
     await invalidateSalesCapacityRelatedQueries(qc);
   }, [qc]);
 
@@ -903,6 +938,25 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
   const yesterdayDateStr = pageData?.yesterdayDate ?? ymdAddDays(asOfDate, -1);
   const todayLabel = fmtDateHeader(todayDateStr);
   const yesterdayLabel = fmtDateHeader(yesterdayDateStr);
+
+  const rowPerformanceIds = useMemo(
+    () => rows.map((r) => r.performanceId).filter((id) => Number.isInteger(id) && id > 0),
+    [rows],
+  );
+  const rowPerformanceIdsKey = rowPerformanceIds.join(',');
+  const percentSoldQuery = useQuery({
+    queryKey: ['daily-sales-percentage-sold', asOfDate, rowPerformanceIdsKey],
+    queryFn: () => fetchDailySalesPercentageSold(asOfDate, rowPerformanceIds),
+    staleTime: 2 * 60 * 1000,
+    placeholderData: (prev) => prev,
+    enabled: perfDatesOk && rowPerformanceIds.length > 0,
+  });
+  const percentSoldByPerformanceId = useMemo(() => {
+    const map = new Map<number, number | null>();
+    for (const r of percentSoldQuery.data ?? []) map.set(r.performanceId, r.percentSold);
+    return map;
+  }, [percentSoldQuery.data]);
+
   const attractionOptions = useMemo(() => {
     const allAttractions = attractionFilterOptionsQuery.data?.data ?? [];
     const fallbackAttractions = pageData?.attractions ?? EMPTY_DAILY_SALES_ATTRACTIONS;
@@ -980,7 +1034,14 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
   const showFullSkeleton = salesQuery.isPending && !salesQuery.data;
   const showTableOverlay = salesQuery.isFetching && !!salesQuery.data;
   const isRefreshing = salesQuery.isFetching && !showFullSkeleton;
-  const totalColSpan = leadColumnOrder.length + 5;
+  const totalColSpan = leadColumnOrder.length + 6;
+
+  const onOpenEngagement = useCallback(
+    (engagementId: number) => {
+      onNavigate('engagement-detail', { engagementId, initialTab: 'Sales Summary' });
+    },
+    [onNavigate],
+  );
 
   const activeFilterCount = useMemo(() => {
     let n = 0;
@@ -1184,6 +1245,7 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
                 {leadColumnOrder.map((colId) => (
                   <col key={colId} style={{ width: columnWidths[colId] }} />
                 ))}
+                <col style={{ width: columnWidths.percentSold }} />
                 <col style={{ width: columnWidths.yestTickets }} />
                 <col style={{ width: columnWidths.yestRevenue }} />
                 <col style={{ width: columnWidths.todayTickets }} />
@@ -1244,6 +1306,16 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
                       />
                     </th>
                   ))}
+                  <th
+                    scope="col"
+                    rowSpan={2}
+                    className="relative text-right py-2.5 px-3 text-text-muted align-bottom bg-surface/90 select-none min-w-0 border-r border-border/70"
+                  >
+                    <span className="inline-block whitespace-normal break-words leading-tight">Percentage Sold</span>
+                    <DailySalesColResizeHandle
+                      onResizeStart={(e) => startColumnResize('percentSold', e)}
+                    />
+                  </th>
                   <th
                     colSpan={2}
                     className="relative text-center py-2.5 px-3 font-semibold bg-ems-blue-dim/80 border-l border-ems-blue/20"
@@ -1333,6 +1405,8 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
                     leadColumnOrder={leadColumnOrder}
                     onSaved={refetch}
                     addToast={addToast}
+                    onOpenEngagement={onOpenEngagement}
+                    percentSold={percentSoldByPerformanceId.get(r.performanceId)}
                   />
                 ))}
               </tbody>

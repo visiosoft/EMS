@@ -33,22 +33,50 @@ export function EngagementSalesDashboardPanel({
   const [asOf, setAsOf] = useState(() =>
     isYmd(initialAsOf) ? initialAsOf : format(new Date(), 'yyyy-MM-dd'),
   );
+  const [comparisonEnabled, setComparisonEnabled] = useState(false);
+  const [comparisonDateOne, setComparisonDateOne] = useState(() =>
+    isYmd(initialAsOf) ? initialAsOf : format(new Date(), 'yyyy-MM-dd'),
+  );
+  const [comparisonDateTwo, setComparisonDateTwo] = useState(() =>
+    format(new Date(Date.now() - 7 * 86_400_000), 'yyyy-MM-dd'),
+  );
 
   useEffect(() => {
-    if (isYmd(initialAsOf)) setAsOf(initialAsOf);
+    if (isYmd(initialAsOf)) {
+      setAsOf(initialAsOf);
+      setComparisonDateOne(initialAsOf);
+    }
   }, [engagementId, performanceId, initialAsOf]);
 
+  const displayedAsOf = comparisonEnabled && isYmd(comparisonDateOne)
+    ? comparisonDateOne
+    : asOf;
+
   const q = useQuery({
-    queryKey: ['engagement-sales-dashboard', engagementId, performanceId ?? null, asOf],
-    queryFn: () => fetchEngagementSalesDashboard(engagementId, asOf, performanceId),
+    queryKey: ['engagement-sales-dashboard', engagementId, performanceId ?? null, displayedAsOf],
+    queryFn: () => fetchEngagementSalesDashboard(engagementId, displayedAsOf, performanceId),
     retry: 1,
     refetchOnMount: 'always',
+  });
+  const comparisonQuery = useQuery({
+    queryKey: ['engagement-sales-dashboard-comparison', engagementId, performanceId ?? null, comparisonDateTwo],
+    queryFn: () => fetchEngagementSalesDashboard(engagementId, comparisonDateTwo, performanceId),
+    enabled: comparisonEnabled && isYmd(comparisonDateTwo),
+    retry: 1,
   });
 
   return (
     <SalesDashboardView
       asOf={asOf}
       onAsOfChange={setAsOf}
+      comparisonEnabled={comparisonEnabled}
+      onComparisonEnabledChange={setComparisonEnabled}
+      comparisonDateOne={comparisonDateOne}
+      onComparisonDateOneChange={setComparisonDateOne}
+      comparisonDateTwo={comparisonDateTwo}
+      onComparisonDateTwoChange={setComparisonDateTwo}
+      comparisonData={comparisonQuery.data}
+      comparisonLoading={comparisonQuery.isFetching}
       onBack={onBack}
       backTitle={backTitle}
       loading={q.isLoading}

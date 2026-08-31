@@ -619,6 +619,7 @@ const Index = () => {
                 engagementId={n}
                 onNavigate={navigate}
                 addToast={addToast}
+                initialTab={typeof data.initialTab === 'string' ? data.initialTab : undefined}
               />
             );
           }

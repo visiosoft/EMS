@@ -11495,15 +11495,18 @@ interface Props {
   engagementId: number;
   onNavigate: (view: string, data?: Record<string, unknown>) => void;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  /** Opens the page with this tab selected (e.g. 'Sales Summary') instead of the default. */
+  initialTab?: string;
 }
 
 export function EngagementDetailPage({
   engagementId,
   onNavigate,
   addToast,
+  initialTab,
 }: Props) {
   const qc = useQueryClient();
-  const [tab, setTab] = useState('Engagement Drill Bits');
+  const [tab, setTab] = useState(initialTab || 'Engagement Drill Bits');
   const [tabDirtyState, setTabDirtyState] = useState<Record<string, boolean>>({});
   const [pendingTab, setPendingTab] = useState<string | null>(null);
   const [showUnsavedTabAlert, setShowUnsavedTabAlert] = useState(false);
@@ -11535,11 +11538,13 @@ export function EngagementDetailPage({
   });
 
   useEffect(() => {
-    setTab('Engagement Drill Bits');
+    setTab(initialTab || 'Engagement Drill Bits');
     setTabDirtyState({});
     setPendingTab(null);
     setShowUnsavedTabAlert(false);
-  }, [engagementId]);
+    // Re-run on initialTab too, so re-opening the same engagement without a
+    // deep-linked tab (e.g. from the Engagements list) resets to the first tab.
+  }, [engagementId, initialTab]);
 
   const lookupsQuery = useQuery({
     queryKey: ['engagements-lookups'],

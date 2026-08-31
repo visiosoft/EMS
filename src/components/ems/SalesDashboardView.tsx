@@ -273,6 +273,11 @@ function moneyDecimalOrDash(value: number | null | undefined) {
   }).format(value);
 }
 
+function percentOrDash(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return EMPTY;
+  return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(value)}%`;
+}
+
 function pctDisplay(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return EMPTY;
   if (Math.abs(value) >= 100) return `${value.toFixed(1)}%`;
@@ -1379,6 +1384,16 @@ function ChartUnitTabs({ unit, onChange, className }: ChartUnitTabsProps) {
 export interface SalesDashboardViewProps {
   asOf: string;
   onAsOfChange: (ymd: string) => void;
+  comparisonEnabled?: boolean;
+  onComparisonEnabledChange?: (enabled: boolean) => void;
+  comparisonDateOne?: string;
+  onComparisonDateOneChange?: (ymd: string) => void;
+  comparisonDateTwo?: string;
+  onComparisonDateTwoChange?: (ymd: string) => void;
+  comparisonData?: ApiSalesDashboardBody;
+  comparisonLoading?: boolean;
+  comparisonPane?: boolean;
+  comparisonPaneTitle?: string;
   onBack: () => void;
   backTitle?: string;
   loading: boolean;
@@ -1395,6 +1410,16 @@ const DEFAULT_CAPACITY_HINT =
 export function SalesDashboardView({
   asOf,
   onAsOfChange,
+  comparisonEnabled = false,
+  onComparisonEnabledChange,
+  comparisonDateOne,
+  onComparisonDateOneChange,
+  comparisonDateTwo,
+  onComparisonDateTwoChange,
+  comparisonData,
+  comparisonLoading = false,
+  comparisonPane = false,
+  comparisonPaneTitle,
   onBack,
   backTitle = 'Back',
   loading,
@@ -1437,6 +1462,10 @@ export function SalesDashboardView({
   const summaryRows = useMemo(
     () => summaryRowsNewestFirst(data?.summary),
     [data?.summary],
+  );
+  const selectedDateSummaryRows = useMemo(
+    () => summaryRows.filter((row) => row.date === data?.asOfDate),
+    [data?.asOfDate, summaryRows],
   );
 
   const expandedChart = useMemo(
@@ -1496,6 +1525,36 @@ export function SalesDashboardView({
   const hasMissingCapacityContext =
     d.sellableCapacity == null || d.grossPotential == null;
   const baselines = d.engagementBaselines ?? [];
+  const comparisonMetrics = comparisonData ? [
+    { label: 'Tickets sold', current: d.kpis.ticketsDistributed, comparison: comparisonData.kpis.ticketsDistributed, format: countOrDash },
+    { label: 'Sales revenue', current: d.kpis.totalRevenue, comparison: comparisonData.kpis.totalRevenue, format: moneyOrDash },
+    { label: 'Seats sold', current: d.kpis.pctSold, comparison: comparisonData.kpis.pctSold, format: percentOrDash },
+    { label: 'Revenue potential sold', current: d.kpis.pctRevenueVsPotential, comparison: comparisonData.kpis.pctRevenueVsPotential, format: percentOrDash },
+    { label: 'Tickets last 7 days', current: d.kpis.ticketsLast7Days, comparison: comparisonData.kpis.ticketsLast7Days, format: countOrDash },
+    { label: 'Revenue last 7 days', current: d.kpis.revenueLast7Days, comparison: comparisonData.kpis.revenueLast7Days, format: moneyOrDash },
+    { label: 'Tickets remaining', current: d.sellableCapacity == null ? null : safeNonNegative(d.sellableCapacity - d.kpis.ticketsDistributed), comparison: comparisonData.sellableCapacity == null ? null : safeNonNegative(comparisonData.sellableCapacity - comparisonData.kpis.ticketsDistributed), format: countOrDash },
+    { label: 'Revenue remaining', current: d.grossPotential == null ? null : safeNonNegative(d.grossPotential - d.kpis.totalRevenue), comparison: comparisonData.grossPotential == null ? null : safeNonNegative(comparisonData.grossPotential - comparisonData.kpis.totalRevenue), format: moneyOrDash },
+  ] : [];
+
+  if (comparisonEnabled && comparisonData && !comparisonPane) {
+    return (
+      <div className="space-y-5">
+        <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-sm 2xl:flex-row 2xl:items-center 2xl:justify-between">
+          <div className="min-w-0"><h1 className="text-xl font-bold tracking-tight text-text-primary md:text-2xl">Sales Trends Comparison</h1><p className="text-sm text-text-secondary">Compare complete sales summaries for two reporting dates</p></div>
+          <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 2xl:w-auto 2xl:grid-cols-4">
+            <label className={`flex min-w-0 items-center justify-between gap-3 rounded-md border border-border bg-elevated px-3 py-2 text-xs font-medium uppercase tracking-wide text-text-muted ${comparisonEnabled ? 'opacity-60' : ''}`}><span className="truncate">Reporting as of</span><input type="date" disabled={comparisonEnabled} className="w-[9.25rem] shrink-0 rounded-md border border-border bg-card px-2 py-1.5 text-sm font-medium normal-case tracking-normal text-text-primary disabled:cursor-not-allowed disabled:opacity-60" value={asOf} onChange={(event) => onAsOfChange(event.target.value)} /></label>
+            {onComparisonEnabledChange ? <label className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-elevated px-3 py-2 text-xs font-medium text-text-secondary"><input type="checkbox" checked={comparisonEnabled} onChange={(event) => onComparisonEnabledChange(event.target.checked)} className="h-4 w-4 shrink-0 accent-ems-accent" />Compare two dates</label> : null}
+            {comparisonDateOne && onComparisonDateOneChange ? <label className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-border bg-elevated px-3 py-2 text-xs font-medium uppercase tracking-wide text-text-muted"><span className="truncate">Date 1 as of</span><input type="date" className="w-[9.25rem] shrink-0 rounded-md border border-border bg-card px-2 py-1.5 text-sm font-medium normal-case tracking-normal text-text-primary" value={comparisonDateOne} onChange={(event) => onComparisonDateOneChange(event.target.value)} /></label> : null}
+            {comparisonDateTwo && onComparisonDateTwoChange ? <label className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-border bg-elevated px-3 py-2 text-xs font-medium uppercase tracking-wide text-text-muted"><span className="truncate">Date 2 as of</span><input type="date" className="w-[9.25rem] shrink-0 rounded-md border border-border bg-card px-2 py-1.5 text-sm font-medium normal-case tracking-normal text-text-primary" value={comparisonDateTwo} onChange={(event) => onComparisonDateTwoChange(event.target.value)} /></label> : null}
+          </div>
+        </div>
+        <div className="grid min-w-0 gap-5 2xl:grid-cols-2">
+          <div className="min-w-0"><SalesDashboardView asOf={asOf} onAsOfChange={() => undefined} onBack={() => undefined} loading={false} error={undefined} onRetry={() => undefined} data={d} showBackButton={false} comparisonPane comparisonPaneTitle={`Date 1: ${formatDateLabel(d.asOfDate, 'MMM d, yyyy')}`} /></div>
+          <div className="min-w-0"><SalesDashboardView asOf={comparisonData.asOfDate} onAsOfChange={() => undefined} onBack={() => undefined} loading={false} error={undefined} onRetry={() => undefined} data={comparisonData} showBackButton={false} comparisonPane comparisonPaneTitle={`Date 2: ${formatDateLabel(comparisonData.asOfDate, 'MMM d, yyyy')}`} /></div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
@@ -1515,22 +1574,26 @@ export function SalesDashboardView({
             </Button>
           ) : null}
           <div className="min-w-0">
-            <h1 className="truncate text-xl font-bold tracking-tight text-text-primary md:text-2xl">
-              Sales Summary Page
-            </h1>
+            <h1 className="truncate text-xl font-bold tracking-tight text-text-primary md:text-2xl">{comparisonPaneTitle ?? 'Sales Summary Page'}</h1>
             <p className="truncate text-sm text-text-secondary">{pageTitle}</p>
           </div>
         </div>
-        <label className="flex w-full items-center justify-between gap-3 rounded-md border border-border bg-elevated px-3 py-2 text-xs font-medium uppercase tracking-wide text-text-muted sm:w-auto">
+        {!comparisonPane && <label className={`flex w-full items-center justify-between gap-3 rounded-md border border-border bg-elevated px-3 py-2 text-xs font-medium uppercase tracking-wide text-text-muted sm:w-auto ${comparisonEnabled ? 'opacity-60' : ''}`}>
           <span>Reporting as of</span>
           <input
             type="date"
-            className="w-[9.25rem] rounded-md border border-border bg-card px-2 py-1.5 text-sm font-medium normal-case tracking-normal text-text-primary"
+            disabled={comparisonEnabled}
+            className="w-[9.25rem] rounded-md border border-border bg-card px-2 py-1.5 text-sm font-medium normal-case tracking-normal text-text-primary disabled:cursor-not-allowed disabled:opacity-60"
             value={asOf}
             onChange={(event) => onAsOfChange(event.target.value)}
           />
-        </label>
+        </label>}
+        {!comparisonPane && onComparisonEnabledChange ? <label className="flex items-center gap-2 rounded-md border border-border bg-elevated px-3 py-2 text-xs font-medium text-text-secondary"><input type="checkbox" checked={comparisonEnabled} onChange={(event) => onComparisonEnabledChange(event.target.checked)} className="h-4 w-4 accent-ems-accent" />Compare two dates</label> : null}
+        {!comparisonPane && comparisonEnabled && comparisonDateOne && onComparisonDateOneChange ? <label className="flex w-full items-center justify-between gap-3 rounded-md border border-border bg-elevated px-3 py-2 text-xs font-medium uppercase tracking-wide text-text-muted sm:w-auto"><span>Date 1 as of</span><input type="date" className="w-[9.25rem] rounded-md border border-border bg-card px-2 py-1.5 text-sm font-medium normal-case tracking-normal text-text-primary" value={comparisonDateOne} onChange={(event) => onComparisonDateOneChange(event.target.value)} /></label> : null}
+        {!comparisonPane && comparisonEnabled && comparisonDateTwo && onComparisonDateTwoChange ? <label className="flex w-full items-center justify-between gap-3 rounded-md border border-border bg-elevated px-3 py-2 text-xs font-medium uppercase tracking-wide text-text-muted sm:w-auto"><span>Date 2 as of</span><input type="date" className="w-[9.25rem] rounded-md border border-border bg-card px-2 py-1.5 text-sm font-medium normal-case tracking-normal text-text-primary" value={comparisonDateTwo} onChange={(event) => onComparisonDateTwoChange(event.target.value)} /></label> : null}
       </div>
+
+      {comparisonEnabled && <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm"><div className="flex items-center justify-between border-b border-border bg-elevated px-4 py-2"><h2 className="text-sm font-bold text-text-primary">Sales Comparison</h2><span className="text-xs text-text-muted">{comparisonData ? 'Two-date sales summary' : comparisonLoading ? 'Loading comparison...' : 'Select a valid comparison date'}</span></div>{comparisonData && <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-sm"><thead><tr className="border-b border-border bg-surface text-left text-[11px] font-semibold uppercase tracking-wide text-text-muted"><th className="px-4 py-2.5">Metric</th><th className="px-4 py-2.5 text-right">Date 1: {formatDateLabel(d.asOfDate, 'MMM d, yyyy')}</th><th className="px-4 py-2.5 text-right">Date 2: {formatDateLabel(comparisonData.asOfDate, 'MMM d, yyyy')}</th><th className="px-4 py-2.5 text-right">Change</th></tr></thead><tbody>{comparisonMetrics.map((metric) => { const current = finiteNumber(metric.current); const comparison = finiteNumber(metric.comparison); const difference = current != null && comparison != null ? current - comparison : null; const formatDifference = difference == null ? EMPTY : `${difference > 0 ? '+' : ''}${metric.format(difference)}`; return <tr key={metric.label} className="border-b border-border/70 last:border-b-0"><th scope="row" className="px-4 py-3 text-left font-medium text-text-primary">{metric.label}</th><td className="px-4 py-3 text-right font-semibold tabular-nums text-text-primary">{metric.format(current)}</td><td className="px-4 py-3 text-right font-semibold tabular-nums text-text-primary">{metric.format(comparison)}</td><td className={`px-4 py-3 text-right font-semibold tabular-nums ${difference != null && difference > 0 ? 'text-ems-green' : difference != null && difference < 0 ? 'text-ems-coral' : 'text-text-muted'}`}>{formatDifference}</td></tr>; })}</tbody></table></div>}</section>}
 
       <dl className="grid overflow-hidden rounded-lg border border-border bg-card shadow-sm sm:grid-cols-2 xl:grid-cols-3">
         <InfoCell label="Attraction/Tour">
@@ -1791,11 +1854,11 @@ export function SalesDashboardView({
       </section>
 
       <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
-        <div className="grid gap-3 border-b border-border bg-surface/70 px-4 py-3 lg:grid-cols-[1fr_minmax(18rem,34rem)] lg:items-start">
+        <div className="w-full border-b border-border bg-surface/70 px-4 py-3">
           <div>
             <h2 className="text-base font-semibold text-text-primary">Summary</h2>
             <p className="text-sm text-text-secondary">
-              Daily sales rows through {formatDateLabel(d.asOfDate, 'MMM d, yyyy')}
+              Sales data for {formatDateLabel(d.asOfDate, 'MMM d, yyyy')}
             </p>
           </div>
         </div>
@@ -1812,7 +1875,7 @@ export function SalesDashboardView({
               </tr>
             </thead>
             <tbody>
-              {summaryRows.length === 0 ? (
+              {(comparisonPane ? selectedDateSummaryRows : summaryRows).length === 0 ? (
                 <tr>
                   <td
                     colSpan={6}
@@ -1822,7 +1885,7 @@ export function SalesDashboardView({
                   </td>
                 </tr>
               ) : (
-                summaryRows.map((row) => (
+                (comparisonPane ? selectedDateSummaryRows : summaryRows).map((row) => (
                   <tr
                     key={row.date}
                     className="border-b border-border/70 transition hover:bg-hover/35"
