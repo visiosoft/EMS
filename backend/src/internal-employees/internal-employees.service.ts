@@ -17,6 +17,8 @@ export type IaeEmployeeRow = {
   /** Current desk extension (dbo.EmployeePhoneExtension → dbo.PhoneExtension). */
   extension: string | null;
   departmentName: string | null;
+  /** Secondary department from the Entra "Department2" custom attribute. */
+  department2: string | null;
   departmentRank: number | null;
 };
 
@@ -29,10 +31,28 @@ export class InternalEmployeesService {
   ) {}
 
   /**
+   * dbo.EmployeeProfile.Department2 ships in a manual migration, so guard the
+   * select — an unmigrated database must still return the directory.
+   */
+  private async department2Select(): Promise<string> {
+    const rows = await this.dataSource.query(
+      `SELECT 1 AS hasColumn
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = 'dbo'
+         AND TABLE_NAME = 'EmployeeProfile'
+         AND COLUMN_NAME = 'Department2'`,
+    );
+    return rows.length > 0
+      ? "COALESCE(ep.Department2, '')"
+      : "CAST('' AS nvarchar(100))";
+  }
+
+  /**
    * All contacts assigned to at least one company marked dbo.Company.is_internal = 1.
    * Role/title comes from an internal company assignment when present (optional).
    */
   async listStaffEmployees(): Promise<IaeEmployeeRow[]> {
+    const department2Select = await this.department2Select();
     const rows = await this.dataSource.query(
       `
       SELECT
@@ -45,6 +65,7 @@ export class InternalEmployeesService {
         ranked.roleName,
         ranked.extension,
         ranked.departmentName,
+        ranked.department2,
         ranked.departmentRank,
         ranked.jobTitle
       FROM (
@@ -59,6 +80,7 @@ export class InternalEmployeesService {
           COALESCE(NULLIF(LTRIM(RTRIM(ep.JobTitle)), ''), '') AS jobTitle,
           rolePick.roleName AS roleName,
           deptPick.departmentName AS departmentName,
+          ${department2Select} AS department2,
           ISNULL(TRY_CAST(ep.DepartmentRank AS int), 999) AS departmentRank,
           ROW_NUMBER() OVER (
             PARTITION BY ci.ContactInfoID
@@ -141,12 +163,18 @@ export class InternalEmployeesService {
           )];
           return names.length ? names.join(', ') : null;
         })(),
+        // A single Entra value — never split; a department name can contain a comma.
+        department2: (() => {
+          const name = String(row.department2 ?? '').trim();
+          return name && name.toLowerCase() !== 'unknown' ? name : null;
+        })(),
         departmentRank: row.departmentRank != null ? Number(row.departmentRank) : null,
       };
     });
   }
 
   async listEmployeesByDepartment(departmentId: number): Promise<IaeEmployeeRow[]> {
+    const department2Select = await this.department2Select();
     const rows = await this.dataSource.query(
       `SELECT
          c.ContactID AS contactId,
@@ -159,6 +187,7 @@ export class InternalEmployeesService {
          COALESCE(NULLIF(LTRIM(RTRIM(ep.JobTitle)), ''), '') AS jobTitle,
          rolePick.roleName AS roleName,
          deptPick.departmentName AS departmentName,
+         ${department2Select} AS department2,
          ISNULL(TRY_CAST(ep.DepartmentRank AS int), 999) AS departmentRank
        FROM dbo.Contact c
        INNER JOIN dbo.ContactInfo ci ON ci.ContactInfoID = c.ContactInfoID
@@ -221,6 +250,11 @@ export class InternalEmployeesService {
               .filter((name) => name && name.toLowerCase() !== 'unknown'),
           )];
           return names.length ? names.join(', ') : null;
+        })(),
+        // A single Entra value — never split; a department name can contain a comma.
+        department2: (() => {
+          const name = String(row.department2 ?? '').trim();
+          return name && name.toLowerCase() !== 'unknown' ? name : null;
         })(),
         departmentRank: row.departmentRank != null ? Number(row.departmentRank) : null,
       };

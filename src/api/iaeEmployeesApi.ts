@@ -13,6 +13,8 @@ export type IaeEmployee = {
   /** Current desk extension from the phone-extension assignment tables, when present. */
   extension: string | null;
   departmentName: string | null;
+  /** Secondary department from the Entra "Department2" custom attribute. */
+  department2: string | null;
   departmentRank: number | null;
 };
 

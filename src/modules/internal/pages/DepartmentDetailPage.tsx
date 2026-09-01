@@ -20,6 +20,7 @@ import { apiFetch } from "@/api/config";
 import { HubGraphAvatar } from "@/components/ems/GraphAvatar";
 import { getActiveAccount, acquireGraphAccessToken } from "@/auth/entra";
 import { formatE164ForDisplay } from "@/lib/contactPhoneField";
+import { toDepartmentTags } from "@/lib/departmentTags";
 import { fetchEntraJobTitles, type EntraJobTitleMap } from "@/api/entraJobTitles";
 
 type DepartmentLookup = { departmentId: number; departmentName: string };
@@ -355,7 +356,7 @@ export function DepartmentDetailPage() {
                   {enrichedTeamMembers.map((member) => {
                     const name = `${member.firstName} ${member.lastName}`.trim() || "\u2014";
                     const title = member.jobTitle?.trim();
-                    const department = member.departmentName?.trim();
+                    const departmentTags = toDepartmentTags(member.departmentName, member.department2);
                     const cellPhone = formatE164ForDisplay(member.cellPhone);
                     const deskBase = (() => {
                       const digits = (member.workPhone ?? "").replace(/\D/g, "");
@@ -385,10 +386,17 @@ export function DepartmentDetailPage() {
                             <span className="ml-2 text-xs font-bold text-blue-600">(You)</span>
                           )}
                         </p>
-                        {department ? (
-                          <span className="mt-2 max-w-full rounded border border-neutral-300 px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-700 break-words text-center leading-tight">
-                            {department}
-                          </span>
+                        {departmentTags.length > 0 ? (
+                          <div className="mt-2 flex max-w-full flex-wrap items-center justify-center gap-1">
+                            {departmentTags.map((dept) => (
+                              <span
+                                key={dept}
+                                className="max-w-full rounded border border-neutral-300 px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-700 break-words text-center leading-tight"
+                              >
+                                {dept}
+                              </span>
+                            ))}
+                          </div>
                         ) : null}
                         {title ? (
                           <p className="mt-2 w-full text-[13px] font-bold leading-snug text-neutral-600">{title}</p>

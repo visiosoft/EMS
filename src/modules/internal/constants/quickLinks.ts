@@ -6,6 +6,7 @@ import {
   FileText,
   Mail,
   Newspaper,
+  Umbrella,
   UsersRound,
 } from "lucide-react";
 import type { InternalView } from "../routing/internalSessionRoute";
@@ -27,8 +28,9 @@ export const QUICK_LINKS: QuickLinkItem[] = [
   { label: "Tech Support", href: GENUITY_HELP_CENTER_URL, icon: UsersRound, external: true },
   { label: "Payroll Schedule", view: "payroll-schedule", icon: BadgeDollarSign },
   { label: "PTO Requests", href: "https://signin.adp.com/", icon: CalendarDays, external: true },
-  { label: "Payment Requests", href: "https://ramp.com/", icon: CreditCard, external: true },
+  { label: "Payment Requests", href: "https://app.ramp.com/", icon: CreditCard, external: true },
   { label: "Shipping Requests", href: SHIPPING_REQUESTS_URL, icon: Mail, external: true },
+  { label: "Official Work Holidays", view: "work-holidays", icon: Umbrella },
 ];
 
 export const HUB_ACTION_CARDS = [

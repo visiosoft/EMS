@@ -22,6 +22,7 @@ import { GraphAvatar } from './GraphAvatar';
 import { cn } from '@/lib/utils';
 import { getActiveAccount, acquireGraphAccessToken } from '@/auth/entra';
 import { formatE164ForDisplay } from '@/lib/contactPhoneField';
+import { toDepartmentTags } from '@/lib/departmentTags';
 import {
   Select,
   SelectContent,
@@ -498,7 +499,7 @@ function PersonTile({
 }) {
   const name = displayName(member);
   const title = member.jobTitle?.trim();
-  const dept = member.departmentName?.trim();
+  const departmentTags = toDepartmentTags(member.departmentName, member.department2);
   const cellPhone = formatE164ForDisplay(member.cellPhone);
   const deskBase = formatE164ForDisplay(member.workPhone) || '';
   const ext = member.extension?.trim() || '';
@@ -521,10 +522,17 @@ function PersonTile({
 
       <p className="mt-4 w-full text-[15px] font-bold text-neutral-950 break-words leading-tight dk:text-white">{name}</p>
 
-      {dept ? (
-        <span className="mt-2 max-w-full rounded border border-neutral-300 px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-700 break-words text-center leading-tight dk:border-white/20 dk:text-neutral-200">
-          {dept}
-        </span>
+      {departmentTags.length > 0 ? (
+        <div className="mt-2 flex max-w-full flex-wrap items-center justify-center gap-1">
+          {departmentTags.map((dept) => (
+            <span
+              key={dept}
+              className="max-w-full rounded border border-neutral-300 px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-700 break-words text-center leading-tight dk:border-white/20 dk:text-neutral-200"
+            >
+              {dept}
+            </span>
+          ))}
+        </div>
       ) : null}
 
       {title ? (

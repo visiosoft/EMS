@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { fetchIaeStaffEmployees, type IaeEmployee } from "@/api/iaeEmployeesApi";
 import { formatE164ForDisplay } from "@/lib/contactPhoneField";
+import { toDepartmentTags } from "@/lib/departmentTags";
 import { InternalPageHero } from "../components/InternalPageHero";
 import { InternalPageFrame } from "../layout/InternalPageFrame";
 import { HubGraphAvatar } from "@/components/ems/GraphAvatar";
@@ -201,7 +202,7 @@ function PersonTile({
   const cellPhone = formatE164ForDisplay(employee.cellPhone);
   // Entra job title only — no role fallback; employees without one show no title line.
   const title = employee.jobTitle?.trim();
-  const department = employee.departmentName?.trim();
+  const departmentTags = toDepartmentTags(employee.departmentName, employee.department2);
   const hasContact = Boolean(hasDeskPhone || cellPhone || employee.email);
 
   return (
@@ -222,10 +223,17 @@ function PersonTile({
 
       <p className="mt-4 w-full text-[15px] font-bold text-neutral-950 break-words leading-tight">{name}</p>
 
-      {department ? (
-        <span className="mt-2 max-w-full rounded border border-neutral-300 px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-700 break-words text-center leading-tight">
-          {department}
-        </span>
+      {departmentTags.length > 0 ? (
+        <div className="mt-2 flex max-w-full flex-wrap items-center justify-center gap-1">
+          {departmentTags.map((dept) => (
+            <span
+              key={dept}
+              className="max-w-full rounded border border-neutral-300 px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-700 break-words text-center leading-tight"
+            >
+              {dept}
+            </span>
+          ))}
+        </div>
       ) : null}
 
       {title ? (

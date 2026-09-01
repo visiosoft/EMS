@@ -77,6 +77,7 @@ type EMSCustomAttributes = {
   EMSAccessLevel?: string | null;
   Supervisor?: string | null;
   DepartmentRank?: number | string | null;
+  Department2?: string | null;
   HomeAddressStreet1?: string | null;
   HomeAddressCity?: string | null;
   HomeAddressState?: string | null;
@@ -156,6 +157,7 @@ export const EMPLOYEE_SYNCABLE_FIELDS = new Set([
   'workstation',
   'department',
   'departmentRank',
+  'department2',
   'supervisor',
 ]);
 
@@ -410,6 +412,7 @@ export class EntraProfileSyncService {
       EMSAccessLevel: optStr(emsAttrs.EMSAccessLevel),
       Supervisor: optStr(emsAttrs.Supervisor),
       DepartmentRank: emsAttrs.DepartmentRank != null ? emsAttrs.DepartmentRank as number : null,
+      Department2: optStr(getFirstDefinedCaseInsensitive(emsAttrs, ['Department2', 'SecondDepartment'])),
       HomeAddressStreet1: optStr(emsAttrs.HomeAddressStreet1),
       HomeAddressCity: optStr(emsAttrs.HomeAddressCity),
       HomeAddressState: optStr(emsAttrs.HomeAddressState),
@@ -792,6 +795,9 @@ export class EntraProfileSyncService {
     // Department Rank (from CSA)
     const currentDeptRank = readString(current.profileRow, 'DepartmentRank');
     addChange(changes, 'departmentRank', 'Department Rank', currentDeptRank, entra.emsAttributes.DepartmentRank != null ? String(entra.emsAttributes.DepartmentRank) : '');
+    // Secondary Department (from CSA)
+    const currentDepartment2 = readString(current.profileRow, 'Department2');
+    addChange(changes, 'department2', 'Department 2', currentDepartment2, entra.emsAttributes.Department2 ?? '');
     // Employment Type (from native Entra field)
     const currentEmploymentType = readString(current.profileRow, 'EmploymentType');
     addChange(changes, 'employmentType', 'Employment Type', currentEmploymentType, entra.user.employeeType);
@@ -910,7 +916,7 @@ export class EntraProfileSyncService {
       'supervisor', 'middleName', 'personalEmail', 'birthDate', 'ssn',
       'startDate', 'office', 'workstation', 'workAuthorization', 'workAuthorizationLink', 'accessLevel',
       'ptoAccrualRate', 'employmentAgreement', 'rampAccount', 'rampCreditCard',
-      'title', 'departmentRank', 'employmentType', 'role',
+      'title', 'departmentRank', 'department2', 'employmentType', 'role',
     ]);
     const addressFields = new Set([
       'streetAddress', 'streetAddress2', 'city', 'state', 'postalCode', 'country',
@@ -1018,6 +1024,9 @@ export class EntraProfileSyncService {
         addSet('departmentRank', 'DepartmentRank', nullableText(
           entra.emsAttributes.DepartmentRank != null ? String(entra.emsAttributes.DepartmentRank) : null,
         ));
+        if (await this.hasColumnInTable(manager, 'EmployeeProfile', 'Department2')) {
+          addSet('department2', 'Department2', nullableText(entra.emsAttributes.Department2 ?? null));
+        }
         addSet('employmentType', 'EmploymentType', nullableText(entra.user.employeeType || null));
 
         if (sets.length > 0 && epExists) {
@@ -1069,6 +1078,9 @@ export class EntraProfileSyncService {
           addCol('departmentRank', 'DepartmentRank', nullableText(
             entra.emsAttributes.DepartmentRank != null ? String(entra.emsAttributes.DepartmentRank) : null,
           ));
+          if (await this.hasColumnInTable(manager, 'EmployeeProfile', 'Department2')) {
+            addCol('department2', 'Department2', nullableText(entra.emsAttributes.Department2 ?? null));
+          }
 
           const insertCols = ['ContactID', ...Object.keys(colMap), 'created_by', 'modified_by'];
           const queryParams: unknown[] = [contact.contactId, ...Object.values(colMap), 'Entra sync (selective)', 'Entra sync (selective)'];
@@ -1141,12 +1153,14 @@ export class EntraProfileSyncService {
     const rampCreditCard = entra.emsAttributes.RampCard ?? null;
     const accessLevel = entra.emsAttributes.EMSAccessLevel ?? null;
     const departmentRank = entra.emsAttributes.DepartmentRank != null ? String(entra.emsAttributes.DepartmentRank) : null;
+    const department2 = entra.emsAttributes.Department2 ?? null;
     const employmentType = entra.user.employeeType || null;
     const hasOfficeCol = await this.hasColumnInTable(manager, 'EmployeeProfile', 'Office');
     const hasMiddleNameCol = await this.hasColumnInTable(manager, 'EmployeeProfile', 'MiddleName');
     const hasAccessLevelCol = await this.hasColumnInTable(manager, 'EmployeeProfile', 'AccessLevel');
     const hasJobTitleCol = await this.hasColumnInTable(manager, 'EmployeeProfile', 'JobTitle');
     const hasDeptRankCol = await this.hasColumnInTable(manager, 'EmployeeProfile', 'DepartmentRank');
+    const hasDept2Col = await this.hasColumnInTable(manager, 'EmployeeProfile', 'Department2');
     const workAuthLinkColumn = await this.getWorkAuthorizationLinkColumn(manager);
     const jobTitle = entra.user.jobTitle ?? null;
 
@@ -1184,6 +1198,7 @@ export class EntraProfileSyncService {
       addSet('RampCreditCard', nullableText(rampCreditCard));
       if (hasJobTitleCol) addSet('JobTitle', nullableText(jobTitle));
       if (hasDeptRankCol) addSet('DepartmentRank', nullableText(departmentRank));
+      if (hasDept2Col) addSet('Department2', nullableText(department2));
       addSet('EmploymentType', nullableText(employmentType));
 
       if (sets.length > 0) {
@@ -1203,6 +1218,7 @@ export class EntraProfileSyncService {
         'StartDate', ...(hasOfficeCol ? ['Office'] : []), ...(hasMiddleNameCol ? ['MiddleName'] : []),
         ...(hasAccessLevelCol ? ['AccessLevel'] : []), ...(hasJobTitleCol ? ['JobTitle'] : []),
         ...(hasDeptRankCol ? ['DepartmentRank'] : []),
+        ...(hasDept2Col ? ['Department2'] : []),
         'Workstation', 'WorkAuthorization', ...(workAuthLinkColumn ? [workAuthLinkColumn] : []),
         'PTOAccrualRate', 'EmploymentAgreement', 'RampAccount', 'RampCreditCard',
         'EmploymentType',
@@ -1221,6 +1237,7 @@ export class EntraProfileSyncService {
         ...(hasAccessLevelCol ? [nullableText(accessLevel)] : []),
         ...(hasJobTitleCol ? [nullableText(jobTitle)] : []),
         ...(hasDeptRankCol ? [nullableText(departmentRank)] : []),
+        ...(hasDept2Col ? [nullableText(department2)] : []),
         nullableText(workstation),
         nullableText(workAuth),
         ...(workAuthLinkColumn ? [insertLinkId] : []),

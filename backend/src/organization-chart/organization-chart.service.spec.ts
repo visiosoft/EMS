@@ -38,6 +38,8 @@ describe('OrganizationChartService', () => {
     const query = jest
       .fn()
       .mockResolvedValueOnce([{ companyId: 12, companyName: 'IAE' }])
+      // ContactInfo.JobTitle, then EmployeeProfile.Department2 column probes
+      .mockResolvedValueOnce([{ hasColumn: 1 }])
       .mockResolvedValueOnce([{ hasColumn: 1 }])
       .mockResolvedValueOnce([
         {
@@ -97,13 +99,14 @@ describe('OrganizationChartService', () => {
       'Unassigned',
     ]);
     expect(result.nodes.flatMap((node) => node.members)).toHaveLength(3);
-    expect(query.mock.calls[2][1]).toEqual([12]);
+    expect(query.mock.calls[3][1]).toEqual([12]);
   });
 
   it('uses internal roles when ContactInfo.JobTitle is unavailable', async () => {
     const query = jest
       .fn()
       .mockResolvedValueOnce([{ companyId: 12, companyName: 'IAE' }])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
     const service = new OrganizationChartService(
@@ -114,6 +117,8 @@ describe('OrganizationChartService', () => {
     const result = await service.getChart();
 
     expect(result.warnings).toEqual([]);
-    expect(query.mock.calls[2][0]).toContain("COALESCE(rolePick.roleName, '')");
+    expect(query.mock.calls[3][0]).toContain("COALESCE(rolePick.roleName, '')");
+    // Department2 column absent — the select falls back to a literal.
+    expect(query.mock.calls[3][0]).toContain("CAST('' AS nvarchar(100)) AS department2");
   });
 });
