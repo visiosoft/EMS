@@ -53,6 +53,15 @@ export class SettlementFinance {
   seasonTicketFundsTransferred: string | number | null;
 
   @Column({
+    name: 'TotalRevenue',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
+  totalRevenue: string | number | null;
+
+  @Column({
     name: 'NetBoxOfficeFundsDepositedAccount',
     type: 'nvarchar',
     length: 255,
@@ -157,6 +166,24 @@ export class SettlementFinance {
     nullable: true,
   })
   finalBuyoutAmount: string | number | null;
+
+  @Column({
+    name: 'FinalOtherAmount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
+  finalOtherAmount: string | number | null;
+
+  @Column({
+    name: 'FinalConcessionsAmount',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
+  finalConcessionsAmount: string | number | null;
 
   @Column({
     name: 'DirectCompanyCharges',

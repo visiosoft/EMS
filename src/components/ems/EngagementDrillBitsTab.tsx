@@ -24,6 +24,7 @@ import {
   fetchEngagementPerformanceTicketing,
   fetchEngagementVenueTabData,
   fetchEngagementTravel,
+  fetchEngagementBuyouts,
   fetchEquipmentRentalTypes,
   fetchEquipmentRentals,
   fetchProductionMisc,
@@ -33,14 +34,20 @@ import {
   createEngagementPerformance,
   updateEngagementPerformance,
   deleteEngagementPerformance,
+  fetchEngagementRehearsals,
+  createEngagementRehearsal,
+  updateEngagementRehearsal,
+  deleteEngagementRehearsal,
   upsertEngagementLink,
   removeEngagementLink,
   upsertTravelDrillBits,
+  upsertEngagementBuyouts,
   upsertEquipmentRentals,
   updateProductionMisc,
   type ApiEngagementListRow,
   type ApiEngagementLinkRow,
   type ApiPerformanceRow,
+  type ApiEngagementRehearsal,
   type UpdateEngagementFinancePayload,
   type UpdatePerformanceTicketingPayload,
 } from '@/api/engagementApi';
@@ -63,6 +70,23 @@ import {
 
 const inputCls =
   'w-full bg-surface border border-border rounded-md px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-ems-accent focus:ring-1 focus:ring-ems-accent/20 placeholder:text-text-muted disabled:opacity-60 disabled:cursor-not-allowed transition-colors';
+
+interface EquipmentRentalEntry {
+  entryId: string;
+  engagementProductionEquipmentRentalId?: number;
+  equipmentRentalTypeId: number;
+  typeName: string;
+  budgetAmount: string;
+  notes: string;
+  otherDescription: string;
+}
+
+interface BuyoutEntry {
+  entryId: string;
+  engagementBuyoutId?: number;
+  buyoutDescription: string;
+  buyoutBudgetAmount: string;
+}
 
 const DEAL_TYPE_OPTIONS: Select2Option[] = [
   { value: '', label: 'Not set' },
@@ -225,6 +249,91 @@ function SectionHeader({ title }: { title: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Editable Rehearsal Row
+// ---------------------------------------------------------------------------
+function EditableRehearsalRow({
+  rehearsal,
+  engagementId,
+  onRefresh,
+  addToast,
+}: {
+  rehearsal: ApiEngagementRehearsal;
+  engagementId: number;
+  onRefresh: () => void;
+  addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [dateVal, setDateVal] = useState(rehearsal.rehearsalDate);
+  const [timeVal, setTimeVal] = useState((rehearsal.rehearsalTime ?? '').slice(0, 5));
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  useEffect(() => {
+    setDateVal(rehearsal.rehearsalDate);
+    setTimeVal((rehearsal.rehearsalTime ?? '').slice(0, 5));
+  }, [rehearsal]);
+
+  const updateMut = useMutation({
+    mutationFn: async () => {
+      if (!dateVal.trim()) throw new Error('Rehearsal Date is required.');
+      await updateEngagementRehearsal(engagementId, rehearsal.rehearsalId, {
+        rehearsalDate: dateVal,
+        rehearsalTime: timeVal.trim() ? normalizePerformanceTimeInput(timeVal) : null,
+      });
+    },
+    onSuccess: () => { setEditing(false); onRefresh(); addToast('Rehearsal updated.', 'success'); },
+    onError: (e) => addToast(friendlyApiError(e), 'error'),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: () => deleteEngagementRehearsal(engagementId, rehearsal.rehearsalId),
+    onSuccess: () => { onRefresh(); addToast('Rehearsal deleted.', 'success'); },
+    onError: (e) => addToast(friendlyApiError(e), 'error'),
+  });
+
+  return (
+    <li className="rounded-lg border border-border bg-surface/60 p-3">
+      {!editing ? (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div className="text-sm text-text-primary">
+            <span className="font-medium">{formatPerformanceDateDisplay(rehearsal.rehearsalDate)}</span>
+            {' · '}
+            <span>{rehearsal.rehearsalTime ? formatPerformanceTimeDisplay(rehearsal.rehearsalTime) : 'No time set'}</span>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <button type="button" onClick={() => setEditing(true)} className="text-xs text-ems-accent hover:underline">Edit</button>
+            <button type="button" onClick={() => setConfirmDelete(true)} className="text-xs text-ems-coral hover:underline">Delete</button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <FormField label="Rehearsal Date" required>
+              <input type="date" className={inputCls} value={dateVal} onChange={(e) => setDateVal(e.target.value)} disabled={updateMut.isPending} />
+            </FormField>
+            <FormField label="Rehearsal Time">
+              <input type="time" className={inputCls} value={timeVal} onChange={(e) => setTimeVal(e.target.value)} disabled={updateMut.isPending} />
+            </FormField>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button type="button" onClick={() => setEditing(false)} disabled={updateMut.isPending} className="text-xs text-text-secondary hover:text-text-primary">Cancel</button>
+            <Button type="button" size="sm" className="bg-ems-accent text-white hover:opacity-90" onClick={() => updateMut.mutate()} disabled={updateMut.isPending}>
+              {updateMut.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+            </Button>
+          </div>
+        </div>
+      )}
+      {confirmDelete && (
+        <div className="mt-2 p-2 bg-ems-coral/10 border border-ems-coral/30 rounded-md flex items-center gap-3">
+          <span className="text-xs text-ems-coral">Delete this rehearsal?</span>
+          <button type="button" onClick={() => deleteMut.mutate()} disabled={deleteMut.isPending} className="text-xs font-medium text-ems-coral underline">Confirm</button>
+          <button type="button" onClick={() => setConfirmDelete(false)} disabled={deleteMut.isPending} className="text-xs text-text-muted underline">Cancel</button>
+        </div>
+      )}
+    </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Editable Performance Row (reused from detail page)
 // ---------------------------------------------------------------------------
 function EditablePerformanceRow({
@@ -232,6 +341,7 @@ function EditablePerformanceRow({
   isPrimary,
   engagementId,
   allowDeleteShow,
+  venueCapacity,
   onRefresh,
   addToast,
 }: {
@@ -239,6 +349,8 @@ function EditablePerformanceRow({
   isPrimary: boolean;
   engagementId: number;
   allowDeleteShow: boolean;
+  /** Venue seating capacity — Sellable Capacity may not exceed it. */
+  venueCapacity?: number | null;
   onRefresh: () => void;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 }) {
@@ -271,8 +383,17 @@ function EditablePerformanceRow({
     setGrossPot(d.grossPotentialRevenue == null ? '' : String(d.grossPotentialRevenue));
   }, [ticketingQuery.data]);
 
+  const capacityLimit = venueCapacity != null && Number.isFinite(venueCapacity) && venueCapacity > 0 ? venueCapacity : null;
+  const sellCapError = (() => {
+    if (!sellCap.trim() || capacityLimit == null) return undefined;
+    const n = Number(sellCap);
+    if (!Number.isFinite(n) || n <= capacityLimit) return undefined;
+    return `Cannot exceed Venue Capacity of ${capacityLimit.toLocaleString()}.`;
+  })();
+
   const updateMut = useMutation({
     mutationFn: async () => {
+      if (sellCapError) throw new Error(sellCapError);
       await updateEngagementPerformance(engagementId, perf.performanceId, {
         performanceDate: dateVal,
         performanceTime: normalizePerformanceTimeInput(timeVal),
@@ -309,6 +430,7 @@ function EditablePerformanceRow({
       const sellVal = sellCap.trim() ? Math.round(Number(sellCap)) : null;
       const grossVal = grossPot.trim() ? Number(grossPot) : null;
       if (sellCap.trim() && !Number.isFinite(sellVal)) throw new Error('Sellable Capacity must be a valid number.');
+      if (sellCapError) throw new Error(sellCapError);
       if (grossPot.trim() && !Number.isFinite(grossVal)) throw new Error('Gross Potential must be a valid number.');
       await updateEngagementPerformanceTicketing(engagementId, perf.performanceId, {
         sellableCapacity: sellVal,
@@ -351,10 +473,19 @@ function EditablePerformanceRow({
             </div>
           </div>
           <div className="grid grid-cols-[1fr_1fr_auto] gap-3 items-end rounded-md bg-surface/80 border border-border/50 px-3 py-2">
-            <FormField label="Sellable Capacity (this performance)">
+            <FormField
+              label="Sellable Capacity (this performance)"
+              error={sellCapError}
+              badge={
+                <span className="text-[11px] font-normal text-text-muted">
+                  Venue Capacity: {capacityLimit != null ? capacityLimit.toLocaleString() : '—'}
+                </span>
+              }
+            >
               <input
                 type="number"
                 min={0}
+                max={capacityLimit ?? undefined}
                 step={1}
                 className={inputCls}
                 value={sellCap}
@@ -380,7 +511,7 @@ function EditablePerformanceRow({
               size="sm"
               className="bg-ems-accent text-white hover:opacity-90 mb-0.5"
               onClick={() => saveCapacityMut.mutate()}
-              disabled={saveCapacityMut.isPending || !capacityDirty}
+              disabled={saveCapacityMut.isPending || !capacityDirty || !!sellCapError}
             >
               {saveCapacityMut.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
             </Button>
@@ -406,8 +537,16 @@ function EditablePerformanceRow({
             </FormField>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <FormField label="Sellable Capacity">
-              <input type="number" min={0} step={1} className={inputCls} value={sellCap} onChange={(e) => setSellCap(e.target.value)} disabled={updateMut.isPending} placeholder="e.g. 2000" />
+            <FormField
+              label="Sellable Capacity"
+              error={sellCapError}
+              badge={
+                <span className="text-[11px] font-normal text-text-muted">
+                  Venue Capacity: {capacityLimit != null ? capacityLimit.toLocaleString() : '—'}
+                </span>
+              }
+            >
+              <input type="number" min={0} max={capacityLimit ?? undefined} step={1} className={inputCls} value={sellCap} onChange={(e) => setSellCap(e.target.value)} disabled={updateMut.isPending} placeholder="e.g. 2000" />
             </FormField>
             <FormField label="Gross Potential Revenue">
               <input type="number" min={0} step={0.01} className={inputCls} value={grossPot} onChange={(e) => setGrossPot(e.target.value)} disabled={updateMut.isPending} placeholder="$" />
@@ -415,7 +554,7 @@ function EditablePerformanceRow({
           </div>
           <div className="flex gap-2 justify-end">
             <button type="button" onClick={() => setEditing(false)} disabled={updateMut.isPending} className="text-xs text-text-secondary hover:text-text-primary">Cancel</button>
-            <Button type="button" size="sm" className="bg-ems-accent text-white hover:opacity-90" onClick={() => updateMut.mutate()} disabled={updateMut.isPending}>
+            <Button type="button" size="sm" className="bg-ems-accent text-white hover:opacity-90" onClick={() => updateMut.mutate()} disabled={updateMut.isPending || !!sellCapError}>
               {updateMut.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
             </Button>
           </div>
@@ -469,6 +608,12 @@ export function EngagementDrillBitsTab({
     retry: 1,
   });
 
+  const rehearsalsQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'rehearsals'],
+    queryFn: () => fetchEngagementRehearsals(engagementId),
+    retry: 1,
+  });
+
   const companiesQuery = useQuery({
     queryKey: ['companies', 'ticketing-systems'],
     queryFn: () => fetchCompanies(0, 10_000),
@@ -492,6 +637,13 @@ export function EngagementDrillBitsTab({
   const travelQuery = useQuery({
     queryKey: ['engagements', engagementId, 'travel'],
     queryFn: () => fetchEngagementTravel(engagementId),
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  const buyoutsQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'buyouts'],
+    queryFn: () => fetchEngagementBuyouts(engagementId),
     staleTime: 60_000,
     retry: 1,
   });
@@ -551,8 +703,10 @@ export function EngagementDrillBitsTab({
   const [loadInDate, setLoadInDate] = useState('');
   const [loadInTime, setLoadInTime] = useState('');
   const [hasRehearsal, setHasRehearsal] = useState(false);
-  const [rehearsalDate, setRehearsalDate] = useState('');
-  const [rehearsalTime, setRehearsalTime] = useState('');
+  const [showAddRehearsal, setShowAddRehearsal] = useState(false);
+  const [rhRows, setRhRows] = useState<{ id: string; rehearsalDate: string; rehearsalTime: string }[]>([
+    { id: '1', rehearsalDate: '', rehearsalTime: '' },
+  ]);
 
   const {
     hasUserEdited: hasProductionEdited,
@@ -646,13 +800,15 @@ export function EngagementDrillBitsTab({
   const [travelAirfareIaeArranges, setTravelAirfareIaeArranges] = useState('');
   const [travelHotelsIaePays, setTravelHotelsIaePays] = useState('');
   const [travelHotelsIaeArranges, setTravelHotelsIaeArranges] = useState('');
+  const [travelGroundBudget, setTravelGroundBudget] = useState('');
+  const [travelAirfareBudget, setTravelAirfareBudget] = useState('');
+  const [travelHotelsBudget, setTravelHotelsBudget] = useState('');
 
   // ══════════════════════════════════════════════════════════════════════════
   // STATE — Equipment Rentals
   // ══════════════════════════════════════════════════════════════════════════
 
-  const [equipmentSelections, setEquipmentSelections] = useState<string[]>([]);
-  const [equipmentBudgets, setEquipmentBudgets] = useState<Record<string, string>>({});
+  const [equipmentEntries, setEquipmentEntries] = useState<EquipmentRentalEntry[]>([]);
 
   // ══════════════════════════════════════════════════════════════════════════
   // STATE — Miscellaneous
@@ -662,8 +818,7 @@ export function EngagementDrillBitsTab({
   const [cateringEnabled, setCateringEnabled] = useState('');
   const [cateringBudget, setCateringBudget] = useState('');
   const [buyoutsEnabled, setBuyoutsEnabled] = useState('');
-  const [buyoutDescription, setBuyoutDescription] = useState('');
-  const [buyoutBudget, setBuyoutBudget] = useState('');
+  const [buyoutEntries, setBuyoutEntries] = useState<BuyoutEntry[]>([]);
 
   // ══════════════════════════════════════════════════════════════════════════
   // PER-SECTION EDIT TRACKERS
@@ -731,10 +886,13 @@ export function EngagementDrillBitsTab({
   useEffect(() => {
     setLoadInDate(row.loadInDate ?? '');
     setLoadInTime((row.loadInTime ?? '').slice(0, 5));
-    setHasRehearsal(Boolean((row.rehearsalDate ?? '').trim() || (row.rehearsalTime ?? '').trim()));
-    setRehearsalDate(row.rehearsalDate ?? '');
-    setRehearsalTime((row.rehearsalTime ?? '').slice(0, 5));
   }, [row]);
+
+  // Rehearsal checkbox reflects whether any rehearsal rows exist
+  useEffect(() => {
+    if (!rehearsalsQuery.data) return;
+    if (rehearsalsQuery.data.length > 0) setHasRehearsal(true);
+  }, [rehearsalsQuery.data]);
 
   // Brand from venue profile
   useEffect(() => {
@@ -806,12 +964,15 @@ export function EngagementDrillBitsTab({
       if (r.travelType === 'Ground Transportation') {
         setTravelGroundIaePays(pays == null ? '' : pays ? 'Yes' : 'No');
         setTravelGroundIaeArranges(arranges == null ? '' : arranges ? 'Yes' : 'No');
+        setTravelGroundBudget(r.budgetAmount != null ? String(r.budgetAmount) : '');
       } else if (r.travelType === 'Airfare') {
         setTravelAirfareIaePays(pays == null ? '' : pays ? 'Yes' : 'No');
         setTravelAirfareIaeArranges(arranges == null ? '' : arranges ? 'Yes' : 'No');
+        setTravelAirfareBudget(r.budgetAmount != null ? String(r.budgetAmount) : '');
       } else if (r.travelType === 'Hotels') {
         setTravelHotelsIaePays(pays == null ? '' : pays ? 'Yes' : 'No');
         setTravelHotelsIaeArranges(arranges == null ? '' : arranges ? 'Yes' : 'No');
+        setTravelHotelsBudget(r.budgetAmount != null ? String(r.budgetAmount) : '');
       }
     }
   }, [travelQuery.data]);
@@ -820,17 +981,18 @@ export function EngagementDrillBitsTab({
   useEffect(() => {
     const rows = equipmentRentalsQuery.data ?? [];
     const types = equipmentTypesQuery.data ?? [];
-    const selectedNames: string[] = [];
-    const budgets: Record<string, string> = {};
-    for (const row of rows) {
-      const typeName = types.find((t) => t.equipmentRentalTypeId === row.equipmentRentalTypeId)?.typeName;
-      if (typeName) {
-        selectedNames.push(typeName);
-        budgets[typeName] = row.budgetAmount != null ? String(row.budgetAmount) : '';
-      }
-    }
-    setEquipmentSelections(selectedNames);
-    setEquipmentBudgets(budgets);
+    setEquipmentEntries(rows.flatMap((row) => {
+      const typeName = types.find((type) => type.equipmentRentalTypeId === row.equipmentRentalTypeId)?.typeName;
+      return typeName ? [{
+        entryId: String(row.engagementProductionEquipmentRentalId),
+        engagementProductionEquipmentRentalId: row.engagementProductionEquipmentRentalId,
+        equipmentRentalTypeId: row.equipmentRentalTypeId,
+        typeName,
+        budgetAmount: row.budgetAmount != null ? String(row.budgetAmount) : '',
+        notes: row.notes ?? '',
+        otherDescription: row.otherDescription ?? '',
+      }] : [];
+    }));
   }, [equipmentRentalsQuery.data, equipmentTypesQuery.data]);
 
   // Miscellaneous from EngagementProduction
@@ -841,9 +1003,18 @@ export function EngagementDrillBitsTab({
     setCateringEnabled(d.cateringRequired == null ? '' : d.cateringRequired ? 'Yes' : 'No');
     setCateringBudget(d.cateringBudgetLineItem ?? '');
     setBuyoutsEnabled(d.productionBuyoutRequired == null ? '' : d.productionBuyoutRequired ? 'Yes' : 'No');
-    setBuyoutDescription(d.productionBuyoutDescription ?? '');
-    setBuyoutBudget(d.productionBuyoutBudgetAmount != null ? String(d.productionBuyoutBudgetAmount) : '');
   }, [productionMiscQuery.data]);
+
+  useEffect(() => {
+    const items = buyoutsQuery.data ?? [];
+    setBuyoutEntries(items.map((item) => ({
+      entryId: String(item.engagementBuyoutId),
+      engagementBuyoutId: item.engagementBuyoutId,
+      buyoutDescription: item.buyoutDescription,
+      buyoutBudgetAmount: item.buyoutBudgetAmount != null ? String(item.buyoutBudgetAmount) : '',
+    })));
+    if (items.length > 0) setBuyoutsEnabled('Yes');
+  }, [buyoutsQuery.data]);
 
   // Ticketing from first performance
   const firstPerformance = (performancesQuery.data ?? [])[0] ?? null;
@@ -895,7 +1066,7 @@ export function EngagementDrillBitsTab({
       const names = [company.companyTypeName, ...(company.companyTypeNames ?? [])]
         .filter(Boolean)
         .map((x) => String(x).toLowerCase());
-      return names.some((x) => x.includes('ticketing system'));
+      return names.some((x) => x.includes('ticketing & admission control') || x.includes('ticketing and admission control'));
     });
     return [{ value: '', label: 'Not set' }, ...filtered.map(companyToSelect2Option)];
   }, [companiesQuery.data?.data]);
@@ -933,13 +1104,19 @@ export function EngagementDrillBitsTab({
 
   const canDeleteIndividualShow = (performancesQuery.data ?? []).length > 1;
 
+  const venueSeatingCapacity = (() => {
+    const profile = venueProfileQuery.data;
+    if (!profile || profile.missing !== false) return null;
+    return profile.seatingCapacity ?? null;
+  })();
+
   // ══════════════════════════════════════════════════════════════════════════
   // DIRTY TRACKING
   // ══════════════════════════════════════════════════════════════════════════
 
   const isDirty = hasBrandEdited || hasProductionEdited || hasAttractionEdited || hasVenueDealEdited || hasThirdPartyEdited
     || hasTicketingEdited || hasMarketingEdited || hasTravelEdited || hasEquipmentEdited || hasMiscEdited
-    || showAddPerformance;
+    || showAddPerformance || showAddRehearsal;
   useEffect(() => {
     onDirtyChange?.(isDirty);
     return () => onDirtyChange?.(false);
@@ -968,20 +1145,73 @@ export function EngagementDrillBitsTab({
 
   const saveProductionMut = useMutation({
     mutationFn: async () => {
-      if (hasRehearsal && !rehearsalDate.trim()) {
-        throw new Error('Rehearsal Date is required when Rehearsal is enabled.');
+      const existing = rehearsalsQuery.data ?? [];
+      if (hasRehearsal && existing.length === 0) {
+        throw new Error('Add at least one rehearsal date, or clear the Rehearsal checkbox.');
       }
       await updateEngagement(engagementId, {
         loadInDate: loadInDate || null,
         loadInTime: loadInTime ? `${loadInTime}:00` : null,
-        rehearsalDate: hasRehearsal ? (rehearsalDate || null) : null,
-        rehearsalTime: hasRehearsal && rehearsalTime ? `${rehearsalTime}:00` : null,
       });
+      if (!hasRehearsal && existing.length > 0) {
+        for (const r of existing) {
+          await deleteEngagementRehearsal(engagementId, r.rehearsalId);
+        }
+        await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'rehearsals'] });
+      }
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
     },
     onSuccess: () => { clearProductionEdited(); addToast('Production schedule saved.', 'success'); },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
   });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ADD REHEARSALS
+  // ══════════════════════════════════════════════════════════════════════════
+
+  const createRehearsalMut = useMutation({
+    mutationFn: async (rows: { rehearsalDate: string; rehearsalTime: string }[]) => {
+      for (const r of rows) {
+        await createEngagementRehearsal(engagementId, {
+          rehearsalDate: r.rehearsalDate,
+          rehearsalTime: r.rehearsalTime.trim() ? normalizePerformanceTimeInput(r.rehearsalTime) : null,
+        });
+      }
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'rehearsals'] });
+    },
+    onSuccess: () => {
+      setShowAddRehearsal(false);
+      setRhRows([{ id: '1', rehearsalDate: '', rehearsalTime: '' }]);
+      addToast('Rehearsal(s) added.', 'success');
+    },
+    onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
+  });
+
+  const addRhRow = () => setRhRows((prev) => [...prev, { id: String(Date.now()), rehearsalDate: '', rehearsalTime: '' }]);
+  const removeRhRow = (id: string) => setRhRows((prev) => prev.filter((r) => r.id !== id));
+  const updateRhRow = (id: string, patch: Partial<typeof rhRows[number]>) =>
+    setRhRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+
+  const handleCreateRehearsals = () => {
+    if (!rhRows.every((r) => r.rehearsalDate.trim())) {
+      addToast('Every rehearsal row must have a date.', 'error');
+      return;
+    }
+    const slotKey = (date: string, time: string) => `${date.trim()}|${time.trim().slice(0, 5)}`;
+    const draftKeys = rhRows.map((r) => slotKey(r.rehearsalDate, r.rehearsalTime));
+    if (new Set(draftKeys).size !== draftKeys.length) {
+      addToast('Each rehearsal must have a unique date and time.', 'error');
+      return;
+    }
+    const existingKeys = new Set(
+      (rehearsalsQuery.data ?? []).map((r) => slotKey(r.rehearsalDate, r.rehearsalTime ?? '')),
+    );
+    if (draftKeys.some((k) => existingKeys.has(k))) {
+      addToast('A rehearsal already exists at that date and time.', 'error');
+      return;
+    }
+    createRehearsalMut.mutate(rhRows);
+  };
 
   // ══════════════════════════════════════════════════════════════════════════
   // SAVE — Attraction Terms (EngagementFinances / ArtistFinance)
@@ -1225,10 +1455,14 @@ export function EngagementDrillBitsTab({
       const travelTypes = travelSelections.map((category) => {
         const pays = category === 'Ground Transportation' ? travelGroundIaePays : category === 'Airfare' ? travelAirfareIaePays : travelHotelsIaePays;
         const arranges = category === 'Ground Transportation' ? travelGroundIaeArranges : category === 'Airfare' ? travelAirfareIaeArranges : travelHotelsIaeArranges;
+        const budget = category === 'Ground Transportation' ? travelGroundBudget : category === 'Airfare' ? travelAirfareBudget : travelHotelsBudget;
+        const parsedBudget = budget.trim() ? Number(budget) : null;
+        if (parsedBudget != null && isNaN(parsedBudget)) throw new Error(`${category} Budget must be a valid number.`);
         return {
           travelType: category,
           iaePays: pays === 'Yes' ? true : pays === 'No' ? false : null,
           iaeArranges: arranges === 'Yes' ? true : arranges === 'No' ? false : null,
+          budgetAmount: parsedBudget,
         };
       });
       await upsertTravelDrillBits(engagementId, travelTypes);
@@ -1245,16 +1479,24 @@ export function EngagementDrillBitsTab({
 
   const saveEquipmentMut = useMutation({
     mutationFn: async () => {
-      const types = equipmentTypesQuery.data ?? [];
-      const items = equipmentSelections
-        .map((name) => {
-          const t = types.find((t) => t.typeName === name);
-          if (!t) return null;
-          const raw = equipmentBudgets[name];
-          const budgetAmount = raw ? parseFloat(raw) : null;
-          return { equipmentRentalTypeId: t.equipmentRentalTypeId, budgetAmount: budgetAmount != null && !isNaN(budgetAmount) ? budgetAmount : null };
-        })
-        .filter((x): x is { equipmentRentalTypeId: number; budgetAmount: number | null } => x != null);
+      const items = equipmentEntries.filter((entry) =>
+        entry.typeName !== 'Other'
+        || entry.otherDescription.trim()
+        || entry.budgetAmount.trim()
+        || entry.notes.trim(),
+      ).map((entry) => {
+        const parsedBudget = entry.budgetAmount.trim() ? Number(entry.budgetAmount) : null;
+        if (parsedBudget != null && isNaN(parsedBudget)) {
+          throw new Error('Equipment budget must be a valid number.');
+        }
+        return {
+          engagementProductionEquipmentRentalId: entry.engagementProductionEquipmentRentalId,
+          equipmentRentalTypeId: entry.equipmentRentalTypeId,
+          budgetAmount: parsedBudget,
+          notes: entry.notes,
+          otherDescription: entry.typeName === 'Other' ? entry.otherDescription : null,
+        };
+      });
       await upsertEquipmentRentals(engagementId, items);
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'equipment-rentals'] });
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
@@ -1269,17 +1511,27 @@ export function EngagementDrillBitsTab({
 
   const saveMiscMut = useMutation({
     mutationFn: async () => {
-      const buyoutAmt = buyoutBudget.trim() ? Number(buyoutBudget) : null;
-      if (buyoutAmt != null && isNaN(buyoutAmt)) throw new Error('Buyout Budget must be a valid number.');
+      const buyouts = buyoutEntries.map((entry) => {
+        const budget = entry.buyoutBudgetAmount.trim() ? Number(entry.buyoutBudgetAmount) : null;
+        if (!entry.buyoutDescription.trim()) throw new Error('Buyout Description is required.');
+        if (budget != null && isNaN(budget)) throw new Error('Buyout Budget must be a valid number.');
+        return {
+          engagementBuyoutId: entry.engagementBuyoutId,
+          buyoutDescription: entry.buyoutDescription,
+          buyoutBudgetAmount: budget,
+        };
+      });
       await updateProductionMisc(engagementId, {
         runnerRequired: runnerRequired === 'Yes' ? true : runnerRequired === 'No' ? false : null,
         cateringRequired: cateringEnabled === 'Yes' ? true : cateringEnabled === 'No' ? false : null,
         cateringBudgetLineItem: cateringEnabled === 'Yes' ? (cateringBudget.trim() || null) : null,
         productionBuyoutRequired: buyoutsEnabled === 'Yes' ? true : buyoutsEnabled === 'No' ? false : null,
-        productionBuyoutDescription: buyoutsEnabled === 'Yes' ? (buyoutDescription.trim() || null) : null,
-        productionBuyoutBudgetAmount: buyoutsEnabled === 'Yes' ? buyoutAmt : null,
+        productionBuyoutDescription: null,
+        productionBuyoutBudgetAmount: null,
       });
+      await upsertEngagementBuyouts(engagementId, buyoutsEnabled === 'Yes' ? buyouts : []);
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'production-misc'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'buyouts'] });
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
     },
     onSuccess: () => { clearMiscEdited(); addToast('Miscellaneous saved.', 'success'); },
@@ -1351,6 +1603,24 @@ export function EngagementDrillBitsTab({
       </div>
     ) : null;
 
+  const equipmentTypes = equipmentTypesQuery.data ?? [];
+  const standardEquipmentTypes = equipmentTypes.filter((type) => type.typeName !== 'Other');
+  const otherEquipmentType = equipmentTypes.find((type) => type.typeName === 'Other');
+  const otherEquipmentEntries = equipmentEntries.filter((entry) => entry.typeName === 'Other');
+  const addEquipmentEntry = (type: { equipmentRentalTypeId: number; typeName: string }) => {
+    setEquipmentEntries((entries) => [...entries, {
+      entryId: crypto.randomUUID(),
+      equipmentRentalTypeId: type.equipmentRentalTypeId,
+      typeName: type.typeName,
+      budgetAmount: '',
+      notes: '',
+      otherDescription: '',
+    }]);
+  };
+  const updateEquipmentEntry = (entryId: string, changes: Partial<EquipmentRentalEntry>) => {
+    setEquipmentEntries((entries) => entries.map((entry) => entry.entryId === entryId ? { ...entry, ...changes } : entry));
+  };
+
   return (
     <div className="bg-card border border-border rounded-lg p-5 space-y-8">
       {/* ═══════════════════════════════════════════════════════════════════ */}
@@ -1408,29 +1678,50 @@ export function EngagementDrillBitsTab({
               onChange={(e) => {
                 markProductionEdited();
                 setHasRehearsal(e.target.checked);
-                if (!e.target.checked) { setRehearsalDate(''); setRehearsalTime(''); }
               }}
             />
           </label>
         </div>
         {hasRehearsal && (
-          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FormField label="Rehearsal Date" required>
-              <input
-                type="date"
-                className={inputCls}
-                value={rehearsalDate}
-                onChange={(e) => { markProductionEdited(); setRehearsalDate(e.target.value); }}
-                />
-            </FormField>
-            <FormField label="Rehearsal Time" required>
-              <input
-                type="time"
-                className={inputCls}
-                value={rehearsalTime}
-                onChange={(e) => { markProductionEdited(); setRehearsalTime(e.target.value); }}
-                />
-            </FormField>
+          <div className="mt-3 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <p className="text-xs text-text-muted">Each row is one rehearsal date and time.</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setRhRows([{ id: '1', rehearsalDate: '', rehearsalTime: '' }]);
+                  setShowAddRehearsal(true);
+                }}
+                className="inline-flex items-center justify-center shrink-0 bg-ems-accent text-background text-sm px-4 py-2 rounded-md font-medium hover:bg-ems-accent/90 transition-colors"
+              >
+                Add Date
+              </button>
+            </div>
+            {rehearsalsQuery.isLoading ? (
+              <div className="flex items-center gap-2 text-text-muted text-sm py-4">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading rehearsals…
+              </div>
+            ) : rehearsalsQuery.error ? (
+              <div className="flex items-center gap-2 text-ems-coral text-sm py-2">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                {friendlyApiError(rehearsalsQuery.error)}
+              </div>
+            ) : (rehearsalsQuery.data ?? []).length === 0 ? (
+              <p className="text-sm text-text-muted py-2">No rehearsals yet. Use “Add Date” to add one or more.</p>
+            ) : (
+              <ul className="space-y-2">
+                {(rehearsalsQuery.data ?? []).map((r) => (
+                  <EditableRehearsalRow
+                    key={r.rehearsalId}
+                    rehearsal={r}
+                    engagementId={engagementId}
+                    onRefresh={() => qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'rehearsals'] })}
+                    addToast={addToast}
+                  />
+                ))}
+              </ul>
+            )}
           </div>
         )}
         <SaveBtn onClick={() => saveProductionMut.mutate()} pending={saveProductionMut.isPending} dirty={hasProductionEdited} label="Save Production Schedule" />
@@ -1481,6 +1772,7 @@ export function EngagementDrillBitsTab({
                 isPrimary={idx === 0}
                 engagementId={engagementId}
                 allowDeleteShow={canDeleteIndividualShow}
+                venueCapacity={venueSeatingCapacity}
                 onRefresh={() => qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performances'] })}
                 addToast={addToast}
               />
@@ -2036,9 +2328,9 @@ export function EngagementDrillBitsTab({
                     } else {
                       setTravelSelections((prev) => prev.filter((x) => x !== category));
                       // Clear fields for deselected category
-                      if (category === 'Ground Transportation') { setTravelGroundIaePays(''); setTravelGroundIaeArranges(''); }
-                      if (category === 'Airfare') { setTravelAirfareIaePays(''); setTravelAirfareIaeArranges(''); }
-                      if (category === 'Hotels') { setTravelHotelsIaePays(''); setTravelHotelsIaeArranges(''); }
+                      if (category === 'Ground Transportation') { setTravelGroundIaePays(''); setTravelGroundIaeArranges(''); setTravelGroundBudget(''); }
+                      if (category === 'Airfare') { setTravelAirfareIaePays(''); setTravelAirfareIaeArranges(''); setTravelAirfareBudget(''); }
+                      if (category === 'Hotels') { setTravelHotelsIaePays(''); setTravelHotelsIaeArranges(''); setTravelHotelsBudget(''); }
                     }
                   }}
                 />
@@ -2051,6 +2343,8 @@ export function EngagementDrillBitsTab({
             const setPays = category === 'Ground Transportation' ? setTravelGroundIaePays : category === 'Airfare' ? setTravelAirfareIaePays : setTravelHotelsIaePays;
             const arrangesSt = category === 'Ground Transportation' ? travelGroundIaeArranges : category === 'Airfare' ? travelAirfareIaeArranges : travelHotelsIaeArranges;
             const setArranges = category === 'Ground Transportation' ? setTravelGroundIaeArranges : category === 'Airfare' ? setTravelAirfareIaeArranges : setTravelHotelsIaeArranges;
+            const budget = category === 'Ground Transportation' ? travelGroundBudget : category === 'Airfare' ? travelAirfareBudget : travelHotelsBudget;
+            const setBudget = category === 'Ground Transportation' ? setTravelGroundBudget : category === 'Airfare' ? setTravelAirfareBudget : setTravelHotelsBudget;
             return (
               <div key={category} className="rounded-lg border border-border bg-surface/40 p-4">
                 <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-3">{category}</h4>
@@ -2071,6 +2365,17 @@ export function EngagementDrillBitsTab({
                       placeholder="Select…"
                     />
                   </FormField>
+                  <FormField label="Budget">
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      placeholder="Budget $"
+                      className={inputCls}
+                      value={budget}
+                      onChange={(e) => { markTravelEdited(); setBudget(e.target.value); }}
+                    />
+                  </FormField>
                 </div>
               </div>
             );
@@ -2087,44 +2392,133 @@ export function EngagementDrillBitsTab({
         <SectionHeader title="Equipment Rentals" />
         <div className="space-y-4">
           <div className="flex flex-wrap gap-4">
-            {(equipmentTypesQuery.data ?? []).map((opt) => (
-              <label key={opt.equipmentRentalTypeId} className="inline-flex items-center gap-2 text-sm text-text-primary cursor-pointer">
+            {standardEquipmentTypes.map((type) => (
+              <label key={type.equipmentRentalTypeId} className="inline-flex items-center gap-2 text-sm text-text-primary cursor-pointer">
                 <input
                   type="checkbox"
                   className="h-4 w-4"
-                  checked={equipmentSelections.includes(opt.typeName)}
+                  checked={equipmentEntries.some((entry) => entry.typeName === type.typeName)}
                   onChange={(e) => {
                     markEquipmentEdited();
                     if (e.target.checked) {
-                      setEquipmentSelections((prev) => [...prev, opt.typeName]);
+                      addEquipmentEntry(type);
                     } else {
-                      setEquipmentSelections((prev) => prev.filter((x) => x !== opt.typeName));
-                      setEquipmentBudgets((prev) => { const next = { ...prev }; delete next[opt.typeName]; return next; });
+                      setEquipmentEntries((entries) => entries.filter((entry) => entry.typeName !== type.typeName));
                     }
                   }}
                 />
-                {opt.typeName}
+                {type.typeName}
               </label>
             ))}
+            {otherEquipmentType && (
+              <label className="inline-flex items-center gap-2 text-sm text-text-primary cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={otherEquipmentEntries.length > 0}
+                  onChange={(e) => {
+                    markEquipmentEdited();
+                    if (e.target.checked) addEquipmentEntry(otherEquipmentType);
+                    else setEquipmentEntries((entries) => entries.filter((entry) => entry.typeName !== 'Other'));
+                  }}
+                />
+                Other
+              </label>
+            )}
           </div>
-          {equipmentSelections.length > 0 && (
+          {equipmentEntries.some((entry) => entry.typeName !== 'Other') && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
-              {equipmentSelections.map((name) => (
-                <div key={name} className="flex items-center gap-2">
-                  <span className="text-sm text-text-primary w-32 truncate">{name}</span>
+              {equipmentEntries.filter((entry) => entry.typeName !== 'Other').map((entry) => (
+                <div key={entry.entryId} className="space-y-2">
+                  <span className="text-sm text-text-primary">{entry.typeName}</span>
                   <input
                     type="number"
                     step="0.01"
                     placeholder="Budget $"
-                    className="flex-1 rounded border border-border-primary bg-bg-secondary px-3 py-1.5 text-sm text-text-primary"
-                    value={equipmentBudgets[name] ?? ''}
+                    className="w-full rounded border border-border-primary bg-bg-secondary px-3 py-1.5 text-sm text-text-primary"
+                    value={entry.budgetAmount}
                     onChange={(e) => {
                       markEquipmentEdited();
-                      setEquipmentBudgets((prev) => ({ ...prev, [name]: e.target.value }));
+                      updateEquipmentEntry(entry.entryId, { budgetAmount: e.target.value });
+                    }}
+                  />
+                  <textarea
+                    maxLength={500}
+                    placeholder="Notes (optional)"
+                    className="w-full min-h-20 rounded border border-border-primary bg-bg-secondary px-3 py-1.5 text-sm text-text-primary"
+                    value={entry.notes}
+                    onChange={(e) => {
+                      markEquipmentEdited();
+                      updateEquipmentEntry(entry.entryId, { notes: e.target.value });
                     }}
                   />
                 </div>
               ))}
+            </div>
+          )}
+          {otherEquipmentEntries.length > 0 && (
+            <div className="space-y-3">
+              {otherEquipmentEntries.map((entry) => (
+                <div key={entry.entryId} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr_auto] gap-2 items-end">
+                  <FormField label="Other Description">
+                    <input
+                      maxLength={200}
+                      placeholder="Description"
+                      className={inputCls}
+                      value={entry.otherDescription}
+                      onChange={(e) => {
+                        markEquipmentEdited();
+                        updateEquipmentEntry(entry.entryId, { otherDescription: e.target.value });
+                      }}
+                    />
+                  </FormField>
+                  <FormField label="Budget">
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="Budget $"
+                      className={inputCls}
+                      value={entry.budgetAmount}
+                      onChange={(e) => {
+                        markEquipmentEdited();
+                        updateEquipmentEntry(entry.entryId, { budgetAmount: e.target.value });
+                      }}
+                    />
+                  </FormField>
+                  <FormField label="Notes">
+                    <input
+                      type="text"
+                      maxLength={500}
+                      placeholder="Notes (optional)"
+                      className={inputCls}
+                      value={entry.notes}
+                      onChange={(e) => {
+                        markEquipmentEdited();
+                        updateEquipmentEntry(entry.entryId, { notes: e.target.value });
+                      }}
+                    />
+                  </FormField>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Remove other equipment rental"
+                    title="Remove other equipment rental"
+                    onClick={() => {
+                      markEquipmentEdited();
+                      setEquipmentEntries((entries) => entries.filter((item) => item.entryId !== entry.entryId));
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+              {otherEquipmentType && (
+                <Button type="button" variant="outline" size="sm" onClick={() => { markEquipmentEdited(); addEquipmentEntry(otherEquipmentType); }}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Another
+                </Button>
+              )}
             </div>
           )}
         </div>
@@ -2174,34 +2568,77 @@ export function EngagementDrillBitsTab({
             <Select2
               options={YES_NO_OPTIONS}
               value={buyoutsEnabled}
-              onChange={(v) => { markMiscEdited(); setBuyoutsEnabled(v); if (v !== 'Yes') { setBuyoutDescription(''); setBuyoutBudget(''); } }}
+              onChange={(v) => {
+                markMiscEdited();
+                setBuyoutsEnabled(v);
+                if (v === 'Yes' && buyoutEntries.length === 0) {
+                  setBuyoutEntries([{ entryId: crypto.randomUUID(), buyoutDescription: '', buyoutBudgetAmount: '' }]);
+                }
+                if (v !== 'Yes') setBuyoutEntries([]);
+              }}
               placeholder="Select…"
             />
           </FormField>
 
           {buyoutsEnabled === 'Yes' && (
-            <>
-              <FormField label="Buyout Description" required>
-                <input
-                  type="text"
-                  className={inputCls}
-                  value={buyoutDescription}
-                  onChange={(e) => { markMiscEdited(); setBuyoutDescription(e.target.value); }}
-                      placeholder="Describe the buyout…"
-                />
-              </FormField>
-              <FormField label="Buyout Budget" required>
-                <input
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  className={inputCls}
-                  value={buyoutBudget}
-                  onChange={(e) => { markMiscEdited(); setBuyoutBudget(e.target.value); }}
+            <div className="col-span-full space-y-3">
+              {buyoutEntries.map((entry, index) => (
+                <div key={entry.entryId} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 items-end">
+                  <FormField label={`Buyout ${index + 1} Description`} required>
+                    <input
+                      type="text"
+                      maxLength={500}
+                      className={inputCls}
+                      value={entry.buyoutDescription}
+                      onChange={(e) => {
+                        markMiscEdited();
+                        setBuyoutEntries((entries) => entries.map((item) => item.entryId === entry.entryId ? { ...item, buyoutDescription: e.target.value } : item));
+                      }}
+                      placeholder="Describe the buyout..."
+                    />
+                  </FormField>
+                  <FormField label={`Buyout ${index + 1} Budget`} required>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      className={inputCls}
+                      value={entry.buyoutBudgetAmount}
+                      onChange={(e) => {
+                        markMiscEdited();
+                        setBuyoutEntries((entries) => entries.map((item) => item.entryId === entry.entryId ? { ...item, buyoutBudgetAmount: e.target.value } : item));
+                      }}
                       placeholder="$"
-                />
-              </FormField>
-            </>
+                    />
+                  </FormField>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Remove buyout"
+                    title="Remove buyout"
+                    onClick={() => {
+                      markMiscEdited();
+                      setBuyoutEntries((entries) => entries.filter((item) => item.entryId !== entry.entryId));
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  markMiscEdited();
+                  setBuyoutEntries((entries) => [...entries, { entryId: crypto.randomUUID(), buyoutDescription: '', buyoutBudgetAmount: '' }]);
+                }}
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Add Another
+              </Button>
+            </div>
           )}
         </div>
         <SaveBtn onClick={() => saveMiscMut.mutate()} pending={saveMiscMut.isPending} dirty={hasMiscEdited} label="Save Miscellaneous" />
@@ -2302,6 +2739,99 @@ export function EngagementDrillBitsTab({
                   </span>
                 ) : (
                   `Create ${pfRows.length} Performance${pfRows.length > 1 ? 's' : ''}`
+                )}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {/* ADD REHEARSAL MODAL */}
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {showAddRehearsal && (
+        <Modal
+          title="Add rehearsal dates"
+          onClose={() => {
+            if (createRehearsalMut.isPending) return;
+            setShowAddRehearsal(false);
+          }}
+          width={900}
+          allowContentOverflow
+        >
+          <div className="space-y-4">
+            <p className="text-xs text-text-muted">Add one or more rehearsals. Time is optional.</p>
+            <div className="space-y-3 max-h-[55vh] overflow-auto pr-1">
+              {rhRows.map((rowDraft, idx) => (
+                <div key={rowDraft.id} className="rounded-lg border border-border bg-surface/60 p-3 sm:p-4">
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">Rehearsal {idx + 1}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeRhRow(rowDraft.id)}
+                      disabled={createRehearsalMut.isPending || rhRows.length <= 1}
+                      className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md border border-border text-text-secondary hover:text-ems-coral hover:border-ems-coral/40 hover:bg-ems-coral-dim disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Remove
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <FormField label="Rehearsal date" required>
+                      <input
+                        type="date"
+                        className={inputCls}
+                        value={rowDraft.rehearsalDate}
+                        onChange={(e) => updateRhRow(rowDraft.id, { rehearsalDate: e.target.value })}
+                        disabled={createRehearsalMut.isPending}
+                      />
+                    </FormField>
+                    <FormField label="Rehearsal time">
+                      <input
+                        type="time"
+                        className={inputCls}
+                        value={rowDraft.rehearsalTime}
+                        onChange={(e) => updateRhRow(rowDraft.id, { rehearsalTime: e.target.value })}
+                        disabled={createRehearsalMut.isPending}
+                      />
+                    </FormField>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-start">
+              <button
+                type="button"
+                onClick={addRhRow}
+                disabled={createRehearsalMut.isPending}
+                className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border border-border text-text-primary bg-elevated hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <Plus className="h-4 w-4" />
+                Add Date
+              </button>
+            </div>
+            <div className="flex gap-2 justify-end pt-4 border-t border-border">
+              <button
+                type="button"
+                onClick={() => setShowAddRehearsal(false)}
+                disabled={createRehearsalMut.isPending}
+                className="text-text-secondary text-sm px-4 py-2 rounded-md hover:text-text-primary hover:bg-hover disabled:opacity-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateRehearsals}
+                disabled={createRehearsalMut.isPending}
+                className="bg-ems-accent text-white text-sm px-5 py-2 rounded-md font-medium hover:bg-ems-accent/90 disabled:opacity-50 transition-colors"
+              >
+                {createRehearsalMut.isPending ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Creating…
+                  </span>
+                ) : (
+                  `Add ${rhRows.length} Rehearsal${rhRows.length > 1 ? 's' : ''}`
                 )}
               </button>
             </div>

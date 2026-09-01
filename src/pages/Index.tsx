@@ -170,7 +170,10 @@ function sanitizeViewDataForView(view: string, raw: unknown): Record<string, unk
     return out;
   }
   if (view === 'companies' && obj.selectedCompanyId != null) {
-    return { selectedCompanyId: obj.selectedCompanyId };
+    return {
+      selectedCompanyId: obj.selectedCompanyId,
+      ...(typeof obj.initialTab === 'string' && obj.initialTab.trim() ? { initialTab: obj.initialTab.trim() } : {}),
+    };
   }
   return {};
 }
@@ -461,6 +464,7 @@ const Index = () => {
             initialSelectedCompanyId={
               (data.selectedCompanyId as string | number | undefined) ?? null
             }
+            initialDrawerTab={(data.initialTab as string | undefined) ?? null}
           />
         )}
 
