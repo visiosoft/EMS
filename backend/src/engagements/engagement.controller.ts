@@ -27,6 +27,7 @@ import { UpdateEngagementVenueTabDto } from './dto/update-engagement-venue-tab.d
 import { CreateEngagementDto } from './dto/create-engagement.dto';
 import { CreateEngagementIaeContactDto } from './dto/create-engagement-iae-contact.dto';
 import { CreatePerformanceDto } from './dto/create-performance.dto';
+import { CreateEngagementRehearsalDto, UpdateEngagementRehearsalDto } from './dto/engagement-rehearsal.dto';
 import { UpdateEngagementDto } from './dto/update-engagement.dto';
 import { UpdateEngagementFinanceDto } from './dto/update-engagement-finance.dto';
 import { UpdateEngagementIaeContactDto } from './dto/update-engagement-iae-contact.dto';
@@ -147,7 +148,16 @@ export class EngagementController {
   @HttpCode(HttpStatus.NO_CONTENT)
   updateNonResidentWithholding(
     @Param('nrwId', ParseIntPipe) nrwId: number,
-    @Body() dto: { withholdingArea?: string | null; withholdingTaxRate?: number | null; withholdingAgencyName?: string | null; iaeWaiverSubmissionDate?: string | null; iaeWaiverAppNumber?: string | null },
+    @Body() dto: {
+      withholdingArea?: string | null;
+      withholdingTaxRate?: number | null;
+      withholdingAgencyName?: string | null;
+      completedWaiverUrl?: string | null;
+      iaeWaiverSubmissionDate?: string | null;
+      iaeWaiverAppNumber?: string | null;
+      tourWaiverUrl?: string | null;
+      exceptionsNotes?: string | null;
+    },
   ) {
     return this.engagementService.updateNonResidentWithholding(nrwId, dto);
   }
@@ -161,6 +171,7 @@ export class EngagementController {
     @Query('status') status?: string,
     @Query('attraction') attraction?: string,
     @Query('dma') dma?: string,
+    @Query('city') city?: string,
     @Query('venue') venue?: string,
     @Query('timing') timing?: string,
     @Query('mine') mine?: string,
@@ -177,6 +188,7 @@ export class EngagementController {
       status,
       attractionName: attraction,
       dmaMarketName: dma,
+      city,
       venueLabel: venue,
       timing: t,
       mine: mine === '1' || mine === 'true',
@@ -359,6 +371,41 @@ export class EngagementController {
     @Param('providerCompanyId', ParseIntPipe) providerCompanyId: number,
   ) {
     return this.engagementService.removeServiceProvider(id, providerCompanyId);
+  }
+
+  // ─── Rehearsal APIs ────────────────────────────────────────────────────────
+
+  @Get(':id/rehearsals')
+  listRehearsals(@Param('id', ParseIntPipe) id: number) {
+    return this.engagementService.listRehearsals(id);
+  }
+
+  @Post(':id/rehearsals')
+  @HttpCode(HttpStatus.CREATED)
+  createRehearsal(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateEngagementRehearsalDto,
+  ) {
+    return this.engagementService.createRehearsal(id, dto);
+  }
+
+  @Patch(':id/rehearsals/:rehearsalId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  updateRehearsal(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('rehearsalId', ParseIntPipe) rehearsalId: number,
+    @Body() dto: UpdateEngagementRehearsalDto,
+  ) {
+    return this.engagementService.updateRehearsal(id, rehearsalId, dto);
+  }
+
+  @Delete(':id/rehearsals/:rehearsalId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  deleteRehearsal(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('rehearsalId', ParseIntPipe) rehearsalId: number,
+  ) {
+    return this.engagementService.deleteRehearsal(id, rehearsalId);
   }
 
   // ─── Performance APIs ──────────────────────────────────────────────────────
@@ -569,9 +616,29 @@ export class EngagementController {
   @HttpCode(HttpStatus.OK)
   upsertTravelDrillBits(
     @Param('id', ParseIntPipe) id: number,
-    @Body() body: { travelTypes: { travelType: string; iaePays: boolean | null; iaeArranges: boolean | null }[] },
+    @Body() body: { travelTypes: { travelType: string; iaePays: boolean | null; iaeArranges: boolean | null; budgetAmount: number | null }[] },
   ) {
     return this.engagementService.upsertTravelDrillBits(id, body.travelTypes);
+  }
+
+  // ─── Buyouts ──────────────────────────────────────────────────────────────
+
+  @Get(':id/buyouts')
+  getEngagementBuyouts(@Param('id', ParseIntPipe) id: number) {
+    return this.engagementService.getEngagementBuyouts(id);
+  }
+
+  @Put(':id/buyouts')
+  @HttpCode(HttpStatus.OK)
+  upsertEngagementBuyouts(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { items: {
+      engagementBuyoutId?: number;
+      buyoutDescription: string;
+      buyoutBudgetAmount: number | null;
+    }[] },
+  ) {
+    return this.engagementService.upsertEngagementBuyouts(id, body.items);
   }
 
   // ─── Equipment Rentals ────────────────────────────────────────────────────
@@ -585,7 +652,13 @@ export class EngagementController {
   @HttpCode(HttpStatus.OK)
   upsertEquipmentRentals(
     @Param('id', ParseIntPipe) id: number,
-    @Body() body: { items: { equipmentRentalTypeId: number; budgetAmount: number | null }[] },
+    @Body() body: { items: {
+      engagementProductionEquipmentRentalId?: number;
+      equipmentRentalTypeId: number;
+      budgetAmount: number | null;
+      notes?: string | null;
+      otherDescription?: string | null;
+    }[] },
   ) {
     return this.engagementService.upsertEquipmentRentals(id, body.items);
   }

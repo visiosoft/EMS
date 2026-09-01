@@ -14,6 +14,7 @@ import { Link } from '../entities/link.entity';
 import { EngagementFinances } from '../entities/engagement-finance.entity';
 import { EngagementLink } from '../entities/engagement-link.entity';
 import { EngagementProduction } from '../entities/engagement-production.entity';
+import { EngagementRehearsal } from '../entities/engagement-rehearsal.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { EngagementXref } from '../entities/engagement-xref.entity';
 import { NonResidentWithholding } from '../entities/non-resident-withholding.entity';
@@ -34,6 +35,7 @@ import { EngagementTravel } from '../entities/engagement-travel.entity';
 import { EngagementTravelCarService } from '../entities/engagement-travel-car-service.entity';
 import { EngagementTravelHotel } from '../entities/engagement-travel-hotel.entity';
 import { EngagementPartner } from '../entities/engagement-partner.entity';
+import { EngagementBuyout } from '../entities/engagement-buyout.entity';
 import { EngagementProductionEquipmentRental } from '../entities/engagement-production-equipment-rental.entity';
 import { EquipmentRentalType } from '../entities/equipment-rental-type.entity';
 import { PerformanceContract } from '../entities/performance-contract.entity';
@@ -53,6 +55,7 @@ import { EngagementVipPdfService } from './engagement-vip-pdf.service';
       EngagementVenue,
       EngagementXref,
       EngagementProduction,
+      EngagementRehearsal,
       Performance,
       PerformanceTicketing,
       TicketingSales,
@@ -75,6 +78,7 @@ import { EngagementVipPdfService } from './engagement-vip-pdf.service';
       EngagementTravelCarService,
       EngagementTravelHotel,
       EngagementPartner,
+      EngagementBuyout,
       EngagementProductionEquipmentRental,
       EquipmentRentalType,
       PerformanceContract,
