@@ -30,7 +30,7 @@ export const EMPLOYEE_SERVICE_ITEMS: EmployeeServiceItem[] = [
   { title: "Health Insurance", icon: HeartPulse, internalView: "health-insurance" },
   { title: "Payroll Schedule", icon: ReceiptText, internalView: "payroll-schedule" },
   { title: "PTO Request", icon: ClipboardList, externalUrl: "https://signin.adp.com" },
-  { title: "Official Work Holiday", icon: Umbrella, handbookHash: "handbook-compensation-benefits", handbookSubsection: "4.11" },
+  { title: "Official Work Holidays", icon: Umbrella, internalView: "work-holidays" },
   { title: "Company", icon: FileBadge2, companyMark: true, internalView: "leadership" },
 ];
 

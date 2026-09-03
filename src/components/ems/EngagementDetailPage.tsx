@@ -28,6 +28,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { Modal, FormField, TabBar } from './Primitives';
+import { EngagementVipPdfField } from './EngagementVipPdfField';
 import { EngagementSalesDashboardPanel } from './EngagementSalesDashboardPanel';
 import { EngagementDocumentsTab } from './EngagementDocumentsTab';
 import { Select2, type Select2Option } from './Select2';
@@ -5155,6 +5156,9 @@ function EngagementBookingPanel({
   const [attractionOveragePercent, setAttractionOveragePercent] = useState('');
   const [attractionRoyaltyPercent, setAttractionRoyaltyPercent] = useState('');
   const [attractionMiddleMoney, setAttractionMiddleMoney] = useState('');
+  const [attractionVersusPercent, setAttractionVersusPercent] = useState('');
+  const [attractionPromoterProfitPercent, setAttractionPromoterProfitPercent] = useState('');
+  const [attractionArtistBackendPercent, setAttractionArtistBackendPercent] = useState('');
   // Venue terms
   const [venueDealTypeId, setVenueDealTypeId] = useState('');
   // Attraction contract links
@@ -5207,6 +5211,9 @@ function EngagementBookingPanel({
     setAttractionOveragePercent(numFieldToString(d.overagePercent));
     setAttractionRoyaltyPercent(numFieldToString(d.artistRoyaltyRatePercent));
     setAttractionMiddleMoney(numFieldToString(d.artistMiddleMoney));
+    setAttractionVersusPercent(numFieldToString(d.artistVersusPercent));
+    setAttractionPromoterProfitPercent(numFieldToString(d.artistPromoterProfitPercent));
+    setAttractionArtistBackendPercent(numFieldToString(d.artistBackendPercent));
     setVenueDealTypeId(d.venueDealTypeId != null ? String(d.venueDealTypeId) : '');
     setAttractionContractLink(d.attractionContractSharePointLink ?? '');
     setPartiallyExecutedLink(d.partiallyExecutedAttractionContractSharePointLink ?? '');
@@ -5548,6 +5555,9 @@ function EngagementBookingPanel({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {fieldRow('Deal Type', <span className="text-sm text-text-primary">{attractionDealType || '—'}</span>)}
             {fieldRow('Guarantee ($)', <span className="text-sm text-text-primary">{attractionGuarantee ? `$${attractionGuarantee}` : '—'}</span>)}
+            {attractionDealType === 'Versus' && fieldRow('VS Percentage (%)', <span className="text-sm text-text-primary">{attractionVersusPercent ? `${attractionVersusPercent}%` : '—'}</span>)}
+            {attractionDealType === 'Promoter Profit' && fieldRow('Promoter Profit (%)', <span className="text-sm text-text-primary">{attractionPromoterProfitPercent ? `${attractionPromoterProfitPercent}%` : '—'}</span>)}
+            {attractionDealType === 'Promoter Profit' && fieldRow('Artist Backend (%)', <span className="text-sm text-text-primary">{attractionArtistBackendPercent ? `${attractionArtistBackendPercent}%` : '—'}</span>)}
             {fieldRow('Overage (%)', <span className="text-sm text-text-primary">{attractionOveragePercent ? `${attractionOveragePercent}%` : '—'}</span>)}
             {fieldRow('Royalty (%)', <span className="text-sm text-text-primary">{attractionRoyaltyPercent ? `${attractionRoyaltyPercent}%` : '—'}</span>)}
             {fieldRow('Middle Money ($)', <span className="text-sm text-text-primary">{attractionMiddleMoney ? `$${attractionMiddleMoney}` : '—'}</span>)}
@@ -5624,6 +5634,9 @@ function EngagementBookingPanel({
             </div>,
           )}
         </div>
+
+        {/* ── VIP PDF (inherited from Tour Booking; editable override) ── */}
+        <EngagementVipPdfField engagementId={engagementId} addToast={addToast} />
 
         <div className="flex justify-end pt-2 border-t border-border">
           <Button
@@ -5851,6 +5864,7 @@ function EngagementEventBusinessPanel({
   const [subscriptionSalesRevenueTotal, setSubscriptionSalesRevenueTotal] = useState('');
   const [seasonTicketSalesByIae, setSeasonTicketSalesByIae] = useState('');
   const [seasonTicketFundsTransferred, setSeasonTicketFundsTransferred] = useState('');
+  const [totalRevenue, setTotalRevenue] = useState('');
   const [netBoxOfficeFundsDepositedAccount, setNetBoxOfficeFundsDepositedAccount] = useState('');
   const [hstCollectedFromTicketSales, setHstCollectedFromTicketSales] = useState('');
   const [hstPaidOnTourPayments, setHstPaidOnTourPayments] = useState('');
@@ -5881,6 +5895,8 @@ function EngagementEventBusinessPanel({
   const [finalRoyaltyAmount, setFinalRoyaltyAmount] = useState('');
   const [finalOverageAmount, setFinalOverageAmount] = useState('');
   const [finalBuyoutAmount, setFinalBuyoutAmount] = useState('');
+  const [finalOtherAmount, setFinalOtherAmount] = useState('');
+  const [finalConcessionsAmount, setFinalConcessionsAmount] = useState('');
   const [finalDirectCompanyCharges, setFinalDirectCompanyCharges] = useState('');
   const [finalReimbursables, setFinalReimbursables] = useState('');
   const [artistGrossTaxableCompensation, setArtistGrossTaxableCompensation] = useState('');
@@ -5927,6 +5943,7 @@ function EngagementEventBusinessPanel({
     setSubscriptionSalesRevenueTotal(numFieldToString(d.subscriptionSalesRevenueTotal));
     setSeasonTicketSalesByIae(numFieldToString(d.seasonTicketSalesByIae));
     setSeasonTicketFundsTransferred(numFieldToString(d.seasonTicketFundsTransferred));
+    setTotalRevenue(numFieldToString(d.totalRevenue));
     setNetBoxOfficeFundsDepositedAccount(d.netBoxOfficeFundsDepositedAccount ?? '');
     setHstCollectedFromTicketSales(numFieldToString(d.hstCollectedFromTicketSales));
     setHstPaidOnTourPayments(numFieldToString(d.hstPaidOnTourPayments));
@@ -5950,21 +5967,23 @@ function EngagementEventBusinessPanel({
     setWithholdingAgency(nrwRef?.withholdingAgencyName ?? '');
     setIaeWaiverSubmissionDate(nrwRef?.iaeWaiverSubmissionDate ?? '');
     setIaeWaiverAppNumber(nrwRef?.iaeWaiverAppNumber ?? '');
-    setWithholdingPayee(d.withholdingPayee || (nrwRef?.withholdingPayee ?? ''));
-    setWithholdingPaymentMethod(d.withholdingPaymentMethod || (nrwRef?.paymentMethod ?? ''));
-    setWithholdingFormToAttractionLink(d.withholdingFormToAttractionLink || (nrwRef?.formToAttractionUrl ?? ''));
-    setWithholdingFormToMunicipalityLink(d.withholdingFormToMunicipalityLink || (nrwRef?.formToMunicipalityUrl ?? ''));
-    setWithholdingQuickbooksNumber(d.withholdingQuickbooksNumber || (nrwRef?.quickBooksNumber ?? ''));
-    setWithholdingWaiver(d.withholdingWaiver || (nrwRef?.canApplyForWaiver != null ? (nrwRef.canApplyForWaiver ? 'Yes' : 'No') : ''));
-    setWithholdingCompletedWaiverLink(d.withholdingCompletedWaiverLink || (nrwRef?.completedWaiverUrl ?? ''));
-    setTourWaiverLink(d.tourWaiverLink || (nrwRef?.tourWaiverUrl ?? ''));
-    setWithholdingExceptions(d.withholdingExceptions || (nrwRef?.exceptionsNotes ?? ''));
+    setWithholdingPayee(nrwRef?.withholdingPayee ?? '');
+    setWithholdingPaymentMethod(nrwRef?.paymentMethod ?? '');
+    setWithholdingFormToAttractionLink(nrwRef?.formToAttractionUrl ?? '');
+    setWithholdingFormToMunicipalityLink(nrwRef?.formToMunicipalityUrl ?? '');
+    setWithholdingQuickbooksNumber(nrwRef?.quickBooksNumber ?? '');
+    setWithholdingWaiver(nrwRef?.canApplyForWaiver != null ? (nrwRef.canApplyForWaiver ? 'Yes' : 'No') : '');
+    setWithholdingCompletedWaiverLink(nrwRef?.completedWaiverUrl ?? '');
+    setTourWaiverLink(nrwRef?.tourWaiverUrl ?? '');
+    setWithholdingExceptions(nrwRef?.exceptionsNotes ?? '');
     setCheckNumberOrConfOfWithholdingPayment(d.checkNumberOrConfOfWithholdingPayment ?? '');
     // Final Attraction Compensation (separate save)
     setFinalGuaranteeAmount(numFieldToString(d.finalGuaranteeAmount));
     setFinalRoyaltyAmount(numFieldToString(d.finalRoyaltyAmount));
     setFinalOverageAmount(numFieldToString(d.finalOverageAmount));
     setFinalBuyoutAmount(numFieldToString(d.finalBuyoutAmount));
+    setFinalOtherAmount(numFieldToString(d.finalOtherAmount));
+    setFinalConcessionsAmount(numFieldToString(d.finalConcessionsAmount));
     setFinalDirectCompanyCharges(numFieldToString(d.finalDirectCompanyCharges));
     setFinalReimbursables(numFieldToString(d.finalReimbursables));
     setArtistGrossTaxableCompensation(numFieldToString(d.artistGrossTaxableCompensation));
@@ -5979,6 +5998,7 @@ function EngagementEventBusinessPanel({
         { raw: subscriptionSalesRevenueTotal, label: 'Subscription sales revenue total', key: 'subscriptionSalesRevenueTotal' },
         { raw: seasonTicketSalesByIae, label: 'Season ticket sales by IAE', key: 'seasonTicketSalesByIae' },
         { raw: seasonTicketFundsTransferred, label: 'Season ticket funds transferred', key: 'seasonTicketFundsTransferred' },
+        { raw: totalRevenue, label: 'Total revenue', key: 'totalRevenue' },
         { raw: artistGrossTaxableCompensation, label: 'Artist gross taxable compensation', key: 'artistGrossTaxableCompensation' },
         { raw: amountDueToDeptOfRevenue, label: 'Amount due to Dept of Revenue', key: 'amountDueToDeptOfRevenue' },
       ];
@@ -6040,8 +6060,6 @@ function EngagementEventBusinessPanel({
   const saveWithholdingMut = useMutation({
     mutationFn: async () => {
       const urlFields: [string, string][] = [
-        ['Withholding Form to Attraction link', withholdingFormToAttractionLink],
-        ['Withholding Form to Municipality link', withholdingFormToMunicipalityLink],
         ['Withholding Completed Waiver link', withholdingCompletedWaiverLink],
         ['Tour Waiver link', tourWaiverLink],
       ];
@@ -6049,28 +6067,29 @@ function EngagementEventBusinessPanel({
         const t = val.trim();
         if (t && !isValidHttpOrHttpsUrl(t)) throw new Error(`${label} must be a valid http(s) URL or empty.`);
       }
-      const payload: Partial<UpdateEngagementFinancePayload> = {};
-      payload.withholdingPayee = withholdingPayee.trim() || null;
-      payload.withholdingPaymentMethod = withholdingPaymentMethod.trim() || null;
-      payload.withholdingFormToAttractionLink = withholdingFormToAttractionLink.trim() || null;
-      payload.withholdingFormToMunicipalityLink = withholdingFormToMunicipalityLink.trim() || null;
-      payload.withholdingQuickbooksNumber = withholdingQuickbooksNumber.trim() || null;
-      payload.withholdingWaiver = withholdingWaiver.trim() || null;
-      payload.withholdingCompletedWaiverLink = withholdingCompletedWaiverLink.trim() || null;
-      payload.tourWaiverLink = tourWaiverLink.trim() || null;
-      payload.withholdingExceptions = withholdingExceptions.trim() || null;
-      await updateEngagementFinance(engagementId, payload);
-      // Update NRW lookup record fields (area, rate, agency, waiver date/app)
-      const nrwId = financeQuery.data?.requiredNonResidentWithholdingId;
-      if (nrwId != null) {
-        await updateNonResidentWithholding(nrwId, {
-          withholdingArea: withholdingArea.trim() || null,
-          withholdingTaxRate: withholdingRate.trim() ? Number(withholdingRate) : null,
-          withholdingAgencyName: withholdingAgency.trim() || null,
-          iaeWaiverSubmissionDate: iaeWaiverSubmissionDate.trim() || null,
-          iaeWaiverAppNumber: iaeWaiverAppNumber.trim() || null,
-        });
-      }
+      // Update the same assigned or geography-matched NRW record displayed in this section.
+      const finance = financeQuery.data;
+      const lookupRows = financeLookupsQuery.data?.nonResidentWithholdings ?? [];
+      const assigned = finance?.requiredNonResidentWithholdingId == null
+        ? undefined
+        : lookupRows.find((row) => row.id === finance.requiredNonResidentWithholdingId);
+      const nrwRef = assigned ?? matchNrwByGeography(
+        lookupRows,
+        venueCity,
+        venueState,
+        isCanadaEngagement,
+      );
+      if (!nrwRef) throw new Error('No Non-Resident Withholding record is assigned to this engagement.');
+      await updateNonResidentWithholding(nrwRef.id, {
+        withholdingArea: withholdingArea.trim() || null,
+        withholdingTaxRate: withholdingRate.trim() ? Number(withholdingRate) : null,
+        withholdingAgencyName: withholdingAgency.trim() || null,
+        completedWaiverUrl: withholdingCompletedWaiverLink.trim() || null,
+        iaeWaiverSubmissionDate: iaeWaiverSubmissionDate.trim() || null,
+        iaeWaiverAppNumber: iaeWaiverAppNumber.trim() || null,
+        tourWaiverUrl: tourWaiverLink.trim() || null,
+        exceptionsNotes: withholdingExceptions.trim() || null,
+      });
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'finance'] });
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
       await qc.invalidateQueries({ queryKey: ['engagements', 'finance-lookups'] });
@@ -6259,6 +6278,8 @@ function EngagementEventBusinessPanel({
         { raw: finalRoyaltyAmount, label: 'Royalty Amount', key: 'finalRoyaltyAmount' },
         { raw: finalOverageAmount, label: 'Overage Amount', key: 'finalOverageAmount' },
         { raw: finalBuyoutAmount, label: 'Buyouts', key: 'finalBuyoutAmount' },
+        { raw: finalOtherAmount, label: 'Other', key: 'finalOtherAmount' },
+        { raw: finalConcessionsAmount, label: 'Concessions', key: 'finalConcessionsAmount' },
         { raw: finalDirectCompanyCharges, label: 'Direct Company Charges', key: 'finalDirectCompanyCharges' },
         { raw: finalReimbursables, label: 'Reimbursibles', key: 'finalReimbursables' },
       ];
@@ -6318,12 +6339,14 @@ function EngagementEventBusinessPanel({
     </div>
   );
 
-  const moneyInput = (value: string, onChange: (v: string) => void, id: string) => (
+  // Canadian engagements display the Guarantee field with a "CAD $" prefix instead of plain "$"; all other fields stay "$".
+  const currencyPrefix = isCanadaEngagement ? 'CAD $' : '$';
+  const moneyInput = (value: string, onChange: (v: string) => void, id: string, prefix: string = '$') => (
     <div className="relative">
-      <span className="pointer-events-none absolute left-3 top-1/2 z-[1] -translate-y-1/2 text-sm text-text-muted" aria-hidden>$</span>
+      <span className="pointer-events-none absolute left-3 top-1/2 z-[1] -translate-y-1/2 text-sm text-text-muted" aria-hidden>{prefix}</span>
       <input
         id={id}
-        className={`${inputCls} pl-8`}
+        className={`${inputCls} ${prefix.length > 1 ? 'pl-14' : 'pl-8'}`}
         inputMode="decimal"
         value={value}
         onChange={(e) => {
@@ -6439,6 +6462,8 @@ function EngagementEventBusinessPanel({
             <input className={inputCls} value={checkNumberOrConfOfWithholdingPayment} maxLength={100}
               onChange={(e) => { markSettlementEdited(); setCheckNumberOrConfOfWithholdingPayment(e.target.value); }}
               disabled={disabled} />)}
+          {fieldRow('Total Revenue',
+            moneyInput(totalRevenue, (v) => { markSettlementEdited(); setTotalRevenue(v); }, 'eb-total-revenue'))}
         </div>
         <div className="flex justify-end pt-2">
           <Button type="button" className="bg-ems-accent text-white hover:opacity-90"
@@ -6529,10 +6554,7 @@ function EngagementEventBusinessPanel({
               const t = val.trim();
               if (t && !isValidHttpOrHttpsUrl(t)) { addToast(`${label} must be a valid http(s) URL or empty.`, 'error'); return; }
             }
-            saveSettlementFilesMut.mutate({
-              venueSettlementFileSharePointLink: trimOrNull(venueSettlementFileSharePointLink, 2048),
-              partnerSettlementFileSharePointLink: trimOrNull(partnerSettlementFileSharePointLink, 2048),
-            });
+            saveSettlementFilesMut.mutate();
           }} disabled={settlementFilesSaveDisabled}>
             {saveSettlementFilesMut.isPending ? <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving...</span> : 'Save settlement files'}
           </Button>
@@ -6552,7 +6574,7 @@ function EngagementEventBusinessPanel({
         </div>
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
           {fieldRow('Guarantee ($)',
-            moneyInput(attrGuarantee, (v) => { markAttrTermsEdited(); setAttrGuarantee(v); }, 'attr-guarantee'))}
+            moneyInput(attrGuarantee, (v) => { markAttrTermsEdited(); setAttrGuarantee(v); }, 'attr-guarantee', currencyPrefix))}
           {fieldRow('Overage (%)',
             moneyInput(attrOveragePercent, (v) => { markAttrTermsEdited(); setAttrOveragePercent(v); }, 'attr-overage'))}
         </div>
@@ -6563,6 +6585,14 @@ function EngagementEventBusinessPanel({
               disabled={disabled} />)}
           {fieldRow('Middle Money ($)',
             moneyInput(attrMiddleMoney, (v) => { markAttrTermsEdited(); setAttrMiddleMoney(v); }, 'attr-middle-money'))}
+        </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {attrDealType === 'Versus' && fieldRow('VS Percentage (%)',
+            <span className="text-sm text-text-primary">{d?.artistVersusPercent != null ? `${d.artistVersusPercent}%` : '—'}</span>)}
+          {attrDealType === 'Promoter Profit' && fieldRow('Promoter Profit (%)',
+            <span className="text-sm text-text-primary">{d?.artistPromoterProfitPercent != null ? `${d.artistPromoterProfitPercent}%` : '—'}</span>)}
+          {attrDealType === 'Promoter Profit' && fieldRow('Artist Backend (%)',
+            <span className="text-sm text-text-primary">{d?.artistBackendPercent != null ? `${d.artistBackendPercent}%` : '—'}</span>)}
         </div>
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
           {fieldRow('Buyouts ($)',
@@ -6602,16 +6632,7 @@ function EngagementEventBusinessPanel({
         {sectionHeader('Deposit Terms')}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
           {fieldRow('Deposit Amount ($)',
-            <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-text-muted">$</span>
-              <input
-                className={`${inputCls} pl-8`}
-                inputMode="decimal"
-                value={depositAmount}
-                onChange={(e) => { markDepositEdited(); setDepositAmount(e.target.value); }}
-                disabled={disabled}
-              />
-            </div>,
+            moneyInput(depositAmount, (v) => { markDepositEdited(); setDepositAmount(v); }, 'eb-deposit-amount'),
           )}
           {fieldRow('Deposit Due Date',
             <input
@@ -6772,34 +6793,51 @@ function EngagementEventBusinessPanel({
                     {fieldRow('Waiver',
                       <input className={inputCls} value={withholdingWaiver} readOnly disabled />)}
                     {fieldRow('Completed Waiver Link',
-                      <input className={inputCls} value={withholdingCompletedWaiverLink} readOnly disabled />)}
+                      <input className={inputCls} type="url" value={withholdingCompletedWaiverLink}
+                        onChange={(e) => { markWithholdingEdited(); setWithholdingCompletedWaiverLink(e.target.value); }}
+                        placeholder="https://..." disabled={disabled} />)}
                   </div>
                   <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
                     {fieldRow('Tour Waiver Link',
-                      <input className={inputCls} value={tourWaiverLink} readOnly disabled />)}
+                      <input className={inputCls} type="url" value={tourWaiverLink}
+                        onChange={(e) => { markWithholdingEdited(); setTourWaiverLink(e.target.value); }}
+                        placeholder="https://..." disabled={disabled} />)}
                   </div>
                   <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
                     {fieldRow('IAE Waiver Submission Date',
-                      <input className={inputCls} value={iaeWaiverSubmissionDate} readOnly disabled />)}
+                      <input className={inputCls} type="date" value={iaeWaiverSubmissionDate}
+                        onChange={(e) => { markWithholdingEdited(); setIaeWaiverSubmissionDate(e.target.value); }}
+                        disabled={disabled} />)}
                     {fieldRow('IAE Waiver Application Number',
-                      <input className={inputCls} value={iaeWaiverAppNumber} readOnly disabled />)}
+                      <input className={inputCls} value={iaeWaiverAppNumber} maxLength={100}
+                        onChange={(e) => { markWithholdingEdited(); setIaeWaiverAppNumber(e.target.value); }}
+                        disabled={disabled} />)}
                   </div>
                   <div className="grid grid-cols-1">
                     {fieldRow('Exceptions',
                       <textarea className={`${inputCls} min-h-[88px] resize-y`} value={withholdingExceptions}
-                        readOnly disabled />)}
+                        maxLength={4000}
+                        onChange={(e) => { markWithholdingEdited(); setWithholdingExceptions(e.target.value); }}
+                        disabled={disabled} />)}
                   </div>
                 </>
               )}
             </div>
           );
         })()}
+        <div className="flex justify-end pt-2">
+          <Button type="button" className="bg-ems-accent text-white hover:opacity-90"
+            onClick={() => saveWithholdingMut.mutate()}
+            disabled={withholdingSaveDisabled}>
+            {saveWithholdingMut.isPending ? <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving...</span> : 'Save withholding tax'}
+          </Button>
+        </div>
 
         {/* ── Compensation ─────────────────────────────────────────── */}
         {sectionHeader('Final Attraction Compensation')}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
           {fieldRow('Guarantee Amount ($)',
-            moneyInput(finalGuaranteeAmount, (v) => { markFinalCompEdited(); setFinalGuaranteeAmount(v); }, 'eb-final-guarantee'))}
+            moneyInput(finalGuaranteeAmount, (v) => { markFinalCompEdited(); setFinalGuaranteeAmount(v); }, 'eb-final-guarantee', currencyPrefix))}
           {fieldRow('Royalty Amount ($)',
             moneyInput(finalRoyaltyAmount, (v) => { markFinalCompEdited(); setFinalRoyaltyAmount(v); }, 'eb-final-royalty'))}
         </div>
@@ -6808,6 +6846,12 @@ function EngagementEventBusinessPanel({
             moneyInput(finalOverageAmount, (v) => { markFinalCompEdited(); setFinalOverageAmount(v); }, 'eb-final-overage'))}
           {fieldRow('Buyouts ($)',
             moneyInput(finalBuyoutAmount, (v) => { markFinalCompEdited(); setFinalBuyoutAmount(v); }, 'eb-final-buyouts'))}
+        </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
+          {fieldRow('Other ($)',
+            moneyInput(finalOtherAmount, (v) => { markFinalCompEdited(); setFinalOtherAmount(v); }, 'eb-final-other'))}
+          {fieldRow('Concessions ($)',
+            moneyInput(finalConcessionsAmount, (v) => { markFinalCompEdited(); setFinalConcessionsAmount(v); }, 'eb-final-concessions'))}
         </div>
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-x-10">
           {fieldRow('Direct Company Charges ($)',
@@ -9361,7 +9405,7 @@ function EngagementTicketingPanel({
       const names = [company.companyTypeName, ...(company.companyTypeNames ?? [])]
         .filter(Boolean)
         .map((x) => String(x).toLowerCase());
-      return names.some((x) => x.includes('ticketing system'));
+      return names.some((x) => x.includes('ticketing & admission control') || x.includes('ticketing and admission control'));
     });
     const opts = filtered.map(companyToSelect2Option);
     return [{ value: '', label: 'Not set' }, ...opts];
@@ -11491,15 +11535,18 @@ interface Props {
   engagementId: number;
   onNavigate: (view: string, data?: Record<string, unknown>) => void;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  /** Opens the page with this tab selected (e.g. 'Sales Summary') instead of the default. */
+  initialTab?: string;
 }
 
 export function EngagementDetailPage({
   engagementId,
   onNavigate,
   addToast,
+  initialTab,
 }: Props) {
   const qc = useQueryClient();
-  const [tab, setTab] = useState('Engagement Drill Bits');
+  const [tab, setTab] = useState(initialTab || 'Engagement Drill Bits');
   const [tabDirtyState, setTabDirtyState] = useState<Record<string, boolean>>({});
   const [pendingTab, setPendingTab] = useState<string | null>(null);
   const [showUnsavedTabAlert, setShowUnsavedTabAlert] = useState(false);
@@ -11531,11 +11578,13 @@ export function EngagementDetailPage({
   });
 
   useEffect(() => {
-    setTab('Engagement Drill Bits');
+    setTab(initialTab || 'Engagement Drill Bits');
     setTabDirtyState({});
     setPendingTab(null);
     setShowUnsavedTabAlert(false);
-  }, [engagementId]);
+    // Re-run on initialTab too, so re-opening the same engagement without a
+    // deep-linked tab (e.g. from the Engagements list) resets to the first tab.
+  }, [engagementId, initialTab]);
 
   const lookupsQuery = useQuery({
     queryKey: ['engagements-lookups'],
@@ -11818,8 +11867,8 @@ export function EngagementDetailPage({
         },
       });
       // Also invalidate venue-level engagement lists so the Companies → Venues tab stays in sync.
-      // Use removeQueries so the data is fully cleared — invalidateQueries alone won't refetch
-      // because the global QueryClient has refetchOnMount: false.
+      // removeQueries (not invalidate) so a deleted engagement cannot be rendered from cache
+      // for the frame before the refetch lands.
       qc.removeQueries({
         predicate: (query) => query.queryKey[0] === 'companies' && query.queryKey[2] === 'engagements',
       });
@@ -12683,7 +12732,7 @@ export function EngagementDetailPage({
                 ) : venueContactsQuery.error ? (
                   <p className="text-sm text-ems-coral">{friendlyApiError(venueContactsQuery.error)}</p>
                 ) : (
-                  <ContactsTable contacts={venueContactsWithCompany} />
+                  <ContactsTable contacts={venueContactsWithCompany} companyId={venueId} onNavigate={onNavigate} />
                 )}
               </div>
             ))}
@@ -12715,7 +12764,7 @@ export function EngagementDetailPage({
               ) : talentAgentContactsWithCompany.length === 0 ? (
                 <p className="text-sm text-text-muted">No talent agents are selected for this tour.</p>
               ) : (
-                <ContactsTable contacts={talentAgentContactsWithCompany} />
+                <ContactsTable contacts={talentAgentContactsWithCompany} companyId={typeof tourMgmtCompanyId === 'number' ? tourMgmtCompanyId : null} onNavigate={onNavigate} />
               )}
             </div>
 
@@ -12742,7 +12791,7 @@ export function EngagementDetailPage({
               ) : ticketingSystemContactsWithCompany.length === 0 ? (
                 <p className="text-sm text-text-muted">No ticketing contact selected in Engagement Drill Bits.</p>
               ) : (
-                <ContactsTable contacts={ticketingSystemContactsWithCompany} />
+                <ContactsTable contacts={ticketingSystemContactsWithCompany} companyId={ticketingSystemCompanyIdForContacts} onNavigate={onNavigate} />
               )}
             </div>
 
@@ -12769,7 +12818,7 @@ export function EngagementDetailPage({
               ) : promoterPartnerContactsWithCompany.length === 0 ? (
                 <p className="text-sm text-text-muted">No promoter partner contact selected in Booking.</p>
               ) : (
-                <ContactsTable contacts={promoterPartnerContactsWithCompany} />
+                <ContactsTable contacts={promoterPartnerContactsWithCompany} companyId={promoterPartnerCompanyIdForContacts} onNavigate={onNavigate} />
               )}
             </div>
 
@@ -12796,7 +12845,7 @@ export function EngagementDetailPage({
               ) : tourMgmtContactsWithCompany.length === 0 ? (
                 <p className="text-sm text-text-muted">No tour manager contact selected in Booking.</p>
               ) : (
-                <ContactsTable contacts={tourMgmtContactsWithCompany} />
+                <ContactsTable contacts={tourMgmtContactsWithCompany} companyId={tourMgmtCompanyIdForContacts} onNavigate={onNavigate} />
               )}
             </div>
           </div>
@@ -13310,9 +13359,12 @@ export function EngagementDetailPage({
 // ---------------------------------------------------------------------------
 function ContactsTable({
   contacts,
+  companyId,
+  onNavigate,
 }: {
   contacts: {
     contactAssignmentId: number;
+    contactId?: number;
     firstName: string;
     lastName: string;
     email: string;
@@ -13320,8 +13372,13 @@ function ContactsTable({
     workPhone?: string | null;
     roleName: string;
     companyName?: string | null;
+    departmentName?: string | null;
   }[];
+  /** Company/venue the contacts belong to — enables the Company Name link. */
+  companyId?: number | null;
+  onNavigate?: (view: string, data?: Record<string, unknown>) => void;
 }) {
+  const linkCls = 'text-left hover:text-ems-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40 rounded-sm transition-colors';
   if (contacts.length === 0) {
     return (
       <p className="text-sm text-text-muted py-2">No contacts found.</p>
@@ -13345,10 +13402,34 @@ function ContactsTable({
             {contacts.map((c) => (
               <tr key={c.contactAssignmentId} className="border-b border-border/50 hover:bg-hover">
                 <td className="py-2 px-3 text-text-primary font-medium">
-                  {c.firstName} {c.lastName}
+                  {onNavigate && c.contactId ? (
+                    <button
+                      type="button"
+                      onClick={() => onNavigate('contacts', { selectedContactId: c.contactId })}
+                      className={linkCls}
+                      title="Open contact record"
+                    >
+                      {c.firstName} {c.lastName}
+                    </button>
+                  ) : (
+                    <>{c.firstName} {c.lastName}</>
+                  )}
                 </td>
                 <td className="py-2 px-3 text-text-secondary text-xs">
-                  {c.companyName || '—'}
+                  {c.companyName ? (
+                    onNavigate && companyId ? (
+                      <button
+                        type="button"
+                        onClick={() => onNavigate('companies', { selectedCompanyId: companyId, initialTab: 'Contacts' })}
+                        className={linkCls}
+                        title="Open company contacts"
+                      >
+                        {c.companyName}
+                      </button>
+                    ) : (
+                      <>{c.companyName}</>
+                    )
+                  ) : '—'}
                 </td>
                 <td className="py-2 px-3 text-ems-blue text-xs">{c.email ? <a href={`mailto:${c.email}`} className="hover:underline">{c.email}</a> : '—'}</td>
                 <td className="py-2 px-3 text-text-secondary text-xs">

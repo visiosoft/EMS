@@ -18,6 +18,7 @@ import { AllVenuesPage } from '@/components/ems/AllVenuesPage';
 import { ProfilePage } from '@/components/ems/ProfilePage';
 import { OrganizationalChartPage } from '@/components/ems/OrganizationalChartPage';
 import { USERS } from '@/data/constants';
+import { refreshStaleQueries, setActiveViewKey } from '@/api/queryClient';
 import type { ToastItem } from '@/components/ems/Primitives';
 import { cn } from '@/lib/utils';
 
@@ -170,7 +171,10 @@ function sanitizeViewDataForView(view: string, raw: unknown): Record<string, unk
     return out;
   }
   if (view === 'companies' && obj.selectedCompanyId != null) {
-    return { selectedCompanyId: obj.selectedCompanyId };
+    return {
+      selectedCompanyId: obj.selectedCompanyId,
+      ...(typeof obj.initialTab === 'string' && obj.initialTab.trim() ? { initialTab: obj.initialTab.trim() } : {}),
+    };
   }
   return {};
 }
@@ -401,6 +405,16 @@ const Index = () => {
     };
   }, [currentView, viewData.createEngagement]);
 
+  // Cached views stay mounted (just hidden), so React Query's refetch-on-mount never fires
+  // when the user comes back to one. Refresh whatever went stale while it was hidden.
+  const activeViewKey = makeViewCacheKey(currentView, viewData);
+  // Set during render, not in an effect: a view's queries subscribe while it commits, which
+  // is before this component's effects run, and each query is tagged with the key set here.
+  setActiveViewKey(activeViewKey);
+  useEffect(() => {
+    refreshStaleQueries();
+  }, [activeViewKey]);
+
   const navigate = useCallback((view: string, data?: unknown) => {
     setCurrentView(view);
     setViewData((data as Record<string, unknown>) ?? {});
@@ -461,6 +475,7 @@ const Index = () => {
             initialSelectedCompanyId={
               (data.selectedCompanyId as string | number | undefined) ?? null
             }
+            initialDrawerTab={(data.initialTab as string | undefined) ?? null}
           />
         )}
 
@@ -619,6 +634,7 @@ const Index = () => {
                 engagementId={n}
                 onNavigate={navigate}
                 addToast={addToast}
+                initialTab={typeof data.initialTab === 'string' ? data.initialTab : undefined}
               />
             );
           }
@@ -653,8 +669,8 @@ const Index = () => {
       companies:          ['Companies'],
       contacts:           ['Contacts'],
       organization:       ['Organization'],
-      'all-venues':        ['All Venues'],
-      'attraction-tours': ['Attraction Tours'],
+      'all-venues':        ['Venues'],
+      'attraction-tours': ['Attractions'],
       'attraction-sales-summary': ['Daily Sales', 'Attraction sales summary'],
       calendar:           ['Calendar'],
       projects:           ['Projects'],

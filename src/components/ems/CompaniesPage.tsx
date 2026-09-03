@@ -135,6 +135,8 @@ import { normalizeSearchText, richTextMatches } from "./searchUtils";
 interface Props {
   onNavigate?: (view: string, data?: unknown) => void;
   initialSelectedCompanyId?: string | number | null;
+  /** Drawer tab to open when arriving via `initialSelectedCompanyId` (e.g. "Contacts"). */
+  initialDrawerTab?: string | null;
   addToast: (
     msg: string,
     type: "success" | "error" | "warning" | "info",
@@ -4131,7 +4133,7 @@ function CompaniesTableSkeleton({ rows = PAGE_SIZE }: { rows?: number }) {
   );
 }
 
-export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }: Props) {
+export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId, initialDrawerTab }: Props) {
   const qc = useQueryClient();
   const [searchInput, setSearchInput] = useState("");
   const [activeSearch, setActiveSearch] = useState("");
@@ -4224,8 +4226,8 @@ export function CompaniesPage({ addToast, onNavigate, initialSelectedCompanyId }
     const nextId = String(initialSelectedCompanyId).trim();
     if (!nextId) return;
     setSelectedCompanyId(nextId);
-    setDrawerTab("Overview");
-  }, [initialSelectedCompanyId]);
+    setDrawerTab(initialDrawerTab?.trim() || "Overview");
+  }, [initialSelectedCompanyId, initialDrawerTab]);
 
   const companyTypeParam = typeFilter !== "All" ? typeFilter : undefined;
   const listOpts = useMemo(

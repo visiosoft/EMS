@@ -262,6 +262,7 @@ export interface ApiEngagementFinanceRow {
   subscriptionSalesRevenueTotal: number | null;
   seasonTicketSalesByIae: number | null;
   seasonTicketFundsTransferred: number | null;
+  totalRevenue: number | null;
   netBoxOfficeFundsDepositedAccount: string | null;
   hstCollectedFromTicketSales: number | null;
   hstPaidOnTourPayments: number | null;
@@ -345,6 +346,8 @@ export interface ApiEngagementFinanceRow {
   finalRoyaltyAmount: number | null;
   finalOverageAmount: number | null;
   finalBuyoutAmount: number | null;
+  finalOtherAmount: number | null;
+  finalConcessionsAmount: number | null;
   finalDirectCompanyCharges: number | null;
   finalReimbursables: number | null;
 }
@@ -461,6 +464,9 @@ export type UpdateEngagementFinancePayload = {
   finalRoyaltyAmount?: number | null;
   finalOverageAmount?: number | null;
   finalBuyoutAmount?: number | null;
+  finalOtherAmount?: number | null;
+  finalConcessionsAmount?: number | null;
+  totalRevenue?: number | null;
   finalDirectCompanyCharges?: number | null;
   finalReimbursables?: number | null;
 };
@@ -729,6 +735,7 @@ export interface ApiEngagementsPageResponse {
 export interface ApiEngagementFilterOptions {
   attractionNames: string[];
   dmaMarketNames: string[];
+  cityNames: string[];
   venueLabels: string[];
 }
 
@@ -738,6 +745,7 @@ export type EngagementPagedQueryOpts = {
   status?: string;
   attraction?: string;
   dma?: string;
+  city?: string;
   venue?: string;
   timing?: 'all' | 'upcoming' | 'past';
   /** Only engagements where the signed-in user is an IAE contact. */
@@ -765,6 +773,7 @@ export function engagementsPagedQueryKey(
     opts.status ?? 'All',
     opts.attraction ?? '',
     opts.dma ?? '',
+    opts.city ?? '',
     opts.venue ?? '',
     opts.timing ?? 'all',
     opts.mine ?? false,
@@ -785,6 +794,7 @@ export function engagementsSuggestionCacheQueryKey(opts: Omit<EngagementPagedQue
     opts.status ?? 'All',
     opts.attraction ?? '',
     opts.dma ?? '',
+    opts.city ?? '',
     opts.venue ?? '',
     opts.timing ?? 'all',
     opts.mine ?? false,
@@ -808,6 +818,7 @@ export function fetchEngagementsPaged(
   if (opts?.status && opts.status !== 'All') params.set('status', opts.status);
   if (opts?.attraction?.trim()) params.set('attraction', opts.attraction.trim());
   if (opts?.dma?.trim()) params.set('dma', opts.dma.trim());
+  if (opts?.city?.trim()) params.set('city', opts.city.trim());
   if (opts?.venue?.trim()) params.set('venue', opts.venue.trim());
   if (opts?.timing && opts.timing !== 'all') params.set('timing', opts.timing);
   if (opts?.mine) params.set('mine', '1');
@@ -880,6 +891,41 @@ export const fetchEngagementDeleteImpact = (id: number) =>
   apiFetch<EngagementDeleteImpact>(`/engagements/${id}/delete-impact`);
 export const fetchEngagementPerformances = (id: number) =>
   apiFetch<ApiPerformanceRow[]>(`/engagements/${id}/performances`);
+
+export interface ApiEngagementRehearsal {
+  rehearsalId: number;
+  /** `YYYY-MM-DD` */
+  rehearsalDate: string;
+  /** `HH:mm:ss` or null */
+  rehearsalTime: string | null;
+}
+
+export const fetchEngagementRehearsals = (id: number) =>
+  apiFetch<ApiEngagementRehearsal[]>(`/engagements/${id}/rehearsals`);
+
+export const createEngagementRehearsal = (
+  id: number,
+  body: { rehearsalDate: string; rehearsalTime?: string | null },
+) =>
+  apiFetch<{ rehearsalId: number }>(`/engagements/${id}/rehearsals`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const updateEngagementRehearsal = (
+  engagementId: number,
+  rehearsalId: number,
+  body: { rehearsalDate?: string; rehearsalTime?: string | null },
+) =>
+  apiFetch<void>(`/engagements/${engagementId}/rehearsals/${rehearsalId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+
+export const deleteEngagementRehearsal = (engagementId: number, rehearsalId: number) =>
+  apiFetch<void>(`/engagements/${engagementId}/rehearsals/${rehearsalId}`, {
+    method: 'DELETE',
+  });
 export const createEngagementPerformance = (id: number, body: CreatePerformancePayload) =>
   apiFetch<{ performanceId: number }>(`/engagements/${id}/performances`, { method: 'POST', body: JSON.stringify(body) });
 
@@ -985,8 +1031,11 @@ export type UpdateNonResidentWithholdingPayload = {
   withholdingArea?: string | null;
   withholdingTaxRate?: number | null;
   withholdingAgencyName?: string | null;
+  completedWaiverUrl?: string | null;
   iaeWaiverSubmissionDate?: string | null;
   iaeWaiverAppNumber?: string | null;
+  tourWaiverUrl?: string | null;
+  exceptionsNotes?: string | null;
 };
 
 export const updateNonResidentWithholding = (nrwId: number, body: UpdateNonResidentWithholdingPayload) =>
@@ -1205,12 +1254,28 @@ export interface ApiTravelDrillBitsRow {
   travelType: string;
   iaePays: boolean | null;
   iaeArranges: boolean | null;
+  budgetAmount: number | null;
 }
 
 export const upsertTravelDrillBits = (engagementId: number, travelTypes: ApiTravelDrillBitsRow[]) =>
   apiFetch<void>(`/engagements/${engagementId}/travel/drillbits`, {
     method: 'PUT',
     body: JSON.stringify({ travelTypes }),
+  });
+
+export interface ApiEngagementBuyoutRow {
+  engagementBuyoutId: number;
+  buyoutDescription: string;
+  buyoutBudgetAmount: number | null;
+}
+
+export const fetchEngagementBuyouts = (engagementId: number) =>
+  apiFetch<ApiEngagementBuyoutRow[]>(`/engagements/${engagementId}/buyouts`);
+
+export const upsertEngagementBuyouts = (engagementId: number, items: Array<Omit<ApiEngagementBuyoutRow, 'engagementBuyoutId'> & { engagementBuyoutId?: number }>) =>
+  apiFetch<void>(`/engagements/${engagementId}/buyouts`, {
+    method: 'PUT',
+    body: JSON.stringify({ items }),
   });
 
 // ─── Equipment Rentals ─────────────────────────────────────────────────────────
@@ -1224,8 +1289,11 @@ export const fetchEquipmentRentalTypes = () =>
   apiFetch<ApiEquipmentRentalTypeRow[]>('/engagements/equipment-rental-types');
 
 export interface ApiEquipmentRentalRow {
+  engagementProductionEquipmentRentalId: number;
   equipmentRentalTypeId: number;
   budgetAmount: number | null;
+  notes: string | null;
+  otherDescription: string | null;
 }
 
 export const fetchEquipmentRentals = (engagementId: number) =>

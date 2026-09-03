@@ -15,4 +15,10 @@ export class EngagementProductionEquipmentRental extends AuditColumns {
 
   @Column({ name: 'BudgetAmount', type: 'decimal', precision: 18, scale: 2, nullable: true })
   budgetAmount: number | null;
+
+  @Column({ name: 'Notes', type: 'nvarchar', length: 500, nullable: true })
+  notes: string | null;
+
+  @Column({ name: 'OtherDescription', type: 'nvarchar', length: 200, nullable: true })
+  otherDescription: string | null;
 }

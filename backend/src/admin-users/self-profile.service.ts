@@ -73,6 +73,7 @@ export type MyFullProfileResponse =
         cellPhone: string;
         workPhone: string;
         department: string;
+        department2: string;
         role: string;
         company: string;
       };
@@ -698,6 +699,7 @@ export class SelfProfileService {
         cellPhone: base.cellPhone,
         workPhone: base.workPhone,
         department: base.department,
+        department2: readString(profileRow, 'Department2'),
         role: base.role,
         company: base.company,
       },

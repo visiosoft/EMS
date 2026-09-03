@@ -75,6 +75,8 @@ export type EmployeeEmploymentProfileResponse = {
   title: string;
   workEmail: string;
   department: string;
+  /** Secondary department from the Entra "Department2" custom attribute. */
+  department2: string;
   office: string;
   /** Admin-entered fields */
   accessLevel: string;
@@ -876,6 +878,7 @@ export class EmployeeEmploymentService {
       CAST('' AS nvarchar(100)) AS workstation,
       CAST(NULL AS int) AS officeAddressId,
       CAST('' AS nvarchar(100)) AS departmentRank,
+      CAST('' AS nvarchar(100)) AS department2,
       CAST('' AS nvarchar(200)) AS role,
       CAST('' AS nvarchar(100)) AS employmentStatus,
       CAST('' AS nvarchar(100)) AS employmentType`;
@@ -889,6 +892,9 @@ export class EmployeeEmploymentService {
     let officeAddressJoin = '';
 
     const workAuthLinkColumn = hasEpTable ? await this.getWorkAuthorizationLinkColumn(this.dataSource) : null;
+    const hasDepartment2Column = hasEpTable
+      ? await this.hasColumn(this.dataSource, 'EmployeeProfile', 'Department2')
+      : false;
 
     if (hasEpTable) {
       epJoin = workAuthLinkColumn
@@ -909,6 +915,7 @@ export class EmployeeEmploymentService {
       COALESCE(ep.Workstation, '') AS workstation,
       ep.OfficeAddressID AS officeAddressId,
       COALESCE(ep.DepartmentRank, '') AS departmentRank,
+      ${hasDepartment2Column ? "COALESCE(ep.Department2, '')" : "CAST('' AS nvarchar(100))"} AS department2,
       COALESCE(rl.RoleName, '') AS role,
       COALESCE(ep.EmploymentStatus, '') AS employmentStatus,
       COALESCE(ep.EmploymentType, '') AS employmentType`;
@@ -977,6 +984,7 @@ export class EmployeeEmploymentService {
       title: readString(r, 'title'),
       workEmail: readString(r, 'workEmail'),
       department: readString(r, 'department'),
+      department2: readString(r, 'department2'),
       office: readString(r, 'office'),
       accessLevel: readString(r, 'accessLevel'),
       workAuthorization: readString(r, 'workAuthorization'),

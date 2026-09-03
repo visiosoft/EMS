@@ -20,6 +20,8 @@ import { AttractionService } from './attraction.service';
 import { EmsAppCreatedStore } from './ems-app-created.store';
 import { TourController } from './tour.controller';
 import { TourService } from './tour.service';
+import { TourProfileFilesController } from './tour-profile-files.controller';
+import { TourProfileFilesService } from './tour-profile-files.service';
 
 @Module({
   imports: [
@@ -41,8 +43,8 @@ import { TourService } from './tour.service';
       EngagementProject,
     ]),
   ],
-  controllers: [AttractionController, TourController],
-  providers: [AttractionService, TourService, EmsAppCreatedStore],
-  exports: [AttractionService, TourService, EmsAppCreatedStore],
+  controllers: [AttractionController, TourController, TourProfileFilesController],
+  providers: [AttractionService, TourService, TourProfileFilesService, EmsAppCreatedStore],
+  exports: [AttractionService, TourService, TourProfileFilesService, EmsAppCreatedStore],
 })
 export class AttractionToursModule {}

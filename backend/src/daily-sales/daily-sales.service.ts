@@ -104,6 +104,7 @@ export interface PerformanceSalesRow {
   venueName: string | null;
   city: string | null;
   stateProvince: string | null;
+  dmaMarketName: string | null;
   /** Today's ISO date string YYYY-MM-DD */
   todayDate: string;
   todayTicketsSold: number | null;
@@ -962,6 +963,7 @@ export class DailySalesService {
           'v.venueName                                            AS venueName',
           'addr.city                                              AS city',
           'addr.stateProvince                                   AS stateProvince',
+          'dma.marketName                                        AS dmaMarketName',
           `(
           SELECT STRING_AGG(LTRIM(RTRIM(ccx.CompanyName)), N', ') WITHIN GROUP (ORDER BY LTRIM(RTRIM(ccx.CompanyName)))
           FROM dbo.VenueComplexMember vcmx
@@ -1057,6 +1059,8 @@ export class DailySalesService {
         city: r['city'] != null ? String(r['city']) : null,
         stateProvince:
           r['stateProvince'] != null ? String(r['stateProvince']) : null,
+        dmaMarketName:
+          r['dmaMarketName'] != null ? String(r['dmaMarketName']) : null,
         entertainmentComplexNames:
           r['entertainmentComplexNames'] != null
             ? String(r['entertainmentComplexNames'])
@@ -1183,6 +1187,7 @@ export class DailySalesService {
       .leftJoin(Venue, 'v', 'v.companyId = ev.venueCompanyId')
       .leftJoin(Company, 'vc', 'vc.companyId = ev.venueCompanyId')
       .leftJoin(Address, 'addr', 'addr.addressId = vc.physicalAddressId')
+      .leftJoin('vc.dma', 'dma')
       .leftJoin(
         TicketingSales,
         'ts_today',
@@ -1588,6 +1593,66 @@ export class DailySalesService {
           x.attractionId > 0 &&
           x.attractionName.length > 0,
       );
+  }
+
+  /**
+   * GET /daily-sales/percentage-sold — Daily Sales page only; does not affect the shared
+   * by-performance payload (Sales Summary, engagement dashboard, etc. are untouched).
+   * Percentage Sold = latest cumulative TicketingSales snapshot on/before asOf ÷ engagement
+   * sellable capacity × 100 (TicketingSales rows are cumulative-to-date, not daily deltas).
+   */
+  async getPercentageSoldForPerformances(
+    asOfDateParam: string | undefined,
+    performanceIds: number[],
+  ): Promise<
+    Array<{
+      performanceId: number;
+      totalSold: number;
+      engagementSellableCapacity: number | null;
+      percentSold: number | null;
+    }>
+  > {
+    const ids = [...new Set(performanceIds)].filter(
+      (id) => Number.isInteger(id) && id > 0,
+    );
+    if (ids.length === 0) return [];
+    const asOf = await this.resolveAsOfDateString(asOfDateParam);
+
+    const rows = await this.performanceRepo
+      .createQueryBuilder('p')
+      .innerJoin(Engagement, 'e', 'e.engagementId = p.engagementId')
+      .where('p.performanceId IN (:...ids)', { ids })
+      .select('p.performanceId', 'performanceId')
+      .addSelect('e.sellableCapacity', 'engagementSellableCapacity')
+      .addSelect(
+        `(
+          SELECT TOP 1 CAST(ts.performanceSalesQuantity AS BIGINT)
+          FROM dbo.TicketingSales ts
+          WHERE ts.performanceId = p.performanceId
+            AND CONVERT(date, ts.salesDate) <= CAST(:asOf AS date)
+          ORDER BY ts.salesDate DESC
+        )`,
+        'totalSold',
+      )
+      .setParameter('asOf', asOf)
+      .getRawMany<Record<string, unknown>>();
+
+    return rows.map((r) => {
+      const totalSold = numOrZero(r['totalSold']);
+      const capRaw = r['engagementSellableCapacity'];
+      const capacity =
+        capRaw != null && Number.isFinite(Number(capRaw))
+          ? Number(capRaw)
+          : null;
+      const percentSold =
+        capacity != null && capacity > 0 ? (totalSold / capacity) * 100 : null;
+      return {
+        performanceId: Number(r['performanceId']),
+        totalSold,
+        engagementSellableCapacity: capacity,
+        percentSold,
+      };
+    });
   }
 
   async getByPerformanceSuggestions(

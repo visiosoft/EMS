@@ -8,6 +8,17 @@ import {
   getAccountOid,
   isApiAccessTokenConfigured,
 } from '../auth/entra';
+import { notifyDataMutated } from './queryClient';
+
+/** Extra behaviour flags for a single request. */
+export type ApiFetchOptions = {
+  /** Set false for writes that must not trigger the app-wide cache refresh. */
+  refreshCache?: boolean;
+};
+
+function isWriteMethod(method: string): boolean {
+  return method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
+}
 
 /** Base URL for the Nest API (no trailing slash). Uses same-origin /api when proxied by Vite. */
 export function getApiBaseUrl(): string {
@@ -20,6 +31,7 @@ export function getApiBaseUrl(): string {
 export async function apiFetch<T>(
   path: string,
   init?: RequestInit,
+  options?: ApiFetchOptions,
 ): Promise<T> {
   const base = getApiBaseUrl();
   const url = `${base}/api${path.startsWith('/') ? path : `/${path}`}`;
@@ -66,13 +78,18 @@ export async function apiFetch<T>(
       res = await fetch(fallbackUrl, requestInit);
     }
   }
-  return handleApiResponse<T>(res);
+  const payload = await handleApiResponse<T>(res);
+  if (isWriteMethod(method) && options?.refreshCache !== false) {
+    notifyDataMutated();
+  }
+  return payload;
 }
 
 /** Multipart (e.g. tour create/update with optional image). Do not set Content-Type — browser sets boundary. */
 export async function apiFetchMultipart<T>(
   path: string,
   init: Omit<RequestInit, 'headers'> & { body: FormData; headers?: HeadersInit },
+  options?: ApiFetchOptions,
 ): Promise<T> {
   const base = getApiBaseUrl();
   const url = `${base}/api${path.startsWith('/') ? path : `/${path}`}`;
@@ -84,7 +101,11 @@ export async function apiFetchMultipart<T>(
     cache: rest.cache ?? 'no-store',
     headers: requestHeaders,
   });
-  return handleApiResponse<T>(res);
+  const payload = await handleApiResponse<T>(res);
+  if (isWriteMethod((rest.method ?? 'POST').toUpperCase()) && options?.refreshCache !== false) {
+    notifyDataMutated();
+  }
+  return payload;
 }
 
 /** Binary download with auth headers (the backend gates some routes by the Bearer token). */

@@ -27,6 +27,7 @@ export type InternalView =
   | "document-library"
   | "my-profile"
   | "payroll-schedule"
+  | "work-holidays"
   | "health-insurance";
 
 export type InternalViewData = {
@@ -65,6 +66,7 @@ const VALID_VIEWS = new Set<string>([
   "document-library",
   "my-profile",
   "payroll-schedule",
+  "work-holidays",
   "health-insurance",
 ]);
 
@@ -89,6 +91,7 @@ const LEGACY_PATH_TO_VIEW: Record<string, InternalView> = {
   "/internal/learning-portal": "learning-portal",
   "/internal/my-profile": "my-profile",
   "/internal/payroll-schedule": "payroll-schedule",
+  "/internal/work-holidays": "work-holidays",
   "/internal/health-insurance": "health-insurance",
 };
 

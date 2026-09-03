@@ -10,7 +10,7 @@ export const EMPTY_PREFERRED_VENUE_TYPE_IDS: number[] = [];
 
 const WIZARD_DMA_PAGE_SIZE = 500;
 
-export const PROJECT_WIZARD_DMA_QUERY_KEY = ['dma-markets', 'project-wizard', 'all-v2'] as const;
+export const PROJECT_WIZARD_DMA_QUERY_KEY = ['dma-markets', 'project-wizard', 'all-enriched'] as const;
 
 export function normalizePositiveIntId(raw: unknown): number | null {
   const n = typeof raw === 'number' ? raw : Number(raw);
@@ -58,7 +58,7 @@ export async function fetchAllDmaMarketsForWizard(): Promise<ApiDmaMarket[]> {
   let total = Number.POSITIVE_INFINITY;
   const raw: ApiDmaMarket[] = [];
   while (offset < total) {
-    const page = await fetchDmaMarketsPaged(offset, limit);
+    const page = await fetchDmaMarketsPaged(offset, limit, '', { enriched: true });
     total = Math.max(0, page.total ?? 0);
     const batch = normalizeDmaMarketRows(page.data ?? []);
     raw.push(...batch);

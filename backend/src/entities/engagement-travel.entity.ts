@@ -22,4 +22,7 @@ export class EngagementTravel extends AuditColumns {
 
   @Column({ name: 'IAEArranges', type: 'bit', nullable: true })
   iaeArranges: boolean | null;
+
+  @Column({ name: 'BudgetAmount', type: 'decimal', precision: 18, scale: 2, nullable: true })
+  budgetAmount: number | null;
 }

@@ -190,13 +190,16 @@ export class LookupsService {
   }
 
   async getContactsUsingDepartmentRoles(departmentId: number) {
-    const mappings = await this.departmentRoleRepo.find({ where: { departmentId } });
+    const mappings = await this.departmentRoleRepo.find({
+      where: { departmentId },
+    });
     if (mappings.length === 0) return [];
     const roleIds = mappings.map((m) => m.roleId);
     const em = this.departmentRoleRepo.manager;
 
     // Company contact assignments
-    const caRows = await em.getRepository(ContactAssignment)
+    const caRows = await em
+      .getRepository(ContactAssignment)
       .createQueryBuilder('ca')
       .innerJoin('ca.contact', 'ct')
       .innerJoin('ct.contactInfo', 'ci')
@@ -247,7 +250,9 @@ export class LookupsService {
   }
 
   async getCompaniesUsingCompanyTypeServices(companyTypeId: number) {
-    const mappings = await this.companyTypeServiceRepo.find({ where: { companyTypeId } });
+    const mappings = await this.companyTypeServiceRepo.find({
+      where: { companyTypeId },
+    });
     if (mappings.length === 0) return [];
     const serviceIds = mappings.map((m) => m.serviceProvidedId);
     const em = this.companyTypeServiceRepo.manager;
@@ -549,7 +554,10 @@ export class LookupsService {
       if (!row.marketName) continue;
       const key = normalizeNielsenMarketNameForMatch(row.marketName);
       const existing = map.get(key);
-      if (!existing || (row.rank ?? Infinity) < (existing.nielsenRank ?? Infinity)) {
+      if (
+        !existing ||
+        (row.rank ?? Infinity) < (existing.nielsenRank ?? Infinity)
+      ) {
         map.set(key, {
           nielsenCode: row.nielsenCode,
           nielsenRank: row.rank,
@@ -601,7 +609,9 @@ export class LookupsService {
   ) {
     return rows.map((r) => {
       const marketName = String(r.marketName ?? r.MarketName ?? '');
-      const pop = populationByNormName.get(normalizeNielsenMarketNameForMatch(marketName));
+      const pop = populationByNormName.get(
+        normalizeNielsenMarketNameForMatch(marketName),
+      );
       return {
         dmaid: Number(r.dmaid ?? r.DMAID),
         marketName,
@@ -690,6 +700,80 @@ export class LookupsService {
       data: this.mapDmaMarketRows(rows),
       total,
     };
+  }
+
+  /**
+   * Enriched variant of {@link findDmaMarketsPaginated} — each row also carries
+   * Nielsen population + rank (best available for the market's normalized name).
+   * Used by the Project DMA picker so users can sort/filter by population.
+   */
+  async findDmaMarketsPaginatedEnriched(
+    offset: number,
+    limit: number,
+    query = '',
+  ): Promise<{
+    data: {
+      dmaid: number;
+      marketName: string;
+      postalCode: string;
+      population: number | null;
+      nielsenRank: number | null;
+    }[];
+    total: number;
+  }> {
+    const base = await this.findDmaMarketsPaginated(offset, limit, query);
+    const populationByNormName = await this.loadBestDmaPopulationByNormName();
+    return {
+      total: base.total,
+      data: base.data.map((row) => {
+        const pop = populationByNormName.get(
+          normalizeNielsenMarketNameForMatch(row.marketName),
+        );
+        return {
+          ...row,
+          population: pop?.population ?? null,
+          nielsenRank: pop?.nielsenRank ?? null,
+        };
+      }),
+    };
+  }
+
+  /**
+   * Given a city name (partial match), find DMA markets whose postal codes
+   * appear on any dbo.Address row for that city. One representative row per
+   * market family (using the same normalization as {@link findDmaMarkets}).
+   */
+  async findDmaMarketsByCity(
+    city: string,
+    limit = 50,
+  ): Promise<{ dmaid: number; marketName: string; postalCode: string }[]> {
+    const raw = String(city ?? '').trim();
+    if (!raw) return [];
+    const safeLimit = Math.min(200, Math.max(1, Math.floor(limit)));
+
+    const rows = await this.dmaRepo.manager.query<
+      { dmaid: number; marketName: string; postalCode: string }[]
+    >(
+      `
+        SELECT TOP (${safeLimit})
+               MIN(d.DMAID)      AS dmaid,
+               MIN(d.MarketName) AS marketName,
+               MIN(d.PostalCode) AS postalCode
+        FROM dbo.DMA d
+        INNER JOIN dbo.Address a
+                ON LTRIM(RTRIM(a.PostalCode)) = LTRIM(RTRIM(d.PostalCode))
+        WHERE LOWER(LTRIM(RTRIM(ISNULL(a.City, N'')))) LIKE LOWER(@0) ESCAPE N'\\'
+        GROUP BY ${dmaMarketNameNormSql('d.MarketName')}
+        ORDER BY MIN(d.MarketName) ASC
+      `,
+      [`%${raw.replace(/[%_[\]]/g, (m) => `\\${m}`).toLowerCase()}%`],
+    );
+
+    return rows.map((r) => ({
+      dmaid: Number(r.dmaid),
+      marketName: String(r.marketName ?? ''),
+      postalCode: String(r.postalCode ?? ''),
+    }));
   }
 
   /** Company Hub — paginated markets with postal counts per market name. */
@@ -832,10 +916,7 @@ export class LookupsService {
   }
 
   private normalizeRoleIds(
-    dto: Pick<
-      CreateLookupRowDto | UpdateLookupRowDto,
-      'roleId' | 'roleIds'
-    >,
+    dto: Pick<CreateLookupRowDto | UpdateLookupRowDto, 'roleId' | 'roleIds'>,
   ): number[] {
     const rawValues =
       Array.isArray(dto.roleIds) && dto.roleIds.length > 0
@@ -920,9 +1001,7 @@ export class LookupsService {
       where: { departmentId },
     });
     if (!department) {
-      throw new NotFoundException(
-        `Department ${departmentId} was not found.`,
-      );
+      throw new NotFoundException(`Department ${departmentId} was not found.`);
     }
     const rows = await this.departmentRoleRepo
       .createQueryBuilder('dr')
@@ -940,9 +1019,7 @@ export class LookupsService {
         roleId: Number(row.roleId),
         roleName: String(row.roleName ?? ''),
       }))
-      .filter(
-        (row) => Number.isInteger(row.roleId) && row.roleId > 0,
-      );
+      .filter((row) => Number.isInteger(row.roleId) && row.roleId > 0);
     return {
       departmentRoleId: departmentId,
       departmentId,
@@ -1484,10 +1561,7 @@ export class LookupsService {
     }
 
     if (table === 'department-roles') {
-      const departmentId = this.toPositiveInt(
-        dto.departmentId,
-        'departmentId',
-      );
+      const departmentId = this.toPositiveInt(dto.departmentId, 'departmentId');
       const roleIds = this.normalizeRoleIds(dto);
       const [department, roles] = await Promise.all([
         this.departmentRepo.findOne({ where: { departmentId } }),
@@ -1929,9 +2003,7 @@ export class LookupsService {
           departmentId: id,
         });
         if (!res.affected)
-          throw new NotFoundException(
-            `DepartmentRole ${id} was not found.`,
-          );
+          throw new NotFoundException(`DepartmentRole ${id} was not found.`);
         return;
       }
       if (table === 'dmas') {

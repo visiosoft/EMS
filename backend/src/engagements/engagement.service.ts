@@ -27,6 +27,7 @@ import { Engagement } from '../entities/engagement.entity';
 import { EngagementIAEContact } from '../entities/engagement-iae-contact.entity';
 import { EngagementFinances } from '../entities/engagement-finance.entity';
 import { EngagementProduction } from '../entities/engagement-production.entity';
+import { EngagementRehearsal } from '../entities/engagement-rehearsal.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { EngagementXref } from '../entities/engagement-xref.entity';
 import { VenueServiceProvider } from '../entities/venue-service-provider.entity';
@@ -60,6 +61,7 @@ import { EngagementTravel } from '../entities/engagement-travel.entity';
 import { EngagementTravelCarService } from '../entities/engagement-travel-car-service.entity';
 import { EngagementTravelHotel } from '../entities/engagement-travel-hotel.entity';
 import { EngagementPartner } from '../entities/engagement-partner.entity';
+import { EngagementBuyout } from '../entities/engagement-buyout.entity';
 import { EngagementProductionEquipmentRental } from '../entities/engagement-production-equipment-rental.entity';
 import { EquipmentRentalType } from '../entities/equipment-rental-type.entity';
 import { PerformanceContract } from '../entities/performance-contract.entity';
@@ -378,6 +380,7 @@ export interface EngagementFinanceRow {
   subscriptionSalesRevenueTotal: number | null;
   seasonTicketSalesByIae: number | null;
   seasonTicketFundsTransferred: number | null;
+  totalRevenue: number | null;
   netBoxOfficeFundsDepositedAccount: string | null;
   hstCollectedFromTicketSales: number | null;
   hstPaidOnTourPayments: number | null;
@@ -462,6 +465,8 @@ export interface EngagementFinanceRow {
   finalRoyaltyAmount: number | null;
   finalOverageAmount: number | null;
   finalBuyoutAmount: number | null;
+  finalOtherAmount: number | null;
+  finalConcessionsAmount: number | null;
   finalDirectCompanyCharges: number | null;
   finalReimbursables: number | null;
 }
@@ -615,6 +620,7 @@ export interface EngagementListFilters {
   status?: string;
   attractionName?: string;
   dmaMarketName?: string;
+  city?: string;
   venueLabel?: string;
   timing?: 'all' | 'upcoming' | 'past';
   /** Only engagements where the signed-in user is an IAE contact (dbo.EngagementIAEContact). */
@@ -716,6 +722,8 @@ export class EngagementService {
     private readonly engagementVenueRepo: Repository<EngagementVenue>,
     @InjectRepository(EngagementProduction)
     private readonly engagementProductionRepo: Repository<EngagementProduction>,
+    @InjectRepository(EngagementRehearsal)
+    private readonly engagementRehearsalRepo: Repository<EngagementRehearsal>,
     @InjectRepository(Tour)
     private readonly tourRepo: Repository<Tour>,
     @InjectRepository(Venue)
@@ -756,6 +764,8 @@ export class EngagementService {
     private readonly engagementTravelCarServiceRepo: Repository<EngagementTravelCarService>,
     @InjectRepository(EngagementTravelHotel)
     private readonly engagementTravelHotelRepo: Repository<EngagementTravelHotel>,
+    @InjectRepository(EngagementBuyout)
+    private readonly engagementBuyoutRepo: Repository<EngagementBuyout>,
     @InjectRepository(EngagementLink)
     private readonly engagementLinkRepo: Repository<EngagementLink>,
     @InjectRepository(EngagementProductionEquipmentRental)
@@ -2662,12 +2672,15 @@ export class EngagementService {
     engagementId: number,
     base: EngagementListRow,
   ): Promise<EngagementListRow> {
-    if (!(await this.engagementProductionHasTimeColumns())) return base;
-    try {
-      const eid = Math.floor(Number(engagementId));
-      if (!Number.isFinite(eid) || eid < 1) return base;
-      const r = await this.dataSource.query(
-        `
+    const eid = Math.floor(Number(engagementId));
+    if (!Number.isFinite(eid) || eid < 1) return base;
+
+    let result = base;
+
+    if (await this.engagementProductionHasTimeColumns()) {
+      try {
+        const r = (await this.dataSource.query(
+          `
         SELECT TOP 1
           CONVERT(varchar(8), ep.RehearsalTime, 108) AS rehearsalTime,
           CONVERT(varchar(8), ep.LoadInTime, 108) AS loadInTime
@@ -2675,17 +2688,39 @@ export class EngagementService {
         WHERE ep.EngagementID = ${eid}
         ORDER BY ep.ProductionID DESC
       `,
-      );
-      const row0 = (r as Record<string, unknown>[])?.[0];
-      if (!row0) return base;
-      return {
-        ...base,
-        rehearsalTime: this.parseOpeningTimeOnly(pickRaw(row0, 'rehearsalTime')),
-        loadInTime: this.parseOpeningTimeOnly(pickRaw(row0, 'loadInTime')),
-      };
-    } catch {
-      return base;
+        )) as Record<string, unknown>[];
+        const row0 = r?.[0];
+        if (row0) {
+          result = {
+            ...result,
+            rehearsalTime: this.parseOpeningTimeOnly(pickRaw(row0, 'rehearsalTime')),
+            loadInTime: this.parseOpeningTimeOnly(pickRaw(row0, 'loadInTime')),
+          };
+        }
+      } catch {
+        /* optional columns — keep base values */
+      }
     }
+
+    // The earliest row in dbo.EngagementRehearsal wins over the legacy production row.
+    try {
+      const rr = (await this.dataSource.query(
+        `SELECT TOP 1 CONVERT(varchar(8), er.RehearsalTime, 108) AS rehearsalTime
+         FROM dbo.EngagementRehearsal er
+         WHERE er.EngagementID = ${eid}
+         ORDER BY er.RehearsalDate ASC, er.RehearsalID ASC`,
+      )) as Record<string, unknown>[];
+      if (rr?.[0]) {
+        result = {
+          ...result,
+          rehearsalTime: this.parseOpeningTimeOnly(pickRaw(rr[0], 'rehearsalTime')),
+        };
+      }
+    } catch {
+      /* table may not exist yet — keep production-row value */
+    }
+
+    return result;
   }
 
   private async tryPersistEngagementProductionTimes(
@@ -2883,6 +2918,18 @@ export class EngagementService {
       );
     }
 
+    const toDateOnly = (value: unknown): string | null => {
+      if (value == null || value === '') return null;
+      if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        const year = value.getFullYear();
+        const month = String(value.getMonth() + 1).padStart(2, '0');
+        const day = String(value.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+      const match = String(value).match(/^\d{4}-\d{2}-\d{2}/);
+      return match?.[0] ?? null;
+    };
+
     return rows
       .map((row) => {
         const withholdingId = Number(row.withholdingId ?? 0);
@@ -2906,7 +2953,7 @@ export class EngagementService {
           canApplyForWaiver: row.canApplyForWaiver == null ? null : Boolean(row.canApplyForWaiver),
           iaeWaiverInstructionsText: row.iaeWaiverInstructionsText == null ? null : String(row.iaeWaiverInstructionsText),
           completedWaiverUrl: row.completedWaiverUrl == null ? null : String(row.completedWaiverUrl),
-          iaeWaiverSubmissionDate: row.iaeWaiverSubmissionDate == null ? null : String(row.iaeWaiverSubmissionDate),
+          iaeWaiverSubmissionDate: toDateOnly(row.iaeWaiverSubmissionDate),
           iaeWaiverAppNumber: row.iaeWaiverAppNumber == null ? null : String(row.iaeWaiverAppNumber),
           iaeWaiverUrl: row.iaeWaiverUrl == null ? null : String(row.iaeWaiverUrl),
           tourWaiverUrl: row.tourWaiverUrl == null ? null : String(row.tourWaiverUrl),
@@ -2925,8 +2972,11 @@ export class EngagementService {
       withholdingArea?: string | null;
       withholdingTaxRate?: number | null;
       withholdingAgencyName?: string | null;
+      completedWaiverUrl?: string | null;
       iaeWaiverSubmissionDate?: string | null;
       iaeWaiverAppNumber?: string | null;
+      tourWaiverUrl?: string | null;
+      exceptionsNotes?: string | null;
     },
   ): Promise<void> {
     const id = Math.floor(Number(withholdingId));
@@ -2941,8 +2991,11 @@ export class EngagementService {
     strField('WithholdingArea', dto.withholdingArea, 100);
     numField('WithholdingTaxRate', dto.withholdingTaxRate);
     strField('WithholdingAgencyName', dto.withholdingAgencyName, 200);
+    strField('CompletedWaiverURL', dto.completedWaiverUrl, 2048);
     strField('IAEWaiverSubmissionDate', dto.iaeWaiverSubmissionDate, 10);
     strField('IAEWaiverAppNumber', dto.iaeWaiverAppNumber, 100);
+    strField('TourWaiverURL', dto.tourWaiverUrl, 2048);
+    strField('ExceptionsNotes', dto.exceptionsNotes, 4000);
     if (sets.length === 0) return;
     await this.dataSource.query(
       `UPDATE dbo.NonResidentWithholding SET ${sets.join(', ')} WHERE [WithholdingID] = ${id}`,
@@ -3330,6 +3383,7 @@ export class EngagementService {
     | 'subscriptionSalesRevenueTotal'
     | 'seasonTicketSalesByIae'
     | 'seasonTicketFundsTransferred'
+    | 'totalRevenue'
     | 'netBoxOfficeFundsDepositedAccount'
     | 'hstCollectedFromTicketSales'
     | 'hstPaidOnTourPayments'
@@ -3342,6 +3396,8 @@ export class EngagementService {
     | 'finalRoyaltyAmount'
     | 'finalOverageAmount'
     | 'finalBuyoutAmount'
+    | 'finalOtherAmount'
+    | 'finalConcessionsAmount'
     | 'finalDirectCompanyCharges'
     | 'finalReimbursables'
   > {
@@ -3352,6 +3408,7 @@ export class EngagementService {
         subscriptionSalesRevenueTotal: null,
         seasonTicketSalesByIae: null,
         seasonTicketFundsTransferred: null,
+        totalRevenue: null,
         netBoxOfficeFundsDepositedAccount: null,
         hstCollectedFromTicketSales: null,
         hstPaidOnTourPayments: null,
@@ -3364,6 +3421,8 @@ export class EngagementService {
         finalRoyaltyAmount: null,
         finalOverageAmount: null,
         finalBuyoutAmount: null,
+        finalOtherAmount: null,
+        finalConcessionsAmount: null,
         finalDirectCompanyCharges: null,
         finalReimbursables: null,
       };
@@ -3380,6 +3439,7 @@ export class EngagementService {
       seasonTicketFundsTransferred: this.mapFinanceNumber(
         settlementRow.seasonTicketFundsTransferred,
       ),
+      totalRevenue: this.mapFinanceNumber(settlementRow.totalRevenue),
       netBoxOfficeFundsDepositedAccount:
         settlementRow.netBoxOfficeFundsDepositedAccount ?? null,
       hstCollectedFromTicketSales: this.mapFinanceNumber(
@@ -3406,6 +3466,8 @@ export class EngagementService {
       finalRoyaltyAmount: this.mapFinanceNumber(settlementRow.finalRoyaltyAmount),
       finalOverageAmount: this.mapFinanceNumber(settlementRow.finalOverageAmount),
       finalBuyoutAmount: this.mapFinanceNumber(settlementRow.finalBuyoutAmount),
+      finalOtherAmount: this.mapFinanceNumber(settlementRow.finalOtherAmount),
+      finalConcessionsAmount: this.mapFinanceNumber(settlementRow.finalConcessionsAmount),
       finalDirectCompanyCharges: this.mapFinanceNumber(settlementRow.directCompanyCharges),
       finalReimbursables: this.mapFinanceNumber(settlementRow.reimbursables),
     };
@@ -3909,13 +3971,23 @@ export class EngagementService {
         )`;
   }
 
-  /** Latest production row's rehearsal date as `yyyy-MM-dd`. */
+  /** Earliest rehearsal date as `yyyy-MM-dd` (falls back to the legacy production row). */
   private engagementRehearsalDateSubquery(): string {
     return `(
-          SELECT TOP 1 CONVERT(varchar(10), ep.RehearsalDate, 23)
-          FROM dbo.EngagementProduction ep
-          WHERE ep.EngagementID = e.EngagementID
-          ORDER BY ep.ProductionID DESC
+          COALESCE(
+            (
+              SELECT TOP 1 CONVERT(varchar(10), er.RehearsalDate, 23)
+              FROM dbo.EngagementRehearsal er
+              WHERE er.EngagementID = e.EngagementID
+              ORDER BY er.RehearsalDate ASC, er.RehearsalID ASC
+            ),
+            (
+              SELECT TOP 1 CONVERT(varchar(10), ep.RehearsalDate, 23)
+              FROM dbo.EngagementProduction ep
+              WHERE ep.EngagementID = e.EngagementID
+              ORDER BY ep.ProductionID DESC
+            )
+          )
         )`;
   }
 
@@ -3991,6 +4063,13 @@ export class EngagementService {
       );
     }
 
+    const city = (f.city ?? '').trim();
+    if (city) {
+      qb.andWhere("LOWER(LTRIM(RTRIM(ISNULL(addr.city, '')))) = LOWER(:city)", {
+        city,
+      });
+    }
+
     const vl = (f.venueLabel ?? '').trim();
     if (vl) {
       qb.andWhere(
@@ -4049,6 +4128,8 @@ export class EngagementService {
         'e.engagementId',
         'DESC',
       );
+    } else if (sortBy === 'city') {
+      qb.orderBy('addr.city', sortDir).addOrderBy('e.engagementId', 'DESC');
     } else if (sortBy === 'date') {
       // Must use SELECT list aliases, not raw subqueries in ORDER BY: with skip/take and
       // joins, TypeORM builds a DISTINCT pagination wrapper and only preserves order keys
@@ -4278,6 +4359,7 @@ export class EngagementService {
   async filterOptions(): Promise<{
     attractionNames: string[];
     dmaMarketNames: string[];
+    cityNames: string[];
     venueLabels: string[];
   }> {
     const attractionNames = (
@@ -4311,6 +4393,25 @@ export class EngagementService {
         .getRawMany<{ name: string }>()
     ).map((r) => String(r.name ?? ''));
 
+    const cityNames = (
+      await this.engagementRepo
+        .createQueryBuilder('e')
+        .innerJoin(Tour, 't', 't.tourId = e.tourId')
+        .leftJoin(
+          EngagementVenue,
+          'ev',
+          'ev.engagementId = e.engagementId AND ev.isPrimary = :prim',
+          { prim: true },
+        )
+        .leftJoin(Company, 'vc', 'vc.companyId = ev.venueCompanyId')
+        .leftJoin(Address, 'addr', 'addr.addressId = vc.physicalAddressId')
+        .select('addr.city', 'name')
+        .where('addr.city IS NOT NULL')
+        .distinct(true)
+        .orderBy('addr.city', 'ASC')
+        .getRawMany<{ name: string }>()
+    ).map((r) => String(r.name ?? ''));
+
     const venueRows = await this.engagementRepo
       .createQueryBuilder('e')
       .innerJoin(Tour, 't', 't.tourId = e.tourId')
@@ -4332,7 +4433,7 @@ export class EngagementService {
     }
     const venueLabels = [...venueSet].sort((a, b) => a.localeCompare(b));
 
-    return { attractionNames, dmaMarketNames, venueLabels };
+    return { attractionNames, dmaMarketNames, cityNames, venueLabels };
   }
 
   async getOne(id: number): Promise<EngagementListRow> {
@@ -5068,6 +5169,7 @@ export class EngagementService {
       dto.subscriptionSalesRevenueTotal !== undefined ||
       dto.seasonTicketSalesByIae !== undefined ||
       dto.seasonTicketFundsTransferred !== undefined ||
+      dto.totalRevenue !== undefined ||
       dto.netBoxOfficeFundsDepositedAccount !== undefined ||
       dto.hstCollectedFromTicketSales !== undefined ||
       dto.hstPaidOnTourPayments !== undefined ||
@@ -5080,6 +5182,8 @@ export class EngagementService {
       dto.finalRoyaltyAmount !== undefined ||
       dto.finalOverageAmount !== undefined ||
       dto.finalBuyoutAmount !== undefined ||
+      dto.finalOtherAmount !== undefined ||
+      dto.finalConcessionsAmount !== undefined ||
       dto.finalDirectCompanyCharges !== undefined ||
       dto.finalReimbursables !== undefined;
 
@@ -5119,6 +5223,12 @@ export class EngagementService {
               : dto.seasonTicketFundsTransferred == null
                 ? null
                 : dto.seasonTicketFundsTransferred,
+          totalRevenue:
+            dto.totalRevenue === undefined
+              ? null
+              : dto.totalRevenue == null
+                ? null
+                : dto.totalRevenue,
           netBoxOfficeFundsDepositedAccount:
             dto.netBoxOfficeFundsDepositedAccount === undefined
               ? null
@@ -5182,6 +5292,10 @@ export class EngagementService {
             dto.finalOverageAmount === undefined ? null : dto.finalOverageAmount ?? null,
           finalBuyoutAmount:
             dto.finalBuyoutAmount === undefined ? null : dto.finalBuyoutAmount ?? null,
+          finalOtherAmount:
+            dto.finalOtherAmount === undefined ? null : dto.finalOtherAmount ?? null,
+          finalConcessionsAmount:
+            dto.finalConcessionsAmount === undefined ? null : dto.finalConcessionsAmount ?? null,
           directCompanyCharges:
             dto.finalDirectCompanyCharges === undefined ? null : dto.finalDirectCompanyCharges ?? null,
           reimbursables:
@@ -5230,6 +5344,9 @@ export class EngagementService {
             dto.seasonTicketFundsTransferred == null
               ? null
               : dto.seasonTicketFundsTransferred;
+        }
+        if (dto.totalRevenue !== undefined) {
+          sf.totalRevenue = dto.totalRevenue == null ? null : dto.totalRevenue;
         }
         if (dto.netBoxOfficeFundsDepositedAccount !== undefined) {
           const t = dto.netBoxOfficeFundsDepositedAccount;
@@ -5292,6 +5409,12 @@ export class EngagementService {
         }
         if (dto.finalBuyoutAmount !== undefined) {
           sf.finalBuyoutAmount = dto.finalBuyoutAmount ?? null;
+        }
+        if (dto.finalOtherAmount !== undefined) {
+          sf.finalOtherAmount = dto.finalOtherAmount ?? null;
+        }
+        if (dto.finalConcessionsAmount !== undefined) {
+          sf.finalConcessionsAmount = dto.finalConcessionsAmount ?? null;
         }
         if (dto.finalDirectCompanyCharges !== undefined) {
           sf.directCompanyCharges = dto.finalDirectCompanyCharges ?? null;
@@ -7944,6 +8067,7 @@ export class EngagementService {
     dto: UpdatePerformanceTicketingDto,
   ): Promise<void> {
     await this.assertPerformanceForEngagement(engagementId, performanceId);
+    await this.assertSellableCapacityWithinVenueCapacity(engagementId, dto);
 
     if (
       dto.ticketingLinkUrl === undefined &&
@@ -8082,6 +8206,37 @@ export class EngagementService {
     }
   }
 
+  private async assertSellableCapacityWithinVenueCapacity(
+    engagementId: number,
+    dto: UpdatePerformanceTicketingDto,
+  ): Promise<void> {
+    if (dto.sellableCapacity === undefined || dto.sellableCapacity == null) return;
+    const requested = Math.trunc(Number(dto.sellableCapacity));
+    if (!Number.isFinite(requested)) return;
+
+    let capacity: number | null = null;
+    try {
+      const rows = (await this.dataSource.query(
+        `SELECT TOP 1 v.[SeatingCapacity] AS cap
+         FROM dbo.EngagementVenue ev
+         INNER JOIN dbo.Venue v ON v.[CompanyID] = ev.[VenueCompanyID]
+         WHERE ev.[EngagementID] = ${Math.trunc(engagementId)}
+         ORDER BY ev.[IsPrimary] DESC`,
+      )) as { cap: number | null }[];
+      const raw = rows[0]?.cap;
+      capacity = raw == null ? null : Number(raw);
+    } catch {
+      return; // venue capacity unavailable — don't block the save
+    }
+
+    if (capacity == null || !Number.isFinite(capacity) || capacity <= 0) return;
+    if (requested > capacity) {
+      throw new BadRequestException({
+        message: `Sellable Capacity (${requested.toLocaleString()}) cannot exceed the Venue Capacity of ${capacity.toLocaleString()}.`,
+      });
+    }
+  }
+
   private async tryPersistSalesTaxToVenue(
     engagementId: number,
     dto: UpdatePerformanceTicketingDto,
@@ -8108,6 +8263,137 @@ export class EngagementService {
          )`,
       );
     } catch { /* column may not exist */ }
+  }
+
+  // ─── Rehearsals (dbo.EngagementRehearsal) ────────────────────────────────
+
+  private toRehearsalDto(row: EngagementRehearsal): {
+    rehearsalId: number;
+    rehearsalDate: string;
+    rehearsalTime: string | null;
+  } {
+    const rawDate = row.rehearsalDate as unknown;
+    const date =
+      rawDate instanceof Date
+        ? rawDate.toISOString().slice(0, 10)
+        : String(rawDate ?? '').slice(0, 10);
+    return {
+      rehearsalId: row.rehearsalId,
+      rehearsalDate: date,
+      rehearsalTime: row.rehearsalTime == null ? null : this.timeToString(row.rehearsalTime).slice(0, 8),
+    };
+  }
+
+  private normalizeRehearsalDate(date: string): string {
+    const d = String(date ?? '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+      throw new BadRequestException({
+        message: 'Invalid rehearsal date. Expected format: YYYY-MM-DD.',
+      });
+    }
+    return d;
+  }
+
+  private normalizeRehearsalTime(time: string | null | undefined): string | null {
+    if (time == null || String(time).trim() === '') return null;
+    return this.normalizeTime(String(time));
+  }
+
+  async listRehearsals(engagementId: number) {
+    await this.assertEngagementExists(engagementId);
+    const rows = await this.engagementRehearsalRepo.find({
+      where: { engagementId },
+      order: { rehearsalDate: 'ASC', rehearsalId: 'ASC' },
+    });
+    return rows.map((r) => this.toRehearsalDto(r));
+  }
+
+  private async assertRehearsalSlotAvailable(
+    engagementId: number,
+    rehearsalDate: string,
+    rehearsalTime: string | null,
+    excludeRehearsalId?: number,
+  ): Promise<void> {
+    const qb = this.engagementRehearsalRepo
+      .createQueryBuilder('r')
+      .where('r.engagementId = :engagementId', { engagementId })
+      .andWhere('r.rehearsalDate = :rehearsalDate', { rehearsalDate });
+
+    if (rehearsalTime == null) {
+      qb.andWhere('r.rehearsalTime IS NULL');
+    } else {
+      qb.andWhere('r.rehearsalTime = :rehearsalTime', { rehearsalTime });
+    }
+
+    if (excludeRehearsalId != null) {
+      qb.andWhere('r.rehearsalId <> :excludeRehearsalId', { excludeRehearsalId });
+    }
+
+    if (await qb.getOne()) {
+      throw new ConflictException({
+        message:
+          'A rehearsal already exists for this engagement at the exact same date and time.',
+      });
+    }
+  }
+
+  async createRehearsal(
+    engagementId: number,
+    dto: { rehearsalDate: string; rehearsalTime?: string | null },
+  ): Promise<{ rehearsalId: number }> {
+    await this.assertEngagementExists(engagementId);
+    const date = this.normalizeRehearsalDate(dto.rehearsalDate);
+    const time = this.normalizeRehearsalTime(dto.rehearsalTime);
+    await this.assertRehearsalSlotAvailable(engagementId, date, time);
+    const saved = await this.engagementRehearsalRepo.save(
+      this.engagementRehearsalRepo.create({
+        engagementId,
+        rehearsalDate: date,
+        rehearsalTime: time,
+      }),
+    );
+    return { rehearsalId: saved.rehearsalId };
+  }
+
+  private async assertRehearsalForEngagement(
+    engagementId: number,
+    rehearsalId: number,
+  ): Promise<EngagementRehearsal> {
+    const row = await this.engagementRehearsalRepo.findOne({
+      where: { rehearsalId, engagementId },
+    });
+    if (!row) {
+      throw new BadRequestException({
+        message: `Rehearsal #${rehearsalId} was not found on this engagement.`,
+      });
+    }
+    return row;
+  }
+
+  async updateRehearsal(
+    engagementId: number,
+    rehearsalId: number,
+    dto: { rehearsalDate?: string; rehearsalTime?: string | null },
+  ): Promise<void> {
+    const row = await this.assertRehearsalForEngagement(engagementId, rehearsalId);
+    if (dto.rehearsalDate !== undefined) {
+      row.rehearsalDate = this.normalizeRehearsalDate(dto.rehearsalDate);
+    }
+    if (dto.rehearsalTime !== undefined) {
+      row.rehearsalTime = this.normalizeRehearsalTime(dto.rehearsalTime);
+    }
+    await this.assertRehearsalSlotAvailable(
+      engagementId,
+      row.rehearsalDate,
+      row.rehearsalTime,
+      rehearsalId,
+    );
+    await this.engagementRehearsalRepo.save(row);
+  }
+
+  async deleteRehearsal(engagementId: number, rehearsalId: number): Promise<void> {
+    await this.assertRehearsalForEngagement(engagementId, rehearsalId);
+    await this.engagementRehearsalRepo.delete({ rehearsalId, engagementId });
   }
 
   async createPerformance(
@@ -8745,6 +9031,7 @@ export class EngagementService {
           carServices: [],
           iaePays: t.iaePays ?? null,
           iaeArranges: t.iaeArranges ?? null,
+          budgetAmount: t.budgetAmount != null ? Number(t.budgetAmount) : null,
         } as EngagementTravelRow & { iaePays: boolean | null; iaeArranges: boolean | null });
       }
     }
@@ -8962,7 +9249,7 @@ export class EngagementService {
    */
   async upsertTravelDrillBits(
     engagementId: number,
-    travelTypes: { travelType: string; iaePays: boolean | null; iaeArranges: boolean | null }[],
+    travelTypes: { travelType: string; iaePays: boolean | null; iaeArranges: boolean | null; budgetAmount: number | null }[],
   ): Promise<void> {
     await this.assertEngagementExists(engagementId);
     const drillBitsTypes = ['Ground Transportation', 'Airfare', 'Hotels'];
@@ -9009,20 +9296,86 @@ export class EngagementService {
     for (const item of travelTypes) {
       if (!drillBitsTypes.includes(item.travelType)) continue;
       const existingRow = drillBitsExisting.find((r) => r.travelType === item.travelType);
+      const iaePays = item.iaePays ?? false;
+      const iaeArranges = item.iaeArranges ?? false;
       if (existingRow) {
         await this.engagementTravelRepo.update(
           { engagementTravelId: existingRow.engagementTravelId },
-          { iaePays: item.iaePays, iaeArranges: item.iaeArranges },
+          { iaePays, iaeArranges, budgetAmount: item.budgetAmount },
         );
       } else {
         const newRow = this.engagementTravelRepo.create({
           engagementId,
           travelType: item.travelType,
           bookedBy: null,
-          iaePays: item.iaePays,
-          iaeArranges: item.iaeArranges,
+          iaePays,
+          iaeArranges,
+          budgetAmount: item.budgetAmount,
         });
         await this.engagementTravelRepo.save(newRow);
+      }
+    }
+  }
+
+  // ─── Engagement Buyouts (dbo.EngagementBuyout) ───────────────────────────
+
+  async getEngagementBuyouts(engagementId: number): Promise<{
+    engagementBuyoutId: number;
+    buyoutDescription: string;
+    buyoutBudgetAmount: number | null;
+  }[]> {
+    await this.assertEngagementExists(engagementId);
+    const production = await this.dataSource.getRepository(EngagementProduction).findOne({ where: { engagementId } });
+    if (!production) return [];
+    const buyouts = await this.engagementBuyoutRepo.find({
+      where: { productionId: production.productionId },
+      order: { engagementBuyoutId: 'ASC' },
+    });
+    return buyouts.map((buyout) => ({
+      engagementBuyoutId: buyout.engagementBuyoutId,
+      buyoutDescription: buyout.buyoutDescription,
+      buyoutBudgetAmount: buyout.buyoutBudgetAmount != null ? Number(buyout.buyoutBudgetAmount) : null,
+    }));
+  }
+
+  async upsertEngagementBuyouts(engagementId: number, items: {
+    engagementBuyoutId?: number;
+    buyoutDescription: string;
+    buyoutBudgetAmount: number | null;
+  }[]): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+    const productionRepo = this.dataSource.getRepository(EngagementProduction);
+    let production = await productionRepo.findOne({ where: { engagementId } });
+    if (!production) {
+      production = await productionRepo.save(productionRepo.create({ engagementId }));
+    }
+    const existing = await this.engagementBuyoutRepo.find({ where: { productionId: production.productionId } });
+    const selectedIds = new Set<number>();
+
+    for (const item of items) {
+      const description = item.buyoutDescription?.trim();
+      if (!description) throw new BadRequestException('Buyout descriptions are required.');
+      if (description.length > 500) throw new BadRequestException('Buyout descriptions cannot exceed 500 characters.');
+      if (item.engagementBuyoutId != null) {
+        const row = existing.find((buyout) => buyout.engagementBuyoutId === item.engagementBuyoutId);
+        if (!row) throw new BadRequestException('Invalid buyout entry.');
+        selectedIds.add(row.engagementBuyoutId);
+        await this.engagementBuyoutRepo.update(
+          { engagementBuyoutId: row.engagementBuyoutId },
+          { buyoutDescription: description, buyoutBudgetAmount: item.buyoutBudgetAmount },
+        );
+      } else {
+        await this.engagementBuyoutRepo.save(this.engagementBuyoutRepo.create({
+          productionId: production.productionId,
+          buyoutDescription: description,
+          buyoutBudgetAmount: item.buyoutBudgetAmount,
+        }));
+      }
+    }
+
+    for (const buyout of existing) {
+      if (!selectedIds.has(buyout.engagementBuyoutId)) {
+        await this.engagementBuyoutRepo.delete({ engagementBuyoutId: buyout.engagementBuyoutId });
       }
     }
   }
@@ -9037,7 +9390,13 @@ export class EngagementService {
     return types.map((t) => ({ equipmentRentalTypeId: t.equipmentRentalTypeId, typeName: t.typeName }));
   }
 
-  async getEquipmentRentals(engagementId: number): Promise<{ equipmentRentalTypeId: number; budgetAmount: number | null }[]> {
+  async getEquipmentRentals(engagementId: number): Promise<{
+    engagementProductionEquipmentRentalId: number;
+    equipmentRentalTypeId: number;
+    budgetAmount: number | null;
+    notes: string | null;
+    otherDescription: string | null;
+  }[]> {
     await this.assertEngagementExists(engagementId);
     // Find the production for this engagement
     const production = await this.dataSource.getRepository(EngagementProduction).findOne({
@@ -9048,12 +9407,21 @@ export class EngagementService {
       where: { productionId: production.productionId },
     });
     return rentals.map((r) => ({
+      engagementProductionEquipmentRentalId: r.engagementProductionEquipmentRentalId,
       equipmentRentalTypeId: r.equipmentRentalTypeId,
       budgetAmount: r.budgetAmount != null ? Number(r.budgetAmount) : null,
+      notes: r.notes,
+      otherDescription: r.otherDescription,
     }));
   }
 
-  async upsertEquipmentRentals(engagementId: number, items: { equipmentRentalTypeId: number; budgetAmount: number | null }[]): Promise<void> {
+  async upsertEquipmentRentals(engagementId: number, items: {
+    engagementProductionEquipmentRentalId?: number;
+    equipmentRentalTypeId: number;
+    budgetAmount: number | null;
+    notes?: string | null;
+    otherDescription?: string | null;
+  }[]): Promise<void> {
     await this.assertEngagementExists(engagementId);
 
     // Find or create production record
@@ -9067,29 +9435,58 @@ export class EngagementService {
     }
 
     const productionId = production.productionId;
-    const selectedTypeIds = items.map((i) => i.equipmentRentalTypeId);
-
-    // Get current rentals
     const existing = await this.equipmentRentalRepo.find({ where: { productionId } });
-    const existingTypeIds = existing.map((r) => r.equipmentRentalTypeId);
+    const rentalTypes = await this.equipmentRentalTypeRepo.find({ where: { isActive: true } });
+    const typeNames = new Map(rentalTypes.map((type) => [type.equipmentRentalTypeId, type.typeName]));
+    const selectedExistingIds = new Set<number>();
+    const standardTypeIds = new Set<number>();
 
-    // Remove unselected
-    const toRemove = existing.filter((r) => !selectedTypeIds.includes(r.equipmentRentalTypeId));
+    for (const item of items) {
+      const typeName = typeNames.get(item.equipmentRentalTypeId);
+      if (!typeName) throw new BadRequestException('Invalid equipment rental type.');
+      if (item.engagementProductionEquipmentRentalId != null) {
+        const row = existing.find((r) => r.engagementProductionEquipmentRentalId === item.engagementProductionEquipmentRentalId);
+        if (!row || row.equipmentRentalTypeId !== item.equipmentRentalTypeId) {
+          throw new BadRequestException('Invalid equipment rental entry.');
+        }
+        selectedExistingIds.add(row.engagementProductionEquipmentRentalId);
+      }
+      if (typeName !== 'Other' && standardTypeIds.has(item.equipmentRentalTypeId)) {
+        throw new BadRequestException(`${typeName} can only be added once.`);
+      }
+      standardTypeIds.add(item.equipmentRentalTypeId);
+      if (item.notes != null && item.notes.length > 500) throw new BadRequestException('Equipment notes cannot exceed 500 characters.');
+      if (item.otherDescription != null && item.otherDescription.length > 200) throw new BadRequestException('Other equipment descriptions cannot exceed 200 characters.');
+      if (typeName === 'Other' && !item.otherDescription?.trim()) {
+        throw new BadRequestException('Other equipment entries require a description.');
+      }
+    }
+
+    const toRemove = existing.filter((row) => !selectedExistingIds.has(row.engagementProductionEquipmentRentalId));
     for (const row of toRemove) {
       await this.equipmentRentalRepo.delete({ engagementProductionEquipmentRentalId: row.engagementProductionEquipmentRentalId });
     }
 
-    // Upsert selections
     for (const item of items) {
-      const existingRow = existing.find((r) => r.equipmentRentalTypeId === item.equipmentRentalTypeId);
+      const existingRow = item.engagementProductionEquipmentRentalId == null
+        ? undefined
+        : existing.find((row) => row.engagementProductionEquipmentRentalId === item.engagementProductionEquipmentRentalId);
+      const notes = item.notes?.trim() || null;
+      const otherDescription = item.otherDescription?.trim() || null;
       if (existingRow) {
         await this.equipmentRentalRepo.update(
           { engagementProductionEquipmentRentalId: existingRow.engagementProductionEquipmentRentalId },
-          { budgetAmount: item.budgetAmount },
+          { budgetAmount: item.budgetAmount, notes, otherDescription },
         );
       } else {
         await this.equipmentRentalRepo.save(
-          this.equipmentRentalRepo.create({ productionId, equipmentRentalTypeId: item.equipmentRentalTypeId, budgetAmount: item.budgetAmount }),
+          this.equipmentRentalRepo.create({
+            productionId,
+            equipmentRentalTypeId: item.equipmentRentalTypeId,
+            budgetAmount: item.budgetAmount,
+            notes,
+            otherDescription,
+          }),
         );
       }
     }

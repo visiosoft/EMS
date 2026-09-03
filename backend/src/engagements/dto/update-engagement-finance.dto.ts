@@ -286,6 +286,11 @@ export class UpdateEngagementFinanceDto {
   seasonTicketFundsTransferred?: number | null;
 
   @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  totalRevenue?: number | null;
+
+  @IsOptional()
   @IsString()
   @MaxLength(255)
   netBoxOfficeFundsDepositedAccount?: string | null;
@@ -569,6 +574,18 @@ export class UpdateEngagementFinanceDto {
   @Transform(({ value }) => toOptionalNumber(value))
   @IsNumber({ maxDecimalPlaces: 2 })
   finalBuyoutAmount?: number | null;
+
+  /** dbo.SettlementFinance.FinalOtherAmount */
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  finalOtherAmount?: number | null;
+
+  /** dbo.SettlementFinance.FinalConcessionsAmount */
+  @IsOptional()
+  @Transform(({ value }) => toOptionalNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
+  finalConcessionsAmount?: number | null;
 
   /** dbo.SettlementFinance.DirectCompanyCharges */
   @IsOptional()

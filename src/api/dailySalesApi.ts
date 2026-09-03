@@ -46,6 +46,7 @@ export interface ApiPerformanceSalesRow {
   venueName: string | null;
   city: string | null;
   stateProvince: string | null;
+  dmaMarketName: string | null;
   /** Today's date YYYY-MM-DD */
   todayDate: string;
   todayTicketsSold: number | null;
@@ -178,6 +179,25 @@ export function fetchDailySalesByPerformanceSuggestions(
   if (options?.startDate) p.set('startDate', options.startDate);
   if (options?.endDate) p.set('endDate', options.endDate);
   return apiFetch<SuggestionItem[]>(`/daily-sales/by-performance/suggestions?${p}`);
+}
+
+// ─── Percentage Sold (Daily Sales page only) ─────────────────────────────────
+
+export interface ApiPercentageSoldRow {
+  performanceId: number;
+  totalSold: number;
+  engagementSellableCapacity: number | null;
+  percentSold: number | null;
+}
+
+/** Isolated from the shared by-performance payload so other screens are unaffected. */
+export function fetchDailySalesPercentageSold(asOfDate: string, performanceIds: number[]) {
+  const ids = [...new Set(performanceIds)].filter((n) => Number.isInteger(n) && n > 0);
+  if (ids.length === 0) return Promise.resolve<ApiPercentageSoldRow[]>([]);
+  const p = new URLSearchParams();
+  p.set('asOfDate', asOfDate);
+  p.set('performanceIds', ids.join(','));
+  return apiFetch<ApiPercentageSoldRow[]>(`/daily-sales/percentage-sold?${p}`);
 }
 
 // ─── Update (upsert) — one running-total row per (performance, sales date) ──

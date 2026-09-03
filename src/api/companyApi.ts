@@ -216,7 +216,13 @@ export interface UpdateCompanyPayload {
   mailingSameAsPhysical?: boolean;
 }
 
-export type ApiDmaMarket = { dmaid: number; marketName: string; postalCode: string };
+export type ApiDmaMarket = {
+  dmaid: number;
+  marketName: string;
+  postalCode: string;
+  population?: number | null;
+  nielsenRank?: number | null;
+};
 export type ApiDmaMarketsPage = { data: ApiDmaMarket[]; total: number };
 export interface ApiPaginatedResponse<T> { data: T[]; total: number; }
 
@@ -626,11 +632,28 @@ export function fetchDmaByPostal(postalCode: string) {
     `/lookups/dma-by-postal/${value}`,
   );
 }
-export function fetchDmaMarketsPage(offset = 0, limit = 500, q = '') {
+export function fetchDmaMarketsPage(
+  offset = 0,
+  limit = 500,
+  q = '',
+  opts: { enriched?: boolean } = {},
+) {
   const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
   if (q.trim()) params.set('q', q.trim());
+  if (opts.enriched) params.set('enriched', 'true');
   return apiFetch<ApiDmaMarketsPage>(`/lookups/dma-markets?${params}`);
 }
-export function fetchDmaMarketsPaged(offset = 0, limit = 500, q = '') {
-  return fetchDmaMarketsPage(offset, limit, q);
+export function fetchDmaMarketsPaged(
+  offset = 0,
+  limit = 500,
+  q = '',
+  opts: { enriched?: boolean } = {},
+) {
+  return fetchDmaMarketsPage(offset, limit, q, opts);
+}
+
+/** DMA markets covering a given city (best-effort via dbo.Address ↔ dbo.DMA.PostalCode). */
+export function fetchDmaMarketsByCity(city: string, limit = 50) {
+  const params = new URLSearchParams({ q: city.trim(), limit: String(limit) });
+  return apiFetch<ApiDmaMarket[]>(`/lookups/dma-markets/by-city?${params}`);
 }

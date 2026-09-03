@@ -33,6 +33,7 @@ import { ToastContainer, type ToastItem } from "@/components/ems/Primitives";
 import { fetchWorkstations } from "@/api/employeeEmploymentApi";
 import { fetchEmployeeHealthInsurance, bulkUpdateHealthInsurance, type HealthPlanOption, type BulkUpdateHealthInsuranceRequest, type EmployeeHealthInsurance } from "@/api/employeeHealthInsuranceApi";
 import { formatE164ForDisplay } from "@/lib/contactPhoneField";
+import { toDepartmentTags } from "@/lib/departmentTags";
 import { EntraSyncButton } from "@/components/ems/EntraSyncButton";
 
 function formatDate(value: string | null | undefined): string {
@@ -74,11 +75,22 @@ function formatAddress(address: SelfProfileAddress | null): string {
   return line || "—";
 }
 
-function Field({ label, value }: { label: string; value: string }) {
+function Field({ label, value, tags }: { label: string; value: string; tags?: string[] }) {
   return (
     <div className="flex flex-col gap-1">
       <dt className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">{label}</dt>
-      <dd className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-sm font-medium text-neutral-900 break-words">{value}</dd>
+      <dd className="flex min-h-[34px] flex-wrap items-center gap-1.5 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-sm font-medium text-neutral-900 break-words">
+        {tags && tags.length > 0
+          ? tags.map((tag) => (
+              <span
+                key={tag}
+                className="rounded-full border border-neutral-300 bg-white px-2.5 py-0.5 text-[12px] font-semibold text-neutral-800"
+              >
+                {tag}
+              </span>
+            ))
+          : value}
+      </dd>
     </div>
   );
 }
@@ -241,7 +253,7 @@ function SubGroup({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-type FieldItem = { label: string; value: string; kind?: "text" | "reveal"; admin?: boolean; link?: boolean; public?: boolean };
+type FieldItem = { label: string; value: string; kind?: "text" | "reveal"; admin?: boolean; link?: boolean; public?: boolean; tags?: string[] };
 
 /**
  * A titled card of label/value fields. When `limited` (a non-admin viewing someone
@@ -258,7 +270,7 @@ function FieldGrid({ items }: { items: FieldItem[] }) {
         ) : item.link && item.value !== "—" ? (
           <LinkField key={item.label} label={item.label} value={item.value} />
         ) : (
-          <Field key={item.label} label={item.label} value={item.value} />
+          <Field key={item.label} label={item.label} value={item.value} tags={item.tags} />
         ),
       )}
     </dl>
@@ -843,6 +855,8 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
     },
   ];
 
+  const departmentTags = toDepartmentTags(profile.basics.department, profile.basics.department2);
+
   const employmentFields: FieldItem[] = [
     { label: "Title", value: textOrDash(profile.employment.title), public: true },
     { label: "Access Level", value: textOrDash(profile.employment.accessLevel), admin: true },
@@ -851,7 +865,7 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
     { label: "Workstation", value: textOrDash(profile.employment.workstation) },
     { label: "Work Authorization", value: textOrDash(profile.employment.workAuthorization), admin: true },
     { label: "Work Authorization Photos", value: profile.employment.workAuthorizationLinkUrl || "—", link: true, admin: true },
-    { label: "Department", value: textOrDash(profile.basics.department), public: true },
+    { label: "Department", value: textOrDash(profile.basics.department), public: true, tags: departmentTags },
     { label: "Department Rank", value: textOrDash(profile.employment.departmentRank) },
     { label: "Role", value: textOrDash(profile.basics.role) },
     { label: "Start Date at IAE", value: formatDate(profile.employment.startDate), admin: true },
@@ -930,7 +944,7 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
     'workAuthorizationLink',
     'role',
     'officeAddressStreet1', 'officeAddressStreet2', 'officeAddressCity', 'officeAddressState', 'officeAddressZip', 'officeAddressCountry',
-    'departmentRank', 'startDate', 'supervisor', 'ptoAccrualRate',
+    'departmentRank', 'department2', 'startDate', 'supervisor', 'ptoAccrualRate',
     'employmentAgreement', 'rampAccount', 'rampCreditCard', 'employmentType',
   ];
   const propertyTabFields = [
@@ -1237,7 +1251,11 @@ export function EmployeeProfileView({ profile, editable = false, targetContactId
                   />
                 </div>
                 )}
-                <Field label="Department" value={textOrDash(profile.basics.department)} />
+                <Field
+                  label="Department"
+                  value={textOrDash(profile.basics.department)}
+                  tags={departmentTags}
+                />
                 <Field label="Department Rank" value={textOrDash(profile.employment.departmentRank)} />
                 <Field label="Role" value={textOrDash(profile.basics.role)} />
                 <Field label="Start Date at IAE" value={formatDate(profile.employment.startDate)} />

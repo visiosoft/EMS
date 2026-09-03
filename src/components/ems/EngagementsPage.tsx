@@ -90,6 +90,7 @@ type EngagementMovableColumnId =
   | 'tour'
   | 'venue'
   | 'market'
+  | 'city'
   | 'date';
 
 type EngagementTableColumnId = EngagementMovableColumnId | 'status';
@@ -104,6 +105,7 @@ const DEFAULT_ENGAGEMENT_MOVABLE_COLUMNS: EngagementMovableColumnId[] = [
   'tour',
   'venue',
   'market',
+  'city',
   'date',
 ];
 
@@ -112,6 +114,7 @@ const ENGAGEMENT_COLUMN_LABELS: Record<EngagementTableColumnId, string> = {
   tour: 'Tour',
   venue: 'Venue',
   market: 'Market',
+  city: 'City',
   date: 'Date',
   status: 'Status',
 };
@@ -121,6 +124,7 @@ const SORT_API_BY_MOVABLE: Record<EngagementMovableColumnId, string> = {
   tour: 'tour',
   venue: 'venue',
   market: 'market',
+  city: 'city',
   date: 'date',
 };
 
@@ -315,6 +319,12 @@ function renderEngagementTableCell(
           {r.dmaMarketName ?? '—'}
         </td>
       );
+    case 'city':
+      return (
+        <td key={col} className="py-2.5 px-3 text-xs text-text-secondary max-w-[140px] truncate">
+          {r.city ?? '—'}
+        </td>
+      );
     case 'date':
       return (
         <td
@@ -426,6 +436,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
   const [statusFilter, setStatusFilter] = useState(initFilter || 'All');
   const [attractionFilter, setAttractionFilter] = useState('');
   const [dmaFilter, setDmaFilter] = useState('');
+  const [cityFilter, setCityFilter] = useState('');
   const [venueFilter, setVenueFilter] = useState('');
   const [timingFilter, setTimingFilter] = useState<EngagementTimingFilter>(
     initTimingFilter || DEFAULT_ENGAGEMENT_TIMING_FILTER,
@@ -502,6 +513,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
     status: statusFilter !== 'All' ? statusFilter : undefined,
     attraction: attractionFilter || undefined,
     dma: dmaFilter || undefined,
+    city: cityFilter || undefined,
     venue: venueFilter || undefined,
     timing: timingFilter,
     mine: mineOnly || undefined,
@@ -516,6 +528,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
       status: statusFilter !== 'All' ? statusFilter : undefined,
       attraction: attractionFilter || undefined,
       dma: dmaFilter || undefined,
+      city: cityFilter || undefined,
       venue: venueFilter || undefined,
       timing: timingFilter,
       mine: mineOnly || undefined,
@@ -524,7 +537,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
       dateFrom: initDateFrom,
       dateTo: initDateTo,
     }),
-    [statusFilter, attractionFilter, dmaFilter, venueFilter, timingFilter, mineOnly, sortState.col, sortState.dir],
+    [statusFilter, attractionFilter, dmaFilter, cityFilter, venueFilter, timingFilter, mineOnly, sortState.col, sortState.dir],
   );
 
   const engagementsSuggestionQuery = useQuery({
@@ -645,6 +658,14 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
     ];
   }, [filterOpts?.dmaMarketNames]);
 
+  const cityOptions = useMemo(() => {
+    const names = filterOpts?.cityNames ?? [];
+    return [
+      { value: '', label: 'All Cities' },
+      ...names.map((n) => ({ value: n, label: n })),
+    ];
+  }, [filterOpts?.cityNames]);
+
   const venueOptions = useMemo(() => {
     const names = filterOpts?.venueLabels ?? [];
     return [
@@ -663,6 +684,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
     statusFilter !== 'All' ||
     !!attractionFilter ||
     !!dmaFilter ||
+    !!cityFilter ||
     !!venueFilter ||
     timingFilter !== DEFAULT_ENGAGEMENT_TIMING_FILTER ||
     mineOnly;
@@ -677,6 +699,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
     setStatusFilter('All');
     setAttractionFilter('');
     setDmaFilter('');
+    setCityFilter('');
     setVenueFilter('');
     setTimingFilter(DEFAULT_ENGAGEMENT_TIMING_FILTER);
     setMineOnly(false);
@@ -685,7 +708,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
 
   useEffect(() => {
     setPage(1);
-  }, [searchCommitted, selectedSearchEngagementId, statusFilter, attractionFilter, dmaFilter, venueFilter, timingFilter, mineOnly]);
+  }, [searchCommitted, selectedSearchEngagementId, statusFilter, attractionFilter, dmaFilter, cityFilter, venueFilter, timingFilter, mineOnly]);
 
   useEffect(() => {
     setPage(1);
@@ -947,6 +970,15 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
           </div>
           <div className="w-full sm:w-52">
             <Select2
+              options={cityOptions}
+              value={cityFilter}
+              onChange={setCityFilter}
+              disabled={loading}
+              placeholder="All Cities"
+            />
+          </div>
+          <div className="w-full sm:w-52">
+            <Select2
               options={venueOptions}
               value={venueFilter}
               onChange={setVenueFilter}
@@ -1024,7 +1056,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
             <table className="w-full table-fixed text-sm min-w-[880px]">
               <colgroup>
                 {visualSlots.map((cid) => (
-                  <col key={cid} style={{ width: `${100 / 6}%` }} />
+                  <col key={cid} style={{ width: `${100 / visualSlots.length}%` }} />
                 ))}
               </colgroup>
               <thead>
@@ -1099,7 +1131,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
               <tbody>
                 {rows.length === 0 && !engagementsPagedQuery.isError && (
                   <tr>
-                    <td colSpan={6} className="py-12 px-3 text-center text-sm text-text-muted">
+                    <td colSpan={visualSlots.length} className="py-12 px-3 text-center text-sm text-text-muted">
                       {mineOnly && serverTotal === 0
                         ? 'No engagements are assigned to you as an IAE contact.'
                         : serverTotal === 0 && !hasActiveFilters
@@ -1182,6 +1214,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
                           />
                           <EngagementTileRow label="Venue" value={venueLine} />
                           <EngagementTileRow label="Market" value={r.dmaMarketName ?? '—'} />
+                          <EngagementTileRow label="City" value={r.city ?? '—'} />
                           <EngagementTileRow
                             label="Opening date"
                             value={formatFirstShowLine(r.openingPerformanceDate, r.openingPerformanceTime)}
@@ -1266,7 +1299,6 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, timingFi
           onCreated={async () => {
             await qc.invalidateQueries({ queryKey: ['engagements'] });
             // Clear venue-level engagement caches so the Companies → Venues tab fetches fresh data.
-            // removeQueries is needed because the global QueryClient has refetchOnMount: false.
             qc.removeQueries({
               predicate: (query) => query.queryKey[0] === 'companies' && query.queryKey[2] === 'engagements',
             });

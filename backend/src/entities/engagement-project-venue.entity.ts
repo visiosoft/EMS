@@ -22,4 +22,10 @@ export class EngagementProjectVenue {
 
   @Column({ name: 'ConfirmedOfferLinkID', type: 'int', nullable: true })
   confirmedOfferLinkId: number | null;
+
+  @Column({ name: 'DraftedOfferLinkID', type: 'int', nullable: true })
+  draftedOfferLinkId: number | null;
+
+  @Column({ name: 'InConsiderationOfferLinkID', type: 'int', nullable: true })
+  inConsiderationOfferLinkId: number | null;
 }
